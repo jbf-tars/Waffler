@@ -22,14 +22,6 @@ a = Analysis(
         ('config.yaml', '.'),
     ],
     hiddenimports=[
-        # ── Core dependencies ──
-        'pynput',
-        'pynput.keyboard',
-        'pynput.keyboard._win32',
-        'pynput._util',
-        'pynput._util.win32',
-        'pynput.mouse',
-        'pynput.mouse._win32',
         # ── Audio ──
         'sounddevice',
         'numpy',
@@ -86,19 +78,6 @@ a = Analysis(
         'tempfile',
         'subprocess',
         'webbrowser',
-        # ── Deepgram (optional but include if installed) ──
-        'deepgram',
-        # ── Supabase Auth ──
-        'supabase',
-        'supabase._sync.client',
-        'waffler_auth',
-        'postgrest',
-        'storage3',
-        'realtime',
-        'gotrue',
-        'gotrue._sync.gotrue_client',
-        'pyjwt',
-        'jwt',
     ],
     hookspath=[],
     hooksconfig={},

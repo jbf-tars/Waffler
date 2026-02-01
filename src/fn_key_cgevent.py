@@ -50,18 +50,12 @@ class FnKeyMonitor:
                 flags = CGEventGetFlags(event)
                 is_fn_pressed = bool(flags & fn_flag)
 
-                # DEBUG: Log flag changes to see if callback fires
-                if flags != 0:  # Only log when modifiers are pressed
-                    print(f"[DEBUG] Flags: 0x{flags:X}, Fn={is_fn_pressed}")
-
                 with self._lock:
                     if is_fn_pressed and not self._fn_pressed:
                         self._fn_pressed = True
-                        print("[DEBUG] Fn PRESSED - firing callback")
                         threading.Thread(target=self._on_fn_press, daemon=True).start()
                     elif not is_fn_pressed and self._fn_pressed:
                         self._fn_pressed = False
-                        print("[DEBUG] Fn RELEASED - firing callback")
                         threading.Thread(target=self._on_fn_release, daemon=True).start()
 
             # Check for Space key press
@@ -72,10 +66,10 @@ class FnKeyMonitor:
                     if self._on_space_press:
                         threading.Thread(target=self._on_space_press, daemon=True).start()
 
-                    # CRITICAL: Suppress event if Fn is held to prevent input source selector
+                    # Suppress event if Fn is held to prevent input source selector
                     with self._lock:
                         if self._fn_pressed:
-                            self._suppress_next_space_up = True  # Mark to suppress the KeyUp too
+                            self._suppress_next_space_up = True
                             return None  # Suppress Fn+Space system shortcut
 
             # Check for Space key release (KeyUp)
@@ -88,7 +82,7 @@ class FnKeyMonitor:
                             return None  # Suppress the KeyUp event too
 
         except Exception as e:
-            print(f"⚠️  Event error: {e}")
+            print(f"Event error: {e}")
 
         # Return the event unchanged
         return event
@@ -101,46 +95,34 @@ class FnKeyMonitor:
 
             # Create event tap
             self._tap = CGEventTapCreate(
-                kCGSessionEventTap,  # Session-level tap
-                kCGHeadInsertEventTap,  # Insert at head
-                kCGEventTapOptionDefault,  # Default options
-                event_mask,  # Flags changed + key down events
-                self._event_callback,  # Callback
-                None  # User info
+                kCGSessionEventTap,
+                kCGHeadInsertEventTap,
+                kCGEventTapOptionDefault,
+                event_mask,
+                self._event_callback,
+                None
             )
 
             if self._tap is None:
-                print("⚠️  [DEBUG] Failed to create event tap - need Accessibility permission")
-                print("   Go to: System Settings > Privacy & Security > Accessibility")
-                print("   Add Waffler to the list")
+                print("Failed to create event tap - grant Accessibility permission")
+                print("  System Settings > Privacy & Security > Accessibility")
                 return
-
-            print("[DEBUG] CGEventTap created successfully")
 
             # Create run loop source
             self._runloop_source = CFMachPortCreateRunLoopSource(None, self._tap, 0)
-            print("[DEBUG] Run loop source created")
 
             # Get current run loop and add source
             self._runloop = CFRunLoopGetCurrent()
             CFRunLoopAddSource(self._runloop, self._runloop_source, kCFRunLoopCommonModes)
-            print("[DEBUG] Run loop source added to CFRunLoop")
 
             # Enable the tap
             CGEventTapEnable(self._tap, True)
-            print("[DEBUG] Event tap enabled")
-
-            print("⌨️  Fn + Space monitoring started (CGEventTap)")
-            print("[DEBUG] Press any modifier key (Cmd, Shift, etc.) to test if callback fires...")
-
-            # Run the loop (blocks until stopped)
-            CFRunLoopRun()
 
             # Run the loop (blocks until stopped)
             CFRunLoopRun()
 
         except Exception as e:
-            print(f"⚠️  Event tap error: {e}")
+            print(f"Event tap error: {e}")
 
     def start(self):
         """Start monitoring in background thread"""

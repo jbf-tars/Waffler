@@ -14,10 +14,10 @@ if [ ! -f ".env" ]; then
     echo ""
     echo "⚙️  Creating .env from example..."
     cp .env.example .env
-    echo "✏️  Edit .env and add your OpenAI API key, then run: python3 main.py"
+    echo "Edit .env and add your OpenAI API key, then run: python3 app.py"
 else
     echo ""
-    echo "✅ .env already exists"
+    echo ".env already exists"
     echo ""
-    echo "🚀 Ready! Run: python3 main.py"
+    echo "Ready! Run: python3 app.py"
 fi
