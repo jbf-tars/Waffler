@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Waffler</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <img class="logo-icon" src="logo-icon.png" alt="Waffler">
+      <div class="logo-name">Waffler</div>
+    </div>
+
+    <nav>
+      <div class="nav-item active" id="navHome" onclick="showPage('home')">
+        <span class="nav-icon">🏠</span> Home
+      </div>
+      <div class="nav-item" id="navVocab" onclick="showPage('vocabulary')">
+        <span class="nav-icon">📖</span> Vocabulary
+      </div>
+      <div class="nav-item" id="navSettings" onclick="showPage('settings')">
+        <span class="nav-icon">⚙️</span> Settings
+      </div>
+    </nav>
+
+    <div class="sidebar-bottom">
+      <div class="sidebar-section">
+        <div class="sidebar-label">✨ Mode</div>
+        <select id="modeSelect" class="sidebar-select" onchange="onModeChange(this.value)">
+          <option value="normal">Normal</option>
+        </select>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="sidebar-label">🎙️ Mic</div>
+        <select id="micSelect" class="sidebar-select" onchange="onMicChange(this.value)"></select>
+      </div>
+
+      <div class="hotkey-hint">
+        <div style="line-height: 1.4;">
+          <div style="margin-bottom: 2px;">
+            <span class="hotkey-badge" id="hotkeyHint">Fn</span> to record
+          </div>
+          <div style="font-size: 10px; opacity: 0.7;" id="hotkeyHintDesc">
+            Hold to record • +Space = sticky mode
+          </div>
+        </div>
+      </div>
+
+      <div class="sidebar-user" id="sidebarUser" style="display:none">
+        <div class="sidebar-user-email" id="sidebarUserEmail"></div>
+        <button class="sidebar-logout-btn" onclick="doSignOut()">Sign out</button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main Home Page -->
+  <main class="main" id="mainArea">
+    <div class="header">
+      <div class="header-top">
+        <div class="header-title">
+          <h1>Welcome back 👋</h1>
+          <div class="subtitle" id="dateLabel">Your voice transcriptions, organised.</div>
+        </div>
+        <div class="header-actions">
+          <button class="settings-icon-btn" onclick="showPage('settings')" title="Settings">⚙️</button>
+          <div class="status-indicator idle" id="statusIndicator">
+            <div class="status-dot"></div>
+            <span id="statusText">Ready</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="stats-bar">
+        <div class="stat-card">
+          <div class="stat-label">Today's Words</div>
+          <div class="stat-value" id="statWords">0</div>
+          <div class="stat-sub">spoken today</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Transcriptions</div>
+          <div class="stat-value" id="statCount">0</div>
+          <div class="stat-sub">today</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">All Time</div>
+          <div class="stat-value" id="statTotal">0</div>
+          <div class="stat-sub">total words</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="feed-header">
+      <div class="feed-title">Recent Transcriptions</div>
+      <div class="feed-right">
+        <input type="text" id="searchInput" class="search-input" placeholder="Search…" oninput="onSearchInput(this.value)">
+        <div class="feed-count" id="feedCount">0 entries</div>
+      </div>
+    </div>
+
+    <div class="empty-state" id="emptyState">
+      <div class="empty-icon">🎙️</div>
+      <div class="empty-label">No transcriptions yet</div>
+      <div class="empty-sub" id="emptyHint">Press hotkey and speak</div>
+    </div>
+
+    <div id="transcriptFeed"></div>
+  </main>
+
+  <!-- Settings Panel -->
+  <div class="settings-panel" id="settingsPanel" style="display:none">
+    <div class="settings-header">
+      <div class="settings-header-row">
+        <div>
+          <h1>Settings</h1>
+          <div class="subtitle">Configure Waffler to your preferences.</div>
+        </div>
+        <button class="settings-icon-btn" onclick="showPage('home')" title="Back to Home">🏠</button>
+      </div>
+    </div>
+    
+    <div class="settings-body">
+      <!-- API Section -->
+      <div class="settings-section">
+        <div class="settings-section-title">⚡ API Keys</div>
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-label">Groq API Key</div>
+            <div class="settings-row-desc" id="groqKeyDesc">Free &amp; 10x faster — console.groq.com</div>
+          </div>
+          <div class="settings-row-control stacked">
+            <input type="password" id="groqKeyInput" class="settings-input" placeholder="gsk_…">
+            <button class="settings-btn" onclick="saveGroqKey()">Save</button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-label">OpenAI API Key</div>
+            <div class="settings-row-desc">Optional fallback — platform.openai.com</div>
+          </div>
+          <div class="settings-row-control stacked">
+            <input type="password" id="apiKeyInput" class="settings-input" placeholder="sk-…">
+            <button class="settings-btn" onclick="saveApiKey()">Save</button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-label">Active Backends</div>
+            <div class="settings-row-desc" id="backendInfo">Loading...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Hotkey Section -->
+      <div class="settings-section">
+        <div class="settings-section-title">⌨️ Hotkey</div>
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-label">Recording Hotkey</div>
+            <div class="settings-row-desc">Hold to record, release to stop</div>
+          </div>
+          <div class="settings-row-control" style="gap:10px;">
+            <span class="hotkey-badge" id="settingsHotkeyBadge">Win + Ctrl</span>
+            <button class="settings-btn accent" onclick="openHotkeyCapture()">Change</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Preferences Section -->
+      <div class="settings-section">
+        <div class="settings-section-title">🎙️ Preferences</div>
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-label">Spelling</div>
+            <div class="settings-row-desc">Choose your English spelling style</div>
+          </div>
+          <div class="settings-row-control">
+            <select id="dialectSelect" onchange="saveSetting('dialect', this.value)" class="settings-select">
+              <option value="auto">Auto (match speaker)</option>
+              <option value="en-GB">British English</option>
+              <option value="en-US">American English</option>
+            </select>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-label">Auto-paste</div>
+            <div class="settings-row-desc">Automatically paste transcription into the active app</div>
+          </div>
+          <div class="settings-row-control">
+            <label class="toggle-switch">
+              <input type="checkbox" id="autoPasteToggle" onchange="saveSetting('auto_paste', this.checked)">
+              <span class="toggle-slider"></span>
+            </label>
+            <span class="toggle-label" id="autoPasteLabel">On</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Usage Section -->
+      <div class="settings-section">
+        <div class="settings-section-title">📊 Usage</div>
+        <div class="usage-stats-grid">
+          <div class="usage-stat-card">
+            <div class="usage-stat-label">This Month</div>
+            <div class="usage-stat-value" id="usageMonthCost">$0.00</div>
+          </div>
+          <div class="usage-stat-card">
+            <div class="usage-stat-label">All Time</div>
+            <div class="usage-stat-value" id="usageTotalCost">$0.00</div>
+          </div>
+          <div class="usage-stat-card">
+            <div class="usage-stat-label">Transcriptions</div>
+            <div class="usage-stat-value" id="usageTranscriptions">0</div>
+          </div>
+          <div class="usage-stat-card">
+            <div class="usage-stat-label">Avg Cost</div>
+            <div class="usage-stat-value" id="usageAvgCost">$0.00</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- About -->
+      <div class="settings-section">
+        <div class="settings-section-title">ℹ️ About</div>
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-label">Waffler</div>
+            <div class="settings-row-desc" id="aboutVersion">Loading...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Vocabulary Panel -->
+  <div class="vocabulary-panel" id="vocabularyPanel" style="display:none">
+    <div class="vocab-header">
+      <h1>📖 Vocabulary</h1>
+      <div class="subtitle">Custom words for better transcription.</div>
+    </div>
+    <div class="vocab-add-row">
+      <input type="text" id="vocabInput" class="vocab-input" placeholder="Add word or phrase...">
+      <button class="vocab-add-btn" onclick="addVocabWord()">+ Add</button>
+    </div>
+    <div id="vocabList" class="vocab-list"></div>
+  </div>
+
+</div>
+
+<!-- Hotkey Capture Modal -->
+<div class="hotkey-modal-overlay" id="hotkeyModal" style="display:none" onclick="closeHotkeyCapture()">
+  <div class="hotkey-modal" onclick="event.stopPropagation()">
+    <div class="hotkey-modal-icon">⌨️</div>
+    <div class="hotkey-modal-title">Change Hotkey</div>
+    <div class="hotkey-modal-subtitle">Press your new key combination...</div>
+    <div class="hotkey-capture-box" id="hotkeyCaptureBox">
+      <div class="hotkey-capture-keys" id="hotkeyCaptureKeys">Win + Ctrl</div>
+      <div class="hotkey-capture-hint">Hold your desired keys together</div>
+    </div>
+    <div class="hotkey-modal-error" id="hotkeyError" style="display:none"></div>
+    <div class="hotkey-modal-buttons">
+      <button class="hotkey-btn secondary" onclick="closeHotkeyCapture()">Cancel</button>
+      <button class="hotkey-btn secondary" onclick="resetHotkeyDefault()">Reset Default</button>
+      <button class="hotkey-btn primary" onclick="saveHotkeyCapture()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Auth Overlay (Login / Sign Up) -->
+<div class="wizard-overlay" id="authOverlay" style="display:none">
+  <div class="auth-container">
+    <div class="auth-logo">
+      <img class="logo-icon" src="logo-icon.png" alt="Waffler">
+      <div class="logo-name">Waffler</div>
+    </div>
+
+    <!-- Sign In View -->
+    <div class="auth-view" id="authSignInView">
+      <div class="auth-title">Welcome back</div>
+      <div class="auth-subtitle">Sign in to your account</div>
+
+      <div class="auth-social-row">
+        <button class="auth-social-btn" onclick="oauthSignIn('google')">
+          <svg width="18" height="18" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+          Continue with Google
+        </button>
+      </div>
+
+      <div class="auth-divider"><span>or</span></div>
+
+      <div class="auth-form">
+        <input type="email" id="authEmail" class="auth-input" placeholder="Email address" autocomplete="email">
+        <input type="password" id="authPassword" class="auth-input" placeholder="Password" autocomplete="current-password">
+        <div class="wizard-validation" id="authValidation"></div>
+        <button class="auth-submit-btn" id="authSubmitBtn" onclick="submitAuth()">Sign in</button>
+      </div>
+
+      <div class="auth-toggle">
+        Don't have an account? <a onclick="toggleAuthMode()">Sign up</a>
+      </div>
+    </div>
+
+    <!-- Sign Up View -->
+    <div class="auth-view" id="authSignUpView" style="display:none">
+      <div class="auth-title">Get started with Waffler</div>
+      <div class="auth-subtitle">Voice-to-text that actually works. Free to start.</div>
+
+      <div class="auth-social-row">
+        <button class="auth-social-btn" onclick="oauthSignIn('google')">
+          <svg width="18" height="18" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+          Sign up with Google
+        </button>
+      </div>
+
+      <div class="auth-divider"><span>or</span></div>
+
+      <div class="auth-form">
+        <input type="email" id="authSignUpEmail" class="auth-input" placeholder="Email address" autocomplete="email">
+        <input type="password" id="authSignUpPassword" class="auth-input" placeholder="Create a password (min 6 chars)" autocomplete="new-password">
+        <div class="wizard-validation" id="authSignUpValidation"></div>
+        <button class="auth-submit-btn" id="authSignUpBtn" onclick="submitAuth()">Create account</button>
+      </div>
+
+      <div class="auth-toggle">
+        Already have an account? <a onclick="toggleAuthMode()">Sign in</a>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Setup Wizard Overlay -->
+<div class="wizard-overlay" id="wizardOverlay" style="display:none">
+  <div class="wizard-container">
+
+    <!-- Header -->
+    <div class="wizard-header">
+      <div class="wizard-logo">
+        <img class="logo-icon" src="logo-icon.png" alt="Waffler">
+        <div class="logo-name">Waffler</div>
+      </div>
+      <div class="wizard-title">Welcome to Waffler</div>
+      <div class="wizard-subtitle">Let's get you set up in 4 quick steps.</div>
+    </div>
+
+    <!-- Progress -->
+    <div class="wizard-progress">
+      <div class="wizard-step-indicator active" id="wizStep1">
+        <div class="step-number">1</div>
+        <div class="step-label">Permissions</div>
+      </div>
+      <div class="wizard-step-connector"></div>
+      <div class="wizard-step-indicator" id="wizStep2">
+        <div class="step-number">2</div>
+        <div class="step-label">Hotkeys</div>
+      </div>
+      <div class="wizard-step-connector"></div>
+      <div class="wizard-step-indicator" id="wizStep3">
+        <div class="step-number">3</div>
+        <div class="step-label">API Key</div>
+      </div>
+      <div class="wizard-step-connector"></div>
+      <div class="wizard-step-indicator" id="wizStep4">
+        <div class="step-number">4</div>
+        <div class="step-label">Try It</div>
+      </div>
+    </div>
+
+    <!-- Step 1: Permissions -->
+    <div class="wizard-step-content" id="wizContent1">
+      <div class="wizard-card" style="max-width: 480px; margin: 0 auto;">
+        <div class="wizard-card-icon" style="font-size: 48px; margin-bottom: 16px;">🔐</div>
+        <h2 style="margin-bottom: 8px;">Grant Permissions</h2>
+        <p class="wizard-card-desc" style="margin-bottom: 32px; font-size: 15px; opacity: 0.8;">
+          Waffler needs two permissions for push-to-talk functionality
+        </p>
+
+        <div style="display: flex; flex-direction: column; gap: 16px; margin-bottom: 20px;">
+          <!-- Accessibility Permission -->
+          <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 20px;">
+            <div style="display: flex; align-items: center; gap: 16px; margin-bottom: 12px;">
+              <div style="font-size: 32px; flex-shrink: 0;">🔑</div>
+              <div style="flex: 1;">
+                <div style="font-weight: 600; font-size: 16px; margin-bottom: 4px;">Accessibility</div>
+                <div style="font-size: 13px; opacity: 0.7;">For hotkey detection and auto-paste</div>
+              </div>
+              <div style="font-size: 12px; opacity: 0.5; white-space: nowrap;" id="accessibilityStatus">Not granted</div>
+            </div>
+            <button onclick="openAccessibilitySettings()" style="width: 100%; padding: 10px 20px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; color: #fff; font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.2s;">
+              Open System Settings
+            </button>
+          </div>
+
+          <!-- Input Monitoring Permission -->
+          <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 20px;">
+            <div style="display: flex; align-items: center; gap: 16px; margin-bottom: 12px;">
+              <div style="font-size: 32px; flex-shrink: 0;">⌨️</div>
+              <div style="flex: 1;">
+                <div style="font-weight: 600; font-size: 16px; margin-bottom: 4px;">Input Monitoring</div>
+                <div style="font-size: 13px; opacity: 0.7;">For Fn key push-to-talk</div>
+              </div>
+              <div style="font-size: 12px; opacity: 0.5; white-space: nowrap;" id="inputMonitoringStatus">Not granted</div>
+            </div>
+            <button onclick="openInputMonitoringSettings()" style="width: 100%; padding: 10px 20px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; color: #fff; font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.2s;">
+              Open System Settings
+            </button>
+          </div>
+        </div>
+
+        <p class="wizard-hint" style="margin-top:20px; text-align: center; font-size: 13px; line-height: 1.6;">
+          Click the buttons above to open System Settings and enable Waffler.<br>
+          The checkmarks will update automatically when permissions are granted.
+        </p>
+      </div>
+    </div>
+
+    <!-- Step 2: Hotkeys -->
+    <div class="wizard-step-content" id="wizContent2" style="display:none">
+      <div class="wizard-card">
+        <div class="wizard-card-icon">⌨️</div>
+        <h2>Hotkey Setup</h2>
+        <p class="wizard-card-desc" id="wizHotkeyDesc">Loading hotkey info...</p>
+        <div class="wizard-hotkey-display">
+          <div class="hotkey-badge" id="wizHotkeyBadge" style="font-size:16px;padding:8px 18px;border-radius:8px;">Win + Ctrl</div>
+          <div class="wizard-hotkey-mode" id="wizHotkeyMode"></div>
+        </div>
+        <p class="wizard-hint" style="margin-top:12px">
+          Your hotkey is pre-configured. You can customise it later in Settings.
+        </p>
+      </div>
+    </div>
+
+    <!-- Step 3: API Keys -->
+    <div class="wizard-step-content" id="wizContent3" style="display:none">
+      <div class="wizard-card">
+        <div class="wizard-card-icon">⚡</div>
+        <h2>API Keys</h2>
+        <p class="wizard-card-desc">
+          Waffler needs at least one API key. Groq is <strong>free</strong> and <strong>10x faster</strong>.
+          <br><span class="wizard-link" style="font-size:13px" onclick="pywebview.api.open_url('https://wafflerai.com/api-key-guide')">Need help? Follow our step-by-step guide →</span>
+        </p>
+
+        <!-- Groq (recommended) -->
+        <div class="wizard-key-section">
+          <div class="wizard-key-label">
+            Groq API Key <span class="wizard-badge-rec">Recommended — Free &amp; Fast</span>
+          </div>
+          <div class="wizard-input-group">
+            <input type="password" id="wizGroqKeyInput3" class="wizard-input"
+                   placeholder="gsk_..." autocomplete="off" spellcheck="false">
+            <button class="wizard-reveal-btn" onclick="wizToggleVisibility('wizGroqKeyInput3')" title="Show/hide">👁️</button>
+          </div>
+          <div class="wizard-input-hint">
+            Free key:
+            <span class="wizard-link" onclick="pywebview.api.open_url('https://console.groq.com/keys')">
+              console.groq.com/keys
+            </span>
+          </div>
+          <div class="wizard-validation" id="wizGroqValidation3"></div>
+        </div>
+
+        <!-- OpenAI (optional fallback) -->
+        <div class="wizard-key-section" style="margin-top:16px">
+          <div class="wizard-key-label">
+            OpenAI API Key <span class="wizard-badge-opt">Optional Fallback</span>
+          </div>
+          <div class="wizard-input-group">
+            <input type="password" id="wizApiKeyInput3" class="wizard-input"
+                   placeholder="sk-proj-..." autocomplete="off" spellcheck="false">
+            <button class="wizard-reveal-btn" onclick="wizToggleVisibility('wizApiKeyInput3')" title="Show/hide">👁️</button>
+          </div>
+          <div class="wizard-input-hint">
+            <span class="wizard-link" onclick="pywebview.api.open_url('https://platform.openai.com/api-keys')">
+              platform.openai.com
+            </span>
+          </div>
+          <div class="wizard-validation" id="wizApiValidation3"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 4: Try It Out (Mock App Demo) -->
+    <div class="wizard-step-content wizard-step-wide" id="wizContent4" style="display:none">
+      <div class="wizard-tryit-split">
+
+        <!-- Left: Instructions -->
+        <div class="wizard-tryit-left">
+          <div class="wizard-tryit-step-num">Step 3</div>
+          <h2>Try it out</h2>
+          <p class="wizard-tryit-desc">
+            See Waffler in action. Press the hotkey, say something, and watch your words
+            appear in the mock app on the right.
+          </p>
+          <div class="wizard-tryit-hotkey-hint">
+            <span class="hotkey-badge" id="wizTryHotkeyBadge">Win + Ctrl</span>
+            <span>hold to record</span>
+          </div>
+
+          <div class="wizard-tryit-prompt">
+            <div class="wizard-try-label">Try saying:</div>
+            <div class="wizard-try-example">
+              "Hey, thanks for the invite! I'll be there around 7. Should I bring anything?"
+            </div>
+          </div>
+
+          <div class="wizard-recording-status" id="wizRecordingStatus"></div>
+          <div class="wizard-validation" id="wizMicValidation"></div>
+        </div>
+
+        <!-- Right: Mock Chat App -->
+        <div class="wizard-tryit-right">
+          <div class="wizard-mock-app">
+            <div class="mock-app-header">
+              <div class="mock-app-header-left">
+                <div class="mock-app-icon">💬</div>
+                <div class="mock-app-name">Messages</div>
+              </div>
+              <div class="mock-app-tabs">
+                <div class="mock-app-tab active">Messages</div>
+                <div class="mock-app-tab">Email</div>
+                <div class="mock-app-tab">Notes</div>
+              </div>
+              <div class="mock-app-dots">
+                <span class="mock-dot"></span>
+                <span class="mock-dot"></span>
+                <span class="mock-dot"></span>
+              </div>
+            </div>
+
+            <div class="mock-chat-area">
+              <div class="mock-msg">
+                <div class="mock-avatar">A</div>
+                <div class="mock-msg-bubble">
+                  <div class="mock-msg-name">Alex</div>
+                  <div class="mock-msg-text">Hey! A few of us are getting dinner Friday at 7. Want to join? 🍕</div>
+                  <div class="mock-msg-time">2:34 PM</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="mock-input-area">
+              <div class="mock-input-box" id="wizMockInput">
+                <span class="mock-input-placeholder" id="wizMockPlaceholder">
+                  Hold <kbd>Win + Ctrl</kbd> and speak...
+                </span>
+                <span class="mock-input-text" id="wizMockText"></span>
+                <span class="mock-input-cursor" id="wizMockCursor" style="display:none"></span>
+              </div>
+              <button class="mock-send-btn" id="wizMockSendBtn" disabled>➤</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Navigation -->
+    <div class="wizard-nav">
+      <button class="wizard-btn wizard-btn-back" id="wizBtnBack" onclick="wizBack()" style="display:none">Back</button>
+      <div class="wizard-nav-spacer"></div>
+      <button class="wizard-btn wizard-btn-next" id="wizBtnNext" onclick="wizNext()" disabled>Next</button>
+    </div>
+
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
