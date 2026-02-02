@@ -133,7 +133,7 @@ app = BUNDLE(
         'CFBundleExecutable': 'Waffler',
         'NSMicrophoneUsageDescription': 'Waffler needs microphone access for voice transcription.',
         'NSAppleEventsUsageDescription': 'Waffler needs accessibility access for hotkey detection and auto-paste.',
-        'CFBundleShortVersionString': '1.0.0',
+        'CFBundleShortVersionString': '2.1.19',
         'LSMinimumSystemVersion': '10.13.0',
     },
     # Code signing (set SIGNING_IDENTITY env var when you have Developer ID)

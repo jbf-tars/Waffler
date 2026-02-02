@@ -108,15 +108,15 @@ Use this before sharing the `.dmg` from Actions artifacts:
 
 ```bash
 # Example: latest successful macOS run
-RUN_ID=$(gh run list -R ns7v2h9k6h-web/waffler-app \
-  --workflow "Build macOS App (unsigned for now)" \
+RUN_ID=$(gh run list \
+  --workflow "Build macOS App (Signed with Developer ID)" \
   --status completed --json databaseId,conclusion \
   --jq '.[] | select(.conclusion=="success") | .databaseId' | head -n1)
 
 # Download artifact
 mkdir -p tmp/artifacts/macos-$RUN_ID
-gh run download "$RUN_ID" -R ns7v2h9k6h-web/waffler-app \
-  -n Waffler-mac-unsigned -D tmp/artifacts/macos-$RUN_ID
+gh run download "$RUN_ID" \
+  -n Waffler-mac -D tmp/artifacts/macos-$RUN_ID
 
 # Verify DMG checksum/container integrity
 hdiutil verify tmp/artifacts/macos-$RUN_ID/Waffler-mac-unsigned.dmg
@@ -227,5 +227,5 @@ Downloads:
 
 Notes:
 - Windows/macOS builds are currently unsigned, so first-run security prompts are expected.
-- Installation guidance is included in RELEASE.md and README-Windows.md.
+- Installation guidance is included in the README.
 ```

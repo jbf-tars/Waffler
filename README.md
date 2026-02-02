@@ -10,8 +10,6 @@ Press a hotkey, speak, release — your polished text is in the clipboard, ready
 
 > A free alternative to Wispr Flow / Superwhisper. No account, no subscription, no telemetry.
 
-<!-- TODO: Add screenshot or demo GIF here -->
-<!-- ![Waffler demo](docs/demo.gif) -->
 
 ---
 

@@ -11,7 +11,6 @@ import json
 import time
 import threading
 import pyperclip
-import shutil
 from pathlib import Path
 from datetime import datetime, date
 
@@ -65,34 +64,12 @@ from audio_devices import (
 from app_detection import get_active_app
 
 
-# ── Data Directory Migration ──────────────────────────────────────────
+# ── Data Directory ────────────────────────────────────────────────────
 def get_data_directory():
-    """
-    Get the data directory for Waffler, with backwards compatibility for old app names.
-    Migrates from .natter to .waffler on first run.
-    """
-    home = Path.home()
-    new_dir = home / ".waffler-hosted"
-    old_dir = home / ".natter"
-
-    # If new directory exists, use it
-    if new_dir.exists():
-        return new_dir
-
-    # If old directory exists, offer migration
-    if old_dir.exists():
-        print("Found old app data directory (.natter). Migrating to Waffler (.waffler)...")
-        try:
-            shutil.copytree(old_dir, new_dir)
-            print("Migration successful! Old app data preserved as backup.")
-            return new_dir
-        except Exception as e:
-            print(f"Migration failed: {e}. Using old app directory for now.")
-            return old_dir
-
-    # Neither exists, create new
-    new_dir.mkdir(parents=True, exist_ok=True)
-    return new_dir
+    """Get the data directory for Waffler (~/.waffler-hosted/)."""
+    data_dir = Path.home() / ".waffler-hosted"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    return data_dir
 
 
 # ── History File ──────────────────────────────────────────────────────
@@ -1154,7 +1131,7 @@ def _mark_setup_complete():
 
 
 def _log_to_file(msg: str):
-    """Write a debug line to ~/.waffler/app.log (visible even with console=False)."""
+    """Write a debug line to ~/.waffler-hosted/app.log (visible even with console=False)."""
     try:
         log_path = DATA_DIR / "app.log"
         log_path.parent.mkdir(parents=True, exist_ok=True)
