@@ -344,7 +344,11 @@ class RecordingOverlay:
                     env['PYTHONPATH'] = meipass
                 log(f"[overlay] Set PYTHONPATH={env['PYTHONPATH']}")
             else:
-                log("[overlay] Windows: skipping PYTHONPATH (using system tkinter)")
+                # Windows: remove bundled Tcl/Tk env vars so system Python uses
+                # its own Tcl/Tk instead of the bundled version (version mismatch).
+                for var in ('TCL_LIBRARY', 'TK_LIBRARY', 'PYTHONPATH'):
+                    env.pop(var, None)
+                log("[overlay] Windows: cleared TCL_LIBRARY/TK_LIBRARY/PYTHONPATH (using system tkinter)")
 
         try:
             self._process = subprocess.Popen(
