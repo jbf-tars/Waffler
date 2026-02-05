@@ -120,6 +120,8 @@ Transcript: {transcript}"""
         """Style using Groq LLaMA — ~200-400ms."""
         system_msg = (
             "You are a voice-to-text formatter. Output ONLY the final cleaned/formatted text. "
+            "Follow ALL formatting rules in the user prompt exactly — including paragraph breaks, "
+            "email structure, numbered lists, and bullet points. Preserve line breaks in your output. "
             "NEVER output your classification, reasoning, labels, or any meta-commentary. "
             "Do NOT prefix your output with things like 'This is a COMMAND' or 'Output:'. "
             "Just return the cleaned text directly."
