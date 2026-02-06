@@ -49,3 +49,4 @@ node_modules/
 # Session / local data
 session.json
 *.sqlite
+.worktrees/
