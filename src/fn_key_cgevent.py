@@ -54,9 +54,13 @@ class FnKeyMonitor:
                     if is_fn_pressed and not self._fn_pressed:
                         self._fn_pressed = True
                         threading.Thread(target=self._on_fn_press, daemon=True).start()
+                        # Suppress Fn key event to prevent ABC/keyboard selector popup
+                        return None
                     elif not is_fn_pressed and self._fn_pressed:
                         self._fn_pressed = False
                         threading.Thread(target=self._on_fn_release, daemon=True).start()
+                        # Suppress Fn key release too
+                        return None
 
             # Check for Space key press
             elif event_type == kCGEventKeyDown:
