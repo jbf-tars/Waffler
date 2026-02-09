@@ -1092,6 +1092,47 @@ class Api:
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
+    # ── Permission Checking API ────────────────────────────────────────
+
+    def check_accessibility_permission(self) -> bool:
+        """Check if Accessibility permission is granted"""
+        try:
+            from ApplicationServices import AXIsProcessTrusted
+            return AXIsProcessTrusted()
+        except Exception as e:
+            print(f"Error checking accessibility permission: {e}")
+            return False
+
+    def check_input_monitoring_permission(self) -> bool:
+        """Check if Input Monitoring permission is granted"""
+        try:
+            # Input Monitoring is harder to check directly
+            # We'll use a heuristic: try to create an event tap
+            from Quartz import CGEventTapCreate, kCGSessionEventTap, kCGHeadInsertEventTap, kCGEventTapOptionDefault, kCGEventFlagsChanged, CFRelease
+
+            def dummy_callback(proxy, event_type, event, refcon):
+                return event
+
+            event_mask = (1 << kCGEventFlagsChanged)
+            tap = CGEventTapCreate(
+                kCGSessionEventTap,
+                kCGHeadInsertEventTap,
+                kCGEventTapOptionDefault,
+                event_mask,
+                dummy_callback,
+                None
+            )
+
+            if tap is None:
+                return False
+            else:
+                # Clean up - we don't actually need the tap
+                CFRelease(tap)
+                return True
+        except Exception as e:
+            print(f"Error checking input monitoring permission: {e}")
+            return False
+
 
 # ── Global refs ───────────────────────────────────────────────────────
 _window   = None
