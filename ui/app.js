@@ -148,30 +148,21 @@ async function checkPermissions() {
   try {
     const result = await pywebview.api.check_permissions();
 
-    const accessStatus = document.getElementById('accessibilityStatus');
-    const inputStatus = document.getElementById('inputMonitoringStatus');
-
     if (result.ok) {
-      // Update Accessibility status
-      if (accessStatus) {
-        if (result.accessibility) {
-          accessStatus.innerHTML = '<span style="color: #4ade80; font-size: 20px;">✅</span>';
-        } else {
-          accessStatus.innerHTML = '<span style="color: #ef4444; font-size: 20px;">❌</span>';
-        }
-      }
+      // Update Accessibility UI
+      updatePermissionUI('accessibility', result.accessibility_granted);
 
-      // Update Input Monitoring status
-      if (inputStatus) {
-        if (result.input_monitoring) {
-          inputStatus.innerHTML = '<span style="color: #4ade80; font-size: 20px;">✅</span>';
-        } else {
-          inputStatus.innerHTML = '<span style="color: #ef4444; font-size: 20px;">❌</span>';
-        }
+      // Update Input Monitoring UI
+      updatePermissionUI('inputMonitoring', result.input_monitoring_granted);
+
+      // Enable/disable Next button
+      const nextBtn = document.getElementById('wizBtnNext');
+      if (nextBtn) {
+        nextBtn.disabled = !(result.accessibility_granted && result.input_monitoring_granted);
       }
 
       // If both granted, show success and auto-advance
-      if (result.accessibility && result.input_monitoring) {
+      if (result.accessibility_granted && result.input_monitoring_granted) {
         showToast("All permissions granted! ✅", "success");
         // Auto-advance to next step after a short delay
         setTimeout(() => {
@@ -198,6 +189,43 @@ function stopPermissionMonitoring() {
   if (_permissionCheckInterval) {
     clearInterval(_permissionCheckInterval);
     _permissionCheckInterval = null;
+  }
+}
+
+function updatePermissionUI(permissionType, isGranted) {
+  const card = document.getElementById(`${permissionType}Card`);
+  const badge = document.getElementById(`${permissionType}Badge`);
+  const button = document.getElementById(`${permissionType}Btn`);
+  const status = document.getElementById(`${permissionType}Status`);
+
+  if (!card || !badge || !button || !status) return;
+
+  if (isGranted) {
+    // Update card
+    card.classList.add('granted');
+
+    // Update badge
+    badge.textContent = '✓';
+    badge.classList.add('granted');
+
+    // Update button
+    button.textContent = '✓ Granted';
+    button.classList.add('granted');
+    button.disabled = true;
+
+    // Update status
+    status.textContent = 'Granted';
+    status.classList.add('granted');
+  } else {
+    // Reset to default state
+    card.classList.remove('granted');
+    badge.textContent = '○';
+    badge.classList.remove('granted');
+    button.textContent = 'Open System Settings';
+    button.classList.remove('granted');
+    button.disabled = false;
+    status.textContent = 'Not granted';
+    status.classList.remove('granted');
   }
 }
 
