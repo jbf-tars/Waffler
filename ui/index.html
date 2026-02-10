@@ -373,49 +373,66 @@
     <!-- Step 3: API Keys -->
     <div class="wizard-step-content" id="wizContent3" style="display:none">
       <div class="wizard-card">
-        <div class="wizard-card-icon">⚡</div>
+        <div class="wizard-card-icon">🔑</div>
         <h2>API Keys</h2>
         <p class="wizard-card-desc">
-          Waffler needs at least one API key. Groq is <strong>free</strong> and <strong>10x faster</strong>.
+          Choose your provider <strong>(you only need one)</strong>
           <br><span class="wizard-link" style="font-size:13px" onclick="pywebview.api.open_url('https://wafflerai.com/api-key-guide')">Need help? Follow our step-by-step guide →</span>
         </p>
 
-        <!-- Groq (recommended) -->
-        <div class="wizard-key-section">
-          <div class="wizard-key-label">
-            Groq API Key <span class="wizard-badge-rec">Recommended — Free &amp; Fast</span>
-          </div>
-          <div class="wizard-input-group">
-            <input type="password" id="wizGroqKeyInput3" class="wizard-input"
-                   placeholder="gsk_..." autocomplete="off" spellcheck="false">
-            <button class="wizard-reveal-btn" onclick="wizToggleVisibility('wizGroqKeyInput3')" title="Show/hide">👁️</button>
-          </div>
-          <div class="wizard-input-hint">
-            Free key:
-            <span class="wizard-link" onclick="pywebview.api.open_url('https://console.groq.com/keys')">
-              console.groq.com/keys
-            </span>
-          </div>
-          <div class="wizard-validation" id="wizGroqValidation3"></div>
+        <!-- Provider Selection Pills -->
+        <div class="provider-pills">
+          <button class="pill-button active" data-provider="groq" onclick="switchProvider('groq')">
+            Groq
+          </button>
+          <button class="pill-button" data-provider="openai" onclick="switchProvider('openai')">
+            OpenAI
+          </button>
         </div>
 
-        <!-- OpenAI (optional fallback) -->
-        <div class="wizard-key-section" style="margin-top:16px">
-          <div class="wizard-key-label">
-            OpenAI API Key <span class="wizard-badge-opt">Optional Fallback</span>
+        <!-- Groq Field (visible by default) -->
+        <div id="groqField" class="provider-field active">
+          <div class="provider-container">
+            <div class="provider-header">
+              <div class="provider-icon">⚡</div>
+              <div class="provider-title">
+                <h3>Groq API Key</h3>
+                <p>Free and 10x faster than OpenAI</p>
+              </div>
+            </div>
+            <div class="api-key-input-group">
+              <input type="password" id="wizGroqKeyInput3" class="api-key-input" placeholder="gsk_..." autocomplete="off" spellcheck="false">
+              <button class="btn-toggle-visibility" onclick="toggleKeyVisibility('wizGroqKeyInput3')">👁️</button>
+            </div>
+            <div class="provider-hint">
+              Get your free key: <a href="#" onclick="pywebview.api.open_url('https://console.groq.com/keys'); return false;">console.groq.com/keys →</a>
+            </div>
           </div>
-          <div class="wizard-input-group">
-            <input type="password" id="wizApiKeyInput3" class="wizard-input"
-                   placeholder="sk-proj-..." autocomplete="off" spellcheck="false">
-            <button class="wizard-reveal-btn" onclick="wizToggleVisibility('wizApiKeyInput3')" title="Show/hide">👁️</button>
-          </div>
-          <div class="wizard-input-hint">
-            <span class="wizard-link" onclick="pywebview.api.open_url('https://platform.openai.com/api-keys')">
-              platform.openai.com
-            </span>
-          </div>
-          <div class="wizard-validation" id="wizApiValidation3"></div>
         </div>
+
+        <!-- OpenAI Field (hidden by default) -->
+        <div id="openaiField" class="provider-field">
+          <div class="provider-container">
+            <div class="provider-header">
+              <div class="provider-icon">🤖</div>
+              <div class="provider-title">
+                <h3>OpenAI API Key</h3>
+                <p>Optional fallback provider</p>
+              </div>
+            </div>
+            <div class="api-key-input-group">
+              <input type="password" id="wizApiKeyInput3" class="api-key-input" placeholder="sk-proj-..." autocomplete="off" spellcheck="false">
+              <button class="btn-toggle-visibility" onclick="toggleKeyVisibility('wizApiKeyInput3')">👁️</button>
+            </div>
+            <div class="provider-hint">
+              Get your key: <a href="#" onclick="pywebview.api.open_url('https://platform.openai.com/api-keys'); return false;">platform.openai.com/api-keys →</a>
+            </div>
+          </div>
+        </div>
+
+        <p class="wizard-hint switch-hint">
+          Want to use the other provider? Click the button above to switch.
+        </p>
       </div>
     </div>
 
