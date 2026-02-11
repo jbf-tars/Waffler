@@ -1250,7 +1250,7 @@ def _wizard_on_release():
 
         # Silence detection — windowed check so pauses don't dilute speech
         is_silent = False
-        if len(audio_bytes) < 16044:
+        if len(audio_bytes) < 8000:  # Reduced from 16044 to allow shorter words (0.25s instead of 0.5s)
             is_silent = True
             _log_to_file(f"Wizard: recording too short ({len(audio_bytes)} bytes)")
         else:
@@ -1263,7 +1263,8 @@ def _wizard_on_release():
                     window = audio_arr[i:i + samples_per_window]
                     if len(window) < 1600:
                         break
-                    if float(np.sqrt(np.mean(window ** 2))) >= 30:
+                    # Lowered threshold from 30 to 15 to catch quieter/quicker speech
+                    if float(np.sqrt(np.mean(window ** 2))) >= 15:
                         is_silent = False
                         break
                 if is_silent:
