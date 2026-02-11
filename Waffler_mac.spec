@@ -133,6 +133,7 @@ app = BUNDLE(
         'CFBundleExecutable': 'Waffler',
         'NSMicrophoneUsageDescription': 'Waffler needs microphone access for voice transcription.',
         'NSAppleEventsUsageDescription': 'Waffler needs accessibility access for hotkey detection and auto-paste.',
+        'NSLocalNetworkUsageDescription': 'Waffler uses a local web interface for its UI. No data is sent over the network.',
         'CFBundleShortVersionString': '2.1.19',
         'LSMinimumSystemVersion': '10.13.0',
     },
