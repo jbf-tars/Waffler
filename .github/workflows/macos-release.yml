@@ -100,6 +100,47 @@ jobs:
             "dist/"
 
 
+      - name: Sign DMG
+        env:
+          SIGNING_IDENTITY: ${{ secrets.SIGNING_IDENTITY }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          DMG_NAME="Waffler-${VERSION}-mac.dmg"
+          if [ -n "$SIGNING_IDENTITY" ]; then
+            echo "Signing DMG with: $SIGNING_IDENTITY"
+            codesign --sign "$SIGNING_IDENTITY" "dist-installer/${DMG_NAME}"
+            codesign --verify --verbose "dist-installer/${DMG_NAME}"
+            echo "✅ DMG signed successfully"
+          else
+            echo "⚠️  No signing identity - skipping DMG signing"
+          fi
+
+
+      - name: Notarize DMG
+        if: ${{ secrets.APPLE_ID != '' && secrets.APPLE_APP_PASSWORD != '' }}
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          DMG_NAME="Waffler-${VERSION}-mac.dmg"
+
+          echo "Submitting DMG for notarization..."
+          xcrun notarytool submit "dist-installer/${DMG_NAME}" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_APP_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait \
+            --timeout 10m
+
+          echo "Stapling notarization ticket to DMG..."
+          xcrun stapler staple "dist-installer/${DMG_NAME}"
+          xcrun stapler validate "dist-installer/${DMG_NAME}"
+
+          echo "✅ DMG notarized and stapled successfully"
+
+
       - name: Upload DMG artifact
         continue-on-error: true
         uses: actions/upload-artifact@v4
