@@ -791,9 +791,10 @@ class Api:
         """Enhanced permission checking with detailed feedback."""
         permissions_mgr = PermissionsManager()
         status_summary = permissions_mgr.get_permission_status_summary()
-        
+
         # Convert to legacy format for backward compatibility
         result = {
+            "ok": True,  # Add ok field for JavaScript compatibility
             "platform": permissions_mgr.platform,
             "mic_granted": status_summary["permissions"].get("microphone", {}).get("granted", False),
             "accessibility_granted": status_summary["permissions"].get("accessibility", {}).get("granted", False),
@@ -806,7 +807,7 @@ class Api:
             "all_granted": status_summary["all_granted"],
             "recommendations": status_summary["recommendations"]
         }
-        
+
         return result
 
     def get_permission_status(self) -> dict:
