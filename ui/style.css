@@ -1558,14 +1558,14 @@ html, body {
 }
 
 .wizard-header .logo-icon {
-  width: 44px;
-  height: 44px;
+  width: 40px;
+  height: 40px;
   background: var(--accent);
   border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 22px;
+  font-size: 20px;
   box-shadow: 0 4px 20px rgba(200, 162, 86, 0.5);
 }
 
@@ -2707,9 +2707,9 @@ html, body {
 .wizard-permission-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 16px;
-    max-width: 700px;
-    margin: 24px auto;
+    gap: 12px;
+    max-width: 650px;
+    margin: 16px auto;
 }
 
 @media (max-width: 768px) {
@@ -2725,7 +2725,7 @@ html, body {
     background: rgba(255, 255, 255, 0.05);
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 12px;
-    padding: 18px 16px;
+    padding: 14px 12px;
     text-align: center;
     transition: all 0.3s ease;
 }
@@ -2759,36 +2759,36 @@ html, body {
 
 /* Permission Icon & Info */
 .permission-icon {
-    font-size: 48px;
-    margin-bottom: 12px;
+    font-size: 40px;
+    margin-bottom: 8px;
 }
 
 .permission-info h3 {
-    font-size: 16px;
+    font-size: 15px;
     font-weight: 600;
-    margin: 0 0 4px 0;
+    margin: 0 0 3px 0;
     color: rgba(255, 255, 255, 0.95);
 }
 
 .permission-info p {
-    font-size: 13px;
-    margin: 0 0 16px 0;
+    font-size: 12px;
+    margin: 0 0 12px 0;
     color: rgba(255, 255, 255, 0.6);
 }
 
 /* Permission Button */
 .btn-permission {
     width: 100%;
-    padding: 10px 16px;
+    padding: 8px 14px;
     background: rgba(234, 179, 8, 0.2);
     border: 1px solid rgba(234, 179, 8, 0.3);
     border-radius: 8px;
     color: rgba(255, 255, 255, 0.9);
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 500;
     cursor: pointer;
     transition: all 0.3s ease;
-    margin-bottom: 12px;
+    margin-bottom: 8px;
 }
 
 .btn-permission:hover {
@@ -2809,7 +2809,7 @@ html, body {
 
 /* Permission Status */
 .permission-status {
-    font-size: 12px;
+    font-size: 11px;
     color: rgba(255, 255, 255, 0.5);
     transition: all 0.3s ease;
 }
