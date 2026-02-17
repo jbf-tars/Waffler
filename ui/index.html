@@ -276,38 +276,27 @@
 <div class="wizard-overlay" id="wizardOverlay" style="display:none">
   <div class="wizard-container">
 
-    <!-- Header -->
-    <div class="wizard-header">
-      <div class="wizard-logo">
-        <img class="logo-icon" src="logo-icon.png" alt="Waffler">
-        <div class="logo-name">Waffler</div>
+    <!-- Compact header with icon left, progress right -->
+    <div class="wizard-header-compact">
+      <div class="wizard-header-left">
+        <img src="logo-icon.png" class="wizard-icon" alt="Waffler">
+        <span class="wizard-app-name">Waffler</span>
       </div>
-      <div class="wizard-title">Welcome to Waffler</div>
-      <div class="wizard-subtitle">Let's get you set up in 4 quick steps.</div>
+      <div class="wizard-step-indicator">
+        <span id="wizStepText">Step 1 of 4</span>
+      </div>
     </div>
 
-    <!-- Progress -->
-    <div class="wizard-progress">
-      <div class="wizard-step-indicator active" id="wizStep1">
-        <div class="step-number">1</div>
-        <div class="step-label">Permissions</div>
-      </div>
-      <div class="wizard-step-connector"></div>
-      <div class="wizard-step-indicator" id="wizStep2">
-        <div class="step-number">2</div>
-        <div class="step-label">Hotkeys</div>
-      </div>
-      <div class="wizard-step-connector"></div>
-      <div class="wizard-step-indicator" id="wizStep3">
-        <div class="step-number">3</div>
-        <div class="step-label">API Key</div>
-      </div>
-      <div class="wizard-step-connector"></div>
-      <div class="wizard-step-indicator" id="wizStep4">
-        <div class="step-number">4</div>
-        <div class="step-label">Try It</div>
-      </div>
+    <!-- Minimal progress bar -->
+    <div class="wizard-progress-bar">
+      <div class="progress-segment" id="wizProgress1"></div>
+      <div class="progress-segment" id="wizProgress2"></div>
+      <div class="progress-segment" id="wizProgress3"></div>
+      <div class="progress-segment" id="wizProgress4"></div>
     </div>
+
+    <div class="wizard-title">Welcome to Waffler</div>
+    <div class="wizard-subtitle">Let's get you set up in 4 quick steps.</div>
 
     <!-- Step 1: Permissions -->
     <div class="wizard-step-content" id="wizContent1">
