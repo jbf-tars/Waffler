@@ -1231,6 +1231,8 @@ function showWizard() {
   if (settings) settings.style.display = 'none';
   const vocab = document.getElementById('vocabularyPanel');
   if (vocab) vocab.style.display = 'none';
+  // Initialize progress bar
+  updateWizardProgress(1);
   wizShowStep(1);
   setTimeout(() => {
     const inp = document.getElementById('wizApiKeyInput3');
@@ -1257,6 +1259,26 @@ function hideWizard() {
 
 // ── Step Navigation ──────────────────────────────────────────
 
+function updateWizardProgress(step) {
+  // Update step text
+  const stepText = document.getElementById('wizStepText');
+  if (stepText) {
+    stepText.textContent = `Step ${step} of ${WIZARD_TOTAL_STEPS}`;
+  }
+
+  // Update progress segments
+  for (let i = 1; i <= WIZARD_TOTAL_STEPS; i++) {
+    const segment = document.getElementById(`wizProgress${i}`);
+    if (segment) {
+      if (i === step) {
+        segment.classList.add('active');
+      } else {
+        segment.classList.remove('active');
+      }
+    }
+  }
+}
+
 function wizShowStep(step) {
   // Clean up permission monitoring when leaving step 1
   if (_wizardStep === 1 && step !== 1) {
@@ -1270,6 +1292,7 @@ function wizShowStep(step) {
   }
 
   _wizardStep = step;
+  updateWizardProgress(step);
 
   for (let i = 1; i <= WIZARD_TOTAL_STEPS; i++) {
     const ind = document.getElementById('wizStep' + i);
