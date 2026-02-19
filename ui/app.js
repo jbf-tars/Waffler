@@ -266,41 +266,33 @@ function showToast(msg, type) {
 // ── Audio Device Selector ─────────────────────────────────────────────
 
 async function loadAudioDevices() {
-  const sel = document.getElementById('micSelect');
+  const sel = document.getElementById('deviceSelect');
   if (!sel) return;
   try {
-    const devices = await window.pywebview.api.get_audio_devices();
-    const current = await window.pywebview.api.get_selected_device();
+    const devices = await pywebview.api.get_audio_devices();
+    const current = await pywebview.api.get_selected_device();
     sel.innerHTML = '';
-
     if (!devices || devices.length === 0) {
-      sel.innerHTML = '<option value="">No mic found</option>';
+      sel.innerHTML = '<option value="">No devices found</option>';
       return;
     }
-
     devices.forEach(d => {
       const opt = document.createElement('option');
       opt.value = d.index;
       opt.textContent = d.name + (d.is_default ? ' (default)' : '');
       if (current && current.index === d.index) opt.selected = true;
-      else if (current && current.index == null && d.is_default) opt.selected = true;
+      else if (current && current.index === null && d.is_default) opt.selected = true;
       sel.appendChild(opt);
     });
-
-    // Fallback: if nothing selected, pick first option so UI never shows blank
-    if (sel.selectedIndex < 0 && sel.options.length > 0) {
-      sel.selectedIndex = 0;
-    }
   } catch(e) {
     console.warn('loadAudioDevices error:', e);
   }
 }
 
-async function onMicChange(indexStr) {
+async function onDeviceChange(indexStr) {
   const idx = parseInt(indexStr, 10);
-  if (Number.isNaN(idx)) return;
   try {
-    const result = await window.pywebview.api.set_audio_device(idx);
+    const result = await pywebview.api.set_audio_device(idx);
     if (result && result.ok) {
       showToast(`🎙️ Mic: ${result.name}`, 'success');
     }
