@@ -399,7 +399,92 @@ class Api:
     def get_onboarding_status(self) -> dict:
         """Returns whether the app needs first-run setup."""
         key = os.getenv("OPENAI_API_KEY", "").strip()
-        return {"needs_setup": not bool(key), "has_key": bool(key)}
+        setup_done = _is_setup_complete()
+        return {
+            "needs_setup": not setup_done or not bool(key),
+            "has_key": bool(key),
+            "setup_complete": setup_done,
+        }
+
+    def validate_api_key(self, api_key: str) -> dict:
+        """Validate an OpenAI API key by making a lightweight API call."""
+        api_key = (api_key or "").strip()
+        if not api_key:
+            return {"ok": False, "error": "No API key provided"}
+        if not api_key.startswith("sk-"):
+            return {"ok": False, "error": "Key should start with sk-"}
+        try:
+            from openai import OpenAI
+            client = OpenAI(api_key=api_key)
+            client.models.list()
+            # Key is valid — persist it
+            self._update_env_var("OPENAI_API_KEY", api_key)
+            os.environ["OPENAI_API_KEY"] = api_key
+            return {"ok": True, "message": "API key is valid"}
+        except Exception as e:
+            error_msg = str(e)
+            if "401" in error_msg or "invalid" in error_msg.lower():
+                return {"ok": False, "error": "Invalid API key"}
+            elif "429" in error_msg:
+                return {"ok": False, "error": "Rate limited — key may be valid but has no quota"}
+            else:
+                return {"ok": False, "error": f"Connection error: {error_msg[:100]}"}
+
+    def test_hotkey(self) -> dict:
+        """Return hotkey configuration info for the current platform."""
+        import platform as plat
+        is_win = plat.system() == "Windows"
+        return {
+            "ok": True,
+            "platform": plat.system(),
+            "hotkey": "Right Ctrl + Right Alt" if is_win else "Right Option (hold)",
+            "mode": "toggle" if is_win else "hold",
+            "description": (
+                "Press Right Ctrl + Right Alt together to start recording. Press again to stop."
+            ) if is_win else (
+                "Hold the Right Option key to record. Release to stop."
+            ),
+        }
+
+    def test_microphone(self, device_index, duration=2.0) -> dict:
+        """Record a short clip and return the audio level."""
+        try:
+            import sounddevice as sd
+            import numpy as np
+            device_index = int(device_index)
+            duration = min(float(duration), 5.0)
+            recording = sd.rec(
+                int(16000 * duration),
+                samplerate=16000,
+                channels=1,
+                dtype='int16',
+                device=device_index,
+            )
+            sd.wait()
+            rms = float(np.sqrt(np.mean(recording.astype(np.float32) ** 2)))
+            peak = float(np.max(np.abs(recording)))
+            has_audio = rms > 100
+            return {
+                "ok": True,
+                "rms": round(rms, 1),
+                "peak": round(peak, 1),
+                "has_audio": has_audio,
+                "message": "Audio detected" if has_audio else "No audio detected — check your microphone",
+            }
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    def complete_setup(self) -> dict:
+        """Called when the setup wizard finishes. Initializes the pipeline."""
+        try:
+            _mark_setup_complete()
+            _initialize_pipeline()
+            if _pipeline:
+                return {"ok": True, "message": "Setup complete! VoiceFlow is ready."}
+            else:
+                return {"ok": False, "error": "Pipeline failed to initialize. Check API key."}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
 
     # ── Snippets API ──────────────────────────────────────────────────────────
 
@@ -486,6 +571,58 @@ class Api:
 _window   = None
 _api      = None
 _pipeline = None   # set after VoiceFlowPipeline is created
+_config   = None   # set in main()
+
+SETUP_FILE = Path.home() / ".voiceflow" / "setup_complete.json"
+
+
+def _is_setup_complete() -> bool:
+    """Check if the setup wizard has been completed before."""
+    try:
+        if SETUP_FILE.exists():
+            data = json.loads(SETUP_FILE.read_text())
+            return data.get("complete", False)
+    except Exception:
+        pass
+    return False
+
+
+def _mark_setup_complete():
+    """Persist that setup wizard has been completed."""
+    SETUP_FILE.parent.mkdir(parents=True, exist_ok=True)
+    SETUP_FILE.write_text(json.dumps({
+        "complete": True,
+        "completed_at": datetime.now().isoformat(timespec="seconds"),
+    }, indent=2))
+
+
+def _initialize_pipeline():
+    """Create pipeline and start hotkey after setup is complete."""
+    global _pipeline
+    if _pipeline:
+        return  # already initialized
+
+    _config.reload_env()
+
+    if not _config.has_api_key:
+        print("Cannot initialize pipeline: no API key")
+        return
+
+    try:
+        pipeline = VoiceFlowPipeline(_config)
+        _pipeline = pipeline
+
+        hotkey_thread = threading.Thread(
+            target=pipeline.start_hotkey,
+            daemon=True,
+            name="HotkeyThread"
+        )
+        hotkey_thread.start()
+        print(f"Hotkey active: {_config.hotkey}")
+    except Exception as e:
+        print(f"Pipeline init error: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 def set_window(w):
@@ -753,36 +890,30 @@ class VoiceFlowPipeline:
 
 # ── Main ──────────────────────────────────────────────────────────────
 def main():
+    global _config
+
     # Load config (reads .env from project root via dotenv)
     os.chdir(PROJECT_ROOT)  # so config.yaml and .env are found
 
     try:
         config = Config()
     except Exception as e:
-        print(f"❌ Config error: {e}")
+        print(f"Config error: {e}")
         sys.exit(1)
 
-    pipeline = VoiceFlowPipeline(config)
-    global _pipeline
-    _pipeline = pipeline
+    _config = config
 
-    # Start hotkey in a daemon background thread
-    hotkey_thread = threading.Thread(
-        target=pipeline.start_hotkey,
-        daemon=True,
-        name="HotkeyThread"
-    )
-    hotkey_thread.start()
-    print(f"⌨️  Hotkey active: {config.hotkey}")
+    # Only auto-initialize pipeline if setup was already completed
+    if config.has_api_key and _is_setup_complete():
+        _initialize_pipeline()
 
-    # Create pywebview window
+    # Create pywebview window (always — wizard runs inside it)
     api = Api()
     _api_ref = api  # keep reference
 
     ui_dir = PROJECT_ROOT / "ui"
     html_path = ui_dir / "index.html"
 
-    # pywebview can load from file:// URL or local path
     window = webview.create_window(
         title="VoiceFlow",
         url=str(html_path),
@@ -798,11 +929,11 @@ def main():
 
     set_window(window)
 
-    print("🎙️  VoiceFlow window launching…")
+    print("VoiceFlow window launching...")
     # Start webview — this blocks until window is closed
     webview.start(debug=False)
 
-    print("👋 Window closed. Hotkey daemon still active (background).")
+    print("Window closed.")
 
 
 if __name__ == "__main__":

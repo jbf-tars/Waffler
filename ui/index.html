@@ -182,6 +182,110 @@
 
 </div>
 
+<!-- Setup Wizard Overlay -->
+<div class="wizard-overlay" id="wizardOverlay" style="display:none">
+  <div class="wizard-container">
+
+    <!-- Header -->
+    <div class="wizard-header">
+      <div class="wizard-logo">
+        <div class="logo-icon">🎙️</div>
+        <div class="logo-name">Voice<span>Flow</span></div>
+      </div>
+      <div class="wizard-title">Welcome to VoiceFlow</div>
+      <div class="wizard-subtitle">Let's get you set up in 3 quick steps.</div>
+    </div>
+
+    <!-- Progress -->
+    <div class="wizard-progress">
+      <div class="wizard-step-indicator active" id="wizStep1">
+        <div class="step-number">1</div>
+        <div class="step-label">API Key</div>
+      </div>
+      <div class="wizard-step-connector"></div>
+      <div class="wizard-step-indicator" id="wizStep2">
+        <div class="step-number">2</div>
+        <div class="step-label">Hotkeys</div>
+      </div>
+      <div class="wizard-step-connector"></div>
+      <div class="wizard-step-indicator" id="wizStep3">
+        <div class="step-number">3</div>
+        <div class="step-label">Microphone</div>
+      </div>
+    </div>
+
+    <!-- Step 1: API Key -->
+    <div class="wizard-step-content" id="wizContent1">
+      <div class="wizard-card">
+        <div class="wizard-card-icon">🔑</div>
+        <h2>OpenAI API Key</h2>
+        <p class="wizard-card-desc">
+          VoiceFlow uses OpenAI for transcription (Whisper) and text cleanup (GPT-4o-mini).
+          <br>One key powers everything.
+        </p>
+        <div class="wizard-input-group">
+          <input type="password" id="wizApiKeyInput" class="wizard-input"
+                 placeholder="sk-proj-..." autocomplete="off" spellcheck="false">
+          <button class="wizard-reveal-btn" onclick="wizToggleKeyVisibility()" title="Show/hide">👁️</button>
+        </div>
+        <div class="wizard-input-hint">
+          Don't have one?
+          <span class="wizard-link" onclick="pywebview.api.open_url('https://platform.openai.com/api-keys')">
+            Get it from platform.openai.com
+          </span>
+        </div>
+        <div class="wizard-validation" id="wizApiValidation"></div>
+      </div>
+    </div>
+
+    <!-- Step 2: Hotkeys -->
+    <div class="wizard-step-content" id="wizContent2" style="display:none">
+      <div class="wizard-card">
+        <div class="wizard-card-icon">⌨️</div>
+        <h2>Hotkey Setup</h2>
+        <p class="wizard-card-desc" id="wizHotkeyDesc">Loading hotkey info...</p>
+        <div class="wizard-hotkey-display">
+          <div class="wizard-hotkey-badge" id="wizHotkeyBadge">...</div>
+          <div class="wizard-hotkey-mode" id="wizHotkeyMode"></div>
+        </div>
+        <p class="wizard-hint" style="margin-top:12px">
+          Your hotkey is pre-configured. You can customise it later in Settings.
+        </p>
+      </div>
+    </div>
+
+    <!-- Step 3: Microphone -->
+    <div class="wizard-step-content" id="wizContent3" style="display:none">
+      <div class="wizard-card">
+        <div class="wizard-card-icon">🎙️</div>
+        <h2>Select Microphone</h2>
+        <p class="wizard-card-desc">Choose your microphone and test it to make sure VoiceFlow can hear you.</p>
+        <div class="wizard-mic-select-group">
+          <select id="wizMicSelect" class="wizard-select" onchange="wizOnMicChange(this.value)"></select>
+        </div>
+        <button class="wizard-test-btn" id="wizTestMicBtn" onclick="wizTestMicrophone()">
+          🎤 Test Microphone (2 seconds)
+        </button>
+        <div class="wizard-mic-result" id="wizMicResult" style="display:none">
+          <div class="wizard-mic-level-bar">
+            <div class="wizard-mic-level-fill" id="wizMicLevelFill"></div>
+          </div>
+          <div class="wizard-mic-level-text" id="wizMicLevelText"></div>
+        </div>
+        <div class="wizard-validation" id="wizMicValidation"></div>
+      </div>
+    </div>
+
+    <!-- Navigation -->
+    <div class="wizard-nav">
+      <button class="wizard-btn wizard-btn-back" id="wizBtnBack" onclick="wizBack()" style="display:none">Back</button>
+      <div class="wizard-nav-spacer"></div>
+      <button class="wizard-btn wizard-btn-next" id="wizBtnNext" onclick="wizNext()" disabled>Next</button>
+    </div>
+
+  </div>
+</div>
+
 <!-- Toast -->
 <div class="toast" id="toast"></div>
 
