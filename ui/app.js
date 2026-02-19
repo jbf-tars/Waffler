@@ -635,23 +635,300 @@ function onSearchInput(q) {
   renderFeed();
 }
 
-// ── Onboarding ────────────────────────────────────────────────────────────
+// ============================================================
+// ── Setup Wizard ─────────────────────────────────────────────
+// ============================================================
+
+let _wizardStep = 1;
+let _wizardApiKeyValidated = false;
+let _wizardMicTested = false;
+let _wizardMicDeviceIndex = null;
+
 async function checkOnboarding() {
   try {
     if (!window.pywebview || !window.pywebview.api) return;
     const status = await pywebview.api.get_onboarding_status();
     if (status.needs_setup) {
-      showPage('settings');
-      const banner = document.getElementById('onboardingBanner');
-      if (banner) banner.style.display = 'block';
+      showWizard();
     }
   } catch(e) {
     console.warn('checkOnboarding error:', e);
   }
 }
 
-// Run onboarding check after pywebview ready
 window.addEventListener('pywebviewready', checkOnboarding);
+
+function showWizard() {
+  const overlay = document.getElementById('wizardOverlay');
+  if (!overlay) return;
+  overlay.style.display = 'flex';
+  // Hide main app UI
+  const sidebar = document.querySelector('.sidebar');
+  if (sidebar) sidebar.style.display = 'none';
+  const main = document.getElementById('mainArea');
+  if (main) main.style.display = 'none';
+  const settings = document.getElementById('settingsPanel');
+  if (settings) settings.style.display = 'none';
+  const vocab = document.getElementById('vocabularyPanel');
+  if (vocab) vocab.style.display = 'none';
+  wizShowStep(1);
+  setTimeout(() => {
+    const inp = document.getElementById('wizApiKeyInput');
+    if (inp) inp.focus();
+  }, 200);
+}
+
+function hideWizard() {
+  const overlay = document.getElementById('wizardOverlay');
+  if (!overlay) return;
+  overlay.classList.add('hiding');
+  setTimeout(() => {
+    overlay.style.display = 'none';
+    overlay.classList.remove('hiding');
+    const sidebar = document.querySelector('.sidebar');
+    if (sidebar) sidebar.style.display = 'flex';
+    showPage('home');
+    refreshAll();
+    loadAudioDevices();
+  }, 400);
+}
+
+// ── Step Navigation ──────────────────────────────────────────
+
+function wizShowStep(step) {
+  _wizardStep = step;
+  for (let i = 1; i <= 3; i++) {
+    const ind = document.getElementById('wizStep' + i);
+    const con = document.getElementById('wizContent' + i);
+    ind.classList.remove('active', 'done');
+    if (i < step) ind.classList.add('done');
+    if (i === step) ind.classList.add('active');
+    con.style.display = (i === step) ? 'block' : 'none';
+  }
+  const connectors = document.querySelectorAll('.wizard-step-connector');
+  connectors.forEach((c, i) => c.classList.toggle('done', i < step - 1));
+
+  const backBtn = document.getElementById('wizBtnBack');
+  const nextBtn = document.getElementById('wizBtnNext');
+  backBtn.style.display = step > 1 ? 'inline-block' : 'none';
+  if (step === 3) {
+    nextBtn.textContent = 'Finish Setup';
+    nextBtn.classList.add('finish');
+  } else {
+    nextBtn.textContent = 'Next';
+    nextBtn.classList.remove('finish');
+  }
+  wizUpdateNextButton();
+  if (step === 2) wizLoadHotkeyInfo();
+  if (step === 3) wizLoadMicDevices();
+}
+
+function wizUpdateNextButton() {
+  const btn = document.getElementById('wizBtnNext');
+  switch (_wizardStep) {
+    case 1: btn.disabled = !_wizardApiKeyValidated; break;
+    case 2: btn.disabled = false; break;
+    case 3: btn.disabled = !_wizardMicTested; break;
+  }
+}
+
+async function wizNext() {
+  if (_wizardStep < 3) {
+    wizShowStep(_wizardStep + 1);
+  } else {
+    await wizCompleteSetup();
+  }
+}
+
+function wizBack() {
+  if (_wizardStep > 1) wizShowStep(_wizardStep - 1);
+}
+
+// ── Step 1: API Key ──────────────────────────────────────────
+
+let _wizApiTimer = null;
+
+document.addEventListener('DOMContentLoaded', () => {
+  const inp = document.getElementById('wizApiKeyInput');
+  if (!inp) return;
+  inp.addEventListener('input', () => {
+    _wizardApiKeyValidated = false;
+    wizUpdateNextButton();
+    const val = inp.value.trim();
+    const v = document.getElementById('wizApiValidation');
+    if (!val) { v.textContent = ''; v.className = 'wizard-validation'; return; }
+    if (!val.startsWith('sk-')) { v.textContent = 'Key should start with sk-'; v.className = 'wizard-validation error'; return; }
+    if (val.length < 20) { v.textContent = 'Key seems too short...'; v.className = 'wizard-validation error'; return; }
+    clearTimeout(_wizApiTimer);
+    v.textContent = 'Validating...';
+    v.className = 'wizard-validation loading';
+    _wizApiTimer = setTimeout(() => wizValidateApiKey(val), 800);
+  });
+  inp.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      clearTimeout(_wizApiTimer);
+      const val = inp.value.trim();
+      if (val.startsWith('sk-') && val.length >= 20) wizValidateApiKey(val);
+    }
+  });
+});
+
+async function wizValidateApiKey(key) {
+  const v = document.getElementById('wizApiValidation');
+  v.textContent = 'Validating with OpenAI...';
+  v.className = 'wizard-validation loading';
+  try {
+    const r = await pywebview.api.validate_api_key(key);
+    if (r.ok) {
+      v.textContent = 'API key is valid!';
+      v.className = 'wizard-validation success';
+      _wizardApiKeyValidated = true;
+    } else {
+      v.textContent = r.error || 'Invalid key';
+      v.className = 'wizard-validation error';
+      _wizardApiKeyValidated = false;
+    }
+  } catch(e) {
+    v.textContent = 'Failed to validate — check your internet connection';
+    v.className = 'wizard-validation error';
+    _wizardApiKeyValidated = false;
+  }
+  wizUpdateNextButton();
+}
+
+function wizToggleKeyVisibility() {
+  const inp = document.getElementById('wizApiKeyInput');
+  if (inp) inp.type = inp.type === 'password' ? 'text' : 'password';
+}
+
+// ── Step 2: Hotkey Info ──────────────────────────────────────
+
+async function wizLoadHotkeyInfo() {
+  try {
+    const info = await pywebview.api.test_hotkey();
+    document.getElementById('wizHotkeyBadge').textContent = info.hotkey;
+    document.getElementById('wizHotkeyMode').textContent = info.mode === 'toggle'
+      ? 'Toggle mode: press once to start, press again to stop'
+      : 'Hold mode: hold key to record, release to stop';
+    document.getElementById('wizHotkeyDesc').textContent = info.description;
+  } catch(e) {
+    console.warn('wizLoadHotkeyInfo error:', e);
+  }
+}
+
+// ── Step 3: Microphone ──────────────────────────────────────
+
+async function wizLoadMicDevices() {
+  const sel = document.getElementById('wizMicSelect');
+  if (!sel) return;
+  try {
+    const devices = await pywebview.api.get_audio_devices();
+    const current = await pywebview.api.get_selected_device();
+    sel.innerHTML = '';
+    if (!devices || !devices.length) {
+      sel.innerHTML = '<option value="">No microphones found</option>';
+      return;
+    }
+    devices.forEach(d => {
+      const opt = document.createElement('option');
+      opt.value = d.index;
+      opt.textContent = d.name + (d.is_default ? ' (default)' : '');
+      if ((current && current.index === d.index) || (current && current.index === null && d.is_default)) {
+        opt.selected = true;
+        _wizardMicDeviceIndex = d.index;
+      }
+      sel.appendChild(opt);
+    });
+    if (_wizardMicDeviceIndex === null && devices.length > 0) {
+      _wizardMicDeviceIndex = devices[0].index;
+      sel.value = _wizardMicDeviceIndex;
+    }
+  } catch(e) {
+    console.warn('wizLoadMicDevices error:', e);
+  }
+}
+
+function wizOnMicChange(val) {
+  _wizardMicDeviceIndex = parseInt(val, 10);
+  _wizardMicTested = false;
+  wizUpdateNextButton();
+  document.getElementById('wizMicResult').style.display = 'none';
+  document.getElementById('wizMicValidation').textContent = '';
+}
+
+async function wizTestMicrophone() {
+  if (_wizardMicDeviceIndex === null) return;
+  const btn = document.getElementById('wizTestMicBtn');
+  const result = document.getElementById('wizMicResult');
+  const fill = document.getElementById('wizMicLevelFill');
+  const text = document.getElementById('wizMicLevelText');
+  const valid = document.getElementById('wizMicValidation');
+
+  btn.disabled = true;
+  btn.textContent = 'Listening...';
+  btn.classList.add('testing');
+  result.style.display = 'block';
+  fill.style.width = '0%';
+  text.textContent = 'Recording 2 seconds of audio...';
+  valid.textContent = '';
+
+  try {
+    await pywebview.api.set_audio_device(_wizardMicDeviceIndex);
+    const r = await pywebview.api.test_microphone(_wizardMicDeviceIndex, 2.0);
+    if (r.ok) {
+      const pct = Math.min(100, Math.round((r.rms / 2000) * 100));
+      fill.style.width = pct + '%';
+      if (r.has_audio) {
+        fill.className = 'wizard-mic-level-fill good';
+        text.textContent = 'Audio detected! Level: ' + pct + '%';
+        valid.textContent = 'Microphone is working!';
+        valid.className = 'wizard-validation success';
+        _wizardMicTested = true;
+      } else {
+        fill.className = 'wizard-mic-level-fill low';
+        text.textContent = 'Very low or no audio detected';
+        valid.textContent = 'Try speaking louder or check your microphone';
+        valid.className = 'wizard-validation error';
+        _wizardMicTested = false;
+      }
+    } else {
+      text.textContent = 'Error: ' + r.error;
+      valid.textContent = 'Microphone test failed';
+      valid.className = 'wizard-validation error';
+    }
+  } catch(e) {
+    text.textContent = 'Error: ' + e;
+    valid.textContent = 'Test failed';
+    valid.className = 'wizard-validation error';
+  }
+  btn.disabled = false;
+  btn.textContent = '🎤 Test Microphone (2 seconds)';
+  btn.classList.remove('testing');
+  wizUpdateNextButton();
+}
+
+// ── Complete Setup ──────────────────────────────────────────
+
+async function wizCompleteSetup() {
+  const btn = document.getElementById('wizBtnNext');
+  btn.disabled = true;
+  btn.textContent = 'Setting up...';
+  try {
+    const r = await pywebview.api.complete_setup();
+    if (r.ok) {
+      showToast('VoiceFlow is ready!', 'success');
+      hideWizard();
+    } else {
+      showToast('Setup error: ' + r.error, 'error');
+      btn.disabled = false;
+      btn.textContent = 'Finish Setup';
+    }
+  } catch(e) {
+    showToast('Setup failed: ' + e, 'error');
+    btn.disabled = false;
+    btn.textContent = 'Finish Setup';
+  }
+}
 
 // ── Snippets ──────────────────────────────────────────────────────────────
 let _snippets = [];
