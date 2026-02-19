@@ -283,8 +283,9 @@ class Api:
         sf.write_text(json.dumps(data, indent=2))
 
     def _update_env_var(self, key: str, value: str):
-        """Update or add a variable in the project .env file."""
-        env_path = PROJECT_ROOT / ".env"
+        """Update or add a variable in the user's .env file."""
+        env_path = Path.home() / ".voiceflow" / ".env"
+        env_path.parent.mkdir(parents=True, exist_ok=True)
         lines = []
         if env_path.exists():
             lines = env_path.read_text().splitlines()
