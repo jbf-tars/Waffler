@@ -6,12 +6,23 @@ Entry point: pywebview window + background hotkey/pipeline thread
 
 import sys
 import os
+import io
 import json
 import time
 import threading
 import pyperclip
 from pathlib import Path
 from datetime import datetime, date
+
+# ── Safe stdout/stderr for frozen exe (Windows cp1252 can't handle emoji) ──
+if getattr(sys, 'frozen', False):
+    try:
+        if sys.stdout and hasattr(sys.stdout, 'buffer'):
+            sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+        if sys.stderr and hasattr(sys.stderr, 'buffer'):
+            sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+    except Exception:
+        pass
 
 # ── Path setup ─────────────────────────────────────────────────────────
 PROJECT_ROOT = Path(__file__).parent
@@ -22,11 +33,10 @@ import webview
 from config import Config
 from audio import AudioRecorder
 import platform as _platform
+from hotkey import HotkeyListener
+from smart_hotkey import SmartHotkeyListener
 if _platform.system() == "Windows":
     from windows_hotkey import WindowsHotkeyListener
-else:
-    from hotkey import HotkeyListener
-    from smart_hotkey import SmartHotkeyListener
 from transcribe_whisper import WhisperTranscriber
 from style_openai import OpenAIStyler
 from license import validate_license, is_validated, get_license_key, LICENSE_FILE

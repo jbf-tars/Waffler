@@ -6,7 +6,6 @@ import time
 
 
 class ClipboardManager:
-    _last_paste_ts = 0.0
 
     @staticmethod
     def copy(text: str):
@@ -47,38 +46,23 @@ class ClipboardManager:
 
     @staticmethod
     def _auto_paste_windows(hwnd=None):
-        """Restore focus and paste once (debounced) to avoid duplicate pastes."""
+        """Restore focus to previous window and send Ctrl+V."""
         try:
             import ctypes
-
-            now = time.time()
-            # Guard against accidental duplicate trigger bursts
-            if now - ClipboardManager._last_paste_ts < 0.8:
-                print("⏭️  Skipping duplicate auto-paste")
-                return
-
-            WM_PASTE = 0x0302
             KEYEVENTF_KEYUP = 0x0002
             VK_CONTROL = 0x11
             VK_V = 0x56
 
             if hwnd:
                 ctypes.windll.user32.SetForegroundWindow(hwnd)
-                time.sleep(0.12)
+                time.sleep(0.15)  # let window regain focus
 
-                # Most reliable path: ask target window to paste directly
-                pasted = ctypes.windll.user32.SendMessageW(hwnd, WM_PASTE, 0, 0)
-                ClipboardManager._last_paste_ts = now
-                print("📋 Auto-pasted via WM_PASTE")
-                return pasted
-
-            # Fallback if no known target window
+            # Send Ctrl+V
             ctypes.windll.user32.keybd_event(VK_CONTROL, 0, 0, 0)
             ctypes.windll.user32.keybd_event(VK_V, 0, 0, 0)
-            time.sleep(0.04)
+            time.sleep(0.05)
             ctypes.windll.user32.keybd_event(VK_V, 0, KEYEVENTF_KEYUP, 0)
             ctypes.windll.user32.keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0)
-            ClipboardManager._last_paste_ts = now
             print("📋 Auto-pasted via Ctrl+V")
         except Exception as e:
             print(f"⚠️  Auto-paste failed: {e}")
