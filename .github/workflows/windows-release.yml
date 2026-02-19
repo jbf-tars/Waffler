@@ -2,6 +2,11 @@ name: Build Windows Installer
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Installer version override (e.g. 1.2.3). Leave blank to auto-detect.'
+        required: false
+        type: string
   push:
     tags:
       - 'v*'
@@ -44,9 +49,35 @@ jobs:
       - name: Set installer version
         shell: pwsh
         run: |
-          $version = if ($env:GITHUB_REF -like 'refs/tags/v*') { $env:GITHUB_REF_NAME.TrimStart('v') } else { '0.0.0-dev' }
-          (Get-Content installer\windows\VoiceFlow.iss) -replace '#define MyAppVersion ".*"', "#define MyAppVersion \"$version\"" | Set-Content installer\windows\VoiceFlow.iss
-          Write-Host "Installer version set to $version"
+          $issPath = 'installer\windows\VoiceFlow.iss'
+
+          if ($env:GITHUB_REF -like 'refs/tags/v*') {
+            $version = $env:GITHUB_REF_NAME.Substring(1)
+            $source = 'tag'
+          }
+          elseif ('${{ github.event.inputs.version }}') {
+            $version = '${{ github.event.inputs.version }}'
+            $source = 'workflow_dispatch input'
+          }
+          else {
+            $version = "0.0.0-dev.$env:GITHUB_RUN_NUMBER"
+            $source = 'default'
+          }
+
+          if (-not ($version -match '^[0-9A-Za-z][0-9A-Za-z.+-]*$')) {
+            throw "Invalid version string: '$version'"
+          }
+
+          $content = Get-Content -Path $issPath -Raw
+          $newLine = ('#define MyAppVersion "{0}"' -f $version)
+          $updated = [regex]::Replace($content, '^#define\s+MyAppVersion\s+"[^"]*"\s*$', $newLine, [System.Text.RegularExpressions.RegexOptions]::Multiline)
+
+          if ($updated -eq $content) {
+            throw "Could not find '#define MyAppVersion ...' in $issPath"
+          }
+
+          Set-Content -Path $issPath -Value $updated -Encoding utf8
+          Write-Host "Installer version set to '$version' (source: $source)"
 
       - name: Build installer
         shell: pwsh
