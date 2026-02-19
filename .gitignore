@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.so
+.venv/
+venv/
+
+# Env / secrets
+.env
+*.pem
+*.p12
+*.pfx
+
+# Build artifacts
+build/
+dist/
+dist-installer/
+*.spec
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Large release bundles (generated)
+VoiceFlow-*.zip
+voiceflow-source.tar.gz
+
+# Legacy/temp project snapshots
+VoiceFlow-v*-temp/
+dist-windows/
+
+# Tests / temp
+.pytest_cache/
+.mypy_cache/

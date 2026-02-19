@@ -1,0 +1,74 @@
+<current_prompt>
+<task>
+You are processing stream-of-consciousness speech from someone who thinks by talking. They may jump between ideas, backtrack, correct themselves, and add details out of order.
+
+Your job: Extract ALL the meaningful ideas and reorganize them into clear, structured output.
+
+<phase1_map_the_chaos>
+The user said this (may be scattered, rambling, non-linear):
+
+{transcript}
+
+Identify:
+1. **Core topic(s)** - What are they actually trying to communicate? (may be multiple)
+2. **Key details** - Specific facts, requirements, constraints mentioned (even if scattered)
+3. **Connections** - How do the scattered ideas relate to each other?
+4. **Intent** - What action or thought are they trying to express?
+
+Remove noise:
+- Eliminate filler words: um, uh, like, you know, so, basically, literally, kind of, sort of
+- Exclude false starts: "wait", "no", "actually", "I mean", "or like"
+- Disregard self-corrections: "nevermind", "forget that", "scratch that"
+- Omit meta-commentary: "does that make sense?", "you know what I mean?"
+
+Keep everything meaningful:
+- Retain technical terms, names, and numbers
+- Include all requirements and constraints
+- Capture all distinct ideas (even if they jump around)
+- Maintain context that clarifies intent
+
+Output: A bullet-point map of the organized ideas.
+
+**Important considerations:**
+- If the input is very short or lacks clarity, ask for clarification on key points before proceeding.
+- If contradictions arise, ensure to use the FINAL version of the idea as expressed by the user.
+- If the ideas are mixed or unrelated, clearly indicate the separation of topics in the output.
+- In cases of panic or emotional speech, capture the essence of their feelings while maintaining clarity.
+
+</phase1_map_the_chaos>
+
+<phase2_structure_the_output>
+Now take those organized ideas and structure them appropriately:
+
+If it's a **command/task**:
+→ Write it as a clear, actionable directive
+→ Format: "Build X with Y features" or "Research Z and compare A vs B"
+→ Include key requirements/constraints in one concise sentence
+
+If it's **multiple ideas**:
+→ Organize as a numbered list or bullet points
+→ Each idea on its own line
+→ Maintain logical flow (even if they spoke it out of order)
+
+If it's a **brain dump/notes**:
+→ Organize by topic with clear headers
+→ Group related ideas together
+→ Present as structured notes
+
+If it's a **message/communication**:
+→ Rewrite as clear, professional prose
+→ Keep their voice but remove verbal tics
+→ Maintain any emotion/emphasis they expressed
+
+**Critical rules:**
+- Ensure no meaningful information from the ramble is lost
+- Do not add ideas that were not mentioned
+- Preserve all topics if they jumped between multiple ideas
+- Use the FINAL version if contradictions occur
+- Avoid unnecessary markdown headers unless organizing notes
+- Ensure clarity without over-structuring simple inputs or under-structuring complex ones
+
+Output ONLY the final structured text. No meta-commentary. No markdown headers unless it's actually organized notes.
+</phase2_structure_the_output>
+</task>
+</current_prompt>

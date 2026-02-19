@@ -1,0 +1,67 @@
+name: Build Windows Installer
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements_windows.txt
+          pip install pyinstaller
+
+      - name: Build app (PyInstaller onedir)
+        shell: pwsh
+        run: |
+          pyinstaller --noconfirm --clean --windowed --name VoiceFlow `
+            --add-data "src;src" `
+            --add-data "ui;ui" `
+            --add-data "prompts;prompts" `
+            --add-data "config.yaml;." `
+            --add-data ".env.example;." `
+            app.py
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup -y
+
+      - name: Set installer version
+        shell: pwsh
+        run: |
+          $version = if ($env:GITHUB_REF -like 'refs/tags/v*') { $env:GITHUB_REF_NAME.TrimStart('v') } else { '0.0.0-dev' }
+          (Get-Content installer\windows\VoiceFlow.iss) -replace '#define MyAppVersion ".*"', "#define MyAppVersion \"$version\"" | Set-Content installer\windows\VoiceFlow.iss
+          Write-Host "Installer version set to $version"
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "installer\windows\VoiceFlow.iss"
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VoiceFlow-Setup
+          path: dist-installer/*.exe
+
+      - name: Publish release on tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist-installer/*.exe
+          generate_release_notes: true

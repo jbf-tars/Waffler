@@ -1,0 +1,130 @@
+/* VoiceFlow Overlay — pill/capsule shaped floating window */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  width:  280px;
+  height: 56px;
+  background: transparent;
+  overflow: hidden;
+  -webkit-app-region: drag;   /* let user drag the pill */
+  user-select: none;
+}
+
+/* ── Pill ─────────────────────────────────────────────────────────── */
+.overlay-pill {
+  display:         flex;
+  align-items:     center;
+  gap:             10px;
+  padding:         0 14px;
+  width:           280px;
+  height:          56px;
+  background:      rgba(26, 26, 26, 0.92);
+  border-radius:   28px;
+  border:          0.5px solid rgba(80, 80, 80, 0.45);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow:
+    0 4px 24px rgba(0,0,0,0.55),
+    0 1px 4px  rgba(0,0,0,0.35),
+    inset 0 0.5px 0 rgba(255,255,255,0.06);
+}
+
+/* ── Buttons ──────────────────────────────────────────────────────── */
+.btn-cancel,
+.btn-stop {
+  flex-shrink: 0;
+  display:     flex;
+  align-items: center;
+  justify-content: center;
+  width:       24px;
+  height:      24px;
+  border-radius: 50%;
+  border:      none;
+  cursor:      pointer;
+  transition:  transform 0.12s, opacity 0.12s;
+  -webkit-app-region: no-drag;
+}
+
+.btn-cancel {
+  background: rgba(70, 70, 70, 0.85);
+}
+.btn-cancel:hover {
+  background: rgba(100, 100, 100, 0.9);
+  transform: scale(1.10);
+}
+.btn-cancel:active {
+  transform: scale(0.93);
+  opacity: 0.7;
+}
+
+.btn-stop {
+  background: rgba(218, 30, 30, 0.88);
+}
+.btn-stop:hover {
+  background: rgba(240, 50, 50, 0.95);
+  transform: scale(1.10);
+}
+.btn-stop:active {
+  transform: scale(0.93);
+  opacity: 0.7;
+}
+
+.stop-square {
+  width:  8px;
+  height: 8px;
+  background: white;
+  border-radius: 1px;
+}
+
+/* ── VU bars ──────────────────────────────────────────────────────── */
+.bars-container {
+  flex:            1;
+  display:         flex;
+  align-items:     center;
+  justify-content: space-between;
+  gap:             3px;
+  height:          38px;
+}
+
+.bar {
+  flex:            1;
+  min-width:       3px;
+  max-width:       5px;
+  height:          4px;          /* idle minimum */
+  border-radius:   2px;
+  background:      rgba(100, 200, 80, 0.85);
+  transform-origin: center;
+  transition:
+    height        0.06s ease-out,
+    background    0.10s ease;
+}
+
+/* Bar colour buckets (set from JS) */
+.bar.low   { background: rgba(80,  200, 100, 0.85); }
+.bar.mid   { background: rgba(160, 220, 60,  0.90); }
+.bar.high  { background: rgba(240, 200, 40,  0.95); }
+.bar.peak  { background: rgba(240, 70,  30,  0.92); }
+
+/* ── Idle shimmer (when overlay first shows before audio) ─────────── */
+@keyframes shimmer {
+  0%,100% { height: 4px;  opacity: 0.35; }
+  50%      { height: 16px; opacity: 0.80; }
+}
+
+.bar.idle-anim {
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+.bar.idle-anim:nth-child(2) { animation-delay: 0.14s; }
+.bar.idle-anim:nth-child(3) { animation-delay: 0.28s; }
+.bar.idle-anim:nth-child(4) { animation-delay: 0.42s; }
+.bar.idle-anim:nth-child(5) { animation-delay: 0.56s; }
+.bar.idle-anim:nth-child(6) { animation-delay: 0.70s; }
+.bar.idle-anim:nth-child(7) { animation-delay: 0.56s; }
+.bar.idle-anim:nth-child(8) { animation-delay: 0.42s; }
+.bar.idle-anim:nth-child(9) { animation-delay: 0.28s; }
+.bar.idle-anim:nth-child(10){ animation-delay: 0.14s; }

@@ -1,0 +1,63 @@
+name: Build macOS App (unsigned for now)
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-macos:
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller create-dmg
+
+      - name: Build .app
+        run: |
+          pyinstaller --noconfirm --clean --windowed --name VoiceFlow \
+            --add-data "src:src" \
+            --add-data "ui:ui" \
+            --add-data "prompts:prompts" \
+            --add-data "config.yaml:." \
+            --add-data ".env.example:." \
+            app.py
+
+      - name: Package DMG (unsigned)
+        run: |
+          mkdir -p dist-installer
+          create-dmg \
+            --volname "VoiceFlow" \
+            --window-pos 200 120 \
+            --window-size 800 500 \
+            --icon-size 100 \
+            --icon "VoiceFlow.app" 200 220 \
+            --hide-extension "VoiceFlow.app" \
+            --app-drop-link 600 220 \
+            "dist-installer/VoiceFlow-mac-unsigned.dmg" \
+            "dist/"
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VoiceFlow-mac-unsigned
+          path: dist-installer/*.dmg
+
+      - name: Publish release on tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist-installer/*.dmg
+          generate_release_notes: true

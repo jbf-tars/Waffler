@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VoiceFlow</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-icon">🎙️</div>
+      <div class="logo-name">Voice<span>Flow</span></div>
+    </div>
+
+    <nav>
+      <div class="nav-item active" id="navHome" onclick="showPage('home')">
+        <span class="nav-icon">🏠</span> Home
+      </div>
+      <div class="nav-item" id="navVocab" onclick="showPage('vocabulary')">
+        <span class="nav-icon">📖</span> Vocabulary
+      </div>
+      <div class="nav-item" id="navSettings" onclick="showPage('settings')">
+        <span class="nav-icon">⚙️</span> Settings
+      </div>
+    </nav>
+
+    <div class="sidebar-bottom">
+      <div class="sidebar-section">
+        <div class="sidebar-label">✨ Mode</div>
+        <select id="modeSelect" class="sidebar-select" onchange="onModeChange(this.value)">
+          <option value="smart">📝 Normal</option>
+          <option value="adhd_ramble">🌀 Ramble</option>
+          <option value="agentic_engineering">⚡ Engineer</option>
+        </select>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="sidebar-label">🎙️ Mic</div>
+        <select id="micSelect" class="sidebar-select" onchange="onMicChange(this.value)"></select>
+      </div>
+
+      <div class="hotkey-hint">
+        <span class="hotkey-badge" id="hotkeyHint">Right ⌥</span>
+        <span>to talk</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main Home Page -->
+  <main class="main" id="mainArea">
+    <div class="header">
+      <div class="header-top">
+        <div class="header-title">
+          <h1>Welcome back 👋</h1>
+          <div class="subtitle" id="dateLabel">Your voice transcriptions, organised.</div>
+        </div>
+        <div class="header-actions">
+          <button class="settings-icon-btn" onclick="showPage('settings')" title="Settings">⚙️</button>
+          <div class="status-indicator idle" id="statusIndicator">
+            <div class="status-dot"></div>
+            <span id="statusText">Ready</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="stats-bar">
+        <div class="stat-card">
+          <div class="stat-label">Today's Words</div>
+          <div class="stat-value" id="statWords">0</div>
+          <div class="stat-sub">spoken today</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Transcriptions</div>
+          <div class="stat-value" id="statCount">0</div>
+          <div class="stat-sub">today</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">All Time</div>
+          <div class="stat-value" id="statTotal">0</div>
+          <div class="stat-sub">total words</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="feed-header">
+      <div class="feed-title">Recent Transcriptions</div>
+      <div class="feed-right">
+        <input type="text" id="searchInput" class="search-input" placeholder="Search…" oninput="onSearchInput(this.value)">
+        <div class="feed-count" id="feedCount">0 entries</div>
+      </div>
+    </div>
+
+    <div class="empty-state" id="emptyState">
+      <div class="empty-icon">🎙️</div>
+      <div class="empty-label">No transcriptions yet</div>
+      <div class="empty-sub" id="emptyHint">Press hotkey and speak</div>
+    </div>
+
+    <div id="transcriptFeed"></div>
+  </main>
+
+  <!-- Settings Panel -->
+  <div class="settings-panel" id="settingsPanel" style="display:none">
+    <div class="settings-header">
+      <div class="settings-header-row">
+        <div>
+          <h1>Settings</h1>
+          <div class="subtitle">Configure VoiceFlow to your preferences.</div>
+        </div>
+        <button class="settings-icon-btn" onclick="showPage('home')" title="Back to Home">🏠</button>
+      </div>
+    </div>
+    
+    <div class="settings-body">
+      <!-- API Section -->
+      <div class="settings-section">
+        <div class="settings-section-title">🔑 API</div>
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-label">OpenAI API Key</div>
+            <div class="settings-row-desc">Get one at platform.openai.com</div>
+          </div>
+          <div class="settings-row-control stacked">
+            <input type="password" id="apiKeyInput" class="settings-input" placeholder="sk-…">
+            <button class="settings-btn" onclick="saveApiKey()">Save</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Usage Section -->
+      <div class="settings-section">
+        <div class="settings-section-title">📊 Usage</div>
+        <div class="usage-stats-grid">
+          <div class="usage-stat-card">
+            <div class="usage-stat-label">This Month</div>
+            <div class="usage-stat-value" id="usageMonthCost">$0.00</div>
+          </div>
+          <div class="usage-stat-card">
+            <div class="usage-stat-label">All Time</div>
+            <div class="usage-stat-value" id="usageTotalCost">$0.00</div>
+          </div>
+          <div class="usage-stat-card">
+            <div class="usage-stat-label">Transcriptions</div>
+            <div class="usage-stat-value" id="usageTranscriptions">0</div>
+          </div>
+          <div class="usage-stat-card">
+            <div class="usage-stat-label">Avg Cost</div>
+            <div class="usage-stat-value" id="usageAvgCost">$0.00</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- About -->
+      <div class="settings-section">
+        <div class="settings-section-title">ℹ️ About</div>
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-label">VoiceFlow</div>
+            <div class="settings-row-desc">v1.0 · Built with Whisper + GPT-4o-mini</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Vocabulary Panel -->
+  <div class="vocabulary-panel" id="vocabularyPanel" style="display:none">
+    <div class="vocab-header">
+      <h1>📖 Vocabulary</h1>
+      <div class="subtitle">Custom words for better transcription.</div>
+    </div>
+    <div class="vocab-add-row">
+      <input type="text" id="vocabInput" class="vocab-input" placeholder="Add word or phrase...">
+      <button class="vocab-add-btn" onclick="addVocabWord()">+ Add</button>
+    </div>
+    <div id="vocabList" class="vocab-list"></div>
+  </div>
+
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
