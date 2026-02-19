@@ -479,11 +479,15 @@ class Api:
         """Called when the setup wizard finishes. Initializes the pipeline."""
         try:
             _mark_setup_complete()
-            _initialize_pipeline()
-            if _pipeline:
-                return {"ok": True, "message": "Setup complete! VoiceFlow is ready."}
-            else:
-                return {"ok": False, "error": "Pipeline failed to initialize. Check API key."}
+            # Initialize pipeline in a background thread so this API call
+            # returns immediately (pipeline init includes tkinter overlay
+            # which can block on non-main threads).
+            threading.Thread(
+                target=_initialize_pipeline,
+                daemon=True,
+                name="PipelineInit"
+            ).start()
+            return {"ok": True, "message": "Setup complete! VoiceFlow is ready."}
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
