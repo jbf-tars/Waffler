@@ -102,6 +102,36 @@ ls -lh release-assets
 
 ---
 
+## 3.5) Validate macOS DMG artifact integrity (recommended)
+
+Use this before sharing the `.dmg` from Actions artifacts:
+
+```bash
+# Example: latest successful macOS run
+RUN_ID=$(gh run list -R ns7v2h9k6h-web/voiceflow-app \
+  --workflow "Build macOS App (unsigned for now)" \
+  --status completed --json databaseId,conclusion \
+  --jq '.[] | select(.conclusion=="success") | .databaseId' | head -n1)
+
+# Download artifact
+mkdir -p tmp/artifacts/macos-$RUN_ID
+gh run download "$RUN_ID" -R ns7v2h9k6h-web/voiceflow-app \
+  -n VoiceFlow-mac-unsigned -D tmp/artifacts/macos-$RUN_ID
+
+# Verify DMG checksum/container integrity
+hdiutil verify tmp/artifacts/macos-$RUN_ID/VoiceFlow-mac-unsigned.dmg
+
+# Mount and confirm app bundle exists
+MOUNT=$(hdiutil attach tmp/artifacts/macos-$RUN_ID/VoiceFlow-mac-unsigned.dmg -nobrowse -readonly | awk '/\/Volumes\//{print $3; exit}')
+ls -lah "$MOUNT"
+test -d "$MOUNT/VoiceFlow.app" && echo "VoiceFlow.app present"
+hdiutil detach "$MOUNT"
+```
+
+Expected:
+- `hdiutil verify` ends with `checksum ... is VALID`
+- Mounted volume contains `VoiceFlow.app`
+
 ## 4) Update website download links
 
 Update the website so each platform points to the **new release asset URLs**.
