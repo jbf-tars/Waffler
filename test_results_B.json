@@ -1,0 +1,579 @@
+{
+  "meta": {
+    "model": "gpt-4o-mini",
+    "timestamp": "2026-02-17T22:18:44Z",
+    "total_transcripts": 20,
+    "adhd_count": 10,
+    "agentic_count": 10
+  },
+  "adhd_results": [
+    {
+      "id": "A01",
+      "type": "real_test_case",
+      "transcript": "yes set up the synthetic transcript testing idea and then rate the responses out of 100 and improve based on them spawn multiple sub agents in to do this which are all working on the same thing in a different way and then send bugs improvements for the main dev to fix and then produce v9 however are we still still modes or just sticking to one because sometimes i feel like im rambling even this prompt which is a waste technically as it could be structured best for you to understand so would another mode like adhd or agentic engineering be better suited that style it in a different way to what the normal mode would do so is the normal mode for everyday use and then agentic mode for prompting do you get me you can even use this as a test for the agents and versions of this",
+      "output": "- Set up the synthetic transcript testing idea.\n- Rate the responses out of 100 and improve based on the ratings.\n- Spawn multiple sub-agents to work on the same task in different ways.\n- Send bug reports and improvement suggestions to the main developer for fixes.\n- Produce version 9 of the project.\n- Consider whether to maintain multiple modes or stick to one mode.\n- Explore the idea of using different modes, such as ADHD mode or agentic engineering mode, to better suit specific tasks.\n- Determine if the normal mode is for everyday use and if agentic mode is better for prompting.\n- Use this as a test for the agents and different versions of the project.",
+      "score": {
+        "accuracy": 25,
+        "format": 25,
+        "completeness": 25,
+        "actionability": 25,
+        "total": 100,
+        "weaknesses": [],
+        "notes": "The output perfectly captures all ideas in a clear and actionable format."
+      }
+    },
+    {
+      "id": "A02",
+      "type": "long_multi_topic_brain_dump",
+      "transcript": "okay so i was thinking about the gym routine right and i need to sort that out maybe go Monday Wednesday Friday and then also i keep forgetting to drink water throughout the day which is bad anyway speaking of health i should book that dentist appointment i've been putting off for like three months now okay but actually the main thing i wanted to think about is this side project right so the idea is like a habit tracker but not a boring one something that actually gives you points like gamified and you can compete with friends and uh oh also i was going to say i need to email Sarah about the contract renewal before Friday that's important don't let me forget that and back to the habit tracker i was thinking it should sync with Apple Health because that way it can auto log workouts and sleep and then the gamification layer sits on top of that real data not fake self-reported stuff you know what i mean",
+      "output": "- Gym routine: Plan to go on Monday, Wednesday, and Friday.\n- Need to remember to drink water throughout the day for health.\n- Should book a dentist appointment that has been postponed for three months.\n- Main focus: Developing a side project that is a gamified habit tracker.\n  - The tracker should provide points and allow competition with friends.\n  - It should sync with Apple Health to auto-log workouts and sleep.\n  - The gamification layer will utilize real data instead of self-reported information.\n- Need to email Sarah about the contract renewal before Friday.",
+      "score": {
+        "accuracy": 25,
+        "format": 25,
+        "completeness": 25,
+        "actionability": 25,
+        "total": 100,
+        "weaknesses": [],
+        "notes": "The output effectively captures all ideas in a clear and actionable format."
+      }
+    },
+    {
+      "id": "A03",
+      "type": "heavy_self_correction",
+      "transcript": "so the meeting is on Thursday no wait it's Wednesday yeah Wednesday at three pm actually no it was moved to four pm and it's in the Zoom link that Jane sent no actually it's Teams not Zoom she said Teams and the topic is the Q2 roadmap no not Q2 it's Q3 planning because Q2 is basically done the agenda includes the new pricing model and uh also the customer feedback from last sprint oh and there's a design review bit too Sarah is presenting the new onboarding flow actually i think it's Tom not Sarah i need to double check that",
+      "output": "- The meeting is scheduled for Wednesday at 4 PM.\n- The meeting will be held on Microsoft Teams, as indicated by Jane.\n- The topic of the meeting is Q3 planning.\n- The agenda includes:\n  - Discussion of the new pricing model.\n  - Review of customer feedback from the last sprint.\n  - A design review segment.\n- Sarah was initially thought to be presenting the new onboarding flow, but it may actually be Tom. A double-check is needed.",
+      "score": {
+        "accuracy": 25,
+        "format": 25,
+        "completeness": 25,
+        "actionability": 25,
+        "total": 100,
+        "weaknesses": [],
+        "notes": "The output perfectly captures all ideas in a clear and actionable format."
+      }
+    },
+    {
+      "id": "A04",
+      "type": "idea_abandonment_and_return",
+      "transcript": "i want to write a blog post about productivity systems but actually let me first figure out the newsletter cadence so i was thinking weekly but then maybe biweekly is more sustainable for quality you know okay and then the newsletter should have a personal story section and then a tool recommendation and three quick links that's the format and the name should be something catchy not just 'my newsletter' something like 'Second Brain Weekly' or 'The Clarity Letter' anyway back to that blog post idea from before i actually want to write about why most productivity systems fail specifically they fail because people optimise for capturing not for doing and that's the core thesis",
+      "output": "- The user wants to write a blog post about productivity systems.\n- They are considering the cadence for a newsletter, initially thinking weekly but leaning towards biweekly for sustainability and quality.\n- The newsletter format should include:\n  - A personal story section\n  - A tool recommendation\n  - Three quick links\n- The newsletter should have a catchy name, such as \"Second Brain Weekly\" or \"The Clarity Letter.\"\n- The core thesis of the blog post is that most productivity systems fail because people optimize for capturing information rather than for doing tasks.",
+      "score": {
+        "accuracy": 25,
+        "format": 25,
+        "completeness": 25,
+        "actionability": 25,
+        "total": 100,
+        "weaknesses": [],
+        "notes": "The output perfectly captures all ideas in a clear and actionable format."
+      }
+    },
+    {
+      "id": "A05",
+      "type": "mixed_personal_work",
+      "transcript": "okay i need to think through the week ahead so work stuff first the PR for the auth refactor needs to be merged by Tuesday and i need to unblock Jamie on the backend endpoints he's been waiting for my review and that's blocking his sprint personally i need to call mum this weekend she's been asking about the holiday plans and we haven't decided if we're doing Portugal or Italy yet i lean Italy because the food is better and it's slightly cheaper flights right now back to work i should also ping the design team about the empty states we still haven't got assets for the error screen and the loading skeleton",
+      "output": "- Work tasks for the week:\n  - The PR for the auth refactor needs to be merged by Tuesday.\n  - Unblock Jamie on the backend endpoints; he is waiting for my review, which is blocking his sprint.\n  - Ping the design team about the empty states; we still need assets for the error screen and the loading skeleton.\n\n- Personal tasks for the weekend:\n  - Call Mum; she has been asking about holiday plans.\n  - Decide between Portugal or Italy for the holiday; I lean towards Italy because the food is better and flights are slightly cheaper right now.",
+      "score": {
+        "accuracy": 25,
+        "format": 25,
+        "completeness": 25,
+        "actionability": 25,
+        "total": 100,
+        "weaknesses": [],
+        "notes": "The output perfectly captures all ideas in a clear and actionable format."
+      }
+    },
+    {
+      "id": "A06",
+      "type": "four_topic_hop",
+      "transcript": "so climate change is actually a really interesting lens through which to look at urban planning and i've been reading about fifteen minute cities which is the idea that everything you need should be walkable within fifteen minutes and Paris is actually implementing this and it's fascinating then separately completely different topic i've been thinking about getting a mechanical keyboard the Keychron Q1 looks sick but it's two hundred quid and i'm not sure it's justified oh and i wanted to look into fasting protocols specifically five two versus sixteen eight for mental clarity not weight loss and also i keep meaning to set up Obsidian properly with the Zettelkasten method i tried once but gave up because linking notes felt tedious but i think the payoff is huge long term",
+      "output": "- Climate change is an interesting lens for urban planning.\n- The concept of \"fifteen-minute cities\" suggests that all essential services should be within a fifteen-minute walk.\n- Paris is currently implementing the fifteen-minute city model.\n- The user is considering purchasing a mechanical keyboard, specifically the Keychron Q1, which costs around \u00a3200, but is unsure if the expense is justified.\n- The user is interested in researching fasting protocols, particularly comparing the five-two method versus the sixteen-eight method, focusing on mental clarity rather than weight loss.\n- The user intends to set up Obsidian using the Zettelkasten method, having previously attempted it but found linking notes tedious; however, they believe the long-term payoff is significant.",
+      "score": {
+        "accuracy": 25,
+        "format": 25,
+        "completeness": 25,
+        "actionability": 25,
+        "total": 100,
+        "weaknesses": [],
+        "notes": "The output perfectly captures all ideas in a clear and actionable format."
+      }
+    },
+    {
+      "id": "A07",
+      "type": "panic_fragmented",
+      "transcript": "wait wait wait okay so the deploy broke right the production deploy it's down users are seeing five hundreds okay so first we need to roll back no wait check the logs first actually Tyler said he saw a memory spike before it went down so maybe it's not the new deploy maybe it's the cron job that runs at midnight oh but we did push a new version of the image processor yesterday so it could be that the image processor plus the cron hitting at the same time okay so plan is check logs first then decide rollback or hotfix also someone needs to post a status update like right now the customers are pinging us",
+      "output": "- The production deploy is down, and users are experiencing server errors (500s).\n- First step: Check the logs to diagnose the issue.\n- Tyler observed a memory spike before the system went down, which may indicate the problem.\n- Consideration: The issue might not be due to the new deploy but rather the cron job that runs at midnight.\n- A new version of the image processor was pushed yesterday, which could also be contributing to the problem, especially if it coincides with the cron job.\n- Plan of action: \n  - Check the logs first.\n  - Decide whether to roll back the deploy or implement a hotfix based on the findings.\n- Immediate need: Someone must post a status update to inform customers, as they are currently reaching out for information.",
+      "score": {
+        "accuracy": 25,
+        "format": 25,
+        "completeness": 25,
+        "actionability": 25,
+        "total": 100,
+        "weaknesses": [],
+        "notes": "The output is comprehensive, well-structured, and ready for immediate use."
+      }
+    },
+    {
+      "id": "A08",
+      "type": "slow_thoughtful_ramble",
+      "transcript": "i think... what i'm really trying to say is that the current onboarding experience is too complex for new users... like there are seven steps and most people drop off around step four which is the integration setup... and i think the reason is not that the integration is hard... it's that we haven't explained the value before asking them to do the hard work... so the fix would be... show a demo first like a two minute interactive product tour... and then when they get to the integration step they already understand WHY they're doing it... and i think that would reduce dropout significantly... maybe forty percent reduction in drop-off... we could test it with an A/B... that would tell us pretty quickly",
+      "output": "- The current onboarding experience is too complex for new users.\n- There are seven steps in the onboarding process.\n- Most users drop off around step four, which is the integration setup.\n- The integration setup is not inherently difficult; the issue lies in the lack of explanation of its value before users are asked to complete it.\n- A proposed solution is to show a demo first, such as a two-minute interactive product tour.\n- By demonstrating the value before the integration step, users will understand why they need to complete it.\n- This approach could potentially reduce dropout rates by approximately forty percent.\n- An A/B test could be conducted to evaluate the effectiveness of this solution.",
+      "score": {
+        "accuracy": 25,
+        "format": 25,
+        "completeness": 25,
+        "actionability": 25,
+        "total": 100,
+        "weaknesses": [],
+        "notes": "The output perfectly captures all ideas in a clear and actionable format."
+      }
+    },
+    {
+      "id": "A09",
+      "type": "stream_with_tangents",
+      "transcript": "so the book i'm reading right now is actually changing how i think about decision making it's called Thinking Fast and Slow Kahneman and the key insight is that system one thinking is automatic and emotional and system two is slow and deliberate and most of our mistakes come from using system one when we should use system two which is actually so relevant to product design because users operate in system one most of the time so if your product requires system two thinking to use it you've already lost them and this makes me want to audit our app for every place that requires deliberate thought and simplify it oh and i also need to buy the sequel it's called Noise also by Kahneman i think or maybe with a coauthor",
+      "output": "- The book currently being read is \"Thinking, Fast and Slow\" by Daniel Kahneman.\n- The key insight from the book is the distinction between two types of thinking: \n  - System One thinking, which is automatic and emotional.\n  - System Two thinking, which is slow and deliberate.\n- Most mistakes in decision-making occur when individuals rely on System One thinking instead of System Two.\n- This concept is particularly relevant to product design because users predominantly operate in System One.\n- If a product requires System Two thinking to use effectively, it risks losing users.\n- There is a desire to audit the app for areas that require deliberate thought and simplify those aspects.\n- The sequel to \"Thinking, Fast and Slow\" is called \"Noise,\" also by Kahneman, possibly with a coauthor.",
+      "score": {
+        "accuracy": 25,
+        "format": 25,
+        "completeness": 25,
+        "actionability": 25,
+        "total": 100,
+        "weaknesses": [],
+        "notes": "The output perfectly captures all ideas in a clear and actionable format."
+      }
+    },
+    {
+      "id": "A10",
+      "type": "contradictory_self_correcting",
+      "transcript": "we should launch the feature on Friday no actually Thursday gives us more buffer in case something breaks and we want to avoid weekend on-call the announcement should go on Twitter first no the newsletter first because our newsletter readers are the core users and they should hear it first the blog post should be technical no it should be accessible for a general audience because most people don't care about the implementation details they care about what it does for them the title should be something like 'Introducing X' no that's too boring make it benefit-led like 'Never lose a thought again' or something like that",
+      "output": "- Launch the feature on Thursday to allow for more buffer time in case something breaks, avoiding weekend on-call.\n- The announcement should be made via the newsletter first, as the newsletter readers are the core users and should hear it first.\n- The blog post should be accessible for a general audience rather than overly technical, as most people care about the benefits rather than implementation details.\n- The title of the blog post should be benefit-led, such as \"Never lose a thought again,\" instead of something boring like \"Introducing X.\"",
+      "score": {
+        "accuracy": 25,
+        "format": 25,
+        "completeness": 25,
+        "actionability": 25,
+        "total": 100,
+        "weaknesses": [],
+        "notes": "The output perfectly captures all ideas in a clear and actionable format."
+      }
+    }
+  ],
+  "agentic_results": [
+    {
+      "id": "G01",
+      "type": "real_test_case_agentic",
+      "transcript": "yes set up the synthetic transcript testing idea and then rate the responses out of 100 and improve based on them spawn multiple sub agents in to do this which are all working on the same thing in a different way and then send bugs improvements for the main dev to fix and then produce v9 however are we still still modes or just sticking to one because sometimes i feel like im rambling even this prompt which is a waste technically as it could be structured best for you to understand so would another mode like adhd or agentic engineering be better suited that style it in a different way to what the normal mode would do so is the normal mode for everyday use and then agentic mode for prompting do you get me you can even use this as a test for the agents and versions of this",
+      "output": "```\nIdea: Set up a synthetic transcript testing system that rates responses and improves based on feedback.\n\nVision:\n- Spawn multiple sub-agents to work on the same task in different ways.\n- Send bugs and improvements to the main developer for fixes.\n- Produce version 9 of the system.\n\nOpen questions / things to decide:\n- Should we maintain multiple modes or stick to one?\n- Is there a need for different modes like ADHD or agentic engineering for better prompting?\n\nNext step: Define the architecture for the synthetic transcript testing system and the roles of the sub-agents.\n```",
+      "score": {
+        "accuracy": 20,
+        "format": 25,
+        "completeness": 20,
+        "actionability": 20,
+        "total": 85,
+        "weaknesses": [
+          "Some nuances of the original transcript are lost",
+          "The rambling nature of the original is not fully captured"
+        ],
+        "notes": "The output is well-structured but misses some of the original's nuances and context."
+      }
+    },
+    {
+      "id": "G02",
+      "type": "clear_build_with_stack",
+      "transcript": "I want to build a dashboard that shows crypto prices updated every minute, using React, and it should have a dark theme and show percentage changes",
+      "output": "```\nBuild a dashboard that shows crypto prices updated every minute.\n\nTech stack: React\n\nRequirements:\n- Display crypto prices\n- Update prices every minute\n- Show percentage changes\n- Implement a dark theme\n\nConstraints:\n- Use a dark theme for the UI\n```",
+      "score": {
+        "accuracy": 25,
+        "format": 25,
+        "completeness": 25,
+        "actionability": 25,
+        "total": 100,
+        "weaknesses": [],
+        "notes": "The output perfectly captures all ideas from the transcript in a clear and actionable format."
+      }
+    },
+    {
+      "id": "G03",
+      "type": "vague_no_stack",
+      "transcript": "make something that tracks my habits",
+      "output": "```\nBuild a habit tracking application.\n\nTech stack: [not specified]\n\nRequirements:\n- Users should be able to log their daily habits.\n- The application should provide visual feedback on habit completion.\n- Users should be able to set goals for each habit.\n- Notifications should remind users to complete their habits.\n\nConstraints:\n- The design should be user-friendly and intuitive.\n```",
+      "score": {
+        "accuracy": 20,
+        "format": 25,
+        "completeness": 20,
+        "actionability": 20,
+        "total": 85,
+        "weaknesses": [
+          "Missing specific details about the tech stack",
+          "Lacks mention of user authentication or data storage"
+        ],
+        "notes": "The output is mostly clear and well-structured but lacks some specific details and completeness."
+      }
+    },
+    {
+      "id": "G04",
+      "type": "refactor_with_context",
+      "transcript": "the current login is broken when the session expires",
+      "output": "```\nFix the broken login functionality when the session expires.\n\nContext: The current login system fails to handle expired sessions properly.\n\nChanges needed:\n- Implement session expiration handling to prompt users to log in again.\n- Ensure that users are redirected to the login page after session expiration.\n\nKeep: The existing user authentication flow and UI elements.\n```",
+      "score": {
+        "accuracy": 25,
+        "format": 25,
+        "completeness": 25,
+        "actionability": 25,
+        "total": 100,
+        "weaknesses": [],
+        "notes": "The output effectively captures all ideas and is well-structured for implementation."
+      }
+    },
+    {
+      "id": "G05",
+      "type": "research_comparison",
+      "transcript": "should I use Postgres or MongoDB for this",
+      "output": "```\nResearch: database selection for a project\n\nCompare: Postgres vs MongoDB\n\nEvaluate on: performance, scalability, and data structure flexibility\n\nOutput: recommendation with reasoning\n```",
+      "score": {
+        "accuracy": 15,
+        "format": 25,
+        "completeness": 15,
+        "actionability": 15,
+        "total": 70,
+        "weaknesses": [
+          "Missed specific context of the project",
+          "Lacks detailed comparison points"
+        ],
+        "notes": "The output provides a structured approach but lacks depth and context from the original question."
+      }
+    },
+    {
+      "id": "G06",
+      "type": "complex_multi_feature_build",
+      "transcript": "so i want to build a SaaS app for freelancers to track their time and invoice clients automatically it should be Next.js on the frontend probably with shadcn for the UI and then a Node Express backend with Postgres for the database the core flows are time tracking with a start stop timer per project and then generating a PDF invoice from the tracked time the invoice should include line items with hourly rate and total auth should be email plus password no OAuth for now payments is a phase two thing don't worry about that now the whole thing should be deployable on Railway",
+      "output": "```\nBuild a SaaS app for freelancers to track their time and invoice clients automatically.\n\nTech stack: Next.js (frontend), shadcn (UI), Node.js with Express (backend), Postgres (database)\n\nRequirements:\n- Time tracking with a start/stop timer per project\n- Generate a PDF invoice from the tracked time\n- Invoice should include line items with hourly rate and total\n- Authentication via email and password (no OAuth for now)\n\nConstraints:\n- The entire application should be deployable on Railway\n```",
+      "score": {
+        "accuracy": 25,
+        "format": 25,
+        "completeness": 25,
+        "actionability": 25,
+        "total": 100,
+        "weaknesses": [],
+        "notes": "The output perfectly captures all ideas in a clear and actionable format."
+      }
+    },
+    {
+      "id": "G07",
+      "type": "rambling_refactor",
+      "transcript": "okay so the whole file upload component is a mess right now it doesn't handle errors properly like if someone uploads a file that's too big it just silently fails which is terrible UX and then also we're not validating the file type on the frontend only on the backend so users get a confusing error after waiting for the upload to finish and also the progress bar doesn't actually reflect real progress it's fake it just animates to ninety percent and waits so i want to fix all of that keep the existing API contract don't change the endpoints just fix the frontend component to handle these edge cases properly",
+      "output": "```\nFix the file upload component to handle errors and improve user experience.\n\nContext: The current file upload component does not handle errors properly, leading to silent failures for oversized files, lacks frontend validation for file types, and the progress bar inaccurately reflects progress.\n\nChanges needed:\n- Implement error handling for file size limits to provide user feedback.\n- Add frontend validation for file types to prevent unsupported uploads.\n- Update the progress bar to accurately reflect the real upload progress instead of animating to ninety percent.\n\nKeep: The existing API contract and endpoints should remain unchanged.\n```",
+      "score": {
+        "accuracy": 25,
+        "format": 25,
+        "completeness": 25,
+        "actionability": 25,
+        "total": 100,
+        "weaknesses": [],
+        "notes": "The output effectively captures all key ideas and is well-structured for implementation."
+      }
+    },
+    {
+      "id": "G08",
+      "type": "architecture_decision",
+      "transcript": "i'm trying to decide between building a microservices architecture versus just keeping everything as a monolith for this new project it's a B2B SaaS tool expected maybe fifty enterprise clients to start my team is three engineers and we're early stage i'm leaning monolith because the team is small but i want to understand the tradeoffs especially around scaling and if we need to split later what's the migration path look like",
+      "output": "```\nResearch: microservices architecture vs monolith for a B2B SaaS tool\n\nEvaluate on: scaling, migration path, team size considerations\n\nOutput: recommendation with reasoning\n```",
+      "score": {
+        "accuracy": 15,
+        "format": 25,
+        "completeness": 15,
+        "actionability": 15,
+        "total": 70,
+        "weaknesses": [
+          "Missed specific context about the number of clients",
+          "Lacked detail on tradeoffs and specific concerns raised"
+        ],
+        "notes": "The output captures the general topic but omits key details and context from the original transcript."
+      }
+    },
+    {
+      "id": "G09",
+      "type": "unclear_scope_agentic",
+      "transcript": "can you just make the app faster you know what i mean it feels slow when you open it especially the dashboard page it takes like three seconds to load i think it's the API calls we're making too many at once but i'm not sure maybe it's the database queries can you profile it and fix the biggest bottlenecks",
+      "output": "```\nFix performance issues in the app, particularly on the dashboard page.\n\nContext: The app feels slow when opened, especially the dashboard page, which takes about three seconds to load. There are concerns about the API calls and database queries potentially causing the slowdown.\n\nChanges needed:\n- Profile the app to identify the biggest bottlenecks.\n- Optimize API calls to reduce the number being made simultaneously.\n- Investigate and improve database query performance.\n\nKeep: The overall functionality and user experience of the app should remain intact.\n```",
+      "score": {
+        "accuracy": 20,
+        "format": 25,
+        "completeness": 20,
+        "actionability": 25,
+        "total": 90,
+        "weaknesses": [
+          "Minor omission of the user's uncertainty about the cause of the slowdown",
+          "Lack of specific mention of the three-second load time in the action items"
+        ],
+        "notes": "The output is well-structured and actionable but misses a couple of nuances from the original transcript."
+      }
+    },
+    {
+      "id": "G10",
+      "type": "mixed_build_research_question",
+      "transcript": "so for the AI feature i'm thinking of adding to the app i need to figure out first should i use OpenAI or Anthropic cost is important because it'll be called like ten thousand times a day and then once i've picked the provider i want to build a rate limiter so we don't blow through the budget the rate limiter should be per user per day with a hard cap maybe like fifty requests per user per day in the free tier and the AI feature itself is a summarisation thing where users paste a URL and we fetch the article and summarise it in three bullet points also i want to cache the results so the same URL doesn't get summarised twice Redis for the cache probably",
+      "output": "```\nBuild an AI feature for the app that summarizes articles.\n\nTech stack: OpenAI or Anthropic, Redis\n\nRequirements:\n- Users can paste a URL, and the app fetches the article and summarizes it in three bullet points.\n- Implement a rate limiter that restricts usage to fifty requests per user per day in the free tier.\n- Cache the results to prevent duplicate summarization of the same URL using Redis.\n\nConstraints:\n- The rate limiter should be per user per day.\n- Cost is a significant factor due to expected usage of around ten thousand calls per day.\n```",
+      "score": {
+        "accuracy": 25,
+        "format": 25,
+        "completeness": 25,
+        "actionability": 25,
+        "total": 100,
+        "weaknesses": [],
+        "notes": "The output effectively captures all key ideas and is well-structured for implementation."
+      }
+    }
+  ],
+  "analysis": {
+    "avg_adhd": 100.0,
+    "avg_agentic": 90.0,
+    "min_adhd": 100,
+    "max_adhd": 100,
+    "min_agentic": 70,
+    "max_agentic": 100,
+    "top_weaknesses": [
+      "some nuances of the original transcript are lost",
+      "the rambling nature of the original is not fully captured",
+      "missing specific details about the tech stack",
+      "lacks mention of user authentication or data storage",
+      "missed specific context of the project",
+      "lacks detailed comparison points",
+      "missed specific context about the number of clients",
+      "lacked detail on tradeoffs and specific concerns raised",
+      "minor omission of the user's uncertainty about the cause of the slowdown",
+      "lack of specific mention of the three-second load time in the action items"
+    ],
+    "all_weaknesses_raw": [
+      "Some nuances of the original transcript are lost",
+      "The rambling nature of the original is not fully captured",
+      "Missing specific details about the tech stack",
+      "Lacks mention of user authentication or data storage",
+      "Missed specific context of the project",
+      "Lacks detailed comparison points",
+      "Missed specific context about the number of clients",
+      "Lacked detail on tradeoffs and specific concerns raised",
+      "Minor omission of the user's uncertainty about the cause of the slowdown",
+      "Lack of specific mention of the three-second load time in the action items"
+    ]
+  },
+  "findings": {
+    "adhd_weaknesses": [],
+    "agentic_weaknesses": [
+      "Some nuances of the original transcript are lost",
+      "The rambling nature of the original is not fully captured",
+      "Missing specific details about the tech stack"
+    ],
+    "adhd_improvements": [],
+    "agentic_improvements": [
+      "Enhance the prompt to ensure it captures the nuances and context of the original transcript more effectively, especially in complex scenarios.",
+      "Incorporate a mechanism to better reflect the rambling nature of the original input, ensuring that the output maintains the original flow of thoughts.",
+      "Specify the requirement for detailed tech stack information in the prompt to ensure completeness in the outputs."
+    ],
+    "summary": "The ADHD prompt performed exceptionally well with no weaknesses identified, while the Agentic prompt exhibited several weaknesses, particularly in capturing nuances and details. Improvements focus on enhancing the depth and context of the outputs."
+  },
+  "retest": {
+    "adhd_v2": [
+      {
+        "id": "A01",
+        "type": "real_test_case",
+        "v1_score": 100,
+        "v2_score": 100,
+        "improvement": 0,
+        "output": "- Set up the synthetic transcript testing idea.\n- Rate the responses out of 100 and improve based on the ratings.\n- Spawn multiple sub-agents to work on the same task in different ways.\n- Send bugs and improvements for the main developer to fix.\n- Produce version 9 of the project.\n- Consider whether to maintain multiple modes or stick to one mode.\n- Explore the idea of using different modes, such as ADHD mode or agentic engineering mode, to better suit the style of prompting.\n- Determine if the normal mode is for everyday use and the agentic mode is specifically for prompting.\n- Use this as a test for the agents and versions of the project.",
+        "score": {
+          "accuracy": 25,
+          "format": 25,
+          "completeness": 25,
+          "actionability": 25,
+          "total": 100,
+          "weaknesses": [],
+          "notes": "The output perfectly captures all ideas in a clear and actionable format."
+        }
+      },
+      {
+        "id": "A02",
+        "type": "long_multi_topic_brain_dump",
+        "v1_score": 100,
+        "v2_score": 100,
+        "improvement": 0,
+        "output": "- Gym routine: Plan to go on Monday, Wednesday, and Friday.\n- Need to remember to drink water throughout the day for health.\n- Should book a dentist appointment that has been postponed for three months.\n- Main focus is a side project: a gamified habit tracker.\n  - The tracker will give points and allow competition with friends.\n  - It should sync with Apple Health to auto-log workouts and sleep.\n  - The gamification layer will utilize real data instead of self-reported information.\n- Need to email Sarah about the contract renewal before Friday.",
+        "score": {
+          "accuracy": 25,
+          "format": 25,
+          "completeness": 25,
+          "actionability": 25,
+          "total": 100,
+          "weaknesses": [],
+          "notes": "The output effectively captures all ideas in a clear and actionable format."
+        }
+      },
+      {
+        "id": "A03",
+        "type": "heavy_self_correction",
+        "v1_score": 100,
+        "v2_score": 90,
+        "improvement": -10,
+        "output": "- The meeting is scheduled for Wednesday at 4 PM.\n- The meeting will take place on Teams, not Zoom.\n- The topic of the meeting is Q3 planning.\n- The agenda includes:\n  - The new pricing model.\n  - Customer feedback from the last sprint.\n  - A design review.\n- Sarah is supposed to present the new onboarding flow, but it might be Tom instead; this needs to be confirmed.",
+        "score": {
+          "accuracy": 20,
+          "format": 25,
+          "completeness": 20,
+          "actionability": 25,
+          "total": 90,
+          "weaknesses": [
+            "Minor detail about the meeting being moved is omitted",
+            "The mention of Q2 being done is not included"
+          ],
+          "notes": "Overall, the output is clear and well-structured but misses a couple of minor details."
+        }
+      },
+      {
+        "id": "A04",
+        "type": "idea_abandonment_and_return",
+        "v1_score": 100,
+        "v2_score": 100,
+        "improvement": 0,
+        "output": "- Core topic: Writing a blog post about productivity systems.\n- Key details:\n  - The newsletter cadence is being considered, with options of weekly or biweekly.\n  - The newsletter format should include:\n    - A personal story section\n    - A tool recommendation\n    - Three quick links\n  - The newsletter name should be catchy, such as \"Second Brain Weekly\" or \"The Clarity Letter.\"\n  - The blog post will focus on why most productivity systems fail.\n  - The core thesis is that productivity systems fail because people optimize for capturing information rather than for doing tasks.\n- Connections:\n  - The newsletter and blog post ideas are both centered around productivity, suggesting a cohesive theme in the user's content creation.\n- Intent: To establish a structured approach to both the newsletter and the blog post, focusing on productivity themes.",
+        "score": {
+          "accuracy": 25,
+          "format": 25,
+          "completeness": 25,
+          "actionability": 25,
+          "total": 100,
+          "weaknesses": [],
+          "notes": "The output effectively captures all key ideas and presents them in a clear, actionable format."
+        }
+      },
+      {
+        "id": "A05",
+        "type": "mixed_personal_work",
+        "v1_score": 100,
+        "v2_score": 100,
+        "improvement": 0,
+        "output": "1. Work-related tasks:\n   - The PR for the auth refactor needs to be merged by Tuesday.\n   - Jamie is blocked on the backend endpoints and is waiting for a review, which is hindering his sprint.\n   - The design team needs to be contacted about the empty states; assets for the error screen and loading skeleton are still pending.\n\n2. Personal tasks:\n   - A call to mum is needed this weekend regarding holiday plans.\n   - The decision on whether to go to Portugal or Italy has not been made yet.\n   - Preference leans towards Italy due to better food and slightly cheaper flights at the moment.",
+        "score": {
+          "accuracy": 25,
+          "format": 25,
+          "completeness": 25,
+          "actionability": 25,
+          "total": 100,
+          "weaknesses": [],
+          "notes": "The output is perfectly structured, capturing all ideas accurately and is ready for immediate use."
+        }
+      }
+    ],
+    "agentic_v2": [
+      {
+        "id": "G05",
+        "type": "research_comparison",
+        "v1_score": 70,
+        "v2_score": 70,
+        "improvement": 0,
+        "output": "```\nResearch: database options for a project\n\nCompare: Postgres vs MongoDB\n\nEvaluate on: performance, scalability, and ease of use\n\nOutput: recommendation with reasoning\n```",
+        "score": {
+          "accuracy": 15,
+          "format": 25,
+          "completeness": 15,
+          "actionability": 15,
+          "total": 70,
+          "weaknesses": [
+            "Missed specific context of the project",
+            "Lacks detailed comparison points"
+          ],
+          "notes": "The output provides a structured approach but lacks depth and context."
+        }
+      },
+      {
+        "id": "G08",
+        "type": "architecture_decision",
+        "v1_score": 70,
+        "v2_score": 70,
+        "improvement": 0,
+        "output": "```\nResearch: microservices architecture vs monolith for a B2B SaaS tool\n\nCompare: microservices vs monolith\n\nEvaluate on: scaling, migration path if splitting later\n\nOutput: recommendation with reasoning\n```",
+        "score": {
+          "accuracy": 15,
+          "format": 20,
+          "completeness": 15,
+          "actionability": 20,
+          "total": 70,
+          "weaknesses": [
+            "Missed specific context about team size and early stage",
+            "Lacks detail on tradeoffs mentioned in the original transcript"
+          ],
+          "notes": "The output captures the main ideas but lacks depth and context, making it less effective for decision-making."
+        }
+      },
+      {
+        "id": "G01",
+        "type": "real_test_case_agentic",
+        "v1_score": 85,
+        "v2_score": 80,
+        "improvement": -5,
+        "output": "```\nIdea: Set up synthetic transcript testing with multiple sub-agents.\n\nVision:\n- Rate responses out of 100 and improve based on feedback.\n- Each sub-agent works on the same task in different ways.\n\nOpen questions / things to decide:\n- Should we maintain multiple modes or stick to one?\n- Is there a need for an \"agentic engineering\" mode for prompting?\n\nNext step: Implement the synthetic transcript testing and spawn sub-agents to begin the process.\n```",
+        "score": {
+          "accuracy": 20,
+          "format": 25,
+          "completeness": 15,
+          "actionability": 20,
+          "total": 80,
+          "weaknesses": [
+            "Missed some nuances about rambling and structuring prompts",
+            "Did not fully capture the discussion about mode suitability"
+          ],
+          "notes": "The output is well-structured but lacks some depth and nuance from the original transcript."
+        }
+      },
+      {
+        "id": "G03",
+        "type": "vague_no_stack",
+        "v1_score": 85,
+        "v2_score": 100,
+        "improvement": 15,
+        "output": "```\nBuild a habit tracking application.\n\nTech stack: JavaScript, React, Node.js, MongoDB\n\nRequirements:\n- User authentication and authorization\n- Ability to add, edit, and delete habits\n- Dashboard to visualize habit progress over time\n- Notifications for habit reminders\n\nConstraints:\n- Responsive design for mobile and desktop\n- Clean and intuitive user interface\n```",
+        "score": {
+          "accuracy": 25,
+          "format": 25,
+          "completeness": 25,
+          "actionability": 25,
+          "total": 100,
+          "weaknesses": [],
+          "notes": "The output perfectly captures the original idea and presents it in a clear, actionable format."
+        }
+      },
+      {
+        "id": "G09",
+        "type": "unclear_scope_agentic",
+        "v1_score": 90,
+        "v2_score": 90,
+        "improvement": 0,
+        "output": "```\nFix performance issues in the app, particularly on the dashboard page.\n\nContext: The app feels slow when opened, especially the dashboard page, which takes about three seconds to load. The user suspects that the API calls or database queries might be causing the delay.\n\nChanges needed:\n- Profile the app to identify the biggest bottlenecks.\n- Optimize API calls to reduce the number being made at once.\n- Investigate and optimize database queries.\n\nKeep: The overall functionality and user experience of the app should remain unchanged.\n```",
+        "score": {
+          "accuracy": 20,
+          "format": 25,
+          "completeness": 20,
+          "actionability": 25,
+          "total": 90,
+          "weaknesses": [
+            "Minor details about the user's uncertainty regarding the cause of slowness were omitted."
+          ],
+          "notes": "The output is clear and actionable, with a strong structure, but it misses some nuances from the original transcript."
+        }
+      }
+    ]
+  },
+  "summary": {
+    "avg_adhd_v1": 100.0,
+    "avg_adhd_v2_sample": 98.0,
+    "avg_adhd_improvement_sample": -2.0,
+    "avg_agentic_v1": 90.0,
+    "avg_agentic_v2_sample": 82.0,
+    "avg_agentic_improvement_sample": 2.0,
+    "top_3_weaknesses": [],
+    "top_3_agentic_weaknesses": [
+      "Some nuances of the original transcript are lost",
+      "The rambling nature of the original is not fully captured",
+      "Missing specific details about the tech stack"
+    ]
+  }
+}

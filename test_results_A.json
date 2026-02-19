@@ -1,0 +1,920 @@
+{
+  "run_info": {
+    "model": "gpt-4o-mini",
+    "num_transcripts": 20,
+    "prompts_tested": [
+      "smart.txt",
+      "normal.txt"
+    ],
+    "improved_prompts": [
+      "smart_v2.txt",
+      "normal_v2.txt"
+    ]
+  },
+  "scores_summary": {
+    "smart_v1_avg": 94.5,
+    "normal_v1_avg": 95.2,
+    "smart_v2_estimated_avg": 102.0,
+    "normal_v2_estimated_avg": 96.7,
+    "smart_individual": [
+      {
+        "id": 1,
+        "label": "Real test case \u2014 ADHD ramble (Smart mode)",
+        "score": 100
+      },
+      {
+        "id": 2,
+        "label": "Shopping list \u2014 natural speech",
+        "score": 100
+      },
+      {
+        "id": 3,
+        "label": "Quick reminder",
+        "score": 100
+      },
+      {
+        "id": 4,
+        "label": "Short message to John",
+        "score": 80
+      },
+      {
+        "id": 5,
+        "label": "Simple computer task",
+        "score": 100
+      },
+      {
+        "id": 6,
+        "label": "Single word noise \u2014 hello",
+        "score": 100
+      },
+      {
+        "id": 7,
+        "label": "Testing filler noise",
+        "score": 75
+      },
+      {
+        "id": 8,
+        "label": "Pure filler \u2014 um",
+        "score": 100
+      },
+      {
+        "id": 9,
+        "label": "Mixed \u2014 starts reminder, pivots to list",
+        "score": 100
+      },
+      {
+        "id": 10,
+        "label": "Meeting with numbers and date",
+        "score": 100
+      },
+      {
+        "id": 11,
+        "label": "1 word \u2014 name",
+        "score": 100
+      },
+      {
+        "id": 12,
+        "label": "2-3 word command",
+        "score": 100
+      },
+      {
+        "id": 13,
+        "label": "Long ramble \u2014 project ideas",
+        "score": 75
+      },
+      {
+        "id": 14,
+        "label": "Email to boss dictated",
+        "score": 95
+      },
+      {
+        "id": 15,
+        "label": "Self-correction mid-sentence",
+        "score": 85
+      },
+      {
+        "id": 16,
+        "label": "Technical specs with numbers",
+        "score": 90
+      },
+      {
+        "id": 17,
+        "label": "Multi-step task",
+        "score": 100
+      },
+      {
+        "id": 18,
+        "label": "Frustrated personal note",
+        "score": 100
+      },
+      {
+        "id": 19,
+        "label": "Shopping list with quantities",
+        "score": 95
+      },
+      {
+        "id": 20,
+        "label": "Ambiguous \u2014 could be task or note",
+        "score": 95
+      }
+    ],
+    "normal_individual": [
+      {
+        "id": 1,
+        "label": "Real test case \u2014 ADHD ramble (Smart mode)",
+        "score": 95
+      },
+      {
+        "id": 2,
+        "label": "Shopping list \u2014 natural speech",
+        "score": 90
+      },
+      {
+        "id": 3,
+        "label": "Quick reminder",
+        "score": 100
+      },
+      {
+        "id": 4,
+        "label": "Short message to John",
+        "score": 100
+      },
+      {
+        "id": 5,
+        "label": "Simple computer task",
+        "score": 100
+      },
+      {
+        "id": 6,
+        "label": "Single word noise \u2014 hello",
+        "score": 100
+      },
+      {
+        "id": 7,
+        "label": "Testing filler noise",
+        "score": 75
+      },
+      {
+        "id": 8,
+        "label": "Pure filler \u2014 um",
+        "score": 100
+      },
+      {
+        "id": 9,
+        "label": "Mixed \u2014 starts reminder, pivots to list",
+        "score": 85
+      },
+      {
+        "id": 10,
+        "label": "Meeting with numbers and date",
+        "score": 100
+      },
+      {
+        "id": 11,
+        "label": "1 word \u2014 name",
+        "score": 95
+      },
+      {
+        "id": 12,
+        "label": "2-3 word command",
+        "score": 100
+      },
+      {
+        "id": 13,
+        "label": "Long ramble \u2014 project ideas",
+        "score": 100
+      },
+      {
+        "id": 14,
+        "label": "Email to boss dictated",
+        "score": 95
+      },
+      {
+        "id": 15,
+        "label": "Self-correction mid-sentence",
+        "score": 90
+      },
+      {
+        "id": 16,
+        "label": "Technical specs with numbers",
+        "score": 100
+      },
+      {
+        "id": 17,
+        "label": "Multi-step task",
+        "score": 100
+      },
+      {
+        "id": 18,
+        "label": "Frustrated personal note",
+        "score": 85
+      },
+      {
+        "id": 19,
+        "label": "Shopping list with quantities",
+        "score": 93
+      },
+      {
+        "id": 20,
+        "label": "Ambiguous \u2014 could be task or note",
+        "score": 100
+      }
+    ]
+  },
+  "weaknesses": {
+    "smart_prompt": "1. **Inconsistent Output Formatting**: In several cases, the output deviates from the expected bullet-point format, particularly in ID 13 (Long ramble \u2014 project ideas) and ID 16 (Technical specs with numbers). The failure to consistently apply the bullet-point structure leads to a lack of uniformity in how information is presented, which can confuse users expecting a specific format.\n\n2. **Inclusion of Filler Phrases**: The outputs for ID 14 (Email to boss dictated) and ID 20 (Ambiguous \u2014 could be task or note) include unnecessary filler phrases that could be omitted for conciseness. This not only affects the clarity of the message but also detracts from the efficiency of the voice-to-text conversion, as users may prefer more direct and succinct outputs.\n\n3. **Failure to Capture Contextual Nuances**: In ID 15 (Self-correction mid-sentence), the output inaccurately specifies \"cheddar cheese\" instead of simply \"cheddar,\" which indicates a failure to accurately interpret and condense the user's intent. This suggests a weakness in the prompt's ability to handle self-corrections and contextual shifts effectively, leading to potential miscommunication.",
+    "normal_prompt": "1. **Retention of Filler Phrases**: In multiple test cases (e.g., IDs 1, 2, 9, 18, and 19), the output retains unnecessary filler phrases such as \"um,\" \"oh,\" and \"like,\" which detract from the clarity and conciseness of the final transcription. This indicates a weakness in the prompt's ability to filter out non-essential speech elements.\n\n2. **Inconsistent Formatting**: The output occasionally fails to adhere to expected capitalization and formatting conventions, as seen in ID 11 where \"pizza\" is not capitalized. This inconsistency can lead to a lack of professionalism in the output, particularly in contexts where proper nouns or specific formatting are crucial.\n\n3. **Handling of Self-Corrections**: In cases like IDs 9 and 15, the output does not effectively manage self-corrections made by the speaker. Instead of accurately reflecting the speaker's final intent, the output includes unnecessary elements or incorrect specifications (e.g., \"cheese\" instead of \"cheddar\"). This suggests a weakness in the prompt's ability to discern and prioritize the speaker's final decisions over their initial thoughts."
+  },
+  "spot_checks_v2": {
+    "smart": [
+      {
+        "id": 7,
+        "label": "Testing filler noise",
+        "old_score": 75,
+        "new_score": 100,
+        "new_output": "",
+        "new_notes": "The output correctly reflects the expected empty string format for noise."
+      },
+      {
+        "id": 13,
+        "label": "Long ramble \u2014 project ideas",
+        "old_score": 75,
+        "new_score": 100,
+        "new_output": "- Core feature: voice interface for natural interaction\n- Calendar sync: automatically add dictated appointments to calendar\n- Smart formatting: different output modes\n  - Developer mode: includes code snippets and task breakdowns\n  - Regular user mode: clean text, shopping lists, reminders\n- Monetization options:\n  - Subscription model: \u00a35 per month\n  - Freemium model: basic features free, power features behind paywall",
+        "new_notes": "The output accurately captures all key points in a clean and well-structured format."
+      },
+      {
+        "id": 4,
+        "label": "Short message to John",
+        "old_score": 80,
+        "new_score": 100,
+        "new_output": "Tell John I'll be 10 minutes late.",
+        "new_notes": "The output accurately reflects the message with the correct format and is clean and free of hallucinations."
+      },
+      {
+        "id": 15,
+        "label": "Self-correction mid-sentence",
+        "old_score": 85,
+        "new_score": 85,
+        "new_output": "- Eggs\n- Butter\n- Cheddar cheese",
+        "new_notes": "The output is mostly accurate but includes 'cheddar cheese' instead of just 'cheddar'."
+      },
+      {
+        "id": 16,
+        "label": "Technical specs with numbers",
+        "old_score": 90,
+        "new_score": 95,
+        "new_output": "- 16 gigabytes of RAM minimum\n- At least 500 gigabytes of storage\n- Running Ubuntu 22.04",
+        "new_notes": "The output is mostly accurate and well-formatted, but could be cleaner by removing filler words."
+      }
+    ],
+    "normal": [
+      {
+        "id": 7,
+        "label": "Testing filler noise",
+        "old_score": 75,
+        "new_score": 75,
+        "new_output": "testing testing one two three",
+        "new_notes": "The output is accurate and clean but does not follow the expected format."
+      },
+      {
+        "id": 9,
+        "label": "Mixed \u2014 starts reminder, pivots to list",
+        "old_score": 85,
+        "new_score": 85,
+        "new_output": "Remind me to buy stuff for the party. We need cups, plates, napkins, balloons, and some snacks like crisps and maybe dip.",
+        "new_notes": "The output included unnecessary introductory phrases and retained filler words, affecting cleanliness and accuracy."
+      },
+      {
+        "id": 18,
+        "label": "Frustrated personal note",
+        "old_score": 85,
+        "new_score": 90,
+        "new_output": "I am so done with this project. It's been three weeks and nothing works. I just need to write down that we need a complete architecture review before we add any more features.",
+        "new_notes": "The output is mostly accurate but includes unnecessary filler words."
+      },
+      {
+        "id": 2,
+        "label": "Shopping list \u2014 natural speech",
+        "old_score": 90,
+        "new_score": 100,
+        "new_output": "I need to get bananas, milk, cereal, bread, and maybe some yogurt if it's on sale.",
+        "new_notes": "The output perfectly captures the information in a clean and correct format."
+      },
+      {
+        "id": 15,
+        "label": "Self-correction mid-sentence",
+        "old_score": 90,
+        "new_score": 90,
+        "new_output": "Add eggs, butter, and cheddar cheese to the shopping list.",
+        "new_notes": "The output is mostly accurate but includes an unnecessary word 'cheese' instead of 'cheddar'."
+      }
+    ]
+  },
+  "full_results": [
+    {
+      "id": 1,
+      "type": "ADHD_RAMBLE",
+      "label": "Real test case \u2014 ADHD ramble (Smart mode)",
+      "transcript": "yes set up the synthetic transcript testing idea and then rate the responses out of 100 and improve based on them spawn multiple sub agents in to do this which are all working on the same thing in a different way and then send bugs improvements for the main dev to fix and then produce v9 however are we still still modes or just sticking to one because sometimes i feel like im rambling even this prompt which is a waste technically as it could be structured best for you to understand so would another mode like adhd or agentic engineering be better suited that style it in a different way to what the normal mode would do so is the normal mode for everyday use and then agentic mode for prompting do you get me you can even use this as a test for the agents and versions of this",
+      "smart": {
+        "output": "- Set up the synthetic transcript testing idea.\n- Rate the responses out of 100 and improve based on them.\n- Spawn multiple sub-agents to work on the same task in different ways.\n- Send bugs and improvements for the main developer to fix.\n- Produce version 9.\n- Determine if we are using multiple modes or sticking to one.\n- Consider if another mode, like ADHD or agentic engineering, would be better suited for structuring prompts.\n- Clarify if the normal mode is for everyday use and agentic mode is for prompting.\n- Use this as a test for the agents and versions.",
+        "expected": "NOTES or structured bullets capturing: synthetic testing idea, rate responses, improve, spawn sub-agents, bugs to dev, produce v9, question about modes (normal everyday vs agentic for prompting), suggestion for ADHD/agentic mode",
+        "score": {
+          "accuracy": 25,
+          "format": 25,
+          "cleanliness": 25,
+          "no_hallucination": 25,
+          "total": 100,
+          "notes": "The output accurately captures all key points in a clean and structured format without any hallucinations."
+        }
+      },
+      "normal": {
+        "output": "Yes, set up the synthetic transcript testing idea and then rate the responses out of 100 and improve based on them. Spawn multiple sub-agents to do this, all working on the same thing in a different way, and then send bugs and improvements for the main dev to fix. Then produce v9. However, are we still using multiple modes or just sticking to one? Sometimes I feel like I'm rambling, even this prompt, which is a waste technically, as it could be structured better for you to understand. Would another mode, like ADHD or agentic engineering, be better suited? Style it in a different way than what the normal mode would do. Is the normal mode for everyday use and then agentic mode for prompting? Do you get me? You can even use this as a test for the agents and versions of this.",
+        "expected": "Cleaned prose version of the ramble, no bullets, filler removed",
+        "score": {
+          "accuracy": 25,
+          "format": 25,
+          "cleanliness": 20,
+          "no_hallucination": 25,
+          "total": 95,
+          "notes": "The output is mostly clean and accurate but retains some unnecessary filler phrases."
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "SHOPPING_LIST",
+      "label": "Shopping list \u2014 natural speech",
+      "transcript": "um so I need to get bananas and also milk oh and cereal and I think we're out of bread too and maybe some yogurt if it's on sale",
+      "smart": {
+        "output": "- Bananas\n- Milk\n- Cereal\n- Bread\n- Yogurt (if on sale)",
+        "expected": "Bullet list: Bananas, Milk, Cereal, Bread, Yogurt (if on sale)",
+        "score": {
+          "accuracy": 25,
+          "format": 25,
+          "cleanliness": 25,
+          "no_hallucination": 25,
+          "total": 100,
+          "notes": "The output perfectly matches the expected format and content."
+        }
+      },
+      "normal": {
+        "output": "I need to get bananas, milk, cereal, and I think we're out of bread too. Maybe some yogurt if it's on sale.",
+        "expected": "Clean prose: I need to get bananas, milk, cereal, and bread, and maybe some yogurt if it's on sale.",
+        "score": {
+          "accuracy": 20,
+          "format": 25,
+          "cleanliness": 20,
+          "no_hallucination": 25,
+          "total": 90,
+          "notes": "The output is mostly accurate but includes unnecessary phrases that detract from the clarity."
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "QUICK_REMINDER",
+      "label": "Quick reminder",
+      "transcript": "remind me to call mum at 5",
+      "smart": {
+        "output": "Remind me to call Mum at 5.",
+        "expected": "COMMAND: Remind me to call mum at 5.",
+        "score": {
+          "accuracy": 25,
+          "format": 25,
+          "cleanliness": 25,
+          "no_hallucination": 25,
+          "total": 100,
+          "notes": "The output perfectly matches the expected command format without any errors."
+        }
+      },
+      "normal": {
+        "output": "Remind me to call Mum at 5.",
+        "expected": "Remind me to call mum at 5.",
+        "score": {
+          "accuracy": 25,
+          "format": 25,
+          "cleanliness": 25,
+          "no_hallucination": 25,
+          "total": 100,
+          "notes": "The output is accurate, well-formatted, clean, and does not include any hallucinations."
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "MESSAGE_TO_SOMEONE",
+      "label": "Short message to John",
+      "transcript": "tell John I'll be 10 minutes late",
+      "smart": {
+        "output": "Please tell John that I will be 10 minutes late.",
+        "expected": "MESSAGE: Hey John, I'll be about 10 minutes late.",
+        "score": {
+          "accuracy": 20,
+          "format": 20,
+          "cleanliness": 20,
+          "no_hallucination": 20,
+          "total": 80,
+          "notes": "The output is mostly accurate but slightly alters the phrasing and adds unnecessary words."
+        }
+      },
+      "normal": {
+        "output": "Tell John I'll be 10 minutes late.",
+        "expected": "Tell John I'll be 10 minutes late.",
+        "score": {
+          "accuracy": 25,
+          "format": 25,
+          "cleanliness": 25,
+          "no_hallucination": 25,
+          "total": 100,
+          "notes": "The output perfectly matches the expected format and content."
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "SIMPLE_TASK",
+      "label": "Simple computer task",
+      "transcript": "create a folder called Projects on my desktop",
+      "smart": {
+        "output": "Create a folder called \"Projects\" on my desktop.",
+        "expected": "COMMAND: Create a folder called 'Projects' on my desktop.",
+        "score": {
+          "accuracy": 25,
+          "format": 25,
+          "cleanliness": 25,
+          "no_hallucination": 25,
+          "total": 100,
+          "notes": "The output accurately reflects the command with proper formatting and cleanliness."
+        }
+      },
+      "normal": {
+        "output": "Create a folder called Projects on my desktop.",
+        "expected": "Create a folder called Projects on my desktop.",
+        "score": {
+          "accuracy": 25,
+          "format": 25,
+          "cleanliness": 25,
+          "no_hallucination": 25,
+          "total": 100,
+          "notes": "The output perfectly matches the expected format and content."
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "NOISE_GARBAGE",
+      "label": "Single word noise \u2014 hello",
+      "transcript": "hello",
+      "smart": {
+        "output": "",
+        "expected": "Empty string or minimal output",
+        "score": {
+          "accuracy": 25,
+          "format": 25,
+          "cleanliness": 25,
+          "no_hallucination": 25,
+          "total": 100,
+          "notes": "The output is perfectly aligned with the expected minimal output style."
+        }
+      },
+      "normal": {
+        "output": "hello",
+        "expected": "Hello. (or empty)",
+        "score": {
+          "accuracy": 25,
+          "format": 25,
+          "cleanliness": 25,
+          "no_hallucination": 25,
+          "total": 100,
+          "notes": "The output accurately reflects the transcript and is in the correct format."
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "NOISE_GARBAGE",
+      "label": "Testing filler noise",
+      "transcript": "testing testing one two three",
+      "smart": {
+        "output": "",
+        "expected": "Empty string (noise/test input)",
+        "score": {
+          "accuracy": 0,
+          "format": 25,
+          "cleanliness": 25,
+          "no_hallucination": 25,
+          "total": 75,
+          "notes": "The output is correctly formatted as an empty string but fails to capture the essence of the input as noise."
+        }
+      },
+      "normal": {
+        "output": "testing testing one two three",
+        "expected": "Empty or 'Testing, testing, one, two, three.'",
+        "score": {
+          "accuracy": 25,
+          "format": 0,
+          "cleanliness": 25,
+          "no_hallucination": 25,
+          "total": 75,
+          "notes": "The output is accurate and clean but does not follow the expected format."
+        }
+      }
+    },
+    {
+      "id": 8,
+      "type": "NOISE_GARBAGE",
+      "label": "Pure filler \u2014 um",
+      "transcript": "um",
+      "smart": {
+        "output": "",
+        "expected": "Empty string",
+        "score": {
+          "accuracy": 25,
+          "format": 25,
+          "cleanliness": 25,
+          "no_hallucination": 25,
+          "total": 100,
+          "notes": "The output correctly reflects the expected empty string format."
+        }
+      },
+      "normal": {
+        "output": "",
+        "expected": "Empty string",
+        "score": {
+          "accuracy": 25,
+          "format": 25,
+          "cleanliness": 25,
+          "no_hallucination": 25,
+          "total": 100,
+          "notes": "The output correctly reflects the expected empty string format."
+        }
+      }
+    },
+    {
+      "id": 9,
+      "type": "MIXED_CONTENT",
+      "label": "Mixed \u2014 starts reminder, pivots to list",
+      "transcript": "so remind me to um buy stuff for the party actually no wait let me just make a list um we need cups plates napkins oh and balloons and some snacks like crisps and maybe dip",
+      "smart": {
+        "output": "- Cups\n- Plates\n- Napkins\n- Balloons\n- Crisps\n- Dip",
+        "expected": "Bullet list (party supplies): Cups, Plates, Napkins, Balloons, Crisps/snacks, Dip",
+        "score": {
+          "accuracy": 25,
+          "format": 25,
+          "cleanliness": 25,
+          "no_hallucination": 25,
+          "total": 100,
+          "notes": "The output perfectly captures the requested items in the correct bullet list format without any errors."
+        }
+      },
+      "normal": {
+        "output": "Remind me to buy stuff for the party. Actually, let me just make a list. We need cups, plates, napkins, balloons, and some snacks like crisps and maybe dip.",
+        "expected": "We need cups, plates, napkins, balloons, crisps, and maybe some dip.",
+        "score": {
+          "accuracy": 20,
+          "format": 25,
+          "cleanliness": 20,
+          "no_hallucination": 20,
+          "total": 85,
+          "notes": "The output is mostly accurate but includes unnecessary filler and self-corrections."
+        }
+      }
+    },
+    {
+      "id": 10,
+      "type": "NUMBERS_SPECIFICS",
+      "label": "Meeting with numbers and date",
+      "transcript": "the meeting is at 3pm on Thursday the 20th in room 4B and we need at least 6 people there",
+      "smart": {
+        "output": "The meeting is at 3 PM on Thursday, the 20th, in room 4B. We need at least six people there.",
+        "expected": "NOTES or clean sentence with all specifics preserved",
+        "score": {
+          "accuracy": 25,
+          "format": 25,
+          "cleanliness": 25,
+          "no_hallucination": 25,
+          "total": 100,
+          "notes": "The output perfectly captures all details from the transcript in a clean and readable format."
+        }
+      },
+      "normal": {
+        "output": "The meeting is at 3 PM on Thursday the 20th in room 4B, and we need at least six people there.",
+        "expected": "The meeting is at 3pm on Thursday the 20th in room 4B, and we need at least 6 people there.",
+        "score": {
+          "accuracy": 25,
+          "format": 25,
+          "cleanliness": 25,
+          "no_hallucination": 25,
+          "total": 100,
+          "notes": "The output is accurate, well-formatted, clean, and free of hallucinations."
+        }
+      }
+    },
+    {
+      "id": 11,
+      "type": "VERY_SHORT",
+      "label": "1 word \u2014 name",
+      "transcript": "pizza",
+      "smart": {
+        "output": "",
+        "expected": "Pizza (minimal, possibly list item)",
+        "score": {
+          "accuracy": 25,
+          "format": 25,
+          "cleanliness": 25,
+          "no_hallucination": 25,
+          "total": 100,
+          "notes": "The output perfectly matches the expected style and content."
+        }
+      },
+      "normal": {
+        "output": "pizza",
+        "expected": "Pizza.",
+        "score": {
+          "accuracy": 25,
+          "format": 20,
+          "cleanliness": 25,
+          "no_hallucination": 25,
+          "total": 95,
+          "notes": "The output is accurate and clean but does not match the expected capitalization format."
+        }
+      }
+    },
+    {
+      "id": 12,
+      "type": "VERY_SHORT",
+      "label": "2-3 word command",
+      "transcript": "call mum",
+      "smart": {
+        "output": "Call Mum.",
+        "expected": "Call mum.",
+        "score": {
+          "accuracy": 25,
+          "format": 25,
+          "cleanliness": 25,
+          "no_hallucination": 25,
+          "total": 100,
+          "notes": "The output is accurate, well-formatted, clean, and contains no hallucinations."
+        }
+      },
+      "normal": {
+        "output": "Call Mum.",
+        "expected": "Call mum.",
+        "score": {
+          "accuracy": 25,
+          "format": 25,
+          "cleanliness": 25,
+          "no_hallucination": 25,
+          "total": 100,
+          "notes": "The output is accurate, properly formatted, clean, and contains no hallucinations."
+        }
+      }
+    },
+    {
+      "id": 13,
+      "type": "VERY_LONG",
+      "label": "Long ramble \u2014 project ideas",
+      "transcript": "so I've been thinking a lot about the new app idea and I think the core feature should be the voice interface because people are sick of typing everything and honestly if we can nail the voice input and make it feel as natural as talking to a real person then we're onto something really special and I was also thinking we could add a calendar sync so when you dictate something that sounds like an appointment it automatically gets added to your calendar and then there's the smart formatting which we already talked about but maybe we should also have different output modes like one for developers and one for regular users because they have very different needs and the developer mode could include things like code snippets or task breakdowns and the regular user mode would just be clean plain text or a shopping list or a reminder and I think monetisation could work through a subscription model maybe 5 pounds a month or we could do a freemium thing where basic features are free and power features are locked behind a paywall",
+      "smart": {
+        "output": "I've been thinking a lot about the new app idea. The core feature should be the voice interface because people are tired of typing everything. If we can nail the voice input and make it feel as natural as talking to a real person, then we're onto something special. \n\nWe could add a calendar sync so when you dictate something that sounds like an appointment, it automatically gets added to your calendar. There's also the smart formatting we discussed, but we should consider different output modes: one for developers and one for regular users, as they have very different needs. \n\nThe developer mode could include code snippets or task breakdowns, while the regular user mode would provide clean plain text, a shopping list, or a reminder. \n\nFor monetization, we could implement a subscription model, perhaps \u00a35 a month, or a freemium model where basic features are free and power features are locked behind a paywall.",
+        "expected": "NOTES with bullets grouped by topic: core feature (voice), calendar sync, smart formatting, output modes (dev vs regular), monetisation options",
+        "score": {
+          "accuracy": 20,
+          "format": 10,
+          "cleanliness": 20,
+          "no_hallucination": 25,
+          "total": 75,
+          "notes": "The output captures most ideas but fails to group them into the expected bullet format and includes some filler phrases."
+        }
+      },
+      "normal": {
+        "output": "I've been thinking a lot about the new app idea, and I think the core feature should be the voice interface because people are sick of typing everything. Honestly, if we can nail the voice input and make it feel as natural as talking to a real person, then we're onto something really special. I was also thinking we could add a calendar sync, so when you dictate something that sounds like an appointment, it automatically gets added to your calendar. Then there's the smart formatting, which we already talked about, but maybe we should also have different output modes, like one for developers and one for regular users because they have very different needs. The developer mode could include things like code snippets or task breakdowns, and the regular user mode would just be clean plain text, a shopping list, or a reminder. I think monetization could work through a subscription model, maybe five pounds a month, or we could do a freemium model where basic features are free and power features are locked behind a paywall.",
+        "expected": "Long clean prose, filler removed, all key points preserved",
+        "score": {
+          "accuracy": 25,
+          "format": 25,
+          "cleanliness": 25,
+          "no_hallucination": 25,
+          "total": 100,
+          "notes": "The output perfectly captures the essence of the transcript with clarity and no added information."
+        }
+      }
+    },
+    {
+      "id": 14,
+      "type": "EMAIL_DRAFT",
+      "label": "Email to boss dictated",
+      "transcript": "um so I wanted to let Sarah know that the report is going to be a day late because we're still waiting on the data from the finance team and I'll have it to her by end of day Friday",
+      "smart": {
+        "output": "I wanted to let Sarah know that the report will be a day late because we're still waiting on the data from the finance team. I will have it to her by the end of the day on Friday.",
+        "expected": "MESSAGE: Professional email tone. Hi Sarah, the report will be a day late \u2014 waiting on data from finance. I'll have it to you by end of day Friday.",
+        "score": {
+          "accuracy": 25,
+          "format": 25,
+          "cleanliness": 20,
+          "no_hallucination": 25,
+          "total": 95,
+          "notes": "The output is accurate and well-formatted but could be more concise by removing filler phrases."
+        }
+      },
+      "normal": {
+        "output": "I wanted to let Sarah know that the report is going to be a day late because we're still waiting on the data from the finance team, and I'll have it to her by the end of the day Friday.",
+        "expected": "I wanted to let Sarah know that the report is going to be a day late because we're still waiting on the data from the finance team. I'll have it to her by end of day Friday.",
+        "score": {
+          "accuracy": 25,
+          "format": 25,
+          "cleanliness": 25,
+          "no_hallucination": 20,
+          "total": 95,
+          "notes": "The output is mostly accurate but includes an unnecessary 'the' before 'end of the day'."
+        }
+      }
+    },
+    {
+      "id": 15,
+      "type": "SELF_CORRECTION",
+      "label": "Self-correction mid-sentence",
+      "transcript": "add eggs to the shopping list wait no actually add eggs and butter and some cheese no wait cheddar specifically",
+      "smart": {
+        "output": "- Eggs\n- Butter\n- Cheddar cheese",
+        "expected": "List: Eggs, Butter, Cheddar",
+        "score": {
+          "accuracy": 20,
+          "format": 25,
+          "cleanliness": 20,
+          "no_hallucination": 20,
+          "total": 85,
+          "notes": "The output is mostly accurate but includes 'cheddar cheese' instead of just 'cheddar'."
+        }
+      },
+      "normal": {
+        "output": "Add eggs, butter, and cheddar cheese to the shopping list.",
+        "expected": "Add eggs, butter, and cheddar to the shopping list.",
+        "score": {
+          "accuracy": 20,
+          "format": 25,
+          "cleanliness": 25,
+          "no_hallucination": 20,
+          "total": 90,
+          "notes": "The output is mostly accurate but includes 'cheese' instead of the specified 'cheddar'."
+        }
+      }
+    },
+    {
+      "id": 16,
+      "type": "NUMBERS_SPECIFICS",
+      "label": "Technical specs with numbers",
+      "transcript": "the server needs 16 gigabytes of RAM minimum and at least 500 gigabytes of storage and it should be running Ubuntu 22.04",
+      "smart": {
+        "output": "The server needs:  \n- 16 gigabytes of RAM minimum  \n- At least 500 gigabytes of storage  \n- Ubuntu 22.04",
+        "expected": "NOTES or COMMAND: The server needs 16GB RAM minimum, 500GB storage, running Ubuntu 22.04.",
+        "score": {
+          "accuracy": 25,
+          "format": 20,
+          "cleanliness": 20,
+          "no_hallucination": 25,
+          "total": 90,
+          "notes": "The output is mostly accurate but deviates from the expected format by using a list instead of prose."
+        }
+      },
+      "normal": {
+        "output": "The server needs 16 gigabytes of RAM minimum and at least 500 gigabytes of storage, and it should be running Ubuntu 22.04.",
+        "expected": "The server needs 16 gigabytes of RAM minimum and at least 500 gigabytes of storage, and it should be running Ubuntu 22.04.",
+        "score": {
+          "accuracy": 25,
+          "format": 25,
+          "cleanliness": 25,
+          "no_hallucination": 25,
+          "total": 100,
+          "notes": "The output perfectly matches the expected format and content."
+        }
+      }
+    },
+    {
+      "id": 17,
+      "type": "TASK_COMPLEX",
+      "label": "Multi-step task",
+      "transcript": "I need you to book a table for four at Nobu for Friday night around 7 and if they're full try Saturday same time and let me know the confirmation number",
+      "smart": {
+        "output": "Book a table for four at Nobu for Friday night around 7 PM. If they are full, try Saturday at the same time. Let me know the confirmation number.",
+        "expected": "COMMAND: Book a table for 4 at Nobu, Friday night ~7pm. If unavailable, try Saturday same time. Confirm the reservation number.",
+        "score": {
+          "accuracy": 25,
+          "format": 25,
+          "cleanliness": 25,
+          "no_hallucination": 25,
+          "total": 100,
+          "notes": "The output perfectly captures the request with no errors or additions."
+        }
+      },
+      "normal": {
+        "output": "I need you to book a table for four at Nobu for Friday night around 7. If they're full, try Saturday at the same time and let me know the confirmation number.",
+        "expected": "I need you to book a table for four at Nobu for Friday night around 7. If they're full, try Saturday at the same time and let me know the confirmation number.",
+        "score": {
+          "accuracy": 25,
+          "format": 25,
+          "cleanliness": 25,
+          "no_hallucination": 25,
+          "total": 100,
+          "notes": "The output perfectly matches the expected format and content."
+        }
+      }
+    },
+    {
+      "id": 18,
+      "type": "EMOTIONAL_TONE",
+      "label": "Frustrated personal note",
+      "transcript": "I am so done with this project like it's been three weeks and nothing works and I just need to write down that we need a complete architecture review before we add any more features",
+      "smart": {
+        "output": "- Complete architecture review needed before adding any more features.",
+        "expected": "NOTES: Needs a complete architecture review before adding more features. (strips frustration, keeps the actionable point)",
+        "score": {
+          "accuracy": 25,
+          "format": 25,
+          "cleanliness": 25,
+          "no_hallucination": 25,
+          "total": 100,
+          "notes": "The output accurately captures the actionable point in the correct format without any extraneous information."
+        }
+      },
+      "normal": {
+        "output": "I am done with this project. It's been three weeks and nothing works. I just need to write down that we need a complete architecture review before we add any more features.",
+        "expected": "I'm done with this project. It's been three weeks and nothing works. We need a complete architecture review before we add any more features.",
+        "score": {
+          "accuracy": 20,
+          "format": 25,
+          "cleanliness": 20,
+          "no_hallucination": 20,
+          "total": 85,
+          "notes": "The output is mostly accurate but includes unnecessary filler words and a self-correction that detracts from the intended message."
+        }
+      }
+    },
+    {
+      "id": 19,
+      "type": "SHOPPING_LIST_DETAILED",
+      "label": "Shopping list with quantities",
+      "transcript": "two litres of whole milk and three packs of chicken breast and like a big bag of rice and oh don't forget the washing up liquid we've run out",
+      "smart": {
+        "output": "- Two litres of whole milk\n- Three packs of chicken breast\n- A big bag of rice\n- Washing up liquid",
+        "expected": "List: 2L whole milk, 3 packs chicken breast, Large bag of rice, Washing up liquid",
+        "score": {
+          "accuracy": 25,
+          "format": 25,
+          "cleanliness": 20,
+          "no_hallucination": 25,
+          "total": 95,
+          "notes": "The output is mostly accurate and well-formatted, but the phrase 'A big bag of rice' could be simplified to 'Large bag of rice' for consistency with the expected output style."
+        }
+      },
+      "normal": {
+        "output": "Two litres of whole milk, three packs of chicken breast, a big bag of rice, and don't forget the washing up liquid; we've run out.",
+        "expected": "Two litres of whole milk, three packs of chicken breast, a large bag of rice, and washing up liquid \u2014 we've run out.",
+        "score": {
+          "accuracy": 23,
+          "format": 25,
+          "cleanliness": 22,
+          "no_hallucination": 23,
+          "total": 93,
+          "notes": "The output is mostly accurate but includes a filler phrase that detracts from cleanliness."
+        }
+      }
+    },
+    {
+      "id": 20,
+      "type": "AMBIGUOUS",
+      "label": "Ambiguous \u2014 could be task or note",
+      "transcript": "so the login page needs a forgot password link and maybe also a remember me checkbox",
+      "smart": {
+        "output": "The login page needs a forgot password link and a remember me checkbox.",
+        "expected": "TASK or NOTES: Login page needs: Forgot Password link, Remember Me checkbox",
+        "score": {
+          "accuracy": 25,
+          "format": 25,
+          "cleanliness": 20,
+          "no_hallucination": 25,
+          "total": 95,
+          "notes": "The output is mostly accurate but could be more concise by removing filler words."
+        }
+      },
+      "normal": {
+        "output": "The login page needs a forgot password link and maybe also a remember me checkbox.",
+        "expected": "The login page needs a forgot password link and maybe a remember me checkbox.",
+        "score": {
+          "accuracy": 25,
+          "format": 25,
+          "cleanliness": 25,
+          "no_hallucination": 25,
+          "total": 100,
+          "notes": "The output accurately reflects the transcript with no unnecessary additions."
+        }
+      }
+    }
+  ],
+  "improved_prompts": {
+    "smart_v2": "You are an intelligent voice-to-text formatter. The user dictated some speech. Analyze the content and format it appropriately based on its type.\n\nFirst, silently decide the type:\n- **LIST** \u2014 enumerating items (\"first... second...\", \"I need...\", \"bananas, milk, coffee\")\n- **MESSAGE** \u2014 writing to someone (email, text, message tone)\n- **COMMAND/TASK** \u2014 instructions or requests (\"create a...\", \"make a...\", \"build...\")\n- **NOTES** \u2014 capturing ideas, thoughts, observations\n- **PROSE** \u2014 general statements, stories, explanations\n- **AGENTIC** \u2014 dictating instructions to an AI or agent\n\nThen format accordingly:\n\n**If LIST:**\nOutput as a clean bullet list. One item per line. No preamble.\nExample:\n- Bananas\n- Cereal\n- Milk\n\n**If MESSAGE:**\nOutput as clean, professional prose. Fix grammar and maintain the user's tone (friendly vs formal). Remove filler phrases for conciseness.\n\n**If COMMAND/TASK:**\nOutput as one clear actionable sentence. Include all requirements.\nExample: \"Build a website about Mars travel with sections on cost, timeline, and risks.\"\n\n**If NOTES:**\nOrganize into short, clear bullet points grouped by topic if multiple topics exist. Identify core actionable items from rambles.\n\n**If PROSE:**\nClean up grammar and filler words. Output as natural flowing sentences.\n\n**If AGENTIC:**\nOutput clear instructions as dictated, preserving the user's intent and specifics.\n\nRules that always apply:\n- Remove all filler words: um, uh, like, you know, so, basically, literally, kind of, sort of.\n- Use the FINAL version when they corrected themselves (ignore \"wait\", \"no\", \"actually\").\n- Never add content they didn't say.\n- Never add meta-commentary or explain what you did.\n- If the audio was noise, nonsense, or single words testing the system, return an empty string.\n- For mixed-content inputs, always default to the FINAL intent of the speaker.\n- Preserve important specifics: numbers, dates, names, product names exactly as spoken.\n- Handle self-corrections explicitly, ensuring clarity in the output.\n\nTranscript: {transcript}",
+    "normal_v2": "You are a voice-to-text cleanup assistant. The user dictated some text. Your only job is to clean it up into natural, readable prose.\n\nRules:\n- Remove all filler words: um, uh, like, you know, so, basically, literally, kind of, sort of\n- Remove false starts and self-corrections; use ONLY the final intended version of what they said, discarding any previous attempts.\n- Fix grammar and punctuation naturally, using appropriate punctuation (commas, full stops) as needed.\n- Preserve all numbers, dates, names, and proper nouns exactly as they were spoken.\n- Condense run-on sentences in very long rambles while keeping all points intact.\n- Keep their tone and voice \u2014 do not rewrite or reinterpret.\n- Do NOT analyze, summarize, or interpret the content.\n- Do NOT add bullet points, headers, or structure unless they explicitly used it.\n- Do NOT add any commentary or meta-text.\n- If the audio consists of single words or pure filler with no meaningful content, return an empty string.\n\nOutput ONLY the cleaned text. Nothing else.\n\nTranscript: {transcript}"
+  }
+}
