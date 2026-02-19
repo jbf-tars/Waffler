@@ -1547,37 +1547,6 @@ html, body {
   max-width: 960px;
 }
 
-.wizard-header { text-align: center; }
-
-.wizard-header .wizard-logo {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  margin-bottom: 10px;
-}
-
-.wizard-header .logo-icon {
-  width: 40px;
-  height: 40px;
-  background: var(--accent);
-  border-radius: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 20px;
-  box-shadow: 0 4px 20px rgba(200, 162, 86, 0.5);
-}
-
-.wizard-header .logo-name {
-  font-size: 26px;
-  font-weight: 700;
-  background: linear-gradient(135deg, #E8C870 0%, #C8A256 35%, #8B5E14 70%, #5C2E0E 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
 /* Compact wizard header */
 .wizard-header-compact {
   display: flex;
