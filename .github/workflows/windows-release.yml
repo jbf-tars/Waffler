@@ -88,11 +88,11 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: VoiceFlow-Setup
-          path: dist-installer/*.exe
+          path: installer/windows/dist-installer/*.exe
 
       - name: Publish release on tag
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist-installer/*.exe
+          files: installer/windows/dist-installer/*.exe
           generate_release_notes: true
