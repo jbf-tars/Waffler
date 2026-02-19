@@ -39,10 +39,17 @@ class Config:
         self.azure_openai_endpoint = os.getenv('AZURE_OPENAI_ENDPOINT')
         self.prompt_style = os.getenv('PROMPT_STYLE', 'smart')
         
-        # Require either Deepgram, OpenAI, or Azure OpenAI (Whisper)
-        if not self.deepgram_api_key and not self.openai_api_key and not self.azure_openai_api_key:
-            raise ValueError("Either DEEPGRAM_API_KEY, OPENAI_API_KEY, or AZURE_OPENAI_API_KEY must be set")
-        # MiniMax is optional - OpenAI GPT will be used if no MiniMax key
+        # Flag whether we have enough config to run the pipeline
+        self.has_api_key = bool(
+            self.deepgram_api_key or self.openai_api_key or self.azure_openai_api_key
+        )
+        if not self.has_api_key:
+            print("No API key found — setup wizard will be shown")
+
+    def reload_env(self):
+        """Re-read .env and refresh keys. Called after wizard sets a key."""
+        load_dotenv(override=True)
+        self._load_env_vars()
             
     def get(self, key_path: str, default=None) -> Any:
         """Get config value using dot notation (e.g., 'audio.sample_rate')"""
