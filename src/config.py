@@ -6,12 +6,15 @@ from pathlib import Path
 from typing import Any, Dict
 from dotenv import load_dotenv
 
-# Load .env file from project root
-# Nuke any old shell-level keys that might interfere — only .env should matter
+# Load .env files — user data dir first, then project root as fallback
+# Nuke any old shell-level keys that might interfere
 for _var in ['AZURE_OPENAI_API_KEY', 'AZURE_OPENAI_ENDPOINT', 'MINIMAX_API_KEY', 'DEEPGRAM_API_KEY']:
     os.environ.pop(_var, None)
 
-load_dotenv(override=True)  # Always prefer .env over existing shell env vars
+_user_env = Path.home() / ".voiceflow" / ".env"
+if _user_env.exists():
+    load_dotenv(str(_user_env), override=True)
+load_dotenv(override=True)  # Also check project root .env as fallback
 
 
 class Config:
@@ -48,6 +51,9 @@ class Config:
 
     def reload_env(self):
         """Re-read .env and refresh keys. Called after wizard sets a key."""
+        user_env = Path.home() / ".voiceflow" / ".env"
+        if user_env.exists():
+            load_dotenv(str(user_env), override=True)
         load_dotenv(override=True)
         self._load_env_vars()
             
