@@ -43,6 +43,23 @@ jobs:
             --add-data ".env.example;." `
             app.py
 
+      - name: Smoke test app startup (no instant crash)
+        shell: pwsh
+        run: |
+          $env:OPENAI_API_KEY = "sk-test"
+          $exe = "dist\VoiceFlow\VoiceFlow.exe"
+          if (-not (Test-Path $exe)) { throw "Built app not found: $exe" }
+
+          $p = Start-Process -FilePath $exe -PassThru
+          Start-Sleep -Seconds 8
+
+          if ($p.HasExited) {
+            throw "VoiceFlow exited too early during smoke test. ExitCode=$($p.ExitCode)"
+          }
+
+          Stop-Process -Id $p.Id -Force
+          Write-Host "Smoke test passed: app stayed alive for 8s"
+
       - name: Install Inno Setup
         shell: pwsh
         run: choco install innosetup -y
