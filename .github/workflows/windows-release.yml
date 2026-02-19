@@ -35,6 +35,7 @@ jobs:
         shell: pwsh
         run: |
           pyinstaller --noconfirm --clean --windowed --name VoiceFlow `
+            --hidden-import wave `
             --add-data "src;src" `
             --add-data "ui;ui" `
             --add-data "prompts;prompts" `
