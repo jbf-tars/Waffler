@@ -17,7 +17,7 @@ venv/
 build/
 dist/
 dist-installer/
-*.spec
+# Note: .spec files are tracked (needed for Windows/Mac builds)
 
 # OS/editor
 .DS_Store
