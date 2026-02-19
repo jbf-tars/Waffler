@@ -1,0 +1,389 @@
+{
+  "current_avg": 79.47368421052632,
+  "improved_avg": 87.36842105263158,
+  "delta": 7.89473684210526,
+  "current_results": [
+    {
+      "id": "BAD_001",
+      "label": "Known bad: question → bullets",
+      "expected_format": "prose_question",
+      "raw": "okay also I'd like I'd like it to like how does it store transcripts that I use because I just used this and it converted everything to bullet points so how can we analyze what's going on or use the transcripts where do they get stored and how can we use them to train a better prompt",
+      "output": "How does it store transcripts that I use? I just used this, and it converted everything to bullet points. How can we analyze what's going on or use the transcripts? Where do they get stored, and how can we use them to train a better prompt?",
+      "score": 85,
+      "reason": "Correct prose format",
+      "good_example": "How does it store the transcripts? I just used it and it converted everything to bullet points — so where do they get stored, and how can we use them to train a better prompt?"
+    },
+    {
+      "id": "Q_001",
+      "label": "Question about pricing",
+      "expected_format": "prose_question",
+      "raw": "so like I've been thinking and I want to know how does the pricing actually work for this because like are there different tiers and like what happens if I go over the limit or whatever",
+      "output": "I want to know how the pricing actually works for this. Are there different tiers? What happens if I go over the limit?",
+      "score": 85,
+      "reason": "Correct prose format",
+      "good_example": "How does the pricing work? Are there different tiers, and what happens if I go over the limit?"
+    },
+    {
+      "id": "Q_002",
+      "label": "Multi-part question about a feature",
+      "expected_format": "prose_question",
+      "raw": "okay so like how does the hotkey actually work and like is it configurable and can I change it to something else and also like does it work when I'm in full screen mode",
+      "output": "How does the hotkey work? Is it configurable? Can I change it to something else? Does it work in full screen mode?",
+      "score": 85,
+      "reason": "Correct prose format",
+      "good_example": "How does the hotkey work? Is it configurable, can I change it, and does it work in full screen mode?"
+    },
+    {
+      "id": "Q_003",
+      "label": "Question with analytical thinking",
+      "expected_format": "prose",
+      "raw": "I'm wondering like whether we should go with postgres or mongo for this because like postgres is more structured but mongo is more flexible and I don't know which one makes more sense for this use case",
+      "output": "I'm wondering whether we should go with Postgres or Mongo for this. Postgres is more structured, but Mongo is more flexible. I don't know which one makes more sense for this use case.",
+      "score": 85,
+      "reason": "Correct prose format",
+      "good_example": "I'm wondering whether to use Postgres or MongoDB — Postgres is more structured but MongoDB is more flexible, and I'm not sure which makes more sense for this use case."
+    },
+    {
+      "id": "A_001",
+      "label": "Single analytical thought",
+      "expected_format": "prose",
+      "raw": "so basically I think the onboarding is broken because users are coming in but they're not activating and I think the problem is we're showing too many steps too early and they get overwhelmed before they see the value",
+      "output": "I think the onboarding is broken because users are coming in but they're not activating. The problem is we're showing too many steps too early, and they get overwhelmed before they see the value.",
+      "score": 85,
+      "reason": "Correct prose format",
+      "good_example": "I think the onboarding is broken — users are coming in but not activating. The problem is we're showing too many steps too early and they get overwhelmed before they see the value."
+    },
+    {
+      "id": "A_002",
+      "label": "Brain dump — multiple points (SHOULD be prose paragraphs, not bullets)",
+      "expected_format": "prose",
+      "raw": "right brain dump time so number one I keep thinking about how competitors are positioning like the main one just dropped their price by twenty percent which is aggressive do we respond I don't think we should because racing to the bottom is bad and two like our differentiation is quality not price so we shouldn't let them drag us there and three like customers who choose us on price will churn when a cheaper option appears anyway",
+      "output": "- Competitors are positioning aggressively; the main one dropped their price by twenty percent. \n- We should not respond because racing to the bottom is detrimental. \n- Our differentiation is quality, not price, so we shouldn't let them drag us into a price war. \n- Customers who choose us based on price will churn when a cheaper option appears.",
+      "score": 10,
+      "reason": "WRONG FORMAT: got bullets for prose. Output: - Competitors are positioning aggressively; the main one dropped their price by twenty percent. \n- W",
+      "good_example": "A competitor just dropped their price by 20%, which is aggressive — but I don't think we should respond. Our differentiation is quality, not price, so we shouldn't let them drag us down. Besides, customers who choose us on price will churn the moment something cheaper appears."
+    },
+    {
+      "id": "A_003",
+      "label": "Thinking about a decision",
+      "expected_format": "prose",
+      "raw": "so the thing I've been going back and forth on is whether to hire a designer now or wait until after the next funding round because on one hand the product desperately needs design love but on the other hand cash runway is tight and I need to be careful about burn",
+      "output": "The thing I've been going back and forth on is whether to hire a designer now or wait until after the next funding round. On one hand, the product desperately needs design love, but on the other hand, cash runway is tight, and I need to be careful about burn.",
+      "score": 85,
+      "reason": "Correct prose format",
+      "good_example": "I've been going back and forth on whether to hire a designer now or wait until after the next funding round. The product desperately needs design work, but cash runway is tight and I need to watch the burn."
+    },
+    {
+      "id": "SC_001",
+      "label": "Self-correction mid-thought",
+      "expected_format": "prose",
+      "raw": "so the feature should launch in Q1 — actually no wait, Q2 is more realistic — hmm actually let's say end of Q2 to give ourselves room",
+      "output": "The feature should launch at the end of Q2 to give ourselves room.",
+      "score": 85,
+      "reason": "Correct prose format",
+      "good_example": "The feature should launch by end of Q2."
+    },
+    {
+      "id": "SC_002",
+      "label": "Self-correction on who to assign",
+      "expected_format": "prose",
+      "raw": "I should assign this to Tom — actually Tom is already overloaded — what about Sarah — she's on leave this week — okay Dave then — yeah Dave can do this, he's been looking for something new to own",
+      "output": "Assign this task to Dave, as Tom is already overloaded and Sarah is on leave this week. Dave has been looking for something new to own.",
+      "score": 85,
+      "reason": "Correct prose format",
+      "good_example": "Assign this to Dave."
+    },
+    {
+      "id": "L_001",
+      "label": "Shopping list",
+      "expected_format": "bullet_list",
+      "raw": "um, I need, uh, bananas, cereal, and yogurt. That's it.",
+      "output": "- Bananas\n- Cereal\n- Yogurt",
+      "score": 90,
+      "reason": "Correct bullet format",
+      "good_example": "- Bananas\n- Cereal\n- Yogurt"
+    },
+    {
+      "id": "L_002",
+      "label": "Grocery run with self-correction",
+      "expected_format": "bullet_list",
+      "raw": "Right, grocery run. I need, uh, apples, pears, some strawberries, Greek yogurt, granola, almond milk, and, uh, like, coffee pods — the Nespresso ones, not the, uh, not the cheap ones.",
+      "output": "- Apples\n- Pears\n- Strawberries\n- Greek yogurt\n- Granola\n- Almond milk\n- Nespresso coffee pods",
+      "score": 90,
+      "reason": "Correct bullet format",
+      "good_example": "- Apples\n- Pears\n- Strawberries\n- Greek yogurt\n- Granola\n- Almond milk\n- Coffee pods (Nespresso)"
+    },
+    {
+      "id": "L_003",
+      "label": "Three things quickly",
+      "expected_format": "bullet_list",
+      "raw": "Three things: coffee, milk, paracetamol.",
+      "output": "- Coffee\n- Milk\n- Paracetamol",
+      "score": 90,
+      "reason": "Correct bullet format",
+      "good_example": "- Coffee\n- Milk\n- Paracetamol"
+    },
+    {
+      "id": "R_001",
+      "label": "Simple reminder",
+      "expected_format": "single_sentence",
+      "raw": "Remind me to call the dentist tomorrow morning.",
+      "output": "Remind me to call the dentist tomorrow morning.",
+      "score": 85,
+      "reason": "Correct prose format",
+      "good_example": "Remind me to call the dentist tomorrow morning."
+    },
+    {
+      "id": "R_002",
+      "label": "Reminder with filler",
+      "expected_format": "single_sentence",
+      "raw": "um, note to self: the meeting with Sarah is moved to Thursday, not Wednesday. Thursday at two.",
+      "output": "- The meeting with Sarah is moved to Thursday, not Wednesday.\n- Thursday at two.",
+      "score": 10,
+      "reason": "WRONG FORMAT: got bullets for single_sentence. Output: - The meeting with Sarah is moved to Thursday, not Wednesday.\n- Thursday at two.",
+      "good_example": "The meeting with Sarah is moved to Thursday at 2."
+    },
+    {
+      "id": "R_003",
+      "label": "Task with details",
+      "expected_format": "single_sentence",
+      "raw": "don't forget to send the invoice to the client before end of day Friday",
+      "output": "Send the invoice to the client before the end of day Friday.",
+      "score": 85,
+      "reason": "Correct prose format",
+      "good_example": "Send the invoice to the client before end of day Friday."
+    },
+    {
+      "id": "CMD_001",
+      "label": "Build request",
+      "expected_format": "single_clear_command",
+      "raw": "I want to build a simple web app that lets users upload a CSV file and it automatically generates charts from the data. Should work in the browser, no backend needed, just JavaScript. Show bar charts, line charts, auto-detect column types.",
+      "output": "Build a simple web app that lets users upload a CSV file and automatically generates charts from the data. It should work in the browser with no backend needed, just JavaScript. Show bar charts, line charts, and auto-detect column types.",
+      "score": 85,
+      "reason": "Correct prose format",
+      "good_example": "Build a browser-only JavaScript web app where users upload a CSV file and it auto-generates bar and line charts, auto-detecting column types."
+    },
+    {
+      "id": "E_001",
+      "label": "Empty / noise",
+      "expected_format": "empty",
+      "raw": "um... uh...",
+      "output": "",
+      "score": 100,
+      "reason": "Correctly empty",
+      "good_example": ""
+    },
+    {
+      "id": "E_002",
+      "label": "Single test word",
+      "expected_format": "empty",
+      "raw": "hello",
+      "output": "",
+      "score": 100,
+      "reason": "Correctly empty",
+      "good_example": ""
+    },
+    {
+      "id": "E_003",
+      "label": "Mixed question and action",
+      "expected_format": "prose",
+      "raw": "okay so can you like check what the current balance is in the account and also like remind me when the payment is due",
+      "output": "Check the current balance in the account and remind me when the payment is due.",
+      "score": 85,
+      "reason": "Correct prose format",
+      "good_example": "Can you check the current account balance and remind me when the payment is due?"
+    }
+  ],
+  "improved_results": [
+    {
+      "id": "BAD_001",
+      "label": "Known bad: question → bullets",
+      "expected_format": "prose_question",
+      "raw": "okay also I'd like I'd like it to like how does it store transcripts that I use because I just used this and it converted everything to bullet points so how can we analyze what's going on or use the transcripts where do they get stored and how can we use them to train a better prompt",
+      "output": "How does it store the transcripts I use? I just used this and it converted everything to bullet points. How can we analyze what's going on or use the transcripts? Where do they get stored, and how can we use them to train a better prompt?",
+      "score": 85,
+      "reason": "Correct prose format",
+      "good_example": "How does it store the transcripts? I just used it and it converted everything to bullet points — so where do they get stored, and how can we use them to train a better prompt?"
+    },
+    {
+      "id": "Q_001",
+      "label": "Question about pricing",
+      "expected_format": "prose_question",
+      "raw": "so like I've been thinking and I want to know how does the pricing actually work for this because like are there different tiers and like what happens if I go over the limit or whatever",
+      "output": "I've been thinking, and I want to know how the pricing actually works for this. Are there different tiers, and what happens if I go over the limit?",
+      "score": 85,
+      "reason": "Correct prose format",
+      "good_example": "How does the pricing work? Are there different tiers, and what happens if I go over the limit?"
+    },
+    {
+      "id": "Q_002",
+      "label": "Multi-part question about a feature",
+      "expected_format": "prose_question",
+      "raw": "okay so like how does the hotkey actually work and like is it configurable and can I change it to something else and also like does it work when I'm in full screen mode",
+      "output": "How does the hotkey actually work? Is it configurable, and can I change it to something else? Also, does it work when I'm in full screen mode?",
+      "score": 85,
+      "reason": "Correct prose format",
+      "good_example": "How does the hotkey work? Is it configurable, can I change it, and does it work in full screen mode?"
+    },
+    {
+      "id": "Q_003",
+      "label": "Question with analytical thinking",
+      "expected_format": "prose",
+      "raw": "I'm wondering like whether we should go with postgres or mongo for this because like postgres is more structured but mongo is more flexible and I don't know which one makes more sense for this use case",
+      "output": "I'm wondering whether we should go with Postgres or Mongo for this. Postgres is more structured, but Mongo is more flexible, and I don't know which one makes more sense for this use case.",
+      "score": 85,
+      "reason": "Correct prose format",
+      "good_example": "I'm wondering whether to use Postgres or MongoDB — Postgres is more structured but MongoDB is more flexible, and I'm not sure which makes more sense for this use case."
+    },
+    {
+      "id": "A_001",
+      "label": "Single analytical thought",
+      "expected_format": "prose",
+      "raw": "so basically I think the onboarding is broken because users are coming in but they're not activating and I think the problem is we're showing too many steps too early and they get overwhelmed before they see the value",
+      "output": "I think the onboarding is broken because users are coming in but they're not activating. I think the problem is we're showing too many steps too early, and they get overwhelmed before they see the value.",
+      "score": 85,
+      "reason": "Correct prose format",
+      "good_example": "I think the onboarding is broken — users are coming in but not activating. The problem is we're showing too many steps too early and they get overwhelmed before they see the value."
+    },
+    {
+      "id": "A_002",
+      "label": "Brain dump — multiple points (SHOULD be prose paragraphs, not bullets)",
+      "expected_format": "prose",
+      "raw": "right brain dump time so number one I keep thinking about how competitors are positioning like the main one just dropped their price by twenty percent which is aggressive do we respond I don't think we should because racing to the bottom is bad and two like our differentiation is quality not price so we shouldn't let them drag us there and three like customers who choose us on price will churn when a cheaper option appears anyway",
+      "output": "I keep thinking about how competitors are positioning. The main one just dropped their price by twenty percent, which is aggressive. Do we respond? I don't think we should because racing to the bottom is bad. Our differentiation is quality, not price, so we shouldn't let them drag us there. Customers who choose us on price will churn when a cheaper option appears anyway.",
+      "score": 85,
+      "reason": "Correct prose format",
+      "good_example": "A competitor just dropped their price by 20%, which is aggressive — but I don't think we should respond. Our differentiation is quality, not price, so we shouldn't let them drag us down. Besides, customers who choose us on price will churn the moment something cheaper appears."
+    },
+    {
+      "id": "A_003",
+      "label": "Thinking about a decision",
+      "expected_format": "prose",
+      "raw": "so the thing I've been going back and forth on is whether to hire a designer now or wait until after the next funding round because on one hand the product desperately needs design love but on the other hand cash runway is tight and I need to be careful about burn",
+      "output": "The thing I've been going back and forth on is whether to hire a designer now or wait until after the next funding round. On one hand, the product desperately needs design love, but on the other hand, cash runway is tight and I need to be careful about burn.",
+      "score": 85,
+      "reason": "Correct prose format",
+      "good_example": "I've been going back and forth on whether to hire a designer now or wait until after the next funding round. The product desperately needs design work, but cash runway is tight and I need to watch the burn."
+    },
+    {
+      "id": "SC_001",
+      "label": "Self-correction mid-thought",
+      "expected_format": "prose",
+      "raw": "so the feature should launch in Q1 — actually no wait, Q2 is more realistic — hmm actually let's say end of Q2 to give ourselves room",
+      "output": "The feature should launch in Q2. Let's say the end of Q2 to give ourselves room.",
+      "score": 85,
+      "reason": "Correct prose format",
+      "good_example": "The feature should launch by end of Q2."
+    },
+    {
+      "id": "SC_002",
+      "label": "Self-correction on who to assign",
+      "expected_format": "prose",
+      "raw": "I should assign this to Tom — actually Tom is already overloaded — what about Sarah — she's on leave this week — okay Dave then — yeah Dave can do this, he's been looking for something new to own",
+      "output": "I should assign this to Tom. Tom is already overloaded. What about Sarah? She's on leave this week. Okay, Dave then. Yeah, Dave can do this; he's been looking for something new to own.",
+      "score": 85,
+      "reason": "Correct prose format",
+      "good_example": "Assign this to Dave."
+    },
+    {
+      "id": "L_001",
+      "label": "Shopping list",
+      "expected_format": "bullet_list",
+      "raw": "um, I need, uh, bananas, cereal, and yogurt. That's it.",
+      "output": "- Bananas\n- Cereal\n- Yogurt",
+      "score": 90,
+      "reason": "Correct bullet format",
+      "good_example": "- Bananas\n- Cereal\n- Yogurt"
+    },
+    {
+      "id": "L_002",
+      "label": "Grocery run with self-correction",
+      "expected_format": "bullet_list",
+      "raw": "Right, grocery run. I need, uh, apples, pears, some strawberries, Greek yogurt, granola, almond milk, and, uh, like, coffee pods — the Nespresso ones, not the, uh, not the cheap ones.",
+      "output": "- Apples\n- Pears\n- Strawberries\n- Greek yogurt\n- Granola\n- Almond milk\n- Nespresso coffee pods",
+      "score": 90,
+      "reason": "Correct bullet format",
+      "good_example": "- Apples\n- Pears\n- Strawberries\n- Greek yogurt\n- Granola\n- Almond milk\n- Coffee pods (Nespresso)"
+    },
+    {
+      "id": "L_003",
+      "label": "Three things quickly",
+      "expected_format": "bullet_list",
+      "raw": "Three things: coffee, milk, paracetamol.",
+      "output": "- Coffee\n- Milk\n- Paracetamol",
+      "score": 90,
+      "reason": "Correct bullet format",
+      "good_example": "- Coffee\n- Milk\n- Paracetamol"
+    },
+    {
+      "id": "R_001",
+      "label": "Simple reminder",
+      "expected_format": "single_sentence",
+      "raw": "Remind me to call the dentist tomorrow morning.",
+      "output": "Remind me to call the dentist tomorrow morning.",
+      "score": 85,
+      "reason": "Correct prose format",
+      "good_example": "Remind me to call the dentist tomorrow morning."
+    },
+    {
+      "id": "R_002",
+      "label": "Reminder with filler",
+      "expected_format": "single_sentence",
+      "raw": "um, note to self: the meeting with Sarah is moved to Thursday, not Wednesday. Thursday at two.",
+      "output": "Note to self: the meeting with Sarah is moved to Thursday, not Wednesday. Thursday at two.",
+      "score": 85,
+      "reason": "Correct prose format",
+      "good_example": "The meeting with Sarah is moved to Thursday at 2."
+    },
+    {
+      "id": "R_003",
+      "label": "Task with details",
+      "expected_format": "single_sentence",
+      "raw": "don't forget to send the invoice to the client before end of day Friday",
+      "output": "Don't forget to send the invoice to the client before the end of day Friday.",
+      "score": 85,
+      "reason": "Correct prose format",
+      "good_example": "Send the invoice to the client before end of day Friday."
+    },
+    {
+      "id": "CMD_001",
+      "label": "Build request",
+      "expected_format": "single_clear_command",
+      "raw": "I want to build a simple web app that lets users upload a CSV file and it automatically generates charts from the data. Should work in the browser, no backend needed, just JavaScript. Show bar charts, line charts, auto-detect column types.",
+      "output": "I want to build a simple web app that lets users upload a CSV file, and it automatically generates charts from the data. It should work in the browser with no backend needed, just JavaScript. It should show bar charts and line charts, and auto-detect column types.",
+      "score": 85,
+      "reason": "Correct prose format",
+      "good_example": "Build a browser-only JavaScript web app where users upload a CSV file and it auto-generates bar and line charts, auto-detecting column types."
+    },
+    {
+      "id": "E_001",
+      "label": "Empty / noise",
+      "expected_format": "empty",
+      "raw": "um... uh...",
+      "output": "",
+      "score": 100,
+      "reason": "Correctly empty",
+      "good_example": ""
+    },
+    {
+      "id": "E_002",
+      "label": "Single test word",
+      "expected_format": "empty",
+      "raw": "hello",
+      "output": "",
+      "score": 100,
+      "reason": "Correctly empty",
+      "good_example": ""
+    },
+    {
+      "id": "E_003",
+      "label": "Mixed question and action",
+      "expected_format": "prose",
+      "raw": "okay so can you like check what the current balance is in the account and also like remind me when the payment is due",
+      "output": "Can you check what the current balance is in the account? Also, remind me when the payment is due.",
+      "score": 85,
+      "reason": "Correct prose format",
+      "good_example": "Can you check the current account balance and remind me when the payment is due?"
+    }
+  ]
+}
