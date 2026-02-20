@@ -300,25 +300,30 @@
     <div class="wizard-step-content" id="wizContent3" style="display:none">
       <div class="wizard-card">
         <div class="wizard-card-icon">🎙️</div>
-        <h2>Test Your Microphone</h2>
-        <p class="wizard-card-desc">Select your microphone, then press <strong>Ctrl + Space</strong> to record and transcribe. This tests the full pipeline.</p>
+        <h2>Try It Out</h2>
+        <p class="wizard-card-desc">Let's make sure your microphone works. Pick your mic below, then give it a spin!</p>
         <div class="wizard-mic-select-group">
           <select id="wizMicSelect" class="wizard-select" onchange="wizOnMicChange(this.value)"></select>
         </div>
 
         <button class="wizard-test-btn" id="wizTestMicBtn" onclick="wizStartHotkeyTest()">
-          🎤 Enable Hotkey Test
+          🎤 Test Your Microphone
         </button>
 
         <div class="wizard-hotkey-test-area" id="wizHotkeyTestArea" style="display:none">
-          <div class="wizard-recording-hint" id="wizRecordingHint">
-            Press <strong>Ctrl + Space</strong> to start recording. Press again to stop.
+          <div class="wizard-try-prompt" id="wizTryPrompt">
+            <div class="wizard-try-label">Say something like:</div>
+            <div class="wizard-try-example" id="wizTryExample">"Hey Natter, what do you call a microphone that tells jokes? A stand-up mic!"</div>
+          </div>
+          <div class="wizard-try-hotkey-hint">
+            Press <strong>Ctrl + Space</strong> to start recording, speak, then press <strong>Ctrl + Space</strong> again to stop.
           </div>
           <div class="wizard-recording-status" id="wizRecordingStatus"></div>
           <div class="wizard-transcription-result" id="wizTranscriptionResult" style="display:none">
-            <div class="wizard-result-label">Transcription:</div>
+            <div class="wizard-result-label">Here's what Natter heard:</div>
             <textarea class="wizard-result-text" id="wizResultText" readonly rows="3"></textarea>
           </div>
+          <div class="wizard-recording-hint" id="wizRecordingHint" style="display:none"></div>
         </div>
 
         <div class="wizard-validation" id="wizMicValidation"></div>

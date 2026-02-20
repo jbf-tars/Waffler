@@ -985,7 +985,7 @@ function wizOnMicChange(val) {
   const testArea = document.getElementById('wizHotkeyTestArea');
   const btn = document.getElementById('wizTestMicBtn');
   if (testArea) testArea.style.display = 'none';
-  if (btn) { btn.style.display = 'block'; btn.disabled = false; btn.textContent = '🎤 Enable Hotkey Test'; }
+  if (btn) { btn.style.display = 'block'; btn.disabled = false; btn.textContent = '🎤 Test Your Microphone'; }
   const valid = document.getElementById('wizMicValidation');
   if (valid) valid.textContent = '';
   // Stop any running hotkey test
@@ -1003,7 +1003,7 @@ async function wizStartHotkeyTest() {
   const valid = document.getElementById('wizMicValidation');
 
   btn.disabled = true;
-  btn.textContent = 'Starting hotkey listener...';
+  btn.textContent = 'Getting ready...';
 
   try {
     await pywebview.api.set_audio_device(_wizardMicDeviceIndex);
@@ -1014,16 +1014,16 @@ async function wizStartHotkeyTest() {
       valid.textContent = '';
       _wizardHotkeyTestActive = true;
     } else {
-      valid.textContent = r.error || 'Failed to start hotkey test';
+      valid.textContent = r.error || 'Failed to start mic test';
       valid.className = 'wizard-validation error';
       btn.disabled = false;
-      btn.textContent = '🎤 Enable Hotkey Test';
+      btn.textContent = '🎤 Test Your Microphone';
     }
   } catch(e) {
     valid.textContent = 'Error: ' + e;
     valid.className = 'wizard-validation error';
     btn.disabled = false;
-    btn.textContent = '🎤 Enable Hotkey Test';
+    btn.textContent = '🎤 Test Your Microphone';
   }
 }
 
@@ -1031,20 +1031,24 @@ async function wizStartHotkeyTest() {
 window.wizOnRecordingStart = function() {
   const status = document.getElementById('wizRecordingStatus');
   const hint = document.getElementById('wizRecordingHint');
+  const prompt = document.getElementById('wizTryPrompt');
   if (status) {
-    status.textContent = 'Recording... Press Ctrl+Space to stop.';
+    status.textContent = '🔴 Listening... Press Ctrl + Space when you\'re done.';
     status.className = 'wizard-recording-status active';
   }
   if (hint) hint.style.display = 'none';
+  if (prompt) prompt.style.opacity = '0.4';
 };
 
 // Called from Python via evaluate_js when recording stops
 window.wizOnRecordingStop = function() {
   const status = document.getElementById('wizRecordingStatus');
+  const prompt = document.getElementById('wizTryPrompt');
   if (status) {
-    status.textContent = 'Transcribing...';
+    status.textContent = 'Transcribing your voice...';
     status.className = 'wizard-recording-status processing';
   }
+  if (prompt) prompt.style.opacity = '0.4';
 };
 
 // Called from Python via evaluate_js with transcription result
@@ -1054,6 +1058,7 @@ window.wizOnTranscriptionResult = function(text) {
   const resultText = document.getElementById('wizResultText');
   const valid = document.getElementById('wizMicValidation');
   const hint = document.getElementById('wizRecordingHint');
+  const prompt = document.getElementById('wizTryPrompt');
 
   if (status) {
     status.textContent = '';
@@ -1062,19 +1067,20 @@ window.wizOnTranscriptionResult = function(text) {
 
   if (resultArea) resultArea.style.display = 'block';
   if (resultText) resultText.value = text;
+  if (prompt) prompt.style.opacity = '1';
   if (hint) {
     hint.style.display = 'block';
-    hint.innerHTML = 'Try again with <strong>Ctrl + Space</strong>, or click Finish Setup.';
+    hint.innerHTML = 'Want to try again? Press <strong>Ctrl + Space</strong> anytime, or hit <strong>Finish Setup</strong> below.';
   }
 
   // Check if transcription is meaningful (not an error)
   const isError = text.startsWith('(') && text.endsWith(')');
   if (!isError && text.trim().length > 0) {
-    valid.textContent = 'Pipeline test passed! Transcription working.';
+    valid.textContent = 'Natter is working! Your mic sounds great.';
     valid.className = 'wizard-validation success';
     _wizardMicTested = true;
   } else {
-    valid.textContent = 'No speech detected. Try again.';
+    valid.textContent = 'Hmm, no speech detected. Give it another go!';
     valid.className = 'wizard-validation error';
     _wizardMicTested = false;
   }
