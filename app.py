@@ -204,9 +204,8 @@ class Api:
     def get_modes(self) -> list:
         """Return available prompt modes with display names."""
         return [
-            {"id": "smart",               "name": "📝 Normal",           "desc": "Auto-detects list / prose / task"},
-            {"id": "adhd_ramble",         "name": "🌀 Ramble",           "desc": "Organises long brain dumps"},
-            {"id": "agentic_engineering", "name": "⚡ Agentic Engineer", "desc": "Structured prompts for Claude / Cursor"},
+            {"id": "normal", "name": "Normal",      "desc": "Keeps everything, cleans grammar"},
+            {"id": "smart",  "name": "Token Saver",  "desc": "Concise — classifies and trims filler"},
         ]
 
     def get_current_mode(self) -> str:
@@ -551,6 +550,82 @@ class Api:
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
+    # ── Wizard Hotkey Test API ─────────────────────────────────────────────
+
+    def wizard_start_hotkey_test(self, device_index) -> dict:
+        """Start temporary hotkey listener for wizard Step 3."""
+        global _wizard_recorder, _wizard_hotkey, _wizard_transcriber
+        global _wizard_recording, _wizard_result
+        try:
+            device_index = int(device_index)
+            _wizard_result = None
+            _wizard_recording = False
+
+            # Create temporary audio recorder
+            _wizard_recorder = AudioRecorder(sample_rate=16000, channels=1)
+
+            # Create temporary transcriber using already-validated keys
+            openai_key = os.getenv("OPENAI_API_KEY", "")
+            groq_key = os.getenv("GROQ_API_KEY", "")
+            if not openai_key and not groq_key:
+                return {"ok": False, "error": "No API key found. Complete Step 1 first."}
+
+            _wizard_transcriber = WhisperTranscriber(
+                api_key=openai_key, model="whisper-1", groq_api_key=groq_key,
+            )
+
+            # Create temporary hotkey listener
+            if _platform.system() == "Windows":
+                _wizard_hotkey = WindowsHotkeyListener(
+                    on_press=_wizard_on_press,
+                    on_release=_wizard_on_release,
+                )
+                threading.Thread(
+                    target=_wizard_hotkey.start, daemon=True, name="WizardHotkeyThread"
+                ).start()
+            else:
+                _wizard_hotkey = SmartHotkeyListener(
+                    on_press=_wizard_on_press,
+                    on_release=_wizard_on_release,
+                )
+                threading.Thread(
+                    target=_wizard_hotkey.start, daemon=True, name="WizardHotkeyThread"
+                ).start()
+
+            _log_to_file("Wizard hotkey test started")
+            return {"ok": True, "message": "Press Ctrl+Space to start recording"}
+        except Exception as e:
+            _log_to_file(f"Wizard hotkey test error: {e}")
+            return {"ok": False, "error": str(e)}
+
+    def wizard_stop_hotkey_test(self) -> dict:
+        """Stop the temporary wizard hotkey listener and clean up."""
+        global _wizard_hotkey, _wizard_recorder, _wizard_transcriber
+        global _wizard_recording
+        try:
+            if _wizard_hotkey:
+                _wizard_hotkey.stop()
+                _wizard_hotkey = None
+            if _wizard_recording and _wizard_recorder:
+                try:
+                    _wizard_recorder.stop()
+                except Exception:
+                    pass
+                _wizard_recording = False
+            _wizard_recorder = None
+            _wizard_transcriber = None
+            _log_to_file("Wizard hotkey test stopped")
+            return {"ok": True}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    def wizard_get_recording_state(self) -> dict:
+        """Poll the wizard recording state and result."""
+        return {
+            "recording": _wizard_recording,
+            "result": _wizard_result,
+        }
+
     def complete_setup(self) -> dict:
         """Called when the setup wizard finishes. Initializes the pipeline."""
         try:
@@ -654,6 +729,13 @@ _api      = None
 _pipeline = None   # set after NatterPipeline is created
 _config   = None   # set in main()
 
+# ── Wizard temporary state ────────────────────────────────────────────
+_wizard_recorder    = None   # temporary AudioRecorder for wizard
+_wizard_hotkey      = None   # temporary hotkey listener for wizard
+_wizard_transcriber = None   # temporary WhisperTranscriber for wizard
+_wizard_recording   = False  # is wizard currently recording?
+_wizard_result      = None   # transcription result
+
 SETUP_FILE = Path.home() / ".natter" / "setup_complete.json"
 
 
@@ -688,6 +770,64 @@ def _log_to_file(msg: str):
     except Exception:
         pass
     print(msg)
+
+
+def _wizard_on_press():
+    """Wizard hotkey press — start recording."""
+    global _wizard_recording, _wizard_result
+    if _wizard_recording:
+        return
+    _wizard_recording = True
+    _wizard_result = None
+    if _wizard_recorder:
+        _wizard_recorder.start()
+    _log_to_file("Wizard: recording started")
+    if _window:
+        try:
+            _window.evaluate_js("window.wizOnRecordingStart && window.wizOnRecordingStart()")
+        except Exception:
+            pass
+
+
+def _wizard_on_release():
+    """Wizard hotkey release — stop recording and transcribe."""
+    global _wizard_recording, _wizard_result
+    if not _wizard_recording:
+        return
+    _wizard_recording = False
+    _log_to_file("Wizard: recording stopped, transcribing...")
+
+    if _window:
+        try:
+            _window.evaluate_js("window.wizOnRecordingStop && window.wizOnRecordingStop()")
+        except Exception:
+            pass
+
+    try:
+        audio_bytes = _wizard_recorder.stop() if _wizard_recorder else b""
+        if not audio_bytes:
+            _wizard_result = "(No audio captured)"
+            _push_wizard_result(_wizard_result)
+            return
+
+        transcript = _wizard_transcriber.transcribe_sync(audio_bytes) if _wizard_transcriber else ""
+        _wizard_result = transcript or "(Empty transcription)"
+        _log_to_file(f"Wizard transcription: {_wizard_result[:80]}")
+        _push_wizard_result(_wizard_result)
+    except Exception as e:
+        _wizard_result = f"(Error: {e})"
+        _log_to_file(f"Wizard transcription error: {e}")
+        _push_wizard_result(_wizard_result)
+
+
+def _push_wizard_result(text: str):
+    """Push wizard transcription result to JS."""
+    if _window:
+        try:
+            result_json = json.dumps(text)
+            _window.evaluate_js(f"window.wizOnTranscriptionResult && window.wizOnTranscriptionResult({result_json})")
+        except Exception:
+            pass
 
 
 def _initialize_pipeline():
@@ -789,6 +929,7 @@ class NatterPipeline:
         self.overlay = RecordingOverlay(
             on_cancel=self._on_overlay_cancel,
             on_stop=self._on_overlay_stop,
+            on_cancel_request=self._on_overlay_cancel_request,
         )
         self._prev_window = None  # focused window before recording starts
 
@@ -817,6 +958,29 @@ class NatterPipeline:
         """User clicked ■ on overlay — stop & process."""
         if self.is_recording:
             self.on_hotkey_release()
+
+    def _on_overlay_cancel_request(self):
+        """User clicked X on overlay — confirm before cancelling."""
+        if not self.is_recording:
+            return
+
+        def _ask_confirm():
+            if _window:
+                try:
+                    result = _window.evaluate_js(
+                        "confirm('Cancel the current recording? Audio will be discarded.')"
+                    )
+                    if result is True or result == "true":
+                        self._on_overlay_cancel()
+                    else:
+                        _log_to_file("Cancel declined by user, continuing recording")
+                except Exception as e:
+                    _log_to_file(f"Cancel confirm error: {e}")
+                    self._on_overlay_cancel()
+            else:
+                self._on_overlay_cancel()
+
+        threading.Thread(target=_ask_confirm, daemon=True).start()
 
     def on_hotkey_press(self):
         """Start recording."""

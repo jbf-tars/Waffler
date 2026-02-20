@@ -37,14 +37,16 @@ class RecordingOverlay:
         stop()                - terminate subprocess
     """
 
-    def __init__(self, on_cancel=None, on_stop=None):
+    def __init__(self, on_cancel=None, on_stop=None, on_cancel_request=None):
         """
         Args:
-            on_cancel: Callback when user clicks X (discard recording)
-            on_stop:   Callback when user clicks ■ (process recording)
+            on_cancel:         Callback when user clicks X (discard recording)
+            on_stop:           Callback when user clicks ■ (process recording)
+            on_cancel_request: Callback when user clicks X (confirmation needed first)
         """
         self._on_cancel = on_cancel
         self._on_stop   = on_stop
+        self._on_cancel_request = on_cancel_request
         self._process   = None
         self._reader_thread = None
         self._visible   = False
@@ -201,6 +203,11 @@ class RecordingOverlay:
                 event = data.get("event")
                 if event == "cancel" and self._on_cancel:
                     self._on_cancel()
+                elif event == "cancel_request":
+                    if self._on_cancel_request:
+                        self._on_cancel_request()
+                    elif self._on_cancel:
+                        self._on_cancel()
                 elif event == "stop" and self._on_stop:
                     self._on_stop()
             except json.JSONDecodeError:

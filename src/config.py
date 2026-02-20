@@ -41,7 +41,7 @@ class Config:
         self.groq_api_key = os.getenv('GROQ_API_KEY')
         self.azure_openai_api_key = os.getenv('AZURE_OPENAI_API_KEY')
         self.azure_openai_endpoint = os.getenv('AZURE_OPENAI_ENDPOINT')
-        self.prompt_style = os.getenv('PROMPT_STYLE', 'smart')
+        self.prompt_style = os.getenv('PROMPT_STYLE', 'normal')
 
         # Flag whether we have enough config to run the pipeline
         # Groq alone is sufficient (handles both transcription + styling)

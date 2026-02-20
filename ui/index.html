@@ -32,9 +32,8 @@
       <div class="sidebar-section">
         <div class="sidebar-label">✨ Mode</div>
         <select id="modeSelect" class="sidebar-select" onchange="onModeChange(this.value)">
-          <option value="smart">📝 Normal</option>
-          <option value="adhd_ramble">🌀 Ramble</option>
-          <option value="agentic_engineering">⚡ Engineer</option>
+          <option value="normal">Normal</option>
+          <option value="smart">Token Saver</option>
         </select>
       </div>
 
@@ -301,20 +300,27 @@
     <div class="wizard-step-content" id="wizContent3" style="display:none">
       <div class="wizard-card">
         <div class="wizard-card-icon">🎙️</div>
-        <h2>Select Microphone</h2>
-        <p class="wizard-card-desc">Choose your microphone and test it to make sure Natter can hear you.</p>
+        <h2>Test Your Microphone</h2>
+        <p class="wizard-card-desc">Select your microphone, then press <strong>Ctrl + Space</strong> to record and transcribe. This tests the full pipeline.</p>
         <div class="wizard-mic-select-group">
           <select id="wizMicSelect" class="wizard-select" onchange="wizOnMicChange(this.value)"></select>
         </div>
-        <button class="wizard-test-btn" id="wizTestMicBtn" onclick="wizTestMicrophone()">
-          🎤 Test Microphone (2 seconds)
+
+        <button class="wizard-test-btn" id="wizTestMicBtn" onclick="wizStartHotkeyTest()">
+          🎤 Enable Hotkey Test
         </button>
-        <div class="wizard-mic-result" id="wizMicResult" style="display:none">
-          <div class="wizard-mic-level-bar">
-            <div class="wizard-mic-level-fill" id="wizMicLevelFill"></div>
+
+        <div class="wizard-hotkey-test-area" id="wizHotkeyTestArea" style="display:none">
+          <div class="wizard-recording-hint" id="wizRecordingHint">
+            Press <strong>Ctrl + Space</strong> to start recording. Press again to stop.
           </div>
-          <div class="wizard-mic-level-text" id="wizMicLevelText"></div>
+          <div class="wizard-recording-status" id="wizRecordingStatus"></div>
+          <div class="wizard-transcription-result" id="wizTranscriptionResult" style="display:none">
+            <div class="wizard-result-label">Transcription:</div>
+            <textarea class="wizard-result-text" id="wizResultText" readonly rows="3"></textarea>
+          </div>
         </div>
+
         <div class="wizard-validation" id="wizMicValidation"></div>
       </div>
     </div>

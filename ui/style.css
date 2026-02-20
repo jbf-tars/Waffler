@@ -1727,3 +1727,48 @@ html, body {
 @keyframes wizardFadeOut {
   to { opacity: 0; transform: scale(0.98); }
 }
+
+/* Wizard Hotkey Test Area (Step 3) */
+.wizard-hotkey-test-area {
+  margin-top: 16px;
+  padding: 16px;
+  background: var(--bg-hover);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+}
+
+.wizard-recording-hint {
+  color: var(--text-secondary);
+  font-size: 13px;
+  text-align: center;
+  margin-bottom: 8px;
+}
+
+.wizard-recording-status {
+  text-align: center;
+  font-size: 14px;
+  font-weight: 500;
+  min-height: 24px;
+}
+.wizard-recording-status.active { color: var(--red); }
+.wizard-recording-status.processing { color: var(--amber); }
+
+.wizard-transcription-result { margin-top: 12px; }
+
+.wizard-result-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+.wizard-result-text {
+  width: 100%;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  font-family: var(--font);
+  font-size: 13px;
+  resize: none;
+}
