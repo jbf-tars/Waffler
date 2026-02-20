@@ -1,8 +1,8 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-VoiceFlow — Windows PyInstaller spec
+Natter — Windows PyInstaller spec
 Bundles all hidden imports, data files (ui/, prompts/, config.yaml, .env, src/)
-Produces: dist/VoiceFlow/VoiceFlow.exe  (one-folder mode for faster startup)
+Produces: dist/Natter/Natter.exe  (one-folder mode for faster startup)
 """
 
 import sys
@@ -112,13 +112,13 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='VoiceFlow',
+    name='Natter',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=False,  # No console window — GUI app
-    icon=None,      # Add icon path here if you have one: icon='icon.ico'
+    console=False,
+    icon='icon.ico',
 )
 
 coll = COLLECT(
@@ -128,5 +128,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='VoiceFlow',
+    name='Natter',
 )

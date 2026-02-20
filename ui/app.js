@@ -1,4 +1,4 @@
-/* VoiceFlow — Frontend Logic */
+/* Natter — Frontend Logic */
 
 // ── State ──────────────────────────────────────────────────────────────
 let history = [];
@@ -93,7 +93,7 @@ async function copyItem(text, btnEl) {
 }
 
 // ── Called by Python after each transcription ─────────────────────────
-window.voiceflow_refresh = function(newItem) {
+window.natter_refresh = function(newItem) {
   if (newItem) {
     history.unshift(newItem);
   }
@@ -112,7 +112,7 @@ window.voiceflow_refresh = function(newItem) {
 };
 
 // ── Called by Python for status updates ──────────────────────────────
-window.voiceflow_status = function(status) {
+window.natter_status = function(status) {
   $statusInd.className = 'status-indicator ' + status;
   const labels = {
     idle:       'Ready',
@@ -623,7 +623,7 @@ async function exportHistory() {
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
     a.href     = url;
-    a.download = `voiceflow-history-${new Date().toISOString().slice(0,10)}.txt`;
+    a.download = `natter-history-${new Date().toISOString().slice(0,10)}.txt`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -945,7 +945,7 @@ async function wizCompleteSetup() {
   try {
     const r = await pywebview.api.complete_setup();
     if (r.ok) {
-      showToast('VoiceFlow is ready!', 'success');
+      showToast('Natter is ready!', 'success');
       hideWizard();
     } else {
       showToast('Setup error: ' + r.error, 'error');
