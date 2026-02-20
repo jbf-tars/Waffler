@@ -187,7 +187,9 @@ class Api:
 
     def get_current_mode(self) -> str:
         """Return the currently active prompt mode id."""
-        return _pipeline.styler.prompt_style if _pipeline else "normal"
+        if _pipeline:
+            return _pipeline.styler.prompt_style
+        return _config.prompt_style if _config else "smart"
 
     def set_mode(self, mode_id: str) -> dict:
         """Switch to a different prompt mode."""

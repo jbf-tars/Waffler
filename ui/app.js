@@ -266,23 +266,28 @@ function showToast(msg, type) {
 // ── Audio Device Selector ─────────────────────────────────────────────
 
 async function loadAudioDevices() {
-  const sel = document.getElementById('deviceSelect');
-  if (!sel) return;
   try {
     const devices = await pywebview.api.get_audio_devices();
     const current = await pywebview.api.get_selected_device();
-    sel.innerHTML = '';
-    if (!devices || devices.length === 0) {
-      sel.innerHTML = '<option value="">No devices found</option>';
-      return;
-    }
-    devices.forEach(d => {
-      const opt = document.createElement('option');
-      opt.value = d.index;
-      opt.textContent = d.name + (d.is_default ? ' (default)' : '');
-      if (current && current.index === d.index) opt.selected = true;
-      else if (current && current.index === null && d.is_default) opt.selected = true;
-      sel.appendChild(opt);
+
+    // Populate both the settings page dropdown and sidebar dropdown
+    const selectors = ['deviceSelect', 'micSelect'].map(id => document.getElementById(id)).filter(Boolean);
+    if (!selectors.length) return;
+
+    selectors.forEach(sel => {
+      sel.innerHTML = '';
+      if (!devices || devices.length === 0) {
+        sel.innerHTML = '<option value="">No devices found</option>';
+        return;
+      }
+      devices.forEach(d => {
+        const opt = document.createElement('option');
+        opt.value = d.index;
+        opt.textContent = d.name + (d.is_default ? ' (default)' : '');
+        if (current && current.index === d.index) opt.selected = true;
+        else if (current && current.index === null && d.is_default) opt.selected = true;
+        sel.appendChild(opt);
+      });
     });
   } catch(e) {
     console.warn('loadAudioDevices error:', e);
@@ -294,6 +299,24 @@ async function onDeviceChange(indexStr) {
   try {
     const result = await pywebview.api.set_audio_device(idx);
     if (result && result.ok) {
+      // Keep sidebar mic dropdown in sync
+      const micSel = document.getElementById('micSelect');
+      if (micSel) micSel.value = idx;
+      showToast(`🎙️ Mic: ${result.name}`, 'success');
+    }
+  } catch(e) {
+    console.warn('setAudioDevice error:', e);
+  }
+}
+
+async function onMicChange(indexStr) {
+  const idx = parseInt(indexStr, 10);
+  try {
+    const result = await pywebview.api.set_audio_device(idx);
+    if (result && result.ok) {
+      // Keep settings page dropdown in sync
+      const devSel = document.getElementById('deviceSelect');
+      if (devSel) devSel.value = idx;
       showToast(`🎙️ Mic: ${result.name}`, 'success');
     }
   } catch(e) {
@@ -690,6 +713,7 @@ function hideWizard() {
     showPage('home');
     refreshAll();
     loadAudioDevices();
+    loadMode();
   }, 400);
 }
 
