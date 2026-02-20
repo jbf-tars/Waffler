@@ -34,19 +34,24 @@ class RecordingOverlay:
         show()                - make overlay visible
         hide()                - hide overlay (subprocess kept alive)
         update_level(float)   - push RMS level 0.0-1.0 for VU animation
+        show_toast(...)       - show a floating toast popup above the pill
+        hide_toast()          - dismiss the toast popup
         stop()                - terminate subprocess
     """
 
-    def __init__(self, on_cancel=None, on_stop=None, on_cancel_request=None):
+    def __init__(self, on_cancel=None, on_stop=None, on_cancel_request=None,
+                 on_toast_action=None):
         """
         Args:
             on_cancel:         Callback when user clicks X (discard recording)
             on_stop:           Callback when user clicks ■ (process recording)
             on_cancel_request: Callback when user clicks X (confirmation needed first)
+            on_toast_action:   Callback(action: str) when user clicks a toast button
         """
         self._on_cancel = on_cancel
         self._on_stop   = on_stop
         self._on_cancel_request = on_cancel_request
+        self._on_toast_action = on_toast_action
         self._process   = None
         self._reader_thread = None
         self._visible   = False
@@ -90,6 +95,24 @@ class RecordingOverlay:
         """
         if self._is_alive():
             self._send({"type": "state", "value": state})
+
+    def show_toast(self, style: str, heading: str, body: str):
+        """
+        Show a floating toast popup above the pill overlay.
+        style: "cancel" or "error"
+        """
+        if self._is_alive():
+            self._send({
+                "type": "show_toast",
+                "style": style,
+                "heading": heading,
+                "body": body,
+            })
+
+    def hide_toast(self):
+        """Dismiss the toast popup."""
+        if self._is_alive():
+            self._send({"type": "hide_toast"})
 
     def stop(self):
         """Terminate the overlay subprocess."""
@@ -210,5 +233,7 @@ class RecordingOverlay:
                         self._on_cancel()
                 elif event == "stop" and self._on_stop:
                     self._on_stop()
+                elif event == "toast_action" and self._on_toast_action:
+                    self._on_toast_action(data.get("action", ""))
             except json.JSONDecodeError:
                 pass

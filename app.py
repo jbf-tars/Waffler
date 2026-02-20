@@ -1008,6 +1008,7 @@ class NatterPipeline:
             on_cancel=self._on_overlay_cancel,
             on_stop=self._on_overlay_stop,
             on_cancel_request=self._on_overlay_cancel_request,
+            on_toast_action=self._on_toast_action,
         )
         self._prev_window = None  # focused window before recording starts
 
@@ -1038,27 +1039,32 @@ class NatterPipeline:
             self.on_hotkey_release()
 
     def _on_overlay_cancel_request(self):
-        """User clicked X on overlay — confirm before cancelling."""
+        """User clicked X on overlay — show toast confirmation."""
         if not self.is_recording:
             return
+        self.overlay.show_toast(
+            style="cancel",
+            heading="Cancel recording?",
+            body="Audio will be discarded.",
+        )
 
-        def _ask_confirm():
-            if _window:
-                try:
-                    result = _window.evaluate_js(
-                        "confirm('Cancel the current recording? Audio will be discarded.')"
-                    )
-                    if result is True or result == "true":
-                        self._on_overlay_cancel()
-                    else:
-                        _log_to_file("Cancel declined by user, continuing recording")
-                except Exception as e:
-                    _log_to_file(f"Cancel confirm error: {e}")
-                    self._on_overlay_cancel()
-            else:
-                self._on_overlay_cancel()
-
-        threading.Thread(target=_ask_confirm, daemon=True).start()
+    def _on_toast_action(self, action: str):
+        """Handle toast button clicks from overlay."""
+        _log_to_file(f"Toast action: {action}")
+        if action == "confirm":
+            # User confirmed cancel
+            self._on_overlay_cancel()
+        elif action == "dismiss":
+            # User wants to keep recording — just hide toast
+            self.overlay.hide_toast()
+        elif action == "select_mic":
+            # Open mic settings
+            import subprocess as sp
+            try:
+                sp.Popen(["start", "ms-settings:privacy-microphone"], shell=True)
+            except Exception:
+                pass
+            self.overlay.hide_toast()
 
     def on_hotkey_press(self):
         """Start recording."""
@@ -1119,16 +1125,50 @@ class NatterPipeline:
                 pass
             _time.sleep(0.033)  # ~30 fps
 
+    def _show_no_audio_toast(self):
+        """Show 'We couldn't hear you' toast on the overlay."""
+        try:
+            self.overlay.show()
+            self.overlay.show_toast(
+                style="error",
+                heading="We couldn't hear you",
+                body="Check your mic is connected and not muted.",
+            )
+            # Auto-hide after 4 seconds
+            import time as _t
+            _t.sleep(4)
+            self.overlay.hide_toast()
+            self.overlay.hide()
+        except Exception:
+            pass
+
     def _process(self):
         try:
             audio_bytes = self.audio.stop()
             if not audio_bytes:
+                _log_to_file("No audio bytes captured")
+                threading.Thread(target=self._show_no_audio_toast, daemon=True).start()
                 notify_js_status("idle")
                 return
+
+            # Check if audio is effectively silent (RMS below threshold)
+            try:
+                import numpy as np
+                audio_arr = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32)
+                rms = float(np.sqrt(np.mean(audio_arr ** 2)))
+                if rms < 80:
+                    _log_to_file(f"Audio too quiet (RMS={rms:.0f}), showing toast")
+                    threading.Thread(target=self._show_no_audio_toast, daemon=True).start()
+                    notify_js_status("idle")
+                    return
+            except Exception:
+                pass  # If numpy check fails, continue with transcription
 
             # Transcribe
             transcript = self.transcriber.transcribe_sync(audio_bytes)
             if not transcript:
+                _log_to_file("Empty transcription result")
+                threading.Thread(target=self._show_no_audio_toast, daemon=True).start()
                 notify_js_status("idle")
                 return
 
