@@ -500,6 +500,8 @@ class Api:
             error_msg = str(e)
             if "401" in error_msg or "invalid" in error_msg.lower():
                 return {"ok": False, "error": "Invalid Groq API key"}
+            elif "403" in error_msg:
+                return {"ok": False, "error": "Access denied — this key may be expired or revoked. Generate a new one at console.groq.com/keys"}
             elif "429" in error_msg:
                 return {"ok": False, "error": "Rate limited — try again shortly"}
             else:
