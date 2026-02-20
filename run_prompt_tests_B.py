@@ -11,7 +11,7 @@ import time
 from openai import OpenAI
 
 # ── Config ────────────────────────────────────────────────────────────────────
-API_KEY = "REDACTED_OPENAI_KEY"
+API_KEY = os.environ.get("OPENAI_API_KEY")
 PROJECT_PATH = "/Users/tars/clawd/projects/voice-app-downloadable"
 RESULTS_PATH = os.path.join(PROJECT_PATH, "test_results_B.json")
 MODEL = "gpt-4o-mini"

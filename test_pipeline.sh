@@ -3,7 +3,7 @@
 cd "$(dirname "$0")"
 
 unset AZURE_OPENAI_API_KEY AZURE_OPENAI_ENDPOINT MINIMAX_API_KEY DEEPGRAM_API_KEY
-export OPENAI_API_KEY='REDACTED_OPENAI_KEY'
+export OPENAI_API_KEY="${OPENAI_API_KEY:?OPENAI_API_KEY environment variable must be set}"
 
 python3 -c "
 import sys, os

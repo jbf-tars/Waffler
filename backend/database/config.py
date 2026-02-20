@@ -12,10 +12,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Database URL
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql://REDACTED_DB_CREDENTIALS@localhost:5432/voiceflow"
-)
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL environment variable is not set")
 
 # Create engine
 engine = create_engine(DATABASE_URL)

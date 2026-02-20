@@ -13,7 +13,7 @@ from openai import OpenAI
 
 # ── Config ────────────────────────────────────────────────────────────────────
 PROJECT_PATH = "/Users/tars/clawd/projects/voice-app-downloadable"
-API_KEY = "REDACTED_OPENAI_KEY"
+API_KEY = os.environ.get("OPENAI_API_KEY")
 MODEL = "gpt-4o-mini"
 
 client = OpenAI(api_key=API_KEY)

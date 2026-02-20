@@ -10,7 +10,7 @@ import re
 import time
 from openai import OpenAI
 
-OPENAI_KEY = "REDACTED_OPENAI_KEY"
+OPENAI_KEY = os.environ.get("OPENAI_API_KEY")
 PROJECT_DIR = "/Users/tars/clawd/projects/voice-app-downloadable"
 RESULTS_FILE = os.path.join(PROJECT_DIR, "test_results_v2.json")
 
