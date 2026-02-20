@@ -327,9 +327,8 @@ async function onMicChange(indexStr) {
 // ── Mode Selector ─────────────────────────────────────────────────────
 
 const MODE_DESCS = {
-  smart:               'Auto-detects list / prose / task',
-  adhd_ramble:         'Organises long brain dumps',
-  agentic_engineering: 'Structured prompts for Claude / Cursor',
+  normal: 'Keeps everything, cleans grammar',
+  smart:  'Concise — classifies and trims filler',
 };
 
 async function loadMode() {
@@ -765,6 +764,11 @@ function hideWizard() {
 // ── Step Navigation ──────────────────────────────────────────
 
 function wizShowStep(step) {
+  // Clean up wizard hotkey test when leaving step 3
+  if (_wizardStep === 3 && step !== 3 && _wizardHotkeyTestActive) {
+    pywebview.api.wizard_stop_hotkey_test().catch(() => {});
+    _wizardHotkeyTestActive = false;
+  }
   _wizardStep = step;
   for (let i = 1; i <= 3; i++) {
     const ind = document.getElementById('wizStep' + i);
@@ -977,60 +981,105 @@ function wizOnMicChange(val) {
   _wizardMicDeviceIndex = parseInt(val, 10);
   _wizardMicTested = false;
   wizUpdateNextButton();
-  document.getElementById('wizMicResult').style.display = 'none';
-  document.getElementById('wizMicValidation').textContent = '';
+  // Reset hotkey test area
+  const testArea = document.getElementById('wizHotkeyTestArea');
+  const btn = document.getElementById('wizTestMicBtn');
+  if (testArea) testArea.style.display = 'none';
+  if (btn) { btn.style.display = 'block'; btn.disabled = false; btn.textContent = '🎤 Enable Hotkey Test'; }
+  const valid = document.getElementById('wizMicValidation');
+  if (valid) valid.textContent = '';
+  // Stop any running hotkey test
+  if (window.pywebview && window.pywebview.api) {
+    pywebview.api.wizard_stop_hotkey_test().catch(() => {});
+  }
 }
 
-async function wizTestMicrophone() {
+let _wizardHotkeyTestActive = false;
+
+async function wizStartHotkeyTest() {
   if (_wizardMicDeviceIndex === null) return;
   const btn = document.getElementById('wizTestMicBtn');
-  const result = document.getElementById('wizMicResult');
-  const fill = document.getElementById('wizMicLevelFill');
-  const text = document.getElementById('wizMicLevelText');
+  const testArea = document.getElementById('wizHotkeyTestArea');
   const valid = document.getElementById('wizMicValidation');
 
   btn.disabled = true;
-  btn.textContent = 'Listening...';
-  btn.classList.add('testing');
-  result.style.display = 'block';
-  fill.style.width = '0%';
-  text.textContent = 'Recording 2 seconds of audio...';
-  valid.textContent = '';
+  btn.textContent = 'Starting hotkey listener...';
 
   try {
     await pywebview.api.set_audio_device(_wizardMicDeviceIndex);
-    const r = await pywebview.api.test_microphone(_wizardMicDeviceIndex, 2.0);
+    const r = await pywebview.api.wizard_start_hotkey_test(_wizardMicDeviceIndex);
     if (r.ok) {
-      const pct = Math.min(100, Math.round((r.rms / 2000) * 100));
-      fill.style.width = pct + '%';
-      if (r.has_audio) {
-        fill.className = 'wizard-mic-level-fill good';
-        text.textContent = 'Audio detected! Level: ' + pct + '%';
-        valid.textContent = 'Microphone is working!';
-        valid.className = 'wizard-validation success';
-        _wizardMicTested = true;
-      } else {
-        fill.className = 'wizard-mic-level-fill low';
-        text.textContent = 'Very low or no audio detected';
-        valid.textContent = 'Try speaking louder or check your microphone';
-        valid.className = 'wizard-validation error';
-        _wizardMicTested = false;
-      }
+      btn.style.display = 'none';
+      testArea.style.display = 'block';
+      valid.textContent = '';
+      _wizardHotkeyTestActive = true;
     } else {
-      text.textContent = 'Error: ' + r.error;
-      valid.textContent = 'Microphone test failed';
+      valid.textContent = r.error || 'Failed to start hotkey test';
       valid.className = 'wizard-validation error';
+      btn.disabled = false;
+      btn.textContent = '🎤 Enable Hotkey Test';
     }
   } catch(e) {
-    text.textContent = 'Error: ' + e;
-    valid.textContent = 'Test failed';
+    valid.textContent = 'Error: ' + e;
     valid.className = 'wizard-validation error';
+    btn.disabled = false;
+    btn.textContent = '🎤 Enable Hotkey Test';
   }
-  btn.disabled = false;
-  btn.textContent = '🎤 Test Microphone (2 seconds)';
-  btn.classList.remove('testing');
-  wizUpdateNextButton();
 }
+
+// Called from Python via evaluate_js when recording starts
+window.wizOnRecordingStart = function() {
+  const status = document.getElementById('wizRecordingStatus');
+  const hint = document.getElementById('wizRecordingHint');
+  if (status) {
+    status.textContent = 'Recording... Press Ctrl+Space to stop.';
+    status.className = 'wizard-recording-status active';
+  }
+  if (hint) hint.style.display = 'none';
+};
+
+// Called from Python via evaluate_js when recording stops
+window.wizOnRecordingStop = function() {
+  const status = document.getElementById('wizRecordingStatus');
+  if (status) {
+    status.textContent = 'Transcribing...';
+    status.className = 'wizard-recording-status processing';
+  }
+};
+
+// Called from Python via evaluate_js with transcription result
+window.wizOnTranscriptionResult = function(text) {
+  const status = document.getElementById('wizRecordingStatus');
+  const resultArea = document.getElementById('wizTranscriptionResult');
+  const resultText = document.getElementById('wizResultText');
+  const valid = document.getElementById('wizMicValidation');
+  const hint = document.getElementById('wizRecordingHint');
+
+  if (status) {
+    status.textContent = '';
+    status.className = 'wizard-recording-status';
+  }
+
+  if (resultArea) resultArea.style.display = 'block';
+  if (resultText) resultText.value = text;
+  if (hint) {
+    hint.style.display = 'block';
+    hint.innerHTML = 'Try again with <strong>Ctrl + Space</strong>, or click Finish Setup.';
+  }
+
+  // Check if transcription is meaningful (not an error)
+  const isError = text.startsWith('(') && text.endsWith(')');
+  if (!isError && text.trim().length > 0) {
+    valid.textContent = 'Pipeline test passed! Transcription working.';
+    valid.className = 'wizard-validation success';
+    _wizardMicTested = true;
+  } else {
+    valid.textContent = 'No speech detected. Try again.';
+    valid.className = 'wizard-validation error';
+    _wizardMicTested = false;
+  }
+  wizUpdateNextButton();
+};
 
 // ── Complete Setup ──────────────────────────────────────────
 
@@ -1039,6 +1088,11 @@ async function wizCompleteSetup() {
   btn.disabled = true;
   btn.textContent = 'Setting up...';
   try {
+    // Stop wizard hotkey before starting real pipeline
+    if (_wizardHotkeyTestActive) {
+      await pywebview.api.wizard_stop_hotkey_test();
+      _wizardHotkeyTestActive = false;
+    }
     const r = await pywebview.api.complete_setup();
     if (r.ok) {
       showToast('Natter is ready!', 'success');

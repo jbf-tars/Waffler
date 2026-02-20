@@ -43,6 +43,7 @@ Rules that always apply:
 - Preserve important specifics: numbers, dates, names, product names exactly as spoken.
 - Handle self-corrections explicitly, ensuring clarity in the output.
 - Ensure all outputs are free of filler words, especially when the content is meaningful but cluttered with unnecessary speech patterns.
+- The word "slash" spoken aloud should remain as the word "slash", not be converted to a "/" character.
 
 Transcript: {transcript}
 

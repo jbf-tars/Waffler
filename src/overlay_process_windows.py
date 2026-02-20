@@ -27,9 +27,13 @@ import queue
 import tkinter as tk
 
 # ── Constants ──────────────────────────────────────────────────────────
-TRANSPARENT = '#010101'   # Magic colour used for window-level transparency
-BG_COLOR    = '#ffffff'   # Pill background (white)
-BORDER_CLR  = '#b0b0b0'   # Pill border (light grey)
+TRANSPARENT  = '#010101'   # Magic colour used for window-level transparency
+BG_COLOR     = '#1a1a1e'   # Pill background (--bg-card dark)
+BORDER_CLR   = '#7c3aed'   # Pill border (--accent purple)
+CANCEL_BG    = '#2a2a35'   # Cancel button background
+CANCEL_X_CLR = '#ef4444'   # Cancel X mark colour (--red)
+STOP_BG      = '#7c3aed'   # Stop button background (--accent)
+STOP_ICON    = '#1a1a1e'   # Stop icon colour (matches bg)
 
 NUM_BARS    = 10
 WIN_W       = 120         # 1/4 size (was 260)
@@ -88,25 +92,25 @@ def _draw_pill():
     _canvas.create_line(R, 0, W - R, 0, fill=BORDER_CLR, width=1)
     _canvas.create_line(R, H - 1, W - R, H - 1, fill=BORDER_CLR, width=1)
 
-    # 3. Cancel button (X) — left (smaller for compact size)
+    # 3. Cancel button (X) — left, red on dark
     btn_r = 5
     cx = 10
     _canvas.create_oval(cx - btn_r, cy - btn_r, cx + btn_r, cy + btn_r,
-                        fill='#d0d0d0', outline='#d0d0d0')
+                        fill=CANCEL_BG, outline=CANCEL_BG)
     off = 3
     _canvas.create_line(cx - off, cy - off, cx + off, cy + off,
-                        fill='#404040', width=1.5, capstyle=tk.ROUND)
+                        fill=CANCEL_X_CLR, width=1.5, capstyle=tk.ROUND)
     _canvas.create_line(cx + off, cy - off, cx - off, cy + off,
-                        fill='#404040', width=1.5, capstyle=tk.ROUND)
+                        fill=CANCEL_X_CLR, width=1.5, capstyle=tk.ROUND)
 
-    # 4. Stop button (■) — right
+    # 4. Stop button (■) — right, purple accent
     sx = W - 10
     _canvas.create_oval(sx - btn_r, cy - btn_r, sx + btn_r, cy + btn_r,
-                        fill='#d0d0d0', outline='#d0d0d0')
+                        fill=STOP_BG, outline=STOP_BG)
     sq = 5
     _canvas.create_rectangle(sx - sq // 2, cy - sq // 2,
                               sx + sq // 2, cy + sq // 2,
-                              fill='#404040', outline='#404040')
+                              fill=STOP_ICON, outline=STOP_ICON)
 
     # 5. VU bars — centre zone
     _draw_vu_bars(20, W - 20, H, cy)
@@ -120,15 +124,22 @@ def _draw_vu_bars(x_start: int, x_end: int, H: int, cy: int):
     min_h   = 2
     max_h   = int(H * 0.7)
 
+    # Purple gradient: --accent (#7c3aed) → --accent-text (#a78bfa)
+    r1, g1, b1 = 0x7c, 0x3a, 0xed
+    r2, g2, b2 = 0xa7, 0x8b, 0xfa
+
     for i in range(NUM_BARS):
         lvl = max(0.0, min(1.0, _bars[i]))
         bh  = max(min_h, int(min_h + lvl * (max_h - min_h)))
         bx  = int(x_start + i * spacing + (spacing - bar_w) / 2)
         by  = cy - bh // 2
 
-        # Dark grey when quiet, white when loud (white background)
-        brightness = int(0.25 + lvl * 0.75)  # 0.25→1.0
-        color = f'#{brightness:02x}{brightness:02x}{brightness:02x}'
+        # Interpolate purple: dim when quiet, bright when loud
+        t = lvl
+        r = int(r1 + (r2 - r1) * t)
+        g = int(g1 + (g2 - g1) * t)
+        b = int(b1 + (b2 - b1) * t)
+        color = f'#{r:02x}{g:02x}{b:02x}'
 
         _canvas.create_rectangle(bx, by, bx + bar_w, by + bh,
                                  fill=color, outline=color)
@@ -206,7 +217,7 @@ def _animation_loop():
 def _on_click(event):
     x = event.x
     if x < CANCEL_HIT_X:
-        emit("cancel")
+        emit("cancel_request")
     elif x > STOP_HIT_X:
         emit("stop")
 
