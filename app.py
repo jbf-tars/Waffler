@@ -69,9 +69,12 @@ HISTORY_FILE = Path.home() / ".natter" / "history.json"
 USAGE_FILE = Path.home() / ".natter" / "usage.json"
 
 # Pricing constants
-WHISPER_COST_PER_SECOND = 0.0001  # $0.006/minute = $0.0001/second
-GPT4O_MINI_INPUT_COST_PER_1M = 0.15  # $0.15 per 1M input tokens
-GPT4O_MINI_OUTPUT_COST_PER_1M = 0.60  # $0.60 per 1M output tokens
+WHISPER_COST_PER_SECOND = 0.0001       # OpenAI: $0.006/minute
+GROQ_WHISPER_COST_PER_SECOND = 0.0000467  # Groq: $0.0028/minute
+GPT4O_MINI_INPUT_COST_PER_1M = 0.15   # GPT-4o-mini input
+GPT4O_MINI_OUTPUT_COST_PER_1M = 0.60  # GPT-4o-mini output
+GROQ_LLM_INPUT_COST_PER_1M = 0.59     # Groq LLaMA 3.3 70B input
+GROQ_LLM_OUTPUT_COST_PER_1M = 0.79    # Groq LLaMA 3.3 70B output
 
 
 def ensure_history_dir():
@@ -121,28 +124,36 @@ def save_usage(usage: list):
         json.dump(usage, f, ensure_ascii=False, indent=2)
 
 
-def record_usage(entry_type: str, duration_seconds: float = None, input_tokens: int = 0, output_tokens: int = 0):
+def record_usage(entry_type: str, duration_seconds: float = None,
+                 input_tokens: int = 0, output_tokens: int = 0,
+                 provider: str = "openai"):
     """Record an API usage entry with cost calculation."""
     cost_usd = 0.0
-    
+
     if entry_type == "whisper" and duration_seconds is not None:
-        # Whisper: $0.006/minute = $0.0001/second
-        cost_usd = duration_seconds * WHISPER_COST_PER_SECOND
+        if provider == "groq":
+            cost_usd = duration_seconds * GROQ_WHISPER_COST_PER_SECOND
+        else:
+            cost_usd = duration_seconds * WHISPER_COST_PER_SECOND
     elif entry_type == "gpt":
-        # GPT-4o-mini: $0.15/1M input, $0.60/1M output
-        cost_usd = (input_tokens / 1_000_000) * GPT4O_MINI_INPUT_COST_PER_1M + \
-                   (output_tokens / 1_000_000) * GPT4O_MINI_OUTPUT_COST_PER_1M
-    
+        if provider == "groq":
+            cost_usd = (input_tokens / 1_000_000) * GROQ_LLM_INPUT_COST_PER_1M + \
+                       (output_tokens / 1_000_000) * GROQ_LLM_OUTPUT_COST_PER_1M
+        else:
+            cost_usd = (input_tokens / 1_000_000) * GPT4O_MINI_INPUT_COST_PER_1M + \
+                       (output_tokens / 1_000_000) * GPT4O_MINI_OUTPUT_COST_PER_1M
+
     entry = {
         "timestamp": datetime.now().isoformat(timespec="seconds"),
         "type": entry_type,
+        "provider": provider,
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
         "cost_usd": round(cost_usd, 6),
     }
     if duration_seconds is not None:
         entry["duration_seconds"] = round(duration_seconds, 3)
-    
+
     usage = load_usage()
     usage.append(entry)
     save_usage(usage)
@@ -320,19 +331,31 @@ class Api:
         """Return current settings for the UI."""
         stored = self._load_settings_file()
         key = os.getenv("OPENAI_API_KEY", "")
-        if len(key) > 12:
-            masked = key[:8] + "…" + key[-4:]
-        elif key:
-            masked = "*" * len(key)
-        else:
-            masked = ""
+        groq_key = os.getenv("GROQ_API_KEY", "")
+
+        def _mask(k):
+            if len(k) > 12:
+                return k[:8] + "…" + k[-4:]
+            elif k:
+                return "*" * len(k)
+            return ""
+
         local_whisper_active = _pipeline and hasattr(_pipeline.transcriber, "_backend") and \
                                _pipeline.transcriber._backend in ("mlx", "faster")
+        transcription_backend = "unknown"
+        styling_backend = "unknown"
+        if _pipeline:
+            transcription_backend = getattr(_pipeline.transcriber, "_backend", "api")
+            styling_backend = "groq" if getattr(_pipeline.styler, "_use_groq", False) else "openai"
         return {
             "api_key_set":           bool(key),
-            "api_key_masked":        masked,
+            "api_key_masked":        _mask(key),
+            "groq_key_set":          bool(groq_key),
+            "groq_key_masked":       _mask(groq_key),
             "local_whisper":         os.getenv("LOCAL_WHISPER", "0") == "1",
             "local_whisper_active":  local_whisper_active,
+            "transcription_backend": transcription_backend,
+            "styling_backend":       styling_backend,
             "language":              stored.get("language", "auto"),
             "auto_paste":            stored.get("auto_paste", True),
         }
@@ -343,7 +366,7 @@ class Api:
             stored = self._load_settings_file()
             notes  = []
 
-            # ── API key ──────────────────────────────────────────────────────
+            # ── OpenAI API key ────────────────────────────────────────────────
             new_key = (settings.get("api_key") or "").strip()
             if new_key and not new_key.startswith("sk-…"):
                 self._update_env_var("OPENAI_API_KEY", new_key)
@@ -354,7 +377,14 @@ class Api:
                     _pipeline.transcriber.client  = _OAI(api_key=new_key)
                     _pipeline.styler.api_key      = new_key
                     _pipeline.styler.client       = _OAI(api_key=new_key)
-                notes.append("API key updated")
+                notes.append("OpenAI API key updated")
+
+            # ── Groq API key ─────────────────────────────────────────────────
+            new_groq = (settings.get("groq_key") or "").strip()
+            if new_groq and not new_groq.startswith("gsk_…"):
+                self._update_env_var("GROQ_API_KEY", new_groq)
+                os.environ["GROQ_API_KEY"] = new_groq
+                notes.append("Groq API key updated — restart for speed boost")
 
             # ── Local Whisper toggle ─────────────────────────────────────────
             if "local_whisper" in settings:
@@ -414,11 +444,15 @@ class Api:
 
     def get_onboarding_status(self) -> dict:
         """Returns whether the app needs first-run setup."""
-        key = os.getenv("OPENAI_API_KEY", "").strip()
+        openai_key = os.getenv("OPENAI_API_KEY", "").strip()
+        groq_key = os.getenv("GROQ_API_KEY", "").strip()
+        has_any_key = bool(openai_key or groq_key)
         setup_done = _is_setup_complete()
         return {
-            "needs_setup": not setup_done or not bool(key),
-            "has_key": bool(key),
+            "needs_setup": not setup_done or not has_any_key,
+            "has_key": has_any_key,
+            "has_openai_key": bool(openai_key),
+            "has_groq_key": bool(groq_key),
             "setup_complete": setup_done,
         }
 
@@ -443,6 +477,32 @@ class Api:
                 return {"ok": False, "error": "Invalid API key"}
             elif "429" in error_msg:
                 return {"ok": False, "error": "Rate limited — key may be valid but has no quota"}
+            else:
+                return {"ok": False, "error": f"Connection error: {error_msg[:100]}"}
+
+    def validate_groq_key(self, api_key: str) -> dict:
+        """Validate a Groq API key by listing models."""
+        api_key = (api_key or "").strip()
+        if not api_key:
+            return {"ok": False, "error": "No API key provided"}
+        if not api_key.startswith("gsk_"):
+            return {"ok": False, "error": "Key should start with gsk_"}
+        try:
+            import groq
+            client = groq.Groq(api_key=api_key)
+            client.models.list()
+            # Key is valid — persist it
+            self._update_env_var("GROQ_API_KEY", api_key)
+            os.environ["GROQ_API_KEY"] = api_key
+            return {"ok": True, "message": "Groq key is valid"}
+        except ImportError:
+            return {"ok": False, "error": "Groq SDK not installed"}
+        except Exception as e:
+            error_msg = str(e)
+            if "401" in error_msg or "invalid" in error_msg.lower():
+                return {"ok": False, "error": "Invalid Groq API key"}
+            elif "429" in error_msg:
+                return {"ok": False, "error": "Rate limited — try again shortly"}
             else:
                 return {"ok": False, "error": f"Connection error: {error_msg[:100]}"}
 
@@ -697,24 +757,29 @@ class NatterPipeline:
             channels=config.channels
         )
 
-        # Transcriber (OpenAI Whisper)
-        if config.openai_api_key:
-            self.transcriber = WhisperTranscriber(
-                api_key=config.openai_api_key,
-                model="whisper-1"
-            )
-            _log_to_file("Using OpenAI Whisper")
-        else:
-            raise ValueError("OPENAI_API_KEY is required")
+        groq_key = config.groq_api_key or ""
+        openai_key = config.openai_api_key or ""
 
-        # Styler (GPT-4o-mini)
+        if not groq_key and not openai_key:
+            raise ValueError("At least one API key is required (Groq or OpenAI)")
+
+        # Transcriber — Groq Whisper (fast) → OpenAI Whisper (fallback)
+        self.transcriber = WhisperTranscriber(
+            api_key=openai_key,
+            model="whisper-1",
+            groq_api_key=groq_key,
+        )
+        _log_to_file(f"Transcriber backend: {self.transcriber._backend}")
+
+        # Styler — Groq LLaMA (fast) → GPT-4o-mini (fallback)
         self.styler = OpenAIStyler(
-            api_key=config.openai_api_key,
+            api_key=openai_key,
             model="gpt-4o-mini",
             max_tokens=config.minimax_max_tokens,
-            prompt_style=config.prompt_style
+            prompt_style=config.prompt_style,
+            groq_api_key=groq_key,
         )
-        _log_to_file("Using GPT-4o-mini")
+        _log_to_file(f"Styler backend: {'groq' if self.styler._use_groq else 'openai'}")
 
         self.clipboard = ClipboardManager()
         self.is_recording = False
@@ -836,8 +901,14 @@ class NatterPipeline:
             # Record Whisper usage - calculate from audio bytes (works for all backends)
             # Audio is 16kHz, 16-bit mono = 32000 bytes/second
             whisper_duration = len(audio_bytes) / 32000.0
+            whisper_provider = self.transcriber._backend
+            if whisper_provider in ("mlx", "faster"):
+                whisper_provider = "local"
+            elif whisper_provider == "api":
+                whisper_provider = "openai"
             if whisper_duration > 0:
-                record_usage("whisper", duration_seconds=whisper_duration)
+                record_usage("whisper", duration_seconds=whisper_duration,
+                             provider=whisper_provider)
 
             # Style
             styled, gpt_usage = self.styler.style(transcript)
@@ -849,7 +920,8 @@ class NatterPipeline:
                 record_usage(
                     "gpt",
                     input_tokens=gpt_usage.get("input_tokens", 0),
-                    output_tokens=gpt_usage.get("output_tokens", 0)
+                    output_tokens=gpt_usage.get("output_tokens", 0),
+                    provider=gpt_usage.get("provider", "openai"),
                 )
 
             # Apply snippets (text expansion)
