@@ -842,6 +842,51 @@ class Api:
         permissions_mgr = PermissionsManager()
         return permissions_mgr.request_microphone_permission()
 
+    def trigger_permission_requests(self) -> dict:
+        """
+        Trigger macOS permission prompts by attempting to use the APIs.
+        This causes macOS to show system dialogs and add Waffler to permission lists.
+        Only runs on macOS. Fails silently on other platforms.
+        """
+        if sys.platform != "darwin":
+            _log_to_file("[INFO] Permission triggers skipped (not macOS)")
+            return {"ok": True, "platform": sys.platform, "triggered": False}
+
+        try:
+            _log_to_file("[INFO] Triggering macOS permission requests...")
+
+            # Trigger Accessibility permission prompt
+            from ApplicationServices import AXIsProcessTrusted
+            AXIsProcessTrusted()
+            _log_to_file("[INFO] Accessibility permission trigger called")
+
+            # Trigger Input Monitoring permission prompt
+            try:
+                from Quartz import (
+                    CGEventTapCreate,
+                    kCGSessionEventTap,
+                    kCGHeadInsertEventTap,
+                    kCGEventKeyDown,
+                )
+                tap = CGEventTapCreate(
+                    kCGSessionEventTap,
+                    kCGHeadInsertEventTap,
+                    0,  # passive listener
+                    1 << kCGEventKeyDown,
+                    lambda *args: None,
+                    None,
+                )
+                _log_to_file(f"[INFO] Input Monitoring permission trigger called (tap={tap})")
+            except Exception as e:
+                _log_to_file(f"[INFO] Input Monitoring trigger exception: {e}")
+
+            return {"ok": True, "platform": "darwin", "triggered": True}
+
+        except Exception as e:
+            _log_to_file(f"[INFO] Permission trigger error: {e}")
+            # Fail silently - users can still use "Open System Settings" buttons
+            return {"ok": True, "platform": "darwin", "triggered": False, "error": str(e)}
+
     def test_microphone(self, device_index, duration=2.0) -> dict:
         """Record a short clip and return the audio level."""
         try:
