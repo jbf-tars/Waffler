@@ -48,8 +48,8 @@ if _USE_LOCAL:
             print("   Run: pip install faster-whisper")
 
 
-VOCAB_FILE    = Path.home() / ".voiceflow" / "vocab.json"
-SETTINGS_FILE = Path.home() / ".voiceflow" / "settings.json"
+VOCAB_FILE    = Path.home() / ".natter" / "vocab.json"
+SETTINGS_FILE = Path.home() / ".natter" / "settings.json"
 
 
 def load_vocab() -> list[str]:

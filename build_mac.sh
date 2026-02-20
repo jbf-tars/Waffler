@@ -1,7 +1,7 @@
 #!/bin/bash
 # ============================================
-# VoiceFlow — macOS Build Script
-# Produces: dist/VoiceFlow.app + VoiceFlow.dmg
+# Natter — macOS Build Script
+# Produces: dist/Natter.app + Natter.dmg
 # ============================================
 
 set -e
@@ -9,7 +9,7 @@ cd "$(dirname "$0")"
 
 echo ""
 echo "============================================"
-echo "  VoiceFlow — macOS Build"
+echo "  Natter — macOS Build"
 echo "============================================"
 echo ""
 
@@ -40,38 +40,38 @@ echo "  Done."
 
 # Step 4: Build with PyInstaller
 echo ""
-echo "[4/5] Building VoiceFlow.app..."
+echo "[4/5] Building Natter.app..."
 echo "  This may take a few minutes..."
 echo ""
-pyinstaller VoiceFlow_mac.spec --noconfirm 2>&1
+pyinstaller Natter_mac.spec --noconfirm 2>&1
 
 # Step 5: Create DMG
 echo ""
-echo "[5/5] Creating VoiceFlow.dmg..."
-if [ -d "dist/VoiceFlow.app" ]; then
-    rm -f dist/VoiceFlow.dmg
-    hdiutil create -volname "VoiceFlow" \
-        -srcfolder dist/VoiceFlow.app \
+echo "[5/5] Creating Natter.dmg..."
+if [ -d "dist/Natter.app" ]; then
+    rm -f dist/Natter.dmg
+    hdiutil create -volname "Natter" \
+        -srcfolder dist/Natter.app \
         -ov -format UDZO \
-        dist/VoiceFlow.dmg 2>&1
+        dist/Natter.dmg 2>&1
     echo "  Done."
 else
-    echo "  WARNING: VoiceFlow.app not found — skipping DMG"
+    echo "  WARNING: Natter.app not found — skipping DMG"
 fi
 
 echo ""
 echo "============================================"
 echo "  BUILD SUCCESSFUL!"
-echo "  App:  dist/VoiceFlow.app"
-echo "  DMG:  dist/VoiceFlow.dmg"
+echo "  App:  dist/Natter.app"
+echo "  DMG:  dist/Natter.dmg"
 echo "============================================"
 echo ""
 
 # Sanity check
-if [ -d "dist/VoiceFlow.app" ]; then
-    echo "  VoiceFlow.app created successfully."
-    du -sh "dist/VoiceFlow.app"
+if [ -d "dist/Natter.app" ]; then
+    echo "  Natter.app created successfully."
+    du -sh "dist/Natter.app"
 fi
-if [ -f "dist/VoiceFlow.dmg" ]; then
-    du -sh "dist/VoiceFlow.dmg"
+if [ -f "dist/Natter.dmg" ]; then
+    du -sh "dist/Natter.dmg"
 fi

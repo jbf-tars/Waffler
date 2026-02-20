@@ -1,5 +1,5 @@
 """
-VoiceFlow Smart Hotkey
+Natter Smart Hotkey
 
 Right Option (⌥) alone  → Push-to-talk: hold to record, release to stop
 Right Option + Space     → Sticky mode: recording locks on (can release Option)

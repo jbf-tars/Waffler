@@ -1,5 +1,5 @@
 """
-VoiceFlow License Key Validation
+Natter License Key Validation
 Validates licence keys on first run via Lemon Squeezy API.
 """
 import json
@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 import requests
 
-LICENSE_FILE = Path.home() / ".voiceflow" / "license.json"
+LICENSE_FILE = Path.home() / ".natter" / "license.json"
 LEMONSQUEEZY_API_URL = "https://api.lemonsqueezy.com/v1/licenses"
 
 
@@ -43,7 +43,7 @@ def is_validated() -> bool:
     return False
 
 
-def validate_license(license_key: str, instance_name: str = "VoiceFlow") -> dict:
+def validate_license(license_key: str, instance_name: str = "Natter") -> dict:
     """
     Validate license key with Lemon Squeezy.
     
