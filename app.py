@@ -631,9 +631,9 @@ class Api:
     # ── Wizard Hotkey Test API ─────────────────────────────────────────────
 
     def wizard_start_hotkey_test(self, device_index) -> dict:
-        """Start temporary hotkey listener for wizard Step 3."""
+        """Start temporary hotkey listener for wizard Step 4."""
         global _wizard_recorder, _wizard_hotkey, _wizard_transcriber
-        global _wizard_recording, _wizard_result
+        global _wizard_recording, _wizard_result, _wizard_overlay
         try:
             device_index = int(device_index)
             _wizard_result = None
@@ -641,6 +641,9 @@ class Api:
 
             # Create temporary audio recorder
             _wizard_recorder = AudioRecorder(sample_rate=16000, channels=1)
+
+            # Create temporary overlay so the pill shows during wizard
+            _wizard_overlay = RecordingOverlay()
 
             # Create temporary transcriber using already-validated keys
             openai_key = os.getenv("OPENAI_API_KEY", "")
@@ -679,7 +682,7 @@ class Api:
     def wizard_stop_hotkey_test(self) -> dict:
         """Stop the temporary wizard hotkey listener and clean up."""
         global _wizard_hotkey, _wizard_recorder, _wizard_transcriber
-        global _wizard_recording
+        global _wizard_recording, _wizard_overlay
         try:
             if _wizard_hotkey:
                 _wizard_hotkey.stop()
@@ -690,6 +693,9 @@ class Api:
                 except Exception:
                     pass
                 _wizard_recording = False
+            if _wizard_overlay:
+                _wizard_overlay.stop()
+                _wizard_overlay = None
             _wizard_recorder = None
             _wizard_transcriber = None
             _log_to_file("Wizard hotkey test stopped")
@@ -811,6 +817,7 @@ _config   = None   # set in main()
 _wizard_recorder    = None   # temporary AudioRecorder for wizard
 _wizard_hotkey      = None   # temporary hotkey listener for wizard
 _wizard_transcriber = None   # temporary WhisperTranscriber for wizard
+_wizard_overlay     = None   # temporary overlay for wizard
 _wizard_recording   = False  # is wizard currently recording?
 _wizard_result      = None   # transcription result
 
@@ -860,11 +867,30 @@ def _wizard_on_press():
     if _wizard_recorder:
         _wizard_recorder.start()
     _log_to_file("Wizard: recording started")
+    # Show overlay pill
+    if _wizard_overlay:
+        try:
+            _wizard_overlay.show()
+        except Exception as e:
+            _log_to_file(f"Wizard overlay show error: {e}")
+        # Start VU level feed in background
+        threading.Thread(target=_wizard_level_loop, daemon=True, name="WizLevelLoop").start()
     if _window:
         try:
             _window.evaluate_js("window.wizOnRecordingStart && window.wizOnRecordingStart()")
         except Exception:
             pass
+
+
+def _wizard_level_loop():
+    """Feed live audio level to the wizard overlay at ~30fps while recording."""
+    while _wizard_recording and _wizard_recorder and _wizard_overlay:
+        lvl = _wizard_recorder.get_level()
+        try:
+            _wizard_overlay.update_level(lvl)
+        except Exception:
+            pass
+        time.sleep(0.033)
 
 
 def _wizard_on_release():
@@ -875,6 +901,13 @@ def _wizard_on_release():
     _wizard_recording = False
     _log_to_file("Wizard: recording stopped, transcribing...")
 
+    # Hide overlay pill
+    if _wizard_overlay:
+        try:
+            _wizard_overlay.hide()
+        except Exception:
+            pass
+
     if _window:
         try:
             _window.evaluate_js("window.wizOnRecordingStop && window.wizOnRecordingStop()")
@@ -884,8 +917,29 @@ def _wizard_on_release():
     try:
         audio_bytes = _wizard_recorder.stop() if _wizard_recorder else b""
         if not audio_bytes:
-            _wizard_result = "(No audio captured)"
-            _push_wizard_result(_wizard_result)
+            _wizard_result = None
+            _push_wizard_silent()
+            return
+
+        # Silence detection — skip 44-byte WAV header, check RMS
+        is_silent = False
+        if len(audio_bytes) < 16044:
+            is_silent = True
+            _log_to_file(f"Wizard: recording too short ({len(audio_bytes)} bytes)")
+        else:
+            try:
+                import numpy as np
+                audio_arr = np.frombuffer(audio_bytes[44:], dtype=np.int16).astype(np.float32)
+                rms = float(np.sqrt(np.mean(audio_arr ** 2)))
+                if rms < 150:
+                    is_silent = True
+                    _log_to_file(f"Wizard: audio too quiet (RMS={rms:.0f})")
+            except Exception:
+                pass
+
+        if is_silent:
+            _wizard_result = None
+            _push_wizard_silent()
             return
 
         transcript = _wizard_transcriber.transcribe_sync(audio_bytes) if _wizard_transcriber else ""
@@ -896,6 +950,15 @@ def _wizard_on_release():
         _wizard_result = f"(Error: {e})"
         _log_to_file(f"Wizard transcription error: {e}")
         _push_wizard_result(_wizard_result)
+
+
+def _push_wizard_silent():
+    """Push 'no audio' notification to JS during wizard."""
+    if _window:
+        try:
+            _window.evaluate_js("window.wizOnSilentRecording && window.wizOnSilentRecording()")
+        except Exception:
+            pass
 
 
 def _push_wizard_result(text: str):
@@ -1151,12 +1214,21 @@ class NatterPipeline:
                 notify_js_status("idle")
                 return
 
+            # Check minimum duration — < 0.5s is likely accidental
+            # Audio is 16kHz 16-bit mono = 32000 bytes/sec + 44 byte WAV header
+            if len(audio_bytes) < 16044:
+                _log_to_file(f"Recording too short ({len(audio_bytes)} bytes), treating as accidental")
+                threading.Thread(target=self._show_no_audio_toast, daemon=True).start()
+                notify_js_status("idle")
+                return
+
             # Check if audio is effectively silent (RMS below threshold)
+            # Skip 44-byte WAV header before reading samples
             try:
                 import numpy as np
-                audio_arr = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32)
+                audio_arr = np.frombuffer(audio_bytes[44:], dtype=np.int16).astype(np.float32)
                 rms = float(np.sqrt(np.mean(audio_arr ** 2)))
-                if rms < 80:
+                if rms < 150:
                     _log_to_file(f"Audio too quiet (RMS={rms:.0f}), showing toast")
                     threading.Thread(target=self._show_no_audio_toast, daemon=True).start()
                     notify_js_status("idle")
@@ -1320,9 +1392,9 @@ def main():
     window = webview.create_window(
         title="Natter",
         url=str(html_path),
-        width=900,
-        height=640,
-        min_size=(700, 480),
+        width=1100,
+        height=780,
+        min_size=(900, 640),
         resizable=True,
         background_color="#0d0d0f",
         js_api=api,
