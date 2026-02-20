@@ -100,9 +100,18 @@ Transcript: {transcript}"""
 
     def _style_groq(self, prompt: str, start_time: float):
         """Style using Groq LLaMA — ~200-400ms."""
+        system_msg = (
+            "You are a voice-to-text formatter. Output ONLY the final cleaned/formatted text. "
+            "NEVER output your classification, reasoning, labels, or any meta-commentary. "
+            "Do NOT prefix your output with things like 'This is a COMMAND' or 'Output:'. "
+            "Just return the cleaned text directly."
+        )
         response = self._groq_client.chat.completions.create(
             model=self._groq_model,
-            messages=[{"role": "user", "content": prompt}],
+            messages=[
+                {"role": "system", "content": system_msg},
+                {"role": "user", "content": prompt},
+            ],
             max_tokens=512,
             temperature=0.3,
         )
@@ -123,7 +132,10 @@ Transcript: {transcript}"""
         try:
             response = self.client.chat.completions.create(
                 model=self.model,
-                messages=[{"role": "user", "content": prompt}],
+                messages=[
+                    {"role": "system", "content": "You are a voice-to-text formatter. Output ONLY the final cleaned text. No meta-commentary."},
+                    {"role": "user", "content": prompt},
+                ],
                 max_tokens=512,
                 temperature=0.3,
             )
