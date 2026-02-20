@@ -45,9 +45,9 @@ function updateHotkeyHint() {
   const label = document.getElementById('hotkeyLabel');
   const emptyHint = document.getElementById('emptyHint');
   if (isWin) {
-    if (badge) badge.textContent = 'RCtrl + RAlt';
+    if (badge) badge.textContent = 'Ctrl + Space';
     if (label) label.textContent = 'Toggle recording';
-    if (emptyHint) emptyHint.innerHTML = 'Press <strong>Right Ctrl + Right Alt</strong> and speak';
+    if (emptyHint) emptyHint.innerHTML = 'Press <strong>Ctrl + Space</strong> and speak';
   } else {
     if (badge) badge.textContent = '⌥ Right';
     if (label) label.textContent = 'Hold to record';
@@ -835,6 +835,11 @@ async function wizLoadHotkeyInfo() {
       ? 'Toggle mode: press once to start, press again to stop'
       : 'Hold mode: hold key to record, release to stop';
     document.getElementById('wizHotkeyDesc').textContent = info.description;
+    // Show macOS Accessibility hint if on Mac
+    const macHint = document.getElementById('wizMacAccessibility');
+    if (macHint && info.platform === 'Darwin') {
+      macHint.style.display = 'block';
+    }
   } catch(e) {
     console.warn('wizLoadHotkeyInfo error:', e);
   }

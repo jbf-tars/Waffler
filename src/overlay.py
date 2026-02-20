@@ -122,14 +122,30 @@ class RecordingOverlay:
 
     # ── Internals ─────────────────────────────────────────────────────
 
+    def _find_python(self):
+        """Find a usable Python interpreter for the overlay subprocess."""
+        # In frozen apps, sys.executable is the bundled binary — not Python.
+        # We need an actual Python interpreter to run the overlay script.
+        if getattr(sys, 'frozen', False):
+            import shutil
+            # Try common Python interpreter names
+            for name in ('python3', 'python'):
+                path = shutil.which(name)
+                if path:
+                    return path
+            # Fallback: sys.executable (may not work for .py scripts)
+            return sys.executable
+        return sys.executable
+
     def _start_process(self):
         """Launch the overlay subprocess."""
         if not self._script.exists():
             print(f"[overlay] WARNING: script not found: {self._script}", flush=True)
             return
 
+        python = self._find_python()
         self._process = subprocess.Popen(
-            [sys.executable, str(self._script)],
+            [python, str(self._script)],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,

@@ -96,6 +96,8 @@ a = Analysis(
         'ctypes.wintypes',
         'pythonnet',
         'clr',
+        'windows_hotkey',
+        'overlay_process_windows',
     ],
     noarchive=False,
 )
