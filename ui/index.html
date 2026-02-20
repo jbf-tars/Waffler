@@ -208,7 +208,7 @@
         <div class="logo-name">Voice<span>Flow</span></div>
       </div>
       <div class="wizard-title">Welcome to Natter</div>
-      <div class="wizard-subtitle">Let's get you set up in 3 quick steps.</div>
+      <div class="wizard-subtitle">Let's get you set up in 4 quick steps.</div>
     </div>
 
     <!-- Progress -->
@@ -220,12 +220,17 @@
       <div class="wizard-step-connector"></div>
       <div class="wizard-step-indicator" id="wizStep2">
         <div class="step-number">2</div>
-        <div class="step-label">Hotkeys</div>
+        <div class="step-label">Permissions</div>
       </div>
       <div class="wizard-step-connector"></div>
       <div class="wizard-step-indicator" id="wizStep3">
         <div class="step-number">3</div>
-        <div class="step-label">Microphone</div>
+        <div class="step-label">Hotkeys</div>
+      </div>
+      <div class="wizard-step-connector"></div>
+      <div class="wizard-step-indicator" id="wizStep4">
+        <div class="step-number">4</div>
+        <div class="step-label">Try It</div>
       </div>
     </div>
 
@@ -277,8 +282,57 @@
       </div>
     </div>
 
-    <!-- Step 2: Hotkeys -->
+    <!-- Step 2: Permissions -->
     <div class="wizard-step-content" id="wizContent2" style="display:none">
+      <div class="wizard-card">
+        <div class="wizard-card-icon">🔒</div>
+        <h2>Set up Natter on your computer</h2>
+        <p class="wizard-card-desc">
+          Natter needs a few permissions to work properly. We'll check each one below.
+        </p>
+
+        <div class="wizard-mic-select-group" style="margin-bottom:20px">
+          <div class="wizard-key-label">Select Microphone</div>
+          <select id="wizMicSelect" class="wizard-select" onchange="wizOnMicChange(this.value)"></select>
+        </div>
+
+        <div class="wizard-permissions-list">
+          <!-- Microphone Permission -->
+          <div class="wizard-perm-row" id="wizPermMic">
+            <div class="wizard-perm-icon" id="wizPermMicIcon">
+              <span class="wizard-perm-pending">●</span>
+            </div>
+            <div class="wizard-perm-info">
+              <div class="wizard-perm-label">Microphone Access</div>
+              <div class="wizard-perm-desc" id="wizPermMicDesc">Checking...</div>
+            </div>
+            <button class="wizard-perm-btn" id="wizPermMicBtn" style="display:none"
+                    onclick="wizRequestMicPermission()">Allow</button>
+          </div>
+
+          <!-- Accessibility Permission (macOS only) -->
+          <div class="wizard-perm-row" id="wizPermAccessibility" style="display:none">
+            <div class="wizard-perm-icon" id="wizPermAccessIcon">
+              <span class="wizard-perm-pending">●</span>
+            </div>
+            <div class="wizard-perm-info">
+              <div class="wizard-perm-label">Accessibility</div>
+              <div class="wizard-perm-desc" id="wizPermAccessDesc">Needed to paste text into other apps</div>
+            </div>
+            <button class="wizard-perm-btn" id="wizPermAccessBtn" style="display:none"
+                    onclick="wizRequestAccessibilityPermission()">Open Settings</button>
+          </div>
+        </div>
+
+        <button class="wizard-test-btn" id="wizRecheckBtn" style="display:none; margin-top:16px"
+                onclick="wizCheckPermissions()">Recheck Permissions</button>
+
+        <div class="wizard-validation" id="wizPermValidation"></div>
+      </div>
+    </div>
+
+    <!-- Step 3: Hotkeys -->
+    <div class="wizard-step-content" id="wizContent3" style="display:none">
       <div class="wizard-card">
         <div class="wizard-card-icon">⌨️</div>
         <h2>Hotkey Setup</h2>
@@ -290,43 +344,81 @@
         <p class="wizard-hint" style="margin-top:12px">
           Your hotkey is pre-configured. You can customise it later in Settings.
         </p>
-        <p class="wizard-hint" id="wizMacAccessibility" style="display:none; margin-top:8px; color:#f59e0b;">
-          On macOS you will need to grant Accessibility permission in System Settings &gt; Privacy &amp; Security &gt; Accessibility for the hotkey to work.
-        </p>
       </div>
     </div>
 
-    <!-- Step 3: Microphone -->
-    <div class="wizard-step-content" id="wizContent3" style="display:none">
-      <div class="wizard-card">
-        <div class="wizard-card-icon">🎙️</div>
-        <h2>Try It Out</h2>
-        <p class="wizard-card-desc">Let's make sure your microphone works. Pick your mic below, then give it a spin!</p>
-        <div class="wizard-mic-select-group">
-          <select id="wizMicSelect" class="wizard-select" onchange="wizOnMicChange(this.value)"></select>
-        </div>
+    <!-- Step 4: Try It Out (Mock App Demo) -->
+    <div class="wizard-step-content wizard-step-wide" id="wizContent4" style="display:none">
+      <div class="wizard-tryit-split">
 
-        <button class="wizard-test-btn" id="wizTestMicBtn" onclick="wizStartHotkeyTest()">
-          🎤 Test Your Microphone
-        </button>
+        <!-- Left: Instructions -->
+        <div class="wizard-tryit-left">
+          <div class="wizard-tryit-step-num">Step 4</div>
+          <h2>Try it out</h2>
+          <p class="wizard-tryit-desc">
+            See Natter in action. Press the hotkey, say something, and watch your words
+            appear in the mock app on the right.
+          </p>
+          <div class="wizard-tryit-hotkey-hint">
+            <span class="hotkey-badge" id="wizTryHotkeyBadge">Ctrl + Space</span>
+            <span>to start / stop recording</span>
+          </div>
 
-        <div class="wizard-hotkey-test-area" id="wizHotkeyTestArea" style="display:none">
-          <div class="wizard-try-prompt" id="wizTryPrompt">
-            <div class="wizard-try-label">Say something like:</div>
-            <div class="wizard-try-example" id="wizTryExample">"Hey Natter, what do you call a microphone that tells jokes? A stand-up mic!"</div>
+          <div class="wizard-tryit-prompt">
+            <div class="wizard-try-label">Try saying:</div>
+            <div class="wizard-try-example">
+              "Hey, thanks for the invite! I'll be there around 7. Should I bring anything?"
+            </div>
           </div>
-          <div class="wizard-try-hotkey-hint">
-            Press <strong>Ctrl + Space</strong> to start recording, speak, then press <strong>Ctrl + Space</strong> again to stop.
-          </div>
+
           <div class="wizard-recording-status" id="wizRecordingStatus"></div>
-          <div class="wizard-transcription-result" id="wizTranscriptionResult" style="display:none">
-            <div class="wizard-result-label">Here's what Natter heard:</div>
-            <textarea class="wizard-result-text" id="wizResultText" readonly rows="3"></textarea>
-          </div>
-          <div class="wizard-recording-hint" id="wizRecordingHint" style="display:none"></div>
+          <div class="wizard-validation" id="wizMicValidation"></div>
         </div>
 
-        <div class="wizard-validation" id="wizMicValidation"></div>
+        <!-- Right: Mock Chat App -->
+        <div class="wizard-tryit-right">
+          <div class="wizard-mock-app">
+            <div class="mock-app-header">
+              <div class="mock-app-header-left">
+                <div class="mock-app-icon">💬</div>
+                <div class="mock-app-name">Messages</div>
+              </div>
+              <div class="mock-app-tabs">
+                <div class="mock-app-tab active">Messages</div>
+                <div class="mock-app-tab">Email</div>
+                <div class="mock-app-tab">Notes</div>
+              </div>
+              <div class="mock-app-dots">
+                <span class="mock-dot"></span>
+                <span class="mock-dot"></span>
+                <span class="mock-dot"></span>
+              </div>
+            </div>
+
+            <div class="mock-chat-area">
+              <div class="mock-msg">
+                <div class="mock-avatar">A</div>
+                <div class="mock-msg-bubble">
+                  <div class="mock-msg-name">Alex</div>
+                  <div class="mock-msg-text">Hey! A few of us are getting dinner Friday at 7. Want to join? 🍕</div>
+                  <div class="mock-msg-time">2:34 PM</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="mock-input-area">
+              <div class="mock-input-box" id="wizMockInput">
+                <span class="mock-input-placeholder" id="wizMockPlaceholder">
+                  Press <kbd>Ctrl+Space</kbd> and speak...
+                </span>
+                <span class="mock-input-text" id="wizMockText"></span>
+                <span class="mock-input-cursor" id="wizMockCursor" style="display:none"></span>
+              </div>
+              <button class="mock-send-btn" id="wizMockSendBtn" disabled>➤</button>
+            </div>
+          </div>
+        </div>
+
       </div>
     </div>
 
