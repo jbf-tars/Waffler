@@ -1319,8 +1319,8 @@ html, body {
 
 .wizard-container {
   width: 100%;
-  max-width: 520px;
-  padding: 40px 32px;
+  max-width: 680px;
+  padding: 44px 40px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1329,7 +1329,7 @@ html, body {
 }
 
 .wizard-container.wide {
-  max-width: 800px;
+  max-width: 840px;
 }
 
 .wizard-header { text-align: center; }
@@ -1448,8 +1448,9 @@ html, body {
   background: var(--bg-card);
   border: 1px solid var(--border-soft);
   border-radius: var(--radius-lg);
-  padding: 28px 24px;
+  padding: 32px 36px;
   text-align: center;
+  width: 100%;
 }
 
 .wizard-card-icon {
