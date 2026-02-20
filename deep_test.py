@@ -11,7 +11,7 @@ import random
 import os
 from openai import OpenAI
 
-API_KEY = "REDACTED_OPENAI_KEY"
+API_KEY = os.environ.get("OPENAI_API_KEY")
 PROJECT_PATH = "/Users/tars/clawd/projects/voice-app-downloadable"
 PROMPTS_PATH = os.path.join(PROJECT_PATH, "prompts")
 
