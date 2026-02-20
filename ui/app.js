@@ -706,10 +706,13 @@ function onSearchInput(q) {
 // ============================================================
 
 let _wizardStep = 1;
+const WIZARD_TOTAL_STEPS = 4;
 let _wizardGroqKeyValidated = false;
 let _wizardApiKeyValidated = false;
 let _wizardMicTested = false;
 let _wizardMicDeviceIndex = null;
+let _wizardPermissionsGranted = false;
+let _wizardPermCheckInterval = null;
 
 async function checkOnboarding() {
   try {
@@ -764,27 +767,40 @@ function hideWizard() {
 // ── Step Navigation ──────────────────────────────────────────
 
 function wizShowStep(step) {
-  // Clean up wizard hotkey test when leaving step 3
-  if (_wizardStep === 3 && step !== 3 && _wizardHotkeyTestActive) {
+  // Clean up wizard hotkey test when leaving step 4
+  if (_wizardStep === 4 && step !== 4 && _wizardHotkeyTestActive) {
     pywebview.api.wizard_stop_hotkey_test().catch(() => {});
     _wizardHotkeyTestActive = false;
   }
+  // Stop permission polling when leaving step 2
+  if (_wizardStep === 2 && step !== 2) {
+    clearInterval(_wizardPermCheckInterval);
+    _wizardPermCheckInterval = null;
+  }
+
   _wizardStep = step;
-  for (let i = 1; i <= 3; i++) {
+
+  for (let i = 1; i <= WIZARD_TOTAL_STEPS; i++) {
     const ind = document.getElementById('wizStep' + i);
     const con = document.getElementById('wizContent' + i);
+    if (!ind || !con) continue;
     ind.classList.remove('active', 'done');
     if (i < step) ind.classList.add('done');
     if (i === step) ind.classList.add('active');
     con.style.display = (i === step) ? 'block' : 'none';
   }
+
   const connectors = document.querySelectorAll('.wizard-step-connector');
   connectors.forEach((c, i) => c.classList.toggle('done', i < step - 1));
+
+  // Toggle wide container for step 4 (mock app split layout)
+  const container = document.querySelector('.wizard-container');
+  if (container) container.classList.toggle('wide', step === WIZARD_TOTAL_STEPS);
 
   const backBtn = document.getElementById('wizBtnBack');
   const nextBtn = document.getElementById('wizBtnNext');
   backBtn.style.display = step > 1 ? 'inline-block' : 'none';
-  if (step === 3) {
+  if (step === WIZARD_TOTAL_STEPS) {
     nextBtn.textContent = 'Finish Setup';
     nextBtn.classList.add('finish');
   } else {
@@ -792,21 +808,25 @@ function wizShowStep(step) {
     nextBtn.classList.remove('finish');
   }
   wizUpdateNextButton();
-  if (step === 2) wizLoadHotkeyInfo();
-  if (step === 3) wizLoadMicDevices();
+
+  // Step-specific initialization
+  if (step === 2) { wizLoadMicDevices(); wizCheckPermissions(); wizStartPermPolling(); }
+  if (step === 3) wizLoadHotkeyInfo();
+  if (step === 4) wizInitTryItStep();
 }
 
 function wizUpdateNextButton() {
   const btn = document.getElementById('wizBtnNext');
   switch (_wizardStep) {
     case 1: btn.disabled = !(_wizardGroqKeyValidated || _wizardApiKeyValidated); break;
-    case 2: btn.disabled = false; break;
-    case 3: btn.disabled = !_wizardMicTested; break;
+    case 2: btn.disabled = !_wizardPermissionsGranted; break;
+    case 3: btn.disabled = false; break;
+    case 4: btn.disabled = !_wizardMicTested; break;
   }
 }
 
 async function wizNext() {
-  if (_wizardStep < 3) {
+  if (_wizardStep < WIZARD_TOTAL_STEPS) {
     wizShowStep(_wizardStep + 1);
   } else {
     await wizCompleteSetup();
@@ -925,7 +945,107 @@ function wizToggleVisibility(inputId) {
   if (inp) inp.type = inp.type === 'password' ? 'text' : 'password';
 }
 
-// ── Step 2: Hotkey Info ──────────────────────────────────────
+// ── Step 2: Permissions ──────────────────────────────────────
+
+async function wizCheckPermissions() {
+  try {
+    const result = await pywebview.api.check_permissions();
+    const micIcon = document.getElementById('wizPermMicIcon');
+    const micDesc = document.getElementById('wizPermMicDesc');
+    const micBtn  = document.getElementById('wizPermMicBtn');
+    const micRow  = document.getElementById('wizPermMic');
+
+    if (result.mic_granted) {
+      micIcon.innerHTML = '<span class="wizard-perm-granted">&#10003;</span>';
+      micDesc.textContent = 'Microphone access granted';
+      micBtn.style.display = 'none';
+      micRow.classList.add('granted');
+    } else {
+      micIcon.innerHTML = '<span class="wizard-perm-denied">&#10007;</span>';
+      micDesc.textContent = result.mic_error || 'Microphone access needed';
+      micBtn.style.display = 'inline-block';
+      micRow.classList.remove('granted');
+    }
+
+    // Accessibility (macOS only)
+    const accessRow = document.getElementById('wizPermAccessibility');
+    if (result.platform === 'Darwin') {
+      accessRow.style.display = 'flex';
+      const accessIcon = document.getElementById('wizPermAccessIcon');
+      const accessDesc = document.getElementById('wizPermAccessDesc');
+      const accessBtn  = document.getElementById('wizPermAccessBtn');
+
+      if (result.accessibility_granted) {
+        accessIcon.innerHTML = '<span class="wizard-perm-granted">&#10003;</span>';
+        accessDesc.textContent = 'Accessibility access granted';
+        accessBtn.style.display = 'none';
+        accessRow.classList.add('granted');
+      } else {
+        accessIcon.innerHTML = '<span class="wizard-perm-denied">&#10007;</span>';
+        accessDesc.textContent = 'Needed so Natter can paste text into other apps';
+        accessBtn.style.display = 'inline-block';
+        accessRow.classList.remove('granted');
+      }
+    } else {
+      accessRow.style.display = 'none';
+    }
+
+    // Overall state
+    const micOk = result.mic_granted;
+    const accessOk = result.platform === 'Darwin' ? result.accessibility_granted : true;
+    _wizardPermissionsGranted = micOk && accessOk;
+
+    const recheckBtn = document.getElementById('wizRecheckBtn');
+    if (recheckBtn) recheckBtn.style.display = _wizardPermissionsGranted ? 'none' : 'block';
+
+    const valid = document.getElementById('wizPermValidation');
+    if (_wizardPermissionsGranted) {
+      valid.textContent = 'All permissions granted!';
+      valid.className = 'wizard-validation success';
+    } else {
+      valid.textContent = '';
+      valid.className = 'wizard-validation';
+    }
+
+    wizUpdateNextButton();
+  } catch(e) {
+    console.warn('wizCheckPermissions error:', e);
+    // If check fails, allow user through anyway
+    _wizardPermissionsGranted = true;
+    wizUpdateNextButton();
+  }
+}
+
+function wizStartPermPolling() {
+  clearInterval(_wizardPermCheckInterval);
+  _wizardPermCheckInterval = setInterval(() => {
+    if (_wizardStep === 2 && !_wizardPermissionsGranted) {
+      wizCheckPermissions();
+    } else if (_wizardPermissionsGranted) {
+      clearInterval(_wizardPermCheckInterval);
+      _wizardPermCheckInterval = null;
+    }
+  }, 2000);
+}
+
+async function wizRequestMicPermission() {
+  try {
+    await pywebview.api.request_mic_permission();
+    setTimeout(wizCheckPermissions, 1000);
+  } catch(e) {
+    console.warn('wizRequestMicPermission error:', e);
+  }
+}
+
+async function wizRequestAccessibilityPermission() {
+  try {
+    await pywebview.api.open_permission_settings('accessibility');
+  } catch(e) {
+    console.warn('wizRequestAccessibilityPermission error:', e);
+  }
+}
+
+// ── Step 3: Hotkey Info ──────────────────────────────────────
 
 async function wizLoadHotkeyInfo() {
   try {
@@ -935,17 +1055,12 @@ async function wizLoadHotkeyInfo() {
       ? 'Toggle mode: press once to start, press again to stop'
       : 'Hold mode: hold key to record, release to stop';
     document.getElementById('wizHotkeyDesc').textContent = info.description;
-    // Show macOS Accessibility hint if on Mac
-    const macHint = document.getElementById('wizMacAccessibility');
-    if (macHint && info.platform === 'Darwin') {
-      macHint.style.display = 'block';
-    }
   } catch(e) {
     console.warn('wizLoadHotkeyInfo error:', e);
   }
 }
 
-// ── Step 3: Microphone ──────────────────────────────────────
+// ── Step 4: Try It Out (Mock App) ────────────────────────────
 
 async function wizLoadMicDevices() {
   const sel = document.getElementById('wizMicSelect');
@@ -979,113 +1094,118 @@ async function wizLoadMicDevices() {
 
 function wizOnMicChange(val) {
   _wizardMicDeviceIndex = parseInt(val, 10);
-  _wizardMicTested = false;
-  wizUpdateNextButton();
-  // Reset hotkey test area
-  const testArea = document.getElementById('wizHotkeyTestArea');
-  const btn = document.getElementById('wizTestMicBtn');
-  if (testArea) testArea.style.display = 'none';
-  if (btn) { btn.style.display = 'block'; btn.disabled = false; btn.textContent = '🎤 Test Your Microphone'; }
-  const valid = document.getElementById('wizMicValidation');
-  if (valid) valid.textContent = '';
-  // Stop any running hotkey test
-  if (window.pywebview && window.pywebview.api) {
-    pywebview.api.wizard_stop_hotkey_test().catch(() => {});
-  }
+  // Re-check permissions with new mic
+  if (_wizardStep === 2) wizCheckPermissions();
 }
 
 let _wizardHotkeyTestActive = false;
 
-async function wizStartHotkeyTest() {
+async function wizInitTryItStep() {
   if (_wizardMicDeviceIndex === null) return;
-  const btn = document.getElementById('wizTestMicBtn');
-  const testArea = document.getElementById('wizHotkeyTestArea');
-  const valid = document.getElementById('wizMicValidation');
 
-  btn.disabled = true;
-  btn.textContent = 'Getting ready...';
+  // Update hotkey badge text
+  try {
+    const info = await pywebview.api.test_hotkey();
+    const badge = document.getElementById('wizTryHotkeyBadge');
+    if (badge) badge.textContent = info.hotkey;
+    const ph = document.getElementById('wizMockPlaceholder');
+    if (ph) ph.innerHTML = 'Press <kbd>' + info.hotkey + '</kbd> and speak...';
+  } catch(e) {}
 
+  // Auto-start hotkey test
   try {
     await pywebview.api.set_audio_device(_wizardMicDeviceIndex);
     const r = await pywebview.api.wizard_start_hotkey_test(_wizardMicDeviceIndex);
     if (r.ok) {
-      btn.style.display = 'none';
-      testArea.style.display = 'block';
-      valid.textContent = '';
       _wizardHotkeyTestActive = true;
     } else {
-      valid.textContent = r.error || 'Failed to start mic test';
-      valid.className = 'wizard-validation error';
-      btn.disabled = false;
-      btn.textContent = '🎤 Test Your Microphone';
+      const valid = document.getElementById('wizMicValidation');
+      if (valid) { valid.textContent = r.error || 'Failed to start'; valid.className = 'wizard-validation error'; }
     }
   } catch(e) {
-    valid.textContent = 'Error: ' + e;
-    valid.className = 'wizard-validation error';
-    btn.disabled = false;
-    btn.textContent = '🎤 Test Your Microphone';
+    console.warn('wizInitTryItStep error:', e);
   }
 }
 
 // Called from Python via evaluate_js when recording starts
 window.wizOnRecordingStart = function() {
   const status = document.getElementById('wizRecordingStatus');
-  const hint = document.getElementById('wizRecordingHint');
-  const prompt = document.getElementById('wizTryPrompt');
+  const mockInput = document.getElementById('wizMockInput');
+  const placeholder = document.getElementById('wizMockPlaceholder');
+  const cursor = document.getElementById('wizMockCursor');
+  const mockText = document.getElementById('wizMockText');
+
   if (status) {
-    status.textContent = '🔴 Listening... Press Ctrl + Space when you\'re done.';
+    status.textContent = 'Listening...';
     status.className = 'wizard-recording-status active';
   }
-  if (hint) hint.style.display = 'none';
-  if (prompt) prompt.style.opacity = '0.4';
+  if (mockInput) mockInput.classList.add('active');
+  if (placeholder) placeholder.style.display = 'none';
+  if (mockText) mockText.textContent = '';
+  if (cursor) cursor.style.display = 'inline-block';
 };
 
 // Called from Python via evaluate_js when recording stops
 window.wizOnRecordingStop = function() {
   const status = document.getElementById('wizRecordingStatus');
-  const prompt = document.getElementById('wizTryPrompt');
   if (status) {
-    status.textContent = 'Transcribing your voice...';
+    status.textContent = 'Transcribing...';
     status.className = 'wizard-recording-status processing';
   }
-  if (prompt) prompt.style.opacity = '0.4';
 };
 
 // Called from Python via evaluate_js with transcription result
 window.wizOnTranscriptionResult = function(text) {
   const status = document.getElementById('wizRecordingStatus');
-  const resultArea = document.getElementById('wizTranscriptionResult');
-  const resultText = document.getElementById('wizResultText');
+  const mockInput = document.getElementById('wizMockInput');
+  const placeholder = document.getElementById('wizMockPlaceholder');
+  const cursor = document.getElementById('wizMockCursor');
+  const mockText = document.getElementById('wizMockText');
+  const sendBtn = document.getElementById('wizMockSendBtn');
   const valid = document.getElementById('wizMicValidation');
-  const hint = document.getElementById('wizRecordingHint');
-  const prompt = document.getElementById('wizTryPrompt');
 
   if (status) {
     status.textContent = '';
     status.className = 'wizard-recording-status';
   }
+  if (mockInput) mockInput.classList.remove('active');
+  if (cursor) cursor.style.display = 'none';
 
-  if (resultArea) resultArea.style.display = 'block';
-  if (resultText) resultText.value = text;
-  if (prompt) prompt.style.opacity = '1';
-  if (hint) {
-    hint.style.display = 'block';
-    hint.innerHTML = 'Want to try again? Press <strong>Ctrl + Space</strong> anytime, or hit <strong>Finish Setup</strong> below.';
-  }
-
-  // Check if transcription is meaningful (not an error)
   const isError = text.startsWith('(') && text.endsWith(')');
   if (!isError && text.trim().length > 0) {
-    valid.textContent = 'Natter is working! Your mic sounds great.';
-    valid.className = 'wizard-validation success';
+    if (mockText) wizAnimateText(mockText, text);
+    if (sendBtn) sendBtn.disabled = false;
+    if (placeholder) placeholder.style.display = 'none';
+    if (valid) {
+      valid.textContent = 'Natter is working! Try again or finish setup.';
+      valid.className = 'wizard-validation success';
+    }
     _wizardMicTested = true;
   } else {
-    valid.textContent = 'Hmm, no speech detected. Give it another go!';
-    valid.className = 'wizard-validation error';
+    if (mockText) mockText.textContent = '';
+    if (placeholder) { placeholder.style.display = 'inline'; placeholder.textContent = 'No speech detected. Try again!'; }
+    if (sendBtn) sendBtn.disabled = true;
+    if (valid) {
+      valid.textContent = 'No speech detected. Give it another go!';
+      valid.className = 'wizard-validation error';
+    }
     _wizardMicTested = false;
   }
   wizUpdateNextButton();
 };
+
+function wizAnimateText(el, text) {
+  el.textContent = '';
+  let i = 0;
+  const interval = setInterval(() => {
+    if (i < text.length) {
+      el.textContent += text[i];
+      i++;
+    } else {
+      clearInterval(interval);
+    }
+  }, 20);
+}
 
 // ── Complete Setup ──────────────────────────────────────────
 
@@ -1094,7 +1214,8 @@ async function wizCompleteSetup() {
   btn.disabled = true;
   btn.textContent = 'Setting up...';
   try {
-    // Stop wizard hotkey before starting real pipeline
+    // Clean up
+    clearInterval(_wizardPermCheckInterval);
     if (_wizardHotkeyTestActive) {
       await pywebview.api.wizard_stop_hotkey_test();
       _wizardHotkeyTestActive = false;

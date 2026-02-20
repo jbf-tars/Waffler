@@ -522,6 +522,82 @@ class Api:
             ),
         }
 
+    # ── Permission APIs ─────────────────────────────────────────────────
+
+    def check_permissions(self) -> dict:
+        """Check system permissions needed by Natter."""
+        import platform as plat
+        result = {
+            "platform": plat.system(),
+            "mic_granted": False,
+            "accessibility_granted": True,  # Only relevant on macOS
+            "mic_error": None,
+            "accessibility_error": None,
+        }
+
+        # ── Microphone check ──
+        try:
+            import sounddevice as sd
+            stream = sd.InputStream(samplerate=16000, channels=1, dtype='int16', blocksize=1024)
+            stream.start()
+            stream.stop()
+            stream.close()
+            result["mic_granted"] = True
+        except Exception as e:
+            result["mic_granted"] = False
+            result["mic_error"] = str(e)
+
+        # ── macOS Accessibility check ──
+        if plat.system() == "Darwin":
+            try:
+                from ApplicationServices import AXIsProcessTrusted
+                result["accessibility_granted"] = bool(AXIsProcessTrusted())
+            except ImportError:
+                result["accessibility_granted"] = True
+                result["accessibility_error"] = "Could not verify (pyobjc not available)"
+            except Exception as e:
+                result["accessibility_error"] = str(e)
+
+        return result
+
+    def open_permission_settings(self, permission_type: str) -> dict:
+        """Open the relevant system settings page for the given permission."""
+        import platform as plat
+        import subprocess as sp
+        try:
+            if plat.system() == "Windows":
+                if permission_type == "microphone":
+                    sp.Popen(["start", "ms-settings:privacy-microphone"], shell=True)
+                    return {"ok": True}
+            elif plat.system() == "Darwin":
+                if permission_type == "microphone":
+                    sp.Popen(["open", "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"])
+                    return {"ok": True}
+                elif permission_type == "accessibility":
+                    sp.Popen(["open", "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"])
+                    return {"ok": True}
+            return {"ok": False, "error": f"Unknown permission type: {permission_type}"}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    def request_mic_permission(self) -> dict:
+        """Trigger the native OS microphone permission dialog."""
+        import platform as plat
+        if plat.system() == "Darwin":
+            try:
+                import sounddevice as sd
+                stream = sd.InputStream(samplerate=16000, channels=1, dtype='int16')
+                stream.start()
+                import time
+                time.sleep(0.1)
+                stream.stop()
+                stream.close()
+                return {"ok": True, "message": "Permission dialog triggered"}
+            except Exception as e:
+                return {"ok": False, "error": str(e)}
+        else:
+            return self.open_permission_settings("microphone")
+
     def test_microphone(self, device_index, duration=2.0) -> dict:
         """Record a short clip and return the audio level."""
         try:
