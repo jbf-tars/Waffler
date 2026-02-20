@@ -516,7 +516,19 @@ async function loadSettings() {
   try {
     const s = await pywebview.api.get_settings();
 
-    // API key
+    // Groq key
+    const groqInput = document.getElementById('groqKeyInput');
+    const groqDesc = document.getElementById('groqKeyDesc');
+    if (groqInput) {
+      groqInput.placeholder = s.groq_key_set ? s.groq_key_masked : 'gsk_…';
+    }
+    if (groqDesc) {
+      groqDesc.textContent = s.groq_key_set
+        ? ('Active: ' + s.groq_key_masked)
+        : 'Free & 10x faster — console.groq.com';
+    }
+
+    // OpenAI key
     const apiInput = document.getElementById('apiKeyInput');
     const apiStatus = document.getElementById('apiKeyStatus');
     if (apiInput) {
@@ -524,12 +536,24 @@ async function loadSettings() {
     }
     if (apiStatus) {
       if (s.api_key_set) {
-        apiStatus.textContent = '✅ Key set: ' + s.api_key_masked;
+        apiStatus.textContent = 'Key set: ' + s.api_key_masked;
         apiStatus.className = 'api-key-status ok';
       } else {
-        apiStatus.textContent = '⚠️ No API key set';
+        apiStatus.textContent = 'No API key set';
         apiStatus.className = 'api-key-status err';
       }
+    }
+
+    // Backend info
+    const backendInfo = document.getElementById('backendInfo');
+    if (backendInfo) {
+      const stt = s.transcription_backend === 'groq' ? 'Groq Whisper' :
+                  s.transcription_backend === 'api' ? 'OpenAI Whisper' :
+                  s.transcription_backend || 'unknown';
+      const llm = s.styling_backend === 'groq' ? 'Groq LLaMA' :
+                  s.styling_backend === 'openai' ? 'GPT-4o-mini' :
+                  s.styling_backend || 'unknown';
+      backendInfo.textContent = `STT: ${stt} · LLM: ${llm}`;
     }
 
     // Local Whisper
@@ -554,6 +578,26 @@ async function loadSettings() {
 }
 
 // ── Settings Save ────────────────────────────────────────────────────────
+async function saveGroqKey() {
+  const inp = document.getElementById('groqKeyInput');
+  if (!inp) return;
+  const val = inp.value.trim();
+  if (!val) { showToast('Enter a Groq API key first', 'error'); return; }
+  if (!val.startsWith('gsk_')) { showToast('Invalid key — should start with gsk_', 'error'); return; }
+  try {
+    const r = await pywebview.api.save_settings({ groq_key: val });
+    if (r.ok) {
+      inp.value = '';
+      showToast('Groq key saved — restart for speed boost', 'success');
+      await loadSettings();
+    } else {
+      showToast('Error: ' + r.error, 'error');
+    }
+  } catch(e) {
+    showToast('Failed to save key', 'error');
+  }
+}
+
 async function saveApiKey() {
   const inp = document.getElementById('apiKeyInput');
   const statusEl = document.getElementById('apiKeyStatus');
@@ -566,10 +610,10 @@ async function saveApiKey() {
     if (r.ok) {
       inp.value = '';
       if (statusEl) {
-        statusEl.textContent = '✅ Key saved and active';
+        statusEl.textContent = 'Key saved and active';
         statusEl.className = 'api-key-status ok';
       }
-      showToast('✅ API key saved', 'success');
+      showToast('API key saved', 'success');
     } else {
       showToast('Error: ' + r.error, 'error');
     }
@@ -663,6 +707,7 @@ function onSearchInput(q) {
 // ============================================================
 
 let _wizardStep = 1;
+let _wizardGroqKeyValidated = false;
 let _wizardApiKeyValidated = false;
 let _wizardMicTested = false;
 let _wizardMicDeviceIndex = null;
@@ -750,7 +795,7 @@ function wizShowStep(step) {
 function wizUpdateNextButton() {
   const btn = document.getElementById('wizBtnNext');
   switch (_wizardStep) {
-    case 1: btn.disabled = !_wizardApiKeyValidated; break;
+    case 1: btn.disabled = !(_wizardGroqKeyValidated || _wizardApiKeyValidated); break;
     case 2: btn.disabled = false; break;
     case 3: btn.disabled = !_wizardMicTested; break;
   }
@@ -770,32 +815,83 @@ function wizBack() {
 
 // ── Step 1: API Key ──────────────────────────────────────────
 
+let _wizGroqTimer = null;
 let _wizApiTimer = null;
 
 document.addEventListener('DOMContentLoaded', () => {
+  // ── Groq key input ──
+  const groqInp = document.getElementById('wizGroqKeyInput');
+  if (groqInp) {
+    groqInp.addEventListener('input', () => {
+      _wizardGroqKeyValidated = false;
+      wizUpdateNextButton();
+      const val = groqInp.value.trim();
+      const v = document.getElementById('wizGroqValidation');
+      if (!val) { v.textContent = ''; v.className = 'wizard-validation'; return; }
+      if (!val.startsWith('gsk_')) { v.textContent = 'Key should start with gsk_'; v.className = 'wizard-validation error'; return; }
+      if (val.length < 20) { v.textContent = 'Key seems too short...'; v.className = 'wizard-validation error'; return; }
+      clearTimeout(_wizGroqTimer);
+      v.textContent = 'Validating...';
+      v.className = 'wizard-validation loading';
+      _wizGroqTimer = setTimeout(() => wizValidateGroqKey(val), 800);
+    });
+    groqInp.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        clearTimeout(_wizGroqTimer);
+        const val = groqInp.value.trim();
+        if (val.startsWith('gsk_') && val.length >= 20) wizValidateGroqKey(val);
+      }
+    });
+  }
+
+  // ── OpenAI key input ──
   const inp = document.getElementById('wizApiKeyInput');
-  if (!inp) return;
-  inp.addEventListener('input', () => {
-    _wizardApiKeyValidated = false;
-    wizUpdateNextButton();
-    const val = inp.value.trim();
-    const v = document.getElementById('wizApiValidation');
-    if (!val) { v.textContent = ''; v.className = 'wizard-validation'; return; }
-    if (!val.startsWith('sk-')) { v.textContent = 'Key should start with sk-'; v.className = 'wizard-validation error'; return; }
-    if (val.length < 20) { v.textContent = 'Key seems too short...'; v.className = 'wizard-validation error'; return; }
-    clearTimeout(_wizApiTimer);
-    v.textContent = 'Validating...';
-    v.className = 'wizard-validation loading';
-    _wizApiTimer = setTimeout(() => wizValidateApiKey(val), 800);
-  });
-  inp.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      clearTimeout(_wizApiTimer);
+  if (inp) {
+    inp.addEventListener('input', () => {
+      _wizardApiKeyValidated = false;
+      wizUpdateNextButton();
       const val = inp.value.trim();
-      if (val.startsWith('sk-') && val.length >= 20) wizValidateApiKey(val);
-    }
-  });
+      const v = document.getElementById('wizApiValidation');
+      if (!val) { v.textContent = ''; v.className = 'wizard-validation'; return; }
+      if (!val.startsWith('sk-')) { v.textContent = 'Key should start with sk-'; v.className = 'wizard-validation error'; return; }
+      if (val.length < 20) { v.textContent = 'Key seems too short...'; v.className = 'wizard-validation error'; return; }
+      clearTimeout(_wizApiTimer);
+      v.textContent = 'Validating...';
+      v.className = 'wizard-validation loading';
+      _wizApiTimer = setTimeout(() => wizValidateApiKey(val), 800);
+    });
+    inp.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        clearTimeout(_wizApiTimer);
+        const val = inp.value.trim();
+        if (val.startsWith('sk-') && val.length >= 20) wizValidateApiKey(val);
+      }
+    });
+  }
 });
+
+async function wizValidateGroqKey(key) {
+  const v = document.getElementById('wizGroqValidation');
+  v.textContent = 'Validating with Groq...';
+  v.className = 'wizard-validation loading';
+  try {
+    const r = await pywebview.api.validate_groq_key(key);
+    if (r.ok) {
+      v.textContent = 'Groq key is valid! 10x speed enabled.';
+      v.className = 'wizard-validation success';
+      _wizardGroqKeyValidated = true;
+    } else {
+      v.textContent = r.error || 'Invalid key';
+      v.className = 'wizard-validation error';
+      _wizardGroqKeyValidated = false;
+    }
+  } catch(e) {
+    v.textContent = 'Failed to validate — check your internet connection';
+    v.className = 'wizard-validation error';
+    _wizardGroqKeyValidated = false;
+  }
+  wizUpdateNextButton();
+}
 
 async function wizValidateApiKey(key) {
   const v = document.getElementById('wizApiValidation');
@@ -820,8 +916,8 @@ async function wizValidateApiKey(key) {
   wizUpdateNextButton();
 }
 
-function wizToggleKeyVisibility() {
-  const inp = document.getElementById('wizApiKeyInput');
+function wizToggleVisibility(inputId) {
+  const inp = document.getElementById(inputId);
   if (inp) inp.type = inp.type === 'password' ? 'text' : 'password';
 }
 

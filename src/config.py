@@ -38,13 +38,16 @@ class Config:
         self.deepgram_api_key = os.getenv('DEEPGRAM_API_KEY')
         self.minimax_api_key = os.getenv('MINIMAX_API_KEY')
         self.openai_api_key = os.getenv('OPENAI_API_KEY')
+        self.groq_api_key = os.getenv('GROQ_API_KEY')
         self.azure_openai_api_key = os.getenv('AZURE_OPENAI_API_KEY')
         self.azure_openai_endpoint = os.getenv('AZURE_OPENAI_ENDPOINT')
         self.prompt_style = os.getenv('PROMPT_STYLE', 'smart')
-        
+
         # Flag whether we have enough config to run the pipeline
+        # Groq alone is sufficient (handles both transcription + styling)
         self.has_api_key = bool(
-            self.deepgram_api_key or self.openai_api_key or self.azure_openai_api_key
+            self.groq_api_key or self.openai_api_key or
+            self.deepgram_api_key or self.azure_openai_api_key
         )
         if not self.has_api_key:
             print("No API key found — setup wizard will be shown")
