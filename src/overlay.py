@@ -1,5 +1,5 @@
 """
-VoiceFlow - Floating Recording Overlay
+Natter - Floating Recording Overlay
 Spawns a platform-appropriate overlay subprocess:
   • macOS   → overlay_process.py    (PyObjC NSPanel)
   • Windows → overlay_process_windows.py (tkinter)
@@ -128,13 +128,15 @@ class RecordingOverlay:
         # We need an actual Python interpreter to run the overlay script.
         if getattr(sys, 'frozen', False):
             import shutil
-            # Try common Python interpreter names
-            for name in ('python3', 'python'):
+            # Try common Python interpreter names (including Windows py launcher)
+            for name in ('python3', 'python', 'py'):
                 path = shutil.which(name)
                 if path:
+                    print(f"[overlay] Found Python: {path}")
                     return path
-            # Fallback: sys.executable (may not work for .py scripts)
-            return sys.executable
+            # No Python found — return None so caller can handle it
+            print("[overlay] WARNING: No Python interpreter found in PATH")
+            return None
         return sys.executable
 
     def _start_process(self):
@@ -144,6 +146,19 @@ class RecordingOverlay:
             return
 
         python = self._find_python()
+        if python is None:
+            print("[overlay] Cannot start overlay: no Python interpreter available")
+            return
+
+        try:
+            # Use CREATE_NO_WINDOW on Windows to avoid a console flash
+            kwargs = {}
+            if _PLATFORM == "Windows":
+                CREATE_NO_WINDOW = 0x08000000
+                kwargs["creationflags"] = CREATE_NO_WINDOW
+        except Exception:
+            kwargs = {}
+
         self._process = subprocess.Popen(
             [python, str(self._script)],
             stdin=subprocess.PIPE,
@@ -151,6 +166,7 @@ class RecordingOverlay:
             stderr=subprocess.DEVNULL,
             text=True,
             bufsize=1,
+            **kwargs,
         )
         self._reader_thread = threading.Thread(
             target=self._read_stdout,

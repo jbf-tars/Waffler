@@ -1,5 +1,5 @@
 /**
- * VoiceFlow Overlay — JS animation + level bridge
+ * Natter Overlay — JS animation + level bridge
  * Works as:
  *   (a) standalone HTML loaded by the pywebview overlay window
  *   (b) pywebview exposes window.pywebview.api.cancel() / .stop()

@@ -1,10 +1,10 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-VoiceFlow — macOS PyInstaller spec
+Natter — macOS PyInstaller spec
 Bundles all hidden imports, data files (ui/, prompts/, config.yaml, .env, src/)
-Produces: dist/VoiceFlow.app  (macOS .app bundle)
+Produces: dist/Natter.app  (macOS .app bundle)
 
-Run on a Mac with: pyinstaller VoiceFlow_mac.spec
+Run on a Mac with: pyinstaller Natter_mac.spec
 """
 
 import sys
@@ -109,13 +109,13 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='VoiceFlow',
+    name='Natter',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
     console=False,
-    icon=None,  # Add icon path here if you have one: icon='icon.icns'
+    icon=None,  # Add icon.icns here when available
 )
 
 coll = COLLECT(
@@ -125,17 +125,17 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='VoiceFlow',
+    name='Natter',
 )
 
 app = BUNDLE(
     coll,
-    name='VoiceFlow.app',
-    icon=None,  # Add .icns icon here
-    bundle_identifier='com.voiceflow.app',
+    name='Natter.app',
+    icon=None,  # Add .icns icon here when available
+    bundle_identifier='com.natter.app',
     info_plist={
-        'NSMicrophoneUsageDescription': 'VoiceFlow needs microphone access for voice transcription.',
-        'NSAppleEventsUsageDescription': 'VoiceFlow needs accessibility access for hotkey detection and auto-paste.',
+        'NSMicrophoneUsageDescription': 'Natter needs microphone access for voice transcription.',
+        'NSAppleEventsUsageDescription': 'Natter needs accessibility access for hotkey detection and auto-paste.',
         'CFBundleShortVersionString': '1.0.0',
     },
 )

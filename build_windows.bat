@@ -2,17 +2,17 @@
 setlocal EnableDelayedExpansion
 
 :: ============================================
-:: VoiceFlow — Windows Build Script
-:: Produces: dist\VoiceFlow\VoiceFlow.exe
+:: Natter — Windows Build Script
+:: Produces: dist\Natter\Natter.exe
 :: ============================================
 
-title VoiceFlow Windows Build
+title Natter Windows Build
 color 1f
 cd /d "%~dp0"
 
 echo.
 echo ============================================
-echo   VoiceFlow — Windows Build
+echo   Natter — Windows Build
 echo ============================================
 echo.
 
@@ -44,10 +44,10 @@ echo   Done.
 
 :: Step 4: Build with PyInstaller
 echo.
-echo [4/4] Building VoiceFlow.exe...
+echo [4/4] Building Natter.exe...
 echo   This may take a few minutes...
 echo.
-pyinstaller VoiceFlow_windows.spec --noconfirm 2>&1
+pyinstaller Natter_windows.spec --noconfirm 2>&1
 
 if errorlevel 1 (
     echo.
@@ -59,16 +59,16 @@ if errorlevel 1 (
 echo.
 echo ============================================
 echo   BUILD SUCCESSFUL!
-echo   Output: dist\VoiceFlow\VoiceFlow.exe
+echo   Output: dist\Natter\Natter.exe
 echo ============================================
 echo.
 
 :: Quick sanity check
-if exist "dist\VoiceFlow\VoiceFlow.exe" (
+if exist "dist\Natter\Natter.exe" (
     echo   File exists. Size:
-    for %%A in ("dist\VoiceFlow\VoiceFlow.exe") do echo   %%~zA bytes
+    for %%A in ("dist\Natter\Natter.exe") do echo   %%~zA bytes
 ) else (
-    echo   WARNING: VoiceFlow.exe not found in dist\VoiceFlow\
+    echo   WARNING: Natter.exe not found in dist\Natter\
 )
 
 echo.
