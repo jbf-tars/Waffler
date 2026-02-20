@@ -107,8 +107,8 @@ async function openAccessibilitySettings() {
 
     if (result.ok) {
       showToast("Opening System Settings...", "success");
-      // Check permission status after a moment
-      setTimeout(checkPermissions, 2000);
+      // Check permission status after a moment (disabled - user manages permissions)
+      // setTimeout(checkPermissions, 2000);
     } else {
       showToast(result.error || "Failed to open settings", "error");
     }
@@ -132,8 +132,8 @@ async function openInputMonitoringSettings() {
 
     if (result.ok) {
       showToast("Opening System Settings...", "success");
-      // Check permission status after a moment
-      setTimeout(checkPermissions, 2000);
+      // Check permission status after a moment (disabled - user manages permissions)
+      // setTimeout(checkPermissions, 2000);
     } else {
       showToast(result.error || "Failed to open settings", "error");
     }
@@ -1280,9 +1280,9 @@ function updateWizardProgress(step) {
 }
 
 function wizShowStep(step) {
-  // Clean up permission monitoring when leaving step 1
+  // Clean up permission monitoring when leaving step 1 (disabled - no monitoring)
   if (_wizardStep === 1 && step !== 1) {
-    stopPermissionMonitoring();
+    // stopPermissionMonitoring();
   }
 
   // Clean up wizard hotkey test when leaving step 3
@@ -1324,7 +1324,7 @@ function wizShowStep(step) {
   wizUpdateNextButton();
 
   // Step-specific initialization
-  if (step === 1) { startPermissionMonitoring(); }
+  if (step === 1) { /* startPermissionMonitoring(); */ }  // Disabled - no monitoring
   if (step === 2) { wizLoadHotkeyInfo(); initFnKeyFeedback(); }
   if (step === 3) { wizInitApiKeyStep(); }
   if (step === 4) { wizInitTryItStep(); initFnKeyFeedback(); }
