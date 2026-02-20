@@ -118,15 +118,31 @@
     <div class="settings-body">
       <!-- API Section -->
       <div class="settings-section">
-        <div class="settings-section-title">🔑 API</div>
+        <div class="settings-section-title">⚡ API Keys</div>
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-label">Groq API Key</div>
+            <div class="settings-row-desc" id="groqKeyDesc">Free &amp; 10x faster — console.groq.com</div>
+          </div>
+          <div class="settings-row-control stacked">
+            <input type="password" id="groqKeyInput" class="settings-input" placeholder="gsk_…">
+            <button class="settings-btn" onclick="saveGroqKey()">Save</button>
+          </div>
+        </div>
         <div class="settings-row">
           <div class="settings-row-info">
             <div class="settings-row-label">OpenAI API Key</div>
-            <div class="settings-row-desc">Get one at platform.openai.com</div>
+            <div class="settings-row-desc">Optional fallback — platform.openai.com</div>
           </div>
           <div class="settings-row-control stacked">
             <input type="password" id="apiKeyInput" class="settings-input" placeholder="sk-…">
             <button class="settings-btn" onclick="saveApiKey()">Save</button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-label">Active Backends</div>
+            <div class="settings-row-desc" id="backendInfo">Loading...</div>
           </div>
         </div>
       </div>
@@ -160,7 +176,7 @@
         <div class="settings-row">
           <div class="settings-row-info">
             <div class="settings-row-label">Natter</div>
-            <div class="settings-row-desc">v1.0 · Built with Whisper + GPT-4o-mini</div>
+            <div class="settings-row-desc">v1.1 · Powered by Groq + Whisper + LLaMA</div>
           </div>
         </div>
       </div>
@@ -214,27 +230,51 @@
       </div>
     </div>
 
-    <!-- Step 1: API Key -->
+    <!-- Step 1: API Keys -->
     <div class="wizard-step-content" id="wizContent1">
       <div class="wizard-card">
-        <div class="wizard-card-icon">🔑</div>
-        <h2>OpenAI API Key</h2>
+        <div class="wizard-card-icon">⚡</div>
+        <h2>API Keys</h2>
         <p class="wizard-card-desc">
-          Natter uses OpenAI for transcription (Whisper) and text cleanup (GPT-4o-mini).
-          <br>One key powers everything.
+          Natter needs at least one API key. Groq is <strong>free</strong> and <strong>10x faster</strong>.
         </p>
-        <div class="wizard-input-group">
-          <input type="password" id="wizApiKeyInput" class="wizard-input"
-                 placeholder="sk-proj-..." autocomplete="off" spellcheck="false">
-          <button class="wizard-reveal-btn" onclick="wizToggleKeyVisibility()" title="Show/hide">👁️</button>
+
+        <!-- Groq (recommended) -->
+        <div class="wizard-key-section">
+          <div class="wizard-key-label">
+            Groq API Key <span class="wizard-badge-rec">Recommended — Free &amp; Fast</span>
+          </div>
+          <div class="wizard-input-group">
+            <input type="password" id="wizGroqKeyInput" class="wizard-input"
+                   placeholder="gsk_..." autocomplete="off" spellcheck="false">
+            <button class="wizard-reveal-btn" onclick="wizToggleVisibility('wizGroqKeyInput')" title="Show/hide">👁️</button>
+          </div>
+          <div class="wizard-input-hint">
+            Free key:
+            <span class="wizard-link" onclick="pywebview.api.open_url('https://console.groq.com/keys')">
+              console.groq.com/keys
+            </span>
+          </div>
+          <div class="wizard-validation" id="wizGroqValidation"></div>
         </div>
-        <div class="wizard-input-hint">
-          Don't have one?
-          <span class="wizard-link" onclick="pywebview.api.open_url('https://platform.openai.com/api-keys')">
-            Get it from platform.openai.com
-          </span>
+
+        <!-- OpenAI (optional fallback) -->
+        <div class="wizard-key-section" style="margin-top:16px">
+          <div class="wizard-key-label">
+            OpenAI API Key <span class="wizard-badge-opt">Optional Fallback</span>
+          </div>
+          <div class="wizard-input-group">
+            <input type="password" id="wizApiKeyInput" class="wizard-input"
+                   placeholder="sk-proj-..." autocomplete="off" spellcheck="false">
+            <button class="wizard-reveal-btn" onclick="wizToggleVisibility('wizApiKeyInput')" title="Show/hide">👁️</button>
+          </div>
+          <div class="wizard-input-hint">
+            <span class="wizard-link" onclick="pywebview.api.open_url('https://platform.openai.com/api-keys')">
+              platform.openai.com
+            </span>
+          </div>
+          <div class="wizard-validation" id="wizApiValidation"></div>
         </div>
-        <div class="wizard-validation" id="wizApiValidation"></div>
       </div>
     </div>
 

@@ -1,21 +1,42 @@
-"""OpenAI GPT styling module - replaces MiniMax"""
+"""LLM styling module — Groq LLaMA (fast) or OpenAI GPT-4o-mini (fallback)"""
 
 from openai import OpenAI
 from pathlib import Path
 import time
 import re
 
+# ── Try to load Groq SDK ────────────────────────────────────────────────────
+_groq_mod = None
+try:
+    import groq as _groq_mod
+except ImportError:
+    pass
+
 
 class OpenAIStyler:
-    """Styles transcripts into clean commands using OpenAI GPT-4o-mini"""
-    
-    def __init__(self, api_key: str, model: str = "gpt-4o-mini", max_tokens: int = 1024, prompt_style: str = "adhd_ramble"):
+    """Styles transcripts — Groq LLaMA 3.3 70B (fast) or GPT-4o-mini (fallback)"""
+
+    def __init__(self, api_key: str = "", model: str = "gpt-4o-mini",
+                 max_tokens: int = 1024, prompt_style: str = "adhd_ramble",
+                 groq_api_key: str = ""):
         self.api_key = api_key
         self.model = model
         self.max_tokens = max_tokens
         self.prompt_style = prompt_style
-        self.client = OpenAI(api_key=api_key)
-        
+        self.groq_api_key = groq_api_key
+        self.client = OpenAI(api_key=api_key) if api_key else None
+        self._groq_client = None
+        self._use_groq = False
+
+        # Prefer Groq for styling if available
+        if groq_api_key and _groq_mod:
+            self._groq_client = _groq_mod.Groq(api_key=groq_api_key)
+            self._use_groq = True
+            self._groq_model = "llama-3.3-70b-versatile"
+            print(f"⚡ Styling: Groq {self._groq_model}")
+        else:
+            print(f"⚡ Styling: OpenAI {model}")
+
         # Load prompt template
         self.prompt_template = self._load_prompt_template()
         
@@ -66,31 +87,57 @@ Transcript: {transcript}"""
 
         prompt = self.prompt_template.format(transcript=transcript) + vocab_hint
 
+        # Try Groq first (much faster), fall back to OpenAI
+        if self._use_groq:
+            try:
+                return self._style_groq(prompt, start_time)
+            except Exception as e:
+                print(f"⚠️  Groq styling failed ({e}), falling back to OpenAI")
+                if not self.client:
+                    return self._basic_clean(transcript), {"input_tokens": 0, "output_tokens": 0, "api_used": False}
+
+        return self._style_openai(prompt, transcript, start_time)
+
+    def _style_groq(self, prompt: str, start_time: float):
+        """Style using Groq LLaMA — ~200-400ms."""
+        response = self._groq_client.chat.completions.create(
+            model=self._groq_model,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=512,
+            temperature=0.3,
+        )
+        styled = response.choices[0].message.content.strip()
+        latency = (time.time() - start_time) * 1000
+        usage = response.usage
+        usage_dict = {
+            "input_tokens": usage.prompt_tokens if usage else 0,
+            "output_tokens": usage.completion_tokens if usage else 0,
+            "api_used": True,
+            "provider": "groq",
+        }
+        print(f"⚡ Groq styling complete ({latency:.0f}ms)")
+        return styled, usage_dict
+
+    def _style_openai(self, prompt: str, transcript: str, start_time: float):
+        """Style using OpenAI GPT-4o-mini — fallback."""
         try:
             response = self.client.chat.completions.create(
                 model=self.model,
-                messages=[
-                    {"role": "user", "content": prompt}
-                ],
-                max_tokens=512,     # was 1024 — shorter = faster
-                temperature=0.3     # was 0.7 — lower = faster, more deterministic
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=512,
+                temperature=0.3,
             )
-            
             styled = response.choices[0].message.content.strip()
             latency = (time.time() - start_time) * 1000
-            
-            # Get usage info
             usage = response.usage
             usage_dict = {
                 "input_tokens": usage.prompt_tokens if usage else 0,
                 "output_tokens": usage.completion_tokens if usage else 0,
-                "api_used": True
+                "api_used": True,
+                "provider": "openai",
             }
-            
             print(f"✅ GPT styling complete ({latency:.0f}ms)")
-            
             return styled, usage_dict
-            
         except Exception as e:
             print(f"❌ GPT styling error: {e}")
             return self._basic_clean(transcript), {"input_tokens": 0, "output_tokens": 0, "api_used": False}
