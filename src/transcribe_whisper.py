@@ -1,11 +1,10 @@
-"""Whisper transcription — local (fast) or API (fallback).
+"""Whisper transcription — Groq (fastest) → local → OpenAI API (fallback).
 
-LOCAL_WHISPER=1 in .env enables on-device transcription:
-  - Mac (Apple Silicon): uses mlx-whisper  → ~0.2-0.5s, no internet
-  - Windows / Intel Mac: uses faster-whisper → ~0.5-2s on CPU, no internet
-
-Both download a small model (~150MB) on first run, then work offline.
-The GPT cleanup step still needs internet for longer dictations.
+Priority order:
+  1. Groq Whisper  (GROQ_API_KEY set) → ~100-300ms, needs internet
+  2. mlx-whisper   (Mac ARM + LOCAL_WHISPER=1) → ~0.2-0.5s, no internet
+  3. faster-whisper (Windows/Intel + LOCAL_WHISPER=1) → ~0.5-2s on CPU
+  4. OpenAI Whisper API (always available) → 2-5s, needs internet
 """
 
 import os
@@ -16,6 +15,13 @@ import platform
 from pathlib import Path
 
 from openai import OpenAI
+
+# ── Try to load Groq SDK ────────────────────────────────────────────────────
+_groq_mod = None
+try:
+    import groq as _groq_mod
+except ImportError:
+    pass
 
 _USE_LOCAL = os.getenv("LOCAL_WHISPER", "0") == "1"
 _IS_MAC_ARM = sys.platform == "darwin" and platform.machine() == "arm64"
@@ -174,32 +180,52 @@ def apply_vocab_corrections(transcribed: str, vocab: list[str]) -> tuple[str, li
 
 
 class WhisperTranscriber:
-    """Transcribes audio using local model or OpenAI API.
+    """Transcribes audio — Groq (fastest) → local → OpenAI API (fallback).
 
     Priority:
-      1. mlx-whisper  (Mac Apple Silicon + LOCAL_WHISPER=1)
-      2. faster-whisper (Windows/Intel + LOCAL_WHISPER=1)
-      3. OpenAI Whisper API (always available, needs internet)
+      1. Groq Whisper  (GROQ_API_KEY set + groq SDK installed)
+      2. mlx-whisper   (Mac Apple Silicon + LOCAL_WHISPER=1)
+      3. faster-whisper (Windows/Intel + LOCAL_WHISPER=1)
+      4. OpenAI Whisper API (always available, needs internet)
     """
 
-    def __init__(self, api_key: str, model: str = "whisper-1"):
+    def __init__(self, api_key: str = "", model: str = "whisper-1",
+                 groq_api_key: str = ""):
         self.api_key = api_key
         self.model   = model
-        self.client  = OpenAI(api_key=api_key)
+        self.groq_api_key = groq_api_key
+        self.client  = OpenAI(api_key=api_key) if api_key else None
+        self._groq_client = None
 
-        if _USE_LOCAL and _mlx_whisper:
+        # Try Groq first (fastest cloud option)
+        if groq_api_key and _groq_mod:
+            self._groq_client = _groq_mod.Groq(api_key=groq_api_key)
+            self._backend = "groq"
+            print("⚡ Transcription: Groq Whisper (fastest)")
+        elif _USE_LOCAL and _mlx_whisper:
             self._backend = "mlx"
             print("⚡ Transcription: local mlx-whisper (no API calls)")
         elif _USE_LOCAL and _faster_whisper:
             self._backend = "faster"
             print("⚡ Transcription: local faster-whisper (no API calls)")
-        else:
+        elif api_key:
             self._backend = "api"
             if _USE_LOCAL:
                 print("⚠️  Falling back to OpenAI API (local model not loaded)")
+        else:
+            self._backend = "api"
+            print("⚠️  No transcription backend available")
 
     def transcribe_sync(self, audio_bytes: bytes):
-        if self._backend == "mlx":
+        if self._backend == "groq":
+            try:
+                return self._transcribe_groq(audio_bytes)
+            except Exception as e:
+                print(f"⚠️  Groq transcription failed ({e}), falling back to OpenAI")
+                if self.client:
+                    return self._transcribe_api(audio_bytes)
+                raise
+        elif self._backend == "mlx":
             return self._transcribe_mlx(audio_bytes)
         elif self._backend == "faster":
             return self._transcribe_faster(audio_bytes)
@@ -250,6 +276,43 @@ class WhisperTranscriber:
             text = " ".join(seg.text for seg in segments).strip()
             print(f"⚡ faster-whisper ({(time.time()-t0)*1000:.0f}ms): {text[:80]}")
             return text
+        finally:
+            if os.path.exists(tmp):
+                os.unlink(tmp)
+
+    # ── Groq (fastest cloud) ─────────────────────────────────────────────────
+
+    def _transcribe_groq(self, audio_bytes: bytes) -> str:
+        """Groq Whisper — same model, ~10-50x faster than OpenAI."""
+        t0 = time.time()
+        print("⚡ Groq Whisper API...")
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+            f.write(audio_bytes)
+            tmp = f.name
+        try:
+            vocab    = load_vocab()
+            hint     = vocab_to_prompt(vocab)
+            settings = load_settings()
+            lang     = settings.get("language", "auto")
+            with open(tmp, "rb") as af:
+                kwargs = dict(
+                    model="whisper-large-v3",
+                    file=af,
+                    response_format="text",
+                )
+                if hint:
+                    kwargs["prompt"] = hint
+                if lang and lang != "auto":
+                    kwargs["language"] = lang
+                response = self._groq_client.audio.transcriptions.create(**kwargs)
+            text = response.strip()
+            duration = time.time() - t0
+            self._last_duration = duration
+            print(f"⚡ Groq Whisper ({duration*1000:.0f}ms): {text[:80]}")
+            return text
+        except Exception as e:
+            print(f"❌ Groq Whisper error: {e}")
+            raise
         finally:
             if os.path.exists(tmp):
                 os.unlink(tmp)
