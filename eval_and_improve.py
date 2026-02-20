@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 from openai import OpenAI
 
-OPENAI_KEY = "REDACTED_OPENAI_KEY"
+OPENAI_KEY = os.environ.get("OPENAI_API_KEY")
 client = OpenAI(api_key=OPENAI_KEY)
 
 PROJECT = Path("/Users/tars/clawd/projects/voice-app-downloadable")

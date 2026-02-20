@@ -55,7 +55,7 @@ echo [3/5] Setting up configuration...
 :: Create .env file (overwrite to ensure clean format)
 (
 echo # VoiceFlow Configuration
-echo OPENAI_API_KEY=REDACTED_OPENAI_KEY
+echo OPENAI_API_KEY=your_openai_api_key_here
 echo PROMPT_STYLE=smart
 ) > .env
 
