@@ -1325,6 +1325,11 @@ html, body {
   flex-direction: column;
   align-items: center;
   gap: 28px;
+  transition: max-width 0.3s ease;
+}
+
+.wizard-container.wide {
+  max-width: 800px;
 }
 
 .wizard-header { text-align: center; }
@@ -1806,4 +1811,370 @@ html, body {
   font-family: var(--font);
   font-size: 13px;
   resize: none;
+}
+
+/* ── Wizard Permissions Step ─────────────────────────────────────── */
+
+.wizard-permissions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 16px;
+  text-align: left;
+}
+
+.wizard-perm-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  transition: border-color 0.3s, background 0.3s;
+}
+
+.wizard-perm-row.granted {
+  border-color: #22c55e;
+  background: rgba(34, 197, 94, 0.06);
+}
+
+.wizard-perm-icon {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 18px;
+}
+
+.wizard-perm-pending { color: var(--text-muted); }
+.wizard-perm-granted { color: #22c55e; font-size: 20px; }
+.wizard-perm-denied  { color: var(--red); font-size: 20px; }
+
+.wizard-perm-info { flex: 1; }
+
+.wizard-perm-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+
+.wizard-perm-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.wizard-perm-btn {
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 7px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  cursor: pointer;
+  font-family: var(--font);
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.wizard-perm-btn:hover { filter: brightness(1.15); }
+
+/* ── Wizard Try-It Split Layout (Step 4) ─────────────────────────── */
+
+.wizard-step-wide {
+  width: 100%;
+}
+
+.wizard-tryit-split {
+  display: flex;
+  gap: 28px;
+  width: 100%;
+  min-height: 380px;
+}
+
+.wizard-tryit-left {
+  flex: 0 0 36%;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  text-align: left;
+}
+
+.wizard-tryit-right {
+  flex: 1;
+  display: flex;
+  align-items: stretch;
+}
+
+.wizard-tryit-step-num {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--accent-text);
+}
+
+.wizard-tryit-left h2 {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.wizard-tryit-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.wizard-tryit-hotkey-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 10px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.wizard-tryit-prompt {
+  margin-top: auto;
+}
+
+/* ── Mock Chat App ───────────────────────────────────────────────── */
+
+.wizard-mock-app {
+  width: 100%;
+  background: #f8f8f0;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow:
+    0 4px 24px rgba(0, 0, 0, 0.3),
+    0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+
+.mock-app-header {
+  display: flex;
+  align-items: center;
+  padding: 10px 14px;
+  background: #f0f0e4;
+  border-bottom: 1px solid rgba(0,0,0,0.08);
+  gap: 10px;
+}
+
+.mock-app-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.mock-app-icon {
+  width: 26px;
+  height: 26px;
+  background: linear-gradient(135deg, #5865F2, #7c3aed);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+}
+
+.mock-app-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: #1a1a1e;
+  white-space: nowrap;
+}
+
+.mock-app-tabs {
+  display: flex;
+  gap: 2px;
+  flex: 1;
+  justify-content: center;
+}
+
+.mock-app-tab {
+  font-size: 11px;
+  font-weight: 500;
+  color: #888;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: default;
+  border-bottom: 2px solid transparent;
+}
+
+.mock-app-tab.active {
+  color: #1a1a1e;
+  border-bottom-color: var(--accent);
+}
+
+.mock-app-dots {
+  display: flex;
+  gap: 5px;
+  flex-shrink: 0;
+}
+
+.mock-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #d0d0c4;
+}
+
+/* Chat Area */
+.mock-chat-area {
+  flex: 1;
+  padding: 20px 16px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: #fff;
+}
+
+.mock-msg {
+  display: flex;
+  gap: 10px;
+  max-width: 90%;
+  align-self: flex-start;
+}
+
+.mock-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #f59e0b, #ef4444);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.mock-msg-bubble {
+  background: #f4f4ee;
+  border-radius: 14px 14px 14px 4px;
+  padding: 10px 14px;
+}
+
+.mock-msg-name {
+  font-size: 11px;
+  font-weight: 700;
+  color: #7c3aed;
+  margin-bottom: 3px;
+}
+
+.mock-msg-text {
+  font-size: 13px;
+  color: #1a1a1e;
+  line-height: 1.5;
+}
+
+.mock-msg-time {
+  font-size: 10px;
+  color: #999;
+  margin-top: 4px;
+}
+
+/* Input Area */
+.mock-input-area {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid rgba(0,0,0,0.06);
+  background: #f8f8f0;
+}
+
+.mock-input-box {
+  flex: 1;
+  min-height: 38px;
+  background: #fff;
+  border: 1px solid #d4d4cc;
+  border-radius: 20px;
+  padding: 9px 16px;
+  font-size: 13px;
+  color: #1a1a1e;
+  line-height: 1.4;
+  display: flex;
+  align-items: center;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.mock-input-box.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.15);
+}
+
+.mock-input-placeholder {
+  color: #999;
+  font-size: 12px;
+}
+
+.mock-input-placeholder kbd {
+  background: #eee;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 11px;
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  color: #555;
+}
+
+.mock-input-text {
+  font-size: 13px;
+  color: #1a1a1e;
+  line-height: 1.4;
+}
+
+.mock-input-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 16px;
+  background: var(--accent);
+  animation: cursorBlink 0.8s infinite;
+  margin-left: 1px;
+  vertical-align: middle;
+}
+
+@keyframes cursorBlink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
+.mock-send-btn {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: #7c3aed;
+  border: none;
+  color: #fff;
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  opacity: 0.35;
+}
+
+.mock-send-btn:not(:disabled) {
+  opacity: 1;
+}
+
+.mock-send-btn:not(:disabled):hover {
+  filter: brightness(1.15);
+  transform: scale(1.05);
 }
