@@ -1194,6 +1194,30 @@ window.wizOnTranscriptionResult = function(text) {
   wizUpdateNextButton();
 };
 
+// Called from Python when wizard recording captured silence / no audio
+window.wizOnSilentRecording = function() {
+  const status = document.getElementById('wizRecordingStatus');
+  const mockInput = document.getElementById('wizMockInput');
+  const cursor = document.getElementById('wizMockCursor');
+  const placeholder = document.getElementById('wizMockPlaceholder');
+  const valid = document.getElementById('wizMicValidation');
+
+  if (status) {
+    status.textContent = "We couldn't hear you";
+    status.className = 'wizard-recording-status error';
+  }
+  if (mockInput) mockInput.classList.remove('active');
+  if (cursor) cursor.style.display = 'none';
+  if (placeholder) {
+    placeholder.style.display = 'inline';
+    placeholder.textContent = 'Check your mic and try again';
+  }
+  if (valid) {
+    valid.textContent = "No speech detected — make sure your mic isn't muted.";
+    valid.className = 'wizard-validation error';
+  }
+};
+
 function wizAnimateText(el, text) {
   el.textContent = '';
   let i = 0;

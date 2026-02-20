@@ -39,19 +39,19 @@ STOP_BG      = '#7c3aed'   # Stop button background (--accent)
 STOP_ICON    = '#ffffff'   # Stop icon colour (white for contrast)
 BAR_IDLE     = '#3a3a4a'   # Idle bar colour (subtle)
 
-NUM_BARS    = 12
-WIN_W       = 104          # Slightly narrower
-WIN_H       = 30           # Slightly taller for better proportions
-RADIUS      = WIN_H // 2   # = 15 — radius of the pill caps
-BTN_R       = 7            # Button circle radius
+NUM_BARS    = 16
+WIN_W       = 200
+WIN_H       = 44
+RADIUS      = WIN_H // 2   # = 22 — radius of the pill caps
+BTN_R       = 12           # Button circle radius
 
 # Click-zone boundaries (x pixel)
-CANCEL_HIT_X = 22          # left of this → cancel
-STOP_HIT_X   = WIN_W - 22  # right of this → stop
+CANCEL_HIT_X = 36          # left of this → cancel
+STOP_HIT_X   = WIN_W - 36  # right of this → stop
 
 # Toast constants
-TOAST_W     = 260
-TOAST_H     = 100
+TOAST_W     = 320
+TOAST_H     = 120
 TOAST_PAD   = 10           # gap above pill
 
 # ── Global state ───────────────────────────────────────────────────────
@@ -107,35 +107,35 @@ def _draw_pill():
     _canvas.create_line(R, H - 1, W - R, H - 1, fill=BORDER_CLR, width=bw)
 
     # 3. Cancel button (X) — left
-    cx = 13
+    cx = 20
     _canvas.create_oval(cx - BTN_R, cy - BTN_R, cx + BTN_R, cy + BTN_R,
                         fill=CANCEL_BG, outline=CANCEL_BG)
-    off = 3
+    off = 4
     _canvas.create_line(cx - off, cy - off, cx + off, cy + off,
                         fill=CANCEL_X_CLR, width=1.5, capstyle=tk.ROUND)
     _canvas.create_line(cx + off, cy - off, cx - off, cy + off,
                         fill=CANCEL_X_CLR, width=1.5, capstyle=tk.ROUND)
 
     # 4. Stop button (■) — right, accent purple with white square
-    sx = W - 13
+    sx = W - 20
     _canvas.create_oval(sx - BTN_R, cy - BTN_R, sx + BTN_R, cy + BTN_R,
                         fill=STOP_BG, outline=STOP_BG)
-    sq = 6
+    sq = 8
     _canvas.create_rectangle(sx - sq // 2, cy - sq // 2,
                               sx + sq // 2, cy + sq // 2,
                               fill=STOP_ICON, outline=STOP_ICON)
 
     # 5. VU bars — centre zone
-    _draw_vu_bars(24, W - 24, H, cy)
+    _draw_vu_bars(40, W - 40, H, cy)
 
 
 def _draw_vu_bars(x_start: int, x_end: int, H: int, cy: int):
     """Draw the animated VU bars in the centre of the pill."""
     total_w = x_end - x_start
-    bar_w   = 2.5
+    bar_w   = 3
     spacing = total_w / NUM_BARS
-    min_h   = 3
-    max_h   = int(H * 0.6)
+    min_h   = 4
+    max_h   = int(H * 0.65)
 
     # Purple gradient: --accent (#7c3aed) → --accent-text (#a78bfa)
     r1, g1, b1 = 0x7c, 0x3a, 0xed
@@ -197,45 +197,45 @@ def _show_toast(style: str, heading: str, body: str):
     _rounded_rect(c, 0, 0, tw, th, rad, fill=bg, outline=border, width=1.5)
 
     # Icon
-    icon_x, icon_y = 18, 22
+    icon_x, icon_y = 22, 26
     if style == 'cancel':
         # Red circle with X
-        c.create_oval(icon_x - 8, icon_y - 8, icon_x + 8, icon_y + 8,
+        c.create_oval(icon_x - 10, icon_y - 10, icon_x + 10, icon_y + 10,
                       fill='#3b1818', outline='#ef4444', width=1.5)
-        c.create_line(icon_x - 4, icon_y - 4, icon_x + 4, icon_y + 4,
+        c.create_line(icon_x - 5, icon_y - 5, icon_x + 5, icon_y + 5,
                       fill='#ef4444', width=1.5, capstyle=tk.ROUND)
-        c.create_line(icon_x + 4, icon_y - 4, icon_x - 4, icon_y + 4,
+        c.create_line(icon_x + 5, icon_y - 5, icon_x - 5, icon_y + 5,
                       fill='#ef4444', width=1.5, capstyle=tk.ROUND)
     else:
         # Amber warning triangle
-        c.create_oval(icon_x - 8, icon_y - 8, icon_x + 8, icon_y + 8,
+        c.create_oval(icon_x - 10, icon_y - 10, icon_x + 10, icon_y + 10,
                       fill='#3b2e10', outline='#f59e0b', width=1.5)
         c.create_text(icon_x, icon_y, text='!', fill='#f59e0b',
                       font=('Segoe UI', 10, 'bold'))
 
     # Heading
-    c.create_text(36, 16, text=heading, fill='#ffffff', anchor='nw',
-                  font=('Segoe UI', 9, 'bold'))
+    c.create_text(44, 18, text=heading, fill='#ffffff', anchor='nw',
+                  font=('Segoe UI', 10, 'bold'))
 
     # Body text
-    c.create_text(36, 34, text=body, fill='#9a9aaa', anchor='nw',
-                  font=('Segoe UI', 8), width=tw - 46)
+    c.create_text(44, 40, text=body, fill='#9a9aaa', anchor='nw',
+                  font=('Segoe UI', 9), width=tw - 54)
 
     # Buttons row
-    btn_y = th - 26
+    btn_y = th - 30
     if style == 'cancel':
         # "Discard" button (red)
-        _draw_toast_btn(c, 14, btn_y, 72, 20, '#3b1818', '#ef4444',
+        _draw_toast_btn(c, 16, btn_y, 88, 24, '#3b1818', '#ef4444',
                         'Discard', '#ef4444', 'confirm')
         # "Keep going" button (grey)
-        _draw_toast_btn(c, 92, btn_y, 72, 20, '#2a2a35', '#3a3a4a',
+        _draw_toast_btn(c, 112, btn_y, 88, 24, '#2a2a35', '#3a3a4a',
                         'Keep going', '#cccccc', 'dismiss')
     else:
         # "Select mic" button
-        _draw_toast_btn(c, 14, btn_y, 84, 20, '#2a2a35', '#3a3a4a',
+        _draw_toast_btn(c, 16, btn_y, 100, 24, '#2a2a35', '#3a3a4a',
                         'Select mic', '#cccccc', 'select_mic')
         # "Dismiss" button
-        _draw_toast_btn(c, 104, btn_y, 64, 20, '#2a2a35', '#3a3a4a',
+        _draw_toast_btn(c, 124, btn_y, 80, 24, '#2a2a35', '#3a3a4a',
                         'Dismiss', '#999999', 'dismiss')
 
 
@@ -252,7 +252,7 @@ def _draw_toast_btn(canvas, x, y, w, h, fill, outline, text, text_color, action)
 
     # Text
     canvas.create_text(x + w // 2, y + h // 2, text=text, fill=text_color,
-                       font=('Segoe UI', 7, 'bold'), tags=tag)
+                       font=('Segoe UI', 8, 'bold'), tags=tag)
 
     canvas.tag_bind(tag, '<Button-1>', lambda e: _on_toast_action(action))
 
