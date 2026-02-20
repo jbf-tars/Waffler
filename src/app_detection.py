@@ -1,5 +1,5 @@
 """
-Active App Detection for VoiceFlow
+Active App Detection for Natter
 Detects which app is in focus and suggests appropriate prompt style.
 """
 

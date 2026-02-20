@@ -1,5 +1,5 @@
 """
-VoiceFlow — Audio Device Manager
+Natter — Audio Device Manager
 Lists available microphones and persists the selected device.
 """
 
@@ -13,7 +13,7 @@ try:
 except ImportError:
     _HAS_SD = False
 
-CONFIG_FILE = Path.home() / ".voiceflow" / "config.json"
+CONFIG_FILE = Path.home() / ".natter" / "config.json"
 
 
 def list_input_devices() -> List[Dict]:
@@ -92,7 +92,7 @@ def get_default_device_index() -> Optional[int]:
 
 def get_selected_device_index() -> Optional[int]:
     """
-    Return the user-selected device index from ~/.voiceflow/config.json.
+    Return the user-selected device index from ~/.natter/config.json.
     Falls back to the system default.
     """
     try:
@@ -108,7 +108,7 @@ def get_selected_device_index() -> Optional[int]:
 
 def set_selected_device_index(device_index: Optional[int]):
     """
-    Persist the selected device index to ~/.voiceflow/config.json.
+    Persist the selected device index to ~/.natter/config.json.
     Pass None to reset to system default.
     """
     CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)

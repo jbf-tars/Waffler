@@ -1,6 +1,6 @@
 #!/opt/homebrew/bin/python3.12
 """
-VoiceFlow — macOS Desktop UI
+Natter — macOS Desktop UI
 Entry point: pywebview window + background hotkey/pipeline thread
 """
 
@@ -14,15 +14,28 @@ import pyperclip
 from pathlib import Path
 from datetime import datetime, date
 
-# ── Safe stdout/stderr for frozen exe (Windows cp1252 can't handle emoji) ──
-if getattr(sys, 'frozen', False):
+# ── Safe stdout/stderr (Windows cp1252 can't handle emoji — force UTF-8) ──
+def _fix_stream(stream):
+    """Return a UTF-8 text stream, or a silent fallback."""
+    if stream is None or not hasattr(stream, 'write'):
+        return io.StringIO()
     try:
-        if sys.stdout and hasattr(sys.stdout, 'buffer'):
-            sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
-        if sys.stderr and hasattr(sys.stderr, 'buffer'):
-            sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+        # Python 3.7+ — cleanest: reconfigure existing stream in-place
+        if hasattr(stream, 'reconfigure'):
+            stream.reconfigure(encoding='utf-8', errors='replace')
+            return stream
     except Exception:
         pass
+    try:
+        # Wrap the underlying binary buffer with UTF-8
+        if hasattr(stream, 'buffer'):
+            return io.TextIOWrapper(stream.buffer, encoding='utf-8', errors='replace')
+    except Exception:
+        pass
+    return io.StringIO()
+
+sys.stdout = _fix_stream(sys.stdout)
+sys.stderr = _fix_stream(sys.stderr)
 
 # ── Path setup ─────────────────────────────────────────────────────────
 PROJECT_ROOT = Path(__file__).parent
@@ -52,8 +65,8 @@ from app_detection import get_active_app
 
 
 # ── History File ──────────────────────────────────────────────────────
-HISTORY_FILE = Path.home() / ".voiceflow" / "history.json"
-USAGE_FILE = Path.home() / ".voiceflow" / "usage.json"
+HISTORY_FILE = Path.home() / ".natter" / "history.json"
+USAGE_FILE = Path.home() / ".natter" / "usage.json"
 
 # Pricing constants
 WHISPER_COST_PER_SECOND = 0.0001  # $0.006/minute = $0.0001/second
@@ -268,7 +281,7 @@ class Api:
     # ── Settings API ──────────────────────────────────────────────────────────
 
     def _settings_file(self):
-        return Path.home() / ".voiceflow" / "settings.json"
+        return Path.home() / ".natter" / "settings.json"
 
     def _load_settings_file(self) -> dict:
         try:
@@ -286,7 +299,7 @@ class Api:
 
     def _update_env_var(self, key: str, value: str):
         """Update or add a variable in the user's .env file."""
-        env_path = Path.home() / ".voiceflow" / ".env"
+        env_path = Path.home() / ".natter" / ".env"
         env_path.parent.mkdir(parents=True, exist_ok=True)
         lines = []
         if env_path.exists():
@@ -373,7 +386,7 @@ class Api:
         if not history:
             return {"ok": False, "error": "No history to export"}
         lines = [
-            "# VoiceFlow — Transcript History",
+            "# Natter — Transcript History",
             f"Exported: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
             f"Total entries: {len(history)}",
             "",
@@ -490,14 +503,14 @@ class Api:
                 daemon=True,
                 name="PipelineInit"
             ).start()
-            return {"ok": True, "message": "Setup complete! VoiceFlow is ready."}
+            return {"ok": True, "message": "Setup complete! Natter is ready."}
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
     # ── Snippets API ──────────────────────────────────────────────────────────
 
     def _snippets_file(self):
-        return Path.home() / ".voiceflow" / "snippets.json"
+        return Path.home() / ".natter" / "snippets.json"
 
     def get_snippets(self) -> list:
         """Return list of {trigger, expansion} snippet dicts."""
@@ -578,10 +591,10 @@ class Api:
 # ── Global refs ───────────────────────────────────────────────────────
 _window   = None
 _api      = None
-_pipeline = None   # set after VoiceFlowPipeline is created
+_pipeline = None   # set after NatterPipeline is created
 _config   = None   # set in main()
 
-SETUP_FILE = Path.home() / ".voiceflow" / "setup_complete.json"
+SETUP_FILE = Path.home() / ".natter" / "setup_complete.json"
 
 
 def _is_setup_complete() -> bool:
@@ -604,21 +617,37 @@ def _mark_setup_complete():
     }, indent=2))
 
 
+def _log_to_file(msg: str):
+    """Write a debug line to ~/.natter/app.log (visible even with console=False)."""
+    try:
+        log_path = Path.home() / ".natter" / "app.log"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now().strftime('%H:%M:%S')
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(f"{ts}  {msg}\n")
+    except Exception:
+        pass
+    print(msg)
+
+
 def _initialize_pipeline():
     """Create pipeline and start hotkey after setup is complete."""
     global _pipeline
     if _pipeline:
-        return  # already initialized
+        _log_to_file("Pipeline already initialized, skipping")
+        return
 
     _config.reload_env()
 
     if not _config.has_api_key:
-        print("Cannot initialize pipeline: no API key")
+        _log_to_file("Cannot initialize pipeline: no API key found")
         return
 
     try:
-        pipeline = VoiceFlowPipeline(_config)
+        _log_to_file("Creating NatterPipeline...")
+        pipeline = NatterPipeline(_config)
         _pipeline = pipeline
+        _log_to_file("Pipeline created, starting hotkey thread...")
 
         hotkey_thread = threading.Thread(
             target=pipeline.start_hotkey,
@@ -626,9 +655,9 @@ def _initialize_pipeline():
             name="HotkeyThread"
         )
         hotkey_thread.start()
-        print(f"Hotkey active: {_config.hotkey}")
+        _log_to_file(f"Hotkey thread started (config key: {_config.hotkey})")
     except Exception as e:
-        print(f"Pipeline init error: {e}")
+        _log_to_file(f"Pipeline init error: {e}")
         import traceback
         traceback.print_exc()
 
@@ -642,7 +671,7 @@ def notify_js_status(status: str):
     """Tell the JS frontend about recording status."""
     if _window:
         try:
-            _window.evaluate_js(f"window.voiceflow_status && window.voiceflow_status('{status}')")
+            _window.evaluate_js(f"window.natter_status && window.natter_status('{status}')")
         except Exception:
             pass
 
@@ -653,14 +682,14 @@ def notify_js_new_item(item: dict):
         try:
             item_json = json.dumps(item)
             _window.evaluate_js(
-                f"window.voiceflow_refresh && window.voiceflow_refresh({item_json})"
+                f"window.natter_refresh && window.natter_refresh({item_json})"
             )
         except Exception as e:
             print(f"[js] notify error: {e}")
 
 
 # ── Pipeline ──────────────────────────────────────────────────────────
-class VoiceFlowPipeline:
+class NatterPipeline:
     def __init__(self, config: Config):
         self.config = config
         self.audio = AudioRecorder(
@@ -674,7 +703,7 @@ class VoiceFlowPipeline:
                 api_key=config.openai_api_key,
                 model="whisper-1"
             )
-            print("🎤 Using OpenAI Whisper")
+            _log_to_file("Using OpenAI Whisper")
         else:
             raise ValueError("OPENAI_API_KEY is required")
 
@@ -685,7 +714,7 @@ class VoiceFlowPipeline:
             max_tokens=config.minimax_max_tokens,
             prompt_style=config.prompt_style
         )
-        print("🤖 Using GPT-4o-mini")
+        _log_to_file("Using GPT-4o-mini")
 
         self.clipboard = ClipboardManager()
         self.is_recording = False
@@ -708,7 +737,7 @@ class VoiceFlowPipeline:
     def set_device(self, device_index: int):
         """Update the audio device used for future recordings."""
         self._device_index = device_index
-        print(f"🎤 Audio device changed to index {device_index}")
+        _log_to_file(f"Audio device changed to index {device_index}")
 
     def _on_overlay_cancel(self):
         """User clicked X on overlay — cancel recording."""
@@ -717,7 +746,7 @@ class VoiceFlowPipeline:
             self.audio.stop()        # discard audio
             self.overlay.hide()
             notify_js_status("idle")
-            print("🚫 Recording cancelled by user")
+            _log_to_file("Recording cancelled by user")
 
     def _on_overlay_stop(self):
         """User clicked ■ on overlay — stop & process."""
@@ -730,7 +759,7 @@ class VoiceFlowPipeline:
             return
         # Capture focused window BEFORE overlay takes focus
         self._prev_window = self.clipboard.get_focused_window()
-        print("🎤 Recording started…")
+        _log_to_file("Recording started")
         self.is_recording = True
         self.audio.start()
         notify_js_status("listening")
@@ -745,7 +774,7 @@ class VoiceFlowPipeline:
         """In toggle mode this fires on hotkey-up but is also called on second press."""
         if not self.is_recording:
             return
-        print("🛑 Recording stopped, processing…")
+        _log_to_file("Recording stopped, processing")
         self.is_recording = False
         self._is_paused = False
         notify_js_status("processing")
@@ -766,11 +795,11 @@ class VoiceFlowPipeline:
         if self._is_paused:
             self.overlay.update_state("paused")
             notify_js_status("paused")
-            print("⏸️ Recording paused")
+            _log_to_file("Recording paused")
         else:
             self.overlay.update_state("recording")
             notify_js_status("listening")
-            print("▶️ Recording resumed")
+            _log_to_file("Recording resumed")
 
     def _level_loop(self):
         """Feed live audio level to the overlay at ~30fps while recording."""
@@ -802,7 +831,7 @@ class VoiceFlowPipeline:
             if vocab:
                 transcript, corrections = apply_vocab_corrections(transcript, vocab)
                 if corrections:
-                    print(f"📖 Vocabulary corrections applied: {', '.join(corrections)}")
+                    _log_to_file(f"Vocabulary corrections applied: {', '.join(corrections)}")
 
             # Record Whisper usage - calculate from audio bytes (works for all backends)
             # Audio is 16kHz, 16-bit mono = 32000 bytes/second
@@ -831,7 +860,7 @@ class VoiceFlowPipeline:
 
             # Auto-paste (respects settings)
             stored = {}
-            _sf = Path.home() / ".voiceflow" / "settings.json"
+            _sf = Path.home() / ".natter" / "settings.json"
             try:
                 if _sf.exists():
                     stored = json.loads(_sf.read_text())
@@ -855,10 +884,10 @@ class VoiceFlowPipeline:
             notify_js_status("done")
             notify_js_new_item(item)
 
-            print(f"✅ Done: {styled[:80]}…")
+            _log_to_file(f"Done: {styled[:80]}")
 
         except Exception as e:
-            print(f"❌ Pipeline error: {e}")
+            _log_to_file(f"Pipeline error: {e}")
             import traceback
             traceback.print_exc()
             notify_js_status("idle")
@@ -866,7 +895,7 @@ class VoiceFlowPipeline:
     def _apply_snippets(self, text: str) -> str:
         """Replace snippet trigger phrases with their expansions."""
         import re
-        snip_file = Path.home() / ".voiceflow" / "snippets.json"
+        snip_file = Path.home() / ".natter" / "snippets.json"
         try:
             if snip_file.exists():
                 snippets = json.loads(snip_file.read_text())
@@ -882,18 +911,26 @@ class VoiceFlowPipeline:
 
     def start_hotkey(self):
         """Start the hotkey listener — platform-specific."""
-        if _platform.system() == "Windows":
-            hotkey = WindowsHotkeyListener(
-                on_press=self.on_hotkey_press,
-                on_release=self.on_hotkey_release,
-            )
-        else:
-            hotkey = SmartHotkeyListener(
-                on_press=self.on_hotkey_press,
-                on_release=self.on_hotkey_release,
-            )
-        hotkey.start()
-        hotkey.join()
+        try:
+            if _platform.system() == "Windows":
+                _log_to_file("Creating WindowsHotkeyListener...")
+                hotkey = WindowsHotkeyListener(
+                    on_press=self.on_hotkey_press,
+                    on_release=self.on_hotkey_release,
+                )
+            else:
+                _log_to_file("Creating SmartHotkeyListener...")
+                hotkey = SmartHotkeyListener(
+                    on_press=self.on_hotkey_press,
+                    on_release=self.on_hotkey_release,
+                )
+            _log_to_file("Calling hotkey.start()...")
+            hotkey.start()
+            hotkey.join()
+        except Exception as e:
+            _log_to_file(f"start_hotkey CRASHED: {e}")
+            import traceback
+            traceback.print_exc()
 
 
 # ── Main ──────────────────────────────────────────────────────────────
@@ -902,18 +939,22 @@ def main():
 
     # Load config (reads .env from project root via dotenv)
     os.chdir(PROJECT_ROOT)  # so config.yaml and .env are found
+    _log_to_file(f"=== Natter starting === (PROJECT_ROOT={PROJECT_ROOT})")
 
     try:
         config = Config()
     except Exception as e:
-        print(f"Config error: {e}")
+        _log_to_file(f"Config error: {e}")
         sys.exit(1)
 
     _config = config
+    _log_to_file(f"Config loaded: has_api_key={config.has_api_key}, setup_complete={_is_setup_complete()}")
 
     # Only auto-initialize pipeline if setup was already completed
     if config.has_api_key and _is_setup_complete():
         _initialize_pipeline()
+    else:
+        _log_to_file("Skipping pipeline init (no key or setup incomplete)")
 
     # Create pywebview window (always — wizard runs inside it)
     api = Api()
@@ -923,7 +964,7 @@ def main():
     html_path = ui_dir / "index.html"
 
     window = webview.create_window(
-        title="VoiceFlow",
+        title="Natter",
         url=str(html_path),
         width=900,
         height=640,
@@ -937,7 +978,7 @@ def main():
 
     set_window(window)
 
-    print("VoiceFlow window launching...")
+    print("Natter window launching...")
     # Start webview — this blocks until window is closed
     webview.start(debug=False)
 
