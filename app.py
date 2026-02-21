@@ -502,19 +502,28 @@ class Api:
     def open_url(self, url: str):
         """Open a URL in the system browser."""
         import subprocess
-        _log_to_file(f"open_url: {url[:80]}")
+        import webbrowser
+        _log_to_file(f"open_url called: {url[:120]}")
         try:
             if _platform.system() == "Darwin":
-                subprocess.Popen(["open", url])
+                proc = subprocess.run(
+                    ["/usr/bin/open", url],
+                    capture_output=True, text=True, timeout=10
+                )
+                _log_to_file(f"open_url /usr/bin/open rc={proc.returncode} stderr={proc.stderr.strip()}")
+                if proc.returncode != 0:
+                    _log_to_file("open_url: /usr/bin/open failed, trying webbrowser.open")
+                    webbrowser.open(url)
             elif _platform.system() == "Windows":
-                subprocess.Popen(["start", url], shell=True)
+                os.startfile(url)
             else:
-                import webbrowser
                 webbrowser.open(url)
         except Exception as e:
             _log_to_file(f"open_url error: {e}")
-            import webbrowser
-            webbrowser.open(url)
+            try:
+                webbrowser.open(url)
+            except Exception as e2:
+                _log_to_file(f"open_url webbrowser fallback error: {e2}")
 
     def get_onboarding_status(self) -> dict:
         """Returns whether the app needs first-run setup."""
@@ -1613,7 +1622,7 @@ def main():
     print("Natter window launching...")
     # Start webview — this blocks until window is closed
     # debug=True enables right-click Inspect Element and JS console
-    webview.start(debug=True)
+    webview.start(debug=False)
 
     # Clean up tray
     if _tray_icon:

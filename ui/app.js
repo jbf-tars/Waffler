@@ -808,28 +808,23 @@ async function submitAuth() {
   submitBtn.textContent = isSignUp ? 'Create account' : 'Sign in';
 }
 
-async function oauthSignIn(provider) {
-  const validation = document.getElementById(_authMode === 'signup' ? 'authSignUpValidation' : 'authValidation');
-  try {
+function oauthSignIn(provider) {
+  var validation = document.getElementById(_authMode === 'signup' ? 'authSignUpValidation' : 'authValidation');
+  if (validation) {
+    validation.textContent = 'Connecting to ' + provider + '...';
+    validation.className = 'wizard-validation loading';
+  }
+  if (!window.pywebview || !window.pywebview.api) {
     if (validation) {
-      validation.textContent = 'Connecting to ' + provider + '...';
-      validation.className = 'wizard-validation loading';
+      validation.textContent = 'App not ready — wait a moment and try again.';
+      validation.className = 'wizard-validation error';
     }
-    if (!window.pywebview || !window.pywebview.api) {
-      if (validation) {
-        validation.textContent = 'App not ready — wait a moment and try again.';
-        validation.className = 'wizard-validation error';
-      }
-      return;
-    }
-    // Call Python to get OAuth URL (runs in background thread to avoid freezing)
-    const res = await pywebview.api.auth_oauth(provider);
-    if (validation) {
-      validation.textContent = 'Opening browser...';
-    }
+    return;
+  }
+  pywebview.api.auth_oauth(provider).then(function(res) {
     if (res && res.ok && res.url) {
-      // Open URL via JS window.open (more reliable than Python subprocess in bundled apps)
-      window.open(res.url, '_blank');
+      // Open URL via Python subprocess (fire-and-forget)
+      pywebview.api.open_url(res.url);
       if (validation) {
         validation.textContent = 'Complete sign-in in your browser, then come back here.';
         validation.className = 'wizard-validation loading';
@@ -841,12 +836,12 @@ async function oauthSignIn(provider) {
         validation.className = 'wizard-validation error';
       }
     }
-  } catch(e) {
+  }).catch(function(e) {
     if (validation) {
       validation.textContent = 'Error: ' + (e.message || e || 'Unknown error');
       validation.className = 'wizard-validation error';
     }
-  }
+  });
 }
 
 async function _pollForOAuthSession() {
@@ -1600,3 +1595,4 @@ async function resetUsage() {
     showToast('Failed to reset usage', 'error');
   }
 }
+
