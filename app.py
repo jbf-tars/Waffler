@@ -500,30 +500,20 @@ class Api:
             return {"ok": False, "error": str(e)}
 
     def open_url(self, url: str):
-        """Open a URL in the system browser."""
+        """Open a URL in the system browser (non-blocking)."""
         import subprocess
         import webbrowser
-        _log_to_file(f"open_url called: {url[:120]}")
+        _log_to_file(f"open_url: {url[:120]}")
         try:
             if _platform.system() == "Darwin":
-                proc = subprocess.run(
-                    ["/usr/bin/open", url],
-                    capture_output=True, text=True, timeout=10
-                )
-                _log_to_file(f"open_url /usr/bin/open rc={proc.returncode} stderr={proc.stderr.strip()}")
-                if proc.returncode != 0:
-                    _log_to_file("open_url: /usr/bin/open failed, trying webbrowser.open")
-                    webbrowser.open(url)
+                subprocess.Popen(["/usr/bin/open", url])
             elif _platform.system() == "Windows":
                 os.startfile(url)
             else:
                 webbrowser.open(url)
         except Exception as e:
             _log_to_file(f"open_url error: {e}")
-            try:
-                webbrowser.open(url)
-            except Exception as e2:
-                _log_to_file(f"open_url webbrowser fallback error: {e2}")
+            webbrowser.open(url)
 
     def get_onboarding_status(self) -> dict:
         """Returns whether the app needs first-run setup."""
@@ -1613,11 +1603,12 @@ def main():
     set_window(window)
     _window_ref = window
 
-    # Intercept close → hide to tray
-    window.events.closing += _on_window_closing
-
-    # Start tray icon in background
-    threading.Thread(target=_create_tray_icon, daemon=True).start()
+    # Intercept close → hide to tray (only if tray icon works)
+    # Note: rumps tray icon on Mac must run on main thread (which pywebview owns),
+    # so we skip it to avoid NSInternalInconsistencyException that corrupts the app.
+    if _platform.system() == "Windows":
+        window.events.closing += _on_window_closing
+        threading.Thread(target=_create_tray_icon, daemon=True).start()
 
     print("Natter window launching...")
     # Start webview — this blocks until window is closed
