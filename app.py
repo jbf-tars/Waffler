@@ -1425,7 +1425,9 @@ _should_quit = False
 
 
 def _create_tray_icon():
-    """Create system tray icon so app runs in background."""
+    """Create system tray icon so app runs in background (Windows only — Mac uses rumps)."""
+    if _platform.system() != "Windows":
+        return
     global _tray_icon
     try:
         import pystray
