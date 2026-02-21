@@ -213,29 +213,225 @@ class _OAuthCallbackHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if '/callback' in self.path:
-            html = (
-                '<html><head><title>Natter</title></head>'
-                '<body style="font-family:-apple-system,system-ui,sans-serif;'
-                'text-align:center;padding:60px;background:#1a1a2e;color:#e0e0e0">'
-                '<h2 id="msg">Completing sign-in...</h2>'
-                '<script>'
-                'const h=window.location.hash.substring(1);'
-                'if(h){'
-                'const p=new URLSearchParams(h);'
-                'const d={};for(const[k,v]of p)d[k]=v;'
-                'fetch("/token",{method:"POST",'
-                'headers:{"Content-Type":"application/json"},'
-                'body:JSON.stringify(d)'
-                '}).then(()=>{'
-                'document.getElementById("msg").innerHTML='
-                '"&#10004; Signed in!<br><small>You can close this tab and return to Natter.</small>";'
-                '});'
-                '}else{'
-                'document.getElementById("msg").innerHTML='
-                '"&#10008; Sign-in failed.<br><small>Please try again in Natter.</small>";'
-                '}'
-                '</script></body></html>'
-            )
+            html = '''
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Natter - Sign In</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #e0e0e0;
+        }
+        .container {
+            text-align: center;
+            padding: 40px;
+            max-width: 500px;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+        }
+        .logo {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            margin-bottom: 32px;
+        }
+        .logo-icon {
+            font-size: 42px;
+        }
+        .logo-text {
+            font-size: 32px;
+            font-weight: 700;
+            color: #fff;
+        }
+        .logo-text span {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .status-icon {
+            font-size: 64px;
+            margin-bottom: 24px;
+            animation: fadeIn 0.5s ease;
+        }
+        .status-title {
+            font-size: 28px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            color: #fff;
+        }
+        .status-message {
+            font-size: 16px;
+            color: #a0a0a0;
+            line-height: 1.6;
+            margin-bottom: 24px;
+        }
+        .spinner {
+            width: 40px;
+            height: 40px;
+            margin: 24px auto;
+            border: 3px solid rgba(102, 126, 234, 0.2);
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        .btn {
+            display: inline-block;
+            padding: 12px 28px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 600;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: scale(0.8); }
+            to { opacity: 1; transform: scale(1); }
+        }
+        .error-details {
+            margin-top: 20px;
+            padding: 16px;
+            background: rgba(255, 69, 58, 0.1);
+            border-radius: 8px;
+            border: 1px solid rgba(255, 69, 58, 0.3);
+            font-size: 14px;
+            text-align: left;
+        }
+        .error-details strong {
+            color: #ff453a;
+            display: block;
+            margin-bottom: 8px;
+        }
+        .error-details ul {
+            list-style: none;
+            padding-left: 0;
+        }
+        .error-details li {
+            padding: 4px 0;
+            padding-left: 20px;
+            position: relative;
+        }
+        .error-details li:before {
+            content: "•";
+            position: absolute;
+            left: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">
+            <div class="logo-icon">🎙️</div>
+            <div class="logo-text">Nat<span>ter</span></div>
+        </div>
+        <div id="content">
+            <div class="spinner"></div>
+            <div class="status-title">Completing sign-in...</div>
+            <div class="status-message">Please wait while we verify your credentials</div>
+        </div>
+    </div>
+
+    <script>
+        const hash = window.location.hash.substring(1);
+        const content = document.getElementById('content');
+
+        if (hash) {
+            // Has tokens - process them
+            const params = new URLSearchParams(hash);
+            const data = {};
+            for (const [k, v] of params) data[k] = v;
+
+            // Check for error in the hash
+            if (data.error) {
+                showError(
+                    '⚠️',
+                    'Authorization Error',
+                    data.error_description || data.error,
+                    'The sign-in was cancelled or an error occurred.'
+                );
+            } else {
+                // Send tokens to Python backend
+                fetch('/token', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                }).then(() => {
+                    showSuccess();
+                }).catch(err => {
+                    showError(
+                        '❌',
+                        'Connection Error',
+                        'Could not connect to Natter',
+                        'Make sure Natter is running and try again.'
+                    );
+                });
+            }
+        } else {
+            // No hash parameters = OAuth flow failed before redirect
+            showError(
+                '❌',
+                'Sign-in Failed',
+                'No authentication data received',
+                `This usually happens when:
+                • The sign-in was cancelled
+                • The redirect URL is not configured in Supabase
+                • Network connectivity issues occurred
+
+                <strong>To fix:</strong>
+                Go to Supabase Dashboard → Authentication → URL Configuration
+                and add <code>http://localhost:17834/callback</code> to Redirect URLs`
+            );
+        }
+
+        function showSuccess() {
+            content.innerHTML = `
+                <div class="status-icon">✅</div>
+                <div class="status-title">Signed in successfully!</div>
+                <div class="status-message">
+                    You can close this tab and return to Natter.
+                </div>
+            `;
+        }
+
+        function showError(icon, title, message, details) {
+            content.innerHTML = `
+                <div class="status-icon">${icon}</div>
+                <div class="status-title">${title}</div>
+                <div class="status-message">${message}</div>
+                <div class="error-details">
+                    <strong>Troubleshooting:</strong>
+                    ${details}
+                </div>
+                <div style="margin-top: 24px;">
+                    <a href="#" class="btn" onclick="window.close(); return false;">Close Tab</a>
+                </div>
+            `;
+        }
+    </script>
+</body>
+</html>
+            '''
             self.send_response(200)
             self.send_header('Content-Type', 'text/html')
             self.end_headers()
