@@ -22,6 +22,7 @@ a = Analysis(
         ('prompts', 'prompts'),
         ('src', 'src'),
         ('config.yaml', '.'),
+        ('.env.example', '.'),
     ],
     hiddenimports=[
         # ── Core dependencies ──
@@ -88,6 +89,21 @@ a = Analysis(
         'webbrowser',
         # ── Deepgram (optional) ──
         'deepgram',
+        # ── Supabase Auth ──
+        'supabase',
+        'supabase._sync.client',
+        'natter_auth',
+        'postgrest',
+        'storage3',
+        'realtime',
+        'gotrue',
+        'gotrue._sync.gotrue_client',
+        'pyjwt',
+        'jwt',
+        # ── Groq ──
+        'groq',
+        'groq.resources',
+        'groq._client',
     ],
     hookspath=[],
     hooksconfig={},
@@ -118,7 +134,7 @@ exe = EXE(
     strip=False,
     upx=True,
     console=False,
-    icon=None,  # Add icon.icns here when available
+    icon='icon.icns',
 )
 
 coll = COLLECT(
@@ -134,7 +150,7 @@ coll = COLLECT(
 app = BUNDLE(
     coll,
     name='Natter.app',
-    icon=None,  # Add .icns icon here when available
+    icon='icon.icns',
     bundle_identifier='com.natter.app',
     info_plist={
         'NSMicrophoneUsageDescription': 'Natter needs microphone access for voice transcription.',
