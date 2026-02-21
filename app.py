@@ -1425,9 +1425,44 @@ _should_quit = False
 
 
 def _create_tray_icon():
-    """Create system tray icon so app runs in background (Windows only — Mac uses rumps)."""
-    if _platform.system() != "Windows":
-        return
+    """Create a status-area icon so the app can run in background.
+    Windows: pystray system tray icon.
+    Mac: rumps menu-bar icon (top-right, next to Wi-Fi/battery).
+    """
+    if _platform.system() == "Darwin":
+        _create_mac_menubar_icon()
+    elif _platform.system() == "Windows":
+        _create_windows_tray_icon()
+
+
+def _create_mac_menubar_icon():
+    """Create a macOS menu bar icon using rumps."""
+    global _tray_icon
+    try:
+        import rumps
+
+        class NatterMenuBar(rumps.App):
+            def __init__(self):
+                super().__init__("Natter", title="🎙️")
+
+            @rumps.clicked("Show Natter")
+            def show_window(self, _):
+                _tray_show_window()
+
+            @rumps.clicked("Quit")
+            def quit_app(self, _):
+                _tray_quit()
+                rumps.quit_application()
+
+        app = NatterMenuBar()
+        _tray_icon = app
+        app.run()
+    except Exception as e:
+        _log_to_file(f"Mac menu bar error: {e}")
+
+
+def _create_windows_tray_icon():
+    """Create a Windows system tray icon using pystray."""
     global _tray_icon
     try:
         import pystray
@@ -1484,21 +1519,18 @@ def _tray_quit(icon=None, item=None):
 
 
 def _on_window_closing():
-    """Intercept window close.
-    Windows: hide to system tray (tray icon lets user restore/quit).
-    Mac: just close — no tray icon on Mac, so hiding would strand the app.
+    """Intercept window close: hide window, keep running in background.
+    Both Mac and Windows have a status icon (menu bar / tray) to restore or quit.
     """
     if _should_quit:
         return True  # Allow close
-    if _platform.system() == "Windows":
-        # Hide window, keep running in background with tray icon
-        if _window_ref:
-            try:
-                _window_ref.hide()
-            except Exception:
-                pass
-        return False  # Prevent close
-    return True  # Mac/Linux: close normally
+    # Hide window, keep running in background
+    if _window_ref:
+        try:
+            _window_ref.hide()
+        except Exception:
+            pass
+    return False  # Prevent close
 
 
 # ── Main ──────────────────────────────────────────────────────────────
