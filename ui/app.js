@@ -1259,6 +1259,16 @@ function hideWizard() {
 
 // ── Step Navigation ──────────────────────────────────────────
 
+async function triggerMacOSPermissions() {
+  try {
+    const result = await pywebview.api.trigger_permission_requests();
+    console.log('[Wizard] Permission triggers:', result);
+  } catch (error) {
+    console.warn('[Wizard] Permission trigger failed:', error);
+    // Fail silently - users can still use "Open System Settings" buttons
+  }
+}
+
 function updateWizardProgress(step) {
   // Update step text
   const stepText = document.getElementById('wizStepText');
@@ -1324,7 +1334,10 @@ function wizShowStep(step) {
   wizUpdateNextButton();
 
   // Step-specific initialization
-  if (step === 1) { /* startPermissionMonitoring(); */ }  // Disabled - no monitoring
+  if (step === 1) {
+    // Trigger macOS permission prompts automatically
+    triggerMacOSPermissions();
+  }
   if (step === 2) { wizLoadHotkeyInfo(); initFnKeyFeedback(); }
   if (step === 3) { wizInitApiKeyStep(); }
   if (step === 4) { wizInitTryItStep(); initFnKeyFeedback(); }
