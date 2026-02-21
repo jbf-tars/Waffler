@@ -809,42 +809,76 @@ async function submitAuth() {
 }
 
 async function oauthSignIn(provider) {
+  const validation = document.getElementById(_authMode === 'signup' ? 'authSignUpValidation' : 'authValidation');
   try {
+    if (validation) {
+      validation.textContent = 'Connecting to ' + provider + '...';
+      validation.className = 'wizard-validation loading';
+    }
+    if (!window.pywebview || !window.pywebview.api) {
+      if (validation) {
+        validation.textContent = 'App not ready — wait a moment and try again.';
+        validation.className = 'wizard-validation error';
+      }
+      return;
+    }
+    // Call Python to get OAuth URL (runs in background thread to avoid freezing)
     const res = await pywebview.api.auth_oauth(provider);
-    if (res.ok && res.url) {
-      // Open OAuth URL in system browser
-      await pywebview.api.open_url(res.url);
-      // Show a message to user
-      const validation = document.getElementById(_authMode === 'signup' ? 'authSignUpValidation' : 'authValidation');
+    if (validation) {
+      validation.textContent = 'Opening browser...';
+    }
+    if (res && res.ok && res.url) {
+      // Open URL via JS window.open (more reliable than Python subprocess in bundled apps)
+      window.open(res.url, '_blank');
       if (validation) {
         validation.textContent = 'Complete sign-in in your browser, then come back here.';
         validation.className = 'wizard-validation loading';
       }
-      // Poll for session completion
       _pollForOAuthSession();
     } else {
-      const validation = document.getElementById(_authMode === 'signup' ? 'authSignUpValidation' : 'authValidation');
       if (validation) {
-        validation.textContent = res.error || 'OAuth setup not available yet.';
+        validation.textContent = (res && res.error) || 'Google sign-in failed.';
         validation.className = 'wizard-validation error';
       }
     }
   } catch(e) {
-    console.warn('OAuth error:', e);
+    if (validation) {
+      validation.textContent = 'Error: ' + (e.message || e || 'Unknown error');
+      validation.className = 'wizard-validation error';
+    }
   }
 }
 
 async function _pollForOAuthSession() {
-  // Poll every 2s for up to 2 minutes to see if session was captured
+  // Poll every 2s for up to 2 minutes for the OAuth callback tokens
   for (let i = 0; i < 60; i++) {
     await new Promise(r => setTimeout(r, 2000));
     try {
-      const user = await pywebview.api.auth_get_user();
-      if (user && user.email) {
-        onAuthSuccess(user);
+      const res = await pywebview.api.auth_poll_oauth();
+      if (res.ok && res.user) {
+        onAuthSuccess(res.user);
+        return;
+      }
+      if (!res.ok && !res.pending) {
+        // Got a real error, not just waiting
+        const validation = document.getElementById(
+          _authMode === 'signup' ? 'authSignUpValidation' : 'authValidation'
+        );
+        if (validation) {
+          validation.textContent = res.error || 'Sign-in failed. Please try again.';
+          validation.className = 'wizard-validation error';
+        }
         return;
       }
     } catch(e) {}
+  }
+  // Timed out
+  const validation = document.getElementById(
+    _authMode === 'signup' ? 'authSignUpValidation' : 'authValidation'
+  );
+  if (validation) {
+    validation.textContent = 'Sign-in timed out. Please try again.';
+    validation.className = 'wizard-validation error';
   }
 }
 
