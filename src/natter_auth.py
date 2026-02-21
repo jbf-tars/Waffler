@@ -5,7 +5,9 @@ Handles signup, login, session persistence, and usage tracking.
 from __future__ import annotations
 
 import json
+import threading
 from pathlib import Path
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from supabase import create_client, Client
 
 # ── Supabase config ───────────────────────────────────────────────────
@@ -169,21 +171,160 @@ def get_user_id() -> str | None:
 
 def get_oauth_url(provider: str) -> dict:
     """Get the OAuth sign-in URL for a provider (google, apple).
-    Returns {ok, url} or {ok: False, error}."""
+    Starts a local callback server to capture tokens after OAuth completes.
+    Returns {ok, url} or {ok: False, error}.
+
+    IMPORTANT: Add http://localhost:17834/callback to your Supabase project's
+    Redirect URLs (Authentication > URL Configuration) for this to work.
+    """
     try:
+        # Start local server to capture the OAuth callback with tokens
+        _start_oauth_server()
+        redirect_url = f"http://localhost:{OAUTH_CALLBACK_PORT}/callback"
+
         client = _get_client()
-        # Use PKCE flow — returns a URL to open in the browser
         res = client.auth.sign_in_with_oauth({
             "provider": provider,
             "options": {
-                "redirect_to": f"{SUPABASE_URL}/auth/v1/callback",
+                "redirect_to": redirect_url,
             }
         })
         if hasattr(res, 'url') and res.url:
             return {"ok": True, "url": res.url}
+        _stop_oauth_server()
         return {"ok": False, "error": f"{provider.title()} sign-in is not configured yet"}
     except Exception as e:
+        _stop_oauth_server()
         return {"ok": False, "error": str(e)}
+
+
+# ── OAuth local callback server ──────────────────────────────────────
+OAUTH_CALLBACK_PORT = 17834
+_oauth_tokens: dict = None
+_oauth_server: HTTPServer = None
+
+
+class _OAuthCallbackHandler(BaseHTTPRequestHandler):
+    """Handles the OAuth redirect from Supabase after Google/Apple sign-in.
+    Supabase sends tokens in the URL hash (#access_token=...&refresh_token=...).
+    Since hash fragments aren't sent to the server, we serve a small page that
+    extracts them with JS and POSTs them back to us.
+    """
+
+    def do_GET(self):
+        if '/callback' in self.path:
+            html = (
+                '<html><head><title>Natter</title></head>'
+                '<body style="font-family:-apple-system,system-ui,sans-serif;'
+                'text-align:center;padding:60px;background:#1a1a2e;color:#e0e0e0">'
+                '<h2 id="msg">Completing sign-in...</h2>'
+                '<script>'
+                'const h=window.location.hash.substring(1);'
+                'if(h){'
+                'const p=new URLSearchParams(h);'
+                'const d={};for(const[k,v]of p)d[k]=v;'
+                'fetch("/token",{method:"POST",'
+                'headers:{"Content-Type":"application/json"},'
+                'body:JSON.stringify(d)'
+                '}).then(()=>{'
+                'document.getElementById("msg").innerHTML='
+                '"&#10004; Signed in!<br><small>You can close this tab and return to Natter.</small>";'
+                '});'
+                '}else{'
+                'document.getElementById("msg").innerHTML='
+                '"&#10008; Sign-in failed.<br><small>Please try again in Natter.</small>";'
+                '}'
+                '</script></body></html>'
+            )
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/html')
+            self.end_headers()
+            self.wfile.write(html.encode())
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def do_POST(self):
+        global _oauth_tokens
+        if self.path == '/token':
+            length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(length)
+            try:
+                _oauth_tokens = json.loads(body)
+            except Exception:
+                pass
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/plain')
+            self.end_headers()
+            self.wfile.write(b'ok')
+
+    def log_message(self, format, *args):
+        pass  # Suppress HTTP log noise
+
+
+def _start_oauth_server():
+    """Start the local HTTP server that captures the OAuth callback."""
+    global _oauth_server, _oauth_tokens
+    _oauth_tokens = None
+    _stop_oauth_server()
+    try:
+        server = HTTPServer(('127.0.0.1', OAUTH_CALLBACK_PORT), _OAuthCallbackHandler)
+        _oauth_server = server
+        t = threading.Thread(target=server.serve_forever, daemon=True, name="OAuthServer")
+        t.start()
+    except Exception:
+        pass
+
+
+def _stop_oauth_server():
+    """Stop the local OAuth callback server."""
+    global _oauth_server
+    if _oauth_server:
+        try:
+            _oauth_server.shutdown()
+        except Exception:
+            pass
+        _oauth_server = None
+
+
+def poll_oauth_result() -> dict:
+    """Check if the OAuth callback has been received.
+    If tokens were captured, set the Supabase session and return the user.
+    Returns {ok: True, user: {...}} on success,
+            {ok: False, pending: True} if still waiting,
+            {ok: False, error: "..."} on failure.
+    """
+    global _oauth_tokens, _user, _session
+
+    if not _oauth_tokens:
+        return {"ok": False, "pending": True}
+
+    access_token = _oauth_tokens.get('access_token', '')
+    refresh_token = _oauth_tokens.get('refresh_token', '')
+    _oauth_tokens = None
+
+    if not access_token:
+        _stop_oauth_server()
+        return {"ok": False, "error": "No access token received"}
+
+    try:
+        client = _get_client()
+        res = client.auth.set_session(access_token, refresh_token)
+        if res.user:
+            _user = {"id": str(res.user.id), "email": res.user.email}
+            _session = {
+                "access_token": res.session.access_token if res.session else access_token,
+                "refresh_token": res.session.refresh_token if res.session else refresh_token,
+            }
+            _save_session(_session)
+            _stop_oauth_server()
+            return {"ok": True, "user": _user}
+    except Exception as e:
+        _stop_oauth_server()
+        return {"ok": False, "error": f"Session error: {e}"}
+
+    _stop_oauth_server()
+    return {"ok": False, "error": "Failed to complete sign-in"}
 
 
 def increment_usage(audio_seconds: float):
