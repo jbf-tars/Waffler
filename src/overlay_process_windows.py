@@ -50,9 +50,9 @@ CANCEL_HIT_X = 36          # left of this → cancel
 STOP_HIT_X   = WIN_W - 36  # right of this → stop
 
 # Toast constants
-TOAST_W     = 320
-TOAST_H     = 120
-TOAST_PAD   = 10           # gap above pill
+TOAST_W     = 380
+TOAST_H     = 140
+TOAST_PAD   = 12           # gap above pill
 
 # ── Global state ───────────────────────────────────────────────────────
 _cmd_queue: queue.Queue = queue.Queue()
@@ -190,53 +190,57 @@ def _show_toast(style: str, heading: str, body: str):
                   highlightthickness=0)
     c.pack()
 
-    # Background rounded rectangle
-    rad = 10
-    bg = '#1e1e24'
-    border = '#ef4444' if style == 'cancel' else '#f59e0b'
-    _rounded_rect(c, 0, 0, tw, th, rad, fill=bg, outline=border, width=1.5)
+    # Background rounded rectangle — purple brand border for both styles
+    _rounded_rect(c, 0, 0, tw, th, 12, fill='#18181f', outline='#7c3aed', width=2)
 
-    # Icon
-    icon_x, icon_y = 22, 26
+    # Content area: icon + text centred in top portion
+    content_cy = 40  # vertical centre of icon/text area
+    icon_x, icon_y = 28, content_cy
+
     if style == 'cancel':
-        # Red circle with X
-        c.create_oval(icon_x - 10, icon_y - 10, icon_x + 10, icon_y + 10,
-                      fill='#3b1818', outline='#ef4444', width=1.5)
+        # Soft red circle with X
+        c.create_oval(icon_x - 13, icon_y - 13, icon_x + 13, icon_y + 13,
+                      fill='#2d1520', outline='#ef4444', width=1.5)
         c.create_line(icon_x - 5, icon_y - 5, icon_x + 5, icon_y + 5,
-                      fill='#ef4444', width=1.5, capstyle=tk.ROUND)
+                      fill='#ef4444', width=2, capstyle=tk.ROUND)
         c.create_line(icon_x + 5, icon_y - 5, icon_x - 5, icon_y + 5,
-                      fill='#ef4444', width=1.5, capstyle=tk.ROUND)
+                      fill='#ef4444', width=2, capstyle=tk.ROUND)
     else:
-        # Amber warning triangle
-        c.create_oval(icon_x - 10, icon_y - 10, icon_x + 10, icon_y + 10,
-                      fill='#3b2e10', outline='#f59e0b', width=1.5)
-        c.create_text(icon_x, icon_y, text='!', fill='#f59e0b',
-                      font=('Segoe UI', 10, 'bold'))
+        # Purple brand circle with !
+        c.create_oval(icon_x - 13, icon_y - 13, icon_x + 13, icon_y + 13,
+                      fill='#2a1f4e', outline='#a78bfa', width=1.5)
+        c.create_text(icon_x, icon_y - 1, text='!', fill='#a78bfa',
+                      font=('Segoe UI', 11, 'bold'))
 
-    # Heading
-    c.create_text(44, 18, text=heading, fill='#ffffff', anchor='nw',
-                  font=('Segoe UI', 10, 'bold'))
+    # Heading — right of icon, vertically centred
+    text_x = 52
+    c.create_text(text_x, content_cy - 14, text=heading, fill='#ffffff',
+                  anchor='nw', font=('Segoe UI', 10, 'bold'))
 
     # Body text
-    c.create_text(44, 40, text=body, fill='#9a9aaa', anchor='nw',
-                  font=('Segoe UI', 9), width=tw - 54)
+    c.create_text(text_x, content_cy + 6, text=body, fill='#8888a0',
+                  anchor='nw', font=('Segoe UI', 9), width=tw - text_x - 20)
 
-    # Buttons row
-    btn_y = th - 30
+    # Buttons row — centred horizontally
+    btn_h = 26
+    btn_y = th - btn_h - 14
+    btn_gap = 12
     if style == 'cancel':
-        # "Discard" button (red)
-        _draw_toast_btn(c, 16, btn_y, 88, 24, '#3b1818', '#ef4444',
-                        'Discard', '#ef4444', 'confirm')
-        # "Keep going" button (grey)
-        _draw_toast_btn(c, 112, btn_y, 88, 24, '#2a2a35', '#3a3a4a',
-                        'Keep going', '#cccccc', 'dismiss')
+        btn1_w, btn2_w = 100, 110
+        total = btn1_w + btn_gap + btn2_w
+        sx = (tw - total) // 2
+        _draw_toast_btn(c, sx, btn_y, btn1_w, btn_h,
+                        '#2d1520', '#ef4444', 'Discard', '#ef4444', 'confirm')
+        _draw_toast_btn(c, sx + btn1_w + btn_gap, btn_y, btn2_w, btn_h,
+                        '#7c3aed', '#7c3aed', 'Keep going', '#ffffff', 'dismiss')
     else:
-        # "Select mic" button
-        _draw_toast_btn(c, 16, btn_y, 100, 24, '#2a2a35', '#3a3a4a',
-                        'Select mic', '#cccccc', 'select_mic')
-        # "Dismiss" button
-        _draw_toast_btn(c, 124, btn_y, 80, 24, '#2a2a35', '#3a3a4a',
-                        'Dismiss', '#999999', 'dismiss')
+        btn1_w, btn2_w = 110, 90
+        total = btn1_w + btn_gap + btn2_w
+        sx = (tw - total) // 2
+        _draw_toast_btn(c, sx, btn_y, btn1_w, btn_h,
+                        '#7c3aed', '#7c3aed', 'Select mic', '#ffffff', 'select_mic')
+        _draw_toast_btn(c, sx + btn1_w + btn_gap, btn_y, btn2_w, btn_h,
+                        '#2a2a35', '#3a3a4a', 'Dismiss', '#9a9aaa', 'dismiss')
 
 
 def _draw_toast_btn(canvas, x, y, w, h, fill, outline, text, text_color, action):
