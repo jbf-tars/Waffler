@@ -41,6 +41,13 @@ sys.stderr = _fix_stream(sys.stderr)
 PROJECT_ROOT = Path(__file__).parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
+# Force Python to prefer source files over compiled bytecode
+import importlib
+import sys as _sys
+# Remove any cached bytecode for natter_auth to force fresh import
+if 'natter_auth' in _sys.modules:
+    del _sys.modules['natter_auth']
+
 import webview
 
 from config import Config
@@ -218,6 +225,7 @@ class Api:
         """Return available prompt modes with display names."""
         return [
             {"id": "normal", "name": "Normal",      "desc": "Keeps everything, cleans grammar"},
+            {"id": "normal_wispr", "name": "Normal (Wispr)",  "desc": "Enhanced — smart corrections, better filler removal"},
             {"id": "smart",  "name": "Token Saver",  "desc": "Concise — classifies and trims filler"},
         ]
 
