@@ -1484,16 +1484,21 @@ def _tray_quit(icon=None, item=None):
 
 
 def _on_window_closing():
-    """Intercept window close: hide to tray instead of quitting."""
+    """Intercept window close.
+    Windows: hide to system tray (tray icon lets user restore/quit).
+    Mac: just close — no tray icon on Mac, so hiding would strand the app.
+    """
     if _should_quit:
         return True  # Allow close
-    # Hide window, keep running in background
-    if _window_ref:
-        try:
-            _window_ref.hide()
-        except Exception:
-            pass
-    return False  # Prevent close
+    if _platform.system() == "Windows":
+        # Hide window, keep running in background with tray icon
+        if _window_ref:
+            try:
+                _window_ref.hide()
+            except Exception:
+                pass
+        return False  # Prevent close
+    return True  # Mac/Linux: close normally
 
 
 # ── Main ──────────────────────────────────────────────────────────────
