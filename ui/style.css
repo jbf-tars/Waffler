@@ -142,6 +142,39 @@ html, body {
   color: var(--text-muted);
 }
 
+/* Sidebar user */
+.sidebar-user {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-soft);
+}
+.sidebar-user-email {
+  flex: 1;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sidebar-logout-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: 10px;
+  padding: 3px 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+.sidebar-logout-btn:hover {
+  border-color: var(--red);
+  color: var(--red);
+}
+
 .hotkey-badge {
   background: var(--bg-card);
   border: 1px solid var(--border);
@@ -1305,6 +1338,149 @@ html, body {
   overflow-y: auto;
 }
 
+/* ── Auth Screens ─────────────────────────────────────────────────── */
+.auth-container {
+  width: 100%;
+  max-width: 400px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+}
+.auth-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 28px;
+}
+.auth-logo .logo-icon {
+  width: 44px;
+  height: 44px;
+  background: var(--accent);
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  box-shadow: 0 4px 20px rgba(124, 58, 237, 0.4);
+}
+.auth-logo .logo-name {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.auth-logo .logo-name span { color: var(--accent-text); }
+
+.auth-view { width: 100%; text-align: center; }
+
+.auth-title {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+.auth-subtitle {
+  font-size: 14px;
+  color: var(--text-muted);
+  margin-bottom: 24px;
+}
+
+.auth-social-row {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+.auth-social-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  padding: 11px 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 13.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.auth-social-btn:hover {
+  border-color: var(--accent);
+  background: var(--bg-hover);
+}
+.auth-social-btn svg { flex-shrink: 0; }
+
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.auth-divider::before,
+.auth-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+.auth-input {
+  width: 100%;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 11px 14px;
+  font-size: 13.5px;
+  color: var(--text-primary);
+  outline: none;
+  transition: border-color 0.15s;
+}
+.auth-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-glow);
+}
+.auth-input::placeholder { color: var(--text-muted); }
+
+.auth-submit-btn {
+  width: 100%;
+  padding: 12px;
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius-sm);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+  margin-top: 4px;
+}
+.auth-submit-btn:hover { background: var(--accent-dim); }
+.auth-submit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.auth-toggle {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.auth-toggle a {
+  color: var(--accent-text);
+  cursor: pointer;
+  font-weight: 600;
+  text-decoration: none;
+}
+.auth-toggle a:hover { text-decoration: underline; }
+
 /* ── Setup Wizard ─────────────────────────────────────────────────── */
 .wizard-overlay {
   position: fixed;
@@ -1320,11 +1496,11 @@ html, body {
 .wizard-container {
   width: 100%;
   max-width: 800px;
-  padding: 48px 44px;
+  padding: 28px 44px 32px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 32px;
+  gap: 20px;
   transition: max-width 0.3s ease;
 }
 
@@ -1339,7 +1515,7 @@ html, body {
   align-items: center;
   justify-content: center;
   gap: 10px;
-  margin-bottom: 20px;
+  margin-bottom: 10px;
 }
 
 .wizard-header .logo-icon {
@@ -1366,7 +1542,7 @@ html, body {
   font-weight: 700;
   color: var(--text-primary);
   letter-spacing: -0.5px;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 
 .wizard-subtitle {
@@ -1435,7 +1611,7 @@ html, body {
   height: 2px;
   background: var(--border);
   margin: 0 8px;
-  margin-bottom: 20px;
+  margin-bottom: 14px;
   transition: background 0.3s;
 }
 
@@ -1448,14 +1624,14 @@ html, body {
   background: var(--bg-card);
   border: 1px solid var(--border-soft);
   border-radius: var(--radius-lg);
-  padding: 36px 40px;
+  padding: 24px 32px;
   text-align: center;
   width: 100%;
 }
 
 .wizard-card-icon {
   font-size: 36px;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .wizard-card h2 {
@@ -1468,8 +1644,8 @@ html, body {
 .wizard-card-desc {
   font-size: 14px;
   color: var(--text-secondary);
-  line-height: 1.6;
-  margin-bottom: 20px;
+  line-height: 1.5;
+  margin-bottom: 14px;
 }
 
 /* Key sections in wizard */
@@ -1550,7 +1726,7 @@ html, body {
 .wizard-input-hint {
   font-size: 12px;
   color: var(--text-muted);
-  margin-bottom: 12px;
+  margin-bottom: 6px;
 }
 
 .wizard-link {
@@ -1895,7 +2071,7 @@ html, body {
   display: flex;
   gap: 28px;
   width: 100%;
-  min-height: 420px;
+  min-height: 360px;
 }
 
 .wizard-tryit-left {

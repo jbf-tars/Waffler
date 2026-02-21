@@ -55,6 +55,18 @@ from style_openai import OpenAIStyler
 from license import validate_license, is_validated, get_license_key, LICENSE_FILE
 from clipboard import ClipboardManager
 from overlay import RecordingOverlay
+from natter_auth import (
+    sign_up as sb_sign_up,
+    sign_in as sb_sign_in,
+    sign_out as sb_sign_out,
+    restore_session as sb_restore_session,
+    get_current_user as sb_get_user,
+    is_logged_in as sb_is_logged_in,
+    increment_usage as sb_increment_usage,
+    get_profile as sb_get_profile,
+    get_usage_today as sb_get_usage_today,
+    get_oauth_url as sb_get_oauth_url,
+)
 from audio_devices import (
     list_input_devices,
     get_selected_device_index,
@@ -288,6 +300,44 @@ class Api:
         result = validate_license(license_key, instance_name)
         return result
 
+    # ── Auth API (Supabase) ────────────────────────────────────────────────
+
+    def auth_restore_session(self) -> dict:
+        """Try to auto-login from saved session."""
+        return sb_restore_session()
+
+    def auth_sign_up(self, email: str, password: str) -> dict:
+        """Create a new account."""
+        return sb_sign_up(email, password)
+
+    def auth_sign_in(self, email: str, password: str) -> dict:
+        """Log in with email + password."""
+        return sb_sign_in(email, password)
+
+    def auth_sign_out(self) -> dict:
+        """Sign out."""
+        return sb_sign_out()
+
+    def auth_get_user(self) -> dict:
+        """Return current user or None."""
+        return sb_get_user() or {}
+
+    def auth_is_logged_in(self) -> bool:
+        """Check if logged in."""
+        return sb_is_logged_in()
+
+    def auth_get_profile(self) -> dict:
+        """Get user profile (tier, etc)."""
+        return sb_get_profile() or {}
+
+    def auth_get_usage_today(self) -> dict:
+        """Get today's usage stats from Supabase."""
+        return sb_get_usage_today()
+
+    def auth_oauth(self, provider: str) -> dict:
+        """Start OAuth flow for a provider (google, apple)."""
+        return sb_get_oauth_url(provider)
+
     # ── Settings API ──────────────────────────────────────────────────────────
 
     def _settings_file(self):
@@ -447,12 +497,16 @@ class Api:
         groq_key = os.getenv("GROQ_API_KEY", "").strip()
         has_any_key = bool(openai_key or groq_key)
         setup_done = _is_setup_complete()
+        logged_in = sb_is_logged_in()
         return {
+            "needs_auth": not logged_in,
             "needs_setup": not setup_done or not has_any_key,
             "has_key": has_any_key,
             "has_openai_key": bool(openai_key),
             "has_groq_key": bool(groq_key),
             "setup_complete": setup_done,
+            "logged_in": logged_in,
+            "user": sb_get_user() or {},
         }
 
     def validate_api_key(self, api_key: str) -> dict:
@@ -1263,6 +1317,11 @@ class NatterPipeline:
             if whisper_duration > 0:
                 record_usage("whisper", duration_seconds=whisper_duration,
                              provider=whisper_provider)
+                # Track in Supabase
+                try:
+                    sb_increment_usage(whisper_duration)
+                except Exception:
+                    pass
 
             # Style
             styled, gpt_usage = self.styler.style(transcript)
@@ -1359,9 +1418,85 @@ class NatterPipeline:
             traceback.print_exc()
 
 
+# ── System Tray ──────────────────────────────────────────────────────
+_tray_icon = None
+_window_ref = None
+_should_quit = False
+
+
+def _create_tray_icon():
+    """Create system tray icon so app runs in background."""
+    global _tray_icon
+    try:
+        import pystray
+        from PIL import Image, ImageDraw
+
+        # Create a small purple icon matching the brand
+        img = Image.new('RGBA', (64, 64), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        draw.rounded_rectangle([0, 0, 63, 63], radius=12, fill=(124, 58, 237, 255))
+        # Simple mic shape
+        cx, cy = 32, 28
+        draw.rounded_rectangle([cx-8, cy-16, cx+8, cy+4], radius=8, fill=(255, 255, 255, 255))
+        draw.line([cx, cy+4, cx, cy+12], fill=(255, 255, 255, 255), width=3)
+        draw.line([cx-10, cy+12, cx+10, cy+12], fill=(255, 255, 255, 255), width=3)
+        draw.arc([cx-12, cy-6, cx+12, cy+8], start=0, end=180,
+                 fill=(255, 255, 255, 255), width=2)
+
+        menu = pystray.Menu(
+            pystray.MenuItem("Show Natter", _tray_show_window, default=True),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem("Quit", _tray_quit),
+        )
+        _tray_icon = pystray.Icon("Natter", img, "Natter", menu)
+        _tray_icon.run_detached()
+        _log_to_file("System tray icon created")
+    except Exception as e:
+        _log_to_file(f"Tray icon error: {e}")
+
+
+def _tray_show_window(icon=None, item=None):
+    """Show the main window from tray."""
+    if _window_ref:
+        try:
+            _window_ref.show()
+            _window_ref.restore()
+        except Exception as e:
+            _log_to_file(f"Tray show error: {e}")
+
+
+def _tray_quit(icon=None, item=None):
+    """Actually quit the app from tray."""
+    global _should_quit
+    _should_quit = True
+    if _tray_icon:
+        try:
+            _tray_icon.stop()
+        except Exception:
+            pass
+    if _window_ref:
+        try:
+            _window_ref.destroy()
+        except Exception:
+            pass
+
+
+def _on_window_closing():
+    """Intercept window close: hide to tray instead of quitting."""
+    if _should_quit:
+        return True  # Allow close
+    # Hide window, keep running in background
+    if _window_ref:
+        try:
+            _window_ref.hide()
+        except Exception:
+            pass
+    return False  # Prevent close
+
+
 # ── Main ──────────────────────────────────────────────────────────────
 def main():
-    global _config
+    global _config, _window_ref
 
     # Load config (reads .env from project root via dotenv)
     os.chdir(PROJECT_ROOT)  # so config.yaml and .env are found
@@ -1403,10 +1538,24 @@ def main():
     )
 
     set_window(window)
+    _window_ref = window
+
+    # Intercept close → hide to tray
+    window.events.closing += _on_window_closing
+
+    # Start tray icon in background
+    threading.Thread(target=_create_tray_icon, daemon=True).start()
 
     print("Natter window launching...")
     # Start webview — this blocks until window is closed
     webview.start(debug=False)
+
+    # Clean up tray
+    if _tray_icon:
+        try:
+            _tray_icon.stop()
+        except Exception:
+            pass
 
     print("Window closed.")
 
