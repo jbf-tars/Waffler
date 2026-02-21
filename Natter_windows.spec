@@ -88,6 +88,17 @@ a = Analysis(
         'webbrowser',
         # ── Deepgram (optional but include if installed) ──
         'deepgram',
+        # ── Supabase Auth ──
+        'supabase',
+        'supabase._sync.client',
+        'natter_auth',
+        'postgrest',
+        'storage3',
+        'realtime',
+        'gotrue',
+        'gotrue._sync.gotrue_client',
+        'pyjwt',
+        'jwt',
     ],
     hookspath=[],
     hooksconfig={},
