@@ -74,15 +74,16 @@ def _get_active_app_windows() -> dict:
         ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
         
         # Get process name
-        PROCESS_QUERY_INFORMATION = 0x0401
+        PROCESS_QUERY_INFORMATION = 0x0400
         PROCESS_VM_READ = 0x0010
         kernel32 = ctypes.windll.kernel32
+        psapi = ctypes.windll.psapi
         handle = kernel32.OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, False, pid.value)
-        
+
         if handle:
             try:
                 exe_buffer = ctypes.create_unicode_buffer(260)
-                if kernel32.GetModuleFileNameExW(handle, 0, exe_buffer, 260):
+                if psapi.GetModuleFileNameExW(handle, 0, exe_buffer, 260):
                     exe_path = exe_buffer.value
                     app_name = exe_path.split("\\")[-1].replace(".exe", "")
                 else:

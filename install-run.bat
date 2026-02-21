@@ -2,13 +2,13 @@
 setlocal EnableDelayedExpansion
 
 :: ============================================
-:: VoiceFlow - One-Click Install & Run
+:: Natter - One-Click Install & Run
 :: ============================================
-:: Double-click this file to install and launch VoiceFlow
+:: Double-click this file to install and launch Natter
 :: Works on Windows 10/11 with Python 3.10+
 :: ============================================
 
-title VoiceFlow Installer
+title Natter Installer
 color 1f
 
 cd /d "%~dp0"
@@ -42,8 +42,8 @@ echo   Found: %PYTHON_VERSION%
 :: ============================================
 echo.
 echo [2/5] Setting up folders...
-if not exist "%USERPROFILE%\.voiceflow" mkdir "%USERPROFILE%\.voiceflow"
-if not exist "%USERPROFILE%\.voiceflow\recordings" mkdir "%USERPROFILE%\.voiceflow\recordings"
+if not exist "%USERPROFILE%\.natter" mkdir "%USERPROFILE%\.natter"
+if not exist "%USERPROFILE%\.natter\recordings" mkdir "%USERPROFILE%\.natter\recordings"
 echo   Done.
 
 :: ============================================
@@ -52,14 +52,17 @@ echo   Done.
 echo.
 echo [3/5] Setting up configuration...
 
-:: Create .env file (overwrite to ensure clean format)
-(
-echo # VoiceFlow Configuration
-echo OPENAI_API_KEY=your_openai_api_key_here
-echo PROMPT_STYLE=smart
-) > .env
-
-echo   Created .env with API key
+:: Create .env file if it doesn't exist
+if not exist ".env" (
+    (
+    echo # Natter Configuration
+    echo OPENAI_API_KEY=your_openai_api_key_here
+    echo PROMPT_STYLE=smart
+    ) > .env
+    echo   Created .env template
+) else (
+    echo   .env already exists, keeping existing config
+)
 
 :: ============================================
 :: STEP 4: Install dependencies
@@ -75,7 +78,7 @@ if errorlevel 1 (
 )
 
 :: Install all required packages
-python -m pip install -q sounddevice numpy pynput keyboard openai pywebview pyperclip pyyaml python-dotenv requests pystray Pillow 2>nul
+python -m pip install -q -r requirements_windows.txt 2>nul
 if errorlevel 1 (
     echo.
     echo   ERROR: Failed to install dependencies!
@@ -91,10 +94,10 @@ echo   Dependencies installed successfully
 :: STEP 5: Launch VoiceFlow
 :: ============================================
 echo.
-echo [5/5] Starting VoiceFlow...
+echo [5/5] Starting Natter...
 echo.
 echo   ===============================================
-echo   VoiceFlow is starting...
+echo   Natter is starting...
 echo   ===============================================
 echo.
 
@@ -103,5 +106,5 @@ python app.py
 
 :: When app closes
 echo.
-echo VoiceFlow has closed.
+echo Natter has closed.
 pause
