@@ -1,6 +1,6 @@
 @echo off
 REM ====================================================================
-REM  VoiceFlow — Windows Setup Script
+REM  Natter — Windows Setup Script
 REM  Run this ONCE to install all Python dependencies.
 REM
 REM  Prerequisites:
@@ -10,7 +10,7 @@ REM    • Internet connection
 REM ====================================================================
 
 echo ============================================================
-echo  VoiceFlow Windows Setup
+echo  Natter Windows Setup
 echo ============================================================
 echo.
 
@@ -34,7 +34,7 @@ python -m pip install --upgrade pip
 echo.
 
 REM Install dependencies
-echo Installing VoiceFlow dependencies...
+echo Installing Natter dependencies...
 python -m pip install -r requirements_windows.txt
 echo.
 
@@ -56,6 +56,6 @@ echo.
 
 echo ============================================================
 echo  Setup complete!
-echo  Next: double-click run_windows.bat to launch VoiceFlow.
+echo  Next: double-click run_windows.bat to launch Natter.
 echo ============================================================
 pause

@@ -1,4 +1,4 @@
-# VoiceFlow — Windows Requirements
+# Natter — Windows Requirements
 # Install with:  pip install -r requirements_windows.txt
 #
 # Packages excluded vs macOS version:
@@ -19,6 +19,9 @@ keyboard>=0.13.5
 # ── OpenAI (transcription + styling) ──────────────────────────────────
 openai>=1.0.0
 
+# ── Groq (fast transcription + styling) ──────────────────────────────
+groq>=0.4.0
+
 # ── Web UI (uses Edge WebView2 on Windows 11, built-in) ───────────────
 pywebview>=4.4.0
 
@@ -29,6 +32,9 @@ pyperclip>=1.8.2
 pyyaml>=6.0
 python-dotenv>=1.0.0
 requests>=2.31.0
+
+# ── Supabase (authentication + usage tracking) ──────────────────────
+supabase>=2.0.0
 
 # ── System Tray (Windows) ──────────────────────────────────────────────
 pystray>=0.19.5

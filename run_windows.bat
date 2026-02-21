@@ -2,7 +2,7 @@
 setlocal EnableDelayedExpansion
 
 :: ============================================
-:: VoiceFlow Launcher for Windows
+:: Natter Launcher for Windows
 :: ============================================
 
 cd /d "%~dp0"
@@ -20,14 +20,14 @@ if errorlevel 1 (
 :: Check required files exist
 if not exist "app.py" (
     echo.
-    echo ERROR: VoiceFlow files not found.
-    echo Please extract ALL files from the VoiceFlow zip.
+    echo ERROR: Natter files not found.
+    echo Please extract ALL files from the Natter zip.
     pause
     exit /b 1
 )
 
 if not exist "config.yaml" (
-    echo ERROR: config.yaml missing! Please re-download VoiceFlow.
+    echo ERROR: config.yaml missing! Please re-download Natter.
     pause
     exit /b 1
 )
@@ -36,7 +36,7 @@ if not exist "config.yaml" (
 if not exist ".env" (
     echo Creating config file...
     (
-        echo # VoiceFlow Configuration
+        echo # Natter Configuration
         echo # Add your OpenAI API key below (get one at https://platform.openai.com/api-keys)
         echo OPENAI_API_KEY=
         echo PROMPT_STYLE=smart
@@ -48,12 +48,12 @@ if not exist ".env" (
 
 :: Install dependencies
 echo Installing dependencies...
-python -m pip install pywebview openai sounddevice numpy pynput pyperclip pyyaml python-dotenv --quiet 2>nul
+python -m pip install -r requirements_windows.txt --quiet 2>nul
 
-:: Launch VoiceFlow
-echo Starting VoiceFlow...
+:: Launch Natter
+echo Starting Natter...
 python app.py
 
 echo.
-echo VoiceFlow closed.
+echo Natter closed.
 pause
