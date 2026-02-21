@@ -66,6 +66,7 @@ from natter_auth import (
     get_profile as sb_get_profile,
     get_usage_today as sb_get_usage_today,
     get_oauth_url as sb_get_oauth_url,
+    poll_oauth_result as sb_poll_oauth_result,
 )
 from audio_devices import (
     list_input_devices,
@@ -336,7 +337,19 @@ class Api:
 
     def auth_oauth(self, provider: str) -> dict:
         """Start OAuth flow for a provider (google, apple)."""
-        return sb_get_oauth_url(provider)
+        _log_to_file(f"OAuth: auth_oauth called with provider={provider}")
+        try:
+            _log_to_file("OAuth: calling get_oauth_url...")
+            result = sb_get_oauth_url(provider)
+            _log_to_file(f"OAuth: result ok={result.get('ok')}, has_url={bool(result.get('url'))}, error={result.get('error')}")
+            return result
+        except Exception as e:
+            _log_to_file(f"OAuth: EXCEPTION: {type(e).__name__}: {e}")
+            return {"ok": False, "error": str(e)}
+
+    def auth_poll_oauth(self) -> dict:
+        """Poll for OAuth callback result (called by JS after browser opens)."""
+        return sb_poll_oauth_result()
 
     # ── Settings API ──────────────────────────────────────────────────────────
 
@@ -488,8 +501,20 @@ class Api:
 
     def open_url(self, url: str):
         """Open a URL in the system browser."""
-        import webbrowser
-        webbrowser.open(url)
+        import subprocess
+        _log_to_file(f"open_url: {url[:80]}")
+        try:
+            if _platform.system() == "Darwin":
+                subprocess.Popen(["open", url])
+            elif _platform.system() == "Windows":
+                subprocess.Popen(["start", url], shell=True)
+            else:
+                import webbrowser
+                webbrowser.open(url)
+        except Exception as e:
+            _log_to_file(f"open_url error: {e}")
+            import webbrowser
+            webbrowser.open(url)
 
     def get_onboarding_status(self) -> dict:
         """Returns whether the app needs first-run setup."""
@@ -1587,7 +1612,8 @@ def main():
 
     print("Natter window launching...")
     # Start webview — this blocks until window is closed
-    webview.start(debug=False)
+    # debug=True enables right-click Inspect Element and JS console
+    webview.start(debug=True)
 
     # Clean up tray
     if _tray_icon:
