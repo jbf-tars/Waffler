@@ -2,6 +2,8 @@
 Natter License Key Validation
 Validates licence keys on first run via Lemon Squeezy API.
 """
+from __future__ import annotations
+
 import json
 import hashlib
 import os

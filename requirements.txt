@@ -14,3 +14,4 @@ groq
 rumps
 pywebview>=4.0
 pyinstaller
+supabase>=2.0.0

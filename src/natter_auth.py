@@ -2,6 +2,7 @@
 Natter — Supabase Authentication Module
 Handles signup, login, session persistence, and usage tracking.
 """
+from __future__ import annotations
 
 import json
 from pathlib import Path
