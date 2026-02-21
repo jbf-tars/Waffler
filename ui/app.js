@@ -29,6 +29,12 @@ window.addEventListener('pywebviewready', () => {
 document.addEventListener('DOMContentLoaded', () => {
   updateDateLabel();
   updateHotkeyHint();
+
+  // Auth form Enter key
+  ['authEmail', 'authPassword', 'authSignUpEmail', 'authSignUpPassword'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('keydown', e => { if (e.key === 'Enter') submitAuth(); });
+  });
   setTimeout(refreshAll, 300);
 });
 
@@ -702,6 +708,173 @@ function onSearchInput(q) {
 }
 
 // ============================================================
+// ── Auth (Login / Sign Up) ──────────────────────────────────
+// ============================================================
+
+let _authMode = 'signin'; // 'signin' or 'signup'
+
+function showAuthScreen() {
+  const overlay = document.getElementById('authOverlay');
+  if (!overlay) return;
+  overlay.style.display = 'flex';
+  _authMode = 'signin';
+  document.getElementById('authSignInView').style.display = '';
+  document.getElementById('authSignUpView').style.display = 'none';
+  const sidebar = document.querySelector('.sidebar');
+  if (sidebar) sidebar.style.display = 'none';
+  const main = document.getElementById('mainArea');
+  if (main) main.style.display = 'none';
+}
+
+function hideAuthScreen() {
+  const overlay = document.getElementById('authOverlay');
+  if (overlay) overlay.style.display = 'none';
+}
+
+function toggleAuthMode() {
+  const signInView = document.getElementById('authSignInView');
+  const signUpView = document.getElementById('authSignUpView');
+  if (_authMode === 'signin') {
+    _authMode = 'signup';
+    signInView.style.display = 'none';
+    signUpView.style.display = '';
+  } else {
+    _authMode = 'signin';
+    signInView.style.display = '';
+    signUpView.style.display = 'none';
+  }
+  // Clear validation messages
+  const v1 = document.getElementById('authValidation');
+  const v2 = document.getElementById('authSignUpValidation');
+  if (v1) { v1.textContent = ''; v1.className = 'wizard-validation'; }
+  if (v2) { v2.textContent = ''; v2.className = 'wizard-validation'; }
+}
+
+async function submitAuth() {
+  const isSignUp = _authMode === 'signup';
+  const emailEl = document.getElementById(isSignUp ? 'authSignUpEmail' : 'authEmail');
+  const passEl = document.getElementById(isSignUp ? 'authSignUpPassword' : 'authPassword');
+  const validation = document.getElementById(isSignUp ? 'authSignUpValidation' : 'authValidation');
+  const submitBtn = document.getElementById(isSignUp ? 'authSignUpBtn' : 'authSubmitBtn');
+
+  const email = (emailEl.value || '').trim();
+  const password = (passEl.value || '').trim();
+
+  if (!email || !password) {
+    validation.textContent = 'Please enter your email and password.';
+    validation.className = 'wizard-validation error';
+    return;
+  }
+  if (password.length < 6) {
+    validation.textContent = 'Password must be at least 6 characters.';
+    validation.className = 'wizard-validation error';
+    return;
+  }
+
+  submitBtn.disabled = true;
+  submitBtn.textContent = isSignUp ? 'Creating account...' : 'Signing in...';
+  validation.textContent = '';
+  validation.className = 'wizard-validation';
+
+  try {
+    let res;
+    if (isSignUp) {
+      res = await pywebview.api.auth_sign_up(email, password);
+    } else {
+      res = await pywebview.api.auth_sign_in(email, password);
+    }
+
+    if (res.ok) {
+      if (res.needs_confirm) {
+        validation.textContent = 'Check your email to confirm your account, then sign in.';
+        validation.className = 'wizard-validation success';
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Create account';
+        // Switch to sign in view after a moment
+        setTimeout(() => toggleAuthMode(), 2000);
+        return;
+      }
+      onAuthSuccess(res.user);
+    } else {
+      validation.textContent = res.error || 'Something went wrong';
+      validation.className = 'wizard-validation error';
+    }
+  } catch(e) {
+    validation.textContent = 'Connection error — check your internet.';
+    validation.className = 'wizard-validation error';
+  }
+
+  submitBtn.disabled = false;
+  submitBtn.textContent = isSignUp ? 'Create account' : 'Sign in';
+}
+
+async function oauthSignIn(provider) {
+  try {
+    const res = await pywebview.api.auth_oauth(provider);
+    if (res.ok && res.url) {
+      // Open OAuth URL in system browser
+      await pywebview.api.open_url(res.url);
+      // Show a message to user
+      const validation = document.getElementById(_authMode === 'signup' ? 'authSignUpValidation' : 'authValidation');
+      if (validation) {
+        validation.textContent = 'Complete sign-in in your browser, then come back here.';
+        validation.className = 'wizard-validation loading';
+      }
+      // Poll for session completion
+      _pollForOAuthSession();
+    } else {
+      const validation = document.getElementById(_authMode === 'signup' ? 'authSignUpValidation' : 'authValidation');
+      if (validation) {
+        validation.textContent = res.error || 'OAuth setup not available yet.';
+        validation.className = 'wizard-validation error';
+      }
+    }
+  } catch(e) {
+    console.warn('OAuth error:', e);
+  }
+}
+
+async function _pollForOAuthSession() {
+  // Poll every 2s for up to 2 minutes to see if session was captured
+  for (let i = 0; i < 60; i++) {
+    await new Promise(r => setTimeout(r, 2000));
+    try {
+      const user = await pywebview.api.auth_get_user();
+      if (user && user.email) {
+        onAuthSuccess(user);
+        return;
+      }
+    } catch(e) {}
+  }
+}
+
+function onAuthSuccess(user) {
+  hideAuthScreen();
+  updateSidebarUser(user);
+  checkOnboardingAfterAuth();
+}
+
+function updateSidebarUser(user) {
+  const el = document.getElementById('sidebarUser');
+  const emailEl = document.getElementById('sidebarUserEmail');
+  if (el && user && user.email) {
+    emailEl.textContent = user.email;
+    el.style.display = 'flex';
+  }
+}
+
+async function doSignOut() {
+  try {
+    await pywebview.api.auth_sign_out();
+    const el = document.getElementById('sidebarUser');
+    if (el) el.style.display = 'none';
+    showAuthScreen();
+  } catch(e) {
+    console.warn('Sign out error:', e);
+  }
+}
+
+// ============================================================
 // ── Setup Wizard ─────────────────────────────────────────────
 // ============================================================
 
@@ -717,12 +890,43 @@ let _wizardPermCheckInterval = null;
 async function checkOnboarding() {
   try {
     if (!window.pywebview || !window.pywebview.api) return;
+
+    // 1. Try to restore saved session (auto-login)
+    const restored = await pywebview.api.auth_restore_session();
+    if (restored.ok && restored.user) {
+      updateSidebarUser(restored.user);
+      // Already logged in — check if setup needed
+      const status = await pywebview.api.get_onboarding_status();
+      if (status.needs_setup) {
+        showWizard();
+      }
+      return;
+    }
+
+    // 2. Not logged in — show auth screen
+    showAuthScreen();
+  } catch(e) {
+    console.warn('checkOnboarding error:', e);
+    // Fallback: show auth
+    showAuthScreen();
+  }
+}
+
+async function checkOnboardingAfterAuth() {
+  try {
     const status = await pywebview.api.get_onboarding_status();
     if (status.needs_setup) {
       showWizard();
+    } else {
+      // Show main app
+      const sidebar = document.querySelector('.sidebar');
+      if (sidebar) sidebar.style.display = '';
+      const main = document.getElementById('mainArea');
+      if (main) main.style.display = '';
+      refreshAll();
     }
   } catch(e) {
-    console.warn('checkOnboarding error:', e);
+    console.warn('checkOnboardingAfterAuth error:', e);
   }
 }
 
