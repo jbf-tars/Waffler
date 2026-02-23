@@ -10,6 +10,7 @@ from passlib.context import CryptContext
 import secrets
 import jwt
 from datetime import datetime, timedelta
+from typing import Optional
 import os
 
 from database.config import get_db
@@ -30,7 +31,7 @@ ACCESS_TOKEN_EXPIRE_HOURS = 24
 class SignupRequest(BaseModel):
     email: EmailStr
     password: str
-    name: str | None = None
+    name: Optional[str] = None
 
 
 class SigninRequest(BaseModel):
@@ -43,7 +44,7 @@ class AuthResponse(BaseModel):
     api_key: str
     tier: str
     email: str
-    name: str | None
+    name: Optional[str]
 
 
 # Helper functions
