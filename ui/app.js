@@ -1200,33 +1200,14 @@ async function wizCheckPermissions() {
       micRow.classList.remove('granted');
     }
 
-    // Accessibility (macOS only)
+    // Accessibility (macOS only) - HIDDEN during wizard to match Windows UX
+    // Users can enable it later in Settings if needed for auto-paste
     const accessRow = document.getElementById('wizPermAccessibility');
-    if (result.platform === 'Darwin') {
-      accessRow.style.display = 'flex';
-      const accessIcon = document.getElementById('wizPermAccessIcon');
-      const accessDesc = document.getElementById('wizPermAccessDesc');
-      const accessBtn  = document.getElementById('wizPermAccessBtn');
+    accessRow.style.display = 'none';  // Always hidden in wizard (same as Windows)
 
-      if (result.accessibility_granted) {
-        accessIcon.innerHTML = '<span class="wizard-perm-granted">&#10003;</span>';
-        accessDesc.textContent = 'Accessibility access granted';
-        accessBtn.style.display = 'none';
-        accessRow.classList.add('granted');
-      } else {
-        accessIcon.innerHTML = '<span class="wizard-perm-denied">&#10007;</span>';
-        accessDesc.textContent = 'Needed so Natter can paste text into other apps';
-        accessBtn.style.display = 'inline-block';
-        accessRow.classList.remove('granted');
-      }
-    } else {
-      accessRow.style.display = 'none';
-    }
-
-    // Overall state
+    // Overall state - Only check microphone during wizard (like Windows)
     const micOk = result.mic_granted;
-    const accessOk = result.platform === 'Darwin' ? result.accessibility_granted : true;
-    _wizardPermissionsGranted = micOk && accessOk;
+    _wizardPermissionsGranted = micOk;
 
     const recheckBtn = document.getElementById('wizRecheckBtn');
     if (recheckBtn) recheckBtn.style.display = _wizardPermissionsGranted ? 'none' : 'block';
