@@ -69,6 +69,14 @@ class SmartHotkeyListener:
     def _fire_release(self):
         threading.Thread(target=self._on_release, daemon=True).start()
 
+    # ── State Management ──────────────────────────────────────────
+
+    def reset_state(self):
+        """Reset internal state - call when recording is stopped externally (manual stop button)"""
+        self._fn_held = False
+        self._sticky = False
+        self._recording = False
+
     # ── Lifecycle ─────────────────────────────────────────────────────
 
     def start(self):
