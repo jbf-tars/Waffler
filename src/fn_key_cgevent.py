@@ -79,15 +79,20 @@ class FnKeyMonitor:
             elif event_type == kCGEventKeyDown:
                 keycode = CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode)
                 if keycode == 49:  # Space key = keycode 49
+                    with self._lock:
+                        fn_state = self._fn_pressed
+
+                    print(f"[FN_KEY] Space pressed, Fn is {'HELD' if fn_state else 'NOT HELD'}")
+
                     # Trigger app's sticky mode handler
                     if self._on_space_press:
                         threading.Thread(target=self._on_space_press, daemon=True).start()
 
                     # Suppress event if Fn is held to prevent input source selector
-                    with self._lock:
-                        if self._fn_pressed:
-                            self._suppress_next_space_up = True
-                            return None  # Suppress Fn+Space system shortcut
+                    if fn_state:
+                        self._suppress_next_space_up = True
+                        print("[FN_KEY] Suppressing Fn+Space KeyDown")
+                        return None  # Suppress Fn+Space system shortcut
 
             # Check for Space key release (KeyUp)
             elif event_type == kCGEventKeyUp:

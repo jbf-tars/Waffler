@@ -939,16 +939,10 @@ class Api:
             _wizard_recorder = AudioRecorder(sample_rate=16000, channels=1)
 
             # Create overlay for wizard Step 4 visual feedback
-            try:
-                _wizard_overlay = RecordingOverlay(
-                    on_cancel=lambda: None,  # Dummy callbacks for wizard
-                    on_stop=lambda: None,
-                    on_cancel_request=lambda: None,
-                )
-                _log_to_file("Wizard overlay created successfully")
-            except Exception as e:
-                _log_to_file(f"Wizard overlay creation failed (non-critical): {e}")
-                _wizard_overlay = None
+            # Skip overlay creation - causes crashes on first run when called from non-main thread
+            # Overlay isn't critical for wizard functionality
+            _wizard_overlay = None
+            _log_to_file("Wizard overlay skipped (prevents threading crashes)")
 
             # Create temporary transcriber using already-validated keys
             openai_key = os.getenv("OPENAI_API_KEY", "")
