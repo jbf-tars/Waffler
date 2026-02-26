@@ -1776,6 +1776,37 @@ html, body {
   box-shadow: 0 4px 16px var(--accent-glow);
 }
 
+/* Hotkey Preset Buttons */
+.hotkey-preset-btn {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  padding: 14px 18px;
+  background: white;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 15px;
+  width: 100%;
+  text-align: left;
+}
+
+.hotkey-preset-btn:hover {
+  border-color: var(--accent);
+  background: #f8f9fa;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+.hotkey-preset-btn .hotkey-preview {
+  font-weight: 700;
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  color: var(--accent);
+  min-width: 140px;
+}
+
 .wizard-hotkey-keys {
   display: flex;
   align-items: center;
