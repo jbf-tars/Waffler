@@ -1,4 +1,4 @@
-/* Natter — Premium Dark UI */
+/* Waffler — Premium Dark UI */
 
 *, *::before, *::after {
   box-sizing: border-box;
@@ -76,13 +76,13 @@ html, body {
 .logo-icon {
   width: 32px;
   height: 32px;
-  background: var(--accent);
+  background: linear-gradient(145deg, #d4952a, #a06818);
   border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 16px;
-  box-shadow: 0 4px 14px rgba(124, 58, 237, 0.4);
+  box-shadow: 0 4px 14px rgba(190, 130, 40, 0.35);
   flex-shrink: 0;
 }
 
@@ -90,11 +90,23 @@ html, body {
   font-size: 17px;
   font-weight: 700;
   letter-spacing: -0.3px;
-  color: var(--text-primary);
+  position: relative;
+  background: linear-gradient(180deg, #f0b840 0%, #d49230 55%, #b87420 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
-.logo-name span {
-  color: var(--accent-text);
+.logo-name::after {
+  content: '';
+  position: absolute;
+  bottom: -4px;
+  right: 6px;
+  width: 4px;
+  height: 7px;
+  background: #b87420;
+  border-radius: 0 0 50% 50%;
+  opacity: 0.8;
 }
 
 .nav-item {
@@ -1357,20 +1369,22 @@ html, body {
 .auth-logo .logo-icon {
   width: 44px;
   height: 44px;
-  background: var(--accent);
+  background: linear-gradient(145deg, #d4952a, #a06818);
   border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 22px;
-  box-shadow: 0 4px 20px rgba(124, 58, 237, 0.4);
+  box-shadow: 0 4px 20px rgba(190, 130, 40, 0.35);
 }
 .auth-logo .logo-name {
   font-size: 26px;
   font-weight: 700;
-  color: var(--text-primary);
+  background: linear-gradient(180deg, #f0b840 0%, #d49230 55%, #b87420 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
-.auth-logo .logo-name span { color: var(--accent-text); }
 
 .auth-view { width: 100%; text-align: center; }
 
@@ -1521,21 +1535,23 @@ html, body {
 .wizard-header .logo-icon {
   width: 44px;
   height: 44px;
-  background: var(--accent);
+  background: linear-gradient(145deg, #d4952a, #a06818);
   border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 22px;
-  box-shadow: 0 4px 20px rgba(124, 58, 237, 0.4);
+  box-shadow: 0 4px 20px rgba(190, 130, 40, 0.35);
 }
 
 .wizard-header .logo-name {
   font-size: 26px;
   font-weight: 700;
-  color: var(--text-primary);
+  background: linear-gradient(180deg, #f0b840 0%, #d49230 55%, #b87420 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
-.wizard-header .logo-name span { color: var(--accent-text); }
 
 .wizard-title {
   font-size: 30px;
