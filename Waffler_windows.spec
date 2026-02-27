@@ -1,8 +1,8 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-Natter — Windows PyInstaller spec
+Waffler — Windows PyInstaller spec
 Bundles all hidden imports, data files (ui/, prompts/, config.yaml, .env, src/)
-Produces: dist/Natter/Natter.exe  (one-folder mode for faster startup)
+Produces: dist/Waffler/Waffler.exe  (one-folder mode for faster startup)
 """
 
 import sys
@@ -91,7 +91,7 @@ a = Analysis(
         # ── Supabase Auth ──
         'supabase',
         'supabase._sync.client',
-        'natter_auth',
+        'waffler_auth',
         'postgrest',
         'storage3',
         'realtime',
@@ -126,7 +126,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='Natter',
+    name='Waffler',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -142,5 +142,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='Natter',
+    name='Waffler',
 )

@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 for _var in ['AZURE_OPENAI_API_KEY', 'AZURE_OPENAI_ENDPOINT', 'MINIMAX_API_KEY', 'DEEPGRAM_API_KEY']:
     os.environ.pop(_var, None)
 
-_user_env = Path.home() / ".natter" / ".env"
+_user_env = Path.home() / ".waffler" / ".env"
 if _user_env.exists():
     load_dotenv(str(_user_env), override=True)
 load_dotenv(override=True)  # Also check project root .env as fallback
@@ -54,7 +54,7 @@ class Config:
 
     def reload_env(self):
         """Re-read .env and refresh keys. Called after wizard sets a key."""
-        user_env = Path.home() / ".natter" / ".env"
+        user_env = Path.home() / ".waffler" / ".env"
         if user_env.exists():
             load_dotenv(str(user_env), override=True)
         load_dotenv(override=True)

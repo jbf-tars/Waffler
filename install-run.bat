@@ -2,13 +2,13 @@
 setlocal EnableDelayedExpansion
 
 :: ============================================
-:: Natter - One-Click Install & Run
+:: Waffler - One-Click Install & Run
 :: ============================================
-:: Double-click this file to install and launch Natter
+:: Double-click this file to install and launch Waffler
 :: Works on Windows 10/11 with Python 3.10+
 :: ============================================
 
-title Natter Installer
+title Waffler Installer
 color 1f
 
 cd /d "%~dp0"
@@ -42,8 +42,8 @@ echo   Found: %PYTHON_VERSION%
 :: ============================================
 echo.
 echo [2/5] Setting up folders...
-if not exist "%USERPROFILE%\.natter" mkdir "%USERPROFILE%\.natter"
-if not exist "%USERPROFILE%\.natter\recordings" mkdir "%USERPROFILE%\.natter\recordings"
+if not exist "%USERPROFILE%\.waffler" mkdir "%USERPROFILE%\.waffler"
+if not exist "%USERPROFILE%\.waffler\recordings" mkdir "%USERPROFILE%\.waffler\recordings"
 echo   Done.
 
 :: ============================================
@@ -55,7 +55,7 @@ echo [3/5] Setting up configuration...
 :: Create .env file if it doesn't exist
 if not exist ".env" (
     (
-    echo # Natter Configuration
+    echo # Waffler Configuration
     echo OPENAI_API_KEY=your_openai_api_key_here
     echo PROMPT_STYLE=smart
     ) > .env
@@ -94,10 +94,10 @@ echo   Dependencies installed successfully
 :: STEP 5: Launch VoiceFlow
 :: ============================================
 echo.
-echo [5/5] Starting Natter...
+echo [5/5] Starting Waffler...
 echo.
 echo   ===============================================
-echo   Natter is starting...
+echo   Waffler is starting...
 echo   ===============================================
 echo.
 
@@ -106,5 +106,5 @@ python app.py
 
 :: When app closes
 echo.
-echo Natter has closed.
+echo Waffler has closed.
 pause

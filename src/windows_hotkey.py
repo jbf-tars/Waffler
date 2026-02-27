@@ -1,11 +1,11 @@
 """
-Natter Windows Hotkey
+Waffler Windows Hotkey
 Ctrl + Space = toggle recording on/off.
 
 Primary:  RegisterHotKey  (system-level, most reliable)
 Fallback: GetAsyncKeyState polling (if RegisterHotKey fails, e.g. IME conflict)
 
-Writes debug output to ~/.natter/hotkey.log so issues are visible
+Writes debug output to ~/.waffler/hotkey.log so issues are visible
 even when the app runs as a GUI exe with no console.
 """
 
@@ -54,7 +54,7 @@ kernel32.GetCurrentThreadId.argtypes = []
 kernel32.GetCurrentThreadId.restype  = ctypes.wintypes.DWORD
 
 # ── Debug log ─────────────────────────────────────────────────────────
-_LOG_FILE = Path.home() / ".natter" / "hotkey.log"
+_LOG_FILE = Path.home() / ".waffler" / "hotkey.log"
 
 
 def _log(msg: str):

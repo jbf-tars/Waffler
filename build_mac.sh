@@ -1,7 +1,7 @@
 #!/bin/bash
 # ============================================
-# Natter — macOS Build Script
-# Produces: dist/Natter.app + Natter.dmg
+# Waffler — macOS Build Script
+# Produces: dist/Waffler.app + Waffler.dmg
 # ============================================
 
 set -e
@@ -9,7 +9,7 @@ cd "$(dirname "$0")"
 
 echo ""
 echo "============================================"
-echo "  Natter — macOS Build"
+echo "  Waffler — macOS Build"
 echo "============================================"
 echo ""
 
@@ -65,61 +65,61 @@ echo "  Done."
 
 # Step 5: Build with PyInstaller
 echo ""
-echo "[5/6] Building Natter.app..."
+echo "[5/6] Building Waffler.app..."
 echo "  This may take a few minutes..."
 echo ""
-python3 -m PyInstaller Natter_mac.spec --noconfirm 2>&1
+python3 -m PyInstaller Waffler_mac.spec --noconfirm 2>&1
 
 # Step 6: Create DMG with Applications symlink
 echo ""
-echo "[6/6] Creating Natter.dmg..."
-if [ -d "dist/Natter.app" ]; then
+echo "[6/6] Creating Waffler.dmg..."
+if [ -d "dist/Waffler.app" ]; then
     # Create a staging folder with .app + Applications symlink
     DMG_STAGE="dist/dmg-stage"
     rm -rf "$DMG_STAGE"
     mkdir -p "$DMG_STAGE"
-    cp -R dist/Natter.app "$DMG_STAGE/"
+    cp -R dist/Waffler.app "$DMG_STAGE/"
     ln -s /Applications "$DMG_STAGE/Applications"
 
-    rm -f dist/Natter.dmg
-    hdiutil create -volname "Natter" \
+    rm -f dist/Waffler.dmg
+    hdiutil create -volname "Waffler" \
         -srcfolder "$DMG_STAGE" \
         -ov -format UDZO \
-        dist/Natter.dmg 2>&1
+        dist/Waffler.dmg 2>&1
 
     rm -rf "$DMG_STAGE"
     echo "  Done."
 else
-    echo "  WARNING: Natter.app not found — skipping DMG"
+    echo "  WARNING: Waffler.app not found — skipping DMG"
 fi
 
 echo ""
 echo "============================================"
 echo "  BUILD SUCCESSFUL!"
-echo "  App:  dist/Natter.app"
-echo "  DMG:  dist/Natter.dmg"
+echo "  App:  dist/Waffler.app"
+echo "  DMG:  dist/Waffler.dmg"
 echo "============================================"
 echo ""
 
 # Sanity check
-if [ -d "dist/Natter.app" ]; then
-    echo "  Natter.app size:"
-    du -sh "dist/Natter.app"
+if [ -d "dist/Waffler.app" ]; then
+    echo "  Waffler.app size:"
+    du -sh "dist/Waffler.app"
 fi
-if [ -f "dist/Natter.dmg" ]; then
-    echo "  Natter.dmg size:"
-    du -sh "dist/Natter.dmg"
+if [ -f "dist/Waffler.dmg" ]; then
+    echo "  Waffler.dmg size:"
+    du -sh "dist/Waffler.dmg"
 fi
 
 # Copy to Desktop for easy access
-if [ -d "dist/Natter.app" ]; then
+if [ -d "dist/Waffler.app" ]; then
     echo ""
-    echo "  Copying Natter.app to Desktop..."
-    rm -rf "$HOME/Desktop/Natter.app"
-    cp -R dist/Natter.app "$HOME/Desktop/Natter.app"
-    echo "  Done — double-click Natter.app on your Desktop to launch!"
+    echo "  Copying Waffler.app to Desktop..."
+    rm -rf "$HOME/Desktop/Waffler.app"
+    cp -R dist/Waffler.app "$HOME/Desktop/Waffler.app"
+    echo "  Done — double-click Waffler.app on your Desktop to launch!"
 fi
-if [ -f "dist/Natter.dmg" ]; then
-    cp dist/Natter.dmg "$HOME/Desktop/Natter.dmg"
-    echo "  Natter.dmg also copied to Desktop."
+if [ -f "dist/Waffler.dmg" ]; then
+    cp dist/Waffler.dmg "$HOME/Desktop/Waffler.dmg"
+    echo "  Waffler.dmg also copied to Desktop."
 fi

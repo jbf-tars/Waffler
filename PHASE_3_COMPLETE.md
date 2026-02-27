@@ -2,7 +2,7 @@
 
 ## What We Built
 
-Successfully integrated the Natter desktop app with the self-hosted backend, creating a complete end-to-end flow from voice recording to styled text.
+Successfully integrated the Waffler desktop app with the self-hosted backend, creating a complete end-to-end flow from voice recording to styled text.
 
 ---
 
@@ -63,14 +63,14 @@ curl -X POST http://localhost:8000/style/style \
 ### ✅ Phase 3: Desktop App Integration (Complete)
 
 **Created:**
-- Backend authentication module (`natter_auth_backend.py`)
+- Backend authentication module (`waffler_auth_backend.py`)
 - Modified styling module to prioritize backend
 - Environment variable detection (`BACKEND_URL`)
 - Automatic fallback to BYOK mode (Groq/OpenAI)
 - Test script to verify integration
 
 **Files:**
-- `/src/natter_auth_backend.py` - Backend auth (signup, signin, session)
+- `/src/waffler_auth_backend.py` - Backend auth (signup, signin, session)
 - `/src/style_openai.py` - Added backend support as priority #1
 - `/.env.example` - Added BACKEND_URL configuration
 - `/test_backend_integration.py` - End-to-end tests
@@ -95,7 +95,7 @@ curl -X POST http://localhost:8000/style/style \
 
 ```
 ┌─────────────────────────────────────────────┐
-│ Natter Desktop App (Mac)                    │
+│ Waffler Desktop App (Mac)                    │
 │  • Local whisper transcription (FREE)       │
 │  • Audio recording                          │
 │  • Backend auth (email/password)            │
@@ -175,7 +175,7 @@ Expected output:
 ### 4. Test in Actual App
 
 Once Replicate token is added:
-1. Launch Natter desktop app
+1. Launch Waffler desktop app
 2. Sign up with email/password (backend mode)
 3. Press hotkey to record
 4. Whisper transcribes locally (~1 second)
@@ -250,9 +250,9 @@ voiceflow-app/
 │   ├── requirements.txt        # Added replicate SDK
 │   └── init_db.py              # Database initialization
 ├── src/
-│   ├── natter_auth_backend.py  # NEW: Backend auth
+│   ├── waffler_auth_backend.py  # NEW: Backend auth
 │   ├── style_openai.py         # MODIFIED: Added backend priority
-│   ├── natter_auth.py          # UNCHANGED: Supabase auth (BYOK)
+│   ├── waffler_auth.py          # UNCHANGED: Supabase auth (BYOK)
 │   └── transcribe_whisper.py   # UNCHANGED: Local transcription
 ├── .env.example                # UPDATED: Added BACKEND_URL
 ├── test_backend_integration.py # NEW: Integration tests

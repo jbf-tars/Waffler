@@ -1,5 +1,5 @@
 """
-Active App Detection for Natter
+Active App Detection for Waffler
 Detects which app is in focus and suggests appropriate prompt style.
 """
 
