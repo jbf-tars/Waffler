@@ -8,7 +8,7 @@ Fn (again)               → Stop sticky recording
 
 import threading
 from pynput import keyboard
-from src.fn_key_monitor import FnKeyMonitor
+from src.fn_key_cgevent import FnKeyMonitor
 
 
 class SmartHotkeyListener:
@@ -21,12 +21,12 @@ class SmartHotkeyListener:
         self._sticky = False        # Locked-on (toggle) mode active
         self._recording = False     # Are we recording right now?
 
-        # NEW: Add Fn key monitor
+        # Use CGEventTap for Fn detection (doesn't crash like NSEvent)
         self._fn_monitor = FnKeyMonitor(
             self._on_fn_press,
             self._on_fn_release
         )
-        self._listener = None       # Still need pynput for Space key
+        self._listener = None       # pynput for Space key
 
     # ── Key events ────────────────────────────────────────────────────
 
@@ -74,13 +74,12 @@ class SmartHotkeyListener:
     def start(self):
         print("⌨️  Hotkey: Hold Fn to record | Fn + Space = sticky | Fn again = stop")
 
-        # Start Fn key monitoring (via NSEvent)
+        # Start Fn key monitoring (CGEventTap in background thread)
         self._fn_monitor.start()
 
-        # Start pynput listener (only for Space key now)
+        # Start pynput listener for Space key (creates its own thread)
         self._listener = keyboard.Listener(
             on_press=self._on_key_press,
-            # No on_release needed
         )
         self._listener.start()
 
