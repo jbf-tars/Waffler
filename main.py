@@ -7,6 +7,7 @@ Main orchestrator
 import sys
 import time
 import threading
+import platform as _platform
 from pathlib import Path
 
 # Add src to path
@@ -214,14 +215,23 @@ class VoiceFlow:
         print("="*60)
         # Print available mics so we can see which one is being used
         self.audio.print_devices()
-        print(f"\n✅ Ready! Press and hold {self.config.hotkey} to record.\n")
-        
         # Set up hotkey listener
-        self.hotkey = HotkeyListener(
-            combination=self.config.hotkey,
-            on_press=self.on_hotkey_press,
-            on_release=self.on_hotkey_release
-        )
+        if _platform.system() == "Darwin":
+            # Mac: Use SmartHotkeyListener with Fn key
+            from smart_hotkey import SmartHotkeyListener
+            self.hotkey = SmartHotkeyListener(
+                on_press=self.on_hotkey_press,
+                on_release=self.on_hotkey_release
+            )
+            print("\n🧇 Waffler ready! Hold Fn to dictate, Fn+Space for hands-free mode\n")
+        else:
+            # Windows: Use existing HotkeyListener with Ctrl+Space
+            self.hotkey = HotkeyListener(
+                combination=self.config.hotkey,
+                on_press=self.on_hotkey_press,
+                on_release=self.on_hotkey_release
+            )
+            print(f"\n✅ Ready! Press and hold {self.config.hotkey} to record.\n")
         
         # Start listening
         self.hotkey.start()

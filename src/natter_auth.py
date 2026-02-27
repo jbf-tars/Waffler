@@ -177,12 +177,15 @@ def get_oauth_url(provider: str) -> dict:
     IMPORTANT: Add http://localhost:17834/callback to your Supabase project's
     Redirect URLs (Authentication > URL Configuration) for this to work.
     """
+    print(f"OAuth: get_oauth_url() called for provider={provider}")
     try:
         # Start local server to capture the OAuth callback with tokens
         _start_oauth_server()
         redirect_url = f"http://localhost:{OAUTH_CALLBACK_PORT}/callback"
+        print(f"OAuth: Redirect URL set to {redirect_url}")
 
         client = _get_client()
+        print(f"OAuth: Calling Supabase sign_in_with_oauth...")
         res = client.auth.sign_in_with_oauth({
             "provider": provider,
             "options": {
@@ -190,10 +193,13 @@ def get_oauth_url(provider: str) -> dict:
             }
         })
         if hasattr(res, 'url') and res.url:
+            print(f"OAuth: ✓ Got OAuth URL from Supabase: {res.url[:80]}...")
             return {"ok": True, "url": res.url}
+        print(f"OAuth: ✗ No URL returned from Supabase")
         _stop_oauth_server()
         return {"ok": False, "error": f"{provider.title()} sign-in is not configured yet"}
     except Exception as e:
+        print(f"OAuth: ✗ Exception in get_oauth_url: {e}")
         _stop_oauth_server()
         return {"ok": False, "error": str(e)}
 
@@ -223,119 +229,152 @@ class _OAuthCallbackHandler(BaseHTTPRequestHandler):
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;
+            background: #FFFDF5;
             min-height: 100vh;
             display: flex;
             align-items: center;
             justify-content: center;
-            color: #e0e0e0;
+            color: #1A1A1A;
+            -webkit-font-smoothing: antialiased;
         }
         .container {
             text-align: center;
-            padding: 40px;
-            max-width: 500px;
-            background: rgba(255, 255, 255, 0.03);
-            border-radius: 20px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
+            padding: 56px 48px;
+            max-width: 460px;
+            background: #1A1A1A;
+            border-radius: 16px;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(255, 255, 255, 0.05);
         }
         .logo {
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 12px;
-            margin-bottom: 32px;
+            gap: 10px;
+            margin-bottom: 40px;
+            opacity: 0.9;
         }
         .logo-icon {
-            font-size: 42px;
+            font-size: 32px;
         }
         .logo-text {
-            font-size: 32px;
-            font-weight: 700;
-            color: #fff;
+            font-size: 28px;
+            font-weight: 650;
+            letter-spacing: -0.03em;
+            color: #F5F5F0;
         }
         .logo-text span {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
+            color: #6D3BF5;
         }
         .status-icon {
-            font-size: 64px;
-            margin-bottom: 24px;
-            animation: fadeIn 0.5s ease;
+            margin-bottom: 28px;
+            opacity: 0;
+            animation: fadeInScale 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+        }
+        .success-check {
+            filter: drop-shadow(0 4px 16px rgba(109, 59, 245, 0.2));
+        }
+        .check-circle {
+            stroke-dasharray: 240;
+            stroke-dashoffset: 240;
+            animation: drawCircle 0.6s cubic-bezier(0.22, 1, 0.36, 1) 0.2s forwards;
+        }
+        .check-path {
+            stroke-dasharray: 60;
+            stroke-dashoffset: 60;
+            animation: drawCheck 0.4s cubic-bezier(0.22, 1, 0.36, 1) 0.6s forwards;
         }
         .status-title {
-            font-size: 28px;
+            font-size: 24px;
             font-weight: 600;
             margin-bottom: 12px;
-            color: #fff;
+            color: #F5F5F0;
+            letter-spacing: -0.02em;
         }
         .status-message {
-            font-size: 16px;
-            color: #a0a0a0;
+            font-size: 14px;
+            color: #A09890;
             line-height: 1.6;
-            margin-bottom: 24px;
+            margin-bottom: 20px;
+            font-weight: 400;
         }
         .spinner {
-            width: 40px;
-            height: 40px;
+            width: 44px;
+            height: 44px;
             margin: 24px auto;
-            border: 3px solid rgba(102, 126, 234, 0.2);
-            border-top: 3px solid #667eea;
+            border: 3px solid rgba(109, 59, 245, 0.15);
+            border-top: 3px solid #6D3BF5;
             border-radius: 50%;
-            animation: spin 1s linear infinite;
+            animation: spin 1s cubic-bezier(0.68, -0.55, 0.27, 1.55) infinite;
         }
         .btn {
             display: inline-block;
             padding: 12px 28px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: #6D3BF5;
             color: white;
             text-decoration: none;
-            border-radius: 8px;
+            border-radius: 10px;
             font-weight: 600;
-            transition: transform 0.2s, box-shadow 0.2s;
+            font-size: 15px;
+            transition: all 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+            border: none;
+            cursor: pointer;
         }
         .btn:hover {
+            background: #5B2ED4;
             transform: translateY(-2px);
-            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
+            box-shadow: 0 8px 24px rgba(109, 59, 245, 0.35);
         }
         @keyframes spin {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
         @keyframes fadeIn {
-            from { opacity: 0; transform: scale(0.8); }
+            from { opacity: 0; transform: translateY(8px) scale(0.96); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        @keyframes fadeInScale {
+            from { opacity: 0; transform: scale(0.9); }
             to { opacity: 1; transform: scale(1); }
         }
+        @keyframes drawCircle {
+            to { stroke-dashoffset: 0; }
+        }
+        @keyframes drawCheck {
+            to { stroke-dashoffset: 0; }
+        }
         .error-details {
-            margin-top: 20px;
-            padding: 16px;
-            background: rgba(255, 69, 58, 0.1);
-            border-radius: 8px;
-            border: 1px solid rgba(255, 69, 58, 0.3);
+            margin-top: 24px;
+            padding: 18px;
+            background: rgba(240, 192, 80, 0.08);
+            border-radius: 12px;
+            border: 1px solid rgba(240, 192, 80, 0.25);
             font-size: 14px;
             text-align: left;
+            color: #F0EDE6;
         }
         .error-details strong {
-            color: #ff453a;
+            color: #F0C050;
             display: block;
-            margin-bottom: 8px;
+            margin-bottom: 10px;
+            font-weight: 600;
         }
         .error-details ul {
             list-style: none;
             padding-left: 0;
         }
         .error-details li {
-            padding: 4px 0;
+            padding: 5px 0;
             padding-left: 20px;
             position: relative;
+            color: #A09890;
+            line-height: 1.5;
         }
         .error-details li:before {
             content: "•";
             position: absolute;
             left: 4px;
+            color: #F0C050;
         }
     </style>
 </head>
@@ -354,10 +393,41 @@ class _OAuthCallbackHandler(BaseHTTPRequestHandler):
 
     <script>
         const hash = window.location.hash.substring(1);
+        const search = window.location.search.substring(1);
         const content = document.getElementById('content');
 
-        if (hash) {
-            // Has tokens - process them
+        // Check for query parameters first (authorization code flow)
+        const queryParams = new URLSearchParams(search);
+        const authCode = queryParams.get('code');
+        const error = queryParams.get('error');
+        const errorDesc = queryParams.get('error_description');
+
+        if (error) {
+            // OAuth error in query params
+            showError(
+                '⚠️',
+                'Authorization Error',
+                errorDesc || error,
+                'The sign-in was cancelled or an error occurred.'
+            );
+        } else if (authCode) {
+            // Authorization code flow - send code to backend to exchange for tokens
+            fetch('/token', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ code: authCode })
+            }).then(() => {
+                showSuccess();
+            }).catch(err => {
+                showError(
+                    '❌',
+                    'Connection Error',
+                    'Could not connect to Natter',
+                    'Make sure Natter is running and try again.'
+                );
+            });
+        } else if (hash) {
+            // Implicit flow - has tokens in hash - process them
             const params = new URLSearchParams(hash);
             const data = {};
             for (const [k, v] of params) data[k] = v;
@@ -388,7 +458,7 @@ class _OAuthCallbackHandler(BaseHTTPRequestHandler):
                 });
             }
         } else {
-            // No hash parameters = OAuth flow failed before redirect
+            // No parameters at all = OAuth flow failed before redirect
             showError(
                 '❌',
                 'Sign-in Failed',
@@ -406,10 +476,13 @@ class _OAuthCallbackHandler(BaseHTTPRequestHandler):
 
         function showSuccess() {
             content.innerHTML = `
-                <div class="status-icon">✅</div>
-                <div class="status-title">Signed in successfully!</div>
+                <svg class="status-icon success-check" width="80" height="80" viewBox="0 0 80 80">
+                    <circle class="check-circle" cx="40" cy="40" r="38" fill="none" stroke="#6D3BF5" stroke-width="3"/>
+                    <path class="check-path" d="M 25 40 L 35 50 L 55 30" fill="none" stroke="#6D3BF5" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <div class="status-title">Authentication complete</div>
                 <div class="status-message">
-                    You can close this tab and return to Natter.
+                    You're all set. Return to Natter to continue.
                 </div>
             `;
         }
@@ -445,17 +518,58 @@ class _OAuthCallbackHandler(BaseHTTPRequestHandler):
         if self.path == '/token':
             length = int(self.headers.get('Content-Length', 0))
             body = self.rfile.read(length)
+            print(f"OAuth: /token POST received, body length={length}")
             try:
-                _oauth_tokens = json.loads(body)
-            except Exception:
-                pass
+                data = json.loads(body)
+                print(f"OAuth: Data received: {list(data.keys())}")
+
+                # Check if this is an authorization code that needs to be exchanged
+                if 'code' in data and 'access_token' not in data:
+                    print(f"OAuth: Got authorization code, exchanging for tokens...")
+                    try:
+                        client = _get_client()
+                        # Exchange the code for a session with proper params
+                        auth_code = data['code']
+                        res = client.auth.exchange_code_for_session({"auth_code": auth_code})
+                        print(f"OAuth: Exchange response type: {type(res)}")
+                        if hasattr(res, 'session') and res.session:
+                            print(f"OAuth: ✓ Code exchange successful!")
+                            _oauth_tokens = {
+                                'access_token': res.session.access_token,
+                                'refresh_token': res.session.refresh_token,
+                            }
+                        elif hasattr(res, 'user') and res.user:
+                            # Some Supabase versions return differently
+                            print(f"OAuth: ✓ Got user, checking for session...")
+                            session = client.auth.get_session()
+                            if session:
+                                _oauth_tokens = {
+                                    'access_token': session.access_token,
+                                    'refresh_token': session.refresh_token,
+                                }
+                        else:
+                            print(f"OAuth: ✗ Code exchange failed - unexpected response: {res}")
+                    except Exception as e:
+                        print(f"OAuth: ✗ Code exchange error: {type(e).__name__}: {e}")
+                        import traceback
+                        traceback.print_exc()
+                else:
+                    # Direct tokens from implicit flow
+                    _oauth_tokens = data
+                    print(f"OAuth: Tokens received directly (implicit flow)")
+
+                print(f"OAuth: Final token keys: {list(_oauth_tokens.keys()) if _oauth_tokens else 'None'}")
+            except Exception as e:
+                print(f"OAuth: Failed to process: {e}")
             self.send_response(200)
             self.send_header('Content-Type', 'text/plain')
             self.end_headers()
             self.wfile.write(b'ok')
 
     def log_message(self, format, *args):
-        pass  # Suppress HTTP log noise
+        # Log all HTTP requests to help with debugging
+        msg = format % args
+        print(f"OAuth: HTTP Request: {msg}")
 
 
 def _start_oauth_server():
@@ -463,13 +577,16 @@ def _start_oauth_server():
     global _oauth_server, _oauth_tokens
     _oauth_tokens = None
     _stop_oauth_server()
+    print(f"OAuth: Starting callback server on port {OAUTH_CALLBACK_PORT}...")
     try:
         server = HTTPServer(('127.0.0.1', OAUTH_CALLBACK_PORT), _OAuthCallbackHandler)
         _oauth_server = server
         t = threading.Thread(target=server.serve_forever, daemon=True, name="OAuthServer")
         t.start()
-    except Exception:
-        pass
+        print(f"OAuth: ✓ Server started successfully and listening on port {OAUTH_CALLBACK_PORT}")
+    except Exception as e:
+        print(f"OAuth: ✗ FAILED to start server on port {OAUTH_CALLBACK_PORT}: {e}")
+        raise
 
 
 def _stop_oauth_server():
@@ -492,21 +609,28 @@ def poll_oauth_result() -> dict:
     """
     global _oauth_tokens, _user, _session
 
+    print("OAuth: poll_oauth_result() called")
+
     if not _oauth_tokens:
+        print("OAuth: No tokens yet, still pending")
         return {"ok": False, "pending": True}
 
+    print(f"OAuth: Tokens found! Processing...")
     access_token = _oauth_tokens.get('access_token', '')
     refresh_token = _oauth_tokens.get('refresh_token', '')
     _oauth_tokens = None
 
     if not access_token:
+        print("OAuth: Error - No access token in received data")
         _stop_oauth_server()
         return {"ok": False, "error": "No access token received"}
 
     try:
+        print("OAuth: Setting Supabase session with tokens...")
         client = _get_client()
         res = client.auth.set_session(access_token, refresh_token)
         if res.user:
+            print(f"OAuth: Success! User {res.user.email} authenticated")
             _user = {"id": str(res.user.id), "email": res.user.email}
             _session = {
                 "access_token": res.session.access_token if res.session else access_token,
@@ -516,9 +640,11 @@ def poll_oauth_result() -> dict:
             _stop_oauth_server()
             return {"ok": True, "user": _user}
     except Exception as e:
+        print(f"OAuth: Session error: {e}")
         _stop_oauth_server()
         return {"ok": False, "error": f"Session error: {e}"}
 
+    print("OAuth: Failed - no user returned from set_session")
     _stop_oauth_server()
     return {"ok": False, "error": "Failed to complete sign-in"}
 

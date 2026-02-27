@@ -1,13 +1,14 @@
 """
-Natter Smart Hotkey
+Waffler Smart Hotkey
 
-Right Option (⌥) alone  → Push-to-talk: hold to record, release to stop
-Right Option + Space     → Sticky mode: recording locks on (can release Option)
-Right Option (again)     → Stop sticky recording
+Fn alone                 → Push-to-talk: hold to record, release to stop
+Fn + Space               → Sticky mode: recording locks on (can release Fn)
+Fn (again)               → Stop sticky recording
 """
 
 import threading
 from pynput import keyboard
+from src.fn_key_monitor import FnKeyMonitor
 
 
 class SmartHotkeyListener:
@@ -16,45 +17,49 @@ class SmartHotkeyListener:
         self._on_press = on_press
         self._on_release = on_release
 
-        self._option_held = False   # Right Option currently down
+        self._fn_held = False       # Fn currently down
         self._sticky = False        # Locked-on (toggle) mode active
         self._recording = False     # Are we recording right now?
-        self._listener = None
+
+        # NEW: Add Fn key monitor
+        self._fn_monitor = FnKeyMonitor(
+            on_fn_press=self._on_fn_press,
+            on_fn_release=self._on_fn_release
+        )
+        self._listener = None       # Still need pynput for Space key
 
     # ── Key events ────────────────────────────────────────────────────
 
     def _on_key_press(self, key):
-        is_right_option = (key == keyboard.Key.alt_r)
         is_space = (key == keyboard.Key.space)
 
-        if is_right_option:
-            if self._sticky and self._recording:
-                # Already in sticky mode → Right Option stops it
-                self._sticky = False
-                self._recording = False
-                self._option_held = False
-                self._fire_release()
-
-            elif not self._recording:
-                # Start push-to-talk
-                self._option_held = True
-                self._recording = True
-                self._fire_press()
-
-        elif is_space and self._option_held and self._recording:
-            # Space pressed while holding Option → switch to sticky
+        # Space pressed while holding Fn → switch to sticky mode
+        if is_space and self._fn_held and self._recording:
             self._sticky = True
-            print("📌 Sticky mode — release Option and keep talking; press Option again to stop")
+            print("📌 Sticky mode — release Fn and keep talking; press Fn again to stop")
 
-    def _on_key_release(self, key):
-        is_right_option = (key == keyboard.Key.alt_r)
+    def _on_fn_press(self):
+        """Called when Fn key is pressed"""
+        if self._sticky and self._recording:
+            # Already in sticky mode → Fn stops it
+            self._sticky = False
+            self._recording = False
+            self._fn_held = False
+            self._fire_release()
 
-        if is_right_option:
-            self._option_held = False
-            if self._recording and not self._sticky:
-                # Push-to-talk: release Option → stop
-                self._recording = False
-                self._fire_release()
+        elif not self._recording:
+            # Start push-to-talk
+            self._fn_held = True
+            self._recording = True
+            self._fire_press()
+
+    def _on_fn_release(self):
+        """Called when Fn key is released"""
+        self._fn_held = False
+        if self._recording and not self._sticky:
+            # Push-to-talk: release Fn → stop
+            self._recording = False
+            self._fire_release()
 
     # ── Callbacks (run in a thread to avoid blocking pynput) ─────────
 
@@ -67,14 +72,21 @@ class SmartHotkeyListener:
     # ── Lifecycle ─────────────────────────────────────────────────────
 
     def start(self):
-        print("⌨️  Hotkey: Hold Right ⌥ to record | Right ⌥ + Space = sticky | Right ⌥ again = stop")
+        print("⌨️  Hotkey: Hold Fn to record | Fn + Space = sticky | Fn again = stop")
+
+        # Start Fn key monitoring (via NSEvent)
+        self._fn_monitor.start()
+
+        # Start pynput listener (only for Space key now)
         self._listener = keyboard.Listener(
             on_press=self._on_key_press,
-            on_release=self._on_key_release,
+            # No on_release needed
         )
         self._listener.start()
 
     def stop(self):
+        if self._fn_monitor:
+            self._fn_monitor.stop()
         if self._listener:
             self._listener.stop()
 
