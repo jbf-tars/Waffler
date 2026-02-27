@@ -1,10 +1,10 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-Natter — macOS PyInstaller spec
+Waffler — macOS PyInstaller spec
 Bundles all hidden imports, data files (ui/, prompts/, config.yaml, .env, src/)
-Produces: dist/Natter.app  (macOS .app bundle)
+Produces: dist/Waffler.app  (macOS .app bundle)
 
-Run on a Mac with: pyinstaller Natter_mac.spec
+Run on a Mac with: pyinstaller Waffler_mac.spec
 """
 
 import sys
@@ -92,7 +92,7 @@ a = Analysis(
         # ── Supabase Auth ──
         'supabase',
         'supabase._sync.client',
-        'natter_auth',
+        'waffler_auth',
         'postgrest',
         'storage3',
         'realtime',
@@ -128,7 +128,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='Natter',
+    name='Waffler',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -144,17 +144,17 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='Natter',
+    name='Waffler',
 )
 
 app = BUNDLE(
     coll,
-    name='Natter.app',
+    name='Waffler.app',
     icon='icon.icns',
-    bundle_identifier='com.natter.app',
+    bundle_identifier='com.waffler.app',
     info_plist={
-        'NSMicrophoneUsageDescription': 'Natter needs microphone access for voice transcription.',
-        'NSAppleEventsUsageDescription': 'Natter needs accessibility access for hotkey detection and auto-paste.',
+        'NSMicrophoneUsageDescription': 'Waffler needs microphone access for voice transcription.',
+        'NSAppleEventsUsageDescription': 'Waffler needs accessibility access for hotkey detection and auto-paste.',
         'CFBundleShortVersionString': '1.0.0',
     },
 )

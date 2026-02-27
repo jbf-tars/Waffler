@@ -1,5 +1,5 @@
 """
-Natter System Tray for Windows
+Waffler System Tray for Windows
 Hides terminal window and shows tray icon with menu.
 """
 import sys
@@ -44,7 +44,7 @@ class SystemTrayManager:
     def create_menu(self):
         """Create the tray menu."""
         menu = pystray.Menu(
-            pystray.MenuItem("Open Natter", self._on_open_ui),
+            pystray.MenuItem("Open Waffler", self._on_open_ui),
             pystray.MenuItem("Quit", self._on_quit),
         )
         return menu
@@ -72,9 +72,9 @@ class SystemTrayManager:
         
         # Create and run the icon
         self.icon = pystray.Icon(
-            "Natter",
+            "Waffler",
             image,
-            "Natter - Running",
+            "Waffler - Running",
             self.create_menu()
         )
         

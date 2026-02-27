@@ -1,6 +1,6 @@
 #!/opt/homebrew/bin/python3.12
 """
-Natter — macOS Desktop UI
+Waffler — macOS Desktop UI
 Entry point: pywebview window + background hotkey/pipeline thread
 """
 
@@ -11,6 +11,7 @@ import json
 import time
 import threading
 import pyperclip
+import shutil
 from pathlib import Path
 from datetime import datetime, date
 
@@ -44,9 +45,9 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 # Force Python to prefer source files over compiled bytecode
 import importlib
 import sys as _sys
-# Remove any cached bytecode for natter_auth to force fresh import
-if 'natter_auth' in _sys.modules:
-    del _sys.modules['natter_auth']
+# Remove any cached bytecode for waffler_auth to force fresh import
+if 'waffler_auth' in _sys.modules:
+    del _sys.modules['waffler_auth']
 
 import webview
 
@@ -62,7 +63,7 @@ from style_openai import OpenAIStyler
 from license import validate_license, is_validated, get_license_key, LICENSE_FILE
 from clipboard import ClipboardManager
 from overlay import RecordingOverlay
-from natter_auth import (
+from waffler_auth import (
     sign_up as sb_sign_up,
     sign_in as sb_sign_in,
     sign_out as sb_sign_out,
@@ -84,9 +85,40 @@ from audio_devices import (
 from app_detection import get_active_app
 
 
+# ── Data Directory Migration ──────────────────────────────────────────
+def get_data_directory():
+    """
+    Get the data directory for Waffler, with backwards compatibility for Natter.
+    Migrates from .natter to .waffler on first run.
+    """
+    home = Path.home()
+    new_dir = home / ".waffler"
+    old_dir = home / ".natter"
+
+    # If new directory exists, use it
+    if new_dir.exists():
+        return new_dir
+
+    # If old directory exists, offer migration
+    if old_dir.exists():
+        print("Found existing .natter directory. Migrating to .waffler...")
+        try:
+            shutil.copytree(old_dir, new_dir)
+            print("Migration successful! Old .natter directory preserved as backup.")
+            return new_dir
+        except Exception as e:
+            print(f"Migration failed: {e}. Using old .natter directory for now.")
+            return old_dir
+
+    # Neither exists, create new
+    new_dir.mkdir(parents=True, exist_ok=True)
+    return new_dir
+
+
 # ── History File ──────────────────────────────────────────────────────
-HISTORY_FILE = Path.home() / ".natter" / "history.json"
-USAGE_FILE = Path.home() / ".natter" / "usage.json"
+DATA_DIR = get_data_directory()
+HISTORY_FILE = DATA_DIR / "history.json"
+USAGE_FILE = DATA_DIR / "usage.json"
 
 # Pricing constants
 WHISPER_COST_PER_SECOND = 0.0001       # OpenAI: $0.006/minute
@@ -362,7 +394,7 @@ class Api:
     # ── Settings API ──────────────────────────────────────────────────────────
 
     def _settings_file(self):
-        return Path.home() / ".natter" / "settings.json"
+        return DATA_DIR / "settings.json"
 
     def _load_settings_file(self) -> dict:
         try:
@@ -380,7 +412,7 @@ class Api:
 
     def _update_env_var(self, key: str, value: str):
         """Update or add a variable in the user's .env file."""
-        env_path = Path.home() / ".natter" / ".env"
+        env_path = DATA_DIR / ".env"
         env_path.parent.mkdir(parents=True, exist_ok=True)
         lines = []
         if env_path.exists():
@@ -486,7 +518,7 @@ class Api:
         if not history:
             return {"ok": False, "error": "No history to export"}
         lines = [
-            "# Natter — Transcript History",
+            "# Waffler — Transcript History",
             f"Exported: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
             f"Total entries: {len(history)}",
             "",
@@ -600,10 +632,10 @@ class Api:
         return {
             "ok": True,
             "platform": plat.system(),
-            "hotkey": "Ctrl + Space" if is_win else "Fn (hold)",
+            "hotkey": "Ctrl + Windows + Space" if is_win else "Fn (hold)",
             "mode": "toggle" if is_win else "hold",
             "description": (
-                "Press Ctrl + Space to start recording. Press again to stop."
+                "Press Ctrl + Windows Key to start recording. Press Space while holding to lock on."
             ) if is_win else (
                 "Hold the Fn key to record. Release to stop. "
                 "Fn + Space locks recording on — press Fn again to stop."
@@ -613,7 +645,7 @@ class Api:
     # ── Permission APIs ─────────────────────────────────────────────────
 
     def check_permissions(self) -> dict:
-        """Check system permissions needed by Natter."""
+        """Check system permissions needed by Waffler."""
         import platform as plat
         result = {
             "platform": plat.system(),
@@ -809,14 +841,14 @@ class Api:
                 daemon=True,
                 name="PipelineInit"
             ).start()
-            return {"ok": True, "message": "Setup complete! Natter is ready."}
+            return {"ok": True, "message": "Setup complete! Waffler is ready."}
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
     # ── Snippets API ──────────────────────────────────────────────────────────
 
     def _snippets_file(self):
-        return Path.home() / ".natter" / "snippets.json"
+        return DATA_DIR / "snippets.json"
 
     def get_snippets(self) -> list:
         """Return list of {trigger, expansion} snippet dicts."""
@@ -897,7 +929,7 @@ class Api:
 # ── Global refs ───────────────────────────────────────────────────────
 _window   = None
 _api      = None
-_pipeline = None   # set after NatterPipeline is created
+_pipeline = None   # set after WafflerPipeline is created
 _config   = None   # set in main()
 
 # ── Wizard temporary state ────────────────────────────────────────────
@@ -908,7 +940,7 @@ _wizard_overlay     = None   # temporary overlay for wizard
 _wizard_recording   = False  # is wizard currently recording?
 _wizard_result      = None   # transcription result
 
-SETUP_FILE = Path.home() / ".natter" / "setup_complete.json"
+SETUP_FILE = DATA_DIR / "setup_complete.json"
 
 
 def _is_setup_complete() -> bool:
@@ -932,9 +964,9 @@ def _mark_setup_complete():
 
 
 def _log_to_file(msg: str):
-    """Write a debug line to ~/.natter/app.log (visible even with console=False)."""
+    """Write a debug line to ~/.waffler/app.log (visible even with console=False)."""
     try:
-        log_path = Path.home() / ".natter" / "app.log"
+        log_path = DATA_DIR / "app.log"
         log_path.parent.mkdir(parents=True, exist_ok=True)
         ts = datetime.now().strftime('%H:%M:%S')
         with open(log_path, "a", encoding="utf-8") as f:
@@ -1072,8 +1104,8 @@ def _initialize_pipeline():
         return
 
     try:
-        _log_to_file("Creating NatterPipeline...")
-        pipeline = NatterPipeline(_config)
+        _log_to_file("Creating WafflerPipeline...")
+        pipeline = WafflerPipeline(_config)
         _pipeline = pipeline
         _log_to_file("Pipeline created, starting hotkey thread...")
 
@@ -1099,7 +1131,7 @@ def notify_js_status(status: str):
     """Tell the JS frontend about recording status."""
     if _window:
         try:
-            _window.evaluate_js(f"window.natter_status && window.natter_status('{status}')")
+            _window.evaluate_js(f"window.waffler_status && window.waffler_status('{status}')")
         except Exception:
             pass
 
@@ -1110,14 +1142,14 @@ def notify_js_new_item(item: dict):
         try:
             item_json = json.dumps(item)
             _window.evaluate_js(
-                f"window.natter_refresh && window.natter_refresh({item_json})"
+                f"window.waffler_refresh && window.waffler_refresh({item_json})"
             )
         except Exception as e:
             print(f"[js] notify error: {e}")
 
 
 # ── Pipeline ──────────────────────────────────────────────────────────
-class NatterPipeline:
+class WafflerPipeline:
     def __init__(self, config: Config):
         self.config = config
         self.audio = AudioRecorder(
@@ -1378,7 +1410,7 @@ class NatterPipeline:
 
             # Auto-paste (respects settings)
             stored = {}
-            _sf = Path.home() / ".natter" / "settings.json"
+            _sf = DATA_DIR / "settings.json"
             try:
                 if _sf.exists():
                     stored = json.loads(_sf.read_text())
@@ -1413,7 +1445,7 @@ class NatterPipeline:
     def _apply_snippets(self, text: str) -> str:
         """Replace snippet trigger phrases with their expansions."""
         import re
-        snip_file = Path.home() / ".natter" / "snippets.json"
+        snip_file = DATA_DIR / "snippets.json"
         try:
             if snip_file.exists():
                 snippets = json.loads(snip_file.read_text())
@@ -1474,11 +1506,11 @@ def _create_mac_menubar_icon():
     try:
         import rumps
 
-        class NatterMenuBar(rumps.App):
+        class WafflerMenuBar(rumps.App):
             def __init__(self):
-                super().__init__("Natter", title="🎙️")
+                super().__init__("Waffler", title="🎙️")
 
-            @rumps.clicked("Show Natter")
+            @rumps.clicked("Show Waffler")
             def show_window(self, _):
                 _tray_show_window()
 
@@ -1487,7 +1519,7 @@ def _create_mac_menubar_icon():
                 _tray_quit()
                 rumps.quit_application()
 
-        app = NatterMenuBar()
+        app = WafflerMenuBar()
         _tray_icon = app
         app.run()
     except Exception as e:
@@ -1514,11 +1546,11 @@ def _create_windows_tray_icon():
                  fill=(255, 255, 255, 255), width=2)
 
         menu = pystray.Menu(
-            pystray.MenuItem("Show Natter", _tray_show_window, default=True),
+            pystray.MenuItem("Show Waffler", _tray_show_window, default=True),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Quit", _tray_quit),
         )
-        _tray_icon = pystray.Icon("Natter", img, "Natter", menu)
+        _tray_icon = pystray.Icon("Waffler", img, "Waffler", menu)
         _tray_icon.run_detached()
         _log_to_file("System tray icon created")
     except Exception as e:
@@ -1592,7 +1624,7 @@ def main():
 
     # Load config (reads .env from project root via dotenv)
     os.chdir(PROJECT_ROOT)  # so config.yaml and .env are found
-    _log_to_file(f"=== Natter starting === (PROJECT_ROOT={PROJECT_ROOT})")
+    _log_to_file(f"=== Waffler starting === (PROJECT_ROOT={PROJECT_ROOT})")
 
     try:
         config = Config()
@@ -1621,7 +1653,7 @@ def main():
     html_path = ui_dir / "index.html"
 
     window = webview.create_window(
-        title="Natter",
+        title="Waffler",
         url=str(html_path),
         width=1100,
         height=780,
@@ -1643,7 +1675,7 @@ def main():
         window.events.closing += _on_window_closing
         threading.Thread(target=_create_tray_icon, daemon=True).start()
 
-    print("Natter window launching...")
+    print("Waffler window launching...")
     # Start webview — this blocks until window is closed
     # debug=True enables right-click Inspect Element and JS console
     webview.start(debug=False)

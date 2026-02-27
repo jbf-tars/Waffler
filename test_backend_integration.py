@@ -16,7 +16,7 @@ os.environ['BACKEND_URL'] = 'http://localhost:8000'
 def test_backend_auth():
     """Test backend authentication"""
     print("\n=== Testing Backend Authentication ===")
-    import natter_auth_backend as auth
+    import waffler_auth_backend as auth
 
     # Check backend health
     print("Checking backend health...")
@@ -97,7 +97,7 @@ def test_backend_styling():
 def test_quota_enforcement():
     """Test that quota limits are enforced"""
     print("\n=== Testing Quota Enforcement ===")
-    import natter_auth_backend as auth
+    import waffler_auth_backend as auth
 
     quota = auth.get_quota_status()
     if "error" in quota:
@@ -155,7 +155,7 @@ def main():
     print("1. Get a Replicate API token from https://replicate.com")
     print("2. Add to backend/.env: REPLICATE_API_TOKEN=r8_your_token")
     print("3. Backend will auto-reload and LLM styling will work")
-    print("4. Test in the actual Natter app!")
+    print("4. Test in the actual Waffler app!")
     return 0
 
 

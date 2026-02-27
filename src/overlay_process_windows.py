@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Natter Overlay Process — Windows (tkinter)
+Waffler Overlay Process — Windows (tkinter)
 
 Runs as a subprocess — owns its own tkinter mainloop.
 Receives JSON commands from stdin; emits JSON events on stdout.

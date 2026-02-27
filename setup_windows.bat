@@ -1,6 +1,6 @@
 @echo off
 REM ====================================================================
-REM  Natter — Windows Setup Script
+REM  Waffler — Windows Setup Script
 REM  Run this ONCE to install all Python dependencies.
 REM
 REM  Prerequisites:
@@ -10,7 +10,7 @@ REM    • Internet connection
 REM ====================================================================
 
 echo ============================================================
-echo  Natter Windows Setup
+echo  Waffler Windows Setup
 echo ============================================================
 echo.
 
@@ -34,7 +34,7 @@ python -m pip install --upgrade pip
 echo.
 
 REM Install dependencies
-echo Installing Natter dependencies...
+echo Installing Waffler dependencies...
 python -m pip install -r requirements_windows.txt
 echo.
 
@@ -56,6 +56,6 @@ echo.
 
 echo ============================================================
 echo  Setup complete!
-echo  Next: double-click run_windows.bat to launch Natter.
+echo  Next: double-click run_windows.bat to launch Waffler.
 echo ============================================================
 pause

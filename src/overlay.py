@@ -1,5 +1,5 @@
 """
-Natter - Floating Recording Overlay
+Waffler - Floating Recording Overlay
 Spawns a platform-appropriate overlay subprocess:
   • macOS   → overlay_process.py    (PyObjC NSPanel)
   • Windows → overlay_process_windows.py (tkinter)

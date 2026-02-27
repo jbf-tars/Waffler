@@ -1,15 +1,15 @@
-# Wispr Flow-Inspired Improvements to Natter
+# Wispr Flow-Inspired Improvements to Waffler
 
 ## Overview
 
-This document explains the research and improvements made to Natter's speech-to-text processing based on Wispr Flow's architecture and techniques.
+This document explains the research and improvements made to Waffler's speech-to-text processing based on Wispr Flow's architecture and techniques.
 
 ## Wispr Flow Research Summary
 
 ### What Makes Wispr Flow Superior
 
 **Two-Stage AI Architecture:**
-1. **Transcription Layer**: Whisper-based speech recognition (similar to Natter)
+1. **Transcription Layer**: Whisper-based speech recognition (similar to Waffler)
 2. **Post-Processing Layer**: Fine-tuned Llama 3.3 70B for intelligent cleanup
    - Processes 500+ language patterns per second
    - <250ms latency for LLM processing
@@ -35,7 +35,7 @@ This document explains the research and improvements made to Natter's speech-to-
 - Sub-700ms latency
 - 99.99% uptime
 
-## Improvements Implemented in Natter
+## Improvements Implemented in Waffler
 
 ### New "Normal (Wispr)" Mode
 
@@ -77,7 +77,7 @@ Explicitly preserves:
 
 ## Architecture Comparison
 
-| Feature | Wispr Flow | Natter (Original) | Natter (Wispr Mode) |
+| Feature | Wispr Flow | Waffler (Original) | Waffler (Wispr Mode) |
 |---------|-----------|-------------------|---------------------|
 | **Transcription** | Whisper (Groq/OpenAI) | Whisper (OpenAI/Groq/Local) | ✅ Same |
 | **Post-Processing** | Fine-tuned Llama 3.3 70B | GPT-4o-mini / Llama 3.3 | ✅ Enhanced prompts |
@@ -91,14 +91,14 @@ Explicitly preserves:
 ## How to Use
 
 ### Via Web UI:
-1. Open Natter
+1. Open Waffler
 2. Go to Settings
 3. Under "Mode", select **"Normal (Wispr)"**
 4. The new prompt will be used for all future transcriptions
 
 ### Via Environment Variable:
 ```bash
-# In ~/.natter/.env
+# In ~/.waffler/.env
 PROMPT_STYLE=normal_wispr
 ```
 
@@ -207,7 +207,7 @@ The improvement is integrated through:
 
 ## Conclusion
 
-The new "Normal (Wispr)" mode brings Wispr Flow's intelligent processing techniques to Natter through enhanced prompt engineering. While we can't replicate their fine-tuned models without significant ML work, the improved prompts provide:
+The new "Normal (Wispr)" mode brings Wispr Flow's intelligent processing techniques to Waffler through enhanced prompt engineering. While we can't replicate their fine-tuned models without significant ML work, the improved prompts provide:
 
 ✅ Better course correction handling
 ✅ More intelligent filler removal
