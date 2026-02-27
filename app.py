@@ -92,7 +92,7 @@ def get_data_directory():
     Migrates from .natter to .waffler on first run.
     """
     home = Path.home()
-    new_dir = home / ".waffler"
+    new_dir = home / ".waffler-hosted"
     old_dir = home / ".natter"
 
     # If new directory exists, use it

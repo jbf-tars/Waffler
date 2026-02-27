@@ -1,4 +1,4 @@
-# VoiceFlow Backend Dependencies
+# Waffler Backend Dependencies
 
 # Web framework
 fastapi==0.115.0
