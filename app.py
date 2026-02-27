@@ -728,8 +728,9 @@ class Api:
             # Create temporary audio recorder
             _wizard_recorder = AudioRecorder(sample_rate=16000, channels=1)
 
-            # Create temporary overlay so the pill shows during wizard
-            _wizard_overlay = RecordingOverlay()
+            # Don't create overlay during wizard - causes Mac subprocess threading crash
+            # Overlay will work normally after setup completes
+            _wizard_overlay = None
 
             # Create temporary transcriber using already-validated keys
             openai_key = os.getenv("OPENAI_API_KEY", "")
@@ -1566,6 +1567,26 @@ def _on_window_closing():
 
 
 # ── Main ──────────────────────────────────────────────────────────────
+def _request_input_monitoring_permission():
+    """Request Input Monitoring permission on macOS (required for Fn key detection)"""
+    try:
+        from AppKit import NSEvent
+        # Attempt to create a global monitor - this triggers permission prompt
+        mask = 4096  # NSEventMaskFlagsChanged
+        test_monitor = NSEvent.addGlobalMonitorForEventsMatchingMask_handler_(
+            mask,
+            lambda event: None
+        )
+        if test_monitor:
+            NSEvent.removeMonitor_(test_monitor)
+            _log_to_file("✅ Input Monitoring permission granted")
+        else:
+            _log_to_file("⚠️  Input Monitoring permission required")
+            _log_to_file("   Enable in: System Preferences > Security & Privacy > Input Monitoring")
+    except Exception as e:
+        _log_to_file(f"⚠️  Could not request Input Monitoring permission: {e}")
+
+
 def main():
     global _config, _window_ref
 
@@ -1581,6 +1602,10 @@ def main():
 
     _config = config
     _log_to_file(f"Config loaded: has_api_key={config.has_api_key}, setup_complete={_is_setup_complete()}")
+
+    # Request Input Monitoring permission for Fn key on Mac
+    if _platform.system() == "Darwin":
+        _request_input_monitoring_permission()
 
     # Only auto-initialize pipeline if setup was already completed
     if config.has_api_key and _is_setup_complete():
