@@ -1,9 +1,11 @@
-"""LLM styling module — Groq LLaMA (fast) or OpenAI GPT-4o-mini (fallback)"""
+"""LLM styling module — Self-hosted backend (priority) or Groq LLaMA (fast) or OpenAI GPT-4o-mini (fallback)"""
 
 from openai import OpenAI
 from pathlib import Path
 import time
 import re
+import os
+import requests
 
 # ── Try to load Groq SDK ────────────────────────────────────────────────────
 _groq_mod = None
@@ -12,9 +14,16 @@ try:
 except ImportError:
     pass
 
+# ── Try to load backend auth module ─────────────────────────────────────────
+_backend_auth = None
+try:
+    import natter_auth_backend as _backend_auth
+except ImportError:
+    pass
+
 
 class OpenAIStyler:
-    """Styles transcripts — Groq LLaMA 3.3 70B (fast) or GPT-4o-mini (fallback)"""
+    """Styles transcripts — Self-hosted backend (priority) or Groq LLaMA 3.3 70B (fast) or GPT-4o-mini (fallback)"""
 
     def __init__(self, api_key: str = "", model: str = "gpt-4o-mini",
                  max_tokens: int = 1024, prompt_style: str = "adhd_ramble",
@@ -27,14 +36,24 @@ class OpenAIStyler:
         self.client = OpenAI(api_key=api_key) if api_key else None
         self._groq_client = None
         self._use_groq = False
+        self._use_backend = False
+        self._backend_url = os.getenv("BACKEND_URL", "")
 
-        # Prefer Groq for styling if available
-        if groq_api_key and _groq_mod:
+        # Priority 1: Self-hosted backend (no API keys needed!)
+        if self._backend_url and _backend_auth:
+            if _backend_auth.is_logged_in():
+                self._use_backend = True
+                print(f"⚡ Styling: Self-hosted backend ({self._backend_url})")
+            elif _backend_auth.check_backend_health():
+                print(f"⚠️  Backend available but not logged in. Sign in to use self-hosted styling.")
+
+        # Priority 2: Groq for styling if available
+        if not self._use_backend and groq_api_key and _groq_mod:
             self._groq_client = _groq_mod.Groq(api_key=groq_api_key)
             self._use_groq = True
             self._groq_model = "llama-3.3-70b-versatile"
             print(f"⚡ Styling: Groq {self._groq_model}")
-        else:
+        elif not self._use_backend:
             print(f"⚡ Styling: OpenAI {model}")
 
         # Load prompt template
@@ -77,18 +96,24 @@ Transcript: {transcript}"""
 
         start_time = time.time()
 
-        # Inject custom vocabulary hint into prompt
+        # Load custom vocabulary for all providers
         try:
             from transcribe_whisper import load_vocab
             vocab = load_vocab()
-            vocab_hint = (f"\nPreserve these exact spellings: {', '.join(vocab)}." if vocab else "")
         except Exception:
-            vocab_hint = ""
+            vocab = []
 
-        prompt = self.prompt_template.format(transcript=transcript) + vocab_hint
+        # Priority 1: Try self-hosted backend first
+        if self._use_backend:
+            try:
+                return self._style_backend(transcript, vocab, start_time)
+            except Exception as e:
+                print(f"⚠️  Backend styling failed ({e}), falling back to Groq/OpenAI")
 
-        # Try Groq first (much faster), fall back to OpenAI
+        # Priority 2: Try Groq (much faster), fall back to OpenAI
         if self._use_groq:
+            vocab_hint = (f"\nPreserve these exact spellings: {', '.join(vocab)}." if vocab else "")
+            prompt = self.prompt_template.format(transcript=transcript) + vocab_hint
             try:
                 return self._style_groq(prompt, start_time)
             except Exception as e:
@@ -96,7 +121,52 @@ Transcript: {transcript}"""
                 if not self.client:
                     return self._basic_clean(transcript), {"input_tokens": 0, "output_tokens": 0, "api_used": False}
 
+        # Priority 3: OpenAI fallback
+        vocab_hint = (f"\nPreserve these exact spellings: {', '.join(vocab)}." if vocab else "")
+        prompt = self.prompt_template.format(transcript=transcript) + vocab_hint
         return self._style_openai(prompt, transcript, start_time)
+
+    def _style_backend(self, transcript: str, vocab: list, start_time: float):
+        """Style using self-hosted backend with serverless GPU — ~1-3s."""
+        import requests
+
+        api_key = _backend_auth.get_api_key()
+        if not api_key:
+            raise Exception("Not authenticated with backend")
+
+        response = requests.post(
+            f"{self._backend_url}/style/style",
+            json={
+                "transcript": transcript,
+                "api_key": api_key,
+                "prompt_style": self.prompt_style,
+                "vocabulary": vocab
+            },
+            timeout=30
+        )
+
+        if response.status_code == 429:
+            raise Exception("Monthly quota exceeded. Upgrade your plan or wait until next month.")
+        elif response.status_code == 503:
+            raise Exception("Backend LLM service not configured")
+        elif response.status_code != 200:
+            error = response.json().get("detail", f"Backend error: {response.status_code}")
+            raise Exception(error)
+
+        data = response.json()
+        styled = data["styled_text"]
+        latency = (time.time() - start_time) * 1000
+
+        usage_dict = {
+            "input_tokens": data["usage"]["input_tokens"],
+            "output_tokens": data["usage"]["output_tokens"],
+            "api_used": True,
+            "provider": "backend",
+            "quota_used": data["usage"].get("quota_used", 0),
+            "quota_remaining": data["usage"].get("quota_remaining", 0)
+        }
+        print(f"⚡ Backend styling complete ({latency:.0f}ms) — Quota: {usage_dict['quota_remaining']} remaining")
+        return styled, usage_dict
 
     def _style_groq(self, prompt: str, start_time: float):
         """Style using Groq LLaMA — ~200-400ms."""
