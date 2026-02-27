@@ -1,0 +1,35 @@
+# Voice-to-Text Agentic Pipeline Configuration
+
+# Hotkey Configuration
+hotkey:
+  key: "ctrl+win"  # Ctrl + Win — hold to record (push-to-talk), + Space for sticky mode
+  
+# Audio Configuration
+audio:
+  sample_rate: 16000  # Hz (16kHz is optimal for speech)
+  channels: 1  # Mono
+  dtype: "int16"  # 16-bit audio
+  
+# Deepgram Configuration
+deepgram:
+  model: "nova-2"  # Latest, most accurate model
+  language: "en-US"
+  punctuate: true
+  diarize: false
+  
+# MiniMax Configuration  
+minimax:
+  model: "MiniMax-M2.5"  # Fast and accurate
+  max_tokens: 1024
+  temperature: 0.7
+  
+# Notification Configuration
+notifications:
+  enabled: true
+  show_preview: true  # Show command preview in notification
+  
+# Logging Configuration
+logging:
+  enabled: true
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  log_transcripts: false  # Privacy: don't log transcripts by default

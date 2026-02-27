@@ -1,0 +1,14 @@
+dist/
+build/
+dist-installer/
+__pycache__/
+*.pyc
+*.pyo
+*.spec.bak
+*.egg-info/
+.env
+screenshot_check.png
+icon_check_*.png
+icon_old_backup.ico
+icon_new.ico
+icon_256_master.png

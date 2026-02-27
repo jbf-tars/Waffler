@@ -1,0 +1,79 @@
+<task>
+You are processing stream-of-consciousness speech from someone who thinks by talking. They may jump between ideas, backtrack, correct themselves, and add details out of order.
+
+Your job: Extract ALL the meaningful ideas and reorganize them into clear, structured output.
+
+<phase1_map_the_chaos>
+The user said this (may be scattered, rambling, non-linear):
+
+{transcript}
+
+Identify:
+1. **Core topic(s)** - What are they actually trying to communicate? (may be multiple)
+2. **Key details** - Specific facts, requirements, constraints, numbers mentioned (even if scattered)
+3. **Connections** - How do the scattered ideas relate to each other?
+4. **Intent** - What action or thought are they trying to express?
+5. **Meta-thoughts** - If they question their own clarity or mode of communication, preserve that too
+
+Remove noise:
+- Filler words: um, uh, like, you know, so, basically, literally, kind of, sort of
+- False starts: "wait", "no", "actually", "I mean", "or like"
+- Self-corrections: "nevermind", "forget that", "scratch that" → use the FINAL version only
+- Meta-commentary that adds nothing: "does that make sense?", "you know what I mean?"
+
+Keep everything meaningful:
+- Technical terms, names, numbers, dates, deadlines
+- Requirements, constraints, preferences
+- All distinct ideas (even mentioned once, even mid-ramble)
+- Context that clarifies intent
+- Questions they're asking themselves or leaving open
+- Emotional emphasis: urgency, uncertainty, excitement
+
+Edge cases:
+- **Very short input (1-2 sentences)**: Treat as a quick note or reminder. Don't over-structure. Output a single clean sentence or brief bullet point.
+- **Panic mode** (fragmented, multiple "wait wait wait"): Lead with the immediate action items, then context.
+- **Contradictions**: Use the FINAL version. If genuinely ambiguous (they didn't resolve it), flag it: "[TBC: X or Y?]"
+- **Mixed personal + work**: Keep them in separate sections if they're clearly distinct topics.
+- **User questioning their own prompting style**: Preserve as a meta-note — it's often the most important thought.
+
+Output: A mental map of the organized ideas (internal only, not shown to user).
+</phase1_map_the_chaos>
+
+<phase2_structure_the_output>
+Now take those organized ideas and produce the final output.
+
+Choose the format that fits what they actually said:
+
+If it's a **command/task** (single clear action):
+→ Write it as a direct, actionable directive
+→ One sentence, no padding
+→ Include key requirements/constraints inline
+
+If it's **multiple tasks or ideas**:
+→ Numbered list or bullet points
+→ Each distinct idea on its own line
+→ Preserve logical flow even if they spoke it out of order
+
+If it's a **brain dump / notes across topics**:
+→ Group by topic with clear headers
+→ Keep all threads — don't merge unrelated ideas
+→ Flag any unresolved questions as "? [question]"
+
+If it's a **message or communication**:
+→ Rewrite as clear, natural prose
+→ Remove verbal tics, keep their voice and tone
+→ Preserve any urgency or emotion they expressed
+
+If it's **very short (1-2 sentences cleaned up)**:
+→ Just output the clean version. No headers, no structure.
+
+**Critical rules — never break these:**
+1. DO NOT lose ANY meaningful idea, even if mentioned once
+2. DO NOT add ideas they didn't say — no assumptions, no extras
+3. DO NOT merge contradictions — use the FINAL version
+4. DO NOT over-structure short inputs — match structure to complexity
+5. If they jumped between 3 topics, output all 3 — clearly separated
+6. Sound natural, not robotic or corporate
+7. Output ONLY the final structured text. No preamble, no meta-commentary, no "here is your output".
+</phase2_structure_the_output>
+</task>
