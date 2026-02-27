@@ -1,8 +1,8 @@
-# Self-Hosted Natter Setup Guide
+# Self-Hosted Waffler Setup Guide
 
 ## What We Built
 
-A self-hosted backend for Natter that eliminates the need for users to bring their own API keys (BYOK). Instead of users paying for Groq/OpenAI directly, your backend provides the service.
+A self-hosted backend for Waffler that eliminates the need for users to bring their own API keys (BYOK). Instead of users paying for Groq/OpenAI directly, your backend provides the service.
 
 ### Architecture
 
@@ -59,7 +59,7 @@ Return to client → paste to active app
    - Ready endpoints: `/auth/signup`, `/auth/signin`, `/auth/refresh`
 
 3. **Local Development Environment**
-   - SQLite database initialized at `backend/natter_local.db`
+   - SQLite database initialized at `backend/waffler_local.db`
    - Backend running on `localhost:8000`
    - Environment config: `backend/.env` (see `.env.example` for template)
 
@@ -121,10 +121,10 @@ async def style_text(
 
 ### Phase 3: Connect Desktop App to Backend
 
-**Goal:** Update Natter desktop app to use your backend instead of direct API calls
+**Goal:** Update Waffler desktop app to use your backend instead of direct API calls
 
 **Changes needed:**
-1. Create `src/natter_auth_backend.py` (new file - don't modify existing `natter_auth.py`)
+1. Create `src/waffler_auth_backend.py` (new file - don't modify existing `waffler_auth.py`)
 2. Update `src/style_openai.py` to try backend first, fallback to Groq
 3. Add `BACKEND_URL` environment variable support
 
@@ -154,7 +154,7 @@ else:
 2. Install Docker & Docker Compose
 3. Deploy backend + PostgreSQL
 4. Set up SSL with Let's Encrypt
-5. Update desktop app to use `https://api.natter.yourdomain.com`
+5. Update desktop app to use `https://api.waffler.yourdomain.com`
 
 **Docker Compose template:**
 ```yaml
@@ -162,7 +162,7 @@ services:
   postgres:
     image: postgres:15-alpine
     environment:
-      POSTGRES_DB: natter
+      POSTGRES_DB: waffler
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -170,7 +170,7 @@ services:
   backend:
     build: ./backend
     environment:
-      DATABASE_URL: postgresql://natter:${DB_PASSWORD}@postgres:5432/natter
+      DATABASE_URL: postgresql://waffler:${DB_PASSWORD}@postgres:5432/waffler
       JWT_SECRET_KEY: ${JWT_SECRET}
       REPLICATE_API_TOKEN: ${REPLICATE_API_TOKEN}
     ports:
@@ -246,7 +246,7 @@ python app.py
 ### Files to Create (Next Steps)
 - `backend/app/style/router.py` - LLM styling endpoint
 - `backend/modal_functions/style_text.py` - Modal serverless function (if using Modal)
-- `src/natter_auth_backend.py` - Backend auth client
+- `src/waffler_auth_backend.py` - Backend auth client
 - `docker-compose.yml` - VPS deployment config
 
 ---
@@ -266,7 +266,7 @@ curl http://localhost:8000/health
 
 ### View Database
 ```bash
-sqlite3 backend/natter_local.db
+sqlite3 backend/waffler_local.db
 > .tables
 > SELECT * FROM users;
 > .quit
@@ -277,7 +277,7 @@ sqlite3 backend/natter_local.db
 ## Repository Structure
 
 ```
-voiceflow-app/  (or "natter" repo)
+voiceflow-app/  (or "waffler" repo)
 ├── backend/
 │   ├── app/
 │   │   ├── auth/        # ✅ Auth endpoints (signup, signin)
@@ -291,8 +291,8 @@ voiceflow-app/  (or "natter" repo)
 │   ├── init_db.py       # ✅ Database initialization
 │   └── requirements.txt # ✅ Python dependencies
 ├── src/
-│   ├── natter_auth.py   # Current Supabase auth (keep for main branch)
-│   └── natter_auth_backend.py  # ⏳ TODO: Self-hosted auth client
+│   ├── waffler_auth.py   # Current Supabase auth (keep for main branch)
+│   └── waffler_auth_backend.py  # ⏳ TODO: Self-hosted auth client
 └── app.py               # Desktop app entry point
 ```
 
@@ -316,7 +316,7 @@ cat backend/.env | grep DATABASE_URL
 ```bash
 # Reinitialize database
 cd backend
-rm natter_local.db  # Delete old database
+rm waffler_local.db  # Delete old database
 python3 init_db.py  # Create fresh database
 ```
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Test suite for Wispr Flow-inspired improvements to Natter
+Test suite for Wispr Flow-inspired improvements to Waffler
 Compares Normal mode vs Normal (Wispr) mode
 """
 

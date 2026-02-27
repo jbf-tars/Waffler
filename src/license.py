@@ -1,5 +1,5 @@
 """
-Natter License Key Validation
+Waffler License Key Validation
 Validates licence keys on first run via Lemon Squeezy API.
 """
 from __future__ import annotations
@@ -10,7 +10,7 @@ import os
 from pathlib import Path
 import requests
 
-LICENSE_FILE = Path.home() / ".natter" / "license.json"
+LICENSE_FILE = Path.home() / ".waffler" / "license.json"
 LEMONSQUEEZY_API_URL = "https://api.lemonsqueezy.com/v1/licenses"
 
 
@@ -45,7 +45,7 @@ def is_validated() -> bool:
     return False
 
 
-def validate_license(license_key: str, instance_name: str = "Natter") -> dict:
+def validate_license(license_key: str, instance_name: str = "Waffler") -> dict:
     """
     Validate license key with Lemon Squeezy.
     

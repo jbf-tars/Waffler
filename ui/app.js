@@ -1,4 +1,4 @@
-/* Natter — Frontend Logic */
+/* Waffler — Frontend Logic */
 
 // ── State ──────────────────────────────────────────────────────────────
 let history = [];
@@ -99,7 +99,7 @@ async function copyItem(text, btnEl) {
 }
 
 // ── Called by Python after each transcription ─────────────────────────
-window.natter_refresh = function(newItem) {
+window.waffler_refresh = function(newItem) {
   if (newItem) {
     history.unshift(newItem);
   }
@@ -118,7 +118,7 @@ window.natter_refresh = function(newItem) {
 };
 
 // ── Called by Python for status updates ──────────────────────────────
-window.natter_status = function(status) {
+window.waffler_status = function(status) {
   $statusInd.className = 'status-indicator ' + status;
   const labels = {
     idle:       'Ready',
@@ -672,7 +672,7 @@ async function exportHistory() {
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
     a.href     = url;
-    a.download = `natter-history-${new Date().toISOString().slice(0,10)}.txt`;
+    a.download = `waffler-history-${new Date().toISOString().slice(0,10)}.txt`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -1391,7 +1391,7 @@ window.wizOnTranscriptionResult = function(text) {
     if (sendBtn) sendBtn.disabled = false;
     if (placeholder) placeholder.style.display = 'none';
     if (valid) {
-      valid.textContent = 'Natter is working! Try again or finish setup.';
+      valid.textContent = 'Waffler is working! Try again or finish setup.';
       valid.className = 'wizard-validation success';
     }
     _wizardMicTested = true;
@@ -1460,7 +1460,7 @@ async function wizCompleteSetup() {
     }
     const r = await pywebview.api.complete_setup();
     if (r.ok) {
-      showToast('Natter is ready!', 'success');
+      showToast('Waffler is ready!', 'success');
       hideWizard();
     } else {
       showToast('Setup error: ' + r.error, 'error');
