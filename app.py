@@ -299,6 +299,18 @@ class Api:
         name = get_selected_device_name()
         return {"index": idx, "name": name}
 
+    def get_fn_key_state(self) -> dict:
+        """Return current Fn key press state."""
+        try:
+            if hasattr(self, 'hotkey_listener') and self.hotkey_listener:
+                # Access FnKeyMonitor's _fn_pressed state
+                fn_monitor = getattr(self.hotkey_listener, '_fn_monitor', None)
+                is_pressed = getattr(fn_monitor, '_fn_pressed', False) if fn_monitor else False
+                return {"ok": True, "pressed": is_pressed}
+            return {"ok": True, "pressed": False}
+        except Exception as e:
+            return {"ok": False, "error": str(e), "pressed": False}
+
     def set_audio_device(self, device_index: int) -> dict:
         """Persist selected audio device and update the recorder."""
         try:

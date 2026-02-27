@@ -264,7 +264,7 @@ class _OAuthCallbackHandler(BaseHTTPRequestHandler):
             color: #F5F5F0;
         }
         .logo-text span {
-            color: #6D3BF5;
+            color: #C8A256;
         }
         .status-icon {
             margin-bottom: 28px;
@@ -272,7 +272,7 @@ class _OAuthCallbackHandler(BaseHTTPRequestHandler):
             animation: fadeInScale 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
         }
         .success-check {
-            filter: drop-shadow(0 4px 16px rgba(109, 59, 245, 0.2));
+            filter: drop-shadow(0 4px 16px rgba(200, 162, 86, 0.2));
         }
         .check-circle {
             stroke-dasharray: 240;
@@ -302,15 +302,15 @@ class _OAuthCallbackHandler(BaseHTTPRequestHandler):
             width: 44px;
             height: 44px;
             margin: 24px auto;
-            border: 3px solid rgba(109, 59, 245, 0.15);
-            border-top: 3px solid #6D3BF5;
+            border: 3px solid rgba(200, 162, 86, 0.15);
+            border-top: 3px solid #C8A256;
             border-radius: 50%;
             animation: spin 1s cubic-bezier(0.68, -0.55, 0.27, 1.55) infinite;
         }
         .btn {
             display: inline-block;
             padding: 12px 28px;
-            background: #6D3BF5;
+            background: #C8A256;
             color: white;
             text-decoration: none;
             border-radius: 10px;
@@ -321,9 +321,9 @@ class _OAuthCallbackHandler(BaseHTTPRequestHandler):
             cursor: pointer;
         }
         .btn:hover {
-            background: #5B2ED4;
+            background: #8B6914;
             transform: translateY(-2px);
-            box-shadow: 0 8px 24px rgba(109, 59, 245, 0.35);
+            box-shadow: 0 8px 24px rgba(200, 162, 86, 0.35);
         }
         @keyframes spin {
             0% { transform: rotate(0deg); }
@@ -381,8 +381,8 @@ class _OAuthCallbackHandler(BaseHTTPRequestHandler):
 <body>
     <div class="container">
         <div class="logo">
-            <div class="logo-icon">🎙️</div>
-            <div class="logo-text">Nat<span>ter</span></div>
+            <div class="logo-icon">🧇</div>
+            <div class="logo-text">Waff<span>ler</span></div>
         </div>
         <div id="content">
             <div class="spinner"></div>
@@ -477,8 +477,8 @@ class _OAuthCallbackHandler(BaseHTTPRequestHandler):
         function showSuccess() {
             content.innerHTML = `
                 <svg class="status-icon success-check" width="80" height="80" viewBox="0 0 80 80">
-                    <circle class="check-circle" cx="40" cy="40" r="38" fill="none" stroke="#6D3BF5" stroke-width="3"/>
-                    <path class="check-path" d="M 25 40 L 35 50 L 55 30" fill="none" stroke="#6D3BF5" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+                    <circle class="check-circle" cx="40" cy="40" r="38" fill="none" stroke="#C8A256" stroke-width="3"/>
+                    <path class="check-path" d="M 25 40 L 35 50 L 55 30" fill="none" stroke="#C8A256" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
                 </svg>
                 <div class="status-title">Authentication complete</div>
                 <div class="status-message">

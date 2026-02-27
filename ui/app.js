@@ -4,6 +4,8 @@
 let history = [];
 let stats = { today_words: 0, today_count: 0, total_words: 0 };
 let toastTimer = null;
+let _fnKeyPressed = false;
+let _fnKeyCheckInterval = null;
 
 // ── DOM refs ────────────────────────────────────────────────────────────
 const $feedScroll    = document.getElementById('feedScroll');
@@ -982,6 +984,7 @@ function showWizard() {
 }
 
 function hideWizard() {
+  stopFnKeyPolling();
   const overlay = document.getElementById('wizardOverlay');
   if (!overlay) return;
   overlay.classList.add('hiding');
@@ -1044,8 +1047,8 @@ function wizShowStep(step) {
 
   // Step-specific initialization
   if (step === 2) { wizLoadMicDevices(); wizCheckPermissions(); wizStartPermPolling(); }
-  if (step === 3) wizLoadHotkeyInfo();
-  if (step === 4) wizInitTryItStep();
+  if (step === 3) { wizLoadHotkeyInfo(); initFnKeyFeedback(); }
+  if (step === 4) { wizInitTryItStep(); initFnKeyFeedback(); }
 }
 
 function wizUpdateNextButton() {
@@ -1264,13 +1267,70 @@ async function wizRequestAccessibilityPermission() {
 async function wizLoadHotkeyInfo() {
   try {
     const info = await pywebview.api.test_hotkey();
-    document.getElementById('wizHotkeyBadge').textContent = info.hotkey;
+    // Don't replace the fn key button content - it's already styled as a Mac key
+    // Just update the mode description
     document.getElementById('wizHotkeyMode').textContent = info.mode === 'toggle'
       ? 'Toggle mode: press once to start, press again to stop'
       : 'Hold mode: hold key to record, release to stop';
     document.getElementById('wizHotkeyDesc').textContent = info.description;
   } catch(e) {
     console.warn('wizLoadHotkeyInfo error:', e);
+  }
+}
+
+// ── Fn Key Visual Feedback ──────────────────────────────────
+
+function initFnKeyFeedback() {
+  const fnButton = document.getElementById('wizHotkeyBadge');
+  if (!fnButton) return;
+
+  document.addEventListener('keydown', (event) => {
+    try {
+      if (event.getModifierState?.('Fn')) {
+        setFnKeyActive(true);
+      }
+    } catch (e) {}
+  });
+
+  document.addEventListener('keyup', (event) => {
+    try {
+      if (event.getModifierState && !event.getModifierState('Fn')) {
+        setFnKeyActive(false);
+      }
+    } catch (e) {}
+  });
+
+  startFnKeyPolling();
+}
+
+function startFnKeyPolling() {
+  stopFnKeyPolling();
+  _fnKeyCheckInterval = setInterval(async () => {
+    if (_wizardStep !== 3 && _wizardStep !== 4) return;
+    try {
+      if (window.pywebview?.api) {
+        const state = await window.pywebview.api.get_fn_key_state();
+        if (state?.pressed !== undefined) {
+          setFnKeyActive(state.pressed);
+        }
+      }
+    } catch (e) {}
+  }, 100);
+}
+
+function stopFnKeyPolling() {
+  if (_fnKeyCheckInterval) {
+    clearInterval(_fnKeyCheckInterval);
+    _fnKeyCheckInterval = null;
+  }
+}
+
+function setFnKeyActive(isActive) {
+  if (_fnKeyPressed === isActive) return;
+  _fnKeyPressed = isActive;
+  const fnButton = document.getElementById('wizHotkeyBadge');
+  if (fnButton) {
+    fnButton.classList.toggle('active', isActive);
   }
 }
 
