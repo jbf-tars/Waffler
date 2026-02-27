@@ -632,13 +632,13 @@ class Api:
         return {
             "ok": True,
             "platform": plat.system(),
-            "hotkey": "Ctrl + Windows + Space" if is_win else "Right Option (hold)",
+            "hotkey": "Ctrl + Windows + Space" if is_win else "Fn (hold)",
             "mode": "toggle" if is_win else "hold",
             "description": (
                 "Press Ctrl + Windows Key to start recording. Press Space while holding to lock on."
             ) if is_win else (
-                "Hold the Right Option (⌥) key to record. Release to stop. "
-                "Option + Space locks recording on — press Option again to stop."
+                "Hold the Fn key to record. Release to stop. "
+                "Fn + Space locks recording on — press Fn again to stop."
             ),
         }
 
@@ -788,9 +788,9 @@ class Api:
                     on_press=_wizard_on_press,
                     on_release=_wizard_on_release,
                 )
-                threading.Thread(
-                    target=_wizard_hotkey.start, daemon=True, name="WizardHotkeyThread"
-                ).start()
+                # Start directly - pynput creates its own thread internally
+                # Running in background thread causes macOS dispatch queue crashes
+                _wizard_hotkey.start()
 
             _log_to_file("Wizard hotkey test started")
             return {"ok": True, "message": "Press Ctrl+Space to start recording"}
