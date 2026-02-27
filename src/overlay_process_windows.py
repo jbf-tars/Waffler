@@ -50,9 +50,9 @@ CANCEL_HIT_X = 36          # left of this → cancel
 STOP_HIT_X   = WIN_W - 36  # right of this → stop
 
 # Toast constants
-TOAST_W     = 380
-TOAST_H     = 140
-TOAST_PAD   = 12           # gap above pill
+TOAST_W     = 420
+TOAST_H     = 160
+TOAST_PAD   = 14           # gap above pill
 
 # ── Global state ───────────────────────────────────────────────────────
 _cmd_queue: queue.Queue = queue.Queue()
@@ -67,6 +67,7 @@ _toast_style    = None
 # Screen position (set during init, reused for toast positioning)
 _pill_x = 0
 _pill_y = 0
+_screen_w = 0
 
 
 # ── IPC helpers ────────────────────────────────────────────────────────
@@ -181,8 +182,8 @@ def _show_toast(style: str, heading: str, body: str):
 
     # Toast dimensions
     tw, th = TOAST_W, TOAST_H
-    # Position above pill, centred
-    tx = _pill_x + (WIN_W - tw) // 2
+    # Centre horizontally on screen, sit above pill vertically
+    tx = (_screen_w - tw) // 2
     ty = _pill_y - th - TOAST_PAD
     _toast_win.geometry(f"{tw}x{th}+{tx}+{ty}")
 
@@ -190,53 +191,59 @@ def _show_toast(style: str, heading: str, body: str):
                   highlightthickness=0)
     c.pack()
 
-    # Background rounded rectangle — purple brand border for both styles
-    _rounded_rect(c, 0, 0, tw, th, 12, fill='#18181f', outline='#7c3aed', width=2)
+    # Shadow layer (offset darker rect behind the main panel)
+    _rounded_rect(c, 4, 4, tw, th, 14, fill='#0c0c10', outline='#0c0c10')
 
-    # Content area: icon + text centred in top portion
-    content_cy = 40  # vertical centre of icon/text area
-    icon_x, icon_y = 28, content_cy
+    # Main panel — dark background with subtle purple border
+    _rounded_rect(c, 0, 0, tw - 4, th - 4, 14,
+                  fill='#18181f', outline='#7c3aed', width=2)
+
+    # ── Icon ──
+    icon_x, icon_y = 32, 44
 
     if style == 'cancel':
-        # Soft red circle with X
-        c.create_oval(icon_x - 13, icon_y - 13, icon_x + 13, icon_y + 13,
+        # Red warning circle with X
+        c.create_oval(icon_x - 15, icon_y - 15, icon_x + 15, icon_y + 15,
                       fill='#2d1520', outline='#ef4444', width=1.5)
-        c.create_line(icon_x - 5, icon_y - 5, icon_x + 5, icon_y + 5,
+        off = 6
+        c.create_line(icon_x - off, icon_y - off, icon_x + off, icon_y + off,
                       fill='#ef4444', width=2, capstyle=tk.ROUND)
-        c.create_line(icon_x + 5, icon_y - 5, icon_x - 5, icon_y + 5,
+        c.create_line(icon_x + off, icon_y - off, icon_x - off, icon_y + off,
                       fill='#ef4444', width=2, capstyle=tk.ROUND)
     else:
-        # Purple brand circle with !
-        c.create_oval(icon_x - 13, icon_y - 13, icon_x + 13, icon_y + 13,
+        # Purple info circle with !
+        c.create_oval(icon_x - 15, icon_y - 15, icon_x + 15, icon_y + 15,
                       fill='#2a1f4e', outline='#a78bfa', width=1.5)
         c.create_text(icon_x, icon_y - 1, text='!', fill='#a78bfa',
-                      font=('Segoe UI', 11, 'bold'))
+                      font=('Segoe UI', 12, 'bold'))
 
-    # Heading — right of icon, vertically centred
-    text_x = 52
-    c.create_text(text_x, content_cy - 14, text=heading, fill='#ffffff',
-                  anchor='nw', font=('Segoe UI', 10, 'bold'))
+    # ── Text ──
+    text_x = 60
+    c.create_text(text_x, icon_y - 16, text=heading, fill='#ffffff',
+                  anchor='nw', font=('Segoe UI', 11, 'bold'))
+    c.create_text(text_x, icon_y + 6, text=body, fill='#8888a0',
+                  anchor='nw', font=('Segoe UI', 9), width=tw - text_x - 28)
 
-    # Body text
-    c.create_text(text_x, content_cy + 6, text=body, fill='#8888a0',
-                  anchor='nw', font=('Segoe UI', 9), width=tw - text_x - 20)
+    # ── Divider line ──
+    div_y = th - 58
+    c.create_line(16, div_y, tw - 20, div_y, fill='#2a2a35', width=1)
 
-    # Buttons row — centred horizontally
-    btn_h = 26
-    btn_y = th - btn_h - 14
-    btn_gap = 12
+    # ── Buttons row — centred ──
+    btn_h = 30
+    btn_y = th - btn_h - 18
+    btn_gap = 14
     if style == 'cancel':
-        btn1_w, btn2_w = 100, 110
+        btn1_w, btn2_w = 110, 120
         total = btn1_w + btn_gap + btn2_w
-        sx = (tw - total) // 2
+        sx = (tw - 4 - total) // 2   # account for shadow offset
         _draw_toast_btn(c, sx, btn_y, btn1_w, btn_h,
                         '#2d1520', '#ef4444', 'Discard', '#ef4444', 'confirm')
         _draw_toast_btn(c, sx + btn1_w + btn_gap, btn_y, btn2_w, btn_h,
                         '#7c3aed', '#7c3aed', 'Keep going', '#ffffff', 'dismiss')
     else:
-        btn1_w, btn2_w = 110, 90
+        btn1_w, btn2_w = 120, 100
         total = btn1_w + btn_gap + btn2_w
-        sx = (tw - total) // 2
+        sx = (tw - 4 - total) // 2
         _draw_toast_btn(c, sx, btn_y, btn1_w, btn_h,
                         '#7c3aed', '#7c3aed', 'Select mic', '#ffffff', 'select_mic')
         _draw_toast_btn(c, sx + btn1_w + btn_gap, btn_y, btn2_w, btn_h,
@@ -245,37 +252,50 @@ def _show_toast(style: str, heading: str, body: str):
 
 def _draw_toast_btn(canvas, x, y, w, h, fill, outline, text, text_color, action):
     """Draw a clickable button on the toast canvas."""
-    rad = h // 2
     tag = f'btn_{action}'
+    r = h // 2
 
-    # Rounded rectangle
-    canvas.create_oval(x, y, x + h, y + h, fill=fill, outline=outline, tags=tag)
-    canvas.create_oval(x + w - h, y, x + w, y + h, fill=fill, outline=outline, tags=tag)
-    canvas.create_rectangle(x + rad, y, x + w - rad, y + h,
-                            fill=fill, outline=fill, tags=tag)
+    # Single-polygon rounded-rect button (no seam artifacts)
+    pts = []
+    n = 10
+    for i in range(n + 1):
+        a = math.pi / 2 - i * (math.pi / 2) / n
+        pts.extend([x + w - r + r * math.cos(a), y + r - r * math.sin(a)])
+    for i in range(n + 1):
+        a = -i * (math.pi / 2) / n
+        pts.extend([x + w - r + r * math.cos(a), y + h - r - r * math.sin(a)])
+    for i in range(n + 1):
+        a = -math.pi / 2 - i * (math.pi / 2) / n
+        pts.extend([x + r + r * math.cos(a), y + h - r - r * math.sin(a)])
+    for i in range(n + 1):
+        a = math.pi - i * (math.pi / 2) / n
+        pts.extend([x + r + r * math.cos(a), y + r - r * math.sin(a)])
+    canvas.create_polygon(pts, fill=fill, outline=outline, width=1.5, tags=tag)
 
-    # Text
+    # Label
     canvas.create_text(x + w // 2, y + h // 2, text=text, fill=text_color,
-                       font=('Segoe UI', 8, 'bold'), tags=tag)
+                       font=('Segoe UI', 9, 'bold'), tags=tag)
 
     canvas.tag_bind(tag, '<Button-1>', lambda e: _on_toast_action(action))
 
 
 def _rounded_rect(canvas, x1, y1, x2, y2, r, **kwargs):
-    """Draw a rounded rectangle on a canvas."""
-    canvas.create_arc(x1, y1, x1 + r * 2, y1 + r * 2,
-                      start=90, extent=90, style=tk.PIESLICE, **kwargs)
-    canvas.create_arc(x2 - r * 2, y1, x2, y1 + r * 2,
-                      start=0, extent=90, style=tk.PIESLICE, **kwargs)
-    canvas.create_arc(x2 - r * 2, y2 - r * 2, x2, y2,
-                      start=270, extent=90, style=tk.PIESLICE, **kwargs)
-    canvas.create_arc(x1, y2 - r * 2, x1 + r * 2, y2,
-                      start=180, extent=90, style=tk.PIESLICE, **kwargs)
-    # Remove outline from fill rectangles
-    fill_kw = {k: v for k, v in kwargs.items() if k != 'outline' and k != 'width'}
-    fill_kw['outline'] = kwargs.get('fill', '')
-    canvas.create_rectangle(x1 + r, y1, x2 - r, y2, **fill_kw)
-    canvas.create_rectangle(x1, y1 + r, x2, y2 - r, **fill_kw)
+    """Draw a rounded rectangle as a single polygon (no seam artifacts)."""
+    pts = []
+    n = 16  # segments per corner arc — smooth enough at any size
+    for i in range(n + 1):                       # top-right
+        a = math.pi / 2 - i * (math.pi / 2) / n
+        pts.extend([x2 - r + r * math.cos(a), y1 + r - r * math.sin(a)])
+    for i in range(n + 1):                       # bottom-right
+        a = -i * (math.pi / 2) / n
+        pts.extend([x2 - r + r * math.cos(a), y2 - r - r * math.sin(a)])
+    for i in range(n + 1):                       # bottom-left
+        a = -math.pi / 2 - i * (math.pi / 2) / n
+        pts.extend([x1 + r + r * math.cos(a), y2 - r - r * math.sin(a)])
+    for i in range(n + 1):                       # top-left
+        a = math.pi - i * (math.pi / 2) / n
+        pts.extend([x1 + r + r * math.cos(a), y1 + r - r * math.sin(a)])
+    canvas.create_polygon(pts, **kwargs)
 
 
 def _hide_toast():
@@ -441,7 +461,7 @@ def _get_taskbar_height() -> int:
 # ── Entry point ────────────────────────────────────────────────────────
 
 def main():
-    global _root, _canvas, _pill_x, _pill_y
+    global _root, _canvas, _pill_x, _pill_y, _screen_w
 
     # Kick off the stdin reader
     threading.Thread(target=_stdin_reader, daemon=True, name="StdinReader").start()
@@ -460,6 +480,7 @@ def main():
     taskbar_h = _get_taskbar_height()
     gap       = 16
 
+    _screen_w = screen_w
     _pill_x = (screen_w - WIN_W) // 2
     _pill_y = screen_h - taskbar_h - WIN_H - gap
     _root.geometry(f"{WIN_W}x{WIN_H}+{_pill_x}+{_pill_y}")
