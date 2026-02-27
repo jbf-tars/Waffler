@@ -23,8 +23,8 @@ class SmartHotkeyListener:
 
         # NEW: Add Fn key monitor
         self._fn_monitor = FnKeyMonitor(
-            on_fn_press=self._on_fn_press,
-            on_fn_release=self._on_fn_release
+            self._on_fn_press,
+            self._on_fn_release
         )
         self._listener = None       # Still need pynput for Space key
 
