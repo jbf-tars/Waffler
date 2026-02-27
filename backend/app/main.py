@@ -11,6 +11,7 @@ import uvicorn
 from app.auth.router import router as auth_router
 from app.usage.router import router as usage_router
 from app.subscription.router import router as subscription_router
+from app.style.router import router as style_router
 
 # Create FastAPI app
 app = FastAPI(
@@ -32,6 +33,7 @@ app.add_middleware(
 app.include_router(auth_router, prefix="/auth", tags=["Authentication"])
 app.include_router(usage_router, prefix="/usage", tags=["Usage"])
 app.include_router(subscription_router, prefix="/subscription", tags=["Subscription"])
+app.include_router(style_router, prefix="/style", tags=["LLM Styling"])
 
 
 @app.get("/")
