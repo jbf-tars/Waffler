@@ -43,7 +43,7 @@ html, body {
   font-size: 14px;
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
-  user-select: none;
+  /* Allow text selection for copy - only disable on specific UI elements */
 }
 
 /* ── Layout ─────────────────────────────────────────────────── */
@@ -51,6 +51,12 @@ html, body {
   display: flex;
   height: 100vh;
   overflow: hidden;
+}
+
+/* Disable text selection on UI controls */
+button, .nav-item, .header, .settings-header, .wizard-header,
+.hotkey-hint, .sidebar-label, .feed-header, .stat-card {
+  user-select: none;
 }
 
 /* ── Sidebar ─────────────────────────────────────────────────── */
@@ -62,6 +68,7 @@ html, body {
   flex-direction: column;
   flex-shrink: 0;
   padding: 20px 0;
+  user-select: none;
 }
 
 .sidebar-logo {

@@ -226,8 +226,13 @@ class Api:
         """Copy text to clipboard."""
         try:
             pyperclip.copy(text)
+            print(f"[clipboard] Copied {len(text)} chars")
+            return True
         except Exception as e:
             print(f"[clipboard] Error: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
 
     def get_stats(self) -> dict:
         """Return word-count stats."""
