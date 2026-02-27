@@ -600,13 +600,13 @@ class Api:
         return {
             "ok": True,
             "platform": plat.system(),
-            "hotkey": "Ctrl + Space" if is_win else "Right Option (hold)",
+            "hotkey": "Ctrl + Space" if is_win else "Fn (hold)",
             "mode": "toggle" if is_win else "hold",
             "description": (
                 "Press Ctrl + Space to start recording. Press again to stop."
             ) if is_win else (
-                "Hold the Right Option key to record. Release to stop. "
-                "Option + Space locks recording on — press Option again to stop."
+                "Hold the Fn key to record. Release to stop. "
+                "Fn + Space locks recording on — press Fn again to stop."
             ),
         }
 
