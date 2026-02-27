@@ -151,10 +151,10 @@ async def style_transcript(
     prompt = prompt_template.format(transcript=request.transcript) + vocab_hint
 
     try:
-        # Call Replicate API with Llama 3.1 70B
-        # Using Meta's Llama 3.1 70B Instruct model
+        # Call Replicate API with Llama 3 70B
+        # Using Meta's Llama 3 70B Instruct model (162M runs, verified)
         output = replicate.run(
-            "meta/meta-llama-3.1-70b-instruct",
+            "meta/meta-llama-3-70b-instruct",
             input={
                 "top_p": 0.9,
                 "prompt": prompt,
@@ -185,7 +185,7 @@ async def style_transcript(
             output_tokens=int(output_tokens),
             cost=total_cost,
             provider="replicate",
-            model_name="meta-llama-3.1-70b-instruct",
+            model_name="meta-llama-3-70b-instruct",
             success=True
         )
         db.add(llm_usage)
@@ -210,7 +210,7 @@ async def style_transcript(
             output_tokens=0,
             cost=0.0,
             provider="replicate",
-            model_name="meta-llama-3.1-70b-instruct",
+            model_name="meta-llama-3-70b-instruct",
             success=False
         )
         db.add(llm_usage)

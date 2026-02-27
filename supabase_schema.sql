@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════════
--- Natter — Supabase Database Schema
+-- Waffler — Supabase Database Schema
 -- Run this in the SQL Editor at supabase.com/dashboard
 -- ═══════════════════════════════════════════════════════════════════
 

@@ -1,5 +1,5 @@
 """
-Natter — Supabase Authentication Module
+Waffler — Supabase Authentication Module
 Handles signup, login, session persistence, and usage tracking.
 """
 from __future__ import annotations
@@ -15,7 +15,7 @@ SUPABASE_URL = "https://hbgjxqxbdrhoxtmbvqeu.supabase.co"
 SUPABASE_ANON_KEY = "sb_publishable_Fb2idee5aJVSDM98BmJ1Jg_86NGh5V1"
 
 # Local session file
-SESSION_FILE = Path.home() / ".natter" / "session.json"
+SESSION_FILE = Path.home() / ".waffler" / "session.json"
 
 # ── Module state ──────────────────────────────────────────────────────
 _client: Client = None
@@ -225,7 +225,7 @@ class _OAuthCallbackHandler(BaseHTTPRequestHandler):
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Natter - Sign In</title>
+    <title>Waffler - Sign In</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -422,8 +422,8 @@ class _OAuthCallbackHandler(BaseHTTPRequestHandler):
                 showError(
                     '❌',
                     'Connection Error',
-                    'Could not connect to Natter',
-                    'Make sure Natter is running and try again.'
+                    'Could not connect to Waffler',
+                    'Make sure Waffler is running and try again.'
                 );
             });
         } else if (hash) {
@@ -452,8 +452,8 @@ class _OAuthCallbackHandler(BaseHTTPRequestHandler):
                     showError(
                         '❌',
                         'Connection Error',
-                        'Could not connect to Natter',
-                        'Make sure Natter is running and try again.'
+                        'Could not connect to Waffler',
+                        'Make sure Waffler is running and try again.'
                     );
                 });
             }
@@ -482,7 +482,7 @@ class _OAuthCallbackHandler(BaseHTTPRequestHandler):
                 </svg>
                 <div class="status-title">Authentication complete</div>
                 <div class="status-message">
-                    You're all set. Return to Natter to continue.
+                    You're all set. Return to Waffler to continue.
                 </div>
             `;
         }

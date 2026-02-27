@@ -1,5 +1,5 @@
 """
-Natter — Self-Hosted Backend Authentication Module
+Waffler — Self-Hosted Backend Authentication Module
 Handles signup, login, and session persistence with your own backend.
 """
 from __future__ import annotations
@@ -14,7 +14,7 @@ from typing import Optional
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
 
 # Local session file
-SESSION_FILE = Path.home() / ".natter" / "session_backend.json"
+SESSION_FILE = Path.home() / ".waffler" / "session_backend.json"
 
 # Module state
 _user: Optional[dict] = None

@@ -14,7 +14,7 @@ Your PC Claude analyzed the GitHub repos and found some important insights about
 - **Location:** `/Users/james/voiceflow-app` (Mac)
 - **Branch:** Currently on `self-hosted` (local only, not pushed yet)
 
-### 2. **jbf-tars/natter** (Same Content + Backend)
+### 2. **jbf-tars/waffler** (Same Content + Backend)
 - **What:** Same repo content as voiceflow-app
 - **Has:** `backend/` folder with FastAPI
   - Auth endpoints (signup, signin)
@@ -23,24 +23,24 @@ Your PC Claude analyzed the GitHub repos and found some important insights about
   - Stripe-ready models
 - **Purpose:** Appears to be the "production" or "canonical" repo name
 
-### 3. **jbf-tars/natter-website** (Marketing Site)
+### 3. **jbf-tars/waffler-website** (Marketing Site)
 - **What:** Marketing/landing page website
 - **Status:** Exists, didn't need changes
-- **Purpose:** Public-facing marketing site for Natter
+- **Purpose:** Public-facing marketing site for Waffler
 
 ---
 
 ## Key Findings
 
 ### ✅ Good News
-1. **Backend already exists** in the natter repo with production-ready FastAPI code
+1. **Backend already exists** in the waffler repo with production-ready FastAPI code
 2. **OAuth is fully working** on Windows build (Google OAuth with local callback)
-3. **Windows build is ready** at `C:\Users\james\Downloads\Telegram Desktop\VoiceFlow-v37\dist\Natter\Natter.exe`
+3. **Windows build is ready** at `C:\Users\james\Downloads\Telegram Desktop\VoiceFlow-v37\dist\Waffler\Waffler.exe`
 
 ### ⚠️ Important Notes
 1. **self-hosted branch NOT pushed** - It's only on your Mac locally
 2. **Mac is 13 commits ahead** - Changes on Mac haven't been pushed to remote
-3. **Multiple repo names** - `voiceflow-app` vs `natter` (same content, different names)
+3. **Multiple repo names** - `voiceflow-app` vs `waffler` (same content, different names)
 
 ---
 
@@ -60,7 +60,7 @@ git push -u origin self-hosted
 ### Repo Name Confusion
 It seems you have two repos with the same content:
 - **voiceflow-app** - Development name (what we're working in)
-- **natter** - Production name (what users see)
+- **waffler** - Production name (what users see)
 
 **Recommendation:** Decide on one canonical repo and archive the other to avoid confusion.
 
@@ -79,7 +79,7 @@ It seems you have two repos with the same content:
 - ✅ Tray icon working on Windows
 - ✅ Normal (Wispr) mode prompt style added
 - ✅ `poll_oauth_result` for reliable token capture
-- ✅ Ready to use at: `C:\Users\james\Downloads\Telegram Desktop\VoiceFlow-v37\dist\Natter\Natter.exe`
+- ✅ Ready to use at: `C:\Users\james\Downloads\Telegram Desktop\VoiceFlow-v37\dist\Waffler\Waffler.exe`
 
 ### Sync Status
 ```
@@ -120,16 +120,16 @@ Opens browser → Google OAuth
   ↓
 Redirects to http://localhost:17834/callback
   ↓
-Natter app captures token
+Waffler app captures token
   ↓
-Stores in ~/.natter/session.json
+Stores in ~/.waffler/session.json
   ↓
 User authenticated with Supabase
 ```
 
 ### Self-Hosted OAuth Flow (What We're Building)
 ```
-User enters email/password in Natter
+User enters email/password in Waffler
   ↓
 POST to http://localhost:8000/auth/signup
   ↓
@@ -137,7 +137,7 @@ Backend creates user in PostgreSQL
   ↓
 Returns JWT token + API key
   ↓
-Stores in ~/.natter/session.json
+Stores in ~/.waffler/session.json
   ↓
 User authenticated with YOUR backend (no Supabase)
 ```
@@ -174,7 +174,7 @@ Add `http://localhost:17834/callback` to Supabase redirect URLs (if not already 
 Once Phase 2-3 are complete (LLM endpoint + desktop app integration):
 ```bash
 # Deploy to VPS
-# Update desktop app to use https://api.natter.yourdomain.com
+# Update desktop app to use https://api.waffler.yourdomain.com
 # Users can choose: Self-hosted OR BYOK mode
 ```
 
@@ -183,20 +183,20 @@ Once Phase 2-3 are complete (LLM endpoint + desktop app integration):
 ## Repository Recommendations
 
 ### Option A: Consolidate (Recommended)
-1. Keep **natter** as the canonical repo
+1. Keep **waffler** as the canonical repo
 2. Archive **voiceflow-app**
-3. Update all local references to point to `natter`
+3. Update all local references to point to `waffler`
 
 ### Option B: Keep Separate
-1. **natter** = Production releases
+1. **waffler** = Production releases
 2. **voiceflow-app** = Active development
-3. Merge from voiceflow-app → natter when ready for release
+3. Merge from voiceflow-app → waffler when ready for release
 
 ### Option C: Current State
 Keep both, but clearly document which is which:
 - Add README to each explaining the relationship
-- Use branch protection on `natter` main branch
-- Only push stable releases to `natter`
+- Use branch protection on `waffler` main branch
+- Only push stable releases to `waffler`
 
 ---
 
@@ -237,7 +237,7 @@ git push -u origin self-hosted
 ## Summary
 
 **What PC Claude Found:**
-- ✅ Multiple repos exist (voiceflow-app, natter, natter-website)
+- ✅ Multiple repos exist (voiceflow-app, waffler, waffler-website)
 - ✅ Backend code already exists in FastAPI
 - ✅ Windows build is ready with Google OAuth
 - ⚠️ Mac is 13 commits ahead of remote
@@ -259,9 +259,9 @@ git push -u origin self-hosted
 
 ## Questions to Resolve
 
-1. **Which repo is canonical?** `voiceflow-app` or `natter`?
+1. **Which repo is canonical?** `voiceflow-app` or `waffler`?
 2. **Should we consolidate?** Merge them into one repo?
-3. **What about natter-website?** Keep separate or monorepo?
+3. **What about waffler-website?** Keep separate or monorepo?
 4. **Branch strategy?** How to manage main vs self-hosted vs development?
 
 **Last updated:** 2026-02-23

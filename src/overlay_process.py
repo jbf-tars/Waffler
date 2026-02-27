@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Natter Overlay Process
+Waffler Overlay Process
 Runs as a subprocess — owns the macOS main thread for PyObjC.
 Receives JSON commands from stdin; emits JSON events on stdout.
 

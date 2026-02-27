@@ -17,7 +17,7 @@ except ImportError:
 # ── Try to load backend auth module ─────────────────────────────────────────
 _backend_auth = None
 try:
-    import natter_auth_backend as _backend_auth
+    import waffler_auth_backend as _backend_auth
 except ImportError:
     pass
 

@@ -2,17 +2,17 @@
 setlocal EnableDelayedExpansion
 
 :: ============================================
-:: Natter — Windows Build Script
-:: Produces: dist\Natter\Natter.exe
+:: Waffler — Windows Build Script
+:: Produces: dist\Waffler\Waffler.exe
 :: ============================================
 
-title Natter Windows Build
+title Waffler Windows Build
 color 1f
 cd /d "%~dp0"
 
 echo.
 echo ============================================
-echo   Natter — Windows Build
+echo   Waffler — Windows Build
 echo ============================================
 echo.
 
@@ -44,10 +44,10 @@ echo   Done.
 
 :: Step 4: Build with PyInstaller
 echo.
-echo [4/4] Building Natter.exe...
+echo [4/4] Building Waffler.exe...
 echo   This may take a few minutes...
 echo.
-pyinstaller Natter_windows.spec --noconfirm 2>&1
+pyinstaller Waffler_windows.spec --noconfirm 2>&1
 
 if errorlevel 1 (
     echo.
@@ -59,16 +59,16 @@ if errorlevel 1 (
 echo.
 echo ============================================
 echo   BUILD SUCCESSFUL!
-echo   Output: dist\Natter\Natter.exe
+echo   Output: dist\Waffler\Waffler.exe
 echo ============================================
 echo.
 
 :: Quick sanity check
-if exist "dist\Natter\Natter.exe" (
+if exist "dist\Waffler\Waffler.exe" (
     echo   File exists. Size:
-    for %%A in ("dist\Natter\Natter.exe") do echo   %%~zA bytes
+    for %%A in ("dist\Waffler\Waffler.exe") do echo   %%~zA bytes
 ) else (
-    echo   WARNING: Natter.exe not found in dist\Natter\
+    echo   WARNING: Waffler.exe not found in dist\Waffler\
 )
 
 echo.

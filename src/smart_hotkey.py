@@ -21,7 +21,7 @@ class SmartHotkeyListener:
         self._sticky = False        # Locked-on (toggle) mode active
         self._recording = False     # Are we recording right now?
 
-        # NEW: Add Fn key monitor
+        # Add Fn key monitor
         self._fn_monitor = FnKeyMonitor(
             self._on_fn_press,
             self._on_fn_release
