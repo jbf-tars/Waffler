@@ -207,9 +207,9 @@ def _draw_vu_bars(x_start: int, x_end: int, H: int, cy: int):
     min_h   = 4
     max_h   = int(H * 0.65)
 
-    # Purple gradient: --accent (#7c3aed) → --accent-text (#a78bfa)
-    r1, g1, b1 = 0x7c, 0x3a, 0xed
-    r2, g2, b2 = 0xa7, 0x8b, 0xfa
+    # Golden gradient: #8B6914 → #D4AF6A
+    r1, g1, b1 = 0x8B, 0x69, 0x14
+    r2, g2, b2 = 0xD4, 0xAF, 0x6A
 
     for i in range(NUM_BARS):
         lvl = max(0.0, min(1.0, _bars[i]))
@@ -223,7 +223,7 @@ def _draw_vu_bars(x_start: int, x_end: int, H: int, cy: int):
             bh = min_h
             by = cy - bh // 2
         else:
-            # Active: interpolate purple (dim when quiet, bright when loud)
+            # Active: interpolate golden (dim when quiet, bright when loud)
             t = lvl
             r = int(r1 + (r2 - r1) * t)
             g = int(g1 + (g2 - g1) * t)
@@ -263,9 +263,9 @@ def _show_toast(style: str, heading: str, body: str):
     # Shadow layer (offset darker rect behind the main panel)
     _rounded_rect(c, 4, 4, tw, th, 14, fill='#0c0c10', outline='#0c0c10')
 
-    # Main panel — dark background with subtle purple border
+    # Main panel — dark background with subtle golden border
     _rounded_rect(c, 0, 0, tw - 4, th - 4, 14,
-                  fill='#18181f', outline='#7c3aed', width=2)
+                  fill='#18181f', outline='#C8A256', width=2)
 
     # ── Icon ──
     icon_x, icon_y = 32, 44
@@ -280,10 +280,10 @@ def _show_toast(style: str, heading: str, body: str):
         c.create_line(icon_x + off, icon_y - off, icon_x - off, icon_y + off,
                       fill='#ef4444', width=2, capstyle=tk.ROUND)
     else:
-        # Purple info circle with !
+        # Golden info circle with !
         c.create_oval(icon_x - 15, icon_y - 15, icon_x + 15, icon_y + 15,
-                      fill='#2a1f4e', outline='#a78bfa', width=1.5)
-        c.create_text(icon_x, icon_y - 1, text='!', fill='#a78bfa',
+                      fill='#3d2f1a', outline='#D4AF6A', width=1.5)
+        c.create_text(icon_x, icon_y - 1, text='!', fill='#D4AF6A',
                       font=('Segoe UI', 12, 'bold'))
 
     # ── Text ──
