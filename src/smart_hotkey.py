@@ -4,10 +4,11 @@ Waffler Smart Hotkey
 Fn alone                 → Push-to-talk: hold to record, release to stop
 Fn + Space               → Sticky mode: recording locks on (can release Fn)
 Fn (again)               → Stop sticky recording
+
+Uses CGEventTap for all key detection - no pynput (avoids macOS crashes)
 """
 
 import threading
-from pynput import keyboard
 from src.fn_key_cgevent import FnKeyMonitor
 
 
@@ -21,20 +22,19 @@ class SmartHotkeyListener:
         self._sticky = False        # Locked-on (toggle) mode active
         self._recording = False     # Are we recording right now?
 
-        # Use CGEventTap for Fn detection (doesn't crash like NSEvent)
+        # Use CGEventTap for both Fn and Space detection (no pynput crashes!)
         self._fn_monitor = FnKeyMonitor(
-            self._on_fn_press,
-            self._on_fn_release
+            on_fn_press=self._on_fn_press,
+            on_fn_release=self._on_fn_release,
+            on_space_press=self._on_space_press
         )
-        self._listener = None       # pynput for Space key
 
     # ── Key events ────────────────────────────────────────────────────
 
-    def _on_key_press(self, key):
-        is_space = (key == keyboard.Key.space)
-
+    def _on_space_press(self):
+        """Called when Space key is pressed"""
         # Space pressed while holding Fn → switch to sticky mode
-        if is_space and self._fn_held and self._recording:
+        if self._fn_held and self._recording:
             self._sticky = True
             print("📌 Sticky mode — release Fn and keep talking; press Fn again to stop")
 
@@ -61,7 +61,7 @@ class SmartHotkeyListener:
             self._recording = False
             self._fire_release()
 
-    # ── Callbacks (run in a thread to avoid blocking pynput) ─────────
+    # ── Callbacks (run in a thread to avoid blocking) ─────────
 
     def _fire_press(self):
         threading.Thread(target=self._on_press, daemon=True).start()
@@ -73,22 +73,13 @@ class SmartHotkeyListener:
 
     def start(self):
         print("⌨️  Hotkey: Hold Fn to record | Fn + Space = sticky | Fn again = stop")
-
-        # Start Fn key monitoring (CGEventTap in background thread)
+        # Start Fn + Space monitoring (CGEventTap - no pynput!)
         self._fn_monitor.start()
-
-        # Start pynput listener for Space key (creates its own thread)
-        self._listener = keyboard.Listener(
-            on_press=self._on_key_press,
-        )
-        self._listener.start()
 
     def stop(self):
         if self._fn_monitor:
             self._fn_monitor.stop()
-        if self._listener:
-            self._listener.stop()
 
     def join(self):
-        if self._listener:
-            self._listener.join()
+        # No listener to join - CGEventTap runs in daemon thread
+        pass

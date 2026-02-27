@@ -46,6 +46,11 @@ NSWindowStyleMaskBorderless = 0
 _cmd_queue: queue.Queue = queue.Queue()
 _g_window = None
 _g_view = None
+_g_toast_window = None
+_g_toast_view = None
+TOAST_W = 420
+TOAST_H = 160
+TOAST_PAD = 14
 
 
 # ── Helpers ───────────────────────────────────────────────────────────
@@ -65,13 +70,13 @@ def make_rect(x, y, w, h):
 class PillView(NSView):
     """Draws the pill-shaped overlay with waffle pattern and syrup filling effect."""
 
-    NUM_BARS = 10
+    NUM_BARS = 16
 
     def initWithFrame_(self, frame):
         self = objc.super(PillView, self).initWithFrame_(frame)
         if self:
-            self._bars   = [0.0] * self.NUM_BARS
-            self._targets = [0.0] * self.NUM_BARS
+            self._bars   = [0.0] * 16
+            self._targets = [0.0] * 16
             self._syrup_level = 0.0  # 0.0 to 1.0 - controls syrup fill height
             self._syrup_target = 0.0
         return self
@@ -111,22 +116,24 @@ class PillView(NSView):
         pill.setLineWidth_(0.5)
         pill.stroke()
 
-        margin  = 6.0
-        btn_r   = 5.0
+        margin  = 8.0
+        btn_r   = 12.0
 
         # 3. Cancel button (X) — left
-        x_cx = margin + btn_r
-        self._draw_circle_button(x_cx, cy, btn_r, (0.85, 0.85, 0.85), border=False)
+        x_cx = 20.0
+        # Light cream #F0EDE6
+        self._draw_circle_button(x_cx, cy, btn_r, (0.941, 0.929, 0.902), border=False)
         self._draw_x(x_cx, cy, 2.5)
 
         # 4. Stop button (■) — right
-        s_cx = w - margin - btn_r
-        self._draw_circle_button(s_cx, cy, btn_r, (0.85, 0.85, 0.85), border=False)
-        self._draw_stop_square(s_cx, cy, 4.0)
+        s_cx = w - 20.0
+        # Golden #C8A256
+        self._draw_circle_button(s_cx, cy, btn_r, (0.784, 0.635, 0.337), border=False)
+        self._draw_stop_square(s_cx, cy, 8.0)
 
         # 5. VU bars — centre
-        bars_start = x_cx + btn_r + 6.0
-        bars_end   = s_cx - btn_r - 6.0
+        bars_start = 40.0
+        bars_end   = w - 40.0
         self._draw_bars(bars_start, bars_end, cy, h)
 
     def _draw_circle_button(self, cx, cy, r, color_rgb, border=False):
@@ -138,9 +145,10 @@ class PillView(NSView):
         circle.fill()
 
     def _draw_x(self, cx, cy, off):
-        NSColor.colorWithCalibratedRed_green_blue_alpha_(0.35, 0.35, 0.35, 1.0).set()
+        # Dark golden #8B6914
+        NSColor.colorWithCalibratedRed_green_blue_alpha_(0.545, 0.412, 0.078, 1.0).set()
         p = NSBezierPath.bezierPath()
-        p.setLineWidth_(1.6)
+        p.setLineWidth_(1.5)
         p.setLineCapStyle_(AppKit.NSRoundLineCapStyle)
         p.moveToPoint_(AppKit.NSMakePoint(cx - off, cy - off))
         p.lineToPoint_(AppKit.NSMakePoint(cx + off, cy + off))
@@ -202,6 +210,9 @@ class PillView(NSView):
         if syrup_height < 2:
             return  # Don't draw if too small
 
+        # Save graphics state before clipping
+        AppKit.NSGraphicsContext.currentContext().saveGraphicsState()
+
         # Create clipping path for pill shape
         pill_clip = NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(bounds, radius, radius)
         pill_clip.addClip()
@@ -222,6 +233,9 @@ class PillView(NSView):
         # Add subtle drip effect at top of syrup
         if syrup_height > 5:
             self._draw_syrup_drips(w, syrup_height)
+
+        # Restore graphics state to remove clipping
+        AppKit.NSGraphicsContext.currentContext().restoreGraphicsState()
 
     def _draw_syrup_drips(self, width, syrup_top):
         """Draw dripping effect at top of syrup."""
@@ -258,9 +272,22 @@ class PillView(NSView):
             by  = cy - bh / 2.0
             lvl = self._bars[i]
 
-            # Dark bars on white background — light up when loud
-            brightness = 0.2 + lvl * 0.8
-            NSColor.colorWithCalibratedRed_green_blue_alpha_(brightness, brightness, brightness, 0.95).set()
+            # Golden gradient: #8B6914 → #D4AF6A
+            r1, g1, b1 = 0x8B/255.0, 0x69/255.0, 0x14/255.0  # Dark golden
+            r2, g2, b2 = 0xD4/255.0, 0xAF/255.0, 0x6A/255.0  # Light golden
+
+            if lvl < 0.02:
+                # Idle: subtle cream #E8E4DC
+                NSColor.colorWithCalibratedRed_green_blue_alpha_(
+                    0.910, 0.894, 0.863, 0.95
+                ).set()
+            else:
+                # Active: golden gradient
+                t = lvl
+                r = r1 + (r2 - r1) * t
+                g = g1 + (g2 - g1) * t
+                b = b1 + (b2 - b1) * t
+                NSColor.colorWithCalibratedRed_green_blue_alpha_(r, g, b, 0.95).set()
 
             bar_path = NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
                 make_rect(bx, by, bar_w, bh), 1.5, 1.5
@@ -274,9 +301,13 @@ class PillView(NSView):
         b   = self.bounds()
         w   = b.size.width
 
-        if loc.x < 50:
+        # Click zones for larger buttons
+        CANCEL_HIT_X = 36
+        STOP_HIT_X = 164
+
+        if loc.x < CANCEL_HIT_X:
             emit("cancel")
-        elif loc.x > w - 50:
+        elif loc.x > STOP_HIT_X:
             emit("stop")
 
     # ── Animation timer ───────────────────────────────────────────────
@@ -305,6 +336,56 @@ class PillView(NSView):
 
     def setTargets_(self, targets):
         self._targets = list(targets)
+
+
+# ── Toast View (Error/Warning Popups) ─────────────────────────────────
+
+class ToastView(NSView):
+    """Toast notification popup with golden branding matching PC version."""
+
+    def initWithFrame_style_heading_body_(self, frame, style, heading, body):
+        self = objc.super(ToastView, self).initWithFrame_(frame)
+        if self:
+            self._style = style
+            self._heading = heading
+            self._body = body
+            self._button_zones = []
+        return self
+
+    def drawRect_(self, rect):
+        """Draw toast with dark panel, golden border, icon, text, and buttons."""
+        # TODO: Full implementation based on Windows version (overlay_process_windows.py lines 238-386)
+        # Dark panel #18181f with golden border #C8A256
+        # Icon (red X or golden ! based on style)
+        # White heading text, gray body text
+        # Horizontal divider
+        # Two clickable buttons at bottom
+        b = self.bounds()
+        w = b.size.width
+        h = b.size.height
+
+        # Dark background with golden border
+        bg = NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(b, 12.0, 12.0)
+        NSColor.colorWithCalibratedRed_green_blue_alpha_(0.094, 0.094, 0.122, 0.98).set()  # #18181f
+        bg.fill()
+
+        # Golden border #C8A256
+        NSColor.colorWithCalibratedRed_green_blue_alpha_(0.784, 0.635, 0.337, 1.0).set()
+        bg.setLineWidth_(2.0)
+        bg.stroke()
+
+        # Simple text rendering for now
+        # TODO: Add icon, formatted text, divider, and buttons
+        pass
+
+    def mouseDown_(self, event):
+        """Handle button clicks in toast."""
+        loc = event.locationInWindow()
+        for (rect, action) in self._button_zones:
+            if NSPointInRect(loc, rect):
+                emit("toast_action", action=action)
+                _hide_toast()
+                break
 
 
 # ── Command dispatcher (runs on main thread via timer) ────────────────
@@ -340,8 +421,67 @@ def _dispatch_cmd(cmd):
             # Trigger redraw for syrup animation
             _g_view.setNeedsDisplay_(True)
 
+    elif ctype == "show_toast":
+        _show_toast(cmd.get("style", "error"), cmd.get("heading", ""), cmd.get("body", ""))
+
+    elif ctype == "hide_toast":
+        _hide_toast()
+
     elif ctype == "quit":
         NSApplication.sharedApplication().terminate_(None)
+
+
+# ── Toast Functions ──────────────────────────────────────────────────
+
+def _show_toast(style, heading, body):
+    """Show toast notification popup above the pill overlay."""
+    global _g_toast_window, _g_toast_view, _g_window
+    _hide_toast()
+
+    # Get screen dimensions
+    screen = NSScreen.mainScreen()
+    screen_frame = screen.visibleFrame()
+    screen_w = int(screen_frame.size.width)
+    screen_h = int(screen_frame.size.height)
+
+    # Position toast above the pill
+    tx = (screen_w - TOAST_W) // 2
+    # Calculate pill Y position (same logic as main overlay)
+    dock_height = 60  # Estimate
+    gap = 12
+    pill_y = dock_height + gap
+    ty = pill_y + 44 + TOAST_PAD  # Above the pill (pill height is 44px)
+
+    # Create toast window
+    _g_toast_window = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
+        make_rect(tx, ty, TOAST_W, TOAST_H),
+        NSWindowStyleMaskBorderless,
+        NSBackingStoreBuffered,
+        False
+    )
+    _g_toast_window.setLevel_(NSFloatingWindowLevel + 2)
+    _g_toast_window.setOpaque_(False)
+    _g_toast_window.setBackgroundColor_(NSColor.clearColor())
+    _g_toast_window.setCollectionBehavior_(
+        AppKit.NSWindowCollectionBehaviorCanJoinAllSpaces |
+        AppKit.NSWindowCollectionBehaviorStationary
+    )
+
+    # Create toast view
+    _g_toast_view = ToastView.alloc().initWithFrame_style_heading_body_(
+        make_rect(0, 0, TOAST_W, TOAST_H), style, heading, body
+    )
+    _g_toast_window.setContentView_(_g_toast_view)
+    _g_toast_window.makeKeyAndOrderFront_(None)
+
+
+def _hide_toast():
+    """Hide and clean up toast popup."""
+    global _g_toast_window, _g_toast_view
+    if _g_toast_window:
+        _g_toast_window.orderOut_(None)
+        _g_toast_window = None
+        _g_toast_view = None
 
 
 # ── Stdin reader (background thread) ─────────────────────────────────
@@ -380,8 +520,8 @@ def main():
     dock_height = sf.size.height - vf.size.height - vf.origin.y  # dock
     gap         = 16  # px above dock — sit close to the bottom
 
-    # Overlay dimensions — compact pill (much smaller: 120x24)
-    ow, oh = 120, 24
+    # Overlay dimensions — compact pill (much smaller: 200x44)
+    ow, oh = 200, 44
     ox = (sw - ow) / 2.0
     oy = dock_height + gap
 
