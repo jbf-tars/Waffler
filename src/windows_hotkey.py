@@ -54,7 +54,7 @@ kernel32.GetCurrentThreadId.argtypes = []
 kernel32.GetCurrentThreadId.restype  = ctypes.wintypes.DWORD
 
 # ── Debug log ─────────────────────────────────────────────────────────
-_LOG_FILE = Path.home() / ".waffler" / "hotkey.log"
+_LOG_FILE = Path.home() / ".waffler-hosted" / "hotkey.log"
 
 
 def _log(msg: str):

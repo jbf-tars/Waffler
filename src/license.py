@@ -10,7 +10,7 @@ import os
 from pathlib import Path
 import requests
 
-LICENSE_FILE = Path.home() / ".waffler" / "license.json"
+LICENSE_FILE = Path.home() / ".waffler-hosted" / "license.json"
 LEMONSQUEEZY_API_URL = "https://api.lemonsqueezy.com/v1/licenses"
 
 

@@ -13,7 +13,7 @@ try:
 except ImportError:
     _HAS_SD = False
 
-CONFIG_FILE = Path.home() / ".waffler" / "config.json"
+CONFIG_FILE = Path.home() / ".waffler-hosted" / "config.json"
 
 
 def list_input_devices() -> List[Dict]:

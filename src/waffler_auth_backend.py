@@ -14,7 +14,7 @@ from typing import Optional
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
 
 # Local session file
-SESSION_FILE = Path.home() / ".waffler" / "session_backend.json"
+SESSION_FILE = Path.home() / ".waffler-hosted" / "session_backend.json"
 
 # Module state
 _user: Optional[dict] = None

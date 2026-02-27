@@ -1,5 +1,5 @@
 """
-VoiceFlow Backend API
+Waffler Backend API
 FastAPI application for account management, usage tracking, and billing
 """
 
@@ -15,8 +15,8 @@ from app.style.router import router as style_router
 
 # Create FastAPI app
 app = FastAPI(
-    title="VoiceFlow API",
-    description="Account management and usage tracking for VoiceFlow",
+    title="Waffler API",
+    description="Account management and usage tracking for Waffler",
     version="1.0.0"
 )
 
@@ -40,7 +40,7 @@ app.include_router(style_router, prefix="/style", tags=["LLM Styling"])
 async def root():
     """Health check endpoint"""
     return {
-        "service": "VoiceFlow API",
+        "service": "Waffler API",
         "version": "1.0.0",
         "status": "healthy"
     }

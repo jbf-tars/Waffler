@@ -15,7 +15,7 @@ SUPABASE_URL = "https://hbgjxqxbdrhoxtmbvqeu.supabase.co"
 SUPABASE_ANON_KEY = "sb_publishable_Fb2idee5aJVSDM98BmJ1Jg_86NGh5V1"
 
 # Local session file
-SESSION_FILE = Path.home() / ".waffler" / "session.json"
+SESSION_FILE = Path.home() / ".waffler-hosted" / "session.json"
 
 # ── Module state ──────────────────────────────────────────────────────
 _client: Client = None
