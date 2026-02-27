@@ -3,9 +3,13 @@ Waffler Backend API
 FastAPI application for account management, usage tracking, and billing
 """
 
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
+
+from database.config import engine, Base
+from database.models import User, UsageLog, Subscription
 
 # Import routers
 from app.auth.router import router as auth_router
@@ -13,11 +17,18 @@ from app.usage.router import router as usage_router
 from app.subscription.router import router as subscription_router
 from app.style.router import router as style_router
 
+@asynccontextmanager
+async def lifespan(app):
+    """Create database tables on startup."""
+    Base.metadata.create_all(bind=engine)
+    yield
+
 # Create FastAPI app
 app = FastAPI(
     title="Waffler API",
     description="Account management and usage tracking for Waffler",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan,
 )
 
 # CORS middleware - allow frontend to connect
