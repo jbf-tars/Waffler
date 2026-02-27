@@ -63,7 +63,7 @@ def make_rect(x, y, w, h):
 # ── Custom NSView ─────────────────────────────────────────────────────
 
 class PillView(NSView):
-    """Draws the pill-shaped overlay with VU bars, cancel & stop buttons."""
+    """Draws the pill-shaped overlay with waffle pattern and syrup filling effect."""
 
     NUM_BARS = 10
 
@@ -72,6 +72,8 @@ class PillView(NSView):
         if self:
             self._bars   = [0.0] * self.NUM_BARS
             self._targets = [0.0] * self.NUM_BARS
+            self._syrup_level = 0.0  # 0.0 to 1.0 - controls syrup fill height
+            self._syrup_target = 0.0
         return self
 
     def isOpaque(self):
@@ -92,14 +94,20 @@ class PillView(NSView):
         NSColor.clearColor().set()
         NSBezierPath.fillRect_(b)
 
-        # 2. Pill background (white)
+        # 2. Pill background - warm cream waffle color
         r = h / 2.0
         pill = NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(b, r, r)
-        NSColor.colorWithCalibratedRed_green_blue_alpha_(1.0, 1.0, 1.0, 0.98).set()
+        NSColor.colorWithCalibratedRed_green_blue_alpha_(1.0, 0.992, 0.961, 0.98).set()  # #FFFDF5
         pill.fill()
 
-        # Border
-        NSColor.colorWithCalibratedRed_green_blue_alpha_(0.75, 0.75, 0.75, 0.55).set()
+        # 3. Waffle grid pattern (subtle)
+        self._draw_waffle_grid(b, r)
+
+        # 4. Syrup filling effect (from bottom up based on mic level)
+        self._draw_syrup_fill(b, r)
+
+        # Border - golden brown
+        NSColor.colorWithCalibratedRed_green_blue_alpha_(0.784, 0.635, 0.337, 0.55).set()  # #C8A256
         pill.setLineWidth_(0.5)
         pill.stroke()
 
@@ -143,6 +151,98 @@ class PillView(NSView):
     def _draw_stop_square(self, cx, cy, size):
         NSColor.whiteColor().set()
         NSBezierPath.fillRect_(make_rect(cx - size / 2, cy - size / 2, size, size))
+
+    def _draw_waffle_grid(self, bounds, radius):
+        """Draw subtle waffle grid pattern."""
+        w = bounds.size.width
+        h = bounds.size.height
+
+        # Very subtle grid lines
+        NSColor.colorWithCalibratedRed_green_blue_alpha_(0.784, 0.635, 0.337, 0.08).set()  # #C8A256 at 8% opacity
+
+        # Vertical lines
+        grid_spacing = 8.0
+        x = grid_spacing
+        while x < w - radius:
+            path = NSBezierPath.bezierPath()
+            path.setLineWidth_(0.5)
+            path.moveToPoint_(AppKit.NSMakePoint(x, 2))
+            path.lineToPoint_(AppKit.NSMakePoint(x, h - 2))
+            path.stroke()
+            x += grid_spacing
+
+        # Horizontal lines
+        y = grid_spacing
+        while y < h - 2:
+            path = NSBezierPath.bezierPath()
+            path.setLineWidth_(0.5)
+            path.moveToPoint_(AppKit.NSMakePoint(radius, y))
+            path.lineToPoint_(AppKit.NSMakePoint(w - radius, y))
+            path.stroke()
+            y += grid_spacing
+
+    def _draw_syrup_fill(self, bounds, radius):
+        """Draw syrup filling from bottom based on mic level."""
+        w = bounds.size.width
+        h = bounds.size.height
+
+        # Animate syrup level smoothly
+        changed = False
+        if abs(self._syrup_level - self._syrup_target) > 0.01:
+            self._syrup_level += (self._syrup_target - self._syrup_level) * 0.25
+            changed = True
+        else:
+            self._syrup_level = self._syrup_target
+
+        if changed:
+            self.setNeedsDisplay_(True)
+
+        # Calculate syrup fill height
+        syrup_height = h * self._syrup_level
+        if syrup_height < 2:
+            return  # Don't draw if too small
+
+        # Create clipping path for pill shape
+        pill_clip = NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(bounds, radius, radius)
+        pill_clip.addClip()
+
+        # Draw syrup with gradient effect (golden-brown)
+        syrup_rect = make_rect(0, 0, w, syrup_height)
+
+        # Create gradient from darker to lighter golden syrup
+        gradient = AppKit.NSGradient.alloc().initWithColors_(
+            [
+                NSColor.colorWithCalibratedRed_green_blue_alpha_(0.545, 0.373, 0.078, 0.85),  # #8B5F14 darker syrup
+                NSColor.colorWithCalibratedRed_green_blue_alpha_(0.784, 0.635, 0.337, 0.75),  # #C8A256 golden
+                NSColor.colorWithCalibratedRed_green_blue_alpha_(0.831, 0.690, 0.416, 0.65),  # #D4B06A lighter
+            ]
+        )
+        gradient.drawInRect_angle_(syrup_rect, 90.0)  # Draw vertically
+
+        # Add subtle drip effect at top of syrup
+        if syrup_height > 5:
+            self._draw_syrup_drips(w, syrup_height)
+
+    def _draw_syrup_drips(self, width, syrup_top):
+        """Draw dripping effect at top of syrup."""
+        # Small drips at random-ish positions
+        drip_positions = [0.2, 0.4, 0.6, 0.8]
+        drip_color = NSColor.colorWithCalibratedRed_green_blue_alpha_(0.784, 0.635, 0.337, 0.6)
+
+        t = time.time()
+        for i, pos in enumerate(drip_positions):
+            # Animate drip height
+            drip_offset = abs(math.sin(t * 2.0 + i * 1.5)) * 2.0
+
+            x = width * pos
+            y = syrup_top + drip_offset
+
+            # Draw small drip circle
+            drip_r = 1.5
+            drip_rect = make_rect(x - drip_r, y - drip_r, drip_r * 2, drip_r * 2)
+            drip_circle = NSBezierPath.bezierPathWithOvalInRect_(drip_rect)
+            drip_color.set()
+            drip_circle.fill()
 
     def _draw_bars(self, x_start, x_end, cy, h):
         n = self.NUM_BARS
@@ -225,6 +325,10 @@ def _dispatch_cmd(cmd):
     elif ctype == "level":
         level = float(cmd.get("value", 0.0))
         if _g_view:
+            # Update syrup fill level (main visual effect)
+            _g_view._syrup_target = level
+
+            # Also update bars for additional visual feedback
             t = time.time()
             targets = []
             for i in range(PillView.NUM_BARS):
@@ -232,6 +336,9 @@ def _dispatch_cmd(cmd):
                 noise = random.uniform(0.82, 1.0)
                 targets.append(level * wave * noise)
             _g_view.setTargets_(targets)
+
+            # Trigger redraw for syrup animation
+            _g_view.setNeedsDisplay_(True)
 
     elif ctype == "quit":
         NSApplication.sharedApplication().terminate_(None)

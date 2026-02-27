@@ -31,13 +31,17 @@ import tkinter as tk
 
 # ── Constants ──────────────────────────────────────────────────────────
 TRANSPARENT  = '#010101'   # Magic colour used for window-level transparency
-BG_COLOR     = '#1e1e24'   # Pill background (slightly lighter for depth)
-BORDER_CLR   = '#7c3aed'   # Pill border (--accent purple)
-CANCEL_BG    = '#2a2a35'   # Cancel button background
-CANCEL_X_CLR = '#ef4444'   # Cancel X mark colour (--red)
-STOP_BG      = '#7c3aed'   # Stop button background (--accent)
+BG_COLOR     = '#FFFDF5'   # Warm cream waffle background
+BORDER_CLR   = '#C8A256'   # Golden-brown border
+CANCEL_BG    = '#F0EDE6'   # Cancel button background
+CANCEL_X_CLR = '#8B6914'   # Cancel X mark colour (dark golden)
+STOP_BG      = '#C8A256'   # Stop button background (golden)
 STOP_ICON    = '#ffffff'   # Stop icon colour (white for contrast)
-BAR_IDLE     = '#3a3a4a'   # Idle bar colour (subtle)
+BAR_IDLE     = '#E8E4DC'   # Idle bar colour (subtle cream)
+SYRUP_DARK   = '#8B5F14'   # Dark syrup color
+SYRUP_MID    = '#C8A256'   # Mid syrup color
+SYRUP_LIGHT  = '#D4B06A'   # Light syrup color
+WAFFLE_GRID  = '#C8A256'   # Waffle grid lines
 
 NUM_BARS    = 16
 WIN_W       = 200
@@ -58,6 +62,8 @@ TOAST_PAD   = 14           # gap above pill
 _cmd_queue: queue.Queue = queue.Queue()
 _bars:    list = [0.0] * NUM_BARS
 _targets: list = [0.0] * NUM_BARS
+_syrup_level: float = 0.0  # Current syrup fill level (0.0 to 1.0)
+_syrup_target: float = 0.0  # Target syrup fill level for smooth animation
 _visible: bool = False
 _root           = None
 _canvas         = None
@@ -126,8 +132,71 @@ def _draw_pill():
                               sx + sq // 2, cy + sq // 2,
                               fill=STOP_ICON, outline=STOP_ICON)
 
-    # 5. VU bars — centre zone
+    # 5. Waffle grid pattern (subtle)
+    _draw_waffle_grid(W, H, R)
+
+    # 6. Syrup filling effect (from bottom up)
+    _draw_syrup_fill(W, H, R, cy)
+
+    # 7. VU bars — centre zone (lighter now for contrast with syrup)
     _draw_vu_bars(40, W - 40, H, cy)
+
+
+def _draw_waffle_grid(W: int, H: int, R: int):
+    """Draw subtle waffle grid pattern."""
+    grid_spacing = 10
+    grid_color = f'{WAFFLE_GRID}15'  # Very transparent
+
+    # Vertical lines
+    x = grid_spacing
+    while x < W - R:
+        _canvas.create_line(x, 2, x, H - 2, fill=grid_color, width=0.5)
+        x += grid_spacing
+
+    # Horizontal lines
+    y = grid_spacing
+    while y < H - 2:
+        _canvas.create_line(R, y, W - R, y, fill=grid_color, width=0.5)
+        y += grid_spacing
+
+
+def _draw_syrup_fill(W: int, H: int, R: int, cy: int):
+    """Draw syrup filling from bottom up based on mic level."""
+    global _syrup_level, _syrup_target
+
+    # Smooth animation towards target
+    if abs(_syrup_level - _syrup_target) > 0.01:
+        _syrup_level += (_syrup_target - _syrup_level) * 0.25
+
+    syrup_height = int(H * _syrup_level)
+    if syrup_height < 2:
+        return
+
+    # Create syrup gradient (darker at bottom, lighter at top)
+    # Draw multiple thin rectangles to simulate gradient
+    gradient_steps = min(20, syrup_height)
+    for i in range(gradient_steps):
+        y = H - syrup_height + (i * syrup_height // gradient_steps)
+        h = max(1, syrup_height // gradient_steps)
+
+        # Interpolate color from dark to light
+        ratio = i / max(1, gradient_steps - 1)
+        # Dark syrup #8B5F14 to light syrup #D4B06A
+        r = int(0x8B + (0xD4 - 0x8B) * ratio)
+        g = int(0x5F + (0xB0 - 0x5F) * ratio)
+        b = int(0x14 + (0x6A - 0x14) * ratio)
+        color = f'#{r:02x}{g:02x}{b:02x}'
+
+        # Draw syrup layer (rounded at edges)
+        _canvas.create_rectangle(R, y, W - R, y + h, fill=color, outline=color)
+
+    # Rounded bottom caps
+    _canvas.create_arc(0, H - R * 2, R * 2, H,
+                      start=180, extent=90,
+                      fill=SYRUP_DARK, outline=SYRUP_DARK, style=tk.PIESLICE)
+    _canvas.create_arc(W - R * 2, H - R * 2, W, H,
+                      start=270, extent=90,
+                      fill=SYRUP_DARK, outline=SYRUP_DARK, style=tk.PIESLICE)
 
 
 def _draw_vu_bars(x_start: int, x_end: int, H: int, cy: int):
@@ -339,7 +408,13 @@ def _handle_cmd(cmd: dict):
             _root.withdraw()
 
     elif ctype == "level":
+        global _syrup_target
         level = max(0.0, min(1.0, float(cmd.get("value", 0.0))))
+
+        # Update syrup fill level (main visual effect)
+        _syrup_target = level
+
+        # Also update bars for additional visual feedback
         t = time.time()
         for i in range(NUM_BARS):
             wave  = math.sin(i * 0.9 + t * 4.5) * 0.28 + 0.72
