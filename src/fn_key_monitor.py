@@ -12,7 +12,7 @@ class FnKeyMonitor(NSObject):
     """Monitors Fn key state using NSEvent global monitoring"""
 
     def __init__(self, on_fn_press, on_fn_release):
-        super().__init__()
+        NSObject.init(self)
         self._on_fn_press = on_fn_press
         self._on_fn_release = on_fn_release
         self._fn_pressed = False
