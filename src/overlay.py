@@ -101,13 +101,29 @@ class RecordingOverlay:
         Show a floating toast popup above the pill overlay.
         style: "cancel" or "error"
         """
+        from pathlib import Path
+        from datetime import datetime
+        log_file = Path.home() / ".waffler-hosted" / "app.log"
+        def log(msg):
+            try:
+                with open(log_file, "a") as f:
+                    ts = datetime.now().strftime("%H:%M:%S")
+                    f.write(f"{ts}  {msg}\n")
+            except:
+                pass
+
+        log(f"[overlay.py] show_toast: style={style}, heading='{heading}'")
         if self._is_alive():
+            log("[overlay.py] Subprocess ALIVE, sending show_toast command")
             self._send({
                 "type": "show_toast",
                 "style": style,
                 "heading": heading,
                 "body": body,
             })
+            log("[overlay.py] show_toast command SENT successfully")
+        else:
+            log("[overlay.py] ERROR: Subprocess is DEAD, cannot show toast!")
 
     def hide_toast(self):
         """Dismiss the toast popup."""
@@ -227,9 +243,12 @@ class RecordingOverlay:
                 if event == "cancel" and self._on_cancel:
                     self._on_cancel()
                 elif event == "cancel_request":
+                    print(f"[DEBUG overlay.py] Received cancel_request event", flush=True)
                     if self._on_cancel_request:
+                        print(f"[DEBUG overlay.py] Calling _on_cancel_request callback", flush=True)
                         self._on_cancel_request()
                     elif self._on_cancel:
+                        print(f"[DEBUG overlay.py] No _on_cancel_request, falling back to _on_cancel", flush=True)
                         self._on_cancel()
                 elif event == "stop" and self._on_stop:
                     self._on_stop()
