@@ -1231,8 +1231,9 @@ async function wizCheckPermissions() {
         accessRow.classList.add('granted');
       } else {
         accessIcon.innerHTML = '<span class="wizard-perm-denied">&#10007;</span>';
-        accessDesc.textContent = 'Needed for Fn key detection and auto-paste';
+        accessDesc.innerHTML = 'Click "Open Settings" → Find "Waffler" → Toggle ON → Click "Recheck Permissions"';
         accessBtn.style.display = 'inline-block';
+        accessBtn.textContent = 'Open Settings';
         accessRow.classList.remove('granted');
       }
     } else {
