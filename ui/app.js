@@ -1385,6 +1385,25 @@ function setFnKeyActive(isActive) {
       wizNext();
     }, 1000);
   }
+
+  // On Step 4: Show waffle overlay with mic feedback when Fn is held
+  if (_wizardStep === 4) {
+    if (isActive) {
+      // Show overlay with mic sensitivity
+      if (window.pywebview?.api) {
+        pywebview.api.demo_overlay_show().catch(e => {
+          console.warn('demo_overlay_show error:', e);
+        });
+      }
+    } else {
+      // Hide overlay when Fn is released
+      if (window.pywebview?.api) {
+        pywebview.api.demo_overlay_hide().catch(e => {
+          console.warn('demo_overlay_hide error:', e);
+        });
+      }
+    }
+  }
 }
 
 // ── Step 4: Try It Out (Mock App) ────────────────────────────
