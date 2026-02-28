@@ -901,8 +901,11 @@ class Api:
 
             # Create overlay for wizard Step 4 visual feedback
             try:
-                from overlay_process import OverlayController
-                _wizard_overlay = OverlayController()
+                _wizard_overlay = RecordingOverlay(
+                    on_cancel=lambda: None,  # Dummy callbacks for wizard
+                    on_stop=lambda: None,
+                    on_cancel_request=lambda: None,
+                )
                 _log_to_file("Wizard overlay created successfully")
             except Exception as e:
                 _log_to_file(f"Wizard overlay creation failed (non-critical): {e}")
