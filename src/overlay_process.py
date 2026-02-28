@@ -7,10 +7,13 @@ Receives JSON commands from stdin; emits JSON events on stdout.
 Commands:  {"type": "show"}
            {"type": "hide"}
            {"type": "level", "value": 0.0-1.0}
+           {"type": "show_toast", "style": "cancel/error", "heading": "...", "body": "..."}
+           {"type": "hide_toast"}
            {"type": "quit"}
 
-Events:    {"event": "cancel"}
+Events:    {"event": "cancel_request"}
            {"event": "stop"}
+           {"event": "toast_action", "action": "confirm/dismiss/select_mic"}
            {"event": "ready"}
 """
 
@@ -36,8 +39,14 @@ from AppKit import (
     NSBackingStoreBuffered,
     NSWindowCollectionBehaviorCanJoinAllSpaces,
     NSWindowCollectionBehaviorStationary,
+    NSFont,
+    NSFontAttributeName,
+    NSForegroundColorAttributeName,
+    NSParagraphStyleAttributeName,
+    NSMutableParagraphStyle,
+    NSCenterTextAlignment,
 )
-from Foundation import NSObject, NSTimer, NSRunLoop, NSDefaultRunLoopMode
+from Foundation import NSObject, NSTimer, NSRunLoop, NSDefaultRunLoopMode, NSMakeRect, NSMakePoint, NSPointInRect
 
 # NSWindowStyleMaskBorderless = 0
 NSWindowStyleMaskBorderless = 0
@@ -166,10 +175,10 @@ class PillView(NSView):
         h = bounds.size.height
 
         # Very subtle grid lines
-        NSColor.colorWithCalibratedRed_green_blue_alpha_(0.784, 0.635, 0.337, 0.08).set()  # #C8A256 at 8% opacity
+        NSColor.colorWithCalibratedRed_green_blue_alpha_(0.784, 0.635, 0.337, 0.15).set()  # #C8A256 at 15% opacity (match Windows)
 
         # Vertical lines
-        grid_spacing = 8.0
+        grid_spacing = 10.0  # Match Windows spacing
         x = grid_spacing
         while x < w - radius:
             path = NSBezierPath.bezierPath()
@@ -306,7 +315,7 @@ class PillView(NSView):
         STOP_HIT_X = 164
 
         if loc.x < CANCEL_HIT_X:
-            emit("cancel")
+            emit("cancel_request")  # Match Windows event name
         elif loc.x > STOP_HIT_X:
             emit("stop")
 
@@ -326,7 +335,7 @@ class PillView(NSView):
         for i in range(self.NUM_BARS):
             diff = self._targets[i] - self._bars[i]
             if abs(diff) > 0.005:
-                self._bars[i] += diff * 0.40
+                self._bars[i] += diff * 0.35  # Match Windows interpolation speed
                 changed = True
             else:
                 self._bars[i] = self._targets[i]
@@ -353,30 +362,173 @@ class ToastView(NSView):
         return self
 
     def drawRect_(self, rect):
-        """Draw toast with dark panel, golden border, icon, text, and buttons."""
-        # TODO: Full implementation based on Windows version (overlay_process_windows.py lines 238-386)
-        # Dark panel #18181f with golden border #C8A256
-        # Icon (red X or golden ! based on style)
-        # White heading text, gray body text
-        # Horizontal divider
-        # Two clickable buttons at bottom
+        """Draw toast with dark panel, golden border, icon, text, and buttons - matches Windows version."""
         b = self.bounds()
-        w = b.size.width
-        h = b.size.height
+        w = int(b.size.width)
+        h = int(b.size.height)
 
-        # Dark background with golden border
-        bg = NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(b, 12.0, 12.0)
-        NSColor.colorWithCalibratedRed_green_blue_alpha_(0.094, 0.094, 0.122, 0.98).set()  # #18181f
-        bg.fill()
+        # Clear background
+        NSColor.clearColor().set()
+        NSBezierPath.fillRect_(b)
 
-        # Golden border #C8A256
-        NSColor.colorWithCalibratedRed_green_blue_alpha_(0.784, 0.635, 0.337, 1.0).set()
-        bg.setLineWidth_(2.0)
-        bg.stroke()
+        # ── Shadow layer (offset darker rect behind main panel) ──
+        shadow = NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
+            NSMakeRect(4, 4, w - 4, h - 4), 14.0, 14.0
+        )
+        NSColor.colorWithCalibratedRed_green_blue_alpha_(0.047, 0.047, 0.063, 1.0).set()  # #0c0c10
+        shadow.fill()
 
-        # Simple text rendering for now
-        # TODO: Add icon, formatted text, divider, and buttons
-        pass
+        # ── Main panel - dark background #18181f with golden border #C8A256 ──
+        panel = NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
+            NSMakeRect(0, 0, w - 4, h - 4), 14.0, 14.0
+        )
+        NSColor.colorWithCalibratedRed_green_blue_alpha_(0.094, 0.094, 0.122, 1.0).set()  # #18181f
+        panel.fill()
+
+        # Golden border
+        NSColor.colorWithCalibratedRed_green_blue_alpha_(0.784, 0.635, 0.337, 1.0).set()  # #C8A256
+        panel.setLineWidth_(2.0)
+        panel.stroke()
+
+        # ── Icon ──
+        icon_x, icon_y = 32, 44
+
+        if self._style == 'cancel':
+            # Red warning circle with X
+            circle = NSBezierPath.bezierPathWithOvalInRect_(
+                NSMakeRect(icon_x - 15, icon_y - 15, 30, 30)
+            )
+            NSColor.colorWithCalibratedRed_green_blue_alpha_(0.176, 0.082, 0.125, 1.0).set()  # #2d1520
+            circle.fill()
+            NSColor.colorWithCalibratedRed_green_blue_alpha_(0.937, 0.267, 0.267, 1.0).setStroke()  # #ef4444
+            circle.setLineWidth_(1.5)
+            circle.stroke()
+
+            # X mark
+            NSColor.colorWithCalibratedRed_green_blue_alpha_(0.937, 0.267, 0.267, 1.0).set()  # #ef4444
+            off = 6
+            x_line1 = NSBezierPath.bezierPath()
+            x_line1.setLineWidth_(2.0)
+            x_line1.setLineCapStyle_(1)  # Round cap
+            x_line1.moveToPoint_(NSMakePoint(icon_x - off, icon_y - off))
+            x_line1.lineToPoint_(NSMakePoint(icon_x + off, icon_y + off))
+            x_line1.stroke()
+
+            x_line2 = NSBezierPath.bezierPath()
+            x_line2.setLineWidth_(2.0)
+            x_line2.setLineCapStyle_(1)
+            x_line2.moveToPoint_(NSMakePoint(icon_x + off, icon_y - off))
+            x_line2.lineToPoint_(NSMakePoint(icon_x - off, icon_y + off))
+            x_line2.stroke()
+        else:
+            # Golden info circle with !
+            circle = NSBezierPath.bezierPathWithOvalInRect_(
+                NSMakeRect(icon_x - 15, icon_y - 15, 30, 30)
+            )
+            NSColor.colorWithCalibratedRed_green_blue_alpha_(0.239, 0.184, 0.102, 1.0).set()  # #3d2f1a
+            circle.fill()
+            NSColor.colorWithCalibratedRed_green_blue_alpha_(0.831, 0.686, 0.416, 1.0).setStroke()  # #D4AF6A
+            circle.setLineWidth_(1.5)
+            circle.stroke()
+
+            # ! mark
+            attrs = {
+                NSFontAttributeName: NSFont.boldSystemFontOfSize_(12),
+                NSForegroundColorAttributeName: NSColor.colorWithCalibratedRed_green_blue_alpha_(0.831, 0.686, 0.416, 1.0)
+            }
+            "!".drawAtPoint_withAttributes_(NSMakePoint(icon_x - 3, icon_y - 7), attrs)
+
+        # ── Text ──
+        text_x = 60
+
+        # Heading (white, bold)
+        heading_attrs = {
+            NSFontAttributeName: NSFont.boldSystemFontOfSize_(11),
+            NSForegroundColorAttributeName: NSColor.whiteColor()
+        }
+        self._heading.drawAtPoint_withAttributes_(NSMakePoint(text_x, icon_y - 16), heading_attrs)
+
+        # Body (gray)
+        body_attrs = {
+            NSFontAttributeName: NSFont.systemFontOfSize_(9),
+            NSForegroundColorAttributeName: NSColor.colorWithCalibratedRed_green_blue_alpha_(0.533, 0.533, 0.627, 1.0)  # #8888a0
+        }
+        body_rect = NSMakeRect(text_x, icon_y + 6, w - text_x - 28, 20)
+        self._body.drawInRect_withAttributes_(body_rect, body_attrs)
+
+        # ── Divider line ──
+        div_y = h - 58
+        NSColor.colorWithCalibratedRed_green_blue_alpha_(0.165, 0.165, 0.208, 1.0).set()  # #2a2a35
+        divider = NSBezierPath.bezierPath()
+        divider.setLineWidth_(1.0)
+        divider.moveToPoint_(NSMakePoint(16, div_y))
+        divider.lineToPoint_(NSMakePoint(w - 20, div_y))
+        divider.stroke()
+
+        # ── Buttons ──
+        self._button_zones = []  # Clear and rebuild
+        btn_h = 30
+        btn_y = h - btn_h - 18
+        btn_gap = 14
+
+        if self._style == 'cancel':
+            # Two buttons: Discard (red) and Keep going (purple)
+            btn1_w, btn2_w = 110, 120
+            total = btn1_w + btn_gap + btn2_w
+            sx = (w - 4 - total) // 2  # Account for shadow offset
+
+            # Discard button (red)
+            self._draw_button(sx, btn_y, btn1_w, btn_h,
+                            (0.176, 0.082, 0.125, 1.0),  # #2d1520 bg
+                            (0.937, 0.267, 0.267, 1.0),  # #ef4444 border & text
+                            "Discard", "confirm")
+
+            # Keep going button (golden brown)
+            self._draw_button(sx + btn1_w + btn_gap, btn_y, btn2_w, btn_h,
+                            (0.784, 0.635, 0.337, 1.0),  # #C8A256 golden brown bg & border
+                            (1.0, 1.0, 1.0, 1.0),        # white text
+                            "Keep going", "dismiss")
+        else:
+            # Two buttons: Select mic (purple) and Dismiss (dark)
+            btn1_w, btn2_w = 120, 100
+            total = btn1_w + btn_gap + btn2_w
+            sx = (w - 4 - total) // 2
+
+            # Select mic button (golden brown)
+            self._draw_button(sx, btn_y, btn1_w, btn_h,
+                            (0.784, 0.635, 0.337, 1.0),  # #C8A256 golden brown
+                            (1.0, 1.0, 1.0, 1.0),
+                            "Select mic", "select_mic")
+
+            # Dismiss button (dark)
+            self._draw_button(sx + btn1_w + btn_gap, btn_y, btn2_w, btn_h,
+                            (0.165, 0.165, 0.208, 1.0),  # #2a2a35 bg
+                            (0.604, 0.604, 0.667, 1.0),  # #9a9aaa text
+                            "Dismiss", "dismiss")
+
+    def _draw_button(self, x, y, w, h, fill_rgba, text_rgba, text, action):
+        """Draw a rounded button and register its click zone."""
+        # Draw rounded rectangle button
+        btn_rect = NSMakeRect(x, y, w, h)
+        btn_path = NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(btn_rect, h / 2, h / 2)
+
+        NSColor.colorWithCalibratedRed_green_blue_alpha_(*fill_rgba).set()
+        btn_path.fill()
+        btn_path.setLineWidth_(1.5)
+        btn_path.stroke()
+
+        # Draw button text (centered)
+        attrs = {
+            NSFontAttributeName: NSFont.boldSystemFontOfSize_(9),
+            NSForegroundColorAttributeName: NSColor.colorWithCalibratedRed_green_blue_alpha_(*text_rgba)
+        }
+        text_size = text.sizeWithAttributes_(attrs)
+        text_x = x + (w - text_size.width) / 2
+        text_y = y + (h - text_size.height) / 2
+        text.drawAtPoint_withAttributes_(NSMakePoint(text_x, text_y), attrs)
+
+        # Register button zone for click detection
+        self._button_zones.append((btn_rect, action))
 
     def mouseDown_(self, event):
         """Handle button clicks in toast."""
