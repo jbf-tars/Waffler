@@ -707,6 +707,7 @@ class Api:
                     sp.Popen(["start", "ms-settings:privacy-microphone"], shell=True)
                     return {"ok": True}
             elif plat.system() == "Darwin":
+                # macOS - open System Settings (works on all versions)
                 if permission_type == "microphone":
                     sp.Popen(["open", "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"])
                     return {"ok": True}

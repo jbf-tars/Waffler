@@ -1207,14 +1207,37 @@ async function wizCheckPermissions() {
       micRow.classList.remove('granted');
     }
 
-    // Accessibility (macOS only) - HIDDEN during wizard to match Windows UX
-    // Users can enable it later in Settings if needed for auto-paste
+    // Accessibility (macOS only) - show and check on Mac for Fn key detection
     const accessRow = document.getElementById('wizPermAccessibility');
-    accessRow.style.display = 'none';  // Always hidden in wizard (same as Windows)
+    const accessIcon = document.getElementById('wizPermAccessIcon');
+    const accessDesc = document.getElementById('wizPermAccessDesc');
+    const accessBtn = document.getElementById('wizPermAccessBtn');
+    const isMac = result.platform === 'Darwin';
 
-    // Overall state - Only check microphone during wizard (like Windows)
+    if (isMac && result.accessibility_granted !== undefined) {
+      // macOS - show accessibility permission
+      accessRow.style.display = 'flex';
+
+      if (result.accessibility_granted) {
+        accessIcon.innerHTML = '<span class="wizard-perm-granted">&#10003;</span>';
+        accessDesc.textContent = 'Accessibility granted — Fn key detection enabled';
+        accessBtn.style.display = 'none';
+        accessRow.classList.add('granted');
+      } else {
+        accessIcon.innerHTML = '<span class="wizard-perm-denied">&#10007;</span>';
+        accessDesc.textContent = 'Needed for Fn key detection and auto-paste';
+        accessBtn.style.display = 'inline-block';
+        accessRow.classList.remove('granted');
+      }
+    } else {
+      // Windows - hide accessibility row
+      accessRow.style.display = 'none';
+    }
+
+    // Overall state - check both mic and accessibility (if on Mac)
     const micOk = result.mic_granted;
-    _wizardPermissionsGranted = micOk;
+    const accessOk = isMac ? (result.accessibility_granted || false) : true;
+    _wizardPermissionsGranted = micOk && accessOk;
 
     const recheckBtn = document.getElementById('wizRecheckBtn');
     if (recheckBtn) recheckBtn.style.display = _wizardPermissionsGranted ? 'none' : 'block';
