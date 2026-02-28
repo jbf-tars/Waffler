@@ -70,27 +70,29 @@ echo "  This may take a few minutes..."
 echo ""
 python3 -m PyInstaller Waffler_mac.spec --noconfirm 2>&1
 
-# Step 6: Create DMG with Applications symlink (standard Mac installer)
+# Step 6: Create professional DMG with custom window (uses create-dmg)
 echo ""
-echo "[6/6] Creating Waffler.dmg..."
+echo "[6/6] Creating Waffler.dmg with custom installer window..."
 if [ -d "dist/Waffler.app" ]; then
-    # Create a staging folder with .app + Applications symlink
-    DMG_STAGE="dist/dmg-stage"
-    rm -rf "$DMG_STAGE"
-    mkdir -p "$DMG_STAGE"
-    cp -R dist/Waffler.app "$DMG_STAGE/"
-
-    # Create Applications symlink (standard Mac DMG layout)
-    ln -s /Applications "$DMG_STAGE/Applications"
-
     rm -f dist/Waffler.dmg
-    hdiutil create -volname "Waffler" \
-        -srcfolder "$DMG_STAGE" \
-        -ov -format UDZO \
-        dist/Waffler.dmg 2>&1
 
-    rm -rf "$DMG_STAGE"
-    echo "  Done."
+    # Create pretty DMG with custom window, waffle background, and auto-layout
+    create-dmg \
+        --volname "Waffler Installer" \
+        --volicon "icon.icns" \
+        --window-pos 200 120 \
+        --window-size 660 400 \
+        --icon-size 160 \
+        --icon "Waffler.app" 180 170 \
+        --hide-extension "Waffler.app" \
+        --app-drop-link 480 170 \
+        --background-color "#1a1a1a" \
+        --text-size 16 \
+        --no-internet-enable \
+        "dist/Waffler.dmg" \
+        "dist/Waffler.app" 2>&1 | grep -v "^hdiutil: " || true
+
+    echo "  Done. DMG created with custom installer window! 🧇"
 else
     echo "  WARNING: Waffler.app not found — skipping DMG"
 fi
