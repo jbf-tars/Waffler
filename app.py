@@ -433,6 +433,34 @@ class Api:
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
+    def demo_overlay_show(self) -> dict:
+        """Show overlay with mic feedback for wizard demo (Step 4)."""
+        global _pipeline
+        try:
+            if _pipeline and _pipeline.overlay:
+                _pipeline.overlay.show()
+                # Start showing mic levels without actually recording
+                if hasattr(_pipeline, 'audio'):
+                    _pipeline.audio.start_monitoring()
+                return {"ok": True}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+        return {"ok": False, "error": "Pipeline not initialized"}
+
+    def demo_overlay_hide(self) -> dict:
+        """Hide overlay after wizard demo."""
+        global _pipeline
+        try:
+            if _pipeline and _pipeline.overlay:
+                _pipeline.overlay.hide()
+                # Stop mic monitoring
+                if hasattr(_pipeline, 'audio'):
+                    _pipeline.audio.stop_monitoring()
+                return {"ok": True}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+        return {"ok": False, "error": "Pipeline not initialized"}
+
     # ── Settings API ──────────────────────────────────────────────────────────
 
     def _settings_file(self):

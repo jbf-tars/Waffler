@@ -110,6 +110,33 @@ class AudioRecorder:
 
         return self._to_wav_bytes(self.recording)
 
+    def start_monitoring(self):
+        """Start audio stream for level monitoring only (no recording)."""
+        if self._stream and self._stream.active:
+            return  # Already monitoring/recording
+
+        self.is_recording = False  # Don't save audio
+        self._buffer = []
+
+        self._stream = sd.InputStream(
+            samplerate=self.sample_rate,
+            channels=self.channels,
+            dtype='int16',
+            callback=self._callback,
+            blocksize=1024
+        )
+        self._stream.start()
+        print("🎤 Audio monitoring started (demo mode)")
+
+    def stop_monitoring(self):
+        """Stop audio monitoring stream."""
+        if self._stream:
+            self._stream.stop()
+            self._stream.close()
+            self._stream = None
+            self._last_rms = 0.0
+            print("🎤 Audio monitoring stopped")
+
     def record_chunk(self, duration: float = 0.1):
         """No-op — continuous stream handles recording automatically"""
         pass
