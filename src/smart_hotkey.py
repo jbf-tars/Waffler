@@ -3,10 +3,10 @@ Waffler Smart Hotkey
 
 Supports ANY hotkey combination (Fn, Cmd+Shift+Space, Option+Space, etc.)
 
-Press once       → Start recording (push-to-talk: hold to record)
-Release          → Stop recording
-Double-tap       → Sticky mode (hands-free recording)
-Press again      → Stop sticky mode
+Hold hotkey     → Start recording (push-to-talk)
+Release         → Stop recording
+Press Space while holding → Sticky mode (hands-free recording)
+Press hotkey again → Stop sticky mode
 
 Uses CGEventTap for all key detection - no pynput (avoids macOS crashes)
 """
@@ -34,13 +34,19 @@ class SmartHotkeyListener:
         self._hotkey_held = False   # Hotkey currently down
         self._sticky = False        # Locked-on (toggle) mode active
         self._recording = False     # Are we recording right now?
-        self._last_press_time = 0   # For double-tap detection
 
-        # Use generic MacHotkeyMonitor for any key combination
+        # Monitor for the main hotkey combination
         self._monitor = MacHotkeyMonitor(
             keys=self._keys,
             on_press=self._on_hotkey_press,
             on_release=self._on_hotkey_release
+        )
+
+        # Monitor for Space key to trigger sticky mode
+        self._space_monitor = MacHotkeyMonitor(
+            keys=["space"],
+            on_press=self._on_space_press,
+            on_release=lambda: None  # Don't care about space release
         )
 
         print(f"[HOTKEY] SmartHotkeyListener initialized with keys: {self._keys}")
@@ -49,18 +55,9 @@ class SmartHotkeyListener:
 
     def _on_hotkey_press(self):
         """Called when hotkey combination is pressed"""
-        import time
-        current_time = time.time()
-
         print(f"[HOTKEY] Hotkey pressed | sticky={self._sticky} recording={self._recording}")
 
-        # Check for double-tap (press within 0.5s of last press)
-        if not self._sticky and self._recording and (current_time - self._last_press_time) < 0.5:
-            # Double-tap → enable sticky mode
-            self._sticky = True
-            self._hotkey_held = False  # Allow release without stopping
-            print("📌 Sticky mode — hands-free recording; press hotkey again to stop")
-        elif self._sticky and self._recording:
+        if self._sticky and self._recording:
             # Already in sticky mode → stop
             print("[HOTKEY] → Stopping sticky mode")
             self._sticky = False
@@ -73,8 +70,6 @@ class SmartHotkeyListener:
             self._recording = True
             self._fire_press()
 
-        self._last_press_time = current_time
-
     def _on_hotkey_release(self):
         """Called when hotkey combination is released"""
         print(f"[HOTKEY] Hotkey released | sticky={self._sticky} recording={self._recording}")
@@ -85,6 +80,15 @@ class SmartHotkeyListener:
             print("[HOTKEY] → Stopping push-to-talk")
             self._recording = False
             self._fire_release()
+
+    def _on_space_press(self):
+        """Called when Space key is pressed - triggers sticky mode if hotkey is held"""
+        print(f"[HOTKEY] Space pressed | hotkey_held={self._hotkey_held} recording={self._recording} sticky={self._sticky}")
+
+        if self._hotkey_held and self._recording and not self._sticky:
+            # Space pressed while holding hotkey → enable sticky mode
+            self._sticky = True
+            print("📌 Space → Sticky mode activated! Recording locked on. Press hotkey again to stop.")
 
     # ── Callbacks (run in a thread to avoid blocking) ─────────
 
@@ -102,19 +106,21 @@ class SmartHotkeyListener:
         self._hotkey_held = False
         self._sticky = False
         self._recording = False
-        self._last_press_time = 0
         print("[HOTKEY] → State reset to: sticky=False recording=False hotkey_held=False")
 
     # ── Lifecycle ─────────────────────────────────────────────────────
 
     def start(self):
         hotkey_display = " + ".join(self._keys)
-        print(f"⌨️  Hotkey: Hold {hotkey_display} to record | Double-tap = sticky | Press again = stop")
+        print(f"⌨️  Hotkey: Hold {hotkey_display} to record | Press Space while holding = sticky | Press hotkey again = stop")
         self._monitor.start()
+        self._space_monitor.start()
 
     def stop(self):
         if self._monitor:
             self._monitor.stop()
+        if self._space_monitor:
+            self._space_monitor.stop()
 
     def join(self):
         # No listener to join - CGEventTap runs in daemon thread
