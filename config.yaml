@@ -2,7 +2,7 @@
 
 # Hotkey Configuration
 hotkey:
-  key: "ctrl+space"  # Control + Space — tap once to start, tap again to stop (toggle mode)
+  key: "fn"  # Fn key — hold to record, Fn+Space for sticky mode
   
 # Audio Configuration
 audio:
