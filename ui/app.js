@@ -857,6 +857,12 @@ async function _pollForOAuthSession() {
     try {
       const res = await pywebview.api.auth_poll_oauth();
       if (res.ok && res.user) {
+        // Bring app window to foreground
+        try {
+          await pywebview.api.focus_window();
+        } catch(e) {
+          console.warn('Could not focus window:', e);
+        }
         onAuthSuccess(res.user);
         return;
       }
