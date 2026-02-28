@@ -758,26 +758,42 @@ class Api:
         return result
 
     def request_accessibility_permission(self) -> dict:
-        """Trigger macOS to show accessibility permission dialog."""
+        """Trigger macOS to show accessibility permission dialog by actually using accessibility APIs."""
         import platform as plat
         if plat.system() != "Darwin":
             return {"ok": True, "message": "Not needed on this platform"}
 
         try:
-            from ApplicationServices import AXIsProcessTrusted, AXIsProcessTrustedWithOptions
-            from CoreFoundation import CFDictionaryCreate, kCFBooleanTrue
-
-            # Attempt to trigger the permission prompt by calling with prompt option
-            # This will show the system dialog if not already granted
-            opts = CFDictionaryCreate(None, ["AXTrustedCheckOptionPrompt"], [kCFBooleanTrue], 1, None, None)
-            is_trusted = AXIsProcessTrustedWithOptions(opts)
-
-            if is_trusted:
+            # First check if already trusted
+            from ApplicationServices import AXIsProcessTrusted
+            if AXIsProcessTrusted():
                 return {"ok": True, "message": "Accessibility already granted"}
-            else:
-                return {"ok": True, "message": "Permission dialog shown - please grant access and click Recheck"}
+
+            # Not trusted - attempt to trigger permission dialog by using accessibility features
+            try:
+                from Quartz import (
+                    CGWindowListCopyWindowInfo,
+                    kCGWindowListOptionOnScreenOnly,
+                    kCGNullWindowID
+                )
+                # Attempt to access window list - this requires accessibility permission
+                # This will trigger macOS to show the permission dialog
+                _ = CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly, kCGNullWindowID)
+            except:
+                # If that fails, try another approach
+                try:
+                    from ApplicationServices import AXUIElementCreateSystemWide, AXUIElementCopyAttributeValue
+                    # Try to access system-wide UI element - also requires accessibility
+                    system_elem = AXUIElementCreateSystemWide()
+                    _ = AXUIElementCopyAttributeValue(system_elem, "AXFocusedApplication", None)
+                except:
+                    pass
+
+            # Opening System Settings is now the main action
+            return {"ok": True, "message": "Please grant Waffler accessibility permission in System Settings"}
+
         except Exception as e:
-            return {"ok": False, "error": f"Could not trigger permission: {str(e)}"}
+            return {"ok": False, "error": f"Error: {str(e)}"}
 
     def open_permission_settings(self, permission_type: str) -> dict:
         """Open the relevant system settings page for the given permission."""
