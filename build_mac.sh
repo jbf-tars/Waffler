@@ -76,7 +76,7 @@ echo "[6/6] Creating Waffler.dmg with custom installer window..."
 if [ -d "dist/Waffler.app" ]; then
     rm -f dist/Waffler.dmg
 
-    # Create pretty DMG with custom window, waffle background, and auto-layout
+    # Create pretty DMG with custom window and auto-layout
     create-dmg \
         --volname "Waffler Installer" \
         --volicon "icon.icns" \
@@ -86,7 +86,6 @@ if [ -d "dist/Waffler.app" ]; then
         --icon "Waffler.app" 180 170 \
         --hide-extension "Waffler.app" \
         --app-drop-link 480 170 \
-        --background-color "#1a1a1a" \
         --text-size 16 \
         --no-internet-enable \
         "dist/Waffler.dmg" \
