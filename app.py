@@ -757,6 +757,28 @@ class Api:
 
         return result
 
+    def request_accessibility_permission(self) -> dict:
+        """Trigger macOS to show accessibility permission dialog."""
+        import platform as plat
+        if plat.system() != "Darwin":
+            return {"ok": True, "message": "Not needed on this platform"}
+
+        try:
+            from ApplicationServices import AXIsProcessTrusted, AXIsProcessTrustedWithOptions
+            from CoreFoundation import CFDictionaryCreate, kCFBooleanTrue
+
+            # Attempt to trigger the permission prompt by calling with prompt option
+            # This will show the system dialog if not already granted
+            opts = CFDictionaryCreate(None, ["AXTrustedCheckOptionPrompt"], [kCFBooleanTrue], 1, None, None)
+            is_trusted = AXIsProcessTrustedWithOptions(opts)
+
+            if is_trusted:
+                return {"ok": True, "message": "Accessibility already granted"}
+            else:
+                return {"ok": True, "message": "Permission dialog shown - please grant access and click Recheck"}
+        except Exception as e:
+            return {"ok": False, "error": f"Could not trigger permission: {str(e)}"}
+
     def open_permission_settings(self, permission_type: str) -> dict:
         """Open the relevant system settings page for the given permission."""
         import platform as plat
@@ -767,7 +789,11 @@ class Api:
                     sp.Popen(["start", "ms-settings:privacy-microphone"], shell=True)
                     return {"ok": True}
             elif plat.system() == "Darwin":
-                # macOS - open System Settings (works on all versions)
+                # macOS - First try to trigger the permission prompt
+                if permission_type == "accessibility":
+                    self.request_accessibility_permission()
+
+                # Then open System Settings as backup
                 if permission_type == "microphone":
                     sp.Popen(["open", "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"])
                     return {"ok": True}
