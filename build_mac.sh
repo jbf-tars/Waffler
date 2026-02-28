@@ -70,15 +70,28 @@ echo "  This may take a few minutes..."
 echo ""
 python3 -m PyInstaller Waffler_mac.spec --noconfirm 2>&1
 
-# Step 6: Create DMG with Applications symlink
+# Step 6: Create DMG with Applications symlink + Launcher
 echo ""
 echo "[6/6] Creating Waffler.dmg..."
 if [ -d "dist/Waffler.app" ]; then
-    # Create a staging folder with .app + Applications symlink
+    # Create launcher AppleScript
+    echo "  Creating launcher..."
+    cat > /tmp/waffler_launcher.scpt <<'LAUNCHER_EOF'
+do shell script "/Applications/Waffler.app/Contents/MacOS/Waffler > /dev/null 2>&1 &"
+LAUNCHER_EOF
+    osacompile -o "Open Waffler.app" /tmp/waffler_launcher.scpt 2>/dev/null
+
+    # Create a staging folder with .app + launcher + Applications symlink
     DMG_STAGE="dist/dmg-stage"
     rm -rf "$DMG_STAGE"
     mkdir -p "$DMG_STAGE"
     cp -R dist/Waffler.app "$DMG_STAGE/"
+
+    # Include launcher if it was created
+    if [ -d "Open Waffler.app" ]; then
+        cp -R "Open Waffler.app" "$DMG_STAGE/"
+    fi
+
     ln -s /Applications "$DMG_STAGE/Applications"
 
     rm -f dist/Waffler.dmg
