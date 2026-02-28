@@ -76,16 +76,17 @@ echo "[6/6] Creating Waffler.dmg with custom installer window..."
 if [ -d "dist/Waffler.app" ]; then
     rm -f dist/Waffler.dmg
 
-    # Create professional DMG installer with clean centered layout
+    # Create professional DMG installer with arrow background and centered layout
     create-dmg \
         --volname "Waffler" \
         --volicon "icon.icns" \
+        --background "dmg_background.png" \
         --window-pos 200 120 \
         --window-size 600 400 \
         --icon-size 100 \
-        --icon "Waffler.app" 150 190 \
+        --icon "Waffler.app" 140 190 \
         --hide-extension "Waffler.app" \
-        --app-drop-link 450 190 \
+        --app-drop-link 460 190 \
         --no-internet-enable \
         "dist/Waffler.dmg" \
         "dist/Waffler.app" 2>&1 | grep -v "^hdiutil: " || true
