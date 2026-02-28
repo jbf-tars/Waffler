@@ -805,16 +805,13 @@ class Api:
                     sp.Popen(["start", "ms-settings:privacy-microphone"], shell=True)
                     return {"ok": True}
             elif plat.system() == "Darwin":
-                # macOS - First try to trigger the permission prompt
-                if permission_type == "accessibility":
-                    self.request_accessibility_permission()
-
-                # Then open System Settings as backup
+                # macOS 13+ - Open System Settings directly (user just needs to toggle ON)
                 if permission_type == "microphone":
-                    sp.Popen(["open", "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"])
+                    sp.Popen(["open", "x-apple.systemsettings:com.apple.settings.PrivacySecurity.extension?Privacy_Microphone"])
                     return {"ok": True}
                 elif permission_type == "accessibility":
-                    sp.Popen(["open", "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"])
+                    # Opens directly to Accessibility pane - Waffler should be visible in list
+                    sp.Popen(["open", "x-apple.systemsettings:com.apple.settings.PrivacySecurity.extension?Privacy_Accessibility"])
                     return {"ok": True}
             return {"ok": False, "error": f"Unknown permission type: {permission_type}"}
         except Exception as e:
