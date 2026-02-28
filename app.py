@@ -1218,19 +1218,36 @@ class WafflerPipeline:
         else:
             self._device_index = None  # sounddevice default
 
+        # Cancellation tracking for _process() thread
+        self._processing_cancelled = threading.Event()
+        self._processing_id = 0  # Increments with each recording
+        self._processing_lock = threading.Lock()
+
     def set_device(self, device_index: int):
         """Update the audio device used for future recordings."""
         self._device_index = device_index
         _log_to_file(f"Audio device changed to index {device_index}")
 
     def _on_overlay_cancel(self):
-        """User clicked X on overlay — cancel recording."""
+        """User confirmed cancel — discard recording and clear clipboard."""
         if self.is_recording:
             self.is_recording = False
-            self.audio.stop()        # discard audio
+            self.audio.stop()
             self.overlay.hide()
             notify_js_status("idle")
             _log_to_file("Recording cancelled by user")
+
+        # Signal any running _process() thread to abort
+        with self._processing_lock:
+            self._processing_cancelled.set()
+
+        # Clear clipboard to prevent paste of cancelled transcription
+        try:
+            import pyperclip
+            pyperclip.copy("")
+            _log_to_file("Clipboard cleared after cancel")
+        except Exception as e:
+            _log_to_file(f"Clipboard clear failed: {e}")
 
     def _on_overlay_stop(self):
         """User clicked ■ on overlay — stop & process."""
@@ -1238,14 +1255,11 @@ class WafflerPipeline:
             self.on_hotkey_release()
 
     def _on_overlay_cancel_request(self):
-        """User clicked X on overlay — show toast confirmation."""
+        """User clicked X on overlay — directly cancel without confirmation."""
         if not self.is_recording:
             return
-        self.overlay.show_toast(
-            style="cancel",
-            heading="Cancel recording?",
-            body="Audio will be discarded.",
-        )
+        # Skip toast confirmation - directly cancel
+        self._on_overlay_cancel()
 
     def _on_toast_action(self, action: str):
         """Handle toast button clicks from overlay."""
@@ -1273,6 +1287,9 @@ class WafflerPipeline:
         self._prev_window = self.clipboard.get_focused_window()
         _log_to_file("Recording started")
         self.is_recording = True
+        # Clear any previous cancellation state
+        with self._processing_lock:
+            self._processing_cancelled.clear()
         self.audio.start()
         notify_js_status("listening")
         try:
@@ -1294,7 +1311,11 @@ class WafflerPipeline:
             self.overlay.hide()
         except Exception as e:
             print(f"[overlay] hide failed: {e}")
-        threading.Thread(target=self._process, daemon=True).start()
+        # Assign unique ID and spawn process thread
+        with self._processing_lock:
+            self._processing_id += 1
+            current_id = self._processing_id
+        threading.Thread(target=lambda: self._process(current_id), daemon=True).start()
 
     def toggle_pause(self):
         """Toggle pause state during recording."""
@@ -1341,8 +1362,26 @@ class WafflerPipeline:
         except Exception:
             pass
 
-    def _process(self):
+    def _process(self, processing_id: int):
+        """Process audio: transcribe, style, copy to clipboard, paste."""
+
+        def _is_cancelled():
+            """Check if this processing session has been cancelled."""
+            if self._processing_cancelled.is_set():
+                with self._processing_lock:
+                    # New recording started - old cancellation doesn't apply
+                    if processing_id != self._processing_id:
+                        return False
+                    return True
+            return False
+
         try:
+            # Early abort if already cancelled
+            if _is_cancelled():
+                _log_to_file(f"Processing {processing_id} aborted: cancelled before start")
+                notify_js_status("idle")
+                return
+
             audio_bytes = self.audio.stop()
             if not audio_bytes:
                 _log_to_file("No audio bytes captured")
@@ -1371,6 +1410,12 @@ class WafflerPipeline:
                     return
             except Exception:
                 pass  # If numpy check fails, continue with transcription
+
+            # Check cancellation before expensive transcription
+            if _is_cancelled():
+                _log_to_file(f"Processing {processing_id} aborted: cancelled before transcription")
+                notify_js_status("idle")
+                return
 
             # Transcribe
             transcript = self.transcriber.transcribe_sync(audio_bytes)
@@ -1422,8 +1467,20 @@ class WafflerPipeline:
             # Apply snippets (text expansion)
             styled = self._apply_snippets(styled)
 
+            # CRITICAL: Check cancellation before copying to clipboard
+            if _is_cancelled():
+                _log_to_file(f"Processing {processing_id} aborted: cancelled before clipboard")
+                notify_js_status("idle")
+                return
+
             # Copy to clipboard
             self.clipboard.copy(styled)
+
+            # Check cancellation before auto-paste
+            if _is_cancelled():
+                _log_to_file(f"Processing {processing_id} aborted: cancelled before paste")
+                notify_js_status("idle")
+                return
 
             # Auto-paste (respects settings)
             stored = {}
@@ -1435,6 +1492,12 @@ class WafflerPipeline:
                 pass
             if stored.get("auto_paste", True):
                 self.clipboard.auto_paste(self._prev_window)
+
+            # Check cancellation before saving to history
+            if _is_cancelled():
+                _log_to_file(f"Processing {processing_id} aborted: cancelled before history")
+                notify_js_status("idle")
+                return
 
             # Save to history
             item = {
