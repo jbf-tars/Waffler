@@ -220,12 +220,12 @@ class PillView(NSView):
         # Draw syrup with gradient effect (golden-brown)
         syrup_rect = make_rect(0, 0, w, syrup_height)
 
-        # Create gradient from darker to lighter golden syrup
+        # Create gradient from darker to lighter golden syrup (fully opaque like Windows)
         gradient = AppKit.NSGradient.alloc().initWithColors_(
             [
-                NSColor.colorWithCalibratedRed_green_blue_alpha_(0.545, 0.373, 0.078, 0.85),  # #8B5F14 darker syrup
-                NSColor.colorWithCalibratedRed_green_blue_alpha_(0.784, 0.635, 0.337, 0.75),  # #C8A256 golden
-                NSColor.colorWithCalibratedRed_green_blue_alpha_(0.831, 0.690, 0.416, 0.65),  # #D4B06A lighter
+                NSColor.colorWithCalibratedRed_green_blue_alpha_(0.545, 0.373, 0.078, 1.0),  # #8B5F14 darker syrup - OPAQUE
+                NSColor.colorWithCalibratedRed_green_blue_alpha_(0.784, 0.635, 0.337, 1.0),  # #C8A256 golden - OPAQUE
+                NSColor.colorWithCalibratedRed_green_blue_alpha_(0.831, 0.690, 0.416, 1.0),  # #D4B06A lighter - OPAQUE
             ]
         )
         gradient.drawInRect_angle_(syrup_rect, 90.0)  # Draw vertically
