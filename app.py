@@ -899,9 +899,14 @@ class Api:
             # Create temporary audio recorder
             _wizard_recorder = AudioRecorder(sample_rate=16000, channels=1)
 
-            # Don't create overlay during wizard - causes Mac subprocess threading crash
-            # Overlay will work normally after setup completes
-            _wizard_overlay = None
+            # Create overlay for wizard Step 4 visual feedback
+            try:
+                from overlay_process import OverlayController
+                _wizard_overlay = OverlayController()
+                _log_to_file("Wizard overlay created successfully")
+            except Exception as e:
+                _log_to_file(f"Wizard overlay creation failed (non-critical): {e}")
+                _wizard_overlay = None
 
             # Create temporary transcriber using already-validated keys
             openai_key = os.getenv("OPENAI_API_KEY", "")
