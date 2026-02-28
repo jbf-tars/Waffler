@@ -1303,6 +1303,9 @@ async function wizLoadHotkeyInfo() {
   window._fnKeyDetected = false;
 
   try {
+    // Start Fn key detection for this step
+    await pywebview.api.wizard_start_fn_detection();
+
     const info = await pywebview.api.test_hotkey();
     // Don't replace the fn key button content - it's already styled as a Mac key
     // Just update the mode description
