@@ -69,13 +69,37 @@ class ClipboardManager:
 
     @staticmethod
     def _auto_paste_mac():
-        """Send Cmd+V on macOS via osascript."""
+        """Send Cmd+V on macOS via Quartz events (same approach as Windows)."""
         try:
-            import subprocess
-            subprocess.run([
-                'osascript', '-e',
-                'tell application "System Events" to keystroke "v" using command down'
-            ], check=True)
+            from Quartz import (
+                CGEventCreateKeyboardEvent,
+                CGEventPost,
+                CGEventSetFlags,
+                kCGEventKeyDown,
+                kCGEventKeyUp,
+                kCGEventFlagMaskCommand,
+                kCGHIDEventTap
+            )
+
+            # V key code is 9 on macOS
+            v_keycode = 9
+
+            # Small delay to let the window get focus
+            time.sleep(0.1)
+
+            # Create Cmd+V key down event
+            key_down = CGEventCreateKeyboardEvent(None, v_keycode, True)
+            CGEventSetFlags(key_down, kCGEventFlagMaskCommand)
+
+            # Create Cmd+V key up event
+            key_up = CGEventCreateKeyboardEvent(None, v_keycode, False)
+            CGEventSetFlags(key_up, kCGEventFlagMaskCommand)
+
+            # Post events
+            CGEventPost(kCGHIDEventTap, key_down)
+            time.sleep(0.05)
+            CGEventPost(kCGHIDEventTap, key_up)
+
             print("📋 Auto-pasted via Cmd+V")
         except Exception as e:
             print(f"⚠️  Auto-paste failed: {e}")
