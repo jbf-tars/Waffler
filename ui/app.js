@@ -9,14 +9,25 @@ let _fnKeyCheckInterval = null;
 
 // ── Hotkey capture state ──────────────────────────────────────────
 let _capturedKeys = new Set();
-let _lastCapturedKeys = ["win", "ctrl"];
-let _currentHotkeyKeys = ["win", "ctrl"];
 
-const JS_KEY_TO_ID = {
+// Platform-specific defaults
+const isMacPlatform = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+let _lastCapturedKeys = isMacPlatform ? ["fn"] : ["win", "ctrl"];
+let _currentHotkeyKeys = isMacPlatform ? ["fn"] : ["win", "ctrl"];
+
+// Platform-specific key mapping
+const JS_KEY_TO_ID = isMacPlatform ? {
+  "Control": "control", "Alt": "option", "Shift": "shift",
+  "Meta": "cmd", "OS": "cmd",  // Command key on Mac
+} : {
   "Control": "ctrl", "Alt": "alt", "Shift": "shift",
-  "Meta": "win", "OS": "win",
+  "Meta": "win", "OS": "win",  // Windows key
 };
-const MODIFIER_IDS = new Set(["ctrl", "alt", "shift", "win"]);
+
+const MODIFIER_IDS = new Set(isMacPlatform ?
+  ["control", "option", "shift", "cmd", "fn"] :
+  ["ctrl", "alt", "shift", "win"]
+);
 
 function jsKeyToId(e) {
   if (JS_KEY_TO_ID[e.key]) return JS_KEY_TO_ID[e.key];
@@ -283,9 +294,9 @@ function _onCaptureKeyUp(e) {
 }
 
 function resetHotkeyDefault() {
-  _lastCapturedKeys = ["win", "ctrl"];
+  _lastCapturedKeys = isMacPlatform ? ["fn"] : ["win", "ctrl"];
   _capturedKeys.clear();
-  document.getElementById("hotkeyCaptureKeys").textContent = "Win + Ctrl";
+  document.getElementById("hotkeyCaptureKeys").textContent = isMacPlatform ? "Fn" : "Win + Ctrl";
   document.getElementById("hotkeyError").style.display = "none";
 }
 
@@ -293,7 +304,8 @@ async function saveHotkeyCapture() {
   const keys = _lastCapturedKeys;
   if (!keys.length) return;
   if (!keys.some(k => MODIFIER_IDS.has(k))) {
-    document.getElementById("hotkeyError").textContent = "At least one modifier key required (Ctrl, Alt, Shift, or Win)";
+    const modList = isMacPlatform ? "Command, Option, Control, Shift, or Fn" : "Ctrl, Alt, Shift, or Win";
+    document.getElementById("hotkeyError").textContent = `At least one modifier key required (${modList})`;
     document.getElementById("hotkeyError").style.display = "block";
     return;
   }
