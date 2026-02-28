@@ -482,9 +482,14 @@ class _OAuthCallbackHandler(BaseHTTPRequestHandler):
                 </svg>
                 <div class="status-title">Authentication complete</div>
                 <div class="status-message">
-                    You're all set. Return to Waffler to continue.
+                    You're all set. This window will close automatically...
                 </div>
             `;
+
+            // Auto-close window after 2 seconds
+            setTimeout(() => {
+                window.close();
+            }, 2000);
         }
 
         function showError(icon, title, message, details) {
