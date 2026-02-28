@@ -408,6 +408,31 @@ class Api:
         """Poll for OAuth callback result (called by JS after browser opens)."""
         return sb_poll_oauth_result()
 
+    def focus_window(self) -> dict:
+        """Bring the Waffler window to the foreground."""
+        try:
+            import platform
+            import webview
+
+            if platform.system() == "Darwin":
+                # macOS - activate the application using NSApp
+                try:
+                    from AppKit import NSApp, NSApplicationActivateIgnoringOtherApps
+                    NSApp.activateIgnoringOtherApps_(NSApplicationActivateIgnoringOtherApps)
+                except ImportError:
+                    # Fallback if AppKit not available
+                    pass
+
+            # Also try webview's method
+            windows = webview.windows
+            if windows:
+                windows[0].on_top = True
+                windows[0].on_top = False
+
+            return {"ok": True}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
     # ── Settings API ──────────────────────────────────────────────────────────
 
     def _settings_file(self):
