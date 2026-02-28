@@ -9,7 +9,7 @@ Uses CGEventTap for all key detection - no pynput (avoids macOS crashes)
 """
 
 import threading
-from src.fn_key_cgevent import FnKeyMonitor
+from fn_key_cgevent import FnKeyMonitor
 
 
 class SmartHotkeyListener:
