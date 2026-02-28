@@ -720,7 +720,7 @@ class Api:
         result = {
             "platform": plat.system(),
             "mic_granted": False,
-            "accessibility_granted": True,  # Only relevant on macOS
+            "accessibility_granted": False,  # Default to False - must be explicitly granted
             "mic_error": None,
             "accessibility_error": None,
         }
@@ -741,12 +741,19 @@ class Api:
         if plat.system() == "Darwin":
             try:
                 from ApplicationServices import AXIsProcessTrusted
-                result["accessibility_granted"] = bool(AXIsProcessTrusted())
+                is_trusted = AXIsProcessTrusted()
+                result["accessibility_granted"] = bool(is_trusted)
+                if not is_trusted:
+                    result["accessibility_error"] = "Not granted - click 'Open Settings' to grant"
             except ImportError:
-                result["accessibility_granted"] = True
-                result["accessibility_error"] = "Could not verify (pyobjc not available)"
+                result["accessibility_granted"] = False
+                result["accessibility_error"] = "Cannot check (PyObjC not available) - please grant manually"
             except Exception as e:
+                result["accessibility_granted"] = False
                 result["accessibility_error"] = str(e)
+        else:
+            # Windows - not required
+            result["accessibility_granted"] = True
 
         return result
 
