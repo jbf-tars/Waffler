@@ -1230,10 +1230,10 @@ async function wizCheckPermissions() {
         accessBtn.style.display = 'none';
         accessRow.classList.add('granted');
       } else {
-        accessIcon.innerHTML = '<span class="wizard-perm-denied">&#10007;</span>';
-        accessDesc.innerHTML = 'Click "Open Settings" → Find "Waffler" → Toggle ON → Click "Recheck Permissions"';
+        accessIcon.innerHTML = '<span class="wizard-perm-pending">●</span>';
+        accessDesc.innerHTML = '<strong>Optional:</strong> Enables auto-paste. You can skip for now and enable later in Settings.';
         accessBtn.style.display = 'inline-block';
-        accessBtn.textContent = 'Open Settings';
+        accessBtn.textContent = 'Enable (Optional)';
         accessRow.classList.remove('granted');
       }
     } else {
@@ -1241,10 +1241,10 @@ async function wizCheckPermissions() {
       accessRow.style.display = 'none';
     }
 
-    // Overall state - check both mic and accessibility (if on Mac)
+    // Overall state - only require microphone (accessibility is optional)
     const micOk = result.mic_granted;
     const accessOk = isMac ? (result.accessibility_granted || false) : true;
-    _wizardPermissionsGranted = micOk && accessOk;
+    _wizardPermissionsGranted = micOk;  // Only require mic, accessibility is optional
 
     const recheckBtn = document.getElementById('wizRecheckBtn');
     if (recheckBtn) recheckBtn.style.display = _wizardPermissionsGranted ? 'none' : 'block';
