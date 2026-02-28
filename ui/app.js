@@ -1298,6 +1298,9 @@ async function wizRequestAccessibilityPermission() {
 // ── Step 3: Hotkey Info ──────────────────────────────────────
 
 async function wizLoadHotkeyInfo() {
+  // Reset Fn key detection flag for this step
+  window._fnKeyDetected = false;
+
   try {
     const info = await pywebview.api.test_hotkey();
     // Don't replace the fn key button content - it's already styled as a Mac key
@@ -1364,6 +1367,23 @@ function setFnKeyActive(isActive) {
   const fnButton = document.getElementById('wizHotkeyBadge');
   if (fnButton) {
     fnButton.classList.toggle('active', isActive);
+  }
+
+  // On Step 3: Show success feedback and auto-advance when Fn is first pressed
+  if (_wizardStep === 3 && isActive && !window._fnKeyDetected) {
+    window._fnKeyDetected = true;
+
+    // Show success message
+    const desc = document.getElementById('wizHotkeyDesc');
+    if (desc) {
+      desc.innerHTML = '✅ <strong>Fn key detected!</strong> Advancing to next step...';
+      desc.style.color = '#C8A256';
+    }
+
+    // Auto-advance after 1 second
+    setTimeout(() => {
+      wizNext();
+    }, 1000);
   }
 }
 
