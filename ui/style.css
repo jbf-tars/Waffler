@@ -1351,11 +1351,7 @@ button, .nav-item, .header, .settings-header, .wizard-header,
   scrollbar-color: var(--border) transparent;
 }
 
-/* Mic dropdown scroll */
-.sidebar-select {
-  max-height: 150px;
-  overflow-y: auto;
-}
+/* Mic dropdown - removed overflow to prevent scrollbar */
 
 /* ── Auth Screens ─────────────────────────────────────────────────── */
 .auth-container {

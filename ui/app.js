@@ -50,16 +50,20 @@ function updateHotkeyHint() {
   // Detect platform from user agent
   const isWin = navigator.userAgent.includes('Windows');
   const badge = document.getElementById('hotkeyBadge');
+  const sidebarBadge = document.getElementById('hotkeyHint');  // Sidebar hotkey hint
   const label = document.getElementById('hotkeyLabel');
   const emptyHint = document.getElementById('emptyHint');
   if (isWin) {
     if (badge) badge.textContent = 'Ctrl + Space';
+    if (sidebarBadge) sidebarBadge.textContent = 'Ctrl + Space';
     if (label) label.textContent = 'Toggle recording';
     if (emptyHint) emptyHint.innerHTML = 'Press <strong>Ctrl + Space</strong> and speak';
   } else {
-    if (badge) badge.textContent = '⌥ Right';
-    if (label) label.textContent = 'Hold to record';
-    if (emptyHint) emptyHint.innerHTML = 'Hold <strong>Right ⌥</strong> and speak';
+    // macOS - use Fn key
+    if (badge) badge.textContent = 'Fn';
+    if (sidebarBadge) sidebarBadge.textContent = 'Fn';
+    if (label) label.textContent = 'Tap to start/stop';
+    if (emptyHint) emptyHint.innerHTML = 'Press <strong>Fn</strong> to start recording';
   }
 }
 
