@@ -1230,10 +1230,10 @@ async function wizCheckPermissions() {
         accessBtn.style.display = 'none';
         accessRow.classList.add('granted');
       } else {
-        accessIcon.innerHTML = '<span class="wizard-perm-pending">●</span>';
-        accessDesc.innerHTML = '<strong>Optional:</strong> Enables auto-paste. You can skip for now and enable later in Settings.';
+        accessIcon.innerHTML = '<span class="wizard-perm-denied">&#10007;</span>';
+        accessDesc.innerHTML = '<strong>Required for Fn key detection:</strong><br>1. Click "Open System Settings" below<br>2. Click + button → Applications → Waffler.app<br>3. Toggle switch ON<br>4. Return here and click "Recheck"';
         accessBtn.style.display = 'inline-block';
-        accessBtn.textContent = 'Enable (Optional)';
+        accessBtn.textContent = 'Open System Settings';
         accessRow.classList.remove('granted');
       }
     } else {
@@ -1241,10 +1241,10 @@ async function wizCheckPermissions() {
       accessRow.style.display = 'none';
     }
 
-    // Overall state - only require microphone (accessibility is optional)
+    // Overall state - require BOTH microphone AND accessibility (Fn key needs accessibility)
     const micOk = result.mic_granted;
     const accessOk = isMac ? (result.accessibility_granted || false) : true;
-    _wizardPermissionsGranted = micOk;  // Only require mic, accessibility is optional
+    _wizardPermissionsGranted = micOk && accessOk;  // Both required - accessibility needed for Fn key
 
     const recheckBtn = document.getElementById('wizRecheckBtn');
     if (recheckBtn) recheckBtn.style.display = _wizardPermissionsGranted ? 'none' : 'block';
