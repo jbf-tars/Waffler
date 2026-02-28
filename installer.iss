@@ -1,22 +1,39 @@
 ; Waffler — Inno Setup Installer Script
-; Produces: WafflerSetup.exe
-; Run with: ISCC.exe installer.iss
+; Produces: WafflerSetup-X.Y.Z.exe
+; Compile: ISCC.exe installer.iss
+; Or:      ISCC.exe /DAppVersion=1.0.0 installer.iss
+
+#ifndef AppVersion
+  #define AppVersion "1.0.0"
+#endif
+
+#define AppName      "Waffler"
+#define AppPublisher "Waffler"
+#define AppExeName   "Waffler.exe"
 
 [Setup]
-AppName=Waffler
-AppVersion=1.0.0
-AppPublisher=Waffler
-DefaultDirName={autopf}\Waffler
-DefaultGroupName=Waffler
+AppId={{B7E3F8A2-4D1C-4F9B-A8E5-6C2D1F3A4B5E}
+AppName={#AppName}
+AppVersion={#AppVersion}
+AppVerName={#AppName} {#AppVersion}
+AppPublisher={#AppPublisher}
+DefaultDirName={autopf}\{#AppName}
+DefaultGroupName={#AppName}
+DisableProgramGroupPage=yes
 OutputDir=dist-installer
-OutputBaseFilename=WafflerSetup
+OutputBaseFilename=WafflerSetup-{#AppVersion}
+SetupIconFile=icon.ico
+UninstallDisplayIcon={app}\{#AppExeName}
+UninstallDisplayName={#AppName}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
-UninstallDisplayName=Waffler
-SetupIconFile=icon.ico
+VersionInfoVersion={#AppVersion}.0
+VersionInfoCompany={#AppPublisher}
+VersionInfoDescription={#AppName} Desktop App
+VersionInfoProductName={#AppName}
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -25,13 +42,12 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"
 
 [Files]
-; Bundle the entire dist/Waffler folder
 Source: "dist\Waffler\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\Waffler"; Filename: "{app}\Waffler.exe"; IconFilename: "{app}\Waffler.exe"
-Name: "{group}\Uninstall Waffler"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\Waffler"; Filename: "{app}\Waffler.exe"; IconFilename: "{app}\Waffler.exe"; Tasks: desktopicon
+Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeName}"; IconFilename: "{app}\{#AppExeName}"
+Name: "{group}\Uninstall {#AppName}"; Filename: "{uninstallexe}"
+Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; IconFilename: "{app}\{#AppExeName}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\Waffler.exe"; Description: "Launch Waffler"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#AppExeName}"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
