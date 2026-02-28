@@ -153,8 +153,12 @@ app = BUNDLE(
     icon='icon.icns',
     bundle_identifier='com.waffler.app',
     info_plist={
+        'CFBundleName': 'Waffler',
+        'CFBundleDisplayName': 'Waffler',
+        'CFBundleExecutable': 'Waffler',
         'NSMicrophoneUsageDescription': 'Waffler needs microphone access for voice transcription.',
         'NSAppleEventsUsageDescription': 'Waffler needs accessibility access for hotkey detection and auto-paste.',
         'CFBundleShortVersionString': '1.0.0',
+        'LSMinimumSystemVersion': '10.13.0',
     },
 )
