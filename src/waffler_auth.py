@@ -433,9 +433,11 @@ class _OAuthCallbackHandler(BaseHTTPRequestHandler):
                 <div class="status-icon">✅</div>
                 <div class="status-title">Signed in successfully!</div>
                 <div class="status-message">
-                    You can close this tab and return to Waffler.
+                    Returning to Waffler...
                 </div>
             `;
+            // Auto-close the tab after a short delay
+            setTimeout(function() { window.close(); }, 1500);
         }
 
         function showError(icon, title, message, details) {
@@ -465,7 +467,7 @@ class _OAuthCallbackHandler(BaseHTTPRequestHandler):
             self.end_headers()
 
     def do_POST(self):
-        global _oauth_tokens
+        global _oauth_tokens, _user, _session
         if self.path == '/token':
             length = int(self.headers.get('Content-Length', 0))
             body = self.rfile.read(length)
@@ -478,24 +480,32 @@ class _OAuthCallbackHandler(BaseHTTPRequestHandler):
             if 'code' in data and 'access_token' not in data:
                 try:
                     client = _get_client()
+                    print(f"[OAuth] Exchanging auth code for session...")
                     res = client.auth.exchange_code_for_session({"auth_code": data["code"]})
                     if res.user and res.session:
-                        _oauth_tokens = {
+                        # Set user/session directly — don't rely on poll to re-set
+                        _user = {"id": str(res.user.id), "email": res.user.email}
+                        _session = {
                             "access_token": res.session.access_token,
                             "refresh_token": res.session.refresh_token,
                         }
+                        _save_session(_session)
+                        _oauth_tokens = {"done": True}  # Signal poll that auth is complete
+                        print(f"[OAuth] Success! user={res.user.email}")
                         self.send_response(200)
                         self.send_header('Content-Type', 'application/json')
                         self.end_headers()
                         self.wfile.write(json.dumps({"ok": True}).encode())
                         return
                     else:
+                        print(f"[OAuth] Code exchange returned no user/session")
                         self.send_response(200)
                         self.send_header('Content-Type', 'application/json')
                         self.end_headers()
                         self.wfile.write(json.dumps({"ok": False, "error": "Code exchange failed"}).encode())
                         return
                 except Exception as e:
+                    print(f"[OAuth] Code exchange error: {e}")
                     self.send_response(200)
                     self.send_header('Content-Type', 'application/json')
                     self.end_headers()
@@ -540,42 +550,29 @@ def _stop_oauth_server():
 
 def poll_oauth_result() -> dict:
     """Check if the OAuth callback has been received.
-    If tokens were captured, set the Supabase session and return the user.
+    The callback handler already sets _user/_session directly,
+    so we just check if auth is complete.
     Returns {ok: True, user: {...}} on success,
             {ok: False, pending: True} if still waiting,
             {ok: False, error: "..."} on failure.
     """
-    global _oauth_tokens, _user, _session
+    global _oauth_tokens
 
     if not _oauth_tokens:
         return {"ok": False, "pending": True}
 
-    access_token = _oauth_tokens.get('access_token', '')
-    refresh_token = _oauth_tokens.get('refresh_token', '')
-    _oauth_tokens = None
+    _oauth_tokens = None  # Clear the signal
 
-    if not access_token:
-        _stop_oauth_server()
-        return {"ok": False, "error": "No access token received"}
+    # User/session were already set by the callback handler
+    if _user:
+        print(f"[OAuth poll] Auth complete, user={_user.get('email')}")
+        # Stop server in background thread to avoid blocking the return
+        threading.Thread(target=_stop_oauth_server, daemon=True).start()
+        return {"ok": True, "user": _user}
 
-    try:
-        client = _get_client()
-        res = client.auth.set_session(access_token, refresh_token)
-        if res.user:
-            _user = {"id": str(res.user.id), "email": res.user.email}
-            _session = {
-                "access_token": res.session.access_token if res.session else access_token,
-                "refresh_token": res.session.refresh_token if res.session else refresh_token,
-            }
-            _save_session(_session)
-            _stop_oauth_server()
-            return {"ok": True, "user": _user}
-    except Exception as e:
-        _stop_oauth_server()
-        return {"ok": False, "error": f"Session error: {e}"}
-
-    _stop_oauth_server()
-    return {"ok": False, "error": "Failed to complete sign-in"}
+    # Fallback for implicit flow (tokens in hash fragment)
+    threading.Thread(target=_stop_oauth_server, daemon=True).start()
+    return {"ok": False, "error": "Sign-in completed but session not established"}
 
 
 def increment_usage(audio_seconds: float):

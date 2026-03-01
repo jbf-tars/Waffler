@@ -174,6 +174,11 @@ class WindowsHotkeyListener:
         self._running = False
         if self._thread_id:
             user32.PostThreadMessageW(self._thread_id, WM_QUIT, 0, 0)
+        # Release the hotkey hook mutex so a new listener can start
+        if getattr(self, '_hook_mutex', None):
+            ctypes.windll.kernel32.ReleaseMutex(self._hook_mutex)
+            ctypes.windll.kernel32.CloseHandle(self._hook_mutex)
+            self._hook_mutex = None
 
     def join(self):
         pass

@@ -359,6 +359,10 @@ class Api:
         """Poll for OAuth callback result (called by JS after browser opens)."""
         return sb_poll_oauth_result()
 
+    def debug_log(self, msg: str):
+        """JS-callable logger — routes JS messages to Python stdout."""
+        _log_to_file(f"[JS] {msg}")
+
     # ── Settings API ──────────────────────────────────────────────────────────
 
     def _settings_file(self):
@@ -530,7 +534,7 @@ class Api:
         has_any_key = bool(openai_key or groq_key)
         setup_done = _is_setup_complete()
         logged_in = sb_is_logged_in()
-        return {
+        result = {
             "needs_auth": not logged_in,
             "needs_setup": not setup_done or not has_any_key,
             "has_key": has_any_key,
@@ -540,6 +544,8 @@ class Api:
             "logged_in": logged_in,
             "user": sb_get_user() or {},
         }
+        print(f"[Onboarding] status={result}")
+        return result
 
     def validate_api_key(self, api_key: str) -> dict:
         """Validate an OpenAI API key by making a lightweight API call."""

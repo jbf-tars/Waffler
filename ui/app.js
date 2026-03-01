@@ -828,8 +828,8 @@ function oauthSignIn(provider) {
   }
   pywebview.api.auth_oauth(provider).then(function(res) {
     if (res && res.ok && res.url) {
-      // Open URL via Python subprocess (fire-and-forget)
-      pywebview.api.open_url(res.url);
+      // Open via JS so browser allows window.close() in callback
+      window.open(res.url, '_blank');
       if (validation) {
         validation.textContent = 'Complete sign-in in your browser, then come back here.';
         validation.className = 'wizard-validation loading';
@@ -849,18 +849,24 @@ function oauthSignIn(provider) {
   });
 }
 
+function _dbg(msg) {
+  try { pywebview.api.debug_log(msg); } catch(e) {}
+}
+
 async function _pollForOAuthSession() {
+  _dbg('_pollForOAuthSession started');
   // Poll every 2s for up to 2 minutes for the OAuth callback tokens
   for (let i = 0; i < 60; i++) {
     await new Promise(r => setTimeout(r, 2000));
     try {
       const res = await pywebview.api.auth_poll_oauth();
       if (res.ok && res.user) {
+        _dbg('Poll SUCCESS — calling onAuthSuccess');
         onAuthSuccess(res.user);
         return;
       }
       if (!res.ok && !res.pending) {
-        // Got a real error, not just waiting
+        _dbg('Poll ERROR: ' + (res.error || 'unknown'));
         const validation = document.getElementById(
           _authMode === 'signup' ? 'authSignUpValidation' : 'authValidation'
         );
@@ -870,9 +876,12 @@ async function _pollForOAuthSession() {
         }
         return;
       }
-    } catch(e) {}
+    } catch(e) {
+      _dbg('Poll EXCEPTION: ' + (e.message || e));
+    }
   }
   // Timed out
+  _dbg('Poll TIMED OUT');
   const validation = document.getElementById(
     _authMode === 'signup' ? 'authSignUpValidation' : 'authValidation'
   );
@@ -883,9 +892,19 @@ async function _pollForOAuthSession() {
 }
 
 function onAuthSuccess(user) {
-  hideAuthScreen();
-  updateSidebarUser(user);
-  checkOnboardingAfterAuth();
+  _dbg('onAuthSuccess called, user=' + JSON.stringify(user));
+  try {
+    hideAuthScreen();
+    _dbg('hideAuthScreen done');
+  } catch(e) { _dbg('hideAuthScreen ERROR: ' + e); }
+  try {
+    updateSidebarUser(user);
+    _dbg('updateSidebarUser done');
+  } catch(e) { _dbg('updateSidebarUser ERROR: ' + e); }
+  try {
+    checkOnboardingAfterAuth();
+    _dbg('checkOnboardingAfterAuth dispatched');
+  } catch(e) { _dbg('checkOnboardingAfterAuth ERROR: ' + e); }
 }
 
 function updateSidebarUser(user) {
@@ -947,11 +966,16 @@ async function checkOnboarding() {
 }
 
 async function checkOnboardingAfterAuth() {
+  _dbg('checkOnboardingAfterAuth running');
   try {
     const status = await pywebview.api.get_onboarding_status();
+    _dbg('onboarding status: ' + JSON.stringify(status));
     if (status.needs_setup) {
+      _dbg('needs_setup=true, calling showWizard');
       showWizard();
+      _dbg('showWizard done');
     } else {
+      _dbg('needs_setup=false, showing main app');
       // Show main app
       const sidebar = document.querySelector('.sidebar');
       if (sidebar) sidebar.style.display = '';
@@ -960,7 +984,7 @@ async function checkOnboardingAfterAuth() {
       refreshAll();
     }
   } catch(e) {
-    console.warn('checkOnboardingAfterAuth error:', e);
+    _dbg('checkOnboardingAfterAuth ERROR: ' + (e.message || e));
     // Fallback: show main app so user isn't stuck
     const sidebar = document.querySelector('.sidebar');
     if (sidebar) sidebar.style.display = '';
