@@ -39,3 +39,15 @@ supabase>=2.0.0
 # ── System Tray (Windows) ──────────────────────────────────────────────
 pystray>=0.19.5
 Pillow>=10.0.0
+
+# ── .NET bridge (pywebview Edge backend) ─────────────────────────────
+pythonnet>=3.0.0
+
+# ── JWT decoding ─────────────────────────────────────────────────────
+PyJWT>=2.0.0
+
+# ── Deepgram (optional STT provider) ────────────────────────────────
+deepgram-sdk>=2.0.0
+
+# ── Build tool ───────────────────────────────────────────────────────
+pyinstaller>=6.0
