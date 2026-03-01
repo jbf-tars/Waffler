@@ -1125,29 +1125,44 @@ class WafflerPipeline:
             channels=config.channels
         )
 
-        groq_key = config.groq_api_key or ""
-        openai_key = config.openai_api_key or ""
+        backend_url = config.backend_url
+        app_secret = config.app_secret
 
-        if not groq_key and not openai_key:
-            raise ValueError("At least one API key is required (Groq or OpenAI)")
+        if backend_url:
+            # ── Hosted mode: route through Railway backend ──
+            from transcribe_backend import BackendTranscriber
+            from style_backend import BackendStyler
 
-        # Transcriber — Groq Whisper (fast) → OpenAI Whisper (fallback)
-        self.transcriber = WhisperTranscriber(
-            api_key=openai_key,
-            model="whisper-1",
-            groq_api_key=groq_key,
-        )
-        _log_to_file(f"Transcriber backend: {self.transcriber._backend}")
+            self.transcriber = BackendTranscriber(backend_url, app_secret)
+            _log_to_file(f"Transcriber backend: hosted ({backend_url})")
 
-        # Styler — Groq LLaMA (fast) → GPT-4o-mini (fallback)
-        self.styler = OpenAIStyler(
-            api_key=openai_key,
-            model="gpt-4o-mini",
-            max_tokens=config.minimax_max_tokens,
-            prompt_style=config.prompt_style,
-            groq_api_key=groq_key,
-        )
-        _log_to_file(f"Styler backend: {'groq' if self.styler._use_groq else 'openai'}")
+            self.styler = BackendStyler(backend_url, app_secret, config.prompt_style)
+            _log_to_file(f"Styler backend: hosted ({backend_url})")
+        else:
+            # ── BYOK / dev mode: direct API calls ──
+            groq_key = config.groq_api_key or ""
+            openai_key = config.openai_api_key or ""
+
+            if not groq_key and not openai_key:
+                raise ValueError("At least one API key is required (Groq or OpenAI)")
+
+            # Transcriber — Groq Whisper (fast) → OpenAI Whisper (fallback)
+            self.transcriber = WhisperTranscriber(
+                api_key=openai_key,
+                model="whisper-1",
+                groq_api_key=groq_key,
+            )
+            _log_to_file(f"Transcriber backend: {self.transcriber._backend}")
+
+            # Styler — Groq LLaMA (fast) → GPT-4o-mini (fallback)
+            self.styler = OpenAIStyler(
+                api_key=openai_key,
+                model="gpt-4o-mini",
+                max_tokens=config.minimax_max_tokens,
+                prompt_style=config.prompt_style,
+                groq_api_key=groq_key,
+            )
+            _log_to_file(f"Styler backend: {'groq' if self.styler._use_groq else 'openai'}")
 
         self.clipboard = ClipboardManager()
         self.is_recording = False

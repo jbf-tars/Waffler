@@ -43,9 +43,15 @@ class Config:
         self.azure_openai_endpoint = os.getenv('AZURE_OPENAI_ENDPOINT')
         self.prompt_style = os.getenv('PROMPT_STYLE', 'normal')
 
+        # Backend (hosted production mode)
+        self.backend_url = os.getenv('BACKEND_URL', '')
+        self.app_secret = os.getenv('APP_SECRET', '')
+
         # Flag whether we have enough config to run the pipeline
-        # Groq alone is sufficient (handles both transcription + styling)
+        # Backend URL alone is sufficient (keys live on the server)
+        # Groq alone is also sufficient (handles both transcription + styling)
         self.has_api_key = bool(
+            self.backend_url or
             self.groq_api_key or self.openai_api_key or
             self.deepgram_api_key or self.azure_openai_api_key
         )
