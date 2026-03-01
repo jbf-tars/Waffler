@@ -617,6 +617,30 @@ class Api:
             ),
         }
 
+    # ── Wizard Key Visual (Step 3) ──────────────────────────────────────
+
+    def wizard_start_key_visual(self) -> dict:
+        """Start polling for Ctrl/Win key presses for wizard step 3 visual feedback."""
+        global _wizard_key_visual_active
+        try:
+            if _platform.system() != "Windows":
+                return {"ok": True}
+            _wizard_key_visual_active = True
+            threading.Thread(
+                target=_wizard_key_visual_loop,
+                daemon=True,
+                name="WizKeyVisualLoop"
+            ).start()
+            return {"ok": True}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    def wizard_stop_key_visual(self) -> dict:
+        """Stop the key visual polling for wizard step 3."""
+        global _wizard_key_visual_active
+        _wizard_key_visual_active = False
+        return {"ok": True}
+
     # ── Permission APIs ─────────────────────────────────────────────────
 
     def check_permissions(self) -> dict:
@@ -913,6 +937,7 @@ _wizard_transcriber = None   # temporary WhisperTranscriber for wizard
 _wizard_overlay     = None   # temporary overlay for wizard
 _wizard_recording   = False  # is wizard currently recording?
 _wizard_result      = None   # transcription result
+_wizard_key_visual_active = False  # step 3 key visual polling active
 
 SETUP_FILE = Path.home() / ".waffler" / "setup_complete.json"
 
@@ -977,12 +1002,25 @@ def _wizard_on_press():
 
 def _wizard_level_loop():
     """Feed live audio level to the wizard overlay at ~30fps while recording."""
+    _health_counter = 0
     while _wizard_recording and _wizard_recorder and _wizard_overlay:
         lvl = _wizard_recorder.get_level()
         try:
             _wizard_overlay.update_level(lvl)
         except Exception:
             pass
+
+        # Health check every ~1s: restart overlay if subprocess died
+        _health_counter += 1
+        if _health_counter >= 30:
+            _health_counter = 0
+            if not _wizard_overlay._is_alive():
+                _log_to_file("[overlay] Wizard overlay subprocess died — restarting")
+                try:
+                    _wizard_overlay.show()
+                except Exception as e:
+                    _log_to_file(f"[overlay] Wizard overlay restart failed: {e}")
+
         time.sleep(0.033)
 
 
@@ -1062,6 +1100,38 @@ def _push_wizard_result(text: str):
             _window.evaluate_js(f"window.wizOnTranscriptionResult && window.wizOnTranscriptionResult({result_json})")
         except Exception:
             pass
+
+
+def _wizard_key_visual_loop():
+    """Poll Ctrl/Win key states and push visual updates to JS for wizard step 3."""
+    import ctypes as _ct
+    VK_CONTROL = 0x11
+    VK_LWIN = 0x5B
+    VK_RWIN = 0x5C
+
+    def _key_down(vk):
+        return bool(_ct.windll.user32.GetAsyncKeyState(vk) & 0x8000)
+
+    prev_ctrl = False
+    prev_win = False
+
+    while _wizard_key_visual_active:
+        ctrl = _key_down(VK_CONTROL)
+        win = _key_down(VK_LWIN) or _key_down(VK_RWIN)
+
+        if ctrl != prev_ctrl or win != prev_win:
+            prev_ctrl = ctrl
+            prev_win = win
+            if _window:
+                try:
+                    state_json = json.dumps({"ctrl": ctrl, "win": win})
+                    _window.evaluate_js(
+                        f"window.wizOnHotkeyDetected && window.wizOnHotkeyDetected({state_json})"
+                    )
+                except Exception:
+                    pass
+
+        time.sleep(0.03)  # 30ms polling
 
 
 def _initialize_pipeline():
@@ -1291,12 +1361,25 @@ class WafflerPipeline:
     def _level_loop(self):
         """Feed live audio level to the overlay at ~30fps while recording."""
         import time as _time
+        _health_counter = 0
         while self.is_recording:
             lvl = self.audio.get_level()
             try:
                 self.overlay.update_level(lvl)
             except Exception:
                 pass
+
+            # Health check every ~1s: restart overlay if subprocess died
+            _health_counter += 1
+            if _health_counter >= 30:
+                _health_counter = 0
+                if not self.overlay._is_alive():
+                    _log_to_file("[overlay] Subprocess died during recording — restarting")
+                    try:
+                        self.overlay.show()
+                    except Exception as e:
+                        _log_to_file(f"[overlay] Restart failed: {e}")
+
             _time.sleep(0.033)  # ~30 fps
 
     def _show_no_audio_toast(self):

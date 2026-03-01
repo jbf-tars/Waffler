@@ -828,8 +828,8 @@ function oauthSignIn(provider) {
   }
   pywebview.api.auth_oauth(provider).then(function(res) {
     if (res && res.ok && res.url) {
-      // Open via JS so browser allows window.close() in callback
-      window.open(res.url, '_blank');
+      // Open URL in system browser via Python
+      pywebview.api.open_url(res.url);
       if (validation) {
         validation.textContent = 'Complete sign-in in your browser, then come back here.';
         validation.className = 'wizard-validation loading';
@@ -1039,6 +1039,10 @@ function wizShowStep(step) {
   if (_wizardStep === 4 && step !== 4 && _wizardHotkeyTestActive) {
     pywebview.api.wizard_stop_hotkey_test().catch(() => {});
     _wizardHotkeyTestActive = false;
+  }
+  // Stop key visual polling when leaving step 3
+  if (_wizardStep === 3 && step !== 3) {
+    pywebview.api.wizard_stop_key_visual().catch(() => {});
   }
   // Stop permission polling when leaving step 2
   if (_wizardStep === 2 && step !== 2) {
@@ -1315,18 +1319,47 @@ async function wizRequestAccessibilityPermission() {
 
 // ── Step 3: Hotkey Info ──────────────────────────────────────
 
+let _wizardHotkeyDetectedOnce = false;
+
 async function wizLoadHotkeyInfo() {
+  _wizardHotkeyDetectedOnce = false;
   try {
     const info = await pywebview.api.test_hotkey();
-    document.getElementById('wizHotkeyBadge').textContent = info.hotkey;
-    document.getElementById('wizHotkeyMode').textContent = info.mode === 'toggle'
+    var modeEl = document.getElementById('wizHotkeyMode');
+    if (modeEl) modeEl.textContent = info.mode === 'toggle'
       ? 'Toggle mode: press once to start, press again to stop'
-      : 'Hold mode: hold key to record, release to stop';
-    document.getElementById('wizHotkeyDesc').textContent = info.description;
+      : 'Hold to record · release to stop';
+    var descEl = document.getElementById('wizHotkeyDesc');
+    if (descEl) descEl.textContent = info.description;
   } catch(e) {
     console.warn('wizLoadHotkeyInfo error:', e);
   }
+  // Start key visual detection polling
+  try {
+    await pywebview.api.wizard_start_key_visual();
+  } catch(e) {}
 }
+
+// Called by Python via evaluate_js when Ctrl/Win key state changes
+window.wizOnHotkeyDetected = function(state) {
+  var ctrlEl = document.getElementById('wizKeyCtrl');
+  var winEl = document.getElementById('wizKeyWin');
+  if (ctrlEl) ctrlEl.classList.toggle('active', state.ctrl);
+  if (winEl) winEl.classList.toggle('active', state.win);
+
+  // Both keys pressed — mark detected and auto-advance
+  if (state.ctrl && state.win && !_wizardHotkeyDetectedOnce) {
+    _wizardHotkeyDetectedOnce = true;
+    var hint = document.getElementById('wizHotkeyHint');
+    if (hint) {
+      hint.textContent = 'Hotkey detected! Moving to next step...';
+      hint.classList.add('detected');
+    }
+    setTimeout(function() {
+      if (_wizardStep === 3) wizNext();
+    }, 1500);
+  }
+};
 
 // ── Step 4: Try It Out (Mock App) ────────────────────────────
 

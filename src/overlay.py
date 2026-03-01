@@ -219,8 +219,8 @@ class RecordingOverlay:
         try:
             self._process.stdin.write(json.dumps(data) + "\n")
             self._process.stdin.flush()
-        except (BrokenPipeError, OSError):
-            pass
+        except (BrokenPipeError, OSError) as e:
+            print(f"[overlay] _send error (subprocess likely dead): {e}")
 
     def _read_stdout(self):
         """Read event callbacks from subprocess stdout."""

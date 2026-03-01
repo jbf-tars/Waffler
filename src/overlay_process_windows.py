@@ -115,7 +115,17 @@ def _draw_waffle():
     """Redraw the entire overlay canvas as a realistic waffle with syrup."""
     if _canvas is None:
         return
+    try:
+        _draw_waffle_inner()
+    except Exception as e:
+        try:
+            print(f"[overlay] _draw_waffle error: {e}", file=sys.stderr, flush=True)
+        except Exception:
+            pass
 
+
+def _draw_waffle_inner():
+    """Internal drawing — separated so outer can catch errors."""
     _canvas.delete("all")
 
     # 1. Waffle body — rounded rectangle (the raised ridges / crust)
@@ -528,8 +538,11 @@ def _stdin_reader():
                 _cmd_queue.put(cmd)
             except json.JSONDecodeError:
                 pass
-    except Exception:
-        pass
+    except Exception as e:
+        try:
+            print(f"[overlay] stdin reader error: {e}", file=sys.stderr, flush=True)
+        except Exception:
+            pass
     # stdin closed — signal quit
     _cmd_queue.put({"type": "quit"})
 
