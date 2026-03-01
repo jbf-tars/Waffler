@@ -101,6 +101,19 @@ document.addEventListener('DOMContentLoaded', () => {
     const el = document.getElementById(id);
     if (el) el.addEventListener('keydown', e => { if (e.key === 'Enter') submitAuth(); });
   });
+
+  // Prevent Mac error sound when space is pressed in the app
+  // (Space monitor observes at OS level, but we need to handle it in UI to avoid "bonk" sound)
+  document.addEventListener('keydown', (e) => {
+    if (e.key === ' ' || e.code === 'Space') {
+      // Only prevent default if NOT in an input field (allow typing in text fields)
+      const target = e.target;
+      if (target.tagName !== 'INPUT' && target.tagName !== 'TEXTAREA' && !target.isContentEditable) {
+        e.preventDefault();
+      }
+    }
+  });
+
   setTimeout(() => {
     checkOnboarding();  // Fallback check if pywebviewready hasn't fired
     refreshAll();
