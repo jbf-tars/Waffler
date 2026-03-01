@@ -14,12 +14,12 @@ echo "============================================"
 echo ""
 
 # Step 1: Check Python
-echo "[1/6] Checking Python..."
+echo "[1/7] Checking Python..."
 python3 --version || { echo "ERROR: Python3 not found!"; exit 1; }
 
 # Step 2: Install dependencies
 echo ""
-echo "[2/6] Installing dependencies..."
+echo "[2/7] Installing dependencies..."
 python3 -m pip install --upgrade pip -q
 python3 -m pip install -q \
     pyinstaller \
@@ -35,7 +35,7 @@ echo "  Done."
 
 # Step 3: Create .icns icon if missing
 echo ""
-echo "[3/6] Preparing app icon..."
+echo "[3/7] Preparing app icon..."
 if [ ! -f "icon.icns" ] && [ -f "icon_512.png" ]; then
     echo "  Converting icon_512.png → icon.icns..."
     mkdir -p icon.iconset
@@ -59,39 +59,48 @@ fi
 
 # Step 4: Clean previous build
 echo ""
-echo "[4/6] Cleaning previous build..."
+echo "[4/7] Cleaning previous build..."
 rm -rf build dist
 echo "  Done."
 
 # Step 5: Build with PyInstaller
 echo ""
-echo "[5/6] Building Waffler.app..."
+echo "[5/7] Building Waffler.app..."
 echo "  This may take a few minutes..."
 echo ""
 python3 -m PyInstaller Waffler_mac.spec --noconfirm 2>&1
 
-# Step 6: Create professional DMG with custom window (uses create-dmg)
+# Step 6: Code sign the app (ad-hoc signature for local distribution)
 echo ""
-echo "[6/6] Creating Waffler.dmg with custom installer window..."
+echo "[6/7] Code signing Waffler.app..."
 if [ -d "dist/Waffler.app" ]; then
+    # Remove quarantine attributes and sign with ad-hoc signature
+    xattr -cr dist/Waffler.app
+    codesign --force --deep --sign - dist/Waffler.app
+    echo "  Done."
+else
+    echo "  WARNING: Waffler.app not found — skipping code signing"
+fi
+
+# Step 7: Create DMG with Applications symlink
+echo ""
+echo "[7/7] Creating Waffler.dmg..."
+if [ -d "dist/Waffler.app" ]; then
+    # Create a staging folder with .app + Applications symlink
+    DMG_STAGE="dist/dmg-stage"
+    rm -rf "$DMG_STAGE"
+    mkdir -p "$DMG_STAGE"
+    cp -R dist/Waffler.app "$DMG_STAGE/"
+    ln -s /Applications "$DMG_STAGE/Applications"
+
     rm -f dist/Waffler.dmg
+    hdiutil create -volname "Waffler" \
+        -srcfolder "$DMG_STAGE" \
+        -ov -format UDZO \
+        dist/Waffler.dmg 2>&1
 
-    # Create professional DMG installer with arrow background and centered layout
-    create-dmg \
-        --volname "Waffler" \
-        --volicon "icon.icns" \
-        --background "dmg_background.png" \
-        --window-pos 200 120 \
-        --window-size 600 400 \
-        --icon-size 100 \
-        --icon "Waffler.app" 140 190 \
-        --hide-extension "Waffler.app" \
-        --app-drop-link 460 190 \
-        --no-internet-enable \
-        "dist/Waffler.dmg" \
-        "dist/Waffler.app" 2>&1 | grep -v "^hdiutil: " || true
-
-    echo "  Done. DMG created with custom installer window! 🧇"
+    rm -rf "$DMG_STAGE"
+    echo "  Done."
 else
     echo "  WARNING: Waffler.app not found — skipping DMG"
 fi
