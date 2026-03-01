@@ -166,6 +166,15 @@ class RecordingOverlay:
 
     def _start_process(self):
         """Launch the overlay subprocess."""
+        # Kill any existing overlay subprocess first to prevent zombie windows
+        if self._process is not None:
+            try:
+                self._process.terminate()
+                self._process.wait(timeout=1)
+            except Exception:
+                pass
+            self._process = None
+
         if not self._script.exists():
             print(f"[overlay] WARNING: script not found: {self._script}", flush=True)
             return

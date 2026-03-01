@@ -145,6 +145,15 @@ class WindowsHotkeyListener:
         self._thread_id = kernel32.GetCurrentThreadId()
         _log("WindowsHotkeyListener.start() — Ctrl+Win smart hotkey")
 
+        # Only allow one keyboard hook system-wide (prevents duplicate
+        # overlays when both Waffler.exe and python app.py are running)
+        self._hook_mutex = ctypes.windll.kernel32.CreateMutexW(
+            None, True, "WafflerHotkeyHook"
+        )
+        if ctypes.windll.kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+            _log("Another Waffler hotkey hook is active — skipping")
+            return
+
         self._hook = user32.SetWindowsHookExW(
             WH_KEYBOARD_LL, self._hook_proc, None, 0
         )
