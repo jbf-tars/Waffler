@@ -1714,6 +1714,17 @@ def _migrate_data_dir():
 def main():
     global _config, _window_ref
 
+    # ── Single-instance lock (Windows) ────────────────────────────────
+    # Prevents duplicate keyboard hooks and double overlays when Waffler
+    # is accidentally launched more than once.
+    if _platform.system() == "Windows":
+        import ctypes as _ct
+        _mutex = _ct.windll.kernel32.CreateMutexW(None, True, "WafflerSingleInstance")
+        if _ct.windll.kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+            print("Waffler is already running — exiting duplicate instance.")
+            _log_to_file("Blocked duplicate instance (mutex already held)")
+            return
+
     # Migrate old data directory if needed
     _migrate_data_dir()
 
