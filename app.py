@@ -1751,9 +1751,15 @@ def _create_windows_tray_icon():
     try:
         import pystray
 
-        # Draw the waffle icon directly at high-res
-        img = _draw_waffle_icon(256)
-        _log_to_file("Tray icon drawn directly (256px waffle)")
+        # Use the bundled app icon so tray matches the exe/shortcut icon
+        from PIL import Image
+        icon_path = PROJECT_ROOT / "icon_512.png"
+        if icon_path.exists():
+            img = Image.open(str(icon_path))
+            _log_to_file("Tray icon loaded from icon_512.png")
+        else:
+            img = _draw_waffle_icon(256)
+            _log_to_file("Tray icon drawn as fallback (icon_512.png not found)")
 
         menu = pystray.Menu(
             pystray.MenuItem("Show Waffler", _tray_show_window, default=True),
