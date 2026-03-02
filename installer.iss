@@ -1,37 +1,56 @@
-; Natter — Inno Setup Installer Script
-; Produces: NatterSetup.exe
-; Run with: ISCC.exe installer.iss
+; ── Waffler Windows Installer — Inno Setup Script ──────────────────────
+; Builds a single Setup exe that installs Waffler to Program Files,
+; creates Start Menu + Desktop shortcuts, and registers an uninstaller.
+;
+; Build:  "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss
+; Output: dist\WafflerSetup.exe
+
+#define MyAppName "Waffler"
+#define MyAppVersion "1.0.1"
+#define MyAppPublisher "Waffler"
+#define MyAppURL "https://getwaffler.com"
+#define MyAppExeName "Waffler.exe"
 
 [Setup]
-AppName=Natter
-AppVersion=1.0.0
-AppPublisher=Natter
-DefaultDirName={autopf}\Natter
-DefaultGroupName=Natter
-OutputDir=dist-installer
-OutputBaseFilename=NatterSetup
-Compression=lzma2
-SolidCompression=yes
-WizardStyle=modern
+AppId={{B8F3E2A1-7C4D-4E5F-9A1B-3D2E8F6C7A9B}
+AppName={#MyAppName}
+AppVersion={#MyAppVersion}
+AppPublisher={#MyAppPublisher}
+AppPublisherURL={#MyAppURL}
+AppSupportURL={#MyAppURL}
+DefaultDirName={autopf}\{#MyAppName}
+DefaultGroupName={#MyAppName}
+AllowNoIcons=yes
+OutputDir=dist
+OutputBaseFilename=WafflerSetup
+SetupIconFile=icon.ico
+UninstallDisplayIcon={app}\{#MyAppExeName}
+UninstallDisplayName={#MyAppName}
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
-UninstallDisplayName=Natter
-SetupIconFile=icon.ico
+Compression=lzma2/ultra64
+SolidCompression=yes
+WizardStyle=modern
+MinVersion=10.0
+DisableFinishedPage=no
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
-Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"
+Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 
 [Files]
-; Bundle the entire dist/Natter folder
-Source: "dist\Natter\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Install the entire PyInstaller dist/Waffler folder
+Source: "dist\Waffler\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\Natter"; Filename: "{app}\Natter.exe"; IconFilename: "{app}\Natter.exe"
-Name: "{group}\Uninstall Natter"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\Natter"; Filename: "{app}\Natter.exe"; IconFilename: "{app}\Natter.exe"; Tasks: desktopicon
+Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+Name: "{group}\Uninstall {#MyAppName}"; Filename: "{uninstallexe}"
 
 [Run]
-Filename: "{app}\Natter.exe"; Description: "Launch Natter"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent
+
+[UninstallDelete]
+Type: filesandordirs; Name: "{app}"
