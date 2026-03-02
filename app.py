@@ -41,6 +41,29 @@ sys.stderr = _fix_stream(sys.stderr)
 PROJECT_ROOT = Path(__file__).parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
+# ── Frozen-app DLL fix (PyInstaller + pythonnet) ──────────────────────
+# When running as a frozen exe on a machine without Python installed,
+# .NET's Python.Runtime.dll can't find python3XX.dll via P/Invoke.
+# Fix: add the _internal dir to PATH so .NET can locate it, and set
+# PYTHONNET_PYDLL so pythonnet knows where the Python library lives.
+if getattr(sys, 'frozen', False):
+    _meipass = getattr(sys, '_MEIPASS', '')
+    if _meipass:
+        # Add _internal to PATH for .NET P/Invoke DLL search
+        _cur_path = os.environ.get('PATH', '')
+        if _meipass not in _cur_path:
+            os.environ['PATH'] = _meipass + os.pathsep + _cur_path
+        # Point pythonnet to the bundled Python DLL
+        _pydll = os.path.join(_meipass, f'python{sys.version_info.major}{sys.version_info.minor}.dll')
+        if os.path.isfile(_pydll) and not os.environ.get('PYTHONNET_PYDLL'):
+            os.environ['PYTHONNET_PYDLL'] = _pydll
+        # Also use os.add_dll_directory for ctypes-based loading (Python 3.8+)
+        if hasattr(os, 'add_dll_directory'):
+            try:
+                os.add_dll_directory(_meipass)
+            except OSError:
+                pass
+
 # Force Python to prefer source files over compiled bytecode
 import importlib
 import sys as _sys
