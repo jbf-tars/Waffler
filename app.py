@@ -550,6 +550,25 @@ class Api:
             _log_to_file(f"open_url error: {e}")
             webbrowser.open(url)
 
+    def bring_to_front(self):
+        """Bring the Waffler window to the foreground."""
+        try:
+            if _window_ref:
+                _window_ref.show()
+                _window_ref.restore()
+            # Win32: force foreground even if another app is active
+            if _platform.system() == "Windows":
+                import ctypes
+                hwnd = ctypes.windll.user32.GetForegroundWindow()
+                # AllowSetForegroundWindow for our process
+                ctypes.windll.user32.AllowSetForegroundWindow(os.getpid())
+                if _window_ref:
+                    _window_ref.show()
+                    _window_ref.restore()
+            _log_to_file("bring_to_front: done")
+        except Exception as e:
+            _log_to_file(f"bring_to_front error: {e}")
+
     def get_onboarding_status(self) -> dict:
         """Returns whether the app needs first-run setup."""
         openai_key = os.getenv("OPENAI_API_KEY", "").strip()

@@ -433,11 +433,13 @@ class _OAuthCallbackHandler(BaseHTTPRequestHandler):
                 <div class="status-icon">✅</div>
                 <div class="status-title">Signed in successfully!</div>
                 <div class="status-message">
-                    Returning to Waffler...
+                    You can close this tab and return to Waffler.
                 </div>
             `;
-            // Auto-close the tab after a short delay
-            setTimeout(function() { window.close(); }, 1500);
+            // Try to auto-close (works if browser allows it)
+            setTimeout(function() {
+                try { window.close(); } catch(e) {}
+            }, 1500);
         }
 
         function showError(icon, title, message, details) {

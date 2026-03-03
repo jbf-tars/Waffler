@@ -905,6 +905,10 @@ function onAuthSuccess(user) {
     checkOnboardingAfterAuth();
     _dbg('checkOnboardingAfterAuth dispatched');
   } catch(e) { _dbg('checkOnboardingAfterAuth ERROR: ' + e); }
+  // Bring Waffler window to the foreground after browser sign-in
+  try {
+    pywebview.api.bring_to_front();
+  } catch(e) { _dbg('bring_to_front ERROR: ' + e); }
 }
 
 function updateSidebarUser(user) {
