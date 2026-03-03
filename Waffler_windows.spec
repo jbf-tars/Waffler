@@ -22,6 +22,7 @@ a = Analysis(
         ('config.yaml', '.'),
         ('icon_512.png', '.'),
         ('icon.ico', '.'),
+        ('dist/WafflerOverlay', 'WafflerOverlay'),  # overlay subprocess exe
     ],
     hiddenimports=[
         # ── Core dependencies ──

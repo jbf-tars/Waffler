@@ -153,16 +153,26 @@ class RecordingOverlay:
         # We need an actual Python interpreter to run the overlay script.
         if getattr(sys, 'frozen', False):
             import shutil
-            # Try common Python interpreter names (including Windows py launcher)
             for name in ('python3', 'python', 'py'):
                 path = shutil.which(name)
                 if path:
                     print(f"[overlay] Found Python: {path}")
                     return path
-            # No Python found — return None so caller can handle it
             print("[overlay] WARNING: No Python interpreter found in PATH")
             return None
         return sys.executable
+
+    def _find_overlay_exe(self):
+        """Find the bundled WafflerOverlay.exe in a frozen build."""
+        meipass = getattr(sys, '_MEIPASS', None)
+        if not meipass:
+            return None
+        overlay_exe = Path(meipass) / 'WafflerOverlay' / 'WafflerOverlay.exe'
+        if overlay_exe.exists():
+            print(f"[overlay] Found bundled overlay exe: {overlay_exe}")
+            return str(overlay_exe)
+        print(f"[overlay] WARNING: WafflerOverlay.exe not found at {overlay_exe}")
+        return None
 
     def _start_process(self):
         """Launch the overlay subprocess."""
@@ -175,15 +185,6 @@ class RecordingOverlay:
                 pass
             self._process = None
 
-        if not self._script.exists():
-            print(f"[overlay] WARNING: script not found: {self._script}", flush=True)
-            return
-
-        python = self._find_python()
-        if python is None:
-            print("[overlay] Cannot start overlay: no Python interpreter available")
-            return
-
         try:
             # Use CREATE_NO_WINDOW on Windows to avoid a console flash
             kwargs = {}
@@ -193,15 +194,55 @@ class RecordingOverlay:
         except Exception:
             kwargs = {}
 
-        self._process = subprocess.Popen(
-            [python, str(self._script)],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            text=True,
-            bufsize=1,
-            **kwargs,
-        )
+        # Frozen build: use the bundled WafflerOverlay.exe (no Python needed)
+        if getattr(sys, 'frozen', False) and _PLATFORM == "Windows":
+            overlay_exe = self._find_overlay_exe()
+            if overlay_exe:
+                self._process = subprocess.Popen(
+                    [overlay_exe],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                    text=True,
+                    bufsize=1,
+                    **kwargs,
+                )
+            else:
+                # Fallback: try system Python
+                python = self._find_python()
+                if python is None:
+                    print("[overlay] Cannot start overlay: no exe or Python available")
+                    return
+                if not self._script.exists():
+                    print(f"[overlay] WARNING: script not found: {self._script}")
+                    return
+                self._process = subprocess.Popen(
+                    [python, str(self._script)],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                    text=True,
+                    bufsize=1,
+                    **kwargs,
+                )
+        else:
+            # Development mode: run the script with Python interpreter
+            if not self._script.exists():
+                print(f"[overlay] WARNING: script not found: {self._script}")
+                return
+            python = self._find_python()
+            if python is None:
+                print("[overlay] Cannot start overlay: no Python interpreter available")
+                return
+            self._process = subprocess.Popen(
+                [python, str(self._script)],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                bufsize=1,
+                **kwargs,
+            )
         self._reader_thread = threading.Thread(
             target=self._read_stdout,
             daemon=True,
