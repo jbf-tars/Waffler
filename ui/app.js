@@ -12,8 +12,8 @@ let _capturedKeys = new Set();
 
 // Platform-specific defaults
 const isMacPlatform = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
-let _lastCapturedKeys = isMacPlatform ? ["control", "option"] : ["win", "ctrl"];
-let _currentHotkeyKeys = isMacPlatform ? ["control", "option"] : ["win", "ctrl"];
+let _lastCapturedKeys = isMacPlatform ? ["option", "shift"] : ["win", "ctrl"];
+let _currentHotkeyKeys = isMacPlatform ? ["option", "shift"] : ["win", "ctrl"];
 
 // Platform-specific key mapping
 const JS_KEY_TO_ID = isMacPlatform ? {
@@ -309,9 +309,9 @@ function _onCaptureKeyUp(e) {
 }
 
 function resetHotkeyDefault() {
-  _lastCapturedKeys = isMacPlatform ? ["control", "option"] : ["win", "ctrl"];
+  _lastCapturedKeys = isMacPlatform ? ["option", "shift"] : ["win", "ctrl"];
   _capturedKeys.clear();
-  document.getElementById("hotkeyCaptureKeys").textContent = isMacPlatform ? "Control + Option" : "Win + Ctrl";
+  document.getElementById("hotkeyCaptureKeys").textContent = isMacPlatform ? "Option + Shift" : "Win + Ctrl";
   document.getElementById("hotkeyError").style.display = "none";
 }
 
