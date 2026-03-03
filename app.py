@@ -685,7 +685,7 @@ class Api:
     def _get_mac_hotkey_display(self, keys) -> str:
         """Convert Mac hotkey keys to display string."""
         if not keys:
-            return "Option + Shift"
+            return "Fn"
 
         key_map = {
             "fn": "Fn",
@@ -704,7 +704,7 @@ class Api:
             display_key = key_map.get(key.lower(), key.capitalize())
             parts.append(display_key)
 
-        return " + ".join(parts) if len(parts) > 1 else parts[0] if parts else "Option + Shift"
+        return " + ".join(parts) if len(parts) > 1 else parts[0] if parts else "Fn"
 
     def get_hotkey_config(self) -> dict:
         """Return current hotkey configuration."""
@@ -714,9 +714,9 @@ class Api:
             if _platform.system() == "Windows":
                 from windows_hotkey import KEY_TO_VK, DEFAULT_HOTKEY, MODIFIER_KEYS, hotkey_display
             else:
-                # Mac: Default to Option + Shift (simple, reliable, works on all keyboards)
+                # Mac: Default to Fn (only reliable option until modifier detection is fixed)
                 if not keys:
-                    keys = ["option", "shift"]
+                    keys = ["fn"]
                 display = self._get_mac_hotkey_display(keys)
                 return {"ok": True, "keys": keys, "display": display}
             if not keys or not isinstance(keys, list):
