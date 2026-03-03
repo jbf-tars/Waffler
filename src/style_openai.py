@@ -17,7 +17,7 @@ class OpenAIStyler:
     """Styles transcripts — Groq LLaMA 3.3 70B (fast) or GPT-4o-mini (fallback)"""
 
     def __init__(self, api_key: str = "", model: str = "gpt-4o-mini",
-                 max_tokens: int = 1024, prompt_style: str = "adhd_ramble",
+                 max_tokens: int = 1024, prompt_style: str = "normal",
                  groq_api_key: str = ""):
         self.api_key = api_key
         self.model = model
