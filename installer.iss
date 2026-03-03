@@ -40,9 +40,24 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 
+[InstallDelete]
+; Clean out old version files before installing new ones
+Type: filesandordirs; Name: "{app}\*"
+
 [Files]
 ; Install the entire PyInstaller dist/Waffler folder
 Source: "dist\Waffler\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+[Code]
+// Kill running Waffler before installing/upgrading
+function InitializeSetup(): Boolean;
+var
+  ResultCode: Integer;
+begin
+  Exec('taskkill', '/F /IM Waffler.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec('taskkill', '/F /IM WafflerOverlay.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Result := True;
+end;
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"
