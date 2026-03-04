@@ -115,6 +115,16 @@ Transcript: {transcript}"""
         except Exception:
             pass
 
+        # Build prompt (vocab goes into system message, NOT appended to transcript)
+        prompt = self.prompt_template.format(
+            transcript=transcript,
+            dialect_instruction=dialect_instruction,
+        )
+        self._vocab_system_extra = (
+            f" Always use these exact spellings when they appear: {', '.join(vocab)}."
+            if vocab else ""
+        )
+
         # Priority 1: Try self-hosted backend first
         if self._use_backend:
             try:
@@ -123,9 +133,7 @@ Transcript: {transcript}"""
                 print(f"⚠️  Backend styling failed ({e}), falling back to Groq/OpenAI")
 
         # Priority 2: Try Groq (much faster), fall back to OpenAI
-        vocab_hint = (f"\nPreserve these exact spellings: {', '.join(vocab)}." if vocab else "")
         if self._use_groq:
-            prompt = self.prompt_template.format(transcript=transcript, dialect_instruction=dialect_instruction) + vocab_hint
             try:
                 return self._style_groq(prompt, start_time)
             except Exception as e:
@@ -134,7 +142,6 @@ Transcript: {transcript}"""
                     return self._basic_clean(transcript), {"input_tokens": 0, "output_tokens": 0, "api_used": False}
 
         # Priority 3: OpenAI fallback
-        prompt = self.prompt_template.format(transcript=transcript, dialect_instruction=dialect_instruction) + vocab_hint
         return self._style_openai(prompt, transcript, start_time)
 
     def _style_backend(self, transcript: str, vocab: list, start_time: float):
@@ -186,6 +193,7 @@ Transcript: {transcript}"""
             "NEVER output your classification, reasoning, labels, or any meta-commentary. "
             "Do NOT prefix your output with things like 'This is a COMMAND' or 'Output:'. "
             "Just return the cleaned text directly."
+            + getattr(self, '_vocab_system_extra', '')
         )
         response = self._groq_client.chat.completions.create(
             model=self._groq_model,
@@ -214,7 +222,7 @@ Transcript: {transcript}"""
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": "You are a voice-to-text formatter. Output ONLY the final cleaned text. No meta-commentary."},
+                    {"role": "system", "content": "You are a voice-to-text formatter. Output ONLY the final cleaned text. No meta-commentary." + getattr(self, '_vocab_system_extra', '')},
                     {"role": "user", "content": prompt},
                 ],
                 max_tokens=512,
