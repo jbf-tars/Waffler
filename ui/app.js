@@ -87,12 +87,19 @@ async function copyItem(text, btnEl) {
       await navigator.clipboard.writeText(text);
     }
     btnEl.classList.add('copied');
-    btnEl.innerHTML = '✅ Copied';
-    showToast('Copied to clipboard!', 'success');
+    btnEl.innerHTML = '<span style="font-size:1.1em">✅</span> Copied!';
+    btnEl.style.background = 'rgba(34, 197, 94, 0.25)';
+    btnEl.style.borderColor = '#22c55e';
+    btnEl.style.color = '#22c55e';
+    btnEl.style.fontWeight = '600';
     setTimeout(() => {
       btnEl.classList.remove('copied');
       btnEl.innerHTML = '📋 Copy';
-    }, 2000);
+      btnEl.style.background = '';
+      btnEl.style.borderColor = '';
+      btnEl.style.color = '';
+      btnEl.style.fontWeight = '';
+    }, 2500);
   } catch (e) {
     showToast('Failed to copy', 'error');
   }

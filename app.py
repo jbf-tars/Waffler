@@ -553,18 +553,32 @@ class Api:
     def bring_to_front(self):
         """Bring the Waffler window to the foreground."""
         try:
+            if _platform.system() == "Windows":
+                import ctypes
+                user32 = ctypes.windll.user32
+                kernel32 = ctypes.windll.kernel32
+                # Find our window by title
+                hwnd = user32.FindWindowW(None, "Waffler")
+                if hwnd:
+                    # Attach to the foreground thread to gain permission
+                    fore_hwnd = user32.GetForegroundWindow()
+                    fore_thread = user32.GetWindowThreadProcessId(fore_hwnd, None)
+                    our_thread = kernel32.GetCurrentThreadId()
+                    attached = False
+                    if fore_thread != our_thread:
+                        user32.AttachThreadInput(fore_thread, our_thread, True)
+                        attached = True
+                    user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+                    user32.SetForegroundWindow(hwnd)
+                    user32.BringWindowToTop(hwnd)
+                    if attached:
+                        user32.AttachThreadInput(fore_thread, our_thread, False)
+                    _log_to_file(f"bring_to_front: hwnd={hwnd}")
+                else:
+                    _log_to_file("bring_to_front: FindWindowW returned None")
             if _window_ref:
                 _window_ref.show()
                 _window_ref.restore()
-            # Win32: force foreground even if another app is active
-            if _platform.system() == "Windows":
-                import ctypes
-                hwnd = ctypes.windll.user32.GetForegroundWindow()
-                # AllowSetForegroundWindow for our process
-                ctypes.windll.user32.AllowSetForegroundWindow(os.getpid())
-                if _window_ref:
-                    _window_ref.show()
-                    _window_ref.restore()
             _log_to_file("bring_to_front: done")
         except Exception as e:
             _log_to_file(f"bring_to_front error: {e}")

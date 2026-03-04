@@ -94,6 +94,7 @@ _root           = None
 _canvas         = None
 _toast_win      = None
 _toast_style    = None
+_topmost_counter = 0     # Re-assert topmost every N animation frames
 
 # Screen position (set during init, reused for toast positioning)
 _waffle_x = 0
@@ -484,6 +485,8 @@ def _handle_cmd(cmd: dict):
 # ── Animation loop (tkinter after-callback, 50 ms = 20 fps) ───────────
 
 def _animation_loop():
+    global _topmost_counter
+
     # Drain the command queue (safe on main thread)
     try:
         while True:
@@ -504,6 +507,18 @@ def _animation_loop():
 
     if changed and _visible:
         _draw_waffle()
+
+    # Re-assert topmost every ~2 seconds (40 frames at 50ms) to prevent
+    # the overlay from falling behind other windows
+    if _visible and _root:
+        _topmost_counter += 1
+        if _topmost_counter >= 40:
+            _topmost_counter = 0
+            try:
+                _root.lift()
+                _root.attributes('-topmost', True)
+            except Exception:
+                pass
 
     if _root:
         try:
