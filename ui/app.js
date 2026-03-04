@@ -347,6 +347,7 @@ async function onMicChange(indexStr) {
 
 const MODE_DESCS = {
   normal: 'Keeps everything, cleans grammar',
+  normal_wispr: 'Enhanced — smart corrections, better filler removal',
   smart:  'Concise — classifies and trims filler',
 };
 
