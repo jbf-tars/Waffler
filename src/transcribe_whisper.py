@@ -81,10 +81,15 @@ def load_settings() -> dict:
 
 
 def vocab_to_prompt(words: list[str]) -> str:
-    """Turn vocab list into a Whisper initial_prompt hint."""
+    """Turn vocab list into a Whisper initial_prompt hint.
+
+    Whisper's initial_prompt is conditioning text — it should be a bare
+    word list, NOT an instruction sentence.  Sentence-like prompts cause
+    Whisper to hallucinate lines containing those words.
+    """
     if not words:
         return ""
-    return "Words to recognise correctly: " + ", ".join(words) + "."
+    return ", ".join(words)
 
 
 def _levenshtein_distance(a: str, b: str) -> int:
