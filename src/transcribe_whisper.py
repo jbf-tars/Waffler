@@ -179,6 +179,37 @@ def apply_vocab_corrections(transcribed: str, vocab: list[str]) -> tuple[str, li
     return corrected, applied
 
 
+def _strip_hallucinations(text: str) -> str:
+    """Remove common Whisper hallucinations from transcribed text.
+
+    Whisper often hallucinates stock phrases when it encounters silence
+    or low-quality audio, especially at the end of a recording.
+    """
+    import re
+
+    # Phrases that Whisper hallucinates on silence / trailing audio
+    _HALLUCINATION_PATTERNS = [
+        r"thank you\.?$",
+        r"thanks for watching\.?$",
+        r"thanks for listening\.?$",
+        r"please subscribe\.?$",
+        r"subtitles by .*$",
+        r"translated by .*$",
+        r"captioned by .*$",
+        r"you$",  # common single-word hallucination
+    ]
+
+    stripped = text.strip()
+    for pattern in _HALLUCINATION_PATTERNS:
+        stripped = re.sub(pattern, "", stripped, flags=re.IGNORECASE).strip()
+
+    # If the entire transcription was a hallucination, return empty
+    if not stripped or stripped in (".", ",", "!"):
+        return ""
+
+    return stripped
+
+
 class WhisperTranscriber:
     """Transcribes audio — Groq (fastest) → local → OpenAI API (fallback).
 
@@ -219,18 +250,24 @@ class WhisperTranscriber:
     def transcribe_sync(self, audio_bytes: bytes):
         if self._backend == "groq":
             try:
-                return self._transcribe_groq(audio_bytes)
+                raw = self._transcribe_groq(audio_bytes)
             except Exception as e:
                 print(f"⚠️  Groq transcription failed ({e}), falling back to OpenAI")
                 if self.client:
-                    return self._transcribe_api(audio_bytes)
-                raise
+                    raw = self._transcribe_api(audio_bytes)
+                else:
+                    raise
         elif self._backend == "mlx":
-            return self._transcribe_mlx(audio_bytes)
+            raw = self._transcribe_mlx(audio_bytes)
         elif self._backend == "faster":
-            return self._transcribe_faster(audio_bytes)
+            raw = self._transcribe_faster(audio_bytes)
         else:
-            return self._transcribe_api(audio_bytes)
+            raw = self._transcribe_api(audio_bytes)
+
+        cleaned = _strip_hallucinations(raw)
+        if cleaned != raw:
+            print(f"[whisper] Stripped hallucination: '{raw}' → '{cleaned}'")
+        return cleaned
 
     def get_duration_seconds(self) -> float:
         """Return the duration of the last transcription in seconds (API only)."""
@@ -248,7 +285,7 @@ class WhisperTranscriber:
             vocab    = load_vocab()
             hint     = vocab_to_prompt(vocab)
             settings = load_settings()
-            lang     = settings.get("language", "auto")
+            lang     = settings.get("language", "en")
             kwargs   = dict(path_or_hf_repo="mlx-community/whisper-base-mlx")
             if hint:
                 kwargs["initial_prompt"] = hint
@@ -270,7 +307,7 @@ class WhisperTranscriber:
             tmp = f.name
         try:
             settings = load_settings()
-            lang     = settings.get("language", "auto")
+            lang     = settings.get("language", "en")
             fw_lang  = lang if lang != "auto" else None
             segments, _ = _faster_whisper.transcribe(tmp, beam_size=1, language=fw_lang)
             text = " ".join(seg.text for seg in segments).strip()
@@ -293,10 +330,10 @@ class WhisperTranscriber:
             vocab    = load_vocab()
             hint     = vocab_to_prompt(vocab)
             settings = load_settings()
-            lang     = settings.get("language", "auto")
+            lang     = settings.get("language", "en")
             with open(tmp, "rb") as af:
                 kwargs = dict(
-                    model="whisper-large-v3",
+                    model="whisper-large-v3-turbo",
                     file=af,
                     response_format="text",
                 )
@@ -330,7 +367,7 @@ class WhisperTranscriber:
             vocab    = load_vocab()
             hint     = vocab_to_prompt(vocab)
             settings = load_settings()
-            lang     = settings.get("language", "auto")
+            lang     = settings.get("language", "en")
             with open(tmp, "rb") as af:
                 kwargs = dict(model=self.model, file=af, response_format="text")
                 if hint:

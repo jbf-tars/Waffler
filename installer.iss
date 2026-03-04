@@ -6,7 +6,7 @@
 ; Output: dist\WafflerSetup.exe
 
 #define MyAppName "Waffler"
-#define MyAppVersion "1.0.3"
+#define MyAppVersion "1.0.4"
 #define MyAppPublisher "Waffler"
 #define MyAppURL "https://getwaffler.com"
 #define MyAppExeName "Waffler.exe"

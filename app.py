@@ -453,7 +453,7 @@ class Api:
             "local_whisper_active":  local_whisper_active,
             "transcription_backend": transcription_backend,
             "styling_backend":       styling_backend,
-            "language":              stored.get("language", "auto"),
+            "language":              stored.get("language", "en"),
             "auto_paste":            stored.get("auto_paste", True),
         }
 

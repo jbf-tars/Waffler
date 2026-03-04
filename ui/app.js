@@ -576,7 +576,7 @@ async function loadSettings() {
 
     // Language
     const langSel = document.getElementById('languageSelect');
-    if (langSel) langSel.value = s.language || 'auto';
+    if (langSel) langSel.value = s.language || 'en';
 
     // Auto-paste
     const apToggle = document.getElementById('autoPasteToggle');
