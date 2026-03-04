@@ -2132,6 +2132,27 @@ async function wizInitTryItStep() {
     if (ph) ph.innerHTML = 'Press <kbd>' + info.hotkey + '</kbd> and speak...';
   } catch(e) {}
 
+  // Attach event listener to mock send button
+  const sendBtn = document.getElementById('wizMockSendBtn');
+  if (sendBtn) {
+    sendBtn.onclick = function() {
+      const mockText = document.getElementById('wizMockText');
+      if (mockText && mockText.textContent.trim()) {
+        showToast('✨ Pushed to app!', 'success');
+        // Reset the mock input after "sending"
+        setTimeout(() => {
+          mockText.textContent = '';
+          sendBtn.disabled = true;
+          const placeholder = document.getElementById('wizMockPlaceholder');
+          if (placeholder) {
+            placeholder.style.display = 'inline';
+            placeholder.innerHTML = 'Try again or continue...';
+          }
+        }, 800);
+      }
+    };
+  }
+
   // Auto-start hotkey test
   try {
     await pywebview.api.set_audio_device(_wizardMicDeviceIndex);
