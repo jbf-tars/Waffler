@@ -79,13 +79,28 @@ Transcript: {transcript}"""
 
         # Inject custom vocabulary hint into prompt
         try:
-            from transcribe_whisper import load_vocab
+            from transcribe_whisper import load_vocab, load_settings
             vocab = load_vocab()
             vocab_hint = (f"\nPreserve these exact spellings: {', '.join(vocab)}." if vocab else "")
         except Exception:
             vocab_hint = ""
 
-        prompt = self.prompt_template.format(transcript=transcript) + vocab_hint
+        # Load dialect/spelling setting
+        dialect_instruction = "Use the same spelling as the user. Do not change spelling conventions."
+        try:
+            settings = load_settings()
+            dialect = settings.get("dialect", "auto")
+            if dialect == "en-GB":
+                dialect_instruction = "Use British English spelling (e.g. colour, organise, centre, behaviour, realise, programme, defence, licence, favour, catalogue)."
+            elif dialect == "en-US":
+                dialect_instruction = "Use American English spelling (e.g. color, organize, center, behavior, realize, program, defense, license, favor, catalog)."
+        except Exception:
+            pass
+
+        prompt = self.prompt_template.format(
+            transcript=transcript,
+            dialect_instruction=dialect_instruction,
+        ) + vocab_hint
 
         # Try Groq first (much faster), fall back to OpenAI
         if self._use_groq:

@@ -790,6 +790,23 @@ html, body {
 }
 .settings-input::placeholder { color: var(--text-muted); }
 
+.settings-select {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 7px 10px;
+  font-size: 12.5px;
+  color: var(--text);
+  outline: none;
+  width: 200px;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.settings-select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-glow);
+}
+
 .api-key-row {
   display: flex;
   align-items: center;

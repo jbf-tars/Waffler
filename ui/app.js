@@ -578,6 +578,10 @@ async function loadSettings() {
     const langSel = document.getElementById('languageSelect');
     if (langSel) langSel.value = s.language || 'en';
 
+    // Dialect / Spelling
+    const dialectSel = document.getElementById('dialectSelect');
+    if (dialectSel) dialectSel.value = s.dialect || 'auto';
+
     // Auto-paste
     const apToggle = document.getElementById('autoPasteToggle');
     const apLabel  = document.getElementById('autoPasteLabel');
@@ -650,6 +654,9 @@ async function saveSetting(key, value) {
         showToast('Auto-paste ' + (value ? 'enabled' : 'disabled'), 'success');
       } else if (key === 'language') {
         showToast('🌐 Language saved', 'success');
+      } else if (key === 'dialect') {
+        const labels = {'auto': 'Auto', 'en-GB': 'British English', 'en-US': 'American English'};
+        showToast('Spelling: ' + (labels[value] || value), 'success');
       }
     }
   } catch(e) {

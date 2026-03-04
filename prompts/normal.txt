@@ -22,6 +22,9 @@ Content preservation rules:
 - The word "slash" spoken aloud should remain as the word "slash", not be converted to a "/" character.
 - If the audio was noise or nonsense (not real speech), return an empty string.
 
+Spelling dialect:
+{dialect_instruction}
+
 Output ONLY the cleaned text. Nothing else.
 
 Transcript: {transcript}
