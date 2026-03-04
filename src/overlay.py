@@ -70,6 +70,11 @@ class RecordingOverlay:
 
         self._start_process()
         time.sleep(0.35)  # let subprocess initialise
+        if not self._is_alive():
+            # Retry once if first start failed
+            print("[overlay] First start failed, retrying...")
+            self._start_process()
+            time.sleep(0.5)
         self._send({"type": "show"})
         self._visible = True
 
@@ -84,6 +89,12 @@ class RecordingOverlay:
         Push an audio RMS level (0.0-1.0) to animate the VU bars.
         Safe to call from any thread at any rate.
         """
+        if not self._is_alive() and self._visible:
+            # Process died while recording — auto-restart
+            print("[overlay] Process died during recording, restarting...")
+            self._start_process()
+            time.sleep(0.35)
+            self._send({"type": "show"})
         if self._is_alive():
             level = max(0.0, min(1.0, float(level)))
             self._send({"type": "level", "value": level})
