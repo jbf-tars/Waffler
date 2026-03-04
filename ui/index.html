@@ -162,11 +162,18 @@
         <div class="settings-row">
           <div class="settings-row-info">
             <div class="settings-row-label">Recording Hotkey</div>
-            <div class="settings-row-desc">Hold to record, release to stop</div>
+            <div class="settings-row-desc">Current: <span id="settingsHotkeyBadge" style="font-weight:600;color:#C8A256;">Loading...</span></div>
           </div>
           <div class="settings-row-control" style="gap:10px;">
-            <span class="hotkey-badge" id="settingsHotkeyBadge">Win + Ctrl</span>
-            <button class="settings-btn accent" onclick="openHotkeyCapture()">Change</button>
+            <button class="settings-btn" onclick="changeSettingsHotkey(['fn'])" title="Works on most MacBooks">Fn</button>
+            <button class="settings-btn" onclick="changeSettingsHotkey(['cmd', 'shift'])" title="If Fn doesn't work">Command + Shift</button>
+            <button class="settings-btn" onclick="changeSettingsHotkey(['option', 'shift'])" title="Alternative">Option + Shift</button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-label"></div>
+            <div class="settings-row-desc" style="font-size:13px;color:#999;">💡 Press Space while holding your hotkey to activate auto mode</div>
           </div>
         </div>
       </div>
