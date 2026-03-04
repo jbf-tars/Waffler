@@ -529,6 +529,7 @@ class Api:
             "transcription_backend": transcription_backend,
             "styling_backend":       styling_backend,
             "language":              stored.get("language", "en"),
+            "dialect":               stored.get("dialect", "auto"),
             "auto_paste":            stored.get("auto_paste", True),
         }
 
@@ -569,6 +570,11 @@ class Api:
             if "language" in settings:
                 stored["language"] = settings["language"]
                 notes.append(f"Language: {settings['language']}")
+
+            # ── Dialect / Spelling ───────────────────────────────────────────
+            if "dialect" in settings:
+                stored["dialect"] = settings["dialect"]
+                notes.append(f"Spelling: {settings['dialect']}")
 
             # ── Auto-paste ───────────────────────────────────────────────────
             if "auto_paste" in settings:

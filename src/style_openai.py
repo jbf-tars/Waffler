@@ -98,10 +98,22 @@ Transcript: {transcript}"""
 
         # Load custom vocabulary for all providers
         try:
-            from transcribe_whisper import load_vocab
+            from transcribe_whisper import load_vocab, load_settings
             vocab = load_vocab()
         except Exception:
             vocab = []
+
+        # Load dialect/spelling setting
+        dialect_instruction = "Use the same spelling as the user. Do not change spelling conventions."
+        try:
+            settings = load_settings()
+            dialect = settings.get("dialect", "auto")
+            if dialect == "en-GB":
+                dialect_instruction = "Use British English spelling (e.g. colour, organise, centre, behaviour, realise, programme, defence, licence, favour, catalogue)."
+            elif dialect == "en-US":
+                dialect_instruction = "Use American English spelling (e.g. color, organize, center, behavior, realize, program, defense, license, favor, catalog)."
+        except Exception:
+            pass
 
         # Priority 1: Try self-hosted backend first
         if self._use_backend:
@@ -111,9 +123,9 @@ Transcript: {transcript}"""
                 print(f"⚠️  Backend styling failed ({e}), falling back to Groq/OpenAI")
 
         # Priority 2: Try Groq (much faster), fall back to OpenAI
+        vocab_hint = (f"\nPreserve these exact spellings: {', '.join(vocab)}." if vocab else "")
         if self._use_groq:
-            vocab_hint = (f"\nPreserve these exact spellings: {', '.join(vocab)}." if vocab else "")
-            prompt = self.prompt_template.format(transcript=transcript) + vocab_hint
+            prompt = self.prompt_template.format(transcript=transcript, dialect_instruction=dialect_instruction) + vocab_hint
             try:
                 return self._style_groq(prompt, start_time)
             except Exception as e:
@@ -122,8 +134,7 @@ Transcript: {transcript}"""
                     return self._basic_clean(transcript), {"input_tokens": 0, "output_tokens": 0, "api_used": False}
 
         # Priority 3: OpenAI fallback
-        vocab_hint = (f"\nPreserve these exact spellings: {', '.join(vocab)}." if vocab else "")
-        prompt = self.prompt_template.format(transcript=transcript) + vocab_hint
+        prompt = self.prompt_template.format(transcript=transcript, dialect_instruction=dialect_instruction) + vocab_hint
         return self._style_openai(prompt, transcript, start_time)
 
     def _style_backend(self, transcript: str, vocab: list, start_time: float):
