@@ -15,9 +15,9 @@
   --border-soft: #1e1e26;
 
   --accent:      #C8A256;
-  --accent-dim:  #8B6914;
+  --accent-dim:  #B8923E;
   --accent-glow: rgba(200, 162, 86, 0.15);
-  --accent-text: #D4AF6A;
+  --accent-text: #D4B06A;
 
   --text-primary:   #f0f0f8;
   --text-secondary: #8888a8;
@@ -43,7 +43,7 @@ html, body {
   font-size: 14px;
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
-  /* Allow text selection for copy - only disable on specific UI elements */
+  user-select: none;
 }
 
 /* ── Layout ─────────────────────────────────────────────────── */
@@ -51,12 +51,6 @@ html, body {
   display: flex;
   height: 100vh;
   overflow: hidden;
-}
-
-/* Disable text selection on UI controls */
-button, .nav-item, .header, .settings-header, .wizard-header,
-.hotkey-hint, .sidebar-label, .feed-header, .stat-card {
-  user-select: none;
 }
 
 /* ── Sidebar ─────────────────────────────────────────────────── */
@@ -68,7 +62,6 @@ button, .nav-item, .header, .settings-header, .wizard-header,
   flex-direction: column;
   flex-shrink: 0;
   padding: 20px 0;
-  user-select: none;
 }
 
 .sidebar-logo {
@@ -83,13 +76,13 @@ button, .nav-item, .header, .settings-header, .wizard-header,
 .logo-icon {
   width: 32px;
   height: 32px;
-  background: linear-gradient(145deg, #d4952a, #a06818);
+  background: var(--accent);
   border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 16px;
-  box-shadow: 0 4px 14px rgba(190, 130, 40, 0.35);
+  box-shadow: 0 4px 14px rgba(200, 162, 86, 0.5);
   flex-shrink: 0;
 }
 
@@ -97,23 +90,14 @@ button, .nav-item, .header, .settings-header, .wizard-header,
   font-size: 17px;
   font-weight: 700;
   letter-spacing: -0.3px;
-  position: relative;
-  background: linear-gradient(180deg, #f0b840 0%, #d49230 55%, #b87420 100%);
+  background: linear-gradient(135deg, #E8C870 0%, #C8A256 35%, #8B5E14 70%, #5C2E0E 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
 
-.logo-name::after {
-  content: '';
-  position: absolute;
-  bottom: -4px;
-  right: 6px;
-  width: 4px;
-  height: 7px;
-  background: #b87420;
-  border-radius: 0 0 50% 50%;
-  opacity: 0.8;
+.logo-name span {
+  /* Gradient covers the full word, no separate span color needed */
 }
 
 .nav-item {
@@ -203,6 +187,28 @@ button, .nav-item, .header, .settings-header, .wizard-header,
   font-family: "SF Mono", Menlo, monospace;
   color: var(--text-secondary);
   letter-spacing: 0.2px;
+}
+
+.hotkey-tips {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.hotkey-tip {
+  font-size: 10px;
+  color: var(--text-muted);
+  opacity: 0.7;
+  line-height: 1.4;
+}
+.hotkey-tip kbd {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0 3px;
+  font-size: 9px;
+  font-family: "SF Mono", Menlo, monospace;
+  color: var(--text-secondary);
 }
 
 /* ── Main Content ─────────────────────────────────────────────── */
@@ -784,6 +790,23 @@ button, .nav-item, .header, .settings-header, .wizard-header,
 }
 .settings-input::placeholder { color: var(--text-muted); }
 
+.settings-select {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 7px 10px;
+  font-size: 12.5px;
+  color: var(--text);
+  outline: none;
+  width: 200px;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.settings-select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-glow);
+}
+
 .api-key-row {
   display: flex;
   align-items: center;
@@ -918,7 +941,7 @@ button, .nav-item, .header, .settings-header, .wizard-header,
 
 /* ── Onboarding Banner ────────────────────────────────────────── */
 .onboarding-banner {
-  background: linear-gradient(135deg, rgba(124, 58, 237, 0.2), rgba(124, 58, 237, 0.08));
+  background: linear-gradient(135deg, rgba(200, 162, 86, 0.2), rgba(200, 162, 86, 0.08));
   border: 1px solid var(--accent);
   border-radius: var(--radius-md);
   padding: 14px 18px;
@@ -1351,7 +1374,11 @@ button, .nav-item, .header, .settings-header, .wizard-header,
   scrollbar-color: var(--border) transparent;
 }
 
-/* Mic dropdown - removed overflow to prevent scrollbar */
+/* Mic dropdown scroll */
+.sidebar-select {
+  max-height: 150px;
+  overflow-y: auto;
+}
 
 /* ── Auth Screens ─────────────────────────────────────────────────── */
 .auth-container {
@@ -1372,18 +1399,18 @@ button, .nav-item, .header, .settings-header, .wizard-header,
 .auth-logo .logo-icon {
   width: 44px;
   height: 44px;
-  background: linear-gradient(145deg, #d4952a, #a06818);
+  background: var(--accent);
   border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 22px;
-  box-shadow: 0 4px 20px rgba(190, 130, 40, 0.35);
+  box-shadow: 0 4px 20px rgba(200, 162, 86, 0.5);
 }
 .auth-logo .logo-name {
   font-size: 26px;
   font-weight: 700;
-  background: linear-gradient(180deg, #f0b840 0%, #d49230 55%, #b87420 100%);
+  background: linear-gradient(135deg, #E8C870 0%, #C8A256 35%, #8B5E14 70%, #5C2E0E 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -1538,19 +1565,19 @@ button, .nav-item, .header, .settings-header, .wizard-header,
 .wizard-header .logo-icon {
   width: 44px;
   height: 44px;
-  background: linear-gradient(145deg, #d4952a, #a06818);
+  background: var(--accent);
   border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 22px;
-  box-shadow: 0 4px 20px rgba(190, 130, 40, 0.35);
+  box-shadow: 0 4px 20px rgba(200, 162, 86, 0.5);
 }
 
 .wizard-header .logo-name {
   font-size: 26px;
   font-weight: 700;
-  background: linear-gradient(180deg, #f0b840 0%, #d49230 55%, #b87420 100%);
+  background: linear-gradient(135deg, #E8C870 0%, #C8A256 35%, #8B5E14 70%, #5C2E0E 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -1778,71 +1805,54 @@ button, .nav-item, .header, .settings-header, .wizard-header,
   margin: 16px 0;
 }
 
-.wizard-fn-key {
-  display: inline-flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  padding: 10px 16px 12px;
-  min-width: 64px;
-  border: none;
-
-  /* Mac key appearance - light like real Mac keyboard */
-  background: linear-gradient(180deg, #f5f5f7 0%, #e8e8ea 100%);
-  border-radius: 6px;
-  box-shadow:
-    0 1px 0 0 rgba(255, 255, 255, 0.9) inset,
-    0 -1px 0 0 rgba(0, 0, 0, 0.15) inset,
-    0 2px 4px rgba(0, 0, 0, 0.2),
-    0 0 0 1px rgba(0, 0, 0, 0.12);
-
-  font-family: -apple-system, "SF Pro Display", sans-serif;
-  color: #1d1d1f;
-  transition: all 0.12s cubic-bezier(0.4, 0, 0.2, 1);
-  cursor: pointer;
-  user-select: none;
-}
-
-.wizard-fn-key:hover {
-  background: linear-gradient(180deg, #ffffff 0%, #f0f0f2 100%);
-}
-
-/* Active state - pressed (inverted to brand colors) */
-.wizard-fn-key.active {
-  background: linear-gradient(180deg, #D4AF6A 0%, #C8A256 100%);
-  box-shadow:
-    0 1px 0 0 rgba(255, 255, 255, 0.2) inset,
-    0 -1px 0 0 rgba(0, 0, 0, 0.3) inset,
-    0 1px 2px rgba(0, 0, 0, 0.8),
-    0 0 0 2px rgba(200, 162, 86, 0.5),
-    0 0 16px rgba(200, 162, 86, 0.4);
-  transform: translateY(1px);
-  color: #ffffff;
-}
-
-.fn-icon {
+.wizard-hotkey-badge {
+  background: var(--bg-surface);
+  border: 2px solid var(--accent);
+  border-radius: 10px;
+  padding: 12px 24px;
   font-size: 18px;
-  opacity: 0.7;
-  filter: grayscale(0.3);
-}
-
-.wizard-fn-key.active .fn-icon {
-  opacity: 1;
-  filter: grayscale(0) brightness(1.1);
-}
-
-.fn-label {
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: lowercase;
-  letter-spacing: 0.5px;
-  opacity: 0.85;
-}
-
-.wizard-fn-key.active .fn-label {
-  opacity: 1;
   font-weight: 700;
-  color: #ffffff;
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  color: var(--accent-text);
+  letter-spacing: 0.5px;
+  box-shadow: 0 4px 16px var(--accent-glow);
+}
+
+.wizard-hotkey-keys {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: center;
+}
+
+.wizard-key {
+  background: var(--bg-surface);
+  border: 2px solid var(--border);
+  border-radius: 10px;
+  padding: 16px 24px;
+  font-size: 18px;
+  font-weight: 700;
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  color: var(--text-secondary);
+  letter-spacing: 0.5px;
+  min-width: 80px;
+  text-align: center;
+  transition: all 0.12s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.wizard-key.active {
+  background: linear-gradient(180deg, #D4AF6A 0%, #C8A256 100%);
+  border-color: #D4AF6A;
+  color: #1a1a1e;
+  font-weight: 800;
+  box-shadow: 0 0 16px rgba(200, 162, 86, 0.4), 0 4px 12px rgba(200, 162, 86, 0.3);
+  transform: translateY(1px);
+}
+
+.wizard-key-plus {
+  font-size: 22px;
+  color: var(--text-muted);
+  font-weight: 600;
 }
 
 .wizard-hotkey-mode {
@@ -1854,6 +1864,12 @@ button, .nav-item, .header, .settings-header, .wizard-header,
   font-size: 12px;
   color: var(--text-muted);
   font-style: italic;
+}
+
+.wizard-hint.detected {
+  color: #D4AF6A;
+  font-style: normal;
+  font-weight: 600;
 }
 
 /* Microphone Select */
@@ -2232,7 +2248,7 @@ button, .nav-item, .header, .settings-header, .wizard-header,
 .mock-app-icon {
   width: 26px;
   height: 26px;
-  background: linear-gradient(135deg, #D4AF6A, #C8A256);
+  background: linear-gradient(135deg, #C8A256, #8B6914);
   border-radius: 6px;
   display: flex;
   align-items: center;
@@ -2323,7 +2339,7 @@ button, .nav-item, .header, .settings-header, .wizard-header,
 .mock-msg-name {
   font-size: 11px;
   font-weight: 700;
-  color: var(--accent);
+  color: #C8A256;
   margin-bottom: 3px;
 }
 
@@ -2409,7 +2425,7 @@ button, .nav-item, .header, .settings-header, .wizard-header,
   width: 38px;
   height: 38px;
   border-radius: 50%;
-  background: var(--accent);
+  background: #C8A256;
   border: none;
   color: #fff;
   font-size: 16px;
