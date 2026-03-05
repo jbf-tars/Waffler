@@ -63,20 +63,43 @@ class RecordingOverlay:
 
     def show(self):
         """Show the recording overlay."""
+        from pathlib import Path
+        from datetime import datetime
+        log_file = Path.home() / ".waffler-hosted" / "app.log"
+        def log(msg):
+            try:
+                with open(log_file, "a") as f:
+                    ts = datetime.now().strftime("%H:%M:%S")
+                    f.write(f"{ts}  {msg}\n")
+            except:
+                pass
+
+        log("[overlay] show() called")
+
         if self._is_alive():
+            log("[overlay] Subprocess already alive, sending show command")
             self._send({"type": "show"})
             self._visible = True
             return
 
+        log("[overlay] Starting new subprocess...")
         self._start_process()
         time.sleep(0.35)  # let subprocess initialise
+
         if not self._is_alive():
             # Retry once if first start failed
+            log("[overlay] First start failed, retrying...")
             print("[overlay] First start failed, retrying...")
             self._start_process()
             time.sleep(0.5)
-        self._send({"type": "show"})
-        self._visible = True
+
+        if self._is_alive():
+            log("[overlay] ✓ Subprocess alive, sending show command")
+            self._send({"type": "show"})
+            self._visible = True
+        else:
+            log("[overlay] ✗ ERROR: Subprocess FAILED to start after retry!")
+            print("[overlay] ERROR: Subprocess failed to start!", flush=True)
 
     def hide(self):
         """Hide the overlay (subprocess stays alive for reuse)."""
@@ -89,12 +112,35 @@ class RecordingOverlay:
         Push an audio RMS level (0.0-1.0) to animate the VU bars.
         Safe to call from any thread at any rate.
         """
-        if not self._is_alive() and self._visible:
-            # Process died while recording — auto-restart
-            print("[overlay] Process died during recording, restarting...")
-            self._start_process()
-            time.sleep(0.35)
-            self._send({"type": "show"})
+        # Silently ignore if overlay is not running (app still works)
+        if not self._is_alive():
+            if self._visible:
+                # Process died while recording — try auto-restart ONCE
+                from pathlib import Path
+                from datetime import datetime
+                log_file = Path.home() / ".waffler-hosted" / "app.log"
+                def log(msg):
+                    try:
+                        with open(log_file, "a") as f:
+                            ts = datetime.now().strftime("%H:%M:%S")
+                            f.write(f"{ts}  {msg}\n")
+                    except:
+                        pass
+
+                if not hasattr(self, '_restart_attempted'):
+                    log("[overlay] Process died during recording, attempting one restart...")
+                    print("[overlay] Process died during recording, restarting...")
+                    self._restart_attempted = True
+                    self._start_process()
+                    time.sleep(0.35)
+                    self._send({"type": "show"})
+                else:
+                    # Already tried restart, give up silently
+                    self._visible = False
+                    return
+            else:
+                return
+
         if self._is_alive():
             level = max(0.0, min(1.0, float(level)))
             self._send({"type": "level", "value": level})
@@ -176,30 +222,90 @@ class RecordingOverlay:
 
     def _find_python(self):
         """Find a usable Python interpreter for the overlay subprocess."""
-        # In frozen apps, sys.executable is the bundled binary — not Python.
-        # We need an actual Python interpreter to run the overlay script.
+        from pathlib import Path
+        from datetime import datetime
+        import os
+        log_file = Path.home() / ".waffler-hosted" / "app.log"
+        def log(msg):
+            try:
+                with open(log_file, "a") as f:
+                    ts = datetime.now().strftime("%H:%M:%S")
+                    f.write(f"{ts}  {msg}\n")
+            except:
+                pass
+
+        log(f"[overlay] _find_python called, sys.frozen={getattr(sys, 'frozen', False)}")
+        log(f"[overlay] sys.executable={sys.executable}")
+
         if getattr(sys, 'frozen', False):
             import shutil
-            # Try common Python interpreter names (including Windows py launcher)
-            for name in ('python3', 'python', 'py'):
+
+            log(f"[overlay] App is frozen, searching for Python interpreter...")
+
+            # macOS-specific: Try common Python locations on macOS
+            # Most Macs have Python 3 pre-installed
+            mac_python_paths = [
+                '/usr/bin/python3',  # macOS system Python (most common)
+                '/usr/local/bin/python3',  # Homebrew Python
+                '/opt/homebrew/bin/python3',  # Homebrew on Apple Silicon
+                '/Library/Frameworks/Python.framework/Versions/3.11/bin/python3',
+                '/Library/Frameworks/Python.framework/Versions/3.10/bin/python3',
+                '/Library/Frameworks/Python.framework/Versions/3.9/bin/python3',
+            ]
+
+            # First try specific macOS paths
+            for path_str in mac_python_paths:
+                if os.path.exists(path_str):
+                    log(f"[overlay] ✓ Found macOS Python: {path_str}")
+                    print(f"[overlay] Found Python: {path_str}")
+                    return path_str
+
+            # Fallback: Search PATH
+            log("[overlay] Checking PATH for Python...")
+            for name in ('python3', 'python'):
                 path = shutil.which(name)
                 if path:
+                    log(f"[overlay] ✓ Found Python in PATH: {path}")
                     print(f"[overlay] Found Python: {path}")
                     return path
-            # No Python found — return None so caller can handle it
-            print("[overlay] WARNING: No Python interpreter found in PATH")
+
+            # No Python found — return None
+            log("[overlay] ✗ ERROR: No Python interpreter found")
+            log("[overlay] Checked: macOS system paths + PATH")
+            print("[overlay] WARNING: No Python interpreter found")
             return None
+
+        log(f"[overlay] Using sys.executable: {sys.executable}")
         return sys.executable
 
     def _start_process(self):
         """Launch the overlay subprocess."""
+        from pathlib import Path
+        from datetime import datetime
+        log_file = Path.home() / ".waffler-hosted" / "app.log"
+        def log(msg):
+            try:
+                with open(log_file, "a") as f:
+                    ts = datetime.now().strftime("%H:%M:%S")
+                    f.write(f"{ts}  {msg}\n")
+            except:
+                pass
+
+        log(f"[overlay] _start_process called")
+        log(f"[overlay] Script path: {self._script}")
+        log(f"[overlay] Script exists: {self._script.exists()}")
+
         if not self._script.exists():
+            log(f"[overlay] ✗ ERROR: script not found: {self._script}")
             print(f"[overlay] WARNING: script not found: {self._script}", flush=True)
             return
 
         python = self._find_python()
         if python is None:
-            print("[overlay] Cannot start overlay: no Python interpreter available")
+            log("[overlay] ✗ ERROR: Cannot start overlay: no Python interpreter available")
+            log("[overlay] App will continue without overlay (transcription still works)")
+            print("[overlay] Cannot start overlay: no Python interpreter available", flush=True)
+            print("[overlay] Note: App will work without visual overlay", flush=True)
             return
 
         try:
@@ -208,24 +314,66 @@ class RecordingOverlay:
             if _PLATFORM == "Windows":
                 CREATE_NO_WINDOW = 0x08000000
                 kwargs["creationflags"] = CREATE_NO_WINDOW
-        except Exception:
+        except Exception as e:
+            log(f"[overlay] Exception setting kwargs: {e}")
             kwargs = {}
 
-        self._process = subprocess.Popen(
-            [python, str(self._script)],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            text=True,
-            bufsize=1,
-            **kwargs,
-        )
-        self._reader_thread = threading.Thread(
-            target=self._read_stdout,
-            daemon=True,
-            name="OverlayReader",
-        )
-        self._reader_thread.start()
+        log(f"[overlay] Starting subprocess: {python} {self._script}")
+
+        # CRITICAL FIX: When frozen, add bundled libraries to PYTHONPATH
+        # so the subprocess can import PyObjC from the .app bundle
+        import os
+        env = os.environ.copy()
+
+        if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+            # PyInstaller extracts bundled files to sys._MEIPASS temp directory
+            # Add this to PYTHONPATH so subprocess can import bundled PyObjC
+            meipass = sys._MEIPASS
+            log(f"[overlay] App is frozen, MEIPASS={meipass}")
+
+            # Add MEIPASS to PYTHONPATH so subprocess finds bundled libraries
+            pythonpath = env.get('PYTHONPATH', '')
+            if pythonpath:
+                env['PYTHONPATH'] = f"{meipass}:{pythonpath}"
+            else:
+                env['PYTHONPATH'] = meipass
+
+            log(f"[overlay] Set PYTHONPATH={env['PYTHONPATH']}")
+
+        try:
+            self._process = subprocess.Popen(
+                [python, str(self._script)],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,  # CHANGED: Capture stderr to see errors
+                text=True,
+                bufsize=1,
+                env=env,  # Pass modified environment with PYTHONPATH
+                **kwargs,
+            )
+            log(f"[overlay] ✓ Subprocess started, PID={self._process.pid}")
+
+            # Start stderr reader thread to log any errors
+            self._stderr_thread = threading.Thread(
+                target=self._read_stderr,
+                daemon=True,
+                name="OverlayStderr",
+            )
+            self._stderr_thread.start()
+
+            self._reader_thread = threading.Thread(
+                target=self._read_stdout,
+                daemon=True,
+                name="OverlayReader",
+            )
+            self._reader_thread.start()
+            log(f"[overlay] Reader threads started")
+
+        except Exception as e:
+            log(f"[overlay] ✗ EXCEPTION starting subprocess: {e}")
+            print(f"[overlay] EXCEPTION: {e}", flush=True)
+            import traceback
+            log(f"[overlay] Traceback: {traceback.format_exc()}")
 
     def _is_alive(self) -> bool:
         return self._process is not None and self._process.poll() is None
@@ -242,8 +390,23 @@ class RecordingOverlay:
 
     def _read_stdout(self):
         """Read event callbacks from subprocess stdout."""
+        from pathlib import Path
+        from datetime import datetime
+        log_file = Path.home() / ".waffler-hosted" / "app.log"
+        def log(msg):
+            try:
+                with open(log_file, "a") as f:
+                    ts = datetime.now().strftime("%H:%M:%S")
+                    f.write(f"{ts}  {msg}\n")
+            except:
+                pass
+
         if not self._process or not self._process.stdout:
+            log("[overlay] _read_stdout: no process or stdout")
             return
+
+        log("[overlay] _read_stdout: started reading")
+
         for line in self._process.stdout:
             line = line.strip()
             if not line:
@@ -251,6 +414,8 @@ class RecordingOverlay:
             try:
                 data  = json.loads(line)
                 event = data.get("event")
+                log(f"[overlay] Received event: {event}")
+
                 if event == "cancel" and self._on_cancel:
                     self._on_cancel()
                 elif event == "cancel_request":
@@ -267,3 +432,26 @@ class RecordingOverlay:
                     self._on_toast_action(data.get("action", ""))
             except json.JSONDecodeError:
                 pass
+
+        log("[overlay] _read_stdout: ended (subprocess stdout closed)")
+
+    def _read_stderr(self):
+        """Read and log errors from subprocess stderr."""
+        from pathlib import Path
+        from datetime import datetime
+        log_file = Path.home() / ".waffler-hosted" / "app.log"
+        def log(msg):
+            try:
+                with open(log_file, "a") as f:
+                    ts = datetime.now().strftime("%H:%M:%S")
+                    f.write(f"{ts}  {msg}\n")
+            except:
+                pass
+
+        if not self._process or not self._process.stderr:
+            return
+
+        for line in self._process.stderr:
+            line = line.strip()
+            if line:
+                log(f"[overlay STDERR] {line}")
