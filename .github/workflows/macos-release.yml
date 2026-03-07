@@ -79,6 +79,27 @@ jobs:
           fi
           python -m PyInstaller --noconfirm --clean Waffler_mac.spec
 
+          # Manually sign the app with hardened runtime and entitlements
+          if [ -n "$SIGNING_IDENTITY" ]; then
+            echo "=== Manually signing app with hardened runtime ==="
+            find dist/Waffler.app/Contents/MacOS -type f -perm +111 -exec \
+              codesign --sign "$SIGNING_IDENTITY" \
+                       --force \
+                       --options runtime \
+                       --entitlements entitlements.plist \
+                       --timestamp \
+                       --deep \
+                       {} \;
+
+            codesign --sign "$SIGNING_IDENTITY" \
+                     --force \
+                     --options runtime \
+                     --entitlements entitlements.plist \
+                     --timestamp \
+                     --deep \
+                     dist/Waffler.app
+          fi
+
           # Verify signature
           codesign -dvvv dist/Waffler.app 2>&1 | grep -E "Identifier|Authority|Signature" || true
 
