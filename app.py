@@ -2194,6 +2194,77 @@ def _install_to_applications():
         raise RuntimeError(f"Failed to install to Applications: {e}") from e
 
 
+def _relaunch_from_new_location(app_path: Path):
+    """Launch the newly installed app and exit this process.
+
+    WARNING: This function never returns - the process exits after launching.
+    """
+    _log_to_file(f"Relaunching from new location: {app_path}")
+
+    try:
+        # Validate app exists before attempting launch
+        if not app_path.exists():
+            raise FileNotFoundError(f"Installed app not found at {app_path}")
+
+        # Validate it's a .app bundle in allowed location
+        if app_path.suffix != '.app':
+            raise ValueError(f"Invalid app bundle: {app_path}")
+
+        allowed_locations = [Path('/Applications'), Path.home() / 'Applications']
+        if not any(str(app_path).startswith(str(loc)) for loc in allowed_locations):
+            raise ValueError(f"App not in allowed location: {app_path}")
+
+        # Launch new instance and verify it started
+        proc = subprocess.Popen(['open', str(app_path)],
+                               stderr=subprocess.PIPE,
+                               stdout=subprocess.PIPE)
+
+        # Give it a moment to fail if it's going to
+        time.sleep(0.1)
+        if proc.poll() is not None and proc.returncode != 0:
+            stderr_output = proc.stderr.read().decode('utf-8', errors='replace') if proc.stderr else ""
+            raise RuntimeError(f"Failed to launch app: {stderr_output}")
+
+        _log_to_file("Exiting old process after relaunch")
+        sys.exit(0)
+    except Exception as e:
+        _log_to_file(f"Relaunch failed: {e}")
+        # Don't exit on failure - show error dialog instead
+        _show_error_dialog(
+            f"Failed to relaunch from {app_path}\n\n{str(e)}\n\n"
+            "Please launch Waffler manually from Applications."
+        )
+        sys.exit(1)
+
+
+def _show_error_dialog(message: str):
+    """Show error dialog with manual installation instructions."""
+    # Log error to file for debugging
+    _log_to_file(f"Showing error dialog: {message}")
+
+    try:
+        # Escape double quotes and backslashes for AppleScript
+        safe_message = message.replace('\\', '\\\\').replace('"', '\\"')
+
+        result = subprocess.run([
+            'osascript', '-e',
+            f'display dialog "{safe_message}" '
+            'with title "Installation Error" '
+            'buttons {{"OK"}} '
+            'default button "OK" '
+            'with icon stop'
+        ], capture_output=True, text=True, timeout=60)
+
+        if result.returncode != 0:
+            _log_to_file(f"Dialog display failed: {result.stderr}")
+            print(f"\nERROR: {message}\n", file=sys.stderr)
+    except subprocess.TimeoutExpired:
+        _log_to_file("Dialog timed out after 60s")
+    except Exception as e:
+        _log_to_file(f"Failed to show error dialog: {e}")
+        print(f"\nERROR: {message}\n", file=sys.stderr)
+
+
 def main():
     global _config, _window_ref
 
