@@ -103,6 +103,10 @@ def _send(self, data: dict) -> bool:
 - Returns boolean status so callers can handle failures
 - Logs all pipe errors for debugging
 
+**Note on return value handling:**
+- Only `show()` and `update_level()` need explicit failure handling (trigger restart)
+- Other methods (`hide()`, `show_toast()`, etc.) can safely ignore `False` returns - failures are already logged and subprocess will auto-restart on next critical operation
+
 ### 2. Centralized Logging
 
 **Add logging helper method:**
@@ -154,7 +158,7 @@ def _attempt_restart(self) -> bool:
         print("[overlay] ERROR: Max restart attempts exceeded", flush=True)
         return False
 
-    # Exponential backoff: 0.5s, 1s, 2s, 4s
+    # Exponential backoff: 0.5s, 1s, 2s (max 3 attempts)
     delay = 0.5 * (2 ** (self._restart_count - 1))
     self._log(f"[overlay] Restarting subprocess in {delay}s (attempt {self._restart_count}/3)")
     time.sleep(delay)
@@ -291,6 +295,19 @@ def show(self):
 - ✅ Third restart: ~2s delay
 - ✅ Fourth attempt: Logs "Max restart attempts exceeded", gives up
 - ✅ Recording continues without overlay
+
+#### 3b. Restart Counter Reset Test
+**Goal:** Verify restart counter resets after 60s of stable operation
+
+**Steps:**
+1. Start recording
+2. Kill subprocess once → verify restart (count = 1)
+3. Wait 65 seconds (let counter reset)
+4. Kill subprocess again → verify restart with 0.5s delay (count reset to 1, not 2)
+
+**Success criteria:**
+- ✅ Second restart uses 0.5s delay (not 1s), confirming counter reset
+- ✅ Logs show restart attempt 1/3, not 2/3
 
 #### 4. Long Recording Stability Test
 **Goal:** Verify no pipe errors during extended use
