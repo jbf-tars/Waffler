@@ -1370,6 +1370,138 @@ async function wizRequestInputMonitoringPermission() {
   }
 }
 
+// ── Permission Status Indicator for Main UI ──────────────────────
+async function showPermissionStatusIndicator() {
+  try {
+    const status = await pywebview.api.get_permission_status();
+    const indicator = document.getElementById('permissionStatusIndicator');
+    
+    if (!indicator) {
+      // Create the indicator if it doesn't exist
+      const indicatorHTML = `
+        <div id="permissionStatusIndicator" class="permission-status-indicator">
+          <div class="permission-status-header">
+            <span class="permission-status-icon">🔒</span>
+            <span class="permission-status-title">Permissions</span>
+            <button class="permission-status-toggle" onclick="togglePermissionStatus()">▼</button>
+          </div>
+          <div id="permissionStatusDetails" class="permission-status-details" style="display:none;">
+            <div id="permissionStatusContent"></div>
+            <button class="permission-recheck-btn" onclick="recheckPermissions()">Recheck</button>
+          </div>
+        </div>
+      `;
+      
+      // Insert at top of main content area
+      const mainContent = document.querySelector('.main-content') || document.body;
+      mainContent.insertAdjacentHTML('afterbegin', indicatorHTML);
+    }
+    
+    updatePermissionStatusIndicator(status);
+  } catch(e) {
+    console.warn('showPermissionStatusIndicator error:', e);
+  }
+}
+
+function updatePermissionStatusIndicator(status) {
+  const indicator = document.getElementById('permissionStatusIndicator');
+  const content = document.getElementById('permissionStatusContent');
+  const icon = indicator.querySelector('.permission-status-icon');
+  
+  if (!indicator || !content) return;
+  
+  // Update indicator icon and color based on overall status
+  if (status.all_granted) {
+    icon.textContent = '✅';
+    indicator.className = 'permission-status-indicator granted';
+  } else if (status.missing_critical.length === 0) {
+    icon.textContent = '⚠️';
+    indicator.className = 'permission-status-indicator partial';
+  } else {
+    icon.textContent = '❌';
+    indicator.className = 'permission-status-indicator denied';
+  }
+  
+  // Generate detailed status content
+  let contentHTML = '';
+  
+  Object.entries(status.permissions).forEach(([permName, permInfo]) => {
+    const statusIcon = permInfo.granted ? '✅' : (permInfo.critical ? '❌' : '⚠️');
+    const statusClass = permInfo.granted ? 'granted' : (permInfo.critical ? 'critical' : 'optional');
+    
+    contentHTML += `
+      <div class="permission-item ${statusClass}">
+        <span class="permission-item-icon">${statusIcon}</span>
+        <div class="permission-item-info">
+          <div class="permission-item-title">${permInfo.title}</div>
+          <div class="permission-item-desc">${permInfo.explanation || ''}</div>
+          ${!permInfo.granted && permInfo.error ? `<div class="permission-item-error">${permInfo.error}</div>` : ''}
+          ${!permInfo.granted && permInfo.fallback_available ? `<div class="permission-item-fallback">Fallback: ${permInfo.fallback_message}</div>` : ''}
+        </div>
+        ${!permInfo.granted ? `<button class="permission-item-btn" onclick="requestPermission('${permName}')">Fix</button>` : ''}
+      </div>
+    `;
+  });
+  
+  if (status.recommendations.length > 0) {
+    contentHTML += `
+      <div class="permission-recommendations">
+        <strong>Status:</strong> ${status.recommendations.join(' ')}
+      </div>
+    `;
+  }
+  
+  content.innerHTML = contentHTML;
+}
+
+function togglePermissionStatus() {
+  const details = document.getElementById('permissionStatusDetails');
+  const toggle = document.querySelector('.permission-status-toggle');
+  
+  if (details.style.display === 'none') {
+    details.style.display = 'block';
+    toggle.textContent = '▲';
+  } else {
+    details.style.display = 'none';
+    toggle.textContent = '▼';
+  }
+}
+
+async function recheckPermissions() {
+  try {
+    const status = await pywebview.api.get_permission_status();
+    updatePermissionStatusIndicator(status);
+  } catch(e) {
+    console.warn('recheckPermissions error:', e);
+  }
+}
+
+async function requestPermission(permissionType) {
+  try {
+    switch(permissionType) {
+      case 'microphone':
+        await pywebview.api.request_mic_permission();
+        break;
+      case 'accessibility':
+        await pywebview.api.request_accessibility_permission();
+        break;
+      case 'input_monitoring':
+        await pywebview.api.request_input_monitoring_permission();
+        break;
+    }
+    // Recheck status after request
+    setTimeout(recheckPermissions, 1000);
+  } catch(e) {
+    console.warn('requestPermission error:', e);
+  }
+}
+
+// Initialize permission status indicator when app loads
+document.addEventListener('DOMContentLoaded', function() {
+  // Add permission status indicator to main interface
+  setTimeout(showPermissionStatusIndicator, 1000);
+});
+
 // ── Step 3: Hotkey Info ──────────────────────────────────────
 
 async function wizLoadHotkeyInfo() {
