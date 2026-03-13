@@ -428,6 +428,24 @@
             <button class="wizard-perm-btn" id="wizPermAccessBtn" style="display:none"
                     onclick="wizRequestAccessibilityPermission()">Open Settings</button>
           </div>
+
+          <!-- Input Monitoring Permission (macOS only) -->
+          <div class="wizard-perm-row" id="wizPermInputMonitoring" style="display:none">
+            <div class="wizard-perm-icon" id="wizPermInputMonitoringIcon">
+              <span class="wizard-perm-pending">●</span>
+            </div>
+            <div class="wizard-perm-info">
+              <div class="wizard-perm-label">Input Monitoring</div>
+              <div class="wizard-perm-desc" id="wizPermInputMonitoringDesc">Needed for Fn key detection</div>
+            </div>
+            <button class="wizard-perm-btn" id="wizPermInputMonitoringBtn" style="display:none"
+                    onclick="wizRequestInputMonitoringPermission()">Open Settings</button>
+          </div>
+        </div>
+
+        <div class="wizard-recommendations" id="wizPermRecommendations" style="display:none; margin-top:12px; padding:12px; background-color:#f8f9fa; border-radius:6px; font-size:14px;">
+          <strong>Recommendations:</strong>
+          <ul style="margin:8px 0 0 0; padding-left:20px;"></ul>
         </div>
 
         <button class="wizard-test-btn" id="wizRecheckBtn" style="display:none; margin-top:16px"
