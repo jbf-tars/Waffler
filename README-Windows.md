@@ -1,10 +1,10 @@
-# VoiceFlow for Windows (Early Testers)
+# Waffler for Windows (Early Testers)
 
 ## Install (no Python needed)
 
-1. Download `VoiceFlow-Setup-<version>.exe` from Releases
+1. Download `Waffler-Setup-<version>.exe` from Releases
 2. Run installer
-3. Launch **VoiceFlow** from Start menu
+3. Launch **Waffler** from Start menu
 4. Add your OpenAI API key in Settings
 
 > This early-tester build is **unsigned**. Windows may show SmartScreen warnings.
@@ -21,7 +21,7 @@
 ### Release flow
 ```bash
 git add .
-git commit -m "VoiceFlow: your change"
+git commit -m "Waffler: your change"
 git push
 
 # create release tag
@@ -30,9 +30,9 @@ git push origin v1.0.1
 ```
 
 GitHub Actions will:
-1. Build VoiceFlow on `windows-latest`
+1. Build Waffler on `windows-latest`
 2. Package installer with Inno Setup
-3. Upload `VoiceFlow-Setup-*.exe` to GitHub Release
+3. Upload `Waffler-Setup-*.exe` to GitHub Release
 
 Use that `.exe` link on your website download button.
 

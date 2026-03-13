@@ -8,14 +8,14 @@ Your PC Claude analyzed the GitHub repos and found some important insights about
 
 ## Repository Structure
 
-### 1. **jbf-tars/voiceflow-app** (Main Development Repo)
+### 1. **jbf-tars/waffler-app** (Main Development Repo)
 - **What:** Desktop application (what we've been working on)
 - **Status:** Mac has pushed **13 commits ahead** of remote
-- **Location:** `/Users/james/voiceflow-app` (Mac)
+- **Location:** `/Users/james/waffler-app` (Mac)
 - **Branch:** Currently on `self-hosted` (local only, not pushed yet)
 
 ### 2. **jbf-tars/waffler** (Same Content + Backend)
-- **What:** Same repo content as voiceflow-app
+- **What:** Same repo content as waffler-app
 - **Has:** `backend/` folder with FastAPI
   - Auth endpoints (signup, signin)
   - Usage tracking
@@ -35,12 +35,12 @@ Your PC Claude analyzed the GitHub repos and found some important insights about
 ### ✅ Good News
 1. **Backend already exists** in the waffler repo with production-ready FastAPI code
 2. **OAuth is fully working** on Windows build (Google OAuth with local callback)
-3. **Windows build is ready** at `C:\Users\james\Downloads\Telegram Desktop\VoiceFlow-v37\dist\Waffler\Waffler.exe`
+3. **Windows build is ready** at `C:\Users\james\Downloads\Telegram Desktop\Waffler-v37\dist\Waffler\Waffler.exe`
 
 ### ⚠️ Important Notes
 1. **self-hosted branch NOT pushed** - It's only on your Mac locally
 2. **Mac is 13 commits ahead** - Changes on Mac haven't been pushed to remote
-3. **Multiple repo names** - `voiceflow-app` vs `waffler` (same content, different names)
+3. **Multiple repo names** - `waffler-app` vs `waffler` (same content, different names)
 
 ---
 
@@ -59,7 +59,7 @@ git push -u origin self-hosted
 
 ### Repo Name Confusion
 It seems you have two repos with the same content:
-- **voiceflow-app** - Development name (what we're working in)
+- **waffler-app** - Development name (what we're working in)
 - **waffler** - Production name (what users see)
 
 **Recommendation:** Decide on one canonical repo and archive the other to avoid confusion.
@@ -79,7 +79,7 @@ It seems you have two repos with the same content:
 - ✅ Tray icon working on Windows
 - ✅ Normal (Wispr) mode prompt style added
 - ✅ `poll_oauth_result` for reliable token capture
-- ✅ Ready to use at: `C:\Users\james\Downloads\Telegram Desktop\VoiceFlow-v37\dist\Waffler\Waffler.exe`
+- ✅ Ready to use at: `C:\Users\james\Downloads\Telegram Desktop\Waffler-v37\dist\Waffler\Waffler.exe`
 
 ### Sync Status
 ```
@@ -184,13 +184,13 @@ Once Phase 2-3 are complete (LLM endpoint + desktop app integration):
 
 ### Option A: Consolidate (Recommended)
 1. Keep **waffler** as the canonical repo
-2. Archive **voiceflow-app**
+2. Archive **waffler-app**
 3. Update all local references to point to `waffler`
 
 ### Option B: Keep Separate
 1. **waffler** = Production releases
-2. **voiceflow-app** = Active development
-3. Merge from voiceflow-app → waffler when ready for release
+2. **waffler-app** = Active development
+3. Merge from waffler-app → waffler when ready for release
 
 ### Option C: Current State
 Keep both, but clearly document which is which:
@@ -237,7 +237,7 @@ git push -u origin self-hosted
 ## Summary
 
 **What PC Claude Found:**
-- ✅ Multiple repos exist (voiceflow-app, waffler, waffler-website)
+- ✅ Multiple repos exist (waffler-app, waffler, waffler-website)
 - ✅ Backend code already exists in FastAPI
 - ✅ Windows build is ready with Google OAuth
 - ⚠️ Mac is 13 commits ahead of remote
@@ -259,7 +259,7 @@ git push -u origin self-hosted
 
 ## Questions to Resolve
 
-1. **Which repo is canonical?** `voiceflow-app` or `waffler`?
+1. **Which repo is canonical?** `waffler-app` or `waffler`?
 2. **Should we consolidate?** Merge them into one repo?
 3. **What about waffler-website?** Keep separate or monorepo?
 4. **Branch strategy?** How to manage main vs self-hosted vs development?

@@ -220,7 +220,7 @@ brew install --cask karabiner-elements
 **Option A: Auto-generate (recommended)**
 
 ```bash
-cd voiceflow-app
+cd waffler-app
 python -c "from src.smart_hotkey_f13 import save_karabiner_config; save_karabiner_config()"
 ```
 

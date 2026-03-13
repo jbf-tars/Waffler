@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-VoiceFlow Prompt Quality Tester - Round A
+Waffler Prompt Quality Tester - Round A
 Tests smart.txt and normal.txt against 20 synthetic transcripts,
 scores outputs, identifies weaknesses, and generates improved prompts.
 """
@@ -12,7 +12,7 @@ import time
 from openai import OpenAI
 
 # ── Config ────────────────────────────────────────────────────────────────────
-PROJECT_PATH = "/Users/tars/clawd/projects/voice-app-downloadable"
+PROJECT_PATH = "/Users/tars/Desktop/waffler"
 API_KEY = os.environ.get("OPENAI_API_KEY")
 MODEL = "gpt-4o-mini"
 
@@ -262,7 +262,7 @@ smart_scores = []
 normal_scores = []
 
 print(f"\n{'='*60}")
-print("VoiceFlow Prompt Tester — Round A")
+print("Waffler Prompt Tester — Round A")
 print(f"Testing {len(TRANSCRIPTS)} transcripts × 2 prompts = {len(TRANSCRIPTS)*2} API calls")
 print(f"{'='*60}\n")
 

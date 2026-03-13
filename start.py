@@ -1,5 +1,5 @@
 """
-VoiceFlow launcher — handles setup then starts the app.
+Waffler launcher — handles setup then starts the app.
 Run: python start.py
 """
 import sys
@@ -50,7 +50,7 @@ def setup_env():
     print("Saved!\n")
 
 def main():
-    print("\nVoiceFlow — Starting up...")
+    print("\nWaffler — Starting up...")
     print("=" * 40)
 
     print("\nChecking packages...")

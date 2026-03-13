@@ -1,4 +1,4 @@
-# VoiceFlow - Project Tracker
+# Waffler - Project Tracker
 
 **Last Updated:** 2026-02-16 21:22 GMT  
 **Status:** 95% Complete - v5 with Automated Testing  
@@ -63,7 +63,7 @@ Clipboard (paste anywhere)
   - `two_phase` (simple) - basic cleanup
 
 **✅ Packaging (DONE)**
-- PyInstaller build → VoiceFlow.app
+- PyInstaller build → Waffler.app
 - Standalone macOS app (13MB)
 - No installation required (just copy to Applications)
 
@@ -84,7 +84,7 @@ Clipboard (paste anywhere)
 ## 📂 Project Structure
 
 ```
-/Users/tars/clawd/projects/voice-app-downloadable/
+/Users/tars/Desktop/waffler/
 ├── main.py                  # Main orchestrator
 ├── src/
 │   ├── audio.py            # Audio recording
@@ -103,11 +103,11 @@ Clipboard (paste anywhere)
 │   ├── database/
 │   └── ...
 ├── dist/
-│   ├── VoiceFlow.app       # Built app
-│   └── VoiceFlow-ADHD-v2.zip  # Delivered to James
+│   ├── Waffler.app       # Built app
+│   └── Waffler-ADHD-v2.zip  # Delivered to James
 ├── .env                    # API keys + config
 ├── config.yaml             # App settings
-├── VoiceFlow.spec          # PyInstaller spec
+├── Waffler.spec          # PyInstaller spec
 └── Documentation:
     ├── README.md           # Overview
     ├── QUICKSTART.md       # 5-min setup guide
@@ -134,7 +134,7 @@ Clipboard (paste anywhere)
 - **End-to-end user flow:** NOT TESTED
 
 **Blocker:** Requires James to:
-1. Install VoiceFlow.app on his Mac
+1. Install Waffler.app on his Mac
 2. Grant accessibility permission (System Settings → Privacy → Accessibility)
 3. Test: Press Cmd+Shift+Space → Speak → Release → Check clipboard
 
@@ -292,7 +292,7 @@ Clipboard (paste anywhere)
 ## 🎯 Next Steps (Priority Order)
 
 ### Immediate (This Week)
-1. **James to test VoiceFlow.app**
+1. **James to test Waffler.app**
    - Install on his Mac
    - Grant accessibility permission
    - Test: Press hotkey → Speak rambling → Check clipboard
@@ -362,9 +362,9 @@ Clipboard (paste anywhere)
 
 ### 2026-02-16 20:59: Fixed Packaging Bug (v3)
 - **Issue:** v2 had ModuleNotFoundError - PyInstaller didn't include src/ and prompts/
-- **Fix:** Updated VoiceFlow.spec to explicitly include src/ and prompts/ directories
+- **Fix:** Updated Waffler.spec to explicitly include src/ and prompts/ directories
 - **Change:** Switched from onefile to onedir mode (better for macOS security)
-- **Result:** VoiceFlow-v3-fixed.zip (30MB) delivered to James
+- **Result:** Waffler-v3-fixed.zip (30MB) delivered to James
 - **Status:** Waiting for testing
 
 ### 2026-02-16 21:22: Automated Testing Solution (v5)
@@ -381,7 +381,7 @@ Clipboard (paste anywhere)
   - No mic permission for tests
   - Consistent results
   - Fast iteration (seconds not minutes)
-- **Result:** VoiceFlow-v5-Automated.zip (69KB) delivered
+- **Result:** Waffler-v5-Automated.zip (69KB) delivered
 - **Status:** Waiting for James to test automated workflow
 
 ---
@@ -395,7 +395,7 @@ Clipboard (paste anywhere)
 - ✅ Clipboard workflow (paste anywhere)?
 - ✅ One-time purchase pricing model?
 
-**Next action:** You test VoiceFlow-ADHD-v2.zip on your Mac and report back.
+**Next action:** You test Waffler-ADHD-v2.zip on your Mac and report back.
 
 **Questions to answer after testing:**
 1. Does the hotkey work? (Cmd+Shift+Space)

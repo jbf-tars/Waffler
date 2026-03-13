@@ -34,7 +34,7 @@ jobs:
       - name: Build app (PyInstaller onedir)
         shell: pwsh
         run: |
-          pyinstaller --noconfirm --clean --windowed --name VoiceFlow `
+          pyinstaller --noconfirm --clean --windowed --name Waffler `
             --hidden-import wave `
             --add-data "src;src" `
             --add-data "ui;ui" `
@@ -47,14 +47,14 @@ jobs:
         shell: pwsh
         run: |
           $env:OPENAI_API_KEY = "sk-test"
-          $exe = "dist\VoiceFlow\VoiceFlow.exe"
+          $exe = "dist\Waffler\Waffler.exe"
           if (-not (Test-Path $exe)) { throw "Built app not found: $exe" }
 
           $p = Start-Process -FilePath $exe -PassThru
           Start-Sleep -Seconds 8
 
           if ($p.HasExited) {
-            throw "VoiceFlow exited too early during smoke test. ExitCode=$($p.ExitCode)"
+            throw "Waffler exited too early during smoke test. ExitCode=$($p.ExitCode)"
           }
 
           Stop-Process -Id $p.Id -Force
@@ -67,7 +67,7 @@ jobs:
       - name: Set installer version
         shell: pwsh
         run: |
-          $issPath = 'installer\windows\VoiceFlow.iss'
+          $issPath = 'installer\windows\Waffler.iss'
 
           if ($env:GITHUB_REF -like 'refs/tags/v*') {
             $version = $env:GITHUB_REF_NAME.Substring(1)
@@ -100,12 +100,12 @@ jobs:
       - name: Build installer
         shell: pwsh
         run: |
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "installer\windows\VoiceFlow.iss"
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "installer\windows\Waffler.iss"
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
-          name: VoiceFlow-Setup
+          name: Waffler-Setup
           path: installer/windows/dist-installer/*.exe
 
       - name: Publish release on tag

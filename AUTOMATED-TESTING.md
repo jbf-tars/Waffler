@@ -18,7 +18,7 @@
 # Record 5 seconds of test audio
 python3 record_test_audio.py
 
-# Say: "Hello, this is a test of the VoiceFlow application"
+# Say: "Hello, this is a test of the Waffler application"
 # It will save to test_audio/sample.wav
 
 # Run the automated test
@@ -64,7 +64,7 @@ The automated test runs the full pipeline:
 ## Example Output
 
 ```
-🧪 VoiceFlow Automated Test
+🧪 Waffler Automated Test
 ============================================================
 
 📁 Reading audio file: test_audio/sample.wav
@@ -74,10 +74,10 @@ The automated test runs the full pipeline:
 ✓ Transcript (1847ms): Hello, this is a test
 
 🤖 Testing MiniMax styling...
-✓ Command (2156ms): Test the VoiceFlow application
+✓ Command (2156ms): Test the Waffler application
 
 📋 Testing clipboard...
-✓ Clipboard: Test the VoiceFlow application
+✓ Clipboard: Test the Waffler application
 
 ============================================================
 ✅ ALL TESTS PASSED (4003ms total)

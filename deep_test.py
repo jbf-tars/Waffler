@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Deep prompt quality testing for VoiceFlow.
+Deep prompt quality testing for Waffler.
 Generates 300 synthetic transcripts, tests them, scores them, improves prompts.
 """
 
@@ -12,7 +12,7 @@ import os
 from openai import OpenAI
 
 API_KEY = os.environ.get("OPENAI_API_KEY")
-PROJECT_PATH = "/Users/tars/clawd/projects/voice-app-downloadable"
+PROJECT_PATH = "/Users/tars/Desktop/waffler"
 PROMPTS_PATH = os.path.join(PROJECT_PATH, "prompts")
 
 client = OpenAI(api_key=API_KEY)
@@ -640,7 +640,7 @@ def verify_improvement(worst_cases, original_prompt, new_prompt, mode_name):
 
 def main():
     print("=" * 70)
-    print("VoiceFlow Deep Prompt Quality Testing")
+    print("Waffler Deep Prompt Quality Testing")
     print("=" * 70)
 
     # Load prompts

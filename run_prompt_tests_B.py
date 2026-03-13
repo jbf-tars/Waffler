@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-VoiceFlow Prompt Quality Tester - Version B
+Waffler Prompt Quality Tester - Version B
 Tests ADHD and Agentic prompts against 20 synthetic transcripts,
 scores outputs, identifies weaknesses, and writes improved prompts.
 """
@@ -12,7 +12,7 @@ from openai import OpenAI
 
 # ── Config ────────────────────────────────────────────────────────────────────
 API_KEY = os.environ.get("OPENAI_API_KEY")
-PROJECT_PATH = "/Users/tars/clawd/projects/voice-app-downloadable"
+PROJECT_PATH = "/Users/tars/Desktop/waffler"
 RESULTS_PATH = os.path.join(PROJECT_PATH, "test_results_B.json")
 MODEL = "gpt-4o-mini"
 
@@ -558,7 +558,7 @@ def retest_improved(improved_adhd, improved_agentic, results):
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
-    print("\n🎤 VoiceFlow Prompt Quality Tester — Session B")
+    print("\n🎤 Waffler Prompt Quality Tester — Session B")
     print(f"   Model: {MODEL}")
     print(f"   Transcripts: {len(ALL_TRANSCRIPTS)} total ({len(ADHD_TRANSCRIPTS)} ADHD + {len(AGENTIC_TRANSCRIPTS)} agentic)")
 

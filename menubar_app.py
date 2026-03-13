@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-VoiceFlow Menu Bar App
+Waffler Menu Bar App
 macOS menu bar interface for voice dictation (ADHD-optimised)
 Uses rumps for the menu bar UI.
 """
@@ -43,8 +43,8 @@ ICON_RECORDING  = "VF ●"
 ICON_PROCESSING = "VF ..."
 
 
-class VoiceFlowApp(rumps.App):
-    """VoiceFlow menu bar application"""
+class WafflerApp(rumps.App):
+    """Waffler menu bar application"""
 
     def __init__(self):
         # Build menu items first
@@ -53,10 +53,10 @@ class VoiceFlowApp(rumps.App):
         self.last_item.set_callback(None)   # greyed-out by no callback
 
         super().__init__(
-            name="VoiceFlow",
+            name="Waffler",
             title=ICON_IDLE,
             menu=[
-                rumps.MenuItem("VoiceFlow", callback=None),   # title row, no callback
+                rumps.MenuItem("Waffler", callback=None),   # title row, no callback
                 None,                                          # separator
                 self.recording_item,
                 self.last_item,
@@ -201,11 +201,11 @@ class VoiceFlowApp(rumps.App):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def main():
-    print("🎙️  VoiceFlow Menu Bar — starting…")
+    print("🎙️  Waffler Menu Bar — starting…")
     print(f"   OPENAI_API_KEY: {'✅ set' if os.getenv('OPENAI_API_KEY') else '❌ missing'}")
     try:
         print("   Initialising app...")
-        app = VoiceFlowApp()
+        app = WafflerApp()
         print("   App created — launching menu bar...")
         app.run()
     except Exception as e:

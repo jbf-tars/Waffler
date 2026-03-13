@@ -1,8 +1,8 @@
 #!/bin/bash
-# VoiceFlow launcher
+# Waffler launcher
 cd "$(dirname "$0")"
 
-echo "🎙️ Starting VoiceFlow..."
+echo "🎙️ Starting Waffler..."
 
 # Find python - try a few options
 for py in python3 /usr/bin/python3 /opt/homebrew/bin/python3 python; do

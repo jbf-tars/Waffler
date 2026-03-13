@@ -136,7 +136,7 @@ def test_pipeline():
 
 def main():
     """Entry point"""
-    print("\n🎙️ VoiceFlow Pipeline Test (Mock Audio)")
+    print("\n🎙️ Waffler Pipeline Test (Mock Audio)")
     print("=" * 60)
     print("This tests STT → LLM → Clipboard without the hotkey")
     print("=" * 60)

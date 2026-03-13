@@ -255,7 +255,7 @@ python app.py
 
 ### Start Backend
 ```bash
-cd /Users/james/voiceflow-app/backend
+cd /Users/james/waffler-app/backend
 python3 -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
@@ -277,7 +277,7 @@ sqlite3 backend/waffler_local.db
 ## Repository Structure
 
 ```
-voiceflow-app/  (or "waffler" repo)
+waffler-app/  (or "waffler" repo)
 ├── backend/
 │   ├── app/
 │   │   ├── auth/        # ✅ Auth endpoints (signup, signin)

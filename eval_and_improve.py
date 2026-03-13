@@ -13,7 +13,7 @@ from openai import OpenAI
 OPENAI_KEY = os.environ.get("OPENAI_API_KEY")
 client = OpenAI(api_key=OPENAI_KEY)
 
-PROJECT = Path("/Users/tars/clawd/projects/voice-app-downloadable")
+PROJECT = Path("/Users/tars/Desktop/waffler")
 SMART_PROMPT_PATH = PROJECT / "prompts" / "smart.txt"
 OUTPUT_PATH = PROJECT / "prompts" / "smart_realdata.txt"
 

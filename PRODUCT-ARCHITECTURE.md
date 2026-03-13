@@ -1,4 +1,4 @@
-# VoiceFlow — Product Architecture Document
+# Waffler — Product Architecture Document
 *Research compiled: February 2026 | Status: Pre-launch / Prototype*
 
 ---
@@ -182,7 +182,7 @@ Since the user pays OpenAI directly, this is what you should communicate clearly
 | Power user (1hr/day) | ~1,200 min | $7.20 | $0.15 | **~$7.35/mo** |
 | Extreme (2hr/day) | ~2,400 min | $14.40 | $0.30 | **~$14.70/mo** |
 
-**Marketing angle:** "Even a power user pays ~$7/month to OpenAI. Whispr Flow charges $8/month *plus* sends your audio to their servers. VoiceFlow is a one-time $29 purchase and you own your data."
+**Marketing angle:** "Even a power user pays ~$7/month to OpenAI. Whispr Flow charges $8/month *plus* sends your audio to their servers. Waffler is a one-time $29 purchase and you own your data."
 
 OpenAI new pricing note: GPT-4o-mini-transcribe is now $0.003/min (half of whisper-1). Worth switching to for cost reduction, though whisper-1 is battle-tested.
 
@@ -203,26 +203,26 @@ OpenAI new pricing note: GPT-4o-mini-transcribe is now $0.003/min (half of whisp
 #    → Get "Developer ID Application" certificate
 
 # 2. Build with PyInstaller
-pyinstaller --windowed --name VoiceFlow --icon icon.icns main.py
+pyinstaller --windowed --name Waffler --icon icon.icns main.py
 
 # 3. Sign the .app (sign everything inside recursively)
 codesign --deep --force --verify --verbose \
   --sign "Developer ID Application: James Smith (XXXXXXXXXX)" \
   --entitlements entitlements.plist \
-  VoiceFlow.app
+  Waffler.app
 
 # 4. Create .dmg
-hdiutil create -volname VoiceFlow -srcfolder VoiceFlow.app -ov -format UDZO VoiceFlow.dmg
+hdiutil create -volname Waffler -srcfolder Waffler.app -ov -format UDZO Waffler.dmg
 
 # 5. Notarize
-xcrun notarytool submit VoiceFlow.dmg \
+xcrun notarytool submit Waffler.dmg \
   --apple-id your@email.com \
   --team-id XXXXXXXXXX \
   --password "app-specific-password" \
   --wait
 
 # 6. Staple the ticket
-xcrun stapler staple VoiceFlow.dmg
+xcrun stapler staple Waffler.dmg
 ```
 
 **Entitlements needed** (for pywebview + microphone):
@@ -251,7 +251,7 @@ xcrun stapler staple VoiceFlow.dmg
 
 **Windows packaging:**
 ```bash
-pyinstaller --onefile --windowed --name VoiceFlow --icon icon.ico main.py
+pyinstaller --onefile --windowed --name Waffler --icon icon.ico main.py
 # Then sign with signtool.exe or SSL.com eSigner
 ```
 
@@ -356,7 +356,7 @@ You could generate your own license keys using RSA signatures, store a public ke
 - No PII, no audio, just correction patterns
 
 **Strategy 4: Prompt iteration from your own usage**
-- Eat your own dog food. Use VoiceFlow daily.
+- Eat your own dog food. Use Waffler daily.
 - Keep a `PROMPT_CHANGELOG.md` logging what changed and why
 - This is how most indie tools improve early
 

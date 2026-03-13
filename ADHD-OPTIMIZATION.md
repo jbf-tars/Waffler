@@ -39,7 +39,7 @@ Optimized the Voice App's LLM prompt to handle **stream-of-consciousness, rambli
 ## Files Changed
 
 ```
-/Users/tars/clawd/projects/voice-app-downloadable/
+/Users/tars/Desktop/waffler/
 ├── .env                          # Added PROMPT_STYLE setting
 ├── src/
 │   ├── config.py                 # Added prompt_style property

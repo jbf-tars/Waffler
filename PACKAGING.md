@@ -1,4 +1,4 @@
-# VoiceFlow Packaging & Distribution Guide
+# Waffler Packaging & Distribution Guide
 
 ## 📦 Distribution Formats
 
@@ -50,14 +50,14 @@ We will support 3 distribution formats:
 
 ### 2. Update PyInstaller Config
 
-Edit `VoiceFlow.spec` to enable signing:
+Edit `Waffler.spec` to enable signing:
 
 ```python
 app = BUNDLE(
     exe,
-    name='VoiceFlow.app',
+    name='Waffler.app',
     icon='assets/icon.icns',
-    bundle_identifier='ai.clawd.voiceflow',
+    bundle_identifier='ai.clawd.waffler',
     info_plist={...},
     codesign_identity='Developer ID Application: Your Name',  # ADD THIS
     entitlements_file='entitlements.plist',  # ADD THIS
@@ -90,12 +90,12 @@ Create `entitlements.plist`:
 ### 1. Build the .app Bundle
 
 ```bash
-cd /Users/tars/clawd/projects/voice-app-downloadable
+cd /Users/tars/Desktop/waffler
 source venv/bin/activate
-pyinstaller VoiceFlow.spec --clean
+pyinstaller Waffler.spec --clean
 ```
 
-This creates: `dist/VoiceFlow.app` (code-signed)
+This creates: `dist/Waffler.app` (code-signed)
 
 ### 2. Create DMG Installer
 
@@ -105,16 +105,16 @@ Create `build_dmg.sh`:
 #!/bin/bash
 
 # Variables
-APP_NAME="VoiceFlow"
-VOLUME_NAME="VoiceFlow Installer"
-DMG_NAME="VoiceFlow.dmg"
+APP_NAME="Waffler"
+VOLUME_NAME="Waffler Installer"
+DMG_NAME="Waffler.dmg"
 TEMP_DMG="temp.dmg"
 
 # Remove old files
 rm -f $TEMP_DMG $DMG_NAME
 
 # Create temporary DMG (500 MB)
-hdiutil create -srcfolder dist/VoiceFlow.app \
+hdiutil create -srcfolder dist/Waffler.app \
                -volname "$VOLUME_NAME" \
                -format UDRW \
                -size 500m \
@@ -138,7 +138,7 @@ SetFile -a C "$MOUNT_POINT"
 # Create alias (shortcut) to Applications
 osascript <<EOF
 tell application "Finder"
-  set vf to POSIX file "$MOUNT_POINT/VoiceFlow.app" as alias
+  set vf to POSIX file "$MOUNT_POINT/Waffler.app" as alias
   set af to POSIX file "$MOUNT_POINT/Applications" as alias
   make new alias file at POSIX file "$MOUNT_POINT" to af
   set name of result to "Applications"
@@ -182,20 +182,20 @@ chmod +x build_dmg.sh
 # Create app password: copy the result
 
 # 2. Store in Keychain (one-time)
-xcrun notarytool store-credentials "voiceflow" \
+xcrun notarytool store-credentials "waffler" \
   --apple-id "your-apple-id@example.com" \
   --team-id "XXXXXXXXXX"  # From Apple Developer account
 
 # 3. Submit for notarization
-xcrun notarytool submit VoiceFlow.dmg \
-  --keychain-profile "voiceflow" \
+xcrun notarytool submit Waffler.dmg \
+  --keychain-profile "waffler" \
   --wait
 
 # If successful, output will include RequestUUID
 # Example: 12345678-1234-1234-1234-123456789012
 
 # 4. Staple notarization ticket (adds proof to app)
-xcrun stapler staple dist/VoiceFlow.app
+xcrun stapler staple dist/Waffler.app
 ```
 
 ### Troubleshooting Notarization
@@ -203,11 +203,11 @@ xcrun stapler staple dist/VoiceFlow.app
 ```bash
 # Check notarization status
 xcrun notarytool info <RequestUUID> \
-  --keychain-profile "voiceflow"
+  --keychain-profile "waffler"
 
 # View detailed logs if failed
 xcrun notarytool log <RequestUUID> \
-  --keychain-profile "voiceflow" \
+  --keychain-profile "waffler" \
   log.json
 cat log.json
 ```
@@ -247,21 +247,21 @@ iconutil -c icns -o icon.icns icon.iconset/
 ### 1. Create GitHub Release
 
 ```bash
-cd /Users/tars/clawd/projects/voice-app-downloadable
+cd /Users/tars/Desktop/waffler
 git tag v1.0.0
 git push origin v1.0.0
 
 # Or use gh CLI
 gh release create v1.0.0 \
-  --title "VoiceFlow 1.0.0" \
+  --title "Waffler 1.0.0" \
   --notes "Initial release" \
-  VoiceFlow.dmg
+  Waffler.dmg
 ```
 
 ### 2. Release Notes Template
 
 ```markdown
-# VoiceFlow 1.0.0
+# Waffler 1.0.0
 
 Your voice-to-text command assistant for Mac.
 
@@ -280,8 +280,8 @@ Your voice-to-text command assistant for Mac.
 - Microphone
 
 ## 📥 Installation
-1. Download VoiceFlow.dmg
-2. Drag VoiceFlow.app to Applications
+1. Download Waffler.dmg
+2. Drag Waffler.app to Applications
 3. Launch and grant accessibility permission
 
 ## 💡 Quick Start
@@ -324,7 +324,7 @@ Before distributing:
 - [ ] Microphone permission prompts
 - [ ] Accessibility permission required message clear
 - [ ] Help documentation accessible
-- [ ] Version number updated (main.py, VoiceFlow.spec)
+- [ ] Version number updated (main.py, Waffler.spec)
 - [ ] GitHub release created
 - [ ] Website download link updated
 
@@ -332,10 +332,10 @@ Before distributing:
 
 ## 📊 Distribution Channels
 
-1. **Website:** voiceflow.app (future)
+1. **Website:** waffler.app (future)
 2. **GitHub:** Releases page
 3. **ProductHunt:** (after launch)
-4. **Homebrew:** `brew install voiceflow` (future)
+4. **Homebrew:** `brew install waffler` (future)
 5. **MacAppStore:** (if approved)
 
 ---
@@ -356,9 +356,9 @@ Before distributing:
 
 Track versions in these files:
 
-1. **VoiceFlow.spec:**
+1. **Waffler.spec:**
 ```python
-exe = EXE(..., name='voiceflow-1.0.0')
+exe = EXE(..., name='waffler-1.0.0')
 ```
 
 2. **main.py:**
@@ -368,7 +368,7 @@ VERSION = "1.0.0"
 
 3. **GitHub:**
 - Tag: `v1.0.0`
-- Release: `VoiceFlow 1.0.0`
+- Release: `Waffler 1.0.0`
 
 ---
 
@@ -378,8 +378,8 @@ Before distribution:
 
 ```bash
 # Archive the build
-tar -czf VoiceFlow-1.0.0-build.tar.gz dist/
-cp VoiceFlow.dmg backups/VoiceFlow-1.0.0.dmg
+tar -czf Waffler-1.0.0-build.tar.gz dist/
+cp Waffler.dmg backups/Waffler-1.0.0.dmg
 
 # Tag in git
 git tag release/1.0.0
