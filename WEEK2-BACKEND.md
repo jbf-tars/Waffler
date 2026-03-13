@@ -27,7 +27,7 @@ Backend (FastAPI)
 └─ Monitoring: Usage limits enforcement
 
 Cloud (Railway/Fly.io)
-├─ Hostname: api.voiceflow.app
+├─ Hostname: api.waffler.app
 ├─ SSL: Auto (provided by platforms)
 └─ Cost: ~$10-15/month
 
@@ -217,7 +217,7 @@ Pro: $9/month
 
 ### Backend (FastAPI)
 ```
-1. Create new repo: voiceflow-backend
+1. Create new repo: waffler-backend
 2. Structure:
    ├─ app/
    │  ├─ main.py (FastAPI app)

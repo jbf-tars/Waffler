@@ -15,7 +15,7 @@ def record_test_audio(filename="test_audio/sample.wav", duration=5):
     channels = 1
     
     print(f"\n🎤 Recording {duration} seconds of test audio...")
-    print("📢 Say: 'Hello, this is a test of the VoiceFlow application'")
+    print("📢 Say: 'Hello, this is a test of the Waffler application'")
     print("⏱️  Starting in 1 second...")
     
     import time

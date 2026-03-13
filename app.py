@@ -63,6 +63,7 @@ from style_openai import OpenAIStyler
 from license import validate_license, is_validated, get_license_key, LICENSE_FILE
 from clipboard import ClipboardManager
 from overlay import RecordingOverlay
+from permissions_manager import PermissionsManager
 from waffler_auth import (
     sign_up as sb_sign_up,
     sign_in as sb_sign_in,
@@ -88,7 +89,7 @@ from app_detection import get_active_app
 # ── Data Directory Migration ──────────────────────────────────────────
 def get_data_directory():
     """
-    Get the data directory for Waffler, with backwards compatibility for Natter.
+    Get the data directory for Waffler, with backwards compatibility for old app names.
     Migrates from .natter to .waffler on first run.
     """
     home = Path.home()
@@ -101,13 +102,13 @@ def get_data_directory():
 
     # If old directory exists, offer migration
     if old_dir.exists():
-        print("Found existing .natter directory. Migrating to .waffler...")
+        print("Found old app data directory (.natter). Migrating to Waffler (.waffler)...")
         try:
             shutil.copytree(old_dir, new_dir)
-            print("Migration successful! Old .natter directory preserved as backup.")
+            print("Migration successful! Old app data preserved as backup.")
             return new_dir
         except Exception as e:
-            print(f"Migration failed: {e}. Using old .natter directory for now.")
+            print(f"Migration failed: {e}. Using old app directory for now.")
             return old_dir
 
     # Neither exists, create new
@@ -721,125 +722,64 @@ class Api:
     # ── Permission APIs ─────────────────────────────────────────────────
 
     def check_permissions(self) -> dict:
-        """Check system permissions needed by Waffler."""
-        import platform as plat
+        """Enhanced permission checking with detailed feedback."""
+        permissions_mgr = PermissionsManager()
+        status_summary = permissions_mgr.get_permission_status_summary()
+        
+        # Convert to legacy format for backward compatibility
         result = {
-            "platform": plat.system(),
-            "mic_granted": False,
-            "accessibility_granted": False,  # Default to False - must be explicitly granted
-            "mic_error": None,
-            "accessibility_error": None,
+            "platform": permissions_mgr.platform,
+            "mic_granted": status_summary["permissions"].get("microphone", {}).get("granted", False),
+            "accessibility_granted": status_summary["permissions"].get("accessibility", {}).get("granted", False),
+            "mic_error": status_summary["permissions"].get("microphone", {}).get("error"),
+            "accessibility_error": status_summary["permissions"].get("accessibility", {}).get("error"),
+            "input_monitoring_granted": status_summary["permissions"].get("input_monitoring", {}).get("granted", False),
+            "input_monitoring_error": status_summary["permissions"].get("input_monitoring", {}).get("error"),
+            # Enhanced information
+            "status_summary": status_summary,
+            "all_granted": status_summary["all_granted"],
+            "recommendations": status_summary["recommendations"]
         }
-
-        # ── Microphone check ──
-        try:
-            import sounddevice as sd
-            stream = sd.InputStream(samplerate=16000, channels=1, dtype='int16', blocksize=1024)
-            stream.start()
-            stream.stop()
-            stream.close()
-            result["mic_granted"] = True
-        except Exception as e:
-            result["mic_granted"] = False
-            result["mic_error"] = str(e)
-
-        # ── macOS Accessibility check ──
-        if plat.system() == "Darwin":
-            try:
-                from ApplicationServices import AXIsProcessTrusted
-                is_trusted = AXIsProcessTrusted()
-                result["accessibility_granted"] = bool(is_trusted)
-                if not is_trusted:
-                    result["accessibility_error"] = "Not granted - click 'Open Settings' to grant"
-            except ImportError:
-                result["accessibility_granted"] = False
-                result["accessibility_error"] = "Cannot check (PyObjC not available) - please grant manually"
-            except Exception as e:
-                result["accessibility_granted"] = False
-                result["accessibility_error"] = str(e)
-        else:
-            # Windows - not required
-            result["accessibility_granted"] = True
-
+        
         return result
 
+    def get_permission_status(self) -> dict:
+        """Get detailed permission status for enhanced UI."""
+        permissions_mgr = PermissionsManager()
+        return permissions_mgr.get_permission_status_summary()
+
+    def get_permission_explanations(self) -> dict:
+        """Get explanations for why each permission is needed."""
+        permissions_mgr = PermissionsManager()
+        return permissions_mgr.PERMISSION_EXPLANATIONS
+
     def request_accessibility_permission(self) -> dict:
-        """Trigger macOS to show accessibility permission dialog by actually using accessibility APIs."""
-        import platform as plat
-        if plat.system() != "Darwin":
-            return {"ok": True, "message": "Not needed on this platform"}
-
-        try:
-            # First check if already trusted
-            from ApplicationServices import AXIsProcessTrusted
-            if AXIsProcessTrusted():
-                return {"ok": True, "message": "Accessibility already granted"}
-
-            # Not trusted - attempt to trigger permission dialog by using accessibility features
-            try:
-                from Quartz import (
-                    CGWindowListCopyWindowInfo,
-                    kCGWindowListOptionOnScreenOnly,
-                    kCGNullWindowID
-                )
-                # Attempt to access window list - this requires accessibility permission
-                # This will trigger macOS to show the permission dialog
-                _ = CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly, kCGNullWindowID)
-            except:
-                # If that fails, try another approach
-                try:
-                    from ApplicationServices import AXUIElementCreateSystemWide, AXUIElementCopyAttributeValue
-                    # Try to access system-wide UI element - also requires accessibility
-                    system_elem = AXUIElementCreateSystemWide()
-                    _ = AXUIElementCopyAttributeValue(system_elem, "AXFocusedApplication", None)
-                except:
-                    pass
-
-            # Opening System Settings is now the main action
-            return {"ok": True, "message": "Please grant Waffler accessibility permission in System Settings"}
-
-        except Exception as e:
-            return {"ok": False, "error": f"Error: {str(e)}"}
+        """Enhanced accessibility permission request with step-by-step guidance."""
+        permissions_mgr = PermissionsManager()
+        return permissions_mgr.request_accessibility_permission()
 
     def open_permission_settings(self, permission_type: str) -> dict:
         """Open the relevant system settings page for the given permission."""
-        import platform as plat
-        import subprocess as sp
-        try:
-            if plat.system() == "Windows":
-                if permission_type == "microphone":
-                    sp.Popen(["start", "ms-settings:privacy-microphone"], shell=True)
-                    return {"ok": True}
-            elif plat.system() == "Darwin":
-                # macOS - Open System Settings to Privacy & Security pane
-                if permission_type == "microphone":
-                    sp.Popen(["open", "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"])
-                    return {"ok": True}
-                elif permission_type == "accessibility":
-                    # Opens directly to Accessibility pane - user toggles Waffler ON
-                    sp.Popen(["open", "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"])
-                    return {"ok": True}
-            return {"ok": False, "error": f"Unknown permission type: {permission_type}"}
-        except Exception as e:
-            return {"ok": False, "error": str(e)}
+        permissions_mgr = PermissionsManager()
+        return permissions_mgr.open_permission_settings(permission_type)
+
+    def request_input_monitoring_permission(self) -> dict:
+        """Request input monitoring permission for Fn key detection."""
+        permissions_mgr = PermissionsManager()
+        result = permissions_mgr.check_input_monitoring_permission()
+        
+        if result.status.value == "granted":
+            return {"ok": True, "message": "Input monitoring already granted"}
+        elif result.status.value == "not_applicable":
+            return {"ok": True, "message": "Not needed on this platform"}
+        else:
+            # Open settings for manual grant
+            return permissions_mgr.open_permission_settings("input_monitoring")
 
     def request_mic_permission(self) -> dict:
-        """Trigger the native OS microphone permission dialog."""
-        import platform as plat
-        if plat.system() == "Darwin":
-            try:
-                import sounddevice as sd
-                stream = sd.InputStream(samplerate=16000, channels=1, dtype='int16')
-                stream.start()
-                import time
-                time.sleep(0.1)
-                stream.stop()
-                stream.close()
-                return {"ok": True, "message": "Permission dialog triggered"}
-            except Exception as e:
-                return {"ok": False, "error": str(e)}
-        else:
-            return self.open_permission_settings("microphone")
+        """Enhanced microphone permission request."""
+        permissions_mgr = PermissionsManager()
+        return permissions_mgr.request_microphone_permission()
 
     def test_microphone(self, device_index, duration=2.0) -> dict:
         """Record a short clip and return the audio level."""

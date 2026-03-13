@@ -1,4 +1,4 @@
-# 🎙️ VoiceFlow - Quick Start (5 minutes)
+# 🎙️ Waffler - Quick Start (5 minutes)
 
 ## Step 1: Grant Accessibility Permission (1 min)
 
@@ -9,7 +9,7 @@
 ## Step 2: Run the App (1 min)
 
 ```bash
-cd /Users/tars/clawd/projects/voice-app-downloadable
+cd /Users/tars/Desktop/waffler
 ./run.sh
 ```
 

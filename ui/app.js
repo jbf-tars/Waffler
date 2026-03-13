@@ -1211,74 +1211,125 @@ function wizToggleVisibility(inputId) {
 async function wizCheckPermissions() {
   try {
     const result = await pywebview.api.check_permissions();
-    const micIcon = document.getElementById('wizPermMicIcon');
-    const micDesc = document.getElementById('wizPermMicDesc');
-    const micBtn  = document.getElementById('wizPermMicBtn');
-    const micRow  = document.getElementById('wizPermMic');
+    const explanations = await pywebview.api.get_permission_explanations();
+    
+    // Update microphone permission display
+    updatePermissionRow('wizPermMic', {
+      granted: result.mic_granted,
+      error: result.mic_error,
+      explanation: explanations.microphone,
+      buttonText: 'Allow Microphone',
+      buttonAction: 'wizRequestMicPermission()'
+    });
 
-    if (result.mic_granted) {
-      micIcon.innerHTML = '<span class="wizard-perm-granted">&#10003;</span>';
-      micDesc.textContent = 'Microphone access granted';
-      micBtn.style.display = 'none';
-      micRow.classList.add('granted');
-    } else {
-      micIcon.innerHTML = '<span class="wizard-perm-denied">&#10007;</span>';
-      micDesc.textContent = result.mic_error || 'Microphone access needed';
-      micBtn.style.display = 'inline-block';
-      micRow.classList.remove('granted');
-    }
-
-    // Accessibility (macOS only) - show and check on Mac for Fn key detection
+    // Update accessibility permission display (macOS only)
     const accessRow = document.getElementById('wizPermAccessibility');
-    const accessIcon = document.getElementById('wizPermAccessIcon');
-    const accessDesc = document.getElementById('wizPermAccessDesc');
-    const accessBtn = document.getElementById('wizPermAccessBtn');
     const isMac = result.platform === 'Darwin';
 
     if (isMac && result.accessibility_granted !== undefined) {
-      // macOS - show accessibility permission
       accessRow.style.display = 'flex';
-
-      if (result.accessibility_granted) {
-        accessIcon.innerHTML = '<span class="wizard-perm-granted">&#10003;</span>';
-        accessDesc.textContent = 'Accessibility granted — Fn key detection enabled';
-        accessBtn.style.display = 'none';
-        accessRow.classList.add('granted');
-      } else {
-        accessIcon.innerHTML = '<span class="wizard-perm-denied">&#10007;</span>';
-        accessDesc.innerHTML = '<strong>Required for Fn key detection:</strong><br>1. Click "Open System Settings" below<br>2. Click + button → Applications → Waffler.app<br>3. Toggle switch ON<br>4. Return here and click "Recheck"';
-        accessBtn.style.display = 'inline-block';
-        accessBtn.textContent = 'Open System Settings';
-        accessRow.classList.remove('granted');
-      }
+      updatePermissionRow('wizPermAccessibility', {
+        granted: result.accessibility_granted,
+        error: result.accessibility_error,
+        explanation: explanations.accessibility,
+        buttonText: 'Open System Settings',
+        buttonAction: 'wizRequestAccessibilityPermission()',
+        isAccessibility: true
+      });
     } else {
-      // Windows - hide accessibility row
       accessRow.style.display = 'none';
     }
 
-    // Overall state - require BOTH microphone AND accessibility (Fn key needs accessibility)
+    // Check for input monitoring if on macOS
+    if (isMac && result.input_monitoring_granted !== undefined) {
+      const inputMonitoringRow = document.getElementById('wizPermInputMonitoring');
+      if (inputMonitoringRow) {
+        inputMonitoringRow.style.display = 'flex';
+        updatePermissionRow('wizPermInputMonitoring', {
+          granted: result.input_monitoring_granted,
+          error: result.input_monitoring_error,
+          explanation: explanations.input_monitoring,
+          buttonText: 'Open System Settings',
+          buttonAction: 'wizRequestInputMonitoringPermission()'
+        });
+      }
+    }
+
+    // Overall state - require microphone as critical, others as optional
     const micOk = result.mic_granted;
     const accessOk = isMac ? (result.accessibility_granted || false) : true;
-    _wizardPermissionsGranted = micOk && accessOk;  // Both required - accessibility needed for Fn key
+    _wizardPermissionsGranted = micOk; // Only microphone is critical for basic functionality
+
+    // Update status and recommendations
+    updatePermissionStatus(result);
 
     const recheckBtn = document.getElementById('wizRecheckBtn');
     if (recheckBtn) recheckBtn.style.display = _wizardPermissionsGranted ? 'none' : 'block';
 
-    const valid = document.getElementById('wizPermValidation');
-    if (_wizardPermissionsGranted) {
-      valid.textContent = 'All permissions granted!';
-      valid.className = 'wizard-validation success';
-    } else {
-      valid.textContent = '';
-      valid.className = 'wizard-validation';
-    }
-
     wizUpdateNextButton();
   } catch(e) {
     console.warn('wizCheckPermissions error:', e);
-    // If check fails, allow user through anyway
+    // If check fails, allow user through anyway with warning
     _wizardPermissionsGranted = true;
+    updatePermissionStatus({all_granted: false, recommendations: ['Could not check permissions - proceeding anyway']});
     wizUpdateNextButton();
+  }
+}
+
+function updatePermissionRow(rowId, config) {
+  const row = document.getElementById(rowId);
+  if (!row) return;
+
+  const icon = row.querySelector('.wizard-perm-icon');
+  const desc = row.querySelector('.wizard-perm-desc');
+  const btn = row.querySelector('.wizard-perm-btn');
+
+  if (config.granted) {
+    icon.innerHTML = '<span class="wizard-perm-granted">&#10003;</span>';
+    desc.innerHTML = `<strong>${config.explanation.title}</strong><br>${config.explanation.why}<br><em style="color: #28a745;">✓ Permission granted</em>`;
+    btn.style.display = 'none';
+    row.classList.add('granted');
+  } else {
+    icon.innerHTML = '<span class="wizard-perm-denied">&#10007;</span>';
+    let descHTML = `<strong>${config.explanation.title}</strong><br>${config.explanation.why}`;
+    
+    if (config.error) {
+      descHTML += `<br><em style="color: #dc3545;">⚠ ${config.error}</em>`;
+    }
+    
+    if (config.isAccessibility) {
+      descHTML += `<br><br><strong>Steps to grant:</strong><br>1. Click "Open System Settings" below<br>2. Click + button → Applications → Waffler.app<br>3. Toggle switch ON<br>4. Return here and click "Recheck"`;
+    }
+    
+    desc.innerHTML = descHTML;
+    btn.style.display = 'inline-block';
+    btn.textContent = config.buttonText;
+    btn.setAttribute('onclick', config.buttonAction);
+    row.classList.remove('granted');
+  }
+}
+
+function updatePermissionStatus(result) {
+  const valid = document.getElementById('wizPermValidation');
+  if (!valid) return;
+
+  if (result.all_granted) {
+    valid.innerHTML = '<strong style="color: #28a745;">✓ All permissions granted!</strong><br>Waffler has full functionality available.';
+    valid.className = 'wizard-validation success';
+  } else if (_wizardPermissionsGranted) {
+    valid.innerHTML = '<strong style="color: #ffc107;">⚠ Core functionality ready</strong><br>Some optional features may be limited without additional permissions.';
+    valid.className = 'wizard-validation warning';
+  } else {
+    valid.innerHTML = '<strong style="color: #dc3545;">⚠ Required permissions missing</strong><br>Grant microphone access to continue.';
+    valid.className = 'wizard-validation error';
+  }
+
+  if (result.recommendations && result.recommendations.length > 0) {
+    const recDiv = document.getElementById('wizPermRecommendations');
+    if (recDiv) {
+      recDiv.innerHTML = result.recommendations.map(rec => `<li>${rec}</li>`).join('');
+      recDiv.style.display = 'block';
+    }
   }
 }
 
@@ -1308,6 +1359,14 @@ async function wizRequestAccessibilityPermission() {
     await pywebview.api.open_permission_settings('accessibility');
   } catch(e) {
     console.warn('wizRequestAccessibilityPermission error:', e);
+  }
+}
+
+async function wizRequestInputMonitoringPermission() {
+  try {
+    await pywebview.api.request_input_monitoring_permission();
+  } catch(e) {
+    console.warn('wizRequestInputMonitoringPermission error:', e);
   }
 }
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Component tests for VoiceFlow
+Component tests for Waffler
 Validates all modules load and initialize correctly (no hotkey/audio testing)
 """
 
@@ -168,7 +168,7 @@ def test_clipboard():
         from clipboard import ClipboardManager
         
         clipboard = ClipboardManager()
-        test_text = "VoiceFlow Test ✅"
+        test_text = "Waffler Test ✅"
         
         print(f"✓ Copying test text: '{test_text}'")
         clipboard.copy(test_text)
@@ -263,7 +263,7 @@ def test_api_connectivity():
 
 def main():
     """Run all tests"""
-    print("\n" + "🎙️  VoiceFlow Component Test Suite")
+    print("\n" + "🎙️  Waffler Component Test Suite")
     print("=" * 60)
     
     results = {

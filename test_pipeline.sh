@@ -1,5 +1,5 @@
 #!/bin/bash
-# VoiceFlow pipeline health check — runs silently, reports errors to Telegram
+# Waffler pipeline health check — runs silently, reports errors to Telegram
 cd "$(dirname "$0")"
 
 unset AZURE_OPENAI_API_KEY AZURE_OPENAI_ENDPOINT MINIMAX_API_KEY DEEPGRAM_API_KEY

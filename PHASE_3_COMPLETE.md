@@ -236,7 +236,7 @@ Once Replicate token is added:
 ## File Structure Summary
 
 ```
-voiceflow-app/
+waffler-app/
 ├── backend/
 │   ├── app/
 │   │   ├── auth/router.py      # Signup/signin

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-VoiceFlow v10 - Deep Transcript Testing
+Waffler v10 - Deep Transcript Testing
 Tests all 3 modes with 100 synthetic transcripts each, scores, improves prompts.
 """
 
@@ -11,7 +11,7 @@ import time
 from openai import OpenAI
 
 OPENAI_KEY = os.environ.get("OPENAI_API_KEY")
-PROJECT_DIR = "/Users/tars/clawd/projects/voice-app-downloadable"
+PROJECT_DIR = "/Users/tars/Desktop/waffler"
 RESULTS_FILE = os.path.join(PROJECT_DIR, "test_results_v2.json")
 
 client = OpenAI(api_key=OPENAI_KEY)
@@ -646,7 +646,7 @@ def test_james_transcript(modes):
     return james_results
 
 def main():
-    print("🚀 VoiceFlow v10 — Deep Transcript Testing")
+    print("🚀 Waffler v10 — Deep Transcript Testing")
     print(f"   Testing all 3 modes with 100 transcripts each")
     print(f"   Results → {RESULTS_FILE}")
     

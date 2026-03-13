@@ -1,4 +1,4 @@
-# VoiceFlow Competitor Research
+# Waffler Competitor Research
 *Researched: 2026-02-17 | Subagent deep dive*
 
 ---
@@ -9,9 +9,9 @@ The voice dictation market has exploded in 2024-2025. The space has bifurcated i
 1. **"Mystery Box" / Cloud-first**: Wispr Flow, Willow — simple UX, cloud processing, AI cleanup happens automatically
 2. **"Transparent & Empowering" / Local-first**: Superwhisper, VoiceInk, MacWhisper, Spokenly — local models, user controls prompts/models, BYOK
 
-VoiceFlow currently sits in category 2 but without the configurability or polish of Superwhisper. The primary threat is Wispr Flow dominating category 1 with a massive funding advantage ($56M raised).
+Waffler currently sits in category 2 but without the configurability or polish of Superwhisper. The primary threat is Wispr Flow dominating category 1 with a massive funding advantage ($56M raised).
 
-**Key gap**: VoiceFlow is missing custom vocabulary, snippets, context-awareness from selected text/clipboard, pause/resume, and a command mode for editing text by voice. These are table-stakes features in 2025.
+**Key gap**: Waffler is missing custom vocabulary, snippets, context-awareness from selected text/clipboard, pause/resume, and a command mode for editing text by voice. These are table-stakes features in 2025.
 
 ---
 
@@ -278,7 +278,7 @@ VoiceFlow currently sits in category 2 but without the configurability or polish
 - Global shortcuts, push-to-talk
 - AI Assistant mode (ChatGPT-like conversational)
 
-### Why It Matters (for VoiceFlow)
+### Why It Matters (for Waffler)
 
 VoiceInk is open source and shows exactly how to implement:
 - Local Whisper inference with Apple Silicon optimisation
@@ -330,7 +330,7 @@ VoiceInk is open source and shows exactly how to implement:
 
 ## Feature Gap Analysis
 
-### VoiceFlow Current Features
+### Waffler Current Features
 - Whisper STT (cloud via OpenAI)
 - GPT-4o-mini cleanup
 - 3 modes: Normal / Ramble / Agentic
@@ -350,14 +350,14 @@ VoiceInk is open source and shows exactly how to implement:
 | **Context from clipboard** | ❌ | Easy to add, high value |
 | **Pause/resume recording** | ❌ | Requested repeatedly in Superwhisper reviews |
 | **Push-to-talk mode** | ❌ | Many users prefer hold-to-talk vs toggle |
-| **Context-aware tone** | Partial | VoiceFlow modes are manual; competitors do it automatically |
+| **Context-aware tone** | Partial | Waffler modes are manual; competitors do it automatically |
 | **Command/edit mode** | ❌ | "Make this formal" etc. |
 | **Whisper/quiet mode** | ❌ | Wispr Flow differentiator |
 | **Usage stats / WPM counter** | ❌ | Superwhisper added this (engagement feature) |
 | **File transcription** | ❌ | MacWhisper's specialty |
-| **Keyboard shortcut modes** | Partial | VoiceFlow uses Right Option only; competitors allow any key |
+| **Keyboard shortcut modes** | Partial | Waffler uses Right Option only; competitors allow any key |
 | **Local model option** | ❌ | Privacy segment is large; local Whisper = no API cost |
-| **BYOK (Bring Your Own Key)** | ❌ | Reduces VoiceFlow's API costs, attracts power users |
+| **BYOK (Bring Your Own Key)** | ❌ | Reduces Waffler's API costs, attracts power users |
 | **App-specific mode auto-switching** | ❌ | "Activate when using Telegram" — Superwhisper feature |
 | **Cancel mid-recording** | Unknown | Competitors have Esc to cancel |
 
@@ -374,7 +374,7 @@ VoiceInk is open source and shows exactly how to implement:
 - Wispr Flow: Black box but contextual — adapts by app type. Almost certainly prompt-based
 - MacWhisper: Uses user-provided API keys with their own prompts
 
-**What this means for VoiceFlow**: GPT-4o-mini with a system prompt IS the industry standard. The differentiation is in WHAT you send with the prompt (context) and whether users can customise it.
+**What this means for Waffler**: GPT-4o-mini with a system prompt IS the industry standard. The differentiation is in WHAT you send with the prompt (context) and whether users can customise it.
 
 ### 2. Context Awareness: How Superwhisper Reads the Screen
 
@@ -398,7 +398,7 @@ In comparison:
 | Superwhisper | `⌥ + Space` | Toggle (start/stop) OR push-to-talk | Esc to cancel |
 | MacWhisper | Configurable | Toggle | Esc |
 | VoiceInk | Configurable | Both modes | Esc |
-| VoiceFlow | Right Option | Toggle | Unknown |
+| Waffler | Right Option | Toggle | Unknown |
 
 **Key insight**: Users want BOTH modes — hold for short bursts, toggle for long dictation. Superwhisper added mouse button trigger in v2.6.0.
 
@@ -408,7 +408,7 @@ In comparison:
 - **Superwhisper** (Parakeet Realtime): Near real-time local transcription now
 - **Superwhisper** (Whisper Large cloud): ~2-3 seconds
 - **MacWhisper** (local large model): Fast but initial model load is slow
-- **VoiceFlow**: Depends on OpenAI Whisper API latency + GPT-4o-mini
+- **Waffler**: Depends on OpenAI Whisper API latency + GPT-4o-mini
 
 ### 5. Personalisation Approaches
 
@@ -492,7 +492,7 @@ MacWhisper explicitly says dictation and meeting recording are NOT available in 
 
 ---
 
-## Top 10 Features/Improvements for VoiceFlow
+## Top 10 Features/Improvements for Waffler
 
 *Priority ordered. Effort: S = days, M = 1-2 weeks, L = 2+ weeks*
 
@@ -515,7 +515,7 @@ MacWhisper explicitly says dictation and meeting recording are NOT available in 
 - **Impact**: High — high stickiness feature, especially for developers
 
 **3. Hold-to-Talk / Push-to-Talk Mode**
-- **What**: Hold hotkey = recording, release = transcribe. Alternative to VoiceFlow's current toggle
+- **What**: Hold hotkey = recording, release = transcribe. Alternative to Waffler's current toggle
 - **How**: Track key-down vs key-up events; short hold = push-to-talk, long hold (>300ms) = push-to-talk, quick tap = toggle
 - **Evidence**: Wispr Flow uses fn hold as default. Superwhisper added this in update. Users strongly prefer it for short bursts
 - **User quote**: *"I love hitting the fn key twice to start long talk/dictation mode"* — and separately hold for quick replies
@@ -572,18 +572,18 @@ MacWhisper explicitly says dictation and meeting recording are NOT available in 
 - **Impact**: Medium — niche but memorable feature, good for marketing
 
 **10. BYOK (Bring Your Own API Keys)**
-- **What**: Users provide their own OpenAI/Anthropic API keys; VoiceFlow passes costs through
+- **What**: Users provide their own OpenAI/Anthropic API keys; Waffler passes costs through
 - **How**: API key storage (Keychain), route requests through user's key
 - **Evidence**: Superwhisper Pro has BYOK. MacWhisper optional. Attracts privacy-conscious and cost-sensitive users
 - **User quote**: *"FridayGPT with local model or sometimes with the Groq API for voice transcription"* — users actively BYOK when apps don't provide it
 - **Effort**: M
-- **Impact**: Medium-Low — reduces VoiceFlow's API costs, attracts power users, but adds support complexity
+- **Impact**: Medium-Low — reduces Waffler's API costs, attracts power users, but adds support complexity
 
 ---
 
 ## Strategic Positioning Recommendation
 
-Based on this research, VoiceFlow should position as:
+Based on this research, Waffler should position as:
 
 **"The privacy-forward, developer-grade voice dictation for Mac — with the polish of Wispr Flow and the control of Superwhisper, without the $249 price tag."**
 

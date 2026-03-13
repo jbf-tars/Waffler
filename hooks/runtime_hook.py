@@ -1,5 +1,5 @@
 """
-PyInstaller runtime hook for VoiceFlow.
+PyInstaller runtime hook for Waffler.
 Sets the working directory to the bundle's resource folder so that
 config.yaml, .env, prompts/, and src/ are found by relative-path code.
 """

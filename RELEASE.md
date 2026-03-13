@@ -1,6 +1,6 @@
-# VoiceFlow Release Runbook
+# Waffler Release Runbook
 
-This file is the exact process to ship a new VoiceFlow version for both Windows and macOS.
+This file is the exact process to ship a new Waffler version for both Windows and macOS.
 
 ---
 
@@ -81,14 +81,14 @@ gh run list --limit 10
 1. Open: `https://github.com/<OWNER>/<REPO>/releases`
 2. Open tag `v1.2.3`
 3. Download assets:
-   - `VoiceFlow-Setup-*.exe`
-   - `VoiceFlow-mac-unsigned.dmg`
+   - `Waffler-Setup-*.exe`
+   - `Waffler-mac-unsigned.dmg`
 
 ### Option B: From Actions artifacts
 1. Open the successful workflow runs in Actions.
 2. Download artifacts:
-   - `VoiceFlow-Setup` (Windows)
-   - `VoiceFlow-mac-unsigned` (macOS)
+   - `Waffler-Setup` (Windows)
+   - `Waffler-mac-unsigned` (macOS)
 
 ### Option C: With GitHub CLI
 
@@ -108,29 +108,29 @@ Use this before sharing the `.dmg` from Actions artifacts:
 
 ```bash
 # Example: latest successful macOS run
-RUN_ID=$(gh run list -R ns7v2h9k6h-web/voiceflow-app \
+RUN_ID=$(gh run list -R ns7v2h9k6h-web/waffler-app \
   --workflow "Build macOS App (unsigned for now)" \
   --status completed --json databaseId,conclusion \
   --jq '.[] | select(.conclusion=="success") | .databaseId' | head -n1)
 
 # Download artifact
 mkdir -p tmp/artifacts/macos-$RUN_ID
-gh run download "$RUN_ID" -R ns7v2h9k6h-web/voiceflow-app \
-  -n VoiceFlow-mac-unsigned -D tmp/artifacts/macos-$RUN_ID
+gh run download "$RUN_ID" -R ns7v2h9k6h-web/waffler-app \
+  -n Waffler-mac-unsigned -D tmp/artifacts/macos-$RUN_ID
 
 # Verify DMG checksum/container integrity
-hdiutil verify tmp/artifacts/macos-$RUN_ID/VoiceFlow-mac-unsigned.dmg
+hdiutil verify tmp/artifacts/macos-$RUN_ID/Waffler-mac-unsigned.dmg
 
 # Mount and confirm app bundle exists
-MOUNT=$(hdiutil attach tmp/artifacts/macos-$RUN_ID/VoiceFlow-mac-unsigned.dmg -nobrowse -readonly | awk '/\/Volumes\//{print $3; exit}')
+MOUNT=$(hdiutil attach tmp/artifacts/macos-$RUN_ID/Waffler-mac-unsigned.dmg -nobrowse -readonly | awk '/\/Volumes\//{print $3; exit}')
 ls -lah "$MOUNT"
-test -d "$MOUNT/VoiceFlow.app" && echo "VoiceFlow.app present"
+test -d "$MOUNT/Waffler.app" && echo "Waffler.app present"
 hdiutil detach "$MOUNT"
 ```
 
 Expected:
 - `hdiutil verify` ends with `checksum ... is VALID`
-- Mounted volume contains `VoiceFlow.app`
+- Mounted volume contains `Waffler.app`
 
 ## 4) Update website download links
 
@@ -140,9 +140,9 @@ Update the website so each platform points to the **new release asset URLs**.
 Use the GitHub release asset links in this format:
 
 - Windows:
-  - `https://github.com/<OWNER>/<REPO>/releases/download/v1.2.3/VoiceFlow-Setup-1.2.3.exe`
+  - `https://github.com/<OWNER>/<REPO>/releases/download/v1.2.3/Waffler-Setup-1.2.3.exe`
 - macOS:
-  - `https://github.com/<OWNER>/<REPO>/releases/download/v1.2.3/VoiceFlow-mac-unsigned.dmg`
+  - `https://github.com/<OWNER>/<REPO>/releases/download/v1.2.3/Waffler-mac-unsigned.dmg`
 
 > Exact filenames can vary slightly. Copy the final URLs directly from the release page.
 
@@ -194,24 +194,24 @@ Notes:
 **Quick user path:**
 1. Try opening app once (expect block)
 2. Go to **System Settings → Privacy & Security**
-3. Click **Open Anyway** for VoiceFlow
+3. Click **Open Anyway** for Waffler
 
 **Terminal workaround (power users):**
 
 ```bash
 # remove quarantine recursively from extracted app folder
-xattr -dr com.apple.quarantine "/path/to/VoiceFlow-folder"
+xattr -dr com.apple.quarantine "/path/to/Waffler-folder"
 ```
 
 Repo helper script:
 
 ```bash
 chmod +x fix_macos_gatekeeper.sh
-./fix_macos_gatekeeper.sh "/path/to/VoiceFlow-folder"
+./fix_macos_gatekeeper.sh "/path/to/Waffler-folder"
 ```
 
 Notes:
-- Current macOS artifact is intentionally **unsigned** (`VoiceFlow-mac-unsigned.dmg`).
+- Current macOS artifact is intentionally **unsigned** (`Waffler-mac-unsigned.dmg`).
 - Long-term fix is Apple Developer ID signing + notarization.
 
 ---
@@ -219,7 +219,7 @@ Notes:
 ## Suggested release announcement template
 
 ```text
-VoiceFlow v1.2.3 is live 🎉
+Waffler v1.2.3 is live 🎉
 
 Downloads:
 - Windows: <windows_url>

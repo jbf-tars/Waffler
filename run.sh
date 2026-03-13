@@ -1,5 +1,5 @@
 #!/bin/bash
-# VoiceFlow Launcher
+# Waffler Launcher
 # Simple script to run the app
 
 # Ensure we're in the project directory
@@ -25,7 +25,7 @@ if [ ! -f ".env" ]; then
 fi
 
 # Run the app
-echo "🎙️  Starting VoiceFlow..."
+echo "🎙️  Starting Waffler..."
 echo ""
 echo "⌨️  Press and hold Cmd+Shift+Space to record"
 echo "🎤 Speak your command or text"

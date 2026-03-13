@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-VoiceFlow v10 - Deep Transcript Testing (v3 - Concurrent)
+Waffler v10 - Deep Transcript Testing (v3 - Concurrent)
 Tests all 3 modes with 100 synthetic transcripts each, scores, improves prompts.
 Uses ThreadPoolExecutor for parallelism - ~8x faster.
 """
@@ -14,7 +14,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from openai import OpenAI
 
 OPENAI_KEY = os.environ.get("OPENAI_API_KEY")
-PROJECT_DIR = "/Users/tars/clawd/projects/voice-app-downloadable"
+PROJECT_DIR = "/Users/tars/Desktop/waffler"
 RESULTS_FILE = os.path.join(PROJECT_DIR, "test_results_v2.json")
 MAX_WORKERS = 8  # parallel API calls
 
@@ -544,7 +544,7 @@ def test_james_transcript(modes):
     return james_results
 
 def main():
-    print("🚀 VoiceFlow v10 — Deep Transcript Testing (Concurrent)")
+    print("🚀 Waffler v10 — Deep Transcript Testing (Concurrent)")
     print(f"   Project: {PROJECT_DIR}")
     print(f"   Results: {RESULTS_FILE}")
     sys.stdout.flush()

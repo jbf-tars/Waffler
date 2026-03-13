@@ -1,8 +1,8 @@
-# VoiceFlow Testing Guide
+# Waffler Testing Guide
 
 ## ⚠️ Prerequisite: Grant Accessibility Permission
 
-VoiceFlow needs permission to monitor keyboard input. This is required for the Cmd+Shift+Space hotkey to work.
+Waffler needs permission to monitor keyboard input. This is required for the Cmd+Shift+Space hotkey to work.
 
 ### Step 1: Grant Permission (One-time setup)
 
@@ -22,12 +22,12 @@ The app will log a message when starting:
 
 ---
 
-## 🚀 Running VoiceFlow
+## 🚀 Running Waffler
 
 ### Option 1: Quick Run (Recommended)
 
 ```bash
-cd /Users/tars/clawd/projects/voice-app-downloadable
+cd /Users/tars/Desktop/waffler
 ./run.sh
 ```
 
@@ -35,7 +35,7 @@ cd /Users/tars/clawd/projects/voice-app-downloadable
 
 ```bash
 # First time only
-cd /Users/tars/clawd/projects/voice-app-downloadable
+cd /Users/tars/Desktop/waffler
 ./setup.sh
 
 # Then run
@@ -119,7 +119,7 @@ The app logs timing for each step. Look for:
 If you want to verify everything without needing accessibility permission:
 
 ```bash
-cd /Users/tars/clawd/projects/voice-app-downloadable
+cd /Users/tars/Desktop/waffler
 source venv/bin/activate
 python test_components.py
 ```
@@ -191,7 +191,7 @@ If something doesn't work:
 
 1. **Capture the full console output** when running:
    ```bash
-   ./run.sh 2>&1 | tee voiceflow_debug.log
+   ./run.sh 2>&1 | tee waffler_debug.log
    ```
 
 2. **Record:**

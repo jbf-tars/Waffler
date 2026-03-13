@@ -1,13 +1,13 @@
 #!/bin/bash
-# VoiceFlow Standalone Launcher
+# Waffler Standalone Launcher
 # Works without .app packaging
 
-echo "🎙️  VoiceFlow - Starting..."
+echo "🎙️  Waffler - Starting..."
 echo ""
 
 # Check if we're in the right directory
 if [ ! -f "main.py" ]; then
-    echo "❌ Error: Run this script from the voice-app-downloadable directory"
+    echo "❌ Error: Run this script from the waffler directory"
     exit 1
 fi
 

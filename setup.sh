@@ -1,7 +1,7 @@
 #!/bin/bash
-# VoiceFlow Setup Script
+# Waffler Setup Script
 
-echo "🎙️  VoiceFlow Setup"
+echo "🎙️  Waffler Setup"
 echo "=================="
 
 # Install all dependencies

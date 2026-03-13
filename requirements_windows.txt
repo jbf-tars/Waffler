@@ -1,4 +1,4 @@
-# Natter — Windows Requirements
+# Waffler — Windows Requirements
 # Install with:  pip install -r requirements_windows.txt
 #
 # Packages excluded vs macOS version:

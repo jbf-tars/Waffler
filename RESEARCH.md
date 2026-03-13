@@ -144,10 +144,10 @@ Done
 pip install pyinstaller
 
 # 2. Create .spec file
-pyinstaller --name "VoiceFlow" \
+pyinstaller --name "Waffler" \
             --windowed \
             --icon icon.icns \
-            --osx-bundle-identifier com.yourname.voiceflow \
+            --osx-bundle-identifier com.yourname.waffler \
             main.py
 
 # 3. Customize .spec file
@@ -156,30 +156,30 @@ pyinstaller --name "VoiceFlow" \
 # - Set Info.plist keys (mic permissions, etc.)
 
 # 4. Build .app
-pyinstaller VoiceFlow.spec
+pyinstaller Waffler.spec
 
 # 5. Sign the app (requires Apple Developer account)
 codesign --deep --force --verify --verbose \
          --sign "Developer ID Application: Your Name" \
-         dist/VoiceFlow.app
+         dist/Waffler.app
 
 # 6. Notarize with Apple (xcrun notarytool)
-xcrun notarytool submit VoiceFlow.app.zip \
+xcrun notarytool submit Waffler.app.zip \
                        --apple-id your@email.com \
                        --team-id TEAMID \
                        --password app-specific-password
 
 # 7. Staple notarization ticket
-xcrun stapler staple dist/VoiceFlow.app
+xcrun stapler staple dist/Waffler.app
 
 # 8. Create DMG for distribution
-hdiutil create -volname VoiceFlow -srcfolder dist/VoiceFlow.app -ov -format UDZO VoiceFlow.dmg
+hdiutil create -volname Waffler -srcfolder dist/Waffler.app -ov -format UDZO Waffler.dmg
 ```
 
 **Example .spec file additions:**
 
 ```python
-# VoiceFlow.spec
+# Waffler.spec
 a = Analysis(
     ['main.py'],
     pathex=[],
@@ -207,15 +207,15 @@ a = Analysis(
 
 app = BUNDLE(
     exe,
-    name='VoiceFlow.app',
+    name='Waffler.app',
     icon='assets/icon.icns',
-    bundle_identifier='com.yourname.voiceflow',
+    bundle_identifier='com.yourname.waffler',
     info_plist={
-        'CFBundleName': 'VoiceFlow',
-        'CFBundleDisplayName': 'VoiceFlow',
+        'CFBundleName': 'Waffler',
+        'CFBundleDisplayName': 'Waffler',
         'CFBundleVersion': '1.0.0',
         'CFBundleShortVersionString': '1.0.0',
-        'NSMicrophoneUsageDescription': 'VoiceFlow needs microphone access to record your voice for transcription.',
+        'NSMicrophoneUsageDescription': 'Waffler needs microphone access to record your voice for transcription.',
         'NSHighResolutionCapable': True,
         'LSUIElement': True,  # Hide from Dock (menu bar app)
     },
@@ -387,7 +387,7 @@ import requests
 from datetime import datetime, timedelta
 
 class AccountManager:
-    def __init__(self, api_base_url="https://api.voiceflow.app"):
+    def __init__(self, api_base_url="https://api.waffler.app"):
         self.api_base = api_base_url
         self.token = None
         
@@ -405,7 +405,7 @@ class AccountManager:
         )
         if response.status_code == 200:
             token = response.json()["token"]
-            keyring.set_password("voiceflow", "auth_token", token)
+            keyring.set_password("waffler", "auth_token", token)
             self.token = token
             return True
         return False
@@ -413,7 +413,7 @@ class AccountManager:
     def get_token(self):
         """Retrieve token from Keychain"""
         if not self.token:
-            self.token = keyring.get_password("voiceflow", "auth_token")
+            self.token = keyring.get_password("waffler", "auth_token")
         return self.token
         
     def check_quota(self):
@@ -460,7 +460,7 @@ class AccountManager:
 **Tasks:**
 1. Set up project structure
    ```
-   voice-app-downloadable/
+   waffler/
    ├── main.py              # Entry point
    ├── src/
    │   ├── audio.py         # Recording (sounddevice)
@@ -476,7 +476,7 @@ class AccountManager:
        └── sounds/
    ```
 
-2. Implement core pipeline (reuse `/voice-agentic-pipeline/` code)
+2. Implement core pipeline (reuse `/waffler-pipeline/` code)
 3. Set hotkey to `Cmd+Shift+Space` (pynput)
 4. Test end-to-end flow
 5. Measure latency (target <3s)
@@ -554,10 +554,10 @@ class AccountManager:
 1. **PyInstaller setup:**
    ```bash
    pip install pyinstaller
-   pyinstaller --name VoiceFlow \
+   pyinstaller --name Waffler \
                --windowed \
                --icon assets/icon.icns \
-               --osx-bundle-identifier com.yourname.voiceflow \
+               --osx-bundle-identifier com.yourname.waffler \
                main.py
    ```
 
@@ -578,10 +578,10 @@ class AccountManager:
 
 5. **Create DMG:**
    ```bash
-   hdiutil create -volname VoiceFlow \
-                  -srcfolder dist/VoiceFlow.app \
+   hdiutil create -volname Waffler \
+                  -srcfolder dist/Waffler.app \
                   -ov -format UDZO \
-                  VoiceFlow.dmg
+                  Waffler.dmg
    ```
 
 6. **Test installation:**
@@ -683,7 +683,7 @@ rumps>=0.4.0             # macOS menu bar app (optional)
 
 ### 6.1 Whispr Flow vs Our App
 
-| Feature | Whispr Flow | Our App (VoiceFlow) |
+| Feature | Whispr Flow | Our App (Waffler) |
 |---------|-------------|---------------------|
 | **Hotkey** | Fn (Globe key) | Cmd+Shift+Space (+ Fn option) |
 | **STT** | Proprietary cloud | Deepgram (best-in-class) |
@@ -736,7 +736,7 @@ rumps>=0.4.0             # macOS menu bar app (optional)
 | Item | Cost | Notes |
 |------|------|-------|
 | **Apple Developer Account** | $99/year | Required for code signing |
-| **Domain name** | $12/year | voiceflow.app |
+| **Domain name** | $12/year | waffler.app |
 | **Backend hosting** | $5-20/mo | Railway.app or Fly.io |
 | **Database** | $0-10/mo | Supabase free tier or Railway |
 | **Stripe fees** | 2.9% + 30¢ | Per transaction |
@@ -810,14 +810,14 @@ rumps>=0.4.0             # macOS menu bar app (optional)
 
 1. ✅ **Review this research** - Confirm direction
 2. ✅ **Decide on hotkey** - Cmd+Shift+Space OK? Or prefer Fn?
-3. ✅ **Name the app** - "VoiceFlow"? Something else?
+3. ✅ **Name the app** - "Waffler"? Something else?
 4. ✅ **Apple Developer account** - Sign up if not already ($99)
 5. ✅ **Confirm APIs** - Deepgram + MiniMax still the plan?
 
 ### For Development (Week 1):
 
-1. ✅ **Set up project structure** - `/voice-app-downloadable/`
-2. ✅ **Reuse existing code** - Copy from `/voice-agentic-pipeline/`
+1. ✅ **Set up project structure** - `/waffler/`
+2. ✅ **Reuse existing code** - Copy from `/waffler-pipeline/`
 3. ✅ **Implement hotkey** - Test `Cmd+Shift+Space` with pynput
 4. ✅ **Test packaging** - PyInstaller trial run
 5. ✅ **Build MVP** - End-to-end flow without account system

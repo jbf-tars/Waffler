@@ -91,7 +91,7 @@ if errorlevel 1 (
 echo   Dependencies installed successfully
 
 :: ============================================
-:: STEP 5: Launch VoiceFlow
+:: STEP 5: Launch Waffler
 :: ============================================
 echo.
 echo [5/5] Starting Waffler...

@@ -31,7 +31,7 @@ jobs:
 
       - name: Build .app
         run: |
-          pyinstaller --noconfirm --clean --windowed --name VoiceFlow \
+          pyinstaller --noconfirm --clean --windowed --name Waffler \
             --add-data "src:src" \
             --add-data "ui:ui" \
             --add-data "prompts:prompts" \
@@ -43,20 +43,20 @@ jobs:
         run: |
           mkdir -p dist-installer
           create-dmg \
-            --volname "VoiceFlow" \
+            --volname "Waffler" \
             --window-pos 200 120 \
             --window-size 800 500 \
             --icon-size 100 \
-            --icon "VoiceFlow.app" 200 220 \
-            --hide-extension "VoiceFlow.app" \
+            --icon "Waffler.app" 200 220 \
+            --hide-extension "Waffler.app" \
             --app-drop-link 600 220 \
-            "dist-installer/VoiceFlow-mac-unsigned.dmg" \
+            "dist-installer/Waffler-mac-unsigned.dmg" \
             "dist/"
 
       - name: Upload DMG artifact
         uses: actions/upload-artifact@v4
         with:
-          name: VoiceFlow-mac-unsigned
+          name: Waffler-mac-unsigned
           path: dist-installer/*.dmg
 
       - name: Publish release on tag

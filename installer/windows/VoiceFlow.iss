@@ -1,11 +1,11 @@
-; VoiceFlow unsigned installer for early testers
-; Build with: iscc installer\windows\VoiceFlow.iss
+; Waffler unsigned installer for early testers
+; Build with: iscc installer\windows\Waffler.iss
 
-#define MyAppName "VoiceFlow"
+#define MyAppName "Waffler"
 #define MyAppVersion "1.0.0"
-#define MyAppPublisher "VoiceFlow"
-#define MyAppURL "https://voiceflow-app.com"
-#define MyAppExeName "VoiceFlow.exe"
+#define MyAppPublisher "Waffler"
+#define MyAppURL "https://waffler-app.com"
+#define MyAppExeName "Waffler.exe"
 
 [Setup]
 AppId={{F35717B7-7C70-4AE9-A67F-51F1E4A8A912}
@@ -21,7 +21,7 @@ DisableProgramGroupPage=yes
 LicenseFile=
 PrivilegesRequired=lowest
 OutputDir=dist-installer
-OutputBaseFilename=VoiceFlow-Setup-{#MyAppVersion}
+OutputBaseFilename=Waffler-Setup-{#MyAppVersion}
 SetupIconFile=
 Compression=lzma
 SolidCompression=yes
@@ -36,7 +36,7 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 
 [Files]
 ; Resolve from this .iss location (installer\windows\) back to repo root
-Source: "..\..\dist\VoiceFlow\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\..\dist\Waffler\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"

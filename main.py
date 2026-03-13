@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-VoiceFlow - Voice-to-Text Command Assistant
+Waffler - Voice-to-Text Command Assistant
 Main orchestrator
 """
 
@@ -25,7 +25,7 @@ from clipboard import ClipboardManager
 from notify import NotificationManager
 
 
-class VoiceFlow:
+class Waffler:
     """Main pipeline orchestrator"""
     
     def __init__(self, config: Config):
@@ -206,7 +206,7 @@ class VoiceFlow:
     def run(self):
         """Start the pipeline"""
         print("\n" + "="*60)
-        print("🎙️  VoiceFlow - Voice-to-Text Command Assistant")
+        print("🎙️  Waffler - Voice-to-Text Command Assistant")
         print("="*60)
         print(f"⌨️  Hotkey: {self.config.hotkey}")
         print(f"🎤 Sample rate: {self.config.sample_rate}Hz")
@@ -251,7 +251,7 @@ def main():
         config = Config()
         
         # Create and run pipeline
-        pipeline = VoiceFlow(config)
+        pipeline = Waffler(config)
         pipeline.run()
         
     except FileNotFoundError as e:

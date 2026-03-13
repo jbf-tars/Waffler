@@ -43,7 +43,7 @@ def test_pipeline_with_file(audio_file: str):
     """Test the full pipeline with a pre-recorded audio file"""
     
     print("\n" + "="*60)
-    print("🧪 VoiceFlow Automated Test")
+    print("🧪 Waffler Automated Test")
     print("="*60)
     
     # Load config

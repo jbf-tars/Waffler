@@ -26,11 +26,11 @@ Thumbs.db
 .idea/
 
 # Large release bundles (generated)
-VoiceFlow-*.zip
-voiceflow-source.tar.gz
+Waffler-*.zip
+waffler-source.tar.gz
 
 # Legacy/temp project snapshots
-VoiceFlow-v*-temp/
+Waffler-v*-temp/
 dist-windows/
 
 # Tests / temp

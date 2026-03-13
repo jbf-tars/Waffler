@@ -1,4 +1,4 @@
-# VoiceFlow - Voice-to-Text Command Assistant
+# Waffler - Voice-to-Text Command Assistant
 
 **Status:** ✅ Week 1 MVP - Core Functionality Complete (85%)
 
@@ -22,7 +22,7 @@ Fast, accurate voice-to-text that transforms your speech into polished commands 
 ### 1. Install Dependencies
 
 ```bash
-cd /Users/tars/clawd/projects/voice-app-downloadable
+cd /Users/tars/Desktop/waffler
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
@@ -74,7 +74,7 @@ python main.py
 ## 📁 Project Structure
 
 ```
-voice-app-downloadable/
+waffler/
 ├── main.py              # Entry point
 ├── config.yaml          # Configuration
 ├── .env                 # API keys (not committed)
