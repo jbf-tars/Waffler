@@ -38,9 +38,10 @@ from clipboard import ClipboardManager
 from notify import NotificationManager
 
 # ── Icons ─────────────────────────────────────────────────────────────────────
-ICON_IDLE       = "VF"
-ICON_RECORDING  = "VF ●"
-ICON_PROCESSING = "VF ..."
+_ICON_PATH = str(Path(__file__).parent / "icon_512.png")
+ICON_IDLE       = "🧇"
+ICON_RECORDING  = "🧇 ●"
+ICON_PROCESSING = "🧇 ..."
 
 
 class WafflerApp(rumps.App):
@@ -52,18 +53,21 @@ class WafflerApp(rumps.App):
         self.last_item      = rumps.MenuItem("Last transcript: —")
         self.last_item.set_callback(None)   # greyed-out by no callback
 
-        super().__init__(
-            name="Waffler",
-            title=ICON_IDLE,
-            menu=[
+        # Use the app icon in menubar (same as Windows tray)
+        _menu = [
                 rumps.MenuItem("Waffler", callback=None),   # title row, no callback
                 None,                                          # separator
                 self.recording_item,
                 self.last_item,
                 None,                                          # separator
-            ],
-            quit_button="Quit",
-        )
+        ]
+
+        if Path(_ICON_PATH).exists():
+            super().__init__(name="Waffler", icon=_ICON_PATH, template=True,
+                             menu=_menu, quit_button="Quit")
+        else:
+            super().__init__(name="Waffler", title=ICON_IDLE,
+                             menu=_menu, quit_button="Quit")
 
         # ── Pipeline components ───────────────────────────────────────────────
         openai_key = os.getenv('OPENAI_API_KEY')

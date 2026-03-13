@@ -1664,7 +1664,12 @@ def _create_mac_menubar_icon():
 
         class WafflerMenuBar(rumps.App):
             def __init__(self):
-                super().__init__("Waffler", title="🎙️")
+                # Use the same icon as Windows tray (icon.png in project root)
+                _icon_path = str(Path(__file__).parent / "icon_512.png")
+                if Path(_icon_path).exists():
+                    super().__init__("Waffler", icon=_icon_path, template=True)
+                else:
+                    super().__init__("Waffler", title="🧇")
 
             @rumps.clicked("Show Waffler")
             def show_window(self, _):
@@ -1687,19 +1692,25 @@ def _create_windows_tray_icon():
     global _tray_icon
     try:
         import pystray
-        from PIL import Image, ImageDraw
+        from PIL import Image
 
-        # Create a small purple icon matching the brand
-        img = Image.new('RGBA', (64, 64), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(img)
-        draw.rounded_rectangle([0, 0, 63, 63], radius=12, fill=(124, 58, 237, 255))
-        # Simple mic shape
-        cx, cy = 32, 28
-        draw.rounded_rectangle([cx-8, cy-16, cx+8, cy+4], radius=8, fill=(255, 255, 255, 255))
-        draw.line([cx, cy+4, cx, cy+12], fill=(255, 255, 255, 255), width=3)
-        draw.line([cx-10, cy+12, cx+10, cy+12], fill=(255, 255, 255, 255), width=3)
-        draw.arc([cx-12, cy-6, cx+12, cy+8], start=0, end=180,
-                 fill=(255, 255, 255, 255), width=2)
+        # Use the app icon file (same as macOS menubar)
+        _icon_path = Path(__file__).parent / "icon.ico"
+        _icon_png = Path(__file__).parent / "icon_512.png"
+        if _icon_path.exists():
+            img = Image.open(str(_icon_path))
+        elif _icon_png.exists():
+            img = Image.open(str(_icon_png)).resize((64, 64))
+        else:
+            # Fallback: draw a simple icon
+            from PIL import ImageDraw
+            img = Image.new('RGBA', (64, 64), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(img)
+            draw.rounded_rectangle([0, 0, 63, 63], radius=12, fill=(124, 58, 237, 255))
+            cx, cy = 32, 28
+            draw.rounded_rectangle([cx-8, cy-16, cx+8, cy+4], radius=8, fill=(255, 255, 255, 255))
+            draw.line([cx, cy+4, cx, cy+12], fill=(255, 255, 255, 255), width=3)
+            draw.line([cx-10, cy+12, cx+10, cy+12], fill=(255, 255, 255, 255), width=3)
 
         menu = pystray.Menu(
             pystray.MenuItem("Show Waffler", _tray_show_window, default=True),

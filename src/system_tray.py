@@ -15,20 +15,25 @@ if sys.platform == "win32":
 
 
 def create_icon_image():
-    """Create a simple microphone icon for the tray."""
-    # 64x64 icon
+    """Load the app icon for the tray, matching the macOS menubar icon."""
+    # Try loading the actual app icon first
+    _root = Path(__file__).parent.parent
+    _ico = _root / "icon.ico"
+    _png = _root / "icon_512.png"
+    
+    if _ico.exists():
+        return Image.open(str(_ico))
+    elif _png.exists():
+        return Image.open(str(_png)).resize((64, 64))
+    
+    # Fallback: draw a simple icon
     width = 64
     height = 64
     image = Image.new('RGB', (width, height), color=(0, 0, 0, 0))
     draw = ImageDraw.Draw(image)
-    
-    # Draw a simple microphone shape
-    # Body (rounded rectangle)
     draw.rounded_rectangle([20, 10, 44, 40], radius=8, fill=(52, 152, 219))
-    # Stand
     draw.line([32, 40, 32, 50], fill=(52, 152, 219), width=3)
     draw.line([24, 50, 40, 50], fill=(52, 152, 219), width=3)
-    
     return image
 
 
