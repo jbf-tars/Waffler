@@ -68,6 +68,12 @@ class RecordingOverlay:
         self._reader_thread = None
         self._visible   = False
 
+        # Thread safety and restart tracking
+        self._send_lock = threading.Lock()  # Protect stdin writes
+        self._restart_count = 0             # Track restart attempts
+        self._last_restart_time = 0         # For exponential backoff
+        self._restart_window = 60           # Reset counter after 60s
+
         # Resolve the subprocess script path
         if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
             self._script = Path(sys._MEIPASS) / "src" / _OVERLAY_SCRIPT_NAME
