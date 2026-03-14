@@ -112,39 +112,26 @@ class RecordingOverlay:
         """
         Push an audio RMS level (0.0-1.0) to animate the VU bars.
         Safe to call from any thread at any rate.
+        Auto-restarts subprocess if it died during recording.
         """
-        # Silently ignore if overlay is not running (app still works)
+        # Detect subprocess death during recording
         if not self._is_alive():
             if self._visible:
-                # Process died while recording — try auto-restart ONCE
-                from pathlib import Path
-                from datetime import datetime
-                log_file = Path.home() / ".waffler-hosted" / "app.log"
-                def log(msg):
-                    try:
-                        with open(log_file, "a") as f:
-                            ts = datetime.now().strftime("%H:%M:%S")
-                            f.write(f"{ts}  {msg}\n")
-                    except Exception:
-                        pass
+                # Process died while recording — attempt auto-restart
+                self._log("[overlay] Subprocess died during recording, attempting auto-restart...")
 
-                if not hasattr(self, '_restart_attempted'):
-                    log("[overlay] Process died during recording, attempting one restart...")
-                    print("[overlay] Process died during recording, restarting...")
-                    self._restart_attempted = True
-                    self._start_process()
-                    time.sleep(0.35)
+                if self._attempt_restart():
+                    # Restart successful, resume showing overlay
                     self._send({"type": "show"})
                 else:
-                    # Already tried restart, give up silently
+                    # Max restarts exceeded, give up gracefully
                     self._visible = False
-                    return
-            else:
-                return
+                    self._log("[overlay] Recording continues without overlay (subprocess unrecoverable)")
+            return
 
-        if self._is_alive():
-            level = max(0.0, min(1.0, float(level)))
-            self._send({"type": "level", "value": level})
+        # Send level update (thread-safe)
+        level = max(0.0, min(1.0, float(level)))
+        self._send({"type": "level", "value": level})
 
     def update_state(self, state: str):
         """
