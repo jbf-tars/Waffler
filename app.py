@@ -1956,6 +1956,10 @@ def _create_mac_menubar_icon():
             def show_window(self, _):
                 _tray_show_window()
 
+            @rumps.clicked("Factory Reset...")
+            def factory_reset(self, _):
+                _perform_factory_reset()
+
             @rumps.clicked("Quit")
             def quit_app(self, _):
                 _tray_quit()
@@ -2051,6 +2055,52 @@ def _tray_quit(icon=None, item=None):
         try:
             _window_ref.destroy()
         except Exception:
+            pass
+
+
+def _perform_factory_reset():
+    """Clear all Waffler data and restart from setup."""
+    try:
+        import rumps
+
+        # Show confirmation dialog
+        response = rumps.alert(
+            title="Factory Reset",
+            message="This will delete all Waffler data including:\n\n• Recording history\n• Configuration settings\n• Usage statistics\n• Logs\n\nThe app will quit and restart from setup on next launch.\n\nThis cannot be undone.",
+            ok="Reset Everything",
+            cancel="Cancel"
+        )
+
+        if response == 1:  # User clicked "Reset Everything"
+            # Clear data directory
+            data_dir = Path.home() / ".waffler-hosted"
+            if data_dir.exists():
+                import shutil
+                shutil.rmtree(data_dir)
+                _log_to_file("[factory reset] Data directory cleared")
+
+            # Show success message
+            rumps.alert(
+                title="Reset Complete",
+                message="All data has been cleared. Waffler will now quit.\n\nOn next launch, you'll go through setup again.",
+                ok="Quit Now"
+            )
+
+            # Quit the app
+            global _should_quit
+            _should_quit = True
+            rumps.quit_application()
+
+    except Exception as e:
+        _log_to_file(f"[factory reset] Error: {e}")
+        try:
+            import rumps
+            rumps.alert(
+                title="Reset Failed",
+                message=f"Factory reset failed: {e}",
+                ok="OK"
+            )
+        except:
             pass
 
 
