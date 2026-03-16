@@ -114,7 +114,6 @@ a = Analysis(
         'Foundation',
         'rumps',
         'mlx_whisper',
-        'faster_whisper',
     ],
     noarchive=False,
 )

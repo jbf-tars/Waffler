@@ -1,10 +1,10 @@
 ; Waffler — Inno Setup Installer Script
 ; Produces: WafflerSetup-X.Y.Z.exe
 ; Compile: ISCC.exe installer.iss
-; Or:      ISCC.exe /DAppVersion=1.0.0 installer.iss
+; Or:      ISCC.exe /DAppVersion=1.0.3 installer.iss
 
 #ifndef AppVersion
-  #define AppVersion "1.0.0"
+  #define AppVersion "1.0.9"
 #endif
 
 #define AppName      "Waffler"
