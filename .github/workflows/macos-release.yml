@@ -35,9 +35,6 @@ jobs:
           pip install pyinstaller
 
 
-      - name: Install create-dmg
-        run: |
-          brew install create-dmg
 
 
       - name: Import code signing certificate
@@ -127,16 +124,20 @@ jobs:
           mkdir -p dist-installer
           VERSION="${GITHUB_REF_NAME#v}"
           DMG_NAME="Waffler-${VERSION}-mac.dmg"
-          create-dmg \
-            --volname "Waffler" \
-            --window-pos 200 120 \
-            --window-size 800 500 \
-            --icon-size 100 \
-            --icon "Waffler.app" 200 220 \
-            --hide-extension "Waffler.app" \
-            --app-drop-link 600 220 \
-            "dist-installer/${DMG_NAME}" \
-            "dist/"
+
+          # Create temporary DMG staging directory
+          mkdir -p dmg-staging
+          cp -R dist/Waffler.app dmg-staging/
+          ln -s /Applications dmg-staging/Applications
+
+          # Create DMG with hdiutil (preserves .app bundle structure and signatures)
+          hdiutil create -volname "Waffler" \
+            -srcfolder dmg-staging \
+            -ov -format UDZO \
+            "dist-installer/${DMG_NAME}"
+
+          # Clean up
+          rm -rf dmg-staging
 
 
       - name: Sign DMG
