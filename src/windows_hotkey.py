@@ -5,7 +5,7 @@ Ctrl + Space = toggle recording on/off.
 Primary:  RegisterHotKey  (system-level, most reliable)
 Fallback: GetAsyncKeyState polling (if RegisterHotKey fails, e.g. IME conflict)
 
-Writes debug output to ~/.waffler/hotkey.log so issues are visible
+Writes debug output to ~/.waffler-hosted/hotkey.log so issues are visible
 even when the app runs as a GUI exe with no console.
 """
 
