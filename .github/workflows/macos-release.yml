@@ -124,20 +124,55 @@ jobs:
           mkdir -p dist-installer
           VERSION="${GITHUB_REF_NAME#v}"
           DMG_NAME="Waffler-${VERSION}-mac.dmg"
+          TMP_DMG="tmp-${DMG_NAME}"
 
           # Create temporary DMG staging directory
           mkdir -p dmg-staging
           cp -R dist/Waffler.app dmg-staging/
           ln -s /Applications dmg-staging/Applications
 
-          # Create DMG with hdiutil (preserves .app bundle structure and signatures)
+          # Create temporary DMG
           hdiutil create -volname "Waffler" \
             -srcfolder dmg-staging \
-            -ov -format UDZO \
-            "dist-installer/${DMG_NAME}"
+            -ov -format UDRW \
+            "dist-installer/${TMP_DMG}"
+
+          # Mount it
+          hdiutil attach "dist-installer/${TMP_DMG}"
+
+          # Set background and icon positions using AppleScript
+          echo '
+          tell application "Finder"
+            tell disk "Waffler"
+              open
+              set current view of container window to icon view
+              set toolbar visible of container window to false
+              set statusbar visible of container window to false
+              set the bounds of container window to {400, 100, 1000, 500}
+              set viewOptions to the icon view options of container window
+              set arrangement of viewOptions to not arranged
+              set icon size of viewOptions to 100
+              set position of item "Waffler.app" of container window to {150, 200}
+              set position of item "Applications" of container window to {450, 200}
+              update without registering applications
+              close
+            end tell
+          end tell
+          ' | osascript
+
+          # Wait for changes to apply
+          sleep 2
+
+          # Unmount
+          hdiutil detach "/Volumes/Waffler"
+
+          # Convert to compressed read-only
+          hdiutil convert "dist-installer/${TMP_DMG}" \
+            -format UDZO \
+            -o "dist-installer/${DMG_NAME}"
 
           # Clean up
-          rm -rf dmg-staging
+          rm -rf dmg-staging "dist-installer/${TMP_DMG}"
 
 
       - name: Sign DMG
