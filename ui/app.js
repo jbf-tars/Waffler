@@ -196,6 +196,47 @@ async function openInputMonitoringSettings() {
   }
 }
 
+async function factoryReset() {
+  console.log("factoryReset called");
+
+  if (!window.pywebview || !window.pywebview.api) {
+    showToast("App not ready yet", "error");
+    return;
+  }
+
+  // Show confirmation dialog
+  const confirmed = confirm(
+    "Factory Reset\n\n" +
+    "This will delete ALL Waffler data including:\n\n" +
+    "• Recording history\n" +
+    "• Configuration settings\n" +
+    "• Usage statistics\n" +
+    "• Logs\n\n" +
+    "The app will quit and restart from setup on next launch.\n\n" +
+    "This cannot be undone.\n\n" +
+    "Are you sure?"
+  );
+
+  if (!confirmed) {
+    return;
+  }
+
+  try {
+    const result = await pywebview.api.factory_reset();
+    console.log("factoryReset result:", result);
+
+    if (result.ok) {
+      showToast("Resetting all data...", "success");
+      // App will quit automatically
+    } else {
+      showToast(result.error || "Failed to reset", "error");
+    }
+  } catch (e) {
+    console.error("factoryReset error:", e);
+    showToast("Error resetting data", "error");
+  }
+}
+
 // Permission checking disabled - just let users click through
 async function checkPermissions() {
   // No automatic checking - users will manually grant permissions
