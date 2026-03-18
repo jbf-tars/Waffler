@@ -209,27 +209,48 @@ class RecordingOverlay:
 
             self._log(f"[overlay] App is frozen, searching for Python interpreter...")
 
-            # macOS-specific: Try common Python locations on macOS
-            # Most Macs have Python 3 pre-installed
+            # CRITICAL FIX: Use bundled Python 3.11 from the app bundle FIRST
+            # This prevents Python version mismatch (bundled cpython-311 extensions vs system Python 3.9)
+            if _PLATFORM == "Darwin":  # macOS
+                # PyInstaller bundles Python.framework in Contents/Frameworks/
+                # Try to find it relative to sys.executable
+                exe_path = Path(sys.executable)
+                app_contents = exe_path.parent.parent  # .../Waffler.app/Contents
+
+                bundled_python_paths = [
+                    app_contents / "Frameworks" / "Python.framework" / "Versions" / "3.11" / "bin" / "python3",
+                    app_contents / "Frameworks" / "Python.framework" / "Versions" / "3.11" / "bin" / "python3.11",
+                    app_contents / "Frameworks" / "Python.framework" / "Versions" / "Current" / "bin" / "python3",
+                    app_contents / "MacOS" / "python3",  # Some PyInstaller configurations put it here
+                ]
+
+                for py_path in bundled_python_paths:
+                    if py_path.exists():
+                        self._log(f"[overlay] ✓ Found BUNDLED Python: {py_path}")
+                        print(f"[overlay] Using bundled Python: {py_path}")
+                        return str(py_path)
+
+                self._log("[overlay] WARNING: Bundled Python not found, falling back to system Python")
+
+            # Fallback: Try system Python (less reliable due to version mismatches)
             mac_python_paths = [
-                '/usr/bin/python3',  # macOS system Python (most common)
-                '/usr/local/bin/python3',  # Homebrew Python
-                '/opt/homebrew/bin/python3',  # Homebrew on Apple Silicon
+                '/opt/homebrew/bin/python3.11',  # Homebrew Python 3.11 (Apple Silicon) - prefer matching version
+                '/usr/local/bin/python3.11',     # Homebrew Python 3.11 (Intel)
                 '/Library/Frameworks/Python.framework/Versions/3.11/bin/python3',
-                '/Library/Frameworks/Python.framework/Versions/3.10/bin/python3',
-                '/Library/Frameworks/Python.framework/Versions/3.9/bin/python3',
+                '/opt/homebrew/bin/python3',     # Homebrew Python (any version)
+                '/usr/local/bin/python3',        # Homebrew Python (Intel, any version)
+                '/usr/bin/python3',              # macOS system Python (likely 3.9 - last resort)
             ]
 
-            # First try specific macOS paths
             for path_str in mac_python_paths:
                 if os.path.exists(path_str):
-                    self._log(f"[overlay] ✓ Found macOS Python: {path_str}")
+                    self._log(f"[overlay] ✓ Found system Python: {path_str}")
                     print(f"[overlay] Found Python: {path_str}")
                     return path_str
 
             # Fallback: Search PATH
             self._log("[overlay] Checking PATH for Python...")
-            for name in ('python3', 'python'):
+            for name in ('python3.11', 'python3', 'python'):
                 path = shutil.which(name)
                 if path:
                     self._log(f"[overlay] ✓ Found Python in PATH: {path}")
@@ -238,7 +259,7 @@ class RecordingOverlay:
 
             # No Python found — return None
             self._log("[overlay] ✗ ERROR: No Python interpreter found")
-            self._log("[overlay] Checked: macOS system paths + PATH")
+            self._log("[overlay] Checked: bundled Python, system paths, and PATH")
             print("[overlay] WARNING: No Python interpreter found")
             return None
 
