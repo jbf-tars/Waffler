@@ -1,8 +1,7 @@
 """
 Waffler - Floating Recording Overlay
-Spawns a platform-appropriate overlay subprocess:
-  • macOS   → overlay_process.py    (PyObjC NSPanel)
-  • Windows → overlay_process_windows.py (tkinter)
+Spawns overlay subprocess using frozen app's --overlay flag.
+Uses bundled Python and PyObjC - fully self-contained.
 
 Main API: RecordingOverlay().show() / .hide() / .update_level(0..1)
 """
@@ -13,16 +12,8 @@ import json
 import time
 import threading
 import platform
-from pathlib import Path
 
-# ── Pick the right subprocess script ──────────────────────────────────
 _PLATFORM = platform.system()  # "Darwin", "Windows", "Linux"
-
-if _PLATFORM == "Windows":
-    _OVERLAY_SCRIPT_NAME = "overlay_process_windows.py"
-else:
-    # macOS (Darwin) - the original PyObjC NSPanel overlay
-    _OVERLAY_SCRIPT_NAME = "overlay_process.py"
 
 
 class RecordingOverlay:
@@ -74,12 +65,6 @@ class RecordingOverlay:
         self._restart_count = 0             # Track restart attempts
         self._last_restart_time = 0         # For exponential backoff
         self._restart_window = 60           # Reset counter after 60s
-
-        # Resolve the subprocess script path
-        if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
-            self._script = Path(sys._MEIPASS) / "src" / _OVERLAY_SCRIPT_NAME
-        else:
-            self._script = Path(__file__).parent / _OVERLAY_SCRIPT_NAME
 
     # ── Public API ────────────────────────────────────────────────────
 
@@ -197,149 +182,26 @@ class RecordingOverlay:
 
     # ── Internals ─────────────────────────────────────────────────────
 
-    def _find_python(self):
-        """Find a usable Python interpreter for the overlay subprocess."""
-        import os
-
-        self._log(f"[overlay] _find_python called, sys.frozen={getattr(sys, 'frozen', False)}")
-        self._log(f"[overlay] sys.executable={sys.executable}")
-
-        if getattr(sys, 'frozen', False):
-            import shutil
-
-            self._log(f"[overlay] App is frozen, searching for Python interpreter...")
-
-            # CRITICAL FIX: Use bundled Python 3.11 from the app bundle FIRST
-            # This prevents Python version mismatch (bundled cpython-311 extensions vs system Python 3.9)
-            if _PLATFORM == "Darwin":  # macOS
-                # PyInstaller bundles Python.framework in Contents/Frameworks/
-                # Try to find it relative to sys.executable
-                exe_path = Path(sys.executable)
-                app_contents = exe_path.parent.parent  # .../Waffler.app/Contents
-
-                bundled_python_paths = [
-                    app_contents / "Frameworks" / "Python.framework" / "Versions" / "3.11" / "bin" / "python3",
-                    app_contents / "Frameworks" / "Python.framework" / "Versions" / "3.11" / "bin" / "python3.11",
-                    app_contents / "Frameworks" / "Python.framework" / "Versions" / "Current" / "bin" / "python3",
-                    app_contents / "MacOS" / "python3",  # Some PyInstaller configurations put it here
-                ]
-
-                for py_path in bundled_python_paths:
-                    if py_path.exists():
-                        self._log(f"[overlay] ✓ Found BUNDLED Python: {py_path}")
-                        print(f"[overlay] Using bundled Python: {py_path}")
-                        return str(py_path)
-
-                self._log("[overlay] WARNING: Bundled Python not found, falling back to system Python")
-
-            # Fallback: Try system Python (less reliable due to version mismatches)
-            mac_python_paths = [
-                '/opt/homebrew/bin/python3.11',  # Homebrew Python 3.11 (Apple Silicon) - prefer matching version
-                '/usr/local/bin/python3.11',     # Homebrew Python 3.11 (Intel)
-                '/Library/Frameworks/Python.framework/Versions/3.11/bin/python3',
-                '/opt/homebrew/bin/python3',     # Homebrew Python (any version)
-                '/usr/local/bin/python3',        # Homebrew Python (Intel, any version)
-                '/usr/bin/python3',              # macOS system Python (likely 3.9 - last resort)
-            ]
-
-            for path_str in mac_python_paths:
-                if os.path.exists(path_str):
-                    self._log(f"[overlay] ✓ Found system Python: {path_str}")
-                    print(f"[overlay] Found Python: {path_str}")
-                    return path_str
-
-            # Fallback: Search PATH
-            self._log("[overlay] Checking PATH for Python...")
-            for name in ('python3.11', 'python3', 'python'):
-                path = shutil.which(name)
-                if path:
-                    self._log(f"[overlay] ✓ Found Python in PATH: {path}")
-                    print(f"[overlay] Found Python: {path}")
-                    return path
-
-            # No Python found — return None
-            self._log("[overlay] ✗ ERROR: No Python interpreter found")
-            self._log("[overlay] Checked: bundled Python, system paths, and PATH")
-            print("[overlay] WARNING: No Python interpreter found")
-            return None
-
-        self._log(f"[overlay] Using sys.executable: {sys.executable}")
-        return sys.executable
-
     def _start_process(self):
-        """Launch the overlay subprocess."""
+        """Launch the overlay subprocess using frozen app's --overlay mode."""
         self._log(f"[overlay] _start_process called")
-        self._log(f"[overlay] Script path: {self._script}")
-        self._log(f"[overlay] Script exists: {self._script.exists()}")
 
-        if not self._script.exists():
-            self._log(f"[overlay] ✗ ERROR: script not found: {self._script}")
-            print(f"[overlay] WARNING: script not found: {self._script}", flush=True)
-            return
+        # Use CREATE_NO_WINDOW on Windows to avoid a console flash
+        kwargs = {}
+        if _PLATFORM == "Windows":
+            CREATE_NO_WINDOW = 0x08000000
+            kwargs["creationflags"] = CREATE_NO_WINDOW
 
-        python = self._find_python()
-        if python is None:
-            self._log("[overlay] ✗ ERROR: Cannot start overlay: no Python interpreter available")
-            self._log("[overlay] App will continue without overlay (transcription still works)")
-            print("[overlay] Cannot start overlay: no Python interpreter available", flush=True)
-            print("[overlay] Note: App will work without visual overlay", flush=True)
-            return
-
-        try:
-            # Use CREATE_NO_WINDOW on Windows to avoid a console flash
-            kwargs = {}
-            if _PLATFORM == "Windows":
-                CREATE_NO_WINDOW = 0x08000000
-                kwargs["creationflags"] = CREATE_NO_WINDOW
-        except Exception as e:
-            self._log(f"[overlay] Exception setting kwargs: {e}")
-            kwargs = {}
-
-        self._log(f"[overlay] Starting subprocess: {python} {self._script}")
-
-        # CRITICAL FIX: When frozen, add bundled libraries to PYTHONPATH
-        # ONLY if using bundled Python. If using system Python, do NOT set
-        # PYTHONPATH — it would poison system Python with cpython-311 .so files.
-        import os
-        env = os.environ.copy()
-
-        if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
-            meipass = sys._MEIPASS
-            self._log(f"[overlay] App is frozen, MEIPASS={meipass}")
-
-            # Check if Python is bundled (inside the app bundle)
-            python_is_bundled = str(meipass) in str(python)
-            self._log(f"[overlay] Python is bundled: {python_is_bundled} (python={python})")
-
-            if _PLATFORM != "Windows":
-                # macOS only: add MEIPASS to PYTHONPATH ONLY if using bundled Python.
-                # If using system Python, skip PYTHONPATH to avoid version mismatch
-                # (bundled cpython-311 .so files vs system Python 3.9).
-                if python_is_bundled:
-                    pythonpath = env.get('PYTHONPATH', '')
-                    if pythonpath:
-                        env['PYTHONPATH'] = f"{meipass}:{pythonpath}"
-                    else:
-                        env['PYTHONPATH'] = meipass
-                    self._log(f"[overlay] Set PYTHONPATH={env['PYTHONPATH']}")
-                else:
-                    self._log("[overlay] Using system Python, NOT setting PYTHONPATH (avoid version mismatch)")
-            else:
-                # Windows: remove bundled Tcl/Tk env vars so system Python uses
-                # its own Tcl/Tk instead of the bundled version (version mismatch).
-                for var in ('TCL_LIBRARY', 'TK_LIBRARY', 'PYTHONPATH'):
-                    env.pop(var, None)
-                self._log("[overlay] Windows: cleared TCL_LIBRARY/TK_LIBRARY/PYTHONPATH (using system tkinter)")
+        self._log(f"[overlay] Starting subprocess: {sys.executable} --overlay")
 
         try:
             self._process = subprocess.Popen(
-                [python, str(self._script)],
+                [sys.executable, '--overlay'],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,  # CHANGED: Capture stderr to see errors
+                stderr=subprocess.PIPE,
                 text=True,
                 bufsize=1,
-                env=env,  # Pass modified environment with PYTHONPATH
                 **kwargs,
             )
             self._log(f"[overlay] ✓ Subprocess started, PID={self._process.pid}")
