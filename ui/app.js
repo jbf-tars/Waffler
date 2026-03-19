@@ -54,10 +54,10 @@ function updateHotkeyHint() {
   const label = document.getElementById('hotkeyLabel');
   const emptyHint = document.getElementById('emptyHint');
   if (isWin) {
-    if (badge) badge.textContent = 'Ctrl + Space';
-    if (sidebarBadge) sidebarBadge.textContent = 'Ctrl + Space';
-    if (label) label.textContent = 'Toggle recording';
-    if (emptyHint) emptyHint.innerHTML = 'Press <strong>Ctrl + Space</strong> and speak';
+    if (badge) badge.textContent = 'Win + Ctrl';
+    if (sidebarBadge) sidebarBadge.textContent = 'Win + Ctrl';
+    if (label) label.textContent = 'Hold to record';
+    if (emptyHint) emptyHint.innerHTML = 'Hold <strong>Win + Ctrl</strong> to record';
   } else {
     // macOS - use Fn key
     if (badge) badge.textContent = 'Fn';
@@ -1498,12 +1498,14 @@ async function wizLoadHotkeyInfo() {
     await pywebview.api.wizard_start_fn_detection();
 
     const info = await pywebview.api.test_hotkey();
-    // Don't replace the fn key button content - it's already styled as a Mac key
-    // Just update the mode description
-    document.getElementById('wizHotkeyMode').textContent = info.mode === 'toggle'
+    const badge = document.getElementById('wizHotkeyBadge');
+    if (badge) badge.textContent = info.hotkey;
+    const modeEl = document.getElementById('wizHotkeyMode');
+    if (modeEl) modeEl.textContent = info.mode === 'toggle'
       ? 'Toggle mode: press once to start, press again to stop'
       : 'Hold mode: hold key to record, release to stop';
-    document.getElementById('wizHotkeyDesc').textContent = info.description;
+    const descEl = document.getElementById('wizHotkeyDesc');
+    if (descEl) descEl.textContent = info.description;
   } catch(e) {
     console.warn('wizLoadHotkeyInfo error:', e);
   }
@@ -1642,7 +1644,7 @@ function wizOnMicChange(val) {
 let _wizardHotkeyTestActive = false;
 
 async function wizInitTryItStep() {
-  if (_wizardMicDeviceIndex === null) return;
+  if (_wizardMicDeviceIndex === null) _wizardMicDeviceIndex = 0;
 
   // Update hotkey badge text
   try {

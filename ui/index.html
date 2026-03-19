@@ -388,10 +388,7 @@
         <h2>Hotkey Setup</h2>
         <p class="wizard-card-desc" id="wizHotkeyDesc">Loading hotkey info...</p>
         <div class="wizard-hotkey-display">
-          <button class="wizard-fn-key" id="wizHotkeyBadge">
-            <span class="fn-icon">🌐</span>
-            <span class="fn-label">fn</span>
-          </button>
+          <div class="hotkey-badge" id="wizHotkeyBadge" style="font-size:16px;padding:8px 18px;border-radius:8px;">Win + Ctrl</div>
           <div class="wizard-hotkey-mode" id="wizHotkeyMode"></div>
         </div>
         <p class="wizard-hint" style="margin-top:12px">
@@ -413,8 +410,8 @@
             appear in the mock app on the right.
           </p>
           <div class="wizard-tryit-hotkey-hint">
-            <span class="hotkey-badge" id="wizTryHotkeyBadge">Ctrl + Space</span>
-            <span>to start / stop recording</span>
+            <span class="hotkey-badge" id="wizTryHotkeyBadge">Win + Ctrl</span>
+            <span>hold to record</span>
           </div>
 
           <div class="wizard-tryit-prompt">
@@ -462,7 +459,7 @@
             <div class="mock-input-area">
               <div class="mock-input-box" id="wizMockInput">
                 <span class="mock-input-placeholder" id="wizMockPlaceholder">
-                  Press <kbd>Ctrl+Space</kbd> and speak...
+                  Hold <kbd>Win + Ctrl</kbd> and speak...
                 </span>
                 <span class="mock-input-text" id="wizMockText"></span>
                 <span class="mock-input-cursor" id="wizMockCursor" style="display:none"></span>
