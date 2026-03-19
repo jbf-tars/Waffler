@@ -40,6 +40,17 @@ jobs:
           pyinstaller --noconfirm --clean --windowed --name Waffler `
             --hidden-import wave `
             --collect-all pynput `
+            --collect-all requests `
+            --collect-all openai `
+            --collect-all groq `
+            --collect-all pywebview `
+            --collect-all sounddevice `
+            --collect-all yaml `
+            --collect-all dotenv `
+            --collect-all pyperclip `
+            --collect-all pystray `
+            --collect-all PIL `
+            --collect-all keyboard `
             --add-data "src;src" `
             --add-data "ui;ui" `
             --add-data "prompts;prompts" `
