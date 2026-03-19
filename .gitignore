@@ -12,6 +12,8 @@ venv/
 *.pem
 *.p12
 *.pfx
+.paperclip-agents.env
+start-claude-paperclip.ps1
 
 # Build artifacts
 build/

@@ -42,13 +42,6 @@ sys.stderr = _fix_stream(sys.stderr)
 PROJECT_ROOT = Path(__file__).parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-# Force Python to prefer source files over compiled bytecode
-import importlib
-import sys as _sys
-# Remove any cached bytecode for waffler_auth to force fresh import
-if 'waffler_auth' in _sys.modules:
-    del _sys.modules['waffler_auth']
-
 import webview
 
 from config import Config
@@ -60,23 +53,9 @@ if _platform.system() == "Windows":
     from windows_hotkey import WindowsHotkeyListener
 from transcribe_whisper import WhisperTranscriber
 from style_openai import OpenAIStyler
-from license import validate_license, is_validated, get_license_key, LICENSE_FILE
 from clipboard import ClipboardManager
 from overlay import RecordingOverlay
 from permissions_manager import PermissionsManager
-from waffler_auth import (
-    sign_up as sb_sign_up,
-    sign_in as sb_sign_in,
-    sign_out as sb_sign_out,
-    restore_session as sb_restore_session,
-    get_current_user as sb_get_user,
-    is_logged_in as sb_is_logged_in,
-    increment_usage as sb_increment_usage,
-    get_profile as sb_get_profile,
-    get_usage_today as sb_get_usage_today,
-    get_oauth_url as sb_get_oauth_url,
-    poll_oauth_result as sb_poll_oauth_result,
-)
 from audio_devices import (
     list_input_devices,
     get_selected_device_index,
@@ -341,72 +320,6 @@ class Api:
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
-    # ── License API ──────────────────────────────────────────────────────────
-
-    def check_license(self) -> dict:
-        """Check if license is validated."""
-        return {
-            "is_validated": is_validated(),
-            "license_key": get_license_key(),
-        }
-
-    def activate_license(self, license_key: str) -> dict:
-        """Activate a license key."""
-        import platform
-        instance_name = f"{platform.system()} Device"
-        result = validate_license(license_key, instance_name)
-        return result
-
-    # ── Auth API (Supabase) ────────────────────────────────────────────────
-
-    def auth_restore_session(self) -> dict:
-        """Try to auto-login from saved session."""
-        return sb_restore_session()
-
-    def auth_sign_up(self, email: str, password: str) -> dict:
-        """Create a new account."""
-        return sb_sign_up(email, password)
-
-    def auth_sign_in(self, email: str, password: str) -> dict:
-        """Log in with email + password."""
-        return sb_sign_in(email, password)
-
-    def auth_sign_out(self) -> dict:
-        """Sign out."""
-        return sb_sign_out()
-
-    def auth_get_user(self) -> dict:
-        """Return current user or None."""
-        return sb_get_user() or {}
-
-    def auth_is_logged_in(self) -> bool:
-        """Check if logged in."""
-        return sb_is_logged_in()
-
-    def auth_get_profile(self) -> dict:
-        """Get user profile (tier, etc)."""
-        return sb_get_profile() or {}
-
-    def auth_get_usage_today(self) -> dict:
-        """Get today's usage stats from Supabase."""
-        return sb_get_usage_today()
-
-    def auth_oauth(self, provider: str) -> dict:
-        """Start OAuth flow for a provider (google, apple)."""
-        _log_to_file(f"OAuth: auth_oauth called with provider={provider}")
-        try:
-            _log_to_file("OAuth: calling get_oauth_url...")
-            result = sb_get_oauth_url(provider)
-            _log_to_file(f"OAuth: result ok={result.get('ok')}, has_url={bool(result.get('url'))}, error={result.get('error')}")
-            return result
-        except Exception as e:
-            _log_to_file(f"OAuth: EXCEPTION: {type(e).__name__}: {e}")
-            return {"ok": False, "error": str(e)}
-
-    def auth_poll_oauth(self) -> dict:
-        """Poll for OAuth callback result (called by JS after browser opens)."""
-        return sb_poll_oauth_result()
-
     def focus_window(self) -> dict:
         """Bring the Waffler window to the foreground."""
         try:
@@ -636,16 +549,12 @@ class Api:
         groq_key = os.getenv("GROQ_API_KEY", "").strip()
         has_any_key = bool(openai_key or groq_key)
         setup_done = _is_setup_complete()
-        logged_in = sb_is_logged_in()
         return {
-            "needs_auth": not logged_in,
             "needs_setup": not setup_done or not has_any_key,
             "has_key": has_any_key,
             "has_openai_key": bool(openai_key),
             "has_groq_key": bool(groq_key),
             "setup_complete": setup_done,
-            "logged_in": logged_in,
-            "user": sb_get_user() or {},
         }
 
     def validate_api_key(self, api_key: str) -> dict:
@@ -1522,12 +1431,6 @@ class WafflerPipeline:
             if whisper_duration > 0:
                 record_usage("whisper", duration_seconds=whisper_duration,
                              provider=whisper_provider)
-                # Track in Supabase
-                try:
-                    sb_increment_usage(whisper_duration)
-                except Exception:
-                    pass
-
             # Style
             styled, gpt_usage = self.styler.style(transcript)
             if not styled:
