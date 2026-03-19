@@ -80,17 +80,18 @@ class FnKeyMonitor:
                 flags = CGEventGetFlags(event)
                 is_fn_pressed = bool(flags & fn_flag)
 
+                # Track state changes and fire callbacks
                 with self._lock:
                     if is_fn_pressed and not self._fn_pressed:
                         self._fn_pressed = True
                         threading.Thread(target=self._on_fn_press, daemon=True).start()
-                        # Completely suppress Fn event to prevent ABC popup
-                        return None
                     elif not is_fn_pressed and self._fn_pressed:
                         self._fn_pressed = False
                         threading.Thread(target=self._on_fn_release, daemon=True).start()
-                        # Completely suppress Fn release too
-                        return None
+
+                # ALWAYS suppress ALL Fn key flag changes (even rapid presses)
+                # This prevents macOS emoji picker/input source selector from triggering
+                return None
 
             # Check for Space key press
             elif event_type == kCGEventKeyDown:
