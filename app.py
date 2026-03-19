@@ -48,9 +48,10 @@ from config import Config
 from audio import AudioRecorder
 import platform as _platform
 from hotkey import HotkeyListener
-from smart_hotkey import SmartHotkeyListener
 if _platform.system() == "Windows":
     from windows_hotkey import WindowsHotkeyListener
+else:
+    from smart_hotkey import SmartHotkeyListener
 from transcribe_whisper import WhisperTranscriber
 from style_openai import OpenAIStyler
 from clipboard import ClipboardManager
