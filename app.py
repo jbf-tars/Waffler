@@ -284,12 +284,14 @@ class Api:
         return {"index": idx, "name": name}
 
     def get_fn_key_state(self) -> dict:
-        """Return current Fn key press state."""
+        """Return current hotkey press state (Fn on Mac, Win+Ctrl on Windows)."""
         try:
             if hasattr(self, 'hotkey_listener') and self.hotkey_listener:
-                # Access FnKeyMonitor's _fn_pressed state
-                fn_monitor = getattr(self.hotkey_listener, '_fn_monitor', None)
-                is_pressed = getattr(fn_monitor, '_fn_pressed', False) if fn_monitor else False
+                if _platform.system() == "Windows":
+                    is_pressed = getattr(self.hotkey_listener, 'is_combo_active', False)
+                else:
+                    fn_monitor = getattr(self.hotkey_listener, '_fn_monitor', None)
+                    is_pressed = getattr(fn_monitor, '_fn_pressed', False) if fn_monitor else False
                 return {"ok": True, "pressed": is_pressed}
             return {"ok": True, "pressed": False}
         except Exception as e:

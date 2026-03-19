@@ -169,6 +169,11 @@ class WindowsHotkeyListener:
     def join(self):
         pass
 
+    @property
+    def is_combo_active(self):
+        """Return True when Win+Ctrl are both held."""
+        return self._ctrl_held and self._win_held
+
     # ── Low-level keyboard hook procedure ─────────────────────────────
 
     def _ll_keyboard_proc(self, nCode, wParam, lParam):

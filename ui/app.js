@@ -1481,11 +1481,7 @@ async function requestPermission(permissionType) {
   }
 }
 
-// Initialize permission status indicator when app loads
-document.addEventListener('DOMContentLoaded', function() {
-  // Add permission status indicator to main interface
-  setTimeout(showPermissionStatusIndicator, 1000);
-});
+// (Permission status indicator removed — not needed for BYOK app)
 
 // ── Step 3: Hotkey Info ──────────────────────────────────────
 
@@ -1573,7 +1569,7 @@ function setFnKeyActive(isActive) {
     // Show success message
     const desc = document.getElementById('wizHotkeyDesc');
     if (desc) {
-      desc.innerHTML = '✅ <strong>Fn key detected!</strong> Advancing to next step...';
+      desc.innerHTML = '✅ <strong>Hotkey detected!</strong> Advancing to next step...';
       desc.style.color = '#C8A256';
     }
 
