@@ -262,16 +262,14 @@ class Api:
     def get_modes(self) -> list:
         """Return available prompt modes with display names."""
         return [
-            {"id": "normal", "name": "Normal",      "desc": "Keeps everything, cleans grammar"},
-            {"id": "normal_wispr", "name": "Normal (Wispr)",  "desc": "Enhanced — smart corrections, better filler removal"},
-            {"id": "smart",  "name": "Token Saver",  "desc": "Concise — classifies and trims filler"},
+            {"id": "normal", "name": "Normal", "desc": "Keeps everything, cleans grammar"},
         ]
 
     def get_current_mode(self) -> str:
         """Return the currently active prompt mode id."""
         if _pipeline:
             return _pipeline.styler.prompt_style
-        return _config.prompt_style if _config else "smart"
+        return _config.prompt_style if _config else "normal"
 
     def set_mode(self, mode_id: str) -> dict:
         """Switch to a different prompt mode."""
@@ -291,7 +289,7 @@ class Api:
         try:
             return get_active_app()
         except Exception as e:
-            return {"name": "Unknown", "suggested_style": "smart", "error": str(e)}
+            return {"name": "Unknown", "suggested_style": "normal", "error": str(e)}
 
     # ── Audio Device API ──────────────────────────────────────────────
 
@@ -1277,6 +1275,7 @@ class WafflerPipeline:
         self.clipboard = ClipboardManager()
         self.is_recording = False
         self._is_paused = False
+        self._recording_session = 0  # incremented each press; guards _show_no_audio_toast
 
         # Floating recording overlay
         self.overlay = RecordingOverlay(
@@ -1362,6 +1361,7 @@ class WafflerPipeline:
         # Capture focused window BEFORE overlay takes focus
         self._prev_window = self.clipboard.get_focused_window()
         _log_to_file("Recording started")
+        self._recording_session += 1
         self.is_recording = True
         # Clear any previous cancellation state
         with self._processing_lock:
@@ -1423,6 +1423,7 @@ class WafflerPipeline:
 
     def _show_no_audio_toast(self):
         """Show 'We couldn't hear you' toast on the overlay."""
+        session = self._recording_session  # snapshot — guard against new recordings
         try:
             self.overlay.show()
             self.overlay.show_toast(
@@ -1430,13 +1431,14 @@ class WafflerPipeline:
                 heading="We couldn't hear you",
                 body="Check your mic is connected and not muted.",
             )
-            # Auto-hide after 4 seconds
+            # Auto-hide after 4 seconds, but only if no new recording has started
             import time as _t
             _t.sleep(4)
             self.overlay.hide_toast()
-            self.overlay.hide()
-        except Exception:
-            pass
+            if self._recording_session == session:
+                self.overlay.hide()
+        except Exception as e:
+            _log_to_file(f"[overlay] no-audio toast failed: {e}")
 
     def _process(self, processing_id: int):
         """Process audio: transcribe, style, copy to clipboard, paste."""

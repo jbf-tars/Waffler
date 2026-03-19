@@ -1,195 +1,127 @@
-# Waffler - Voice-to-Text Command Assistant
+# Waffler
 
-**Status:** ✅ Week 1 MVP - Core Functionality Complete (85%)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Fast, accurate voice-to-text that transforms your speech into polished commands and text. Press a hotkey, speak, release—your text is ready to paste.
+**Free, open-source voice-to-text for Mac and Windows. Bring your own API key.**
 
----
+Press a hotkey, speak, release — your polished text is in the clipboard, ready to paste anywhere.
 
-## 🎯 Features
-
-- **⌨️ Universal Hotkey:** `Cmd+Shift+Space` (works on all Macs)
-- **🎤 High-Quality STT:** Deepgram Nova-2 model (~1.4s latency)
-- **🤖 AI Styling:** MiniMax LLM for natural, polished output
-- **📋 Auto-Clipboard:** Instantly ready to paste
-- **🔔 Notifications:** Visual feedback for each step
-- **⚡ Fast:** <3s total latency target
+> Built as a free alternative to Whisper Flow / Superwhisper.
 
 ---
 
-## 🚀 Quick Start
+## Features
 
-### 1. Install Dependencies
+- **Global hotkey** — works in any app, instantly
+- **OpenAI Whisper or Groq** — your choice of transcription backend
+- **AI cleanup** — removes filler words, fixes grammar, polishes output
+- **Auto-clipboard** — result is copied the moment it's ready
+- **Local transcription history** — searchable, stays on your machine
+- **Mac + Windows** — native desktop app via PyInstaller
+
+---
+
+## Quick Start
+
+### 1. Install
+
+Download the latest installer from [GitHub Releases](https://github.com/jbf-tars/waffler/releases):
+
+- **Windows:** `WafflerSetup-*.exe`
+- **Mac:** `VoiceFlow-*-mac-unsigned.dmg`
+
+> **Note:** Builds are unsigned. On Windows, click "More info → Run anyway" to bypass SmartScreen. On Mac, right-click → Open to bypass Gatekeeper. This is normal for an indie open-source project.
+
+### 2. Add your API key
+
+Copy `.env.example` to `.env` and add your key:
 
 ```bash
-cd /Users/tars/Desktop/waffler
-python3 -m venv venv
-source venv/bin/activate
+# OpenAI (transcription via Whisper + GPT-4o-mini for cleanup)
+OPENAI_API_KEY=your_openai_api_key_here
+
+# OR Groq (faster, often cheaper)
+# GROQ_API_KEY=your_groq_api_key_here
+```
+
+### 3. Run (from source)
+
+```bash
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt
-```
-
-### 2. Configure API Keys
-
-Create `.env` file:
-
-```bash
-DEEPGRAM_API_KEY=your_deepgram_key
-MINIMAX_API_KEY=your_minimax_key
-```
-
-### 3. Grant Accessibility Permissions
-
-**Required for hotkey monitoring:**
-
-1. System Settings → Privacy & Security → Accessibility
-2. Add Terminal (or your Python app) to the list
-3. Toggle ON
-
-### 4. Run
-
-```bash
-source venv/bin/activate
-python main.py
+python app.py
 ```
 
 ---
 
-## ⌨️ Usage
+## Usage
 
-1. **Press & Hold:** `Cmd+Shift+Space`
-2. **Speak:** Say your command or text
-3. **Release:** Let go when done
-4. **Paste:** Your polished text is in the clipboard!
-
----
-
-## 📊 Performance
-
-- **Deepgram STT:** ~1.4s (verified)
-- **MiniMax Styling:** ~0.5-1.0s (estimated)
-- **Total Latency:** ~2-3s (within target)
+1. **Hold** `Ctrl+Win` (Windows) or your configured hotkey
+2. **Speak**
+3. **Release** — text is transcribed, cleaned up, and copied to clipboard
+4. **Paste** anywhere
 
 ---
 
-## 📁 Project Structure
+## Privacy
 
-```
-waffler/
-├── main.py              # Entry point
-├── config.yaml          # Configuration
-├── .env                 # API keys (not committed)
-├── requirements.txt     # Python dependencies
-├── src/
-│   ├── audio.py        # Audio recording (sounddevice)
-│   ├── clipboard.py    # Clipboard management (pyperclip)
-│   ├── config.py       # Config loader (yaml + dotenv)
-│   ├── hotkey.py       # Hotkey listener (pynput) ✅ UPDATED
-│   ├── notify.py       # macOS notifications
-│   ├── style.py        # MiniMax LLM styling
-│   └── transcribe.py   # Deepgram STT
-├── tests/              # Unit tests (TODO)
-└── RESEARCH.md         # Implementation plan & research
-```
+- Your audio goes directly to OpenAI/Groq via **your own API key** — never through any Waffler servers
+- Transcription history is saved **locally on your machine only**
+- No account required, no telemetry
 
 ---
 
-## 🔧 Configuration
+## Configuration
 
-Edit `config.yaml` to customize:
+Edit `config.yaml` to customise hotkey, audio settings, STT model, and more.
 
-- **Hotkey:** Change from `cmd+shift+space` to another combination
-- **Audio:** Sample rate, channels, format
-- **STT:** Deepgram model, language, punctuation
-- **LLM:** MiniMax model, max tokens, temperature
-- **Notifications:** Enable/disable, preview settings
+Edit `.env` to set your API key(s).
 
 ---
 
-## 🛠️ Tech Stack
+## Tech Stack
 
-- **Language:** Python 3.9+
-- **STT:** Deepgram Nova-2
-- **LLM:** MiniMax M2.5
+- **Language:** Python 3.11+
+- **STT:** OpenAI Whisper API or Groq
+- **LLM:** GPT-4o-mini (OpenAI) or Groq
 - **Audio:** sounddevice + NumPy
-- **Hotkey:** pynput (cross-platform)
+- **UI:** pywebview
+- **Hotkey:** pynput + platform-specific modules
 - **Clipboard:** pyperclip
-- **Config:** PyYAML + python-dotenv
+- **Packaging:** PyInstaller + Inno Setup (Windows) / create-dmg (Mac)
 
 ---
 
-## ✅ Completed (Week 1)
+## Building from Source
 
-- [x] Core pipeline architecture
-- [x] Cmd+Shift+Space hotkey (combination support)
-- [x] Audio recording with sounddevice
-- [x] Deepgram STT integration (verified working)
-- [x] MiniMax LLM styling
-- [x] Clipboard auto-copy
-- [x] macOS notifications
-- [x] Config system (YAML + .env)
-- [x] Virtual environment setup
-- [x] Dependencies installed
+**Windows:**
+```bash
+pyinstaller Waffler_windows.spec
+```
 
----
+**Mac:**
+```bash
+pyinstaller Waffler_mac.spec
+```
 
-## 🚧 Next Steps (Week 1 Remaining)
-
-- [ ] **Test end-to-end with real voice input**
-- [ ] **Grant accessibility permissions and test hotkey**
-- [ ] **Measure actual latency breakdown**
-- [ ] **Test MiniMax API integration**
-- [ ] **PyInstaller packaging (basic .app bundle)**
+Or push a `v*` tag to trigger GitHub Actions builds for both platforms automatically.
 
 ---
 
-## 📅 Roadmap
+## Known Issues
 
-### Week 1: MVP (Current)
-- ✅ Core functionality
-- 🚧 End-to-end testing
-- ⏳ Basic .app packaging
-
-### Week 2: Account System
-- [ ] FastAPI backend
-- [ ] User signup/signin
-- [ ] Usage tracking
-- [ ] Free/Pro tiers
-- [ ] Deploy backend
-
-### Week 3: Distribution
-- [ ] Code signing
-- [ ] Notarization
-- [ ] DMG installer
-- [ ] Website landing page
-- [ ] Launch!
+- **Accessibility permissions (Mac):** Required for keyboard monitoring — grant in System Settings → Privacy & Security → Accessibility
+- **Unsigned builds:** SmartScreen (Windows) and Gatekeeper (Mac) will warn on first launch — this is expected
 
 ---
 
-## 🐛 Known Issues
+## License
 
-- **Accessibility permissions required:** macOS requires manual approval for keyboard monitoring
-- **LibreSSL warning:** urllib3 v2 prefers OpenSSL 1.1.1+, but works fine with LibreSSL
-
----
-
-## 📖 Documentation
-
-- **RESEARCH.md:** Comprehensive implementation plan, Whispr Flow analysis, cost breakdown
-- **config.yaml:** All configurable settings
-- **.env.example:** Template for API keys (TODO: create)
+[MIT](LICENSE) — free to use, modify, and distribute.
 
 ---
 
-## 📝 License
+## Credits
 
-TODO: Choose license before distribution
-
----
-
-## 🙏 Credits
-
-Inspired by Whispr Flow. Built with OpenClaw.
-
----
-
-**Status:** Ready for end-to-end testing! 🎉
+Built by James as a free alternative to Whisper Flow.
