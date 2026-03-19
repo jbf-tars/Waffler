@@ -46,7 +46,7 @@ jobs:
         run: |
           mkdir -p dist-installer
           VERSION="${GITHUB_REF_NAME#v}"
-          DMG_NAME="VoiceFlow-${VERSION}-mac-unsigned.dmg"
+          DMG_NAME="Waffler-${VERSION}-mac-unsigned.dmg"
           create-dmg \
             --volname "Waffler" \
             --window-pos 200 120 \
