@@ -37,3 +37,4 @@ dist-windows/
 .pytest_cache/
 .mypy_cache/
 agent-logs/
+.superpowers/

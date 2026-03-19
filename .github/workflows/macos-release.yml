@@ -42,6 +42,8 @@ jobs:
       - name: Package DMG (unsigned)
         run: |
           mkdir -p dist-installer
+          VERSION="${GITHUB_REF_NAME#v}"
+          DMG_NAME="VoiceFlow-${VERSION}-mac-unsigned.dmg"
           create-dmg \
             --volname "Waffler" \
             --window-pos 200 120 \
@@ -50,7 +52,7 @@ jobs:
             --icon "Waffler.app" 200 220 \
             --hide-extension "Waffler.app" \
             --app-drop-link 600 220 \
-            "dist-installer/Waffler-mac-unsigned.dmg" \
+            "dist-installer/${DMG_NAME}" \
             "dist/"
 
       - name: Upload DMG artifact
@@ -60,8 +62,9 @@ jobs:
           path: dist-installer/*.dmg
 
       - name: Publish release on tag
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
         uses: softprops/action-gh-release@v2
         with:
+          name: ${{ github.ref_name }}
           files: dist-installer/*.dmg
-          generate_release_notes: true
+          generate_release_notes: false

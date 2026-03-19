@@ -74,7 +74,7 @@ class WafflerApp(rumps.App):
         self.audio      = AudioRecorder(sample_rate=16000, channels=1)
         self.transcriber = WhisperTranscriber(api_key=openai_key, model="whisper-1")
         self.styler      = OpenAIStyler(api_key=openai_key, model="gpt-4o-mini",
-                                         prompt_style="adhd_ramble")
+                                         prompt_style="normal")
         self.clipboard   = ClipboardManager()
         self.notifier    = NotificationManager(enabled=True)
 
