@@ -933,7 +933,7 @@ async function doSignOut() {
 // ============================================================
 
 let _wizardStep = 1;
-const WIZARD_TOTAL_STEPS = 4;
+const WIZARD_TOTAL_STEPS = 3;
 let _wizardGroqKeyValidated = false;
 let _wizardApiKeyValidated = false;
 let _wizardMicTested = false;
@@ -1020,15 +1020,10 @@ function hideWizard() {
 // ── Step Navigation ──────────────────────────────────────────
 
 function wizShowStep(step) {
-  // Clean up wizard hotkey test when leaving step 4
-  if (_wizardStep === 4 && step !== 4 && _wizardHotkeyTestActive) {
+  // Clean up wizard hotkey test when leaving step 3
+  if (_wizardStep === 3 && step !== 3 && _wizardHotkeyTestActive) {
     pywebview.api.wizard_stop_hotkey_test().catch(() => {});
     _wizardHotkeyTestActive = false;
-  }
-  // Stop permission polling when leaving step 2
-  if (_wizardStep === 2 && step !== 2) {
-    clearInterval(_wizardPermCheckInterval);
-    _wizardPermCheckInterval = null;
   }
 
   _wizardStep = step;
@@ -1063,18 +1058,16 @@ function wizShowStep(step) {
   wizUpdateNextButton();
 
   // Step-specific initialization
-  if (step === 2) { wizLoadMicDevices(); wizCheckPermissions(); wizStartPermPolling(); }
-  if (step === 3) { wizLoadHotkeyInfo(); initFnKeyFeedback(); }
-  if (step === 4) { wizInitTryItStep(); initFnKeyFeedback(); }
+  if (step === 2) { wizLoadHotkeyInfo(); initFnKeyFeedback(); }
+  if (step === 3) { wizInitTryItStep(); initFnKeyFeedback(); }
 }
 
 function wizUpdateNextButton() {
   const btn = document.getElementById('wizBtnNext');
   switch (_wizardStep) {
     case 1: btn.disabled = !(_wizardGroqKeyValidated || _wizardApiKeyValidated); break;
-    case 2: btn.disabled = !_wizardPermissionsGranted; break;
-    case 3: btn.disabled = false; break;
-    case 4: btn.disabled = !_wizardMicTested; break;
+    case 2: btn.disabled = false; break;
+    case 3: btn.disabled = !_wizardMicTested; break;
   }
 }
 
@@ -1544,7 +1537,7 @@ function initFnKeyFeedback() {
 function startFnKeyPolling() {
   stopFnKeyPolling();
   _fnKeyCheckInterval = setInterval(async () => {
-    if (_wizardStep !== 3 && _wizardStep !== 4) return;
+    if (_wizardStep !== 2 && _wizardStep !== 3) return;
     try {
       if (window.pywebview?.api) {
         const state = await window.pywebview.api.get_fn_key_state();
@@ -1571,8 +1564,8 @@ function setFnKeyActive(isActive) {
     fnButton.classList.toggle('active', isActive);
   }
 
-  // On Step 3: Show success feedback and auto-advance when Fn is first pressed
-  if (_wizardStep === 3 && isActive && !window._fnKeyDetected) {
+  // On Step 2: Show success feedback and auto-advance when Fn is first pressed
+  if (_wizardStep === 2 && isActive && !window._fnKeyDetected) {
     window._fnKeyDetected = true;
 
     // Show success message
@@ -1588,8 +1581,8 @@ function setFnKeyActive(isActive) {
     }, 1000);
   }
 
-  // On Step 4: Show waffle overlay with mic feedback when Fn is held
-  if (_wizardStep === 4) {
+  // On Step 3: Show waffle overlay with mic feedback when Fn is held
+  if (_wizardStep === 3) {
     if (isActive) {
       // Show overlay with mic sensitivity
       if (window.pywebview?.api) {

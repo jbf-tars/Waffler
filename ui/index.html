@@ -312,7 +312,7 @@
         <div class="logo-name">Waffler</div>
       </div>
       <div class="wizard-title">Welcome to Waffler</div>
-      <div class="wizard-subtitle">Let's get you set up in 4 quick steps.</div>
+      <div class="wizard-subtitle">Let's get you set up in 3 quick steps.</div>
     </div>
 
     <!-- Progress -->
@@ -324,16 +324,11 @@
       <div class="wizard-step-connector"></div>
       <div class="wizard-step-indicator" id="wizStep2">
         <div class="step-number">2</div>
-        <div class="step-label">Permissions</div>
+        <div class="step-label">Hotkeys</div>
       </div>
       <div class="wizard-step-connector"></div>
       <div class="wizard-step-indicator" id="wizStep3">
         <div class="step-number">3</div>
-        <div class="step-label">Hotkeys</div>
-      </div>
-      <div class="wizard-step-connector"></div>
-      <div class="wizard-step-indicator" id="wizStep4">
-        <div class="step-number">4</div>
         <div class="step-label">Try It</div>
       </div>
     </div>
@@ -386,75 +381,8 @@
       </div>
     </div>
 
-    <!-- Step 2: Permissions -->
+    <!-- Step 2: Hotkeys -->
     <div class="wizard-step-content" id="wizContent2" style="display:none">
-      <div class="wizard-card">
-        <div class="wizard-card-icon">🔒</div>
-        <h2>Set up Waffler on your computer</h2>
-        <p class="wizard-card-desc">
-          Waffler needs a few permissions to work properly. We'll check each one below.
-        </p>
-
-        <div class="wizard-mic-select-group" style="margin-bottom:20px">
-          <div class="wizard-key-label">Select Microphone</div>
-          <select id="wizMicSelect" class="wizard-select" onchange="wizOnMicChange(this.value)"></select>
-        </div>
-
-        <div class="wizard-permissions-list">
-          <!-- Microphone Permission -->
-          <div class="wizard-perm-row" id="wizPermMic">
-            <div class="wizard-perm-icon" id="wizPermMicIcon">
-              <span class="wizard-perm-pending">●</span>
-            </div>
-            <div class="wizard-perm-info">
-              <div class="wizard-perm-label">Microphone Access</div>
-              <div class="wizard-perm-desc" id="wizPermMicDesc">Checking...</div>
-            </div>
-            <button class="wizard-perm-btn" id="wizPermMicBtn" style="display:none"
-                    onclick="wizRequestMicPermission()">Allow</button>
-          </div>
-
-          <!-- Accessibility Permission (macOS only) -->
-          <div class="wizard-perm-row" id="wizPermAccessibility" style="display:none">
-            <div class="wizard-perm-icon" id="wizPermAccessIcon">
-              <span class="wizard-perm-pending">●</span>
-            </div>
-            <div class="wizard-perm-info">
-              <div class="wizard-perm-label">Accessibility</div>
-              <div class="wizard-perm-desc" id="wizPermAccessDesc">Needed to paste text into other apps</div>
-            </div>
-            <button class="wizard-perm-btn" id="wizPermAccessBtn" style="display:none"
-                    onclick="wizRequestAccessibilityPermission()">Open Settings</button>
-          </div>
-
-          <!-- Input Monitoring Permission (macOS only) -->
-          <div class="wizard-perm-row" id="wizPermInputMonitoring" style="display:none">
-            <div class="wizard-perm-icon" id="wizPermInputMonitoringIcon">
-              <span class="wizard-perm-pending">●</span>
-            </div>
-            <div class="wizard-perm-info">
-              <div class="wizard-perm-label">Input Monitoring</div>
-              <div class="wizard-perm-desc" id="wizPermInputMonitoringDesc">Needed for Fn key detection</div>
-            </div>
-            <button class="wizard-perm-btn" id="wizPermInputMonitoringBtn" style="display:none"
-                    onclick="wizRequestInputMonitoringPermission()">Open Settings</button>
-          </div>
-        </div>
-
-        <div class="wizard-recommendations" id="wizPermRecommendations" style="display:none; margin-top:12px; padding:12px; background-color:#f8f9fa; border-radius:6px; font-size:14px;">
-          <strong>Recommendations:</strong>
-          <ul style="margin:8px 0 0 0; padding-left:20px;"></ul>
-        </div>
-
-        <button class="wizard-test-btn" id="wizRecheckBtn" style="display:none; margin-top:16px"
-                onclick="wizCheckPermissions()">Recheck Permissions</button>
-
-        <div class="wizard-validation" id="wizPermValidation"></div>
-      </div>
-    </div>
-
-    <!-- Step 3: Hotkeys -->
-    <div class="wizard-step-content" id="wizContent3" style="display:none">
       <div class="wizard-card">
         <div class="wizard-card-icon">⌨️</div>
         <h2>Hotkey Setup</h2>
@@ -472,13 +400,13 @@
       </div>
     </div>
 
-    <!-- Step 4: Try It Out (Mock App Demo) -->
-    <div class="wizard-step-content wizard-step-wide" id="wizContent4" style="display:none">
+    <!-- Step 3: Try It Out (Mock App Demo) -->
+    <div class="wizard-step-content wizard-step-wide" id="wizContent3" style="display:none">
       <div class="wizard-tryit-split">
 
         <!-- Left: Instructions -->
         <div class="wizard-tryit-left">
-          <div class="wizard-tryit-step-num">Step 4</div>
+          <div class="wizard-tryit-step-num">Step 3</div>
           <h2>Try it out</h2>
           <p class="wizard-tryit-desc">
             See Waffler in action. Press the hotkey, say something, and watch your words
