@@ -35,6 +35,14 @@ jobs:
       - name: Build .app
         run: |
           pyinstaller --noconfirm --clean --windowed --name Waffler \
+            --collect-all requests \
+            --collect-all openai \
+            --collect-all groq \
+            --collect-all pywebview \
+            --collect-all sounddevice \
+            --collect-all yaml \
+            --collect-all dotenv \
+            --collect-all pyperclip \
             --add-data "src:src" \
             --add-data "ui:ui" \
             --add-data "prompts:prompts" \
