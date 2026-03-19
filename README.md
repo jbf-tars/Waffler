@@ -28,7 +28,7 @@ Press a hotkey, speak, release — your polished text is in the clipboard, ready
 Download the latest installer from [GitHub Releases](https://github.com/jbf-tars/waffler/releases):
 
 - **Windows:** `WafflerSetup-*.exe`
-- **Mac:** `VoiceFlow-*-mac-unsigned.dmg`
+- **Mac:** `Waffler-*-mac-unsigned.dmg`
 
 > **Note:** Builds are unsigned. On Windows, click "More info → Run anyway" to bypass SmartScreen. On Mac, right-click → Open to bypass Gatekeeper. This is normal for an indie open-source project.
 

@@ -945,24 +945,18 @@ async function checkOnboarding() {
   try {
     if (!window.pywebview || !window.pywebview.api) return;
 
-    // 1. Try to restore saved session (auto-login)
-    const restored = await pywebview.api.auth_restore_session();
-    if (restored.ok && restored.user) {
-      updateSidebarUser(restored.user);
-      // Already logged in — check if setup needed
-      const status = await pywebview.api.get_onboarding_status();
-      if (status.needs_setup) {
-        showWizard();
-      }
-      return;
+    const status = await pywebview.api.get_onboarding_status();
+    if (status.needs_setup) {
+      showWizard();
+    } else {
+      const sidebar = document.querySelector('.sidebar');
+      if (sidebar) sidebar.style.display = '';
+      const main = document.getElementById('mainArea');
+      if (main) main.style.display = '';
+      refreshAll();
     }
-
-    // 2. Not logged in — show auth screen
-    showAuthScreen();
   } catch(e) {
     console.warn('checkOnboarding error:', e);
-    // Fallback: show auth
-    showAuthScreen();
   }
 }
 

@@ -8,7 +8,7 @@
 #define MyAppExeName "Waffler.exe"
 
 [Setup]
-AppId={{F35717B7-7C70-4AE9-A67F-51F1E4A8A912}
+AppId={{2C9F4E1A-8B3D-4F7C-A2E5-6D0B1C3F8E9A}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
