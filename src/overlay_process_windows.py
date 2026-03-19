@@ -31,39 +31,64 @@ import tkinter as tk
 
 # ── Constants ──────────────────────────────────────────────────────────
 TRANSPARENT  = '#010101'   # Magic colour used for window-level transparency
-BG_COLOR     = '#FFFDF5'   # Warm cream waffle background
-BORDER_CLR   = '#C8A256'   # Golden-brown border
-CANCEL_BG    = '#F0EDE6'   # Cancel button background
-CANCEL_X_CLR = '#8B6914'   # Cancel X mark colour (dark golden)
-STOP_BG      = '#C8A256'   # Stop button background (golden)
-STOP_ICON    = '#ffffff'   # Stop icon colour (white for contrast)
-BAR_IDLE     = '#E8E4DC'   # Idle bar colour (subtle cream)
-SYRUP_DARK   = '#8B5F14'   # Dark syrup color
-SYRUP_MID    = '#C8A256'   # Mid syrup color
-SYRUP_LIGHT  = '#D4B06A'   # Light syrup color
-WAFFLE_GRID  = '#C8A256'   # Waffle grid lines
 
-NUM_BARS    = 16
-WIN_W       = 200
-WIN_H       = 44
-RADIUS      = WIN_H // 2   # = 22 — radius of the pill caps
-BTN_R       = 12           # Button circle radius
+# Waffle palette — warm, realistic waffle tones
+WAFFLE_BODY  = '#D4A843'   # Golden body / ridges (catches light)
+WAFFLE_RIM   = '#B08530'   # Outer crust border
+CELL_BG      = '#C49838'   # Cell pocket base (slightly darker than ridges)
+CELL_HILITE  = '#E8C86C'   # Top/left edge highlight inside pocket (light catching rim)
+CELL_SHADOW  = '#9A7825'   # Bottom/right edge shadow (depth)
+SYRUP_COLOR  = '#5C2E0E'   # Dark amber maple syrup
+SYRUP_LIGHT  = '#7A3F14'   # Lighter syrup for partial fill
+SYRUP_SHEEN  = '#8B4518'   # Subtle syrup highlight
 
-# Click-zone boundaries (x pixel)
-CANCEL_HIT_X = 36          # left of this → cancel
-STOP_HIT_X   = WIN_W - 36  # right of this → stop
+# Button colours
+BTN_RING     = '#9A7825'   # Button outline ring (darker for contrast)
+BTN_FILL     = '#2A1F0E'   # Dark filled background so icons pop
+CANCEL_X_CLR = '#D94040'   # Cancel X colour
+STOP_ICON    = '#ffffff'   # Stop square colour
+
+# Waffle grid
+GRID_ROWS   = 4
+GRID_COLS   = 4
+NUM_CELLS   = GRID_ROWS * GRID_COLS   # 16
+CELL_SIZE   = 11           # Each pocket is 11x11 px
+GRID_GAP    = 3            # Ridge width between cells
+OUTER_RIM   = 5            # Outer crust rim
+INNER_PAD   = 3            # Padding between rim and first cell
+CORNER_R    = 10           # More rounded = more waffle-like
+
+# Waffle dimensions (square grid area)
+WAFFLE_W    = OUTER_RIM * 2 + INNER_PAD * 2 + GRID_COLS * CELL_SIZE + (GRID_COLS - 1) * GRID_GAP  # 69
+WAFFLE_H    = WAFFLE_W
+
+# Window dimensions (waffle + bigger buttons below)
+BTN_R       = 10           # Bigger button radius
+BTN_GAP     = 6            # Gap between waffle and buttons
+WIN_W       = WAFFLE_W
+WIN_H       = WAFFLE_H + BTN_GAP + BTN_R * 2 + 2  # 69 + 6 + 20 + 2 = 97
+
+# Grid origin (top-left of first cell)
+GRID_OX     = OUTER_RIM + INNER_PAD
+GRID_OY     = OUTER_RIM + INNER_PAD
+
+# Click zones — centred below waffle, spaced apart
+BTN_ROW_Y     = WAFFLE_H + BTN_GAP + BTN_R    # Centre of button row
+BTN_CANCEL_CX = WIN_W // 2 - 16               # Left button
+BTN_CANCEL_CY = BTN_ROW_Y
+BTN_STOP_CX   = WIN_W // 2 + 16               # Right button
+BTN_STOP_CY   = BTN_ROW_Y
+BTN_HIT_R2    = (BTN_R + 4) ** 2              # Squared hit radius
 
 # Toast constants
-TOAST_W     = 420
-TOAST_H     = 160
-TOAST_PAD   = 14           # gap above pill
+TOAST_W     = 380
+TOAST_H     = 170
+TOAST_PAD   = 12           # gap above waffle
 
 # ── Global state ───────────────────────────────────────────────────────
 _cmd_queue: queue.Queue = queue.Queue()
-_bars:    list = [0.0] * NUM_BARS
-_targets: list = [0.0] * NUM_BARS
-_syrup_level: float = 0.0  # Current syrup fill level (0.0 to 1.0)
-_syrup_target: float = 0.0  # Target syrup fill level for smooth animation
+_bars:    list = [0.0] * NUM_CELLS
+_targets: list = [0.0] * NUM_CELLS
 _visible: bool = False
 _root           = None
 _canvas         = None
@@ -71,9 +96,8 @@ _toast_win      = None
 _toast_style    = None
 
 # Screen position (set during init, reused for toast positioning)
-_pill_x = 0
-_pill_y = 0
-_screen_w = 0
+_waffle_x = 0
+_waffle_y = 0
 
 
 # ── IPC helpers ────────────────────────────────────────────────────────
@@ -87,158 +111,211 @@ def emit(event: str, **kwargs):
 
 # ── Drawing ────────────────────────────────────────────────────────────
 
-def _draw_pill():
-    """Redraw the entire overlay canvas."""
+def _draw_waffle():
+    """Redraw the entire overlay canvas as a realistic waffle with syrup."""
     if _canvas is None:
         return
 
     _canvas.delete("all")
-    W, H = WIN_W, WIN_H
-    R = RADIUS
-    cy = H // 2
 
-    # 1. Pill body — filled rounded rectangle
-    _canvas.create_oval(0, 0, R * 2, H, fill=BG_COLOR, outline=BG_COLOR)
-    _canvas.create_oval(W - R * 2, 0, W, H, fill=BG_COLOR, outline=BG_COLOR)
-    _canvas.create_rectangle(R, 0, W - R, H, fill=BG_COLOR, outline=BG_COLOR)
+    # 1. Waffle body — rounded rectangle (the raised ridges / crust)
+    _rounded_rect(_canvas, 0, 0, WAFFLE_W, WAFFLE_H, CORNER_R,
+                  fill=WAFFLE_BODY, outline=WAFFLE_RIM, width=2)
 
-    # 2. Pill border (smooth arcs + top/bottom lines)
-    bw = 1.5
-    _canvas.create_arc(0, 0, R * 2, H,
-                       start=90, extent=180,
-                       outline=BORDER_CLR, style=tk.ARC, width=bw)
-    _canvas.create_arc(W - R * 2, 0, W, H,
-                       start=270, extent=180,
-                       outline=BORDER_CLR, style=tk.ARC, width=bw)
-    _canvas.create_line(R, 0, W - R, 0, fill=BORDER_CLR, width=bw)
-    _canvas.create_line(R, H - 1, W - R, H - 1, fill=BORDER_CLR, width=bw)
+    # 2. Outer rim highlight — subtle light line along top edge for 3D
+    _canvas.create_arc(
+        2, 2, CORNER_R * 2, CORNER_R * 2,
+        start=90, extent=90, style=tk.ARC, outline=CELL_HILITE, width=1
+    )
+    _canvas.create_line(
+        CORNER_R, 2, WAFFLE_W - CORNER_R, 2,
+        fill=CELL_HILITE, width=1
+    )
 
-    # 3. Cancel button (X) — left
-    cx = 20
-    _canvas.create_oval(cx - BTN_R, cy - BTN_R, cx + BTN_R, cy + BTN_R,
-                        fill=CANCEL_BG, outline=CANCEL_BG)
+    # 3. Draw cells (pockets) with 3D depth effect
+    for row in range(GRID_ROWS):
+        for col in range(GRID_COLS):
+            i = row * GRID_COLS + col
+            cx = GRID_OX + col * (CELL_SIZE + GRID_GAP)
+            cy = GRID_OY + row * (CELL_SIZE + GRID_GAP)
+
+            # Cell pocket background
+            _canvas.create_rectangle(
+                cx, cy, cx + CELL_SIZE, cy + CELL_SIZE,
+                fill=CELL_BG, outline=CELL_BG
+            )
+
+            # 3D depth: highlight on top & left edges (pocket rim catching light)
+            _canvas.create_line(cx, cy, cx + CELL_SIZE, cy,
+                                fill=CELL_HILITE, width=1)
+            _canvas.create_line(cx, cy, cx, cy + CELL_SIZE,
+                                fill=CELL_HILITE, width=1)
+
+            # 3D depth: shadow on bottom & right edges (pocket depth)
+            _canvas.create_line(cx, cy + CELL_SIZE, cx + CELL_SIZE, cy + CELL_SIZE,
+                                fill=CELL_SHADOW, width=1)
+            _canvas.create_line(cx + CELL_SIZE, cy, cx + CELL_SIZE, cy + CELL_SIZE,
+                                fill=CELL_SHADOW, width=1)
+
+            # Syrup fill from bottom up
+            lvl = max(0.0, min(1.0, _bars[i]))
+            fill_h = int(lvl * CELL_SIZE)
+            if fill_h > 0:
+                # Syrup color darkens as it fills more
+                color = SYRUP_COLOR if lvl > 0.6 else SYRUP_LIGHT
+                sy_top = cy + CELL_SIZE - fill_h
+                _canvas.create_rectangle(
+                    cx + 1, sy_top, cx + CELL_SIZE - 1, cy + CELL_SIZE - 1,
+                    fill=color, outline=color
+                )
+                # Tiny sheen highlight on syrup surface (1px line at top of syrup)
+                if fill_h > 3:
+                    _canvas.create_line(
+                        cx + 2, sy_top + 1, cx + CELL_SIZE - 2, sy_top + 1,
+                        fill=SYRUP_SHEEN, width=1
+                    )
+
+    # 4. Cancel button (X) — dark filled circle with red X
+    _canvas.create_oval(
+        BTN_CANCEL_CX - BTN_R, BTN_CANCEL_CY - BTN_R,
+        BTN_CANCEL_CX + BTN_R, BTN_CANCEL_CY + BTN_R,
+        fill=BTN_FILL, outline=BTN_RING, width=2
+    )
     off = 4
-    _canvas.create_line(cx - off, cy - off, cx + off, cy + off,
-                        fill=CANCEL_X_CLR, width=1.5, capstyle=tk.ROUND)
-    _canvas.create_line(cx + off, cy - off, cx - off, cy + off,
-                        fill=CANCEL_X_CLR, width=1.5, capstyle=tk.ROUND)
+    _canvas.create_line(
+        BTN_CANCEL_CX - off, BTN_CANCEL_CY - off,
+        BTN_CANCEL_CX + off, BTN_CANCEL_CY + off,
+        fill=CANCEL_X_CLR, width=2, capstyle=tk.ROUND
+    )
+    _canvas.create_line(
+        BTN_CANCEL_CX + off, BTN_CANCEL_CY - off,
+        BTN_CANCEL_CX - off, BTN_CANCEL_CY + off,
+        fill=CANCEL_X_CLR, width=2, capstyle=tk.ROUND
+    )
 
-    # 4. Stop button (■) — right, accent purple with white square
-    sx = W - 20
-    _canvas.create_oval(sx - BTN_R, cy - BTN_R, sx + BTN_R, cy + BTN_R,
-                        fill=STOP_BG, outline=STOP_BG)
-    sq = 8
-    _canvas.create_rectangle(sx - sq // 2, cy - sq // 2,
-                              sx + sq // 2, cy + sq // 2,
-                              fill=STOP_ICON, outline=STOP_ICON)
-
-    # 5. Waffle grid pattern (subtle)
-    _draw_waffle_grid(W, H, R)
-
-    # 6. Syrup filling effect (from bottom up)
-    _draw_syrup_fill(W, H, R, cy)
-
-    # 7. VU bars — centre zone (lighter now for contrast with syrup)
-    _draw_vu_bars(40, W - 40, H, cy)
-
-
-def _draw_waffle_grid(W: int, H: int, R: int):
-    """Draw subtle waffle grid pattern."""
-    grid_spacing = 10
-    grid_color = '#F0EBD8'  # WAFFLE_GRID at ~8% opacity over BG_COLOR
-
-    # Vertical lines
-    x = grid_spacing
-    while x < W - R:
-        _canvas.create_line(x, 2, x, H - 2, fill=grid_color, width=0.5)
-        x += grid_spacing
-
-    # Horizontal lines
-    y = grid_spacing
-    while y < H - 2:
-        _canvas.create_line(R, y, W - R, y, fill=grid_color, width=0.5)
-        y += grid_spacing
-
-
-def _draw_syrup_fill(W: int, H: int, R: int, cy: int):
-    """Draw syrup filling from bottom up based on mic level."""
-    global _syrup_level, _syrup_target
-
-    # Smooth animation towards target
-    if abs(_syrup_level - _syrup_target) > 0.01:
-        _syrup_level += (_syrup_target - _syrup_level) * 0.25
-
-    syrup_height = int(H * _syrup_level)
-    if syrup_height < 2:
-        return
-
-    # Create syrup gradient (darker at bottom, lighter at top)
-    # Draw multiple thin rectangles to simulate gradient
-    gradient_steps = min(20, syrup_height)
-    for i in range(gradient_steps):
-        y = H - syrup_height + (i * syrup_height // gradient_steps)
-        h = max(1, syrup_height // gradient_steps)
-
-        # Interpolate color from dark to light
-        ratio = i / max(1, gradient_steps - 1)
-        # Dark syrup #8B5F14 to light syrup #D4B06A
-        r = int(0x8B + (0xD4 - 0x8B) * ratio)
-        g = int(0x5F + (0xB0 - 0x5F) * ratio)
-        b = int(0x14 + (0x6A - 0x14) * ratio)
-        color = f'#{r:02x}{g:02x}{b:02x}'
-
-        # Draw syrup layer (rounded at edges)
-        _canvas.create_rectangle(R, y, W - R, y + h, fill=color, outline=color)
-
-    # Rounded bottom caps
-    _canvas.create_arc(0, H - R * 2, R * 2, H,
-                      start=180, extent=90,
-                      fill=SYRUP_DARK, outline=SYRUP_DARK, style=tk.PIESLICE)
-    _canvas.create_arc(W - R * 2, H - R * 2, W, H,
-                      start=270, extent=90,
-                      fill=SYRUP_DARK, outline=SYRUP_DARK, style=tk.PIESLICE)
-
-
-def _draw_vu_bars(x_start: int, x_end: int, H: int, cy: int):
-    """Draw the animated VU bars in the centre of the pill."""
-    total_w = x_end - x_start
-    bar_w   = 3
-    spacing = total_w / NUM_BARS
-    min_h   = 4
-    max_h   = int(H * 0.65)
-
-    # Golden gradient: #8B6914 → #D4AF6A
-    r1, g1, b1 = 0x8B, 0x69, 0x14
-    r2, g2, b2 = 0xD4, 0xAF, 0x6A
-
-    for i in range(NUM_BARS):
-        lvl = max(0.0, min(1.0, _bars[i]))
-        bh  = max(min_h, int(min_h + lvl * (max_h - min_h)))
-        bx  = int(x_start + i * spacing + (spacing - bar_w) / 2)
-        by  = cy - bh // 2
-
-        if lvl < 0.02:
-            # Idle: show subtle grey bars
-            color = BAR_IDLE
-            bh = min_h
-            by = cy - bh // 2
-        else:
-            # Active: interpolate golden (dim when quiet, bright when loud)
-            t = lvl
-            r = int(r1 + (r2 - r1) * t)
-            g = int(g1 + (g2 - g1) * t)
-            b = int(b1 + (b2 - b1) * t)
-            color = f'#{r:02x}{g:02x}{b:02x}'
-
-        # Draw bar with rounded ends (small ovals at top and bottom)
-        _canvas.create_rectangle(bx, by, bx + bar_w, by + bh,
-                                 fill=color, outline=color)
+    # 5. Stop button (■) — dark filled circle with white square
+    _canvas.create_oval(
+        BTN_STOP_CX - BTN_R, BTN_STOP_CY - BTN_R,
+        BTN_STOP_CX + BTN_R, BTN_STOP_CY + BTN_R,
+        fill=BTN_FILL, outline=BTN_RING, width=2
+    )
+    sq = 4
+    _canvas.create_rectangle(
+        BTN_STOP_CX - sq, BTN_STOP_CY - sq,
+        BTN_STOP_CX + sq, BTN_STOP_CY + sq,
+        fill=STOP_ICON, outline=STOP_ICON
+    )
 
 
 # ── Toast popup ────────────────────────────────────────────────────────
 
+def _rounded_rect(canvas, x1, y1, x2, y2, r, **kwargs):
+    """Draw a rounded rectangle using tk smooth polygon."""
+    # Clamp radius so it doesn't exceed half the width or height
+    r = min(r, (x2 - x1) // 2, (y2 - y1) // 2)
+    if r < 1:
+        canvas.create_rectangle(x1, y1, x2, y2, **kwargs)
+        return
+    pts = [
+        x1 + r, y1,       # top edge start
+        x1 + r, y1,       # anchor
+        x2 - r, y1,       # top edge end
+        x2 - r, y1,       # anchor
+        x2, y1,           # corner
+        x2, y1 + r,       # right edge start
+        x2, y1 + r,       # anchor
+        x2, y2 - r,       # right edge end
+        x2, y2 - r,       # anchor
+        x2, y2,           # corner
+        x2 - r, y2,       # bottom edge start
+        x2 - r, y2,       # anchor
+        x1 + r, y2,       # bottom edge end
+        x1 + r, y2,       # anchor
+        x1, y2,           # corner
+        x1, y2 - r,       # left edge start
+        x1, y2 - r,       # anchor
+        x1, y1 + r,       # left edge end
+        x1, y1 + r,       # anchor
+        x1, y1,           # corner
+    ]
+    canvas.create_polygon(pts, smooth=True, **kwargs)
+
+
+def _draw_sad_waffle(canvas, cx, cy, style='error'):
+    """Draw a larger sad waffle icon with expressive face and syrup tear."""
+    s = 44
+    x0 = cx - s // 2
+    y0 = cy - s // 2
+
+    body_clr = '#D4A843' if style != 'cancel' else '#C07040'
+    rim_clr  = '#B08530' if style != 'cancel' else '#904030'
+    cell_clr = '#C49838' if style != 'cancel' else '#A06040'
+    hilite   = '#E8C86C'
+    shadow   = '#9A7825' if style != 'cancel' else '#703020'
+
+    # Waffle body
+    _rounded_rect(canvas, x0, y0, x0 + s, y0 + s, 7,
+                  fill=body_clr, outline=rim_clr, width=2)
+
+    # 3x3 grid of cells
+    pad = 5
+    gap = 3
+    cell = (s - 2 * pad - 2 * gap) // 3  # ~9px
+    for r in range(3):
+        for col in range(3):
+            px = x0 + pad + col * (cell + gap)
+            py = y0 + pad + r * (cell + gap)
+            canvas.create_rectangle(px, py, px + cell, py + cell,
+                                    fill=cell_clr, outline=cell_clr)
+            # Highlight top-left edge
+            canvas.create_line(px, py, px + cell, py, fill=hilite, width=1)
+            canvas.create_line(px, py, px, py + cell, fill=hilite, width=1)
+            # Shadow bottom-right edge
+            canvas.create_line(px, py + cell, px + cell, py + cell, fill=shadow, width=1)
+            canvas.create_line(px + cell, py, px + cell, py + cell, fill=shadow, width=1)
+
+    # Sad face drawn in dark syrup colour
+    face = '#5C2E0E'
+
+    # Eyes — tilted inward (worried/sad brows)
+    # Left eye
+    lex, ley = cx - 8, cy - 5
+    canvas.create_oval(lex - 2, ley - 2, lex + 2, ley + 2, fill=face, outline=face)
+    # Left brow — angled down toward centre
+    canvas.create_line(lex - 4, ley - 5, lex + 3, ley - 3,
+                       fill=face, width=1.5, capstyle=tk.ROUND)
+
+    # Right eye
+    rex, rey = cx + 8, cy - 5
+    canvas.create_oval(rex - 2, rey - 2, rex + 2, rey + 2, fill=face, outline=face)
+    # Right brow — angled down toward centre
+    canvas.create_line(rex + 4, rey - 5, rex - 3, rey - 3,
+                       fill=face, width=1.5, capstyle=tk.ROUND)
+
+    # Sad mouth — wide frown arc
+    my = cy + 7
+    canvas.create_arc(cx - 8, my - 4, cx + 8, my + 6,
+                      start=0, extent=180, style=tk.ARC,
+                      outline=face, width=2)
+
+    # Syrup tear — dripping from right eye
+    tear_clr = '#5C2E0E'
+    tear_hi  = '#7A3F14'
+    tx, ty = rex, rey + 4
+    # Teardrop shape: oval body + pointed top
+    canvas.create_polygon(
+        tx, ty - 2,       # top point
+        tx - 3, ty + 4,   # left bulge
+        tx, ty + 7,       # bottom
+        tx + 3, ty + 4,   # right bulge
+        smooth=True, fill=tear_clr, outline=tear_clr)
+    # Tiny glossy highlight on tear
+    canvas.create_oval(tx - 1, ty + 1, tx + 1, ty + 3,
+                       fill=tear_hi, outline=tear_hi)
+
+
 def _show_toast(style: str, heading: str, body: str):
-    """Show a dark floating toast above the pill."""
+    """Show a warm Waffler-branded toast above the waffle."""
     global _toast_win, _toast_style
     _hide_toast()
     _toast_style = style
@@ -249,122 +326,63 @@ def _show_toast(style: str, heading: str, body: str):
     _toast_win.configure(bg=TRANSPARENT)
     _toast_win.attributes('-transparentcolor', TRANSPARENT)
 
-    # Toast dimensions
     tw, th = TOAST_W, TOAST_H
-    # Centre horizontally on screen, sit above pill vertically
-    tx = (_screen_w - tw) // 2
-    ty = _pill_y - th - TOAST_PAD
+    # Centre toast above the waffle
+    tx = _waffle_x + (WAFFLE_W - tw) // 2
+    ty = _waffle_y - th - TOAST_PAD
     _toast_win.geometry(f"{tw}x{th}+{tx}+{ty}")
 
     c = tk.Canvas(_toast_win, width=tw, height=th, bg=TRANSPARENT,
                   highlightthickness=0)
     c.pack()
 
-    # Shadow layer (offset darker rect behind the main panel)
-    _rounded_rect(c, 4, 4, tw, th, 14, fill='#0c0c10', outline='#0c0c10')
+    # Warm dark background with golden accent border
+    _rounded_rect(c, 1, 1, tw - 1, th - 1, 14,
+                  fill='#2A1F0E', outline='#C8A256', width=2)
 
-    # Main panel — dark background with subtle golden border
-    _rounded_rect(c, 0, 0, tw - 4, th - 4, 14,
-                  fill='#18181f', outline='#C8A256', width=2)
+    # Icon — sad waffle centred at top
+    icon_cx = tw // 2
+    icon_cy = 36
+    _draw_sad_waffle(c, icon_cx, icon_cy, style)
 
-    # ── Icon ──
-    icon_x, icon_y = 32, 44
+    # Heading — centred below icon
+    c.create_text(tw // 2, icon_cy + 30, text=heading, fill='#F0E0C0',
+                  anchor='n', font=('Segoe UI', 10, 'bold'))
 
-    if style == 'cancel':
-        # Red warning circle with X
-        c.create_oval(icon_x - 15, icon_y - 15, icon_x + 15, icon_y + 15,
-                      fill='#2d1520', outline='#ef4444', width=1.5)
-        off = 6
-        c.create_line(icon_x - off, icon_y - off, icon_x + off, icon_y + off,
-                      fill='#ef4444', width=2, capstyle=tk.ROUND)
-        c.create_line(icon_x + off, icon_y - off, icon_x - off, icon_y + off,
-                      fill='#ef4444', width=2, capstyle=tk.ROUND)
-    else:
-        # Golden info circle with !
-        c.create_oval(icon_x - 15, icon_y - 15, icon_x + 15, icon_y + 15,
-                      fill='#3d2f1a', outline='#D4AF6A', width=1.5)
-        c.create_text(icon_x, icon_y - 1, text='!', fill='#D4AF6A',
-                      font=('Segoe UI', 12, 'bold'))
+    # Body — centred below heading
+    c.create_text(tw // 2, icon_cy + 50, text=body, fill='#A89070',
+                  anchor='n', font=('Segoe UI', 9), width=tw - 40)
 
-    # ── Text ──
-    text_x = 60
-    c.create_text(text_x, icon_y - 16, text=heading, fill='#ffffff',
-                  anchor='nw', font=('Segoe UI', 11, 'bold'))
-    c.create_text(text_x, icon_y + 6, text=body, fill='#8888a0',
-                  anchor='nw', font=('Segoe UI', 9), width=tw - text_x - 28)
-
-    # ── Divider line ──
-    div_y = th - 58
-    c.create_line(16, div_y, tw - 20, div_y, fill='#2a2a35', width=1)
-
-    # ── Buttons row — centred ──
-    btn_h = 30
-    btn_y = th - btn_h - 18
+    # Buttons row — centred
+    btn_h = 28
+    btn_y = th - btn_h - 12
     btn_gap = 14
     if style == 'cancel':
-        btn1_w, btn2_w = 110, 120
+        btn1_w, btn2_w = 100, 110
         total = btn1_w + btn_gap + btn2_w
-        sx = (tw - 4 - total) // 2   # account for shadow offset
+        sx = (tw - total) // 2
         _draw_toast_btn(c, sx, btn_y, btn1_w, btn_h,
-                        '#2d1520', '#ef4444', 'Discard', '#ef4444', 'confirm')
+                        '#3D1818', '#D94040', 'Discard', '#D94040', 'confirm')
         _draw_toast_btn(c, sx + btn1_w + btn_gap, btn_y, btn2_w, btn_h,
-                        '#7c3aed', '#7c3aed', 'Keep going', '#ffffff', 'dismiss')
+                        '#C8A256', '#D4A843', 'Keep going', '#2A1F0E', 'dismiss')
     else:
-        btn1_w, btn2_w = 120, 100
+        btn1_w, btn2_w = 110, 90
         total = btn1_w + btn_gap + btn2_w
-        sx = (tw - 4 - total) // 2
+        sx = (tw - total) // 2
         _draw_toast_btn(c, sx, btn_y, btn1_w, btn_h,
-                        '#7c3aed', '#7c3aed', 'Select mic', '#ffffff', 'select_mic')
+                        '#C8A256', '#D4A843', 'Select mic', '#2A1F0E', 'select_mic')
         _draw_toast_btn(c, sx + btn1_w + btn_gap, btn_y, btn2_w, btn_h,
-                        '#2a2a35', '#3a3a4a', 'Dismiss', '#9a9aaa', 'dismiss')
+                        '#3D2E14', '#5A4520', 'Dismiss', '#A89070', 'dismiss')
 
 
 def _draw_toast_btn(canvas, x, y, w, h, fill, outline, text, text_color, action):
-    """Draw a clickable button on the toast canvas."""
+    """Draw a clickable pill-shaped button on the toast canvas."""
     tag = f'btn_{action}'
-    r = h // 2
-
-    # Single-polygon rounded-rect button (no seam artifacts)
-    pts = []
-    n = 10
-    for i in range(n + 1):
-        a = math.pi / 2 - i * (math.pi / 2) / n
-        pts.extend([x + w - r + r * math.cos(a), y + r - r * math.sin(a)])
-    for i in range(n + 1):
-        a = -i * (math.pi / 2) / n
-        pts.extend([x + w - r + r * math.cos(a), y + h - r - r * math.sin(a)])
-    for i in range(n + 1):
-        a = -math.pi / 2 - i * (math.pi / 2) / n
-        pts.extend([x + r + r * math.cos(a), y + h - r - r * math.sin(a)])
-    for i in range(n + 1):
-        a = math.pi - i * (math.pi / 2) / n
-        pts.extend([x + r + r * math.cos(a), y + r - r * math.sin(a)])
-    canvas.create_polygon(pts, fill=fill, outline=outline, width=1.5, tags=tag)
-
-    # Label
+    _rounded_rect(canvas, x, y, x + w, y + h, h // 2,
+                         fill=fill, outline=outline, width=1, tags=tag)
     canvas.create_text(x + w // 2, y + h // 2, text=text, fill=text_color,
-                       font=('Segoe UI', 9, 'bold'), tags=tag)
-
+                       font=('Segoe UI', 8, 'bold'), tags=tag)
     canvas.tag_bind(tag, '<Button-1>', lambda e: _on_toast_action(action))
-
-
-def _rounded_rect(canvas, x1, y1, x2, y2, r, **kwargs):
-    """Draw a rounded rectangle as a single polygon (no seam artifacts)."""
-    pts = []
-    n = 16  # segments per corner arc — smooth enough at any size
-    for i in range(n + 1):                       # top-right
-        a = math.pi / 2 - i * (math.pi / 2) / n
-        pts.extend([x2 - r + r * math.cos(a), y1 + r - r * math.sin(a)])
-    for i in range(n + 1):                       # bottom-right
-        a = -i * (math.pi / 2) / n
-        pts.extend([x2 - r + r * math.cos(a), y2 - r - r * math.sin(a)])
-    for i in range(n + 1):                       # bottom-left
-        a = -math.pi / 2 - i * (math.pi / 2) / n
-        pts.extend([x1 + r + r * math.cos(a), y2 - r - r * math.sin(a)])
-    for i in range(n + 1):                       # top-left
-        a = math.pi - i * (math.pi / 2) / n
-        pts.extend([x1 + r + r * math.cos(a), y1 + r - r * math.sin(a)])
-    canvas.create_polygon(pts, **kwargs)
 
 
 def _hide_toast():
@@ -396,7 +414,7 @@ def _handle_cmd(cmd: dict):
         _visible = True
         _hide_toast()
         if _root:
-            _draw_pill()
+            _draw_waffle()
             _root.deiconify()
             _root.lift()
             _root.attributes('-topmost', True)
@@ -408,18 +426,31 @@ def _handle_cmd(cmd: dict):
             _root.withdraw()
 
     elif ctype == "level":
-        global _syrup_target
-        level = max(0.0, min(1.0, float(cmd.get("value", 0.0))))
-
-        # Update syrup fill level (main visual effect)
-        _syrup_target = level
-
-        # Also update bars for additional visual feedback
+        raw_level = max(0.0, min(1.0, float(cmd.get("value", 0.0))))
+        level = raw_level ** 0.4   # Power-curve: expand low volumes for responsiveness
         t = time.time()
-        for i in range(NUM_BARS):
-            wave  = math.sin(i * 0.9 + t * 4.5) * 0.28 + 0.72
-            noise = random.uniform(0.82, 1.0)
-            _targets[i] = level * wave * noise
+        for row in range(GRID_ROWS):
+            for col in range(GRID_COLS):
+                i = row * GRID_COLS + col
+                # Bottom rows fill first: row 3 (bottom) gets full level,
+                # row 0 (top) only fills at high volumes
+                inv_row = GRID_ROWS - 1 - row  # 3,2,1,0
+                threshold = inv_row / GRID_ROWS  # 0.0, 0.25, 0.5, 0.75
+                row_range = 1.0 / GRID_ROWS       # 0.25
+                if level <= threshold:
+                    cell_level = 0.0
+                elif level >= threshold + row_range:
+                    cell_level = 1.0
+                else:
+                    cell_level = (level - threshold) / row_range
+                # Per-cell bounce: each cell wobbles at its own frequency/phase
+                # giving a lively, bubbling-syrup look
+                phase = i * 0.7 + col * 2.3 + row * 1.8
+                bounce1 = math.sin(phase + t * 4.5) * 0.25
+                bounce2 = math.sin(phase * 1.7 + t * 6.2) * 0.15
+                jitter = random.uniform(-0.1, 0.1)
+                wobble = 1.0 + bounce1 + bounce2 + jitter  # range ~0.5 to 1.5
+                _targets[i] = max(0.0, min(1.0, cell_level * wobble))
 
     elif ctype == "show_toast":
         _show_toast(
@@ -453,7 +484,7 @@ def _animation_loop():
 
     # Smooth bar interpolation
     changed = False
-    for i in range(NUM_BARS):
+    for i in range(NUM_CELLS):
         diff = _targets[i] - _bars[i]
         if abs(diff) > 0.005:
             _bars[i] += diff * 0.35
@@ -462,7 +493,7 @@ def _animation_loop():
             _bars[i] = _targets[i]
 
     if changed and _visible:
-        _draw_pill()
+        _draw_waffle()
 
     if _root:
         try:
@@ -474,10 +505,12 @@ def _animation_loop():
 # ── Mouse click ────────────────────────────────────────────────────────
 
 def _on_click(event):
-    x = event.x
-    if x < CANCEL_HIT_X:
+    x, y = event.x, event.y
+    # Cancel button — bottom-left circle
+    if (x - BTN_CANCEL_CX) ** 2 + (y - BTN_CANCEL_CY) ** 2 <= BTN_HIT_R2:
         emit("cancel_request")
-    elif x > STOP_HIT_X:
+    # Stop button — bottom-right circle
+    elif (x - BTN_STOP_CX) ** 2 + (y - BTN_STOP_CY) ** 2 <= BTN_HIT_R2:
         emit("stop")
 
 
@@ -536,7 +569,7 @@ def _get_taskbar_height() -> int:
 # ── Entry point ────────────────────────────────────────────────────────
 
 def main():
-    global _root, _canvas, _pill_x, _pill_y, _screen_w
+    global _root, _canvas, _waffle_x, _waffle_y
 
     # Kick off the stdin reader
     threading.Thread(target=_stdin_reader, daemon=True, name="StdinReader").start()
@@ -555,10 +588,9 @@ def main():
     taskbar_h = _get_taskbar_height()
     gap       = 16
 
-    _screen_w = screen_w
-    _pill_x = (screen_w - WIN_W) // 2
-    _pill_y = screen_h - taskbar_h - WIN_H - gap
-    _root.geometry(f"{WIN_W}x{WIN_H}+{_pill_x}+{_pill_y}")
+    _waffle_x = (screen_w - WIN_W) // 2
+    _waffle_y = screen_h - taskbar_h - WIN_H - gap
+    _root.geometry(f"{WIN_W}x{WIN_H}+{_waffle_x}+{_waffle_y}")
 
     # Canvas — same size as window, transparent background
     _canvas = tk.Canvas(
