@@ -145,7 +145,7 @@ def _draw_pill():
 def _draw_waffle_grid(W: int, H: int, R: int):
     """Draw subtle waffle grid pattern."""
     grid_spacing = 10
-    grid_color = f'{WAFFLE_GRID}15'  # Very transparent
+    grid_color = '#F0EBD8'  # WAFFLE_GRID at ~8% opacity over BG_COLOR
 
     # Vertical lines
     x = grid_spacing
