@@ -46,8 +46,8 @@
           <div style="margin-bottom: 2px;">
             <span class="hotkey-badge" id="hotkeyHint">Fn</span> to record
           </div>
-          <div style="font-size: 10px; opacity: 0.7;">
-            Hold Fn = record • Fn+Space = sticky mode
+          <div style="font-size: 10px; opacity: 0.7;" id="hotkeyHintDesc">
+            Hold to record • +Space = sticky mode
           </div>
         </div>
       </div>
@@ -156,6 +156,21 @@
         </div>
       </div>
 
+      <!-- Hotkey Section -->
+      <div class="settings-section">
+        <div class="settings-section-title">⌨️ Hotkey</div>
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-label">Recording Hotkey</div>
+            <div class="settings-row-desc">Hold to record, release to stop</div>
+          </div>
+          <div class="settings-row-control" style="gap:10px;">
+            <span class="hotkey-badge" id="settingsHotkeyBadge">Win + Ctrl</span>
+            <button class="settings-btn accent" onclick="openHotkeyCapture()">Change</button>
+          </div>
+        </div>
+      </div>
+
       <!-- Preferences Section -->
       <div class="settings-section">
         <div class="settings-section-title">🎙️ Preferences</div>
@@ -236,6 +251,25 @@
     <div id="vocabList" class="vocab-list"></div>
   </div>
 
+</div>
+
+<!-- Hotkey Capture Modal -->
+<div class="hotkey-modal-overlay" id="hotkeyModal" style="display:none" onclick="closeHotkeyCapture()">
+  <div class="hotkey-modal" onclick="event.stopPropagation()">
+    <div class="hotkey-modal-icon">⌨️</div>
+    <div class="hotkey-modal-title">Change Hotkey</div>
+    <div class="hotkey-modal-subtitle">Press your new key combination...</div>
+    <div class="hotkey-capture-box" id="hotkeyCaptureBox">
+      <div class="hotkey-capture-keys" id="hotkeyCaptureKeys">Win + Ctrl</div>
+      <div class="hotkey-capture-hint">Hold your desired keys together</div>
+    </div>
+    <div class="hotkey-modal-error" id="hotkeyError" style="display:none"></div>
+    <div class="hotkey-modal-buttons">
+      <button class="hotkey-btn secondary" onclick="closeHotkeyCapture()">Cancel</button>
+      <button class="hotkey-btn secondary" onclick="resetHotkeyDefault()">Reset Default</button>
+      <button class="hotkey-btn primary" onclick="saveHotkeyCapture()">Save</button>
+    </div>
+  </div>
 </div>
 
 <!-- Auth Overlay (Login / Sign Up) -->
