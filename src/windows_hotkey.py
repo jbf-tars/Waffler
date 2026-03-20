@@ -1,12 +1,14 @@
 """
-Waffler Windows Hotkey — Ctrl+Win Smart Hotkey
+Waffler Windows Hotkey — Configurable Smart Hotkey
 
-Ctrl+Win held      = Push-to-talk (hold to record, release to stop)
-Ctrl+Win + Space   = Sticky mode (locks recording on, can release keys)
-Ctrl+Win again     = Cancel sticky mode (stops recording)
+Default: Win+Ctrl held = Push-to-talk (hold to record, release to stop)
+         Win+Ctrl + Space = Sticky mode (locks recording on, can release keys)
+         Win+Ctrl again   = Cancel sticky mode (stops recording)
+
+Users can rebind the hotkey combo via Settings. Space always triggers sticky mode.
 
 Uses SetWindowsHookEx(WH_KEYBOARD_LL) for press/release detection.
-Only suppresses Win key-up (to prevent Start menu) — never blocks key-down.
+Suppresses Win/Alt key-up to prevent OS side effects when part of the combo.
 Falls back to GetAsyncKeyState polling if the hook fails.
 
 Writes debug output to ~/.waffler-hosted/hotkey.log.
@@ -26,11 +28,6 @@ WM_KEYUP       = 0x0101
 WM_SYSKEYDOWN  = 0x0104
 WM_SYSKEYUP    = 0x0105
 WM_QUIT        = 0x0012
-VK_LWIN        = 0x5B
-VK_RWIN        = 0x5C
-VK_CONTROL     = 0x11
-VK_LCONTROL    = 0xA2
-VK_RCONTROL    = 0xA3
 VK_SPACE       = 0x20
 
 # KBDLLHOOKSTRUCT
@@ -80,6 +77,44 @@ kernel32.GetCurrentThreadId.argtypes = []
 kernel32.GetCurrentThreadId.restype  = ctypes.wintypes.DWORD
 
 
+# ── Key identifier → VK code mapping ────────────────────────────────
+KEY_TO_VK = {
+    "win":   [0x5B, 0x5C],          # VK_LWIN, VK_RWIN
+    "ctrl":  [0x11, 0xA2, 0xA3],    # VK_CONTROL, VK_LCONTROL, VK_RCONTROL
+    "alt":   [0x12, 0xA4, 0xA5],    # VK_MENU, VK_LMENU, VK_RMENU
+    "shift": [0x10, 0xA0, 0xA1],    # VK_SHIFT, VK_LSHIFT, VK_RSHIFT
+}
+
+# Non-modifier function keys (F1-F24)
+for _i in range(1, 25):
+    KEY_TO_VK[f"f{_i}"] = [0x70 + _i - 1]
+# Letter keys a-z
+for _c in "abcdefghijklmnopqrstuvwxyz":
+    KEY_TO_VK[_c] = [ord(_c.upper())]
+# Digit keys 0-9
+for _d in "0123456789":
+    KEY_TO_VK[_d] = [ord(_d)]
+
+MODIFIER_KEYS = {"win", "ctrl", "alt", "shift"}
+DEFAULT_HOTKEY = ["win", "ctrl"]
+
+# Build reverse lookup: VK code → key string ID
+_VK_TO_KEY = {}
+for _kid, _vks in KEY_TO_VK.items():
+    for _vk in _vks:
+        _VK_TO_KEY[_vk] = _kid
+
+
+def _vk_to_key_id(vk):
+    """Reverse lookup: VK code → key string ID, or None."""
+    return _VK_TO_KEY.get(vk)
+
+
+def hotkey_display(keys):
+    """Format key list as display string, e.g. ['win', 'ctrl'] → 'Win + Ctrl'."""
+    return " + ".join(k.capitalize() if k in MODIFIER_KEYS else k.upper() for k in keys)
+
+
 # ── Debug log ─────────────────────────────────────────────────────────
 _LOG_FILE = Path.home() / ".waffler-hosted" / "hotkey.log"
 
@@ -112,15 +147,17 @@ class _State(Enum):
 
 class WindowsHotkeyListener:
     """
-    Smart hotkey: Ctrl+Win push-to-talk with sticky mode.
+    Configurable smart hotkey with push-to-talk and sticky mode.
 
-    Hold Ctrl+Win → start recording (push-to-talk).
-    Release either key → stop recording.
-    Press Space while holding Ctrl+Win → sticky mode (recording locked on).
-    Press Ctrl+Win again in sticky mode → cancel recording.
+    Hold configured keys → start recording (push-to-talk).
+    Release any key → stop recording.
+    Press Space while holding → sticky mode (recording locked on).
+    Press configured keys again in sticky mode → cancel recording.
+
+    Default combo: Win+Ctrl. Users can rebind via Settings.
     """
 
-    def __init__(self, on_press, on_release):
+    def __init__(self, on_press, on_release, keys=None):
         self._on_press   = on_press
         self._on_release = on_release
         self._state      = _State.IDLE
@@ -128,10 +165,10 @@ class WindowsHotkeyListener:
         self._hook       = None
         self._thread_id  = None
 
-        # Key state tracking
-        self._ctrl_held = False
-        self._win_held  = False
-        self._suppress_win_up = False  # suppress Win key-up after our combo
+        # Configurable keys
+        self._keys = keys or DEFAULT_HOTKEY
+        self._key_states = {k: False for k in self._keys}
+        self._suppress_vks = set()  # VK codes to suppress on key-up
         self._busy = False  # True while processing transcription
 
         # Must prevent garbage collection of the callback
@@ -143,7 +180,7 @@ class WindowsHotkeyListener:
         """Install the hook and run a message loop (blocks)."""
         self._running   = True
         self._thread_id = kernel32.GetCurrentThreadId()
-        _log("WindowsHotkeyListener.start() — Ctrl+Win smart hotkey")
+        _log(f"WindowsHotkeyListener.start() — {hotkey_display(self._keys)} smart hotkey")
 
         self._hook = user32.SetWindowsHookExW(
             WH_KEYBOARD_LL, self._hook_proc, None, 0
@@ -171,10 +208,19 @@ class WindowsHotkeyListener:
 
     @property
     def is_combo_active(self):
-        """Return True when Win+Ctrl are both held."""
-        return self._ctrl_held and self._win_held
+        """Return True when all configured hotkey keys are held."""
+        return self._all_keys_held()
+
+    def set_busy(self, busy: bool):
+        """Call with True while transcription is processing, False when done."""
+        self._busy = busy
+        _log(f"Busy = {busy}")
 
     # ── Low-level keyboard hook procedure ─────────────────────────────
+
+    def _all_keys_held(self):
+        """Return True when all configured keys are currently held."""
+        return all(self._key_states.values())
 
     def _ll_keyboard_proc(self, nCode, wParam, lParam):
         """Called by Windows for every keyboard event system-wide."""
@@ -184,35 +230,28 @@ class WindowsHotkeyListener:
             is_down = wParam in (WM_KEYDOWN, WM_SYSKEYDOWN)
             is_up   = wParam in (WM_KEYUP, WM_SYSKEYUP)
 
-            # ── Track Ctrl state ──
-            if vk in (VK_CONTROL, VK_LCONTROL, VK_RCONTROL):
-                if is_down and not self._ctrl_held:
-                    self._ctrl_held = True
-                    self._check_combo_press()
-                elif is_up:
-                    self._ctrl_held = False
-                    self._check_release()
+            key_id = _vk_to_key_id(vk)
 
-            # ── Track Win state ──
-            elif vk in (VK_LWIN, VK_RWIN):
-                if is_down and not self._win_held:
-                    self._win_held = True
+            # ── Track configured key state ──
+            if key_id and key_id in self._key_states:
+                if is_down and not self._key_states[key_id]:
+                    self._key_states[key_id] = True
                     self._check_combo_press()
-                    # Suppress Win key-down when Ctrl is held (our combo)
-                    if self._ctrl_held:
-                        self._suppress_win_up = True
-                        return 1  # block — don't pass to Windows
-                elif is_down and self._win_held:
-                    # Auto-repeat of Win while held — suppress if in our combo
-                    if self._suppress_win_up:
+                    # Suppress Win/Alt key-down when combo is active
+                    if key_id in ("win", "alt") and self._all_keys_held():
+                        self._suppress_vks.add(vk)
+                        return 1  # block — don't pass to OS
+                elif is_down and self._key_states[key_id]:
+                    # Auto-repeat — suppress if we're suppressing this key
+                    if vk in self._suppress_vks:
                         return 1
                 elif is_up:
-                    self._win_held = False
+                    self._key_states[key_id] = False
                     self._check_release()
-                    # Suppress the Win key-up to prevent Start menu
-                    if self._suppress_win_up:
-                        self._suppress_win_up = False
-                        return 1  # block — prevents Start menu
+                    # Suppress key-up to prevent OS side effects (Start menu, Alt menu)
+                    if vk in self._suppress_vks:
+                        self._suppress_vks.discard(vk)
+                        return 1
 
             # ── Track Space (sticky mode trigger) ──
             elif vk == VK_SPACE and is_down:
@@ -223,37 +262,32 @@ class WindowsHotkeyListener:
 
     # ── State machine transitions ─────────────────────────────────────
 
-    def set_busy(self, busy: bool):
-        """Call with True while transcription is processing, False when done."""
-        self._busy = busy
-        _log(f"Busy = {busy}")
-
     def _check_combo_press(self):
-        """Called when either Ctrl or Win is pressed."""
-        if not (self._ctrl_held and self._win_held):
+        """Called when any configured key is pressed."""
+        if not self._all_keys_held():
             return
 
         # Block new recordings while transcription is still processing
         if self._busy and self._state == _State.IDLE:
-            _log("Ctrl+Win ignored — still processing")
+            _log("Combo ignored — still processing")
             return
 
         if self._state == _State.IDLE:
             self._state = _State.PUSH_TO_TALK
-            _log("Ctrl+Win → PUSH_TO_TALK, start recording")
+            _log(f"{hotkey_display(self._keys)} → PUSH_TO_TALK, start recording")
             self._fire_press()
 
         elif self._state == _State.STICKY:
             self._state = _State.IDLE
-            _log("Ctrl+Win → cancel STICKY, stop recording")
+            _log(f"{hotkey_display(self._keys)} → cancel STICKY, stop recording")
             self._fire_release()
 
     def _check_release(self):
-        """Called when either Ctrl or Win is released."""
+        """Called when any configured key is released."""
         if self._state == _State.PUSH_TO_TALK:
-            if not (self._ctrl_held and self._win_held):
+            if not self._all_keys_held():
                 self._state = _State.IDLE
-                _log("Ctrl/Win released → stop PUSH_TO_TALK")
+                _log("Key released → stop PUSH_TO_TALK")
                 self._fire_release()
 
     def _enter_sticky(self):
@@ -293,32 +327,34 @@ class WindowsHotkeyListener:
     # ── Polling fallback (if hook installation fails) ─────────────────
 
     def _poll_fallback(self):
-        """Fallback: GetAsyncKeyState polling with same state machine."""
-        _log("Polling fallback active: Ctrl+Win (30ms interval)")
+        """Fallback: GetAsyncKeyState polling with configurable keys."""
+        _log(f"Polling fallback active: {hotkey_display(self._keys)} (30ms interval)")
         while self._running:
             try:
-                ctrl = _key_down(VK_CONTROL)
-                win  = _key_down(VK_LWIN) or _key_down(VK_RWIN)
+                all_held = all(
+                    any(_key_down(vk) for vk in KEY_TO_VK.get(k, []))
+                    for k in self._keys
+                )
                 space = _key_down(VK_SPACE)
 
                 if self._state == _State.IDLE:
-                    if ctrl and win:
+                    if all_held:
                         self._state = _State.PUSH_TO_TALK
-                        _log("[poll] Ctrl+Win → PUSH_TO_TALK")
+                        _log(f"[poll] {hotkey_display(self._keys)} → PUSH_TO_TALK")
                         self._fire_press()
 
                 elif self._state == _State.PUSH_TO_TALK:
                     if space:
                         self._enter_sticky()
-                    elif not (ctrl and win):
+                    elif not all_held:
                         self._state = _State.IDLE
                         _log("[poll] released → stop PUSH_TO_TALK")
                         self._fire_release()
 
                 elif self._state == _State.STICKY:
-                    if ctrl and win:
+                    if all_held:
                         self._state = _State.IDLE
-                        _log("[poll] Ctrl+Win → cancel STICKY")
+                        _log(f"[poll] {hotkey_display(self._keys)} → cancel STICKY")
                         self._fire_release()
                         time.sleep(0.3)  # debounce
 
