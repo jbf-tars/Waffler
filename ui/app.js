@@ -7,6 +7,29 @@ let toastTimer = null;
 let _fnKeyPressed = false;
 let _fnKeyCheckInterval = null;
 
+// ── Hotkey capture state ──────────────────────────────────────────
+let _capturedKeys = new Set();
+let _lastCapturedKeys = ["win", "ctrl"];
+let _currentHotkeyKeys = ["win", "ctrl"];
+
+const JS_KEY_TO_ID = {
+  "Control": "ctrl", "Alt": "alt", "Shift": "shift",
+  "Meta": "win", "OS": "win",
+};
+const MODIFIER_IDS = new Set(["ctrl", "alt", "shift", "win"]);
+
+function jsKeyToId(e) {
+  if (JS_KEY_TO_ID[e.key]) return JS_KEY_TO_ID[e.key];
+  if (e.code.startsWith("Key")) return e.code.slice(3).toLowerCase();
+  if (e.code.startsWith("Digit")) return e.code.slice(5);
+  if (e.code.startsWith("F") && !isNaN(e.code.slice(1))) return e.code.toLowerCase();
+  return null;
+}
+
+function hotkeyDisplayStr(keys) {
+  return keys.map(k => MODIFIER_IDS.has(k) ? k.charAt(0).toUpperCase() + k.slice(1) : k.toUpperCase()).join(" + ");
+}
+
 // ── DOM refs ────────────────────────────────────────────────────────────
 const $feedScroll    = document.getElementById('feedScroll');
 const $feed          = document.getElementById('transcriptFeed');
@@ -24,6 +47,7 @@ const $dateLabel     = document.getElementById('dateLabel');
 // ── Init ─────────────────────────────────────────────────────────────
 window.addEventListener('pywebviewready', () => {
   refreshAll();
+  loadHotkeyConfig();
   updateDateLabel();
 });
 
@@ -47,23 +71,114 @@ function updateDateLabel() {
 }
 
 function updateHotkeyHint() {
-  // Detect platform from user agent
   const isWin = navigator.userAgent.includes('Windows');
-  const badge = document.getElementById('hotkeyBadge');
-  const sidebarBadge = document.getElementById('hotkeyHint');  // Sidebar hotkey hint
-  const label = document.getElementById('hotkeyLabel');
-  const emptyHint = document.getElementById('emptyHint');
   if (isWin) {
-    if (badge) badge.textContent = 'Win + Ctrl';
-    if (sidebarBadge) sidebarBadge.textContent = 'Win + Ctrl';
-    if (label) label.textContent = 'Hold to record';
-    if (emptyHint) emptyHint.innerHTML = 'Hold <strong>Win + Ctrl</strong> to record';
+    loadHotkeyConfig();
   } else {
-    // macOS - use Fn key
+    const badge = document.getElementById('hotkeyBadge');
+    const sidebarBadge = document.getElementById('hotkeyHint');
+    const label = document.getElementById('hotkeyLabel');
+    const emptyHint = document.getElementById('emptyHint');
     if (badge) badge.textContent = 'Fn';
     if (sidebarBadge) sidebarBadge.textContent = 'Fn';
     if (label) label.textContent = 'Tap to start/stop';
     if (emptyHint) emptyHint.innerHTML = 'Press <strong>Fn</strong> to start recording';
+  }
+}
+
+// ── Hotkey Config ────────────────────────────────────────────────────
+
+async function loadHotkeyConfig() {
+  try {
+    if (!window.pywebview || !window.pywebview.api) return;
+    const config = await window.pywebview.api.get_hotkey_config();
+    if (config.ok) {
+      _currentHotkeyKeys = config.keys;
+      const display = config.display;
+      const settingsBadge = document.getElementById("settingsHotkeyBadge");
+      if (settingsBadge) settingsBadge.textContent = display;
+      const sidebarBadge = document.getElementById("hotkeyHint");
+      if (sidebarBadge) sidebarBadge.textContent = display;
+      const hintDesc = document.getElementById("hotkeyHintDesc");
+      if (hintDesc) hintDesc.textContent = `Hold to record \u2022 +Space = sticky mode`;
+      const badge = document.getElementById("hotkeyBadge");
+      if (badge) badge.textContent = display;
+      const emptyHint = document.getElementById("emptyHint");
+      if (emptyHint) emptyHint.innerHTML = `Hold <strong>${display}</strong> to record`;
+    }
+  } catch (e) {
+    console.error("loadHotkeyConfig error:", e);
+  }
+}
+
+function openHotkeyCapture() {
+  _capturedKeys.clear();
+  _lastCapturedKeys = [..._currentHotkeyKeys];
+  document.getElementById("hotkeyCaptureKeys").textContent = hotkeyDisplayStr(_lastCapturedKeys);
+  document.getElementById("hotkeyError").style.display = "none";
+  document.getElementById("hotkeyModal").style.display = "flex";
+  document.addEventListener("keydown", _onCaptureKeyDown);
+  document.addEventListener("keyup", _onCaptureKeyUp);
+}
+
+function closeHotkeyCapture() {
+  document.getElementById("hotkeyModal").style.display = "none";
+  document.removeEventListener("keydown", _onCaptureKeyDown);
+  document.removeEventListener("keyup", _onCaptureKeyUp);
+  _capturedKeys.clear();
+}
+
+function _onCaptureKeyDown(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  const id = jsKeyToId(e);
+  if (!id) return;
+  _capturedKeys.add(id);
+  _lastCapturedKeys = [..._capturedKeys];
+  document.getElementById("hotkeyCaptureKeys").textContent = hotkeyDisplayStr(_lastCapturedKeys);
+  document.getElementById("hotkeyError").style.display = "none";
+}
+
+function _onCaptureKeyUp(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  const id = jsKeyToId(e);
+  if (id) _capturedKeys.delete(id);
+}
+
+function resetHotkeyDefault() {
+  _lastCapturedKeys = ["win", "ctrl"];
+  _capturedKeys.clear();
+  document.getElementById("hotkeyCaptureKeys").textContent = "Win + Ctrl";
+  document.getElementById("hotkeyError").style.display = "none";
+}
+
+async function saveHotkeyCapture() {
+  const keys = _lastCapturedKeys;
+  if (!keys.length) return;
+  if (!keys.some(k => MODIFIER_IDS.has(k))) {
+    document.getElementById("hotkeyError").textContent = "At least one modifier key required (Ctrl, Alt, Shift, or Win)";
+    document.getElementById("hotkeyError").style.display = "block";
+    return;
+  }
+  if (keys.length > 3) {
+    document.getElementById("hotkeyError").textContent = "Maximum 3 keys allowed";
+    document.getElementById("hotkeyError").style.display = "block";
+    return;
+  }
+  try {
+    const result = await window.pywebview.api.save_hotkey_config(JSON.stringify(keys));
+    if (result.ok) {
+      _currentHotkeyKeys = keys;
+      closeHotkeyCapture();
+      loadHotkeyConfig();
+    } else {
+      document.getElementById("hotkeyError").textContent = result.error;
+      document.getElementById("hotkeyError").style.display = "block";
+    }
+  } catch (e) {
+    document.getElementById("hotkeyError").textContent = "Failed to save";
+    document.getElementById("hotkeyError").style.display = "block";
   }
 }
 
