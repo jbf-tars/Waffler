@@ -616,18 +616,109 @@ class Api:
         """Return hotkey configuration info for the current platform."""
         import platform as plat
         is_win = plat.system() == "Windows"
+        if is_win:
+            config = self.get_hotkey_config()
+            display = config.get("display", "Win + Ctrl")
+        else:
+            display = "Fn (hold)"
         return {
             "ok": True,
             "platform": plat.system(),
-            "hotkey": "Win + Ctrl" if is_win else "Fn (hold)",
+            "hotkey": display,
             "mode": "hold",
             "description": (
-                "Hold Win + Ctrl to record. Release to stop. Hold Space while pressing to lock recording on."
+                f"Hold {display} to record. Release to stop. Hold Space while pressing to lock recording on."
             ) if is_win else (
                 "Hold the Fn key to record. Release to stop. "
                 "Fn + Space locks recording on — press Fn again to stop."
             ),
         }
+
+    # ── Hotkey Config APIs ───────────────────────────────────────────────
+
+    def get_hotkey_config(self) -> dict:
+        """Return current hotkey configuration."""
+        try:
+            stored = self._load_settings_file()
+            keys = stored.get("hotkey_keys")
+            if _platform.system() == "Windows":
+                from windows_hotkey import KEY_TO_VK, DEFAULT_HOTKEY, MODIFIER_KEYS, hotkey_display
+            else:
+                # Mac uses Fn key, not configurable
+                return {"ok": True, "keys": ["fn"], "display": "Fn"}
+            if not keys or not isinstance(keys, list):
+                keys = DEFAULT_HOTKEY
+            for k in keys:
+                if k not in KEY_TO_VK:
+                    _log_to_file(f"Invalid hotkey key '{k}', falling back to default")
+                    keys = DEFAULT_HOTKEY
+                    break
+            return {"ok": True, "keys": keys, "display": hotkey_display(keys)}
+        except Exception as e:
+            return {"ok": True, "keys": ["win", "ctrl"], "display": "Win + Ctrl"}
+
+    def save_hotkey_config(self, keys) -> dict:
+        """Save hotkey config and restart the listener."""
+        try:
+            if isinstance(keys, str):
+                keys = json.loads(keys)
+            if not isinstance(keys, list) or len(keys) == 0:
+                return {"ok": False, "error": "Invalid keys format"}
+
+            if _platform.system() != "Windows":
+                return {"ok": False, "error": "Hotkey customization only available on Windows"}
+
+            from windows_hotkey import KEY_TO_VK, MODIFIER_KEYS, hotkey_display
+
+            # Validate: all keys recognized
+            for k in keys:
+                if k not in KEY_TO_VK:
+                    return {"ok": False, "error": f"Unknown key: {k}"}
+
+            # Validate: at least one modifier
+            if not any(k in MODIFIER_KEYS for k in keys):
+                return {"ok": False, "error": "At least one modifier key required (Ctrl, Alt, Shift, or Win)"}
+
+            # Validate: max 3 keys
+            if len(keys) > 3:
+                return {"ok": False, "error": "Maximum 3 keys allowed"}
+
+            # Validate: reject reserved combos
+            key_set = set(keys)
+            if key_set == {"alt"} or key_set == {"win"}:
+                return {"ok": False, "error": "Single modifier not allowed"}
+            reserved = [{"ctrl", "alt"}, {"alt", "f4"}, {"alt", "tab"}]
+            if key_set in reserved:
+                return {"ok": False, "error": "This key combination is reserved by the system"}
+
+            # Save to settings.json
+            stored = self._load_settings_file()
+            stored["hotkey_keys"] = keys
+            self._save_settings_file(stored)
+            _log_to_file(f"Hotkey config saved: {keys}")
+
+            # Restart listener if pipeline is running
+            if _pipeline and hasattr(_pipeline, 'hotkey_listener') and _pipeline.hotkey_listener:
+                _log_to_file("Restarting hotkey listener with new keys...")
+                _pipeline.hotkey_listener.stop()
+
+                def _restart():
+                    time.sleep(0.3)  # wait for old hook to uninstall
+                    from windows_hotkey import WindowsHotkeyListener
+                    _pipeline.hotkey_listener = WindowsHotkeyListener(
+                        on_press=_pipeline.on_hotkey_press,
+                        on_release=_pipeline.on_hotkey_release,
+                        keys=keys,
+                    )
+                    _log_to_file("New hotkey listener starting...")
+                    _pipeline.hotkey_listener.start()
+
+                threading.Thread(target=_restart, daemon=True, name="HotkeyRestart").start()
+
+            return {"ok": True, "display": hotkey_display(keys)}
+        except Exception as e:
+            _log_to_file(f"save_hotkey_config error: {e}")
+            return {"ok": False, "error": str(e)}
 
     # ── Permission APIs ─────────────────────────────────────────────────
 
@@ -727,10 +818,13 @@ class Api:
             # Initialize hotkey listener if not already running
             if not hasattr(self, 'hotkey_listener') or not self.hotkey_listener:
                 _log_to_file("Starting Fn key detection for wizard Step 3...")
+                stored = self._load_settings_file()
+                keys = stored.get("hotkey_keys")
                 if _platform.system() == "Windows":
                     self.hotkey_listener = WindowsHotkeyListener(
                         on_press=lambda: None,  # Dummy handlers - just need listener for get_fn_key_state()
                         on_release=lambda: None,
+                        keys=keys,
                     )
                 else:
                     self.hotkey_listener = SmartHotkeyListener(
@@ -778,10 +872,13 @@ class Api:
             )
 
             # Create temporary hotkey listener
+            stored = self._load_settings_file()
+            keys = stored.get("hotkey_keys")
             if _platform.system() == "Windows":
                 _wizard_hotkey = WindowsHotkeyListener(
                     on_press=_wizard_on_press,
                     on_release=_wizard_on_release,
+                    keys=keys,
                 )
                 threading.Thread(
                     target=_wizard_hotkey.start, daemon=True, name="WizardHotkeyThread"
@@ -795,8 +892,10 @@ class Api:
                 # Running in background thread causes macOS dispatch queue crashes
                 _wizard_hotkey.start()
 
+            config = self.get_hotkey_config()
+            display = config.get("display", "Win + Ctrl")
             _log_to_file("Wizard hotkey test started")
-            return {"ok": True, "message": "Press Ctrl+Space to start recording"}
+            return {"ok": True, "message": f"Press {display} to start recording"}
         except Exception as e:
             _log_to_file(f"Wizard hotkey test error: {e}")
             return {"ok": False, "error": str(e)}
@@ -1526,21 +1625,32 @@ class WafflerPipeline:
     def start_hotkey(self):
         """Start the hotkey listener — platform-specific."""
         try:
+            # Load configured keys from settings
+            keys = None
+            try:
+                sf = DATA_DIR / "settings.json"
+                if sf.exists():
+                    stored = json.loads(sf.read_text())
+                    keys = stored.get("hotkey_keys")
+            except Exception:
+                pass
+
             if _platform.system() == "Windows":
                 _log_to_file("Creating WindowsHotkeyListener...")
-                hotkey = WindowsHotkeyListener(
+                self.hotkey_listener = WindowsHotkeyListener(
                     on_press=self.on_hotkey_press,
                     on_release=self.on_hotkey_release,
+                    keys=keys,
                 )
             else:
                 _log_to_file("Creating SmartHotkeyListener...")
-                hotkey = SmartHotkeyListener(
+                self.hotkey_listener = SmartHotkeyListener(
                     on_press=self.on_hotkey_press,
                     on_release=self.on_hotkey_release,
                 )
             _log_to_file("Calling hotkey.start()...")
-            hotkey.start()
-            hotkey.join()
+            self.hotkey_listener.start()
+            self.hotkey_listener.join()
         except Exception as e:
             _log_to_file(f"start_hotkey CRASHED: {e}")
             import traceback
@@ -1742,6 +1852,38 @@ def main():
 
     set_window(window)
     _window_ref = window
+
+    # Set Waffler icon on the window title bar (Windows only)
+    if _platform.system() == "Windows":
+        icon_path = PROJECT_ROOT / "icon.ico"
+        if icon_path.exists():
+            def _set_window_icon():
+                time.sleep(1)  # wait for window to be created
+                try:
+                    import ctypes as _ct
+                    hwnd = window.gui.BrowserView.instances[list(window.gui.BrowserView.instances.keys())[0]].Handle
+                    icon_handle = _ct.windll.user32.LoadImageW(
+                        None, str(icon_path), 1, 0, 0, 0x00000010  # IMAGE_ICON, LR_LOADFROMFILE
+                    )
+                    if icon_handle:
+                        _ct.windll.user32.SendMessageW(hwnd, 0x0080, 0, icon_handle)  # WM_SETICON ICON_SMALL
+                        _ct.windll.user32.SendMessageW(hwnd, 0x0080, 1, icon_handle)  # WM_SETICON ICON_BIG
+                        _log_to_file("Window icon set successfully")
+                except Exception:
+                    # Fallback: use GetForegroundWindow
+                    try:
+                        import ctypes as _ct
+                        hwnd = _ct.windll.user32.GetForegroundWindow()
+                        icon_handle = _ct.windll.user32.LoadImageW(
+                            None, str(icon_path), 1, 0, 0, 0x00000010
+                        )
+                        if icon_handle:
+                            _ct.windll.user32.SendMessageW(hwnd, 0x0080, 0, icon_handle)
+                            _ct.windll.user32.SendMessageW(hwnd, 0x0080, 1, icon_handle)
+                            _log_to_file("Window icon set (fallback)")
+                    except Exception as e2:
+                        _log_to_file(f"Failed to set window icon: {e2}")
+            threading.Thread(target=_set_window_icon, daemon=True).start()
 
     # Intercept close → hide to tray (only if tray icon works)
     # Note: rumps tray icon on Mac must run on main thread (which pywebview owns),
