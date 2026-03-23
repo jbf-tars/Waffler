@@ -56,6 +56,8 @@ jobs:
             --add-data "prompts;prompts" `
             --add-data "config.yaml;." `
             --add-data ".env.example;." `
+            --add-data "icon.ico;." `
+            --icon "icon.ico" `
             app.py
 
       - name: Smoke test app startup (no instant crash)

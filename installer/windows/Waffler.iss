@@ -2,7 +2,7 @@
 ; Build with: iscc installer\windows\Waffler.iss
 
 #define MyAppName "Waffler"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "2.1.1"
 #define MyAppPublisher "Waffler"
 #define MyAppURL "https://waffler-app.com"
 #define MyAppExeName "Waffler.exe"
