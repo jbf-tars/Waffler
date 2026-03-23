@@ -1712,9 +1712,15 @@ def _create_windows_tray_icon():
         import pystray
         from PIL import Image
 
-        # Use the app icon file (same as macOS menubar)
-        _icon_path = Path(__file__).parent / "icon.ico"
-        _icon_png = Path(__file__).parent / "icon_512.png"
+        # Use the app icon file — resolve for both dev and frozen builds
+        _icon_path = PROJECT_ROOT / "icon.ico"
+        if not _icon_path.exists() and hasattr(sys, '_MEIPASS'):
+            _icon_path = Path(sys._MEIPASS) / "icon.ico"
+        if not _icon_path.exists():
+            _icon_path = Path(sys.executable).parent / "_internal" / "icon.ico"
+        _icon_png = PROJECT_ROOT / "icon_512.png"
+        if not _icon_png.exists() and hasattr(sys, '_MEIPASS'):
+            _icon_png = Path(sys._MEIPASS) / "icon_512.png"
         if _icon_path.exists():
             img = Image.open(str(_icon_path))
         elif _icon_png.exists():
@@ -1855,34 +1861,34 @@ def main():
 
     # Set Waffler icon on the window title bar (Windows only)
     if _platform.system() == "Windows":
-        icon_path = PROJECT_ROOT / "icon.ico"
-        if icon_path.exists():
+        # Resolve icon path — works for both dev and frozen (PyInstaller) builds
+        _ico = PROJECT_ROOT / "icon.ico"
+        if not _ico.exists() and hasattr(sys, '_MEIPASS'):
+            _ico = Path(sys._MEIPASS) / "icon.ico"
+        if not _ico.exists():
+            _ico = Path(sys.executable).parent / "_internal" / "icon.ico"
+        if _ico.exists():
             def _set_window_icon():
-                time.sleep(1)  # wait for window to be created
+                time.sleep(1.5)  # wait for window to fully initialize
                 try:
                     import ctypes as _ct
-                    hwnd = window.gui.BrowserView.instances[list(window.gui.BrowserView.instances.keys())[0]].Handle
+                    # Load the icon file
                     icon_handle = _ct.windll.user32.LoadImageW(
-                        None, str(icon_path), 1, 0, 0, 0x00000010  # IMAGE_ICON, LR_LOADFROMFILE
+                        None, str(_ico), 1, 0, 0, 0x00000010  # IMAGE_ICON, LR_LOADFROMFILE
                     )
-                    if icon_handle:
+                    if not icon_handle:
+                        _log_to_file("LoadImageW returned null for icon")
+                        return
+                    # Find the pywebview window by title
+                    hwnd = _ct.windll.user32.FindWindowW(None, "Waffler")
+                    if hwnd:
                         _ct.windll.user32.SendMessageW(hwnd, 0x0080, 0, icon_handle)  # WM_SETICON ICON_SMALL
                         _ct.windll.user32.SendMessageW(hwnd, 0x0080, 1, icon_handle)  # WM_SETICON ICON_BIG
-                        _log_to_file("Window icon set successfully")
-                except Exception:
-                    # Fallback: use GetForegroundWindow
-                    try:
-                        import ctypes as _ct
-                        hwnd = _ct.windll.user32.GetForegroundWindow()
-                        icon_handle = _ct.windll.user32.LoadImageW(
-                            None, str(icon_path), 1, 0, 0, 0x00000010
-                        )
-                        if icon_handle:
-                            _ct.windll.user32.SendMessageW(hwnd, 0x0080, 0, icon_handle)
-                            _ct.windll.user32.SendMessageW(hwnd, 0x0080, 1, icon_handle)
-                            _log_to_file("Window icon set (fallback)")
-                    except Exception as e2:
-                        _log_to_file(f"Failed to set window icon: {e2}")
+                        _log_to_file(f"Window icon set successfully from {_ico}")
+                    else:
+                        _log_to_file("Could not find Waffler window for icon")
+                except Exception as e:
+                    _log_to_file(f"Failed to set window icon: {e}")
             threading.Thread(target=_set_window_icon, daemon=True).start()
 
     # Intercept close → hide to tray (only if tray icon works)
