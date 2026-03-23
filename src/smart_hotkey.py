@@ -71,14 +71,7 @@ class SmartHotkeyListener:
         """Called when hotkey combination is pressed"""
         print(f"[HOTKEY] Hotkey pressed | sticky={self._sticky} recording={self._recording}")
 
-        if self._sticky and self._recording:
-            # Fn tap while in sticky mode → cancel (works on Macs where Fn events reach app)
-            print("[HOTKEY] → Fn tap detected, cancelling sticky mode")
-            self._sticky = False
-            self._recording = False
-            self._dismiss_emoji_keyboard()  # Dismiss emoji picker if macOS opened it
-            self._fire_release()
-        elif not self._recording:
+        if not self._recording:
             # First press → start push-to-talk
             print("[HOTKEY] → Starting push-to-talk")
             self._hotkey_held = True
@@ -107,38 +100,21 @@ class SmartHotkeyListener:
             self._fire_visual_feedback("sticky_on")
         elif self._sticky and self._recording and not self._hotkey_held:
             # Space alone (Fn NOT held) while in sticky mode → cancel
-            # Universal fallback that works on ALL Macs (Space events always reach the app)
+            # Universal solution that works on ALL Macs
             self._sticky = False
             self._recording = False
-            print("🛑 Space → Sticky mode OFF (universal cancel)")
+            print("🛑 Space → Sticky mode OFF")
             self._fire_visual_feedback("sticky_off_space")
-            # Dismiss emoji keyboard if user tapped Fn before pressing Space
-            # (Fn tap opens emoji on M3 Max, but Space cancel path always runs)
-            self._dismiss_emoji_keyboard()
-            # Delay paste to allow emoji dismiss to complete (M3 Max)
-            self._fire_release(delay_for_emoji_dismiss=True)
+            self._fire_release()
 
     # ── Callbacks (run in a thread to avoid blocking) ─────────
 
     def _fire_press(self):
         threading.Thread(target=self._on_press, daemon=True).start()
 
-    def _fire_release(self, delay_for_emoji_dismiss=False):
-        """Fire release callback, optionally with delay for emoji dismiss.
-
-        Args:
-            delay_for_emoji_dismiss: If True, delay 700ms to allow emoji dismiss
-                                      to complete before paste. Only needed when
-                                      cancelling sticky mode with Space on M3 Max.
-        """
-        if delay_for_emoji_dismiss:
-            def _delayed_release():
-                import time
-                time.sleep(0.7)  # Wait for emoji dismiss to complete
-                self._on_release()
-            threading.Thread(target=_delayed_release, daemon=True).start()
-        else:
-            threading.Thread(target=self._on_release, daemon=True).start()
+    def _fire_release(self):
+        """Fire release callback immediately (no delay)."""
+        threading.Thread(target=self._on_release, daemon=True).start()
 
     def _fire_visual_feedback(self, event_type):
         """Send visual feedback to UI (optional, override in RecorderApp if needed)"""
