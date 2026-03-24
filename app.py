@@ -197,6 +197,11 @@ def record_usage(entry_type: str, duration_seconds: float = None,
 class Api:
     """Exposed to JS via pywebview.api.*"""
 
+    def get_app_version(self) -> str:
+        """Return the app version string."""
+        from src import __version__
+        return __version__
+
     def get_history(self) -> list:
         """Return transcript history (newest first)."""
         items = load_history()

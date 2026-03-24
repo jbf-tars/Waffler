@@ -1986,19 +1986,30 @@ loadSettings = async function() {
   await _origLoadSettings();
   await loadSnippets();
   await loadUsageStats();
+  await loadAppVersion();
 };
 
 // ── Usage Stats ───────────────────────────────────────────────────────────
 async function loadUsageStats() {
   try {
     const stats = await pywebview.api.get_usage_stats();
-    
+
     document.getElementById('usageMonthCost').textContent = '$' + (stats.month_cost_usd || 0).toFixed(2);
     document.getElementById('usageTotalCost').textContent = '$' + (stats.total_cost_usd || 0).toFixed(2);
     document.getElementById('usageTranscriptions').textContent = stats.transcription_count || 0;
     document.getElementById('usageAvgCost').textContent = '$' + (stats.avg_cost_per_transcription || 0).toFixed(3);
   } catch(e) {
     console.warn('loadUsageStats error:', e);
+  }
+}
+
+async function loadAppVersion() {
+  try {
+    const ver = await pywebview.api.get_app_version();
+    const el = document.getElementById('aboutVersion');
+    if (el) el.textContent = 'v' + ver + ' · Powered by Groq + Whisper + LLaMA';
+  } catch(e) {
+    console.warn('loadAppVersion error:', e);
   }
 }
 
