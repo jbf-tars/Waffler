@@ -1712,24 +1712,30 @@ def _create_windows_tray_icon():
         import pystray
         from PIL import Image
 
-        # Use the brand icon (icon_512.png) — resolve for both dev and frozen builds
-        _icon_png = PROJECT_ROOT / "icon_512.png"
-        if not _icon_png.exists() and hasattr(sys, '_MEIPASS'):
-            _icon_png = Path(sys._MEIPASS) / "icon_512.png"
-        if not _icon_png.exists():
-            _icon_png = Path(sys.executable).parent / "_internal" / "icon_512.png"
-        if _icon_png.exists():
-            img = Image.open(str(_icon_png)).resize((64, 64))
+        # Use icon.ico — has optimized sizes for tray (16/32/48px)
+        _ico_path = PROJECT_ROOT / "icon.ico"
+        if not _ico_path.exists() and hasattr(sys, '_MEIPASS'):
+            _ico_path = Path(sys._MEIPASS) / "icon.ico"
+        if not _ico_path.exists():
+            _ico_path = Path(sys.executable).parent / "_internal" / "icon.ico"
+
+        if _ico_path.exists():
+            img = Image.open(str(_ico_path))
+            img.size = (32, 32)  # select 32x32 from ICO
+            img = img.copy().convert('RGBA')
+            _log_to_file(f"Tray icon loaded from {_ico_path}")
         else:
-            # Fallback: draw a simple icon
-            from PIL import ImageDraw
-            img = Image.new('RGBA', (64, 64), (0, 0, 0, 0))
-            draw = ImageDraw.Draw(img)
-            draw.rounded_rectangle([0, 0, 63, 63], radius=12, fill=(124, 58, 237, 255))
-            cx, cy = 32, 28
-            draw.rounded_rectangle([cx-8, cy-16, cx+8, cy+4], radius=8, fill=(255, 255, 255, 255))
-            draw.line([cx, cy+4, cx, cy+12], fill=(255, 255, 255, 255), width=3)
-            draw.line([cx-10, cy+12, cx+10, cy+12], fill=(255, 255, 255, 255), width=3)
+            # Fallback to icon_512.png
+            _png_path = PROJECT_ROOT / "icon_512.png"
+            if not _png_path.exists() and hasattr(sys, '_MEIPASS'):
+                _png_path = Path(sys._MEIPASS) / "icon_512.png"
+            if not _png_path.exists():
+                _png_path = Path(sys.executable).parent / "_internal" / "icon_512.png"
+            if _png_path.exists():
+                img = Image.open(str(_png_path)).resize((32, 32), Image.LANCZOS)
+            else:
+                _log_to_file("No icon file found for tray")
+                return
 
         menu = pystray.Menu(
             pystray.MenuItem("Show Waffler", _tray_show_window, default=True),
