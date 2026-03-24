@@ -1705,18 +1705,19 @@ def _create_mac_menubar_icon():
 
 
 def _create_windows_tray_icon():
-    """Create a Windows system tray icon using pystray.
+    """Create a Windows system tray icon — bypasses pystray's image pipeline.
 
-    After pystray starts, we bypass its PIL→tempICO→LoadImage pipeline
-    and load the HICON directly from icon.ico via Win32 LoadImageW.
-    This is the same approach that works for the window title bar icon.
+    pystray normally converts PIL Image → temp ICO file → LoadImage.
+    We monkeypatch _assert_icon_handle to load the HICON directly from
+    icon.ico via Win32 LoadImageW, which is the same proven approach
+    that works for the window title bar icon.
     """
     global _tray_icon
     try:
         import pystray
+        from pystray._util import win32 as pw32
         from PIL import Image
-        import ctypes
-        from ctypes import wintypes
+        import types
 
         # Resolve icon.ico path (dev or frozen)
         _ico_path = PROJECT_ROOT / "icon.ico"
@@ -1729,16 +1730,12 @@ def _create_windows_tray_icon():
             _log_to_file(f"icon.ico not found for tray icon")
             return
 
-        img = Image.open(str(_ico_path)).convert('RGBA')
-        _log_to_file(f"Tray icon loaded from {_ico_path}: {img.size}")
+        _log_to_file(f"Tray icon: using {_ico_path}")
+        ico_str = str(_ico_path)
 
-        # Diagnostic: save the exact image to disk so we can verify
-        try:
-            debug_path = DATA_DIR / "tray_debug.png"
-            img.save(str(debug_path))
-            _log_to_file(f"Tray debug image saved to {debug_path}")
-        except Exception as de:
-            _log_to_file(f"Could not save debug image: {de}")
+        # We still need a PIL Image for pystray's constructor (it stores it),
+        # but we'll bypass its ICO serialization when creating the HICON.
+        img = Image.open(ico_str).convert('RGBA')
 
         menu = pystray.Menu(
             pystray.MenuItem("Show Waffler", _tray_show_window, default=True),
@@ -1746,58 +1743,22 @@ def _create_windows_tray_icon():
             pystray.MenuItem("Quit", _tray_quit),
         )
         _tray_icon = pystray.Icon("Waffler", img, "Waffler", menu)
+
+        # Monkeypatch: replace pystray's _assert_icon_handle so it loads
+        # the HICON directly from icon.ico instead of PIL→tempICO→LoadImage.
+        def _patched_assert_icon_handle(self):
+            if self._icon_handle:
+                return
+            self._icon_handle = pw32.LoadImage(
+                None, ico_str, pw32.IMAGE_ICON, 0, 0,
+                pw32.LR_DEFAULTSIZE | pw32.LR_LOADFROMFILE)
+            _log_to_file(f"Tray HICON loaded direct from .ico: handle={self._icon_handle}")
+
+        _tray_icon._assert_icon_handle = types.MethodType(
+            _patched_assert_icon_handle, _tray_icon)
+
         _tray_icon.run_detached()
-        _log_to_file("System tray icon created (pystray)")
-
-        # Force-replace the tray HICON by loading directly from icon.ico
-        # This bypasses pystray's PIL→tempICO→LoadImage pipeline entirely
-        def _force_tray_hicon():
-            import time
-            time.sleep(1.5)  # wait for pystray to create its window + show icon
-            try:
-                user32 = ctypes.windll.user32
-                shell32 = ctypes.windll.shell32
-                ico_str = str(_ico_path)
-
-                IMAGE_ICON = 1
-                LR_LOADFROMFILE = 0x0010
-                # Load at default tray size (system decides)
-                hicon = user32.LoadImageW(
-                    0, ico_str, IMAGE_ICON, 0, 0,
-                    LR_LOADFROMFILE | 0x0040)  # 0x0040 = LR_DEFAULTSIZE
-
-                if not hicon:
-                    _log_to_file(f"LoadImageW failed for tray icon: {ctypes.GetLastError()}")
-                    return
-
-                # Access pystray internals to replace the HICON
-                if hasattr(_tray_icon, '_icon_handle') and hasattr(_tray_icon, '_hwnd'):
-                    old_handle = _tray_icon._icon_handle
-                    _tray_icon._icon_handle = hicon
-
-                    # Build NOTIFYICONDATAW and call Shell_NotifyIcon(NIM_MODIFY)
-                    from pystray._util import win32 as pw32
-                    pw32.Shell_NotifyIcon(
-                        pw32.NIM_MODIFY,
-                        pw32.NOTIFYICONDATAW(
-                            cbSize=ctypes.sizeof(pw32.NOTIFYICONDATAW),
-                            hWnd=_tray_icon._hwnd,
-                            hID=id(_tray_icon),
-                            uFlags=pw32.NIF_ICON,
-                            hIcon=hicon))
-
-                    _log_to_file(f"Tray HICON force-replaced from {ico_str} (handle={hicon})")
-
-                    # Destroy old handle to avoid leak
-                    if old_handle and old_handle != hicon:
-                        user32.DestroyIcon(old_handle)
-                else:
-                    _log_to_file("Cannot access pystray internals for HICON replacement")
-
-            except Exception as e:
-                _log_to_file(f"Force tray HICON error: {e}")
-
-        threading.Thread(target=_force_tray_hicon, daemon=True).start()
+        _log_to_file("System tray icon created (patched pipeline)")
 
     except Exception as e:
         _log_to_file(f"Tray icon error: {e}")
