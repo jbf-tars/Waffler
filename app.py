@@ -68,9 +68,13 @@ from app_detection import get_active_app
 # When launched with --overlay flag, run the overlay subprocess instead
 # of the main app. This allows PyInstaller to freeze both entry points.
 if '--overlay' in sys.argv:
-    # Import and run the overlay process
-    import overlay_process
-    overlay_process.main()
+    import platform as _plat
+    if _plat.system() == "Windows":
+        import overlay_process_windows
+        overlay_process_windows.main()
+    else:
+        import overlay_process
+        overlay_process.main()
     sys.exit(0)
 
 
