@@ -670,19 +670,25 @@ class Api:
             if not isinstance(keys, list) or len(keys) == 0:
                 return {"ok": False, "error": "Invalid keys format"}
 
-            if _platform.system() != "Windows":
-                return {"ok": False, "error": "Hotkey customization only available on Windows"}
-
-            from windows_hotkey import KEY_TO_VK, MODIFIER_KEYS, hotkey_display
+            # Platform-specific imports
+            if _platform.system() == "Windows":
+                from windows_hotkey import KEY_TO_VK, MODIFIER_KEYS, hotkey_display
+                KEY_MAP = KEY_TO_VK
+            elif _platform.system() == "Darwin":
+                from mac_hotkey import KEY_TO_PYNPUT, MODIFIER_KEYS, hotkey_display
+                KEY_MAP = KEY_TO_PYNPUT
+            else:
+                return {"ok": False, "error": "Hotkey customization not supported on this platform"}
 
             # Validate: all keys recognized
             for k in keys:
-                if k not in KEY_TO_VK:
+                if k not in KEY_MAP:
                     return {"ok": False, "error": f"Unknown key: {k}"}
 
-            # Validate: at least one modifier
+            # Validate: at least one modifier (or Fn on Mac)
             if not any(k in MODIFIER_KEYS for k in keys):
-                return {"ok": False, "error": "At least one modifier key required (Ctrl, Alt, Shift, or Win)"}
+                modifier_names = "Cmd, Ctrl, Alt, Shift, or Fn" if _platform.system() == "Darwin" else "Ctrl, Alt, Shift, or Win"
+                return {"ok": False, "error": f"At least one modifier key required ({modifier_names})"}
 
             # Validate: max 3 keys
             if len(keys) > 3:
@@ -709,12 +715,20 @@ class Api:
 
                 def _restart():
                     time.sleep(0.3)  # wait for old hook to uninstall
-                    from windows_hotkey import WindowsHotkeyListener
-                    _pipeline.hotkey_listener = WindowsHotkeyListener(
-                        on_press=_pipeline.on_hotkey_press,
-                        on_release=_pipeline.on_hotkey_release,
-                        keys=keys,
-                    )
+                    if _platform.system() == "Windows":
+                        from windows_hotkey import WindowsHotkeyListener
+                        _pipeline.hotkey_listener = WindowsHotkeyListener(
+                            on_press=_pipeline.on_hotkey_press,
+                            on_release=_pipeline.on_hotkey_release,
+                            keys=keys,
+                        )
+                    elif _platform.system() == "Darwin":
+                        from mac_hotkey import MacHotkeyListener
+                        _pipeline.hotkey_listener = MacHotkeyListener(
+                            on_press=_pipeline.on_hotkey_press,
+                            on_release=_pipeline.on_hotkey_release,
+                            keys=keys,
+                        )
                     _log_to_file("New hotkey listener starting...")
                     _pipeline.hotkey_listener.start()
 
@@ -1687,7 +1701,7 @@ def _create_mac_menubar_icon():
 
         class WafflerMenuBar(rumps.App):
             def __init__(self):
-                _icon_path = str(Path(__file__).parent / "icon.ico")
+                _icon_path = str(Path(__file__).parent / "icon.icns")
                 if Path(_icon_path).exists():
                     super().__init__("Waffler", icon=_icon_path, template=True)
                 else:
