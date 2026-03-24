@@ -236,11 +236,15 @@ class WindowsHotkeyListener:
             if key_id and key_id in self._key_states:
                 if is_down and not self._key_states[key_id]:
                     self._key_states[key_id] = True
+                    was_idle = self._state == _State.IDLE
                     self._check_combo_press()
-                    # Suppress Win/Alt key-down when combo is active
-                    if key_id in ("win", "alt") and self._all_keys_held():
+                    # Suppress Win/Alt key-down only when it triggered recording
+                    if key_id in ("win", "alt") and self._state != _State.IDLE and was_idle:
                         self._suppress_vks.add(vk)
                         return 1  # block — don't pass to OS
+                    # Also suppress if already in our combo state
+                    if key_id in ("win", "alt") and vk in self._suppress_vks:
+                        return 1
                 elif is_down and self._key_states[key_id]:
                     # Auto-repeat — suppress if we're suppressing this key
                     if vk in self._suppress_vks:
@@ -261,6 +265,13 @@ class WindowsHotkeyListener:
         return user32.CallNextHookEx(self._hook, nCode, wParam, lParam)
 
     # ── State machine transitions ─────────────────────────────────────
+
+    def _reset_key_states(self):
+        """Reset all key states by polling actual hardware state."""
+        for key_id in self._key_states:
+            vk_list = KEY_TO_VK.get(key_id, [])
+            self._key_states[key_id] = any(_key_down(vk) for vk in vk_list)
+        self._suppress_vks.clear()
 
     def _check_combo_press(self):
         """Called when any configured key is pressed."""
@@ -289,6 +300,8 @@ class WindowsHotkeyListener:
                 self._state = _State.IDLE
                 _log("Key released → stop PUSH_TO_TALK")
                 self._fire_release()
+                # Reset states by polling hardware to avoid stuck keys
+                self._reset_key_states()
 
     def _enter_sticky(self):
         """Space pressed during push-to-talk → switch to sticky."""

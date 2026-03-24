@@ -453,6 +453,9 @@ def _handle_cmd(cmd: dict):
                 _targets[i] = max(0.0, min(1.0, cell_level * wobble))
 
     elif ctype == "show_toast":
+        # Hide the waffle grid so only the toast popup is visible
+        if _root:
+            _root.withdraw()
         _show_toast(
             style=cmd.get("style", "error"),
             heading=cmd.get("heading", ""),
