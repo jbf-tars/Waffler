@@ -120,6 +120,7 @@ jobs:
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "installer\windows\Waffler.iss"
 
       - name: Upload installer artifact
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: Waffler-Setup
