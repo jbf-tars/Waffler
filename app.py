@@ -1682,8 +1682,7 @@ def _create_mac_menubar_icon():
 
         class WafflerMenuBar(rumps.App):
             def __init__(self):
-                # Use the same icon as Windows tray (icon.png in project root)
-                _icon_path = str(Path(__file__).parent / "icon_512.png")
+                _icon_path = str(Path(__file__).parent / "icon.ico")
                 if Path(_icon_path).exists():
                     super().__init__("Waffler", icon=_icon_path, template=True)
                 else:
@@ -1712,30 +1711,20 @@ def _create_windows_tray_icon():
         import pystray
         from PIL import Image
 
-        # Use icon.ico — has optimized sizes for tray (16/32/48px)
+        # Use icon.ico for tray — same icon as window title bar and taskbar
         _ico_path = PROJECT_ROOT / "icon.ico"
         if not _ico_path.exists() and hasattr(sys, '_MEIPASS'):
             _ico_path = Path(sys._MEIPASS) / "icon.ico"
         if not _ico_path.exists():
             _ico_path = Path(sys.executable).parent / "_internal" / "icon.ico"
 
-        if _ico_path.exists():
-            img = Image.open(str(_ico_path))
-            img.size = (32, 32)  # select 32x32 from ICO
-            img = img.copy().convert('RGBA')
-            _log_to_file(f"Tray icon loaded from {_ico_path}")
-        else:
-            # Fallback to icon_512.png
-            _png_path = PROJECT_ROOT / "icon_512.png"
-            if not _png_path.exists() and hasattr(sys, '_MEIPASS'):
-                _png_path = Path(sys._MEIPASS) / "icon_512.png"
-            if not _png_path.exists():
-                _png_path = Path(sys.executable).parent / "_internal" / "icon_512.png"
-            if _png_path.exists():
-                img = Image.open(str(_png_path)).resize((32, 32), Image.LANCZOS)
-            else:
-                _log_to_file("No icon file found for tray")
-                return
+        if not _ico_path.exists():
+            _log_to_file(f"icon.ico not found, checked PROJECT_ROOT={PROJECT_ROOT}")
+            return
+
+        # Open and convert to a clean 64x64 RGBA image for pystray
+        img = Image.open(str(_ico_path)).resize((64, 64), Image.LANCZOS).convert('RGBA')
+        _log_to_file(f"Tray icon loaded: {_ico_path} -> {img.size} {img.mode}")
 
         menu = pystray.Menu(
             pystray.MenuItem("Show Waffler", _tray_show_window, default=True),
