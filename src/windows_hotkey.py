@@ -227,6 +227,12 @@ class WindowsHotkeyListener:
         if nCode >= 0:
             kb = ctypes.cast(lParam, ctypes.POINTER(KBDLLHOOKSTRUCT)).contents
             vk = kb.vkCode
+
+            # Ignore injected/synthetic keystrokes (e.g. from auto-paste Ctrl+V)
+            LLKHF_INJECTED = 0x10
+            if kb.flags & LLKHF_INJECTED:
+                return user32.CallNextHookEx(self._hook, nCode, wParam, lParam)
+
             is_down = wParam in (WM_KEYDOWN, WM_SYSKEYDOWN)
             is_up   = wParam in (WM_KEYUP, WM_SYSKEYUP)
 
