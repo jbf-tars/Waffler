@@ -1711,52 +1711,19 @@ def _create_windows_tray_icon():
         import pystray
         from PIL import Image
 
-        # Render waffle-with-syrup icon directly (same design as overlay)
-        from PIL import ImageDraw
-        SZ = 64
-        S = SZ / 69.0
-        img = Image.new('RGBA', (SZ, SZ), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(img)
+        # Load icon.ico at full 256x256 — don't resize, let pystray handle it
+        _ico_path = PROJECT_ROOT / "icon.ico"
+        if not _ico_path.exists() and hasattr(sys, '_MEIPASS'):
+            _ico_path = Path(sys._MEIPASS) / "icon.ico"
+        if not _ico_path.exists():
+            _ico_path = Path(sys.executable).parent / "_internal" / "icon.ico"
 
-        WAFFLE_BODY = '#D4A843'
-        WAFFLE_RIM  = '#B08530'
-        CELL_BG     = '#C49838'
-        CELL_HILITE = '#E8C86C'
-        CELL_SHADOW = '#9A7825'
-        SYRUP_COLOR = '#5C2E0E'
-        SYRUP_LIGHT = '#7A3F14'
+        if not _ico_path.exists():
+            _log_to_file(f"icon.ico not found for tray icon")
+            return
 
-        OR = max(1, int(5 * S))
-        IP = max(1, int(3 * S))
-        CS = max(2, int(11 * S))
-        GG = max(1, int(3 * S))
-        CR = max(2, int(10 * S))
-        GOX = OR + IP
-        GOY = OR + IP
-
-        draw.rounded_rectangle([0, 0, SZ - 1, SZ - 1], radius=CR,
-                               fill=WAFFLE_BODY, outline=WAFFLE_RIM, width=max(1, int(2 * S)))
-
-        levels = [0.15, 0.05, 0.10, 0.20,
-                  0.35, 0.25, 0.30, 0.40,
-                  0.65, 0.55, 0.60, 0.70,
-                  0.95, 0.85, 0.90, 1.00]
-
-        for row in range(4):
-            for col in range(4):
-                i = row * 4 + col
-                cx = GOX + col * (CS + GG)
-                cy = GOY + row * (CS + GG)
-                draw.rectangle([cx, cy, cx + CS, cy + CS], fill=CELL_BG)
-                lvl = levels[i]
-                fh = int(lvl * CS)
-                if fh > 1:
-                    color = SYRUP_COLOR if lvl > 0.6 else SYRUP_LIGHT
-                    sy = cy + CS - fh
-                    if cy + CS - 1 > sy:
-                        draw.rectangle([cx + 1, sy, cx + CS - 1, cy + CS - 1], fill=color)
-
-        _log_to_file(f"Tray icon rendered: {SZ}x{SZ} waffle with syrup")
+        img = Image.open(str(_ico_path)).convert('RGBA')
+        _log_to_file(f"Tray icon loaded from {_ico_path}: {img.size}")
 
         menu = pystray.Menu(
             pystray.MenuItem("Show Waffler", _tray_show_window, default=True),
