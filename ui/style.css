@@ -76,24 +76,17 @@ html, body {
 .logo-icon {
   width: 32px;
   height: 32px;
-  background: var(--accent);
-  border-radius: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 16px;
-  box-shadow: 0 4px 14px rgba(200, 162, 86, 0.5);
+  border-radius: 8px;
+  display: block;
   flex-shrink: 0;
+  object-fit: contain;
 }
 
 .logo-name {
   font-size: 17px;
   font-weight: 700;
   letter-spacing: -0.3px;
-  background: linear-gradient(135deg, #E8C870 0%, #C8A256 35%, #8B5E14 70%, #5C2E0E 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: var(--accent-text);
 }
 
 .logo-name span {
