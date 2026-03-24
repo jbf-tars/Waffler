@@ -46,55 +46,24 @@ class ClipboardManager:
 
     @staticmethod
     def _auto_paste_windows(hwnd=None):
-        """Restore focus to previous window and send Ctrl+V via SendInput."""
+        """Restore focus to previous window and send Ctrl+V."""
         try:
             import ctypes
-            import ctypes.wintypes
+            KEYEVENTF_KEYUP = 0x0002
+            VK_CONTROL = 0x11
+            VK_V = 0x56
 
             if hwnd:
                 ctypes.windll.user32.SetForegroundWindow(hwnd)
                 time.sleep(0.15)  # let window regain focus
 
-            # Use SendInput for reliable, atomic Ctrl+V
-            INPUT_KEYBOARD = 1
-            KEYEVENTF_KEYUP = 0x0002
-            VK_CONTROL = 0x11
-            VK_V = 0x56
-
-            class KEYBDINPUT(ctypes.Structure):
-                _fields_ = [
-                    ("wVk", ctypes.wintypes.WORD),
-                    ("wScan", ctypes.wintypes.WORD),
-                    ("dwFlags", ctypes.wintypes.DWORD),
-                    ("time", ctypes.wintypes.DWORD),
-                    ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong)),
-                ]
-
-            class INPUT(ctypes.Structure):
-                class _INPUT(ctypes.Union):
-                    _fields_ = [("ki", KEYBDINPUT),
-                                ("padding", ctypes.c_byte * 24)]
-                _anonymous_ = ("_input",)
-                _fields_ = [("type", ctypes.wintypes.DWORD),
-                            ("_input", _INPUT)]
-
-            def _kbd(vk, flags=0):
-                inp = INPUT()
-                inp.type = INPUT_KEYBOARD
-                inp.ki.wVk = vk
-                inp.ki.dwFlags = flags
-                return inp
-
-            # 4 events: Ctrl down, V down, V up, Ctrl up
-            inputs = (INPUT * 4)(
-                _kbd(VK_CONTROL),
-                _kbd(VK_V),
-                _kbd(VK_V, KEYEVENTF_KEYUP),
-                _kbd(VK_CONTROL, KEYEVENTF_KEYUP),
-            )
-            ctypes.windll.user32.SendInput(4, ctypes.byref(inputs),
-                                           ctypes.sizeof(INPUT))
-            print("📋 Auto-pasted via Ctrl+V (SendInput)")
+            # Send Ctrl+V via keybd_event
+            ctypes.windll.user32.keybd_event(VK_CONTROL, 0, 0, 0)
+            ctypes.windll.user32.keybd_event(VK_V, 0, 0, 0)
+            time.sleep(0.05)
+            ctypes.windll.user32.keybd_event(VK_V, 0, KEYEVENTF_KEYUP, 0)
+            ctypes.windll.user32.keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0)
+            print("📋 Auto-pasted via Ctrl+V")
         except Exception as e:
             print(f"⚠️  Auto-paste failed: {e}")
 
