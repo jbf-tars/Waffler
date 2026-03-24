@@ -38,6 +38,7 @@ jobs:
         shell: pwsh
         run: |
           pyinstaller --noconfirm --clean --windowed --name Waffler `
+            --icon "icon.ico" `
             --hidden-import wave `
             --collect-all pynput `
             --collect-all requests `
@@ -57,6 +58,7 @@ jobs:
             --add-data "config.yaml;." `
             --add-data ".env.example;." `
             --add-data "icon_512.png;." `
+            --add-data "icon.ico;." `
             app.py
 
       - name: Smoke test app startup (no instant crash)

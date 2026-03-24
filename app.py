@@ -1861,6 +1861,59 @@ def main():
         window.events.closing += _on_window_closing
         threading.Thread(target=_create_tray_icon, daemon=True).start()
 
+    def _on_shown():
+        """Set the window icon after pywebview has created the native window."""
+        if _platform.system() != "Windows":
+            return
+        try:
+            import ctypes
+            from ctypes import wintypes
+            user32 = ctypes.windll.user32
+
+            # Resolve icon.ico path (dev or frozen)
+            ico_path = PROJECT_ROOT / "icon.ico"
+            if not ico_path.exists():
+                ico_path = Path(sys.executable).parent / "_internal" / "icon.ico"
+            if not ico_path.exists() and hasattr(sys, '_MEIPASS'):
+                ico_path = Path(sys._MEIPASS) / "icon.ico"
+            if not ico_path.exists():
+                _log_to_file(f"icon.ico not found for window icon")
+                return
+
+            ico_str = str(ico_path)
+            IMAGE_ICON = 1
+            LR_LOADFROMFILE = 0x0010
+            LR_DEFAULTSIZE = 0x0040
+
+            # Load large (32x32) and small (16x16) icons
+            big = user32.LoadImageW(0, ico_str, IMAGE_ICON, 32, 32,
+                                    LR_LOADFROMFILE)
+            small = user32.LoadImageW(0, ico_str, IMAGE_ICON, 16, 16,
+                                      LR_LOADFROMFILE)
+
+            if not big and not small:
+                _log_to_file(f"LoadImageW failed for {ico_str}")
+                return
+
+            # Find the pywebview window by title
+            hwnd = user32.FindWindowW(None, "Waffler")
+            if not hwnd:
+                _log_to_file("FindWindowW('Waffler') returned 0")
+                return
+
+            WM_SETICON = 0x0080
+            ICON_BIG = 1
+            ICON_SMALL = 0
+            if big:
+                user32.SendMessageW(hwnd, WM_SETICON, ICON_BIG, big)
+            if small:
+                user32.SendMessageW(hwnd, WM_SETICON, ICON_SMALL, small)
+            _log_to_file("Window icon set successfully")
+        except Exception as e:
+            _log_to_file(f"Window icon error: {e}")
+
+    window.events.shown += _on_shown
+
     print("Waffler window launching...")
     # Start webview — this blocks until window is closed
     # debug=True enables right-click Inspect Element and JS console
