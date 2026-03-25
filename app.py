@@ -1709,14 +1709,27 @@ def _create_mac_menubar_icon():
 
         class WafflerMenuBar(rumps.App):
             def __init__(self):
-                # Use template icon for menubar (monochrome, adapts to theme)
-                _icon_path = str(Path(__file__).parent / "menubar_icon_template.png")
-                if not Path(_icon_path).exists():
-                    # Fallback to regular icon
-                    _icon_path = str(Path(__file__).parent / "icon.icns")
-                if Path(_icon_path).exists():
-                    super().__init__(None, icon=_icon_path, template=True)
+                # Resolve icon path (dev or frozen) - same logic as Windows
+                _icon_path = PROJECT_ROOT / "menubar_icon_template.png"
+                if not _icon_path.exists() and hasattr(sys, '_MEIPASS'):
+                    _icon_path = Path(sys._MEIPASS) / "menubar_icon_template.png"
+                if not _icon_path.exists():
+                    _icon_path = Path(sys.executable).parent / "_internal" / "menubar_icon_template.png"
+
+                # Fallback to icon.icns if template not found
+                if not _icon_path.exists():
+                    _icon_path = PROJECT_ROOT / "icon.icns"
+                    if not _icon_path.exists() and hasattr(sys, '_MEIPASS'):
+                        _icon_path = Path(sys._MEIPASS) / "icon.icns"
+                    if not _icon_path.exists():
+                        _icon_path = Path(sys.executable).parent / "_internal" / "icon.icns"
+
+                _log_to_file(f"Menubar icon: using {_icon_path}")
+
+                if _icon_path.exists():
+                    super().__init__(None, icon=str(_icon_path), template=True)
                 else:
+                    _log_to_file("Menubar icon not found, using emoji fallback")
                     super().__init__(None, title="🧇")
 
             @rumps.clicked("Show Waffler")
