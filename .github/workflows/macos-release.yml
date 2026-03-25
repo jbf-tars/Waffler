@@ -42,7 +42,11 @@ jobs:
 
       - name: Build .app
         run: |
-          pyinstaller --noconfirm --clean Waffler_mac.spec
+          echo "=== Verifying Python version ==="
+          python --version
+          python -c "import sys; print(f'Python: {sys.version}')"
+          echo "=== Building with PyInstaller ==="
+          python -m PyInstaller --noconfirm --clean Waffler_mac.spec
 
 
       - name: Package DMG (unsigned)
