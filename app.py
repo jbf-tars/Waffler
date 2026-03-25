@@ -1704,11 +1704,38 @@ def _create_tray_icon():
 def _create_mac_menubar_icon():
     """Create a macOS menu bar icon using rumps."""
     global _tray_icon
+    # DEBUG: Write marker file to confirm function runs
+    try:
+        Path("/tmp/waffler_menubar_debug.txt").write_text(f"menubar_icon called at {time.time()}\n")
+    except:
+        pass
+
     try:
         import rumps
 
         class WafflerMenuBar(rumps.App):
             def __init__(self):
+                # === DIAGNOSTIC LOGGING ===
+                _log_to_file("=== MENUBAR ICON DIAGNOSTIC ===")
+                _log_to_file(f"PROJECT_ROOT: {PROJECT_ROOT}")
+                _log_to_file(f"__file__: {__file__}")
+                _log_to_file(f"sys.executable: {sys.executable}")
+                _log_to_file(f"hasattr(sys, '_MEIPASS'): {hasattr(sys, '_MEIPASS')}")
+                if hasattr(sys, '_MEIPASS'):
+                    _log_to_file(f"sys._MEIPASS: {sys._MEIPASS}")
+
+                # Check all possible locations
+                _log_to_file("Checking template icon locations:")
+                _candidates = [
+                    PROJECT_ROOT / "menubar_icon_template.png",
+                    Path(sys._MEIPASS) / "menubar_icon_template.png" if hasattr(sys, '_MEIPASS') else None,
+                    Path(sys.executable).parent / "_internal" / "menubar_icon_template.png",
+                    Path(sys.executable).parent / "menubar_icon_template.png",
+                ]
+                for c in _candidates:
+                    if c:
+                        _log_to_file(f"  {c} -> exists={c.exists()}")
+
                 # Resolve icon path (dev or frozen) - same logic as Windows
                 _icon_path = PROJECT_ROOT / "menubar_icon_template.png"
                 if not _icon_path.exists() and hasattr(sys, '_MEIPASS'):
@@ -1718,18 +1745,24 @@ def _create_mac_menubar_icon():
 
                 # Fallback to icon.icns if template not found
                 if not _icon_path.exists():
+                    _log_to_file("Template not found, trying icon.icns")
                     _icon_path = PROJECT_ROOT / "icon.icns"
                     if not _icon_path.exists() and hasattr(sys, '_MEIPASS'):
                         _icon_path = Path(sys._MEIPASS) / "icon.icns"
                     if not _icon_path.exists():
                         _icon_path = Path(sys.executable).parent / "_internal" / "icon.icns"
 
-                _log_to_file(f"Menubar icon: using {_icon_path}")
+                _log_to_file(f"Final icon path: {_icon_path}")
+                _log_to_file(f"Icon exists: {_icon_path.exists()}")
 
                 if _icon_path.exists():
-                    super().__init__(None, icon=str(_icon_path), template=True)
+                    print(f"[WAFFLER] Loading icon from: {_icon_path}", file=sys.stderr, flush=True)
+                    _log_to_file(f"Loading icon from: {_icon_path}")
+                    # Try WITHOUT template mode first
+                    super().__init__(None, icon=str(_icon_path), template=False)
                 else:
-                    _log_to_file("Menubar icon not found, using emoji fallback")
+                    print(f"[WAFFLER] ERROR: No icon found at {_icon_path}", file=sys.stderr, flush=True)
+                    _log_to_file("ERROR: No icon found, using emoji fallback")
                     super().__init__(None, title="🧇")
 
             @rumps.clicked("Show Waffler")
