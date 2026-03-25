@@ -1425,8 +1425,8 @@ function wizShowStep(step) {
   _wizardStep = step;
   updateWizardProgress(step);
 
-  // Show/hide wizard step content
-  for (let i = 1; i <= WIZARD_TOTAL_STEPS; i++) {
+  // Show/hide wizard step content (always loop to 4 — the actual number of content divs)
+  for (let i = 1; i <= 4; i++) {
     const con = document.getElementById('wizContent' + i);
     if (!con) continue;
     con.style.display = (i === step) ? 'block' : 'none';
@@ -1434,7 +1434,7 @@ function wizShowStep(step) {
 
   // Toggle wide container for step 4 (mock app split layout)
   const container = document.querySelector('.wizard-container');
-  if (container) container.classList.toggle('wide', step === WIZARD_TOTAL_STEPS);
+  if (container) container.classList.toggle('wide', step === 4);
 
   const backBtn = document.getElementById('wizBtnBack');
   const nextBtn = document.getElementById('wizBtnNext');
