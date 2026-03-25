@@ -162,4 +162,7 @@ app = BUNDLE(
         'CFBundleShortVersionString': '1.0.0',
         'LSMinimumSystemVersion': '10.13.0',
     },
+    # Code signing (set SIGNING_IDENTITY env var when you have Developer ID)
+    codesign_identity=os.environ.get('SIGNING_IDENTITY', None),
+    entitlements_file='entitlements.plist' if os.environ.get('SIGNING_IDENTITY') else None,
 )
