@@ -124,6 +124,9 @@ class FnKeyMonitor:
             # Run the loop (blocks until stopped)
             CFRunLoopRun()
 
+            # Run the loop (blocks until stopped)
+            CFRunLoopRun()
+
         except Exception as e:
             print(f"⚠️  Event tap error: {e}")
 
