@@ -723,12 +723,20 @@ class Api:
                             keys=keys,
                         )
                     elif _platform.system() == "Darwin":
-                        from mac_hotkey import MacHotkeyListener
-                        _pipeline.hotkey_listener = MacHotkeyListener(
-                            on_press=_pipeline.on_hotkey_press,
-                            on_release=_pipeline.on_hotkey_release,
-                            keys=keys,
-                        )
+                        # On Mac: use SmartHotkeyListener for Fn key, MacHotkeyListener for others
+                        if keys == ["fn"]:
+                            from smart_hotkey import SmartHotkeyListener
+                            _pipeline.hotkey_listener = SmartHotkeyListener(
+                                on_press=_pipeline.on_hotkey_press,
+                                on_release=_pipeline.on_hotkey_release,
+                            )
+                        else:
+                            from mac_hotkey import MacHotkeyListener
+                            _pipeline.hotkey_listener = MacHotkeyListener(
+                                on_press=_pipeline.on_hotkey_press,
+                                on_release=_pipeline.on_hotkey_release,
+                                keys=keys,
+                            )
                     _log_to_file("New hotkey listener starting...")
                     _pipeline.hotkey_listener.start()
 
@@ -1701,11 +1709,15 @@ def _create_mac_menubar_icon():
 
         class WafflerMenuBar(rumps.App):
             def __init__(self):
-                _icon_path = str(Path(__file__).parent / "icon.icns")
+                # Use template icon for menubar (monochrome, adapts to theme)
+                _icon_path = str(Path(__file__).parent / "menubar_icon_template.png")
+                if not Path(_icon_path).exists():
+                    # Fallback to regular icon
+                    _icon_path = str(Path(__file__).parent / "icon.icns")
                 if Path(_icon_path).exists():
-                    super().__init__("Waffler", icon=_icon_path, template=True)
+                    super().__init__(None, icon=_icon_path, template=True)
                 else:
-                    super().__init__("Waffler", title="🧇")
+                    super().__init__(None, title="🧇")
 
             @rumps.clicked("Show Waffler")
             def show_window(self, _):
