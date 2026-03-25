@@ -23,6 +23,7 @@ a = Analysis(
         ('src', 'src'),
         ('config.yaml', '.'),
         ('.env.example', '.'),
+        ('menubar_icon_template.png', '.'),
     ],
     hiddenimports=[
         # ── Core dependencies ──
