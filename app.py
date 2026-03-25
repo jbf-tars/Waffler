@@ -675,8 +675,8 @@ class Api:
                 from windows_hotkey import KEY_TO_VK, MODIFIER_KEYS, hotkey_display
                 KEY_MAP = KEY_TO_VK
             elif _platform.system() == "Darwin":
-                from mac_hotkey import KEY_TO_PYNPUT, MODIFIER_KEYS, hotkey_display
-                KEY_MAP = KEY_TO_PYNPUT
+                # Mac only supports Fn key for now
+                return {"ok": False, "error": "Mac currently only supports Fn key. Custom hotkeys coming soon!"}
             else:
                 return {"ok": False, "error": "Hotkey customization not supported on this platform"}
 
@@ -723,20 +723,14 @@ class Api:
                             keys=keys,
                         )
                     elif _platform.system() == "Darwin":
-                        # On Mac: use SmartHotkeyListener for Fn key, MacHotkeyListener for others
-                        if keys == ["fn"]:
-                            from smart_hotkey import SmartHotkeyListener
-                            _pipeline.hotkey_listener = SmartHotkeyListener(
-                                on_press=_pipeline.on_hotkey_press,
-                                on_release=_pipeline.on_hotkey_release,
-                            )
-                        else:
-                            from mac_hotkey import MacHotkeyListener
-                            _pipeline.hotkey_listener = MacHotkeyListener(
-                                on_press=_pipeline.on_hotkey_press,
-                                on_release=_pipeline.on_hotkey_release,
-                                keys=keys,
-                            )
+                        # On Mac: always use SmartHotkeyListener (Fn key)
+                        # Custom hotkeys not yet supported on Mac
+                        from smart_hotkey import SmartHotkeyListener
+                        _pipeline.hotkey_listener = SmartHotkeyListener(
+                            on_press=_pipeline.on_hotkey_press,
+                            on_release=_pipeline.on_hotkey_release,
+                        )
+                        _log_to_file(f"Note: Mac only supports Fn key, ignoring custom keys: {keys}")
                     _log_to_file("New hotkey listener starting...")
                     _pipeline.hotkey_listener.start()
 
