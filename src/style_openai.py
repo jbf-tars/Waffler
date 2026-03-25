@@ -33,7 +33,7 @@ class OpenAIStyler:
         if groq_api_key and _groq_mod:
             self._groq_client = _groq_mod.Groq(api_key=groq_api_key)
             self._use_groq = True
-            self._groq_model = "llama-3.3-70b-versatile"
+            self._groq_model = "meta-llama/llama-4-scout-17b-16e-instruct"
             print(f"Styling: Groq {self._groq_model}")
         else:
             print(f"Styling: OpenAI {model}")
@@ -130,7 +130,7 @@ Transcript: {transcript}"""
         return self._style_openai(prompt, transcript, start_time)
 
     def _style_groq(self, prompt: str, start_time: float):
-        """Style using Groq LLaMA — ~200-400ms."""
+        """Style using Groq — ~200-400ms."""
         system_msg = (
             "You are a voice-to-text formatter. Output ONLY the final cleaned/formatted text. "
             "Follow ALL formatting rules in the user prompt exactly — including paragraph breaks, "
@@ -140,15 +140,23 @@ Transcript: {transcript}"""
             "Just return the cleaned text directly."
             + getattr(self, '_vocab_system_extra', '')
         )
-        response = self._groq_client.chat.completions.create(
-            model=self._groq_model,
-            messages=[
-                {"role": "system", "content": system_msg},
-                {"role": "user", "content": prompt},
-            ],
-            max_tokens=512,
-            temperature=0.3,
-        )
+        try:
+            response = self._groq_client.chat.completions.create(
+                model=self._groq_model,
+                messages=[
+                    {"role": "system", "content": system_msg},
+                    {"role": "user", "content": prompt},
+                ],
+                max_tokens=512,
+                temperature=0.1,
+            )
+        except Exception as e:
+            error_msg = str(e)
+            if "429" in error_msg or "rate" in error_msg.lower():
+                raise RuntimeError(f"RATE_LIMIT: Groq rate limit hit — {error_msg[:100]}")
+            elif "connection" in error_msg.lower() or "timeout" in error_msg.lower():
+                raise RuntimeError(f"CONNECTION: Groq connection failed — {error_msg[:100]}")
+            raise
         styled = response.choices[0].message.content.strip()
         # Fix mid-sentence capitalization bug
         styled = self._fix_mid_sentence_caps(styled)
@@ -171,7 +179,7 @@ Transcript: {transcript}"""
                     {"role": "user", "content": prompt},
                 ],
                 max_tokens=512,
-                temperature=0.3,
+                temperature=0.1,
             )
             styled = response.choices[0].message.content.strip()
             # Fix mid-sentence capitalization bug
