@@ -50,12 +50,18 @@ class FnKeyMonitor:
                 flags = CGEventGetFlags(event)
                 is_fn_pressed = bool(flags & fn_flag)
 
+                # DEBUG: Log flag changes to see if callback fires
+                if flags != 0:  # Only log when modifiers are pressed
+                    print(f"[DEBUG] Flags: 0x{flags:X}, Fn={is_fn_pressed}")
+
                 with self._lock:
                     if is_fn_pressed and not self._fn_pressed:
                         self._fn_pressed = True
+                        print("[DEBUG] Fn PRESSED - firing callback")
                         threading.Thread(target=self._on_fn_press, daemon=True).start()
                     elif not is_fn_pressed and self._fn_pressed:
                         self._fn_pressed = False
+                        print("[DEBUG] Fn RELEASED - firing callback")
                         threading.Thread(target=self._on_fn_release, daemon=True).start()
 
             # Check for Space key press
@@ -104,22 +110,28 @@ class FnKeyMonitor:
             )
 
             if self._tap is None:
-                print("⚠️  Failed to create event tap - need Accessibility permission")
+                print("⚠️  [DEBUG] Failed to create event tap - need Accessibility permission")
                 print("   Go to: System Settings > Privacy & Security > Accessibility")
-                print("   Add Python or Terminal to the list")
+                print("   Add Waffler to the list")
                 return
+
+            print("[DEBUG] CGEventTap created successfully")
 
             # Create run loop source
             self._runloop_source = CFMachPortCreateRunLoopSource(None, self._tap, 0)
+            print("[DEBUG] Run loop source created")
 
             # Get current run loop and add source
             self._runloop = CFRunLoopGetCurrent()
             CFRunLoopAddSource(self._runloop, self._runloop_source, kCFRunLoopCommonModes)
+            print("[DEBUG] Run loop source added to CFRunLoop")
 
             # Enable the tap
             CGEventTapEnable(self._tap, True)
+            print("[DEBUG] Event tap enabled")
 
             print("⌨️  Fn + Space monitoring started (CGEventTap)")
+            print("[DEBUG] Press any modifier key (Cmd, Shift, etc.) to test if callback fires...")
 
             # Run the loop (blocks until stopped)
             CFRunLoopRun()
