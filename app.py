@@ -1163,7 +1163,7 @@ def _wizard_on_release():
             _push_wizard_silent()
             return
 
-        # Silence detection — skip 44-byte WAV header, check RMS
+        # Silence detection — windowed check so pauses don't dilute speech
         is_silent = False
         if len(audio_bytes) < 16044:
             is_silent = True
@@ -1172,10 +1172,17 @@ def _wizard_on_release():
             try:
                 import numpy as np
                 audio_arr = np.frombuffer(audio_bytes[44:], dtype=np.int16).astype(np.float32)
-                rms = float(np.sqrt(np.mean(audio_arr ** 2)))
-                if rms < 150:
-                    is_silent = True
-                    _log_to_file(f"Wizard: audio too quiet (RMS={rms:.0f})")
+                samples_per_window = 16000  # 1 second at 16kHz
+                is_silent = True
+                for i in range(0, len(audio_arr), samples_per_window):
+                    window = audio_arr[i:i + samples_per_window]
+                    if len(window) < 1600:
+                        break
+                    if float(np.sqrt(np.mean(window ** 2))) >= 150:
+                        is_silent = False
+                        break
+                if is_silent:
+                    _log_to_file(f"Wizard: no speech window detected")
             except Exception:
                 pass
 
@@ -1507,14 +1514,25 @@ class WafflerPipeline:
                 notify_js_status("idle")
                 return
 
-            # Check if audio is effectively silent (RMS below threshold)
-            # Skip 44-byte WAV header before reading samples
+            # Check if audio is effectively silent
+            # Use windowed peak-RMS: if ANY 1-second window has speech, proceed.
+            # This prevents long pauses from diluting the average below threshold.
             try:
                 import numpy as np
                 audio_arr = np.frombuffer(audio_bytes[44:], dtype=np.int16).astype(np.float32)
-                rms = float(np.sqrt(np.mean(audio_arr ** 2)))
-                if rms < 150:
-                    _log_to_file(f"Audio too quiet (RMS={rms:.0f}), showing toast")
+                samples_per_window = 16000  # 1 second at 16kHz
+                is_silent = True
+                for i in range(0, len(audio_arr), samples_per_window):
+                    window = audio_arr[i:i + samples_per_window]
+                    if len(window) < 1600:  # skip tiny trailing chunk
+                        break
+                    wrms = float(np.sqrt(np.mean(window ** 2)))
+                    if wrms >= 150:
+                        is_silent = False
+                        break
+                if is_silent:
+                    overall_rms = float(np.sqrt(np.mean(audio_arr ** 2)))
+                    _log_to_file(f"Audio too quiet (overall RMS={overall_rms:.0f}, no window >= 150), showing toast")
                     threading.Thread(target=self._show_no_audio_toast, daemon=True).start()
                     notify_js_status("idle")
                     return
