@@ -86,6 +86,117 @@ function updateHotkeyHint() {
   }
 }
 
+// ── Permissions (Step 1) ─────────────────────────────────────────────
+
+async function openAccessibilitySettings() {
+  console.log("openAccessibilitySettings called");
+
+  if (!window.pywebview || !window.pywebview.api) {
+    showToast("App not ready yet", "error");
+    return;
+  }
+
+  try {
+    const result = await pywebview.api.open_accessibility_settings();
+    console.log("openAccessibilitySettings result:", result);
+
+    if (result.ok) {
+      showToast("Opening System Settings...", "success");
+      // Check permission status after a moment
+      setTimeout(checkPermissions, 2000);
+    } else {
+      showToast(result.error || "Failed to open settings", "error");
+    }
+  } catch (e) {
+    console.error("openAccessibilitySettings error:", e);
+    showToast("Error opening settings", "error");
+  }
+}
+
+async function openInputMonitoringSettings() {
+  console.log("openInputMonitoringSettings called");
+
+  if (!window.pywebview || !window.pywebview.api) {
+    showToast("App not ready yet", "error");
+    return;
+  }
+
+  try {
+    const result = await pywebview.api.open_input_monitoring_settings();
+    console.log("openInputMonitoringSettings result:", result);
+
+    if (result.ok) {
+      showToast("Opening System Settings...", "success");
+      // Check permission status after a moment
+      setTimeout(checkPermissions, 2000);
+    } else {
+      showToast(result.error || "Failed to open settings", "error");
+    }
+  } catch (e) {
+    console.error("openInputMonitoringSettings error:", e);
+    showToast("Error opening settings", "error");
+  }
+}
+
+async function checkPermissions() {
+  if (!window.pywebview || !window.pywebview.api) return;
+
+  try {
+    const result = await pywebview.api.check_permissions();
+
+    const accessStatus = document.getElementById('accessibilityStatus');
+    const inputStatus = document.getElementById('inputMonitoringStatus');
+
+    if (result.ok) {
+      // Update Accessibility status
+      if (accessStatus) {
+        if (result.accessibility) {
+          accessStatus.innerHTML = '<span style="color: #4ade80; font-size: 20px;">✅</span>';
+        } else {
+          accessStatus.innerHTML = '<span style="color: #ef4444; font-size: 20px;">❌</span>';
+        }
+      }
+
+      // Update Input Monitoring status
+      if (inputStatus) {
+        if (result.input_monitoring) {
+          inputStatus.innerHTML = '<span style="color: #4ade80; font-size: 20px;">✅</span>';
+        } else {
+          inputStatus.innerHTML = '<span style="color: #ef4444; font-size: 20px;">❌</span>';
+        }
+      }
+
+      // If both granted, show success and auto-advance
+      if (result.accessibility && result.input_monitoring) {
+        showToast("All permissions granted! ✅", "success");
+        // Auto-advance to next step after a short delay
+        setTimeout(() => {
+          wizNext();
+        }, 1500);
+      }
+    }
+  } catch (e) {
+    console.error("checkPermissions error:", e);
+  }
+}
+
+// Auto-check permissions when step 1 loads
+let _permissionCheckInterval = null;
+function startPermissionMonitoring() {
+  // Check immediately
+  checkPermissions();
+  // Then check every 2 seconds
+  if (_permissionCheckInterval) clearInterval(_permissionCheckInterval);
+  _permissionCheckInterval = setInterval(checkPermissions, 2000);
+}
+
+function stopPermissionMonitoring() {
+  if (_permissionCheckInterval) {
+    clearInterval(_permissionCheckInterval);
+    _permissionCheckInterval = null;
+  }
+}
+
 // ── Hotkey Config ────────────────────────────────────────────────────
 
 async function loadHotkeyConfig() {
@@ -1048,7 +1159,7 @@ async function doSignOut() {
 // ============================================================
 
 let _wizardStep = 1;
-const WIZARD_TOTAL_STEPS = 3;
+const WIZARD_TOTAL_STEPS = 4;
 let _wizardGroqKeyValidated = false;
 let _wizardApiKeyValidated = false;
 let _wizardMicTested = false;
@@ -1110,7 +1221,7 @@ function showWizard() {
   if (vocab) vocab.style.display = 'none';
   wizShowStep(1);
   setTimeout(() => {
-    const inp = document.getElementById('wizApiKeyInput');
+    const inp = document.getElementById('wizApiKeyInput3');
     if (inp) inp.focus();
   }, 200);
 }
@@ -1135,6 +1246,11 @@ function hideWizard() {
 // ── Step Navigation ──────────────────────────────────────────
 
 function wizShowStep(step) {
+  // Clean up permission monitoring when leaving step 1
+  if (_wizardStep === 1 && step !== 1) {
+    stopPermissionMonitoring();
+  }
+
   // Clean up wizard hotkey test when leaving step 3
   if (_wizardStep === 3 && step !== 3 && _wizardHotkeyTestActive) {
     pywebview.api.wizard_stop_hotkey_test().catch(() => {});
@@ -1173,16 +1289,19 @@ function wizShowStep(step) {
   wizUpdateNextButton();
 
   // Step-specific initialization
+  if (step === 1) { startPermissionMonitoring(); }
   if (step === 2) { wizLoadHotkeyInfo(); initFnKeyFeedback(); }
-  if (step === 3) { wizInitTryItStep(); initFnKeyFeedback(); }
+  if (step === 3) { wizInitApiKeyStep(); }
+  if (step === 4) { wizInitTryItStep(); initFnKeyFeedback(); }
 }
 
 function wizUpdateNextButton() {
   const btn = document.getElementById('wizBtnNext');
   switch (_wizardStep) {
-    case 1: btn.disabled = !(_wizardGroqKeyValidated || _wizardApiKeyValidated); break;
-    case 2: btn.disabled = false; break;
-    case 3: btn.disabled = !_wizardMicTested; break;
+    case 1: btn.disabled = false; break;  // Permissions - always allow to proceed
+    case 2: btn.disabled = false; break;  // Hotkeys - always allow to proceed
+    case 3: btn.disabled = !(_wizardGroqKeyValidated || _wizardApiKeyValidated); break;  // API Keys - require validation
+    case 4: btn.disabled = !_wizardMicTested; break;  // Try It - require mic test
   }
 }
 
@@ -1198,20 +1317,25 @@ function wizBack() {
   if (_wizardStep > 1) wizShowStep(_wizardStep - 1);
 }
 
-// ── Step 1: API Key ──────────────────────────────────────────
+// ── Step 3: API Key ──────────────────────────────────────────
 
 let _wizGroqTimer = null;
 let _wizApiTimer = null;
+let _apiKeyListenersAttached = false;
 
-document.addEventListener('DOMContentLoaded', () => {
+function wizInitApiKeyStep() {
+  // Only attach listeners once
+  if (_apiKeyListenersAttached) return;
+  _apiKeyListenersAttached = true;
+
   // ── Groq key input ──
-  const groqInp = document.getElementById('wizGroqKeyInput');
+  const groqInp = document.getElementById('wizGroqKeyInput3');
   if (groqInp) {
     groqInp.addEventListener('input', () => {
       _wizardGroqKeyValidated = false;
       wizUpdateNextButton();
       const val = groqInp.value.trim();
-      const v = document.getElementById('wizGroqValidation');
+      const v = document.getElementById('wizGroqValidation3');
       if (!val) { v.textContent = ''; v.className = 'wizard-validation'; return; }
       if (!val.startsWith('gsk_')) { v.textContent = 'Key should start with gsk_'; v.className = 'wizard-validation error'; return; }
       if (val.length < 20) { v.textContent = 'Key seems too short...'; v.className = 'wizard-validation error'; return; }
@@ -1230,13 +1354,13 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // ── OpenAI key input ──
-  const inp = document.getElementById('wizApiKeyInput');
+  const inp = document.getElementById('wizApiKeyInput3');
   if (inp) {
     inp.addEventListener('input', () => {
       _wizardApiKeyValidated = false;
       wizUpdateNextButton();
       const val = inp.value.trim();
-      const v = document.getElementById('wizApiValidation');
+      const v = document.getElementById('wizApiValidation3');
       if (!val) { v.textContent = ''; v.className = 'wizard-validation'; return; }
       if (!val.startsWith('sk-')) { v.textContent = 'Key should start with sk-'; v.className = 'wizard-validation error'; return; }
       if (val.length < 20) { v.textContent = 'Key seems too short...'; v.className = 'wizard-validation error'; return; }
@@ -1253,10 +1377,10 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
   }
-});
+}
 
 async function wizValidateGroqKey(key) {
-  const v = document.getElementById('wizGroqValidation');
+  const v = document.getElementById('wizGroqValidation3');
   v.textContent = 'Validating with Groq...';
   v.className = 'wizard-validation loading';
   try {
@@ -1279,7 +1403,7 @@ async function wizValidateGroqKey(key) {
 }
 
 async function wizValidateApiKey(key) {
-  const v = document.getElementById('wizApiValidation');
+  const v = document.getElementById('wizApiValidation3');
   v.textContent = 'Validating with OpenAI...';
   v.className = 'wizard-validation loading';
   try {
