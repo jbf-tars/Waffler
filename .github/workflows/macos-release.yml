@@ -41,7 +41,6 @@ jobs:
 
 
       - name: Import code signing certificate
-        if: secrets.DEVELOPER_ID_APPLICATION_CERT != ''
         run: |
           # Create temporary keychain
           security create-keychain -p "${{ secrets.KEYCHAIN_PASSWORD || 'temp123' }}" build.keychain
