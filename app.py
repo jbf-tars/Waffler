@@ -639,6 +639,118 @@ class Api:
             ),
         }
 
+    def check_permissions(self) -> dict:
+        """Check if macOS permissions are granted."""
+        import platform as plat
+        if plat.system() != "Darwin":
+            return {"ok": True, "accessibility": True, "input_monitoring": True}
+
+        try:
+            # Check Accessibility permission using AXIsProcessTrusted
+            accessibility_granted = False
+            try:
+                from ApplicationServices import AXIsProcessTrusted
+                accessibility_granted = AXIsProcessTrusted()
+            except:
+                # Fallback: assume granted if we can't check
+                accessibility_granted = True
+
+            # Check if we can create an event tap (Input Monitoring permission)
+            input_monitoring_granted = False
+            try:
+                from Quartz import CGEventTapCreate, kCGSessionEventTap, kCGHeadInsertEventTap, kCGEventTapOptionDefault, kCGEventFlagsChanged
+
+                def dummy_callback(proxy, type, event, refcon):
+                    return event
+
+                tap = CGEventTapCreate(
+                    kCGSessionEventTap,
+                    kCGHeadInsertEventTap,
+                    kCGEventTapOptionDefault,
+                    1 << kCGEventFlagsChanged,
+                    dummy_callback,
+                    None
+                )
+                input_monitoring_granted = (tap is not None)
+            except:
+                input_monitoring_granted = False
+
+            return {
+                "ok": True,
+                "accessibility": accessibility_granted,
+                "input_monitoring": input_monitoring_granted
+            }
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    def request_permissions(self) -> dict:
+        """Request macOS permissions by attempting to create event tap. This triggers system prompts."""
+        import platform as plat
+        if plat.system() != "Darwin":
+            return {"ok": True, "message": "Permissions not needed on this platform"}
+
+        try:
+            # Import the Fn key monitor which will attempt to create CGEventTap
+            # This triggers the Input Monitoring permission prompt
+            from fn_key_cgevent import FnKeyMonitor
+
+            def dummy_callback():
+                pass
+
+            # Try to create the monitor - this will request permissions
+            monitor = FnKeyMonitor(on_fn_press=dummy_callback, on_fn_release=dummy_callback)
+            monitor.start()
+
+            # Give it a moment to start
+            time.sleep(0.5)
+
+            # Stop it
+            monitor.stop()
+
+            return {
+                "ok": True,
+                "message": "Permission request triggered. Please grant Input Monitoring and Accessibility permissions in System Settings."
+            }
+        except Exception as e:
+            return {
+                "ok": False,
+                "error": f"Failed to request permissions: {str(e)}"
+            }
+
+    def open_accessibility_settings(self) -> dict:
+        """Open System Settings to the Accessibility permission panel."""
+        import platform as plat
+        if plat.system() != "Darwin":
+            return {"ok": True, "message": "Not needed on this platform"}
+
+        try:
+            import subprocess
+            # Open System Settings to Privacy & Security > Accessibility
+            subprocess.run([
+                "open",
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+            ])
+            return {"ok": True, "message": "Opening Accessibility settings"}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    def open_input_monitoring_settings(self) -> dict:
+        """Open System Settings to the Input Monitoring permission panel."""
+        import platform as plat
+        if plat.system() != "Darwin":
+            return {"ok": True, "message": "Not needed on this platform"}
+
+        try:
+            import subprocess
+            # Open System Settings to Privacy & Security > Input Monitoring
+            subprocess.run([
+                "open",
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent"
+            ])
+            return {"ok": True, "message": "Opening Input Monitoring settings"}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
     # ── Hotkey Config APIs ───────────────────────────────────────────────
 
     def get_hotkey_config(self) -> dict:
