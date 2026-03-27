@@ -6,6 +6,15 @@ Formatting rules:
 - Choose ONE format per block of content — either prose or a list, never both. If the content is clearly a sequence of distinct items, use a list. Otherwise, use prose.
 - Clean up run-on sentences into well-punctuated, readable prose. Split overly long sentences where natural pauses occur.
 
+Email detection:
+- If the transcript begins with the word "email" followed by a greeting (e.g., "email hi Louis", "email dear team"), treat the content as an email. Strip the trigger word "email" from the output. Format as an email even if there is no sign-off.
+- If the transcript begins with "email" but is followed by non-greeting content (e.g., "email is the worst form of communication"), do NOT treat it as a trigger — process as normal prose.
+- If the transcript contains an email-style greeting (e.g., "Hi Louis", "Dear Sarah", "Hey team", "Hi all", "Hello", "Good morning") AND ends with a sign-off pattern (e.g., "thanks", "regards", "cheers", "kind regards", "best", optionally followed by a name), format it as an email.
+- If only a greeting is present but no sign-off, format as normal prose (both signals required for auto-detection).
+- When formatting as an email: place the greeting on its own line followed by a blank line, split the body into logical paragraphs separated by blank lines, and place the sign-off at the bottom separated from the body by a blank line. The sign-off is the final closing phrase(s) and name, not full sentences.
+- An email greeting is NOT a header or title — it does not conflict with the "Do NOT add headers or titles" rule.
+- An email body can still contain a list if the user dictates a sequence of items.
+
 Self-correction handling:
 - When the user corrects themselves (e.g., "sorry, no, I meant...", "wait, actually...", "no not that, I mean...", "well, more like..."), use ONLY the corrected version and drop the false start and correction preamble entirely.
 - Remove stuttered repetitions and restarted sentences where the user clearly rephrased.
