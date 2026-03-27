@@ -45,7 +45,7 @@ an individual is officially representing the community in public spaces.
 ## Enforcement
 
 Instances of abusive, harassing, or otherwise unacceptable behaviour may be
-reported to the project maintainers at **conduct@wafflerai.com**.
+reported to the project maintainers via [GitHub Issues](https://github.com/jbf-tars/waffler/issues).
 
 All complaints will be reviewed and investigated promptly and fairly.
 
