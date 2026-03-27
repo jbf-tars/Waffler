@@ -1,14 +1,31 @@
-sounddevice==0.4.6
-numpy==1.26.4
-pyobjc-core==9.2
-pyobjc-framework-Cocoa==9.2
-pyobjc-framework-Quartz==9.2
-pyperclip==1.8.2
-requests>=2.31.0
-pyyaml==6.0.1
-python-dotenv==1.0.1
-openai
-groq
-rumps
+# Waffler — macOS Requirements
+# Install with:  pip install -r requirements.txt
+
+# ── Audio ──────────────────────────────────────────────────────────────
+sounddevice>=0.4.6
+numpy>=1.24.0
+
+# ── OpenAI (transcription + styling) ──────────────────────────────────
+openai>=1.0.0
+
+# ── Groq (fast transcription + styling) ──────────────────────────────
+groq>=0.4.0
+
+# ── Web UI ────────────────────────────────────────────────────────────
 pywebview>=4.0
-pyinstaller
+
+# ── Clipboard ────────────────────────────────────────────────────────
+pyperclip>=1.8.2
+
+# ── Config / utilities ──────────────────────────────────────────────
+pyyaml>=6.0
+python-dotenv>=1.0.0
+requests>=2.31.0
+
+# ── macOS menu bar ───────────────────────────────────────────────────
+rumps>=0.4.0
+
+# ── macOS system frameworks (PyObjC) ────────────────────────────────
+pyobjc-core>=9.0
+pyobjc-framework-Cocoa>=9.0
+pyobjc-framework-Quartz>=9.0

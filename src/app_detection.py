@@ -101,39 +101,7 @@ def _get_active_app_windows() -> dict:
 
 
 def _map_app_to_style(app_name: str) -> dict:
-    """Map application name to suggested prompt style."""
-    app_lower = app_name.lower()
-    
-    # App category mappings
-    CASUAL_APPS = [
-        "slack", "teams", "discord", "whatsapp", "telegram", "signal",
-        "messenger", "messages", "skype", "zoom", "bluejeans", "webex"
-    ]
-    
-    AGENTIC_APPS = [
-        "visual studio code", "vscode", "cursor", "terminal", "iterm",
-        "powershell", "cmd", "git", "github desktop", "figma"
-    ]
-    
-    PROSE_APPS = [
-        "notes", "textedit", "pages", "word", "google docs", "notion",
-        "obsidian", "bear", "simplenote", "typora", "sublime", "atom"
-    ]
-    
-    # Check matches
-    for app in CASUAL_APPS:
-        if app in app_lower:
-            return {"name": app_name, "bundleId": "", "suggested_style": "normal"}
-    
-    for app in AGENTIC_APPS:
-        if app in app_lower:
-            return {"name": app_name, "bundleId": "", "suggested_style": "normal"}
-    
-    for app in PROSE_APPS:
-        if app in app_lower:
-            return {"name": app_name, "bundleId": "", "suggested_style": "normal"}
-    
-    # Default
+    """Map application name to detected app info."""
     return {"name": app_name, "bundleId": "", "suggested_style": "normal"}
 
 

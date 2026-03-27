@@ -92,7 +92,7 @@ def get_default_device_index() -> Optional[int]:
 
 def get_selected_device_index() -> Optional[int]:
     """
-    Return the user-selected device index from ~/.waffler/config.json.
+    Return the user-selected device index from ~/.waffler-hosted/config.json.
     Falls back to the system default.
     """
     try:
@@ -108,7 +108,7 @@ def get_selected_device_index() -> Optional[int]:
 
 def set_selected_device_index(device_index: Optional[int]):
     """
-    Persist the selected device index to ~/.waffler/config.json.
+    Persist the selected device index to ~/.waffler-hosted/config.json.
     Pass None to reset to system default.
     """
     CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)

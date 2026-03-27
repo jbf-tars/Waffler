@@ -42,8 +42,7 @@ echo   Found: %PYTHON_VERSION%
 :: ============================================
 echo.
 echo [2/5] Setting up folders...
-if not exist "%USERPROFILE%\.waffler" mkdir "%USERPROFILE%\.waffler"
-if not exist "%USERPROFILE%\.waffler\recordings" mkdir "%USERPROFILE%\.waffler\recordings"
+if not exist "%USERPROFILE%\.waffler-hosted" mkdir "%USERPROFILE%\.waffler-hosted"
 echo   Done.
 
 :: ============================================

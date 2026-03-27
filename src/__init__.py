@@ -1,3 +1,3 @@
-"""Voice-to-Text Agentic Pipeline"""
+"""Waffler core modules"""
 
 __version__ = "2.1.19"

@@ -29,7 +29,7 @@ if errorlevel 1 (
 echo.
 echo [2/4] Installing dependencies...
 python -m pip install --upgrade pip -q 2>nul
-python -m pip install -q pyinstaller sounddevice numpy pynput pyperclip requests pyyaml python-dotenv openai pywebview pystray Pillow httpx httpcore anyio sniffio certifi h11 idna 2>&1
+python -m pip install -q pyinstaller sounddevice numpy pyperclip requests pyyaml python-dotenv openai pywebview pystray Pillow httpx httpcore anyio sniffio certifi h11 idna 2>&1
 if errorlevel 1 (
     echo WARNING: Some packages may have failed. Continuing...
 )
