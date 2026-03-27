@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.so
+.venv/
+venv/
+
+# Env / secrets
+.env
+*.pem
+*.p12
+*.pfx
+.paperclip-agents.env
+start-claude-paperclip.ps1
+
+# Build artifacts
+build/
+dist/
+dist-installer/
+# Note: .spec files are tracked (needed for Windows/Mac builds)
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Large release bundles (generated)
+Waffler-*.zip
+waffler-source.tar.gz
+
+# Legacy/temp project snapshots
+Waffler-v*-temp/
+dist-windows/
+
+# Test results / temp
+.pytest_cache/
+.mypy_cache/
+*_results*.json
+eval_results*.json
+
+# Agent / internal tooling
+agent-logs/
+.superpowers/
+
+# Node (landing page / docs)
+node_modules/
+
+# Session / local data
+session.json
+*.sqlite

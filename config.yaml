@@ -1,0 +1,22 @@
+# Waffler Configuration
+
+# Hotkey Configuration
+hotkey:
+  key: "fn"  # Fn key — hold to record, Fn+Space for sticky mode
+
+# Audio Configuration
+audio:
+  sample_rate: 16000  # Hz (16kHz is optimal for speech)
+  channels: 1  # Mono
+  dtype: "int16"  # 16-bit audio
+
+# Notification Configuration
+notifications:
+  enabled: true
+  show_preview: true  # Show command preview in notification
+
+# Logging Configuration
+logging:
+  enabled: true
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  log_transcripts: false  # Privacy: don't log transcripts by default
