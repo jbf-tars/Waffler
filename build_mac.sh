@@ -23,7 +23,7 @@ echo "[2/7] Installing dependencies..."
 python3 -m pip install --upgrade pip -q
 python3 -m pip install -q \
     pyinstaller \
-    sounddevice numpy pynput pyperclip \
+    sounddevice numpy pyperclip \
     requests pyyaml python-dotenv \
     openai groq \
     httpx httpcore anyio sniffio \
