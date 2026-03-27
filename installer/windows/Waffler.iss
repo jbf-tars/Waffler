@@ -4,7 +4,7 @@
 #define MyAppName "Waffler"
 #define MyAppVersion "2.1.19"
 #define MyAppPublisher "Waffler"
-#define MyAppURL "https://waffler-app.com"
+#define MyAppURL "https://wafflerai.com"
 #define MyAppExeName "Waffler.exe"
 
 [Setup]

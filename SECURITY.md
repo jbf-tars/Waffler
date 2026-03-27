@@ -4,7 +4,7 @@
 
 If you discover a security vulnerability in Waffler, **please do not open a public issue.**
 
-Instead, report it privately by emailing **security@wafflerai.com** (or by using GitHub's [private vulnerability reporting](https://github.com/jbf-tars/waffler/security/advisories/new)).
+Instead, report it privately using GitHub's [private vulnerability reporting](https://github.com/jbf-tars/waffler/security/advisories/new).
 
 Please include:
 - A description of the vulnerability
