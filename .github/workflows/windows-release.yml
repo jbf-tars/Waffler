@@ -1,0 +1,135 @@
+name: Build Windows Installer
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Installer version override (e.g. 1.2.3). Leave blank to auto-detect.'
+        required: false
+        type: string
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements_windows.txt
+          pip install pyinstaller
+
+      - name: Build app (PyInstaller onedir)
+        shell: pwsh
+        run: |
+          pyinstaller --noconfirm --clean --windowed --name Waffler `
+            --icon "icon.ico" `
+            --hidden-import wave `
+            --collect-all pynput `
+            --collect-all requests `
+            --collect-all openai `
+            --collect-all groq `
+            --collect-all pywebview `
+            --collect-all sounddevice `
+            --collect-all yaml `
+            --collect-all dotenv `
+            --collect-all pyperclip `
+            --collect-all pystray `
+            --collect-all PIL `
+            --collect-all keyboard `
+            --add-data "src;src" `
+            --add-data "ui;ui" `
+            --add-data "prompts;prompts" `
+            --add-data "config.yaml;." `
+            --add-data ".env.example;." `
+            --add-data "icon.ico;." `
+            app.py
+
+      - name: Smoke test app startup (no instant crash)
+        shell: pwsh
+        run: |
+          $env:OPENAI_API_KEY = "sk-test"
+          $exe = "dist\Waffler\Waffler.exe"
+          if (-not (Test-Path $exe)) { throw "Built app not found: $exe" }
+
+          $p = Start-Process -FilePath $exe -PassThru
+          Start-Sleep -Seconds 8
+
+          if ($p.HasExited) {
+            throw "Waffler exited too early during smoke test. ExitCode=$($p.ExitCode)"
+          }
+
+          Stop-Process -Id $p.Id -Force
+          Write-Host "Smoke test passed: app stayed alive for 8s"
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup -y
+
+      - name: Set installer version
+        shell: pwsh
+        run: |
+          $issPath = 'installer\windows\Waffler.iss'
+
+          if ($env:GITHUB_REF -like 'refs/tags/v*') {
+            $version = $env:GITHUB_REF_NAME.Substring(1)
+            $source = 'tag'
+          }
+          elseif ('${{ github.event.inputs.version }}') {
+            $version = '${{ github.event.inputs.version }}'
+            $source = 'workflow_dispatch input'
+          }
+          else {
+            $version = "0.0.0-dev.$env:GITHUB_RUN_NUMBER"
+            $source = 'default'
+          }
+
+          if (-not ($version -match '^[0-9A-Za-z][0-9A-Za-z.+-]*$')) {
+            throw "Invalid version string: '$version'"
+          }
+
+          $content = Get-Content -Path $issPath -Raw
+          $newLine = ('#define MyAppVersion "{0}"' -f $version)
+          $updated = [regex]::Replace($content, '^#define\s+MyAppVersion\s+"[^"]*"\s*$', $newLine, [System.Text.RegularExpressions.RegexOptions]::Multiline)
+
+          if ($updated -eq $content) {
+            throw "Could not find '#define MyAppVersion ...' in $issPath"
+          }
+
+          Set-Content -Path $issPath -Value $updated -Encoding utf8
+          Write-Host "Installer version set to '$version' (source: $source)"
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "installer\windows\Waffler.iss"
+
+      - name: Upload installer artifact
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: Waffler-Setup
+          path: installer/windows/dist-installer/*.exe
+
+      - name: Publish release on tag
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          files: installer/windows/dist-installer/*.exe
+          generate_release_notes: true

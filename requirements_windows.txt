@@ -1,0 +1,38 @@
+# Waffler — Windows Requirements
+# Install with:  pip install -r requirements_windows.txt
+#
+# Packages excluded vs macOS version:
+#   pyobjc-core / pyobjc-framework-* — macOS-only (Objective-C bridge)
+#   rumps                            — macOS menu-bar library
+#
+# tkinter is NOT listed here because it ships built-in with the
+# standard Python Windows installer (python.org).
+
+# ── Audio ──────────────────────────────────────────────────────────────
+sounddevice>=0.4.6
+numpy>=1.24.0
+
+# ── Hotkey listener ───────────────────────────────────────────────────
+pynput>=1.7.6
+keyboard>=0.13.5
+
+# ── OpenAI (transcription + styling) ──────────────────────────────────
+openai>=1.0.0
+
+# ── Groq (fast transcription + styling) ──────────────────────────────
+groq>=0.4.0
+
+# ── Web UI (uses Edge WebView2 on Windows 11, built-in) ───────────────
+pywebview>=4.4.0
+
+# ── Clipboard ──────────────────────────────────────────────────────────
+pyperclip>=1.8.2
+
+# ── Config / utilities ────────────────────────────────────────────────
+pyyaml>=6.0
+python-dotenv>=1.0.0
+requests>=2.31.0
+
+# ── System Tray (Windows) ──────────────────────────────────────────────
+pystray>=0.19.5
+Pillow>=10.0.0
