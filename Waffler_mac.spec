@@ -23,17 +23,8 @@ a = Analysis(
         ('src', 'src'),
         ('config.yaml', '.'),
         ('.env.example', '.'),
-        ('menubar_icon_template.png', '.'),
     ],
     hiddenimports=[
-        # ── Core dependencies ──
-        'pynput',
-        'pynput.keyboard',
-        'pynput.keyboard._darwin',
-        'pynput._util',
-        'pynput._util.darwin',
-        'pynput.mouse',
-        'pynput.mouse._darwin',
         # ── Audio ──
         'sounddevice',
         'numpy',
@@ -88,23 +79,6 @@ a = Analysis(
         'tempfile',
         'subprocess',
         'webbrowser',
-        # ── Deepgram (optional) ──
-        'deepgram',
-        # ── Supabase Auth ──
-        'supabase',
-        'supabase._sync.client',
-        'waffler_auth',
-        'postgrest',
-        'storage3',
-        'realtime',
-        'gotrue',
-        'gotrue._sync.gotrue_client',
-        'pyjwt',
-        'jwt',
-        # ── Groq ──
-        'groq',
-        'groq.resources',
-        'groq._client',
     ],
     hookspath=[],
     hooksconfig={},

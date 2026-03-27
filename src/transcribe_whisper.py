@@ -54,8 +54,8 @@ if _USE_LOCAL:
             print("   Run: pip install faster-whisper")
 
 
-VOCAB_FILE    = Path.home() / ".waffler" / "vocab.json"
-SETTINGS_FILE = Path.home() / ".waffler" / "settings.json"
+VOCAB_FILE    = Path.home() / ".waffler-hosted" / "vocab.json"
+SETTINGS_FILE = Path.home() / ".waffler-hosted" / "settings.json"
 
 
 def load_vocab() -> list[str]:

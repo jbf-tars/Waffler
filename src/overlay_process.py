@@ -359,8 +359,6 @@ class WaffleView(NSView):
         stop_dist2 = (x - BTN_STOP_CX) ** 2 + (y - BTN_STOP_CY) ** 2
 
         if cancel_dist2 <= BTN_HIT_R2:
-            sys.stderr.write(f"[DEBUG] X button clicked at x={x}, y={y}, emitting cancel_request\n")
-            sys.stderr.flush()
             emit("cancel_request")  # Show dialog like Windows
         # Stop button — bottom-right circle (process recording)
         elif stop_dist2 <= BTN_HIT_R2:
@@ -708,15 +706,11 @@ def _dispatch_cmd(cmd):
             _g_view.setTargets_(_targets)
 
     elif ctype == "show_toast":
-        sys.stderr.write(f"[DEBUG] Received show_toast: style={cmd.get('style')}, heading={cmd.get('heading')}\n")
-        sys.stderr.flush()
         _show_toast(
             style=cmd.get("style", "error"),
             heading=cmd.get("heading", ""),
             body=cmd.get("body", ""),
         )
-        sys.stderr.write(f"[DEBUG] Toast display completed\n")
-        sys.stderr.flush()
 
     elif ctype == "hide_toast":
         _hide_toast()

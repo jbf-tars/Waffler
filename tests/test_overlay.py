@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 
 # Add src directory to path
-src_dir = Path(__file__).parent / "src"
+src_dir = Path(__file__).parent.parent / "src"
 sys.path.insert(0, str(src_dir))
 
 print("=" * 60)
@@ -114,7 +114,7 @@ except Exception as e:
 finally:
     try:
         overlay.stop()
-    except:
+    except Exception:
         pass
 
 print()

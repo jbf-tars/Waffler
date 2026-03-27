@@ -57,7 +57,7 @@ if not exist ".env" (
     (
     echo # Waffler Configuration
     echo OPENAI_API_KEY=your_openai_api_key_here
-    echo PROMPT_STYLE=smart
+    echo PROMPT_STYLE=normal
     ) > .env
     echo   Created .env template
 ) else (

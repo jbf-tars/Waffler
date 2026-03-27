@@ -39,7 +39,7 @@ if not exist ".env" (
         echo # Waffler Configuration
         echo # Add your OpenAI API key below (get one at https://platform.openai.com/api-keys)
         echo OPENAI_API_KEY=
-        echo PROMPT_STYLE=smart
+        echo PROMPT_STYLE=normal
     ) > .env
     echo.
     echo NOTE: Please edit .env and add your OpenAI API key.
