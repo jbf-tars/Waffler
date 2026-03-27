@@ -25,7 +25,7 @@ def get_active_app() -> dict:
     elif system == "Windows":
         return _get_active_app_windows()
     else:
-        return {"name": "Unknown", "bundleId": "", "suggested_style": "smart"}
+        return {"name": "Unknown", "bundleId": "", "suggested_style": "normal"}
 
 
 def _get_active_app_macos() -> dict:
@@ -49,7 +49,7 @@ def _get_active_app_macos() -> dict:
         return _map_app_to_style(app_name)
     except Exception as e:
         print(f"[app_detection] macOS error: {e}")
-        return {"name": "Unknown", "bundleId": "", "suggested_style": "smart"}
+        return {"name": "Unknown", "bundleId": "", "suggested_style": "normal"}
 
 
 def _get_active_app_windows() -> dict:
@@ -58,12 +58,12 @@ def _get_active_app_windows() -> dict:
         # Get foreground window handle
         hwnd = ctypes.windll.user32.GetForegroundWindow()
         if not hwnd:
-            return {"name": "Unknown", "bundleId": "", "suggested_style": "smart"}
+            return {"name": "Unknown", "bundleId": "", "suggested_style": "normal"}
         
         # Get window title (process name)
         length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
         if length == 0:
-            return {"name": "Unknown", "bundleId": "", "suggested_style": "smart"}
+            return {"name": "Unknown", "bundleId": "", "suggested_style": "normal"}
         
         buffer = ctypes.create_unicode_buffer(length + 1)
         ctypes.windll.user32.GetWindowTextW(hwnd, buffer, length + 1)
@@ -97,7 +97,7 @@ def _get_active_app_windows() -> dict:
         
     except Exception as e:
         print(f"[app_detection] Windows error: {e}")
-        return {"name": "Unknown", "bundleId": "", "suggested_style": "smart"}
+        return {"name": "Unknown", "bundleId": "", "suggested_style": "normal"}
 
 
 def _map_app_to_style(app_name: str) -> dict:
@@ -123,18 +123,18 @@ def _map_app_to_style(app_name: str) -> dict:
     # Check matches
     for app in CASUAL_APPS:
         if app in app_lower:
-            return {"name": app_name, "bundleId": "", "suggested_style": "adhd_ramble"}
+            return {"name": app_name, "bundleId": "", "suggested_style": "normal"}
     
     for app in AGENTIC_APPS:
         if app in app_lower:
-            return {"name": app_name, "bundleId": "", "suggested_style": "agentic_engineering"}
+            return {"name": app_name, "bundleId": "", "suggested_style": "normal"}
     
     for app in PROSE_APPS:
         if app in app_lower:
-            return {"name": app_name, "bundleId": "", "suggested_style": "smart"}
+            return {"name": app_name, "bundleId": "", "suggested_style": "normal"}
     
     # Default
-    return {"name": app_name, "bundleId": "", "suggested_style": "smart"}
+    return {"name": app_name, "bundleId": "", "suggested_style": "normal"}
 
 
 # Test

@@ -124,7 +124,7 @@ class RecordingOverlay:
                         with open(log_file, "a") as f:
                             ts = datetime.now().strftime("%H:%M:%S")
                             f.write(f"{ts}  {msg}\n")
-                    except:
+                    except Exception:
                         pass
 
                 if not hasattr(self, '_restart_attempted'):

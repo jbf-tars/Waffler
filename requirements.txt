@@ -1,6 +1,5 @@
 sounddevice==0.4.6
 numpy==1.26.4
-pynput==1.7.6
 pyobjc-core==9.2
 pyobjc-framework-Cocoa==9.2
 pyobjc-framework-Quartz==9.2

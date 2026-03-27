@@ -1,4 +1,4 @@
-#!/opt/homebrew/bin/python3.12
+#!/usr/bin/env python3
 """
 Waffler — macOS Desktop UI
 Entry point: pywebview window + background hotkey/pipeline thread
