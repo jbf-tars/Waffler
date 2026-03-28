@@ -1093,8 +1093,12 @@ class Api:
         """Check if Accessibility permission is granted"""
         try:
             from ApplicationServices import AXIsProcessTrusted
-            return AXIsProcessTrusted()
+            result = AXIsProcessTrusted()
+            _log_to_file(f"[DEBUG] AXIsProcessTrusted() returned: {result}")
+            _log_to_file(f"[DEBUG] App bundle path: {os.path.abspath(__file__)}")
+            return result
         except Exception as e:
+            _log_to_file(f"[ERROR] Accessibility check failed: {e}")
             print(f"Error checking accessibility permission: {e}")
             return False
 
