@@ -1590,7 +1590,10 @@ class WafflerPipeline:
                 return
 
             # Transcribe
+            _t0 = time.time()
             transcript = self.transcriber.transcribe_sync(audio_bytes)
+            _t_transcribe = (time.time() - _t0) * 1000
+            _log_to_file(f"[pipeline] transcription: {_t_transcribe:.0f}ms")
             if not transcript:
                 _log_to_file("Empty transcription result")
                 threading.Thread(target=self._show_no_audio_toast, daemon=True).start()
@@ -1617,7 +1620,10 @@ class WafflerPipeline:
                 record_usage("whisper", duration_seconds=whisper_duration,
                              provider=whisper_provider)
             # Style
+            _t1 = time.time()
             styled, gpt_usage = self.styler.style(transcript)
+            _t_style = (time.time() - _t1) * 1000
+            _log_to_file(f"[pipeline] styling ({gpt_usage.get('provider', 'local')}): {_t_style:.0f}ms")
             if not styled:
                 styled = transcript
 
@@ -1640,6 +1646,7 @@ class WafflerPipeline:
                 return
 
             # Copy to clipboard
+            _t2 = time.time()
             self.clipboard.copy(styled)
 
             # Check cancellation before auto-paste
@@ -1658,6 +1665,9 @@ class WafflerPipeline:
                 pass
             if stored.get("auto_paste", True):
                 self.clipboard.auto_paste(self._prev_window)
+            _t_paste = (time.time() - _t2) * 1000
+            _log_to_file(f"[pipeline] clipboard+paste: {_t_paste:.0f}ms")
+            _log_to_file(f"[pipeline] TOTAL: {_t_transcribe + _t_style + _t_paste:.0f}ms")
 
             # Check cancellation before saving to history
             if _is_cancelled():
