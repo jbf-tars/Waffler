@@ -329,20 +329,22 @@ class RecordingOverlay:
         env = os.environ.copy()
 
         if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
-            # PyInstaller extracts bundled files to sys._MEIPASS temp directory
-            # Add this to PYTHONPATH so subprocess can import bundled PyObjC
             meipass = sys._MEIPASS
             log(f"[overlay] App is frozen, MEIPASS={meipass}")
 
-            # Add MEIPASS to PYTHONPATH so subprocess finds bundled libraries
-            pythonpath = env.get('PYTHONPATH', '')
-            if pythonpath:
-                sep = ";" if _PLATFORM == "Windows" else ":"
-                env['PYTHONPATH'] = f"{meipass}{sep}{pythonpath}"
+            if _PLATFORM != "Windows":
+                # macOS only: add MEIPASS to PYTHONPATH so subprocess finds bundled PyObjC.
+                # On Windows, the overlay uses system Python's own tkinter — setting
+                # PYTHONPATH to the bundle causes a DLL version conflict (_tkinter.pyd
+                # built for a different Python version).
+                pythonpath = env.get('PYTHONPATH', '')
+                if pythonpath:
+                    env['PYTHONPATH'] = f"{meipass}:{pythonpath}"
+                else:
+                    env['PYTHONPATH'] = meipass
+                log(f"[overlay] Set PYTHONPATH={env['PYTHONPATH']}")
             else:
-                env['PYTHONPATH'] = meipass
-
-            log(f"[overlay] Set PYTHONPATH={env['PYTHONPATH']}")
+                log("[overlay] Windows: skipping PYTHONPATH (using system tkinter)")
 
         try:
             self._process = subprocess.Popen(
