@@ -143,69 +143,19 @@ async function openInputMonitoringSettings() {
   }
 }
 
+// Permission checking disabled - just let users click through
 async function checkPermissions() {
-  if (!window.pywebview || !window.pywebview.api) return;
-
-  try {
-    const result = await pywebview.api.check_permissions();
-
-    // DEBUG: Log what we got from backend
-    console.log('Permission check result:', {
-      accessibility_granted: result.accessibility_granted,
-      input_monitoring_granted: result.input_monitoring_granted
-    });
-
-    // DEBUG: Show on page
-    const debugInfo = document.getElementById('debugInfo');
-    if (debugInfo) {
-      debugInfo.innerHTML = `
-        accessibility_granted: <strong style="color: ${result.accessibility_granted ? '#0f0' : '#f00'}">${result.accessibility_granted}</strong><br>
-        input_monitoring_granted: <strong style="color: ${result.input_monitoring_granted ? '#0f0' : '#f00'}">${result.input_monitoring_granted}</strong>
-      `;
-    }
-
-    if (result.ok) {
-      // Update Accessibility UI
-      updatePermissionUI('accessibility', result.accessibility_granted);
-
-      // Update Input Monitoring UI
-      updatePermissionUI('inputMonitoring', result.input_monitoring_granted);
-
-      // Enable/disable Next button
-      const nextBtn = document.getElementById('wizBtnNext');
-      if (nextBtn) {
-        nextBtn.disabled = !(result.accessibility_granted && result.input_monitoring_granted);
-      }
-
-      // If both granted, show success and auto-advance
-      if (result.accessibility_granted && result.input_monitoring_granted) {
-        showToast("All permissions granted! ✅", "success");
-        // Auto-advance to next step after a short delay
-        setTimeout(() => {
-          wizNext();
-        }, 1500);
-      }
-    }
-  } catch (e) {
-    console.error("checkPermissions error:", e);
-  }
+  // No automatic checking - users will manually grant permissions
+  return;
 }
 
-// Auto-check permissions when step 1 loads
-let _permissionCheckInterval = null;
+// Permission monitoring disabled
 function startPermissionMonitoring() {
-  // Check immediately
-  checkPermissions();
-  // Then check every 2 seconds
-  if (_permissionCheckInterval) clearInterval(_permissionCheckInterval);
-  _permissionCheckInterval = setInterval(checkPermissions, 2000);
+  // Disabled - no automatic checking
 }
 
 function stopPermissionMonitoring() {
-  if (_permissionCheckInterval) {
-    clearInterval(_permissionCheckInterval);
-    _permissionCheckInterval = null;
-  }
+  // Disabled
 }
 
 function updatePermissionUI(permissionType, isGranted) {
@@ -1360,8 +1310,8 @@ function wizShowStep(step) {
 function wizUpdateNextButton() {
   const btn = document.getElementById('wizBtnNext');
   switch (_wizardStep) {
-    case 1: btn.disabled = false; break;  // Permissions - always allow to proceed
-    case 2: btn.disabled = false; break;  // Hotkeys - always allow to proceed
+    case 1: btn.disabled = false; break;  // Permissions - always allow
+    case 2: btn.disabled = false; break;  // Hotkeys - always allow
     case 3: btn.disabled = !(_wizardGroqKeyValidated || _wizardApiKeyValidated); break;  // API Keys - require validation
     case 4: btn.disabled = !_wizardMicTested; break;  // Try It - require mic test
   }
