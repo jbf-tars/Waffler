@@ -47,6 +47,7 @@ const $dateLabel     = document.getElementById('dateLabel');
 // ── Init ─────────────────────────────────────────────────────────────
 window.addEventListener('pywebviewready', () => {
   checkOnboarding();  // Check if wizard needed or show main app
+  initializeProviderSelection();
   refreshAll();
   loadHotkeyConfig();
   updateDateLabel();
@@ -1474,6 +1475,48 @@ async function wizValidateApiKey(key) {
 function wizToggleVisibility(inputId) {
   const inp = document.getElementById(inputId);
   if (inp) inp.type = inp.type === 'password' ? 'text' : 'password';
+}
+
+// Provider switching for API keys
+function switchProvider(provider) {
+    // Update button states
+    document.querySelectorAll('.pill-button').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.provider === provider);
+    });
+
+    // Update field visibility
+    const groqField = document.getElementById('groqField');
+    const openaiField = document.getElementById('openaiField');
+
+    if (provider === 'groq') {
+        groqField.classList.add('active');
+        openaiField.classList.remove('active');
+    } else if (provider === 'openai') {
+        openaiField.classList.add('active');
+        groqField.classList.remove('active');
+    }
+
+    // Save preference to localStorage
+    localStorage.setItem('preferredProvider', provider);
+}
+
+// Toggle API key visibility
+function toggleKeyVisibility(inputId) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+
+    if (input.type === 'password') {
+        input.type = 'text';
+    } else {
+        input.type = 'password';
+    }
+}
+
+// Initialize provider selection
+function initializeProviderSelection() {
+    // Restore saved preference or default to Groq
+    const savedProvider = localStorage.getItem('preferredProvider') || 'groq';
+    switchProvider(savedProvider);
 }
 
 // ── Step 2: Permissions ──────────────────────────────────────
