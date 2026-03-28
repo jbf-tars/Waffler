@@ -1533,12 +1533,14 @@ html, body {
 .wizard-container {
   width: 100%;
   max-width: 800px;
-  padding: 28px 44px 32px;
+  padding: 20px 40px 24px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 20px;
+  gap: 16px;
   transition: max-width 0.3s ease;
+  max-height: 90vh;
+  overflow-y: auto;
 }
 
 .wizard-container.wide {
@@ -1577,7 +1579,7 @@ html, body {
 }
 
 .wizard-title {
-  font-size: 30px;
+  font-size: 26px;
   font-weight: 700;
   color: var(--text-primary);
   letter-spacing: -0.5px;
@@ -1663,14 +1665,14 @@ html, body {
   background: var(--bg-card);
   border: 1px solid var(--border-soft);
   border-radius: var(--radius-lg);
-  padding: 24px 32px;
+  padding: 20px 28px;
   text-align: center;
   width: 100%;
 }
 
 .wizard-card-icon {
-  font-size: 36px;
-  margin-bottom: 8px;
+  font-size: 32px;
+  margin-bottom: 6px;
 }
 
 .wizard-card h2 {
@@ -2723,7 +2725,7 @@ html, body {
     background: rgba(255, 255, 255, 0.05);
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 12px;
-    padding: 24px 20px;
+    padding: 18px 16px;
     text-align: center;
     transition: all 0.3s ease;
 }
