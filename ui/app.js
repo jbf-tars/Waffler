@@ -149,6 +149,12 @@ async function checkPermissions() {
   try {
     const result = await pywebview.api.check_permissions();
 
+    // DEBUG: Log what we got from backend
+    console.log('Permission check result:', {
+      accessibility_granted: result.accessibility_granted,
+      input_monitoring_granted: result.input_monitoring_granted
+    });
+
     if (result.ok) {
       // Update Accessibility UI
       updatePermissionUI('accessibility', result.accessibility_granted);
