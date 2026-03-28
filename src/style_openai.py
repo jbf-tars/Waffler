@@ -109,7 +109,20 @@ Transcript: {transcript}"""
             try:
                 return self._style_groq(prompt, start_time)
             except Exception as e:
+                import traceback
+                err_detail = traceback.format_exc()
                 print(f"Groq styling failed ({e}), falling back to OpenAI")
+                # Log the error to file so it's not silently swallowed
+                from pathlib import Path
+                from datetime import datetime
+                try:
+                    log_file = Path.home() / ".waffler-hosted" / "app.log"
+                    with open(log_file, "a") as f:
+                        ts = datetime.now().strftime("%H:%M:%S")
+                        f.write(f"{ts}  [styling] Groq FAILED: {e}\n")
+                        f.write(f"{ts}  [styling] {err_detail}\n")
+                except Exception:
+                    pass
                 if not self.client:
                     return self._basic_clean(transcript), {"input_tokens": 0, "output_tokens": 0, "api_used": False}
 
