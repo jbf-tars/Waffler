@@ -57,7 +57,10 @@ class RecordingOverlay:
         self._visible   = False
 
         # Resolve the subprocess script path
-        self._script = Path(__file__).parent / _OVERLAY_SCRIPT_NAME
+        if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+            self._script = Path(sys._MEIPASS) / "src" / _OVERLAY_SCRIPT_NAME
+        else:
+            self._script = Path(__file__).parent / _OVERLAY_SCRIPT_NAME
 
     # ── Public API ────────────────────────────────────────────────────
 
@@ -334,7 +337,8 @@ class RecordingOverlay:
             # Add MEIPASS to PYTHONPATH so subprocess finds bundled libraries
             pythonpath = env.get('PYTHONPATH', '')
             if pythonpath:
-                env['PYTHONPATH'] = f"{meipass}:{pythonpath}"
+                sep = ";" if _PLATFORM == "Windows" else ":"
+                env['PYTHONPATH'] = f"{meipass}{sep}{pythonpath}"
             else:
                 env['PYTHONPATH'] = meipass
 
