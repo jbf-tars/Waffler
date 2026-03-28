@@ -46,6 +46,7 @@ const $dateLabel     = document.getElementById('dateLabel');
 
 // ── Init ─────────────────────────────────────────────────────────────
 window.addEventListener('pywebviewready', () => {
+  checkOnboarding();  // Check if wizard needed or show main app
   refreshAll();
   loadHotkeyConfig();
   updateDateLabel();
@@ -61,7 +62,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const el = document.getElementById(id);
     if (el) el.addEventListener('keydown', e => { if (e.key === 'Enter') submitAuth(); });
   });
-  setTimeout(refreshAll, 300);
+  setTimeout(() => {
+    checkOnboarding();  // Fallback check if pywebviewready hasn't fired
+    refreshAll();
+  }, 300);
 });
 
 function updateDateLabel() {
