@@ -1999,6 +1999,7 @@ def main():
         js_api=api,
         frameless=False,
         easy_drag=False,
+        private_mode=False,  # Disable private mode (may reduce permission requests)
     )
 
     set_window(window)
