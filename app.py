@@ -789,23 +789,17 @@ class Api:
 
     def check_permissions(self) -> dict:
         """Enhanced permission checking with detailed feedback."""
-        permissions_mgr = PermissionsManager()
-        status_summary = permissions_mgr.get_permission_status_summary()
+        # Use direct checks instead of PermissionsManager (more reliable)
+        accessibility = self.check_accessibility_permission()
+        input_monitoring = self.check_input_monitoring_permission()
 
-        # Convert to legacy format for backward compatibility
         result = {
-            "ok": True,  # Add ok field for JavaScript compatibility
-            "platform": permissions_mgr.platform,
-            "mic_granted": status_summary["permissions"].get("microphone", {}).get("granted", False),
-            "accessibility_granted": status_summary["permissions"].get("accessibility", {}).get("granted", False),
-            "mic_error": status_summary["permissions"].get("microphone", {}).get("error"),
-            "accessibility_error": status_summary["permissions"].get("accessibility", {}).get("error"),
-            "input_monitoring_granted": status_summary["permissions"].get("input_monitoring", {}).get("granted", False),
-            "input_monitoring_error": status_summary["permissions"].get("input_monitoring", {}).get("error"),
-            # Enhanced information
-            "status_summary": status_summary,
-            "all_granted": status_summary["all_granted"],
-            "recommendations": status_summary["recommendations"]
+            "ok": True,
+            "platform": "Darwin" if sys.platform == "darwin" else sys.platform,
+            "accessibility_granted": accessibility,
+            "input_monitoring_granted": input_monitoring,
+            "mic_granted": False,  # Not checked in wizard
+            "all_granted": accessibility and input_monitoring,
         }
 
         return result
