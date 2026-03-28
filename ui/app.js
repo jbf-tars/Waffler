@@ -155,6 +155,15 @@ async function checkPermissions() {
       input_monitoring_granted: result.input_monitoring_granted
     });
 
+    // DEBUG: Show on page
+    const debugInfo = document.getElementById('debugInfo');
+    if (debugInfo) {
+      debugInfo.innerHTML = `
+        accessibility_granted: <strong style="color: ${result.accessibility_granted ? '#0f0' : '#f00'}">${result.accessibility_granted}</strong><br>
+        input_monitoring_granted: <strong style="color: ${result.input_monitoring_granted ? '#0f0' : '#f00'}">${result.input_monitoring_granted}</strong>
+      `;
+    }
+
     if (result.ok) {
       // Update Accessibility UI
       updatePermissionUI('accessibility', result.accessibility_granted);
