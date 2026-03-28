@@ -440,10 +440,29 @@ function makeCard(item, isNew) {
     </div>
     <div class="card-text styled" id="text-${item.timestamp}">${escHtml(displayText)}</div>
     <div class="card-actions">
-      <button class="btn-copy" onclick="copyText(this, '${encodeText(displayText)}')">📋 Copy</button>
-      ${hasStyled ? `<span class="text-toggle" onclick="toggleRaw(this, '${item.timestamp}', '${encodeText(rawText)}', '${encodeText(displayText)}')">Show original</span>` : ''}
+      <button class="btn-copy" data-text="${escHtml(displayText)}">📋 Copy</button>
+      ${hasStyled ? `<span class="text-toggle" data-timestamp="${item.timestamp}" data-raw="${escHtml(rawText)}" data-styled="${escHtml(displayText)}">Show original</span>` : ''}
     </div>
   `;
+
+  // Attach event listeners to the buttons
+  const copyBtn = div.querySelector('.btn-copy');
+  if (copyBtn) {
+    copyBtn.addEventListener('click', function() {
+      const text = this.getAttribute('data-text');
+      copyItem(text, this);
+    });
+  }
+
+  const toggleBtn = div.querySelector('.text-toggle');
+  if (toggleBtn && hasStyled) {
+    toggleBtn.addEventListener('click', function() {
+      const ts = this.getAttribute('data-timestamp');
+      const rawText = this.getAttribute('data-raw');
+      const styledText = this.getAttribute('data-styled');
+      toggleRawHandler(this, ts, rawText, styledText);
+    });
+  }
 
   if (isNew) {
     setTimeout(() => div.classList.remove('new'), 3000);
@@ -452,20 +471,15 @@ function makeCard(item, isNew) {
   return div;
 }
 
-function copyText(btn, encoded) {
-  const text = decodeText(encoded);
-  copyItem(text, btn);
-}
-
-function toggleRaw(toggleEl, ts, rawEncoded, styledEncoded) {
+function toggleRawHandler(toggleEl, ts, rawText, styledText) {
   const textEl = document.getElementById(`text-${ts}`);
   const showingStyled = textEl.classList.contains('styled');
   if (showingStyled) {
-    textEl.textContent = decodeText(rawEncoded);
+    textEl.textContent = rawText;
     textEl.classList.replace('styled', 'raw');
     toggleEl.textContent = 'Show clean';
   } else {
-    textEl.textContent = decodeText(styledEncoded);
+    textEl.textContent = styledText;
     textEl.classList.replace('raw', 'styled');
     toggleEl.textContent = 'Show original';
   }

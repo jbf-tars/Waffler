@@ -1359,6 +1359,7 @@ class WafflerPipeline:
         self.is_recording = False
         self._is_paused = False
         self._recording_session = 0  # incremented each press; guards _show_no_audio_toast
+        self._recording_start_time = None  # Track when recording started
 
         # Floating recording overlay
         self.overlay = RecordingOverlay(
@@ -1446,6 +1447,9 @@ class WafflerPipeline:
         _log_to_file("Recording started")
         self._recording_session += 1
         self.is_recording = True
+        # Track recording start time for duration checks
+        import time
+        self._recording_start_time = time.time()
         # Clear any previous cancellation state
         with self._processing_lock:
             self._processing_cancelled.clear()
@@ -1537,6 +1541,11 @@ class WafflerPipeline:
             return False
 
         try:
+            # Calculate recording duration for error suppression
+            import time
+            recording_duration = time.time() - self._recording_start_time if self._recording_start_time else 0
+            _log_to_file(f"Recording duration: {recording_duration:.2f}s")
+
             # Early abort if already cancelled
             if _is_cancelled():
                 _log_to_file(f"Processing {processing_id} aborted: cancelled before start")
@@ -1546,15 +1555,17 @@ class WafflerPipeline:
             audio_bytes = self.audio.stop()
             if not audio_bytes:
                 _log_to_file("No audio bytes captured")
-                threading.Thread(target=self._show_no_audio_toast, daemon=True).start()
+                # Only show error toast if recording was held for > 1 second
+                if recording_duration >= 1.0:
+                    threading.Thread(target=self._show_no_audio_toast, daemon=True).start()
                 notify_js_status("idle")
                 return
 
-            # Check minimum duration — < 0.5s is likely accidental
+            # Check minimum duration — < 1s is likely accidental (quick tap)
             # Audio is 16kHz 16-bit mono = 32000 bytes/sec + 44 byte WAV header
-            if len(audio_bytes) < 16044:
-                _log_to_file(f"Recording too short ({len(audio_bytes)} bytes), treating as accidental")
-                threading.Thread(target=self._show_no_audio_toast, daemon=True).start()
+            if len(audio_bytes) < 16044 + 16000:  # 1 second + header
+                _log_to_file(f"Recording too short ({len(audio_bytes)} bytes), treating as accidental tap")
+                # No error toast for quick taps - silently discard
                 notify_js_status("idle")
                 return
 
@@ -1576,8 +1587,13 @@ class WafflerPipeline:
                         break
                 if is_silent:
                     overall_rms = float(np.sqrt(np.mean(audio_arr ** 2)))
-                    _log_to_file(f"Audio too quiet (overall RMS={overall_rms:.0f}, no window >= 30), showing toast")
-                    threading.Thread(target=self._show_no_audio_toast, daemon=True).start()
+                    _log_to_file(f"Audio too quiet (overall RMS={overall_rms:.0f}, no window >= 30)")
+                    # Only show error toast if recording was held for > 1 second
+                    if recording_duration >= 1.0:
+                        _log_to_file("Showing 'couldn't hear you' toast")
+                        threading.Thread(target=self._show_no_audio_toast, daemon=True).start()
+                    else:
+                        _log_to_file("Suppressing error toast (quick tap)")
                     notify_js_status("idle")
                     return
             except Exception:
@@ -1596,7 +1612,12 @@ class WafflerPipeline:
             _log_to_file(f"[pipeline] transcription: {_t_transcribe:.0f}ms")
             if not transcript:
                 _log_to_file("Empty transcription result")
-                threading.Thread(target=self._show_no_audio_toast, daemon=True).start()
+                # Only show error toast if recording was held for > 1 second
+                if recording_duration >= 1.0:
+                    _log_to_file("Showing 'couldn't hear you' toast")
+                    threading.Thread(target=self._show_no_audio_toast, daemon=True).start()
+                else:
+                    _log_to_file("Suppressing error toast (quick tap)")
                 notify_js_status("idle")
                 return
 
