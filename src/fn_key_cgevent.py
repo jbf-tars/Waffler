@@ -4,15 +4,19 @@ Works without crashing - no pynput needed
 """
 
 import threading
+import os
 from Quartz import (
     CGEventTapCreate,
     CGEventTapEnable,
+    CGEventCreateCopy,
+    CGEventSetFlags,
     kCGEventFlagsChanged,
     kCGEventKeyDown,
     kCGEventKeyUp,
     kCGEventTapOptionDefault,
     kCGHeadInsertEventTap,
     kCGSessionEventTap,
+    kCGAnnotatedSessionEventTap,
     CFRunLoopAddSource,
     CFRunLoopGetCurrent,
     CFRunLoopRun,
@@ -54,13 +58,27 @@ class FnKeyMonitor:
                     if is_fn_pressed and not self._fn_pressed:
                         self._fn_pressed = True
                         threading.Thread(target=self._on_fn_press, daemon=True).start()
-                        # Suppress Fn key event to prevent ABC/keyboard selector popup
-                        return None
+                        # Try stripping Fn flag instead of suppressing completely
+                        # This might prevent the language switcher popup
+                        try:
+                            modified_event = CGEventCreateCopy(event)
+                            new_flags = flags & ~fn_flag  # Remove Fn flag
+                            CGEventSetFlags(modified_event, new_flags)
+                            return modified_event
+                        except:
+                            # Fallback to suppression if flag manipulation fails
+                            return None
                     elif not is_fn_pressed and self._fn_pressed:
                         self._fn_pressed = False
                         threading.Thread(target=self._on_fn_release, daemon=True).start()
-                        # Suppress Fn key release too
-                        return None
+                        # Strip Fn flag on release too
+                        try:
+                            modified_event = CGEventCreateCopy(event)
+                            new_flags = flags & ~fn_flag
+                            CGEventSetFlags(modified_event, new_flags)
+                            return modified_event
+                        except:
+                            return None
 
             # Check for Space key press
             elif event_type == kCGEventKeyDown:
@@ -97,9 +115,16 @@ class FnKeyMonitor:
             # Create event mask for flags changed, key down, and key up events
             event_mask = (1 << kCGEventFlagsChanged) | (1 << kCGEventKeyDown) | (1 << kCGEventKeyUp)
 
+            # Try kCGAnnotatedSessionEventTap first (higher priority, might bypass system popups)
+            # Falls back to kCGSessionEventTap if not available
+            try:
+                tap_location = kCGAnnotatedSessionEventTap
+            except NameError:
+                tap_location = kCGSessionEventTap
+
             # Create event tap
             self._tap = CGEventTapCreate(
-                kCGSessionEventTap,
+                tap_location,
                 kCGHeadInsertEventTap,
                 kCGEventTapOptionDefault,
                 event_mask,
