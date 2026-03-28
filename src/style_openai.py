@@ -150,6 +150,8 @@ Transcript: {transcript}"""
             temperature=0.3,
         )
         styled = response.choices[0].message.content.strip()
+        # Fix mid-sentence capitalization bug
+        styled = self._fix_mid_sentence_caps(styled)
         latency = (time.time() - start_time) * 1000
         usage = response.usage
         return styled, {
@@ -172,6 +174,8 @@ Transcript: {transcript}"""
                 temperature=0.3,
             )
             styled = response.choices[0].message.content.strip()
+            # Fix mid-sentence capitalization bug
+            styled = self._fix_mid_sentence_caps(styled)
             usage = response.usage
             return styled, {
                 "input_tokens": usage.prompt_tokens if usage else 0,
@@ -182,6 +186,48 @@ Transcript: {transcript}"""
         except Exception as e:
             print(f"GPT styling error: {e}")
             return self._basic_clean(transcript), {"input_tokens": 0, "output_tokens": 0, "api_used": False}
+
+    def _fix_mid_sentence_caps(self, text: str) -> str:
+        """Fix incorrectly capitalized words mid-sentence.
+
+        The LLM sometimes capitalizes words as if starting new sentences
+        but doesn't add the period. E.g., "consumed What I mean" → "consumed what I mean"
+
+        Conservative approach: Only lowercase common words that are obviously wrong.
+        Preserve proper nouns, company names, and acronyms.
+        """
+        # Common words that should NEVER be capitalized mid-sentence
+        # (unless after punctuation or at sentence start)
+        common_words_to_fix = {
+            'What', 'When', 'Where', 'Why', 'Who', 'How', 'Which', 'Whose',
+            'These', 'Those', 'This', 'That', 'Then', 'There', 'Their',
+            'Otherwise', 'However', 'Therefore', 'Moreover', 'Furthermore',
+            'Because', 'Although', 'Though', 'While', 'Since', 'Unless',
+            'The', 'And', 'But', 'Or', 'So', 'Yet', 'For', 'Nor',
+            'Are', 'Was', 'Were', 'Been', 'Being', 'Have', 'Has', 'Had',
+            'Do', 'Does', 'Did', 'Will', 'Would', 'Should', 'Could', 'Can',
+            'May', 'Might', 'Must', 'Shall',
+        }
+
+        def should_lowercase(match):
+            space = match.group(1)
+            capital_word = match.group(2)
+
+            # Only lowercase if it's in our list of common words
+            if capital_word in common_words_to_fix:
+                return space + capital_word.lower()
+
+            # Otherwise, preserve the original (could be a company/proper noun)
+            return match.group(0)
+
+        # Use lookbehind to check for letter/digit before space, without consuming it
+        # This prevents overlapping matches
+        # (?<=[a-zA-Z0-9]) = preceded by letter/digit (not consumed)
+        # (\s+) = whitespace (consumed)
+        # ([A-Z][a-z]+) = Capitalized word (consumed)
+        pattern = r'(?<=[a-zA-Z0-9])(\s+)([A-Z][a-z]+)'
+        fixed = re.sub(pattern, should_lowercase, text)
+        return fixed
 
     def _basic_clean(self, text: str) -> str:
         """Fallback basic cleaning if API fails"""
