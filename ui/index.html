@@ -318,41 +318,38 @@
           Waffler needs two permissions for push-to-talk functionality
         </p>
 
-        <div style="display: flex; flex-direction: column; gap: 16px; margin-bottom: 20px;">
+        <div class="wizard-permission-grid">
           <!-- Accessibility Permission -->
-          <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 20px;">
-            <div style="display: flex; align-items: center; gap: 16px; margin-bottom: 12px;">
-              <div style="font-size: 32px; flex-shrink: 0;">🔑</div>
-              <div style="flex: 1;">
-                <div style="font-weight: 600; font-size: 16px; margin-bottom: 4px;">Accessibility</div>
-                <div style="font-size: 13px; opacity: 0.7;">For hotkey detection and auto-paste</div>
-              </div>
-              <div style="font-size: 12px; opacity: 0.5; white-space: nowrap;" id="accessibilityStatus">Not granted</div>
+          <div class="permission-card" id="accessibilityCard">
+            <div class="permission-badge" id="accessibilityBadge">○</div>
+            <div class="permission-icon">🔑</div>
+            <div class="permission-info">
+              <h3>Accessibility</h3>
+              <p>For hotkey detection and auto-paste</p>
             </div>
-            <button onclick="openAccessibilitySettings()" style="width: 100%; padding: 10px 20px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; color: #fff; font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.2s;">
+            <button class="btn-permission" id="accessibilityBtn" onclick="openAccessibilitySettings()">
               Open System Settings
             </button>
+            <div class="permission-status" id="accessibilityStatus">Not granted</div>
           </div>
 
           <!-- Input Monitoring Permission -->
-          <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 20px;">
-            <div style="display: flex; align-items: center; gap: 16px; margin-bottom: 12px;">
-              <div style="font-size: 32px; flex-shrink: 0;">⌨️</div>
-              <div style="flex: 1;">
-                <div style="font-weight: 600; font-size: 16px; margin-bottom: 4px;">Input Monitoring</div>
-                <div style="font-size: 13px; opacity: 0.7;">For Fn key push-to-talk</div>
-              </div>
-              <div style="font-size: 12px; opacity: 0.5; white-space: nowrap;" id="inputMonitoringStatus">Not granted</div>
+          <div class="permission-card" id="inputMonitoringCard">
+            <div class="permission-badge" id="inputMonitoringBadge">○</div>
+            <div class="permission-icon">⌨️</div>
+            <div class="permission-info">
+              <h3>Input Monitoring</h3>
+              <p>For Fn key push-to-talk</p>
             </div>
-            <button onclick="openInputMonitoringSettings()" style="width: 100%; padding: 10px 20px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; color: #fff; font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.2s;">
+            <button class="btn-permission" id="inputMonitoringBtn" onclick="openInputMonitoringSettings()">
               Open System Settings
             </button>
+            <div class="permission-status" id="inputMonitoringStatus">Not granted</div>
           </div>
         </div>
 
-        <p class="wizard-hint" style="margin-top:20px; text-align: center; font-size: 13px; line-height: 1.6;">
-          Click the buttons above to open System Settings and enable Waffler.<br>
-          The checkmarks will update automatically when permissions are granted.
+        <p class="wizard-hint">
+          Click "Open System Settings" buttons above to grant permissions. The checkmarks will update automatically.
         </p>
       </div>
     </div>
