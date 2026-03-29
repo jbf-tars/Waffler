@@ -47,7 +47,7 @@ class SmartHotkeyListener:
             print("[HOTKEY] → Stopping sticky mode")
             self._sticky = False
             self._recording = False
-            self._fn_held = False
+            self._fn_held = True  # Fn IS pressed right now!
             self._fire_release()
 
         elif not self._recording:
