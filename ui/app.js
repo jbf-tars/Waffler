@@ -1330,7 +1330,7 @@ function wizShowStep(step) {
   // Step-specific initialization
   if (step === 1) {
     // Trigger macOS permission prompts automatically
-    triggerMacOSPermissions();
+    // triggerMacOSPermissions();
   }
   if (step === 2) { wizLoadHotkeyInfo(); initFnKeyFeedback(); }
   if (step === 3) { wizInitApiKeyStep(); }
