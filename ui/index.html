@@ -300,45 +300,37 @@
 
     <!-- Step 1: Permissions -->
     <div class="wizard-step-content" id="wizContent1">
-      <div class="wizard-card" style="max-width: 480px; margin: 0 auto;">
-        <div class="wizard-card-icon" style="font-size: 48px; margin-bottom: 16px;">🔐</div>
+      <div class="wizard-card" style="max-width: 900px; margin: 0 auto;">
+        <div class="wizard-card-icon" style="font-size: 48px; margin-bottom: 12px;">🔐</div>
         <h2 style="margin-bottom: 8px;">Grant Permissions</h2>
-        <p class="wizard-card-desc" style="margin-bottom: 32px; font-size: 15px; opacity: 0.8;">
+        <p class="wizard-card-desc" style="margin-bottom: 24px; font-size: 15px; opacity: 0.8;">
           Waffler needs two permissions for push-to-talk functionality
         </p>
 
         <div class="wizard-permission-grid">
-          <!-- Accessibility Permission -->
-          <div class="permission-card" id="accessibilityCard">
-            <div class="permission-badge" id="accessibilityBadge">○</div>
+          <!-- Accessibility Card -->
+          <div class="permission-card">
             <div class="permission-icon">🔑</div>
-            <div class="permission-info">
-              <h3>Accessibility</h3>
-              <p>For hotkey detection and auto-paste</p>
-            </div>
-            <button class="btn-permission" id="accessibilityBtn" onclick="openAccessibilitySettings()">
+            <h4>Accessibility</h4>
+            <p>For hotkey detection and auto-paste</p>
+            <button class="btn-open-settings" onclick="openAccessibilitySettings()">
               Open System Settings
             </button>
-            <div class="permission-status" id="accessibilityStatus">Not granted</div>
           </div>
 
-          <!-- Input Monitoring Permission -->
-          <div class="permission-card" id="inputMonitoringCard">
-            <div class="permission-badge" id="inputMonitoringBadge">○</div>
+          <!-- Input Monitoring Card -->
+          <div class="permission-card">
             <div class="permission-icon">⌨️</div>
-            <div class="permission-info">
-              <h3>Input Monitoring</h3>
-              <p>For Fn key push-to-talk</p>
-            </div>
-            <button class="btn-permission" id="inputMonitoringBtn" onclick="openInputMonitoringSettings()">
+            <h4>Input Monitoring</h4>
+            <p>For Fn key push-to-talk</p>
+            <button class="btn-open-settings" onclick="openInputMonitoringSettings()">
               Open System Settings
             </button>
-            <div class="permission-status" id="inputMonitoringStatus">Not granted</div>
           </div>
         </div>
 
-        <p class="wizard-hint">
-          Click "Open System Settings" buttons above to grant both permissions, then click Next.
+        <p class="wizard-hint" style="margin-top: 20px;">
+          Click the buttons above to grant permissions, then click Next below
         </p>
       </div>
     </div>
