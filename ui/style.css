@@ -1602,11 +1602,11 @@ html, body {
 .wizard-app-name {
   font-size: 20px;
   font-weight: 600;
-  color: var(--accent-color, #f4a261);
+  color: var(--accent-text);
   margin: 0;
 }
 
-.wizard-step-indicator {
+.wizard-header-compact .wizard-step-indicator {
   font-size: 13px;
   color: #666;
 }
@@ -1627,7 +1627,7 @@ html, body {
 }
 
 .progress-segment.active {
-  background: var(--accent-color, #f4a261);
+  background: var(--accent);
 }
 
 .wizard-title {
