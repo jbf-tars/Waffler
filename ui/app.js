@@ -1304,18 +1304,12 @@ function wizShowStep(step) {
   _wizardStep = step;
   updateWizardProgress(step);
 
+  // Show/hide wizard step content
   for (let i = 1; i <= WIZARD_TOTAL_STEPS; i++) {
-    const ind = document.getElementById('wizStep' + i);
     const con = document.getElementById('wizContent' + i);
-    if (!ind || !con) continue;
-    ind.classList.remove('active', 'done');
-    if (i < step) ind.classList.add('done');
-    if (i === step) ind.classList.add('active');
+    if (!con) continue;
     con.style.display = (i === step) ? 'block' : 'none';
   }
-
-  const connectors = document.querySelectorAll('.wizard-step-connector');
-  connectors.forEach((c, i) => c.classList.toggle('done', i < step - 1));
 
   // Toggle wide container for step 4 (mock app split layout)
   const container = document.querySelector('.wizard-container');
