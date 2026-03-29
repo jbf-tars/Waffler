@@ -2033,6 +2033,30 @@ def _request_input_monitoring_permission():
         _log_to_file(f"⚠️  Could not request Input Monitoring permission: {e}")
 
 
+def _disable_input_source_shortcut():
+    """Disable the macOS input source keyboard shortcut to prevent ABC popup"""
+    try:
+        import subprocess
+        # Disable "Select the previous input source" shortcut
+        # This is the Fn+Space or Ctrl+Space shortcut that shows the ABC popup
+        subprocess.run([
+            "defaults", "write", "com.apple.symbolichotkeys",
+            "AppleSymbolicHotKeys", "-dict-add", "60",
+            "<dict><key>enabled</key><false/></dict>"
+        ], check=False, capture_output=True)
+
+        # Also disable "Select next source in Input menu"
+        subprocess.run([
+            "defaults", "write", "com.apple.symbolichotkeys",
+            "AppleSymbolicHotKeys", "-dict-add", "61",
+            "<dict><key>enabled</key><false/></dict>"
+        ], check=False, capture_output=True)
+
+        _log_to_file("✅ Disabled input source keyboard shortcuts (prevents ABC popup)")
+    except Exception as e:
+        _log_to_file(f"⚠️  Could not disable input source shortcuts: {e}")
+
+
 def main():
     global _config, _window_ref
 
@@ -2052,6 +2076,7 @@ def main():
     # Request Input Monitoring permission for Fn key on Mac
     if _platform.system() == "Darwin":
         _request_input_monitoring_permission()
+        _disable_input_source_shortcut()
 
     # Only auto-initialize pipeline if setup was already completed
     if config.has_api_key and _is_setup_complete():
