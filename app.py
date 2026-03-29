@@ -860,25 +860,9 @@ class Api:
             AXIsProcessTrusted()
             _log_to_file("[INFO] Accessibility permission trigger called")
 
-            # Trigger Input Monitoring permission prompt
-            try:
-                from Quartz import (
-                    CGEventTapCreate,
-                    kCGSessionEventTap,
-                    kCGHeadInsertEventTap,
-                    kCGEventKeyDown,
-                )
-                tap = CGEventTapCreate(
-                    kCGSessionEventTap,
-                    kCGHeadInsertEventTap,
-                    0,  # passive listener
-                    1 << kCGEventKeyDown,
-                    lambda *args: None,
-                    None,
-                )
-                _log_to_file(f"[INFO] Input Monitoring permission trigger called (tap={tap})")
-            except Exception as e:
-                _log_to_file(f"[INFO] Input Monitoring trigger exception: {e}")
+            # Note: Input Monitoring permission will be triggered automatically
+            # when the user first tries to use the Fn key hotkey. No need to
+            # create event taps here as it can interfere with the actual hotkey listener.
 
             return {"ok": True, "platform": "darwin", "triggered": True}
 
