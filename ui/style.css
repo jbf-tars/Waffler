@@ -2762,13 +2762,7 @@ html, body {
     gap: 14px;
     max-width: 850px;
     margin: 8px auto;
-}
-
-@media (max-width: 768px) {
-    .wizard-permission-grid {
-        grid-template-columns: 1fr;
-        max-width: 480px;
-    }
+    width: 100%;
 }
 
 /* Permission Cards */
@@ -2782,93 +2776,48 @@ html, body {
     transition: all 0.3s ease;
 }
 
-.permission-card.granted {
-    background: rgba(16, 185, 129, 0.05);
-    border-color: rgba(16, 185, 129, 0.3);
-}
-
-/* Permission Badges */
-.permission-badge {
-    position: absolute;
-    top: 12px;
-    right: 12px;
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
-    background: rgba(255, 255, 255, 0.1);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 14px;
-    color: rgba(255, 255, 255, 0.5);
-    transition: all 0.3s ease;
-}
-
-.permission-badge.granted {
-    background: #10b981;
-    color: white;
+.permission-card:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.2);
 }
 
 /* Permission Icon & Info */
 .permission-icon {
-    font-size: 36px;
-    margin-bottom: 6px;
+    font-size: 40px;
+    margin-bottom: 12px;
 }
 
-.permission-info h3 {
-    font-size: 15px;
+.permission-card h4 {
+    color: #fff;
+    font-size: 16px;
+    margin: 0 0 8px 0;
     font-weight: 600;
-    margin: 0 0 2px 0;
-    color: rgba(255, 255, 255, 0.95);
 }
 
-.permission-info p {
-    font-size: 12px;
-    margin: 0 0 10px 0;
-    color: rgba(255, 255, 255, 0.6);
-}
-
-/* Permission Button */
-.btn-permission {
-    width: 100%;
-    padding: 7px 14px;
-    background: rgba(234, 179, 8, 0.2);
-    border: 1px solid rgba(234, 179, 8, 0.3);
-    border-radius: 8px;
-    color: rgba(255, 255, 255, 0.9);
+.permission-card p {
+    color: #999;
     font-size: 13px;
-    font-weight: 500;
+    margin: 0 0 16px 0;
+    line-height: 1.4;
+}
+
+/* Open Settings Button (Permission Cards) */
+.btn-open-settings {
+    background: rgba(244, 162, 97, 0.2);
+    color: #f4a261;
+    border: 1px solid #f4a261;
+    padding: 10px 20px;
+    border-radius: 8px;
     cursor: pointer;
-    transition: all 0.3s ease;
-    margin-bottom: 6px;
-}
-
-.btn-permission:hover {
-    background: rgba(234, 179, 8, 0.3);
-    border-color: rgba(234, 179, 8, 0.5);
-}
-
-.btn-permission.granted {
-    background: rgba(16, 185, 129, 0.2);
-    border-color: rgba(16, 185, 129, 0.3);
-    cursor: default;
-}
-
-.btn-permission.granted:hover {
-    background: rgba(16, 185, 129, 0.2);
-    border-color: rgba(16, 185, 129, 0.3);
-}
-
-/* Permission Status */
-.permission-status {
-    font-size: 11px;
-    color: rgba(255, 255, 255, 0.5);
-    transition: all 0.3s ease;
-}
-
-.permission-status.granted {
-    color: #10b981;
+    font-size: 14px;
     font-weight: 600;
+    transition: all 0.2s ease;
+    width: 100%;
+}
+
+.btn-open-settings:hover {
+    background: rgba(244, 162, 97, 0.3);
+    border-color: #f59e6c;
 }
 
 /* Wizard Button Disabled State */
