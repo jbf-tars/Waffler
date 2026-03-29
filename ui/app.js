@@ -1441,6 +1441,12 @@ function wizShowStep(step) {
     // stopPermissionMonitoring();
   }
 
+  // Clean up Step 2 hotkey monitor when leaving step 2
+  if (_wizardStep === 2 && step !== 2) {
+    stopFnKeyPolling();
+    pywebview.api.wizard_cleanup_step2().catch(() => {});
+  }
+
   // Clean up wizard hotkey test when leaving step 3
   if (_wizardStep === 3 && step !== 3 && _wizardHotkeyTestActive) {
     pywebview.api.wizard_stop_hotkey_test().catch(() => {});
@@ -2049,8 +2055,8 @@ async function wizLoadHotkeyInfo() {
   window._fnKeyDetected = false;
 
   try {
-    // Start Fn key detection for this step
-    await pywebview.api.wizard_start_fn_detection();
+    // Start hotkey monitor for Step 2 (provides visual feedback)
+    await pywebview.api.wizard_init_step2();
 
     const info = await pywebview.api.test_hotkey();
     const badge = document.getElementById('wizHotkeyBadge');

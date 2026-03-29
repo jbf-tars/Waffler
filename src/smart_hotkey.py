@@ -55,12 +55,13 @@ class SmartHotkeyListener:
                 suppress=True
             )
 
-            # Monitor for Space key to trigger sticky mode (DON'T suppress - let space pass through!)
+            # Monitor for Space key to trigger sticky mode
+            # ALWAYS suppress, then re-inject when not used for sticky mode control
             self._space_monitor = MacHotkeyMonitor(
                 keys=["space"],
                 on_press=self._on_space_press,
                 on_release=lambda: None,  # Don't care about space release
-                suppress=False  # CRITICAL: Don't block spacebar!
+                suppress=True  # Always suppress, re-inject in callback if needed
             )
 
         print(f"[HOTKEY] SmartHotkeyListener initialized with keys: {self._keys}")
@@ -93,9 +94,13 @@ class SmartHotkeyListener:
         """Called when Space key is pressed - toggles sticky mode"""
         print(f"[HOTKEY] Space pressed | hotkey_held={self._hotkey_held} recording={self._recording} sticky={self._sticky}")
 
+        # Track if we're using Space for sticky mode control
+        space_used_for_control = False
+
         if self._hotkey_held and self._recording and not self._sticky:
             # Fn+Space while recording → enable sticky mode
             self._sticky = True
+            space_used_for_control = True
             print("📌 Fn+Space → Sticky mode ON! Press Fn tap OR Space alone to stop.")
             self._fire_visual_feedback("sticky_on")
         elif self._sticky and self._recording and not self._hotkey_held:
@@ -103,9 +108,16 @@ class SmartHotkeyListener:
             # Universal solution that works on ALL Macs
             self._sticky = False
             self._recording = False
+            space_used_for_control = True
             print("🛑 Space → Sticky mode OFF")
             self._fire_visual_feedback("sticky_off_space")
             self._fire_release()
+
+        # If space was NOT used for sticky mode control, re-inject it
+        # This allows normal typing to continue
+        if not space_used_for_control:
+            self._inject_space_key()
+            print("[HOTKEY] Space not used for control, re-injected")
 
     # ── Callbacks (run in a thread to avoid blocking) ─────────
 
@@ -120,6 +132,21 @@ class SmartHotkeyListener:
         """Send visual feedback to UI (optional, override in RecorderApp if needed)"""
         # This can be overridden by the app to show toast notifications
         pass
+
+    def _inject_space_key(self):
+        """Re-inject a space keypress using CGEventPost (for normal typing)."""
+        try:
+            from Quartz import CGEventPost, CGEventCreateKeyboardEvent, kCGHIDEventTap
+
+            # Space key = keycode 49 on macOS
+            space_down = CGEventCreateKeyboardEvent(None, 49, True)
+            space_up = CGEventCreateKeyboardEvent(None, 49, False)
+
+            # Post the key events
+            CGEventPost(kCGHIDEventTap, space_down)
+            CGEventPost(kCGHIDEventTap, space_up)
+        except Exception as e:
+            print(f"[HOTKEY] Failed to inject space key: {e}")
 
     def _dismiss_emoji_keyboard(self):
         """Aggressively dismiss emoji picker with multiple Escape attempts.

@@ -106,11 +106,11 @@ class FnKeyMonitor:
                     if self._on_space_press:
                         threading.Thread(target=self._on_space_press, daemon=True).start()
 
-                    # Suppress event if Fn is held to prevent input source selector
-                    if fn_state:
-                        self._suppress_next_space_up = True
-                        print("[FN_KEY] Suppressing Fn+Space KeyDown")
-                        return None  # Suppress Fn+Space system shortcut
+                    # ALWAYS suppress Space (both Fn+Space and Space alone)
+                    # The callback in smart_hotkey.py will re-inject if not used for control
+                    self._suppress_next_space_up = True
+                    print("[FN_KEY] Suppressing Space KeyDown")
+                    return None  # Suppress to prevent typing during sticky mode control
 
             # Check for Space key release (KeyUp)
             elif event_type == kCGEventKeyUp:
@@ -119,6 +119,7 @@ class FnKeyMonitor:
                     with self._lock:
                         if self._suppress_next_space_up:
                             self._suppress_next_space_up = False
+                            print("[FN_KEY] Suppressing Space KeyUp")
                             return None  # Suppress the KeyUp event too
 
         except Exception as e:
