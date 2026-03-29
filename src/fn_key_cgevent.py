@@ -58,27 +58,13 @@ class FnKeyMonitor:
                     if is_fn_pressed and not self._fn_pressed:
                         self._fn_pressed = True
                         threading.Thread(target=self._on_fn_press, daemon=True).start()
-                        # Try stripping Fn flag instead of suppressing completely
-                        # This might prevent the language switcher popup
-                        try:
-                            modified_event = CGEventCreateCopy(event)
-                            new_flags = flags & ~fn_flag  # Remove Fn flag
-                            CGEventSetFlags(modified_event, new_flags)
-                            return modified_event
-                        except:
-                            # Fallback to suppression if flag manipulation fails
-                            return None
+                        # Completely suppress Fn event to prevent ABC popup
+                        return None
                     elif not is_fn_pressed and self._fn_pressed:
                         self._fn_pressed = False
                         threading.Thread(target=self._on_fn_release, daemon=True).start()
-                        # Strip Fn flag on release too
-                        try:
-                            modified_event = CGEventCreateCopy(event)
-                            new_flags = flags & ~fn_flag
-                            CGEventSetFlags(modified_event, new_flags)
-                            return modified_event
-                        except:
-                            return None
+                        # Completely suppress Fn release too
+                        return None
 
             # Check for Space key press
             elif event_type == kCGEventKeyDown:
