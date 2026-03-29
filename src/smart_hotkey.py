@@ -33,6 +33,7 @@ class SmartHotkeyListener:
 
     def _on_space_press(self):
         """Called when Space key is pressed"""
+        print(f"[HOTKEY] Space pressed | fn_held={self._fn_held} recording={self._recording}")
         # Space pressed while holding Fn → switch to sticky mode
         if self._fn_held and self._recording:
             self._sticky = True
@@ -40,8 +41,10 @@ class SmartHotkeyListener:
 
     def _on_fn_press(self):
         """Called when Fn key is pressed"""
+        print(f"[HOTKEY] Fn pressed | sticky={self._sticky} recording={self._recording} fn_held={self._fn_held}")
         if self._sticky and self._recording:
             # Already in sticky mode → Fn stops it
+            print("[HOTKEY] → Stopping sticky mode")
             self._sticky = False
             self._recording = False
             self._fn_held = False
@@ -49,15 +52,20 @@ class SmartHotkeyListener:
 
         elif not self._recording:
             # Start push-to-talk
+            print("[HOTKEY] → Starting push-to-talk")
             self._fn_held = True
             self._recording = True
             self._fire_press()
+        else:
+            print(f"[HOTKEY] → No action (already recording, not sticky)")
 
     def _on_fn_release(self):
         """Called when Fn key is released"""
+        print(f"[HOTKEY] Fn released | sticky={self._sticky} recording={self._recording}")
         self._fn_held = False
         if self._recording and not self._sticky:
             # Push-to-talk: release Fn → stop
+            print("[HOTKEY] → Stopping push-to-talk")
             self._recording = False
             self._fire_release()
 
@@ -73,9 +81,11 @@ class SmartHotkeyListener:
 
     def reset_state(self):
         """Reset internal state - call when recording is stopped externally (manual stop button)"""
+        print(f"[HOTKEY] reset_state() called | was: sticky={self._sticky} recording={self._recording}")
         self._fn_held = False
         self._sticky = False
         self._recording = False
+        print("[HOTKEY] → State reset to: sticky=False recording=False fn_held=False")
 
     # ── Lifecycle ─────────────────────────────────────────────────────
 
