@@ -17,6 +17,9 @@ from Quartz import (
     kCGHeadInsertEventTap,
     kCGSessionEventTap,
     kCGAnnotatedSessionEventTap,
+    kCGHIDEventTap,
+    kCGEventTapDisabledByTimeout,
+    kCGEventTapDisabledByUserInput,
     CFRunLoopAddSource,
     CFRunLoopGetCurrent,
     CFRunLoopRun,
@@ -47,6 +50,12 @@ class FnKeyMonitor:
     def _event_callback(self, proxy, event_type, event, refcon):
         """Called for both modifier changes and key presses"""
         try:
+            # Re-enable tap if system disabled it (e.g., when popup appears)
+            if event_type == kCGEventTapDisabledByTimeout or event_type == kCGEventTapDisabledByUserInput:
+                print("[FN_KEY] Event tap disabled by system - re-enabling")
+                CGEventTapEnable(self._tap, True)
+                return event
+
             # Check for Fn key flag changes
             if event_type == kCGEventFlagsChanged:
                 # kCGEventFlagMaskSecondaryFn = 0x800000 (bit 23)
@@ -101,12 +110,9 @@ class FnKeyMonitor:
             # Create event mask for flags changed, key down, and key up events
             event_mask = (1 << kCGEventFlagsChanged) | (1 << kCGEventKeyDown) | (1 << kCGEventKeyUp)
 
-            # Try kCGAnnotatedSessionEventTap first (higher priority, might bypass system popups)
-            # Falls back to kCGSessionEventTap if not available
-            try:
-                tap_location = kCGAnnotatedSessionEventTap
-            except NameError:
-                tap_location = kCGSessionEventTap
+            # Use kCGHIDEventTap (hardware level) for highest priority
+            # This intercepts events before system handlers like input source switcher
+            tap_location = kCGHIDEventTap
 
             # Create event tap
             self._tap = CGEventTapCreate(
