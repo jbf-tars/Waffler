@@ -1533,7 +1533,7 @@ html, body {
 .wizard-container {
   width: 100%;
   max-width: 800px;
-  padding: 16px 36px 20px;
+  padding: 12px 24px 16px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1576,6 +1576,58 @@ html, body {
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+}
+
+/* Compact wizard header */
+.wizard-header-compact {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  padding: 0 4px;
+}
+
+.wizard-header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.wizard-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+}
+
+.wizard-app-name {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--accent-color, #f4a261);
+  margin: 0;
+}
+
+.wizard-step-indicator {
+  font-size: 13px;
+  color: #666;
+}
+
+/* Minimal progress bar */
+.wizard-progress-bar {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+}
+
+.progress-segment {
+  flex: 1;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  transition: background 0.3s ease;
+}
+
+.progress-segment.active {
+  background: var(--accent-color, #f4a261);
 }
 
 .wizard-title {
