@@ -285,8 +285,16 @@ class Api:
             # Check wizard Step 2 monitor first (used during setup)
             if _wizard_step2_monitor:
                 monitor = getattr(_wizard_step2_monitor, '_monitor', None)
-                is_pressed = getattr(monitor, '_hotkey_active', False) if monitor else False
-                return {"ok": True, "pressed": is_pressed}
+                if monitor:
+                    # FnKeyMonitor uses _fn_pressed, MacHotkeyMonitor uses _hotkey_active
+                    is_pressed = getattr(monitor, '_fn_pressed', None)
+                    if is_pressed is None:
+                        is_pressed = getattr(monitor, '_hotkey_active', False)
+                    _log_to_file(f"[get_fn_key_state] wizard monitor: pressed={is_pressed}")
+                    return {"ok": True, "pressed": bool(is_pressed)}
+                else:
+                    _log_to_file("[get_fn_key_state] wizard monitor exists but _monitor is None")
+                    return {"ok": True, "pressed": False}
 
             # Check main hotkey listener (used during normal operation)
             if hasattr(self, 'hotkey_listener') and self.hotkey_listener:
@@ -294,10 +302,17 @@ class Api:
                     is_pressed = getattr(self.hotkey_listener, 'is_combo_active', False)
                 else:
                     monitor = getattr(self.hotkey_listener, '_monitor', None)
-                    is_pressed = getattr(monitor, '_hotkey_active', False) if monitor else False
-                return {"ok": True, "pressed": is_pressed}
+                    if monitor:
+                        # FnKeyMonitor uses _fn_pressed, MacHotkeyMonitor uses _hotkey_active
+                        is_pressed = getattr(monitor, '_fn_pressed', None)
+                        if is_pressed is None:
+                            is_pressed = getattr(monitor, '_hotkey_active', False)
+                    else:
+                        is_pressed = False
+                return {"ok": True, "pressed": bool(is_pressed)}
             return {"ok": True, "pressed": False}
         except Exception as e:
+            _log_to_file(f"[get_fn_key_state] ERROR: {e}")
             return {"ok": False, "error": str(e), "pressed": False}
 
     def set_audio_device(self, device_index: int) -> dict:
