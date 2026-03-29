@@ -1620,64 +1620,6 @@ html, body {
   max-width: 420px;
 }
 
-.wizard-step-indicator {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-}
-
-.wizard-step-indicator .step-number {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: var(--bg-card);
-  border: 2px solid var(--border);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--text-muted);
-  transition: all 0.3s;
-}
-
-.wizard-step-indicator.active .step-number {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-  box-shadow: 0 0 16px rgba(124, 58, 237, 0.4);
-}
-
-.wizard-step-indicator.done .step-number {
-  background: var(--green);
-  border-color: var(--green);
-  color: #fff;
-}
-
-.wizard-step-indicator .step-label {
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--text-muted);
-  transition: color 0.3s;
-}
-
-.wizard-step-indicator.active .step-label { color: var(--accent-text); }
-.wizard-step-indicator.done .step-label { color: var(--green); }
-
-.wizard-step-connector {
-  flex: 1;
-  height: 2px;
-  background: var(--border);
-  margin: 0 8px;
-  margin-bottom: 14px;
-  transition: background 0.3s;
-}
-
-.wizard-step-connector.done { background: var(--green); }
 
 /* Step Content */
 .wizard-step-content { width: 100%; }
