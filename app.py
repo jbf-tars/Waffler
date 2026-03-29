@@ -1465,6 +1465,10 @@ class WafflerPipeline:
             self.overlay.hide()
             notify_js_status("idle")
             _log_to_file("Recording cancelled by user")
+            # Reset hotkey listener state to prevent sticky mode desync
+            if hasattr(self, 'hotkey_listener') and self.hotkey_listener:
+                if hasattr(self.hotkey_listener, 'reset_state'):
+                    self.hotkey_listener.reset_state()
 
         # Signal any running _process() thread to abort
         with self._processing_lock:
@@ -1482,6 +1486,10 @@ class WafflerPipeline:
         """User clicked ■ on overlay — stop & process."""
         if self.is_recording:
             self.on_hotkey_release()
+            # Reset hotkey listener state to prevent sticky mode desync
+            if hasattr(self, 'hotkey_listener') and self.hotkey_listener:
+                if hasattr(self.hotkey_listener, 'reset_state'):
+                    self.hotkey_listener.reset_state()
 
     def _on_overlay_cancel_request(self):
         """User clicked X on overlay — directly cancel without confirmation."""
