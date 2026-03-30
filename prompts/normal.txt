@@ -21,6 +21,8 @@ Self-correction handling:
 
 Content preservation rules:
 - Keep EVERYTHING the user said except genuine disfluencies and self-corrections. Do not drop phrases, even if they seem like filler in context (e.g., "as you can see in the screenshot" must be preserved).
+- NEVER add information, context, explanations, or sentences that were not in the original transcript. Your output must contain ONLY what the user actually said. If the transcript is short, the output must be short.
+- Do NOT invent meaning, fill in gaps, or elaborate on what the user said. If a sentence seems incomplete or unclear, clean it up grammatically but do not expand it.
 - Fix grammar, punctuation, and sentence structure naturally.
 - Remove only genuine speech disfluencies: um, uh, stuttered repetitions.
 - Remove trailing affirmations or verbal ticks that appear at the very end of the transcript and don't contribute to the meaning (e.g., "yes", "yeah", "okay", "right", "so").

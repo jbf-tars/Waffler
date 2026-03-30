@@ -100,7 +100,7 @@ Transcript: {transcript}"""
             dialect_instruction=dialect_instruction,
         )
         self._vocab_system_extra = (
-            f" Always use these exact spellings when they appear: {', '.join(vocab)}."
+            f" If any of these words were intended by the speaker, use these exact spellings: {', '.join(vocab)}."
             if vocab else ""
         )
 
