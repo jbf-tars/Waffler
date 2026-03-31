@@ -1,0 +1,27 @@
+# Waffler — Windows Requirements
+# Install with:  pip install -r requirements-windows.txt
+
+# ── Audio ──────────────────────────────────────────────────────────────
+sounddevice>=0.4.6
+numpy>=1.24.0
+
+# ── OpenAI (transcription + styling) ──────────────────────────────────
+openai>=1.0.0
+
+# ── Groq (fast transcription + styling) ──────────────────────────────
+groq>=0.4.0
+
+# ── Web UI ────────────────────────────────────────────────────────────
+pywebview>=4.0
+
+# ── Clipboard ────────────────────────────────────────────────────────
+pyperclip>=1.8.2
+
+# ── Config / utilities ──────────────────────────────────────────────
+pyyaml>=6.0
+python-dotenv>=1.0.0
+requests>=2.31.0
+
+# ── Windows-specific packages ────────────────────────────────────────
+# pystray is used for Windows system tray (imported conditionally in app.py)
+# Windows hotkey handling is done via custom windows_hotkey.py module
