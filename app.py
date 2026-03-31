@@ -1598,12 +1598,48 @@ class WafflerPipeline:
     def _level_loop(self):
         """Feed live audio level to the overlay at ~30fps while recording."""
         import time as _time
+        warning_shown = False
         while self.is_recording:
             lvl = self.audio.get_level()
             try:
                 self.overlay.update_level(lvl)
             except Exception:
                 pass
+
+            # Check recording duration and warn/stop if too long
+            if hasattr(self, '_recording_start_time'):
+                elapsed = _time.time() - self._recording_start_time
+
+                # Warning at 10 minutes
+                if elapsed >= 600 and not warning_shown:
+                    warning_shown = True
+                    _log_to_file("⚠️  Recording duration: 10 minutes - approaching API limit")
+                    try:
+                        self.overlay.show_toast(
+                            style="error",
+                            heading="Long recording",
+                            body="Recording will auto-stop at 12 minutes (API limit).",
+                        )
+                        # Hide toast after 3 seconds
+                        threading.Thread(target=lambda: (_time.sleep(3), self.overlay.hide_toast()), daemon=True).start()
+                    except Exception as e:
+                        _log_to_file(f"Warning toast failed: {e}")
+
+                # Auto-stop at 12 minutes (before 25MB API limit)
+                elif elapsed >= 720:
+                    _log_to_file("⚠️  Recording auto-stopped at 12 minutes (API limit)")
+                    try:
+                        self.overlay.show_toast(
+                            style="error",
+                            heading="Recording stopped",
+                            body="12-minute limit reached. Processing your audio now...",
+                        )
+                    except Exception:
+                        pass
+                    # Trigger stop via hotkey release
+                    self.on_hotkey_release()
+                    break
+
             _time.sleep(0.033)  # ~30 fps
 
     def _show_no_audio_toast(self):
