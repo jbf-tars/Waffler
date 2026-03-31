@@ -596,22 +596,19 @@ class Api:
     def test_hotkey(self) -> dict:
         """Return hotkey configuration info for the current platform."""
         import platform as plat
-        is_win = plat.system() == "Windows"
-        if is_win:
-            config = self.get_hotkey_config()
-            display = config.get("display", "Win + Ctrl")
-        else:
-            display = "Fn (hold)"
+
+        # Get actual hotkey configuration for both platforms
+        config = self.get_hotkey_config()
+        display = config.get("display", "Win + Ctrl" if plat.system() == "Windows" else "Fn")
+
         return {
             "ok": True,
             "platform": plat.system(),
             "hotkey": display,
             "mode": "hold",
             "description": (
-                f"Hold {display} to record. Release to stop. Hold Space while pressing to lock recording on."
-            ) if is_win else (
-                "Hold the Fn key to record. Release to stop. "
-                "Fn + Space locks recording on — press Fn again to stop."
+                f"Hold {display} to record. Release to stop. Press Space while holding to lock recording on (sticky mode). "
+                f"Press {display} again to stop sticky mode."
             ),
         }
 
