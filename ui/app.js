@@ -1359,6 +1359,39 @@ function wizBack() {
   if (_wizardStep > 1) wizShowStep(_wizardStep - 1);
 }
 
+// ── Step 2: Hotkey Configuration ─────────────────────────────
+
+function showWizardHotkeyConfig() {
+  document.getElementById('wizHotkeyConfigPanel').style.display = 'block';
+}
+
+function hideWizardHotkeyConfig() {
+  document.getElementById('wizHotkeyConfigPanel').style.display = 'none';
+}
+
+async function selectHotkeyPreset(keys) {
+  try {
+    // Save hotkey configuration
+    await pywebview.api.save_hotkey_config(keys);
+
+    // Update display
+    const config = await pywebview.api.get_hotkey_config();
+    const badge = document.getElementById('wizHotkeyBadge');
+    if (badge && config.display) {
+      badge.textContent = config.display;
+    }
+
+    // Hide config panel
+    hideWizardHotkeyConfig();
+
+    // Show success message
+    alert(`Hotkey changed to: ${config.display}\n\nYou can test it in Step 4!`);
+  } catch (e) {
+    console.error('Failed to save hotkey:', e);
+    alert('Failed to save hotkey configuration');
+  }
+}
+
 // ── Step 3: API Key ──────────────────────────────────────────
 
 let _wizGroqTimer = null;
