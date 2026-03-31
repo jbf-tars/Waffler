@@ -1435,14 +1435,26 @@ async function selectHotkeyPreset(keys) {
       badge.textContent = config.display;
     }
 
+    // Update detection to use new hotkey
+    _currentWizardHotkey = keys;
+    window._fnKeyDetected = false; // Reset detection flag
+
+    // Update status message
+    const statusEl = document.getElementById('wizHotkeyStatus');
+    if (statusEl) {
+      statusEl.textContent = `Hotkey changed to ${config.display}. Press it to test!`;
+      statusEl.style.color = '#C8A256';
+    }
+
     // Hide config panel
     hideWizardHotkeyConfig();
-
-    // Show success message
-    alert(`Hotkey changed to: ${config.display}\n\nYou can test it in Step 4!`);
   } catch (e) {
     console.error('Failed to save hotkey:', e);
-    alert('Failed to save hotkey configuration');
+    const statusEl = document.getElementById('wizHotkeyStatus');
+    if (statusEl) {
+      statusEl.textContent = 'Failed to save hotkey. Please try again.';
+      statusEl.style.color = '#f44336';
+    }
   }
 }
 
@@ -1917,29 +1929,65 @@ async function wizLoadHotkeyInfo() {
   }
 }
 
-// ── Fn Key Visual Feedback ──────────────────────────────────
+// ── Hotkey Visual Feedback (works for any configured hotkey) ──────────────────────────────────
+
+let _currentWizardHotkey = ['fn']; // Track configured hotkey for wizard
 
 function initFnKeyFeedback() {
-  const fnButton = document.getElementById('wizHotkeyBadge');
-  if (!fnButton) return;
+  const hotkeyButton = document.getElementById('wizHotkeyBadge');
+  if (!hotkeyButton) return;
 
-  document.addEventListener('keydown', (event) => {
-    try {
-      if (event.getModifierState?.('Fn')) {
-        setFnKeyActive(true);
-      }
-    } catch (e) {}
+  // Get current configured hotkey
+  pywebview.api.get_hotkey_config().then(config => {
+    _currentWizardHotkey = config.keys || ['fn'];
+  }).catch(() => {
+    _currentWizardHotkey = ['fn']; // Fallback
   });
 
-  document.addEventListener('keyup', (event) => {
-    try {
-      if (event.getModifierState && !event.getModifierState('Fn')) {
-        setFnKeyActive(false);
-      }
-    } catch (e) {}
-  });
+  // Monitor for ANY modifier combination
+  document.addEventListener('keydown', checkHotkeyState);
+  document.addEventListener('keyup', checkHotkeyState);
 
   startFnKeyPolling();
+}
+
+function checkHotkeyState(event) {
+  try {
+    const isPressed = isHotkeyPressed(_currentWizardHotkey, event);
+    setFnKeyActive(isPressed);
+  } catch (e) {
+    console.warn('checkHotkeyState error:', e);
+  }
+}
+
+function isHotkeyPressed(keys, event) {
+  // Check if all keys in the hotkey combination are currently pressed
+  for (const key of keys) {
+    switch(key.toLowerCase()) {
+      case 'fn':
+        if (!event.getModifierState?.('Fn')) return false;
+        break;
+      case 'cmd':
+      case 'command':
+        if (!event.metaKey) return false;
+        break;
+      case 'shift':
+        if (!event.shiftKey) return false;
+        break;
+      case 'option':
+      case 'alt':
+        if (!event.altKey) return false;
+        break;
+      case 'control':
+      case 'ctrl':
+        if (!event.ctrlKey) return false;
+        break;
+      default:
+        // Regular key - check if it matches
+        if (event.key.toLowerCase() !== key.toLowerCase()) return false;
+    }
+  }
+  return true;
 }
 
 function startFnKeyPolling() {
