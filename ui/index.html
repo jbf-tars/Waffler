@@ -339,16 +339,16 @@
       <div class="wizard-card">
         <div class="wizard-card-icon">⌨️</div>
         <h2>Hotkey Setup</h2>
-        <p class="wizard-card-desc" id="wizHotkeyDesc">Loading hotkey info...</p>
+        <p class="wizard-card-desc" id="wizHotkeyDesc">Press your hotkey to test it:</p>
         <div class="wizard-hotkey-display">
           <div class="hotkey-badge" id="wizHotkeyBadge" style="font-size:16px;padding:8px 18px;border-radius:8px;">Win + Ctrl</div>
           <div class="wizard-hotkey-mode" id="wizHotkeyMode"></div>
         </div>
-        <p class="wizard-hint" style="margin-top:12px">
-          Your hotkey is pre-configured, but you can change it now if you prefer.
+        <p class="wizard-hint" id="wizHotkeyStatus" style="margin-top:12px;color:#666;">
+          Waiting for hotkey press...
         </p>
         <button class="wizard-primary-btn" onclick="showWizardHotkeyConfig()" style="margin-top:16px;padding:12px 24px;background:#C8A256;color:#000;border:none;border-radius:8px;cursor:pointer;font-size:15px;font-weight:600;">
-          Customize Hotkey
+          Hotkey not working? Choose alternative
         </button>
       </div>
 
@@ -356,24 +356,19 @@
       <div id="wizHotkeyConfigPanel" style="display:none;margin-top:20px">
         <div class="wizard-card" style="background:#f8f9fa;border:2px solid #ddd">
           <h3 style="margin-top:0">Choose Your Hotkey</h3>
-          <p style="margin:0 0 16px 0;color:#666;font-size:14px">💡 <strong>Tip:</strong> Press Space while holding your hotkey to activate auto mode</p>
+          <p style="margin:0 0 16px 0;color:#666;font-size:14px">💡 <strong>Remember:</strong> Press Space while holding your hotkey to activate auto mode</p>
           <div style="display:flex;flex-direction:column;gap:10px">
             <button class="hotkey-preset-btn" onclick="selectHotkeyPreset(['fn'])">
-              <span class="hotkey-preview">Fn</span> <span style="opacity:0.6">✨ Default - Most reliable</span>
+              <span class="hotkey-preview">Fn</span> <span style="opacity:0.6">✨ Default - Works on most MacBooks</span>
+            </button>
+            <button class="hotkey-preset-btn" onclick="selectHotkeyPreset(['cmd', 'shift'])">
+              <span class="hotkey-preview">Command + Shift</span> <span style="opacity:0.6">If Fn doesn't work</span>
             </button>
             <button class="hotkey-preset-btn" onclick="selectHotkeyPreset(['option', 'shift'])">
-              <span class="hotkey-preview">Option + Shift</span>
-            </button>
-            <button class="hotkey-preset-btn" onclick="selectHotkeyPreset(['cmd', 'option'])">
-              <span class="hotkey-preview">Command + Option</span>
-            </button>
-            <button class="hotkey-preset-btn" onclick="selectHotkeyPreset(['control', 'option'])">
-              <span class="hotkey-preview">Control + Option</span>
-            </button>
-            <button class="hotkey-preset-btn" onclick="selectHotkeyPreset(['cmd', 'shift', 'space'])">
-              <span class="hotkey-preview">Command + Shift + Space</span>
+              <span class="hotkey-preview">Option + Shift</span> <span style="opacity:0.6">Alternative</span>
             </button>
           </div>
+          <p style="margin-top:12px;font-size:13px;color:#999;">Note: Alternatives may not work on all keyboards</p>
           <button onclick="hideWizardHotkeyConfig()" style="margin-top:12px;color:#666;background:none;border:none;cursor:pointer">
             ← Back
           </button>
