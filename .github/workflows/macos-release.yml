@@ -117,7 +117,6 @@ jobs:
 
 
       - name: Notarize DMG
-        if: ${{ secrets.APPLE_ID && secrets.APPLE_APP_PASSWORD }}
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
@@ -125,6 +124,11 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           DMG_NAME="Waffler-${VERSION}-mac.dmg"
+
+          if [ -z "$APPLE_ID" ] || [ -z "$APPLE_APP_PASSWORD" ]; then
+            echo "⚠️  Skipping notarization - Apple ID or password not configured"
+            exit 0
+          fi
 
           echo "Submitting DMG for notarization..."
           xcrun notarytool submit "dist-installer/${DMG_NAME}" \
