@@ -1852,9 +1852,9 @@ class WafflerPipeline:
                 notify_js_status("idle")
                 return
 
-            # Check minimum duration — < 1s is likely accidental (quick tap)
+            # Check minimum duration — < 0.3s is likely accidental (quick tap)
             # Audio is 16kHz 16-bit mono = 32000 bytes/sec + 44 byte WAV header
-            if len(audio_bytes) < 16044 + 16000:  # 1 second + header
+            if len(audio_bytes) < 44 + 9600:  # 0.3 seconds + header
                 _log_to_file(f"Recording too short ({len(audio_bytes)} bytes), treating as accidental tap")
                 # No error toast for quick taps - silently discard
                 notify_js_status("idle")
