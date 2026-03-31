@@ -35,18 +35,20 @@ class SmartHotkeyListener:
         self._sticky = False        # Locked-on (toggle) mode active
         self._recording = False     # Are we recording right now?
 
-        # Monitor for the main hotkey combination
+        # Monitor for the main hotkey combination (suppress keys)
         self._monitor = MacHotkeyMonitor(
             keys=self._keys,
             on_press=self._on_hotkey_press,
-            on_release=self._on_hotkey_release
+            on_release=self._on_hotkey_release,
+            suppress=True
         )
 
-        # Monitor for Space key to trigger sticky mode
+        # Monitor for Space key to trigger sticky mode (DON'T suppress - let space pass through!)
         self._space_monitor = MacHotkeyMonitor(
             keys=["space"],
             on_press=self._on_space_press,
-            on_release=lambda: None  # Don't care about space release
+            on_release=lambda: None,  # Don't care about space release
+            suppress=False  # CRITICAL: Don't block spacebar!
         )
 
         print(f"[HOTKEY] SmartHotkeyListener initialized with keys: {self._keys}")

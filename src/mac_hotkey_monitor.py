@@ -71,7 +71,7 @@ MODIFIER_FLAGS = {
 class MacHotkeyMonitor:
     """Monitors any key combination on macOS using CGEventTap"""
 
-    def __init__(self, keys, on_press, on_release):
+    def __init__(self, keys, on_press, on_release, suppress=True):
         """
         Initialize monitor for specific key combination.
 
@@ -79,10 +79,12 @@ class MacHotkeyMonitor:
             keys: List of key names, e.g., ["cmd", "shift", "space"] or ["fn"]
             on_press: Callback when hotkey is pressed
             on_release: Callback when hotkey is released
+            suppress: If True, suppress key events (default). If False, pass them through.
         """
         self._keys = [k.lower() for k in keys]
         self._on_press = on_press
         self._on_release = on_release
+        self._suppress = suppress
 
         # Separate modifiers from regular keys
         self._modifiers = [k for k in self._keys if k in MODIFIER_FLAGS]
@@ -99,7 +101,7 @@ class MacHotkeyMonitor:
         self._lock = threading.Lock()
         self._thread = None
 
-        print(f"[HOTKEY] MacHotkeyMonitor initialized for: {self._keys}")
+        print(f"[HOTKEY] MacHotkeyMonitor initialized for: {self._keys} (suppress={suppress})")
         print(f"[HOTKEY]   Modifiers: {self._modifiers}")
         print(f"[HOTKEY]   Regular keys: {self._regular_keys}")
 
@@ -177,17 +179,19 @@ class MacHotkeyMonitor:
                             self._hotkey_active = True
                             threading.Thread(target=self._on_press, daemon=True).start()
                             print(f"[HOTKEY] Activated: {self._keys}")
-                            # Suppress the key event to prevent system handling
-                            return None
+                            # Suppress the key event if configured to do so
+                            if self._suppress:
+                                return None
                         elif not is_active and was_active:
                             self._hotkey_active = False
                             threading.Thread(target=self._on_release, daemon=True).start()
                             print(f"[HOTKEY] Deactivated: {self._keys}")
-                            # Suppress the key event
-                            return None
+                            # Suppress the key event if configured to do so
+                            if self._suppress:
+                                return None
 
-                        # If hotkey is active, suppress all component keys
-                        if self._hotkey_active:
+                        # If hotkey is active, suppress all component keys (if configured)
+                        if self._hotkey_active and self._suppress:
                             return None
 
         except Exception as e:
