@@ -27,7 +27,34 @@ function jsKeyToId(e) {
 }
 
 function hotkeyDisplayStr(keys) {
-  return keys.map(k => MODIFIER_IDS.has(k) ? k.charAt(0).toUpperCase() + k.slice(1) : k.toUpperCase()).join(" + ");
+  // Platform-specific key name mapping
+  const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+  const keyNameMap = isMac ? {
+    'alt': 'Option',
+    'option': 'Option',
+    'ctrl': 'Control',
+    'control': 'Control',
+    'cmd': 'Command',
+    'command': 'Command',
+    'win': 'Command',  // Map Windows key to Command on Mac
+    'shift': 'Shift',
+    'fn': 'Fn'
+  } : {
+    'alt': 'Alt',
+    'option': 'Alt',  // Map Option to Alt on Windows
+    'ctrl': 'Ctrl',
+    'control': 'Ctrl',
+    'cmd': 'Win',  // Map Command to Win on Windows
+    'command': 'Win',
+    'win': 'Win',
+    'shift': 'Shift',
+    'fn': 'Fn'
+  };
+
+  return keys.map(k => {
+    const lowerKey = k.toLowerCase();
+    return keyNameMap[lowerKey] || (MODIFIER_IDS.has(lowerKey) ? k.charAt(0).toUpperCase() + k.slice(1) : k.toUpperCase());
+  }).join(" + ");
 }
 
 // ── DOM refs ────────────────────────────────────────────────────────────
