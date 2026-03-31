@@ -357,17 +357,20 @@
         <div class="wizard-card" style="background:#f8f9fa;border:2px solid #ddd">
           <h3 style="margin-top:0">Choose Your Hotkey</h3>
           <div style="display:flex;flex-direction:column;gap:10px">
-            <button class="hotkey-preset-btn" onclick="selectHotkeyPreset(['fn'])">
-              <span class="hotkey-preview">Fn</span> <span style="opacity:0.6">(Default - MacBook keyboards)</span>
+            <button class="hotkey-preset-btn" onclick="selectHotkeyPreset(['cmd', 'option'])">
+              <span class="hotkey-preview">⌘ + ⌥</span> <span style="opacity:0.6">(Default - Works on all keyboards)</span>
             </button>
             <button class="hotkey-preset-btn" onclick="selectHotkeyPreset(['cmd', 'shift', 'space'])">
-              <span class="hotkey-preview">⌘ + ⇧ + Space</span> <span style="opacity:0.6">(Works on all keyboards)</span>
+              <span class="hotkey-preview">⌘ + ⇧ + Space</span>
             </button>
             <button class="hotkey-preset-btn" onclick="selectHotkeyPreset(['option', 'space'])">
               <span class="hotkey-preview">⌥ + Space</span>
             </button>
             <button class="hotkey-preset-btn" onclick="selectHotkeyPreset(['control', 'space'])">
               <span class="hotkey-preview">⌃ + Space</span>
+            </button>
+            <button class="hotkey-preset-btn" onclick="selectHotkeyPreset(['fn'])">
+              <span class="hotkey-preview">Fn</span> <span style="opacity:0.6">(If your keyboard has Fn)</span>
             </button>
           </div>
           <button onclick="hideWizardHotkeyConfig()" style="margin-top:12px;color:#666;background:none;border:none;cursor:pointer">
