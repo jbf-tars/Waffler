@@ -271,8 +271,8 @@ class Api:
                 if _platform.system() == "Windows":
                     is_pressed = getattr(self.hotkey_listener, 'is_combo_active', False)
                 else:
-                    fn_monitor = getattr(self.hotkey_listener, '_fn_monitor', None)
-                    is_pressed = getattr(fn_monitor, '_fn_pressed', False) if fn_monitor else False
+                    monitor = getattr(self.hotkey_listener, '_monitor', None)
+                    is_pressed = getattr(monitor, '_hotkey_active', False) if monitor else False
                 return {"ok": True, "pressed": is_pressed}
             return {"ok": True, "pressed": False}
         except Exception as e:
