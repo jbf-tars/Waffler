@@ -685,26 +685,26 @@ class Api:
     def _get_mac_hotkey_display(self, keys) -> str:
         """Convert Mac hotkey keys to display string."""
         if not keys:
-            return "⌃ + ⌥"
+            return "Control + Option"
 
         key_map = {
             "fn": "Fn",
-            "cmd": "⌘",
-            "command": "⌘",
-            "shift": "⇧",
-            "option": "⌥",
-            "alt": "⌥",
-            "control": "⌃",
-            "ctrl": "⌃",
+            "cmd": "Command",
+            "command": "Command",
+            "shift": "Shift",
+            "option": "Option",
+            "alt": "Option",
+            "control": "Control",
+            "ctrl": "Control",
             "space": "Space"
         }
 
         parts = []
         for key in keys:
-            display_key = key_map.get(key.lower(), key.upper())
+            display_key = key_map.get(key.lower(), key.capitalize())
             parts.append(display_key)
 
-        return " + ".join(parts) if len(parts) > 1 else parts[0] if parts else "⌃ + ⌥"
+        return " + ".join(parts) if len(parts) > 1 else parts[0] if parts else "Control + Option"
 
     def get_hotkey_config(self) -> dict:
         """Return current hotkey configuration."""

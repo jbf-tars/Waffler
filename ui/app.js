@@ -38,7 +38,7 @@ function jsKeyToId(e) {
 }
 
 function hotkeyDisplayStr(keys) {
-  // Platform-specific key name mapping
+  // Plain text key names (no symbols)
   const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
   const keyNameMap = isMac ? {
     'alt': 'Option',
@@ -47,24 +47,26 @@ function hotkeyDisplayStr(keys) {
     'control': 'Control',
     'cmd': 'Command',
     'command': 'Command',
-    'win': 'Command',  // Map Windows key to Command on Mac
+    'win': 'Command',
     'shift': 'Shift',
-    'fn': 'Fn'
+    'fn': 'Fn',
+    'space': 'Space'
   } : {
     'alt': 'Alt',
-    'option': 'Alt',  // Map Option to Alt on Windows
+    'option': 'Alt',
     'ctrl': 'Ctrl',
     'control': 'Ctrl',
-    'cmd': 'Win',  // Map Command to Win on Windows
+    'cmd': 'Win',
     'command': 'Win',
     'win': 'Win',
     'shift': 'Shift',
-    'fn': 'Fn'
+    'fn': 'Fn',
+    'space': 'Space'
   };
 
   return keys.map(k => {
     const lowerKey = k.toLowerCase();
-    return keyNameMap[lowerKey] || (MODIFIER_IDS.has(lowerKey) ? k.charAt(0).toUpperCase() + k.slice(1) : k.toUpperCase());
+    return keyNameMap[lowerKey] || k.charAt(0).toUpperCase() + k.slice(1);
   }).join(" + ");
 }
 
