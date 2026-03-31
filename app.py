@@ -685,6 +685,30 @@ class Api:
 
     # ── Hotkey Config APIs ───────────────────────────────────────────────
 
+    def _get_mac_hotkey_display(self, keys) -> str:
+        """Convert Mac hotkey keys to display string."""
+        if not keys:
+            return "Fn"
+
+        key_map = {
+            "fn": "Fn",
+            "cmd": "⌘",
+            "command": "⌘",
+            "shift": "⇧",
+            "option": "⌥",
+            "alt": "⌥",
+            "control": "⌃",
+            "ctrl": "⌃",
+            "space": "Space"
+        }
+
+        parts = []
+        for key in keys:
+            display_key = key_map.get(key.lower(), key.upper())
+            parts.append(display_key)
+
+        return " + ".join(parts) if len(parts) > 1 else parts[0] if parts else "Fn"
+
     def get_hotkey_config(self) -> dict:
         """Return current hotkey configuration."""
         try:
@@ -693,8 +717,11 @@ class Api:
             if _platform.system() == "Windows":
                 from windows_hotkey import KEY_TO_VK, DEFAULT_HOTKEY, MODIFIER_KEYS, hotkey_display
             else:
-                # Mac uses Fn key, not configurable
-                return {"ok": True, "keys": ["fn"], "display": "Fn"}
+                # Mac: Default to Fn, but allow custom configurations
+                if not keys:
+                    keys = ["fn"]
+                display = self._get_mac_hotkey_display(keys)
+                return {"ok": True, "keys": keys, "display": display}
             if not keys or not isinstance(keys, list):
                 keys = DEFAULT_HOTKEY
             for k in keys:

@@ -56,7 +56,24 @@ class FnKeyMonitor:
                 CGEventTapEnable(self._tap, True)
                 return event
 
-            # Check for Fn key flag changes
+            # Check for external keyboard Fn (often mapped to F13-F19)
+            # Some external keyboards send Fn as keycode 105 (F13)
+            if event_type == kCGEventKeyDown or event_type == kCGEventKeyUp:
+                keycode = CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode)
+                # F13 = 105, F14 = 107, F15 = 113 (common Fn mappings on external keyboards)
+                if keycode in [105, 107, 113]:
+                    print(f"[FN_KEY] External keyboard Fn detected (keycode {keycode})")
+                    with self._lock:
+                        if event_type == kCGEventKeyDown and not self._fn_pressed:
+                            self._fn_pressed = True
+                            threading.Thread(target=self._on_fn_press, daemon=True).start()
+                            return None
+                        elif event_type == kCGEventKeyUp and self._fn_pressed:
+                            self._fn_pressed = False
+                            threading.Thread(target=self._on_fn_release, daemon=True).start()
+                            return None
+
+            # Check for Fn key flag changes (MacBook keyboards)
             if event_type == kCGEventFlagsChanged:
                 # kCGEventFlagMaskSecondaryFn = 0x800000 (bit 23)
                 fn_flag = 0x800000
