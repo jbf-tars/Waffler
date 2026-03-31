@@ -746,8 +746,12 @@ class Api:
                 from windows_hotkey import KEY_TO_VK, MODIFIER_KEYS, hotkey_display
                 KEY_MAP = KEY_TO_VK
             elif _platform.system() == "Darwin":
-                # Mac only supports Fn key for now
-                return {"ok": False, "error": "Mac currently only supports Fn key. Custom hotkeys coming soon!"}
+                from mac_hotkey_monitor import KEY_TO_KEYCODE, MODIFIER_FLAGS
+                KEY_MAP = {**KEY_TO_KEYCODE, **{k: v for k, v in MODIFIER_FLAGS.items()}}
+                MODIFIER_KEYS = set(MODIFIER_FLAGS.keys())
+                def hotkey_display(keys):
+                    display_map = {"cmd": "⌘", "shift": "⇧", "option": "⌥", "control": "⌃", "fn": "Fn"}
+                    return " + ".join(display_map.get(k, k.title()) for k in keys)
             else:
                 return {"ok": False, "error": "Hotkey customization not supported on this platform"}
 
@@ -794,14 +798,12 @@ class Api:
                             keys=keys,
                         )
                     elif _platform.system() == "Darwin":
-                        # On Mac: always use SmartHotkeyListener (Fn key)
-                        # Custom hotkeys not yet supported on Mac
                         from smart_hotkey import SmartHotkeyListener
                         _pipeline.hotkey_listener = SmartHotkeyListener(
                             on_press=_pipeline.on_hotkey_press,
                             on_release=_pipeline.on_hotkey_release,
+                            keys=keys,
                         )
-                        _log_to_file(f"Note: Mac only supports Fn key, ignoring custom keys: {keys}")
                     _log_to_file("New hotkey listener starting...")
                     _pipeline.hotkey_listener.start()
 
@@ -1856,10 +1858,11 @@ class WafflerPipeline:
                     keys=keys,
                 )
             else:
-                _log_to_file("Creating SmartHotkeyListener...")
+                _log_to_file(f"Creating SmartHotkeyListener with keys: {keys}")
                 self.hotkey_listener = SmartHotkeyListener(
                     on_press=self.on_hotkey_press,
                     on_release=self.on_hotkey_release,
+                    keys=keys,
                 )
             _log_to_file("Calling hotkey.start()...")
             self.hotkey_listener.start()
