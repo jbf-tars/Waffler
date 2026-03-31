@@ -79,6 +79,11 @@ class RecordingOverlay:
 
         log("[overlay] show() called")
 
+        # Clear restart flag when show() is explicitly called - allows recovery from previous crashes
+        if hasattr(self, '_restart_attempted'):
+            log("[overlay] Clearing _restart_attempted flag to allow retry")
+            delattr(self, '_restart_attempted')
+
         if self._is_alive():
             log("[overlay] Subprocess already alive, sending show command")
             self._send({"type": "show"})
