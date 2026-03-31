@@ -117,6 +117,7 @@ jobs:
 
 
       - name: Notarize DMG
+        continue-on-error: true
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
