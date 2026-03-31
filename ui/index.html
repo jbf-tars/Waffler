@@ -345,10 +345,10 @@
           <div class="wizard-hotkey-mode" id="wizHotkeyMode"></div>
         </div>
         <p class="wizard-hint" style="margin-top:12px">
-          Your hotkey is pre-configured. You can customise it later in Settings.
+          Your hotkey is pre-configured, but you can change it now if you prefer.
         </p>
-        <button class="wizard-link-button" onclick="showWizardHotkeyConfig()" style="margin-top:16px;color:#666;text-decoration:underline;background:none;border:none;cursor:pointer;font-size:14px">
-          Hotkey not working? Choose alternative →
+        <button class="wizard-primary-btn" onclick="showWizardHotkeyConfig()" style="margin-top:16px;padding:12px 24px;background:#C8A256;color:#000;border:none;border-radius:8px;cursor:pointer;font-size:15px;font-weight:600;">
+          Customize Hotkey
         </button>
       </div>
 
@@ -357,20 +357,20 @@
         <div class="wizard-card" style="background:#f8f9fa;border:2px solid #ddd">
           <h3 style="margin-top:0">Choose Your Hotkey</h3>
           <div style="display:flex;flex-direction:column;gap:10px">
+            <button class="hotkey-preset-btn" onclick="selectHotkeyPreset(['control', 'option'])">
+              <span class="hotkey-preview">⌃ + ⌥</span> <span style="opacity:0.6">✨ Default - No conflicts, works on all keyboards</span>
+            </button>
             <button class="hotkey-preset-btn" onclick="selectHotkeyPreset(['cmd', 'option'])">
-              <span class="hotkey-preview">⌘ + ⌥</span> <span style="opacity:0.6">(Default - Works on all keyboards)</span>
+              <span class="hotkey-preview">⌘ + ⌥</span>
+            </button>
+            <button class="hotkey-preset-btn" onclick="selectHotkeyPreset(['option', 'shift'])">
+              <span class="hotkey-preview">⌥ + ⇧</span>
             </button>
             <button class="hotkey-preset-btn" onclick="selectHotkeyPreset(['cmd', 'shift', 'space'])">
               <span class="hotkey-preview">⌘ + ⇧ + Space</span>
             </button>
-            <button class="hotkey-preset-btn" onclick="selectHotkeyPreset(['option', 'space'])">
-              <span class="hotkey-preview">⌥ + Space</span>
-            </button>
-            <button class="hotkey-preset-btn" onclick="selectHotkeyPreset(['control', 'space'])">
-              <span class="hotkey-preview">⌃ + Space</span>
-            </button>
             <button class="hotkey-preset-btn" onclick="selectHotkeyPreset(['fn'])">
-              <span class="hotkey-preview">Fn</span> <span style="opacity:0.6">(If your keyboard has Fn)</span>
+              <span class="hotkey-preview">Fn</span> <span style="opacity:0.6">(If available on your keyboard)</span>
             </button>
           </div>
           <button onclick="hideWizardHotkeyConfig()" style="margin-top:12px;color:#666;background:none;border:none;cursor:pointer">
