@@ -117,7 +117,6 @@ jobs:
 
 
       - name: Notarize DMG
-        continue-on-error: true
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
@@ -139,10 +138,21 @@ jobs:
             --wait \
             --timeout 10m
 
-          echo "Stapling notarization ticket to DMG..."
-          xcrun stapler staple "dist-installer/${DMG_NAME}"
-          xcrun stapler validate "dist-installer/${DMG_NAME}"
+          echo "Waiting 30s for Apple's servers to propagate..."
+          sleep 30
 
+          echo "Stapling notarization ticket to DMG (with retries)..."
+          for i in 1 2 3 4 5; do
+            if xcrun stapler staple "dist-installer/${DMG_NAME}"; then
+              echo "✅ Stapling succeeded on attempt $i"
+              break
+            else
+              echo "⚠️  Stapling attempt $i failed, waiting 30s..."
+              sleep 30
+            fi
+          done
+
+          xcrun stapler validate "dist-installer/${DMG_NAME}"
           echo "✅ DMG notarized and stapled successfully"
 
 
