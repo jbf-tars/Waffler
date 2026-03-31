@@ -273,6 +273,29 @@ async function loadHotkeyConfig() {
   }
 }
 
+async function changeSettingsHotkey(keys) {
+  try {
+    // Save the new hotkey
+    await window.pywebview.api.save_hotkey_config(keys);
+
+    // Reload to update all displays
+    await loadHotkeyConfig();
+
+    // Show success feedback
+    const settingsBadge = document.getElementById("settingsHotkeyBadge");
+    if (settingsBadge) {
+      const originalColor = settingsBadge.style.color;
+      settingsBadge.style.color = '#4CAF50';
+      setTimeout(() => {
+        settingsBadge.style.color = originalColor;
+      }, 1000);
+    }
+  } catch (e) {
+    console.error("Failed to change hotkey:", e);
+    alert("Failed to change hotkey. Please try again.");
+  }
+}
+
 function openHotkeyCapture() {
   _capturedKeys.clear();
   _lastCapturedKeys = [..._currentHotkeyKeys];
