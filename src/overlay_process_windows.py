@@ -115,8 +115,10 @@ def _draw_waffle():
     """Redraw the entire overlay canvas as a realistic waffle with syrup."""
     if _canvas is None:
         return
-
-    _canvas.delete("all")
+    try:
+        _canvas.delete("all")
+    except Exception:
+        return  # Canvas destroyed, bail out
 
     # 1. Waffle body — rounded rectangle (the raised ridges / crust)
     _rounded_rect(_canvas, 0, 0, WAFFLE_W, WAFFLE_H, CORNER_R,
@@ -477,26 +479,29 @@ def _handle_cmd(cmd: dict):
 # ── Animation loop (tkinter after-callback, 50 ms = 20 fps) ───────────
 
 def _animation_loop():
-    # Drain the command queue (safe on main thread)
     try:
-        while True:
-            cmd = _cmd_queue.get_nowait()
-            _handle_cmd(cmd)
-    except queue.Empty:
-        pass
+        # Drain the command queue (safe on main thread)
+        try:
+            while True:
+                cmd = _cmd_queue.get_nowait()
+                _handle_cmd(cmd)
+        except queue.Empty:
+            pass
 
-    # Smooth bar interpolation
-    changed = False
-    for i in range(NUM_CELLS):
-        diff = _targets[i] - _bars[i]
-        if abs(diff) > 0.005:
-            _bars[i] += diff * 0.35
-            changed = True
-        else:
-            _bars[i] = _targets[i]
+        # Smooth bar interpolation
+        changed = False
+        for i in range(NUM_CELLS):
+            diff = _targets[i] - _bars[i]
+            if abs(diff) > 0.005:
+                _bars[i] += diff * 0.35
+                changed = True
+            else:
+                _bars[i] = _targets[i]
 
-    if changed and _visible:
-        _draw_waffle()
+        if changed and _visible:
+            _draw_waffle()
+    except Exception:
+        pass  # Window may be destroyed, don't crash
 
     if _root:
         try:
@@ -613,7 +618,10 @@ def main():
     _root.after(50, _animation_loop)
 
     emit("ready")
-    _root.mainloop()
+    try:
+        _root.mainloop()
+    except (OSError, Exception):
+        pass  # Window destroyed during shutdown — exit cleanly
 
 
 if __name__ == "__main__":
