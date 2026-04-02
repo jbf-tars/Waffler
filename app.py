@@ -2266,6 +2266,22 @@ def _show_error_dialog(message: str):
 
 
 def main():
+    # ── Auto-Install Check ────────────────────────────────────────────
+    # Detect if running from DMG/invalid location and prompt to install (macOS only)
+    if _platform.system() == "Darwin" and getattr(sys, 'frozen', False):
+        if _is_running_from_invalid_location():
+            if _show_install_dialog():
+                try:
+                    new_path = _install_to_applications()
+                    _relaunch_from_new_location(new_path)
+                    return  # Never reached (process exits in relaunch)
+                except Exception as e:
+                    _show_error_dialog(f"Installation failed: {e}\n\nPlease drag Waffler to Applications manually.")
+                    sys.exit(1)
+            else:  # User clicked "Not Now"
+                sys.exit(0)
+
+    # ── Rest of normal startup ─────────────────────────────────────────
     global _config, _window_ref
 
     # Load config (reads .env from project root via dotenv)
