@@ -10,6 +10,7 @@ import io
 import json
 import time
 import threading
+import subprocess
 import pyperclip
 from pathlib import Path
 from datetime import datetime, date
@@ -2137,6 +2138,24 @@ def _is_running_from_invalid_location():
 
     # Not in any valid location (Downloads, Desktop, etc.)
     return True
+
+
+def _show_install_dialog():
+    """Show native macOS dialog asking to install. Returns True if user clicks Install."""
+    try:
+        result = subprocess.run([
+            'osascript', '-e',
+            'display dialog "Waffler needs to be installed in your Applications folder to work properly.\\n\\nWould you like to install it now?" '
+            'with title "Install Waffler" '
+            'buttons {"Not Now", "Install"} '
+            'default button "Install" '
+            'with icon caution'
+        ], capture_output=True, text=True)
+
+        return "Install" in result.stdout
+    except Exception as e:
+        _log_to_file(f"Install dialog error: {e}")
+        return False  # Safer to assume user declined if dialog fails
 
 
 def main():
