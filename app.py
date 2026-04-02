@@ -11,6 +11,7 @@ import json
 import time
 import threading
 import subprocess
+import shutil
 import pyperclip
 from pathlib import Path
 from datetime import datetime, date
@@ -2156,6 +2157,41 @@ def _show_install_dialog():
     except Exception as e:
         _log_to_file(f"Install dialog error: {e}")
         return False  # Safer to assume user declined if dialog fails
+
+
+def _install_to_applications():
+    """Copy app to Applications folder. Returns path to installed app."""
+    # Source is the .app bundle (2 levels up from executable)
+    source = Path(sys.executable).resolve().parent.parent
+
+    # Validate source app bundle exists and is valid
+    if not source.exists() or source.suffix != '.app':
+        raise ValueError(f"Invalid source app bundle: {source}")
+
+    # Try /Applications first
+    try:
+        dest = Path('/Applications/Waffler.app')
+        if dest.exists():
+            shutil.rmtree(dest)
+        shutil.copytree(source, dest, symlinks=True)
+        return dest
+    except PermissionError:
+        pass  # Continue to fallback below
+    except Exception as e:
+        pass  # Try fallback before giving up
+
+    # Fallback to user Applications
+    try:
+        user_apps = Path.home() / 'Applications'
+        user_apps.mkdir(exist_ok=True)
+        dest = user_apps / 'Waffler.app'
+        if dest.exists():
+            shutil.rmtree(dest)
+        shutil.copytree(source, dest, symlinks=True)
+        return dest
+    except Exception as e:
+        # Re-raise with context for the caller to handle
+        raise RuntimeError(f"Failed to install to Applications: {e}") from e
 
 
 def main():
