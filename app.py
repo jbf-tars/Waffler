@@ -2114,6 +2114,31 @@ def _disable_input_source_shortcut():
         _log_to_file(f"⚠️  Could not disable input source shortcuts: {e}")
 
 
+def _is_running_from_invalid_location():
+    """Check if app is running from DMG or non-Applications location."""
+    app_path = Path(sys.executable).resolve()
+
+    # Running from mounted DMG volume?
+    if '/Volumes/' in str(app_path):
+        return True
+
+    # Check if in valid install locations
+    valid_locations = [
+        Path('/Applications'),
+        Path.home() / 'Applications'
+    ]
+
+    for location in valid_locations:
+        try:
+            app_path.relative_to(location)
+            return False  # Found in valid location
+        except ValueError:
+            continue
+
+    # Not in any valid location (Downloads, Desktop, etc.)
+    return True
+
+
 def main():
     global _config, _window_ref
 
