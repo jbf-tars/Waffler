@@ -61,6 +61,22 @@ jobs:
           echo "✅ Code signing certificate imported"
 
 
+      - name: Sync app version from tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "Setting __version__ to $VERSION"
+          python -c "
+          import re, pathlib
+          p = pathlib.Path('src/__init__.py')
+          t = p.read_text()
+          new = re.sub(r'__version__\s*=\s*\"[^\"]*\"', f'__version__ = \"$VERSION\"', t)
+          if new == t:
+              raise SystemExit('Could not find __version__ in src/__init__.py')
+          p.write_text(new)
+          "
+          grep __version__ src/__init__.py
+
       - name: Build .app
         env:
           SIGNING_IDENTITY: ${{ secrets.SIGNING_IDENTITY }}
