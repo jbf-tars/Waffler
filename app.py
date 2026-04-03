@@ -2161,8 +2161,8 @@ def _show_install_dialog():
 
 def _install_to_applications():
     """Copy app to Applications folder. Returns path to installed app."""
-    # Source is the .app bundle (2 levels up from executable)
-    source = Path(sys.executable).resolve().parent.parent
+    # Source is the .app bundle (3 levels up from executable: MacOS -> Contents -> .app)
+    source = Path(sys.executable).resolve().parent.parent.parent
 
     # Validate source app bundle exists and is valid
     if not source.exists() or source.suffix != '.app':
