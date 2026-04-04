@@ -477,7 +477,10 @@ class ToastView(NSView):
         }
 
         heading_rect = NSMakeRect(20, heading_y, w - 40, 30)
-        self._heading.drawInRect_withAttributes_(heading_rect, heading_attrs)
+        heading_text = self._heading or ""
+        NSAttributedString.alloc().initWithString_attributes_(
+            heading_text, heading_attrs
+        ).drawInRect_(heading_rect)
 
         # ── Body text ──
         body_y = 105
@@ -493,7 +496,10 @@ class ToastView(NSView):
         }
 
         body_rect = NSMakeRect(20, body_y, w - 40, 30)
-        self._body.drawInRect_withAttributes_(body_rect, body_attrs)
+        body_text = self._body or ""
+        NSAttributedString.alloc().initWithString_attributes_(
+            body_text, body_attrs
+        ).drawInRect_(body_rect)
 
         # ── Buttons ──
         self._button_zones = []  # Clear and rebuild button zones
@@ -556,13 +562,15 @@ class ToastView(NSView):
         btn_attrs = {
             NSFontAttributeName: btn_font,
             NSForegroundColorAttributeName: btn_text_color,
-            NSMutableParagraphStyle: para_style,
+            NSParagraphStyleAttributeName: para_style,
         }
 
         # Center text vertically and horizontally
         text_y = y + (h - 14) // 2  # Approximate vertical center
         text_rect = NSMakeRect(x, text_y, w, h)
-        text.drawInRect_withAttributes_(text_rect, btn_attrs)
+        NSAttributedString.alloc().initWithString_attributes_(
+            text or "", btn_attrs
+        ).drawInRect_(text_rect)
 
         # Store button zone for click detection
         self._button_zones.append({
