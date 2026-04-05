@@ -184,6 +184,43 @@ def apply_vocab_corrections(transcribed: str, vocab: list[str]) -> tuple[str, li
     return corrected, applied
 
 
+def _is_vocab_echo(text: str, vocab: list) -> bool:
+    """Detect when Whisper echoed the vocab prompt instead of transcribing.
+
+    Whisper sometimes regurgitates the `prompt` argument verbatim when given
+    silence or low-quality audio. Catches that specific failure so the vocab
+    list doesn't get pasted as output when the user records nothing.
+    """
+    if not vocab or not text:
+        return False
+    import re
+
+    text_tokens = set(re.findall(r"\w+", text.lower()))
+    if not text_tokens:
+        return False
+
+    vocab_tokens = set()
+    for word in vocab:
+        for tok in re.findall(r"\w+", str(word).lower()):
+            vocab_tokens.add(tok)
+    if not vocab_tokens:
+        return False
+
+    # Exact match of the comma-joined prompt form (with/without trailing punct)
+    prompt_form = ", ".join(str(w) for w in vocab).lower().strip().rstrip(".,!?")
+    if text.lower().strip().rstrip(".,!?") == prompt_form:
+        return True
+
+    # Heuristic: if nearly every token in the output is a vocab token,
+    # and the output isn't much longer than the vocab itself, it's an echo.
+    overlap = text_tokens & vocab_tokens
+    ratio = len(overlap) / len(text_tokens)
+    if ratio >= 0.7 and len(text_tokens) <= len(vocab_tokens) + 2:
+        return True
+
+    return False
+
+
 def _strip_hallucinations(text: str) -> str:
     """Remove common Whisper hallucinations from transcribed text.
 
@@ -272,6 +309,17 @@ class WhisperTranscriber:
         cleaned = _strip_hallucinations(raw)
         if cleaned != raw:
             print(f"[whisper] Stripped hallucination: '{raw}' → '{cleaned}'")
+
+        # Whisper sometimes echoes the vocab prompt verbatim on silence —
+        # discard rather than pasting the user's vocabulary list as output.
+        try:
+            vocab = load_vocab()
+        except Exception:
+            vocab = []
+        if _is_vocab_echo(cleaned, vocab):
+            print(f"[whisper] Discarded vocab-echo hallucination: '{cleaned}'")
+            return ""
+
         return cleaned
 
     def get_duration_seconds(self) -> float:
@@ -338,7 +386,7 @@ class WhisperTranscriber:
             lang     = settings.get("language", "en")
             with open(tmp, "rb") as af:
                 kwargs = dict(
-                    model="whisper-large-v3-turbo",
+                    model="whisper-large-v3",
                     file=af,
                     response_format="text",
                 )
