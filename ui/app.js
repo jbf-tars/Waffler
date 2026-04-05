@@ -189,11 +189,18 @@ async function checkForUpdatesManual() {
     const r = await pywebview.api.check_for_updates();
     if (r.update_available) {
       openUpdateModalFromCheck(r);
+    } else if (r.error) {
+      setUpdateModal({
+        icon: '⚠️',
+        title: 'Couldn\'t check for updates',
+        subtitle: `${r.error}${r.current_version ? ` (you're on v${r.current_version})` : ''}`,
+      });
     } else {
+      const latest = r.latest_version ? ` (latest: v${r.latest_version})` : '';
       setUpdateModal({
         icon: '✓',
         title: 'You\'re up to date',
-        subtitle: `Running Waffler v${r.current_version || 'current'} — latest version.`,
+        subtitle: `Running Waffler v${r.current_version || '?'}${latest}.`,
       });
     }
   } catch(e) {

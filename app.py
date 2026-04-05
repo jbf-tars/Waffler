@@ -202,36 +202,63 @@ class Api:
 
     def check_for_updates(self) -> dict:
         """Check GitHub releases for a newer version.
-        Returns: {"update_available": bool, "latest_version": str, "download_url": str}
+
+        Fetches the full releases list (not /releases/latest, which returns
+        404 on this repo because the 'latest' flag has never been set on any
+        release). Picks the highest-semver non-draft, non-prerelease tag.
+        Always returns current_version; returns an error field on failure.
         """
+        from src import __version__
+        current_version = __version__
+
+        def parse_ver(v: str):
+            try:
+                return tuple(int(x) for x in v.lstrip("v").split("."))
+            except Exception:
+                return (0,)
+
         try:
             import requests
-            from src import __version__
             r = requests.get(
-                "https://api.github.com/repos/jbf-tars/waffler/releases/latest",
-                timeout=5,
+                "https://api.github.com/repos/jbf-tars/waffler/releases",
+                timeout=10,
                 headers={"Accept": "application/vnd.github.v3+json"},
+                params={"per_page": 20},
             )
             if r.status_code != 200:
-                return {"update_available": False}
-            data = r.json()
-            latest_tag = data.get("tag_name", "")
-            latest_version = latest_tag.lstrip("v")
-            current_version = __version__
+                return {
+                    "update_available": False,
+                    "current_version": current_version,
+                    "error": f"GitHub API returned HTTP {r.status_code}",
+                }
+            releases = r.json()
+            if not isinstance(releases, list) or not releases:
+                return {
+                    "update_available": False,
+                    "current_version": current_version,
+                    "error": "No releases found",
+                }
 
-            # Compare versions
-            def parse_ver(v):
-                try:
-                    return tuple(int(x) for x in v.split("."))
-                except Exception:
-                    return (0,)
+            # Filter out drafts and prereleases, pick highest semver
+            candidates = [
+                rel for rel in releases
+                if not rel.get("draft") and not rel.get("prerelease") and rel.get("tag_name")
+            ]
+            if not candidates:
+                return {
+                    "update_available": False,
+                    "current_version": current_version,
+                    "error": "No published releases found",
+                }
+
+            latest_release = max(candidates, key=lambda rel: parse_ver(rel["tag_name"]))
+            latest_version = latest_release["tag_name"].lstrip("v")
 
             if parse_ver(latest_version) > parse_ver(current_version):
-                # Find the right download URL for this platform
                 import platform as _plat
                 suffix = ".dmg" if _plat.system() == "Darwin" else ".exe"
-                download_url = data.get("html_url", "")
-                for asset in data.get("assets", []):
+                download_url = latest_release.get("html_url", "")
+                for asset in latest_release.get("assets", []):
                     if asset.get("name", "").endswith(suffix):
                         download_url = asset.get("browser_download_url", download_url)
                         break
@@ -240,12 +267,20 @@ class Api:
                     "latest_version": latest_version,
                     "current_version": current_version,
                     "download_url": download_url,
-                    "release_url": data.get("html_url", ""),
+                    "release_url": latest_release.get("html_url", ""),
                 }
-            return {"update_available": False, "current_version": current_version}
+            return {
+                "update_available": False,
+                "current_version": current_version,
+                "latest_version": latest_version,
+            }
         except Exception as e:
             _log_to_file(f"[update] check failed: {e}")
-            return {"update_available": False}
+            return {
+                "update_available": False,
+                "current_version": current_version,
+                "error": str(e),
+            }
 
     def start_update_download(self, url: str) -> dict:
         """Begin downloading the update installer in the background.
