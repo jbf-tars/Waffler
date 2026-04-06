@@ -17,6 +17,8 @@ venv/
 build/
 dist/
 dist-installer/
+*.dmg
+build.log
 # Note: .spec files are tracked (needed for Windows/Mac builds)
 
 # OS/editor
