@@ -673,9 +673,17 @@ class Api:
             return {"ok": False, "error": str(e)}
 
     def open_url(self, url: str):
-        """Open a URL in the system browser (non-blocking)."""
+        """Open a URL in the system browser (non-blocking, with scheme validation)."""
+        from urllib.parse import urlparse
         import subprocess
         import webbrowser
+
+        # Validate URL scheme (security: only allow http/https)
+        parsed = urlparse(url)
+        if parsed.scheme not in ('http', 'https'):
+            _log_to_file(f"open_url blocked: invalid scheme '{parsed.scheme}' in URL: {url}")
+            return
+
         _log_to_file(f"open_url: {url[:120]}")
         try:
             if _platform.system() == "Darwin":
@@ -1660,10 +1668,11 @@ def set_window(w):
 
 
 def notify_js_status(status: str):
-    """Tell the JS frontend about recording status."""
+    """Tell the JS frontend about recording status (safely escaped)."""
     if _window:
         try:
-            _window.evaluate_js(f"window.waffler_status && window.waffler_status('{status}')")
+            status_json = json.dumps(status)
+            _window.evaluate_js(f"window.waffler_status && window.waffler_status({status_json})")
         except Exception:
             pass
 

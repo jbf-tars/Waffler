@@ -140,11 +140,23 @@ async function checkForUpdates() {
       if (!sidebar) return;
       const banner = document.createElement('div');
       banner.className = 'update-banner';
-      banner.innerHTML = `
-        <span>Update v${r.latest_version} available</span>
-        <button onclick="openUpdateModalFromCheck(${JSON.stringify(r).replace(/"/g, '&quot;')})">Install</button>
-        <button class="dismiss" onclick="this.parentElement.remove()">✕</button>
-      `;
+      const span = document.createElement('span');
+      span.textContent = `Update v${r.latest_version} available`;
+
+      const downloadBtn = document.createElement('button');
+      downloadBtn.textContent = 'Download';
+      downloadBtn.addEventListener('click', () => {
+        pywebview.api.open_url(r.release_url || r.download_url);
+      });
+
+      const dismissBtn = document.createElement('button');
+      dismissBtn.className = 'dismiss';
+      dismissBtn.textContent = '✕';
+      dismissBtn.addEventListener('click', () => {
+        banner.remove();
+      });
+
+      banner.append(span, downloadBtn, dismissBtn);
       sidebar.prepend(banner);
     }
   } catch(e) {
