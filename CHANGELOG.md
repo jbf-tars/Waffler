@@ -4,6 +4,19 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.9.0] - 2026-04-21
+
+### Security
+- Fixed XSS vulnerability in update banner (replaced unsafe innerHTML with safe DOM construction)
+- Fixed JavaScript injection in notify_js_status (added json.dumps escaping)
+- Added URL scheme validation to prevent arbitrary protocol execution (open_url now only allows http/https)
+
+### Changed
+- Updated .gitignore to prevent build artifacts (*.dmg, build.log) from being committed
+- Added code signing configuration placeholders to .env.example for macOS builds
+
+This release hardens Waffler for open-source distribution with critical security fixes.
+
 ## [3.8.7] - 2026-04-18
 
 ### Fixed
