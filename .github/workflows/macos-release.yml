@@ -82,21 +82,33 @@ jobs:
           # Manually sign the app with hardened runtime and entitlements
           if [ -n "$SIGNING_IDENTITY" ]; then
             echo "=== Manually signing app with hardened runtime ==="
+
+            # Sign all .so and .dylib files first
+            echo "Signing shared libraries..."
+            find dist/Waffler.app -type f \( -name "*.so" -o -name "*.dylib" \) -exec \
+              codesign --sign "$SIGNING_IDENTITY" \
+                       --force \
+                       --options runtime \
+                       --timestamp \
+                       {} \;
+
+            # Sign all executables
+            echo "Signing executables..."
             find dist/Waffler.app/Contents/MacOS -type f -perm +111 -exec \
               codesign --sign "$SIGNING_IDENTITY" \
                        --force \
                        --options runtime \
                        --entitlements entitlements.plist \
                        --timestamp \
-                       --deep \
                        {} \;
 
+            # Finally sign the app bundle itself (no --deep needed, we signed contents already)
+            echo "Signing app bundle..."
             codesign --sign "$SIGNING_IDENTITY" \
                      --force \
                      --options runtime \
                      --entitlements entitlements.plist \
                      --timestamp \
-                     --deep \
                      dist/Waffler.app
           fi
 
