@@ -39,6 +39,18 @@ class RecordingOverlay:
         stop()                - terminate subprocess
     """
 
+    def _log(self, msg: str):
+        """Centralized logging to app.log with timestamp."""
+        from pathlib import Path
+        from datetime import datetime
+        try:
+            log_file = Path.home() / ".waffler-hosted" / "app.log"
+            with open(log_file, "a") as f:
+                ts = datetime.now().strftime("%H:%M:%S")
+                f.write(f"{ts}  {msg}\n")
+        except Exception:
+            pass  # Don't crash if logging fails
+
     def __init__(self, on_cancel=None, on_stop=None, on_cancel_request=None,
                  on_toast_action=None):
         """
