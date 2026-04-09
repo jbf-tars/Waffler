@@ -130,13 +130,22 @@ class MacHotkeyMonitor:
             # Handle modifier flag changes
             if event_type == kCGEventFlagsChanged:
                 flags = CGEventGetFlags(event)
+                monitored_modifier_changed = False
 
                 with self._lock:
-                    # Update which modifiers are pressed
+                    # Track previous state of monitored modifiers
+                    prev_modifiers = self._pressed_modifiers.copy()
+
+                    # Update which modifiers are currently pressed
                     self._pressed_modifiers.clear()
                     for mod_name, mod_flag in MODIFIER_FLAGS.items():
                         if mod_name in self._modifiers and (flags & mod_flag):
                             self._pressed_modifiers.add(mod_name)
+
+                    # Check if any of OUR monitored modifiers changed
+                    # (not system-wide - only the keys we're monitoring like Fn)
+                    if prev_modifiers != self._pressed_modifiers:
+                        monitored_modifier_changed = True
 
                     # Check if hotkey state changed
                     was_active = self._hotkey_active
@@ -151,10 +160,10 @@ class MacHotkeyMonitor:
                         threading.Thread(target=self._on_release, daemon=True).start()
                         print(f"[HOTKEY] Deactivated: {self._keys}")
 
-                # Suppress ALL modifier flag events when suppress=True and monitoring modifiers
-                # This catches trailing/duplicate events that don't cause state transitions
-                # but would still trigger macOS system shortcuts (emoji keyboard for Fn)
-                if self._suppress and self._modifiers:
+                # Suppress events ONLY when OUR monitored modifiers changed
+                # This catches trailing/duplicate Fn events without breaking Cmd+C, Cmd+V, etc.
+                # Professional approach: surgical suppression, not system-wide blocking
+                if monitored_modifier_changed and self._suppress:
                     return None
 
             # Handle regular key presses
