@@ -298,7 +298,8 @@ class RecordingOverlay:
         self._log(f"[overlay] Starting subprocess: {python} {self._script}")
 
         # CRITICAL FIX: When frozen, add bundled libraries to PYTHONPATH
-        # so the subprocess can import PyObjC from the .app bundle
+        # ONLY if using bundled Python. If using system Python, do NOT set
+        # PYTHONPATH — it would poison system Python with cpython-311 .so files.
         import os
         env = os.environ.copy()
 
@@ -306,17 +307,23 @@ class RecordingOverlay:
             meipass = sys._MEIPASS
             self._log(f"[overlay] App is frozen, MEIPASS={meipass}")
 
+            # Check if Python is bundled (inside the app bundle)
+            python_is_bundled = str(meipass) in str(python)
+            self._log(f"[overlay] Python is bundled: {python_is_bundled} (python={python})")
+
             if _PLATFORM != "Windows":
-                # macOS only: add MEIPASS to PYTHONPATH so subprocess finds bundled PyObjC.
-                # On Windows, the overlay uses system Python's own tkinter — setting
-                # PYTHONPATH to the bundle causes a DLL version conflict (_tkinter.pyd
-                # built for a different Python version).
-                pythonpath = env.get('PYTHONPATH', '')
-                if pythonpath:
-                    env['PYTHONPATH'] = f"{meipass}:{pythonpath}"
+                # macOS only: add MEIPASS to PYTHONPATH ONLY if using bundled Python.
+                # If using system Python, skip PYTHONPATH to avoid version mismatch
+                # (bundled cpython-311 .so files vs system Python 3.9).
+                if python_is_bundled:
+                    pythonpath = env.get('PYTHONPATH', '')
+                    if pythonpath:
+                        env['PYTHONPATH'] = f"{meipass}:{pythonpath}"
+                    else:
+                        env['PYTHONPATH'] = meipass
+                    self._log(f"[overlay] Set PYTHONPATH={env['PYTHONPATH']}")
                 else:
-                    env['PYTHONPATH'] = meipass
-                self._log(f"[overlay] Set PYTHONPATH={env['PYTHONPATH']}")
+                    self._log("[overlay] Using system Python, NOT setting PYTHONPATH (avoid version mismatch)")
             else:
                 # Windows: remove bundled Tcl/Tk env vars so system Python uses
                 # its own Tcl/Tk instead of the bundled version (version mismatch).
