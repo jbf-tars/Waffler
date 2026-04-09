@@ -657,31 +657,25 @@ class ToastView(NSView):
 # ── Command dispatcher (runs on main thread via timer) ────────────────
 
 def _dispatch_cmd(cmd):
-    """Dispatch command to update overlay UI.
+    global _g_window, _g_view, _visible
+    ctype = cmd.get("type")
 
-    Wrapped in try/except to catch AppKit exceptions (e.g., during app termination)
-    and exit gracefully instead of crashing with NSException dialog.
-    """
-    try:
-        global _g_window, _g_view, _visible
-        ctype = cmd.get("type")
+    if ctype == "show":
+        _visible = True
+        _hide_toast()
+        if _g_window:
+            _g_window.makeKeyAndOrderFront_(None)
+            _g_window.orderFrontRegardless()
+            if _g_view:
+                _g_view.setNeedsDisplay_(True)
 
-        if ctype == "show":
-            _visible = True
-            _hide_toast()
-            if _g_window:
-                _g_window.makeKeyAndOrderFront_(None)
-                _g_window.orderFrontRegardless()
-                if _g_view:
-                    _g_view.setNeedsDisplay_(True)
+    elif ctype == "hide":
+        _visible = False
+        _hide_toast()
+        if _g_window:
+            _g_window.orderOut_(None)
 
-        elif ctype == "hide":
-            _visible = False
-            _hide_toast()
-            if _g_window:
-                _g_window.orderOut_(None)
-
-        elif ctype == "level":
+    elif ctype == "level":
         raw_level = max(0.0, min(1.0, float(cmd.get("value", 0.0))))
         level = raw_level ** 0.4   # Power-curve: expand low volumes for responsiveness
         t = time.time()
@@ -721,17 +715,9 @@ def _dispatch_cmd(cmd):
     elif ctype == "hide_toast":
         _hide_toast()
 
-        elif ctype == "quit":
-            _hide_toast()
-            NSApplication.sharedApplication().terminate_(None)
-
-    except Exception as e:
-        # Catch AppKit exceptions (cross-thread UI access, CATransaction errors, etc.)
-        # Exit gracefully instead of showing crash dialog
-        print(f"[OVERLAY] Exception in _dispatch_cmd: {e}", file=sys.stderr)
-        import traceback
-        traceback.print_exc()
-        sys.exit(0)
+    elif ctype == "quit":
+        _hide_toast()
+        NSApplication.sharedApplication().terminate_(None)
 
 
 # ── Toast Functions ──────────────────────────────────────────────────
