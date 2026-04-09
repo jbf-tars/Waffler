@@ -64,6 +64,16 @@ from audio_devices import (
 from app_detection import get_active_app
 
 
+# ── Overlay Mode Handler ──────────────────────────────────────────────
+# When launched with --overlay flag, run the overlay subprocess instead
+# of the main app. This allows PyInstaller to freeze both entry points.
+if '--overlay' in sys.argv:
+    # Import and run the overlay process
+    import overlay_process
+    overlay_process.main()
+    sys.exit(0)
+
+
 # ── Data Directory ────────────────────────────────────────────────────
 def get_data_directory():
     """Get the data directory for Waffler (~/.waffler-hosted/)."""
