@@ -680,6 +680,28 @@ class Api:
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
+    def factory_reset(self) -> dict:
+        """Clear all Waffler data and quit the app."""
+        try:
+            import shutil
+            data_dir = Path.home() / ".waffler-hosted"
+            if data_dir.exists():
+                shutil.rmtree(data_dir)
+                _log_to_file("[factory reset] Data directory cleared via UI")
+
+            # Quit the app
+            global _should_quit
+            _should_quit = True
+            if _window_ref:
+                try:
+                    _window_ref.destroy()
+                except Exception:
+                    pass
+
+            return {"ok": True, "message": "Factory reset complete"}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
     # ── Hotkey Config APIs ───────────────────────────────────────────────
 
     def _get_mac_hotkey_display(self, keys) -> str:
