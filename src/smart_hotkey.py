@@ -71,13 +71,19 @@ class SmartHotkeyListener:
         """Called when hotkey combination is pressed"""
         print(f"[HOTKEY] Hotkey pressed | sticky={self._sticky} recording={self._recording}")
 
-        if not self._recording:
+        if self._sticky and self._recording:
+            # Fn tap while in sticky mode → cancel (works on Macs where Fn events reach app)
+            print("[HOTKEY] → Fn tap detected, cancelling sticky mode")
+            self._sticky = False
+            self._recording = False
+            self._dismiss_emoji_keyboard()  # Dismiss emoji picker if macOS opened it
+            self._fire_release()
+        elif not self._recording:
             # First press → start push-to-talk
             print("[HOTKEY] → Starting push-to-talk")
             self._hotkey_held = True
             self._recording = True
             self._fire_press()
-        # Note: Sticky mode is now cancelled via Fn+Space, not Fn tap alone
 
     def _on_hotkey_release(self):
         """Called when hotkey combination is released"""
@@ -97,13 +103,15 @@ class SmartHotkeyListener:
         if self._hotkey_held and self._recording and not self._sticky:
             # Fn+Space while recording → enable sticky mode
             self._sticky = True
-            print("📌 Fn+Space → Sticky mode ON! Press Space alone to stop.")
+            print("📌 Fn+Space → Sticky mode ON! Press Fn tap OR Space alone to stop.")
+            self._fire_visual_feedback("sticky_on")
         elif self._sticky and self._recording and not self._hotkey_held:
             # Space alone (Fn NOT held) while in sticky mode → cancel
-            # This works on ALL Macs (Space events always reach the app)
+            # Universal fallback that works on ALL Macs (Space events always reach the app)
             self._sticky = False
             self._recording = False
-            print("🛑 Space → Sticky mode OFF")
+            print("🛑 Space → Sticky mode OFF (universal cancel)")
+            self._fire_visual_feedback("sticky_off_space")
             self._fire_release()
 
     # ── Callbacks (run in a thread to avoid blocking) ─────────
@@ -114,12 +122,21 @@ class SmartHotkeyListener:
     def _fire_release(self):
         threading.Thread(target=self._on_release, daemon=True).start()
 
+    def _fire_visual_feedback(self, event_type):
+        """Send visual feedback to UI (optional, override in RecorderApp if needed)"""
+        # This can be overridden by the app to show toast notifications
+        pass
+
     def _dismiss_emoji_keyboard(self):
         """Send Escape to dismiss emoji picker if macOS opened it on Fn tap.
 
         On some Macs (macOS 26.3.1 / M3 Max), the Fn/globe emoji picker is triggered
         at IOKit/HID level, below CGEventTap. CGEventTap suppression can't prevent it.
         This sends Escape to dismiss the picker if it appeared.
+
+        This is a safety net for Macs where Fn events DO reach the app (M5) but the
+        emoji picker still opens. On Macs where Fn is stolen entirely (M3 Max), the
+        Fn tap cancel never fires, so Space is the only option.
         """
         import time
         try:
@@ -130,6 +147,7 @@ class SmartHotkeyListener:
             CGEventPost(kCGHIDEventTap, esc_down)
             CGEventPost(kCGHIDEventTap, esc_up)
             print("[HOTKEY] Sent Escape to dismiss emoji picker (if it appeared)")
+            self._fire_visual_feedback("sticky_off_fn")
         except Exception as e:
             print(f"[HOTKEY] Failed to dismiss emoji picker: {e}")
 
@@ -147,7 +165,8 @@ class SmartHotkeyListener:
 
     def start(self):
         hotkey_display = " + ".join(self._keys)
-        print(f"⌨️  Hotkey: Hold {hotkey_display} to record | Press Space while holding = sticky | Press hotkey again = stop")
+        print(f"⌨️  Hotkey: Hold {hotkey_display} to record | Press Space while holding = sticky")
+        print(f"   To cancel sticky: Fn tap (if your Mac supports it) OR Space alone (universal)")
         self._monitor.start()
         if self._space_monitor:
             self._space_monitor.start()
