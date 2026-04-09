@@ -115,25 +115,30 @@ class SmartHotkeyListener:
             # Dismiss emoji keyboard if user tapped Fn before pressing Space
             # (Fn tap opens emoji on M3 Max, but Space cancel path always runs)
             self._dismiss_emoji_keyboard()
-            self._fire_release()
+            # Delay paste to allow emoji dismiss to complete (M3 Max)
+            self._fire_release(delay_for_emoji_dismiss=True)
 
     # ── Callbacks (run in a thread to avoid blocking) ─────────
 
     def _fire_press(self):
         threading.Thread(target=self._on_press, daemon=True).start()
 
-    def _fire_release(self):
-        """Fire release callback with delay to allow emoji dismiss to complete.
+    def _fire_release(self, delay_for_emoji_dismiss=False):
+        """Fire release callback, optionally with delay for emoji dismiss.
 
-        The emoji dismiss runs in background and takes ~650ms (4 Escape attempts).
-        Delay paste by 700ms to ensure emoji picker is fully dismissed before
-        Cmd+V paste happens, otherwise text goes into emoji search field.
+        Args:
+            delay_for_emoji_dismiss: If True, delay 700ms to allow emoji dismiss
+                                      to complete before paste. Only needed when
+                                      cancelling sticky mode with Space on M3 Max.
         """
-        def _delayed_release():
-            import time
-            time.sleep(0.7)  # Wait for emoji dismiss to complete
-            self._on_release()
-        threading.Thread(target=_delayed_release, daemon=True).start()
+        if delay_for_emoji_dismiss:
+            def _delayed_release():
+                import time
+                time.sleep(0.7)  # Wait for emoji dismiss to complete
+                self._on_release()
+            threading.Thread(target=_delayed_release, daemon=True).start()
+        else:
+            threading.Thread(target=self._on_release, daemon=True).start()
 
     def _fire_visual_feedback(self, event_type):
         """Send visual feedback to UI (optional, override in RecorderApp if needed)"""
