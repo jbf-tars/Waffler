@@ -85,47 +85,21 @@ class RecordingOverlay:
 
     def show(self):
         """Show the recording overlay."""
-        from pathlib import Path
-        from datetime import datetime
-        log_file = Path.home() / ".waffler-hosted" / "app.log"
-        def log(msg):
-            try:
-                with open(log_file, "a") as f:
-                    ts = datetime.now().strftime("%H:%M:%S")
-                    f.write(f"{ts}  {msg}\n")
-            except Exception:
-                pass
-
-        log("[overlay] show() called")
-
-        # Clear restart flag when show() is explicitly called - allows recovery from previous crashes
-        if hasattr(self, '_restart_attempted'):
-            log("[overlay] Clearing _restart_attempted flag to allow retry")
-            delattr(self, '_restart_attempted')
+        self._log("[overlay] show() called")
 
         if self._is_alive():
-            log("[overlay] Subprocess already alive, sending show command")
+            self._log("[overlay] Subprocess already alive, sending show command")
             self._send({"type": "show"})
             self._visible = True
             return
 
-        log("[overlay] Starting new subprocess...")
-        self._start_process()
-        time.sleep(0.35)  # let subprocess initialise
-
-        if not self._is_alive():
-            # Retry once if first start failed
-            log("[overlay] First start failed, retrying...")
-            print("[overlay] First start failed, retrying...")
-            self._start_process()
-            time.sleep(0.5)
-
-        if self._is_alive():
-            log("[overlay] ✓ Subprocess alive, sending show command")
+        # Subprocess not running, start it
+        self._log("[overlay] Starting new subprocess...")
+        if self._attempt_restart():
             self._send({"type": "show"})
             self._visible = True
         else:
-            log("[overlay] ✗ ERROR: Subprocess FAILED to start after retry!")
+            self._log("[overlay] ✗ ERROR: Failed to start subprocess after retries")
             print("[overlay] ERROR: Subprocess failed to start!", flush=True)
 
     def hide(self):
