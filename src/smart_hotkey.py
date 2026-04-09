@@ -91,19 +91,19 @@ class SmartHotkeyListener:
             self._fire_release()
 
     def _on_space_press(self):
-        """Called when Space key is pressed - toggles sticky mode if hotkey is held"""
+        """Called when Space key is pressed - toggles sticky mode"""
         print(f"[HOTKEY] Space pressed | hotkey_held={self._hotkey_held} recording={self._recording} sticky={self._sticky}")
 
         if self._hotkey_held and self._recording and not self._sticky:
             # Fn+Space while recording → enable sticky mode
             self._sticky = True
-            print("📌 Fn+Space → Sticky mode activated! Recording locked on. Press Fn+Space again to stop.")
-        elif self._hotkey_held and self._sticky:
-            # Fn+Space while in sticky mode → cancel sticky mode
+            print("📌 Fn+Space → Sticky mode ON! Press Space alone to stop.")
+        elif self._sticky and self._recording and not self._hotkey_held:
+            # Space alone (Fn NOT held) while in sticky mode → cancel
+            # This works on ALL Macs (Space events always reach the app)
             self._sticky = False
             self._recording = False
-            print("🛑 Fn+Space → Sticky mode cancelled")
-            self._dismiss_emoji_keyboard()  # Safety: dismiss emoji picker if macOS opened it
+            print("🛑 Space → Sticky mode OFF")
             self._fire_release()
 
     # ── Callbacks (run in a thread to avoid blocking) ─────────
