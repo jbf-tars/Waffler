@@ -123,7 +123,17 @@ class SmartHotkeyListener:
         threading.Thread(target=self._on_press, daemon=True).start()
 
     def _fire_release(self):
-        threading.Thread(target=self._on_release, daemon=True).start()
+        """Fire release callback with delay to allow emoji dismiss to complete.
+
+        The emoji dismiss runs in background and takes ~650ms (4 Escape attempts).
+        Delay paste by 700ms to ensure emoji picker is fully dismissed before
+        Cmd+V paste happens, otherwise text goes into emoji search field.
+        """
+        def _delayed_release():
+            import time
+            time.sleep(0.7)  # Wait for emoji dismiss to complete
+            self._on_release()
+        threading.Thread(target=_delayed_release, daemon=True).start()
 
     def _fire_visual_feedback(self, event_type):
         """Send visual feedback to UI (optional, override in RecorderApp if needed)"""
@@ -131,27 +141,35 @@ class SmartHotkeyListener:
         pass
 
     def _dismiss_emoji_keyboard(self):
-        """Send Escape to dismiss emoji picker if macOS opened it on Fn tap.
+        """Aggressively dismiss emoji picker with multiple Escape attempts.
 
-        On some Macs (macOS 26.3.1 / M3 Max), the Fn/globe emoji picker is triggered
-        at IOKit/HID level, below CGEventTap. CGEventTap suppression can't prevent it.
-        This sends Escape to dismiss the picker if it appeared.
+        The emoji picker on macOS 26.3.1 / M3 Max takes variable time to appear
+        and accept input. A single Escape after 0.15s is not reliable.
 
-        Safe to call even if emoji picker isn't open - Escape is harmless.
-        Must be called BEFORE paste to ensure text goes to correct app.
+        Sends 4 Escape events with staggered delays (50ms, 100ms, 200ms, 300ms)
+        in background thread. This ensures we catch the picker regardless of timing.
         """
-        import time
-        try:
-            from Quartz import CGEventPost, CGEventCreateKeyboardEvent, kCGHIDEventTap
-            time.sleep(0.15)  # Wait for emoji picker to fully appear
-            esc_down = CGEventCreateKeyboardEvent(None, 53, True)   # keycode 53 = Escape
-            esc_up = CGEventCreateKeyboardEvent(None, 53, False)
-            CGEventPost(kCGHIDEventTap, esc_down)
-            CGEventPost(kCGHIDEventTap, esc_up)
-            print("[HOTKEY] Sent Escape to dismiss emoji picker (if it appeared)")
-            self._fire_visual_feedback("sticky_off_fn")
-        except Exception as e:
-            print(f"[HOTKEY] Failed to dismiss emoji picker: {e}")
+        def _send_escapes():
+            import time
+            try:
+                from Quartz import CGEventPost, CGEventCreateKeyboardEvent, kCGHIDEventTap
+
+                # Send multiple Escape events with increasing delays
+                # Covers full window of time emoji picker might take to appear
+                for delay in [0.05, 0.1, 0.2, 0.3]:
+                    time.sleep(delay)
+                    esc_down = CGEventCreateKeyboardEvent(None, 53, True)
+                    esc_up = CGEventCreateKeyboardEvent(None, 53, False)
+                    CGEventPost(kCGHIDEventTap, esc_down)
+                    CGEventPost(kCGHIDEventTap, esc_up)
+
+                print("[HOTKEY] Sent 4x Escape to dismiss emoji picker (650ms total)")
+                self._fire_visual_feedback("sticky_off_fn")
+            except Exception as e:
+                print(f"[HOTKEY] Failed to dismiss emoji picker: {e}")
+
+        import threading
+        threading.Thread(target=_send_escapes, daemon=True).start()
 
     # ── State Management ──────────────────────────────────────────
 
