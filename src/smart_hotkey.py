@@ -71,18 +71,13 @@ class SmartHotkeyListener:
         """Called when hotkey combination is pressed"""
         print(f"[HOTKEY] Hotkey pressed | sticky={self._sticky} recording={self._recording}")
 
-        if self._sticky and self._recording:
-            # Already in sticky mode → stop
-            print("[HOTKEY] → Stopping sticky mode")
-            self._sticky = False
-            self._recording = False
-            self._fire_release()
-        elif not self._recording:
+        if not self._recording:
             # First press → start push-to-talk
             print("[HOTKEY] → Starting push-to-talk")
             self._hotkey_held = True
             self._recording = True
             self._fire_press()
+        # Note: Sticky mode is now cancelled via Fn+Space, not Fn tap alone
 
     def _on_hotkey_release(self):
         """Called when hotkey combination is released"""
@@ -96,13 +91,20 @@ class SmartHotkeyListener:
             self._fire_release()
 
     def _on_space_press(self):
-        """Called when Space key is pressed - triggers sticky mode if hotkey is held"""
+        """Called when Space key is pressed - toggles sticky mode if hotkey is held"""
         print(f"[HOTKEY] Space pressed | hotkey_held={self._hotkey_held} recording={self._recording} sticky={self._sticky}")
 
         if self._hotkey_held and self._recording and not self._sticky:
-            # Space pressed while holding hotkey → enable sticky mode
+            # Fn+Space while recording → enable sticky mode
             self._sticky = True
-            print("📌 Space → Sticky mode activated! Recording locked on. Press hotkey again to stop.")
+            print("📌 Fn+Space → Sticky mode activated! Recording locked on. Press Fn+Space again to stop.")
+        elif self._hotkey_held and self._sticky:
+            # Fn+Space while in sticky mode → cancel sticky mode
+            self._sticky = False
+            self._recording = False
+            print("🛑 Fn+Space → Sticky mode cancelled")
+            self._dismiss_emoji_keyboard()  # Safety: dismiss emoji picker if macOS opened it
+            self._fire_release()
 
     # ── Callbacks (run in a thread to avoid blocking) ─────────
 
@@ -111,6 +113,25 @@ class SmartHotkeyListener:
 
     def _fire_release(self):
         threading.Thread(target=self._on_release, daemon=True).start()
+
+    def _dismiss_emoji_keyboard(self):
+        """Send Escape to dismiss emoji picker if macOS opened it on Fn tap.
+
+        On some Macs (macOS 26.3.1 / M3 Max), the Fn/globe emoji picker is triggered
+        at IOKit/HID level, below CGEventTap. CGEventTap suppression can't prevent it.
+        This sends Escape to dismiss the picker if it appeared.
+        """
+        import time
+        try:
+            from Quartz import CGEventPost, CGEventCreateKeyboardEvent, kCGHIDEventTap
+            time.sleep(0.05)  # Brief delay for emoji picker to appear
+            esc_down = CGEventCreateKeyboardEvent(None, 53, True)   # keycode 53 = Escape
+            esc_up = CGEventCreateKeyboardEvent(None, 53, False)
+            CGEventPost(kCGHIDEventTap, esc_down)
+            CGEventPost(kCGHIDEventTap, esc_up)
+            print("[HOTKEY] Sent Escape to dismiss emoji picker (if it appeared)")
+        except Exception as e:
+            print(f"[HOTKEY] Failed to dismiss emoji picker: {e}")
 
     # ── State Management ──────────────────────────────────────────
 
