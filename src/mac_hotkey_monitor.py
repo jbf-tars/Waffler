@@ -130,7 +130,6 @@ class MacHotkeyMonitor:
             # Handle modifier flag changes
             if event_type == kCGEventFlagsChanged:
                 flags = CGEventGetFlags(event)
-                should_suppress = False
 
                 with self._lock:
                     # Update which modifiers are pressed
@@ -147,15 +146,15 @@ class MacHotkeyMonitor:
                         self._hotkey_active = True
                         threading.Thread(target=self._on_press, daemon=True).start()
                         print(f"[HOTKEY] Activated: {self._keys}")
-                        should_suppress = self._suppress
                     elif not is_active and was_active:
                         self._hotkey_active = False
                         threading.Thread(target=self._on_release, daemon=True).start()
                         print(f"[HOTKEY] Deactivated: {self._keys}")
-                        should_suppress = self._suppress
 
-                # Suppress modifier events from reaching macOS (prevents emoji keyboard, etc.)
-                if should_suppress:
+                # Suppress ALL modifier flag events when suppress=True and monitoring modifiers
+                # This catches trailing/duplicate events that don't cause state transitions
+                # but would still trigger macOS system shortcuts (emoji keyboard for Fn)
+                if self._suppress and self._modifiers:
                     return None
 
             # Handle regular key presses
