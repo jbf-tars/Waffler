@@ -411,15 +411,24 @@ class RecordingOverlay:
     def _is_alive(self) -> bool:
         return self._process is not None and self._process.poll() is None
 
-    def _send(self, data: dict):
-        """Write a JSON command to the subprocess stdin."""
+    def _send(self, data: dict) -> bool:
+        """Write a JSON command to the subprocess stdin (thread-safe).
+
+        Returns:
+            bool: True if command sent successfully, False otherwise
+        """
         if not self._is_alive():
-            return
-        try:
-            self._process.stdin.write(json.dumps(data) + "\n")
-            self._process.stdin.flush()
-        except (BrokenPipeError, OSError):
-            pass
+            return False
+
+        with self._send_lock:  # Ensure atomic write
+            try:
+                self._process.stdin.write(json.dumps(data) + "\n")
+                self._process.stdin.flush()
+                return True
+            except (BrokenPipeError, OSError) as e:
+                # Log instead of silently swallowing
+                self._log(f"[overlay] ⚠️  Broken pipe during send: {e}")
+                return False
 
     def _read_stdout(self):
         """Read event callbacks from subprocess stdout."""
