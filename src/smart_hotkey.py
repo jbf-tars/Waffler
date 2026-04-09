@@ -112,6 +112,9 @@ class SmartHotkeyListener:
             self._recording = False
             print("🛑 Space → Sticky mode OFF (universal cancel)")
             self._fire_visual_feedback("sticky_off_space")
+            # Dismiss emoji keyboard if user tapped Fn before pressing Space
+            # (Fn tap opens emoji on M3 Max, but Space cancel path always runs)
+            self._dismiss_emoji_keyboard()
             self._fire_release()
 
     # ── Callbacks (run in a thread to avoid blocking) ─────────
@@ -134,14 +137,13 @@ class SmartHotkeyListener:
         at IOKit/HID level, below CGEventTap. CGEventTap suppression can't prevent it.
         This sends Escape to dismiss the picker if it appeared.
 
-        This is a safety net for Macs where Fn events DO reach the app (M5) but the
-        emoji picker still opens. On Macs where Fn is stolen entirely (M3 Max), the
-        Fn tap cancel never fires, so Space is the only option.
+        Safe to call even if emoji picker isn't open - Escape is harmless.
+        Must be called BEFORE paste to ensure text goes to correct app.
         """
         import time
         try:
             from Quartz import CGEventPost, CGEventCreateKeyboardEvent, kCGHIDEventTap
-            time.sleep(0.05)  # Brief delay for emoji picker to appear
+            time.sleep(0.15)  # Wait for emoji picker to fully appear
             esc_down = CGEventCreateKeyboardEvent(None, 53, True)   # keycode 53 = Escape
             esc_up = CGEventCreateKeyboardEvent(None, 53, False)
             CGEventPost(kCGHIDEventTap, esc_down)
