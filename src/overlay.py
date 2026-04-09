@@ -70,6 +70,7 @@ class RecordingOverlay:
 
         # Thread safety and restart tracking
         self._send_lock = threading.Lock()  # Protect stdin writes
+        self._restart_lock = threading.Lock()  # Protect restart state
         self._restart_count = 0             # Track restart attempts
         self._last_restart_time = 0         # For exponential backoff
         self._restart_window = 60           # Reset counter after 60s
@@ -410,6 +411,48 @@ class RecordingOverlay:
 
     def _is_alive(self) -> bool:
         return self._process is not None and self._process.poll() is None
+
+    def _attempt_restart(self) -> bool:
+        """Restart subprocess with exponential backoff.
+
+        Strategy:
+        - Track restart attempts within 60-second window
+        - Reset counter if last restart was >60s ago
+        - Apply exponential backoff: 0.5s, 1s, 2s
+        - Give up after 3 attempts in window
+
+        Returns:
+            bool: True if restart successful, False if max attempts exceeded
+        """
+        with self._restart_lock:  # Ensure atomic restart logic
+            current_time = time.time()
+
+            # Reset counter if last restart was >60s ago (stable period)
+            if current_time - self._last_restart_time > self._restart_window:
+                self._restart_count = 0
+
+            self._restart_count += 1
+            self._last_restart_time = current_time
+
+            if self._restart_count > 3:
+                self._log("[overlay] ✗ Max restart attempts (3) exceeded in 60s window, giving up")
+                print("[overlay] ERROR: Max restart attempts exceeded", flush=True)
+                return False
+
+            # Exponential backoff: 0.5s, 1s, 2s (max 3 attempts)
+            delay = 0.5 * (2 ** (self._restart_count - 1))
+            self._log(f"[overlay] Restarting subprocess in {delay}s (attempt {self._restart_count}/3)")
+            time.sleep(delay)
+
+            self._start_process()
+            success = self._is_alive()
+
+            if success:
+                self._log(f"[overlay] ✓ Subprocess restarted successfully, PID={self._process.pid}")
+            else:
+                self._log(f"[overlay] ✗ Subprocess restart failed")
+
+            return success
 
     def _send(self, data: dict) -> bool:
         """Write a JSON command to the subprocess stdin (thread-safe).
