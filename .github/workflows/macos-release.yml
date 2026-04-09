@@ -83,26 +83,32 @@ jobs:
           if [ -n "$SIGNING_IDENTITY" ]; then
             echo "=== Manually signing app with hardened runtime ==="
 
-            # Sign all .so and .dylib files first
-            echo "Signing shared libraries..."
-            find dist/Waffler.app -type f \( -name "*.so" -o -name "*.dylib" \) -exec \
-              codesign --sign "$SIGNING_IDENTITY" \
-                       --force \
-                       --options runtime \
-                       --timestamp \
-                       {} \;
+            # Sign everything recursively from inside out
+            # Sign all .so files
+            find dist/Waffler.app -type f -name "*.so" -print0 | while IFS= read -r -d '' file; do
+              echo "Signing $file"
+              codesign --sign "$SIGNING_IDENTITY" --force --options runtime --timestamp "$file" || true
+            done
 
-            # Sign all executables
-            echo "Signing executables..."
-            find dist/Waffler.app/Contents/MacOS -type f -perm +111 -exec \
-              codesign --sign "$SIGNING_IDENTITY" \
-                       --force \
-                       --options runtime \
-                       --entitlements entitlements.plist \
-                       --timestamp \
-                       {} \;
+            # Sign all .dylib files
+            find dist/Waffler.app -type f -name "*.dylib" -print0 | while IFS= read -r -d '' file; do
+              echo "Signing $file"
+              codesign --sign "$SIGNING_IDENTITY" --force --options runtime --timestamp "$file" || true
+            done
 
-            # Finally sign the app bundle itself (no --deep needed, we signed contents already)
+            # Sign all frameworks (like Python.framework)
+            find dist/Waffler.app/Contents/Frameworks -type f -perm +111 -print0 2>/dev/null | while IFS= read -r -d '' file; do
+              echo "Signing framework binary $file"
+              codesign --sign "$SIGNING_IDENTITY" --force --options runtime --timestamp "$file" || true
+            done
+
+            # Sign all executables in MacOS
+            find dist/Waffler.app/Contents/MacOS -type f -perm +111 -print0 | while IFS= read -r -d '' file; do
+              echo "Signing executable $file"
+              codesign --sign "$SIGNING_IDENTITY" --force --options runtime --entitlements entitlements.plist --timestamp "$file" || true
+            done
+
+            # Finally sign the app bundle itself
             echo "Signing app bundle..."
             codesign --sign "$SIGNING_IDENTITY" \
                      --force \
