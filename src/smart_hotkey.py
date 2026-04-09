@@ -13,6 +13,7 @@ Uses CGEventTap for all key detection - no pynput (avoids macOS crashes)
 
 import threading
 from mac_hotkey_monitor import MacHotkeyMonitor
+from fn_key_cgevent import FnKeyMonitor
 
 
 class SmartHotkeyListener:
@@ -35,21 +36,32 @@ class SmartHotkeyListener:
         self._sticky = False        # Locked-on (toggle) mode active
         self._recording = False     # Are we recording right now?
 
-        # Monitor for the main hotkey combination (suppress keys)
-        self._monitor = MacHotkeyMonitor(
-            keys=self._keys,
-            on_press=self._on_hotkey_press,
-            on_release=self._on_hotkey_release,
-            suppress=True
-        )
+        # Special case: Fn key needs FnKeyMonitor (proper Fn+Space suppression)
+        if self._keys == ["fn"]:
+            print("[HOTKEY] Using FnKeyMonitor for Fn key (proper Fn+Space suppression)")
+            self._monitor = FnKeyMonitor(
+                on_fn_press=self._on_hotkey_press,
+                on_fn_release=self._on_hotkey_release,
+                on_space_press=self._on_space_press
+            )
+            self._space_monitor = None  # FnKeyMonitor handles space internally
+        else:
+            # Other hotkeys use MacHotkeyMonitor
+            print(f"[HOTKEY] Using MacHotkeyMonitor for keys: {self._keys}")
+            self._monitor = MacHotkeyMonitor(
+                keys=self._keys,
+                on_press=self._on_hotkey_press,
+                on_release=self._on_hotkey_release,
+                suppress=True
+            )
 
-        # Monitor for Space key to trigger sticky mode (DON'T suppress - let space pass through!)
-        self._space_monitor = MacHotkeyMonitor(
-            keys=["space"],
-            on_press=self._on_space_press,
-            on_release=lambda: None,  # Don't care about space release
-            suppress=False  # CRITICAL: Don't block spacebar!
-        )
+            # Monitor for Space key to trigger sticky mode (DON'T suppress - let space pass through!)
+            self._space_monitor = MacHotkeyMonitor(
+                keys=["space"],
+                on_press=self._on_space_press,
+                on_release=lambda: None,  # Don't care about space release
+                suppress=False  # CRITICAL: Don't block spacebar!
+            )
 
         print(f"[HOTKEY] SmartHotkeyListener initialized with keys: {self._keys}")
 
@@ -116,7 +128,8 @@ class SmartHotkeyListener:
         hotkey_display = " + ".join(self._keys)
         print(f"⌨️  Hotkey: Hold {hotkey_display} to record | Press Space while holding = sticky | Press hotkey again = stop")
         self._monitor.start()
-        self._space_monitor.start()
+        if self._space_monitor:
+            self._space_monitor.start()
 
     def stop(self):
         if self._monitor:
