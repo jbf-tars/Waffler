@@ -1289,7 +1289,8 @@ async function doSignOut() {
 // ============================================================
 
 let _wizardStep = 1;
-const WIZARD_TOTAL_STEPS = 4;
+const WIZARD_TOTAL_STEPS = isMacPlatform ? 4 : 3;
+const WIZARD_FIRST_STEP = isMacPlatform ? 1 : 2;  // Skip permissions on Windows
 let _wizardGroqKeyValidated = false;
 let _wizardApiKeyValidated = false;
 let _wizardMicTested = false;
@@ -1349,9 +1350,11 @@ function showWizard() {
   if (settings) settings.style.display = 'none';
   const vocab = document.getElementById('vocabularyPanel');
   if (vocab) vocab.style.display = 'none';
-  // Initialize progress bar
-  updateWizardProgress(1);
-  wizShowStep(1);
+  // Initialize progress bar — skip permissions step on Windows
+  const wizSub = document.getElementById('wizSubtitle');
+  if (wizSub) wizSub.textContent = `Let's get you set up in ${WIZARD_TOTAL_STEPS} quick steps.`;
+  updateWizardProgress(WIZARD_FIRST_STEP);
+  wizShowStep(WIZARD_FIRST_STEP);
   setTimeout(() => {
     const inp = document.getElementById('wizApiKeyInput3');
     if (inp) inp.focus();
@@ -1388,21 +1391,21 @@ async function triggerMacOSPermissions() {
 }
 
 function updateWizardProgress(step) {
-  // Update step text
+  // Update step text — offset display number on Windows (no permissions step)
+  const displayStep = step - WIZARD_FIRST_STEP + 1;
   const stepText = document.getElementById('wizStepText');
   if (stepText) {
-    stepText.textContent = `Step ${step} of ${WIZARD_TOTAL_STEPS}`;
+    stepText.textContent = `Step ${displayStep} of ${WIZARD_TOTAL_STEPS}`;
   }
 
-  // Update progress segments
-  for (let i = 1; i <= WIZARD_TOTAL_STEPS; i++) {
+  // Update progress segments — hide segment 1 on Windows
+  for (let i = 1; i <= 4; i++) {
     const segment = document.getElementById(`wizProgress${i}`);
-    if (segment) {
-      if (i === step) {
-        segment.classList.add('active');
-      } else {
-        segment.classList.remove('active');
-      }
+    if (!segment) continue;
+    if (i < WIZARD_FIRST_STEP) {
+      segment.style.display = 'none';
+    } else {
+      segment.classList.toggle('active', i === step);
     }
   }
 }
@@ -1435,8 +1438,8 @@ function wizShowStep(step) {
 
   const backBtn = document.getElementById('wizBtnBack');
   const nextBtn = document.getElementById('wizBtnNext');
-  backBtn.style.display = step > 1 ? 'inline-block' : 'none';
-  if (step === WIZARD_TOTAL_STEPS) {
+  backBtn.style.display = step > WIZARD_FIRST_STEP ? 'inline-block' : 'none';
+  if (step === 4) {
     nextBtn.textContent = 'Finish Setup';
     nextBtn.classList.add('finish');
   } else {
@@ -1466,7 +1469,7 @@ function wizUpdateNextButton() {
 }
 
 async function wizNext() {
-  if (_wizardStep < WIZARD_TOTAL_STEPS) {
+  if (_wizardStep < 4) {
     wizShowStep(_wizardStep + 1);
   } else {
     await wizCompleteSetup();
@@ -1474,7 +1477,7 @@ async function wizNext() {
 }
 
 function wizBack() {
-  if (_wizardStep > 1) wizShowStep(_wizardStep - 1);
+  if (_wizardStep > WIZARD_FIRST_STEP) wizShowStep(_wizardStep - 1);
 }
 
 // ── Step 2: Hotkey Configuration ─────────────────────────────
