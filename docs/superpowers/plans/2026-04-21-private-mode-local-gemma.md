@@ -27,7 +27,7 @@
 | `tests/test_local_backend.py` | **new** | Unit tests for `local_backend` using `unittest.mock.patch` on `requests`. |
 | `tests/test_private_mode_routing.py` | **new** | Regression tests asserting cloud flow is unchanged when `private_mode=False`. |
 | `tests/test_settings_store.py` | **new** | Unit tests for settings read/write helper. |
-| `src/__init__.py` | modify (release) | Version bump to `3.9.0`. |
+| `src/__init__.py` | modify (release) | Version bump to `3.10.0`. |
 
 All changes are additive except version bump. The existing cloud-mode code paths are untouched — they simply gain a `private_mode` check that short-circuits to the new behavior when true.
 
@@ -685,7 +685,7 @@ git commit -m "feat(local_backend): add clean_text via OpenAI-compatible endpoin
 """Verify Private Mode routing decisions.
 
 Two halves:
-  1. When private_mode=False, behavior is byte-for-byte unchanged from v3.8.9.
+  1. When private_mode=False, behavior is byte-for-byte unchanged from v3.9.0.
   2. When private_mode=True, transcription forces local backend and refuses
      to fall back to cloud.
 """
@@ -710,7 +710,7 @@ def _stub_wav_bytes():
 
 
 def test_private_mode_false_uses_groq_when_configured(monkeypatch):
-    """Regression: private_mode=False MUST behave exactly like v3.8.9."""
+    """Regression: private_mode=False MUST behave exactly like v3.9.0."""
     import settings_store
     monkeypatch.setattr(settings_store, "is_private_mode", lambda: False)
 
@@ -1483,7 +1483,7 @@ Expected: all pass.
 
 1. Open Waffler with Private Mode off (default).
 2. Record a phrase with Groq key configured.
-3. Verify transcription + cleanup work exactly as before v3.9.0.
+3. Verify transcription + cleanup work exactly as before v3.10.0.
 
 - [ ] **Step 3: Smoke-test Private Mode end-to-end**
 
@@ -1496,14 +1496,14 @@ Expected: all pass.
 
 ---
 
-## Phase 8 — Release v3.9.0
+## Phase 8 — Release v3.10.0
 
 ### Task 17: Version bump + tag
 
 - [ ] **Step 1: Bump `__version__` in `src/__init__.py`**
 
 ```python
-__version__ = "3.9.0"
+__version__ = "3.10.0"
 ```
 
 - [ ] **Step 2: Update `src/data/release.ts` on the website side** (do this in the waffler-website repo in a separate commit after GitHub Release is live)
@@ -1512,10 +1512,10 @@ __version__ = "3.9.0"
 
 ```bash
 git add src/__init__.py
-git commit -m "release: v3.9.0 — Private Mode (local Gemma 4 via Ollama)"
-git tag v3.9.0
+git commit -m "release: v3.10.0 — Private Mode (local Gemma 4 via Ollama)"
+git tag v3.10.0
 git push origin main
-git push origin v3.9.0
+git push origin v3.10.0
 ```
 
 - [ ] **Step 4: Watch CI**
@@ -1529,14 +1529,14 @@ Wait for both Mac + Windows builds to succeed (~4 min). Mac DMG should be signed
 - [ ] **Step 5: Verify release**
 
 ```bash
-gh release view v3.9.0 --json assets -q '.assets[].name'
+gh release view v3.10.0 --json assets -q '.assets[].name'
 ```
 
-Expected: `Waffler-3.9.0-mac.dmg` and `Waffler-Setup-3.9.0.exe`.
+Expected: `Waffler-3.10.0-mac.dmg` and `Waffler-Setup-3.10.0.exe`.
 
 - [ ] **Step 6: Update website release.ts**
 
-In `waffler-website/src/data/release.ts`, bump to `3.9.0` and commit.
+In `waffler-website/src/data/release.ts`, bump to `3.10.0` and commit.
 
 ---
 
@@ -1545,7 +1545,7 @@ In `waffler-website/src/data/release.ts`, bump to `3.9.0` and commit.
 - [ ] All tests from Phase 1–5 pass locally.
 - [ ] Regression tests explicitly assert cloud mode is unaffected.
 - [ ] Manual smoke test: Private Mode works end-to-end on Mac (your test machine).
-- [ ] Manual smoke test: Private Mode off still uses Groq (no behavior change vs v3.8.9).
-- [ ] v3.9.0 released, signed/notarized Mac DMG + Windows EXE available.
-- [ ] Website download links bumped to v3.9.0.
+- [ ] Manual smoke test: Private Mode off still uses Groq (no behavior change vs v3.9.0).
+- [ ] v3.10.0 released, signed/notarized Mac DMG + Windows EXE available.
+- [ ] Website download links bumped to v3.10.0.
 - [ ] No cloud HTTP call ever fires while Private Mode is on.

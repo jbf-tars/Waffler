@@ -2,7 +2,7 @@
 
 **Date:** 2026-04-21
 **Status:** Draft — awaiting implementation plan
-**Target version:** v3.9.0
+**Target version:** v3.10.0
 
 ## 1. Problem
 
@@ -17,7 +17,7 @@ Ship a **Private Mode** toggle in Settings that routes both transcription and cl
 - **Transcription:** local Whisper (already supported in Waffler via the `LOCAL_WHISPER=1` env path).
 - **Cleanup:** local Gemma 4 E4B via Ollama.
 
-When Private Mode is ON, **no byte of audio or text leaves the user's machine**. When it is OFF (the default), Waffler's behavior is byte-for-byte identical to v3.8.9 — the existing API-key / cloud flow is unaffected.
+When Private Mode is ON, **no byte of audio or text leaves the user's machine**. When it is OFF (the default), Waffler's behavior is byte-for-byte identical to v3.9.0 — the existing API-key / cloud flow is unaffected.
 
 ## 3. Non-Goals
 
@@ -180,7 +180,7 @@ paste cleaned text   (existing code, unchanged)
 
 ### 7.2 With Private Mode OFF
 
-Identical to v3.8.9. No new code paths execute. Guaranteed by the private-mode branch being the first check in each modified function, and by the regression test in §9.
+Identical to v3.9.0. No new code paths execute. Guaranteed by the private-mode branch being the first check in each modified function, and by the regression test in §9.
 
 ## 8. Error Handling
 
@@ -208,7 +208,7 @@ Mock `requests` responses; verify each state:
 
 ### 9.2 Regression test (existing cloud flow)
 
-**Critical.** One new test: with `private_mode=False`, run the full transcribe-then-clean pipeline against mocked Groq/OpenAI clients. Assert the code path taken and the HTTP calls made exactly match what v3.8.9 made. This test is the contract that Private Mode doesn't break the existing feature.
+**Critical.** One new test: with `private_mode=False`, run the full transcribe-then-clean pipeline against mocked Groq/OpenAI clients. Assert the code path taken and the HTTP calls made exactly match what v3.9.0 made. This test is the contract that Private Mode doesn't break the existing feature.
 
 ### 9.3 Integration smoke test (local only, skipped in CI)
 
@@ -228,12 +228,12 @@ Skipped in CI (needs Ollama installed on the runner). Developers run it locally.
 
 ## 10. Rollout
 
-- Ship as v3.9.0. Minor version bump (new user-facing feature, not a bugfix).
+- Ship as v3.10.0. Minor version bump (new user-facing feature, not a bugfix).
 - Docs: one-paragraph update on the website's privacy page noting Private Mode as an option. Update the FAQ with an entry: "How do I use Waffler without an API key?"
 - No breaking changes. Users who don't toggle Private Mode see zero difference.
 
 ## 11. Open Questions / Future Work
 
-- **Prompt tuning for Gemma.** First release ships the shared `prompts/normal.txt`. If Gemma 4 E4B doesn't follow it well in practice, a branch `prompts/normal_local.txt` is added in a follow-up. Not part of v3.9.0 unless initial testing shows it's required.
+- **Prompt tuning for Gemma.** First release ships the shared `prompts/normal.txt`. If Gemma 4 E4B doesn't follow it well in practice, a branch `prompts/normal_local.txt` is added in a follow-up. Not part of v3.10.0 unless initial testing shows it's required.
 - **Model choice.** v1 is E4B-only. If there's user demand for the 31B Dense variant (or others) for higher quality on beefy machines, we can add a picker in a future version.
 - **Ollama-independent runtime.** If Ollama becomes unreliable or a better runtime emerges (MLX, llama.cpp bundled), we swap it out by rewriting only `src/local_backend.py`.
