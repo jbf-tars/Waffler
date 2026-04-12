@@ -82,3 +82,61 @@ def test_check_model_installed_false_when_models_not_list():
     with patch("local_backend.requests.get") as mock_get:
         mock_get.return_value = FakeResponse(200, {"models": None})
         assert local_backend.check_model_installed() is False
+
+
+import json as _json
+
+
+def _ndjson_response(lines):
+    """Build a fake streaming response yielding NDJSON lines."""
+    resp = MagicMock()
+    resp.status_code = 200
+    resp.iter_lines.return_value = [_json.dumps(l).encode() for l in lines]
+    resp.__enter__ = lambda self: self
+    resp.__exit__ = lambda self, *a: None
+    return resp
+
+
+def test_pull_model_streams_progress():
+    progress = []
+
+    def on_prog(pct):
+        progress.append(pct)
+
+    with patch("local_backend.requests.post") as mock_post:
+        mock_post.return_value = _ndjson_response([
+            {"status": "downloading", "total": 1000, "completed": 0},
+            {"status": "downloading", "total": 1000, "completed": 250},
+            {"status": "downloading", "total": 1000, "completed": 500},
+            {"status": "downloading", "total": 1000, "completed": 1000},
+            {"status": "success"},
+        ])
+        local_backend.pull_model("gemma4:e4b", on_progress=on_prog)
+
+    assert progress == [0.0, 25.0, 50.0, 100.0]
+
+
+def test_pull_model_raises_on_connection_error():
+    import requests
+    from errors import LocalUnavailableError
+    with patch("local_backend.requests.post") as mock_post:
+        mock_post.side_effect = requests.ConnectionError()
+        try:
+            local_backend.pull_model("gemma4:e4b", on_progress=lambda p: None)
+            assert False, "should have raised"
+        except LocalUnavailableError:
+            pass
+
+
+def test_pull_model_ignores_progress_without_total():
+    """Ollama sometimes emits status-only lines (e.g. 'pulling manifest').
+    These should not invoke on_progress."""
+    progress = []
+    with patch("local_backend.requests.post") as mock_post:
+        mock_post.return_value = _ndjson_response([
+            {"status": "pulling manifest"},
+            {"status": "success"},
+        ])
+        local_backend.pull_model("gemma4:e4b", on_progress=progress.append)
+
+    assert progress == []
