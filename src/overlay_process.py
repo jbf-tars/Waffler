@@ -47,6 +47,7 @@ from AppKit import (
     NSFontAttributeName,
     NSMutableParagraphStyle,
     NSCenterTextAlignment,
+    NSParagraphStyleAttributeName,
 )
 from Foundation import NSObject, NSTimer, NSRunLoop, NSDefaultRunLoopMode, NSMakePoint, NSMakeRect
 
@@ -419,6 +420,14 @@ class ToastView(NSView):
 
     def drawRect_(self, rect):
         """Draw toast with dark panel, golden border, waffle icon, text, and buttons."""
+        try:
+            self._drawToastContent()
+        except Exception as e:
+            print(f"[overlay_mac] ToastView.drawRect_ FAILED: {e}", file=sys.stderr, flush=True)
+            import traceback
+            traceback.print_exc(file=sys.stderr)
+
+    def _drawToastContent(self):
         b = self.bounds()
         w = TOAST_W
         h = TOAST_H
@@ -464,7 +473,7 @@ class ToastView(NSView):
         heading_attrs = {
             NSFontAttributeName: heading_font,
             NSForegroundColorAttributeName: heading_color,
-            NSMutableParagraphStyle: para_style,
+            NSParagraphStyleAttributeName: para_style,
         }
 
         heading_rect = NSMakeRect(20, heading_y, w - 40, 30)
@@ -480,7 +489,7 @@ class ToastView(NSView):
         body_attrs = {
             NSFontAttributeName: body_font,
             NSForegroundColorAttributeName: body_color,
-            NSMutableParagraphStyle: para_style,
+            NSParagraphStyleAttributeName: para_style,
         }
 
         body_rect = NSMakeRect(20, body_y, w - 40, 30)
@@ -725,37 +734,45 @@ def _dispatch_cmd(cmd):
 def _show_toast(style: str, heading: str, body: str):
     """Show a warm Waffler-branded toast above the waffle."""
     global _toast_win, _toast_style
-    _hide_toast()
-    _toast_style = style
+    try:
+        _hide_toast()
+        _toast_style = style
 
-    # Centre toast above the waffle
-    tx = _waffle_x + (WAFFLE_W - TOAST_W) // 2
-    ty = _waffle_y + WAFFLE_H + TOAST_PAD
+        # Centre toast above the waffle
+        tx = _waffle_x + (WAFFLE_W - TOAST_W) // 2
+        ty = _waffle_y + WAFFLE_H + TOAST_PAD
 
-    # Create toast window
-    _toast_win = ClickableWindow.alloc().initWithContentRect_styleMask_backing_defer_(
-        NSMakeRect(tx, ty, TOAST_W, TOAST_H),
-        NSWindowStyleMaskBorderless,
-        NSBackingStoreBuffered,
-        False
-    )
-    _toast_win.setLevel_(NSFloatingWindowLevel + 2)
-    _toast_win.setOpaque_(False)
-    _toast_win.setBackgroundColor_(NSColor.clearColor())
-    _toast_win.setCollectionBehavior_(
-        NSWindowCollectionBehaviorCanJoinAllSpaces |
-        NSWindowCollectionBehaviorStationary
-    )
+        print(f"[overlay_mac] _show_toast: style={style}, pos=({tx},{ty})", file=sys.stderr, flush=True)
 
-    # Create toast view
-    toast_view = ToastView.alloc().initWithFrame_style_heading_body_(
-        NSMakeRect(0, 0, TOAST_W, TOAST_H), style, heading, body
-    )
-    _toast_win.setContentView_(toast_view)
-    _toast_win.makeKeyAndOrderFront_(None)
-    _toast_win.orderFrontRegardless()  # FORCE window to front!
-    _toast_win.display()  # FORCE immediate render!
-    toast_view.setNeedsDisplay_(True)  # TRIGGER view to draw!
+        # Create toast window
+        _toast_win = ClickableWindow.alloc().initWithContentRect_styleMask_backing_defer_(
+            NSMakeRect(tx, ty, TOAST_W, TOAST_H),
+            NSWindowStyleMaskBorderless,
+            NSBackingStoreBuffered,
+            False
+        )
+        _toast_win.setLevel_(NSFloatingWindowLevel + 2)
+        _toast_win.setOpaque_(False)
+        _toast_win.setBackgroundColor_(NSColor.clearColor())
+        _toast_win.setCollectionBehavior_(
+            NSWindowCollectionBehaviorCanJoinAllSpaces |
+            NSWindowCollectionBehaviorStationary
+        )
+
+        # Create toast view
+        toast_view = ToastView.alloc().initWithFrame_style_heading_body_(
+            NSMakeRect(0, 0, TOAST_W, TOAST_H), style, heading, body
+        )
+        _toast_win.setContentView_(toast_view)
+        _toast_win.makeKeyAndOrderFront_(None)
+        _toast_win.orderFrontRegardless()  # FORCE window to front!
+        _toast_win.display()  # FORCE immediate render!
+        toast_view.setNeedsDisplay_(True)  # TRIGGER view to draw!
+        print(f"[overlay_mac] toast window created and displayed", file=sys.stderr, flush=True)
+    except Exception as e:
+        print(f"[overlay_mac] _show_toast FAILED: {e}", file=sys.stderr, flush=True)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
 
 
 def _hide_toast():
