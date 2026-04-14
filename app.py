@@ -746,17 +746,25 @@ class Api:
                 shutil.rmtree(data_dir)
                 _log_to_file("[factory reset] Data directory cleared via UI")
 
-            # Quit the app
-            global _should_quit
-            _should_quit = True
-            if _window_ref:
-                try:
-                    _window_ref.destroy()
-                except Exception:
-                    pass
+            # Delay window destruction to avoid crash
+            # (can't destroy window while inside API callback - JS bridge is still active)
+            def delayed_quit():
+                time.sleep(0.5)  # Wait for response to be sent to JS
+                global _should_quit
+                _should_quit = True
+                if _window_ref:
+                    try:
+                        _window_ref.destroy()
+                        _log_to_file("[factory reset] Window destroyed successfully")
+                    except Exception as e:
+                        _log_to_file(f"[factory reset] Window destroy error: {e}")
+
+            threading.Thread(target=delayed_quit, daemon=True, name="FactoryResetQuit").start()
+            _log_to_file("[factory reset] Scheduled delayed quit")
 
             return {"ok": True, "message": "Factory reset complete"}
         except Exception as e:
+            _log_to_file(f"[factory reset] Error: {e}")
             return {"ok": False, "error": str(e)}
 
     # ── Hotkey Config APIs ───────────────────────────────────────────────
