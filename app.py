@@ -1722,6 +1722,7 @@ class WafflerPipeline:
                 notify_js_status("idle")
                 return
 
+            transcript = None  # init for error handler
             audio_bytes = self.audio.stop()
             if not audio_bytes:
                 _log_to_file("No audio bytes captured")
@@ -1884,9 +1885,46 @@ class WafflerPipeline:
             _log_to_file(f"Done: {styled[:80]}")
 
         except Exception as e:
-            _log_to_file(f"Pipeline error: {e}")
+            error_msg = str(e)
+            _log_to_file(f"Pipeline error: {error_msg}")
             import traceback
             traceback.print_exc()
+
+            # Show user-visible error toast with specific message
+            try:
+                if "RATE_LIMIT" in error_msg or "429" in error_msg:
+                    self.overlay.show_toast(
+                        style="error",
+                        heading="Rate limit reached",
+                        body="Groq API limit hit. Wait a moment and try again.",
+                    )
+                elif "CONNECTION" in error_msg or "Connection error" in error_msg or "timeout" in error_msg.lower():
+                    self.overlay.show_toast(
+                        style="error",
+                        heading="Connection failed",
+                        body="Couldn't reach the server. Check your internet or VPN.",
+                    )
+                elif "403" in error_msg or "Access denied" in error_msg:
+                    self.overlay.show_toast(
+                        style="error",
+                        heading="Access denied",
+                        body="API key may be invalid or VPN is blocking the request.",
+                    )
+                else:
+                    self.overlay.show_toast(
+                        style="error",
+                        heading="Something went wrong",
+                        body="Your text was copied to clipboard. Check logs for details.",
+                    )
+                    # Still try to salvage — paste the raw transcript
+                    if transcript:
+                        try:
+                            self.clipboard.copy(transcript)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
             notify_js_status("idle")
 
     def _apply_snippets(self, text: str) -> str:
