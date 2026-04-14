@@ -280,7 +280,15 @@ class Api:
 
     def get_fn_key_state(self) -> dict:
         """Return current hotkey press state (Fn on Mac, Win+Ctrl on Windows)."""
+        global _wizard_step2_monitor
         try:
+            # Check wizard Step 2 monitor first (used during setup)
+            if _wizard_step2_monitor:
+                monitor = getattr(_wizard_step2_monitor, '_monitor', None)
+                is_pressed = getattr(monitor, '_hotkey_active', False) if monitor else False
+                return {"ok": True, "pressed": is_pressed}
+
+            # Check main hotkey listener (used during normal operation)
             if hasattr(self, 'hotkey_listener') and self.hotkey_listener:
                 if _platform.system() == "Windows":
                     is_pressed = getattr(self.hotkey_listener, 'is_combo_active', False)
@@ -998,6 +1006,55 @@ class Api:
 
     # ── Wizard Hotkey Test API ─────────────────────────────────────────────
 
+    def wizard_init_step2(self) -> dict:
+        """Start hotkey monitor for wizard Step 2 (hotkey detection feedback)."""
+        global _wizard_step2_monitor
+        try:
+            # Clean up any existing monitor
+            if _wizard_step2_monitor:
+                try:
+                    _wizard_step2_monitor.stop()
+                except Exception:
+                    pass
+                _wizard_step2_monitor = None
+
+            _log_to_file("Starting hotkey monitor for wizard Step 2...")
+            stored = self._load_settings_file()
+            keys = stored.get("hotkey_keys")
+
+            if _platform.system() == "Windows":
+                _wizard_step2_monitor = WindowsHotkeyListener(
+                    on_press=lambda: None,  # No action needed - just monitoring state
+                    on_release=lambda: None,
+                    keys=keys,
+                )
+                threading.Thread(target=_wizard_step2_monitor.start, daemon=True, name="WizardStep2Monitor").start()
+            else:
+                _wizard_step2_monitor = SmartHotkeyListener(
+                    on_press=lambda: None,  # No action needed - just monitoring state
+                    on_release=lambda: None,
+                )
+                _wizard_step2_monitor.start()
+
+            _log_to_file("Wizard Step 2 hotkey monitor started")
+            return {"ok": True}
+        except Exception as e:
+            _log_to_file(f"Wizard Step 2 init error: {e}")
+            return {"ok": False, "error": str(e)}
+
+    def wizard_cleanup_step2(self) -> dict:
+        """Stop hotkey monitor for wizard Step 2."""
+        global _wizard_step2_monitor
+        try:
+            if _wizard_step2_monitor:
+                _wizard_step2_monitor.stop()
+                _wizard_step2_monitor = None
+                _log_to_file("Wizard Step 2 monitor stopped")
+            return {"ok": True}
+        except Exception as e:
+            _log_to_file(f"Wizard Step 2 cleanup error: {e}")
+            return {"ok": False, "error": str(e)}
+
     def wizard_start_fn_detection(self) -> dict:
         """Start Fn key detection for wizard Step 3 (just detection, no recording)."""
         try:
@@ -1260,12 +1317,13 @@ _pipeline = None   # set after WafflerPipeline is created
 _config   = None   # set in main()
 
 # ── Wizard temporary state ────────────────────────────────────────────
-_wizard_recorder    = None   # temporary AudioRecorder for wizard
-_wizard_hotkey      = None   # temporary hotkey listener for wizard
-_wizard_transcriber = None   # temporary WhisperTranscriber for wizard
-_wizard_overlay     = None   # temporary overlay for wizard
-_wizard_recording   = False  # is wizard currently recording?
-_wizard_result      = None   # transcription result
+_wizard_recorder      = None   # temporary AudioRecorder for wizard
+_wizard_hotkey        = None   # temporary hotkey listener for wizard (Step 4)
+_wizard_step2_monitor = None   # temporary hotkey monitor for Step 2 detection
+_wizard_transcriber   = None   # temporary WhisperTranscriber for wizard
+_wizard_overlay       = None   # temporary overlay for wizard
+_wizard_recording     = False  # is wizard currently recording?
+_wizard_result        = None   # transcription result
 
 SETUP_FILE = DATA_DIR / "setup_complete.json"
 
