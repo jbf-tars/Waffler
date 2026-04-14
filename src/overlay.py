@@ -68,6 +68,17 @@ class RecordingOverlay:
 
     # ── Public API ────────────────────────────────────────────────────
 
+    def prestart(self):
+        """Pre-start the overlay subprocess so first show() is instant."""
+        if self._is_alive():
+            return
+        self._log("[overlay] Pre-starting subprocess...")
+        self._start_process()
+        if self._is_alive():
+            self._log(f"[overlay] ✓ Pre-started, PID={self._process.pid}")
+        else:
+            self._log("[overlay] Pre-start failed (will retry on first show)")
+
     def show(self):
         """Show the recording overlay."""
         self._log("[overlay] show() called")
@@ -258,10 +269,13 @@ class RecordingOverlay:
                 print("[overlay] ERROR: Max restart attempts exceeded", flush=True)
                 return False
 
-            # Exponential backoff: 0.5s, 1s, 2s (max 3 attempts)
-            delay = 0.5 * (2 ** (self._restart_count - 1))
-            self._log(f"[overlay] Restarting subprocess in {delay}s (attempt {self._restart_count}/3)")
-            time.sleep(delay)
+            # First attempt: no delay. Retries: exponential backoff 0.5s, 1s
+            if self._restart_count > 1:
+                delay = 0.5 * (2 ** (self._restart_count - 2))
+                self._log(f"[overlay] Restarting subprocess in {delay}s (attempt {self._restart_count}/3)")
+                time.sleep(delay)
+            else:
+                self._log(f"[overlay] Starting subprocess (attempt 1/3)")
 
             self._start_process()
             success = self._is_alive()
@@ -276,6 +290,8 @@ class RecordingOverlay:
     def _send(self, data: dict) -> bool:
         """Write a JSON command to the subprocess stdin (thread-safe).
 
+        Auto-restarts the subprocess on broken pipe (e.g. after sleep/wake).
+
         Returns:
             bool: True if command sent successfully, False otherwise
         """
@@ -288,9 +304,28 @@ class RecordingOverlay:
                 self._process.stdin.flush()
                 return True
             except (BrokenPipeError, OSError) as e:
-                # Log instead of silently swallowing
-                self._log(f"[overlay] ⚠️  Broken pipe during send: {e}")
-                return False
+                self._log(f"[overlay] ⚠️  Broken pipe during send: {e} — restarting subprocess")
+                # Kill the frozen process and restart
+                try:
+                    self._process.kill()
+                except Exception:
+                    pass
+                self._process = None
+
+        # Restart outside the send_lock to avoid deadlock
+        self._log("[overlay] Auto-restarting after broken pipe...")
+        self._start_process()
+        if self._is_alive():
+            self._log("[overlay] ✓ Auto-restart successful")
+            # Retry the original command
+            with self._send_lock:
+                try:
+                    self._process.stdin.write(json.dumps(data) + "\n")
+                    self._process.stdin.flush()
+                    return True
+                except Exception:
+                    return False
+        return False
 
     def _read_stdout(self):
         """Read event callbacks from subprocess stdout."""
