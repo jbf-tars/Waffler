@@ -77,6 +77,10 @@ class SmartHotkeyListener:
             self._hotkey_held = True
             self._recording = True
             self._fire_press()
+        else:
+            # Hotkey pressed while already recording → update held state
+            # This is needed for Fn+Space detection when in sticky mode
+            self._hotkey_held = True
 
     def _on_hotkey_release(self):
         """Called when hotkey combination is released"""
@@ -96,15 +100,15 @@ class SmartHotkeyListener:
         if self._hotkey_held and self._recording and not self._sticky:
             # Fn+Space while recording → enable sticky mode
             self._sticky = True
-            print("📌 Fn+Space → Sticky mode ON! Press Fn tap OR Space alone to stop.")
+            print("📌 Fn+Space → Sticky mode ON! Press Fn+Space again to stop.")
             self._fire_visual_feedback("sticky_on")
-        elif self._sticky and self._recording and not self._hotkey_held:
-            # Space alone (Fn NOT held) while in sticky mode → cancel
-            # Note: This will type a space character (unavoidable without breaking other apps)
+        elif self._hotkey_held and self._recording and self._sticky:
+            # Fn+Space while in sticky mode → cancel sticky mode
+            # This is the clean way - no space character typed!
             self._sticky = False
             self._recording = False
-            print("🛑 Space → Sticky mode OFF (space character typed)")
-            self._fire_visual_feedback("sticky_off_space")
+            print("🛑 Fn+Space → Sticky mode OFF")
+            self._fire_visual_feedback("sticky_off_fn")
             self._fire_release()
 
     # ── Callbacks (run in a thread to avoid blocking) ─────────
