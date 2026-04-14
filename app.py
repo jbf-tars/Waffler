@@ -1531,6 +1531,8 @@ class WafflerPipeline:
             on_cancel_request=self._on_overlay_cancel_request,
             on_toast_action=self._on_toast_action,
         )
+        # Pre-start overlay subprocess so first recording has no delay
+        threading.Thread(target=self.overlay.prestart, daemon=True).start()
         self._prev_window = None  # focused window before recording starts
 
         # Use persisted audio device (if set)
