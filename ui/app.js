@@ -91,6 +91,8 @@ window.addEventListener('pywebviewready', () => {
   refreshAll();
   loadHotkeyConfig();
   updateDateLabel();
+  // Check for updates after a short delay (don't block startup)
+  setTimeout(checkForUpdates, 3000);
 });
 
 // Fallback: also try on DOMContentLoaded in case pywebview event fires early
@@ -126,6 +128,28 @@ function updateDateLabel() {
   const now = new Date();
   const opts = { weekday: 'long', month: 'long', day: 'numeric' };
   $dateLabel.textContent = now.toLocaleDateString('en-GB', opts);
+}
+
+async function checkForUpdates() {
+  try {
+    if (!window.pywebview || !window.pywebview.api) return;
+    const r = await pywebview.api.check_for_updates();
+    if (r.update_available) {
+      // Show update banner at top of sidebar
+      const sidebar = document.querySelector('.sidebar');
+      if (!sidebar) return;
+      const banner = document.createElement('div');
+      banner.className = 'update-banner';
+      banner.innerHTML = `
+        <span>Update v${r.latest_version} available</span>
+        <button onclick="pywebview.api.open_url('${r.release_url || r.download_url}')">Download</button>
+        <button class="dismiss" onclick="this.parentElement.remove()">✕</button>
+      `;
+      sidebar.prepend(banner);
+    }
+  } catch(e) {
+    console.warn('Update check failed:', e);
+  }
 }
 
 function updateHotkeyHint() {
