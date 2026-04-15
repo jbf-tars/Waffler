@@ -16,7 +16,16 @@ No function ever falls back to cloud — that's enforced at the caller level.
 import requests
 
 OLLAMA_URL = "http://localhost:11434"
-DEFAULT_MODEL = "gemma4:e4b"
+
+MODEL_INFO = {
+    "name": "gemma4:e4b",
+    "display_name": "Gemma 4 E4B",
+    "download_size_gb": 9.6,
+    "min_ram_gb": 16,
+}
+
+# Backward-compatible alias — existing callers may use DEFAULT_MODEL.
+DEFAULT_MODEL = MODEL_INFO["name"]
 
 
 def check_ollama_running() -> bool:

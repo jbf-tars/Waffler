@@ -705,6 +705,11 @@ class Api:
             "model_installed": local_backend.check_model_installed(),
         }
 
+    def get_model_info(self) -> dict:
+        """Return the local model's metadata for UI display."""
+        import local_backend
+        return dict(local_backend.MODEL_INFO)
+
     def set_private_mode(self, enabled: bool) -> None:
         """Persist the Private Mode toggle."""
         import settings_store
