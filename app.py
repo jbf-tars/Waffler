@@ -11,8 +11,16 @@ import json
 import time
 import threading
 import pyperclip
+import faulthandler
 from pathlib import Path
 from datetime import datetime, date
+
+# Enable faulthandler to catch segfaults and write tracebacks to a file
+try:
+    _crash_log = open(Path.home() / ".waffler-hosted" / "crash.log", "a")
+    faulthandler.enable(file=_crash_log)
+except Exception:
+    faulthandler.enable()
 
 # ── Safe stdout/stderr (Windows cp1252 can't handle emoji — force UTF-8) ──
 def _fix_stream(stream):
@@ -191,6 +199,53 @@ class Api:
         """Return the app version string."""
         from src import __version__
         return __version__
+
+    def check_for_updates(self) -> dict:
+        """Check GitHub releases for a newer version.
+        Returns: {"update_available": bool, "latest_version": str, "download_url": str}
+        """
+        try:
+            import requests
+            from src import __version__
+            r = requests.get(
+                "https://api.github.com/repos/jbf-tars/waffler/releases/latest",
+                timeout=5,
+                headers={"Accept": "application/vnd.github.v3+json"},
+            )
+            if r.status_code != 200:
+                return {"update_available": False}
+            data = r.json()
+            latest_tag = data.get("tag_name", "")
+            latest_version = latest_tag.lstrip("v")
+            current_version = __version__
+
+            # Compare versions
+            def parse_ver(v):
+                try:
+                    return tuple(int(x) for x in v.split("."))
+                except Exception:
+                    return (0,)
+
+            if parse_ver(latest_version) > parse_ver(current_version):
+                # Find the right download URL for this platform
+                import platform as _plat
+                suffix = ".dmg" if _plat.system() == "Darwin" else ".exe"
+                download_url = data.get("html_url", "")
+                for asset in data.get("assets", []):
+                    if asset.get("name", "").endswith(suffix):
+                        download_url = asset.get("browser_download_url", download_url)
+                        break
+                return {
+                    "update_available": True,
+                    "latest_version": latest_version,
+                    "current_version": current_version,
+                    "download_url": download_url,
+                    "release_url": data.get("html_url", ""),
+                }
+            return {"update_available": False, "current_version": current_version}
+        except Exception as e:
+            _log_to_file(f"[update] check failed: {e}")
+            return {"update_available": False}
 
     def get_history(self) -> list:
         """Return transcript history (newest first)."""
@@ -1843,7 +1898,9 @@ class WafflerPipeline:
                 return
 
             transcript = None  # init for error handler
+            _log_to_file("[pipeline] stopping audio capture...")
             audio_bytes = self.audio.stop()
+            _log_to_file(f"[pipeline] audio captured: {len(audio_bytes) if audio_bytes else 0} bytes")
             if not audio_bytes:
                 _log_to_file("No audio bytes captured")
                 # Only show error toast if recording was held for > 1 second
