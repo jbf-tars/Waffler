@@ -170,12 +170,9 @@ Transcript: {transcript}"""
     def _style_groq(self, prompt: str, start_time: float):
         """Style using Groq — ~200-400ms."""
         system_msg = (
-            "You are a voice-to-text formatter. Output ONLY the final cleaned/formatted text. "
-            "Follow ALL formatting rules in the user prompt exactly — including paragraph breaks, "
-            "email structure, numbered lists, and bullet points. Preserve line breaks in your output. "
-            "NEVER output your classification, reasoning, labels, or any meta-commentary. "
-            "Do NOT prefix your output with things like 'This is a COMMAND' or 'Output:'. "
-            "Just return the cleaned text directly."
+            "Clean up voice transcripts. Remove filler words (um, uh, like, yeah, you know). "
+            "Preserve the speaker's exact wording. Never paraphrase or add words they didn't say. "
+            "Never censor profanity. Return only the cleaned text, no commentary."
             + getattr(self, '_vocab_system_extra', '')
         )
         try:
@@ -210,12 +207,9 @@ Transcript: {transcript}"""
     def _style_gemini(self, prompt: str, start_time: float):
         """Style using Gemini."""
         system_msg = (
-            "You are a voice-to-text formatter. Output ONLY the final cleaned/formatted text. "
-            "Follow ALL formatting rules in the user prompt exactly — including paragraph breaks, "
-            "email structure, numbered lists, and bullet points. Preserve line breaks in your output. "
-            "NEVER output your classification, reasoning, labels, or any meta-commentary. "
-            "Do NOT prefix your output with things like 'This is a COMMAND' or 'Output:'. "
-            "Just return the cleaned text directly."
+            "Clean up voice transcripts. Remove filler words (um, uh, like, yeah, you know). "
+            "Preserve the speaker's exact wording. Never paraphrase or add words they didn't say. "
+            "Never censor profanity. Return only the cleaned text, no commentary."
             + getattr(self, '_vocab_system_extra', '')
         )
         try:
