@@ -2557,9 +2557,56 @@ function openOllamaDownload() {
   }
 }
 
-// Placeholder — Task 13 will implement this.
 async function startModelDownload() {
-  console.warn("startModelDownload stub — Task 13 will implement");
+  const progressRow = document.getElementById("modelPullProgressRow");
+  const bar = document.getElementById("modelPullBar");
+  const label = document.getElementById("modelPullLabel");
+  const btn = document.getElementById("modelActionBtn");
+
+  // Kick off the background pull on the Python side
+  try {
+    await window.pywebview.api.pull_gemma_model();
+  } catch (e) {
+    console.error("pull_gemma_model failed to start", e);
+    alert("Couldn't start download. Is Ollama running?");
+    return;
+  }
+
+  // Show progress row, disable the button while active
+  progressRow.style.display = "";
+  btn.disabled = true;
+  btn.textContent = "Downloading…";
+  bar.value = 0;
+  label.textContent = "0%";
+
+  // Poll every 500ms
+  const poll = setInterval(async () => {
+    let p;
+    try {
+      p = await window.pywebview.api.get_model_pull_progress();
+    } catch (e) {
+      console.error("get_model_pull_progress failed", e);
+      clearInterval(poll);
+      btn.disabled = false;
+      progressRow.style.display = "none";
+      return;
+    }
+
+    const pct = Math.max(0, Math.min(100, p.percent || 0));
+    bar.value = pct;
+    label.textContent = Math.round(pct) + "%";
+
+    if (p.done) {
+      clearInterval(poll);
+      progressRow.style.display = "none";
+      btn.disabled = false;
+      if (p.error) {
+        alert("Model download failed: " + p.error);
+      }
+      // Refresh the card — the model row should now show "Ready"
+      await refreshPrivateModeCard();
+    }
+  }, 500);
 }
 
 // Load snippets when settings page opens
