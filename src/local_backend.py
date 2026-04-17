@@ -96,28 +96,62 @@ def clean_text(prompt: str) -> str:
     the transcript substituted. We send it as a single user message. The
     model is configured for deterministic output (temperature=0).
 
+    The 9.6GB Gemma 4 E4B can take 30-90 seconds to load into memory on
+    first use after the app starts (or after Ollama's 5-minute keep_alive
+    expires). Ollama returns HTTP 500 with "loading model" during that
+    window — we retry with backoff rather than fail hard. After the
+    first warm call, subsequent requests complete in <1 second.
+
     Raises LocalUnavailableError on any transport or HTTP failure.
     """
-    try:
-        resp = requests.post(
-            f"{OLLAMA_URL}/v1/chat/completions",
-            json={
-                "model": DEFAULT_MODEL,
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0,
-            },
-            timeout=30,
-        )
-        if resp.status_code != 200:
-            raise LocalUnavailableError(
-                f"ollama chat returned {resp.status_code}: {resp.text[:200]}"
-            )
+    import time as _time
+    _MAX_RETRIES = 4
+    _RETRY_DELAY = 3  # seconds between retries while model loads
+
+    last_err = None
+    for attempt in range(_MAX_RETRIES):
         try:
-            data = resp.json()
-            return data["choices"][0]["message"]["content"]
-        except (ValueError, KeyError, IndexError, TypeError) as e:
+            resp = requests.post(
+                f"{OLLAMA_URL}/v1/chat/completions",
+                json={
+                    "model": DEFAULT_MODEL,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0,
+                },
+                timeout=180,  # covers cold-start model load + inference
+            )
+            if resp.status_code == 200:
+                try:
+                    data = resp.json()
+                    return data["choices"][0]["message"]["content"]
+                except (ValueError, KeyError, IndexError, TypeError) as e:
+                    raise LocalUnavailableError(
+                        f"ollama returned malformed response: {e}"
+                    ) from e
+
+            # "Model still loading" — retryable transient.
+            body = resp.text[:400]
+            if resp.status_code == 500 and "loading model" in body.lower():
+                last_err = f"loading model (attempt {attempt + 1}/{_MAX_RETRIES})"
+                if attempt < _MAX_RETRIES - 1:
+                    _time.sleep(_RETRY_DELAY)
+                    continue
+                raise LocalUnavailableError(
+                    "ollama is still loading the model after several retries — "
+                    "try again in a moment."
+                )
+
             raise LocalUnavailableError(
-                f"ollama returned malformed response: {e}"
-            ) from e
-    except requests.RequestException as e:
-        raise LocalUnavailableError(f"ollama unreachable: {e}") from e
+                f"ollama chat returned {resp.status_code}: {body}"
+            )
+        except requests.Timeout as e:
+            last_err = str(e)
+            if attempt < _MAX_RETRIES - 1:
+                _time.sleep(_RETRY_DELAY)
+                continue
+            raise LocalUnavailableError(f"ollama timed out: {e}") from e
+        except requests.RequestException as e:
+            raise LocalUnavailableError(f"ollama unreachable: {e}") from e
+
+    # Should never reach here (loop either returns or raises), but just in case:
+    raise LocalUnavailableError(f"ollama clean_text gave up: {last_err}")

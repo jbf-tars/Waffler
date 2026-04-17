@@ -699,11 +699,42 @@ class Api:
         """Return current Private Mode status for the Settings UI."""
         import settings_store
         import local_backend
+        import transcribe_whisper
         return {
             "private_mode": settings_store.is_private_mode(),
             "ollama_running": local_backend.check_ollama_running(),
             "model_installed": local_backend.check_model_installed(),
+            "local_whisper_ready": transcribe_whisper.is_local_whisper_ready(),
         }
+
+    def preload_local_whisper(self) -> None:
+        """Load the local Whisper backend on a background thread.
+
+        First run downloads the `base` model (~150MB) and can take a
+        couple of minutes on slow connections. Progress is reported via
+        get_local_whisper_status().
+        """
+        import threading
+        if hasattr(self, "_whisper_state") and self._whisper_state.get("loading"):
+            return
+        self._whisper_state = {"loading": True, "ready": False, "error": None}
+
+        def worker():
+            try:
+                import transcribe_whisper
+                transcribe_whisper.load_local_whisper_backend()
+                self._whisper_state = {"loading": False, "ready": True, "error": None}
+            except Exception as e:
+                self._whisper_state = {"loading": False, "ready": False, "error": str(e)}
+
+        threading.Thread(target=worker, daemon=True, name="LocalWhisperLoader").start()
+
+    def get_local_whisper_status(self) -> dict:
+        """Poll-style status for the UI."""
+        import transcribe_whisper
+        state = dict(getattr(self, "_whisper_state", {"loading": False, "ready": False, "error": None}))
+        state["ready"] = state["ready"] or transcribe_whisper.is_local_whisper_ready()
+        return state
 
     def get_model_info(self) -> dict:
         """Return the local model's metadata for UI display."""
@@ -1959,13 +1990,17 @@ class WafflerPipeline:
 
     def on_hotkey_press(self):
         """Start recording."""
-        if self.is_recording:
-            return
+        # Atomic check-and-set — prevents two concurrent hook callbacks
+        # (from races or from a second leftover listener) from both passing
+        # the guard and starting two parallel recording sessions.
+        with self._processing_lock:
+            if self.is_recording:
+                return
+            self.is_recording = True
         # Capture focused window BEFORE overlay takes focus
         self._prev_window = self.clipboard.get_focused_window()
         _log_to_file("Recording started")
         self._recording_session += 1
-        self.is_recording = True
         # Track recording start time for duration checks
         import time
         self._recording_start_time = time.time()
@@ -1983,20 +2018,22 @@ class WafflerPipeline:
 
     def on_hotkey_release(self):
         """In toggle mode this fires on hotkey-up but is also called on second press."""
-        if not self.is_recording:
-            return
+        # Atomic check-and-set + processing-id allocation in one critical
+        # section — prevents two concurrent release callbacks from both
+        # spawning process threads for the same recording.
+        with self._processing_lock:
+            if not self.is_recording:
+                return
+            self.is_recording = False
+            self._processing_id += 1
+            current_id = self._processing_id
         _log_to_file("Recording stopped, processing")
-        self.is_recording = False
         self._is_paused = False
         notify_js_status("processing")
         try:
             self.overlay.hide()
         except Exception as e:
             print(f"[overlay] hide failed: {e}")
-        # Assign unique ID and spawn process thread
-        with self._processing_lock:
-            self._processing_id += 1
-            current_id = self._processing_id
         threading.Thread(target=lambda: self._process(current_id), daemon=True).start()
 
     def toggle_pause(self):

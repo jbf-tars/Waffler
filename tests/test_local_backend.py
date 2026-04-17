@@ -155,7 +155,7 @@ def test_clean_text_returns_response_body():
         assert body["model"] == "gemma4:e4b"
         assert body["temperature"] == 0
         assert body["messages"] == [{"role": "user", "content": "user prompt here"}]
-        assert kwargs["timeout"] == 30
+        assert kwargs["timeout"] == 180  # covers cold-start Ollama model load
 
 
 def test_clean_text_raises_on_connection_error():
