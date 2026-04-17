@@ -44,7 +44,7 @@ class OpenAIStyler:
         if groq_api_key and _groq_mod:
             self._groq_client = _groq_mod.Groq(api_key=groq_api_key)
             self._use_groq = True
-            self._groq_model = "meta-llama/llama-4-scout-17b-16e-instruct"
+            self._groq_model = "llama-3.3-70b-versatile"
             print(f"Styling: Groq {self._groq_model}")
         # Priority 2: Gemini
         elif gemini_api_key and _gemini_mod:
@@ -80,8 +80,10 @@ Transcript: {transcript}"""
         words = transcript.split()
         if len(words) <= 5:
             return True
-        fillers = {'um', 'uh', 'like', 'you know', 'basically', 'so', 'right', 'okay'}
-        filler_count = sum(1 for w in words if w.lower().strip('.,!?') in fillers)
+        # Hard fillers only — meaning-bearing words like "like" / "basically"
+        # are too context-sensitive for regex and must go to the LLM.
+        hard_fillers = {'um', 'uh', 'erm', 'ah', 'er'}
+        filler_count = sum(1 for w in words if w.lower().strip('.,!?') in hard_fillers)
         return len(words) <= 10 and filler_count / len(words) < 0.15
 
     def style(self, transcript: str):
@@ -90,6 +92,7 @@ Transcript: {transcript}"""
             cleaned = self._basic_clean(transcript)
             return cleaned, {"input_tokens": 0, "output_tokens": 0, "api_used": False}
 
+        self._last_raw = transcript
         start_time = time.time()
 
         # Load custom vocabulary
@@ -195,6 +198,7 @@ Transcript: {transcript}"""
         styled = response.choices[0].message.content.strip()
         # Fix mid-sentence capitalization bug
         styled = self._fix_mid_sentence_caps(styled)
+        styled = self._strip_hallucinations(styled, self._last_raw)
         latency = (time.time() - start_time) * 1000
         usage = response.usage
         return styled, {
@@ -231,6 +235,7 @@ Transcript: {transcript}"""
                 raise RuntimeError(f"CONNECTION: Gemini connection failed — {error_msg[:100]}")
             raise
         styled = self._fix_mid_sentence_caps(styled)
+        styled = self._strip_hallucinations(styled, self._last_raw)
         latency = (time.time() - start_time) * 1000
         input_tokens = getattr(response, 'usage_metadata', None)
         return styled, {
@@ -255,6 +260,7 @@ Transcript: {transcript}"""
             styled = response.choices[0].message.content.strip()
             # Fix mid-sentence capitalization bug
             styled = self._fix_mid_sentence_caps(styled)
+            styled = self._strip_hallucinations(styled, self._last_raw)
             usage = response.usage
             return styled, {
                 "input_tokens": usage.prompt_tokens if usage else 0,
@@ -308,10 +314,73 @@ Transcript: {transcript}"""
         fixed = re.sub(pattern, should_lowercase, text)
         return fixed
 
+    # Leading meta-commentary the LLM sometimes prepends despite being told not to.
+    _PREAMBLE_RE = re.compile(
+        r"^(?:\s*(?:"
+        r"Here(?:'s| is| are)\s+(?:the\s+)?cleaned\s+(?:text|transcript|version|up\s+text)"
+        r"|Here(?:'s| is)\s+(?:the\s+)?cleaned"
+        r"|Cleaned(?:\s+(?:text|transcript|version))?"
+        r"|Output"
+        r"|The\s+cleaned\s+(?:text|transcript|version)(?:\s+is)?"
+        r")\s*:\s*\n*)+",
+        re.IGNORECASE,
+    )
+
+    # Greeting injected at start of the LLM output (only stripped when the raw
+    # transcript didn't start with a greeting itself).
+    _GREETING_RE = re.compile(
+        r"^(?:Dear\s+[^,\n]{1,40},?|Hi(?:\s+[A-Z][a-z]+)?,?|Hello(?:\s+[A-Z][a-z]+)?,?|Hey(?:\s+[A-Z][a-z]+)?,?)\s*\n+",
+    )
+
+    # Sign-off followed by a [placeholder] — a strong signal of hallucination.
+    _SIGNOFF_RE = re.compile(
+        r"\n+\s*(?:Best(?:\s+regards)?|Kind\s+regards|Warm\s+regards|Sincerely|Regards|Cheers|Thanks|Yours(?:\s+truly|\s+sincerely)?)\s*,?\s*\n+\s*\[[^\]]+\]\s*\Z",
+        re.IGNORECASE,
+    )
+
+    # 3+ newlines (possibly with whitespace between) collapse to exactly 2.
+    _TRIPLE_NL_RE = re.compile(r"\n[ \t]*\n[ \t]*(?:\n[ \t]*)+")
+
+    _GREETING_WORDS = ("hi", "hello", "hey", "dear", "howdy", "good morning",
+                       "good afternoon", "good evening", "yo")
+
+    def _raw_starts_with_greeting(self, raw: str) -> bool:
+        head = raw.lstrip().lower()
+        return any(head.startswith(w) for w in self._GREETING_WORDS)
+
+    def _strip_hallucinations(self, output: str, raw_transcript: str) -> str:
+        """Deterministic guardrail for known LLM failure modes.
+
+        Strips leading meta-preamble, injected greetings/sign-offs, and
+        collapses pathological whitespace. Never touches content the speaker
+        actually dictated — the raw transcript is used as ground truth.
+        """
+        if not output:
+            return output
+
+        text = output
+
+        # a) Leading meta-preamble ("Here is the cleaned text:\n\n")
+        text = self._PREAMBLE_RE.sub("", text, count=1).lstrip()
+
+        # b) Injected greeting at start — only if raw didn't start with one
+        if not self._raw_starts_with_greeting(raw_transcript):
+            text = self._GREETING_RE.sub("", text, count=1).lstrip()
+
+        # c) Trailing sign-off with [placeholder]
+        text = self._SIGNOFF_RE.sub("", text).rstrip()
+
+        # d) Collapse 3+ newlines (and whitespace-only lines between) to \n\n
+        text = self._TRIPLE_NL_RE.sub("\n\n", text)
+
+        return text.strip()
+
     def _basic_clean(self, text: str) -> str:
-        """Fallback basic cleaning if API fails"""
-        fillers = ['um', 'uh', 'like', 'you know', 'so basically', 'basically']
+        """Fallback basic cleaning if API fails. Only strips unambiguous fillers —
+        meaning-bearing words (like, basically, actually, you know) are left alone
+        because regex can't tell filler-use from meaning-use."""
+        hard_fillers = ['um', 'uh', 'erm', 'ah', 'er']
         cleaned = text
-        for filler in fillers:
+        for filler in hard_fillers:
             cleaned = re.sub(rf'\b{filler}\b', '', cleaned, flags=re.IGNORECASE)
         return re.sub(r'\s+', ' ', cleaned).strip()
