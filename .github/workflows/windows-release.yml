@@ -97,10 +97,11 @@ jobs:
           $initPath = 'src\__init__.py'
           $initContent = Get-Content -Path $initPath -Raw
           $newVersionLine = ('__version__ = "{0}"' -f $version)
-          $initUpdated = [regex]::Replace($initContent, '__version__\s*=\s*"[^"]*"', $newVersionLine)
-          if ($initUpdated -eq $initContent) {
+          $versionRegex = [regex]'__version__\s*=\s*"[^"]*"'
+          if (-not $versionRegex.IsMatch($initContent)) {
             throw "Could not find __version__ in $initPath"
           }
+          $initUpdated = $versionRegex.Replace($initContent, $newVersionLine)
           Set-Content -Path $initPath -Value $initUpdated -Encoding utf8
           Write-Host "src/__init__.py __version__ set to '$version'"
 
