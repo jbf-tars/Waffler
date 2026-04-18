@@ -9,22 +9,44 @@ Run on a Mac with: pyinstaller Waffler_mac.spec
 
 import sys
 import os
+import platform
+
+from PyInstaller.utils.hooks import collect_all
 
 block_cipher = None
 PROJECT_ROOT = os.path.abspath('.')
 
+# ── Local Whisper backend ────────────────────────────────────────────────
+# Apple Silicon: bundle mlx-whisper (uses Neural Engine via MLX).
+# Intel Mac / building on non-ARM: bundle faster-whisper (CPU).
+# collect_all pulls submodules, data files, and any bundled .dylib/.so
+# shaders so Private Mode works in the frozen .app without pip install.
+_extra_hidden = []
+_extra_datas = []
+_extra_binaries = []
+_IS_ARM_MAC_BUILD = sys.platform == 'darwin' and platform.machine() == 'arm64'
+_local_whisper_pkgs = ['mlx_whisper', 'mlx'] if _IS_ARM_MAC_BUILD else ['faster_whisper']
+for _pkg in _local_whisper_pkgs:
+    try:
+        _h, _d, _b = collect_all(_pkg)
+        _extra_hidden.extend(_h)
+        _extra_datas.extend(_d)
+        _extra_binaries.extend(_b)
+    except Exception as _e:
+        print(f"WARNING: could not collect {_pkg} for Private Mode: {_e}")
+
 a = Analysis(
     ['app.py'],
     pathex=[PROJECT_ROOT, os.path.join(PROJECT_ROOT, 'src')],
-    binaries=[],
+    binaries=_extra_binaries,
     datas=[
         ('ui', 'ui'),
         ('prompts', 'prompts'),
         ('src', 'src'),
         ('config.yaml', '.'),
         ('.env.example', '.'),
-    ],
-    hiddenimports=[
+    ] + _extra_datas,
+    hiddenimports=_extra_hidden + [
         # ── Audio ──
         'sounddevice',
         'numpy',
