@@ -693,6 +693,113 @@ class Api:
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
+    # ── Private Mode API ──────────────────────────────────────────────────────
+
+    def get_private_mode_status(self) -> dict:
+        """Return current Private Mode status for the Settings UI."""
+        import settings_store
+        import local_backend
+        import transcribe_whisper
+        return {
+            "private_mode": settings_store.is_private_mode(),
+            "ollama_running": local_backend.check_ollama_running(),
+            "model_installed": local_backend.check_model_installed(),
+            "local_whisper_ready": transcribe_whisper.is_local_whisper_ready(),
+        }
+
+    def preload_local_whisper(self) -> None:
+        """Load the local Whisper backend on a background thread.
+
+        First run downloads the `base` model (~150MB) and can take a
+        couple of minutes on slow connections. Progress is reported via
+        get_local_whisper_status().
+        """
+        import threading
+        if hasattr(self, "_whisper_state") and self._whisper_state.get("loading"):
+            return
+        self._whisper_state = {"loading": True, "ready": False, "error": None}
+
+        def worker():
+            try:
+                import transcribe_whisper
+                transcribe_whisper.load_local_whisper_backend()
+                self._whisper_state = {"loading": False, "ready": True, "error": None}
+            except Exception as e:
+                self._whisper_state = {"loading": False, "ready": False, "error": str(e)}
+
+        threading.Thread(target=worker, daemon=True, name="LocalWhisperLoader").start()
+
+    def get_local_whisper_status(self) -> dict:
+        """Poll-style status for the UI."""
+        import transcribe_whisper
+        state = dict(getattr(self, "_whisper_state", {"loading": False, "ready": False, "error": None}))
+        state["ready"] = state["ready"] or transcribe_whisper.is_local_whisper_ready()
+        return state
+
+    def get_model_info(self) -> dict:
+        """Return the local model's metadata for UI display."""
+        import local_backend
+        return dict(local_backend.MODEL_INFO)
+
+    def set_private_mode(self, enabled: bool) -> None:
+        """Persist the Private Mode toggle."""
+        import settings_store
+        settings_store.set_key("private_mode", bool(enabled))
+
+    def check_ollama_now(self) -> dict:
+        """Re-run detection. Same shape as get_private_mode_status."""
+        return self.get_private_mode_status()
+
+    def open_ollama_app(self) -> None:
+        """Launch the Ollama desktop app (platform-specific)."""
+        import sys, subprocess
+        try:
+            if sys.platform == "darwin":
+                subprocess.Popen(["open", "-a", "Ollama"])
+            elif sys.platform == "win32":
+                subprocess.Popen(["cmd", "/c", "start", "", "ollama"], shell=False)
+        except Exception as e:
+            print(f"⚠️  open_ollama_app failed: {e}")
+
+    def pull_gemma_model(self) -> None:
+        """Kick off Gemma 4 pull on a background thread."""
+        import threading, local_backend
+
+        # Lazy-init the lock once (Api.__new__-tolerant).
+        if not hasattr(self, "_pull_lock"):
+            self._pull_lock = threading.Lock()
+
+        with self._pull_lock:
+            if getattr(self, "_pull_state", {}).get("running"):
+                return  # already in flight
+            self._pull_state = {"percent": 0.0, "done": False, "error": None, "running": True}
+
+        def worker():
+            try:
+                local_backend.pull_model(
+                    local_backend.DEFAULT_MODEL,
+                    on_progress=lambda p: self._update_pull_state({"percent": p}),
+                )
+                self._update_pull_state({"percent": 100.0, "done": True, "running": False})
+            except Exception as e:
+                self._update_pull_state({"error": str(e), "done": True, "running": False})
+
+        self._pull_thread = threading.Thread(target=worker, daemon=True)
+        self._pull_thread.start()
+
+    def _update_pull_state(self, changes: dict) -> None:
+        """Thread-safe update to the pull-progress state."""
+        with self._pull_lock:
+            self._pull_state.update(changes)
+
+    def get_model_pull_progress(self) -> dict:
+        """Poll-style accessor for the JS UI. Thread-safe snapshot."""
+        import threading
+        if not hasattr(self, "_pull_lock"):
+            self._pull_lock = threading.Lock()
+        with self._pull_lock:
+            return dict(getattr(self, "_pull_state", {"percent": 0.0, "done": False, "error": None, "running": False}))
+
     # ── History utilities ─────────────────────────────────────────────────────
 
     def export_history(self) -> dict:
@@ -1883,13 +1990,17 @@ class WafflerPipeline:
 
     def on_hotkey_press(self):
         """Start recording."""
-        if self.is_recording:
-            return
+        # Atomic check-and-set — prevents two concurrent hook callbacks
+        # (from races or from a second leftover listener) from both passing
+        # the guard and starting two parallel recording sessions.
+        with self._processing_lock:
+            if self.is_recording:
+                return
+            self.is_recording = True
         # Capture focused window BEFORE overlay takes focus
         self._prev_window = self.clipboard.get_focused_window()
         _log_to_file("Recording started")
         self._recording_session += 1
-        self.is_recording = True
         # Track recording start time for duration checks
         import time
         self._recording_start_time = time.time()
@@ -1907,20 +2018,22 @@ class WafflerPipeline:
 
     def on_hotkey_release(self):
         """In toggle mode this fires on hotkey-up but is also called on second press."""
-        if not self.is_recording:
-            return
+        # Atomic check-and-set + processing-id allocation in one critical
+        # section — prevents two concurrent release callbacks from both
+        # spawning process threads for the same recording.
+        with self._processing_lock:
+            if not self.is_recording:
+                return
+            self.is_recording = False
+            self._processing_id += 1
+            current_id = self._processing_id
         _log_to_file("Recording stopped, processing")
-        self.is_recording = False
         self._is_paused = False
         notify_js_status("processing")
         try:
             self.overlay.hide()
         except Exception as e:
             print(f"[overlay] hide failed: {e}")
-        # Assign unique ID and spawn process thread
-        with self._processing_lock:
-            self._processing_id += 1
-            current_id = self._processing_id
         threading.Thread(target=lambda: self._process(current_id), daemon=True).start()
 
     def toggle_pause(self):
@@ -2203,7 +2316,36 @@ class WafflerPipeline:
 
             # Show user-visible error toast with specific message
             try:
-                if "RATE_LIMIT" in error_msg or "429" in error_msg:
+                # Private Mode failures — never fall back to cloud, surface clearly
+                from errors import LocalUnavailableError
+                if isinstance(e, LocalUnavailableError):
+                    msg_lower = error_msg.lower()
+                    if "no local whisper" in msg_lower or "local transcription" in msg_lower:
+                        self.overlay.show_toast(
+                            style="error",
+                            heading="Local transcription unavailable",
+                            body="Set LOCAL_WHISPER=1 and restart, or turn off Private Mode.",
+                        )
+                    elif "model" in msg_lower and ("not found" in msg_lower or "missing" in msg_lower):
+                        self.overlay.show_toast(
+                            style="error",
+                            heading="Gemma model missing",
+                            body="Open Settings → Private Mode and download the model.",
+                        )
+                    elif "timeout" in msg_lower:
+                        self.overlay.show_toast(
+                            style="error",
+                            heading="Local AI is slow",
+                            body="Try again, or turn off Private Mode for cloud speed.",
+                        )
+                    else:
+                        # Generic Ollama unreachable
+                        self.overlay.show_toast(
+                            style="error",
+                            heading="Private Mode unavailable",
+                            body="Ollama isn't running. Check Settings → Private Mode.",
+                        )
+                elif "RATE_LIMIT" in error_msg or "429" in error_msg:
                     self.overlay.show_toast(
                         style="error",
                         heading="Rate limit reached",
