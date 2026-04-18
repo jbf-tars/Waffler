@@ -347,4 +347,5 @@ jobs:
           name: ${{ github.ref_name }}
           files: dist-installer/*.dmg
           generate_release_notes: true
+          make_latest: 'true'
 
