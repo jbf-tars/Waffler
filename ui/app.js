@@ -142,13 +142,144 @@ async function checkForUpdates() {
       banner.className = 'update-banner';
       banner.innerHTML = `
         <span>Update v${r.latest_version} available</span>
-        <button onclick="pywebview.api.open_url('${r.release_url || r.download_url}')">Download</button>
+        <button onclick="openUpdateModalFromCheck(${JSON.stringify(r).replace(/"/g, '&quot;')})">Install</button>
         <button class="dismiss" onclick="this.parentElement.remove()">✕</button>
       `;
       sidebar.prepend(banner);
     }
   } catch(e) {
     console.warn('Update check failed:', e);
+  }
+}
+
+// ── Manual update flow (Settings → About → Check for Update) ──────────
+let _updatePollTimer = null;
+let _downloadedPath = null;
+
+function showUpdateModal() {
+  const m = document.getElementById('updateModal');
+  if (m) m.style.display = 'flex';
+}
+function closeUpdateModal(ev) {
+  if (ev && ev.target && ev.target.id !== 'updateModal') return;
+  const m = document.getElementById('updateModal');
+  if (m) m.style.display = 'none';
+  stopProgressPolling();
+}
+function setUpdateModal({ icon, title, subtitle, showProgress, primaryLabel, primaryHandler, cancelLabel }) {
+  document.getElementById('updateModalIcon').textContent = icon || '⬆️';
+  document.getElementById('updateModalTitle').textContent = title || '';
+  document.getElementById('updateModalSubtitle').textContent = subtitle || '';
+  document.getElementById('updateProgressWrap').style.display = showProgress ? 'block' : 'none';
+  const primary = document.getElementById('updatePrimaryBtn');
+  if (primaryLabel) {
+    primary.textContent = primaryLabel;
+    primary.style.display = '';
+    primary.onclick = primaryHandler;
+  } else {
+    primary.style.display = 'none';
+  }
+  document.getElementById('updateCancelBtn').textContent = cancelLabel || 'Close';
+}
+
+async function checkForUpdatesManual() {
+  showUpdateModal();
+  setUpdateModal({ icon: '🔄', title: 'Checking for updates…', subtitle: 'Contacting GitHub…' });
+  try {
+    const r = await pywebview.api.check_for_updates();
+    if (r.update_available) {
+      openUpdateModalFromCheck(r);
+    } else {
+      setUpdateModal({
+        icon: '✓',
+        title: 'You\'re up to date',
+        subtitle: `Running Waffler v${r.current_version || 'current'} — latest version.`,
+      });
+    }
+  } catch(e) {
+    setUpdateModal({ icon: '⚠️', title: 'Check failed', subtitle: String(e) });
+  }
+}
+
+function openUpdateModalFromCheck(r) {
+  showUpdateModal();
+  setUpdateModal({
+    icon: '⬆️',
+    title: `Waffler v${r.latest_version} is available`,
+    subtitle: `You're on v${r.current_version}. Download and install now?`,
+    primaryLabel: 'Download & Install',
+    primaryHandler: () => startDownloadFlow(r.download_url),
+    cancelLabel: 'Later',
+  });
+}
+
+async function startDownloadFlow(url) {
+  _downloadedPath = null;
+  setUpdateModal({
+    icon: '⬇️',
+    title: 'Downloading update…',
+    subtitle: 'Please keep Waffler open.',
+    showProgress: true,
+    cancelLabel: 'Cancel',
+  });
+  try {
+    const r = await pywebview.api.start_update_download(url);
+    if (!r.ok) throw new Error(r.error || 'Failed to start download');
+    startProgressPolling();
+  } catch(e) {
+    setUpdateModal({ icon: '⚠️', title: 'Download failed', subtitle: String(e) });
+  }
+}
+
+function startProgressPolling() {
+  stopProgressPolling();
+  _updatePollTimer = setInterval(pollUpdateProgress, 300);
+}
+function stopProgressPolling() {
+  if (_updatePollTimer) { clearInterval(_updatePollTimer); _updatePollTimer = null; }
+}
+
+async function pollUpdateProgress() {
+  try {
+    const p = await pywebview.api.get_update_progress();
+    if (p.error) {
+      stopProgressPolling();
+      setUpdateModal({ icon: '⚠️', title: 'Download failed', subtitle: p.error });
+      return;
+    }
+    if (p.total_bytes > 0) {
+      const pct = Math.floor((p.bytes_downloaded / p.total_bytes) * 100);
+      const mb = (p.bytes_downloaded / 1048576).toFixed(1);
+      const totalMb = (p.total_bytes / 1048576).toFixed(1);
+      document.getElementById('updateProgressBar').style.width = pct + '%';
+      document.getElementById('updateProgressText').textContent = `${pct}% — ${mb} / ${totalMb} MB`;
+    } else {
+      document.getElementById('updateProgressText').textContent = 'Starting…';
+    }
+    if (p.done) {
+      stopProgressPolling();
+      _downloadedPath = p.path;
+      setUpdateModal({
+        icon: '✓',
+        title: 'Ready to install',
+        subtitle: 'Waffler will close, install the update, and relaunch.',
+        primaryLabel: 'Install Now',
+        primaryHandler: () => installDownloadedUpdate(),
+        cancelLabel: 'Later',
+      });
+    }
+  } catch(e) {
+    console.warn('progress poll failed', e);
+  }
+}
+
+async function installDownloadedUpdate() {
+  if (!_downloadedPath) return;
+  setUpdateModal({ icon: '⚙️', title: 'Installing…', subtitle: 'Waffler is closing to apply the update.' });
+  try {
+    await pywebview.api.install_update_and_restart(_downloadedPath);
+  } catch(e) {
+    setUpdateModal({ icon: '⚠️', title: 'Install failed', subtitle: String(e) });
   }
 }
 

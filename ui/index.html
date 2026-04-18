@@ -250,6 +250,9 @@
             <div class="settings-row-label">Waffler</div>
             <div class="settings-row-desc" id="aboutVersion">Loading...</div>
           </div>
+          <div class="settings-row-control">
+            <button class="settings-btn" id="checkUpdateBtn" onclick="checkForUpdatesManual()">Check for Update</button>
+          </div>
         </div>
       </div>
 
@@ -284,6 +287,27 @@
     <div id="vocabList" class="vocab-list"></div>
   </div>
 
+</div>
+
+<!-- Update Modal -->
+<div class="hotkey-modal-overlay" id="updateModal" style="display:none" onclick="closeUpdateModal(event)">
+  <div class="hotkey-modal" onclick="event.stopPropagation()" style="max-width:440px">
+    <div class="hotkey-modal-icon" id="updateModalIcon">⬆️</div>
+    <div class="hotkey-modal-title" id="updateModalTitle">Checking for updates…</div>
+    <div class="hotkey-modal-subtitle" id="updateModalSubtitle">Contacting GitHub…</div>
+
+    <div id="updateProgressWrap" style="display:none; margin: 16px 0 4px;">
+      <div style="background: rgba(255,255,255,0.08); border-radius: 6px; height: 8px; overflow: hidden;">
+        <div id="updateProgressBar" style="background: var(--accent, #6c63ff); height: 100%; width: 0%; transition: width .15s linear;"></div>
+      </div>
+      <div id="updateProgressText" style="font-size: 12px; opacity: 0.7; margin-top: 8px; text-align: center;">0%</div>
+    </div>
+
+    <div id="updateModalActions" style="display:flex; gap:8px; justify-content:center; margin-top:20px;">
+      <button class="settings-btn" id="updateCancelBtn" onclick="closeUpdateModal()">Close</button>
+      <button class="settings-btn" id="updatePrimaryBtn" style="display:none; background: var(--accent, #6c63ff); color: white;"></button>
+    </div>
+  </div>
 </div>
 
 <!-- Hotkey Capture Modal -->

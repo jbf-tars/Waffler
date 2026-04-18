@@ -247,6 +247,32 @@ class Api:
             _log_to_file(f"[update] check failed: {e}")
             return {"update_available": False}
 
+    def start_update_download(self, url: str) -> dict:
+        """Begin downloading the update installer in the background.
+        JS polls get_update_progress() to render a progress bar."""
+        try:
+            from src import updater
+            updater.start_download(url)
+            return {"ok": True}
+        except Exception as e:
+            _log_to_file(f"[update] start_download failed: {e}")
+            return {"ok": False, "error": str(e)}
+
+    def get_update_progress(self) -> dict:
+        """Poll current download state. Returns active / bytes / total / done / path / error."""
+        from src import updater
+        return updater.get_progress()
+
+    def install_update_and_restart(self, installer_path: str) -> dict:
+        """Launch the installer detached and exit the app so the upgrade can replace files."""
+        try:
+            from src import updater
+            updater.install_and_restart(installer_path)
+            return {"ok": True}  # usually unreachable — process exits
+        except Exception as e:
+            _log_to_file(f"[update] install failed: {e}")
+            return {"ok": False, "error": str(e)}
+
     def get_history(self) -> list:
         """Return transcript history (newest first)."""
         items = load_history()

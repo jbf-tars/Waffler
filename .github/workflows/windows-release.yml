@@ -93,6 +93,17 @@ jobs:
           Set-Content -Path $issPath -Value $updated -Encoding utf8
           Write-Host "Installer version set to '$version' (source: $source)"
 
+          # Also sync src/__init__.py so the running app self-reports the correct version
+          $initPath = 'src\__init__.py'
+          $initContent = Get-Content -Path $initPath -Raw
+          $newVersionLine = ('__version__ = "{0}"' -f $version)
+          $initUpdated = [regex]::Replace($initContent, '__version__\s*=\s*"[^"]*"', $newVersionLine)
+          if ($initUpdated -eq $initContent) {
+            throw "Could not find __version__ in $initPath"
+          }
+          Set-Content -Path $initPath -Value $initUpdated -Encoding utf8
+          Write-Host "src/__init__.py __version__ set to '$version'"
+
       - name: Build installer
         shell: pwsh
         run: |
