@@ -135,6 +135,58 @@ jobs:
           codesign -dvvv dist/Waffler.app 2>&1 | grep -E "Identifier|Authority|Signature" || true
 
 
+      - name: Notarize and staple .app
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -z "$APPLE_ID" ] || [ -z "$APPLE_APP_PASSWORD" ]; then
+            echo "⚠️  Skipping .app notarization — Apple credentials not configured"
+            exit 0
+          fi
+
+          echo "=== Zipping .app for notarization submission ==="
+          ditto -c -k --keepParent dist/Waffler.app dist/Waffler.zip
+
+          echo "=== Submitting .app for notarization ==="
+          set +e
+          SUBMIT_OUTPUT=$(xcrun notarytool submit dist/Waffler.zip \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_APP_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait \
+            --timeout 10m 2>&1)
+          NOTARY_EXIT_CODE=$?
+          set -e
+
+          echo "$SUBMIT_OUTPUT"
+
+          if [ $NOTARY_EXIT_CODE -ne 0 ]; then
+            echo "❌ .app notarization submission failed (exit code $NOTARY_EXIT_CODE)"
+            exit 1
+          fi
+
+          if ! echo "$SUBMIT_OUTPUT" | grep -q "status: Accepted"; then
+            echo "❌ .app notarization NOT accepted"
+            SUBMISSION_ID=$(echo "$SUBMIT_OUTPUT" | grep "id:" | head -1 | awk '{print $2}')
+            if [ -n "$SUBMISSION_ID" ]; then
+              xcrun notarytool log "$SUBMISSION_ID" \
+                --apple-id "$APPLE_ID" \
+                --password "$APPLE_APP_PASSWORD" \
+                --team-id "$APPLE_TEAM_ID" || true
+            fi
+            exit 1
+          fi
+
+          echo "=== Stapling ticket to .app ==="
+          xcrun stapler staple dist/Waffler.app
+          xcrun stapler validate dist/Waffler.app
+          echo "✅ .app notarized and stapled"
+
+          rm -f dist/Waffler.zip
+
+
       - name: Package DMG
         run: |
           mkdir -p dist-installer
