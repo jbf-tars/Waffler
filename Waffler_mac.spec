@@ -28,10 +28,11 @@ _IS_ARM_MAC_BUILD = sys.platform == 'darwin' and platform.machine() == 'arm64'
 _local_whisper_pkgs = ['mlx_whisper', 'mlx'] if _IS_ARM_MAC_BUILD else ['faster_whisper']
 for _pkg in _local_whisper_pkgs:
     try:
-        _h, _d, _b = collect_all(_pkg)
-        _extra_hidden.extend(_h)
+        # PyInstaller's collect_all returns (datas, binaries, hiddenimports).
+        _d, _b, _h = collect_all(_pkg)
         _extra_datas.extend(_d)
         _extra_binaries.extend(_b)
+        _extra_hidden.extend(_h)
     except Exception as _e:
         print(f"WARNING: could not collect {_pkg} for Private Mode: {_e}")
 
