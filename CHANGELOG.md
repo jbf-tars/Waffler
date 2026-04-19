@@ -4,7 +4,7 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [3.10.1] - 2026-04-23
+## [3.10.2] - 2026-04-23
 
 ### Fixed
 - **Private Mode → Local Whisper failed with `No module named 'mlx_whisper'` in the packaged macOS `.app`.** `mlx-whisper` (Apple Silicon) and `faster-whisper` (Intel) were never listed in `requirements.txt` or bundled by the PyInstaller spec, so the frozen interpreter could not import them. Added them to `requirements.txt` with platform markers and to `Waffler_mac.spec` via `collect_all`, which also pulls in `mlx`'s Metal shaders and native libraries. Local Whisper now works out of the box — no external install step required.
