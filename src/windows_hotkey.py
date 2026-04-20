@@ -171,14 +171,6 @@ class WindowsHotkeyListener:
         self._suppress_vks = set()  # VK codes to suppress on key-up
         self._busy = False  # True while processing transcription
 
-        # Debounce: the low-level hook and the 30ms poll thread can both
-        # observe the release window and each fire _fire_release() once,
-        # causing the pipeline to run twice (double-paste). We debounce by
-        # suppressing any release/press fired within 150ms of the last one.
-        self._last_press_ts = 0.0
-        self._last_release_ts = 0.0
-        self._debounce_lock = threading.Lock()
-
         # Must prevent garbage collection of the callback
         self._hook_proc = HOOKPROC(self._ll_keyboard_proc)
 
@@ -325,20 +317,10 @@ class WindowsHotkeyListener:
     # ── Callback helpers ──────────────────────────────────────────────
 
     def _fire_press(self):
-        with self._debounce_lock:
-            now = time.time()
-            if now - self._last_press_ts < 0.15:
-                return  # duplicate press from hook+poll race — ignore
-            self._last_press_ts = now
         threading.Thread(target=self._safe_callback,
                          args=(self._on_press,), daemon=True).start()
 
     def _fire_release(self):
-        with self._debounce_lock:
-            now = time.time()
-            if now - self._last_release_ts < 0.15:
-                return  # duplicate release from hook+poll race — ignore
-            self._last_release_ts = now
         threading.Thread(target=self._safe_callback,
                          args=(self._on_release,), daemon=True).start()
 

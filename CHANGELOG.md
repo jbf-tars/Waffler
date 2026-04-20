@@ -4,21 +4,10 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [3.10.4] - 2026-04-23
+## [3.11.0] - 2026-04-23
 
-### Fixed
-- **Private Mode failed with `[Errno 2] No such file or directory: 'ffmpeg'` on both macOS and Windows.** `mlx-whisper` and `faster-whisper` shell out to `ffmpeg` to decode recorded audio, but the packaged builds never bundled it. Both specs now copy the build host's `ffmpeg` binary into the `.app` / `.exe` distribution, and `app.py` prepends the bundle directories to `PATH` at startup so the subprocess spawn can find it. CI workflows ensure ffmpeg is installed on the runner before the spec runs.
-
-## [3.10.3] - 2026-04-23
-
-### Fixed
-- **Packaged `.app` crashed on launch with `SIGKILL (Code Signature Invalid)`.** `mlx-whisper` transitively depends on `numba`/`llvmlite`, which JIT-compile native code at import time. The hardened-runtime-signed app lacked the required entitlements, so macOS killed the process the first time llvmlite called `mprotect` on an executable page. Added `com.apple.security.cs.allow-jit` and `com.apple.security.cs.allow-unsigned-executable-memory` to `entitlements.plist`.
-- **`CFBundleShortVersionString` was stuck at `2.1.19` in the .app bundle plist.** CI's "Sync app version from tag" step only rewrote `src/__init__.py`, not the spec. Spec now reads the version from `src/__init__.py` at build time so the bundle plist, menu "About" string, and update-check compare against the same value.
-
-## [3.10.2] - 2026-04-23
-
-### Fixed
-- **Private Mode → Local Whisper failed with `No module named 'mlx_whisper'` in the packaged macOS `.app`.** `mlx-whisper` (Apple Silicon) and `faster-whisper` (Intel) were never listed in `requirements.txt` or bundled by the PyInstaller spec, so the frozen interpreter could not import them. Added them to `requirements.txt` with platform markers and to `Waffler_mac.spec` via `collect_all`, which also pulls in `mlx`'s Metal shaders and native libraries. Local Whisper now works out of the box — no external install step required.
+### Removed
+- **Private Mode.** Local Gemma 4 styling took minutes per long clip even on an M3 Max (LLMs max out around 50 tok/s on Apple Silicon vs. Groq's 500+ tok/s on LPU hardware), so the fully-offline pipeline was never going to match cloud latency for the cleanup step. The v3.10.x line shipped with a series of platform-packaging patches (mlx-whisper bundling, JIT entitlements, ffmpeg bundling) that are also rolled back here since they only existed to support the local stack. Revert scope: the v3.10.0 feature merge plus v3.10.1 → v3.10.4. Transcription / styling routes back through Groq + OpenAI only.
 
 ## [3.9.0] - 2026-04-21
 

@@ -34,19 +34,6 @@ jobs:
           pip install -r requirements_windows.txt
           pip install pyinstaller
 
-      - name: Ensure ffmpeg is available for bundling
-        # faster-whisper shells out to ffmpeg at runtime. The spec bundles
-        # whatever ffmpeg.exe is on PATH, so make sure it exists.
-        shell: pwsh
-        run: |
-          if (Get-Command ffmpeg -ErrorAction SilentlyContinue) {
-            Write-Host "ffmpeg already installed at $((Get-Command ffmpeg).Source)"
-          } else {
-            choco install ffmpeg -y
-            refreshenv
-          }
-          ffmpeg -version | Select-Object -First 1
-
       - name: Build app (PyInstaller onedir)
         shell: pwsh
         run: |

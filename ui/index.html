@@ -242,66 +242,6 @@
         </div>
       </div>
 
-      <!-- Private Mode -->
-      <div class="settings-section">
-        <div class="settings-section-title">🔒 Private Mode</div>
-
-        <div class="settings-row">
-          <div class="settings-row-info">
-            <div class="settings-row-label">Keep everything local</div>
-            <div class="settings-row-desc">
-              Transcribe and clean on your machine via Ollama. Zero cloud calls.
-              <a href="#" onclick="event.preventDefault(); openOllamaDownload()">Install Ollama</a>
-              if you don't have it.
-            </div>
-          </div>
-          <div class="settings-row-control">
-            <label class="switch-toggle" style="display:inline-flex; align-items:center; gap:8px;">
-              <input type="checkbox" id="privateModeToggle" disabled />
-              <span id="privateModeLabel" style="font-size:13px; color:#999;">Off</span>
-            </label>
-          </div>
-        </div>
-
-        <div class="settings-row">
-          <div class="settings-row-info">
-            <div class="settings-row-label">Ollama</div>
-            <div class="settings-row-desc" id="ollamaStateDesc">Checking…</div>
-          </div>
-          <div class="settings-row-control">
-            <button class="settings-btn" id="ollamaActionBtn" onclick="onOllamaActionClick()">Refresh</button>
-          </div>
-        </div>
-
-        <div class="settings-row">
-          <div class="settings-row-info">
-            <div class="settings-row-label" id="modelRowLabel">Local model</div>
-            <div class="settings-row-desc" id="modelStateDesc">Checking…</div>
-          </div>
-          <div class="settings-row-control">
-            <button class="settings-btn" id="modelActionBtn" onclick="onModelActionClick()">Refresh</button>
-          </div>
-        </div>
-
-        <div class="settings-row" id="modelPullProgressRow" style="display:none;">
-          <div class="settings-row-info" style="width:100%;">
-            <div class="settings-row-label">Downloading…</div>
-            <progress id="modelPullBar" max="100" value="0" style="width:100%; height:8px;"></progress>
-            <div class="settings-row-desc" id="modelPullLabel">0%</div>
-          </div>
-        </div>
-
-        <div class="settings-row">
-          <div class="settings-row-info">
-            <div class="settings-row-label">Local Whisper</div>
-            <div class="settings-row-desc" id="whisperStateDesc">Checking…</div>
-          </div>
-          <div class="settings-row-control">
-            <button class="settings-btn" id="whisperActionBtn" onclick="onWhisperActionClick()">Refresh</button>
-          </div>
-        </div>
-      </div>
-
       <!-- About -->
       <div class="settings-section">
         <div class="settings-section-title">ℹ️ About</div>

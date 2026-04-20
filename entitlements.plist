@@ -21,15 +21,5 @@
 	<!-- Allow Input Monitoring -->
 	<key>com.apple.security.device.input-monitoring</key>
 	<true/>
-
-	<!-- JIT compilation. Required by numba/llvmlite (pulled in by mlx-whisper
-	     for audio preprocessing) and by faster-whisper's ctranslate2 backend.
-	     Without these, the hardened runtime sends SIGKILL with
-	     "Code Signature Invalid / Invalid Page" the first time the library
-	     tries to map an executable page. -->
-	<key>com.apple.security.cs.allow-jit</key>
-	<true/>
-	<key>com.apple.security.cs.allow-unsigned-executable-memory</key>
-	<true/>
 </dict>
 </plist>
