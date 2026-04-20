@@ -34,6 +34,17 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
+      - name: Ensure ffmpeg is available for bundling
+        # mlx-whisper / faster-whisper shell out to ffmpeg at runtime. The
+        # spec bundles whatever ffmpeg is on PATH, so make sure it exists.
+        run: |
+          if command -v ffmpeg >/dev/null 2>&1; then
+            echo "ffmpeg already installed at $(command -v ffmpeg)"
+          else
+            brew install ffmpeg
+          fi
+          ffmpeg -version | head -1
+
 
 
 

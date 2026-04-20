@@ -4,6 +4,11 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.10.4] - 2026-04-23
+
+### Fixed
+- **Private Mode failed with `[Errno 2] No such file or directory: 'ffmpeg'` on both macOS and Windows.** `mlx-whisper` and `faster-whisper` shell out to `ffmpeg` to decode recorded audio, but the packaged builds never bundled it. Both specs now copy the build host's `ffmpeg` binary into the `.app` / `.exe` distribution, and `app.py` prepends the bundle directories to `PATH` at startup so the subprocess spawn can find it. CI workflows ensure ffmpeg is installed on the runner before the spec runs.
+
 ## [3.10.3] - 2026-04-23
 
 ### Fixed

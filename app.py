@@ -60,6 +60,21 @@ sys.stderr = _fix_stream(sys.stderr)
 PROJECT_ROOT = Path(__file__).parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
+# ── Bundled-binary PATH ───────────────────────────────────────────────
+# When running inside a PyInstaller bundle (.app or frozen .exe), make
+# bundled executables discoverable by subprocess libraries. In particular
+# mlx-whisper and faster-whisper shell out to `ffmpeg` to decode audio —
+# without this, Private Mode dies with `No such file or directory: 'ffmpeg'`
+# on machines that don't have ffmpeg installed system-wide.
+if getattr(sys, 'frozen', False):
+    _bundle_dirs = [os.path.dirname(sys.executable)]
+    _frameworks = os.path.normpath(os.path.join(_bundle_dirs[0], '..', 'Frameworks'))
+    if os.path.isdir(_frameworks):
+        _bundle_dirs.append(_frameworks)
+    if hasattr(sys, '_MEIPASS') and sys._MEIPASS not in _bundle_dirs:
+        _bundle_dirs.append(sys._MEIPASS)
+    os.environ['PATH'] = os.pathsep.join(_bundle_dirs + [os.environ.get('PATH', '')])
+
 import webview
 
 from config import Config

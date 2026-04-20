@@ -7,14 +7,28 @@ Produces: dist/Waffler/Waffler.exe  (one-folder mode for faster startup)
 
 import sys
 import os
+import shutil as _shutil
 
 block_cipher = None
 PROJECT_ROOT = os.path.abspath('.')
 
+# ── ffmpeg ───────────────────────────────────────────────────────────────
+# faster-whisper shells out to `ffmpeg` to decode audio. Bundle the build
+# host's ffmpeg.exe into the .exe distribution so end users do not need to
+# install ffmpeg separately. Fail hard if missing so we don't ship a
+# silently broken installer.
+_ffmpeg_path = _shutil.which('ffmpeg')
+if not _ffmpeg_path:
+    raise SystemExit(
+        "ERROR: ffmpeg not found on PATH. Install with `choco install ffmpeg -y` "
+        "(locally) or add a workflow step that installs ffmpeg before this build."
+    )
+print(f"[spec] bundling ffmpeg from {_ffmpeg_path}")
+
 a = Analysis(
     ['app.py'],
     pathex=[PROJECT_ROOT, os.path.join(PROJECT_ROOT, 'src')],
-    binaries=[],
+    binaries=[(_ffmpeg_path, '.')],
     datas=[
         ('ui', 'ui'),
         ('prompts', 'prompts'),

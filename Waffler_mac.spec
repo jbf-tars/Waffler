@@ -31,9 +31,26 @@ print(f"[spec] building Waffler.app version {_VERSION}")
 # Intel Mac / building on non-ARM: bundle faster-whisper (CPU).
 # collect_all pulls submodules, data files, and any bundled .dylib/.so
 # shaders so Private Mode works in the frozen .app without pip install.
+import shutil as _shutil
+
 _extra_hidden = []
 _extra_datas = []
 _extra_binaries = []
+
+# ── ffmpeg ───────────────────────────────────────────────────────────────
+# mlx-whisper / faster-whisper shell out to `ffmpeg` to decode audio.
+# Bundle the build host's ffmpeg into the .app so end users do not need
+# to `brew install ffmpeg`. Fail hard here rather than shipping a silently
+# broken DMG — every prior release has burned a notarization cycle to
+# discover this.
+_ffmpeg_path = _shutil.which('ffmpeg')
+if not _ffmpeg_path:
+    raise SystemExit(
+        "ERROR: ffmpeg not found on PATH. Install with `brew install ffmpeg` "
+        "(locally) or ensure the GitHub Actions runner has it installed."
+    )
+print(f"[spec] bundling ffmpeg from {_ffmpeg_path}")
+_extra_binaries.append((_ffmpeg_path, '.'))
 _IS_ARM_MAC_BUILD = sys.platform == 'darwin' and platform.machine() == 'arm64'
 _local_whisper_pkgs = ['mlx_whisper', 'mlx'] if _IS_ARM_MAC_BUILD else ['faster_whisper']
 for _pkg in _local_whisper_pkgs:
