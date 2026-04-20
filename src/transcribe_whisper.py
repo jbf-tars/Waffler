@@ -221,6 +221,32 @@ def _is_vocab_echo(text: str, vocab: list) -> bool:
     return False
 
 
+def _pad_audio_with_silence(audio_bytes: bytes, padding_ms: int = 300) -> bytes:
+    """Add silence padding to the start and end of a WAV clip.
+
+    Whisper mis-transcribes short clips when the first or last syllable is
+    partially clipped (common with hotkey-triggered recording, where PyAudio
+    takes ~50-200ms to spin up the input stream). Padding gives Whisper's
+    attention mechanism clean silence boundaries and prevents the language
+    model from "guessing" at half-heard words.
+    """
+    import io
+    import wave
+    try:
+        with wave.open(io.BytesIO(audio_bytes), "rb") as w:
+            params = w.getparams()
+            frames = w.readframes(w.getnframes())
+        silence_frames = int(params.framerate * padding_ms / 1000)
+        silence_bytes = b"\x00" * (silence_frames * params.sampwidth * params.nchannels)
+        out = io.BytesIO()
+        with wave.open(out, "wb") as w:
+            w.setparams(params)
+            w.writeframes(silence_bytes + frames + silence_bytes)
+        return out.getvalue()
+    except Exception:
+        return audio_bytes
+
+
 def _strip_hallucinations(text: str) -> str:
     """Remove common Whisper hallucinations from transcribed text.
 
@@ -290,6 +316,8 @@ class WhisperTranscriber:
             print("⚠️  No transcription backend available")
 
     def transcribe_sync(self, audio_bytes: bytes):
+        audio_bytes = _pad_audio_with_silence(audio_bytes)
+
         if self._backend == "groq":
             try:
                 raw = self._transcribe_groq(audio_bytes)
