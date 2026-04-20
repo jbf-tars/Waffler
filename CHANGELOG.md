@@ -4,6 +4,12 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.10.3] - 2026-04-23
+
+### Fixed
+- **Packaged `.app` crashed on launch with `SIGKILL (Code Signature Invalid)`.** `mlx-whisper` transitively depends on `numba`/`llvmlite`, which JIT-compile native code at import time. The hardened-runtime-signed app lacked the required entitlements, so macOS killed the process the first time llvmlite called `mprotect` on an executable page. Added `com.apple.security.cs.allow-jit` and `com.apple.security.cs.allow-unsigned-executable-memory` to `entitlements.plist`.
+- **`CFBundleShortVersionString` was stuck at `2.1.19` in the .app bundle plist.** CI's "Sync app version from tag" step only rewrote `src/__init__.py`, not the spec. Spec now reads the version from `src/__init__.py` at build time so the bundle plist, menu "About" string, and update-check compare against the same value.
+
 ## [3.10.2] - 2026-04-23
 
 ### Fixed

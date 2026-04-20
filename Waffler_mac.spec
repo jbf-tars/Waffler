@@ -16,6 +16,16 @@ from PyInstaller.utils.hooks import collect_all
 block_cipher = None
 PROJECT_ROOT = os.path.abspath('.')
 
+# ── Version ──────────────────────────────────────────────────────────────
+# Read from src/__init__.py which CI rewrites from the git tag in
+# `.github/workflows/macos-release.yml` → "Sync app version from tag".
+# Local builds use whatever is currently checked in.
+import re as _re
+_init_text = open(os.path.join(PROJECT_ROOT, 'src', '__init__.py')).read()
+_m = _re.search(r'__version__\s*=\s*"([^"]+)"', _init_text)
+_VERSION = _m.group(1) if _m else '0.0.0'
+print(f"[spec] building Waffler.app version {_VERSION}")
+
 # ── Local Whisper backend ────────────────────────────────────────────────
 # Apple Silicon: bundle mlx-whisper (uses Neural Engine via MLX).
 # Intel Mac / building on non-ARM: bundle faster-whisper (CPU).
@@ -160,7 +170,9 @@ app = BUNDLE(
         'NSMicrophoneUsageDescription': 'Waffler needs microphone access for voice transcription.',
         'NSAppleEventsUsageDescription': 'Waffler needs accessibility access for hotkey detection and auto-paste.',
         'NSLocalNetworkUsageDescription': 'Waffler uses a local web interface for its UI. No data is sent over the network.',
-        'CFBundleShortVersionString': '2.1.19',
+        # Version string is rewritten by CI's "Sync app version from tag" step
+        # for tagged builds. Keep in sync manually for local builds.
+        'CFBundleShortVersionString': _VERSION,
         'LSMinimumSystemVersion': '10.13.0',
     },
     # Code signing (set SIGNING_IDENTITY env var when you have Developer ID)
