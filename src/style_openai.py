@@ -382,5 +382,10 @@ Transcript: {transcript}"""
         hard_fillers = ['um', 'uh', 'erm', 'ah', 'er']
         cleaned = text
         for filler in hard_fillers:
-            cleaned = re.sub(rf'\b{filler}\b', '', cleaned, flags=re.IGNORECASE)
+            escaped_filler = re.escape(filler)
+            # Handle multi-word fillers (don't use \b for spaces)
+            if ' ' in filler:
+                cleaned = re.sub(rf'(?<!\w){escaped_filler}(?!\w)', '', cleaned, flags=re.IGNORECASE)
+            else:
+                cleaned = re.sub(rf'\b{escaped_filler}\b', '', cleaned, flags=re.IGNORECASE)
         return re.sub(r'\s+', ' ', cleaned).strip()

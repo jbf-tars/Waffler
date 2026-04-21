@@ -11,6 +11,7 @@ import json
 import time
 import threading
 import tempfile
+import atexit
 import pyperclip
 import faulthandler
 from pathlib import Path
@@ -20,6 +21,15 @@ from datetime import datetime, date
 try:
     _crash_log = open(Path.home() / ".waffler-hosted" / "crash.log", "a")
     faulthandler.enable(file=_crash_log)
+
+    def close_crash_log():
+        """Close crash log file on shutdown"""
+        try:
+            _crash_log.close()
+        except:
+            pass
+
+    atexit.register(close_crash_log)
 except Exception:
     faulthandler.enable()
 
@@ -2240,7 +2250,7 @@ class WafflerPipeline:
                     expansion = s.get("expansion", "")
                     if trigger:
                         pattern = rf'(?i)\b{re.escape(trigger)}\b'
-                        text = re.sub(pattern, expansion, text)
+                        text = re.sub(pattern, lambda m: expansion, text)
         except Exception as e:
             print(f"[snippets] error: {e}")
         return text
