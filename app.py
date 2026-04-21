@@ -693,6 +693,38 @@ class Api:
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
+    # ── Private Mode API ──────────────────────────────────────────────────────
+
+    def get_private_mode_status(self) -> dict:
+        """Return current Private Mode status for the Settings UI."""
+        import settings_store
+        import local_backend
+        return {
+            "private_mode": settings_store.is_private_mode(),
+            "ollama_running": local_backend.check_ollama_running(),
+            "model_installed": local_backend.check_model_installed(),
+        }
+
+    def set_private_mode(self, enabled: bool) -> None:
+        """Persist the Private Mode toggle."""
+        import settings_store
+        settings_store.set_key("private_mode", bool(enabled))
+
+    def check_ollama_now(self) -> dict:
+        """Re-run detection. Same shape as get_private_mode_status."""
+        return self.get_private_mode_status()
+
+    def open_ollama_app(self) -> None:
+        """Launch the Ollama desktop app (platform-specific)."""
+        import sys, subprocess
+        try:
+            if sys.platform == "darwin":
+                subprocess.Popen(["open", "-a", "Ollama"])
+            elif sys.platform == "win32":
+                subprocess.Popen(["cmd", "/c", "start", "", "ollama"], shell=False)
+        except Exception as e:
+            print(f"⚠️  open_ollama_app failed: {e}")
+
     # ── History utilities ─────────────────────────────────────────────────────
 
     def export_history(self) -> dict:
