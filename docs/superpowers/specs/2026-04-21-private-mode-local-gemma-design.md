@@ -84,7 +84,7 @@ All HTTP calls use the `requests` library (already a Waffler dependency) for con
 A single source of truth for whether Private Mode is active: `settings.json → "private_mode": bool` (default `false`).
 
 - `transcribe_whisper.transcribe_sync()` reads `private_mode` at call time. If true: force `_backend` to `"mlx"` (Mac) or `"faster"` (Windows). If the required local backend isn't loaded, raise `LocalUnavailableError`.
-- `style_openai.clean()` reads `private_mode` at call time. If true: call `local_backend.clean_text()`; on any failure, raise `LocalUnavailableError`.
+- `style_openai.OpenAIStyler.style()` reads `private_mode` at call time. If true: call `local_backend.clean_text()`; on any failure, raise `LocalUnavailableError`. (Note: the method is named `style`, not `clean` or `style_text`.)
 - Neither code path falls back to cloud when `private_mode=True`.
 
 ### 5.4 State isolation
@@ -165,7 +165,7 @@ transcribe_whisper.transcribe_sync(audio_bytes)
   ├── _pad_audio_with_silence(audio_bytes)   [existing v3.8.8 helper]
   └── run local Whisper → raw transcript
   ↓
-style_openai.clean(transcript)
+style_openai.OpenAIStyler.style(transcript)
   ├── read private_mode = True
   ├── call local_backend.clean_text(prompt, transcript)
   │     ├── if !check_ollama_running() → LocalUnavailableError

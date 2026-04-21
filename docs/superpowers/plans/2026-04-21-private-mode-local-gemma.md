@@ -214,6 +214,26 @@ git commit -m "feat: add settings_store helper with is_private_mode()"
 
 ## Phase 2 — Local Backend Module
 
+### Task 2.5: Sanity-check the Gemma 4 Ollama tag (before coding)
+
+**Why this exists:** the spec asserts the Ollama tag is `gemma4:e4b`, but Ollama tags are published by Google/community and occasionally differ from expected (`gemma4:4b`, `gemma4-e4b`, etc.). If we hard-code the wrong tag, every `check_model_installed()` / `pull_model()` call silently reports "not installed" and downloads fail. Verifying the real tag takes 30 seconds; discovering the typo after UI wiring takes much longer.
+
+- [ ] **Step 1: Check the real tag**
+
+```bash
+# With Ollama running locally:
+curl -s https://registry.ollama.ai/v2/library/gemma4/tags/list | python -m json.tool | head -40
+# OR (easier, on any machine with Ollama):
+ollama search gemma4 2>&1 | head -20
+```
+
+- [ ] **Step 2: Confirm `gemma4:e4b` appears**
+
+If present → continue as planned.
+If absent → note the actual tag name, and update `DEFAULT_MODEL` in `src/local_backend.py` + every reference in tests + UI copy ("Gemma 4 E4B") accordingly. No commit needed for this step, just verification.
+
+---
+
 ### Task 3: `check_ollama_running()`
 
 **Files:**
@@ -732,35 +752,41 @@ python -m pytest tests/test_private_mode_routing.py -v
 
 - [ ] **Step 3: Modify `transcribe_sync()` to add the branch**
 
-Insert at the top of `transcribe_sync()` (currently at line 292 of `src/transcribe_whisper.py`), BEFORE the existing `if self._backend == "groq":` dispatcher:
+**Scope of change:** ONLY the backend-dispatcher block changes. Everything AFTER `raw = ...` is assigned stays exactly as-is (hallucination strip, vocab-echo check, return). Do not touch code below the dispatcher.
+
+Exact BEFORE state (current code, around lines 292–307):
 
 ```python
 def transcribe_sync(self, audio_bytes: bytes):
     audio_bytes = _pad_audio_with_silence(audio_bytes)
 
-    # ── Private Mode: force local backend, never touch cloud ─────────────
-    import settings_store
-    from errors import LocalUnavailableError
-    if settings_store.is_private_mode():
-        if _mlx_whisper is not None:
-            raw = self._transcribe_mlx(audio_bytes)
-        elif _faster_whisper is not None:
-            raw = self._transcribe_faster(audio_bytes)
-        else:
-            raise LocalUnavailableError(
-                "Private Mode is on but no local Whisper backend is loaded. "
-                "Set LOCAL_WHISPER=1 and restart, or disable Private Mode."
-            )
-    elif self._backend == "groq":
-        # ... existing code unchanged ...
+    if self._backend == "groq":
+        try:
+            raw = self._transcribe_groq(audio_bytes)
+        except Exception as e:
+            print(f"⚠️  Groq transcription failed ({e}), falling back to OpenAI")
+            if self.client:
+                raw = self._transcribe_api(audio_bytes)
+            else:
+                raise
+    elif self._backend == "mlx":
+        raw = self._transcribe_mlx(audio_bytes)
+    elif self._backend == "faster":
+        raw = self._transcribe_faster(audio_bytes)
+    else:
+        raw = self._transcribe_api(audio_bytes)
+
+    cleaned = _strip_hallucinations(raw)
+    # ... rest of method unchanged (vocab echo, return) ...
 ```
 
-Then wrap the existing `elif` chain accordingly. Full snippet:
+Exact AFTER state — replace only that dispatcher block:
 
 ```python
 def transcribe_sync(self, audio_bytes: bytes):
     audio_bytes = _pad_audio_with_silence(audio_bytes)
 
+    # ── Private Mode: force local backend, never touch cloud ─────────
     import settings_store
     from errors import LocalUnavailableError
     if settings_store.is_private_mode():
@@ -790,7 +816,7 @@ def transcribe_sync(self, audio_bytes: bytes):
         raw = self._transcribe_api(audio_bytes)
 
     cleaned = _strip_hallucinations(raw)
-    # ... rest unchanged ...
+    # ... rest of method unchanged — DO NOT modify below this point ...
 ```
 
 - [ ] **Step 4: Run — expect PASS**
@@ -816,6 +842,15 @@ git commit -m "feat(transcribe): honor private_mode — force local, never fallb
 - Modify: `src/style_openai.py`
 - Modify: `tests/test_private_mode_routing.py`
 
+**Key facts about the actual code (verified by reading `src/style_openai.py`):**
+- The method is `OpenAIStyler.style(transcript)` — NOT `style_text`.
+- It returns a **tuple** `(styled_text: str, usage: dict)` — NOT a dict.
+- Cloud dispatch checks `self._use_groq` (bool flag set in `__init__`) — NOT `self._groq_client`.
+- Strip call inside `style()` uses `self._last_raw`, which is set to `transcript` at line 95.
+- Existing `usage` dict shape from Groq path: `{"input_tokens": N, "output_tokens": N, "api_used": True, "provider": "groq", ...}`.
+
+The private-mode branch must preserve the same `(text, usage_dict)` return shape so existing callers are unaffected.
+
 - [ ] **Step 1: Add failing cleanup tests**
 
 ```python
@@ -828,13 +863,14 @@ def test_cleanup_private_mode_false_uses_groq_when_configured(monkeypatch):
 
     with patch("style_openai.OpenAIStyler._style_groq") as mock_groq, \
          patch("local_backend.clean_text") as mock_local:
-        mock_groq.return_value = {"styled_text": "cloud result"}
+        mock_groq.return_value = ("cloud result", {"input_tokens": 1, "output_tokens": 1, "api_used": True})
 
         from style_openai import OpenAIStyler
-        styler = OpenAIStyler(openai_api_key="fake", groq_api_key="fake")
-        styler._groq_client = MagicMock()  # mark groq as available
-        result = styler.style_text("hi there")
+        styler = OpenAIStyler(groq_api_key="fake")
+        styler._use_groq = True  # matches dispatcher check at line 128
 
+        text, usage = styler.style("hi there, please clean this up for me")
+        assert text == "cloud result"
         assert mock_groq.called
         assert not mock_local.called
 
@@ -846,20 +882,25 @@ def test_cleanup_private_mode_true_uses_local_and_never_calls_cloud(monkeypatch)
     with patch("style_openai.OpenAIStyler._style_groq") as mock_groq, \
          patch("style_openai.OpenAIStyler._style_openai") as mock_openai, \
          patch("style_openai.OpenAIStyler._style_gemini") as mock_gemini, \
-         patch("local_backend.clean_text") as mock_local:
-        mock_local.return_value = "local cleaned"
+         patch("local_backend.clean_text", return_value="local cleaned") as mock_local:
 
         from style_openai import OpenAIStyler
-        styler = OpenAIStyler(openai_api_key="fake", groq_api_key="fake")
-        styler._groq_client = MagicMock()
-        result = styler.style_text("hi there")
+        styler = OpenAIStyler(groq_api_key="fake")
+        styler._use_groq = True
 
+        text, usage = styler.style("hi there, please clean this up for me")
+
+        assert text == "local cleaned"
+        assert usage["provider"] == "local"
+        assert usage["api_used"] is False  # "no cloud call"
         assert mock_local.called
         # None of the cloud paths were invoked
         assert not mock_groq.called
         assert not mock_openai.called
         assert not mock_gemini.called
 ```
+
+NB: `_is_simple()` at the top of `style()` can short-circuit and skip the LLM entirely. Use a test input that's long/complex enough to fail `_is_simple()` (the example above is comfortably over the threshold).
 
 - [ ] **Step 2: Run — expect fail**
 
@@ -869,36 +910,49 @@ python -m pytest tests/test_private_mode_routing.py -v
 
 - [ ] **Step 3: Modify `style_openai.py`**
 
-In `OpenAIStyler.style_text()` (around line 117 where the provider dispatcher begins), add a private-mode branch BEFORE the existing provider chain:
+In `OpenAIStyler.style()`, add a private-mode branch **after** the prompt is built (line 121, where `prompt = self.prompt_template.format(...)` finishes) and **before** the cloud dispatcher (line 128, `if self._use_groq:`).
+
+Exact before-block (around line 126):
 
 ```python
-def style_text(self, transcript: str, vocab: list = None, ...):
-    # ... existing prompt formatting unchanged ...
+        self._vocab_system_extra = (
+            f" If any of these words were intended by the speaker, use these exact spellings: {', '.join(vocab)}."
+            if vocab else ""
+        )
 
-    prompt = self.prompt_template.format(
-        transcript=transcript,
-        # ... existing substitutions ...
-    )
+        # Priority 1: Try Groq (much faster), fall back to OpenAI
+        if self._use_groq:
+            ...
+```
 
-    # ── Private Mode: route to local Gemma via Ollama ────────────────
-    import settings_store
-    if settings_store.is_private_mode():
-        import local_backend
-        start_time = time.time()
-        styled = local_backend.clean_text(prompt)  # raises LocalUnavailableError
-        return {
-            "styled_text": self._strip_hallucinations(styled, transcript),
-            "provider": "local",
-            "model": local_backend.DEFAULT_MODEL,
-            "duration_ms": int((time.time() - start_time) * 1000),
-            "input_tokens": 0,
-            "output_tokens": 0,
-        }
+Insert **between** the `_vocab_system_extra` assignment and the `if self._use_groq:` check:
 
-    # ── existing cloud dispatch unchanged ─────────────────────────────
-    if self._groq_client is not None:
-        return self._style_groq(prompt, start_time)
-    # ... rest unchanged ...
+```python
+        self._vocab_system_extra = (
+            f" If any of these words were intended by the speaker, use these exact spellings: {', '.join(vocab)}."
+            if vocab else ""
+        )
+
+        # ── Private Mode: route cleanup to local Gemma via Ollama ─────
+        # When on, NEVER fall back to cloud — raise on local failure.
+        import settings_store
+        if settings_store.is_private_mode():
+            import local_backend
+            styled = local_backend.clean_text(prompt)
+            styled = self._strip_hallucinations(styled, self._last_raw)
+            usage = {
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "api_used": False,
+                "provider": "local",
+                "model": local_backend.DEFAULT_MODEL,
+                "duration_ms": int((time.time() - start_time) * 1000),
+            }
+            return styled, usage
+
+        # Priority 1: Try Groq (much faster), fall back to OpenAI
+        if self._use_groq:
+            ...
 ```
 
 - [ ] **Step 4: Run — expect PASS**
@@ -942,8 +996,8 @@ def test_get_private_mode_status_returns_shape(monkeypatch, tmp_path):
 
     with patch("local_backend.check_ollama_running", return_value=True), \
          patch("local_backend.check_model_installed", return_value=False):
-        from app import WafflerAPI
-        api = WafflerAPI.__new__(WafflerAPI)
+        from app import Api
+        api = Api.__new__(Api)
         status = api.get_private_mode_status()
 
     assert status == {
@@ -957,8 +1011,8 @@ def test_set_private_mode_persists(monkeypatch, tmp_path):
     import settings_store
     monkeypatch.setattr(settings_store, "SETTINGS_FILE", tmp_path / "s.json")
 
-    from app import WafflerAPI
-    api = WafflerAPI.__new__(WafflerAPI)
+    from app import Api
+    api = Api.__new__(Api)
     api.set_private_mode(True)
 
     assert settings_store.is_private_mode() is True
@@ -972,7 +1026,7 @@ python -m pytest tests/test_app_private_mode_api.py -v
 
 - [ ] **Step 3: Add methods to `app.py`**
 
-In `app.py`, find the `WafflerAPI` class (or whatever the pywebview-exposed API class is called — look for `expose=...` or the JS-callable methods like `get_vocab`, `save_settings`). Add:
+In `app.py`, find the `Api` class (or whatever the pywebview-exposed API class is called — look for `expose=...` or the JS-callable methods like `get_vocab`, `save_settings`). Add:
 
 ```python
 def get_private_mode_status(self) -> dict:
@@ -1046,8 +1100,8 @@ def test_pull_gemma_model_runs_in_background_and_reports_progress(monkeypatch):
             time.sleep(0.01)
 
     with patch("local_backend.pull_model", side_effect=fake_pull):
-        from app import WafflerAPI
-        api = WafflerAPI.__new__(WafflerAPI)
+        from app import Api
+        api = Api.__new__(Api)
         api.pull_gemma_model()
 
         # Poll until done (max 2s)
@@ -1072,7 +1126,7 @@ python -m pytest tests/test_app_private_mode_api.py::test_pull_gemma_model_runs_
 
 - [ ] **Step 3: Implement**
 
-In `app.py` add to `WafflerAPI`:
+In `app.py` add to `Api`:
 
 ```python
 def __init__(self, ...):
