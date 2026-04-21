@@ -1437,7 +1437,7 @@ In the error-surface layer (most likely in `app.py` where the pipeline is orches
 ```python
 try:
     transcript = self.transcriber.transcribe_sync(audio_bytes)
-    styled = self.styler.style_text(transcript, vocab=self.vocab)
+    styled, usage = self.styler.style(transcript)
     # ... paste ...
 except LocalUnavailableError as e:
     msg = str(e)
