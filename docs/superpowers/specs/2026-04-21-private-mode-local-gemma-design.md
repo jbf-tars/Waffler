@@ -8,7 +8,7 @@
 
 Waffler today routes all transcription and cleanup through cloud APIs (Groq Whisper + Groq Llama 3.3 70B by default; OpenAI and Gemini as alternatives). Users who want to use the app without any network round-trip — either for privacy, offline use, or to avoid the bring-your-own-key step — have no option.
 
-Google's Gemma 4 (released April 2, 2026) is an Apache 2.0-licensed open-weight model family. The E4B variant (~4B effective parameters, ~3GB quantized) is small enough to run on any modern Mac or PC with 8GB+ RAM, and is well-suited to the cleanup task Waffler performs.
+Google's Gemma 4 (released April 2, 2026) is an Apache 2.0-licensed open-weight model family. The E4B variant (4.5B effective parameters, 8B total with embeddings, 9.6GB on disk as distributed by Ollama) runs well on any modern Mac or PC with 16GB+ RAM and is well-suited to the cleanup task Waffler performs.
 
 ## 2. Goal
 
@@ -38,7 +38,7 @@ Local Whisper already works on both — the infrastructure exists behind `LOCAL_
 
 ## 4. Target Audience
 
-Users who understand AI and open-source models. They are comfortable installing a secondary app (Ollama), triggering a 3GB model download, and troubleshooting local inference if something misbehaves. The UI should be honest and informative, not hand-holding.
+Users who understand AI and open-source models. They are comfortable installing a secondary app (Ollama), triggering a ~10GB model download, and troubleshooting local inference if something misbehaves. The UI should be honest and informative, not hand-holding.
 
 ## 5. Architecture
 
@@ -108,7 +108,7 @@ Added below the existing About section. No changes to existing sections.
 │ transcribed and cleaned locally — zero cloud calls. │
 │                                                     │
 │  Ollama        ✓ Installed, running      [Refresh]  │
-│  Gemma 4 E4B   ✗ Not downloaded   [Download (3GB)]  │
+│  Gemma 4 E4B   ✗ Not downloaded   [Download (9.6GB)]  │
 │                                                     │
 │  [  ○   ] Private Mode off                          │
 │          (finish setup above to enable)             │
@@ -129,7 +129,7 @@ Added below the existing About section. No changes to existing sections.
 
 | State | Display | Button |
 |---|---|---|
-| Not present | `✗ Not downloaded` | `Download (3GB)` |
+| Not present | `✗ Not downloaded` | `Download (9.6GB)` |
 | Downloading | `⬇ 42%` with progress bar | `Cancel` |
 | Present | `✓ Ready` | `Refresh` |
 
