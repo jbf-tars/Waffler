@@ -725,6 +725,45 @@ class Api:
         except Exception as e:
             print(f"⚠️  open_ollama_app failed: {e}")
 
+    def pull_gemma_model(self) -> None:
+        """Kick off Gemma 4 pull on a background thread."""
+        import threading, local_backend
+
+        # Lazy-init the lock once (Api.__new__-tolerant).
+        if not hasattr(self, "_pull_lock"):
+            self._pull_lock = threading.Lock()
+
+        with self._pull_lock:
+            if getattr(self, "_pull_state", {}).get("running"):
+                return  # already in flight
+            self._pull_state = {"percent": 0.0, "done": False, "error": None, "running": True}
+
+        def worker():
+            try:
+                local_backend.pull_model(
+                    local_backend.DEFAULT_MODEL,
+                    on_progress=lambda p: self._update_pull_state({"percent": p}),
+                )
+                self._update_pull_state({"percent": 100.0, "done": True, "running": False})
+            except Exception as e:
+                self._update_pull_state({"error": str(e), "done": True, "running": False})
+
+        self._pull_thread = threading.Thread(target=worker, daemon=True)
+        self._pull_thread.start()
+
+    def _update_pull_state(self, changes: dict) -> None:
+        """Thread-safe update to the pull-progress state."""
+        with self._pull_lock:
+            self._pull_state.update(changes)
+
+    def get_model_pull_progress(self) -> dict:
+        """Poll-style accessor for the JS UI. Thread-safe snapshot."""
+        import threading
+        if not hasattr(self, "_pull_lock"):
+            self._pull_lock = threading.Lock()
+        with self._pull_lock:
+            return dict(getattr(self, "_pull_state", {"percent": 0.0, "done": False, "error": None, "running": False}))
+
     # ── History utilities ─────────────────────────────────────────────────────
 
     def export_history(self) -> dict:
