@@ -12,6 +12,7 @@ import sys
 import time
 import tempfile
 import platform
+import re
 from pathlib import Path
 
 from openai import OpenAI
@@ -124,9 +125,8 @@ def fuzzy_match_word(transcribed: str, vocab: list[str], threshold: float = 0.75
     # Normalize vocab for comparison
     vocab_lower = {w.lower(): w for w in vocab}
     transcribed_lower = transcribed.lower()
-    
+
     # Split into words (handle punctuation)
-    import re
     words = re.findall(r"[a-zA-Z]+", transcribed_lower)
     
     corrections = []
@@ -175,7 +175,6 @@ def apply_vocab_corrections(transcribed: str, vocab: list[str]) -> tuple[str, li
     
     for misheard, correct in corrections:
         # Replace word boundaries with proper case
-        import re
         pattern = r'\b' + re.escape(misheard) + r'\b'
         if re.search(pattern, corrected, re.IGNORECASE):
             corrected = re.sub(pattern, correct, corrected, flags=re.IGNORECASE)
@@ -193,7 +192,6 @@ def _is_vocab_echo(text: str, vocab: list) -> bool:
     """
     if not vocab or not text:
         return False
-    import re
 
     text_tokens = set(re.findall(r"\w+", text.lower()))
     if not text_tokens:
@@ -253,8 +251,6 @@ def _strip_hallucinations(text: str) -> str:
     Whisper often hallucinates stock phrases when it encounters silence
     or low-quality audio, especially at the end of a recording.
     """
-    import re
-
     # Phrases that Whisper hallucinates on silence / trailing audio
     _HALLUCINATION_PATTERNS = [
         r"thank you\.?$",
