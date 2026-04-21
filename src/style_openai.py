@@ -144,7 +144,7 @@ Transcript: {transcript}"""
                 except Exception:
                     pass
                 if not self.client and not self._use_gemini:
-                    return self._basic_clean(transcript), {"input_tokens": 0, "output_tokens": 0, "api_used": False}
+                    return self._basic_clean(transcript), {"input_tokens": 0, "output_tokens": 0, "api_used": False, "provider": "basic_clean", "fallback_reason": str(e)[:160]}
 
         # Priority 2: Try Gemini
         if self._use_gemini:
@@ -165,7 +165,7 @@ Transcript: {transcript}"""
                 except Exception:
                     pass
                 if not self.client:
-                    return self._basic_clean(transcript), {"input_tokens": 0, "output_tokens": 0, "api_used": False}
+                    return self._basic_clean(transcript), {"input_tokens": 0, "output_tokens": 0, "api_used": False, "provider": "basic_clean", "fallback_reason": str(e)[:160]}
 
         # Priority 3: OpenAI fallback
         return self._style_openai(prompt, transcript, start_time)
@@ -270,7 +270,7 @@ Transcript: {transcript}"""
             }
         except Exception as e:
             print(f"GPT styling error: {e}")
-            return self._basic_clean(transcript), {"input_tokens": 0, "output_tokens": 0, "api_used": False}
+            return self._basic_clean(transcript), {"input_tokens": 0, "output_tokens": 0, "api_used": False, "provider": "basic_clean", "fallback_reason": str(e)[:160]}
 
     def _fix_mid_sentence_caps(self, text: str) -> str:
         """Fix incorrectly capitalized words mid-sentence.

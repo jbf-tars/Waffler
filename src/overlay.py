@@ -140,7 +140,7 @@ class RecordingOverlay:
     def show_toast(self, style: str, heading: str, body: str):
         """
         Show a floating toast popup above the pill overlay.
-        style: "cancel" or "error"
+        style: "cancel" | "error" | "warn"
         """
         self._log(f"[overlay.py] show_toast: style={style}, heading='{heading}'")
         if self._is_alive():

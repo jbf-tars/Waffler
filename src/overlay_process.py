@@ -507,31 +507,31 @@ class ToastView(NSView):
         btn_h = 32
         btn_y = h - btn_h - 18
 
+        # Colours kept in lockstep with overlay_process_windows.py — if you
+        # change one, change the other. Users get the same waffle-gold theme
+        # on both platforms.
         if self._style == 'cancel':
-            # Two buttons: Discard (red) and Keep going (golden)
             btn1_w, btn2_w = 110, 120
             btn_gap = 14
             total = btn1_w + btn_gap + btn2_w
             sx = (w - total) // 2
-
-            # Discard button (left, red)
             self._draw_toast_button(sx, btn_y, btn1_w, btn_h,
-                                   '#D94040', '#D94040', 'Discard', '#ffffff', 'confirm')
-
-            # Keep going button (right, golden)
+                                   '#3D1818', '#D94040', 'Discard', '#D94040', 'confirm')
             self._draw_toast_button(sx + btn1_w + btn_gap, btn_y, btn2_w, btn_h,
-                                   '#D4A843', '#D4A843', 'Keep going', '#ffffff', 'dismiss')
+                                   '#C8A256', '#D4A843', 'Keep going', '#2A1F0E', 'dismiss')
+        elif self._style == 'warn':
+            btn_w = 120
+            self._draw_toast_button((w - btn_w) // 2, btn_y, btn_w, btn_h,
+                                   '#3D2E14', '#5A4520', 'Dismiss', '#A89070', 'dismiss')
         else:
-            # Error style buttons
             btn1_w, btn2_w = 120, 100
             btn_gap = 14
             total = btn1_w + btn_gap + btn2_w
             sx = (w - total) // 2
-
             self._draw_toast_button(sx, btn_y, btn1_w, btn_h,
-                                   '#7c3aed', '#7c3aed', 'Select mic', '#ffffff', 'select_mic')
+                                   '#C8A256', '#D4A843', 'Select mic', '#2A1F0E', 'select_mic')
             self._draw_toast_button(sx + btn1_w + btn_gap, btn_y, btn2_w, btn_h,
-                                   '#3a3a4a', '#3a3a4a', 'Dismiss', '#9a9aaa', 'dismiss')
+                                   '#3D2E14', '#5A4520', 'Dismiss', '#A89070', 'dismiss')
 
     def _draw_toast_button(self, x, y, w, h, fill, outline, text, text_color, action):
         """Draw a rounded button with text and track its click zone."""

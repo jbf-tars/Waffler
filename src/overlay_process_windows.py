@@ -367,6 +367,10 @@ def _show_toast(style: str, heading: str, body: str):
                         '#3D1818', '#D94040', 'Discard', '#D94040', 'confirm')
         _draw_toast_btn(c, sx + btn1_w + btn_gap, btn_y, btn2_w, btn_h,
                         '#C8A256', '#D4A843', 'Keep going', '#2A1F0E', 'dismiss')
+    elif style == 'warn':
+        btn_w = 110
+        _draw_toast_btn(c, (tw - btn_w) // 2, btn_y, btn_w, btn_h,
+                        '#3D2E14', '#5A4520', 'Dismiss', '#A89070', 'dismiss')
     else:
         btn1_w, btn2_w = 110, 90
         total = btn1_w + btn_gap + btn2_w

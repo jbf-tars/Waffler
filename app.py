@@ -2130,6 +2130,23 @@ class WafflerPipeline:
             if not styled:
                 styled = transcript
 
+            # Warn the user when every styling provider failed and we had to
+            # fall back to the regex-only cleaner. Without this, quality drops
+            # silently (e.g. when Groq's free-tier quota is exhausted).
+            if gpt_usage.get("fallback_reason"):
+                reason = gpt_usage["fallback_reason"]
+                if "RATE_LIMIT" in reason or "429" in reason:
+                    heading, body = "Styling rate-limited", "Pasted with basic cleanup. Full styling will resume when your Groq quota resets."
+                elif "CONNECTION" in reason or "timeout" in reason.lower():
+                    heading, body = "Styling offline", "Pasted with basic cleanup. Check your connection."
+                else:
+                    heading, body = "Styling unavailable", "Pasted with basic cleanup only."
+                _log_to_file(f"[pipeline] styling fell back to basic_clean: {reason}")
+                try:
+                    self.overlay.show_toast(style="warn", heading=heading, body=body)
+                except Exception as _e:
+                    _log_to_file(f"[pipeline] fallback toast failed: {_e}")
+
             # Record GPT usage (if API was used)
             if gpt_usage.get("api_used"):
                 record_usage(
