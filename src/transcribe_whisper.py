@@ -121,39 +121,39 @@ def fuzzy_match_word(transcribed: str, vocab: list[str], threshold: float = 0.75
     """
     if not vocab:
         return []
-    
+
     # Normalize vocab for comparison
     vocab_lower = {w.lower(): w for w in vocab}
     transcribed_lower = transcribed.lower()
 
     # Split into words (handle punctuation)
     words = re.findall(r"[a-zA-Z]+", transcribed_lower)
-    
+
     corrections = []
     vocab_words = list(vocab_lower.keys())
-    
+
     for word in words:
         # First check exact match (case-insensitive)
         if word in vocab_lower:
             continue
-        
+
         # Then check fuzzy match
         for vword in vocab_words:
             if len(word) < 3 or len(vword) < 3:
                 continue
-            
+
             # Calculate similarity ratio
             max_len = max(len(word), len(vword))
             if max_len == 0:
                 continue
-            
+
             distance = _levenshtein_distance(word, vword)
             similarity = 1 - (distance / max_len)
-            
+
             if similarity >= threshold:
                 corrections.append((word, vocab_lower[vword]))
                 break
-    
+
     return corrections
 
 
@@ -314,7 +314,20 @@ class WhisperTranscriber:
     def transcribe_sync(self, audio_bytes: bytes):
         audio_bytes = _pad_audio_with_silence(audio_bytes)
 
-        if self._backend == "groq":
+        # ── Private Mode: force local backend, never touch cloud ─────────
+        import settings_store
+        from errors import LocalUnavailableError
+        if settings_store.is_private_mode():
+            if _mlx_whisper is not None:
+                raw = self._transcribe_mlx(audio_bytes)
+            elif _faster_whisper is not None:
+                raw = self._transcribe_faster(audio_bytes)
+            else:
+                raise LocalUnavailableError(
+                    "Private Mode is on but no local Whisper backend is loaded. "
+                    "Set LOCAL_WHISPER=1 and restart, or disable Private Mode."
+                )
+        elif self._backend == "groq":
             try:
                 raw = self._transcribe_groq(audio_bytes)
             except Exception as e:
