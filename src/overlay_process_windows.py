@@ -82,7 +82,7 @@ BTN_HIT_R2    = (BTN_R + 4) ** 2              # Squared hit radius
 
 # Toast constants
 TOAST_W     = 380
-TOAST_H     = 170
+TOAST_H     = 210  # tall enough for 3-line body text
 TOAST_PAD   = 12           # gap above waffle
 
 # ── Global state ───────────────────────────────────────────────────────
@@ -316,6 +316,11 @@ def _draw_sad_waffle(canvas, cx, cy, style='error'):
                        fill=tear_hi, outline=tear_hi)
 
 
+# How long before a toast auto-dismisses (ms), per style. `cancel` stays
+# until the user answers — everything else disappears on its own.
+_TOAST_AUTO_HIDE_MS = {"warn": 6000, "error": 6000}
+
+
 def _show_toast(style: str, heading: str, body: str):
     """Show a warm Waffler-branded toast above the waffle."""
     global _toast_win, _toast_style
@@ -379,6 +384,11 @@ def _show_toast(style: str, heading: str, body: str):
                         '#C8A256', '#D4A843', 'Select mic', '#2A1F0E', 'select_mic')
         _draw_toast_btn(c, sx + btn1_w + btn_gap, btn_y, btn2_w, btn_h,
                         '#3D2E14', '#5A4520', 'Dismiss', '#A89070', 'dismiss')
+
+    # Auto-dismiss after the per-style timeout; cancel stays until answered.
+    ms = _TOAST_AUTO_HIDE_MS.get(style)
+    if ms:
+        _toast_win.after(ms, _hide_toast)
 
 
 def _draw_toast_btn(canvas, x, y, w, h, fill, outline, text, text_color, action):

@@ -116,7 +116,7 @@ BTN_HIT_R2    = (BTN_R + 4) ** 2              # Squared hit radius
 
 # Toast constants
 TOAST_W     = 380
-TOAST_H     = 170
+TOAST_H     = 210  # tall enough for 3-line body text
 TOAST_PAD   = 12           # gap above waffle
 
 # ── Global state ───────────────────────────────────────────────────────
@@ -128,6 +128,7 @@ _g_window       = None
 _g_view         = None
 _toast_win      = None
 _toast_style    = None
+_toast_auto_hide_timer = None
 
 # Screen position (set during init, reused for toast positioning)
 _waffle_x = 0.0
@@ -418,6 +419,13 @@ class ToastView(NSView):
     def acceptsFirstResponder(self):
         return True
 
+    def acceptsFirstMouse_(self, event):
+        # Borderless floating toast windows don't become key — without this,
+        # the first click is swallowed as a "window activation" and the
+        # Dismiss button appears unresponsive. Returning True routes the
+        # click straight to mouseDown_.
+        return True
+
     def drawRect_(self, rect):
         """Draw toast with dark panel, golden border, waffle icon, text, and buttons."""
         try:
@@ -498,7 +506,7 @@ class ToastView(NSView):
             NSParagraphStyleAttributeName: para_style,
         }
 
-        body_rect = NSMakeRect(20, body_y, w - 40, 30)
+        body_rect = NSMakeRect(20, body_y, w - 40, 60)  # 60 px = ~3 lines
         body_text = self._body or ""
         NSAttributedString.alloc().initWithString_attributes_(
             body_text, body_attrs
@@ -652,6 +660,36 @@ class ToastView(NSView):
                 right.setLineWidth_(1)
                 right.stroke()
 
+        # ── Sad face ── (mirrors overlay_process_windows.py exactly)
+        face_clr = hex_to_ns_color('#5C2E0E')  # dark syrup
+        face_clr.set()
+
+        # Eyes — tilted inward, worried
+        for eye_dx in (-8, 8):
+            eye = NSBezierPath.bezierPathWithOvalInRect_(
+                NSMakeRect(cx + eye_dx - 2, cy - 5 - 2, 4, 4)
+            )
+            eye.fill()
+
+        # Frown — downward arc below the eyes
+        mouth = NSBezierPath.bezierPath()
+        mouth.setLineWidth_(1.6)
+        mouth.setLineCapStyle_(1)  # kCGLineCapRound
+        mouth.moveToPoint_(NSMakePoint(cx - 6, cy + 7))
+        mouth.curveToPoint_controlPoint1_controlPoint2_(
+            NSMakePoint(cx + 6, cy + 7),
+            NSMakePoint(cx - 2, cy + 3),
+            NSMakePoint(cx + 2, cy + 3),
+        )
+        mouth.stroke()
+
+        # Single syrup tear from the left eye
+        tear = NSBezierPath.bezierPathWithOvalInRect_(
+            NSMakeRect(cx - 11, cy - 1, 3, 5)
+        )
+        hex_to_ns_color('#7A3E14').set()
+        tear.fill()
+
     def mouseDown_(self, event):
         """Handle button clicks in toast."""
         # Get click location in window coordinates
@@ -742,9 +780,17 @@ def _dispatch_cmd(cmd):
 
 # ── Toast Functions ──────────────────────────────────────────────────
 
+# How long before a toast auto-dismisses, by style. cancel stays until the
+# user picks one of its action buttons — all others disappear on their own.
+_TOAST_AUTO_HIDE_SECS = {
+    "warn": 6.0,
+    "error": 6.0,
+}
+
+
 def _show_toast(style: str, heading: str, body: str):
     """Show a warm Waffler-branded toast above the waffle."""
-    global _toast_win, _toast_style
+    global _toast_win, _toast_style, _toast_auto_hide_timer
     try:
         _hide_toast()
         _toast_style = style
@@ -780,6 +826,20 @@ def _show_toast(style: str, heading: str, body: str):
         _toast_win.display()  # FORCE immediate render!
         toast_view.setNeedsDisplay_(True)  # TRIGGER view to draw!
         print(f"[overlay_mac] toast window created and displayed", file=sys.stderr, flush=True)
+
+        # Auto-dismiss after the per-style timeout via a threading.Timer that
+        # enqueues a hide_toast command; the main-thread dispatcher picks it
+        # up. Using the queue avoids NSTimer target-selector plumbing.
+        secs = _TOAST_AUTO_HIDE_SECS.get(style)
+        if secs:
+            def _enqueue_hide():
+                try:
+                    _cmd_queue.put({"type": "hide_toast"})
+                except Exception:
+                    pass
+            _toast_auto_hide_timer = threading.Timer(secs, _enqueue_hide)
+            _toast_auto_hide_timer.daemon = True
+            _toast_auto_hide_timer.start()
     except Exception as e:
         print(f"[overlay_mac] _show_toast FAILED: {e}", file=sys.stderr, flush=True)
         import traceback
@@ -788,7 +848,13 @@ def _show_toast(style: str, heading: str, body: str):
 
 def _hide_toast():
     """Destroy the toast popup if visible."""
-    global _toast_win, _toast_style
+    global _toast_win, _toast_style, _toast_auto_hide_timer
+    if _toast_auto_hide_timer is not None:
+        try:
+            _toast_auto_hide_timer.invalidate()
+        except Exception:
+            pass
+        _toast_auto_hide_timer = None
     if _toast_win:
         _toast_win.orderOut_(None)
         _toast_win = None

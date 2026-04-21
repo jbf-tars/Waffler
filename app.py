@@ -2136,11 +2136,14 @@ class WafflerPipeline:
             if gpt_usage.get("fallback_reason"):
                 reason = gpt_usage["fallback_reason"]
                 if "RATE_LIMIT" in reason or "429" in reason:
-                    heading, body = "Styling rate-limited", "Pasted with basic cleanup. Full styling will resume when your Groq quota resets."
+                    heading = "Cleanup skipped"
+                    body = "Groq limit hit — pasted raw. Try again in a minute."
                 elif "CONNECTION" in reason or "timeout" in reason.lower():
-                    heading, body = "Styling offline", "Pasted with basic cleanup. Check your connection."
+                    heading = "Cleanup skipped"
+                    body = "No connection — pasted raw. Check your internet."
                 else:
-                    heading, body = "Styling unavailable", "Pasted with basic cleanup only."
+                    heading = "Cleanup skipped"
+                    body = "Pasted raw. See the log for details."
                 _log_to_file(f"[pipeline] styling fell back to basic_clean: {reason}")
                 try:
                     self.overlay.show_toast(style="warn", heading=heading, body=body)
