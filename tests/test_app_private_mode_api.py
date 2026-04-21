@@ -44,3 +44,39 @@ def test_check_ollama_now_is_same_shape(monkeypatch, tmp_path):
         from app import Api
         api = Api.__new__(Api)
         assert set(api.check_ollama_now().keys()) == {"private_mode", "ollama_running", "model_installed"}
+
+
+def test_pull_gemma_model_runs_in_background_and_reports_progress(monkeypatch):
+    import time
+    progress_events = [25.0, 50.0, 100.0]
+
+    def fake_pull(name, on_progress):
+        for p in progress_events:
+            on_progress(p)
+            time.sleep(0.01)
+
+    with patch("local_backend.pull_model", side_effect=fake_pull):
+        from app import Api
+        api = Api.__new__(Api)
+        api.pull_gemma_model()
+
+        # Poll until done (max 2s)
+        deadline = time.time() + 2
+        while time.time() < deadline:
+            prog = api.get_model_pull_progress()
+            if prog.get("done"):
+                break
+            time.sleep(0.02)
+
+    final = api.get_model_pull_progress()
+    assert final["done"] is True
+    assert final["percent"] == 100.0
+    assert final.get("error") is None
+
+
+def test_get_model_pull_progress_before_any_pull(monkeypatch):
+    """Calling the poll accessor before pull_gemma_model returns safe defaults."""
+    from app import Api
+    api = Api.__new__(Api)
+    prog = api.get_model_pull_progress()
+    assert prog == {"percent": 0.0, "done": False, "error": None, "running": False}
