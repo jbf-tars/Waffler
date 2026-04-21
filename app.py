@@ -10,6 +10,7 @@ import io
 import json
 import time
 import threading
+import tempfile
 import pyperclip
 import faulthandler
 from pathlib import Path
@@ -108,16 +109,13 @@ GROQ_LLM_INPUT_COST_PER_1M = 0.59     # Groq LLaMA 3.3 70B input
 GROQ_LLM_OUTPUT_COST_PER_1M = 0.79    # Groq LLaMA 3.3 70B output
 
 
-def ensure_history_dir():
-    HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
-
-
-def ensure_usage_dir():
-    USAGE_FILE.parent.mkdir(parents=True, exist_ok=True)
+def ensure_data_dir():
+    """Ensure the data directory exists"""
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def load_history() -> list:
-    ensure_history_dir()
+    ensure_data_dir()
     if not HISTORY_FILE.exists():
         return []
     try:
@@ -129,15 +127,29 @@ def load_history() -> list:
 
 
 def save_history(history: list):
-    ensure_history_dir()
-    with open(HISTORY_FILE, "w", encoding="utf-8") as f:
-        json.dump(history, f, ensure_ascii=False, indent=2)
+    """Save transcription history with atomic write"""
+    ensure_data_dir()
+    tmp_fd, tmp_path = tempfile.mkstemp(
+        dir=HISTORY_FILE.parent,
+        suffix='.tmp',
+        text=True
+    )
+    try:
+        with os.fdopen(tmp_fd, 'w', encoding='utf-8') as f:
+            json.dump(history, f, ensure_ascii=False, indent=2)
+        os.replace(tmp_path, HISTORY_FILE)  # Atomic on POSIX
+    except Exception as e:
+        try:
+            os.unlink(tmp_path)
+        except:
+            pass
+        raise e
 
 
 # ── Usage Tracking ──────────────────────────────────────────────────────
 def load_usage() -> list:
     """Load usage records from usage.json."""
-    ensure_usage_dir()
+    ensure_data_dir()
     if not USAGE_FILE.exists():
         return []
     try:
@@ -149,10 +161,23 @@ def load_usage() -> list:
 
 
 def save_usage(usage: list):
-    """Save usage records to usage.json."""
-    ensure_usage_dir()
-    with open(USAGE_FILE, "w", encoding="utf-8") as f:
-        json.dump(usage, f, ensure_ascii=False, indent=2)
+    """Save usage records to usage.json with atomic write"""
+    ensure_data_dir()
+    tmp_fd, tmp_path = tempfile.mkstemp(
+        dir=USAGE_FILE.parent,
+        suffix='.tmp',
+        text=True
+    )
+    try:
+        with os.fdopen(tmp_fd, 'w', encoding='utf-8') as f:
+            json.dump(usage, f, ensure_ascii=False, indent=2)
+        os.replace(tmp_path, USAGE_FILE)  # Atomic on POSIX
+    except Exception as e:
+        try:
+            os.unlink(tmp_path)
+        except:
+            pass
+        raise e
 
 
 def record_usage(entry_type: str, duration_seconds: float = None,
@@ -525,9 +550,24 @@ class Api:
         return {}
 
     def _save_settings_file(self, data: dict):
+        """Save settings file with atomic write"""
         sf = self._settings_file()
         sf.parent.mkdir(parents=True, exist_ok=True)
-        sf.write_text(json.dumps(data, indent=2))
+        tmp_fd, tmp_path = tempfile.mkstemp(
+            dir=sf.parent,
+            suffix='.tmp',
+            text=True
+        )
+        try:
+            with os.fdopen(tmp_fd, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2)
+            os.replace(tmp_path, sf)  # Atomic on POSIX
+        except Exception as e:
+            try:
+                os.unlink(tmp_path)
+            except:
+                pass
+            raise e
 
     def _update_env_var(self, key: str, value: str):
         """Update or add a variable in the user's .env file."""
@@ -1347,11 +1387,25 @@ class Api:
         return []
 
     def set_snippets(self, snippets: list) -> dict:
-        """Save snippets list."""
+        """Save snippets list with atomic write"""
         try:
             sf = self._snippets_file()
             sf.parent.mkdir(parents=True, exist_ok=True)
-            sf.write_text(json.dumps(snippets, indent=2))
+            tmp_fd, tmp_path = tempfile.mkstemp(
+                dir=sf.parent,
+                suffix='.tmp',
+                text=True
+            )
+            try:
+                with os.fdopen(tmp_fd, 'w', encoding='utf-8') as f:
+                    json.dump(snippets, f, indent=2)
+                os.replace(tmp_path, sf)  # Atomic on POSIX
+            except Exception as e:
+                try:
+                    os.unlink(tmp_path)
+                except:
+                    pass
+                raise e
             return {"ok": True, "count": len(snippets)}
         except Exception as e:
             return {"ok": False, "error": str(e)}
