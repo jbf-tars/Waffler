@@ -143,17 +143,27 @@ class RecordingOverlay:
         style: "cancel" | "error" | "warn"
         """
         self._log(f"[overlay.py] show_toast: style={style}, heading='{heading}'")
-        if self._is_alive():
-            self._log("[overlay.py] Subprocess ALIVE, sending show_toast command")
-            self._send({
-                "type": "show_toast",
-                "style": style,
-                "heading": heading,
-                "body": body,
-            })
-            self._log("[overlay.py] show_toast command SENT successfully")
-        else:
-            self._log("[overlay.py] ERROR: Subprocess is DEAD, cannot show toast!")
+        # Auto-restart if the subprocess died since the last interaction —
+        # otherwise toasts would silently drop (was hit in the wild when
+        # errors fired after the overlay had crashed). Toasts AFTER a pipeline
+        # error are the most important ones to show, so restart is worth the
+        # extra ~200 ms of cold-start here.
+        if not self._is_alive():
+            self._log("[overlay.py] Subprocess dead — attempting restart before toast")
+            if not self._attempt_restart():
+                self._log("[overlay.py] ERROR: Could not restart subprocess, toast dropped")
+                return
+            # After restart the pill should be visible too so the toast has an
+            # anchor point; prior show() state is lost when the subprocess dies.
+            if self._visible:
+                self._send({"type": "show"})
+        self._send({
+            "type": "show_toast",
+            "style": style,
+            "heading": heading,
+            "body": body,
+        })
+        self._log("[overlay.py] show_toast command SENT successfully")
 
     def hide_toast(self):
         """Dismiss the toast popup."""

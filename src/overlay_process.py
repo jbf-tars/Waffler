@@ -460,10 +460,11 @@ class ToastView(NSView):
         self._draw_sad_waffle(icon_cx, icon_cy, self._style)
 
         # ── Heading text ──
+        # Pale gold (#F0E0C0) — matches Windows heading colour for brand parity.
         heading_y = 80
         heading_font = NSFont.boldSystemFontOfSize_(14)
         heading_color = NSColor.colorWithCalibratedRed_green_blue_alpha_(
-            0xF5/255.0, 0xF0/255.0, 0xE8/255.0, 1.0  # Cream color
+            0xF0/255.0, 0xE0/255.0, 0xC0/255.0, 1.0
         )
 
         # Create paragraph style for centering
@@ -483,10 +484,12 @@ class ToastView(NSView):
         ).drawInRect_(heading_rect)
 
         # ── Body text ──
+        # Warm tan (#A89070) — matches Windows body colour. Flat gray looked
+        # off-theme against the dark-brown fill + gold border.
         body_y = 105
         body_font = NSFont.systemFontOfSize_(11)
         body_color = NSColor.colorWithCalibratedRed_green_blue_alpha_(
-            0x88/255.0, 0x88/255.0, 0x88/255.0, 1.0  # Gray
+            0xA8/255.0, 0x90/255.0, 0x70/255.0, 1.0
         )
 
         body_attrs = {

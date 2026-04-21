@@ -1961,7 +1961,7 @@ class WafflerPipeline:
                     _log_to_file("⚠️  Recording duration: 10 minutes - approaching API limit")
                     try:
                         self.overlay.show_toast(
-                            style="error",
+                            style="warn",
                             heading="Long recording",
                             body="Recording will auto-stop at 12 minutes (API limit).",
                         )
@@ -1975,7 +1975,7 @@ class WafflerPipeline:
                     _log_to_file("⚠️  Recording auto-stopped at 12 minutes (API limit)")
                     try:
                         self.overlay.show_toast(
-                            style="error",
+                            style="warn",
                             heading="Recording stopped",
                             body="12-minute limit reached. Processing your audio now...",
                         )
@@ -2220,27 +2220,30 @@ class WafflerPipeline:
 
             # Show user-visible error toast with specific message
             try:
+                # Only genuine mic-level errors get the `error` style with
+                # the Select-mic button. Everything else uses `warn` (single
+                # Dismiss) so the action matches the problem.
                 if "RATE_LIMIT" in error_msg or "429" in error_msg:
                     self.overlay.show_toast(
-                        style="error",
+                        style="warn",
                         heading="Rate limit reached",
                         body="Groq API limit hit. Wait a moment and try again.",
                     )
                 elif "CONNECTION" in error_msg or "Connection error" in error_msg or "timeout" in error_msg.lower():
                     self.overlay.show_toast(
-                        style="error",
+                        style="warn",
                         heading="Connection failed",
                         body="Couldn't reach the server. Check your internet or VPN.",
                     )
                 elif "403" in error_msg or "Access denied" in error_msg:
                     self.overlay.show_toast(
-                        style="error",
+                        style="warn",
                         heading="Access denied",
                         body="API key may be invalid or VPN is blocking the request.",
                     )
                 else:
                     self.overlay.show_toast(
-                        style="error",
+                        style="warn",
                         heading="Something went wrong",
                         body="Your text was copied to clipboard. Check logs for details.",
                     )
