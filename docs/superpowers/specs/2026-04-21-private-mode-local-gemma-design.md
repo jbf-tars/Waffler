@@ -28,6 +28,14 @@ When Private Mode is ON, **no byte of audio or text leaves the user's machine**.
 - **Not providing cloud fallback when local fails.** If Private Mode is on and local tools fail, the transcription is dropped with a clear error. We never silently reach for cloud APIs — that would break the privacy promise.
 - **Not supporting Intel Macs.** Waffler already requires Apple Silicon; Private Mode inherits that.
 
+### 3.1 Platform support for Private Mode
+
+Private Mode is supported on both platforms Waffler targets:
+- **macOS (Apple Silicon only):** local Whisper via `mlx-whisper`, local cleanup via Ollama.
+- **Windows (x64):** local Whisper via `faster-whisper`, local cleanup via Ollama.
+
+Local Whisper already works on both — the infrastructure exists behind `LOCAL_WHISPER=1`. Private Mode simply forces that code path when enabled.
+
 ## 4. Target Audience
 
 Users who understand AI and open-source models. They are comfortable installing a secondary app (Ollama), triggering a 3GB model download, and troubleshooting local inference if something misbehaves. The UI should be honest and informative, not hand-holding.
@@ -59,10 +67,17 @@ def check_model_installed(name: str = "gemma4:e4b") -> bool:
 def pull_model(name: str, on_progress: Callable[[float], None]) -> None:
     """Stream POST /api/pull, call on_progress(percent) as chunks arrive."""
 
-def clean_text(prompt: str, transcript: str) -> str:
-    """POST /v1/chat/completions (Ollama's OpenAI-compatible endpoint),
-    model=gemma4:e4b, temperature=0, 30s timeout."""
+def clean_text(prompt: str) -> str:
+    """POST /v1/chat/completions (Ollama's OpenAI-compatible endpoint).
+    `prompt` is the fully formatted string — `prompts/normal.txt` with the
+    transcript already substituted, matching the signature of the existing
+    `style_openai._style_groq(prompt, ...)` method. Sent as a single user
+    message: {role: "user", content: prompt}. model=gemma4:e4b,
+    temperature=0, 30s timeout. Raises LocalUnavailableError on connection
+    error, timeout, or non-200 response."""
 ```
+
+All HTTP calls use the `requests` library (already a Waffler dependency) for consistency — no `httpx` or other new dependencies.
 
 ### 5.3 Routing decisions
 
@@ -107,7 +122,7 @@ Added below the existing About section. No changes to existing sections.
 | State | Display | Button |
 |---|---|---|
 | Not installed | `✗ Not installed` | `Install Ollama →` opens `https://ollama.com/download` |
-| Installed but not running | `⚠ Installed but not running` | `Start Ollama` opens the Ollama app |
+| Installed but not running | `⚠ Installed but not running` | `Start Ollama` — shells out to `open -a Ollama` (macOS) or launches the Windows shortcut |
 | Running | `✓ Installed, running` | `Refresh` |
 
 **Model row:**
@@ -185,7 +200,7 @@ All errors additionally log to `~/.waffler-hosted/app.log` following the pattern
 
 ### 9.1 Unit tests (`local_backend.py`)
 
-Mock `requests`/`httpx` responses; verify each state:
+Mock `requests` responses; verify each state:
 - `check_ollama_running()` returns True on 200, False on connection error, False on timeout.
 - `check_model_installed()` returns True when model in `/api/tags` JSON, False otherwise.
 - `pull_model()` calls `on_progress` with monotonically increasing percentages.
