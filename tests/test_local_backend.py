@@ -44,3 +44,41 @@ def test_check_ollama_running_false_on_500():
     with patch("local_backend.requests.get") as mock_get:
         mock_get.return_value = FakeResponse(500)
         assert local_backend.check_ollama_running() is False
+
+
+def test_check_model_installed_true_when_tag_present():
+    with patch("local_backend.requests.get") as mock_get:
+        mock_get.return_value = FakeResponse(200, {
+            "models": [{"name": "gemma4:e4b"}, {"name": "llama3:8b"}]
+        })
+        assert local_backend.check_model_installed() is True
+
+
+def test_check_model_installed_false_when_tag_missing():
+    with patch("local_backend.requests.get") as mock_get:
+        mock_get.return_value = FakeResponse(200, {
+            "models": [{"name": "llama3:8b"}]
+        })
+        assert local_backend.check_model_installed() is False
+
+
+def test_check_model_installed_false_on_error():
+    import requests
+    with patch("local_backend.requests.get") as mock_get:
+        mock_get.side_effect = requests.ConnectionError()
+        assert local_backend.check_model_installed() is False
+
+
+def test_check_model_installed_custom_name():
+    with patch("local_backend.requests.get") as mock_get:
+        mock_get.return_value = FakeResponse(200, {
+            "models": [{"name": "custom:7b"}]
+        })
+        assert local_backend.check_model_installed("custom:7b") is True
+
+
+def test_check_model_installed_false_when_models_not_list():
+    """Guard against Ollama returning models=null or a non-list."""
+    with patch("local_backend.requests.get") as mock_get:
+        mock_get.return_value = FakeResponse(200, {"models": None})
+        assert local_backend.check_model_installed() is False

@@ -21,3 +21,17 @@ def check_ollama_running() -> bool:
         return resp.status_code == 200
     except requests.RequestException:
         return False
+
+
+def check_model_installed(name: str = DEFAULT_MODEL) -> bool:
+    """Is the given model already pulled into Ollama? Returns bool, never raises."""
+    try:
+        resp = requests.get(f"{OLLAMA_URL}/api/tags", timeout=2)
+        if resp.status_code != 200:
+            return False
+        models = resp.json().get("models", [])
+        if not isinstance(models, list):
+            return False
+        return any(m.get("name") == name for m in models)
+    except requests.RequestException:
+        return False
