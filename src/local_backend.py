@@ -78,3 +78,37 @@ def pull_model(name: str, on_progress: Callable[[float], None]) -> None:
                     on_progress(100.0 * completed / total)
     except requests.RequestException as e:
         raise LocalUnavailableError(f"ollama unreachable: {e}") from e
+
+
+def clean_text(prompt: str) -> str:
+    """Run the cleanup prompt through Gemma 4 E4B via Ollama.
+
+    `prompt` is the already-formatted string — `prompts/normal.txt` with
+    the transcript substituted. We send it as a single user message. The
+    model is configured for deterministic output (temperature=0).
+
+    Raises LocalUnavailableError on any transport or HTTP failure.
+    """
+    try:
+        resp = requests.post(
+            f"{OLLAMA_URL}/v1/chat/completions",
+            json={
+                "model": DEFAULT_MODEL,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0,
+            },
+            timeout=30,
+        )
+        if resp.status_code != 200:
+            raise LocalUnavailableError(
+                f"ollama chat returned {resp.status_code}: {resp.text[:200]}"
+            )
+        try:
+            data = resp.json()
+            return data["choices"][0]["message"]["content"]
+        except (ValueError, KeyError, IndexError, TypeError) as e:
+            raise LocalUnavailableError(
+                f"ollama returned malformed response: {e}"
+            ) from e
+    except requests.RequestException as e:
+        raise LocalUnavailableError(f"ollama unreachable: {e}") from e

@@ -140,3 +140,81 @@ def test_pull_model_ignores_progress_without_total():
         local_backend.pull_model("gemma4:e4b", on_progress=progress.append)
 
     assert progress == []
+
+
+def test_clean_text_returns_response_body():
+    with patch("local_backend.requests.post") as mock_post:
+        mock_post.return_value = FakeResponse(200, {
+            "choices": [{"message": {"content": "cleaned text here"}}],
+        })
+        out = local_backend.clean_text("user prompt here")
+        assert out == "cleaned text here"
+        args, kwargs = mock_post.call_args
+        assert args[0] == "http://localhost:11434/v1/chat/completions"
+        body = kwargs["json"]
+        assert body["model"] == "gemma4:e4b"
+        assert body["temperature"] == 0
+        assert body["messages"] == [{"role": "user", "content": "user prompt here"}]
+        assert kwargs["timeout"] == 30
+
+
+def test_clean_text_raises_on_connection_error():
+    import requests
+    from errors import LocalUnavailableError
+    with patch("local_backend.requests.post") as mock_post:
+        mock_post.side_effect = requests.ConnectionError()
+        try:
+            local_backend.clean_text("hi")
+            assert False, "should have raised"
+        except LocalUnavailableError:
+            pass
+
+
+def test_clean_text_raises_on_non_200():
+    from errors import LocalUnavailableError
+    with patch("local_backend.requests.post") as mock_post:
+        mock_post.return_value = FakeResponse(500, text="boom")
+        try:
+            local_backend.clean_text("hi")
+            assert False, "should have raised"
+        except LocalUnavailableError:
+            pass
+
+
+def test_clean_text_raises_on_timeout():
+    import requests
+    from errors import LocalUnavailableError
+    with patch("local_backend.requests.post") as mock_post:
+        mock_post.side_effect = requests.Timeout()
+        try:
+            local_backend.clean_text("hi")
+            assert False, "should have raised"
+        except LocalUnavailableError:
+            pass
+
+
+def test_clean_text_raises_on_malformed_json():
+    """Guard against Ollama returning non-JSON on 200."""
+    from errors import LocalUnavailableError
+    with patch("local_backend.requests.post") as mock_post:
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.side_effect = ValueError("not json")
+        mock_post.return_value = resp
+        try:
+            local_backend.clean_text("hi")
+            assert False, "should have raised"
+        except LocalUnavailableError:
+            pass
+
+
+def test_clean_text_raises_on_empty_choices():
+    """Guard against Ollama returning an empty choices array."""
+    from errors import LocalUnavailableError
+    with patch("local_backend.requests.post") as mock_post:
+        mock_post.return_value = FakeResponse(200, {"choices": []})
+        try:
+            local_backend.clean_text("hi")
+            assert False, "should have raised"
+        except LocalUnavailableError:
+            pass
