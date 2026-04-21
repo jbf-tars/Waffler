@@ -124,6 +124,23 @@ Transcript: {transcript}"""
             if vocab else ""
         )
 
+        # ── Private Mode: route cleanup to local Gemma via Ollama ─────
+        # When on, NEVER fall back to cloud — raise on local failure.
+        import settings_store
+        if settings_store.is_private_mode():
+            import local_backend
+            styled = local_backend.clean_text(prompt)
+            styled = self._strip_hallucinations(styled, self._last_raw)
+            usage = {
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "api_used": False,
+                "provider": "local",
+                "model": local_backend.DEFAULT_MODEL,
+                "duration_ms": int((time.time() - start_time) * 1000),
+            }
+            return styled, usage
+
         # Priority 1: Try Groq (much faster), fall back to OpenAI
         if self._use_groq:
             try:
