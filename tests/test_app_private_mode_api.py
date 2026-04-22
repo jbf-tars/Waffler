@@ -80,3 +80,15 @@ def test_get_model_pull_progress_before_any_pull(monkeypatch):
     api = Api.__new__(Api)
     prog = api.get_model_pull_progress()
     assert prog == {"percent": 0.0, "done": False, "error": None, "running": False}
+
+
+def test_get_model_info_returns_dict_copy():
+    """Api.get_model_info returns a usable dict for JS."""
+    from app import Api
+    import local_backend
+    api = Api.__new__(Api)
+    info = api.get_model_info()
+    assert info == local_backend.MODEL_INFO
+    # Returned copy is independent — mutating it shouldn't affect the source
+    info["name"] = "mutated"
+    assert local_backend.MODEL_INFO["name"] == "gemma4:e4b"
