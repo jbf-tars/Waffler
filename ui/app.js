@@ -2453,6 +2453,115 @@ async function saveSnippets() {
   }
 }
 
+// ── Private Mode — settings card wiring ────────────────────────────────────
+
+let _privateModeModelInfo = null;
+
+async function refreshPrivateModeCard() {
+  // Lazy-load model info once (it's static)
+  if (!_privateModeModelInfo) {
+    try {
+      _privateModeModelInfo = await window.pywebview.api.get_model_info();
+    } catch (e) {
+      console.error("get_model_info failed", e);
+      _privateModeModelInfo = { name: "unknown", display_name: "Local model", download_size_gb: 0 };
+    }
+  }
+
+  let status;
+  try {
+    status = await window.pywebview.api.get_private_mode_status();
+  } catch (e) {
+    console.error("get_private_mode_status failed", e);
+    return;
+  }
+  renderPrivateModeCard(status, _privateModeModelInfo);
+}
+
+function renderPrivateModeCard(status, info) {
+  // ── Ollama row ──
+  const ollamaDesc = document.getElementById("ollamaStateDesc");
+  const ollamaBtn = document.getElementById("ollamaActionBtn");
+  if (status.ollama_running) {
+    ollamaDesc.textContent = "✓ Installed, running";
+    ollamaBtn.textContent = "Refresh";
+    ollamaBtn.dataset.action = "refresh";
+  } else {
+    ollamaDesc.textContent = "✗ Not installed or not running";
+    ollamaBtn.textContent = "Install Ollama →";
+    ollamaBtn.dataset.action = "install";
+  }
+
+  // ── Model row ──
+  const modelLabel = document.getElementById("modelRowLabel");
+  const modelDesc = document.getElementById("modelStateDesc");
+  const modelBtn = document.getElementById("modelActionBtn");
+  modelLabel.textContent = info.display_name;
+  if (status.model_installed) {
+    modelDesc.textContent = "✓ Ready";
+    modelBtn.textContent = "Refresh";
+    modelBtn.dataset.action = "refresh-model";
+    modelBtn.disabled = false;
+  } else {
+    modelDesc.textContent = "✗ Not downloaded";
+    modelBtn.textContent = `Download (${info.download_size_gb}GB)`;
+    modelBtn.dataset.action = "download";
+    // Can't download unless Ollama is reachable
+    modelBtn.disabled = !status.ollama_running;
+  }
+
+  // ── Toggle ──
+  const toggle = document.getElementById("privateModeToggle");
+  const label = document.getElementById("privateModeLabel");
+  const canEnable = status.ollama_running && status.model_installed;
+  toggle.disabled = !canEnable;
+  toggle.checked = !!status.private_mode;
+  if (status.private_mode && canEnable) {
+    label.textContent = "On — all processing local";
+    label.style.color = "#4caf50";
+  } else if (!canEnable) {
+    label.textContent = "Off (finish setup above)";
+    label.style.color = "#999";
+  } else {
+    label.textContent = "Off";
+    label.style.color = "#999";
+  }
+}
+
+function onOllamaActionClick() {
+  const btn = document.getElementById("ollamaActionBtn");
+  if (btn.dataset.action === "install") {
+    openOllamaDownload();
+  } else {
+    // Refresh
+    refreshPrivateModeCard();
+  }
+}
+
+function onModelActionClick() {
+  const btn = document.getElementById("modelActionBtn");
+  if (btn.dataset.action === "download") {
+    // Task 13 will implement the download progress flow — for now, stub
+    startModelDownload();
+  } else {
+    refreshPrivateModeCard();
+  }
+}
+
+function openOllamaDownload() {
+  // Open the Ollama download page in an external browser
+  if (window.pywebview && window.pywebview.api && window.pywebview.api.open_external) {
+    window.pywebview.api.open_external("https://ollama.com/download");
+  } else {
+    window.open("https://ollama.com/download", "_blank");
+  }
+}
+
+// Placeholder — Task 13 will implement this.
+async function startModelDownload() {
+  console.warn("startModelDownload stub — Task 13 will implement");
+}
+
 // Load snippets when settings page opens
 const _origLoadSettings = loadSettings;
 loadSettings = async function() {
@@ -2460,6 +2569,7 @@ loadSettings = async function() {
   await loadSnippets();
   await loadUsageStats();
   await loadAppVersion();
+  await refreshPrivateModeCard();
 };
 
 // ── Usage Stats ───────────────────────────────────────────────────────────
