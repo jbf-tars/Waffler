@@ -2279,7 +2279,36 @@ class WafflerPipeline:
 
             # Show user-visible error toast with specific message
             try:
-                if "RATE_LIMIT" in error_msg or "429" in error_msg:
+                # Private Mode failures — never fall back to cloud, surface clearly
+                from errors import LocalUnavailableError
+                if isinstance(e, LocalUnavailableError):
+                    msg_lower = error_msg.lower()
+                    if "no local whisper" in msg_lower or "local transcription" in msg_lower:
+                        self.overlay.show_toast(
+                            style="error",
+                            heading="Local transcription unavailable",
+                            body="Set LOCAL_WHISPER=1 and restart, or turn off Private Mode.",
+                        )
+                    elif "model" in msg_lower and ("not found" in msg_lower or "missing" in msg_lower):
+                        self.overlay.show_toast(
+                            style="error",
+                            heading="Gemma model missing",
+                            body="Open Settings → Private Mode and download the model.",
+                        )
+                    elif "timeout" in msg_lower:
+                        self.overlay.show_toast(
+                            style="error",
+                            heading="Local AI is slow",
+                            body="Try again, or turn off Private Mode for cloud speed.",
+                        )
+                    else:
+                        # Generic Ollama unreachable
+                        self.overlay.show_toast(
+                            style="error",
+                            heading="Private Mode unavailable",
+                            body="Ollama isn't running. Check Settings → Private Mode.",
+                        )
+                elif "RATE_LIMIT" in error_msg or "429" in error_msg:
                     self.overlay.show_toast(
                         style="error",
                         heading="Rate limit reached",
