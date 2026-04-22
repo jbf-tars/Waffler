@@ -327,6 +327,14 @@ def _show_toast(style: str, heading: str, body: str):
     _hide_toast()
     _toast_style = style
 
+    # Hide the pill while the toast is visible — the toast has its own
+    # sad-waffle icon, and having both on screen at the same time makes
+    # them compete for attention. _hide_toast restores the pill.
+    try:
+        _root.withdraw()
+    except Exception:
+        pass
+
     _toast_win = tk.Toplevel(_root)
     _toast_win.overrideredirect(True)
     _toast_win.attributes('-topmost', True)
@@ -411,6 +419,12 @@ def _hide_toast():
             pass
         _toast_win = None
         _toast_style = None
+    # Restore the pill if it was meant to be visible (show_toast hides it).
+    if _visible:
+        try:
+            _root.deiconify()
+        except Exception:
+            pass
 
 
 def _on_toast_action(action: str):

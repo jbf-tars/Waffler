@@ -2051,25 +2051,30 @@ class WafflerPipeline:
                 notify_js_status("idle")
                 return
 
-            # Check if audio is effectively silent
-            # Use windowed peak-RMS: if ANY 1-second window has speech, proceed.
-            # This prevents long pauses from diluting the average below threshold.
+            # Check if audio is effectively silent.
+            # Windowed peak-RMS: if ANY short window passes, proceed.
+            # 0.25 s windows (was 1.0 s) stop a 0.5 s "hello" from being
+            # diluted by surrounding silence to below threshold.
+            # RMS threshold 12 (was 30) matches quieter mics / soft speech
+            # without letting genuine room tone through — room tone
+            # typically sits around 3-8 on a well-gained mic.
             try:
                 import numpy as np
                 audio_arr = np.frombuffer(audio_bytes[44:], dtype=np.int16).astype(np.float32)
-                samples_per_window = 16000  # 1 second at 16kHz
+                samples_per_window = 4000  # 0.25 s at 16 kHz
+                min_rms = 12.0
                 is_silent = True
                 for i in range(0, len(audio_arr), samples_per_window):
                     window = audio_arr[i:i + samples_per_window]
-                    if len(window) < 1600:  # skip tiny trailing chunk
+                    if len(window) < 400:  # skip a tiny trailing chunk (< 25 ms)
                         break
                     wrms = float(np.sqrt(np.mean(window ** 2)))
-                    if wrms >= 30:
+                    if wrms >= min_rms:
                         is_silent = False
                         break
                 if is_silent:
                     overall_rms = float(np.sqrt(np.mean(audio_arr ** 2)))
-                    _log_to_file(f"Audio too quiet (overall RMS={overall_rms:.0f}, no window >= 30)")
+                    _log_to_file(f"Audio too quiet (overall RMS={overall_rms:.0f}, no 250ms window >= {min_rms})")
                     # Only show error toast if recording was held for > 1 second
                     if recording_duration >= 1.0:
                         _log_to_file("Showing 'couldn't hear you' toast")

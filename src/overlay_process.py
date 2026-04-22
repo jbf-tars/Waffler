@@ -795,7 +795,13 @@ def _show_toast(style: str, heading: str, body: str):
         _hide_toast()
         _toast_style = style
 
-        # Centre toast above the waffle
+        # Hide the pill while the toast is visible — otherwise you get two
+        # waffle icons fighting for attention right next to each other (the
+        # toast has its own sad waffle). _hide_toast puts the pill back.
+        if _g_window:
+            _g_window.orderOut_(None)
+
+        # Centre toast where the pill used to sit, plus the TOAST_PAD gap.
         tx = _waffle_x + (WAFFLE_W - TOAST_W) // 2
         ty = _waffle_y + WAFFLE_H + TOAST_PAD
 
@@ -859,6 +865,9 @@ def _hide_toast():
         _toast_win.orderOut_(None)
         _toast_win = None
         _toast_style = None
+    # Restore the pill if it was meant to be visible (show_toast hides it).
+    if _visible and _g_window:
+        _g_window.orderFront_(None)
 
 
 # ── Stdin reader (background thread) ─────────────────────────────────
