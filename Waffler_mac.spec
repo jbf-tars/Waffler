@@ -13,6 +13,16 @@ import os
 block_cipher = None
 PROJECT_ROOT = os.path.abspath('.')
 
+# Read __version__ from src/__init__.py so the bundle's Info.plist agrees
+# with the in-app version checker. CI rewrites __init__.py from the git tag
+# before this spec runs; local builds use whatever is checked in. Without
+# this, CFBundleShortVersionString was frozen at 2.1.19 for every release.
+import re as _re
+_init_text = open(os.path.join(PROJECT_ROOT, 'src', '__init__.py')).read()
+_m = _re.search(r'__version__\s*=\s*"([^"]+)"', _init_text)
+_VERSION = _m.group(1) if _m else '0.0.0'
+print(f"[spec] building Waffler.app version {_VERSION}")
+
 a = Analysis(
     ['app.py'],
     pathex=[PROJECT_ROOT, os.path.join(PROJECT_ROOT, 'src')],
@@ -137,8 +147,14 @@ app = BUNDLE(
         'NSMicrophoneUsageDescription': 'Waffler needs microphone access for voice transcription.',
         'NSAppleEventsUsageDescription': 'Waffler needs accessibility access for hotkey detection and auto-paste.',
         'NSLocalNetworkUsageDescription': 'Waffler uses a local web interface for its UI. No data is sent over the network.',
-        'CFBundleShortVersionString': '2.1.19',
+        'CFBundleShortVersionString': _VERSION,
         'LSMinimumSystemVersion': '10.13.0',
+        # Launch Services: prevent a second instance when something fires
+        # `open -a Waffler` while it's already running. Fixes the "app
+        # opens twice on first launch" issue where a race between the
+        # dock click and the app's own overlay-subprocess spawn could
+        # land a second main instance.
+        'LSMultipleInstancesProhibited': True,
     },
     # Code signing (set SIGNING_IDENTITY env var when you have Developer ID)
     codesign_identity=os.environ.get('SIGNING_IDENTITY', None),
