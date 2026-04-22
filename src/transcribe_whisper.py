@@ -84,13 +84,15 @@ def load_settings() -> dict:
 def vocab_to_prompt(words: list[str]) -> str:
     """Turn vocab list into a Whisper initial_prompt hint.
 
-    Whisper's initial_prompt is conditioning text — it should be a bare
-    word list, NOT an instruction sentence.  Sentence-like prompts cause
-    Whisper to hallucinate lines containing those words.
+    A bare comma-joined list causes Whisper to regurgitate vocab tokens
+    verbatim into real transcriptions, especially during trailing silence
+    or low-confidence audio. Wrapping the list in a full sentence still
+    conditions the acoustic model on spellings but removes the bare list
+    template that Whisper's LM was copying.
     """
     if not words:
         return ""
-    return ", ".join(words)
+    return "Vocabulary for this transcript includes: " + ", ".join(words) + "."
 
 
 def _levenshtein_distance(a: str, b: str) -> int:
@@ -113,11 +115,15 @@ def _levenshtein_distance(a: str, b: str) -> int:
     return previous_row[-1]
 
 
-def fuzzy_match_word(transcribed: str, vocab: list[str], threshold: float = 0.75) -> list[tuple[str, str]]:
+def fuzzy_match_word(transcribed: str, vocab: list[str], threshold: float = 0.85) -> list[tuple[str, str]]:
     """
     Find vocabulary words that are similar to transcribed words.
     Returns list of (transcribed_word, vocab_word) pairs that might be corrections.
-    Uses both exact matching and fuzzy matching with Levenshtein distance.
+
+    Threshold 0.85 + min-length 4 + |len-diff| ≤ 1: at the previous 0.75
+    threshold with min-length 3, "cobiec" was being rewritten to "COBieQC"
+    and short near-English words drifted into vocab spellings. These
+    constraints stop short noisy tokens from matching multi-syllable vocab.
     """
     if not vocab:
         return []
@@ -139,7 +145,9 @@ def fuzzy_match_word(transcribed: str, vocab: list[str], threshold: float = 0.75
 
         # Then check fuzzy match
         for vword in vocab_words:
-            if len(word) < 3 or len(vword) < 3:
+            if len(word) < 4 or len(vword) < 4:
+                continue
+            if abs(len(word) - len(vword)) > 1:
                 continue
 
             # Calculate similarity ratio
