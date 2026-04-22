@@ -218,3 +218,16 @@ def test_clean_text_raises_on_empty_choices():
             assert False, "should have raised"
         except LocalUnavailableError:
             pass
+
+
+def test_model_info_keys_are_present():
+    """MODEL_INFO must contain keys the UI depends on."""
+    assert "name" in local_backend.MODEL_INFO
+    assert "display_name" in local_backend.MODEL_INFO
+    assert "download_size_gb" in local_backend.MODEL_INFO
+    assert "min_ram_gb" in local_backend.MODEL_INFO
+
+
+def test_default_model_matches_model_info():
+    """DEFAULT_MODEL alias stays in sync with MODEL_INFO['name']."""
+    assert local_backend.DEFAULT_MODEL == local_backend.MODEL_INFO["name"]
