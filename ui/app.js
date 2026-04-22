@@ -2476,6 +2476,7 @@ async function refreshPrivateModeCard() {
     return;
   }
   renderPrivateModeCard(status, _privateModeModelInfo);
+  wirePrivateModeToggle();
 }
 
 function renderPrivateModeCard(status, info) {
@@ -2526,6 +2527,23 @@ function renderPrivateModeCard(status, info) {
     label.textContent = "Off";
     label.style.color = "#999";
   }
+}
+
+function wirePrivateModeToggle() {
+  const toggle = document.getElementById("privateModeToggle");
+  if (!toggle || toggle.dataset.wired === "1") return;
+  toggle.dataset.wired = "1";
+  toggle.addEventListener("change", async (e) => {
+    const enabled = e.target.checked;
+    try {
+      await window.pywebview.api.set_private_mode(enabled);
+    } catch (err) {
+      console.error("set_private_mode failed", err);
+      e.target.checked = !enabled;  // revert on failure
+      return;
+    }
+    await refreshPrivateModeCard();
+  });
 }
 
 function onOllamaActionClick() {
