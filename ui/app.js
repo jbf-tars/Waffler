@@ -2511,17 +2511,32 @@ function renderPrivateModeCard(status, info) {
     modelBtn.disabled = !status.ollama_running;
   }
 
+  // ── Local Whisper row ──
+  const whisperDesc = document.getElementById("whisperStateDesc");
+  const whisperBtn = document.getElementById("whisperActionBtn");
+  if (status.local_whisper_ready) {
+    whisperDesc.textContent = "✓ Ready";
+    whisperBtn.textContent = "Refresh";
+    whisperBtn.dataset.action = "refresh-whisper";
+    whisperBtn.disabled = false;
+  } else {
+    whisperDesc.textContent = "✗ Not loaded";
+    whisperBtn.textContent = "Download model (~460MB)";
+    whisperBtn.dataset.action = "download-whisper";
+    whisperBtn.disabled = false;
+  }
+
   // ── Toggle ──
   const toggle = document.getElementById("privateModeToggle");
   const label = document.getElementById("privateModeLabel");
-  const canEnable = status.ollama_running && status.model_installed;
+  const canEnable = status.ollama_running && status.model_installed && status.local_whisper_ready;
   toggle.disabled = !canEnable;
   toggle.checked = !!status.private_mode;
   if (status.private_mode && canEnable) {
     label.textContent = "On — all processing local";
     label.style.color = "#4caf50";
   } else if (!canEnable) {
-    label.textContent = "Off (finish setup above)";
+    label.textContent = "Off (finish setup below)";
     label.style.color = "#999";
   } else {
     label.textContent = "Off";
@@ -2564,6 +2579,57 @@ function onModelActionClick() {
   } else {
     refreshPrivateModeCard();
   }
+}
+
+function onWhisperActionClick() {
+  const btn = document.getElementById("whisperActionBtn");
+  if (btn.dataset.action === "download-whisper") {
+    startWhisperDownload();
+  } else {
+    refreshPrivateModeCard();
+  }
+}
+
+async function startWhisperDownload() {
+  const btn = document.getElementById("whisperActionBtn");
+  const desc = document.getElementById("whisperStateDesc");
+  btn.disabled = true;
+  btn.textContent = "Loading…";
+  desc.textContent = "Downloading model weights (first time only, ~460MB)…";
+
+  try {
+    await window.pywebview.api.preload_local_whisper();
+  } catch (e) {
+    console.error("preload_local_whisper failed", e);
+    alert("Couldn't start local Whisper load: " + e);
+    btn.disabled = false;
+    return;
+  }
+
+  // Poll status until loaded or errored
+  const poll = setInterval(async () => {
+    let status;
+    try {
+      status = await window.pywebview.api.get_local_whisper_status();
+    } catch (e) {
+      clearInterval(poll);
+      btn.disabled = false;
+      return;
+    }
+    if (status.ready) {
+      clearInterval(poll);
+      await refreshPrivateModeCard();  // Re-render everything cleanly
+      return;
+    }
+    if (status.error) {
+      clearInterval(poll);
+      desc.textContent = "✗ Failed: " + status.error;
+      btn.textContent = "Retry";
+      btn.disabled = false;
+      return;
+    }
+    // Still loading — keep the spinner text
+  }, 1000);
 }
 
 function openOllamaDownload() {

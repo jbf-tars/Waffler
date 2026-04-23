@@ -8,10 +8,12 @@ Main API: RecordingOverlay().show() / .hide() / .update_level(0..1)
 
 import subprocess
 import sys
+import os
 import json
 import time
 import threading
 import platform
+from pathlib import Path
 
 _PLATFORM = platform.system()  # "Darwin", "Windows", "Linux"
 
@@ -203,11 +205,21 @@ class RecordingOverlay:
             CREATE_NO_WINDOW = 0x08000000
             kwargs["creationflags"] = CREATE_NO_WINDOW
 
-        self._log(f"[overlay] Starting subprocess: {sys.executable} --overlay")
+        # In frozen PyInstaller builds, sys.executable IS the Waffler
+        # launcher (which understands --overlay). When running from source,
+        # sys.executable is the Python interpreter — which does NOT know
+        # --overlay, so we need to pass app.py explicitly.
+        if getattr(sys, 'frozen', False):
+            cmd = [sys.executable, '--overlay']
+        else:
+            app_py = Path(__file__).resolve().parent.parent / 'app.py'
+            cmd = [sys.executable, str(app_py), '--overlay']
+
+        self._log(f"[overlay] Starting subprocess: {' '.join(cmd)}")
 
         try:
             self._process = subprocess.Popen(
-                [sys.executable, '--overlay'],
+                cmd,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
