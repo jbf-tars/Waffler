@@ -105,26 +105,54 @@ class AudioRecorder:
             self._stream.start()
 
     def stop(self) -> bytes:
-        """Stop stream and return WAV bytes"""
+        """Stop stream and return WAV bytes.
+
+        sounddevice's `_stream.stop()` calls into CoreAudio (PortAudio on
+        Windows). Both can wedge for tens of seconds on long recordings or
+        after a device hot-swap. When that happens we'd hold `_stream_lock`
+        forever, blocking every subsequent recording at `start()` / `stop()`
+        and producing the "stuck on processing" symptom (pipeline pile-up,
+        all threads waiting on the same kernel call).
+
+        We work around it: snapshot the buffer first (cheap, all the data
+        we actually need lives in `_buffer`), then run the blocking
+        `_stream.stop()` / `.close()` in a daemon thread with a 1.5 s
+        watchdog. If it doesn't return in time we abandon the stream
+        reference — the OS will reclaim it eventually — and proceed with
+        whatever we captured. We never get stuck.
+        """
         with self._stream_lock:
-            # Disable callback FIRST to prevent CFFI race condition
+            # Disable callback FIRST to prevent CFFI race condition.
             self._callback_active = False
             self.is_recording = False
+            stream = self._stream
+            self._stream = None
 
-            if self._stream:
+        # Snapshot the buffer outside the close attempt — we want to be
+        # able to return what we've captured even if the close hangs.
+        with self._lock:
+            buf_snapshot = list(self._buffer)
+
+        if stream is not None:
+            def _close():
                 try:
-                    self._stream.stop()
-                    self._stream.close()
+                    stream.stop()
+                    stream.close()
                 except Exception:
                     pass
-                self._stream = None
+            t = threading.Thread(target=_close, daemon=True, name="AudioStreamClose")
+            t.start()
+            t.join(timeout=1.5)
+            if t.is_alive():
+                # CoreAudio / PortAudio is wedged. Don't wait — abandon the
+                # stream object and continue. The thread will eventually
+                # finish (or leak), but the pipeline isn't blocked.
+                print("audio.stop: stream.stop() did not return in 1.5s — abandoning")
 
-        with self._lock:
-            if not self._buffer:
-                return b""
+        if not buf_snapshot:
+            return b""
 
-            self.recording = np.concatenate(self._buffer, axis=0)
-
+        self.recording = np.concatenate(buf_snapshot, axis=0)
         duration = len(self.recording) / self.sample_rate
         rms = np.sqrt(np.mean(self.recording.astype(np.float32) ** 2))
         print(f"Recording stopped ({duration:.2f}s, RMS: {rms:.0f})")
