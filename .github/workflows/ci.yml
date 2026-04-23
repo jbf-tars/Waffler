@@ -1,0 +1,66 @@
+name: CI
+
+# Lightweight test pass on every push and PR. Verifies imports + the
+# styling guardrail test against the real corpus in
+# tests/test_strip_hallucinations.py. We don't run the GUI / mic /
+# permission tests here — those need a real macOS desktop.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pyflakes
+
+      - name: Static analysis (pyflakes)
+        # Best-effort lint. Allow Windows-only / cosmetic warnings to pass
+        # (gated branches show as "unused" on Mac, intentionally).
+        run: |
+          python -m pyflakes src/*.py app.py | grep -vE \
+            'overlay_process_windows|windows_hotkey|wintypes|f-string is missing|global.*is unused|local variable .e.|local variable .sh.|local variable ._api_ref.|local variable .LR_DEFAULTSIZE.' \
+          || echo "no lint findings"
+
+      - name: Import every src module (catches any reference / dependency regression)
+        env:
+          PYTHONPATH: src
+        run: |
+          python -c "
+          import importlib, glob, sys, os
+          sys.path.insert(0, 'src')
+          mods = sorted(p.replace('src/', '').replace('.py', '') for p in glob.glob('src/*.py') if '__init__' not in p)
+          fails = []
+          for m in mods:
+              if m in ('overlay_process_windows', 'windows_hotkey'):
+                  print(f'  skip {m} (windows-only)')
+                  continue
+              try:
+                  importlib.import_module(m)
+                  print(f'    OK {m}')
+              except Exception as e:
+                  fails.append((m, e))
+                  print(f'  FAIL {m}: {type(e).__name__}: {e}')
+          sys.exit(1 if fails else 0)
+          "
+
+      - name: Styling guardrail test
+        env:
+          PYTHONPATH: src
+        run: python tests/test_strip_hallucinations.py

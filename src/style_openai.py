@@ -4,7 +4,6 @@ from openai import OpenAI
 from pathlib import Path
 import time
 import re
-import os
 
 # ── Try to load Groq SDK ────────────────────────────────────────────────────
 _groq_mod = None
@@ -208,7 +207,6 @@ Transcript: {transcript}"""
         # Fix mid-sentence capitalization bug
         styled = self._fix_mid_sentence_caps(styled)
         styled = self._strip_hallucinations(styled, self._last_raw)
-        latency = (time.time() - start_time) * 1000
         usage = response.usage
         return styled, {
             "input_tokens": usage.prompt_tokens if usage else 0,
@@ -245,7 +243,6 @@ Transcript: {transcript}"""
             raise
         styled = self._fix_mid_sentence_caps(styled)
         styled = self._strip_hallucinations(styled, self._last_raw)
-        latency = (time.time() - start_time) * 1000
         input_tokens = getattr(response, 'usage_metadata', None)
         return styled, {
             "input_tokens": input_tokens.prompt_token_count if input_tokens else 0,

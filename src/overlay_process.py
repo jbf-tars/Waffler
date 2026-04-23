@@ -49,7 +49,7 @@ from AppKit import (
     NSCenterTextAlignment,
     NSParagraphStyleAttributeName,
 )
-from Foundation import NSObject, NSTimer, NSRunLoop, NSDefaultRunLoopMode, NSMakePoint, NSMakeRect
+from Foundation import NSTimer, NSRunLoop, NSDefaultRunLoopMode, NSMakePoint, NSMakeRect
 
 NSWindowStyleMaskBorderless = 0
 

@@ -6,7 +6,7 @@ Provides improved UX for accessibility, microphone, and input monitoring permiss
 
 import platform
 import subprocess as sp
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional
 from dataclasses import dataclass
 from enum import Enum
 

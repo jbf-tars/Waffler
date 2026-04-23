@@ -4,19 +4,14 @@ Works without crashing - no pynput needed
 """
 
 import threading
-import os
 from Quartz import (
     CGEventTapCreate,
     CGEventTapEnable,
-    CGEventCreateCopy,
-    CGEventSetFlags,
     kCGEventFlagsChanged,
     kCGEventKeyDown,
     kCGEventKeyUp,
     kCGEventTapOptionDefault,
     kCGHeadInsertEventTap,
-    kCGSessionEventTap,
-    kCGAnnotatedSessionEventTap,
     kCGHIDEventTap,
     kCGEventTapDisabledByTimeout,
     kCGEventTapDisabledByUserInput,

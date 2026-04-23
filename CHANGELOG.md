@@ -4,6 +4,11 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.11.8] - 2026-04-23
+
+### Changed
+- **Pre-public-release polish.** Cleaned up unused imports across `src/`, removed unused locals (`latency`, `os`, `Optional`, `NSObject`, etc.), and added a lightweight CI workflow (`.github/workflows/ci.yml`) that runs on every push and PR: pyflakes static analysis (skipping known platform-gated false positives), an "import every module" smoke test, and the styling guardrail test against the real failure-mode corpus. No behaviour change — purely hygiene.
+
 ## [3.11.7] - 2026-04-23
 
 ### Fixed

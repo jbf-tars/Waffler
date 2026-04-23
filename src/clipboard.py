@@ -75,8 +75,6 @@ class ClipboardManager:
                 CGEventCreateKeyboardEvent,
                 CGEventPost,
                 CGEventSetFlags,
-                kCGEventKeyDown,
-                kCGEventKeyUp,
                 kCGEventFlagMaskCommand,
                 kCGHIDEventTap
             )
