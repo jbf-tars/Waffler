@@ -35,7 +35,7 @@ Download the latest installer from [GitHub Releases](https://github.com/jbf-tars
 - **Windows:** `WafflerSetup-*.exe`
 - **Mac:** `Waffler-*-mac.dmg`
 
-> **Note:** Builds are currently unsigned. On Windows, click "More info > Run anyway" to bypass SmartScreen. On Mac, right-click > Open to bypass Gatekeeper. This is normal for indie open-source projects.
+> **Note:** macOS builds are signed with an Apple Developer ID and notarised — they open without Gatekeeper warnings. Windows builds are not yet signed; SmartScreen will warn on first launch — click "More info > Run anyway".
 
 ### 2. Add your API key
 
@@ -64,12 +64,12 @@ python app.py
 
 ## Usage
 
-1. **Hold** the Fn key (Mac) or `Ctrl+Win` (Windows)
+1. **Hold** the Fn key (Mac) or `Win+Ctrl` (Windows)
 2. **Speak**
 3. **Release** — text is transcribed, cleaned up, and copied to clipboard
 4. **Paste** anywhere
 
-Fn + Space locks recording on (hands-free). Press Fn again to stop.
+Hotkey + `Space` locks recording on (hands-free). Press the hotkey again to stop.
 
 ---
 
@@ -98,9 +98,9 @@ Edit `.env` to set your API key(s).
 | LLM | GPT-4o-mini (OpenAI) or Groq |
 | Audio | sounddevice + NumPy |
 | UI | pywebview |
-| Hotkey | pynput + platform-specific modules |
+| Hotkey | CGEventTap (Mac) / pythonnet + Win32 hooks (Windows) |
 | Clipboard | pyperclip |
-| Packaging | PyInstaller + Inno Setup (Win) / create-dmg (Mac) |
+| Packaging | PyInstaller + Inno Setup (Win) / hdiutil (Mac) |
 
 ---
 
