@@ -25,33 +25,90 @@ except ImportError:
     pass
 
 _USE_LOCAL = os.getenv("LOCAL_WHISPER", "0") == "1"
+
+# Also auto-enable local Whisper if Private Mode is on in settings — this
+# way users don't have to set an env var to make Private Mode functional.
+try:
+    from settings_store import is_private_mode as _is_private_mode
+    if _is_private_mode():
+        _USE_LOCAL = True
+except Exception:
+    pass
+
 _IS_MAC_ARM = sys.platform == "darwin" and platform.machine() == "arm64"
 _IS_WINDOWS  = sys.platform == "win32"
 
-# ── Try to load local backend ───────────────────────────────────────────────
+# ── Local Whisper backend (loaded on-demand) ────────────────────────────────
 _mlx_whisper    = None
 _faster_whisper = None
 
-if _USE_LOCAL:
+
+def _load_mlx_whisper() -> None:
+    """Load mlx-whisper in the current process. Raises on failure."""
+    global _mlx_whisper
+    if _mlx_whisper is not None:
+        return
+    import mlx_whisper as _m
+    _mlx_whisper = _m
+    print("🍎 mlx-whisper loaded — local transcription on Apple Silicon")
+
+
+def _load_faster_whisper() -> None:
+    """Load faster-whisper (Windows / Intel Mac). Raises on failure.
+
+    First call downloads the model weights (~460MB) if not cached.
+    Subsequent calls load from cache instantly. We use the `small` size
+    because `base` produced unusably garbled output; `small` is the
+    minimum size that transcribes real speech accurately.
+
+    Uses CPU int8 — reliable everywhere. CUDA is tempting for speed but
+    ctranslate2's CUDA path can load successfully yet hang at inference
+    if cuBLAS DLLs are missing, and the failure mode is a hung recording
+    with no toast. Not worth the auto-detect risk. Power users can opt
+    into GPU via a future setting.
+    """
+    global _faster_whisper
+    if _faster_whisper is not None:
+        return
+    from faster_whisper import WhisperModel as _FasterWhisperModel
+
+    _faster_whisper = _FasterWhisperModel(
+        "small",
+        device="cpu",
+        compute_type="int8",   # fastest CPU mode
+    )
+    print("⚡ faster-whisper loaded (small, CPU int8) — local transcription")
+
+
+def load_local_whisper_backend() -> None:
+    """Load the appropriate local Whisper backend for this platform.
+
+    Call this from the UI when Private Mode is being set up — no restart
+    needed. Raises if the required library isn't installed or the model
+    can't be downloaded.
+    """
     if _IS_MAC_ARM:
-        try:
-            import mlx_whisper as _mlx_whisper
-            print("🍎 mlx-whisper loaded — local transcription on Apple Silicon")
-        except ImportError:
-            print("⚠️  LOCAL_WHISPER=1 but mlx-whisper not installed.")
-            print("   Run: bash install_local_whisper.sh")
+        _load_mlx_whisper()
     else:
-        # Windows or Intel Mac — use faster-whisper
-        try:
-            from faster_whisper import WhisperModel as _FasterWhisperModel
-            _faster_whisper = _FasterWhisperModel(
-                "base",
-                device="cpu",
-                compute_type="int8"   # fastest CPU mode
-            )
-            print("⚡ faster-whisper loaded — local transcription (CPU)")
-        except ImportError:
-            print("⚠️  LOCAL_WHISPER=1 but faster-whisper not installed.")
+        _load_faster_whisper()
+
+
+def is_local_whisper_ready() -> bool:
+    """True if a local Whisper backend is loaded and ready to transcribe."""
+    return _mlx_whisper is not None or _faster_whisper is not None
+
+
+# Eager load at import time if the env var or settings flag is set —
+# preserves backward compatibility with `LOCAL_WHISPER=1 python app.py`.
+if _USE_LOCAL:
+    try:
+        load_local_whisper_backend()
+    except ImportError as e:
+        if _IS_MAC_ARM:
+            print(f"⚠️  Could not load mlx-whisper: {e}")
+            print("   Run: bash install_local_whisper.sh")
+        else:
+            print(f"⚠️  Could not load faster-whisper: {e}")
             print("   Run: pip install faster-whisper")
 
 
@@ -84,13 +141,15 @@ def load_settings() -> dict:
 def vocab_to_prompt(words: list[str]) -> str:
     """Turn vocab list into a Whisper initial_prompt hint.
 
-    Whisper's initial_prompt is conditioning text — it should be a bare
-    word list, NOT an instruction sentence.  Sentence-like prompts cause
-    Whisper to hallucinate lines containing those words.
+    A bare comma-joined list causes Whisper to regurgitate vocab tokens
+    verbatim into real transcriptions, especially during trailing silence
+    or low-confidence audio. Wrapping the list in a full sentence still
+    conditions the acoustic model on spellings but removes the bare list
+    template that Whisper's LM was copying.
     """
     if not words:
         return ""
-    return ", ".join(words)
+    return "Vocabulary for this transcript includes: " + ", ".join(words) + "."
 
 
 def _levenshtein_distance(a: str, b: str) -> int:
@@ -113,47 +172,53 @@ def _levenshtein_distance(a: str, b: str) -> int:
     return previous_row[-1]
 
 
-def fuzzy_match_word(transcribed: str, vocab: list[str], threshold: float = 0.75) -> list[tuple[str, str]]:
+def fuzzy_match_word(transcribed: str, vocab: list[str], threshold: float = 0.85) -> list[tuple[str, str]]:
     """
     Find vocabulary words that are similar to transcribed words.
     Returns list of (transcribed_word, vocab_word) pairs that might be corrections.
-    Uses both exact matching and fuzzy matching with Levenshtein distance.
+
+    Threshold 0.85 + min-length 4 + |len-diff| ≤ 1: at the previous 0.75
+    threshold with min-length 3, "cobiec" was being rewritten to "COBieQC"
+    and short near-English words drifted into vocab spellings. These
+    constraints stop short noisy tokens from matching multi-syllable vocab.
     """
     if not vocab:
         return []
-    
+
     # Normalize vocab for comparison
     vocab_lower = {w.lower(): w for w in vocab}
     transcribed_lower = transcribed.lower()
 
     # Split into words (handle punctuation)
     words = re.findall(r"[a-zA-Z]+", transcribed_lower)
-    
+
     corrections = []
     vocab_words = list(vocab_lower.keys())
-    
+
     for word in words:
         # First check exact match (case-insensitive)
         if word in vocab_lower:
             continue
-        
+
         # Then check fuzzy match
         for vword in vocab_words:
-            if len(word) < 3 or len(vword) < 3:
+            if len(word) < 4 or len(vword) < 4:
                 continue
-            
+            if abs(len(word) - len(vword)) > 1:
+                continue
+
             # Calculate similarity ratio
             max_len = max(len(word), len(vword))
             if max_len == 0:
                 continue
-            
+
             distance = _levenshtein_distance(word, vword)
             similarity = 1 - (distance / max_len)
-            
+
             if similarity >= threshold:
                 corrections.append((word, vocab_lower[vword]))
                 break
-    
+
     return corrections
 
 
@@ -314,7 +379,20 @@ class WhisperTranscriber:
     def transcribe_sync(self, audio_bytes: bytes):
         audio_bytes = _pad_audio_with_silence(audio_bytes)
 
-        if self._backend == "groq":
+        # ── Private Mode: force local backend, never touch cloud ─────────
+        import settings_store
+        from errors import LocalUnavailableError
+        if settings_store.is_private_mode():
+            if _mlx_whisper is not None:
+                raw = self._transcribe_mlx(audio_bytes)
+            elif _faster_whisper is not None:
+                raw = self._transcribe_faster(audio_bytes)
+            else:
+                raise LocalUnavailableError(
+                    "Private Mode is on but no local Whisper backend is loaded. "
+                    "Set LOCAL_WHISPER=1 and restart, or disable Private Mode."
+                )
+        elif self._backend == "groq":
             try:
                 raw = self._transcribe_groq(audio_bytes)
             except Exception as e:
@@ -363,7 +441,7 @@ class WhisperTranscriber:
             hint     = vocab_to_prompt(vocab)
             settings = load_settings()
             lang     = settings.get("language", "en")
-            kwargs   = dict(path_or_hf_repo="mlx-community/whisper-base-mlx")
+            kwargs   = dict(path_or_hf_repo="mlx-community/whisper-small-mlx")
             if hint:
                 kwargs["initial_prompt"] = hint
             if lang and lang != "auto":
@@ -386,7 +464,13 @@ class WhisperTranscriber:
             settings = load_settings()
             lang     = settings.get("language", "en")
             fw_lang  = lang if lang != "auto" else None
-            segments, _ = _faster_whisper.transcribe(tmp, beam_size=1, language=fw_lang)
+            segments, _ = _faster_whisper.transcribe(
+                tmp,
+                beam_size=1,
+                language=fw_lang,
+                vad_filter=True,        # skip silent segments — big speedup on real speech
+                condition_on_previous_text=False,  # avoids hallucinated loops
+            )
             text = " ".join(seg.text for seg in segments).strip()
             print(f"⚡ faster-whisper ({(time.time()-t0)*1000:.0f}ms): {text[:80]}")
             return text

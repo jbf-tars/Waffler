@@ -1289,7 +1289,7 @@ function renderPrivateModeStatus(s) {
     modelBtn.onclick = refreshPrivateModeStatus;
   } else {
     modelState.textContent = "✗ Not downloaded";
-    modelBtn.textContent = "Download (3GB)";
+    modelBtn.textContent = "Download (9.6GB)";
     modelBtn.onclick = startModelPull;
   }
   modelBtn.disabled = !s.ollama_running;  // can't pull without ollama
