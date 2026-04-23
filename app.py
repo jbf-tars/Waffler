@@ -2140,14 +2140,19 @@ class WafflerPipeline:
             # silently (e.g. when Groq's free-tier quota is exhausted).
             if gpt_usage.get("fallback_reason"):
                 reason = gpt_usage["fallback_reason"]
-                if "RATE_LIMIT" in reason or "429" in reason:
-                    heading = "Cleanup skipped"
-                    body = "Groq limit hit — pasted raw. Try again in a minute."
+                heading = "Cleanup skipped"
+                if reason.startswith("RATE_LIMIT|"):
+                    # Format: RATE_LIMIT|<limit>|<retry_in>|<raw error snippet>
+                    parts = reason.split("|", 3)
+                    limit_kind = parts[1] if len(parts) > 1 else ""
+                    retry_in = parts[2] if len(parts) > 2 else ""
+                    # Map Groq's limit label to a short hint.
+                    is_daily = "per day" in limit_kind.lower() or "TPD" in limit_kind or "RPD" in limit_kind
+                    wait_hint = f"Try again in {retry_in}" if retry_in else ("Try again tomorrow" if is_daily else "Try again soon")
+                    body = f"Groq {limit_kind or 'rate limit'} reached. {wait_hint}, or add an OpenAI key in Settings as a fallback."
                 elif "CONNECTION" in reason or "timeout" in reason.lower():
-                    heading = "Cleanup skipped"
-                    body = "No connection — pasted raw. Check your internet."
+                    body = "No connection — pasted raw. Check your internet or VPN."
                 else:
-                    heading = "Cleanup skipped"
                     body = "Pasted raw. See the log for details."
                 _log_to_file(f"[pipeline] styling fell back to basic_clean: {reason}")
                 try:

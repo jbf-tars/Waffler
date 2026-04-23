@@ -191,7 +191,16 @@ Transcript: {transcript}"""
         except Exception as e:
             error_msg = str(e)
             if "429" in error_msg or "rate" in error_msg.lower():
-                raise RuntimeError(f"RATE_LIMIT: Groq rate limit hit — {error_msg[:100]}")
+                # Pull out the info the UI needs: which limit hit ("tokens per day",
+                # "requests per minute", etc.) and Groq's suggested wait time.
+                # Keeping the structured prefix so the pipeline can route without
+                # re-parsing the whole message.
+                import re as _re
+                _limit_m = _re.search(r"on ([^:]+):", error_msg)
+                _wait_m = _re.search(r"try again in ([0-9hmsd\. ]+)", error_msg, _re.IGNORECASE)
+                _limit = _limit_m.group(1).strip() if _limit_m else "rate limit"
+                _wait = _wait_m.group(1).strip() if _wait_m else ""
+                raise RuntimeError(f"RATE_LIMIT|{_limit}|{_wait}|{error_msg[:60]}")
             elif "connection" in error_msg.lower() or "timeout" in error_msg.lower():
                 raise RuntimeError(f"CONNECTION: Groq connection failed — {error_msg[:100]}")
             raise
