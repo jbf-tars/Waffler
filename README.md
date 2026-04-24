@@ -13,6 +13,23 @@ Press a hotkey, speak, release — your polished text is in the clipboard, ready
 
 ---
 
+## About this project
+
+Waffler is a side project — and, if I'm honest, my first proper app. I built it for two reasons:
+
+1. **I was knackered of paying £10 a month just to talk at my laptop.** Wispr Flow, Superwhisper, the rest — they're great, but they lock you into someone else's pricing, someone else's servers, and someone else's decisions about what happens to your audio. With Waffler you bring your own OpenAI or Groq key, the audio goes straight from your machine to the provider, and the whole thing costs pennies a month for normal use. No middleman.
+
+2. **I wanted to see how far agentic coding tools could actually take a real app.** Waffler was built almost entirely by dictating into Waffler — using Claude Code to do the actual writing, with me voicing the intent, reviewing diffs, and steering. The prompts, the bug fixes, even a lot of this README were dictated into the app while it was being built. It's properly meta and it genuinely shaped how I think about building software now.
+
+It's gone through a ridiculous amount of prompt-wrangling and live-API testing to get the transcriptions sounding like a normal human rather than a LinkedIn post. That work is still ongoing — it'll still get things wrong — but the plumbing is solid.
+
+**Early days, definitely.** Rough edges, opinionated defaults, probably bugs I haven't spotted. If you find one or want a feature, please open an [issue](https://github.com/jbf-tars/Waffler/issues) — I actually read them, and this is the kind of project where user feedback steers the roadmap directly. Cheers.
+
+— James
+
+
+---
+
 ## Features
 
 - **Global hotkey** — works in any app, instantly
