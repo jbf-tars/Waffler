@@ -2112,10 +2112,46 @@ class WafflerPipeline:
                     parts = reason.split("|", 3)
                     limit_kind = parts[1] if len(parts) > 1 else ""
                     retry_in = parts[2] if len(parts) > 2 else ""
-                    # Map Groq's limit label to a short hint.
-                    is_daily = "per day" in limit_kind.lower() or "TPD" in limit_kind or "RPD" in limit_kind
-                    wait_hint = f"Try again in {retry_in}" if retry_in else ("Try again tomorrow" if is_daily else "Try again soon")
-                    body = f"Groq {limit_kind or 'rate limit'} reached. {wait_hint}, or add an OpenAI key in Settings as a fallback."
+
+                    # Map Groq's technical limit label to something readable.
+                    lk = limit_kind.lower()
+                    is_daily = "per day" in lk or "TPD" in limit_kind or "RPD" in limit_kind or "ASD" in limit_kind
+                    if "tokens per day" in lk:
+                        friendly = "daily token limit"
+                    elif "tokens per minute" in lk:
+                        friendly = "per-minute token limit"
+                    elif "requests per day" in lk:
+                        friendly = "daily request limit"
+                    elif "requests per minute" in lk:
+                        friendly = "per-minute request limit"
+                    elif "audio seconds" in lk:
+                        friendly = "daily audio limit" if is_daily else "hourly audio limit"
+                    else:
+                        friendly = "rate limit"
+
+                    # Format Groq's retry duration (e.g. "15m43.488s") as a
+                    # human-friendly "about N minutes" — strip milliseconds and
+                    # round up so we never tell the user to try again "in 0 minutes".
+                    import re as _re_fmt
+                    _m = _re_fmt.match(r"^\s*(?:(\d+)h)?(?:(\d+)m)?(?:([\d.]+)s)?\s*$", retry_in)
+                    if _m and _m.group(0).strip():
+                        _h = int(_m.group(1) or 0)
+                        _mn = int(_m.group(2) or 0)
+                        _sec = float(_m.group(3) or 0)
+                        if _h >= 1:
+                            wait_hint = f"Try again in about {_h}h {_mn}m" if _mn else f"Try again in about {_h}h"
+                        else:
+                            _total_min = _mn + (1 if _sec > 0 else 0)  # round seconds up
+                            if _total_min >= 1:
+                                wait_hint = f"Try again in about {_total_min} minute{'s' if _total_min != 1 else ''}"
+                            else:
+                                wait_hint = "Try again in under a minute"
+                    elif is_daily:
+                        wait_hint = "Try again tomorrow"
+                    else:
+                        wait_hint = "Try again shortly"
+
+                    body = f"Groq {friendly} hit. {wait_hint}, or add an OpenAI key in Settings as a fallback."
                 elif "CONNECTION" in reason or "timeout" in reason.lower():
                     body = "No connection — pasted raw. Check your internet or VPN."
                 else:

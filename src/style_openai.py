@@ -155,12 +155,19 @@ Transcript: {transcript}"""
                 # Pull out the info the UI needs: which limit hit ("tokens per day",
                 # "requests per minute", etc.) and Groq's suggested wait time.
                 # Keeping the structured prefix so the pipeline can route without
-                # re-parsing the whole message.
+                # re-parsing the whole message. The error text also contains the
+                # org ID and service tier ("... on_demand on tokens per day (TPD):"),
+                # so we anchor the regex on the known Groq limit vocabulary to
+                # avoid leaking those fragments into the user-facing toast.
                 import re as _re
-                _limit_m = _re.search(r"on ([^:]+):", error_msg)
+                _limit_m = _re.search(
+                    r"on\s+((?:tokens|requests|audio\s+seconds)\s+per\s+(?:minute|hour|day)\s*\([A-Z]+\))\s*:",
+                    error_msg,
+                    _re.IGNORECASE,
+                )
                 _wait_m = _re.search(r"try again in ([0-9hmsd\. ]+)", error_msg, _re.IGNORECASE)
                 _limit = _limit_m.group(1).strip() if _limit_m else "rate limit"
-                _wait = _wait_m.group(1).strip() if _wait_m else ""
+                _wait = _wait_m.group(1).strip().rstrip(".") if _wait_m else ""
                 raise RuntimeError(f"RATE_LIMIT|{_limit}|{_wait}|{error_msg[:60]}")
             elif "connection" in error_msg.lower() or "timeout" in error_msg.lower():
                 raise RuntimeError(f"CONNECTION: Groq connection failed — {error_msg[:100]}")
