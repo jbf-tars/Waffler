@@ -4,6 +4,22 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.12.1] - 2026-04-24
+
+### Changed
+- **OpenAI transcription model upgraded** from `whisper-1` (original 2022 model) to `gpt-4o-mini-transcribe`. The new model is half the price ($0.003/min vs $0.006/min) *and* measurably better at filler words, punctuation, and accents — which is the main quality complaint users hit on the OpenAI fallback path when Groq is rate-limited. The model is configurable via a new `OPENAI_WHISPER_MODEL` environment variable; set it to `gpt-4o-transcribe` for maximum quality at the old whisper-1 price, or `whisper-1` to force the legacy baseline.
+- **Custom vocabulary is no longer passed to the styler.** It was being injected into the LLM's system prompt as *"If any of these words were intended by the speaker, use these exact spellings: X, Y, Z."* — and the model treated that as *"use these words"*, substituting vocab entries into clean transcripts (reproducible: "the cost of the project" was at risk of becoming "the COBie of the project"). Whisper's `prompt=` parameter and the post-transcription fuzzy matcher already handle legitimate vocab biasing — the styler has no audio and can only hallucinate, so it never sees the vocab list now.
+
+### Fixed
+- **Smart list formatting restored and extended.** A prior prompt rewrite had replaced the original list-aware behaviour with *"do not convert to bullet points or numbered lists unless the speaker clearly dictates a short list"*, so even explicit dictation like *"Number one, X. Number two, Y."* came out as two paragraphs. The FORMATTING section is now rebuilt from scratch with MUST-language, concrete input/output transformations, and triggers for every count phrase the user actually says: `number one/two/…`, `first/second/third/…`, `first of all`, `firstly/secondly/thirdly`, and `next`. The count word itself is always stripped and replaced with `1. `, `2. `, `3. `; the lead-in ("Number one, ..." → "1. ...") is handled correctly.
+- **Bullets for unnumbered sequences.** Grocery lists, *"the three things are X, Y, and Z"*, *"runs on Mac, Windows, and Linux"*, and similar parallel-enumeration patterns now auto-bullet with a clean lead-in and one item per line. Conversational prose with commas ("the meeting went well, but the team pushed back, so we revisit Tuesday") still stays prose — the bullet rule requires parallel, discrete items of similar shape, not every comma.
+- **Prose lead-in before a list is preserved.** "Here's what we need to do this sprint. Number one, hire… Number two, onboard…" now outputs the lead-in as its own paragraph followed by the numbered list, instead of deleting the intro sentence to make a "pure list" (which violated the hard rule against dropping whole sentences).
+- **Whisper hallucination strip extended** beyond the original `thank you` / `thanks for watching` / `please subscribe` trio to cover the full YouTube-outro family: *remember to subscribe*, *don't forget to subscribe*, *like and subscribe*, *subscribe to my channel*, *see you in the next one / next time / later*, *hit/smash the like button*, and tolerance for trailing punctuation variants. Added a short-remainder rule so fragments like "web outfits," left over after stripping a hallucinated tail are also discarded rather than pasted into the clipboard.
+- **Vocab-echo guard tightened** so Whisper's prompt-regurgitation on silent audio is caught more reliably: output consisting entirely of vocab tokens is now discarded regardless of length, and short outputs (≤ 10 distinct words) are discarded at ≥ 50% vocab density. Verified live — today's smoke test produced `"Ashkan, COBieQC, COBie"` on silent audio from both `gpt-4o-mini-transcribe` and `gpt-4o-transcribe`, and both were suppressed end-to-end.
+
+### Added
+- `scripts/test_*.py` regression harnesses (6 files) — live probes against the real Whisper / styler APIs, 30s between calls, covering the numbered/bullet/prose prompt cases, the vocab injection guard, the hallucination strip, and the OpenAI model-switch contract. Useful anchors for the next prompt change.
+
 ## [3.12.0] - 2026-04-24
 
 ### Removed
