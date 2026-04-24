@@ -4,6 +4,21 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.12.0] - 2026-04-24
+
+### Removed
+- **Gemini styling backend.** Gemini was cleanup-only — it has no Whisper equivalent for transcription — so running it alongside Groq and OpenAI (which both cover STT *and* cleanup) just added surface area. Dropped the provider pill from the setup wizard, the settings row, the `validate_gemini_key` IPC endpoint, the Gemini path in `style_openai.py`, and the `google-genai` dependency from both requirements files and both PyInstaller specs. Users who had configured only a Gemini key will now be prompted to add a Groq or OpenAI key.
+- **Dev-only launchers and duplicates.** `setup.sh`, `setup_windows.bat`, `run.sh`, `run_windows.bat`, `LaunchWaffler.command`, `install-run.bat`, and `install_local_whisper.bat` are gone — end users install from the GitHub release, and the README already shows the three-line `pip install && python app.py` sequence for running from source. `requirements-windows.txt` (hyphen) was an outdated shadow of `requirements_windows.txt` (underscore) and has been removed; the underscore file is what the Windows build actually uses.
+
+### Fixed
+- **"Cleanup skipped" toast leaked internals and looked unfinished.** The old toast read *"Groq \`org_01j44ka3s2fc0s81tyzhp399xn\` service tier \`on_demand\` on tokens per day (TPD) reached. Try again in 15m43.488s., or add an OpenAI key..."* — the rate-limit regex in `_style_groq` greedily matched the first `on ... :` in the Groq error, so the org ID and service tier leaked into the UI, and the raw millisecond-precision retry string was passed through untouched. The regex is now anchored on Groq's actual limit vocabulary (`tokens|requests|audio seconds` per `minute|hour|day`) and the pipeline maps that to a readable label ("daily token limit", "per-minute token limit", etc.) and rounds the retry duration up to whole minutes. Toast now reads like a sentence: *"Groq daily token limit hit. Try again in about 16 minutes, or add an OpenAI key in Settings as a fallback."*
+
+### Performance
+- **Skip Groq during its own 429 window.** When Groq returns a 429 it also tells us exactly when to retry (e.g. `15m43.488s`). The styler now parses that into an absolute deadline and bypasses Groq entirely until the window expires — every recording during the lockout goes straight to OpenAI instead of wasting a ~200–500ms round-trip hitting Groq just to be rejected again. The next request after the deadline automatically goes back to Groq with no user action; no API or UI change.
+
+### Changed
+- **README.** Tech-stack table corrected to match reality — Mac hotkey is Quartz / CoreGraphics, Windows hotkey is a low-level Win32 keyboard hook via `ctypes` (not `pynput`), and the menubar/tray row lists `rumps` (Mac) + `pystray` (Windows). Usage section split into push-to-talk, hands-free (hotkey + Space), and cancel (click × on the recording overlay) so the Space toggle is explicit on both platforms. Run-from-source snippet now points Windows users at `requirements_windows.txt`.
+
 ## [3.11.8] - 2026-04-23
 
 ### Changed
