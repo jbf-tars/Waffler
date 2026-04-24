@@ -1270,7 +1270,7 @@ class Api:
                 return {"ok": False, "error": "No API key found. Complete Step 1 first."}
 
             _wizard_transcriber = WhisperTranscriber(
-                api_key=openai_key, model="whisper-1", groq_api_key=groq_key,
+                api_key=openai_key, groq_api_key=groq_key,
             )
 
             # Create temporary hotkey listener
@@ -1736,10 +1736,12 @@ class WafflerPipeline:
         if not groq_key and not openai_key:
             raise ValueError("At least one API key is required (Groq or OpenAI)")
 
-        # Transcriber — Groq Whisper (fast) → OpenAI Whisper (fallback)
+        # Transcriber — Groq Whisper (fast) → OpenAI Whisper (fallback).
+        # OpenAI model defaults to gpt-4o-mini-transcribe (half the cost of
+        # whisper-1 and noticeably better quality). Override via
+        # OPENAI_WHISPER_MODEL env var.
         self.transcriber = WhisperTranscriber(
             api_key=openai_key,
-            model="whisper-1",
             groq_api_key=groq_key,
         )
         _log_to_file(f"Transcriber backend: {self.transcriber._backend}")

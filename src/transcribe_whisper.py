@@ -322,9 +322,15 @@ class WhisperTranscriber:
       4. OpenAI Whisper API (always available, needs internet)
     """
 
-    def __init__(self, api_key: str = "", model: str = "whisper-1",
+    def __init__(self, api_key: str = "", model: str = "",
                  groq_api_key: str = ""):
         self.api_key = api_key
+        # Default to the newer, cheaper, better gpt-4o-mini-transcribe ($0.003/min
+        # vs whisper-1's $0.006/min). Users can override via the OPENAI_WHISPER_MODEL
+        # env var — e.g. "gpt-4o-transcribe" for max quality at the old whisper-1
+        # price, or "whisper-1" to force the legacy model.
+        if not model:
+            model = os.getenv("OPENAI_WHISPER_MODEL", "gpt-4o-mini-transcribe")
         self.model   = model
         self.groq_api_key = groq_api_key
         self.client  = OpenAI(api_key=api_key) if api_key else None
