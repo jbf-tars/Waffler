@@ -262,26 +262,51 @@ def _strip_hallucinations(text: str) -> str:
     """Remove common Whisper hallucinations from transcribed text.
 
     Whisper often hallucinates stock phrases when it encounters silence
-    or low-quality audio, especially at the end of a recording.
+    or low-quality audio, especially at the end of a recording. The
+    training data skews heavily toward YouTube transcripts, so the
+    failure modes cluster around channel-end outros.
     """
-    # Phrases that Whisper hallucinates on silence / trailing audio
+    # Trailing-only patterns (anchored to end of string). Every entry tolerates
+    # optional punctuation/whitespace so we catch "Thanks for watching!",
+    # "Thanks for watching." etc.
     _HALLUCINATION_PATTERNS = [
-        r"thank you\.?$",
-        r"thanks for watching\.?$",
-        r"thanks for listening\.?$",
-        r"please subscribe\.?$",
+        r"thank you[\.\!\?]*$",
+        r"thanks for watching[\.\!\?]*$",
+        r"thanks for listening[\.\!\?]*$",
+        # YouTube-style subscribe outros in all the usual prefixes.
+        r"(?:please|remember to|don'?t forget to|and|like and|so please)\s+subscribe[\.\!\?]*$",
+        r"subscribe to (?:my|the|our) channel[\.\!\?]*$",
+        r"subscribe[\.\!\?]*$",
+        # Channel sign-offs.
+        r"see you (?:in the next one|next time|later|in the next video)[\.\!\?]*$",
+        r"hit the like button[\.\!\?]*$",
+        r"smash that like button[\.\!\?]*$",
+        # Auto-caption credits.
         r"subtitles by .*$",
         r"translated by .*$",
         r"captioned by .*$",
-        r"you$",  # common single-word hallucination
+        # Stock single-word hallucinations on silence.
+        r"\byou\b[\.\!\?]*$",
     ]
 
     stripped = text.strip()
+    original_len = len(stripped)
     for pattern in _HALLUCINATION_PATTERNS:
         stripped = re.sub(pattern, "", stripped, flags=re.IGNORECASE).strip()
+        # Clean up any trailing comma/semicolon left dangling after a strip,
+        # e.g. "web outfits, remember to subscribe!" -> "web outfits," -> "web outfits".
+        stripped = re.sub(r"[,;\s]+$", "", stripped)
 
-    # If the entire transcription was a hallucination, return empty
+    # If the entire transcription was a hallucination, return empty.
     if not stripped or stripped in (".", ",", "!"):
+        return ""
+
+    # If stripping removed content AND what remains is just a tiny word or
+    # two with no real shape, the leading fragment was almost certainly
+    # Whisper-on-silence babble too (e.g. "web outfits" left over after the
+    # subscribe tail was removed). Discard the remainder rather than pasting
+    # garbage into the user's clipboard.
+    if len(stripped) < original_len and len(stripped.split()) <= 2:
         return ""
 
     return stripped
