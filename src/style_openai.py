@@ -27,6 +27,10 @@ class OpenAIStyler:
         self.client = OpenAI(api_key=api_key) if api_key else None
         self._groq_client = None
         self._use_groq = False
+        # Monotonic-clock deadline: until this timestamp, skip Groq entirely and
+        # call OpenAI directly. Set when Groq returns a 429 so we honour its own
+        # retry-after hint instead of wasting a round-trip on every recording.
+        self._groq_skip_until = 0.0
 
         # Priority 1: Groq for styling if available
         if groq_api_key and _groq_mod:
@@ -106,8 +110,10 @@ Transcript: {transcript}"""
             if vocab else ""
         )
 
-        # Priority 1: Try Groq (much faster), fall back to OpenAI
-        if self._use_groq:
+        # Priority 1: Try Groq (much faster), fall back to OpenAI.
+        # Skip Groq entirely while we're still inside its own retry-after
+        # window — avoids a wasted ~200–500ms round-trip per recording.
+        if self._use_groq and time.monotonic() >= self._groq_skip_until:
             try:
                 return self._style_groq(prompt, start_time)
             except Exception as e:
@@ -168,6 +174,22 @@ Transcript: {transcript}"""
                 _wait_m = _re.search(r"try again in ([0-9hmsd\. ]+)", error_msg, _re.IGNORECASE)
                 _limit = _limit_m.group(1).strip() if _limit_m else "rate limit"
                 _wait = _wait_m.group(1).strip().rstrip(".") if _wait_m else ""
+
+                # Cache the retry deadline so subsequent recordings skip Groq
+                # and go straight to OpenAI until the window expires. If Groq
+                # didn't give us a parseable duration, fall back to a short
+                # default so we still stop hammering it.
+                _cool = 0.0
+                if _wait:
+                    _parts = _re.match(r"^\s*(?:(\d+)h)?(?:(\d+)m)?(?:([\d.]+)s)?\s*$", _wait)
+                    if _parts and _parts.group(0).strip():
+                        _cool = (int(_parts.group(1) or 0) * 3600
+                                 + int(_parts.group(2) or 0) * 60
+                                 + float(_parts.group(3) or 0))
+                if _cool <= 0:
+                    _cool = 60.0
+                self._groq_skip_until = time.monotonic() + _cool
+
                 raise RuntimeError(f"RATE_LIMIT|{_limit}|{_wait}|{error_msg[:60]}")
             elif "connection" in error_msg.lower() or "timeout" in error_msg.lower():
                 raise RuntimeError(f"CONNECTION: Groq connection failed — {error_msg[:100]}")
