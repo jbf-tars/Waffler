@@ -69,12 +69,18 @@ python app.py
 
 ## Usage
 
-1. **Hold** the Fn key (Mac) or `Win+Ctrl` (Windows)
+**Push-to-talk (default)**
+1. **Hold** the Fn key (Mac) or `Win + Ctrl` (Windows)
 2. **Speak**
 3. **Release** — text is transcribed, cleaned up, and copied to clipboard
 4. **Paste** anywhere
 
-Hotkey + `Space` locks recording on (hands-free). Press the hotkey again to stop.
+**Hands-free (sticky) mode**
+- While holding the hotkey, tap `Space` to lock recording on — you can release the hotkey and keep talking.
+- Press the hotkey again (Fn on Mac, `Win + Ctrl` on Windows) to stop and send.
+
+**Cancel a recording**
+- Click the **×** button on the floating recording overlay to discard the current take without transcribing or touching the clipboard. Works in both push-to-talk and hands-free modes.
 
 ---
 
