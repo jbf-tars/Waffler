@@ -209,10 +209,23 @@ def _is_vocab_echo(text: str, vocab: list) -> bool:
     if text.lower().strip().rstrip(".,!?") == prompt_form:
         return True
 
-    # Heuristic: if nearly every token in the output is a vocab token,
-    # and the output isn't much longer than the vocab itself, it's an echo.
     overlap = text_tokens & vocab_tokens
     ratio = len(overlap) / len(text_tokens)
+
+    # Every distinct token in the output is a vocab token — no real words at
+    # all, so whatever the length this is just regurgitation of the prompt.
+    if ratio >= 1.0:
+        return True
+
+    # Short transcript (<= 10 distinct words) dominated by vocab tokens.
+    # Real speech of that length almost never hits 50%+ vocab density unless
+    # the user was literally reading their vocab list aloud.
+    if len(text_tokens) <= 10 and ratio >= 0.5:
+        return True
+
+    # Original heuristic: output length is close to vocab length AND vocab
+    # dominates. Catches the classic case where Whisper spits out the whole
+    # vocab list with one or two extra filler tokens.
     if ratio >= 0.7 and len(text_tokens) <= len(vocab_tokens) + 2:
         return True
 

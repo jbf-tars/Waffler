@@ -81,16 +81,19 @@ Transcript: {transcript}"""
         self._last_raw = transcript
         start_time = time.time()
 
-        # Load custom vocabulary
-        try:
-            from transcribe_whisper import load_vocab, load_settings
-            vocab = load_vocab()
-        except Exception:
-            vocab = []
+        # NOTE: Custom vocabulary is deliberately NOT passed to the styler.
+        # Whisper consumes the vocab list via its `prompt=` parameter to bias
+        # transcription spelling, and `apply_vocab_corrections` does a fuzzy
+        # post-pass on the transcript. Adding the vocab to the LLM's system
+        # prompt on top of that caused the styler to inject vocab words into
+        # clean transcripts ("cost of the project" -> "COBie of the project"),
+        # especially when combined with Whisper prompt echoes on silence.
+        # The styler should only see the transcript text, not the vocab list.
 
         # Load dialect/spelling setting
         dialect_instruction = "Use the same spelling as the user. Do not change spelling conventions."
         try:
+            from transcribe_whisper import load_settings
             settings = load_settings()
             dialect = settings.get("dialect", "auto")
             if dialect == "en-GB":
@@ -100,14 +103,10 @@ Transcript: {transcript}"""
         except Exception:
             pass
 
-        # Build prompt (vocab goes into system message, NOT appended to transcript)
+        # Build prompt from the template — transcript goes into the user message.
         prompt = self.prompt_template.format(
             transcript=transcript,
             dialect_instruction=dialect_instruction,
-        )
-        self._vocab_system_extra = (
-            f" If any of these words were intended by the speaker, use these exact spellings: {', '.join(vocab)}."
-            if vocab else ""
         )
 
         # Priority 1: Try Groq (much faster), fall back to OpenAI.
@@ -143,7 +142,6 @@ Transcript: {transcript}"""
             "Clean up voice transcripts. Remove filler words (um, uh, like, yeah, you know). "
             "Preserve the speaker's exact wording. Never paraphrase or add words they didn't say. "
             "Never censor profanity. Return only the cleaned text, no commentary."
-            + getattr(self, '_vocab_system_extra', '')
         )
         try:
             response = self._groq_client.chat.completions.create(
@@ -212,7 +210,7 @@ Transcript: {transcript}"""
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": "You are a voice-to-text formatter. Output ONLY the final cleaned text. No meta-commentary." + getattr(self, '_vocab_system_extra', '')},
+                    {"role": "system", "content": "You are a voice-to-text formatter. Output ONLY the final cleaned text. No meta-commentary."},
                     {"role": "user", "content": prompt},
                 ],
                 max_tokens=512,
