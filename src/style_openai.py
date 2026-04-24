@@ -1,4 +1,4 @@
-"""LLM styling module — Groq LLaMA (fast), Gemini (mid), or OpenAI GPT-4o-mini (fallback)"""
+"""LLM styling module — Groq LLaMA (fast) or OpenAI GPT-4o-mini (fallback)"""
 
 from openai import OpenAI
 from pathlib import Path
@@ -12,32 +12,21 @@ try:
 except ImportError:
     pass
 
-# ── Try to load Gemini SDK ─────────────────────────────────────────────────
-_gemini_mod = None
-try:
-    from google import genai
-    _gemini_mod = genai
-except ImportError:
-    pass
-
 
 class OpenAIStyler:
     """Styles transcripts — Groq LLaMA 3.3 70B (fast) or GPT-4o-mini (fallback)"""
 
     def __init__(self, api_key: str = "", model: str = "gpt-4o-mini",
                  max_tokens: int = 1024, prompt_style: str = "normal",
-                 groq_api_key: str = "", gemini_api_key: str = ""):
+                 groq_api_key: str = ""):
         self.api_key = api_key
         self.model = model
         self.max_tokens = max_tokens
         self.prompt_style = prompt_style
         self.groq_api_key = groq_api_key
-        self.gemini_api_key = gemini_api_key
         self.client = OpenAI(api_key=api_key) if api_key else None
         self._groq_client = None
         self._use_groq = False
-        self._gemini_client = None
-        self._use_gemini = False
 
         # Priority 1: Groq for styling if available
         if groq_api_key and _groq_mod:
@@ -45,12 +34,6 @@ class OpenAIStyler:
             self._use_groq = True
             self._groq_model = "llama-3.3-70b-versatile"
             print(f"Styling: Groq {self._groq_model}")
-        # Priority 2: Gemini
-        elif gemini_api_key and _gemini_mod:
-            self._gemini_client = _gemini_mod.Client(api_key=gemini_api_key)
-            self._use_gemini = True
-            self._gemini_model = "gemini-2.5-flash"
-            print(f"Styling: Gemini {self._gemini_model}")
         else:
             print(f"Styling: OpenAI {model}")
 
@@ -142,31 +125,10 @@ Transcript: {transcript}"""
                         f.write(f"{ts}  [styling] {err_detail}\n")
                 except Exception:
                     pass
-                if not self.client and not self._use_gemini:
-                    return self._basic_clean(transcript), {"input_tokens": 0, "output_tokens": 0, "api_used": False, "provider": "basic_clean", "fallback_reason": str(e)[:160]}
-
-        # Priority 2: Try Gemini
-        if self._use_gemini:
-            try:
-                return self._style_gemini(prompt, start_time)
-            except Exception as e:
-                import traceback
-                err_detail = traceback.format_exc()
-                print(f"Gemini styling failed ({e}), falling back to OpenAI")
-                from pathlib import Path
-                from datetime import datetime
-                try:
-                    log_file = Path.home() / ".waffler-hosted" / "app.log"
-                    with open(log_file, "a") as f:
-                        ts = datetime.now().strftime("%H:%M:%S")
-                        f.write(f"{ts}  [styling] Gemini FAILED: {e}\n")
-                        f.write(f"{ts}  [styling] {err_detail}\n")
-                except Exception:
-                    pass
                 if not self.client:
                     return self._basic_clean(transcript), {"input_tokens": 0, "output_tokens": 0, "api_used": False, "provider": "basic_clean", "fallback_reason": str(e)[:160]}
 
-        # Priority 3: OpenAI fallback
+        # Priority 2: OpenAI fallback
         return self._style_openai(prompt, transcript, start_time)
 
     def _style_groq(self, prompt: str, start_time: float):
@@ -213,42 +175,6 @@ Transcript: {transcript}"""
             "output_tokens": usage.completion_tokens if usage else 0,
             "api_used": True,
             "provider": "groq",
-        }
-
-    def _style_gemini(self, prompt: str, start_time: float):
-        """Style using Gemini."""
-        system_msg = (
-            "Clean up voice transcripts. Remove filler words (um, uh, like, yeah, you know). "
-            "Preserve the speaker's exact wording. Never paraphrase or add words they didn't say. "
-            "Never censor profanity. Return only the cleaned text, no commentary."
-            + getattr(self, '_vocab_system_extra', '')
-        )
-        try:
-            response = self._gemini_client.models.generate_content(
-                model=self._gemini_model,
-                contents=prompt,
-                config={
-                    "system_instruction": system_msg,
-                    "temperature": 0.1,
-                    "max_output_tokens": 512,
-                },
-            )
-            styled = response.text.strip()
-        except Exception as e:
-            error_msg = str(e)
-            if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
-                raise RuntimeError(f"RATE_LIMIT: Gemini rate limit hit — {error_msg[:100]}")
-            elif "connection" in error_msg.lower() or "timeout" in error_msg.lower():
-                raise RuntimeError(f"CONNECTION: Gemini connection failed — {error_msg[:100]}")
-            raise
-        styled = self._fix_mid_sentence_caps(styled)
-        styled = self._strip_hallucinations(styled, self._last_raw)
-        input_tokens = getattr(response, 'usage_metadata', None)
-        return styled, {
-            "input_tokens": input_tokens.prompt_token_count if input_tokens else 0,
-            "output_tokens": input_tokens.candidates_token_count if input_tokens else 0,
-            "api_used": True,
-            "provider": "gemini",
         }
 
     def _style_openai(self, prompt: str, transcript: str, start_time: float):

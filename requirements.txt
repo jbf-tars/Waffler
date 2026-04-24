@@ -11,9 +11,6 @@ openai>=1.0.0
 # ── Groq (fast transcription + styling) ──────────────────────────────
 groq>=0.4.0
 
-# ── Gemini (Google AI styling) ──────────────────────────────────────
-google-genai>=1.0.0
-
 # ── Web UI ────────────────────────────────────────────────────────────
 pywebview>=4.0
 

@@ -140,16 +140,6 @@
         </div>
         <div class="settings-row">
           <div class="settings-row-info">
-            <div class="settings-row-label">Gemini API Key</div>
-            <div class="settings-row-desc" id="geminiKeyDesc">Google's fast LLM — aistudio.google.com</div>
-          </div>
-          <div class="settings-row-control stacked">
-            <input type="password" id="geminiKeyInput" class="settings-input" placeholder="AIza…">
-            <button class="settings-btn" onclick="saveGeminiKey()">Save</button>
-          </div>
-        </div>
-        <div class="settings-row">
-          <div class="settings-row-info">
             <div class="settings-row-label">OpenAI API Key</div>
             <div class="settings-row-desc">Optional fallback — platform.openai.com</div>
           </div>
@@ -448,9 +438,6 @@
           <button class="pill-button active" data-provider="groq" onclick="switchProvider('groq')">
             Groq
           </button>
-          <button class="pill-button" data-provider="gemini" onclick="switchProvider('gemini')">
-            Gemini
-          </button>
           <button class="pill-button" data-provider="openai" onclick="switchProvider('openai')">
             OpenAI
           </button>
@@ -474,27 +461,6 @@
               Get your free key: <a href="#" onclick="pywebview.api.open_url('https://console.groq.com/keys'); return false;">console.groq.com/keys →</a>
             </div>
             <div class="wizard-validation" id="wizGroqValidation3"></div>
-          </div>
-        </div>
-
-        <!-- Gemini Field -->
-        <div id="geminiField" class="provider-field">
-          <div class="provider-container">
-            <div class="provider-header">
-              <div class="provider-icon">✨</div>
-              <div class="provider-title">
-                <h3>Gemini API Key</h3>
-                <p>Google's fast and free tier available</p>
-              </div>
-            </div>
-            <div class="api-key-input-group">
-              <input type="password" id="wizGeminiKeyInput3" class="api-key-input" placeholder="AIza..." autocomplete="off" spellcheck="false">
-              <button class="btn-toggle-visibility" onclick="toggleKeyVisibility('wizGeminiKeyInput3')">👁️</button>
-            </div>
-            <div class="provider-hint">
-              Get your free key: <a href="#" onclick="pywebview.api.open_url('https://aistudio.google.com/apikey'); return false;">aistudio.google.com/apikey →</a>
-            </div>
-            <div class="wizard-validation" id="wizGeminiValidation3"></div>
           </div>
         </div>
 

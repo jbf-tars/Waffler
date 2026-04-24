@@ -603,7 +603,6 @@ class Api:
         stored = self._load_settings_file()
         key = os.getenv("OPENAI_API_KEY", "")
         groq_key = os.getenv("GROQ_API_KEY", "")
-        gemini_key = os.getenv("GEMINI_API_KEY", "")
 
         def _mask(k):
             if len(k) > 12:
@@ -618,9 +617,7 @@ class Api:
         styling_backend = "unknown"
         if _pipeline:
             transcription_backend = getattr(_pipeline.transcriber, "_backend", "api")
-            if getattr(_pipeline.styler, "_use_gemini", False):
-                styling_backend = "gemini"
-            elif getattr(_pipeline.styler, "_use_groq", False):
+            if getattr(_pipeline.styler, "_use_groq", False):
                 styling_backend = "groq"
             else:
                 styling_backend = "openai"
@@ -629,8 +626,6 @@ class Api:
             "api_key_masked":        _mask(key),
             "groq_key_set":          bool(groq_key),
             "groq_key_masked":       _mask(groq_key),
-            "gemini_key_set":        bool(gemini_key),
-            "gemini_key_masked":     _mask(gemini_key),
             "local_whisper":         os.getenv("LOCAL_WHISPER", "0") == "1",
             "local_whisper_active":  local_whisper_active,
             "transcription_backend": transcription_backend,
@@ -807,33 +802,6 @@ class Api:
                 return {"ok": False, "error": "Invalid Groq API key"}
             elif "403" in error_msg:
                 return {"ok": False, "error": "Access denied — this key may be expired or revoked. Generate a new one at console.groq.com/keys"}
-            elif "429" in error_msg:
-                return {"ok": False, "error": "Rate limited — try again shortly"}
-            else:
-                return {"ok": False, "error": f"Connection error: {error_msg[:100]}"}
-
-    def validate_gemini_key(self, api_key: str) -> dict:
-        """Validate a Gemini API key by listing models."""
-        api_key = (api_key or "").strip()
-        if not api_key:
-            return {"ok": False, "error": "No API key provided"}
-        try:
-            from google import genai
-            client = genai.Client(api_key=api_key)
-            # Quick validation — list models
-            next(iter(client.models.list()))
-            # Key is valid — persist it
-            self._update_env_var("GEMINI_API_KEY", api_key)
-            os.environ["GEMINI_API_KEY"] = api_key
-            return {"ok": True, "message": "Gemini key is valid!"}
-        except ImportError:
-            return {"ok": False, "error": "Gemini SDK not installed"}
-        except Exception as e:
-            error_msg = str(e)
-            if "401" in error_msg or "API_KEY_INVALID" in error_msg or "invalid" in error_msg.lower():
-                return {"ok": False, "error": "Invalid Gemini API key"}
-            elif "403" in error_msg:
-                return {"ok": False, "error": "Access denied — check your Gemini API key permissions"}
             elif "429" in error_msg:
                 return {"ok": False, "error": "Rate limited — try again shortly"}
             else:
@@ -1765,9 +1733,8 @@ class WafflerPipeline:
         groq_key = config.groq_api_key or ""
         openai_key = config.openai_api_key or ""
 
-        gemini_key = os.environ.get("GEMINI_API_KEY", "")
-        if not groq_key and not openai_key and not gemini_key:
-            raise ValueError("At least one API key is required (Groq, OpenAI, or Gemini)")
+        if not groq_key and not openai_key:
+            raise ValueError("At least one API key is required (Groq or OpenAI)")
 
         # Transcriber — Groq Whisper (fast) → OpenAI Whisper (fallback)
         self.transcriber = WhisperTranscriber(
@@ -1777,16 +1744,15 @@ class WafflerPipeline:
         )
         _log_to_file(f"Transcriber backend: {self.transcriber._backend}")
 
-        # Styler — Gemini (fast) → Groq LLaMA (fast) → GPT-4o-mini (fallback)
+        # Styler — Groq LLaMA (fast) → GPT-4o-mini (fallback)
         self.styler = OpenAIStyler(
             api_key=openai_key,
             model="gpt-4o-mini",
             max_tokens=1024,
             prompt_style=config.prompt_style,
             groq_api_key=groq_key,
-            gemini_api_key=gemini_key,
         )
-        _log_to_file(f"Styler backend: {'gemini' if self.styler._use_gemini else 'groq' if self.styler._use_groq else 'openai'}")
+        _log_to_file(f"Styler backend: {'groq' if self.styler._use_groq else 'openai'}")
 
         self.clipboard = ClipboardManager()
         self.is_recording = False

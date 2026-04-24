@@ -56,7 +56,12 @@ git clone https://github.com/jbf-tars/waffler.git
 cd waffler
 python -m venv venv
 source venv/bin/activate  # Windows: venv\Scripts\activate
+
+# Mac:
 pip install -r requirements.txt
+# Windows:
+pip install -r requirements_windows.txt
+
 python app.py
 ```
 
@@ -94,11 +99,12 @@ Edit `.env` to set your API key(s).
 | Component | Technology |
 |-----------|-----------|
 | Language | Python 3.11+ |
-| STT | OpenAI Whisper API or Groq |
-| LLM | GPT-4o-mini (OpenAI) or Groq |
+| STT | OpenAI Whisper API or Groq Whisper |
+| LLM cleanup | Groq (Llama 3.3 70B) or OpenAI (GPT-4o-mini) |
 | Audio | sounddevice + NumPy |
-| UI | pywebview |
-| Hotkey | CGEventTap (Mac) / pythonnet + Win32 hooks (Windows) |
+| UI | pywebview (WebView2 on Windows, WebKit on Mac) |
+| Hotkey | CGEventTap (Mac) / Win32 low-level keyboard hook via ctypes (Windows) |
+| Menubar / Tray | rumps (Mac) / pystray (Windows) |
 | Clipboard | pyperclip |
 | Packaging | PyInstaller + Inno Setup (Win) / hdiutil (Mac) |
 

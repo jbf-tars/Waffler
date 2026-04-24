@@ -1069,12 +1069,6 @@ async function loadSettings() {
         : 'Free & 10x faster — console.groq.com';
     }
 
-    // Gemini key
-    if (s.gemini_key_set) {
-      const gi = document.getElementById('geminiKeyInput');
-      if (gi) gi.placeholder = s.gemini_key_masked || 'AIza…••••• (saved)';
-    }
-
     // OpenAI key
     const apiInput = document.getElementById('apiKeyInput');
     const apiStatus = document.getElementById('apiKeyStatus');
@@ -1146,24 +1140,6 @@ async function saveGroqKey() {
     }
   } catch(e) {
     showToast('Failed to save key', 'error');
-  }
-}
-
-async function saveGeminiKey() {
-  const inp = document.getElementById('geminiKeyInput');
-  const key = inp.value.trim();
-  if (!key) return;
-  try {
-    const r = await pywebview.api.validate_gemini_key(key);
-    if (r.ok) {
-      inp.value = '';
-      inp.placeholder = 'AIza…••••• (saved)';
-      loadSettings();
-    } else {
-      alert(r.error || 'Invalid key');
-    }
-  } catch(e) {
-    alert('Failed to validate key');
   }
 }
 
@@ -1282,7 +1258,6 @@ let _wizardStep = 1;
 const WIZARD_TOTAL_STEPS = isMacPlatform ? 4 : 3;
 const WIZARD_FIRST_STEP = isMacPlatform ? 1 : 2;  // Skip permissions on Windows
 let _wizardGroqKeyValidated = false;
-let _wizardGeminiKeyValidated = false;
 let _wizardApiKeyValidated = false;
 let _wizardMicTested = false;
 let _wizardMicDeviceIndex = null;
@@ -1460,7 +1435,7 @@ function wizUpdateNextButton() {
   switch (_wizardStep) {
     case 1: btn.disabled = false; break;  // Permissions - always allow
     case 2: btn.disabled = false; break;  // Hotkeys - always allow
-    case 3: btn.disabled = !(_wizardGroqKeyValidated || _wizardGeminiKeyValidated || _wizardApiKeyValidated); break;
+    case 3: btn.disabled = !(_wizardGroqKeyValidated || _wizardApiKeyValidated); break;
     case 4: btn.disabled = !_wizardMicTested; break;  // Try It - require mic test
   }
 }
@@ -1525,7 +1500,6 @@ async function selectHotkeyPreset(keys) {
 // ── Step 3: API Key ──────────────────────────────────────────
 
 let _wizGroqTimer = null;
-let _wizGeminiTimer;
 let _wizApiTimer = null;
 let _apiKeyListenersAttached = false;
 
@@ -1584,29 +1558,6 @@ function wizInitApiKeyStep() {
     });
   }
 
-  // ── Gemini key input ──
-  const geminiInp = document.getElementById('wizGeminiKeyInput3');
-  if (geminiInp) {
-    geminiInp.addEventListener('input', () => {
-      _wizardGeminiKeyValidated = false;
-      wizUpdateNextButton();
-      const val = geminiInp.value.trim();
-      const v = document.getElementById('wizGeminiValidation3');
-      if (!val) { v.textContent = ''; v.className = 'wizard-validation'; return; }
-      if (val.length < 20) { v.textContent = 'Key seems too short...'; v.className = 'wizard-validation error'; return; }
-      clearTimeout(_wizGeminiTimer);
-      v.textContent = 'Validating...';
-      v.className = 'wizard-validation loading';
-      _wizGeminiTimer = setTimeout(() => wizValidateGeminiKey(val), 800);
-    });
-    geminiInp.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        clearTimeout(_wizGeminiTimer);
-        const val = geminiInp.value.trim();
-        if (val.length >= 20) wizValidateGeminiKey(val);
-      }
-    });
-  }
 }
 
 async function wizValidateGroqKey(key) {
@@ -1655,29 +1606,6 @@ async function wizValidateApiKey(key) {
   wizUpdateNextButton();
 }
 
-async function wizValidateGeminiKey(key) {
-  const v = document.getElementById('wizGeminiValidation3');
-  v.textContent = 'Validating with Gemini...';
-  v.className = 'wizard-validation loading';
-  try {
-    const r = await pywebview.api.validate_gemini_key(key);
-    if (r.ok) {
-      v.textContent = 'Gemini key is valid!';
-      v.className = 'wizard-validation success';
-      _wizardGeminiKeyValidated = true;
-    } else {
-      v.textContent = r.error || 'Invalid key';
-      v.className = 'wizard-validation error';
-      _wizardGeminiKeyValidated = false;
-    }
-  } catch(e) {
-    v.textContent = 'Failed to validate — check your internet connection';
-    v.className = 'wizard-validation error';
-    _wizardGeminiKeyValidated = false;
-  }
-  wizUpdateNextButton();
-}
-
 function wizToggleVisibility(inputId) {
   const inp = document.getElementById(inputId);
   if (inp) inp.type = inp.type === 'password' ? 'text' : 'password';
@@ -1691,8 +1619,8 @@ function switchProvider(provider) {
     });
 
     // Update field visibility
-    const fields = ['groqField', 'geminiField', 'openaiField'];
-    const providerFieldMap = { groq: 'groqField', gemini: 'geminiField', openai: 'openaiField' };
+    const fields = ['groqField', 'openaiField'];
+    const providerFieldMap = { groq: 'groqField', openai: 'openaiField' };
 
     fields.forEach(id => {
         const el = document.getElementById(id);
