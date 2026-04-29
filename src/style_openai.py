@@ -109,6 +109,16 @@ Transcript: {transcript}"""
             dialect_instruction=dialect_instruction,
         )
 
+        # Size the output token budget against the input length so long
+        # dictations don't get truncated mid-sentence. Cleaning typically
+        # shrinks input by 10-30% but list/bullet conversions can add a few
+        # characters per item, so allow ~3 output tokens per input word.
+        # Floor 1024 (default headroom for short utterances), ceiling 8192
+        # (~6000 words / ~30 minutes of continuous speech — well past any
+        # realistic single dictation).
+        word_count = max(1, len(transcript.split()))
+        self._max_out_tokens = max(1024, min(8192, word_count * 3))
+
         # Priority 1: Try Groq (much faster), fall back to OpenAI.
         # Skip Groq entirely while we're still inside its own retry-after
         # window — avoids a wasted ~200–500ms round-trip per recording.
@@ -150,7 +160,7 @@ Transcript: {transcript}"""
                     {"role": "system", "content": system_msg},
                     {"role": "user", "content": prompt},
                 ],
-                max_tokens=512,
+                max_tokens=getattr(self, "_max_out_tokens", 4096),
                 temperature=0.1,
             )
         except Exception as e:
@@ -213,7 +223,7 @@ Transcript: {transcript}"""
                     {"role": "system", "content": "You are a voice-to-text formatter. Output ONLY the final cleaned text. No meta-commentary."},
                     {"role": "user", "content": prompt},
                 ],
-                max_tokens=512,
+                max_tokens=getattr(self, "_max_out_tokens", 4096),
                 temperature=0.1,
             )
             styled = response.choices[0].message.content.strip()

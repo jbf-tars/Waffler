@@ -4,6 +4,11 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.12.2] - 2026-04-30
+
+### Fixed
+- **Long dictations were silently truncated mid-sentence by the styler.** The two API call sites in `src/style_openai.py` had `max_tokens=512` hardcoded — about 380 words of output. A 732-word recording in the user's history was cut at ~421 styled words, dropping ~290 words including the entire closing section about Waffler itself. Worse, the constructor accepted a `max_tokens=1024` parameter and stored it on `self.max_tokens` but the API calls ignored it entirely, so even the configured default was being silently overridden. The styler now sizes the output token budget against the input length (`max(1024, min(8192, input_words * 3))`) so short utterances get the standard 1024-token headroom and a 30-minute monologue gets up to ~6000 words of room — well past any realistic single dictation. Verified with the actual truncated entry: same 732-word input now produces 716 cleaned words, ending correctly at the final phrase.
+
 ## [3.12.1] - 2026-04-24
 
 ### Changed
