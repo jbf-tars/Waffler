@@ -63,6 +63,23 @@ class SmartHotkeyListener:
                 suppress=False  # CRITICAL: Don't block spacebar!
             )
 
+        # Universal sticky-mode escape hatch: Esc always cancels recording.
+        # macOS swallows Fn key events at HID level on some Macs (M3 Max
+        # observed), which makes Fn+Space cancel "finicky to end". Esc is
+        # never typed during normal dictation, so it's safe as a fallback.
+        # Don't suppress — apps that listen for Esc themselves still receive
+        # it, but we get our chance to react first.
+        try:
+            self._esc_monitor = MacHotkeyMonitor(
+                keys=["esc"],
+                on_press=self._on_esc_press,
+                on_release=lambda: None,
+                suppress=False,
+            )
+        except Exception as _e:
+            print(f"[HOTKEY] Could not register Esc cancel monitor: {_e}")
+            self._esc_monitor = None
+
         print(f"[HOTKEY] SmartHotkeyListener initialized with keys: {self._keys}")
 
     # ── Key events ────────────────────────────────────────────────────
@@ -109,6 +126,22 @@ class SmartHotkeyListener:
             self._recording = False
             print("🛑 Fn+Space → Sticky mode OFF")
             self._fire_visual_feedback("sticky_off_fn")
+            self._fire_release()
+
+    def _on_esc_press(self):
+        """Esc cancels recording in sticky mode — universal escape hatch.
+
+        On Macs where macOS swallows Fn at HID level, the user can't reliably
+        rely on Fn+Space to end sticky mode. Esc is never typed during normal
+        dictation, so we use it as a guaranteed cancel. We only fire when the
+        recorder is actively in sticky mode — pressing Esc otherwise is a
+        no-op so we don't interfere with dialogs / vim / etc.
+        """
+        if self._recording and self._sticky:
+            print("[HOTKEY] Esc → Sticky mode OFF (universal cancel)")
+            self._sticky = False
+            self._recording = False
+            self._fire_visual_feedback("sticky_off_esc")
             self._fire_release()
 
     # ── Callbacks (run in a thread to avoid blocking) ─────────
@@ -171,16 +204,26 @@ class SmartHotkeyListener:
     def start(self):
         hotkey_display = " + ".join(self._keys)
         print(f"⌨️  Hotkey: Hold {hotkey_display} to record | Press Space while holding = sticky")
-        print(f"   To cancel sticky: Fn tap (if your Mac supports it) OR Space alone (universal)")
+        print(f"   To cancel sticky: tap hotkey again, OR press Esc (universal escape hatch)")
         self._monitor.start()
         if self._space_monitor:
             self._space_monitor.start()
+        if getattr(self, "_esc_monitor", None):
+            try:
+                self._esc_monitor.start()
+            except Exception as _e:
+                print(f"[HOTKEY] Esc monitor failed to start: {_e}")
 
     def stop(self):
         if self._monitor:
             self._monitor.stop()
         if self._space_monitor:
             self._space_monitor.stop()
+        if getattr(self, "_esc_monitor", None):
+            try:
+                self._esc_monitor.stop()
+            except Exception:
+                pass
 
     def join(self):
         # No listener to join - CGEventTap runs in daemon thread

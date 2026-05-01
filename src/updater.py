@@ -14,9 +14,19 @@ import sys
 import tempfile
 import threading
 import time
+from datetime import datetime
 from pathlib import Path
 
 import requests
+
+# No-progress stall threshold: the download worker fails out if no bytes
+# arrive for this many seconds. Without this the request can wedge silently
+# and the UI sits at 0% forever (the symptom users actually report).
+_STALL_TIMEOUT_S = 45
+
+# A real-browser UA — GitHub's release-assets CDN sometimes throttles or
+# 403s unidentified python-requests clients on signed-redirect URLs.
+_USER_AGENT = "Waffler-Updater/1.0 (+https://github.com/jbf-tars/waffler)"
 
 # Module-level state — one download at a time is all this app needs.
 _state_lock = threading.Lock()
@@ -28,6 +38,19 @@ _state = {
     "error": None,
     "path": None,
 }
+
+
+def _log(msg: str) -> None:
+    """Append to ~/.waffler-hosted/app.log. Mirrors app._log_to_file but local
+    to avoid an import cycle. Silent on any failure."""
+    try:
+        log_path = Path.home() / ".waffler-hosted" / "app.log"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now().strftime("%H:%M:%S")
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(f"{ts}  [updater] {msg}\n")
+    except Exception:
+        pass
 
 
 def get_progress() -> dict:
@@ -60,30 +83,67 @@ def start_download(url: str) -> None:
 
 
 def _download_worker(url: str) -> None:
-    try:
-        # Filename from URL; fall back to a generic name.
-        name = url.rsplit("/", 1)[-1] or "waffler-update"
-        dest = Path(tempfile.gettempdir()) / f"waffler-update-{os.getpid()}-{name}"
+    # Strip query string for filename (GitHub's signed-redirect URLs include one)
+    name = url.rsplit("/", 1)[-1].split("?", 1)[0] or "waffler-update"
+    dest = Path(tempfile.gettempdir()) / f"waffler-update-{os.getpid()}-{name}"
+    partial = dest.with_suffix(dest.suffix + ".partial")
+    _log(f"download start: {url[:80]}... -> {partial}")
 
-        with requests.get(url, stream=True, timeout=30) as r:
+    try:
+        # (connect_timeout, read_timeout). Read timeout caps each socket read
+        # while streaming — crucial protection against silent stalls.
+        with requests.get(
+            url,
+            stream=True,
+            timeout=(15, 30),
+            headers={"User-Agent": _USER_AGENT, "Accept": "application/octet-stream"},
+            allow_redirects=True,
+        ) as r:
             r.raise_for_status()
             total = int(r.headers.get("content-length", 0) or 0)
+            _log(f"HTTP {r.status_code}, content-length={total}")
             with _state_lock:
                 _state["total_bytes"] = total
 
-            with open(dest, "wb") as f:
+            last_progress = time.monotonic()
+            last_logged_pct = -10
+            with open(partial, "wb") as f:
                 for chunk in r.iter_content(chunk_size=1024 * 64):
-                    if not chunk:
-                        continue
-                    f.write(chunk)
-                    with _state_lock:
-                        _state["bytes_downloaded"] += len(chunk)
+                    if chunk:
+                        f.write(chunk)
+                        with _state_lock:
+                            _state["bytes_downloaded"] += len(chunk)
+                            done_bytes = _state["bytes_downloaded"]
+                        last_progress = time.monotonic()
+                        if total:
+                            pct = int(done_bytes * 100 / total)
+                            if pct >= last_logged_pct + 25:
+                                _log(f"progress {pct}% ({done_bytes}/{total})")
+                                last_logged_pct = pct
+                    elif time.monotonic() - last_progress > _STALL_TIMEOUT_S:
+                        raise TimeoutError(
+                            f"download stalled (no bytes for {_STALL_TIMEOUT_S}s)"
+                        )
 
+        # Sanity check: if we got a content-length, make sure we got it all.
+        actual = partial.stat().st_size
+        if total and actual != total:
+            raise IOError(f"download truncated: got {actual}, expected {total}")
+
+        # Atomic move — UI never sees a half-written file at the final path.
+        partial.replace(dest)
+        _log(f"download done: {actual} bytes -> {dest}")
         with _state_lock:
             _state["done"] = True
             _state["active"] = False
             _state["path"] = str(dest)
     except Exception as e:
+        _log(f"download failed: {type(e).__name__}: {e}")
+        try:
+            if partial.exists():
+                partial.unlink()
+        except Exception:
+            pass
         with _state_lock:
             _state["error"] = str(e)
             _state["active"] = False

@@ -322,6 +322,7 @@ class Api:
         JS polls get_update_progress() to render a progress bar."""
         try:
             from src import updater
+            _log_to_file(f"[update] start_download requested: {url[:120]}")
             updater.start_download(url)
             return {"ok": True}
         except Exception as e:
@@ -389,6 +390,7 @@ class Api:
         """Return available prompt modes with display names."""
         return [
             {"id": "normal", "name": "Normal", "desc": "Keeps everything, cleans grammar"},
+            {"id": "email",  "name": "Email",  "desc": "Email body — paragraphed for readability, keeps your greetings/sign-offs as spoken"},
         ]
 
     def get_current_mode(self) -> str:

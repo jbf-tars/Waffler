@@ -116,44 +116,78 @@ def _levenshtein_distance(a: str, b: str) -> int:
 def fuzzy_match_word(transcribed: str, vocab: list[str], threshold: float = 0.75) -> list[tuple[str, str]]:
     """
     Find vocabulary words that are similar to transcribed words.
-    Returns list of (transcribed_word, vocab_word) pairs that might be corrections.
-    Uses both exact matching and fuzzy matching with Levenshtein distance.
+    Returns list of (transcribed_phrase, vocab_word) pairs to substitute.
+
+    Two passes:
+      1. Single-token fuzzy match (Levenshtein-similarity ≥ threshold).
+      2. **Bigram collapse** match — when Whisper splits a compound name into
+         two words ("Ashkan" → "Nash can", "Ashcan", "Ash can"), pass 1
+         can't find it. We glue every adjacent bigram together
+         ("nashcan", "ashcan") and fuzzy-match that against single-word
+         vocab entries. This is the fix for the real-world "Nash can" →
+         "Ashkan" miss seen in transcript history.
     """
     if not vocab:
         return []
-    
-    # Normalize vocab for comparison
+
     vocab_lower = {w.lower(): w for w in vocab}
     transcribed_lower = transcribed.lower()
-
-    # Split into words (handle punctuation)
     words = re.findall(r"[a-zA-Z]+", transcribed_lower)
-    
+
     corrections = []
     vocab_words = list(vocab_lower.keys())
-    
+
+    # Track which input tokens we've matched so we don't double-correct
+    # (e.g., bigram pass shouldn't fire on tokens already matched as unigrams).
+    matched_tokens: set[str] = set()
+
+    # Pass 1 — single-word fuzzy match.
     for word in words:
-        # First check exact match (case-insensitive)
         if word in vocab_lower:
+            matched_tokens.add(word)
             continue
-        
-        # Then check fuzzy match
         for vword in vocab_words:
             if len(word) < 3 or len(vword) < 3:
                 continue
-            
-            # Calculate similarity ratio
             max_len = max(len(word), len(vword))
             if max_len == 0:
                 continue
-            
             distance = _levenshtein_distance(word, vword)
             similarity = 1 - (distance / max_len)
-            
             if similarity >= threshold:
                 corrections.append((word, vocab_lower[vword]))
+                matched_tokens.add(word)
                 break
-    
+
+    # Pass 2 — bigram collapse against single-word vocab entries.
+    # We only target vocab terms that are themselves single words (no spaces),
+    # because the failure mode is "Whisper split a compound into two words".
+    # Threshold is intentionally a touch lower than the unigram pass: gluing
+    # two words always adds 1 char vs the original (the implicit space), so
+    # a perfect distortion still scores ~0.85 instead of 1.0. 0.70 catches
+    # "Nash can" ↔ "Ashkan" (similarity 0.71) without admitting unrelated
+    # bigrams.
+    bigram_threshold = max(0.65, threshold - 0.05)
+    single_vocab_words = [v for v in vocab_words if " " not in v and len(v) >= 4]
+    for i in range(len(words) - 1):
+        a, b = words[i], words[i + 1]
+        if a in matched_tokens or b in matched_tokens:
+            continue
+        glued = a + b
+        for vword in single_vocab_words:
+            max_len = max(len(glued), len(vword))
+            if max_len < 4:
+                continue
+            distance = _levenshtein_distance(glued, vword)
+            similarity = 1 - (distance / max_len)
+            if similarity >= bigram_threshold:
+                # Substitute the literal "a b" two-word sequence (with the
+                # space) so apply_vocab_corrections can replace it as a phrase.
+                corrections.append((f"{a} {b}", vocab_lower[vword]))
+                matched_tokens.add(a)
+                matched_tokens.add(b)
+                break
+
     return corrections
 
 
@@ -181,6 +215,52 @@ def apply_vocab_corrections(transcribed: str, vocab: list[str]) -> tuple[str, li
             applied.append(f"'{misheard}' → '{correct}'")
     
     return corrected, applied
+
+
+# Whisper's most common silence-hallucinations. When the audio is empty or
+# near-empty, the model's training corpus (heavy on YouTube transcripts) leaks
+# through as canned closing-line phrases. We strip these when they're the
+# entire output — never substring-match, since a real recording can mention
+# them in passing ("did you see that 'thanks for watching' ad?").
+_WHISPER_HALLUCINATIONS = frozenset(s.strip().lower() for s in [
+    "thanks for watching",
+    "thanks for watching!",
+    "thanks for watching.",
+    "thank you for watching",
+    "thank you for watching!",
+    "thank you for watching.",
+    "thanks for watching, and i'll see you in the next video.",
+    "see you in the next video",
+    "see you next time",
+    "please subscribe",
+    "please like and subscribe",
+    "don't forget to like and subscribe",
+    "like and subscribe",
+    "subscribe to my channel",
+    "[music]",
+    "[applause]",
+    "you",  # Whisper's most common 1-token hallucination on noise
+    ".",
+])
+
+
+def _is_whisper_hallucination(text: str) -> bool:
+    """True if the entire transcript is a known Whisper boilerplate hallucination.
+
+    Whisper produces YouTube outro lines ("Thanks for watching!", "Please
+    subscribe", etc.) when fed silence or very low-energy audio. The vocab
+    echo filter doesn't catch these because they don't overlap with vocab.
+    Only triggers when the cleaned text is *exactly* one of the canned
+    phrases — a real utterance that mentions one of them in context is left
+    alone.
+    """
+    if not text:
+        return False
+    cleaned = text.strip().lower().rstrip(".,!?")
+    if not cleaned:
+        return True
+    # Compare against both raw and trailing-punct-stripped forms.
+    return text.strip().lower() in _WHISPER_HALLUCINATIONS or cleaned in _WHISPER_HALLUCINATIONS
 
 
 def _is_vocab_echo(text: str, vocab: list) -> bool:
@@ -386,6 +466,12 @@ class WhisperTranscriber:
             vocab = []
         if _is_vocab_echo(cleaned, vocab):
             print(f"[whisper] Discarded vocab-echo hallucination: '{cleaned}'")
+            return ""
+
+        # Discard known boilerplate Whisper produces on silence / near-silence
+        # ("Thanks for watching!", "Please subscribe", etc.).
+        if _is_whisper_hallucination(cleaned):
+            print(f"[whisper] Discarded boilerplate hallucination: '{cleaned}'")
             return ""
 
         return cleaned

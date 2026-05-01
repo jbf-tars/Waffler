@@ -63,7 +63,11 @@ FORMATTING:
         * **"X supports / runs on / works with" plus three or more items.** "The app runs on Mac, Windows, and Linux." → "The app runs on:\n\n- Mac\n- Windows\n- Linux". If there is a trailing qualifier like "although Linux support is still experimental", append it as a prose paragraph after the bullet list, not inside the bullets.
         * **Explicit dictation cues.** "next bullet", "bullet point", "new item", "dash", "colon next".
       Do NOT bullet conversational prose that merely contains commas. "The meeting went well, but the product team pushed back, so we agreed to revisit" is a single connected thought, not an enumeration — the commas join clauses, not list items. Bullets are only for parallel sequences of discrete items of similar shape (all nouns, all short noun phrases, all actions).
-    - Paragraphs — for continuous prose, start a new paragraph when the speaker says "new paragraph" / "new line" or clearly changes topic. Single blank line between paragraphs.
+    - Paragraphs — for continuous prose, start a new paragraph when:
+        * The speaker says "new paragraph" or "new line" (explicit cue), OR
+        * The speaker uses a topic-shift discourse marker at the start of a sentence: "so anyway", "anyway,", "moving on", "on another note", "another thing", "ok so" / "okay so" / "right so" *when preceded by a fully-completed thought*, "by the way", OR
+        * The speaker pivots from a question to a new statement section (or vice versa) and the new section is at least two sentences long.
+      Single blank line between paragraphs. Don't break for every casual "so" / "and" — only the explicit shift cues above. When the whole transcript is a single connected thought, leave it as one paragraph.
     - Prose lead-ins are kept. If the speaker says prose first and then starts a list ("Here's what we need to do this sprint. Number one, hire…"), the lead-in sentence stays as its own paragraph, then a blank line, then the list. Do NOT delete the lead-in to make the output a "pure list" — every sentence the speaker said must survive. The "don't mix formats" rule applies *within* a single list (don't switch from numbered to bulleted mid-list, don't drop a prose sentence into the middle of list items), not to the output as a whole.
     - Do not invent list structure when the speaker is talking continuously without any counting or listing cue.
 - {dialect_instruction}

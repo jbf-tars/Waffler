@@ -161,6 +161,7 @@ async function checkForUpdates() {
 // ── Manual update flow (Settings → About → Check for Update) ──────────
 let _updatePollTimer = null;
 let _downloadedPath = null;
+let _lastUpdateInfo = null;
 
 function showUpdateModal() {
   const m = document.getElementById('updateModal');
@@ -172,7 +173,7 @@ function closeUpdateModal(ev) {
   if (m) m.style.display = 'none';
   stopProgressPolling();
 }
-function setUpdateModal({ icon, title, subtitle, showProgress, primaryLabel, primaryHandler, cancelLabel }) {
+function setUpdateModal({ icon, title, subtitle, showProgress, primaryLabel, primaryHandler, cancelLabel, browserUrl }) {
   document.getElementById('updateModalIcon').textContent = icon || '⬆️';
   document.getElementById('updateModalTitle').textContent = title || '';
   document.getElementById('updateModalSubtitle').textContent = subtitle || '';
@@ -184,6 +185,14 @@ function setUpdateModal({ icon, title, subtitle, showProgress, primaryLabel, pri
     primary.onclick = primaryHandler;
   } else {
     primary.style.display = 'none';
+  }
+  const browserBtn = document.getElementById('updateBrowserBtn');
+  if (browserUrl) {
+    browserBtn.style.display = '';
+    browserBtn.onclick = () => pywebview.api.open_url(browserUrl);
+  } else {
+    browserBtn.style.display = 'none';
+    browserBtn.onclick = null;
   }
   document.getElementById('updateCancelBtn').textContent = cancelLabel || 'Close';
 }
@@ -216,12 +225,14 @@ async function checkForUpdatesManual() {
 
 function openUpdateModalFromCheck(r) {
   showUpdateModal();
+  _lastUpdateInfo = r;
   setUpdateModal({
     icon: '⬆️',
     title: `Waffler v${r.latest_version} is available`,
     subtitle: `You're on v${r.current_version}. Download and install now?`,
     primaryLabel: 'Download & Install',
     primaryHandler: () => startDownloadFlow(r.download_url),
+    browserUrl: r.release_url || r.download_url,
     cancelLabel: 'Later',
   });
 }
@@ -233,6 +244,7 @@ async function startDownloadFlow(url) {
     title: 'Downloading update…',
     subtitle: 'Please keep Waffler open.',
     showProgress: true,
+    browserUrl: (_lastUpdateInfo && (_lastUpdateInfo.release_url || _lastUpdateInfo.download_url)) || url,
     cancelLabel: 'Cancel',
   });
   try {
@@ -240,7 +252,12 @@ async function startDownloadFlow(url) {
     if (!r.ok) throw new Error(r.error || 'Failed to start download');
     startProgressPolling();
   } catch(e) {
-    setUpdateModal({ icon: '⚠️', title: 'Download failed', subtitle: String(e) });
+    setUpdateModal({
+      icon: '⚠️',
+      title: 'Download failed',
+      subtitle: String(e),
+      browserUrl: (_lastUpdateInfo && (_lastUpdateInfo.release_url || _lastUpdateInfo.download_url)) || url,
+    });
   }
 }
 
@@ -257,7 +274,12 @@ async function pollUpdateProgress() {
     const p = await pywebview.api.get_update_progress();
     if (p.error) {
       stopProgressPolling();
-      setUpdateModal({ icon: '⚠️', title: 'Download failed', subtitle: p.error });
+      setUpdateModal({
+        icon: '⚠️',
+        title: 'Download failed',
+        subtitle: p.error,
+        browserUrl: _lastUpdateInfo && (_lastUpdateInfo.release_url || _lastUpdateInfo.download_url),
+      });
       return;
     }
     if (p.total_bytes > 0) {
@@ -871,6 +893,7 @@ async function onMicChange(indexStr) {
 
 const MODE_DESCS = {
   normal: 'Keeps everything, cleans grammar',
+  email: 'Email body — paragraphed for readability, keeps your greetings/sign-offs as spoken',
 };
 
 async function loadMode() {

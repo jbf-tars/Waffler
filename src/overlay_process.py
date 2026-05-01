@@ -37,9 +37,12 @@ from AppKit import (
     NSBezierPath,
     NSScreen,
     NSFloatingWindowLevel,
+    NSStatusWindowLevel,
     NSBackingStoreBuffered,
     NSWindowCollectionBehaviorCanJoinAllSpaces,
     NSWindowCollectionBehaviorStationary,
+    NSWindowCollectionBehaviorFullScreenAuxiliary,
+    NSWindowCollectionBehaviorIgnoresCycle,
     NSRoundLineCapStyle,
     NSFont,
     NSAttributedString,
@@ -722,7 +725,21 @@ def _dispatch_cmd(cmd):
         _visible = True
         _hide_toast()
         if _g_window:
-            _g_window.makeKeyAndOrderFront_(None)
+            # Re-assert collection behaviour on every show. macOS sometimes
+            # "forgets" that a window is supposed to appear in fullscreen
+            # Spaces if it was created in a different Space; re-setting the
+            # behaviour forces re-evaluation. This is the fix for "pill
+            # doesn't appear in fullscreen 90% of the time".
+            _g_window.setCollectionBehavior_(
+                NSWindowCollectionBehaviorCanJoinAllSpaces
+                | NSWindowCollectionBehaviorStationary
+                | NSWindowCollectionBehaviorFullScreenAuxiliary
+                | NSWindowCollectionBehaviorIgnoresCycle
+            )
+            # Use orderFrontRegardless only — never makeKey. Stealing focus
+            # from a fullscreen app can prevent the window from appearing on
+            # that Space at all (macOS treats focus theft as a hint that the
+            # auxiliary doesn't belong here).
             _g_window.orderFrontRegardless()
             if _g_view:
                 _g_view.setNeedsDisplay_(True)
@@ -814,12 +831,16 @@ def _show_toast(style: str, heading: str, body: str):
             NSBackingStoreBuffered,
             False
         )
-        _toast_win.setLevel_(NSFloatingWindowLevel + 2)
+        # Match the pill's level/behavior so toasts also appear over
+        # full-screen apps (+1 keeps the toast above the pill).
+        _toast_win.setLevel_(NSStatusWindowLevel + 1)
         _toast_win.setOpaque_(False)
         _toast_win.setBackgroundColor_(NSColor.clearColor())
         _toast_win.setCollectionBehavior_(
-            NSWindowCollectionBehaviorCanJoinAllSpaces |
-            NSWindowCollectionBehaviorStationary
+            NSWindowCollectionBehaviorCanJoinAllSpaces
+            | NSWindowCollectionBehaviorStationary
+            | NSWindowCollectionBehaviorFullScreenAuxiliary
+            | NSWindowCollectionBehaviorIgnoresCycle
         )
 
         # Create toast view
@@ -924,14 +945,22 @@ def main():
         NSBackingStoreBuffered,
         False,
     )
-    _g_window.setLevel_(NSFloatingWindowLevel + 1)
+    # NSStatusWindowLevel (25) sits above another app's full-screen window;
+    # NSFloatingWindowLevel (3) is below it, which is why the overlay went
+    # missing whenever the active app was in macOS full-screen mode.
+    _g_window.setLevel_(NSStatusWindowLevel)
     _g_window.setOpaque_(False)
     _g_window.setBackgroundColor_(NSColor.clearColor())
     _g_window.setHasShadow_(True)
     _g_window.setIgnoresMouseEvents_(False)
+    # FullScreenAuxiliary lets the window be drawn on a full-screen Space —
+    # without it macOS keeps the window in the original Space and you only
+    # see the overlay if you Mission-Control back out of full-screen.
     _g_window.setCollectionBehavior_(
         NSWindowCollectionBehaviorCanJoinAllSpaces
         | NSWindowCollectionBehaviorStationary
+        | NSWindowCollectionBehaviorFullScreenAuxiliary
+        | NSWindowCollectionBehaviorIgnoresCycle
     )
 
     # Create custom view

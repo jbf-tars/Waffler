@@ -33,6 +33,7 @@
         <div class="sidebar-label">✨ Mode</div>
         <select id="modeSelect" class="sidebar-select" onchange="onModeChange(this.value)">
           <option value="normal">Normal</option>
+          <option value="email">Email</option>
         </select>
       </div>
 
@@ -295,6 +296,7 @@
 
     <div id="updateModalActions" style="display:flex; gap:8px; justify-content:center; margin-top:20px;">
       <button class="settings-btn" id="updateCancelBtn" onclick="closeUpdateModal()">Close</button>
+      <button class="settings-btn" id="updateBrowserBtn" style="display:none;">Download in browser</button>
       <button class="settings-btn" id="updatePrimaryBtn" style="display:none; background: var(--accent, #6c63ff); color: white;"></button>
     </div>
   </div>
