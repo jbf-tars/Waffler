@@ -361,10 +361,13 @@ def _strip_hallucinations(text: str) -> str:
         r"see you (?:in the next one|next time|later|in the next video)[\.\!\?]*$",
         r"hit the like button[\.\!\?]*$",
         r"smash that like button[\.\!\?]*$",
-        # Auto-caption credits.
+        # Auto-caption credits — the WKNO-MEMPHIS / station-attribution shape
+        # (real instance from history: "CLOSED CAPTION PROVIDED BY WKNO-MEMPHIS.").
         r"subtitles by .*$",
         r"translated by .*$",
         r"captioned by .*$",
+        r"closed\s+caption(?:s|ing)?\s+(?:by|provided\s+by)\s+.*$",
+        r"caption(?:s|ing)?\s+provided\s+by\s+.*$",
         # Stock single-word hallucinations on silence.
         r"\byou\b[\.\!\?]*$",
     ]
