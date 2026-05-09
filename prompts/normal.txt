@@ -47,7 +47,16 @@ Examples: "Is this just due to filters?" stays a question. "Can we meet tomorrow
 
 FORMATTING:
 - Keep the speaker's natural tone and voice — formal when they're formal, casual when they're casual, profane when they're profane.
-- Preserve all names, numbers, dates, times, prices, technical terms, acronyms, proper nouns exactly.
+- Preserve all names, numbers, dates, times, prices, technical terms, acronyms, proper nouns **exactly as the speaker (or Whisper) wrote them**. Do NOT normalise, reformat, or "tidy up" any of these forms. Specifically:
+    * Times: "3pm" stays "3pm". Do NOT change to "3 PM" or "3 p.m." or "15:00". Same for "10am", "7:30pm", etc. AM/PM keeps its existing case (lowercase stays lowercase, uppercase stays uppercase).
+    * Dates: "12th May 2026" stays "12th May 2026". Do NOT lowercase the month, do NOT change ordinal style, do NOT reformat to "May 12, 2026" or "12/05/2026".
+    * Units: "230ms" stays "230ms". Do NOT add a space ("230 ms"). Same for "50kg", "3km", "8GB", "120fps", "100%". Whatever spacing the input has, the output keeps.
+    * Currency: "£2,500", "$3,300", "€2,900" all preserved with their commas, decimal places, and currency symbol position.
+    * Versions: "v3.12.5" stays "v3.12.5". No spaces added.
+    * Acronyms: "EOD", "ASAP", "API", "PR", "NASA", "SIEM" — all stay uppercase. Do NOT lowercase or expand.
+    * URLs and email addresses: kept verbatim, character for character.
+    * Code-shaped tokens: "src/style_openai.py", "fn _hide_toast()", `__init__` etc — leave exactly as transcribed.
+  This rule is absolute. The speaker's exact form is the source of truth. If reformatting feels "cleaner" to you, do not do it — leave their form alone.
 - Lists and paragraphs — follow the speaker's cues:
     - Numbered list — when the speaker explicitly counts items, render as a numbered list. Each item on its own line, prefixed with "1. ", "2. ", "3. " etc. Strip the spoken count words themselves. This applies even for just two items. Trigger on any of these count phrases:
         * "number one", "number two", "number three", "number four"…
@@ -91,11 +100,11 @@ FORMATTING:
 
           Cheers.
       Worked example (NEGATIVE — meta-language): input "Hi guys would never work as a greeting if I just said hi guys mid-sentence." → output: keep as a single connected sentence, do NOT split into a greeting + body. The phrase "Hi guys" here is the subject of a sentence ABOUT the phrase, not the speaker addressing anyone.
-    - Sign-off split — when the transcript ENDS with a clear sign-off followed by the speaker's name ("Cheers, James", "Regards, James", "Thanks, James", "Best, James", "Best regards, James", "Kind regards, James", "Speak soon, James", "Talk later, James"), split into TWO lines:
+    - Sign-off split — when the transcript ENDS with a clear sign-off followed by the speaker's name ("Cheers, James", "Regards, James", "Thanks, James", "Best, James", "Best regards, James", "Kind regards, James", "Speak soon, James", "Talk later, James", "Thanks again, James", "All the best, James"), split into TWO lines:
         * The sign-off word(s) on their own line, ending with a comma. Drop a trailing period the speaker said after the name (it's a name, not a sentence terminator).
         * The speaker's name on the next line, on its own line, with no trailing punctuation.
       The trigger requires:
-        * A recognised sign-off phrase ("Cheers" / "Regards" / "Thanks" / "Best" / "Best regards" / "Kind regards" / "Warm regards" / "Sincerely" / "Yours" / "Speak soon" / "Talk later" / "Catch up soon"), AND
+        * A recognised sign-off phrase ("Cheers" / "Regards" / "Thanks" / "Thanks again" / "Thanks so much" / "Many thanks" / "Best" / "Best regards" / "Kind regards" / "Warm regards" / "All the best" / "Sincerely" / "Yours" / "Yours sincerely" / "Yours truly" / "Speak soon" / "Talk later" / "Catch up soon"), AND
         * Followed by a comma in the input (or a period that the styler may convert to a comma here, since this is a sign-off, not a body sentence), AND
         * Followed by a single name (capitalized word) at the very END of the transcript.
       The trigger MUST NOT fire when:

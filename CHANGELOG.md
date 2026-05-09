@@ -4,6 +4,24 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.12.6] - 2026-05-09
+
+### Added
+- **`OPENAI_STYLE_MODEL` env-var override** for the OpenAI styling model. Defaults to `gpt-4o-mini`; setting `OPENAI_STYLE_MODEL=gpt-4.1-mini` (or any other compatible chat-completions model) flips the styler without a code change. `gpt-4.1-mini` follows strict prompts noticeably better than `gpt-4o-mini` for the same speed bracket and is the recommended upgrade for users who want tighter rule-following.
+- **53 new regression cases** in `scripts/auto_test_corpus.py`, taking the suite from 38 to 91 hand-built tests. New coverage:
+  - Greeting variations: `Hey James,` / `Morning Sarah,` / `Afternoon team,` / `Dear Mr Thompson,` / `Hi everyone,` / `Hi all,` / `Hi James and Sarah,` / `Hi folks,` / `Hey both,` / `Evening Rohan,`
+  - Sign-off variations: `Cheers` (no name), `Best regards, James Farrelly` (full name), `Sincerely,` `Speak soon,` `All the best,` `Thanks again,`
+  - Combinations: email + numbered list in body, email + bullets in body, multi-paragraph email
+  - Edge: currency (`£2,500` / `$3,300` / `€2,900`), dates and timezones (`12th May 2026 at 3pm UK time`), acronyms (`PR EOD API SIEM`), hyphenated names (`Mary-Jane`), apostrophes (`O'Brien`), URLs, email addresses, version numbers, file paths, mixed `twenty-five` vs `250`, profanity, British spelling
+  - Real-world: stand-up update, bug report, code-review comment, Slack-casual, rambling thought
+  - Hallucination guards: real `Thank you.` ending, dictated `subscribe to the newsletter` (not Whisper outro), digits/units/percentages, trailing `Amen.`
+  - Self-correction: multi-correction, `I mean` as clarification, backtrack-and-restart
+  - Negative guards: `Highest priority` (not `Hi-` greeting), `cheers` as celebration in body, `thanks card` in body
+
+### Fixed
+- **Sign-off list now includes `Thanks again`, `Thanks so much`, `Many thanks`, `All the best`, `Yours sincerely`, `Yours truly`** in the prompt's recognised sign-off triggers. Previously only `Thanks` (bare) was matched, so `Thanks again, James.` stayed inline at the end of the body instead of splitting into two lines.
+- **Numbers, times, dates, units, currency, versions and acronyms are now strictly preserved.** Earlier: dictating `"meeting on 12th May 2026 at 3pm UK time, 230ms response time"` was being normalised by the styler to `"12th may 2026 at 3 PM UK time, 230 ms response time"` — month lowercased, AM/PM uppercased and space-injected, unit space-injected. The `FORMATTING` rule now spells out concrete preservation examples for times (`3pm` stays `3pm`), dates (`12th May 2026` stays exactly), units (`230ms` stays joined), currency (`£2,500`), versions (`v3.12.5`), acronyms (`EOD ASAP API` stay uppercase), URLs and email addresses.
+
 ## [3.12.5] - 2026-05-09
 
 ### Added

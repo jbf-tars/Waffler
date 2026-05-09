@@ -20,7 +20,16 @@ class OpenAIStyler:
                  max_tokens: int = 1024, prompt_style: str = "normal",
                  groq_api_key: str = ""):
         self.api_key = api_key
-        self.model = model
+        # Allow env-var override of the OpenAI styling model. Useful for trying
+        # gpt-4.1-mini (better instruction-following at slightly higher cost,
+        # released April 2025) without a code change. Falls back to whatever
+        # the caller passed (default gpt-4o-mini).
+        import os as _os
+        env_override = _os.getenv("OPENAI_STYLE_MODEL", "").strip()
+        if env_override:
+            self.model = env_override
+        else:
+            self.model = model
         self.max_tokens = max_tokens
         self.prompt_style = prompt_style
         self.groq_api_key = groq_api_key
