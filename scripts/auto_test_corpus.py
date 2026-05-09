@@ -79,6 +79,23 @@ CORPUS: List[Case] = [
          "Yeah.",
          retention_min=0.5,
          expect="trivially preserved"),
+    Case("VS3 single word imperative",
+         "very-short", "prose",
+         "Sorted.",
+         retention_min=0.5,
+         expect="single word kept as-is"),
+    Case("VS4 short question",
+         "very-short", "prose",
+         "Got a sec?",
+         must_contain=["?"],
+         retention_min=0.5,
+         expect="question mark preserved on tiny clip"),
+    Case("VS5 partial / clipped first word — typical short-clip failure",
+         "very-short", "prose",
+         "ello, can you hear me?",      # missing 'h' from "hello" — Whisper-on-clipped-mic
+         must_contain=["?"],
+         retention_min=0.5,
+         expect="don't 'fix' a partial — keep what was actually heard, the user can re-record"),
 
     # ─── SHORT (4-10 words) — these bypass the LLM via _is_simple ─────────
     Case("S1 short clean prose",
@@ -91,6 +108,28 @@ CORPUS: List[Case] = [
          "Yeah, um, I think so.",
          must_not_contain=["um"], retention_min=0.4,
          expect="basic_clean strips um"),
+    Case("S3 short with stutter",
+         "short", "prose",
+         "I I think we should ship it.",
+         must_not_match=[r"\bI I\b", r"\bi i\b"],
+         must_contain=["ship"],
+         expect="strip 'I I' double-pronoun stutter"),
+    Case("S4 short technical jargon",
+         "short", "code",
+         "Push to main, then deploy to prod.",
+         must_contain=["main", "prod"],
+         expect="don't expand or rephrase technical shorthand"),
+    Case("S5 short with proper noun",
+         "short", "prose",
+         "Send it to Rohan by EOD.",
+         must_contain=["Rohan", "EOD"],
+         expect="proper noun and acronym preserved exactly"),
+    Case("S6 short with discourse marker",
+         "short", "prose",
+         "So we're good then?",
+         must_contain=["?"],
+         retention_min=0.6,
+         expect="connective 'so' kept, question preserved"),
 
     # ─── MEDIUM (11-30 words) ──────────────────────────────────────────────
     Case("M1 conversational prose",
@@ -294,17 +333,33 @@ def evaluate(case: Case, styled: str) -> List[str]:
 
 
 def main():
+    import argparse
+    ap = argparse.ArgumentParser(description="Waffler prompt regression harness")
+    ap.add_argument("--delay", type=float, default=0.5,
+                    help="Seconds between calls. Bump to ~3-5 to test on Groq "
+                         "without tripping per-minute token limits. Default 0.5.")
+    ap.add_argument("--filter", type=str, default=None,
+                    help="Only run cases whose label matches this substring "
+                         "(case-insensitive). Useful for targeted re-runs.")
+    args = ap.parse_args()
+
     styler = OpenAIStyler(
         api_key=os.environ.get("OPENAI_API_KEY", ""),
         groq_api_key=os.environ.get("GROQ_API_KEY", ""),
     )
 
+    cases = [c for c in CORPUS if (not args.filter or args.filter.lower() in c.label.lower())]
+    if not cases:
+        print(f"no cases matched filter {args.filter!r}")
+        return
+
     results = []
-    width = max(len(c.label) for c in CORPUS)
-    print(f"\n{'#':<3} {'LABEL':<{width}} {'LENGTH':<11} {'CAT':<18} VERDICT")
+    width = max(len(c.label) for c in cases)
+    print(f"\nRunning {len(cases)} cases with {args.delay}s delay between calls\n")
+    print(f"{'#':<3} {'LABEL':<{width}} {'LENGTH':<11} {'CAT':<18} VERDICT")
     print("─" * (width + 50))
 
-    for i, case in enumerate(CORPUS, 1):
+    for i, case in enumerate(cases, 1):
         try:
             t0 = time.time()
             styled, usage = styler.style(case.raw)
@@ -317,8 +372,8 @@ def main():
         verdict = "PASS" if not failures else f"FAIL ({len(failures)})"
         print(f"{i:<3} {case.label:<{width}} {case.length:<11} {case.category:<18} {verdict:<10} ({elapsed:.0f}ms via {usage.get('provider','?')})")
         results.append((case, styled, failures, elapsed))
-        # tiny delay to be polite to the rate-limit
-        time.sleep(0.5)
+        if i < len(cases):
+            time.sleep(args.delay)
 
     print("\n" + "=" * (width + 50))
     passed = sum(1 for _, _, f, _ in results if not f)

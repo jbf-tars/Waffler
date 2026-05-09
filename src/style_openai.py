@@ -345,9 +345,11 @@ Transcript: {transcript}"""
         return text.strip()
 
     def _basic_clean(self, text: str) -> str:
-        """Fallback basic cleaning if API fails. Only strips unambiguous fillers —
-        meaning-bearing words (like, basically, actually, you know) are left alone
-        because regex can't tell filler-use from meaning-use."""
+        """Fallback basic cleaning if API fails (or _is_simple bypassed the LLM).
+        Only strips unambiguous fillers and collapses literal token-level
+        stutters — meaning-bearing words (like, basically, actually, you know)
+        are left alone because regex can't tell filler-use from meaning-use.
+        """
         hard_fillers = ['um', 'uh', 'erm', 'ah', 'er']
         cleaned = text
         for filler in hard_fillers:
@@ -357,4 +359,13 @@ Transcript: {transcript}"""
                 cleaned = re.sub(rf'(?<!\w){escaped_filler}(?!\w)', '', cleaned, flags=re.IGNORECASE)
             else:
                 cleaned = re.sub(rf'\b{escaped_filler}\b', '', cleaned, flags=re.IGNORECASE)
+
+        # Collapse word-level stutters: "I I think" -> "I think", "the the
+        # report" -> "the report", "we we need" -> "we need". Same word
+        # repeated immediately (any number of times, with whitespace between)
+        # collapses to a single occurrence. Case-insensitive so "I i" or
+        # "The the" also collapse. Punctuation between repeats blocks the
+        # collapse on purpose ("I, I think" might be a deliberate restart).
+        cleaned = re.sub(r"\b([A-Za-z]+)(?:\s+\1\b)+", r"\1", cleaned, flags=re.IGNORECASE)
+
         return re.sub(r'\s+', ' ', cleaned).strip()
