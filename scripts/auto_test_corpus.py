@@ -339,6 +339,35 @@ CORPUS: List[Case] = [
          # is anchored properly and doesn't fire on words that contain 'hi'.
          must_not_match=[r"^Hi\s"],
          expect="no greeting trigger when input doesn't start with Hi/Hello/etc"),
+    Case("EM7 sign-off split — full email shape user complained about",
+         "medium", "email",
+         "Hi James, thanks for meeting today, it was really useful and I appreciate your time. Regards, James.",
+         must_match=[
+             r"^Hi James,[ \t]*\n[ \t]*\n",          # greeting on own line + blank line
+             r"\n[ \t]*\n[ \t]*Regards,[ \t]*\n[ \t]*James\b",  # blank line, then sign-off / name on consecutive lines
+         ],
+         # Forbid INLINE "Regards, James" — i.e. comma+space+James on the SAME line.
+         must_not_match=[r"Regards,[ \t]+James"],
+         expect="full email shape: greeting line, blank, body, blank, sign-off line, name line"),
+    Case("EM8 sign-off variant — Cheers + name",
+         "medium", "email",
+         "Hi Sam, can you please review the attached PR when you get a chance. Cheers, James.",
+         must_match=[r"\n[ \t]*\n[ \t]*Cheers,[ \t]*\n[ \t]*James\b"],
+         must_not_match=[r"Cheers,[ \t]+James"],
+         expect="'Cheers, James' splits into two lines"),
+    Case("EM9 sign-off variant — Best regards + name",
+         "medium", "email",
+         "Hello team, the deployment finished cleanly and all checks are green. Best regards, James.",
+         must_match=[r"\n[ \t]*\n[ \t]*Best regards,[ \t]*\n[ \t]*James\b"],
+         must_not_match=[r"Best regards,[ \t]+James"],
+         expect="'Best regards, James' splits into two lines"),
+    Case("EM10 NEGATIVE — sign-off word in body should NOT split",
+         "medium", "email",
+         "Thanks for meeting today, James, it was really useful and I appreciate your time.",
+         # "Thanks for meeting today, James, ..." is mid-body address, not a sign-off.
+         # It should stay as a single line; do NOT split into Thanks,\nJames\n...
+         must_not_match=[r"Thanks,[ \t]*\n[ \t]*James"],
+         expect="false-positive guard: sign-off word in body doesn't split when content follows the name"),
 ]
 
 

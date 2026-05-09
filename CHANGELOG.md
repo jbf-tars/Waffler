@@ -4,6 +4,11 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.12.5] - 2026-05-09
+
+### Added
+- **Sign-off auto-split in Normal mode.** Mirroring the v3.12.4 greeting-line-break rule, when a transcript ends with a sign-off + name (`Cheers, James` / `Regards, James` / `Thanks, James` / `Best, James` / `Best regards, James` / `Kind regards, James` / `Speak soon, James` / `Talk later, James`), the styler now splits them into two lines: the sign-off ending with a comma on one line, the name on its own line below, with a blank line above the sign-off block. Combined with the greeting rule, dictating a full email-shaped utterance now produces proper email layout in Normal mode without needing the dedicated Email mode. Trigger requires the sign-off pattern to be at the very END of the transcript and includes a guard against false positives where the sign-off word is being used mid-body to address someone (e.g. "Thanks for meeting today, James — it was really useful." stays as a single sentence). Four new corpus tests (3 positive variants + 1 negative guard) lock the behaviour in.
+
 ## [3.12.4] - 2026-05-09
 
 ### Added

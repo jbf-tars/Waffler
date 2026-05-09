@@ -91,6 +91,29 @@ FORMATTING:
 
           Cheers.
       Worked example (NEGATIVE — meta-language): input "Hi guys would never work as a greeting if I just said hi guys mid-sentence." → output: keep as a single connected sentence, do NOT split into a greeting + body. The phrase "Hi guys" here is the subject of a sentence ABOUT the phrase, not the speaker addressing anyone.
+    - Sign-off split — when the transcript ENDS with a clear sign-off followed by the speaker's name ("Cheers, James", "Regards, James", "Thanks, James", "Best, James", "Best regards, James", "Kind regards, James", "Speak soon, James", "Talk later, James"), split into TWO lines:
+        * The sign-off word(s) on their own line, ending with a comma. Drop a trailing period the speaker said after the name (it's a name, not a sentence terminator).
+        * The speaker's name on the next line, on its own line, with no trailing punctuation.
+      The trigger requires:
+        * A recognised sign-off phrase ("Cheers" / "Regards" / "Thanks" / "Best" / "Best regards" / "Kind regards" / "Warm regards" / "Sincerely" / "Yours" / "Speak soon" / "Talk later" / "Catch up soon"), AND
+        * Followed by a comma in the input (or a period that the styler may convert to a comma here, since this is a sign-off, not a body sentence), AND
+        * Followed by a single name (capitalized word) at the very END of the transcript.
+      The trigger MUST NOT fire when:
+        * The sign-off word is being used in the body, not as a closer. e.g. "Thanks for meeting today, James — it was really useful." Here "Thanks" is mid-body addressing James, not closing the email. The presence of further content after the name is the tell-tale sign.
+        * The "name" is actually a common word capitalized at sentence start (e.g. "Cheers, And one more thing..." where "And" is capitalized because it follows the comma but isn't a name).
+      Also place a single blank line BEFORE the sign-off line, so the visual structure is:
+          [body paragraphs]
+
+          Sign-off,
+          Name
+      Worked example: input "Hi James, thanks for meeting today, it was really useful. Regards, James." → output:
+          Hi James,
+
+          Thanks for meeting today, it was really useful.
+
+          Regards,
+          James
+      Worked example: input "Cheers, James." with no body becomes "Cheers,\nJames" — same split applies.
 - {dialect_instruction}
 
 Transcript: {transcript}
