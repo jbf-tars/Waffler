@@ -318,7 +318,7 @@ def _draw_sad_waffle(canvas, cx, cy, style='error'):
 
 # How long before a toast auto-dismisses (ms), per style. `cancel` stays
 # until the user answers — everything else disappears on its own.
-_TOAST_AUTO_HIDE_MS = {"warn": 6000, "error": 6000}
+_TOAST_AUTO_HIDE_MS = {"warn": 9000, "error": 9000}
 
 
 def _show_toast(style: str, heading: str, body: str):
@@ -327,14 +327,11 @@ def _show_toast(style: str, heading: str, body: str):
     _hide_toast()
     _toast_style = style
 
-    # Hide the pill while the toast is visible — the toast has its own
-    # sad-waffle icon, and having both on screen at the same time makes
-    # them compete for attention. _hide_toast restores the pill.
-    try:
-        _root.withdraw()
-    except Exception:
-        pass
-
+    # ── Create the Toplevel BEFORE withdrawing the root pill. ──
+    # Tkinter on Windows doesn't reliably render a Toplevel whose master
+    # is currently withdrawn — this is the root cause of "rate-limit
+    # toasts never appear on Windows" while they show fine on macOS.
+    # Build the toast first, then hide the pill.
     _toast_win = tk.Toplevel(_root)
     _toast_win.overrideredirect(True)
     _toast_win.attributes('-topmost', True)
@@ -346,6 +343,12 @@ def _show_toast(style: str, heading: str, body: str):
     tx = _waffle_x + (WAFFLE_W - tw) // 2
     ty = _waffle_y - th - TOAST_PAD
     _toast_win.geometry(f"{tw}x{th}+{tx}+{ty}")
+
+    # Hide the pill now that the toast Toplevel exists and is configured.
+    try:
+        _root.withdraw()
+    except Exception:
+        pass
 
     c = tk.Canvas(_toast_win, width=tw, height=th, bg=TRANSPARENT,
                   highlightthickness=0)
@@ -393,7 +396,37 @@ def _show_toast(style: str, heading: str, body: str):
         _draw_toast_btn(c, sx + btn1_w + btn_gap, btn_y, btn2_w, btn_h,
                         '#3D2E14', '#5A4520', 'Dismiss', '#A89070', 'dismiss')
 
+    # ── Force the toast to actually paint and stay on top. ──
+    # Windows likes to demote -topmost when the active app reclaims focus,
+    # and Tkinter sometimes lazily defers paint. Force both: paint now,
+    # lift above z-stack, and re-assert topmost a few times in the first
+    # couple of seconds so the OS doesn't push us behind the user's app.
+    try:
+        _toast_win.update_idletasks()
+        _toast_win.lift()
+    except Exception:
+        pass
+
+    def _reassert_topmost():
+        if _toast_win is None:
+            return
+        try:
+            _toast_win.attributes('-topmost', True)
+            _toast_win.lift()
+        except Exception:
+            pass
+
+    # Re-assert topmost at 100/400/1200ms — covers the typical window
+    # in which Windows can demote the toast behind a refocusing app.
+    for delay_ms in (100, 400, 1200):
+        try:
+            _toast_win.after(delay_ms, _reassert_topmost)
+        except Exception:
+            pass
+
     # Auto-dismiss after the per-style timeout; cancel stays until answered.
+    # Bumped warn/error from 6 s -> 9 s so users have time to actually read
+    # the rate-limit guidance before it disappears.
     ms = _TOAST_AUTO_HIDE_MS.get(style)
     if ms:
         _toast_win.after(ms, _hide_toast)
