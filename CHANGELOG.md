@@ -4,6 +4,14 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.12.4] - 2026-05-09
+
+### Added
+- **Greeting auto-line-break in Normal mode.** When the transcript starts with a clear greeting addressed to a person or group (`Hi James,` / `Hello team,` / `Hey Rohan,` / `Dear Sam,` / `Morning all,`), Normal mode now puts the greeting on its own line with a blank line below it before the body — without needing the user to switch to the dedicated Email mode. Trigger requires (a) sentence-start greeting word, (b) a name or group address, AND (c) a punctuation mark already present in the input. The styler does not invent a comma where none exists. False-positive guards: the rule does NOT fire when the input is talking *about* a greeting (e.g. "Hi guys would never work as an opener") — the next word being a verb/auxiliary with no punctuation tells the styler this is meta-language, not a greeting. Six new corpus tests (4 positive + 2 negative) lock the behaviour in.
+
+### Fixed
+- **Email-mode dropdown choice was never persisted.** Selecting "Email" from the sidebar dropdown updated the running pipeline in memory, but `set_mode()` never wrote the choice to `~/.waffler-hosted/settings.json`. On every app restart the user was silently back on Normal. `set_mode` now persists `prompt_style`; `Config._load_env_vars` reads it back so the UI's choice survives restarts. Precedence: settings.json (UI choice) > `PROMPT_STYLE` env var (advanced override) > "normal" default.
+
 ## [3.12.3] - 2026-05-09
 
 ### Added

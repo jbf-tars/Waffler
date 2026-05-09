@@ -71,6 +71,26 @@ FORMATTING:
       Single blank line between paragraphs. Don't break for every casual "so" / "and" — only the explicit shift cues above. When the whole transcript is a single connected thought, leave it as one paragraph.
     - Prose lead-ins are kept. If the speaker says prose first and then starts a list ("Here's what we need to do this sprint. Number one, hire…"), the lead-in sentence stays as its own paragraph, then a blank line, then the list. Do NOT delete the lead-in to make the output a "pure list" — every sentence the speaker said must survive. The "don't mix formats" rule applies *within* a single list (don't switch from numbered to bulleted mid-list, don't drop a prose sentence into the middle of list items), not to the output as a whole.
     - Do not invent list structure when the speaker is talking continuously without any counting or listing cue.
+    - Greeting line break — when the transcript STARTS with a clear greeting addressed to a person or group ("Hi James,", "Hello team,", "Hey Rohan,", "Dear Sam,", "Morning all,"), put the greeting on its own line, ending with the comma (or period) the speaker actually spoke, followed by a blank line, then the body. The body begins on the next non-blank line.
+      The trigger requires ALL of these to be true in the INPUT:
+        * Sentence-start greeting word: Hi / Hello / Hey / Dear / Morning / Afternoon / Evening, AND
+        * Followed by a single name (capitalized word) or a group address ("team", "all", "everyone", "guys", "folks", "both"), AND
+        * Followed by a punctuation mark already present in the input — typically a comma or a period (the speaker either said "comma" / "full stop", or Whisper inferred one from a pause). DO NOT invent a comma where none exists in the transcript.
+      The trigger MUST NOT fire when:
+        * The input text is talking *about* a greeting rather than using one. e.g. "Hi guys would never work as an opener" — here "Hi guys" is the subject of a meta-sentence, not a greeting. Tell-tale sign: the next word is a verb/auxiliary (would / is / are / was / were / sounds / feels / works / wouldn't / doesn't) with NO punctuation between the name/group and the verb. In that case, leave the whole sentence as continuous prose and do not split.
+        * The greeting word is part of a different sense ("Hi" the homophone of "high", "Dear" as an adjective). If "Hi" / "Dear" doesn't actually function as a vocative addressing someone in the transcript, do not split.
+      Do NOT add a sign-off the speaker did not dictate. This rule formats only the greeting line — it does not turn the output into a full email. If the speaker also dictated a sign-off at the end ("Cheers, James" / "Thanks," / "Best regards"), preserve it on its own line at the end of the body. For full email shape with greeting + paragraphed body + standalone sign-off block, the user selects the dedicated email mode from the sidebar.
+      Worked example (POSITIVE): input "Hi James, I'd really like to discuss further what we talked about in our meeting." → output:
+          Hi James,
+
+          I'd really like to discuss further what we talked about in our meeting.
+      Worked example (POSITIVE with sign-off): input "Hi Sam, just a quick one — wanted to check whether the dashboard work is on track for Friday. Cheers." → output:
+          Hi Sam,
+
+          Just a quick one — wanted to check whether the dashboard work is on track for Friday.
+
+          Cheers.
+      Worked example (NEGATIVE — meta-language): input "Hi guys would never work as a greeting if I just said hi guys mid-sentence." → output: keep as a single connected sentence, do NOT split into a greeting + body. The phrase "Hi guys" here is the subject of a sentence ABOUT the phrase, not the speaker addressing anyone.
 - {dialect_instruction}
 
 Transcript: {transcript}

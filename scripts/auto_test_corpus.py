@@ -187,15 +187,18 @@ CORPUS: List[Case] = [
          must_contain=["quarterly", "board meeting", "budget variance"],
          must_not_contain=["number one", "number two"],
          expect="2-item numbered list with full content preserved"),
-    Case("L3 email-shaped input in NORMAL mode (preserved as prose)",
+    Case("L3 email-shaped input in NORMAL mode (greeting auto-line-break)",
          "long", "email",
          "Hi Sam. Just a quick one — wanted to check whether the dashboard work is on track for "
          "Friday. If it's slipping, let me know early so we can re-prioritise. Also if you need any "
          "input from me on the API side, give us a shout. Cheers, James.",
+         # Greeting must be on its own line — accept either comma or period
+         # after the name (input has period; styler may keep period or convert).
+         must_match=[r"^Hi Sam[,\.]\s*\n\s*\n"],
          must_contain=["sam", "dashboard", "friday", "cheers", "james"],
-         retention_min=0.85,
-         expect="normal mode preserves greeting + body + sign-off as plain text. "
-                "Email shape lives in the user-selected email mode (prompts/email.txt), not normal mode."),
+         retention_min=0.80,
+         expect="normal mode auto-formats the greeting line: 'Hi Sam.' / 'Hi Sam,' on its own line, "
+                "blank line, then the body. Sign-off preserved at end."),
     Case("L4 trailing fillers / drift-off",
          "long", "prose",
          "OK so basically the way I'm thinking about this is, we've got the existing pipeline, we've "
@@ -296,6 +299,46 @@ CORPUS: List[Case] = [
          "Open the file at src slash style underscore openai dot py and find the function called underscore style underscore groq.",
          must_contain=["style", "openai", "groq"],
          expect="don't garble technical identifiers"),
+
+    # ─── EMAIL GREETING AUTO-FORMAT (the user's actual complaint) ──────────
+    Case("EM1 greeting auto-line-break — user's exact example",
+         "medium", "email",
+         "Hi James, I'd really like to discuss further what we talked about in our meeting.",
+         must_match=[r"^Hi James,\s*\n\s*\n", r"I'd really like to discuss"],
+         retention_min=0.85,
+         expect="'Hi James,' on its own line, blank line, then body"),
+    Case("EM2 greeting with team address",
+         "medium", "email",
+         "Hi team, just wanted to flag that the data residency review is now blocking the rollout. "
+         "Can someone pick this up before Friday?",
+         must_match=[r"^Hi team,\s*\n\s*\n", r"data residency"],
+         must_contain=["?"],
+         expect="'Hi team,' on own line, blank line, body preserved with question mark"),
+    Case("EM3 Hello variant + name",
+         "medium", "email",
+         "Hello Rohan, can you check whether the API key rotation has gone through on the dev tier yet?",
+         must_match=[r"^Hello Rohan,\s*\n\s*\n", r"API key rotation"],
+         must_contain=["?"],
+         expect="'Hello Rohan,' on own line"),
+    Case("EM4 Dear formal + body",
+         "medium", "email",
+         "Dear Sam, please find attached the quarterly report for review. Let me know if anything needs adjusting before the board meeting.",
+         must_match=[r"^Dear Sam,\s*\n\s*\n", r"quarterly report"],
+         expect="'Dear Sam,' on own line; formal register preserved"),
+    Case("EM5 NEGATIVE — Hi at sentence start without name should NOT trigger",
+         "medium", "email",
+         "Hi guys would never work as a greeting if I just said hi guys mid-sentence about my mates. The rest of this thought continues normally.",
+         # "Hi guys" with NO comma and not actually addressed as a greeting
+         # — this is one connected sentence. We should NOT split it.
+         must_not_match=[r"^Hi guys,\s*\n"],
+         expect="false-positive guard: not every 'Hi' at start is a greeting"),
+    Case("EM6 NEGATIVE — discussion that starts with 'Hi' word",
+         "medium", "email",
+         "I just got a high score on the test, which felt great, and then I went home and cooked dinner.",
+         # 'Hi' is not even at start; this is just to verify the 'Hi <Name>,' pattern
+         # is anchored properly and doesn't fire on words that contain 'hi'.
+         must_not_match=[r"^Hi\s"],
+         expect="no greeting trigger when input doesn't start with Hi/Hello/etc"),
 ]
 
 

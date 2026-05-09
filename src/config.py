@@ -34,7 +34,14 @@ class Config:
         """Load API keys from environment variables"""
         self.openai_api_key = os.getenv('OPENAI_API_KEY')
         self.groq_api_key = os.getenv('GROQ_API_KEY')
-        self.prompt_style = os.getenv('PROMPT_STYLE', 'normal')
+
+        # Prompt style precedence: settings.json (user's UI choice) >
+        # PROMPT_STYLE env var (advanced override) > "normal" default.
+        # Without checking settings.json here, the UI dropdown's choice
+        # would silently revert to default on every app restart, even
+        # though set_mode() persisted it. Verified bug.
+        self.prompt_style = self._load_persisted_prompt_style() \
+            or os.getenv('PROMPT_STYLE', 'normal')
 
         # Flag whether we have enough config to run the pipeline
         # Groq alone is sufficient (handles both transcription + styling)
@@ -49,6 +56,23 @@ class Config:
             load_dotenv(str(user_env), override=True)
         load_dotenv(override=True)
         self._load_env_vars()
+
+    def _load_persisted_prompt_style(self):
+        """Read prompt_style from ~/.waffler-hosted/settings.json (the UI's
+        sidebar dropdown writes here). Returns None if not set or unreadable
+        so callers can fall through to the env-var / default path."""
+        try:
+            import json
+            settings_path = Path.home() / ".waffler-hosted" / "settings.json"
+            if not settings_path.exists():
+                return None
+            data = json.loads(settings_path.read_text())
+            value = data.get("prompt_style")
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        except Exception:
+            pass
+        return None
             
     def get(self, key_path: str, default=None) -> Any:
         """Get config value using dot notation (e.g., 'audio.sample_rate')"""

@@ -400,7 +400,8 @@ class Api:
         return _config.prompt_style if _config else "normal"
 
     def set_mode(self, mode_id: str) -> dict:
-        """Switch to a different prompt mode."""
+        """Switch to a different prompt mode and persist the choice so it
+        survives an app restart."""
         valid = {m["id"] for m in self.get_modes()}
         if mode_id not in valid:
             return {"ok": False, "error": f"Unknown mode: {mode_id}"}
@@ -408,6 +409,14 @@ class Api:
             if _pipeline:
                 _pipeline.styler.prompt_style = mode_id
                 _pipeline.styler.prompt_template = _pipeline.styler._load_prompt_template()
+            # Persist the choice — without this, the setting reverts to
+            # whatever config.prompt_style is on next launch.
+            try:
+                stored = self._load_settings_file()
+                stored["prompt_style"] = mode_id
+                self._save_settings_file(stored)
+            except Exception as e:
+                _log_to_file(f"set_mode: persist failed (in-memory change still applied): {e}")
             return {"ok": True, "mode": mode_id}
         except Exception as e:
             return {"ok": False, "error": str(e)}
