@@ -2158,6 +2158,12 @@ class WafflerPipeline:
                     body = f"Groq {friendly} hit. {wait_hint}, or add an OpenAI key in Settings as a fallback."
                 elif "CONNECTION" in reason or "timeout" in reason.lower():
                     body = "No connection — pasted raw. Check your internet or VPN."
+                elif reason.startswith("AUTH:"):
+                    # Groq blocked our request (most common cause: VPN exit
+                    # IP, occasionally a corporate firewall or revoked key).
+                    # OpenAI fallback would be slow but functional — but this
+                    # branch only fires when there's no OpenAI key set.
+                    body = "Groq blocked your request — likely a VPN or firewall. Add an OpenAI key in Settings, or toggle VPN off."
                 else:
                     body = "Pasted raw. See the log for details."
                 _log_to_file(f"[pipeline] styling fell back to basic_clean: {reason}")

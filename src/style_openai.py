@@ -200,7 +200,23 @@ Transcript: {transcript}"""
 
                 raise RuntimeError(f"RATE_LIMIT|{_limit}|{_wait}|{error_msg[:60]}")
             elif "connection" in error_msg.lower() or "timeout" in error_msg.lower():
+                # Network connectivity hiccup — set a SHORT skip so we
+                # don't keep wasting round-trips while the network is
+                # flaky, but recover quickly when it comes back.
+                self._groq_skip_until = time.monotonic() + 30.0
                 raise RuntimeError(f"CONNECTION: Groq connection failed — {error_msg[:100]}")
+            elif "403" in error_msg or "401" in error_msg or "access denied" in error_msg.lower() or "permission" in error_msg.lower() or "unauthorized" in error_msg.lower():
+                # Auth / network-policy block (most often a VPN exit-IP that
+                # Groq blocks, sometimes a corporate firewall, occasionally a
+                # revoked key). None of these clear up in a few seconds, so
+                # skip Groq for the whole session — every retry was costing
+                # ~1-2 s round-trip per recording and forcing a 6 s OpenAI
+                # fallback. 1-hour cooldown means the user gets fast styling
+                # via OpenAI immediately; on next launch (or after the hour),
+                # we try Groq again in case the network state changed.
+                self._groq_skip_until = time.monotonic() + 3600.0
+                print(f"[styling] Groq returned auth/network error — skipping Groq for 1 hour")
+                raise RuntimeError(f"AUTH: Groq auth/network blocked — {error_msg[:120]}")
             raise
         styled = response.choices[0].message.content.strip()
         # Fix mid-sentence capitalization bug
