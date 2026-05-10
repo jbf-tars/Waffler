@@ -4,6 +4,14 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.12.7] - 2026-05-10
+
+### Fixed
+- **Vocab case-correction was silently broken.** When Whisper transcribed a vocab word in non-canonical case (e.g. `cobie` instead of `COBie`, `ashkan` instead of `Ashkan`), the fuzzy-match function recognised it as an exact case-insensitive match but then did *nothing* — no correction was emitted, so the lowercase form was preserved in the styled output. Root cause: the `if word in vocab_lower: matched_tokens.add(word); continue` branch added the token to the matched set but never appended a `(word → canonical)` correction. Fix: when the case differs from canonical, emit a correction. Tokens already in canonical case (e.g. `Ashkan` exactly as stored) still skip without an unnecessary correction. This is what the user has been hitting when they said "the vocab doesn't really work" — Whisper biasing handled most of it, but any time it produced a lowercased form, the correction layer didn't fix the case.
+
+### Added
+- **Dedicated vocab regression harness** at `scripts/test_vocab_corpus.py` — 25 cases covering: exact match preservation, lowercase case-correction, single-char typos, bigram-collapse for Whisper splits (`Nash can` → `Ashkan`), unrelated common words that must NOT be corrupted (`cost`, `high`, `ash`, `cobblestone`, `cobalt`, real names like `Coby Persin`), bigram false-positive guards (`has can`, `task on`), multi-vocab in one sentence, and vocab inside lists / email greetings. Pure local execution — no API calls — so runs in milliseconds and locks the correction layer in for any future change.
+
 ## [3.12.6] - 2026-05-09
 
 ### Added

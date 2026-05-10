@@ -144,7 +144,14 @@ def fuzzy_match_word(transcribed: str, vocab: list[str], threshold: float = 0.75
     # Pass 1 — single-word fuzzy match.
     for word in words:
         if word in vocab_lower:
+            # Exact (case-insensitive) match. If the user spelled it in
+            # canonical form already, no correction needed. If the case
+            # differs (e.g. transcribed "cobie" but vocab has "COBie"),
+            # emit a correction so the canonical form replaces it.
+            canonical = vocab_lower[word]
             matched_tokens.add(word)
+            if word != canonical:
+                corrections.append((word, canonical))
             continue
         for vword in vocab_words:
             if len(word) < 3 or len(vword) < 3:
