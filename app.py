@@ -1740,6 +1740,17 @@ class WafflerPipeline:
             sample_rate=config.sample_rate,
             channels=config.channels
         )
+        # Pre-warm the audio input stream at pipeline init so the FIRST
+        # hotkey press is instant. The stream stays alive across recordings
+        # and feeds a 500ms pre-roll buffer that gets spliced into every
+        # new recording — eliminates the "first 1-2 syllables clipped"
+        # symptom caused by Windows InputStream.start() taking 50-300ms
+        # to actually begin producing samples.
+        try:
+            self.audio.start_monitoring()
+            _log_to_file("Audio stream pre-warmed (continuous monitor + pre-roll)")
+        except Exception as e:
+            _log_to_file(f"Audio pre-warm failed (will create stream on first hotkey): {e}")
 
         groq_key = config.groq_api_key or ""
         openai_key = config.openai_api_key or ""
