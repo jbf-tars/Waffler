@@ -16,14 +16,22 @@ except ImportError:
 class OpenAIStyler:
     """Styles transcripts — Groq LLaMA 3.3 70B (fast) or GPT-4o-mini (fallback)"""
 
-    def __init__(self, api_key: str = "", model: str = "gpt-4o-mini",
+    def __init__(self, api_key: str = "", model: str = "gpt-4.1-mini",
                  max_tokens: int = 1024, prompt_style: str = "normal",
                  groq_api_key: str = ""):
         self.api_key = api_key
-        # Allow env-var override of the OpenAI styling model. Useful for trying
-        # gpt-4.1-mini (better instruction-following at slightly higher cost,
-        # released April 2025) without a code change. Falls back to whatever
-        # the caller passed (default gpt-4o-mini).
+        # Default styling model: gpt-4.1-mini.
+        # Benchmark against the user's actual failing case (May 2026):
+        #   gpt-4o-mini     2507ms, occasionally censored "fucking"
+        #   gpt-4.1-mini    1608ms, reliably preserved "fucking"   <-- winner
+        #   gpt-4.1-nano     628ms, censored profanity (skipped)
+        #   gpt-4.1         1021ms, ~4× the cost of mini for marginal gain
+        #   gpt-5 family    4-16s, returned empty outputs (reasoning-tuned,
+        #                   not suited for low-latency formatting)
+        # gpt-4.1-mini is ~35% faster and ~2.5× the input cost of 4o-mini,
+        # which works out to fractions of a cent per dictation.
+        # Power users can flip the choice without a release via
+        # OPENAI_STYLE_MODEL env var (gpt-4.1, gpt-4o, etc).
         import os as _os
         env_override = _os.getenv("OPENAI_STYLE_MODEL", "").strip()
         if env_override:
