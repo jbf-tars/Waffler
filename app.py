@@ -1768,10 +1768,15 @@ class WafflerPipeline:
         )
         _log_to_file(f"Transcriber backend: {self.transcriber._backend}")
 
-        # Styler — Groq LLaMA (fast) → GPT-4o-mini (fallback)
+        # Styler — Groq LLaMA (fast) → OpenAI (fallback).
+        # OpenAI default is gpt-4.1-mini (better instruction-following + 35%
+        # faster than gpt-4o-mini). Long inputs auto-route to gpt-4.1 (full)
+        # inside _style_openai for higher per-token output speed. Power users
+        # override via OPENAI_STYLE_MODEL env var. The OpenAIStyler ctor
+        # default carries the right model — DO NOT pass model= here, otherwise
+        # we silently override the upgrade.
         self.styler = OpenAIStyler(
             api_key=openai_key,
-            model="gpt-4o-mini",
             max_tokens=1024,
             prompt_style=config.prompt_style,
             groq_api_key=groq_key,
