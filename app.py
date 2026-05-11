@@ -2082,10 +2082,26 @@ class WafflerPipeline:
                 notify_js_status("idle")
                 return
 
+            # Show "Transcribing…" progress on the overlay so the user sees
+            # the app is working. Run a ticker thread that bumps the elapsed
+            # seconds counter every 500ms while transcription runs.
+            _stage_start = time.time()
+            _stage_stop = threading.Event()
+            def _ticker_transcribe():
+                while not _stage_stop.is_set():
+                    elapsed = time.time() - _stage_start
+                    try:
+                        self.overlay.set_progress("Transcribing", elapsed)
+                    except Exception:
+                        pass
+                    _stage_stop.wait(0.5)
+            threading.Thread(target=_ticker_transcribe, daemon=True, name="ProgressTranscribe").start()
+
             # Transcribe
             _t0 = time.time()
             transcript = self.transcriber.transcribe_sync(audio_bytes)
             _t_transcribe = (time.time() - _t0) * 1000
+            _stage_stop.set()
             _log_to_file(f"[pipeline] transcription: {_t_transcribe:.0f}ms")
             if not transcript:
                 _log_to_file("Empty transcription result")
@@ -2117,10 +2133,25 @@ class WafflerPipeline:
             if whisper_duration > 0:
                 record_usage("whisper", duration_seconds=whisper_duration,
                              provider=whisper_provider)
+            # Show "Styling…" progress — this is the slow stage on long
+            # dictations (15-25s on full gpt-4.1 for 400+ word inputs).
+            _style_start = time.time()
+            _style_stop = threading.Event()
+            def _ticker_style():
+                while not _style_stop.is_set():
+                    elapsed = time.time() - _style_start
+                    try:
+                        self.overlay.set_progress("Styling", elapsed)
+                    except Exception:
+                        pass
+                    _style_stop.wait(0.5)
+            threading.Thread(target=_ticker_style, daemon=True, name="ProgressStyle").start()
+
             # Style
             _t1 = time.time()
             styled, gpt_usage = self.styler.style(transcript)
             _t_style = (time.time() - _t1) * 1000
+            _style_stop.set()
             _log_to_file(f"[pipeline] styling ({gpt_usage.get('provider', 'local')}): {_t_style:.0f}ms")
             if not styled:
                 styled = transcript

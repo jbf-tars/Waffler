@@ -431,21 +431,13 @@
         <div class="wizard-card-icon">🔑</div>
         <h2>API Keys</h2>
         <p class="wizard-card-desc">
-          Choose your provider <strong>(you only need one)</strong>
+          Add Groq (recommended — free and fast). You can <strong>also add OpenAI as a fallback</strong> for when Groq's daily limit is hit. Only one is required, but having both gives you the smoothest experience.
           <br><span class="wizard-link" style="font-size:13px" onclick="pywebview.api.open_url('https://wafflerai.com/api-key-guide')">Need help? Follow our step-by-step guide →</span>
         </p>
 
-        <!-- Provider Selection Pills -->
-        <div class="provider-pills">
-          <button class="pill-button active" data-provider="groq" onclick="switchProvider('groq')">
-            Groq
-          </button>
-          <button class="pill-button" data-provider="openai" onclick="switchProvider('openai')">
-            OpenAI
-          </button>
-        </div>
-
-        <!-- Groq Field (visible by default) -->
+        <!-- Both provider fields shown together. Groq is the primary
+             (free, 10× faster). OpenAI is the fallback, kicks in
+             automatically when Groq hits its daily token limit. -->
         <div id="groqField" class="provider-field active">
           <div class="provider-container">
             <div class="provider-header">
@@ -466,8 +458,8 @@
           </div>
         </div>
 
-        <!-- OpenAI Field (hidden by default) -->
-        <div id="openaiField" class="provider-field">
+        <!-- OpenAI Field — also shown by default, no longer mutually exclusive with Groq. -->
+        <div id="openaiField" class="provider-field active">
           <div class="provider-container">
             <div class="provider-header">
               <div class="provider-icon">🤖</div>

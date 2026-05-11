@@ -95,6 +95,11 @@ _canvas         = None
 _toast_win      = None
 _toast_style    = None
 
+# Progress text shown over the pill during the slow post-recording stages
+# (transcribing, styling). Cleared when recording starts again or pill hides.
+_progress_text_item = None   # Canvas text item id, or None
+_progress_bg_item   = None   # Pill-shaped background item id, or None
+
 # Screen position (set during init, reused for toast positioning)
 _waffle_x = 0
 _waffle_y = 0
@@ -460,6 +465,71 @@ def _hide_toast():
             pass
 
 
+def _clear_progress():
+    """Remove any progress label / background from the pill canvas."""
+    global _progress_text_item, _progress_bg_item
+    if not _canvas:
+        return
+    try:
+        if _progress_text_item is not None:
+            _canvas.delete(_progress_text_item)
+        if _progress_bg_item is not None:
+            _canvas.delete(_progress_bg_item)
+    except Exception:
+        pass
+    _progress_text_item = None
+    _progress_bg_item = None
+
+
+def _show_progress(label: str, elapsed_seconds: float = 0.0):
+    """Draw a status label + elapsed time on the pill so the user knows the
+    app is doing work (transcribing / styling) and isn't frozen.
+
+    Replaces any previously-drawn progress text. Pass label="" to clear.
+    """
+    global _progress_text_item, _progress_bg_item
+    if not _canvas or not _root:
+        return
+
+    # Clear previous render first.
+    _clear_progress()
+
+    label = (label or "").strip()
+    if not label:
+        return
+
+    # Format the visible text: "Styling…  3s"
+    if elapsed_seconds >= 1.0:
+        display = f"{label}…  {int(elapsed_seconds)}s"
+    else:
+        display = f"{label}…"
+
+    # Position: centred on the pill, slightly above middle so it doesn't
+    # collide with the bottom rows of waffle cells.
+    cx = WIN_W // 2
+    cy = WIN_H // 2
+
+    # Background pill behind the text for legibility against the waffle.
+    pad_x, pad_y = 14, 6
+    # Use a temporary text item to measure the bbox before drawing the bg.
+    _progress_text_item = _canvas.create_text(
+        cx, cy, text=display,
+        fill='#F0E0C0',  # warm cream
+        font=('Segoe UI', 10, 'bold'),
+    )
+    bbox = _canvas.bbox(_progress_text_item)
+    if bbox:
+        x0, y0, x1, y1 = bbox
+        _progress_bg_item = _canvas.create_rectangle(
+            x0 - pad_x, y0 - pad_y, x1 + pad_x, y1 + pad_y,
+            fill='#1A1208',  # dark warm
+            outline='#C8A256',
+            width=1,
+        )
+        # Put background BEHIND the text.
+        _canvas.tag_lower(_progress_bg_item, _progress_text_item)
+
+
 def _on_toast_action(action: str):
     """Handle toast button clicks."""
     emit("toast_action", action=action)
@@ -476,6 +546,7 @@ def _handle_cmd(cmd: dict):
     if ctype == "show":
         _visible = True
         _hide_toast()
+        _clear_progress()        # fresh recording — drop any leftover progress text
         if _root:
             _draw_waffle()
             _root.deiconify()
@@ -485,10 +556,12 @@ def _handle_cmd(cmd: dict):
     elif ctype == "hide":
         _visible = False
         _hide_toast()
+        _clear_progress()
         if _root:
             _root.withdraw()
 
     elif ctype == "level":
+        _clear_progress()        # active recording — VU bars resume, no status text
         raw_level = max(0.0, min(1.0, float(cmd.get("value", 0.0))))
         level = raw_level ** 0.4   # Power-curve: expand low volumes for responsiveness
         t = time.time()
@@ -527,6 +600,9 @@ def _handle_cmd(cmd: dict):
 
     elif ctype == "hide_toast":
         _hide_toast()
+
+    elif ctype == "progress":
+        _show_progress(cmd.get("label", ""), float(cmd.get("elapsed_seconds", 0.0)))
 
     elif ctype == "quit":
         _hide_toast()

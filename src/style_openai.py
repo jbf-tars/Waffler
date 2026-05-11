@@ -286,11 +286,35 @@ Transcript: {transcript}"""
             "provider": "groq",
         }
 
+    # Auto-routing threshold: inputs >= this many words are routed to the
+    # full gpt-4.1 (faster per-token output, more expensive). Below threshold
+    # we stick with gpt-4.1-mini (cheap + plenty fast for short clips).
+    # User dictations cluster around two regimes — short (Slack-style, 10-40
+    # words) where mini is great, and long (paragraph emails / monologues,
+    # 200+ words) where the per-token speed advantage of the full model
+    # outweighs the cost premium. 200 words is the empirical break-even.
+    _LONG_INPUT_THRESHOLD_WORDS = 200
+
+    def _pick_openai_model(self, transcript: str) -> str:
+        """Choose the OpenAI model based on input length. The env-var
+        override (OPENAI_STYLE_MODEL) takes precedence over this routing
+        — power users get exact control."""
+        import os as _os
+        if _os.getenv("OPENAI_STYLE_MODEL", "").strip():
+            # User explicitly pinned a model — respect it.
+            return self.model
+        word_count = len(transcript.split())
+        if word_count >= self._LONG_INPUT_THRESHOLD_WORDS:
+            return "gpt-4.1"
+        return self.model  # gpt-4.1-mini default
+
     def _style_openai(self, prompt: str, transcript: str, start_time: float):
-        """Style using OpenAI GPT-4o-mini — fallback."""
+        """Style using OpenAI. Auto-routes to gpt-4.1 (full) on long inputs
+        so we benefit from its higher per-token output speed."""
+        chosen_model = self._pick_openai_model(transcript)
         try:
             response = self.client.chat.completions.create(
-                model=self.model,
+                model=chosen_model,
                 messages=[
                     {"role": "system", "content": (
                         "You are a voice-to-text formatter. Clean up voice transcripts "
@@ -312,6 +336,15 @@ Transcript: {transcript}"""
             styled = self._strip_hallucinations(styled, self._last_raw)
             styled = self._restore_censored_profanity(styled, self._last_raw)
             usage = response.usage
+            # Log which model was actually used so the auto-routing decision
+            # is visible in the app log.
+            try:
+                from datetime import datetime as _dt
+                log_path = Path.home() / ".waffler-hosted" / "app.log"
+                with open(log_path, "a") as _fp:
+                    _fp.write(f"{_dt.now().strftime('%H:%M:%S')}  [styling] OpenAI model used: {chosen_model} ({len(transcript.split())} input words)\n")
+            except Exception:
+                pass
             return styled, {
                 "input_tokens": usage.prompt_tokens if usage else 0,
                 "output_tokens": usage.completion_tokens if usage else 0,

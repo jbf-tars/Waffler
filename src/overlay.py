@@ -137,6 +137,21 @@ class RecordingOverlay:
         if self._is_alive():
             self._send({"type": "state", "value": state})
 
+    def set_progress(self, label: str, elapsed_seconds: float = 0.0):
+        """
+        Show a progress label + elapsed time on the pill overlay.
+        Useful for the slow post-recording stages (transcribing, styling)
+        so the user sees the app IS working and not frozen.
+          label: short status string (e.g. "Transcribing", "Styling")
+          elapsed_seconds: how long this stage has been running
+        """
+        if self._is_alive():
+            self._send({
+                "type": "progress",
+                "label": label,
+                "elapsed_seconds": float(elapsed_seconds),
+            })
+
     def show_toast(self, style: str, heading: str, body: str):
         """
         Show a floating toast popup above the pill overlay.
@@ -213,11 +228,23 @@ class RecordingOverlay:
             CREATE_NO_WINDOW = 0x08000000
             kwargs["creationflags"] = CREATE_NO_WINDOW
 
-        self._log(f"[overlay] Starting subprocess: {sys.executable} --overlay")
+        # When packaged via PyInstaller, sys.executable IS the Waffler app and
+        # handles --overlay directly. When running from source ('python app.py'),
+        # sys.executable is plain python.exe, which doesn't understand --overlay
+        # on its own — we need to give it app.py as the script to execute.
+        import os as _os
+        if getattr(sys, 'frozen', False):
+            cmd = [sys.executable, '--overlay']
+        else:
+            # Path to app.py at the repo root (one level above src/).
+            _app_py = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), 'app.py')
+            cmd = [sys.executable, _app_py, '--overlay']
+
+        self._log(f"[overlay] Starting subprocess: {' '.join(cmd)}")
 
         try:
             self._process = subprocess.Popen(
-                [sys.executable, '--overlay'],
+                cmd,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
