@@ -27,10 +27,32 @@ WHAT TO KEEP (context-aware — do NOT remove when these carry meaning):
 - Contextual/tonal phrases — KEEP these, do not drop them: "as I mentioned", "as you can see", "in the screenshot", "to be fair", "to be honest", "I can't lie to you", "I have to say", "honestly", "frankly", "believe me", "trust me".
 - Hedges and qualifiers that carry tone: "maybe", "probably", "just", "kind of" (when used meaningfully).
 
-SELF-CORRECTION: When the speaker corrects themselves, keep ONLY the corrected version.
-- "Let's meet tomorrow, no wait, Friday" → "Let's meet Friday."
-- "Send it to John, sorry I mean Jane" → "Send it to Jane."
-- "updates that I'm working on, sorry, projects that I'm working on" → "projects that I'm working on".
+SELF-CORRECTION: When the speaker corrects themselves, the *wrong* version must be DROPPED ENTIRELY from the output. Keep ONLY the final corrected version, then continue the sentence naturally. The correction marker word itself (sorry / no / actually / wait / I mean / I meant / hmm / scratch that) is ALSO dropped.
+
+Recognise corrections in all these shapes:
+- "X, sorry I mean Y" → drop X, keep Y
+- "X, sorry, Y" → drop X, keep Y
+- "X, no wait, Y" → drop X, keep Y
+- "X, no Y" (just "no" between two replaceable terms) → drop X, keep Y
+- "X, actually Y" → drop X, keep Y
+- "X, hmm no, Y" → drop X, keep Y
+- "X — I meant Y —" → drop X, keep Y
+- "X, scratch that, Y" → drop X, keep Y
+- "X — Y at three would be better" (em-dash replacement, no marker word) → drop X, keep Y
+
+Worked examples (CRITICAL — follow these exactly):
+- "Can we set up a meeting for Tuesday, sorry I mean Monday." → "Can we set up a meeting for Monday." (Tuesday GONE)
+- "Let's do the standup at Tuesday, no wait, Monday." → "Let's do the standup at Monday." (Tuesday GONE)
+- "Can we shift it to Tuesday, actually Monday works better." → "Monday works better." (Tuesday GONE — the "actually" here IS a correction, not emphasis, because it precedes a replacement of the day just named)
+- "The call is at three, no four, in the afternoon." → "The call is at four in the afternoon." (three GONE)
+- "Let's meet on Tuesday, no Wednesday, actually Thursday at two." → "Let's meet on Thursday at two." (Tuesday GONE, Wednesday GONE — only the FINAL option in a chain of corrections survives)
+- "Send it to John, sorry James, by Tuesday, no wait, Wednesday at three." → "Send it to James by Wednesday at three." (John GONE, Tuesday GONE — both corrections apply)
+- "Tuesday — Monday at three would be better actually." → "Monday at three would be better." (Tuesday GONE — em-dash + replacement is a correction even without a marker word)
+
+NEGATIVE cases — when these phrases are NOT corrections, do NOT drop content:
+- "Make sure the test is comprehensive — I mean cover the edge cases, the happy path, and the error states." → keep everything; "I mean" here introduces a clarification, not a replacement.
+- "Sorry for the late reply, the call ran over by twenty minutes." → keep everything; "Sorry" at sentence start is an apology, not a correction marker.
+- "I thought the deploy would take an hour, but no, wait until you see this — it took six." → keep everything; "no, wait until you see this" is a rhetorical device, not "X, no wait, Y".
 
 LIGHT GRAMMAR SMOOTHING (allowed, do not overuse):
 - Fix obvious stammers: "the thing is this is we need" → "the thing is we need".
@@ -123,6 +145,14 @@ FORMATTING:
           Regards,
           James
       Worked example: input "Cheers, James." with no body becomes "Cheers,\nJames" — same split applies.
+      Worked example with "Thanks again": input "Hi Sarah, the figures all check out. Really appreciate you turning that around so quickly. Thanks again, James." → output:
+          Hi Sarah,
+
+          The figures all check out. Really appreciate you turning that around so quickly.
+
+          Thanks again,
+          James
+        This is a clear sign-off: "Thanks again" is in the recognised list and "James" is at the very end after a comma. The "Thanks again, James." MUST be split into two lines, NOT kept inline as a single body sentence. The self-correction rules above do NOT apply here — "Thanks again" is a sign-off, not a correction marker.
 - {dialect_instruction}
 
 Transcript: {transcript}

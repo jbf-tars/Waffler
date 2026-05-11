@@ -70,8 +70,45 @@ class OpenAIStyler:
 
 Transcript: {transcript}"""
 
+    # Phrases that signal the speaker corrected themselves mid-utterance.
+    # If any of these appear in the transcript we MUST run the LLM — the
+    # regex-only _basic_clean has no way to drop the abandoned phrase, so
+    # bypassing the LLM here would leave both versions in the output
+    # ("Tuesday, sorry I mean Monday" -> "Tuesday, sorry I mean Monday").
+    # Matched case-insensitively against the whole transcript.
+    # Better to over-trigger (extra LLM call) than under-trigger (silently
+    # wrong output) — that's the trade-off these patterns make.
+    _CORRECTION_MARKERS = (
+        r"\bsorry,?\s+i\s+mean\b",          # "sorry I mean"
+        r"\bi\s+meant\b",                   # "I meant X"
+        r"\bno\s+wait\b",                   # "no wait"
+        r"\bno,\s+wait\b",                  # "no, wait"
+        r"\bhmm\s+no\b",                    # "hmm no"
+        r"\bno\s+actually\b",               # "no actually"
+        r",\s*sorry,\s+",                   # ", sorry, Y"  (sorry mid-sentence as correction)
+        r",\s*no\s+\w+",                    # ", no <word>" — "Tuesday, no Monday" / "three, no four"
+        r",\s*actually\b",                  # ", actually Y" — soft correction marker
+        r"\blet\s+me\s+start\s+over\b",
+        r"\bwhat\s+i\s+(?:'m\s+)?(?:meant\s+to\s+say|trying\s+to\s+say|wanted\s+to\s+say)\b",
+        r"\bscratch\s+that\b",
+        # Em-dash followed by a short replacement — pattern of "X — Y instead"
+        r"—\s+\w+\s+(?:at|on|by|in)\s+\w+\s+(?:would|works|sounds)\s+(?:be\s+)?better\b",
+    )
+
     def _is_simple(self, transcript: str) -> bool:
-        """Short / already-clean transcript — skip API, just regex-clean."""
+        """Short / already-clean transcript — skip API, just regex-clean.
+
+        Returns False (i.e. forces the LLM path) when:
+          - the transcript is longer than 10 words, OR
+          - it contains self-correction markers the regex cleaner can't handle.
+        """
+        # Self-correction overrides length: even a 4-word transcript like
+        # "Tuesday no Monday" needs the LLM to drop "Tuesday".
+        lower = transcript.lower()
+        for pat in self._CORRECTION_MARKERS:
+            if re.search(pat, lower):
+                return False
+
         words = transcript.split()
         if len(words) <= 5:
             return True
