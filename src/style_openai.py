@@ -62,8 +62,17 @@ class OpenAIStyler:
         self._groq_skip_until = 0.0
         self._cerebras_skip_until = 0.0
 
-        # Priority 1: Cerebras (fastest, generous free tier). OpenAI-compatible
-        # API, so we use the OpenAI SDK with a custom base_url.
+        # Priority 1: Cerebras (fastest in the world for Llama models;
+        # ~3000+ tok/sec output on the 8B model). OpenAI-compatible API.
+        #
+        # Model: llama-3.1-8b — available on the free tier. Llama 3.3 70B
+        # exists in Cerebras's catalogue but requires a paid plan, so we
+        # use the 8B instead. It's noticeably smaller than the 70B Groq
+        # serves, but for our task (filler removal, light formatting,
+        # rule-following per the prompt) it's plenty capable and the
+        # speed advantage is enormous. If quality regresses on any
+        # specific rule, the Groq 70B fallback catches it.
+        # Power users can flip via CEREBRAS_MODEL env var.
         if cerebras_api_key:
             try:
                 self._cerebras_client = OpenAI(
@@ -71,7 +80,8 @@ class OpenAIStyler:
                     base_url="https://api.cerebras.ai/v1",
                 )
                 self._use_cerebras = True
-                self._cerebras_model = "llama-3.3-70b"
+                import os as _os
+                self._cerebras_model = _os.getenv("CEREBRAS_MODEL", "").strip() or "llama-3.1-8b"
                 print(f"Styling primary: Cerebras {self._cerebras_model}")
             except Exception as e:
                 print(f"Cerebras init failed ({e}), skipping")
