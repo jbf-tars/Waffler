@@ -34,6 +34,11 @@ class Config:
         """Load API keys from environment variables"""
         self.openai_api_key = os.getenv('OPENAI_API_KEY')
         self.groq_api_key = os.getenv('GROQ_API_KEY')
+        # Cerebras hosts Llama 3.3 70B at the fastest inference speed
+        # available for this model (~2200+ tok/s). Free tier ~1M tokens/day,
+        # OpenAI-compatible API. Sits at the top of the styling fallback
+        # chain — Cerebras → Groq → OpenAI.
+        self.cerebras_api_key = os.getenv('CEREBRAS_API_KEY')
 
         # Prompt style precedence: settings.json (user's UI choice) >
         # PROMPT_STYLE env var (advanced override) > "normal" default.

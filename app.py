@@ -1768,20 +1768,33 @@ class WafflerPipeline:
         )
         _log_to_file(f"Transcriber backend: {self.transcriber._backend}")
 
-        # Styler — Groq LLaMA (fast) → OpenAI (fallback).
-        # OpenAI default is gpt-4.1-mini (better instruction-following + 35%
-        # faster than gpt-4o-mini). Long inputs auto-route to gpt-4.1 (full)
-        # inside _style_openai for higher per-token output speed. Power users
-        # override via OPENAI_STYLE_MODEL env var. The OpenAIStyler ctor
-        # default carries the right model — DO NOT pass model= here, otherwise
-        # we silently override the upgrade.
+        # Styler — three-tier fallback chain:
+        #   1. Cerebras Llama 3.3 70B   (fastest ever for this model, ~1M
+        #      tokens/day free) — primary when CEREBRAS_API_KEY is set
+        #   2. Groq Llama 3.3 70B       (very fast, lower daily free cap)
+        #   3. OpenAI gpt-4.1-mini      (slower but always available;
+        #      gpt-4.1 auto-routed for inputs ≥ 200 words)
+        # Same prompt sent everywhere so behaviour is consistent.
+        # DO NOT pass model= here — the OpenAIStyler ctor default is
+        # gpt-4.1-mini and overriding it silently was a real bug.
+        cerebras_key = getattr(config, "cerebras_api_key", "") or ""
         self.styler = OpenAIStyler(
             api_key=openai_key,
             max_tokens=1024,
             prompt_style=config.prompt_style,
             groq_api_key=groq_key,
+            cerebras_api_key=cerebras_key,
         )
-        _log_to_file(f"Styler backend: {'groq' if self.styler._use_groq else 'openai'}")
+        _log_to_file(
+            f"Styler chain: cerebras={'yes' if self.styler._use_cerebras else 'no'}"
+            f" groq={'yes' if self.styler._use_groq else 'no'}"
+            f" openai={'yes' if self.styler.client else 'no'}"
+            f" (default openai model: {self.styler.model})"
+        )
+        # Legacy log line kept for log-grep compatibility — superseded by the
+        # 'Styler chain:' line above which shows all three tiers.
+        primary = "cerebras" if self.styler._use_cerebras else ("groq" if self.styler._use_groq else "openai")
+        _log_to_file(f"Styler backend: {primary}")
 
         self.clipboard = ClipboardManager()
         self.is_recording = False

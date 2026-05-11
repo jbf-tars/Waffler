@@ -1,4 +1,12 @@
-"""LLM styling module — Groq LLaMA (fast) or OpenAI GPT-4o-mini (fallback)"""
+"""LLM styling module — three-tier fallback chain:
+
+  1. Cerebras Llama 3.3 70B  (fastest in the world for this model, ~2200+ tok/s)
+  2. Groq Llama 3.3 70B       (very fast ~270 tok/s, but ~100k/day free-tier cap)
+  3. OpenAI gpt-4.1-mini      (slower but always available)
+
+All three speak OpenAI-compatible chat-completions APIs. The same prompt is
+sent everywhere so behaviour is consistent.
+"""
 
 from openai import OpenAI
 from pathlib import Path
@@ -14,11 +22,11 @@ except ImportError:
 
 
 class OpenAIStyler:
-    """Styles transcripts — Groq LLaMA 3.3 70B (fast) or GPT-4o-mini (fallback)"""
+    """Styles transcripts — Cerebras / Groq Llama 3.3 70B → OpenAI fallback."""
 
     def __init__(self, api_key: str = "", model: str = "gpt-4.1-mini",
                  max_tokens: int = 1024, prompt_style: str = "normal",
-                 groq_api_key: str = ""):
+                 groq_api_key: str = "", cerebras_api_key: str = ""):
         self.api_key = api_key
         # Default styling model: gpt-4.1-mini.
         # Benchmark against the user's actual failing case (May 2026):
@@ -41,21 +49,40 @@ class OpenAIStyler:
         self.max_tokens = max_tokens
         self.prompt_style = prompt_style
         self.groq_api_key = groq_api_key
+        self.cerebras_api_key = cerebras_api_key
         self.client = OpenAI(api_key=api_key) if api_key else None
         self._groq_client = None
         self._use_groq = False
-        # Monotonic-clock deadline: until this timestamp, skip Groq entirely and
-        # call OpenAI directly. Set when Groq returns a 429 so we honour its own
-        # retry-after hint instead of wasting a round-trip on every recording.
+        self._cerebras_client = None
+        self._use_cerebras = False
+        # Monotonic-clock deadlines: until these timestamps, skip the
+        # respective provider entirely and try the next one. Set when a
+        # provider returns a 429 so we honour its retry-after hint instead
+        # of wasting a round-trip on every recording.
         self._groq_skip_until = 0.0
+        self._cerebras_skip_until = 0.0
 
-        # Priority 1: Groq for styling if available
+        # Priority 1: Cerebras (fastest, generous free tier). OpenAI-compatible
+        # API, so we use the OpenAI SDK with a custom base_url.
+        if cerebras_api_key:
+            try:
+                self._cerebras_client = OpenAI(
+                    api_key=cerebras_api_key,
+                    base_url="https://api.cerebras.ai/v1",
+                )
+                self._use_cerebras = True
+                self._cerebras_model = "llama-3.3-70b"
+                print(f"Styling primary: Cerebras {self._cerebras_model}")
+            except Exception as e:
+                print(f"Cerebras init failed ({e}), skipping")
+
+        # Priority 2: Groq for styling if available
         if groq_api_key and _groq_mod:
             self._groq_client = _groq_mod.Groq(api_key=groq_api_key)
             self._use_groq = True
             self._groq_model = "llama-3.3-70b-versatile"
-            print(f"Styling: Groq {self._groq_model}")
-        else:
+            print(f"Styling fallback: Groq {self._groq_model}")
+        elif not self._use_cerebras:
             print(f"Styling: OpenAI {model}")
 
         # Load prompt template
@@ -173,32 +200,48 @@ Transcript: {transcript}"""
         word_count = max(1, len(transcript.split()))
         self._max_out_tokens = max(1024, min(8192, word_count * 3))
 
-        # Priority 1: Try Groq (much faster), fall back to OpenAI.
-        # Skip Groq entirely while we're still inside its own retry-after
-        # window — avoids a wasted ~200–500ms round-trip per recording.
+        # Three-tier fallback chain. Each provider has its own skip-until
+        # deadline that pauses further attempts on that provider after a 429.
+
+        # Priority 1: Cerebras Llama 3.3 70B — fastest in the world for this
+        # model, generous free tier (~1M tokens/day).
+        if self._use_cerebras and time.monotonic() >= self._cerebras_skip_until:
+            try:
+                return self._style_cerebras(prompt, start_time)
+            except Exception as e:
+                self._log_provider_failure("Cerebras", e)
+                # fall through to Groq / OpenAI
+
+        # Priority 2: Groq Llama 3.3 70B — fast but low daily free-tier cap.
         if self._use_groq and time.monotonic() >= self._groq_skip_until:
             try:
                 return self._style_groq(prompt, start_time)
             except Exception as e:
-                import traceback
-                err_detail = traceback.format_exc()
-                print(f"Groq styling failed ({e}), falling back to OpenAI")
-                # Log the error to file so it's not silently swallowed
-                from pathlib import Path
-                from datetime import datetime
-                try:
-                    log_file = Path.home() / ".waffler-hosted" / "app.log"
-                    with open(log_file, "a") as f:
-                        ts = datetime.now().strftime("%H:%M:%S")
-                        f.write(f"{ts}  [styling] Groq FAILED: {e}\n")
-                        f.write(f"{ts}  [styling] {err_detail}\n")
-                except Exception:
-                    pass
+                self._log_provider_failure("Groq", e)
                 if not self.client:
-                    return self._basic_clean(transcript), {"input_tokens": 0, "output_tokens": 0, "api_used": False, "provider": "basic_clean", "fallback_reason": str(e)[:160]}
+                    return self._basic_clean(transcript), {
+                        "input_tokens": 0, "output_tokens": 0,
+                        "api_used": False, "provider": "basic_clean",
+                        "fallback_reason": str(e)[:160],
+                    }
 
-        # Priority 2: OpenAI fallback
+        # Priority 3: OpenAI gpt-4.1-mini / gpt-4.1 (auto-routed by length).
         return self._style_openai(prompt, transcript, start_time)
+
+    def _log_provider_failure(self, provider_name: str, exc: Exception):
+        """Common provider-failure log emitter — keeps each call site small."""
+        import traceback
+        from datetime import datetime
+        err_detail = traceback.format_exc()
+        print(f"{provider_name} styling failed ({exc}), trying next provider")
+        try:
+            log_file = Path.home() / ".waffler-hosted" / "app.log"
+            with open(log_file, "a") as f:
+                ts = datetime.now().strftime("%H:%M:%S")
+                f.write(f"{ts}  [styling] {provider_name} FAILED: {exc}\n")
+                f.write(f"{ts}  [styling] {err_detail}\n")
+        except Exception:
+            pass
 
     def _style_groq(self, prompt: str, start_time: float):
         """Style using Groq — ~200-400ms."""
@@ -284,6 +327,61 @@ Transcript: {transcript}"""
             "output_tokens": usage.completion_tokens if usage else 0,
             "api_used": True,
             "provider": "groq",
+        }
+
+    def _style_cerebras(self, prompt: str, start_time: float):
+        """Style using Cerebras Llama 3.3 70B — fastest in the world for this
+        model (~2200+ tok/s output). OpenAI-compatible API."""
+        system_msg = (
+            "Clean up voice transcripts. Remove filler words (um, uh, like, yeah, you know). "
+            "Preserve the speaker's exact wording. Never paraphrase or add words they didn't say. "
+            "**NEVER censor profanity — keep swear words like 'fucking', 'shit', 'bloody' "
+            "exactly as the speaker said them.** Return only the cleaned text, no commentary."
+        )
+        try:
+            response = self._cerebras_client.chat.completions.create(
+                model=self._cerebras_model,
+                messages=[
+                    {"role": "system", "content": system_msg},
+                    {"role": "user", "content": prompt},
+                ],
+                max_tokens=getattr(self, "_max_out_tokens", 4096),
+                temperature=0.1,
+            )
+        except Exception as e:
+            error_msg = str(e)
+            lower = error_msg.lower()
+            if "429" in error_msg or "rate" in lower or "quota" in lower:
+                # Cerebras returns standard 429 with Retry-After-ish hints.
+                # Without a hint, default to 5 minutes — Cerebras's per-minute
+                # token cap on free tier resets quickly.
+                import re as _re
+                wait_m = _re.search(r"(?:retry|try again).{0,40}?(\d+)\s*(?:s|sec|second)", lower)
+                cool = float(wait_m.group(1)) if wait_m else 300.0
+                self._cerebras_skip_until = time.monotonic() + cool
+                raise RuntimeError(f"RATE_LIMIT|Cerebras|{int(cool)}s|{error_msg[:80]}")
+            elif "connection" in lower or "timeout" in lower:
+                # Short skip for transient network issues.
+                self._cerebras_skip_until = time.monotonic() + 30.0
+                raise RuntimeError(f"CONNECTION: Cerebras connection failed — {error_msg[:100]}")
+            elif "401" in error_msg or "403" in error_msg or "unauthor" in lower or "invalid" in lower:
+                # Auth failure — usually a bad / expired API key. Don't
+                # hammer the endpoint; fall through to Groq / OpenAI for
+                # the session.
+                self._cerebras_skip_until = time.monotonic() + 3600.0
+                print(f"[styling] Cerebras returned auth error — skipping for 1 hour")
+                raise RuntimeError(f"AUTH: Cerebras auth failed — {error_msg[:120]}")
+            raise
+        styled = response.choices[0].message.content.strip()
+        styled = self._fix_mid_sentence_caps(styled)
+        styled = self._strip_hallucinations(styled, self._last_raw)
+        styled = self._restore_censored_profanity(styled, self._last_raw)
+        usage = response.usage
+        return styled, {
+            "input_tokens": usage.prompt_tokens if usage else 0,
+            "output_tokens": usage.completion_tokens if usage else 0,
+            "api_used": True,
+            "provider": "cerebras",
         }
 
     # Auto-routing threshold: inputs >= this many words are routed to the
