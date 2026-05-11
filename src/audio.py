@@ -166,16 +166,28 @@ class AudioRecorder:
             # append to _buffer.
             self.is_recording = True
 
+    # Post-roll: how long to keep recording AFTER the user releases the
+    # hotkey, so the final syllable / word isn't clipped. The user almost
+    # always finishes speaking just before they release — without this,
+    # the last 50-200ms of speech is sitting in the OS audio buffer when
+    # we flip is_recording=False, and it's lost.
+    _POSTROLL_MS = 250
+
     def stop(self) -> bytes:
         """Stop recording and return WAV bytes.
 
-        Does NOT close the underlying stream — keeps it alive so the next
-        start() is instant (no 50-300ms stream-creation latency on
-        Windows). The stream continues filling the pre-roll buffer in the
-        background. If we did need to fully release the stream (e.g.
-        app shutdown), call shutdown() explicitly.
+        Keeps capturing for an extra _POSTROLL_MS after the call so the
+        final word isn't clipped, then flips the recording flag and
+        snapshots the buffer. Does NOT close the underlying stream — that
+        stays alive so the next start() is instant. Use shutdown() for
+        full teardown on app exit.
         """
-        # Flip recording off, snapshot the captured buffer.
+        # Sleep BEFORE flipping is_recording so the callback continues to
+        # append the trailing audio chunks during the wait. This is the
+        # end-of-recording mirror of the pre-roll buffer at the start.
+        import time as _t
+        _t.sleep(self._POSTROLL_MS / 1000.0)
+
         with self._stream_lock:
             self.is_recording = False
 
