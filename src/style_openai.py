@@ -197,7 +197,8 @@ Transcript: {transcript}"""
         system_msg = (
             "Clean up voice transcripts. Remove filler words (um, uh, like, yeah, you know). "
             "Preserve the speaker's exact wording. Never paraphrase or add words they didn't say. "
-            "Never censor profanity. Return only the cleaned text, no commentary."
+            "**NEVER censor profanity — keep swear words like 'fucking', 'shit', 'bloody' "
+            "exactly as the speaker said them.** Return only the cleaned text, no commentary."
         )
         try:
             response = self._groq_client.chat.completions.create(
@@ -268,6 +269,7 @@ Transcript: {transcript}"""
         # Fix mid-sentence capitalization bug
         styled = self._fix_mid_sentence_caps(styled)
         styled = self._strip_hallucinations(styled, self._last_raw)
+        styled = self._restore_censored_profanity(styled, self._last_raw)
         usage = response.usage
         return styled, {
             "input_tokens": usage.prompt_tokens if usage else 0,
@@ -282,7 +284,15 @@ Transcript: {transcript}"""
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": "You are a voice-to-text formatter. Output ONLY the final cleaned text. No meta-commentary."},
+                    {"role": "system", "content": (
+                        "You are a voice-to-text formatter. Clean up voice transcripts "
+                        "by removing filler words (um, uh, like, yeah, you know) and "
+                        "fixing obvious stammers. Preserve the speaker's exact wording. "
+                        "Never paraphrase or add words they didn't say. **NEVER censor "
+                        "profanity — keep swear words like 'fucking', 'shit', 'bloody' "
+                        "exactly as the speaker said them.** Output ONLY the final "
+                        "cleaned text. No meta-commentary."
+                    )},
                     {"role": "user", "content": prompt},
                 ],
                 max_tokens=getattr(self, "_max_out_tokens", 4096),
@@ -292,6 +302,7 @@ Transcript: {transcript}"""
             # Fix mid-sentence capitalization bug
             styled = self._fix_mid_sentence_caps(styled)
             styled = self._strip_hallucinations(styled, self._last_raw)
+            styled = self._restore_censored_profanity(styled, self._last_raw)
             usage = response.usage
             return styled, {
                 "input_tokens": usage.prompt_tokens if usage else 0,
@@ -378,6 +389,97 @@ Transcript: {transcript}"""
     def _raw_starts_with_greeting(self, raw: str) -> bool:
         head = raw.lstrip().lower()
         return any(head.startswith(w) for w in self._GREETING_WORDS)
+
+    # Profanity that gpt-4o-mini's safety training sometimes strips even when
+    # the prompt and system message explicitly forbid censoring. Belt-and-braces:
+    # if the speaker said it and the LLM dropped it, splice it back in.
+    _PROFANITY_WORDS = (
+        # Common UK/US swears the LLM has been observed to censor.
+        "fucking", "fuck", "fucked", "fucker", "fucks",
+        "shit", "shitty", "shite",
+        "bloody",
+        "bastard", "bollocks", "bullshit",
+        "wanker", "twat",
+        "ass", "arse", "asshole", "arsehole",
+        "damn", "damned",
+        "crap", "crappy",
+        "piss", "pissed",
+        "bitch", "bitching",
+        "cunt",
+    )
+
+    def _restore_censored_profanity(self, styled: str, raw: str) -> str:
+        """Restore swear words the LLM stripped despite the no-censor rule.
+
+        Strategy: for each swear word present in raw but missing from styled,
+        find the word IMMEDIATELY BEFORE the swear in raw, locate that same
+        anchor word in styled, and splice the swear in directly after it.
+        Falls back to anchoring on the word AFTER the swear if the preceding
+        word isn't usable. Last resort: append at end with a marker.
+        """
+        if not styled or not raw:
+            return styled
+        import re as _re
+
+        raw_lower = raw.lower()
+
+        # Find swears actually present in raw, in order.
+        swears_in_raw = []
+        for w in self._PROFANITY_WORDS:
+            for m in _re.finditer(rf"\b{_re.escape(w)}\b", raw_lower):
+                swears_in_raw.append((m.start(), m.end(), w))
+        swears_in_raw.sort()
+        if not swears_in_raw:
+            return styled
+
+        result = styled
+        for raw_start, raw_end, swear in swears_in_raw:
+            # Already in current result? — nothing to do.
+            if _re.search(rf"\b{_re.escape(swear)}\b", result.lower()):
+                continue
+
+            # Find the word IMMEDIATELY before the swear in raw, AND which
+            # occurrence of that word it is (so we anchor on the right one
+            # in styled when the word appears multiple times).
+            before = raw_lower[:raw_start]
+            prev_words = _re.findall(r"[a-z']+", before)
+            prev = prev_words[-1] if prev_words else None
+            prev_occurrence = sum(1 for w in prev_words if w == prev) if prev else 0
+
+            anchored = False
+            if prev and len(prev) >= 2 and prev_occurrence > 0:
+                # Find the Nth occurrence of `prev` in result (case-insensitive).
+                matches = list(_re.finditer(rf"\b{_re.escape(prev)}\b", result, _re.IGNORECASE))
+                # Take the closest occurrence at or before prev_occurrence,
+                # falling back to the last if styled has fewer.
+                target = matches[min(prev_occurrence, len(matches)) - 1] if matches else None
+                if target:
+                    insert_at = target.end()
+                    result = result[:insert_at] + " " + swear + result[insert_at:]
+                    anchored = True
+
+            if anchored:
+                continue
+
+            # Fallback: anchor on the FIRST word AFTER the swear in raw
+            # that's also in styled.
+            after = raw_lower[raw_end:]
+            for word in _re.findall(r"[a-z']+", after):
+                if len(word) < 3:
+                    continue
+                m = _re.search(rf"\b{_re.escape(word)}\b", result, _re.IGNORECASE)
+                if m:
+                    insert_at = m.start()
+                    result = result[:insert_at] + swear + " " + result[insert_at:]
+                    anchored = True
+                    break
+
+            if not anchored:
+                # Last resort — append. Better than silently losing the word.
+                trimmed = result.rstrip(".!?\n ")
+                tail_punct = result[len(trimmed):]
+                result = trimmed + " " + swear + tail_punct
+        return result
 
     def _strip_hallucinations(self, output: str, raw_transcript: str) -> str:
         """Deterministic guardrail for known LLM failure modes.
