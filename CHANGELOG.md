@@ -4,6 +4,34 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.13.0] - 2026-05-11
+
+### Added
+- **Cerebras as primary styling provider.** New three-tier fallback chain: Cerebras Llama → Groq Llama → OpenAI gpt-4.1-mini. Cerebras hosts Llama models on wafer-scale chips at ~3000+ tokens/sec output — significantly faster than Groq. Free tier ~1M tokens/day. Defaults to `llama-3.1-8b` (free tier); `CEREBRAS_MODEL` env var lets users upgrade to `llama-3.3-70b` if they're on a paid tier. Each provider has its own monotonic-clock skip-until deadline that pauses further attempts after a 429 — Cerebras's "high traffic" 429 gets a short 20s cooldown so the next dictation retries, while genuine quota hits get 2 minutes. Wired into the setup wizard step 3 as the recommended primary, and into the Settings panel API Keys section as the top row. `validate_cerebras_key()` IPC method handles the awkward case where Cerebras rate-limits the validation itself (saves the key provisionally so setup isn't blocked).
+- **Visible progress feedback on the recording pill.** During the slow post-recording stages (transcribing and styling), the pill now shows `"Transcribing… 1s"` and `"Styling… 5s 10s…"` with a ticking elapsed counter. Eliminates the "is it frozen?" feeling on long dictations. The label clears automatically when a new recording starts so VU bars take over again.
+- **Auto-routing of OpenAI model by input length.** Inputs ≥ 200 words go to `gpt-4.1` (full), which generates output faster per token. Shorter inputs stay on `gpt-4.1-mini` because mini is already fast enough and meaningfully cheaper. `OPENAI_STYLE_MODEL` env var still pins exact models for power users.
+- **500ms audio pre-roll buffer.** The audio stream is now pre-warmed at pipeline init and kept alive across recordings. A continuous ring buffer captures the last 500ms of audio, spliced into every new recording. Result: first 1-2 syllables of speech are no longer clipped on every dictation (was a 50-300ms stream-creation latency on Windows).
+- **150ms audio post-roll buffer.** When the user releases the hotkey, recording keeps capturing for another 150ms so the final word / syllable isn't clipped sitting in the OS audio buffer.
+- **Dual-key setup wizard.** Step 3 of the wizard now shows all three provider key fields together (Cerebras + Groq + OpenAI) instead of forcing a single choice. Users can fill in any combination during initial setup. Any one validated key unlocks the Next button.
+- **`OPENAI_STYLE_MODEL` and `CEREBRAS_MODEL` env vars** for advanced users who want to override the auto-routed model selection.
+- **Self-correction force-LLM markers in `_is_simple()`** — short transcripts that contain self-correction markers (`"sorry I mean"`, `", no <word>"`, `"actually"`, `"I meant"`, `"hmm no"`, `"scratch that"`, `"what I'm trying to say"`, etc.) now bypass the regex-only `_basic_clean` cleaner and go to the LLM, which can actually drop the wrong half. Previously short corrections like `"Tuesday, sorry I mean Monday"` would keep both versions in the output. The corpus now covers 24 self-correction scenarios across day-of-week, name, number, place, multi-step chains, and structural (numbered list / email body / question) contexts.
+- **Profanity restoration safety net.** OpenAI's gpt-4o-mini and gpt-4.1-mini have safety training that sometimes drops swear words even when the prompt explicitly forbids censoring. New `_restore_censored_profanity()` runs after every styling call: if a swear word appears in the raw transcript but not in the styled output, it gets spliced back at the correct position by anchoring on the word immediately before the swear in raw (tracking which occurrence of that word, in case it appears multiple times). Covers the common UK/US swear lexicon.
+- **Greeting auto-line-break for email-style input.** When the transcript starts with `Hi <Name>,` / `Hello team,` / `Hey Rohan,` / `Dear Sam,` / `Morning all,`, Normal mode now puts the greeting on its own line followed by a blank line before the body. Mirrors the existing sign-off split. False-positive guards in place for meta-language ("Hi guys would never work as an opener").
+- **Sign-off auto-split.** `Cheers, James` / `Regards, James` / `Thanks again, James` etc at end of transcript split into two lines (sign-off line + name line) for proper email shape. False-positive guard for mid-body sign-off words.
+
+### Fixed
+- **OpenAI styler was using `gpt-4o-mini` despite the upgrade to `gpt-4.1-mini`.** The OpenAIStyler constructor default was changed correctly, but the caller in `app.py` was passing `model="gpt-4o-mini"` explicitly, silently overriding every model upgrade. Removed the explicit override so the constructor default takes effect.
+- **`max_tokens=512` truncation on long dictations.** The styler was hardcoded to 512 output tokens (~380 words) regardless of input length, silently truncating long dictations mid-sentence. Output budget is now sized against input length (`max(1024, min(8192, input_words * 3))`).
+- **Word-level stutters in short transcripts.** `_basic_clean` now collapses literal token-repeats like "I I", "the the", "we we" before returning. Punctuation between repeats blocks the collapse on purpose ("I, I think" might be a deliberate restart).
+- **Solo `"number three"` was being converted to `"1."`** when no second item was dictated. The numbered-list rule now requires at least two explicitly counted items in the input before firing. Solo count phrases (references like "step five is wrong" or "Number one priority is X") stay as prose.
+- **Vocab case-correction silently no-op'd.** When Whisper transcribed a vocab word in lowercase (e.g. `cobie` instead of `COBie`), the fuzzy-matcher recognised the exact case-insensitive match but emitted no correction — the lowercase form slipped through. Fixed to emit a `(token → canonical)` correction whenever the input case differs from the vocab entry's canonical case.
+- **Numbers, times, dates, units, currency, versions and acronyms** are now strictly preserved (`3pm` stays `3pm`, not `3 PM`; `230ms` stays joined; `12th May 2026` doesn't get its month lowercased). The FORMATTING rule now spells out concrete preservation examples for each form.
+- **Email mode dropdown choice persists** across app restarts (was in-memory only).
+
+### Performance
+- ~35% faster OpenAI styling on short clips via gpt-4o-mini → gpt-4.1-mini swap
+- Order-of-magnitude faster styling on the Cerebras-served path when capacity is available
+
 ## [3.12.7] - 2026-05-10
 
 ### Fixed
