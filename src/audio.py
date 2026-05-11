@@ -171,7 +171,13 @@ class AudioRecorder:
     # always finishes speaking just before they release — without this,
     # the last 50-200ms of speech is sitting in the OS audio buffer when
     # we flip is_recording=False, and it's lost.
-    _POSTROLL_MS = 250
+    #
+    # 150ms is the sweet spot on a modern Windows audio stack: long enough
+    # to catch the trailing word/syllable, short enough that the post-stop
+    # latency before the styled text arrives in the clipboard is barely
+    # noticeable. If end-clipping resurfaces (last word lost on slow
+    # devices), bump back to 200-250ms.
+    _POSTROLL_MS = 150
 
     def stop(self) -> bytes:
         """Stop recording and return WAV bytes.
