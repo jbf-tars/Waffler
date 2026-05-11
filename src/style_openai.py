@@ -362,12 +362,22 @@ Transcript: {transcript}"""
             error_msg = str(e)
             lower = error_msg.lower()
             if "429" in error_msg or "rate" in lower or "quota" in lower:
-                # Cerebras returns standard 429 with Retry-After-ish hints.
-                # Without a hint, default to 5 minutes — Cerebras's per-minute
-                # token cap on free tier resets quickly.
+                # Cerebras returns 429 in two shapes:
+                #   1. Generic "high traffic" — global load-shedding on the
+                #      free tier. Transient, recovers in seconds.
+                #   2. Per-account / per-minute token quota — real cap that
+                #      persists for tens of seconds to minutes.
+                # We treat the "high traffic" pattern with a short 20-second
+                # skip so the next dictation gets a fresh shot at Cerebras.
+                # Other 429s get a longer 2-minute skip. Without distinguishing
+                # the two, a single 429 disables Cerebras for 5 minutes and
+                # the user ends up on OpenAI for every dictation after.
                 import re as _re
-                wait_m = _re.search(r"(?:retry|try again).{0,40}?(\d+)\s*(?:s|sec|second)", lower)
-                cool = float(wait_m.group(1)) if wait_m else 300.0
+                if "high traffic" in lower or "experiencing high" in lower:
+                    cool = 20.0
+                else:
+                    wait_m = _re.search(r"(?:retry|try again).{0,40}?(\d+)\s*(?:s|sec|second)", lower)
+                    cool = float(wait_m.group(1)) if wait_m else 120.0
                 self._cerebras_skip_until = time.monotonic() + cool
                 raise RuntimeError(f"RATE_LIMIT|Cerebras|{int(cool)}s|{error_msg[:80]}")
             elif "connection" in lower or "timeout" in lower:
