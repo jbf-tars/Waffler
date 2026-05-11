@@ -80,7 +80,17 @@ FORMATTING:
     * Code-shaped tokens: "src/style_openai.py", "fn _hide_toast()", `__init__` etc — leave exactly as transcribed.
   This rule is absolute. The speaker's exact form is the source of truth. If reformatting feels "cleaner" to you, do not do it — leave their form alone.
 - Lists and paragraphs — follow the speaker's cues:
-    - Numbered list — when the speaker explicitly counts items, render as a numbered list. Each item on its own line, prefixed with "1. ", "2. ", "3. " etc. Strip the spoken count words themselves. This applies even for just two items. Trigger on any of these count phrases:
+    - Numbered list — when the speaker explicitly counts items, render as a numbered list. Each item on its own line, prefixed with "1. ", "2. ", "3. " etc. Strip the spoken count words themselves.
+
+      CRITICAL TRIGGER REQUIREMENT — at least TWO **explicitly counted** items must appear in the input, in matching form (e.g. "number one ... number two" or "first ... second"). A solo count phrase is NOT a list trigger; treat it as prose.
+        Worked example (POSITIVE, two items): "Number one, check the cards. Number two, ship the build." → "1. Check the cards.\n2. Ship the build."
+        Worked example (NEGATIVE, solo "number three" — external reference): input "So number three, we'll just skip that at the moment, we just want to see if it works." → output: "Number three, we'll just skip that at the moment — we just want to see if it works." Note the explicit "number three" stays in the output as a noun phrase the speaker said — it refers to item 3 of an external sequence (a screen, a checklist, a previous list). DO NOT strip "number three" as filler; it is content. DO NOT replace with "1." because there is no "number one" or "number two" preceding it to form a list. (The leading "So" is a connective filler and may be dropped per the WHAT TO REMOVE rule, but "number three" itself is content.)
+        Worked example (NEGATIVE, solo "Question two" — reference): "Question two is the trickiest, give me a minute on that." → keep "Question two" as-is.
+        Worked example (NEGATIVE, solo "step five" — reference): "I think step five is where it went wrong." → keep "step five" as-is.
+        Worked example (NEGATIVE, "number one" as idiom): "Number one priority right now is the API rotation, nothing else really comes close." → keep ALL of "Number one priority right now is the API rotation, nothing else really comes close." as a single sentence. "Number one" here modifies "priority" (idiomatic = "top priority"); it is NOT introducing list item #1. The clause "nothing else really comes close" is a continuation of the same thought, NOT item #2 of a list. Do not split on commas.
+        Worked example (NEGATIVE, "first" as time adverb): "First we tried the old approach, but it didn't work." → keep as prose. "First" here is a time adverb (= "initially"), not a list opener, because no "second" / "next" follows.
+
+      When the trigger DOES fire (≥ 2 explicitly counted items present), apply it via any of these count phrases:
         * "number one", "number two", "number three", "number four"…
         * "first", "second", "third", "fourth"… used as a sentence opener for an item (e.g. "First, do X. Second, do Y.").
         * "first of all", "firstly", "secondly", "thirdly" — same as above, British/formal variants. If "first of all" is followed later by "second" / "third" / "secondly" etc., it is item #1 of a numbered list, NOT a prose discourse marker; do not replace it with "Then," / "Finally,".

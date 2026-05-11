@@ -717,6 +717,40 @@ CORPUS: List[Case] = [
          # sentiment.
          must_contain=["thanks"],
          expect="verbal punctuation cue handled"),
+
+    # ─── SOLO-NUMBER GUARD (the 09:39 bug user reported) ───────────────────
+    Case("SOLO-NUM-1 user's exact 09:39 bug",
+         "medium", "numbered list",
+         "So number three, we'll just skip that at the moment, we just want to see if it works.",
+         # MUST keep the reference to step three; MUST NOT convert to "1."
+         must_contain=["number three", "skip", "see if it works"],
+         must_not_match=[r"^\s*1\.\s"],
+         expect="solo 'number three' is a reference to an external sequence, NOT a list trigger"),
+    Case("SOLO-NUM-2 'step five' as reference",
+         "medium", "numbered list",
+         "I think step five is where it went wrong, can you have a look at that one?",
+         must_contain=["step five"],
+         must_not_match=[r"^\s*1\.\s", r"^\s*5\.\s"],
+         expect="'step five' is a reference, not a list trigger"),
+    Case("SOLO-NUM-3 'question two' as reference",
+         "medium", "numbered list",
+         "Question two is the trickiest, give me a minute on that.",
+         must_contain=["Question two"],
+         must_not_match=[r"^\s*1\.\s", r"^\s*2\.\s"],
+         expect="'question two' is a reference, not a list trigger"),
+    Case("SOLO-NUM-4 'number one' alone (still solo)",
+         "medium", "numbered list",
+         "Number one priority right now is the API rotation, nothing else really comes close.",
+         # "Number one" used adjectivally / as an idiom, no second item.
+         must_contain=["priority"],
+         must_not_match=[r"^\s*1\.\s*Priority"],
+         expect="'number one priority' is an idiom, not a list opener — no second item exists"),
+    Case("SOLO-NUM-5 positive control — TWO items still work",
+         "medium", "numbered list",
+         "Number one, ship the API rotation. Number two, book the kickoff with Rohan.",
+         must_match=[r"(?m)^\s*1\.\s", r"(?m)^\s*2\.\s"],
+         must_not_contain=["number one", "number two"],
+         expect="two items present — list rule SHOULD fire"),
 ]
 
 
