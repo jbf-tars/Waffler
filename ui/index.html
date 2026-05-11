@@ -129,10 +129,23 @@
       <!-- API Section -->
       <div class="settings-section">
         <div class="settings-section-title">⚡ API Keys</div>
+        <div class="settings-row-desc" style="margin-bottom:8px;font-size:12px;opacity:0.75;">
+          Tried in order: <strong>Cerebras → Groq → OpenAI</strong>. Each is a fallback for the next.
+        </div>
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-label">Cerebras API Key 🚀</div>
+            <div class="settings-row-desc" id="cerebrasKeyDesc">Fastest. Free tier ~1M tokens/day — cloud.cerebras.ai/keys</div>
+          </div>
+          <div class="settings-row-control stacked">
+            <input type="password" id="cerebrasKeyInput" class="settings-input" placeholder="csk-…">
+            <button class="settings-btn" onclick="saveCerebrasKey()">Save</button>
+          </div>
+        </div>
         <div class="settings-row">
           <div class="settings-row-info">
             <div class="settings-row-label">Groq API Key</div>
-            <div class="settings-row-desc" id="groqKeyDesc">Free &amp; 10x faster — console.groq.com</div>
+            <div class="settings-row-desc" id="groqKeyDesc">Very fast, free — console.groq.com</div>
           </div>
           <div class="settings-row-control stacked">
             <input type="password" id="groqKeyInput" class="settings-input" placeholder="gsk_…">
@@ -142,7 +155,7 @@
         <div class="settings-row">
           <div class="settings-row-info">
             <div class="settings-row-label">OpenAI API Key</div>
-            <div class="settings-row-desc">Optional fallback — platform.openai.com</div>
+            <div class="settings-row-desc">Slower fallback — platform.openai.com</div>
           </div>
           <div class="settings-row-control stacked">
             <input type="password" id="apiKeyInput" class="settings-input" placeholder="sk-…">
@@ -431,20 +444,43 @@
         <div class="wizard-card-icon">🔑</div>
         <h2>API Keys</h2>
         <p class="wizard-card-desc">
-          Add Groq (recommended — free and fast). You can <strong>also add OpenAI as a fallback</strong> for when Groq's daily limit is hit. Only one is required, but having both gives you the smoothest experience.
+          Add at least one — adding all three gives the smoothest experience. Waffler tries them in order: <strong>Cerebras → Groq → OpenAI</strong>. Each one is faster (and usually cheaper) than the next.
           <br><span class="wizard-link" style="font-size:13px" onclick="pywebview.api.open_url('https://wafflerai.com/api-key-guide')">Need help? Follow our step-by-step guide →</span>
         </p>
 
-        <!-- Both provider fields shown together. Groq is the primary
-             (free, 10× faster). OpenAI is the fallback, kicks in
-             automatically when Groq hits its daily token limit. -->
+        <!-- All three provider fields shown together. Cerebras is the
+             primary tier (fastest, free), Groq second (still very fast,
+             generous free tier), OpenAI is the always-available fallback. -->
+
+        <!-- Cerebras Field — the fastest tier. -->
+        <div id="cerebrasField" class="provider-field active">
+          <div class="provider-container">
+            <div class="provider-header">
+              <div class="provider-icon">🚀</div>
+              <div class="provider-title">
+                <h3>Cerebras API Key <span style="font-size:11px;color:#C8A256;font-weight:600;margin-left:6px">RECOMMENDED</span></h3>
+                <p>Fastest in the world for Llama models. Free tier ~1M tokens/day.</p>
+              </div>
+            </div>
+            <div class="api-key-input-group">
+              <input type="password" id="wizCerebrasKeyInput3" class="api-key-input" placeholder="csk-..." autocomplete="off" spellcheck="false">
+              <button class="btn-toggle-visibility" onclick="toggleKeyVisibility('wizCerebrasKeyInput3')">👁️</button>
+            </div>
+            <div class="provider-hint">
+              Get your free key: <a href="#" onclick="pywebview.api.open_url('https://cloud.cerebras.ai/keys'); return false;">cloud.cerebras.ai/keys →</a>
+            </div>
+            <div class="wizard-validation" id="wizCerebrasValidation3"></div>
+          </div>
+        </div>
+
+        <!-- Groq Field — second tier, also very fast. -->
         <div id="groqField" class="provider-field active">
           <div class="provider-container">
             <div class="provider-header">
               <div class="provider-icon">⚡</div>
               <div class="provider-title">
                 <h3>Groq API Key</h3>
-                <p>Free and 10x faster than OpenAI</p>
+                <p>Very fast, generous free tier (~100k tokens/day). Used when Cerebras is busy.</p>
               </div>
             </div>
             <div class="api-key-input-group">
@@ -465,7 +501,7 @@
               <div class="provider-icon">🤖</div>
               <div class="provider-title">
                 <h3>OpenAI API Key</h3>
-                <p>Optional fallback provider</p>
+                <p>Slower but always available. Final fallback when both above are busy.</p>
               </div>
             </div>
             <div class="api-key-input-group">
@@ -480,7 +516,7 @@
         </div>
 
         <p class="wizard-hint switch-hint">
-          Want to use the other provider? Click the button above to switch.
+          Any one of these is enough to get started. You can always add the others later from Settings.
         </p>
       </div>
     </div>

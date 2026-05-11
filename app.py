@@ -614,6 +614,7 @@ class Api:
         stored = self._load_settings_file()
         key = os.getenv("OPENAI_API_KEY", "")
         groq_key = os.getenv("GROQ_API_KEY", "")
+        cerebras_key = os.getenv("CEREBRAS_API_KEY", "")
 
         def _mask(k):
             if len(k) > 12:
@@ -628,7 +629,9 @@ class Api:
         styling_backend = "unknown"
         if _pipeline:
             transcription_backend = getattr(_pipeline.transcriber, "_backend", "api")
-            if getattr(_pipeline.styler, "_use_groq", False):
+            if getattr(_pipeline.styler, "_use_cerebras", False):
+                styling_backend = "cerebras"
+            elif getattr(_pipeline.styler, "_use_groq", False):
                 styling_backend = "groq"
             else:
                 styling_backend = "openai"
@@ -637,6 +640,8 @@ class Api:
             "api_key_masked":        _mask(key),
             "groq_key_set":          bool(groq_key),
             "groq_key_masked":       _mask(groq_key),
+            "cerebras_key_set":      bool(cerebras_key),
+            "cerebras_key_masked":   _mask(cerebras_key),
             "local_whisper":         os.getenv("LOCAL_WHISPER", "0") == "1",
             "local_whisper_active":  local_whisper_active,
             "transcription_backend": transcription_backend,
@@ -815,6 +820,50 @@ class Api:
                 return {"ok": False, "error": "Access denied — this key may be expired or revoked. Generate a new one at console.groq.com/keys"}
             elif "429" in error_msg:
                 return {"ok": False, "error": "Rate limited — try again shortly"}
+            else:
+                return {"ok": False, "error": f"Connection error: {error_msg[:100]}"}
+
+    def validate_cerebras_key(self, api_key: str) -> dict:
+        """Validate a Cerebras API key by doing a minimal chat-completions
+        round-trip. We can't use the /models endpoint because some scoped
+        keys lack the 'models:read' permission but still have
+        text_to_speech / chat permissions."""
+        api_key = (api_key or "").strip()
+        if not api_key:
+            return {"ok": False, "error": "No API key provided"}
+        try:
+            from openai import OpenAI as _OpenAI
+            client = _OpenAI(api_key=api_key, base_url="https://api.cerebras.ai/v1")
+            # Tiny ping — 5 token budget on the smallest free-tier model.
+            client.chat.completions.create(
+                model="llama-3.1-8b",
+                messages=[{"role": "user", "content": "Reply with just OK"}],
+                max_tokens=5,
+                temperature=0,
+            )
+            self._update_env_var("CEREBRAS_API_KEY", api_key)
+            os.environ["CEREBRAS_API_KEY"] = api_key
+            return {"ok": True, "message": "Cerebras key is valid"}
+        except Exception as e:
+            error_msg = str(e)
+            lower = error_msg.lower()
+            if "401" in error_msg or "unauthorized" in lower or "invalid" in lower:
+                return {"ok": False, "error": "Invalid Cerebras API key"}
+            elif "403" in error_msg:
+                return {"ok": False, "error": "Access denied — key may be expired or scope-restricted"}
+            elif "429" in error_msg or "high traffic" in lower:
+                # The validation hit Cerebras's load-shedding. The key is
+                # probably valid; we just can't confirm right now. Accept
+                # provisionally so the user isn't blocked at setup time.
+                self._update_env_var("CEREBRAS_API_KEY", api_key)
+                os.environ["CEREBRAS_API_KEY"] = api_key
+                return {"ok": True, "message": "Cerebras rate-limited the check; key saved (will retry on next dictation)"}
+            elif "404" in error_msg and "model" in lower:
+                # Specific model not on this tier — but the key is valid
+                # if the auth path got us as far as a model check.
+                self._update_env_var("CEREBRAS_API_KEY", api_key)
+                os.environ["CEREBRAS_API_KEY"] = api_key
+                return {"ok": True, "message": "Key saved (your tier may not include some models, that's fine)"}
             else:
                 return {"ok": False, "error": f"Connection error: {error_msg[:100]}"}
 

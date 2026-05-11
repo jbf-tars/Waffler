@@ -1080,6 +1080,18 @@ async function loadSettings() {
   try {
     const s = await pywebview.api.get_settings();
 
+    // Cerebras key (primary tier — fastest)
+    const cerebrasInput = document.getElementById('cerebrasKeyInput');
+    const cerebrasDesc = document.getElementById('cerebrasKeyDesc');
+    if (cerebrasInput) {
+      cerebrasInput.placeholder = s.cerebras_key_set ? s.cerebras_key_masked : 'csk-…';
+    }
+    if (cerebrasDesc) {
+      cerebrasDesc.textContent = s.cerebras_key_set
+        ? ('Active: ' + s.cerebras_key_masked)
+        : 'Fastest. Free tier ~1M tokens/day — cloud.cerebras.ai/keys';
+    }
+
     // Groq key
     const groqInput = document.getElementById('groqKeyInput');
     const groqDesc = document.getElementById('groqKeyDesc');
@@ -1089,7 +1101,7 @@ async function loadSettings() {
     if (groqDesc) {
       groqDesc.textContent = s.groq_key_set
         ? ('Active: ' + s.groq_key_masked)
-        : 'Free & 10x faster — console.groq.com';
+        : 'Very fast, free — console.groq.com';
     }
 
     // OpenAI key
@@ -1163,6 +1175,26 @@ async function saveGroqKey() {
     }
   } catch(e) {
     showToast('Failed to save key', 'error');
+  }
+}
+
+async function saveCerebrasKey() {
+  const inp = document.getElementById('cerebrasKeyInput');
+  if (!inp) return;
+  const val = inp.value.trim();
+  if (!val) { showToast('Enter a Cerebras API key first', 'error'); return; }
+  try {
+    // validate_cerebras_key persists on success.
+    const r = await pywebview.api.validate_cerebras_key(val);
+    if (r.ok) {
+      inp.value = '';
+      showToast(r.message || 'Cerebras key saved — restart for speed boost', 'success');
+      await loadSettings();
+    } else {
+      showToast('Error: ' + (r.error || 'invalid'), 'error');
+    }
+  } catch(e) {
+    showToast('Failed to save Cerebras key', 'error');
   }
 }
 
@@ -1282,6 +1314,7 @@ const WIZARD_TOTAL_STEPS = isMacPlatform ? 4 : 3;
 const WIZARD_FIRST_STEP = isMacPlatform ? 1 : 2;  // Skip permissions on Windows
 let _wizardGroqKeyValidated = false;
 let _wizardApiKeyValidated = false;
+let _wizardCerebrasKeyValidated = false;
 let _wizardMicTested = false;
 let _wizardMicDeviceIndex = null;
 let _wizardPermissionsGranted = false;
@@ -1458,7 +1491,7 @@ function wizUpdateNextButton() {
   switch (_wizardStep) {
     case 1: btn.disabled = false; break;  // Permissions - always allow
     case 2: btn.disabled = false; break;  // Hotkeys - always allow
-    case 3: btn.disabled = !(_wizardGroqKeyValidated || _wizardApiKeyValidated); break;
+    case 3: btn.disabled = !(_wizardCerebrasKeyValidated || _wizardGroqKeyValidated || _wizardApiKeyValidated); break;
     case 4: btn.disabled = !_wizardMicTested; break;  // Try It - require mic test
   }
 }
@@ -1524,12 +1557,37 @@ async function selectHotkeyPreset(keys) {
 
 let _wizGroqTimer = null;
 let _wizApiTimer = null;
+let _wizCerebrasTimer = null;
 let _apiKeyListenersAttached = false;
 
 function wizInitApiKeyStep() {
   // Only attach listeners once
   if (_apiKeyListenersAttached) return;
   _apiKeyListenersAttached = true;
+
+  // ── Cerebras key input (primary) ──
+  const cerebrasInp = document.getElementById('wizCerebrasKeyInput3');
+  if (cerebrasInp) {
+    cerebrasInp.addEventListener('input', () => {
+      _wizardCerebrasKeyValidated = false;
+      wizUpdateNextButton();
+      const val = cerebrasInp.value.trim();
+      const v = document.getElementById('wizCerebrasValidation3');
+      if (!val) { v.textContent = ''; v.className = 'wizard-validation'; return; }
+      if (val.length < 20) { v.textContent = 'Key seems too short...'; v.className = 'wizard-validation error'; return; }
+      clearTimeout(_wizCerebrasTimer);
+      v.textContent = 'Validating...';
+      v.className = 'wizard-validation loading';
+      _wizCerebrasTimer = setTimeout(() => wizValidateCerebrasKey(val), 800);
+    });
+    cerebrasInp.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        clearTimeout(_wizCerebrasTimer);
+        const val = cerebrasInp.value.trim();
+        if (val.length >= 20) wizValidateCerebrasKey(val);
+      }
+    });
+  }
 
   // ── Groq key input ──
   const groqInp = document.getElementById('wizGroqKeyInput3');
@@ -1602,6 +1660,29 @@ async function wizValidateGroqKey(key) {
     v.textContent = 'Failed to validate — check your internet connection';
     v.className = 'wizard-validation error';
     _wizardGroqKeyValidated = false;
+  }
+  wizUpdateNextButton();
+}
+
+async function wizValidateCerebrasKey(key) {
+  const v = document.getElementById('wizCerebrasValidation3');
+  v.textContent = 'Validating with Cerebras...';
+  v.className = 'wizard-validation loading';
+  try {
+    const r = await pywebview.api.validate_cerebras_key(key);
+    if (r.ok) {
+      v.textContent = r.message || 'Cerebras key is valid! Fastest tier enabled.';
+      v.className = 'wizard-validation success';
+      _wizardCerebrasKeyValidated = true;
+    } else {
+      v.textContent = r.error || 'Invalid key';
+      v.className = 'wizard-validation error';
+      _wizardCerebrasKeyValidated = false;
+    }
+  } catch(e) {
+    v.textContent = 'Failed to validate — check your internet connection';
+    v.className = 'wizard-validation error';
+    _wizardCerebrasKeyValidated = false;
   }
   wizUpdateNextButton();
 }
