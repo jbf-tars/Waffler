@@ -62,17 +62,19 @@ class OpenAIStyler:
         self._groq_skip_until = 0.0
         self._cerebras_skip_until = 0.0
 
-        # Priority 1: Cerebras (fastest in the world for Llama models;
-        # ~3000+ tok/sec output on the 8B model). OpenAI-compatible API.
+        # Priority 1: Cerebras (fastest in the world for these models;
+        # ~hundreds-of-ms first-token even on the 235B Qwen). OpenAI-
+        # compatible API.
         #
-        # Model: llama-3.1-8b — available on the free tier. Llama 3.3 70B
-        # exists in Cerebras's catalogue but requires a paid plan, so we
-        # use the 8B instead. It's noticeably smaller than the 70B Groq
-        # serves, but for our task (filler removal, light formatting,
-        # rule-following per the prompt) it's plenty capable and the
-        # speed advantage is enormous. If quality regresses on any
-        # specific rule, the Groq 70B fallback catches it.
-        # Power users can flip via CEREBRAS_MODEL env var.
+        # Model: qwen-3-235b-a22b-instruct-2507 — available on the free
+        # tier (probed live on the user's key). The previously used
+        # llama-3.1-8b is too small to follow the styler's nuanced
+        # rules on multi-clause exploratory speech — it collapses long
+        # transcripts and hallucinates greetings. The 235B Qwen is in
+        # a different league for instruction-following while still
+        # benefiting from Cerebras's wafer-scale inference speed.
+        # Llama 3.3 70B is NOT available on this key (404). Power
+        # users can override via CEREBRAS_MODEL env var.
         if cerebras_api_key:
             try:
                 self._cerebras_client = OpenAI(
@@ -81,7 +83,7 @@ class OpenAIStyler:
                 )
                 self._use_cerebras = True
                 import os as _os
-                self._cerebras_model = _os.getenv("CEREBRAS_MODEL", "").strip() or "llama-3.1-8b"
+                self._cerebras_model = _os.getenv("CEREBRAS_MODEL", "").strip() or "qwen-3-235b-a22b-instruct-2507"
                 print(f"Styling primary: Cerebras {self._cerebras_model}")
             except Exception as e:
                 print(f"Cerebras init failed ({e}), skipping")
@@ -212,22 +214,29 @@ Transcript: {transcript}"""
 
         # Three-tier fallback chain. Each provider has its own skip-until
         # deadline that pauses further attempts on that provider after a 429.
+        #
+        # Order rationale: Groq (free 100K TPD) is tried first so the
+        # daily free quota gets used up before any paid Cerebras tokens
+        # are spent. Once Groq's TPD is exhausted (or it errors), Cerebras
+        # Qwen-3 235B takes over — fast and smart on the paid tier.
+        # OpenAI gpt-4.1-mini sits as a last-resort fallback for the rare
+        # case both fast providers are unavailable.
 
-        # Priority 1: Cerebras Llama 3.3 70B — fastest in the world for this
-        # model, generous free tier (~1M tokens/day).
-        if self._use_cerebras and time.monotonic() >= self._cerebras_skip_until:
-            try:
-                return self._style_cerebras(prompt, start_time)
-            except Exception as e:
-                self._log_provider_failure("Cerebras", e)
-                # fall through to Groq / OpenAI
-
-        # Priority 2: Groq Llama 3.3 70B — fast but low daily free-tier cap.
+        # Priority 1: Groq Llama 3.3 70B — free tier preserved.
         if self._use_groq and time.monotonic() >= self._groq_skip_until:
             try:
                 return self._style_groq(prompt, start_time)
             except Exception as e:
                 self._log_provider_failure("Groq", e)
+                # fall through to Cerebras / OpenAI
+
+        # Priority 2: Cerebras Qwen-3 235B — paid tier, ~500ms even on
+        # long inputs.
+        if self._use_cerebras and time.monotonic() >= self._cerebras_skip_until:
+            try:
+                return self._style_cerebras(prompt, start_time)
+            except Exception as e:
+                self._log_provider_failure("Cerebras", e)
                 if not self.client:
                     return self._basic_clean(transcript), {
                         "input_tokens": 0, "output_tokens": 0,
@@ -235,7 +244,7 @@ Transcript: {transcript}"""
                         "fallback_reason": str(e)[:160],
                     }
 
-        # Priority 3: OpenAI gpt-4.1-mini / gpt-4.1 (auto-routed by length).
+        # Priority 3: OpenAI gpt-4.1-mini — last-resort fallback only.
         return self._style_openai(prompt, transcript, start_time)
 
     def _log_provider_failure(self, provider_name: str, exc: Exception):
@@ -328,6 +337,7 @@ Transcript: {transcript}"""
             raise
         styled = response.choices[0].message.content.strip()
         # Fix mid-sentence capitalization bug
+        styled = self._strip_em_dashes(styled)
         styled = self._fix_mid_sentence_caps(styled)
         styled = self._strip_hallucinations(styled, self._last_raw)
         styled = self._restore_censored_profanity(styled, self._last_raw)
@@ -393,6 +403,7 @@ Transcript: {transcript}"""
                 raise RuntimeError(f"AUTH: Cerebras auth failed — {error_msg[:120]}")
             raise
         styled = response.choices[0].message.content.strip()
+        styled = self._strip_em_dashes(styled)
         styled = self._fix_mid_sentence_caps(styled)
         styled = self._strip_hallucinations(styled, self._last_raw)
         styled = self._restore_censored_profanity(styled, self._last_raw)
@@ -404,26 +415,17 @@ Transcript: {transcript}"""
             "provider": "cerebras",
         }
 
-    # Auto-routing threshold: inputs >= this many words are routed to the
-    # full gpt-4.1 (faster per-token output, more expensive). Below threshold
-    # we stick with gpt-4.1-mini (cheap + plenty fast for short clips).
-    # User dictations cluster around two regimes — short (Slack-style, 10-40
-    # words) where mini is great, and long (paragraph emails / monologues,
-    # 200+ words) where the per-token speed advantage of the full model
-    # outweighs the cost premium. 200 words is the empirical break-even.
-    _LONG_INPUT_THRESHOLD_WORDS = 200
-
     def _pick_openai_model(self, transcript: str) -> str:
-        """Choose the OpenAI model based on input length. The env-var
-        override (OPENAI_STYLE_MODEL) takes precedence over this routing
-        — power users get exact control."""
+        """OpenAI is now a last-resort fallback only — used when both Groq
+        and Cerebras are unavailable. We always use gpt-4.1-mini here:
+        Cerebras Qwen-3 235B has been benchmarked at ~equal quality to
+        full gpt-4.1 on long inputs (and 6x faster), so the old
+        ≥200-word → gpt-4.1-full routing has been removed. Mini is plenty
+        for the rare emergency-fallback case. Power users can still pin
+        a model via the OPENAI_STYLE_MODEL env var."""
         import os as _os
         if _os.getenv("OPENAI_STYLE_MODEL", "").strip():
-            # User explicitly pinned a model — respect it.
             return self.model
-        word_count = len(transcript.split())
-        if word_count >= self._LONG_INPUT_THRESHOLD_WORDS:
-            return "gpt-4.1"
         return self.model  # gpt-4.1-mini default
 
     def _style_openai(self, prompt: str, transcript: str, start_time: float):
@@ -450,6 +452,7 @@ Transcript: {transcript}"""
             )
             styled = response.choices[0].message.content.strip()
             # Fix mid-sentence capitalization bug
+            styled = self._strip_em_dashes(styled)
             styled = self._fix_mid_sentence_caps(styled)
             styled = self._strip_hallucinations(styled, self._last_raw)
             styled = self._restore_censored_profanity(styled, self._last_raw)
@@ -472,6 +475,40 @@ Transcript: {transcript}"""
         except Exception as e:
             print(f"GPT styling error: {e}")
             return self._basic_clean(transcript), {"input_tokens": 0, "output_tokens": 0, "api_used": False, "provider": "basic_clean", "fallback_reason": str(e)[:160]}
+
+    def _strip_em_dashes(self, text: str) -> str:
+        """Em-dashes (—) and en-dashes (–) are the loudest 'AI wrote this'
+        marker — bigger LLMs love them. The prompt forbids them, but as a
+        safety net we strip any that slip through and replace with comma
+        + space. Hyphens (-) inside compound words and identifiers
+        ('voice-to-text', 'gpt-4.1-mini', 'Ctrl+Alt+S') are untouched —
+        only the em/en-dash codepoints (U+2014, U+2013) are targeted.
+
+        Handles the common typographic patterns:
+            "X — Y"   → "X, Y"     (space-padded em-dash, most common)
+            "X—Y"     → "X, Y"     (bare em-dash, no spaces)
+            "X – Y"   → "X, Y"     (space-padded en-dash)
+            "X–Y"     → "X, Y"     (bare en-dash, e.g. between words)
+
+        Also collapses any accidental double punctuation that results
+        (e.g. ", ." → "." or ", ," → ",") so we don't trade an em-dash
+        for a punctuation glitch.
+        """
+        if not text:
+            return text
+        import re as _re
+        # Replace em/en-dashes with comma+space, with or without surrounding
+        # whitespace. The \s* on both sides eats any padding so we don't
+        # leave "X ,Y" or "X , Y" behind.
+        text = _re.sub(r"\s*[—–]\s*", ", ", text)
+        # Clean up: if the replacement now sits right before another
+        # punctuation mark (rare, but happens at sentence end), collapse it.
+        text = _re.sub(r",\s*([,.;:!?])", r"\1", text)
+        # Trim accidental leading ", " at the start of a paragraph (would
+        # only happen if the input started with an em-dash, but defend
+        # against it anyway).
+        text = _re.sub(r"(^|\n)\s*,\s*", r"\1", text)
+        return text
 
     def _fix_mid_sentence_caps(self, text: str) -> str:
         """Fix incorrectly capitalized words mid-sentence.

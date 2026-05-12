@@ -1842,7 +1842,8 @@ class WafflerPipeline:
         )
         # Legacy log line kept for log-grep compatibility — superseded by the
         # 'Styler chain:' line above which shows all three tiers.
-        primary = "cerebras" if self.styler._use_cerebras else ("groq" if self.styler._use_groq else "openai")
+        # Order matches the actual style() routing: Groq → Cerebras → OpenAI.
+        primary = "groq" if self.styler._use_groq else ("cerebras" if self.styler._use_cerebras else "openai")
         _log_to_file(f"Styler backend: {primary}")
 
         self.clipboard = ClipboardManager()

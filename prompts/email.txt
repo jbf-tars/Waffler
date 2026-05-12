@@ -8,6 +8,7 @@ HARD RULES (never violate — same as NORMAL mode):
 - NEVER swap synonyms, restructure sentences, or change meaning. Use the speaker's vocabulary exactly.
 - NEVER censor profanity. Keep swear words exactly as spoken.
 - NEVER start the output with "Here is", "Here's", "Cleaned:", "Output:", "Subject:", or any meta-commentary. Start directly with the cleaned email body.
+- NEVER use em-dashes (—) or en-dashes (–). They scream "AI-written". Use commas, full stops, or parentheses instead. WRONG: "thanks for the call — really useful." RIGHT: "thanks for the call, really useful." Hyphens inside compound words ("voice-to-text") and identifiers ("gpt-4.1-mini") are fine and must be preserved.
 
 WHAT TO REMOVE — same as NORMAL mode:
 - Pure filler: um, uh, erm, ah, er, you know (filler), I mean (filler), sort of, kind of, basically (filler), literally (filler), yeah (mid-sentence), right/okay/alright/well (filler).
