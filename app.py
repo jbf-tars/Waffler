@@ -1519,32 +1519,38 @@ class Api:
             return False
 
     def check_input_monitoring_permission(self) -> bool:
-        """Check if Input Monitoring permission is granted"""
+        """Check Input Monitoring permission using Apple's canonical
+        IOHIDCheckAccess API.
+
+        The previous implementation used CGEventTapCreate, which returns
+        non-null even when Input Monitoring is denied (as long as
+        Accessibility is granted). That always reported "granted" once
+        Accessibility was on, which is why detection was unreliable and
+        was effectively unused.
+
+        IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) is the canonical
+        API Apple uses internally. Returns:
+            0 = kIOHIDAccessTypeGranted
+            1 = kIOHIDAccessTypeDenied
+            2 = kIOHIDAccessTypeUnknown (not yet requested)
+        We treat only 0 as "granted".
+        """
+        if sys.platform != "darwin":
+            return True  # Not applicable on non-macOS
         try:
-            # Input Monitoring is harder to check directly
-            # We'll use a heuristic: try to create an event tap
-            from Quartz import CGEventTapCreate, kCGSessionEventTap, kCGHeadInsertEventTap, kCGEventTapOptionDefault, kCGEventFlagsChanged, CFRelease
-
-            def dummy_callback(proxy, event_type, event, refcon):
-                return event
-
-            event_mask = (1 << kCGEventFlagsChanged)
-            tap = CGEventTapCreate(
-                kCGSessionEventTap,
-                kCGHeadInsertEventTap,
-                kCGEventTapOptionDefault,
-                event_mask,
-                dummy_callback,
-                None
+            import ctypes
+            iokit = ctypes.cdll.LoadLibrary(
+                "/System/Library/Frameworks/IOKit.framework/IOKit"
             )
-
-            if tap is None:
-                return False
-            else:
-                # Clean up - we don't actually need the tap
-                CFRelease(tap)
-                return True
+            iokit.IOHIDCheckAccess.restype = ctypes.c_uint32
+            iokit.IOHIDCheckAccess.argtypes = [ctypes.c_uint32]
+            # kIOHIDRequestTypeListenEvent = 1
+            result = iokit.IOHIDCheckAccess(ctypes.c_uint32(1))
+            granted = (result == 0)
+            _log_to_file(f"[DEBUG] IOHIDCheckAccess returned: {result} (granted={granted})")
+            return granted
         except Exception as e:
+            _log_to_file(f"[ERROR] IOHIDCheckAccess failed: {e}")
             print(f"Error checking input monitoring permission: {e}")
             return False
 

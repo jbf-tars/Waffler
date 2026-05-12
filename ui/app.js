@@ -1501,13 +1501,15 @@ function wizShowStep(step) {
   wizUpdateNextButton();
 
   // Step-specific initialization
+  // Permission polling — start when entering step 1, stop when leaving.
   if (step === 1) {
-    // Trigger macOS permission prompts automatically
-    // triggerMacOSPermissions();
+    wizStartPermissionPoll();
+  } else {
+    wizStopPermissionPoll();
   }
-  if (step === 2) { wizLoadHotkeyInfo(); initFnKeyFeedback(); }
-  if (step === 3) { wizInitApiKeyStep(); }
-  if (step === 4) { wizInitTryItStep(); initFnKeyFeedback(); }
+  if (step === 2) { wizUpdateHotkeyBadge(); wizLoadHotkeyInfo(); initFnKeyFeedback(); }
+  if (step === 3) { wizInitApiKeyStep(); wizInitProviderTabs(); }
+  if (step === 4) { wizInitTryItStep(); wizUpdateTryItKeycap(); initFnKeyFeedback(); }
 }
 
 function wizUpdateNextButton() {
@@ -1672,13 +1674,15 @@ async function wizValidateGroqKey(key) {
   try {
     const r = await pywebview.api.validate_groq_key(key);
     if (r.ok) {
-      v.textContent = 'Groq key is valid! 10x speed enabled.';
-      v.className = 'wizard-validation success';
+      v.textContent = 'Groq key is valid. Free tier active.';
+      v.className = 'wizard-validation wiz-prov-status success';
       _wizardGroqKeyValidated = true;
+      wizSetTick('wizGroqTick', true);
     } else {
       v.textContent = r.error || 'Invalid key';
-      v.className = 'wizard-validation error';
+      v.className = 'wizard-validation wiz-prov-status error';
       _wizardGroqKeyValidated = false;
+      wizSetTick('wizGroqTick', false);
     }
   } catch(e) {
     v.textContent = 'Failed to validate — check your internet connection';
@@ -1695,13 +1699,15 @@ async function wizValidateCerebrasKey(key) {
   try {
     const r = await pywebview.api.validate_cerebras_key(key);
     if (r.ok) {
-      v.textContent = r.message || 'Cerebras key is valid! Fastest tier enabled.';
-      v.className = 'wizard-validation success';
+      v.textContent = r.message || 'Cerebras key is valid. Fastest tier enabled.';
+      v.className = 'wizard-validation wiz-prov-status success';
       _wizardCerebrasKeyValidated = true;
+      wizSetTick('wizCerebrasTick', true);
     } else {
       v.textContent = r.error || 'Invalid key';
-      v.className = 'wizard-validation error';
+      v.className = 'wizard-validation wiz-prov-status error';
       _wizardCerebrasKeyValidated = false;
+      wizSetTick('wizCerebrasTick', false);
     }
   } catch(e) {
     v.textContent = 'Failed to validate — check your internet connection';
@@ -1718,13 +1724,15 @@ async function wizValidateApiKey(key) {
   try {
     const r = await pywebview.api.validate_api_key(key);
     if (r.ok) {
-      v.textContent = 'API key is valid!';
-      v.className = 'wizard-validation success';
+      v.textContent = 'OpenAI key is valid.';
+      v.className = 'wizard-validation wiz-prov-status success';
       _wizardApiKeyValidated = true;
+      wizSetTick('wizOpenAITick', true);
     } else {
       v.textContent = r.error || 'Invalid key';
-      v.className = 'wizard-validation error';
+      v.className = 'wizard-validation wiz-prov-status error';
       _wizardApiKeyValidated = false;
+      wizSetTick('wizOpenAITick', false);
     }
   } catch(e) {
     v.textContent = 'Failed to validate — check your internet connection';
@@ -2415,6 +2423,118 @@ function wizAnimateText(el, text) {
 }
 
 // ── Complete Setup ──────────────────────────────────────────
+
+// ════════════════════════════════════════════════════════════════════
+// ── Branded wizard (v3.14.2+) helpers ──────────────────────────────
+// New UI uses provider tabs, status pills, and animated walkthrough.
+// These helpers bridge to the existing IPC calls.
+// ════════════════════════════════════════════════════════════════════
+
+// Update a permission status pill (Step 1 — Accessibility / Input Monitoring).
+function wizSetPermPill(pillId, cardId, granted) {
+  const pill = document.getElementById(pillId);
+  const card = document.getElementById(cardId);
+  if (!pill) return;
+  const label = pill.querySelector('.wiz-pill-label');
+  if (granted) {
+    pill.classList.remove('wiz-pill-waiting');
+    pill.classList.add('wiz-pill-granted');
+    if (label) label.textContent = 'Granted';
+    if (card) card.classList.add('granted');
+  } else {
+    pill.classList.add('wiz-pill-waiting');
+    pill.classList.remove('wiz-pill-granted');
+    if (label) label.textContent = 'Not granted yet';
+    if (card) card.classList.remove('granted');
+  }
+}
+
+// Background poll for macOS permissions. Runs every 1s while step 1 is open.
+let _wizPermPollTimer = null;
+async function wizStartPermissionPoll() {
+  if (_wizPermPollTimer) return;
+  const tick = async () => {
+    try {
+      const r = await pywebview.api.check_permissions();
+      wizSetPermPill('wizAccessStatus', 'wizPermAccessibility', !!r.accessibility_granted);
+      wizSetPermPill('wizInputMonStatus', 'wizPermInputMon', !!r.input_monitoring_granted);
+      // Auto-advance Next button when both granted
+      if (r.accessibility_granted && r.input_monitoring_granted) {
+        const next = document.getElementById('wizBtnNext');
+        if (next) next.disabled = false;
+      }
+    } catch (e) { /* poll errors are silent */ }
+  };
+  tick();  // immediate
+  _wizPermPollTimer = setInterval(tick, 1000);
+}
+function wizStopPermissionPoll() {
+  if (_wizPermPollTimer) { clearInterval(_wizPermPollTimer); _wizPermPollTimer = null; }
+}
+
+// Flip the green tick on a provider's input row (Step 3).
+function wizSetTick(tickId, valid) {
+  const t = document.getElementById(tickId);
+  if (!t) return;
+  if (valid) {
+    t.classList.remove('wiz-prov-tick-empty');
+    t.classList.add('wiz-prov-tick-valid');
+    t.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>';
+  } else {
+    t.classList.add('wiz-prov-tick-empty');
+    t.classList.remove('wiz-prov-tick-valid');
+    t.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/></svg>';
+  }
+}
+
+// Switch between provider tabs (Step 3).
+let _provTabsBound = false;
+function wizInitProviderTabs() {
+  if (_provTabsBound) return;
+  _provTabsBound = true;
+  const tabs = document.querySelectorAll('.wiz-prov-tab');
+  tabs.forEach((tab) => {
+    tab.addEventListener('click', () => {
+      const target = tab.getAttribute('data-provider');
+      tabs.forEach((t) => t.classList.toggle('wiz-prov-tab-active', t === tab));
+      const panels = {
+        groq: 'wizProvPanelGroq',
+        cerebras: 'wizProvPanelCerebras',
+        openai: 'wizProvPanelOpenAI',
+      };
+      Object.entries(panels).forEach(([prov, id]) => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = (prov === target) ? 'flex' : 'none';
+      });
+    });
+  });
+}
+
+// Update the hotkey badge text in the Try-It step (Step 4) and the mock app
+// placeholder, based on platform.
+function wizUpdateTryItKeycap() {
+  const combo = document.getElementById('wizTryHotkeyBadge');
+  const kbd = document.getElementById('wizMockKbd');
+  if (!combo) return;
+  if (isMacPlatform) {
+    combo.innerHTML = '<span class="wiz-keycap-mini">fn</span>';
+    if (kbd) kbd.textContent = 'fn';
+  } else {
+    combo.innerHTML = '<span class="wiz-keycap-mini">Win</span><span class="wiz-keycap-plus-mini">+</span><span class="wiz-keycap-mini">Ctrl</span>';
+    if (kbd) kbd.textContent = 'Win+Ctrl';
+  }
+}
+
+// Update the big hotkey badge on Step 2 based on platform.
+function wizUpdateHotkeyBadge() {
+  const combo = document.getElementById('wizHotkeyDisplay');
+  if (!combo) return;
+  if (isMacPlatform) {
+    combo.innerHTML = '<div class="wiz-keycap-large" id="wizHotkeyBadge"><svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.5" stroke="#1A1A1A" stroke-width="1"/><ellipse cx="8" cy="8" rx="3" ry="6.5" stroke="#1A1A1A" stroke-width="0.8"/><line x1="1.5" y1="5.5" x2="14.5" y2="5.5" stroke="#1A1A1A" stroke-width="0.7"/><line x1="1.5" y1="10.5" x2="14.5" y2="10.5" stroke="#1A1A1A" stroke-width="0.7"/><line x1="8" y1="1.5" x2="8" y2="14.5" stroke="#1A1A1A" stroke-width="0.5"/></svg><span class="wiz-keycap-label-large" style="font-size:14px;margin-top:2px">fn</span></div>';
+  } else {
+    combo.innerHTML = '<div class="wiz-keycap-large" id="wizHotkeyBadgeWin"><svg viewBox="0 0 24 24" fill="#1A1A1A"><path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"/></svg></div><span class="wiz-keycap-plus">+</span><div class="wiz-keycap-large"><span class="wiz-keycap-label-large">Ctrl</span></div>';
+  }
+}
 
 async function wizCompleteSetup() {
   const btn = document.getElementById('wizBtnNext');

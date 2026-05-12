@@ -4,6 +4,20 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.2] - 2026-05-12
+
+### Changed
+- **Setup wizard fully redesigned** to match the website's branded look. The previous dark-grey/black wizard with stacked permission cards, scrollable triple-stacked API key fields and an under-stated mock chat has been replaced with a cream-background, gold-accented flow:
+  - Header now has the real Waffler logo + brand mark on the left and a discrete step-counter pill on the right.
+  - Progress bar uses a gold gradient on active segments instead of flat green.
+  - Step 1 (Permissions) uses two compact white cards with status pills that auto-tick green via background polling. The Input Monitoring card embeds an always-visible animated mini-screencast showing exactly how to click `+` → pick Waffler → click Open → flip the toggle, with proper Karabiner-Elements + Terminal icons in the list.
+  - Step 2 (Hotkey) shows a single floating plastic keycap (white/silver with black `fn` label on Mac, `Win + Ctrl` combo on Windows) that gently bobs up and down. A gold "Listening for hotkey press…" pill replaces the previous static grey hint.
+  - Step 3 (API Keys) replaces three permanently-visible stacked input fields with three pill-style provider tabs (Groq · Cerebras · OpenAI). Only one input is on screen at a time, ticked green automatically on valid paste. Groq is the recommended default to match the website's chain order. Step height shrunk by ~60%.
+  - Step 4 (Try It) gets a polished cream card with mini keycap hint, a gold dashed "Try saying" suggestion, and a fully redesigned mock Messages app with proper traffic-light dots and rounded message bubble. The Finish-Setup button is now green so the win at the end feels like a win.
+
+### Fixed
+- **Input Monitoring permission detection is now reliable.** The previous `CGEventTapCreate`-based check returned non-null even when Input Monitoring was denied (as long as Accessibility was granted), which meant the wizard always reported "granted" once Accessibility was on. Replaced with Apple's canonical `IOHIDCheckAccess(kIOHIDRequestTypeListenEvent)` via `ctypes`. Returns 0 (granted) / 1 (denied) / 2 (unknown), and we treat only 0 as granted. The wizard now polls this every second while step 1 is open and the status pills flip green the moment macOS reports the permission as granted — no need to click "Recheck".
+
 ## [3.14.1] - 2026-05-12
 
 ### Fixed

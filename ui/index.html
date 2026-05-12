@@ -334,279 +334,286 @@
   </div>
 </div>
 
-<!-- Setup Wizard Overlay -->
+<!-- Setup Wizard Overlay (redesigned, branded) -->
 <div class="wizard-overlay" id="wizardOverlay" style="display:none">
   <div class="wizard-container">
 
-    <!-- Compact header with icon left, progress right -->
-    <div class="wizard-header-compact">
-      <div class="wizard-header-left">
-        <img src="logo-icon.png" class="wizard-icon" alt="Waffler">
+    <!-- Header: brand mark on left, step counter pill on right -->
+    <header class="wiz-header">
+      <div class="wiz-brand">
+        <img src="logo-icon.png" alt="Waffler" class="wiz-logo">
+        <span class="wiz-brandname">Waffler</span>
       </div>
-      <div class="wizard-step-indicator">
-        <span id="wizStepText">Step 1 of 4</span>
-      </div>
+      <span class="wiz-step-counter" id="wizStepText">Step 1 of 4</span>
+    </header>
+
+    <!-- Branded progress bar -->
+    <div class="wiz-progress">
+      <div class="wiz-progress-seg" id="wizProgress1"></div>
+      <div class="wiz-progress-seg" id="wizProgress2"></div>
+      <div class="wiz-progress-seg" id="wizProgress3"></div>
+      <div class="wiz-progress-seg" id="wizProgress4"></div>
     </div>
 
-    <!-- Minimal progress bar -->
-    <div class="wizard-progress-bar">
-      <div class="progress-segment" id="wizProgress1"></div>
-      <div class="progress-segment" id="wizProgress2"></div>
-      <div class="progress-segment" id="wizProgress3"></div>
-      <div class="progress-segment" id="wizProgress4"></div>
-    </div>
+    <h1 class="wiz-title" id="wizTitle">Welcome to Waffler</h1>
+    <p class="wiz-subtitle" id="wizSubtitle">Let's get you set up in 4 quick steps.</p>
 
-    <div class="wizard-title">Welcome to Waffler</div>
-    <div class="wizard-subtitle" id="wizSubtitle">Let's get you set up in 4 quick steps.</div>
-
-    <!-- Step 1: Permissions -->
-    <div class="wizard-step-content" id="wizContent1">
-      <div class="wizard-card" style="max-width: 900px; margin: 0 auto;">
-        <div class="wizard-card-icon" style="font-size: 48px; margin-bottom: 12px;">🔐</div>
-        <h2 style="margin-bottom: 8px;">Grant Permissions</h2>
-        <p class="wizard-card-desc" style="margin-bottom: 24px; font-size: 15px; opacity: 0.8;">
-          Waffler needs two permissions for push-to-talk functionality
-        </p>
-
-        <div class="wizard-permission-grid">
-          <!-- Accessibility Card -->
-          <div class="permission-card">
-            <div class="permission-icon">🔑</div>
-            <h4>Accessibility</h4>
-            <p>For hotkey detection and auto-paste</p>
-            <button class="btn-open-settings" onclick="openAccessibilitySettings()">
-              Open System Settings
-            </button>
+    <!-- ─────────────── STEP 1: Permissions (macOS only) ─────────────── -->
+    <div class="wiz-step-content" id="wizContent1">
+      <div class="wiz-perm-card" id="wizPermAccessibility">
+        <div class="wiz-perm-head">
+          <div class="wiz-perm-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9a9 9 0 0118 0v6a9 9 0 01-18 0V9z"/><circle cx="12" cy="12" r="3"/></svg>
           </div>
+          <div class="wiz-perm-text">
+            <h3>Accessibility</h3>
+            <p>So Waffler can paste your text wherever your cursor is.</p>
+          </div>
+          <span class="wiz-pill wiz-pill-waiting" id="wizAccessStatus">
+            <span class="wiz-pill-dot"></span>
+            <span class="wiz-pill-label">Not granted yet</span>
+          </span>
+        </div>
+        <button class="wiz-btn-primary" onclick="openAccessibilitySettings()">Open System Settings</button>
+        <p class="wiz-detect-note">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6v6l4 2"/><circle cx="12" cy="12" r="10"/></svg>
+          Waffler watches in the background. This pill ticks green automatically when granted.
+        </p>
+      </div>
 
-          <!-- Input Monitoring Card -->
-          <div class="permission-card">
-            <div class="permission-icon">⌨️</div>
-            <h4>Input Monitoring</h4>
-            <p>For Fn key push-to-talk</p>
-            <button class="btn-open-settings" onclick="openInputMonitoringSettings()">
-              Open System Settings
-            </button>
+      <div class="wiz-perm-card" id="wizPermInputMon" style="margin-top:14px">
+        <div class="wiz-perm-head">
+          <div class="wiz-perm-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+          </div>
+          <div class="wiz-perm-text">
+            <h3>Input Monitoring</h3>
+            <p>So Waffler can hear when you press the hotkey.</p>
+          </div>
+          <span class="wiz-pill wiz-pill-waiting" id="wizInputMonStatus">
+            <span class="wiz-pill-dot"></span>
+            <span class="wiz-pill-label">Not granted yet</span>
+          </span>
+        </div>
+        <button class="wiz-btn-primary" onclick="openInputMonitoringSettings()">Open System Settings</button>
+
+        <!-- Always-visible animated walkthrough -->
+        <div class="wiz-anim-frame">
+          <p class="wiz-anim-cap"><strong>macOS will open here.</strong> Follow the cursor:</p>
+          <div class="vb-window">
+            <div class="vb-phase vb-phase-list">
+              <div class="vb-titlebar"><span class="vb-dots"><span></span><span></span><span></span></span><span class="vb-titlebar-text">Privacy &amp; Security → Input Monitoring</span></div>
+              <div class="vb-content">
+                <p class="vb-content-desc">Allow the applications below to monitor input from your keyboard.</p>
+                <div class="vb-list">
+                  <div class="vb-list-row">
+                    <span class="vb-app-icon">
+                      <svg viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="url(#k1)"/><defs><linearGradient id="k1" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#5b9dff"/><stop offset="100%" stop-color="#2c6ed8"/></linearGradient></defs><rect x="8" y="10" width="16" height="12" rx="2.5" fill="#fff" opacity="0.95"/><rect x="10" y="12" width="4" height="3" rx="0.6" fill="#2c6ed8"/><rect x="15" y="12" width="4" height="3" rx="0.6" fill="#2c6ed8"/><rect x="20" y="12" width="2" height="3" rx="0.6" fill="#2c6ed8"/><rect x="10" y="16.5" width="11" height="3" rx="0.6" fill="#2c6ed8"/></svg>
+                    </span>
+                    <span class="vb-app-name">Karabiner-Elements</span>
+                    <span class="vb-toggle vb-toggle-on"><span class="vb-toggle-knob"></span></span>
+                  </div>
+                  <div class="vb-list-row">
+                    <span class="vb-app-icon">
+                      <svg viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#1a1a1a"/><text x="6.5" y="22.5" font-family="SF Mono, Menlo, monospace" font-size="13" font-weight="700" fill="#22c55e">&gt;_</text></svg>
+                    </span>
+                    <span class="vb-app-name">Terminal</span>
+                    <span class="vb-toggle vb-toggle-on"><span class="vb-toggle-knob"></span></span>
+                  </div>
+                  <div class="vb-list-row vb-list-row-new">
+                    <img src="logo-icon.png" alt="" class="vb-app-icon-img"/>
+                    <span class="vb-app-name">Waffler</span>
+                    <span class="vb-toggle vb-target-toggle"><span class="vb-toggle-knob"></span></span>
+                  </div>
+                </div>
+                <div class="vb-plus-bar"><span class="vb-plus vb-target-plus">+</span><span class="vb-minus">—</span></div>
+              </div>
+            </div>
+            <div class="vb-phase vb-phase-picker">
+              <div class="vb-picker-titlebar"><span class="vb-dots"><span></span><span></span><span></span></span><span class="vb-titlebar-text">Applications</span></div>
+              <div class="vb-picker-list">
+                <div class="vb-pick-item">📄 TextEdit</div>
+                <div class="vb-pick-item">📺 TV</div>
+                <div class="vb-pick-item vb-target-app"><img src="logo-icon.png" alt="" class="vb-pick-icon"/>Waffler</div>
+                <div class="vb-pick-item">☁️ Weather</div>
+                <div class="vb-pick-item">💬 WhatsApp</div>
+              </div>
+              <div class="vb-picker-buttons"><span class="vb-btn-cancel">Cancel</span><span class="vb-btn-open vb-target-open">Open</span></div>
+            </div>
+            <div class="vb-cursor"><svg viewBox="0 0 24 24" fill="black" stroke="white" stroke-width="1"><path d="M3 2 L3 18 L8 14 L11 21 L14 20 L11 13 L18 13 Z"/></svg></div>
           </div>
         </div>
 
-        <p class="wizard-hint" style="margin-top: 20px;">
-          Click the buttons above to grant permissions, then click Next below
+        <p class="wiz-detect-note">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6v6l4 2"/><circle cx="12" cy="12" r="10"/></svg>
+          Waffler watches in the background. This pill ticks green automatically when granted.
         </p>
       </div>
     </div>
 
-    <!-- Step 2: Hotkeys -->
-    <div class="wizard-step-content" id="wizContent2" style="display:none">
-      <div class="wizard-card">
-        <div class="wizard-card-icon">⌨️</div>
-        <h2>Hotkey Setup</h2>
-        <p class="wizard-card-desc" id="wizHotkeyDesc">Press your hotkey to test it:</p>
-        <div class="wizard-hotkey-display">
-          <div class="hotkey-badge" id="wizHotkeyBadge" style="font-size:16px;padding:8px 18px;border-radius:8px;">Win + Ctrl</div>
-          <div class="wizard-hotkey-mode" id="wizHotkeyMode"></div>
+    <!-- ─────────────── STEP 2: Hotkey ─────────────── -->
+    <div class="wiz-step-content" id="wizContent2" style="display:none">
+      <div class="wiz-hotkey-stage">
+        <div class="wiz-keycap-combo" id="wizHotkeyDisplay">
+          <!-- Populated by JS based on platform -->
+          <div class="wiz-keycap-large" id="wizHotkeyBadge">
+            <span class="wiz-keycap-label-large">fn</span>
+          </div>
         </div>
-        <p class="wizard-hint" id="wizHotkeyStatus" style="margin-top:12px;color:#666;">
-          Waiting for hotkey press...
-        </p>
-        <button class="wizard-primary-btn" onclick="showWizardHotkeyConfig()" style="margin-top:16px;padding:12px 24px;background:#C8A256;color:#000;border:none;border-radius:8px;cursor:pointer;font-size:15px;font-weight:600;">
-          Hotkey not working? Choose alternative
+        <div class="wiz-listening" id="wizHotkeyStatus">
+          <span class="wiz-listening-dot"></span>
+          <span>Listening for hotkey press…</span>
+        </div>
+        <p class="wiz-keycap-tip" id="wizHotkeyDesc">Push the key shown above. Once we register the press, this card will tick green and the Next button will unlock.</p>
+        <button class="wiz-btn-ghost" onclick="showWizardHotkeyConfig()">Use a different hotkey instead</button>
+      </div>
+
+      <!-- Hotkey config panel (hidden by default) -->
+      <div id="wizHotkeyConfigPanel" style="display:none;margin-top:16px">
+        <div class="wiz-perm-card">
+          <h3 style="margin:0 0 6px 0">Choose your hotkey</h3>
+          <p style="margin:0 0 14px 0;color:#6B6560;font-size:13px">💡 Press <strong>Space</strong> while holding to activate auto mode.</p>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <button class="hotkey-preset-btn" onclick="selectHotkeyPreset(['fn'])">
+              <span class="hotkey-preview">Fn</span> <span style="opacity:0.6;font-size:13px">Default · works on most MacBooks</span>
+            </button>
+            <button class="hotkey-preset-btn" onclick="selectHotkeyPreset(['cmd', 'shift'])">
+              <span class="hotkey-preview">Cmd + Shift</span> <span style="opacity:0.6;font-size:13px">If Fn doesn't work</span>
+            </button>
+            <button class="hotkey-preset-btn" onclick="selectHotkeyPreset(['option', 'shift'])">
+              <span class="hotkey-preview">Option + Shift</span> <span style="opacity:0.6;font-size:13px">Alternative</span>
+            </button>
+          </div>
+          <button onclick="hideWizardHotkeyConfig()" style="margin-top:12px;color:#6B6560;background:none;border:none;cursor:pointer;font-size:13px">← Back</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─────────────── STEP 3: API Keys (tabbed) ─────────────── -->
+    <div class="wiz-step-content" id="wizContent3" style="display:none">
+      <p class="wiz-section-intro">One key is enough to get started. Waffler tries them in order: <strong>Groq → Cerebras → OpenAI</strong>.</p>
+
+      <div class="wiz-prov-tabs" role="tablist">
+        <button class="wiz-prov-tab wiz-prov-tab-active" data-provider="groq" role="tab">
+          <span class="wiz-prov-badge wiz-prov-badge-rec">Free · recommended</span>
+          <span class="wiz-prov-name">Groq</span>
+          <span class="wiz-prov-meta">100k tokens/day free</span>
+        </button>
+        <button class="wiz-prov-tab" data-provider="cerebras" role="tab">
+          <span class="wiz-prov-badge">Optional</span>
+          <span class="wiz-prov-name">Cerebras</span>
+          <span class="wiz-prov-meta">Fastest paid tier</span>
+        </button>
+        <button class="wiz-prov-tab" data-provider="openai" role="tab">
+          <span class="wiz-prov-badge">Optional</span>
+          <span class="wiz-prov-name">OpenAI</span>
+          <span class="wiz-prov-meta">Last-resort fallback</span>
         </button>
       </div>
 
-      <!-- Hotkey Configuration Panel (hidden by default) -->
-      <div id="wizHotkeyConfigPanel" style="display:none;margin-top:20px">
-        <div class="wizard-card" style="background:#f8f9fa;border:2px solid #ddd">
-          <h3 style="margin-top:0">Choose Your Hotkey</h3>
-          <p style="margin:0 0 16px 0;color:#666;font-size:14px">💡 <strong>Remember:</strong> Press Space while holding your hotkey to activate auto mode</p>
-          <div style="display:flex;flex-direction:column;gap:10px">
-            <button class="hotkey-preset-btn" onclick="selectHotkeyPreset(['fn'])">
-              <span class="hotkey-preview">Fn</span> <span style="opacity:0.6">✨ Default - Works on most MacBooks</span>
-            </button>
-            <button class="hotkey-preset-btn" onclick="selectHotkeyPreset(['cmd', 'shift'])">
-              <span class="hotkey-preview">Command + Shift</span> <span style="opacity:0.6">If Fn doesn't work</span>
-            </button>
-            <button class="hotkey-preset-btn" onclick="selectHotkeyPreset(['option', 'shift'])">
-              <span class="hotkey-preview">Option + Shift</span> <span style="opacity:0.6">Alternative</span>
-            </button>
-          </div>
-          <p style="margin-top:12px;font-size:13px;color:#999;">Note: Alternatives may not work on all keyboards</p>
-          <button onclick="hideWizardHotkeyConfig()" style="margin-top:12px;color:#666;background:none;border:none;cursor:pointer">
-            ← Back
-          </button>
+      <!-- Groq panel (active by default) -->
+      <div class="wiz-prov-panel wiz-prov-panel-active" id="wizProvPanelGroq">
+        <div class="wiz-prov-row">
+          <input type="password" id="wizGroqKeyInput3" class="wiz-prov-input" placeholder="gsk_..." autocomplete="off" spellcheck="false">
+          <button class="wiz-prov-eye" onclick="toggleKeyVisibility('wizGroqKeyInput3')" type="button">👁</button>
+          <span class="wiz-prov-tick wiz-prov-tick-empty" id="wizGroqTick">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/></svg>
+          </span>
         </div>
+        <p class="wiz-prov-help">Don't have one? <a href="#" onclick="pywebview.api.open_url('https://console.groq.com/keys'); return false;">console.groq.com/keys →</a></p>
+        <div class="wiz-prov-status" id="wizGroqValidation3"></div>
       </div>
+
+      <!-- Cerebras panel -->
+      <div class="wiz-prov-panel" id="wizProvPanelCerebras" style="display:none">
+        <div class="wiz-prov-row">
+          <input type="password" id="wizCerebrasKeyInput3" class="wiz-prov-input" placeholder="csk-..." autocomplete="off" spellcheck="false">
+          <button class="wiz-prov-eye" onclick="toggleKeyVisibility('wizCerebrasKeyInput3')" type="button">👁</button>
+          <span class="wiz-prov-tick wiz-prov-tick-empty" id="wizCerebrasTick">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/></svg>
+          </span>
+        </div>
+        <p class="wiz-prov-help">Get a key: <a href="#" onclick="pywebview.api.open_url('https://cloud.cerebras.ai/keys'); return false;">cloud.cerebras.ai/keys →</a> · 1M tokens/day free, $10 paid top-up.</p>
+        <div class="wiz-prov-status" id="wizCerebrasValidation3"></div>
+      </div>
+
+      <!-- OpenAI panel -->
+      <div class="wiz-prov-panel" id="wizProvPanelOpenAI" style="display:none">
+        <div class="wiz-prov-row">
+          <input type="password" id="wizApiKeyInput3" class="wiz-prov-input" placeholder="sk-proj-..." autocomplete="off" spellcheck="false">
+          <button class="wiz-prov-eye" onclick="toggleKeyVisibility('wizApiKeyInput3')" type="button">👁</button>
+          <span class="wiz-prov-tick wiz-prov-tick-empty" id="wizOpenAITick">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/></svg>
+          </span>
+        </div>
+        <p class="wiz-prov-help">Get a key: <a href="#" onclick="pywebview.api.open_url('https://platform.openai.com/api-keys'); return false;">platform.openai.com/api-keys →</a> · Pay-as-you-go.</p>
+        <div class="wiz-prov-status" id="wizApiValidation3"></div>
+      </div>
+
+      <p class="wiz-prov-foot">Each dictation costs less than 0.001p. Add more providers later from Settings.</p>
     </div>
 
-    <!-- Step 3: API Keys -->
-    <div class="wizard-step-content" id="wizContent3" style="display:none">
-      <div class="wizard-card">
-        <div class="wizard-card-icon">🔑</div>
-        <h2>API Keys</h2>
-        <p class="wizard-card-desc">
-          Add at least one — adding all three gives the smoothest experience. Waffler tries them in order: <strong>Cerebras → Groq → OpenAI</strong>. Each one is faster (and usually cheaper) than the next.
-          <br><span class="wizard-link" style="font-size:13px" onclick="pywebview.api.open_url('https://wafflerai.com/api-key-guide')">Need help? Follow our step-by-step guide →</span>
-        </p>
-
-        <!-- All three provider fields shown together. Cerebras is the
-             primary tier (fastest, free), Groq second (still very fast,
-             generous free tier), OpenAI is the always-available fallback. -->
-
-        <!-- Cerebras Field — the fastest tier. -->
-        <div id="cerebrasField" class="provider-field active">
-          <div class="provider-container">
-            <div class="provider-header">
-              <div class="provider-icon">🚀</div>
-              <div class="provider-title">
-                <h3>Cerebras API Key <span style="font-size:11px;color:#C8A256;font-weight:600;margin-left:6px">RECOMMENDED</span></h3>
-                <p>Fastest in the world for Llama models. Free tier ~1M tokens/day.</p>
-              </div>
+    <!-- ─────────────── STEP 4: Try It ─────────────── -->
+    <div class="wiz-step-content wiz-step-wide" id="wizContent4" style="display:none">
+      <div class="wiz-tryit">
+        <div class="wiz-tryit-left">
+          <div class="wiz-hint-card">
+            <div class="wiz-hint-keycap-combo" id="wizTryHotkeyBadge">
+              <span class="wiz-keycap-mini">fn</span>
             </div>
-            <div class="api-key-input-group">
-              <input type="password" id="wizCerebrasKeyInput3" class="api-key-input" placeholder="csk-..." autocomplete="off" spellcheck="false">
-              <button class="btn-toggle-visibility" onclick="toggleKeyVisibility('wizCerebrasKeyInput3')">👁️</button>
+            <div>
+              <div class="wiz-hint-label">Hold this</div>
+              <div class="wiz-hint-detail">Speak naturally. Release when done.</div>
             </div>
-            <div class="provider-hint">
-              Get your free key: <a href="#" onclick="pywebview.api.open_url('https://cloud.cerebras.ai/keys'); return false;">cloud.cerebras.ai/keys →</a>
-            </div>
-            <div class="wizard-validation" id="wizCerebrasValidation3"></div>
           </div>
+          <div class="wiz-suggest">
+            <span class="wiz-suggest-label">Try saying</span>
+            <p class="wiz-suggest-text">"Sounds great, count me in! What time should I show up and want me to bring a bottle of red?"</p>
+          </div>
+          <div class="wiz-tryit-status wiz-tryit-status-waiting" id="wizRecordingStatus">
+            <span class="wiz-pill-dot"></span>
+            Waiting for you to dictate
+          </div>
+          <div class="wiz-validation" id="wizMicValidation"></div>
         </div>
-
-        <!-- Groq Field — second tier, also very fast. -->
-        <div id="groqField" class="provider-field active">
-          <div class="provider-container">
-            <div class="provider-header">
-              <div class="provider-icon">⚡</div>
-              <div class="provider-title">
-                <h3>Groq API Key</h3>
-                <p>Very fast, generous free tier (~100k tokens/day). Used when Cerebras is busy.</p>
+        <div class="wiz-tryit-right">
+          <div class="wiz-mockapp">
+            <header class="wiz-mockapp-bar">
+              <div class="wiz-mockapp-dots"><span></span><span></span><span></span></div>
+              <span class="wiz-mockapp-title">Messages — Alex</span>
+            </header>
+            <div class="wiz-mockapp-thread">
+              <div class="wiz-msg wiz-msg-them">
+                <span class="wiz-msg-bubble">Hey! A few of us are getting dinner Friday at 7. Want to join? 🍕</span>
+                <span class="wiz-msg-time">2:34 PM</span>
               </div>
             </div>
-            <div class="api-key-input-group">
-              <input type="password" id="wizGroqKeyInput3" class="api-key-input" placeholder="gsk_..." autocomplete="off" spellcheck="false">
-              <button class="btn-toggle-visibility" onclick="toggleKeyVisibility('wizGroqKeyInput3')">👁️</button>
-            </div>
-            <div class="provider-hint">
-              Get your free key: <a href="#" onclick="pywebview.api.open_url('https://console.groq.com/keys'); return false;">console.groq.com/keys →</a>
-            </div>
-            <div class="wizard-validation" id="wizGroqValidation3"></div>
-          </div>
-        </div>
-
-        <!-- OpenAI Field — also shown by default, no longer mutually exclusive with Groq. -->
-        <div id="openaiField" class="provider-field active">
-          <div class="provider-container">
-            <div class="provider-header">
-              <div class="provider-icon">🤖</div>
-              <div class="provider-title">
-                <h3>OpenAI API Key</h3>
-                <p>Slower but always available. Final fallback when both above are busy.</p>
-              </div>
-            </div>
-            <div class="api-key-input-group">
-              <input type="password" id="wizApiKeyInput3" class="api-key-input" placeholder="sk-proj-..." autocomplete="off" spellcheck="false">
-              <button class="btn-toggle-visibility" onclick="toggleKeyVisibility('wizApiKeyInput3')">👁️</button>
-            </div>
-            <div class="provider-hint">
-              Get your key: <a href="#" onclick="pywebview.api.open_url('https://platform.openai.com/api-keys'); return false;">platform.openai.com/api-keys →</a>
-            </div>
-            <div class="wizard-validation" id="wizApiValidation3"></div>
-          </div>
-        </div>
-
-        <p class="wizard-hint switch-hint">
-          Any one of these is enough to get started. You can always add the others later from Settings.
-        </p>
-      </div>
-    </div>
-
-    <!-- Step 4: Try It Out (Mock App Demo) -->
-    <div class="wizard-step-content wizard-step-wide" id="wizContent4" style="display:none">
-      <div class="wizard-tryit-split">
-
-        <!-- Left: Instructions -->
-        <div class="wizard-tryit-left">
-          <div class="wizard-tryit-step-num">Step 3</div>
-          <h2>Try it out</h2>
-          <p class="wizard-tryit-desc">
-            See Waffler in action. Press the hotkey, say something, and watch your words
-            appear in the mock app on the right.
-          </p>
-          <div class="wizard-tryit-hotkey-hint">
-            <span class="hotkey-badge" id="wizTryHotkeyBadge">Win + Ctrl</span>
-            <span>hold to record</span>
-          </div>
-
-          <div class="wizard-tryit-prompt">
-            <div class="wizard-try-label">Try saying:</div>
-            <div class="wizard-try-example">
-              "Hey, thanks for the invite! I'll be there around 7. Should I bring anything?"
-            </div>
-          </div>
-
-          <div class="wizard-recording-status" id="wizRecordingStatus"></div>
-          <div class="wizard-validation" id="wizMicValidation"></div>
-        </div>
-
-        <!-- Right: Mock Chat App -->
-        <div class="wizard-tryit-right">
-          <div class="wizard-mock-app">
-            <div class="mock-app-header">
-              <div class="mock-app-header-left">
-                <div class="mock-app-icon">💬</div>
-                <div class="mock-app-name">Messages</div>
-              </div>
-              <div class="mock-app-tabs">
-                <div class="mock-app-tab active">Messages</div>
-                <div class="mock-app-tab">Email</div>
-                <div class="mock-app-tab">Notes</div>
-              </div>
-              <div class="mock-app-dots">
-                <span class="mock-dot"></span>
-                <span class="mock-dot"></span>
-                <span class="mock-dot"></span>
-              </div>
-            </div>
-
-            <div class="mock-chat-area">
-              <div class="mock-msg">
-                <div class="mock-avatar">A</div>
-                <div class="mock-msg-bubble">
-                  <div class="mock-msg-name">Alex</div>
-                  <div class="mock-msg-text">Hey! A few of us are getting dinner Friday at 7. Want to join? 🍕</div>
-                  <div class="mock-msg-time">2:34 PM</div>
-                </div>
-              </div>
-            </div>
-
-            <div class="mock-input-area">
-              <div class="mock-input-box" id="wizMockInput">
-                <span class="mock-input-placeholder" id="wizMockPlaceholder">
-                  Hold <kbd>Win + Ctrl</kbd> and speak...
-                </span>
+            <div class="wiz-mockapp-input">
+              <div class="wiz-mockapp-field" id="wizMockInput">
+                <span class="wiz-mockapp-placeholder" id="wizMockPlaceholder">Hold <kbd id="wizMockKbd">fn</kbd> to dictate your reply…</span>
                 <span class="mock-input-text" id="wizMockText"></span>
                 <span class="mock-input-cursor" id="wizMockCursor" style="display:none"></span>
               </div>
-              <button class="mock-send-btn" id="wizMockSendBtn" disabled>➤</button>
+              <button class="wiz-mockapp-send" id="wizMockSendBtn" disabled>
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 21l21-9L2 3v7l15 2-15 2v7z"/></svg>
+              </button>
             </div>
           </div>
         </div>
-
       </div>
     </div>
 
     <!-- Navigation -->
-    <div class="wizard-nav">
-      <button class="wizard-btn wizard-btn-back" id="wizBtnBack" onclick="wizBack()" style="display:none">Back</button>
-      <div class="wizard-nav-spacer"></div>
-      <button class="wizard-btn wizard-btn-next" id="wizBtnNext" onclick="wizNext()" disabled>Next</button>
-    </div>
+    <nav class="wiz-nav">
+      <button class="wiz-btn-back" id="wizBtnBack" onclick="wizBack()" style="display:none">Back</button>
+      <button class="wiz-btn-next" id="wizBtnNext" onclick="wizNext()" disabled>Next</button>
+    </nav>
 
   </div>
 </div>
 
 <!-- Toast -->
+
 <div class="toast" id="toast"></div>
 
 <script src="app.js"></script>
