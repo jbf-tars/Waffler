@@ -140,7 +140,8 @@ async function checkForUpdates() {
       const downloadBtn = document.createElement('button');
       downloadBtn.textContent = 'Download';
       downloadBtn.addEventListener('click', () => {
-        pywebview.api.open_url(r.release_url || r.download_url);
+        // Always go to our own download page rather than GitHub's release UI.
+        pywebview.api.open_url('https://wafflerai.com/download/');
       });
 
       const dismissBtn = document.createElement('button');
@@ -226,25 +227,48 @@ async function checkForUpdatesManual() {
 function openUpdateModalFromCheck(r) {
   showUpdateModal();
   _lastUpdateInfo = r;
-  setUpdateModal({
-    icon: '⬆️',
-    title: `Waffler v${r.latest_version} is available`,
-    subtitle: `You're on v${r.current_version}. Download and install now?`,
-    primaryLabel: 'Download & Install',
-    primaryHandler: () => startDownloadFlow(r.download_url),
-    browserUrl: r.release_url || r.download_url,
-    cancelLabel: 'Later',
-  });
+
+  // The in-app silent install only works on Windows (Inno Setup with
+  // /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS handles the running-process
+  // swap natively). On Mac we send users to the website's download page,
+  // which is the standard DMG workflow and Just Works — the in-app
+  // download has historically hit a PyInstaller-bundled-requests quirk
+  // that left progress stuck at 0%.
+  const websiteDownloadUrl = 'https://wafflerai.com/download/';
+  if (isMacPlatform) {
+    setUpdateModal({
+      icon: '⬆️',
+      title: `Waffler v${r.latest_version} is available`,
+      subtitle: `You're on v${r.current_version}. Open the download page to grab the new DMG, then drag it into Applications.`,
+      primaryLabel: 'Open Download Page',
+      primaryHandler: () => pywebview.api.open_url(websiteDownloadUrl),
+      cancelLabel: 'Later',
+    });
+  } else {
+    setUpdateModal({
+      icon: '⬆️',
+      title: `Waffler v${r.latest_version} is available`,
+      subtitle: `You're on v${r.current_version}. Download and install now?`,
+      primaryLabel: 'Download & Install',
+      primaryHandler: () => startDownloadFlow(r.download_url),
+      browserUrl: websiteDownloadUrl,
+      cancelLabel: 'Later',
+    });
+  }
 }
 
 async function startDownloadFlow(url) {
   _downloadedPath = null;
+  // On any failure / "Download in browser" click, send users to the
+  // website's download page rather than the GitHub release page —
+  // it's the user-friendly entry point we control.
+  const fallbackUrl = 'https://wafflerai.com/download/';
   setUpdateModal({
     icon: '⬇️',
     title: 'Downloading update…',
     subtitle: 'Please keep Waffler open.',
     showProgress: true,
-    browserUrl: (_lastUpdateInfo && (_lastUpdateInfo.release_url || _lastUpdateInfo.download_url)) || url,
+    browserUrl: fallbackUrl,
     cancelLabel: 'Cancel',
   });
   try {
@@ -256,7 +280,7 @@ async function startDownloadFlow(url) {
       icon: '⚠️',
       title: 'Download failed',
       subtitle: String(e),
-      browserUrl: (_lastUpdateInfo && (_lastUpdateInfo.release_url || _lastUpdateInfo.download_url)) || url,
+      browserUrl: fallbackUrl,
     });
   }
 }
@@ -278,7 +302,7 @@ async function pollUpdateProgress() {
         icon: '⚠️',
         title: 'Download failed',
         subtitle: p.error,
-        browserUrl: _lastUpdateInfo && (_lastUpdateInfo.release_url || _lastUpdateInfo.download_url),
+        browserUrl: 'https://wafflerai.com/download/',
       });
       return;
     }

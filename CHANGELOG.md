@@ -4,6 +4,12 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.1] - 2026-05-12
+
+### Fixed
+- **Mac auto-update stuck at 0%.** The in-app download worker on macOS would establish the HTTPS connection, read the `content-length` header, then never receive body chunks — leaving the progress bar frozen at 0% indefinitely. Root cause is a PyInstaller-bundled `requests`/`urllib3` quirk on macOS that mishandles streamed response chunks from GitHub's signed-redirect CDN. Rather than fight platform-specific bundling bugs, the Mac flow now opens the website's `/download/` page directly when an update is detected — the standard "drag DMG into Applications" workflow that's been working reliably since v3.13.0. Windows keeps the in-app silent install via Inno Setup, which has no such bug.
+- **"Download in browser" now opens the website, not the GitHub release page.** Previously the fallback button (and the sidebar update banner) sent users to a raw `github.com/.../releases/tag/v3.X.Y` page with terse asset names. They now land on `https://wafflerai.com/download/` which has the proper download UI, system requirements, and OS detection — the surface we control.
+
 ## [3.14.0] - 2026-05-12
 
 ### Changed
