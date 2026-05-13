@@ -4590,9 +4590,17 @@ body[data-theme="dark"] {
   width: 32px; height: 32px; border-radius: 7px;
 }
 .j-brand-text {
-  font-family: var(--serif);
-  font-size: 20px; font-weight: 700;
+  /* v3.14.22 — match the website's header brand exactly. The header in
+     Header.astro uses `text-xl font-bold` with no font-family override,
+     so it inherits the body's --font-sans (Inter Variable). The brand
+     wordmark should look the same here. Journal entry body text and
+     date dividers still use Source Serif 4 — only the WORDMARK is sans. */
+  font-family: "Inter Variable", "Inter", -apple-system, BlinkMacSystemFont,
+               "SF Pro Display", "Segoe UI", system-ui, sans-serif;
+  font-size: 20px;
+  font-weight: 700;
   color: var(--text-primary);
+  letter-spacing: -0.01em;
 }
 .j-nav { display: flex; gap: 4px; margin-left: 12px; }
 .j-nav-item {

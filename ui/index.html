@@ -46,10 +46,14 @@
       </select>
     </div>
 
-    <!-- Listening indicator (replaces sidebar hotkey-hint + status pill) -->
+    <!-- Status pill — v3.14.22 wording.
+         "Listening for [Fn]" was misleading (sounded like the mic was
+         already hot). Changed to "Waiting for activation" — calmer,
+         clearer, matches the actual idle state. The Fn key is shown
+         to the side as a small chip so users still know how to start. -->
     <div class="j-listen status-indicator idle" id="statusIndicator">
       <span class="j-listen-dot status-dot"></span>
-      <span class="j-listen-text" id="statusText">Listening for</span>
+      <span class="j-listen-text" id="statusText">Waiting for activation</span>
       <kbd class="j-kbd" id="hotkeyHint">Fn</kbd>
     </div>
 

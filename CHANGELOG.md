@@ -4,6 +4,14 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.22] - 2026-05-13
+
+### Fixed
+- **"Waffler" brand wordmark still didn't match the website.** v3.14.20 loaded Source Serif 4 from Google Fonts, but the actual mismatch was something subtler — the website's *header* logo uses `text-xl font-bold` with no font-family override, so it inherits Inter Variable from the body. I'd been setting the app's `.j-brand-text` to `var(--serif)` (Source Serif 4) thinking the website used serif there. Wrong font family entirely. Switched the app's brand wordmark to `Inter Variable` (bold 700, 20px, `letter-spacing: -0.01em`) so it now renders identically to the header. Journal entry body text + date dividers still use Source Serif 4 — that's where the editorial serif feel belongs.
+
+### Changed
+- **Status pill wording.** "Listening for [Fn]" was misleading — it sounded like the microphone was already hot. Changed to "Waiting for activation [Fn]" — calmer, matches the actual idle state. The Fn key chip stays so users still see exactly how to start.
+
 ## [3.14.21] - 2026-05-13
 
 ### Fixed
