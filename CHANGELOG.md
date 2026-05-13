@@ -4,6 +4,16 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.12] - 2026-05-13
+
+### Changed
+- **Wizard Step 3 — animated three-step Groq onboarding scenes.** Step 3 (API keys) used to be the hardest hurdle for users who'd never created an API key before. Added three illustrated story cards above the Groq input that walk through the actual flow with looping CSS animations:
+  1. **Open the link** — mock Groq dashboard (dark theme, real "groq" wordmark in their orange `#F55036`, sidebar with "API Keys" highlighted) with an animated cursor that glides to the "+ Create API Key" button and clicks it; the button briefly depresses and a red ripple ring expands.
+  2. **Sign in (free)** — modal with the Google G logo "Continue with Google" button, an email field that **types `you@example.com` character-by-character** with a blinking caret that moves with the text, a red "Sign in" button that briefly glows red, and a green check badge that pops in at the corner.
+  3. **Copy + paste it here** — dark key-reveal modal with the "shown only once" warning, a `gsk_...` key with a **light shimmer sweep** across it, a green Copy button that briefly depresses, a "✓ Copied!" toast that slides up and fades, and a gold down-arrow that pulses toward the paste field below.
+
+  Cards are staggered ~1s apart so the row reads left → right as one continuous demonstration, and a small gold dot travels along each connector arrow between cards to reinforce the direction. Cards stack vertically on narrow widths. Respects `prefers-reduced-motion`.
+
 ## [3.14.11] - 2026-05-13
 
 ### Fixed

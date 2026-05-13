@@ -3388,6 +3388,261 @@ html, body {
 .wiz-prov-status.loading { color: #6B6560; }
 .wiz-prov-foot { font-size: 12.5px; color: #6B6560; line-height: 1.5; margin-top: 8px; }
 
+/* ════════════════════════════════════════════════════════════════════
+ * STEP 3 — Animated three-step "how to get a Groq key" walkthrough.
+ *
+ * Three story cards with looping CSS animations on their SVG scenes:
+ *   1. Cursor clicks the "+ Create API Key" button (red ripple)
+ *   2. Email types itself into the sign-in form, button glows, check pops in
+ *   3. Key shimmers, Copy button depresses, "Copied!" toast slides in,
+ *      gold arrow pulses down toward the paste field
+ *
+ * Each scene is offset ~1s from the previous so the row reads left → right
+ * as one continuous flow. A small gold dot also travels along each connector
+ * arrow between cards to reinforce the direction.
+ * ════════════════════════════════════════════════════════════════════ */
+.wiz-story-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  margin: 8px 0 14px;
+}
+.wiz-story-card {
+  flex: 1;
+  background: #fff;
+  border: 1.5px solid rgba(200, 162, 86, 0.2);
+  border-radius: 16px;
+  padding: 22px 14px 18px;
+  text-align: center;
+  position: relative;
+  min-width: 0;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+.wiz-story-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 30px rgba(200, 162, 86, 0.12);
+}
+.wiz-story-num {
+  position: absolute;
+  top: -12px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 28px;
+  height: 28px;
+  background: linear-gradient(180deg, #D4B06A, #C8A256);
+  color: #fff;
+  border-radius: 50%;
+  font-weight: 800;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 10px rgba(200, 162, 86, 0.35);
+}
+.wiz-story-card h4 {
+  margin: 14px 0 4px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #1A1A1A;
+}
+.wiz-story-card p {
+  font-size: 12px;
+  color: #6B6560;
+  line-height: 1.45;
+  margin: 0;
+}
+.wiz-story-card strong { color: #1A1A1A; }
+
+.wiz-story-scene {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin: 8px 0 10px;
+}
+.wiz-story-scene svg {
+  width: 100%;
+  max-width: 230px;
+  height: auto;
+  border-radius: 10px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  display: block;
+}
+
+/* Connector arrow between cards, with travelling gold dot */
+.wiz-story-connector {
+  width: 50px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+.wiz-story-connector svg { width: 100%; height: 24px; }
+.wiz-connector-dot {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  background: #C8A256;
+  border-radius: 50%;
+  box-shadow: 0 0 8px rgba(200, 162, 86, 0.6);
+  opacity: 0;
+}
+.wiz-connector-dot-1 { animation: wizConnectorFlow 7s ease-in-out infinite; animation-delay: 1.8s; }
+.wiz-connector-dot-2 { animation: wizConnectorFlow 7s ease-in-out infinite; animation-delay: 4.0s; }
+@keyframes wizConnectorFlow {
+  0%, 15%   { opacity: 0; left: 6%; }
+  25%       { opacity: 1; left: 6%; }
+  65%       { opacity: 1; left: 88%; }
+  75%, 100% { opacity: 0; left: 88%; }
+}
+
+/* ── Scene 1 — cursor clicks Create API Key button ── */
+.s1-cursor {
+  animation: wizS1Cursor 7s ease-in-out infinite;
+  transform-origin: 0 0;
+}
+@keyframes wizS1Cursor {
+  0%, 10%   { transform: translate(120px, 110px); }
+  35%, 50%  { transform: translate(150px, 28px); }
+  52%, 58%  { transform: translate(150px, 28px) scale(0.82); }
+  62%, 85%  { transform: translate(150px, 28px) scale(1); }
+  100%      { transform: translate(120px, 110px); }
+}
+.s1-btn {
+  transform-origin: 168px 34.5px;
+  animation: wizS1Btn 7s ease-in-out infinite;
+}
+@keyframes wizS1Btn {
+  0%, 50%   { transform: scale(1); fill: #F55036; }
+  55%, 60%  { transform: scale(0.96); fill: #D63E1F; }
+  65%, 100% { transform: scale(1); fill: #F55036; }
+}
+.s1-ripple {
+  opacity: 0;
+  transform-origin: 168px 34.5px;
+  animation: wizS1Ripple 7s ease-out infinite;
+}
+@keyframes wizS1Ripple {
+  0%, 52% { opacity: 0; transform: scale(0.6); }
+  55%     { opacity: 0.7; transform: scale(0.6); }
+  72%     { opacity: 0; transform: scale(2.4); }
+  100%    { opacity: 0; transform: scale(2.4); }
+}
+
+/* ── Scene 2 — email types in, button glows, check pops ── */
+.s2-type {
+  clip-path: inset(0 100% 0 0);
+  animation: wizS2Type 7s ease-out infinite;
+  animation-delay: 1s;
+}
+@keyframes wizS2Type {
+  0%, 8%    { clip-path: inset(0 100% 0 0); }
+  50%, 100% { clip-path: inset(0 0% 0 0); }
+}
+.s2-caret {
+  animation: wizS2Caret 7s linear infinite, wizS2CaretMove 7s ease-out infinite;
+  animation-delay: 1s;
+}
+@keyframes wizS2Caret {
+  0%, 50%   { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+@keyframes wizS2CaretMove {
+  0%, 8%    { transform: translateX(0); }
+  50%, 100% { transform: translateX(75px); }
+}
+.s2-signin {
+  animation: wizS2Signin 7s ease-in-out infinite;
+  animation-delay: 1s;
+  transform-origin: 100px 111px;
+}
+@keyframes wizS2Signin {
+  0%, 55%   { filter: brightness(1) drop-shadow(0 0 0 transparent); transform: scale(1); }
+  60%, 70%  { filter: brightness(1.08) drop-shadow(0 0 6px rgba(245, 80, 54, 0.5)); transform: scale(1.02); }
+  75%, 100% { filter: brightness(1) drop-shadow(0 0 0 transparent); transform: scale(1); }
+}
+.s2-check {
+  opacity: 0;
+  animation: wizS2Check 7s ease-out infinite;
+  animation-delay: 1s;
+  transform-box: fill-box;
+}
+@keyframes wizS2Check {
+  0%, 78%   { opacity: 0; transform: translate(160px, 24px) scale(0); }
+  84%       { opacity: 1; transform: translate(160px, 24px) scale(1.15); }
+  90%, 100% { opacity: 1; transform: translate(160px, 24px) scale(1); }
+}
+.s2-google {
+  animation: wizS2GoogleHover 7s ease-in-out infinite;
+  animation-delay: 1s;
+}
+@keyframes wizS2GoogleHover {
+  0%, 30%   { filter: drop-shadow(0 0 0 transparent); }
+  35%, 45%  { filter: drop-shadow(0 0 4px rgba(0, 0, 0, 0.12)); }
+  50%, 100% { filter: drop-shadow(0 0 0 transparent); }
+}
+
+/* ── Scene 3 — key shimmer, copy click, toast slides, arrow pulses ── */
+.s3-shimmer {
+  animation: wizS3Shimmer 7s ease-in-out infinite;
+  animation-delay: 2.2s;
+  opacity: 0;
+}
+@keyframes wizS3Shimmer {
+  0%, 6%    { transform: translateX(0); opacity: 0; }
+  10%       { opacity: 0.9; }
+  35%       { transform: translateX(120px); opacity: 0.9; }
+  40%, 100% { transform: translateX(120px); opacity: 0; }
+}
+.s3-copy {
+  animation: wizS3Copy 7s ease-in-out infinite;
+  animation-delay: 2.2s;
+  transform-origin: 172px 69px;
+}
+@keyframes wizS3Copy {
+  0%, 42%   { transform: scale(1); filter: brightness(1); }
+  47%, 52%  { transform: scale(0.92); filter: brightness(0.85); }
+  57%, 100% { transform: scale(1); filter: brightness(1); }
+}
+.s3-toast {
+  opacity: 0;
+  animation: wizS3Toast 7s ease-out infinite;
+  animation-delay: 2.2s;
+}
+@keyframes wizS3Toast {
+  0%, 50%   { opacity: 0; transform: translate(70px, 102px); }
+  58%       { opacity: 1; transform: translate(70px, 92px); }
+  78%       { opacity: 1; transform: translate(70px, 92px); }
+  86%, 100% { opacity: 0; transform: translate(70px, 86px); }
+}
+.s3-arrow {
+  animation: wizS3Arrow 7s ease-in-out infinite;
+  animation-delay: 2.2s;
+  transform-origin: 100px 120px;
+}
+@keyframes wizS3Arrow {
+  0%, 60%   { opacity: 0.35; transform: translateY(0); }
+  70%       { opacity: 1; transform: translateY(3px); }
+  80%       { opacity: 1; transform: translateY(0); }
+  90%, 100% { opacity: 0.35; transform: translateY(0); }
+}
+
+/* Stack vertically on narrow wizard widths */
+@media (max-width: 900px) {
+  .wiz-story-row { flex-direction: column; gap: 12px; }
+  .wiz-story-connector { width: 100%; height: 30px; transform: rotate(90deg); }
+}
+
+/* Honour reduced-motion preference */
+@media (prefers-reduced-motion: reduce) {
+  .s1-cursor, .s1-btn, .s1-ripple,
+  .s2-type, .s2-caret, .s2-signin, .s2-check, .s2-google,
+  .s3-shimmer, .s3-copy, .s3-toast, .s3-arrow,
+  .wiz-connector-dot { animation: none; }
+  .s2-type { clip-path: inset(0 0 0 0); }
+  .s2-check { opacity: 1; transform: translate(160px, 24px); }
+}
+
 .wiz-tryit {
   display: grid;
   grid-template-columns: 1fr;
