@@ -2423,64 +2423,144 @@ class WafflerPipeline:
             # Warn the user when every styling provider failed and we had to
             # fall back to the regex-only cleaner. Without this, quality drops
             # silently (e.g. when Groq's free-tier quota is exhausted).
+            #
+            # v3.14.19: rewrote the wording to be actionable. The previous
+            # `else` branch ("Pasted raw. See the log for details.") gave the
+            # user no idea what was wrong or what to do. Every branch now
+            # tells the user (a) what happened, (b) what to do RIGHT NOW
+            # (add a fallback key in Settings), and (c) the alternative
+            # (wait until the limit resets).
             if gpt_usage.get("fallback_reason"):
                 reason = gpt_usage["fallback_reason"]
-                heading = "Cleanup skipped"
+                # Extract provider name if the styler prefixed it (v3.14.19+).
+                # Format inside RATE_LIMIT messages: parts[3] now starts
+                # with "<Provider>: " when the styler enriched it.
+                provider_name = "Your styling provider"
+                if reason.startswith("RATE_LIMIT|"):
+                    _parts = reason.split("|", 3)
+                    snippet = _parts[3] if len(_parts) > 3 else ""
+                    if ":" in snippet:
+                        cand = snippet.split(":", 1)[0].strip()
+                        if cand in ("Groq", "Cerebras", "OpenAI"):
+                            provider_name = cand
+
+                heading = "Rate limit hit"
+
                 if reason.startswith("RATE_LIMIT|"):
                     # Format: RATE_LIMIT|<limit>|<retry_in>|<raw error snippet>
                     parts = reason.split("|", 3)
                     limit_kind = parts[1] if len(parts) > 1 else ""
                     retry_in = parts[2] if len(parts) > 2 else ""
 
-                    # Map Groq's technical limit label to something readable.
+                    # Map the technical limit label to something readable.
                     lk = limit_kind.lower()
-                    is_daily = "per day" in lk or "TPD" in limit_kind or "RPD" in limit_kind or "ASD" in limit_kind
+                    is_daily = (
+                        "per day" in lk
+                        or "TPD" in limit_kind
+                        or "RPD" in limit_kind
+                        or "ASD" in limit_kind
+                    )
                     if "tokens per day" in lk:
                         friendly = "daily token limit"
+                        is_daily = True
                     elif "tokens per minute" in lk:
                         friendly = "per-minute token limit"
                     elif "requests per day" in lk:
                         friendly = "daily request limit"
+                        is_daily = True
                     elif "requests per minute" in lk:
                         friendly = "per-minute request limit"
                     elif "audio seconds" in lk:
                         friendly = "daily audio limit" if is_daily else "hourly audio limit"
+                    elif lk == "cooldown":
+                        friendly = "rate limit (cooldown active)"
                     else:
                         friendly = "rate limit"
 
-                    # Format Groq's retry duration (e.g. "15m43.488s") as a
-                    # human-friendly "about N minutes" — strip milliseconds and
-                    # round up so we never tell the user to try again "in 0 minutes".
+                    # Format the retry duration (e.g. "15m43.488s" or
+                    # "12s") as a human-friendly "about N minutes" —
+                    # strip milliseconds and round up so we never tell
+                    # the user to wait "0 minutes".
                     import re as _re_fmt
-                    _m = _re_fmt.match(r"^\s*(?:(\d+)h)?(?:(\d+)m)?(?:([\d.]+)s)?\s*$", retry_in)
+                    _m = _re_fmt.match(
+                        r"^\s*(?:(\d+)h)?(?:(\d+)m)?(?:([\d.]+)s)?\s*$",
+                        retry_in,
+                    )
                     if _m and _m.group(0).strip():
                         _h = int(_m.group(1) or 0)
                         _mn = int(_m.group(2) or 0)
                         _sec = float(_m.group(3) or 0)
                         if _h >= 1:
-                            wait_hint = f"Try again in about {_h}h {_mn}m" if _mn else f"Try again in about {_h}h"
+                            wait_hint = (
+                                f"resets in about {_h}h {_mn}m" if _mn
+                                else f"resets in about {_h}h"
+                            )
                         else:
-                            _total_min = _mn + (1 if _sec > 0 else 0)  # round seconds up
+                            _total_min = _mn + (1 if _sec > 0 else 0)
                             if _total_min >= 1:
-                                wait_hint = f"Try again in about {_total_min} minute{'s' if _total_min != 1 else ''}"
+                                wait_hint = (
+                                    f"resets in about {_total_min} "
+                                    f"minute{'s' if _total_min != 1 else ''}"
+                                )
                             else:
-                                wait_hint = "Try again in under a minute"
+                                wait_hint = "resets in under a minute"
                     elif is_daily:
-                        wait_hint = "Try again tomorrow"
+                        wait_hint = "resets tomorrow"
                     else:
-                        wait_hint = "Try again shortly"
+                        wait_hint = "resets shortly"
 
-                    body = f"Groq {friendly} hit. {wait_hint}, or add an OpenAI key in Settings as a fallback."
+                    # Build the actionable advice. Tell the user exactly
+                    # what to do next — add a fallback key — and what the
+                    # alternative is (wait for the reset).
+                    other_providers = [
+                        p for p in ("Groq", "Cerebras", "OpenAI")
+                        if p != provider_name
+                    ]
+                    fallback_hint = (
+                        f"Add a {' or '.join(other_providers)} key in Settings → API Keys as a fallback"
+                        if other_providers else
+                        "Add another provider's key in Settings as a fallback"
+                    )
+
+                    heading = f"{provider_name} {friendly} hit"
+                    body = (
+                        f"Pasted raw text — styling skipped because "
+                        f"{provider_name}'s {friendly} {wait_hint}. "
+                        f"{fallback_hint}, or wait for the limit to reset."
+                    )
+
                 elif "CONNECTION" in reason or "timeout" in reason.lower():
-                    body = "No connection — pasted raw. Check your internet or VPN."
-                elif reason.startswith("AUTH:"):
-                    # Groq blocked our request (most common cause: VPN exit
-                    # IP, occasionally a corporate firewall or revoked key).
-                    # OpenAI fallback would be slow but functional — but this
-                    # branch only fires when there's no OpenAI key set.
-                    body = "Groq blocked your request — likely a VPN or firewall. Add an OpenAI key in Settings, or toggle VPN off."
+                    heading = "Connection failed"
+                    body = (
+                        "Pasted raw text — couldn't reach the styling provider. "
+                        "Check your internet or VPN, then try again."
+                    )
+
+                elif reason.startswith("AUTH:") or "auth" in reason.lower() and "401" in reason:
+                    heading = "Auth blocked"
+                    body = (
+                        "Pasted raw text — provider blocked the request "
+                        "(likely a VPN, firewall, or expired key). "
+                        "Try another provider key in Settings → API Keys, or toggle VPN off."
+                    )
+
+                elif "No styling providers configured" in reason:
+                    heading = "No styling provider"
+                    body = (
+                        "Pasted raw text — no API key is set up yet. "
+                        "Add a Groq key (free, 100k tokens/day) in Settings → API Keys to enable styling."
+                    )
+
                 else:
-                    body = "Pasted raw. See the log for details."
+                    # Truly unknown error. Still give the user something
+                    # actionable rather than telling them to read the log.
+                    heading = "Styling skipped"
+                    body = (
+                        "Pasted raw text — your styling provider returned an unexpected error. "
+                        "Try adding a fallback key in Settings → API Keys "
+                        "(Groq, Cerebras, or OpenAI) so we can route around it next time."
+                    )
+
                 _log_to_file(f"[pipeline] styling fell back to basic_clean: {reason}")
                 try:
                     self.overlay.show_toast(style="warn", heading=heading, body=body)

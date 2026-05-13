@@ -221,31 +221,120 @@ Transcript: {transcript}"""
         # Qwen-3 235B takes over — fast and smart on the paid tier.
         # OpenAI gpt-4.1-mini sits as a last-resort fallback for the rare
         # case both fast providers are unavailable.
+        #
+        # v3.14.19: track failures across providers so that when EVERYTHING
+        # falls through to basic_clean, we surface the most actionable
+        # reason (rate-limit > auth > connection > other). Previously when
+        # Groq was rate-limited and the user had no Cerebras or OpenAI key,
+        # ``_style_openai`` would crash on ``self.client.chat`` (NoneType)
+        # and that meaningless ``AttributeError`` became the fallback reason
+        # — so the toast just said "Pasted raw. See the log for details."
+        # The fix is to (a) skip OpenAI when ``self.client is None``,
+        # (b) synthesise a RATE_LIMIT-style reason for providers in
+        # active cooldown so the toast can still explain WHY, and
+        # (c) pick the most informative failure to propagate.
+
+        failures: list[tuple[str, str]] = []  # (provider, error_str)
 
         # Priority 1: Groq Llama 3.3 70B — free tier preserved.
-        if self._use_groq and time.monotonic() >= self._groq_skip_until:
-            try:
-                return self._style_groq(prompt, start_time)
-            except Exception as e:
-                self._log_provider_failure("Groq", e)
-                # fall through to Cerebras / OpenAI
+        if self._use_groq:
+            if time.monotonic() >= self._groq_skip_until:
+                try:
+                    return self._style_groq(prompt, start_time)
+                except Exception as e:
+                    self._log_provider_failure("Groq", e)
+                    failures.append(("Groq", str(e)))
+            else:
+                # Groq is enabled but in cooldown from a previous 429.
+                # Synthesise a RATE_LIMIT-flavoured reason so the toast
+                # can still explain it.
+                wait_s = max(0, int(self._groq_skip_until - time.monotonic()))
+                failures.append((
+                    "Groq",
+                    f"RATE_LIMIT|cooldown|{wait_s}s|Groq still in cooldown from previous limit",
+                ))
 
         # Priority 2: Cerebras Qwen-3 235B — paid tier, ~500ms even on
         # long inputs.
-        if self._use_cerebras and time.monotonic() >= self._cerebras_skip_until:
-            try:
-                return self._style_cerebras(prompt, start_time)
-            except Exception as e:
-                self._log_provider_failure("Cerebras", e)
-                if not self.client:
-                    return self._basic_clean(transcript), {
-                        "input_tokens": 0, "output_tokens": 0,
-                        "api_used": False, "provider": "basic_clean",
-                        "fallback_reason": str(e)[:160],
-                    }
+        if self._use_cerebras:
+            if time.monotonic() >= self._cerebras_skip_until:
+                try:
+                    return self._style_cerebras(prompt, start_time)
+                except Exception as e:
+                    self._log_provider_failure("Cerebras", e)
+                    failures.append(("Cerebras", str(e)))
+            else:
+                wait_s = max(0, int(self._cerebras_skip_until - time.monotonic()))
+                failures.append((
+                    "Cerebras",
+                    f"RATE_LIMIT|cooldown|{wait_s}s|Cerebras still in cooldown",
+                ))
 
         # Priority 3: OpenAI gpt-4.1-mini — last-resort fallback only.
-        return self._style_openai(prompt, transcript, start_time)
+        # Skip entirely if no client is configured so we don't crash on a
+        # NoneType call and lose the real failure reason.
+        if self.client is not None:
+            try:
+                return self._style_openai(prompt, transcript, start_time)
+            except Exception as e:
+                self._log_provider_failure("OpenAI", e)
+                failures.append(("OpenAI", str(e)))
+
+        # ── All providers exhausted ─────────────────────────────────
+        # Pick the most informative reason and fall back to basic_clean.
+        best = self._pick_best_failure_reason(failures)
+        return self._basic_clean(transcript), {
+            "input_tokens": 0, "output_tokens": 0,
+            "api_used": False, "provider": "basic_clean",
+            "fallback_reason": best,
+        }
+
+    @staticmethod
+    def _pick_best_failure_reason(failures: list[tuple[str, str]]) -> str:
+        """Pick the most actionable failure to surface to the user.
+
+        Priority:
+          1. ``RATE_LIMIT|...`` — tells the user to wait / add a fallback key
+          2. ``AUTH:...`` — tells the user to check key / VPN
+          3. ``CONNECTION...`` / ``timeout`` — tells the user to check network
+          4. Anything else (last resort)
+
+        When multiple providers are rate-limited, prefer the one with the
+        shorter wait. The selected reason is prefixed with the provider
+        name so the toast can say "Groq …" rather than just "rate limit".
+        """
+        if not failures:
+            return "No styling providers configured. Add a key in Settings → API Keys."
+
+        def category(err: str) -> int:
+            if "RATE_LIMIT" in err:
+                return 0
+            if err.startswith("AUTH:"):
+                return 1
+            if "CONNECTION" in err or "timeout" in err.lower():
+                return 2
+            return 3
+
+        # Sort failures by category, then prefer Groq over Cerebras over OpenAI
+        # (the order the user is most likely to recognise as their primary).
+        order = {"Groq": 0, "Cerebras": 1, "OpenAI": 2}
+        failures_sorted = sorted(
+            failures,
+            key=lambda f: (category(f[1]), order.get(f[0], 99)),
+        )
+        provider, err = failures_sorted[0]
+
+        # If it's a RATE_LIMIT, prepend the provider name to the message
+        # so the toast handler can extract it. Format stays parseable:
+        # "RATE_LIMIT|<limit>|<wait>|<snippet>"  — but we splice the
+        # provider name into the snippet field so the toast can show it.
+        if "RATE_LIMIT" in err and err.startswith("RATE_LIMIT|"):
+            parts = err.split("|", 3)
+            # parts[3] is the raw snippet; prefix with provider for clarity
+            snippet = parts[3] if len(parts) > 3 else ""
+            parts = parts[:3] + [f"{provider}: {snippet}"]
+            return "|".join(parts)[:200]
+        return f"{provider}: {err}"[:200]
 
     def _log_provider_failure(self, provider_name: str, exc: Exception):
         """Common provider-failure log emitter — keeps each call site small."""

@@ -4,6 +4,16 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.19] - 2026-05-13
+
+### Fixed
+- **Rate-limit toast was unhelpfully generic.** When Groq's daily token quota was exhausted and the user had no Cerebras / OpenAI fallback configured, the styler would fall through, try ``self.client.chat`` on a ``NoneType`` (because the OpenAI client wasn't set up), catch the resulting ``AttributeError``, and pass *that* meaningless error as the fallback reason. The toast then said: <em>"Cleanup skipped — Pasted raw. See the log for details."</em> — telling the user nothing about what actually happened or what to do.
+
+  Two-part fix:
+    1. **Styler now skips OpenAI entirely when ``self.client is None``** (instead of crashing on a NoneType call), tracks every provider's failure in an explicit ``failures`` list, and surfaces the most actionable reason — rate-limit messages beat auth/connection/other in priority. When a provider is in cooldown from a previous 429 but hasn't been called this dictation, a synthetic ``RATE_LIMIT|cooldown|<wait>s|<provider>`` reason is generated so the toast can still explain why.
+    2. **Toast wording rewritten** to always be actionable. Every branch now tells the user (a) what happened, (b) what to do RIGHT NOW (add a specific fallback key in Settings → API Keys), and (c) the alternative (wait for the limit to reset, with the actual reset time). Example: <em>"Groq daily token limit hit. Pasted raw text — styling skipped because Groq's daily token limit resets in about 3h 24m. Add a Cerebras or OpenAI key in Settings → API Keys as a fallback, or wait for the limit to reset."</em>
+  Headings also got more specific — ``"Cleanup skipped"`` is now ``"Groq daily token limit hit"`` / ``"Connection failed"`` / ``"Auth blocked"`` / ``"No styling provider"`` depending on what actually went wrong.
+
 ## [3.14.18] - 2026-05-13
 
 ### Fixed
