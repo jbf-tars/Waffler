@@ -4,6 +4,15 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.3] - 2026-05-13
+
+### Added
+- **Cream theme for the main app.** Replaces the previous black-on-grey dark UI with the same cream/gold/warm-dark palette as the new wizard and the website. New installs default to Cream so the wizard-to-app handoff feels seamless. **Settings → Appearance** now has a three-option picker: Cream (default) / Dark (the original look) / System (follows the OS via `prefers-color-scheme`). Choice persisted to `localStorage` so it survives restarts. The entire app uses CSS variables, so the theme is swapped instantly without a reload — sidebar, history list, settings, vocabulary, hotkey badges, even the toast all repaint correctly.
+- **Bigger wizard window.** Wizard container max-width bumped from 800px to 1080px (and 1200px for the wide Try-It step) so the Accessibility and Input Monitoring permission cards (with the embedded animated walkthrough) fit on a single screen without scrolling. On screens ≥980px wide, Step 1 now lays the two permission cards out side-by-side as a 2-column grid instead of stacking them.
+
+### Fixed
+- **Mac auto-updater stuck at 0% — for real this time.** v3.14.1 redirected Mac users to the website as a workaround because the PyInstaller-bundled `requests`/SSL stack on macOS has a long-standing issue where the HTTPS connection establishes and `content-length` arrives but body chunks never reach `iter_content()`. The new `src/updater.py` shells out to `/usr/bin/curl` on Mac instead — curl is shipped with macOS, uses the system's SSL trust store, and works on signed-redirect URLs from GitHub Releases. Progress is reported by polling the partial file size every 400ms. The in-app **Download & Install** button is now back on Mac (no more "Open Download Page" workaround); the install + relaunch still uses the existing `hdiutil` + `cp -R` shell script.
+
 ## [3.14.2] - 2026-05-12
 
 ### Changed

@@ -126,6 +126,31 @@
     </div>
     
     <div class="settings-body">
+      <!-- Appearance Section (v3.14.3+) -->
+      <div class="settings-section">
+        <div class="settings-section-title">🎨 Appearance</div>
+        <p style="color:var(--text-secondary);font-size:13px;margin-bottom:10px">
+          Match the wizard's branded look, or stick with the original dark theme.
+        </p>
+        <div class="theme-picker">
+          <button class="theme-option" data-theme="cream" onclick="setAppTheme('cream')">
+            <div class="theme-swatch theme-swatch-cream"></div>
+            <span class="theme-option-name">Cream</span>
+            <span class="theme-option-meta">Matches wizard &amp; site</span>
+          </button>
+          <button class="theme-option" data-theme="dark" onclick="setAppTheme('dark')">
+            <div class="theme-swatch theme-swatch-dark"></div>
+            <span class="theme-option-name">Dark</span>
+            <span class="theme-option-meta">Original look</span>
+          </button>
+          <button class="theme-option" data-theme="auto" onclick="setAppTheme('auto')">
+            <div class="theme-swatch theme-swatch-auto"></div>
+            <span class="theme-option-name">System</span>
+            <span class="theme-option-meta">Follows macOS / Windows</span>
+          </button>
+        </div>
+      </div>
+
       <!-- API Section -->
       <div class="settings-section">
         <div class="settings-section-title">⚡ API Keys</div>

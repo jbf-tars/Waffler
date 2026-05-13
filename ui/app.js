@@ -1,5 +1,35 @@
 /* Waffler — Frontend Logic */
 
+// ── Theme (v3.14.3+) ──────────────────────────────────────────────────
+// Apply the saved theme as early as possible so the page doesn't flash
+// in the wrong colours. Default for new installs is "cream".
+(function applyStoredTheme() {
+  try {
+    const t = localStorage.getItem('waffler_theme') || 'cream';
+    document.body.setAttribute('data-theme', t);
+  } catch (_) {
+    document.body.setAttribute('data-theme', 'cream');
+  }
+})();
+
+function setAppTheme(theme) {
+  if (!['cream', 'dark', 'auto'].includes(theme)) return;
+  document.body.setAttribute('data-theme', theme);
+  try { localStorage.setItem('waffler_theme', theme); } catch (_) {}
+  // Update theme-picker active state
+  document.querySelectorAll('.theme-option').forEach((el) => {
+    el.classList.toggle('active', el.getAttribute('data-theme') === theme);
+  });
+}
+
+// Mark the current theme button as active when settings opens
+function refreshThemePicker() {
+  const cur = document.body.getAttribute('data-theme') || 'cream';
+  document.querySelectorAll('.theme-option').forEach((el) => {
+    el.classList.toggle('active', el.getAttribute('data-theme') === cur);
+  });
+}
+
 // ── State ──────────────────────────────────────────────────────────────
 let history = [];
 let stats = { today_words: 0, today_count: 0, total_words: 0 };
@@ -228,33 +258,19 @@ function openUpdateModalFromCheck(r) {
   showUpdateModal();
   _lastUpdateInfo = r;
 
-  // The in-app silent install only works on Windows (Inno Setup with
-  // /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS handles the running-process
-  // swap natively). On Mac we send users to the website's download page,
-  // which is the standard DMG workflow and Just Works — the in-app
-  // download has historically hit a PyInstaller-bundled-requests quirk
-  // that left progress stuck at 0%.
-  const websiteDownloadUrl = 'https://wafflerai.com/download/';
-  if (isMacPlatform) {
-    setUpdateModal({
-      icon: '⬆️',
-      title: `Waffler v${r.latest_version} is available`,
-      subtitle: `You're on v${r.current_version}. Open the download page to grab the new DMG, then drag it into Applications.`,
-      primaryLabel: 'Open Download Page',
-      primaryHandler: () => pywebview.api.open_url(websiteDownloadUrl),
-      cancelLabel: 'Later',
-    });
-  } else {
-    setUpdateModal({
-      icon: '⬆️',
-      title: `Waffler v${r.latest_version} is available`,
-      subtitle: `You're on v${r.current_version}. Download and install now?`,
-      primaryLabel: 'Download & Install',
-      primaryHandler: () => startDownloadFlow(r.download_url),
-      browserUrl: websiteDownloadUrl,
-      cancelLabel: 'Later',
-    });
-  }
+  // v3.14.3+: Mac in-app downloads now work properly via /usr/bin/curl
+  // (no more PyInstaller-bundled-requests SSL hang). Both platforms get
+  // the same "Download & Install" experience: stream the installer
+  // in-app, show a progress bar, run the platform installer, relaunch.
+  setUpdateModal({
+    icon: '⬆️',
+    title: `Waffler v${r.latest_version} is available`,
+    subtitle: `You're on v${r.current_version}. Download and install now?`,
+    primaryLabel: 'Download & Install',
+    primaryHandler: () => startDownloadFlow(r.download_url),
+    browserUrl: 'https://wafflerai.com/download/',
+    cancelLabel: 'Later',
+  });
 }
 
 async function startDownloadFlow(url) {
@@ -1094,6 +1110,7 @@ function showPage(page) {
 
   if (page === 'settings') {
     loadSettings();
+    refreshThemePicker();
   } else if (page === 'vocabulary') {
     loadVocabPage();
   }

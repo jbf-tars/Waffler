@@ -3690,3 +3690,152 @@ html, body {
   87%      { top: 68%; left: 88%; transform: scale(1); }
   100%     { top: 80%; left: 50%; }
 }
+
+
+/* ════════════════════════════════════════════════════════════════════
+ * CREAM / LIGHT THEME (v3.14.3+)
+ *
+ * The main app defaults to the cream/branded palette (matching the
+ * website and the new wizard). Users can switch back to the original
+ * dark theme via Settings → Appearance, persisted to localStorage.
+ *
+ * Theme is selected via body[data-theme="dark"|"cream"|"auto"].
+ * - missing attr or "cream": cream theme (default for new installs)
+ * - "dark": original dark theme
+ * - "auto": follows the OS via prefers-color-scheme media query
+ * ══════════════════════════════════════════════════════════════════ */
+
+/* Cream theme variables (default) */
+body[data-theme="cream"],
+body:not([data-theme]) {
+  --bg-base:     #FBF7EB;
+  --bg-surface:  #F4EFE0;
+  --bg-card:     #FFFFFF;
+  --bg-hover:    #F0E9D5;
+  --border:      rgba(200, 162, 86, 0.18);
+  --border-soft: rgba(44, 37, 32, 0.08);
+
+  --accent:      #C8A256;
+  --accent-dim:  #B8923E;
+  --accent-glow: rgba(200, 162, 86, 0.15);
+  --accent-text: #8a6a26;
+
+  --text-primary:   #1A1A1A;
+  --text-secondary: #6B6560;
+  --text-muted:     #A09890;
+
+  --red:   #dc2626;
+  --green: #15803d;
+  --amber: #d97706;
+}
+
+/* Dark theme (opt-in via Settings) keeps the original variable values
+   defined in :root above — no overrides needed when data-theme="dark". */
+body[data-theme="dark"] {
+  --bg-base:     #0d0d0f;
+  --bg-surface:  #141416;
+  --bg-card:     #1a1a1e;
+  --bg-hover:    #202028;
+  --border:      #2a2a35;
+  --border-soft: #1e1e26;
+
+  --accent:      #C8A256;
+  --accent-dim:  #B8923E;
+  --accent-glow: rgba(200, 162, 86, 0.15);
+  --accent-text: #D4B06A;
+
+  --text-primary:   #f0f0f8;
+  --text-secondary: #8888a8;
+  --text-muted:     #555568;
+
+  --red:   #ef4444;
+  --green: #22c55e;
+  --amber: #f59e0b;
+}
+
+/* "Auto" — pick based on system preference */
+@media (prefers-color-scheme: dark) {
+  body[data-theme="auto"] {
+    --bg-base:     #0d0d0f;
+    --bg-surface:  #141416;
+    --bg-card:     #1a1a1e;
+    --bg-hover:    #202028;
+    --border:      #2a2a35;
+    --border-soft: #1e1e26;
+    --accent:      #C8A256;
+    --accent-dim:  #B8923E;
+    --accent-glow: rgba(200, 162, 86, 0.15);
+    --accent-text: #D4B06A;
+    --text-primary:   #f0f0f8;
+    --text-secondary: #8888a8;
+    --text-muted:     #555568;
+    --red:   #ef4444;
+    --green: #22c55e;
+    --amber: #f59e0b;
+  }
+}
+
+/* ── Settings → Appearance: theme picker card ── */
+.theme-picker {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-top: 10px;
+}
+.theme-option {
+  background: var(--bg-card);
+  border: 1.5px solid var(--border-soft);
+  border-radius: 12px;
+  padding: 12px;
+  cursor: pointer;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-family: inherit;
+  transition: all 0.2s;
+}
+.theme-option:hover { border-color: var(--border); transform: translateY(-2px); }
+.theme-option.active {
+  border-color: var(--accent);
+  box-shadow: 0 4px 14px rgba(200, 162, 86, 0.12);
+}
+.theme-swatch {
+  height: 44px;
+  border-radius: 7px;
+  border: 1px solid var(--border-soft);
+}
+.theme-swatch-cream { background: linear-gradient(135deg, #FBF7EB 50%, #C8A256 50%); }
+.theme-swatch-dark  { background: linear-gradient(135deg, #0d0d0f 50%, #C8A256 50%); }
+.theme-swatch-auto  { background: linear-gradient(135deg, #FBF7EB 50%, #0d0d0f 50%); }
+.theme-option-name { color: var(--text-primary); font-weight: 700; font-size: 13px; }
+.theme-option-meta { color: var(--text-secondary); font-size: 11.5px; }
+
+/* ════════════════════════════════════════════════════════════════════
+ * BIGGER WIZARD CONTAINER (v3.14.3+)
+ *
+ * The previous 800px max-width meant the Accessibility + Input
+ * Monitoring permission cards (with their animated walkthrough)
+ * required vertical scrolling. Widening the container lets both cards
+ * fit at the same time on most laptop screens.
+ * ══════════════════════════════════════════════════════════════════ */
+.wizard-overlay .wizard-container {
+  max-width: 1080px !important;
+  max-height: 95vh !important;
+}
+.wizard-overlay .wizard-container.wide {
+  max-width: 1200px !important;
+}
+/* On narrow windows, allow the permission cards to sit side-by-side
+   to save vertical space when there's horizontal room. */
+@media (min-width: 980px) {
+  #wizContent1 {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    align-items: start;
+  }
+  #wizContent1 .wiz-perm-card {
+    margin-top: 0 !important;
+  }
+}

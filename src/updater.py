@@ -83,6 +83,19 @@ def start_download(url: str) -> None:
 
 
 def _download_worker(url: str) -> None:
+    """Download the installer to a temp file.
+
+    On macOS we shell out to /usr/bin/curl rather than using Python's
+    requests library. The PyInstaller-bundled requests/SSL stack on Mac
+    has a long-standing issue where the connection establishes and the
+    content-length header arrives but body chunks never reach
+    iter_content(), leaving the UI's progress bar wedged at 0%. curl
+    is shipped with macOS, uses the system's SSL trust store, and Just
+    Works on signed-redirect URLs from GitHub Releases.
+
+    On Windows we keep the existing requests-based path: it works fine
+    there and the streaming progress is granular enough for the UX.
+    """
     # Strip query string for filename (GitHub's signed-redirect URLs include one)
     name = url.rsplit("/", 1)[-1].split("?", 1)[0] or "waffler-update"
     dest = Path(tempfile.gettempdir()) / f"waffler-update-{os.getpid()}-{name}"
@@ -90,53 +103,10 @@ def _download_worker(url: str) -> None:
     _log(f"download start: {url[:80]}... -> {partial}")
 
     try:
-        # (connect_timeout, read_timeout). Read timeout caps each socket read
-        # while streaming — crucial protection against silent stalls.
-        with requests.get(
-            url,
-            stream=True,
-            timeout=(15, 30),
-            headers={"User-Agent": _USER_AGENT, "Accept": "application/octet-stream"},
-            allow_redirects=True,
-        ) as r:
-            r.raise_for_status()
-            total = int(r.headers.get("content-length", 0) or 0)
-            _log(f"HTTP {r.status_code}, content-length={total}")
-            with _state_lock:
-                _state["total_bytes"] = total
-
-            last_progress = time.monotonic()
-            last_logged_pct = -10
-            with open(partial, "wb") as f:
-                for chunk in r.iter_content(chunk_size=1024 * 64):
-                    if chunk:
-                        f.write(chunk)
-                        with _state_lock:
-                            _state["bytes_downloaded"] += len(chunk)
-                            done_bytes = _state["bytes_downloaded"]
-                        last_progress = time.monotonic()
-                        if total:
-                            pct = int(done_bytes * 100 / total)
-                            if pct >= last_logged_pct + 25:
-                                _log(f"progress {pct}% ({done_bytes}/{total})")
-                                last_logged_pct = pct
-                    elif time.monotonic() - last_progress > _STALL_TIMEOUT_S:
-                        raise TimeoutError(
-                            f"download stalled (no bytes for {_STALL_TIMEOUT_S}s)"
-                        )
-
-        # Sanity check: if we got a content-length, make sure we got it all.
-        actual = partial.stat().st_size
-        if total and actual != total:
-            raise IOError(f"download truncated: got {actual}, expected {total}")
-
-        # Atomic move — UI never sees a half-written file at the final path.
-        partial.replace(dest)
-        _log(f"download done: {actual} bytes -> {dest}")
-        with _state_lock:
-            _state["done"] = True
-            _state["active"] = False
-            _state["path"] = str(dest)
+        if sys.platform == "darwin":
+            _download_with_curl(url, partial, dest)
+        else:
+            _download_with_requests(url, partial, dest)
     except Exception as e:
         _log(f"download failed: {type(e).__name__}: {e}")
         try:
@@ -147,6 +117,118 @@ def _download_worker(url: str) -> None:
         with _state_lock:
             _state["error"] = str(e)
             _state["active"] = False
+
+
+def _download_with_curl(url: str, partial: Path, dest: Path) -> None:
+    """macOS download path. Uses /usr/bin/curl + size polling for progress."""
+    # 1) HEAD request to learn total size (so the UI's progress bar isn't blind)
+    try:
+        head = subprocess.run(
+            ["/usr/bin/curl", "-sI", "-L", "--max-time", "15", url],
+            capture_output=True, text=True, timeout=20,
+        )
+        total = 0
+        for line in head.stdout.splitlines():
+            if line.lower().startswith("content-length:"):
+                try:
+                    total = int(line.split(":", 1)[1].strip())
+                except ValueError:
+                    pass
+        _log(f"curl HEAD ok, content-length={total}")
+    except Exception as e:
+        _log(f"curl HEAD failed (continuing without total): {e}")
+        total = 0
+    with _state_lock:
+        _state["total_bytes"] = total
+
+    # 2) Stream the body via curl, polling the partial file size for progress.
+    proc = subprocess.Popen(
+        ["/usr/bin/curl", "-L", "-s", "-o", str(partial), "--connect-timeout", "15", url],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    last_progress = time.monotonic()
+    last_logged_pct = -10
+    last_size = 0
+    while proc.poll() is None:
+        if partial.exists():
+            cur = partial.stat().st_size
+            if cur != last_size:
+                last_progress = time.monotonic()
+                last_size = cur
+                with _state_lock:
+                    _state["bytes_downloaded"] = cur
+                if total:
+                    pct = int(cur * 100 / total)
+                    if pct >= last_logged_pct + 25:
+                        _log(f"progress {pct}% ({cur}/{total})")
+                        last_logged_pct = pct
+        if time.monotonic() - last_progress > _STALL_TIMEOUT_S:
+            proc.kill()
+            raise TimeoutError(f"download stalled (no bytes for {_STALL_TIMEOUT_S}s)")
+        time.sleep(0.4)
+
+    if proc.returncode != 0:
+        err = proc.stderr.read().decode("utf-8", errors="replace") if proc.stderr else ""
+        raise IOError(f"curl exited {proc.returncode}: {err.strip()[:200]}")
+
+    actual = partial.stat().st_size
+    if total and actual != total:
+        raise IOError(f"download truncated: got {actual}, expected {total}")
+
+    partial.replace(dest)
+    _log(f"curl download done: {actual} bytes -> {dest}")
+    with _state_lock:
+        _state["bytes_downloaded"] = actual
+        _state["done"] = True
+        _state["active"] = False
+        _state["path"] = str(dest)
+
+
+def _download_with_requests(url: str, partial: Path, dest: Path) -> None:
+    """Windows download path. Streams via requests; works reliably there."""
+    with requests.get(
+        url,
+        stream=True,
+        timeout=(15, 30),
+        headers={"User-Agent": _USER_AGENT, "Accept": "application/octet-stream"},
+        allow_redirects=True,
+    ) as r:
+        r.raise_for_status()
+        total = int(r.headers.get("content-length", 0) or 0)
+        _log(f"HTTP {r.status_code}, content-length={total}")
+        with _state_lock:
+            _state["total_bytes"] = total
+
+        last_progress = time.monotonic()
+        last_logged_pct = -10
+        with open(partial, "wb") as f:
+            for chunk in r.iter_content(chunk_size=1024 * 64):
+                if chunk:
+                    f.write(chunk)
+                    with _state_lock:
+                        _state["bytes_downloaded"] += len(chunk)
+                        done_bytes = _state["bytes_downloaded"]
+                    last_progress = time.monotonic()
+                    if total:
+                        pct = int(done_bytes * 100 / total)
+                        if pct >= last_logged_pct + 25:
+                            _log(f"progress {pct}% ({done_bytes}/{total})")
+                            last_logged_pct = pct
+                elif time.monotonic() - last_progress > _STALL_TIMEOUT_S:
+                    raise TimeoutError(
+                        f"download stalled (no bytes for {_STALL_TIMEOUT_S}s)"
+                    )
+
+    actual = partial.stat().st_size
+    if total and actual != total:
+        raise IOError(f"download truncated: got {actual}, expected {total}")
+
+    partial.replace(dest)
+    _log(f"requests download done: {actual} bytes -> {dest}")
+    with _state_lock:
+        _state["done"] = True
+        _state["active"] = False
+        _state["path"] = str(dest)
 
 
 def install_and_restart(installer_path: str) -> None:
