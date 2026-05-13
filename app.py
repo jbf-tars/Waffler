@@ -363,7 +363,16 @@ class Api:
             return False
 
     def get_stats(self) -> dict:
-        """Return word-count stats."""
+        """Return word-count stats plus the user's daily "stack streak".
+
+        Streak rules (v3.14.16+):
+          * Counts consecutive calendar days, ending today, that have at
+            least one history entry.
+          * If today has no entries yet, the streak is preserved as long
+            as yesterday has one — so a 12-day streak doesn't snap to 0
+            at midnight before the user has a chance to record. The
+            streak only breaks once a full day passes without any entry.
+        """
         history = load_history()
         today_str = date.today().isoformat()
         today_items = [
@@ -378,10 +387,36 @@ class Api:
             len((h.get("styled") or h.get("text") or "").split())
             for h in history
         )
+
+        # ── Stack streak ────────────────────────────────────────────
+        from datetime import timedelta as _td
+        days_with_entries = set()
+        for h in history:
+            ts = str(h.get("timestamp", ""))
+            if len(ts) >= 10:
+                try:
+                    # Parse the YYYY-MM-DD prefix directly; cheaper than
+                    # full ISO parsing and tolerant of trailing chars.
+                    y, m, d = ts[:10].split("-")
+                    days_with_entries.add(date(int(y), int(m), int(d)))
+                except Exception:
+                    pass
+
+        today = date.today()
+        # Anchor: today if there's an entry today, else yesterday. This
+        # gives the user a one-day grace period to keep the streak alive
+        # until they dictate something new.
+        cursor = today if today in days_with_entries else (today - _td(days=1))
+        streak = 0
+        while cursor in days_with_entries:
+            streak += 1
+            cursor -= _td(days=1)
+
         return {
             "today_words": today_words,
             "today_count": len(today_items),
             "total_words": total_words,
+            "streak_days": streak,
         }
 
     # ── Mode / Prompt API ─────────────────────────────────────────────

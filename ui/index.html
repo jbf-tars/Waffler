@@ -9,109 +9,118 @@
 <body>
 <div class="app">
 
-  <!-- Sidebar -->
-  <aside class="sidebar">
-    <div class="sidebar-logo">
-      <img class="logo-icon" src="logo-icon.png" alt="Waffler">
-      <div class="logo-name">Waffler</div>
-    </div>
+  <!-- ──────────────────────────────────────────────────────────────
+       JOURNAL LAYOUT (v3.14.16) — replaces the sidebar+main split.
+       Top nav across the whole window, then stat strip with the stack-
+       streak chip on the right, then a serif "journal page" of entries.
+       Settings + Vocabulary still mount their full panels below via
+       showPage() — the top nav drives the same routing the sidebar did.
+       ────────────────────────────────────────────────────────────── -->
+  <main class="journal" id="mainArea">
 
-    <nav>
-      <div class="nav-item active" id="navHome" onclick="showPage('home')">
-        <span class="nav-icon">🏠</span> Home
+    <!-- Top nav -->
+    <div class="j-topnav">
+      <div class="j-brand">
+        <img class="j-brand-icon" src="logo-icon.png" alt="">
+        <span class="j-brand-text">Waffler</span>
       </div>
-      <div class="nav-item" id="navVocab" onclick="showPage('vocabulary')">
-        <span class="nav-icon">📖</span> Vocabulary
-      </div>
-      <div class="nav-item" id="navSettings" onclick="showPage('settings')">
-        <span class="nav-icon">⚙️</span> Settings
-      </div>
-    </nav>
 
-    <div class="sidebar-bottom">
-      <div class="sidebar-section">
-        <div class="sidebar-label">✨ Mode</div>
-        <select id="modeSelect" class="sidebar-select" onchange="onModeChange(this.value)">
-          <option value="normal">Normal</option>
+      <nav class="j-nav">
+        <div class="j-nav-item j-nav-active" id="navHome" onclick="showPage('home')">Journal</div>
+        <div class="j-nav-item" id="navVocab" onclick="showPage('vocabulary')">Vocabulary</div>
+        <div class="j-nav-item" id="navSettings" onclick="showPage('settings')">Settings</div>
+      </nav>
+
+      <!-- Compact mode selector (replaces sidebar mode dropdown) -->
+      <div class="j-mode-wrap">
+        <select id="modeSelect" class="j-mode-select" onchange="onModeChange(this.value)" title="Style mode">
+          <option value="normal">✨ Normal</option>
           <option value="email" disabled>Email — coming soon</option>
           <option value="bullets" disabled>Bullets — coming soon</option>
         </select>
       </div>
 
-      <div class="sidebar-section">
-        <div class="sidebar-label">🎙️ Mic</div>
-        <select id="micSelect" class="sidebar-select" onchange="onMicChange(this.value)"></select>
+      <!-- Listening indicator (replaces sidebar hotkey-hint + status pill) -->
+      <div class="j-listen status-indicator idle" id="statusIndicator">
+        <span class="j-listen-dot status-dot"></span>
+        <span class="j-listen-text" id="statusText">Listening for</span>
+        <kbd class="j-kbd" id="hotkeyHint">Fn</kbd>
       </div>
 
-      <div class="hotkey-hint">
-        <div style="line-height: 1.4;">
-          <div style="margin-bottom: 2px;">
-            <span class="hotkey-badge" id="hotkeyHint">Fn</span> to record
-          </div>
-          <div style="font-size: 10px; opacity: 0.7;" id="hotkeyHintDesc">
-            Hold to record • +Space = sticky mode
-          </div>
-        </div>
+      <!-- Hidden bits the existing JS code still references -->
+      <span id="hotkeyHintDesc" style="display:none">Hold to record • +Space = sticky mode</span>
+      <div id="sidebarUser" class="j-user" style="display:none">
+        <span class="j-user-email" id="sidebarUserEmail"></span>
+        <button class="j-user-logout" onclick="doSignOut()">Sign out</button>
       </div>
-
-      <div class="sidebar-user" id="sidebarUser" style="display:none">
-        <div class="sidebar-user-email" id="sidebarUserEmail"></div>
-        <button class="sidebar-logout-btn" onclick="doSignOut()">Sign out</button>
-      </div>
-    </div>
-  </aside>
-
-  <!-- Main Home Page -->
-  <main class="main" id="mainArea">
-    <div class="header">
-      <div class="header-top">
-        <div class="header-title">
-          <h1>Welcome back 👋</h1>
-          <div class="subtitle" id="dateLabel">Your voice transcriptions, organised.</div>
-        </div>
-        <div class="header-actions">
-          <button class="settings-icon-btn" onclick="showPage('settings')" title="Settings">⚙️</button>
-          <div class="status-indicator idle" id="statusIndicator">
-            <div class="status-dot"></div>
-            <span id="statusText">Ready</span>
-          </div>
-        </div>
-      </div>
-
-      <div class="stats-bar">
-        <div class="stat-card">
-          <div class="stat-label">Today's Words</div>
-          <div class="stat-value" id="statWords">0</div>
-          <div class="stat-sub">spoken today</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Transcriptions</div>
-          <div class="stat-value" id="statCount">0</div>
-          <div class="stat-sub">today</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">All Time</div>
-          <div class="stat-value" id="statTotal">0</div>
-          <div class="stat-sub">total words</div>
-        </div>
-      </div>
+      <select id="micSelect" style="display:none" onchange="onMicChange(this.value)"></select>
     </div>
 
-    <div class="feed-header">
-      <div class="feed-title">Recent Transcriptions</div>
-      <div class="feed-right">
-        <input type="text" id="searchInput" class="search-input" placeholder="Search…" oninput="onSearchInput(this.value)">
-        <div class="feed-count" id="feedCount">0 entries</div>
+    <!-- Stat strip with stack-streak chip on the right -->
+    <div class="j-strip">
+      <div class="j-stat-group">
+        <div class="j-stat">
+          <span class="j-stat-num" id="statWords">0</span>
+          <span class="j-stat-lbl">words today</span>
+        </div>
+        <div class="j-stat-divider"></div>
+        <div class="j-stat">
+          <span class="j-stat-num" id="statCount">0</span>
+          <span class="j-stat-lbl">entries today</span>
+        </div>
+        <div class="j-stat-divider"></div>
+        <div class="j-stat">
+          <span class="j-stat-num" id="statTotal">0</span>
+          <span class="j-stat-lbl">all-time</span>
+        </div>
+      </div>
+
+      <div class="j-right-group">
+        <!-- 🥞 Stacked-waffles streak chip -->
+        <div class="j-streak" id="streakChip" title="Daily stack streak">
+          <svg viewBox="0 0 32 26" width="26" height="22" class="j-stack-svg" aria-hidden="true">
+            <ellipse cx="16" cy="22" rx="13" ry="3" fill="#8B6914" opacity="0.9"/>
+            <ellipse cx="16" cy="20" rx="13" ry="3" fill="#C8A256" stroke="#8a6a26" stroke-width="0.5"/>
+            <line x1="6" y1="20" x2="26" y2="20" stroke="#8a6a26" stroke-width="0.4" opacity="0.5"/>
+            <ellipse cx="16" cy="15" rx="13" ry="3" fill="#8B6914" opacity="0.9"/>
+            <ellipse cx="16" cy="13" rx="13" ry="3" fill="#D4B06A" stroke="#8a6a26" stroke-width="0.5"/>
+            <line x1="6" y1="13" x2="26" y2="13" stroke="#8a6a26" stroke-width="0.4" opacity="0.5"/>
+            <ellipse cx="16" cy="8" rx="13" ry="3" fill="#8B6914" opacity="0.9"/>
+            <ellipse cx="16" cy="6" rx="13" ry="3" fill="#E6B864" stroke="#8a6a26" stroke-width="0.5"/>
+            <line x1="6" y1="6" x2="26" y2="6" stroke="#8a6a26" stroke-width="0.4" opacity="0.5"/>
+            <path d="M12 4 q4 -2 8 0 q-1 2 -4 2 q-3 0 -4 -2 z" fill="#8B6914"/>
+          </svg>
+          <span class="j-streak-text"><strong id="streakNum">0</strong> stack streak</span>
+        </div>
+
+        <!-- Search input — keeps existing id/handler -->
+        <div class="j-search-wrap">
+          <svg viewBox="0 0 16 16" width="14" height="14" class="j-search-icon">
+            <circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.5" fill="none"/>
+            <line x1="11" y1="11" x2="14" y2="14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+          <input type="text" id="searchInput" class="j-search-input" placeholder="Search 0 entries…" oninput="onSearchInput(this.value)">
+        </div>
+        <div class="j-feed-count" id="feedCount" style="display:none">0 entries</div>
       </div>
     </div>
 
-    <div class="empty-state" id="emptyState">
-      <div class="empty-icon">🎙️</div>
-      <div class="empty-label">No transcriptions yet</div>
-      <div class="empty-sub" id="emptyHint">Press hotkey and speak</div>
-    </div>
+    <!-- Journal page (entries) -->
+    <div class="j-page">
+      <div class="j-date-divider" id="dateLabel">
+        <span class="j-date-month">Today</span>
+        <span class="j-date-line"></span>
+        <span class="j-date-day"></span>
+      </div>
 
-    <div id="transcriptFeed"></div>
+      <div class="j-empty" id="emptyState">
+        <div class="j-empty-icon">🥞</div>
+        <div class="j-empty-label">Your journal is empty.</div>
+        <div class="j-empty-sub" id="emptyHint">Press your hotkey and speak — the first entry will appear here.</div>
+      </div>
+
+      <div id="transcriptFeed"></div>
+    </div>
   </main>
 
   <!-- Settings Panel -->

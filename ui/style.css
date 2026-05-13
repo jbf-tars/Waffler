@@ -4518,3 +4518,419 @@ body[data-theme="dark"] {
   color: #1A1A1A !important;
   font-size: 14.5px !important;
 }
+
+/* ════════════════════════════════════════════════════════════════════
+ * JOURNAL LAYOUT (v3.14.16)
+ *
+ * Replaces the sidebar+main split with a top-nav journal page. The
+ * existing transcript card classes (.transcript-card, .card-time, etc.)
+ * are kept but restyled inside `.j-page` so the renderer in app.js
+ * doesn't need to change. Theme-aware via the existing CSS vars.
+ * ════════════════════════════════════════════════════════════════════ */
+:root { --serif: "Source Serif 4 Variable", "Source Serif 4", Georgia, serif; }
+
+/* Override the dark-default vars when the journal layout is on screen,
+   biasing toward the cream palette regardless of body[data-theme]. */
+.journal {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow-y: auto;
+  background: var(--bg-base);
+  color: var(--text-primary);
+}
+
+/* ── Top nav ──────────────────────────────────────────────────────── */
+.j-topnav {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 16px 28px;
+  background: var(--bg-base);
+  border-bottom: 1px solid var(--border-soft);
+  flex-shrink: 0;
+}
+.j-brand { display: flex; align-items: center; gap: 10px; }
+.j-brand-icon {
+  width: 32px; height: 32px; border-radius: 7px;
+}
+.j-brand-text {
+  font-family: var(--serif);
+  font-size: 20px; font-weight: 700;
+  color: var(--text-primary);
+}
+.j-nav { display: flex; gap: 4px; margin-left: 12px; }
+.j-nav-item {
+  padding: 6px 14px; border-radius: 99px;
+  font-size: 13px; color: var(--text-secondary);
+  cursor: pointer; user-select: none;
+  transition: all 0.15s ease;
+}
+.j-nav-item:hover { color: var(--text-primary); }
+/* Both `.j-nav-active` (new HTML default) and `.active` (toggled by the
+   existing showPage() JS) make a nav item look active. */
+.j-nav-active,
+.j-nav-item.active {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-weight: 600;
+  border: 1px solid var(--border-soft);
+}
+body[data-theme="cream"] .j-nav-active,
+body[data-theme="cream"] .j-nav-item.active,
+body:not([data-theme]) .j-nav-active,
+body:not([data-theme]) .j-nav-item.active {
+  background: #fff;
+  border-color: rgba(200, 162, 86, 0.18);
+  box-shadow: 0 1px 3px rgba(200, 162, 86, 0.15);
+}
+
+.j-mode-wrap { margin-left: auto; }
+.j-mode-select {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border: 1px solid var(--border-soft);
+  border-radius: 99px;
+  padding: 5px 28px 5px 12px;
+  font-size: 12px; font-weight: 500;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'><path d='M3 5l3 3 3-3' stroke='%238a8278' stroke-width='1.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 10px;
+}
+
+/* Listening indicator (top-right). Uses the same status-indicator class
+   the rest of the JS toggles via .idle / .recording / .processing. */
+.j-listen {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border-radius: 99px;
+  border: 1px solid rgba(200, 162, 86, 0.3);
+  background: #FFF2D2;
+  color: #8a6a26;
+  font-size: 12px; font-weight: 500;
+  white-space: nowrap;
+  /* Override status-indicator's prior layout */
+  position: static !important;
+  width: auto !important;
+}
+body[data-theme="dark"] .j-listen {
+  background: rgba(200, 162, 86, 0.12);
+  border-color: rgba(200, 162, 86, 0.3);
+  color: var(--accent-text);
+}
+.j-listen-dot {
+  width: 7px; height: 7px;
+  background: var(--accent);
+  border-radius: 50%;
+  animation: j-pulse 1.6s ease-in-out infinite;
+}
+/* State variants — green when recording */
+.j-listen.recording { background: #dcfce7; color: #15803d; border-color: #86efac; }
+.j-listen.recording .j-listen-dot { background: #15803d; }
+.j-listen.processing { background: #fef3c7; color: #d97706; border-color: #fcd34d; }
+.j-listen.processing .j-listen-dot { background: #d97706; }
+@keyframes j-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+.j-kbd {
+  background: var(--bg-card);
+  border: 1px solid var(--border-soft);
+  border-bottom-width: 2px;
+  padding: 1px 6px; border-radius: 4px;
+  font-family: inherit; font-size: 11px; font-weight: 600;
+  color: var(--text-primary);
+}
+body[data-theme="cream"] .j-kbd, body:not([data-theme]) .j-kbd {
+  background: #fff;
+  border-color: rgba(0, 0, 0, 0.15);
+  color: #1A1A1A;
+}
+
+.j-user { display: flex; align-items: center; gap: 8px; font-size: 11px; }
+.j-user-email { color: var(--text-secondary); }
+.j-user-logout {
+  background: transparent;
+  border: 1px solid var(--border-soft);
+  color: var(--text-secondary);
+  padding: 4px 10px; border-radius: 6px;
+  font-size: 11px; cursor: pointer;
+}
+
+/* ── Stat strip ───────────────────────────────────────────────────── */
+.j-strip {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 28px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-soft);
+  flex-shrink: 0;
+}
+.j-stat-group { display: flex; align-items: center; gap: 22px; }
+.j-stat { display: flex; flex-direction: column; }
+.j-stat-num {
+  font-size: 22px; font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.1;
+  font-feature-settings: "tnum", "lnum";
+  letter-spacing: -0.01em;
+}
+.j-stat-lbl {
+  font-size: 11px; color: var(--text-secondary);
+  text-transform: lowercase;
+  margin-top: 3px;
+  font-weight: 500;
+}
+.j-stat-divider {
+  width: 1px; height: 28px;
+  background: var(--border-soft);
+}
+
+.j-right-group {
+  margin-left: auto;
+  display: flex; align-items: center; gap: 12px;
+}
+
+/* Stack-streak chip */
+.j-streak {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 14px 5px 8px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-soft);
+  border-radius: 99px;
+}
+body[data-theme="cream"] .j-streak, body:not([data-theme]) .j-streak {
+  background: #FFFFFF;
+  border-color: rgba(200, 162, 86, 0.25);
+}
+.j-stack-svg {
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.1));
+  animation: j-stack-wobble 5s ease-in-out infinite;
+  transform-origin: center bottom;
+}
+@keyframes j-stack-wobble {
+  0%, 92%, 100% { transform: translateY(0) rotate(0deg); }
+  94% { transform: translateY(-1px) rotate(-2deg); }
+  96% { transform: translateY(0) rotate(1.5deg); }
+  98% { transform: translateY(0) rotate(-1deg); }
+}
+.j-streak-text {
+  font-size: 12px; color: var(--accent-text);
+  font-weight: 500;
+}
+.j-streak-text strong {
+  color: var(--text-primary); font-weight: 700;
+  font-feature-settings: "tnum", "lnum";
+  font-size: 14px;
+}
+body[data-theme="cream"] .j-streak-text, body:not([data-theme]) .j-streak-text {
+  color: #8a6a26;
+}
+body[data-theme="cream"] .j-streak-text strong, body:not([data-theme]) .j-streak-text strong {
+  color: #1A1A1A;
+}
+/* Hide streak chip entirely when streak is 0 (avoid "0 stack streak" eyesore) */
+.j-streak.j-streak-empty { display: none; }
+
+/* Search */
+.j-search-wrap {
+  position: relative;
+  display: inline-flex; align-items: center;
+}
+.j-search-icon {
+  position: absolute;
+  left: 12px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+.j-search-input {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border: 1px solid var(--border-soft);
+  border-radius: 99px;
+  padding: 6px 14px 6px 32px;
+  font-size: 12px;
+  font-family: inherit;
+  width: 200px;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+body[data-theme="cream"] .j-search-input, body:not([data-theme]) .j-search-input {
+  background: #fff;
+  border-color: rgba(200, 162, 86, 0.18);
+  color: #1A1A1A;
+}
+.j-search-input::placeholder { color: var(--text-muted); }
+.j-search-input:focus { border-color: var(--accent); }
+
+/* ── Page ─────────────────────────────────────────────────────────── */
+.j-page {
+  padding: 28px 28px 48px;
+  max-width: 760px;
+  margin: 0 auto;
+  width: 100%;
+  flex: 1 1 auto;
+}
+
+.j-date-divider {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 22px;
+}
+.j-date-month {
+  font-size: 14px; font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: 0.01em;
+}
+.j-date-line { flex: 1; height: 1px; background: var(--border-soft); }
+.j-date-day {
+  font-family: var(--serif);
+  font-size: 14px; font-style: italic;
+  color: var(--text-secondary);
+}
+
+/* Empty state */
+.j-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  text-align: center;
+}
+.j-empty-icon { font-size: 48px; margin-bottom: 12px; opacity: 0.8; }
+.j-empty-label {
+  font-family: var(--serif);
+  font-size: 18px; font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+.j-empty-sub {
+  font-size: 13px;
+  color: var(--text-secondary);
+  max-width: 320px; line-height: 1.5;
+}
+
+/* ── Transcript card → Journal entry ──
+   The existing JS in app.js outputs <div class="transcript-card"> with
+   card-meta / card-time / card-words / card-text / card-actions /
+   btn-copy / text-toggle. We restyle those inside .j-page so no JS
+   change is needed. */
+.j-page .transcript-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  padding: 18px 22px;
+  margin-bottom: 14px;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  cursor: default;
+}
+body[data-theme="cream"] .j-page .transcript-card,
+body:not([data-theme]) .j-page .transcript-card {
+  background: #FFFFFF;
+  border-color: rgba(200, 162, 86, 0.18);
+}
+.j-page .transcript-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(200, 162, 86, 0.1);
+}
+.j-page .transcript-card.new {
+  animation: j-entry-in 0.5s ease-out;
+}
+@keyframes j-entry-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.j-page .card-meta {
+  display: flex; justify-content: space-between; align-items: baseline;
+  margin-bottom: 10px;
+}
+.j-page .card-time {
+  font-family: var(--serif);
+  font-style: italic;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+.j-page .card-words {
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: var(--bg-surface);
+  padding: 3px 10px;
+  border-radius: 99px;
+  font-weight: 500;
+}
+body[data-theme="cream"] .j-page .card-words,
+body:not([data-theme]) .j-page .card-words {
+  background: #F4EFE0;
+  color: #6B6560;
+}
+
+.j-page .card-text {
+  font-family: var(--serif);
+  font-size: 16px;
+  line-height: 1.55;
+  color: var(--text-primary);
+  margin: 0 0 12px 0;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  user-select: text;
+}
+
+.j-page .card-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-top: 4px;
+}
+.j-page .btn-copy {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 7px;
+  padding: 5px 12px;
+  font-size: 12px;
+  color: var(--text-primary);
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s ease;
+}
+body[data-theme="cream"] .j-page .btn-copy,
+body:not([data-theme]) .j-page .btn-copy {
+  background: #F4EFE0;
+  border-color: rgba(200, 162, 86, 0.25);
+  color: #1A1A1A;
+}
+.j-page .btn-copy:hover {
+  border-color: var(--accent);
+}
+.j-page .text-toggle {
+  background: transparent;
+  border: none;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 5px 4px;
+  font-style: italic;
+  font-family: var(--serif);
+}
+.j-page .text-toggle:hover { color: var(--text-primary); }
+
+/* Narrow screens */
+@media (max-width: 720px) {
+  .j-topnav { flex-wrap: wrap; padding: 14px 16px; gap: 12px; }
+  .j-strip { padding: 12px 16px; flex-wrap: wrap; }
+  .j-page { padding: 20px 16px 40px; }
+  .j-search-input { width: 140px; }
+  .j-stat-group { gap: 14px; }
+  .j-stat-num { font-size: 18px; }
+}

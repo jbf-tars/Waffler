@@ -4,6 +4,19 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.16] - 2026-05-13
+
+### Changed
+- **Complete redesign — Journal layout.** Goodbye sidebar, hello editorial. The home view is now a writer's-notebook layout: top-nav across the window (Brand · Journal · Vocabulary · Settings · Listening-for-Fn pill on the right), a stat strip beneath it, then a serif "journal page" of white-card entries with italic-serif timestamps, gold-pill word-count chips, and Copy / Show original buttons.
+- **🥞 Stack streak chip.** Right side of the stat strip — three little stacked waffles with a tiny syrup pat on top, "**N** stack streak" beside. Subtly wobbles every ~5s. Hidden entirely when the streak is 0 so first-time users don't see a "0 stack streak" eyesore. Powered by a new `streak_days` field in `get_stats()` that counts consecutive calendar days with at least one history entry; today's empty state preserves the streak so it doesn't snap to 0 at midnight — only breaks once a full day passes without dictating.
+- **Mode selector** moved to a compact pill in the top nav (was bottom of sidebar). Mic selector moves to Settings (it's a one-time configuration, not a frequent toggle).
+- **Listening indicator** is now a single amber pill with a "Listening for [Fn]" caption + animated dot; flips green when recording and amber-on-amber when processing.
+- **Empty-state copy** updated: "Your journal is empty." + "Press your hotkey and speak — the first entry will appear here." 🥞
+
+### Internal
+- Existing `.transcript-card` / `.card-time` / `.card-words` / `.btn-copy` / `.text-toggle` class names preserved — restyled inside `.j-page` rather than renamed — so `app.js`'s `makeCard()` renderer keeps working without edits.
+- Update-banner mount fallback added (looks for `.sidebar` first, then `.journal`) so the auto-update notification still appears in the new layout.
+
 ## [3.14.15] - 2026-05-13
 
 ### Fixed

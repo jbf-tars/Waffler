@@ -150,8 +150,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function updateDateLabel() {
   const now = new Date();
-  const opts = { weekday: 'long', month: 'long', day: 'numeric' };
-  $dateLabel.textContent = now.toLocaleDateString('en-GB', opts);
+  // The Journal layout uses two spans inside #dateLabel — month is the
+  // weekday name, day is the date. Fall back to plain textContent if
+  // the spans aren't present (e.g. older HTML).
+  const monthEl = $dateLabel ? $dateLabel.querySelector('.j-date-month') : null;
+  const dayEl   = $dateLabel ? $dateLabel.querySelector('.j-date-day')   : null;
+  if (monthEl && dayEl) {
+    monthEl.textContent = now.toLocaleDateString('en-GB', { weekday: 'long' });
+    dayEl.textContent   = now.toLocaleDateString('en-GB', { day: 'numeric', month: 'long' });
+  } else if ($dateLabel) {
+    const opts = { weekday: 'long', month: 'long', day: 'numeric' };
+    $dateLabel.textContent = now.toLocaleDateString('en-GB', opts);
+  }
 }
 
 async function checkForUpdates() {
@@ -159,9 +169,11 @@ async function checkForUpdates() {
     if (!window.pywebview || !window.pywebview.api) return;
     const r = await pywebview.api.check_for_updates();
     if (r.update_available) {
-      // Show update banner at top of sidebar
-      const sidebar = document.querySelector('.sidebar');
-      if (!sidebar) return;
+      // Show update banner — sidebar in legacy layout, top of `.journal`
+      // in the v3.14.16+ Journal layout. Prepend so it's the very first
+      // child the user sees.
+      const host = document.querySelector('.sidebar') || document.querySelector('.journal');
+      if (!host) return;
       const banner = document.createElement('div');
       banner.className = 'update-banner';
       const span = document.createElement('span');
@@ -182,7 +194,7 @@ async function checkForUpdates() {
       });
 
       banner.append(span, downloadBtn, dismissBtn);
-      sidebar.prepend(banner);
+      host.prepend(banner);
     }
   } catch(e) {
     console.warn('Update check failed:', e);
@@ -732,6 +744,16 @@ function renderStats() {
   $statWords.textContent = fmt(stats.today_words);
   $statCount.textContent = fmt(stats.today_count);
   $statTotal.textContent = fmt(stats.total_words);
+
+  // Stack streak — hide the chip entirely when the streak is 0 so we
+  // don't show a "0 stack streak" eyesore on the first day of use.
+  const streakChip = document.getElementById('streakChip');
+  const streakNum  = document.getElementById('streakNum');
+  if (streakChip && streakNum) {
+    const days = (stats.streak_days || 0);
+    streakNum.textContent = String(days);
+    streakChip.classList.toggle('j-streak-empty', days <= 0);
+  }
 }
 
 function fmt(n) {
@@ -761,6 +783,16 @@ function renderFeed(newTimestamp) {
   $feedCount.textContent = _searchQuery
     ? `${filtered.length} of ${history.length}`
     : `${filtered.length} ${filtered.length === 1 ? 'entry' : 'entries'}`;
+
+  // Also drive the journal search placeholder so the count is always
+  // visible without needing a separate badge.
+  const searchEl = document.getElementById('searchInput');
+  if (searchEl && searchEl.classList.contains('j-search-input')) {
+    const total = history.length;
+    searchEl.placeholder = total
+      ? `Search ${total} ${total === 1 ? 'entry' : 'entries'}…`
+      : 'Search…';
+  }
 
   $feed.innerHTML = '';
   filtered.forEach((item, idx) => {
