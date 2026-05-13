@@ -4,6 +4,14 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.21] - 2026-05-13
+
+### Fixed
+- **Top-nav Journal tab stayed highlighted after clicking another tab.** The HTML default put the active marker on `j-nav-active` (a sibling class to the showPage-toggled `.active`), so once the user clicked Vocabulary or Settings, BOTH "Journal" and the clicked tab looked active — confusing. Changed the default class to use `.active` (which `showPage()` actually toggles on/off), so the highlight tracks the current page correctly.
+
+### Changed
+- **Mode dropdown consolidated.** "Email — coming soon" + "Bullets — coming soon" replaced with a single disabled "More coming soon" entry. Cleaner, less repetitive — and when we ship Email / Bullets we can list them properly without retiring the placeholder line by line.
+
 ## [3.14.20] - 2026-05-13
 
 ### Fixed

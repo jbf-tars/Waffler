@@ -28,7 +28,12 @@
     </div>
 
     <nav class="j-nav">
-      <div class="j-nav-item j-nav-active" id="navHome" onclick="showPage('home')">Journal</div>
+      <!-- v3.14.21 bug fix: the active state is driven by the `.active`
+           class that showPage() toggles. The previous default used
+           `j-nav-active` (a sibling class) which showPage() never
+           touched, so Journal stayed highlighted forever even after
+           clicking another tab. -->
+      <div class="j-nav-item active" id="navHome" onclick="showPage('home')">Journal</div>
       <div class="j-nav-item" id="navVocab" onclick="showPage('vocabulary')">Vocabulary</div>
       <div class="j-nav-item" id="navSettings" onclick="showPage('settings')">Settings</div>
     </nav>
@@ -37,8 +42,7 @@
     <div class="j-mode-wrap">
       <select id="modeSelect" class="j-mode-select" onchange="onModeChange(this.value)" title="Style mode">
         <option value="normal">✨ Normal</option>
-        <option value="email" disabled>Email — coming soon</option>
-        <option value="bullets" disabled>Bullets — coming soon</option>
+        <option value="__more" disabled>More coming soon</option>
       </select>
     </div>
 
