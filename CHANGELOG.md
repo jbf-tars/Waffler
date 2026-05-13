@@ -4,6 +4,16 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.4] - 2026-05-13
+
+### Fixed
+- **Windows wizard was rendering the (Mac-only) permission step.** v3.14.3 introduced a CSS rule `#wizContent1 { display: grid !important }` to lay the Accessibility + Input Monitoring cards out side-by-side on wide screens. The `!important` overrode the JS-applied `style="display:none"`, so on Windows the permission cards leaked onto Step 2 of 3 (the hotkey step) and then onto Step 3 (API keys). Scoped the rule to `body[data-wiz-step="1"]` so it can only apply when Step 1 is genuinely active — and on Windows the wizard never reaches Step 1, so the rule never fires.
+- **Wizard now fills the full app window.** Container max-width bumped from a fixed 1080px to `min(1400px, calc(100vw - 64px))` (1500px on the wide Try-It step). On a typical desktop window the wizard now occupies the whole canvas instead of floating as a small modal in a sea of cream.
+
+### Added
+- **SaaS-style polish on the wizard:** smooth fade + slide transition between steps (no more hard cuts), an idle "shine" gradient sweep across active progress segments, hover-lift on provider tabs, and a continuous ripple ring behind the "Listening for hotkey…" pill so it visibly listens instead of just sitting still. A subtle warm radial gradient at the bottom of each step adds visual weight without being noisy.
+- **Inline "Need help?" guide link on the API-keys step** that opens `wafflerai.com/api-key-guide` in the user's default browser. Makes the recommended Groq → Cerebras → OpenAI ordering self-serve to learn about, without leaving the wizard hanging if a user has never used any of the three.
+
 ## [3.14.3] - 2026-05-13
 
 ### Added

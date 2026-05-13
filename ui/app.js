@@ -1493,6 +1493,11 @@ function wizShowStep(step) {
 
   _wizardStep = step;
   updateWizardProgress(step);
+  // Tell CSS which step is active so step-specific layout rules
+  // (e.g. the side-by-side permission grid for step 1) only apply
+  // when that step is genuinely visible — prevents the v3.14.3 bug
+  // where step-1 content leaked onto Windows.
+  document.body.setAttribute('data-wiz-step', String(step));
 
   // Show/hide wizard step content (always loop to 4 — the actual number of content divs)
   for (let i = 1; i <= 4; i++) {

@@ -3812,30 +3812,139 @@ body[data-theme="dark"] {
 .theme-option-meta { color: var(--text-secondary); font-size: 11.5px; }
 
 /* ════════════════════════════════════════════════════════════════════
- * BIGGER WIZARD CONTAINER (v3.14.3+)
+ * WIZARD SIZING + POLISH (v3.14.4)
  *
- * The previous 800px max-width meant the Accessibility + Input
- * Monitoring permission cards (with their animated walkthrough)
- * required vertical scrolling. Widening the container lets both cards
- * fit at the same time on most laptop screens.
+ * The wizard now fills nearly the full app window so the two
+ * permission cards have room side-by-side on Mac without scrolling,
+ * and the other steps don't feel like a small modal hovering in a
+ * sea of cream.
+ *
+ * v3.14.3 had a bug where `#wizContent1 { display: grid !important }`
+ * overrode the JS-applied `style="display:none"`, leaving the
+ * (Mac-only) permission cards visible on Windows. Fixed by scoping
+ * the grid to `body[data-wiz-step="1"]` — that attribute is only
+ * set when step 1 is genuinely active (Mac-only by construction).
  * ══════════════════════════════════════════════════════════════════ */
 .wizard-overlay .wizard-container {
-  max-width: 1080px !important;
+  max-width: min(1400px, calc(100vw - 64px)) !important;
   max-height: 95vh !important;
 }
 .wizard-overlay .wizard-container.wide {
-  max-width: 1200px !important;
+  max-width: min(1500px, calc(100vw - 64px)) !important;
 }
-/* On narrow windows, allow the permission cards to sit side-by-side
-   to save vertical space when there's horizontal room. */
+/* Side-by-side permission cards on wide screens — gated on the
+   data-wiz-step body attribute so this CANNOT leak onto Windows. */
 @media (min-width: 980px) {
-  #wizContent1 {
-    display: grid !important;
+  body[data-wiz-step="1"] #wizContent1 {
+    display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 14px;
     align-items: start;
   }
-  #wizContent1 .wiz-perm-card {
-    margin-top: 0 !important;
+  body[data-wiz-step="1"] #wizContent1 .wiz-perm-card {
+    margin-top: 0;
   }
 }
+
+/* Smooth fade + slide on every step swap — SaaS feel, no hard cuts. */
+.wiz-step-content[style*="block"],
+.wiz-step-content:not([style]) {
+  animation: wiz-step-in 0.35s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+@keyframes wiz-step-in {
+  0%   { opacity: 0; transform: translateY(8px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+/* Subtle "shine" sweep across active progress segments. */
+.wiz-progress-seg.wr-active,
+.wiz-progress-seg.active {
+  position: relative;
+  overflow: hidden;
+}
+.wiz-progress-seg.wr-active::after,
+.wiz-progress-seg.active::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.5) 50%, transparent 100%);
+  animation: wiz-shine 2.8s linear infinite;
+}
+@keyframes wiz-shine {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+/* Hover lift on provider tabs + active tab sits slightly proud. */
+.wiz-prov-tab {
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease, background 0.3s ease;
+}
+.wiz-prov-tab-active {
+  transform: translateY(-1px);
+}
+
+/* Expanding ripple behind the listening dot — makes the "we're
+   waiting for your press" pill feel like it's actually listening. */
+.wiz-listening {
+  position: relative;
+}
+.wiz-listening:not(.detected)::before {
+  content: "";
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  margin-top: -4px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.4;
+  animation: wiz-ripple 1.6s cubic-bezier(0.22, 0.61, 0.36, 1) infinite;
+  pointer-events: none;
+}
+@keyframes wiz-ripple {
+  0%   { transform: scale(1); opacity: 0.5; }
+  100% { transform: scale(4); opacity: 0; }
+}
+
+/* Inline help link on the API-keys step pointing at the website guide. */
+.wiz-key-guide-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 12px;
+  padding: 10px 16px;
+  background: rgba(200, 162, 86, 0.08);
+  border: 1px solid rgba(200, 162, 86, 0.25);
+  border-radius: 10px;
+  color: var(--accent-text, #8a6a26);
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.wiz-key-guide-link:hover {
+  background: rgba(200, 162, 86, 0.16);
+  border-color: rgba(200, 162, 86, 0.45);
+  transform: translateY(-1px);
+}
+.wiz-key-guide-link svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Decorative gradient at the bottom of any step that's a bit short —
+   subtle warm radial that adds visual weight without being busy. */
+.wizard-container::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 120px;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center bottom,
+              rgba(200, 162, 86, 0.07) 0%,
+              transparent 70%);
+  z-index: -1;
+}
+.wizard-container { position: relative; }
