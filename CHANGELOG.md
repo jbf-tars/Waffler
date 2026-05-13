@@ -4,6 +4,11 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.9] - 2026-05-13
+
+### Fixed
+- **Post-setup crash, take 2 — the real fix.** v3.14.5 added a main-thread `ssl.create_default_context()` pre-warm, on the theory that warming the SSL stack once would make later background-thread calls safe. That theory was wrong — `httpx` creates a fresh SSL context **per client**, so every `OpenAI(...)` constructor in a worker thread re-triggered the same crashing `ssl.create_default_context()` call. (Confirmed via the latest crash log: SSL context creation still showed up in the access-violation thread even though "SSL stack pre-warmed on main thread" appeared in `app.log`.) The real fix has two parts: (1) build ONE `ssl.SSLContext` on the main thread using `certifi.where()` as the cert source — this avoids the Windows cert-store call that's actually crashing — and (2) monkey-patch `httpx._config.create_ssl_context` so every httpx client reuses that same pre-built context regardless of which thread the client is constructed on. (3) As defence-in-depth, `complete_setup()` no longer spawns a fresh background thread for `_initialize_pipeline()`; it runs synchronously on the IPC thread instead, so we don't go three levels deep from main thread when constructing OpenAI clients.
+
 ## [3.14.8] - 2026-05-13
 
 ### Fixed

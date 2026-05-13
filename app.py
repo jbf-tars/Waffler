@@ -1421,19 +1421,23 @@ class Api:
         }
 
     def complete_setup(self) -> dict:
-        """Called when the setup wizard finishes. Initializes the pipeline."""
+        """Called when the setup wizard finishes. Initializes the pipeline.
+
+        Runs pipeline init synchronously on the IPC thread instead of
+        spawning a fresh background thread. Pipeline init touches httpx
+        (which previously crashed on a nested worker thread under
+        PyInstaller); doing it inline keeps everything on one thread
+        and works with the main-thread SSL context patch installed in
+        main(). User waits ~1-2 seconds for "Finish Setup" — acceptable.
+        """
         try:
             _mark_setup_complete()
-            # Initialize pipeline in a background thread so this API call
-            # returns immediately (pipeline init includes tkinter overlay
-            # which can block on non-main threads).
-            threading.Thread(
-                target=_initialize_pipeline,
-                daemon=True,
-                name="PipelineInit"
-            ).start()
+            _initialize_pipeline()
             return {"ok": True, "message": "Setup complete! Waffler is ready."}
         except Exception as e:
+            _log_to_file(f"complete_setup error: {e}")
+            import traceback
+            _log_to_file(traceback.format_exc())
             return {"ok": False, "error": str(e)}
 
     # ── Snippets API ──────────────────────────────────────────────────────────
@@ -2796,17 +2800,35 @@ def main():
     _log_to_file(f"=== Waffler starting === (PROJECT_ROOT={PROJECT_ROOT})")
 
     # Pre-warm Python's SSL stack on the MAIN thread to prevent a
-    # PyInstaller-related crash on Windows where the OpenAI / httpx
-    # client's first ssl.create_default_context() call from a worker
-    # thread can segfault the entire process. Doing it once here from
-    # the main thread caches the context internally so subsequent
-    # background-thread calls are safe.
-    # Symptom this fixes: first dictation after completing setup
-    # crashes the app; user has to relaunch.
+    # PyInstaller-related crash on Windows. The OpenAI / Groq / Cerebras
+    # clients all go through httpx, which calls ssl.create_default_context()
+    # in its HTTPTransport.__init__ — i.e. once per client instance. When
+    # that call happens on a background thread in a PyInstaller-bundled
+    # process on Windows, the underlying Windows cert-store load can
+    # segfault the whole process.
+    #
+    # The naive fix (just calling ssl.create_default_context() once on
+    # the main thread, like v3.14.5 did) does NOT work — httpx creates
+    # a fresh context per client, so the warm-up was discarded.
+    #
+    # The real fix: build ONE SSL context on the main thread using
+    # certifi's bundled cert PEM (avoiding the Windows cert-store call
+    # that's actually crashing), then monkey-patch httpx._config.create_ssl_context
+    # so every client reuses that same context regardless of which
+    # thread the client is constructed on.
     try:
         import ssl
-        ssl.create_default_context()
-        _log_to_file("SSL stack pre-warmed on main thread")
+        import certifi
+        _MAIN_SSL_CTX = ssl.create_default_context(cafile=certifi.where())
+        _log_to_file(f"SSL context pre-built on main thread (cafile={certifi.where()})")
+        try:
+            import httpx._config as _httpx_config
+            def _waffler_ssl_factory(*_args, **_kwargs):
+                return _MAIN_SSL_CTX
+            _httpx_config.create_ssl_context = _waffler_ssl_factory
+            _log_to_file("Patched httpx.create_ssl_context → main-thread context")
+        except Exception as _e:
+            _log_to_file(f"httpx SSL patch skipped ({_e}); fallback warm-up only")
     except Exception as _e:
         _log_to_file(f"SSL pre-warm failed (continuing): {_e}")
 
