@@ -4,6 +4,19 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.15] - 2026-05-13
+
+### Fixed
+- **Mac `SIGSEGV / EXC_BAD_ACCESS at 0x400` on wizard→pipeline handoff.** v3.14.14 fixed the CFFI closure lifetime *within* a single `AudioRecorder`, but the wizard runs its OWN `AudioRecorder` (`_wizard_recorder`) and the main `WafflerPipeline` then constructs a SECOND `AudioRecorder` immediately afterwards. The wizard cleanup path (`wizard_stop_hotkey_test`) was just doing `_wizard_recorder.stop()` (which only flips `is_recording=False` and snapshots the buffer — it does NOT close the stream) and then `_wizard_recorder = None` to drop the reference. CoreAudio's HAL I/O thread could fire one last callback into the freed wizard CFFI closure while the pipeline's brand-new `InputStream` was being constructed milliseconds later. Crash trace: `pythonify_c_value` → `method_stub` → `ffi_closure_SYSV` → `AdaptingInputOnlyProcess` → `HALC_ProxyIOContext::IOWorkLoop`, exactly as predicted.
+
+  Two-part fix:
+    1. **Process-wide `_STREAM_LOCK` in `audio.py`** serialises `sd.InputStream` creation and teardown across *all* `AudioRecorder` instances. `_create_stream()` and `_teardown_stream(stream)` both hold the lock for their full duration — so any concurrent stream creation transitively waits for the outgoing stream's HAL thread to fully drain. The lock window is ~100ms; invisible in normal use, exactly where it needs to be at instance-to-instance handoffs.
+    2. **`wizard_stop_hotkey_test` now calls `_wizard_recorder.shutdown()`** (full stop → drain → close sequence, bounded by an internal 2s watchdog) BEFORE setting `_wizard_recorder = None`. Combined with the lock above, the pipeline's pre-warm `start_monitoring()` call cannot begin until the wizard's stream is fully closed.
+
+  Added `tests/test_audio_stream_lifecycle.py` — a 50-iteration tight-loop stress test plus a 20-iteration overlapping-create/teardown loop that reproduces the exact wizard→pipeline race. Without the v3.14.15 fix this script reliably segfaults on Mac within a handful of iterations; with the fix it completes cleanly.
+
+- **macOS overlay pill unreliable on Space changes.** Users reported "I activate it and switch to another window and the pill doesn't appear there — it eventually follows but it's flaky on some Macs." `NSWindowCollectionBehaviorCanJoinAllSpaces` is supposed to make the overlay show on whichever Space is currently active, but macOS silently "forgets" that flag intermittently, especially when the overlay's owning app isn't frontmost. Added a low-frequency re-assertion to the overlay's animation tick: every ~250ms (5 ticks at 50ms) we call `orderFrontRegardless()` while the pill is visible. CoreGraphics no-ops if the window is already topmost on the current Space, so the cost is negligible; the win is that the pill snaps onto the active Space the next tick after a switch.
+
 ## [3.14.14] - 2026-05-13
 
 ### Fixed

@@ -59,6 +59,23 @@ _POSTROLL_MS = 150
 _HAL_DRAIN_S = 0.1
 
 
+# Process-wide lock that serialises InputStream creation and teardown across
+# ALL ``AudioRecorder`` instances. The wizard → pipeline handoff bug
+# (v3.14.15) was: the wizard's ``AudioRecorder`` was dropped without proper
+# teardown, then immediately ``WafflerPipeline.__init__`` created a new
+# ``AudioRecorder`` and called ``start_monitoring()`` on it. Both
+# InputStreams overlapped briefly; the wizard's CFFI closure was GC'd while
+# CoreAudio's HAL thread was still mid-callback for the old stream →
+# ``SIGSEGV / EXC_BAD_ACCESS at 0x400`` in ``pythonify_c_value``.
+#
+# Holding ``_STREAM_LOCK`` for the entire stop → drain → close → drop-ref
+# sequence makes the wait-for-drain part transitive across instances: the
+# next stream creation simply blocks until the previous one is fully torn
+# down. The lock window is ~100ms — invisible to users in normal use, and
+# exactly what we need at the wizard→pipeline transition.
+_STREAM_LOCK = threading.Lock()
+
+
 class AudioRecorder:
     """Records audio using a continuous sounddevice stream.
 
@@ -155,18 +172,24 @@ class AudioRecorder:
     # ── Stream lifecycle ────────────────────────────────────────────────
 
     def _create_stream(self) -> None:
-        """Create a fresh InputStream using the cached bound callback."""
-        # ``self._callback_active`` is set true BEFORE start() so the very
-        # first callback that fires isn't dropped.
-        self._callback_active = True
-        self._stream = sd.InputStream(
-            samplerate=self.sample_rate,
-            channels=self.channels,
-            dtype='int16',
-            callback=self._callback_bound,  # stable bound method
-            blocksize=1024,
-        )
-        self._stream.start()
+        """Create a fresh InputStream using the cached bound callback.
+
+        Serialised against any concurrent teardown (e.g. wizard → pipeline
+        handoff) via ``_STREAM_LOCK`` so we never have two streams' HAL
+        threads live in the same C-runtime moment.
+        """
+        with _STREAM_LOCK:
+            # ``self._callback_active`` is set true BEFORE start() so the
+            # very first callback that fires isn't dropped.
+            self._callback_active = True
+            self._stream = sd.InputStream(
+                samplerate=self.sample_rate,
+                channels=self.channels,
+                dtype='int16',
+                callback=self._callback_bound,  # stable bound method
+                blocksize=1024,
+            )
+            self._stream.start()
 
     def _teardown_stream(self, stream) -> None:
         """Safely tear down an InputStream.
@@ -179,28 +202,38 @@ class AudioRecorder:
         Must be called with ``self._stream`` already reassigned away from
         the stream being torn down (or None) so a concurrent thread won't
         see a half-closed stream.
+
+        The whole stop → drain → close sequence runs inside ``_STREAM_LOCK``
+        so any concurrent ``_create_stream`` call (in this instance or a
+        different ``AudioRecorder``) blocks until the HAL thread of the
+        outgoing stream has fully drained. This is what fixes the
+        wizard → pipeline handoff segfault.
         """
         if stream is None:
             return
-        # 1. Tell our Python-level callback to bail immediately.
-        self._callback_active = False
-        # 2. Stop dispatching new audio.
-        try:
-            stream.stop()
-        except Exception as e:
-            print(f"audio._teardown_stream: stream.stop() failed: {e}")
-        # 3. Drain — let any in-flight HAL callback complete.
-        try:
-            time.sleep(_HAL_DRAIN_S)
-        except Exception:
-            pass
-        # 4. Release C-level resources and the CFFI closure.
-        try:
-            stream.close()
-        except Exception as e:
-            print(f"audio._teardown_stream: stream.close() failed: {e}")
-        # 5. ``stream`` goes out of scope when this function returns —
-        # the InputStream is GC-eligible only after the drain window.
+        with _STREAM_LOCK:
+            # 1. Tell our Python-level callback to bail immediately.
+            self._callback_active = False
+            # 2. Stop dispatching new audio.
+            try:
+                stream.stop()
+            except Exception as e:
+                print(f"audio._teardown_stream: stream.stop() failed: {e}")
+            # 3. Drain — let any in-flight HAL callback complete. We hold
+            # `stream` in this local scope for the entire sleep so the
+            # InputStream (and its bound-method callback) can't be GC'd.
+            try:
+                time.sleep(_HAL_DRAIN_S)
+            except Exception:
+                pass
+            # 4. Release C-level resources and the CFFI closure.
+            try:
+                stream.close()
+            except Exception as e:
+                print(f"audio._teardown_stream: stream.close() failed: {e}")
+            # 5. ``stream`` goes out of scope when this function returns —
+            # the InputStream is GC-eligible only after the drain window
+            # AND after close() has released the CFFI closure.
 
     def start(self):
         """Begin recording.

@@ -1390,25 +1390,46 @@ class Api:
             return {"ok": False, "error": str(e)}
 
     def wizard_stop_hotkey_test(self) -> dict:
-        """Stop the temporary wizard hotkey listener and clean up."""
+        """Stop the temporary wizard hotkey listener and clean up.
+
+        CRITICAL: the wizard's ``_wizard_recorder`` owns its own
+        ``sd.InputStream``. Setting ``_wizard_recorder = None`` without
+        first draining the stream is the wizard→pipeline handoff segfault
+        (Bug B v3): CoreAudio's HAL thread can fire one last callback
+        into the freed CFFI closure while ``WafflerPipeline`` is
+        constructing its own InputStream a few ms later. We MUST call
+        ``shutdown()`` (full stop → drain → close sequence under
+        ``_STREAM_LOCK``) before dropping the reference. ``shutdown()``
+        is bounded by an internal 2s watchdog so a wedged audio device
+        can't block the wizard close.
+        """
         global _wizard_hotkey, _wizard_recorder, _wizard_transcriber
         global _wizard_recording, _wizard_overlay
         try:
             if _wizard_hotkey:
                 _wizard_hotkey.stop()
                 _wizard_hotkey = None
-            if _wizard_recording and _wizard_recorder:
+            if _wizard_recorder:
+                if _wizard_recording:
+                    try:
+                        _wizard_recorder.stop()
+                    except Exception:
+                        pass
+                    _wizard_recording = False
+                # Fully tear down the InputStream BEFORE dropping the
+                # Python reference. Without this, the HAL thread can fire
+                # into the freed CFFI closure when the main pipeline
+                # creates its own stream a few ms later.
                 try:
-                    _wizard_recorder.stop()
-                except Exception:
-                    pass
-                _wizard_recording = False
+                    _wizard_recorder.shutdown()
+                except Exception as _e:
+                    _log_to_file(f"Wizard recorder shutdown failed: {_e}")
             if _wizard_overlay:
                 _wizard_overlay.stop()
                 _wizard_overlay = None
             _wizard_recorder = None
             _wizard_transcriber = None
-            _log_to_file("Wizard hotkey test stopped")
+            _log_to_file("Wizard hotkey test stopped (recorder drained)")
             return {"ok": True}
         except Exception as e:
             return {"ok": False, "error": str(e)}

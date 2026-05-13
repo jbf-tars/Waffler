@@ -395,6 +395,28 @@ class WaffleView(NSView):
         if changed and _visible:
             self.setNeedsDisplay_(True)
 
+        # macOS Space-tracking reliability fix (v3.14.15).
+        # `NSWindowCollectionBehaviorCanJoinAllSpaces` *should* make the
+        # overlay appear on whichever Space the user is currently on, but
+        # there's a long-standing macOS quirk where the flag is sometimes
+        # silently "forgotten" — especially after a Space change or when
+        # the overlay's owning app isn't frontmost. The symptom is "I press
+        # the hotkey, swipe to another window/Space, and the pill doesn't
+        # appear there; it eventually catches up". Re-asserting `orderFront`
+        # at the animation frame rate is essentially free (CoreGraphics
+        # no-ops if the window is already topmost on the current Space) and
+        # makes the pill snap onto the active Space the next time we tick.
+        # Throttle to every ~250ms (5 ticks @ 50ms) so we're not yelling at
+        # WindowServer 20× a second.
+        if _visible and _g_window is not None:
+            self._reassert_counter = getattr(self, "_reassert_counter", 0) + 1
+            if self._reassert_counter >= 5:
+                self._reassert_counter = 0
+                try:
+                    _g_window.orderFrontRegardless()
+                except Exception:
+                    pass
+
     def setTargets_(self, targets):
         self._targets = list(targets)
 
