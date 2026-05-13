@@ -1,189 +1,59 @@
 """
-Fn Key + Space Detection for macOS using CGEventTap
-Works without crashing - no pynput needed
+Backward-compat shim for ``FnKeyMonitor``.
+
+The real implementation now lives in ``mac_hotkey_monitor`` as
+``MacEventTap`` + ``FnHandler`` + ``SpaceHandler``. This file is kept only
+so ``app.py``'s startup permission probe (``FnKeyMonitor(...)`` to trigger
+the macOS Input Monitoring TCC prompt) and ``tests/test_fn_key.py`` keep
+working without edits.
+
+Critically, ``FnKeyMonitor`` here creates its OWN ``MacEventTap``. The
+segfault fix in v3.14.13 is about not running multiple ``CGEventTap``
+instances *concurrently* — the permission probe runs at startup before the
+real ``SmartHotkeyListener`` is created, so it's sequential and safe.
 """
 
-import threading
-from Quartz import (
-    CGEventTapCreate,
-    CGEventTapEnable,
-    kCGEventFlagsChanged,
-    kCGEventKeyDown,
-    kCGEventKeyUp,
-    kCGEventTapOptionDefault,
-    kCGHeadInsertEventTap,
-    kCGHIDEventTap,
-    kCGEventTapDisabledByTimeout,
-    kCGEventTapDisabledByUserInput,
-    CFRunLoopAddSource,
-    CFRunLoopGetCurrent,
-    CFRunLoopRun,
-    CFRunLoopStop,
-    CFMachPortCreateRunLoopSource,
-    kCFRunLoopCommonModes,
-    CGEventGetFlags,
-    CGEventGetIntegerValueField,
-    kCGKeyboardEventKeycode,
-)
+from __future__ import annotations
+
+from typing import Callable, Optional
+
+from mac_hotkey_monitor import MacEventTap, FnHandler, SpaceHandler
 
 
 class FnKeyMonitor:
-    """Monitors Fn key and Space key using CGEventTap (no pynput crashes)"""
+    """Drop-in replacement for the old ``FnKeyMonitor``.
 
-    def __init__(self, on_fn_press, on_fn_release, on_space_press=None):
-        self._on_fn_press = on_fn_press
-        self._on_fn_release = on_fn_release
-        self._on_space_press = on_space_press
-        self._fn_pressed = False
-        self._suppress_next_space_up = False  # Track if we should suppress Space KeyUp
-        self._tap = None
-        self._runloop_source = None
-        self._runloop = None
-        self._lock = threading.Lock()
-        self._thread = None
+    Internally just wires up a ``MacEventTap`` with an ``FnHandler`` and
+    (optionally) a ``SpaceHandler``. Same public methods as before:
+    ``start()``, ``stop()``, ``is_fn_pressed()``, plus the legacy
+    ``_fn_pressed`` attribute access that the wizard code checks via
+    ``getattr``.
+    """
 
-    def _event_callback(self, proxy, event_type, event, refcon):
-        """Called for both modifier changes and key presses"""
-        try:
-            # Re-enable tap if system disabled it (e.g., when popup appears)
-            if event_type == kCGEventTapDisabledByTimeout or event_type == kCGEventTapDisabledByUserInput:
-                print("[FN_KEY] Event tap disabled by system - re-enabling")
-                CGEventTapEnable(self._tap, True)
-                return event
-
-            # Check for external keyboard Fn (often mapped to F13-F19)
-            # Some external keyboards send Fn as keycode 105 (F13)
-            if event_type == kCGEventKeyDown or event_type == kCGEventKeyUp:
-                keycode = CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode)
-                # F13 = 105, F14 = 107, F15 = 113 (common Fn mappings on external keyboards)
-                if keycode in [105, 107, 113]:
-                    print(f"[FN_KEY] External keyboard Fn detected (keycode {keycode})")
-                    with self._lock:
-                        if event_type == kCGEventKeyDown and not self._fn_pressed:
-                            self._fn_pressed = True
-                            threading.Thread(target=self._on_fn_press, daemon=True).start()
-                            return None
-                        elif event_type == kCGEventKeyUp and self._fn_pressed:
-                            self._fn_pressed = False
-                            threading.Thread(target=self._on_fn_release, daemon=True).start()
-                            return None
-
-            # Check for Fn key flag changes (MacBook keyboards)
-            if event_type == kCGEventFlagsChanged:
-                # kCGEventFlagMaskSecondaryFn = 0x800000 (bit 23)
-                fn_flag = 0x800000
-                flags = CGEventGetFlags(event)
-                is_fn_pressed = bool(flags & fn_flag)
-
-                # Track state changes and fire callbacks
-                with self._lock:
-                    if is_fn_pressed and not self._fn_pressed:
-                        self._fn_pressed = True
-                        threading.Thread(target=self._on_fn_press, daemon=True).start()
-                    elif not is_fn_pressed and self._fn_pressed:
-                        self._fn_pressed = False
-                        threading.Thread(target=self._on_fn_release, daemon=True).start()
-
-                # ALWAYS suppress ALL Fn key flag changes (even rapid presses)
-                # This prevents macOS emoji picker/input source selector from triggering
-                return None
-
-            # Check for Space key press
-            elif event_type == kCGEventKeyDown:
-                keycode = CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode)
-                if keycode == 49:  # Space key = keycode 49
-                    with self._lock:
-                        fn_state = self._fn_pressed
-
-                    print(f"[FN_KEY] Space pressed, Fn is {'HELD' if fn_state else 'NOT HELD'}")
-
-                    # Trigger app's sticky mode handler
-                    if self._on_space_press:
-                        threading.Thread(target=self._on_space_press, daemon=True).start()
-
-                    # Suppress event if Fn is held to prevent input source selector
-                    if fn_state:
-                        self._suppress_next_space_up = True
-                        print("[FN_KEY] Suppressing Fn+Space KeyDown")
-                        return None  # Suppress Fn+Space system shortcut
-
-            # Check for Space key release (KeyUp)
-            elif event_type == kCGEventKeyUp:
-                keycode = CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode)
-                if keycode == 49:  # Space key = keycode 49
-                    with self._lock:
-                        if self._suppress_next_space_up:
-                            self._suppress_next_space_up = False
-                            return None  # Suppress the KeyUp event too
-
-        except Exception as e:
-            print(f"Event error: {e}")
-
-        # Return the event unchanged
-        return event
-
-    def _run_event_tap(self):
-        """Run the event tap in its own thread"""
-        try:
-            # Create event mask for flags changed, key down, and key up events
-            event_mask = (1 << kCGEventFlagsChanged) | (1 << kCGEventKeyDown) | (1 << kCGEventKeyUp)
-
-            # Use kCGHIDEventTap (hardware level) for highest priority
-            # This intercepts events before system handlers like input source switcher
-            tap_location = kCGHIDEventTap
-
-            # Create event tap
-            self._tap = CGEventTapCreate(
-                tap_location,
-                kCGHeadInsertEventTap,
-                kCGEventTapOptionDefault,
-                event_mask,
-                self._event_callback,
-                None
+    def __init__(
+        self,
+        on_fn_press: Callable[[], None],
+        on_fn_release: Callable[[], None],
+        on_space_press: Optional[Callable[[], None]] = None,
+    ) -> None:
+        self._tap = MacEventTap()
+        self._fn_handler = FnHandler(on_press=on_fn_press, on_release=on_fn_release)
+        self._tap.add_handler(self._fn_handler)
+        if on_space_press is not None:
+            self._tap.add_handler(
+                SpaceHandler(on_press=on_space_press, fn_handler=self._fn_handler)
             )
 
-            if self._tap is None:
-                print("Failed to create event tap - grant Accessibility permission")
-                print("  System Settings > Privacy & Security > Accessibility")
-                return
+    def start(self) -> None:
+        self._tap.start()
 
-            # Create run loop source
-            self._runloop_source = CFMachPortCreateRunLoopSource(None, self._tap, 0)
+    def stop(self) -> None:
+        self._tap.stop()
 
-            # Get current run loop and add source
-            self._runloop = CFRunLoopGetCurrent()
-            CFRunLoopAddSource(self._runloop, self._runloop_source, kCFRunLoopCommonModes)
+    def is_fn_pressed(self) -> bool:
+        return self._fn_handler.is_pressed
 
-            # Enable the tap
-            CGEventTapEnable(self._tap, True)
-
-            # Run the loop (blocks until stopped)
-            CFRunLoopRun()
-
-        except Exception as e:
-            print(f"Event tap error: {e}")
-
-    def start(self):
-        """Start monitoring in background thread"""
-        if self._thread is None or not self._thread.is_alive():
-            self._thread = threading.Thread(
-                target=self._run_event_tap,
-                daemon=True,
-                name="FnKeyMonitorThread"
-            )
-            self._thread.start()
-
-    def stop(self):
-        """Stop monitoring"""
-        if self._runloop:
-            CFRunLoopStop(self._runloop)
-        if self._tap:
-            CGEventTapEnable(self._tap, False)
-        self._tap = None
-        self._runloop_source = None
-        self._runloop = None
-
-    def is_fn_pressed(self):
-        """Check current Fn key state"""
-        with self._lock:
-            return self._fn_pressed
+    # Legacy attribute access used by app.py's get_fn_key_state()
+    @property
+    def _fn_pressed(self) -> bool:
+        return self._fn_handler.is_pressed

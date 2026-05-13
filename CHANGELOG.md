@@ -4,6 +4,20 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.13] - 2026-05-13
+
+### Fixed
+- **macOS segfault on recording end (multi-CGEventTap race).** Reported in `~/.waffler-hosted/crash.log` — `Fatal Python error: Segmentation fault` with `<no Python frame>` on the crashing C thread while two other threads were live inside `CFRunLoopRun()`. Root cause: `SmartHotkeyListener` was composing 2–3 independent HID-level `CGEventTap`s in one process (one for the hotkey via `FnKeyMonitor` or `MacHotkeyMonitor`, one for Space, one for Esc cancel). When the C callbacks for two taps fired near-simultaneously — for example "paste finishes + key release" at the end of a recording — PyObjC's bridge state raced between the two C threads and macOS sent SIGSEGV. The Esc-cancel monitor was added during the v3.14 series, which is exactly when the regression appeared (v3.12.3 only had one tap and didn't crash).
+
+  Refactored to a **single** `CGEventTap` per process (`MacEventTap`) that dispatches incoming events to multiple lightweight handler objects on one `CFRunLoopRun()` thread:
+    - `FnHandler` — Fn flag changes + external-keyboard Fn (F13/F14/F15), always suppresses Fn flag changes to prevent the emoji picker.
+    - `SpaceHandler` — Space key, fires unconditionally so `SmartHotkeyListener` can decide whether it's a sticky toggle, suppresses Space when Fn is held (preserved Fn+Space sticky-toggle semantics).
+    - `GenericHotkeyHandler` — arbitrary modifier+key combos with configurable suppression. Used for non-Fn hotkeys, the Space trigger for non-Fn hotkeys, and Esc cancel.
+
+  All existing behaviour preserved: Fn push-to-talk, Fn+Space sticky toggle, Esc as universal sticky-cancel, Space as sticky trigger for non-Fn hotkeys, surgical modifier suppression so Cmd+C / Cmd+V keep working. `fn_key_cgevent.FnKeyMonitor` kept as a thin backward-compat shim (over the same single-tap architecture) so `app.py`'s startup permission probe and `tests/test_fn_key.py` still work without edits. Wizard polling surface preserved via property aliases (`_fn_pressed`, `_hotkey_active`, `is_combo_active`).
+
+  Windows hotkey path untouched.
+
 ## [3.14.12] - 2026-05-13
 
 ### Changed
