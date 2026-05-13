@@ -1588,16 +1588,68 @@ class Api:
     # ── Permission Checking API ────────────────────────────────────────
 
     def check_accessibility_permission(self) -> bool:
-        """Check if Accessibility permission is granted"""
+        """Check if Accessibility permission is granted (live).
+
+        The plain ``AXIsProcessTrusted()`` PyObjC binding has a long-standing
+        issue under PyInstaller-bundled Python apps: once it returns ``False``
+        early in the process lifetime it tends to keep returning ``False``
+        even after the user toggles Accessibility ON in System Settings —
+        the result appears to be cached inside PyObjC's interop layer for
+        the running process.
+
+        This made the wizard pill never tick green for Accessibility, while
+        Input Monitoring worked fine (because it goes through ``IOHIDCheckAccess``
+        via raw ctypes, bypassing the cache).
+
+        Fix: query via ctypes against the ApplicationServices framework,
+        which calls the C function fresh each time. We try, in order:
+
+            1. ``AXIsProcessTrustedWithOptions(NULL)`` via ctypes — modern API,
+               explicitly designed for repeated polling.
+            2. ``AXIsProcessTrusted()`` via ctypes — older fallback.
+            3. PyObjC ``AXIsProcessTrusted()`` — last-resort fallback for
+               environments where ApplicationServices.framework can't be
+               dlopened (very rare).
+        """
+        if sys.platform != "darwin":
+            return True  # Not applicable
+
+        # Try ctypes paths first — they bypass any PyObjC caching.
         try:
-            from ApplicationServices import AXIsProcessTrusted
-            result = AXIsProcessTrusted()
-            _log_to_file(f"[DEBUG] AXIsProcessTrusted() returned: {result}")
-            _log_to_file(f"[DEBUG] App bundle path: {os.path.abspath(__file__)}")
+            import ctypes
+            appservices = ctypes.cdll.LoadLibrary(
+                "/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices"
+            )
+
+            # Preferred: AXIsProcessTrustedWithOptions(NULL).
+            # Signature: Boolean AXIsProcessTrustedWithOptions(CFDictionaryRef options)
+            # Passing NULL means "check without prompting" and always re-queries TCC.
+            try:
+                appservices.AXIsProcessTrustedWithOptions.restype = ctypes.c_bool
+                appservices.AXIsProcessTrustedWithOptions.argtypes = [ctypes.c_void_p]
+                result = bool(appservices.AXIsProcessTrustedWithOptions(None))
+                _log_to_file(f"[DEBUG] AXIsProcessTrustedWithOptions(NULL) returned: {result}")
+                return result
+            except (AttributeError, OSError) as e:
+                _log_to_file(f"[DEBUG] AXIsProcessTrustedWithOptions unavailable: {e}; falling back")
+
+            # Fallback: AXIsProcessTrusted() via ctypes.
+            appservices.AXIsProcessTrusted.restype = ctypes.c_bool
+            appservices.AXIsProcessTrusted.argtypes = []
+            result = bool(appservices.AXIsProcessTrusted())
+            _log_to_file(f"[DEBUG] AXIsProcessTrusted (ctypes) returned: {result}")
             return result
         except Exception as e:
-            _log_to_file(f"[ERROR] Accessibility check failed: {e}")
-            print(f"Error checking accessibility permission: {e}")
+            _log_to_file(f"[DEBUG] ctypes Accessibility check failed: {e}; trying PyObjC")
+
+        # Last resort: PyObjC binding (the original implementation).
+        try:
+            from ApplicationServices import AXIsProcessTrusted
+            result = bool(AXIsProcessTrusted())
+            _log_to_file(f"[DEBUG] AXIsProcessTrusted (PyObjC fallback) returned: {result}")
+            return result
+        except Exception as e:
+            _log_to_file(f"[ERROR] All Accessibility checks failed: {e}")
             return False
 
     def check_input_monitoring_permission(self) -> bool:

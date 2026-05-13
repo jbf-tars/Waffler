@@ -3067,6 +3067,20 @@ html, body {
   flex-shrink: 0;
 }
 .wiz-perm-icon svg { width: 22px; height: 22px; }
+
+/* Apple-style permission icons: full-bleed inside the tile, no gold tint.
+   Used for the macOS Accessibility (blue) and Input Monitoring (dark) icons
+   to match the real System Settings glyphs. */
+.wiz-perm-icon-apple {
+  background: transparent !important;
+  padding: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.08), 0 2px 6px rgba(0,0,0,0.06);
+}
+.wiz-perm-icon-apple svg { width: 100%; height: 100%; display: block; }
 .wiz-perm-text { flex: 1; }
 .wiz-perm-text h3 { font-size: 16px; color: #1A1A1A; font-weight: 700; margin: 0; }
 .wiz-perm-text p { font-size: 13px; color: #6B6560; margin-top: 3px; }

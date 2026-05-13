@@ -4,6 +4,16 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.11] - 2026-05-13
+
+### Fixed
+- **macOS Accessibility pill never ticked green even after granting permission.** `check_accessibility_permission()` called PyObjC's `AXIsProcessTrusted()`, which has a long-standing issue under PyInstaller-bundled apps: once it returns `False` early in the process lifetime it tends to keep returning `False` for the rest of the run, even after the user toggles Accessibility ON in System Settings — the result appears to be cached inside the PyObjC interop layer. Input Monitoring was unaffected because it goes through `IOHIDCheckAccess` via raw ctypes. Rewrote the Accessibility check to use ctypes against `ApplicationServices.framework` directly: it now tries `AXIsProcessTrustedWithOptions(NULL)` first (the modern API explicitly designed for repeated polling), then falls back to `AXIsProcessTrusted()` via ctypes, and only uses the PyObjC binding as a last resort. Each call re-queries TCC live, so granting Accessibility in System Settings now ticks the wizard pill green within the next 1-second poll tick.
+
+### Changed
+- **Wizard Step 1 — proper Apple-style permission icons.** The Accessibility tile now shows the real macOS Accessibility glyph (blue gradient square with the white universal-access figure) and the Input Monitoring tile shows the dark slab with a detailed keyboard glyph, matching what users actually see in System Settings. Gold tint removed for these icons since they're now real system icons.
+- **Wizard Step 1 — Accessibility now has its own animated walkthrough.** Previously only Input Monitoring had a mock-System-Settings animation showing how to add Waffler. Accessibility now has a parallel walkthrough labelled "Privacy & Security → Accessibility", offset ~3 seconds from the Input Monitoring one so the two windows feel alive independently.
+- **Wizard animation apps swapped to recognisable real apps.** Replaced Karabiner-Elements / Terminal / AltTab with apps the average user actually has installed: Accessibility window shows Google Chrome, 1Password, then Waffler being added; Input Monitoring window shows Spotify, Discord, then Waffler being added. The application picker shows Zoom / Spotify / Waffler / WhatsApp / Discord with their proper brand-coloured SVG logos instead of emoji placeholders. The Waffler icon throughout uses the real bundled `logo-icon.png` instead of the 🧇 emoji.
+
 ## [3.14.10] - 2026-05-13
 
 ### Fixed
