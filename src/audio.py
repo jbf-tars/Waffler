@@ -1,10 +1,44 @@
-"""Audio recording module using sounddevice - continuous stream"""
+"""Audio recording module using sounddevice — continuous stream.
+
+CFFI lifecycle (v3.14.14)
+-------------------------
+sounddevice wires the Python callback to PortAudio via a CFFI closure. The
+closure's lifetime is tied to the ``InputStream`` Python object. CoreAudio's
+HAL I/O thread can still be mid-callback for a brief window after
+``stream.stop()`` returns — if the ``InputStream`` is GC'd or the bound
+callback method is dropped during that window, the next callback fires into
+freed memory and Python's CFFI bridge calls ``_Py_FatalErrorFunc`` →
+``abort()`` → ``EXC_CRASH/SIGABRT``. That's the crash signature reported in
+``crash.log`` (no Python frame on the faulting thread, ``convert_to_object``
+→ ``general_invoke_callback`` → ``ffi_closure_SYSV`` →
+``AdaptingInputOnlyProcess`` → CoreAudio HAL).
+
+The fix is a strict teardown sequence that gives the HAL thread time to
+drain BEFORE we release the resources it might still touch:
+
+  1. ``_callback_active = False``   — Python-level guard: even if the HAL
+                                      thread sneaks in another callback,
+                                      it returns immediately.
+  2. ``stream.stop()``              — PortAudio: stop dispatching new audio.
+  3. ``time.sleep(0.1)``            — paranoia drain — wait for any
+                                      in-flight HAL callback to complete.
+  4. ``stream.close()``             — PortAudio: release C-level resources
+                                      and the CFFI closure.
+  5. Drop the Python reference last  — keeps the bound method alive
+                                      through steps 2-4.
+
+We also cache the bound ``_callback`` method on ``__init__`` so there is
+always a single, stable Python object backing every InputStream's callback.
+That makes step 5 deterministic — the bound method survives until the
+``AudioRecorder`` itself is destroyed.
+"""
 
 import sounddevice as sd
 import numpy as np
 import io
 import wave
 import threading
+import time
 from collections import deque
 from typing import Optional
 
@@ -12,21 +46,25 @@ from typing import Optional
 # Pre-roll window in milliseconds. When the user presses the hotkey, we splice
 # this much audio captured BEFORE the press into the recording, so the first
 # 1-2 syllables aren't clipped if they started speaking just before pressing.
-# 500ms is plenty for typical reaction-time clipping.
 _PREROLL_MS = 500
+
+# Post-roll window: how long to keep recording AFTER the user releases the
+# hotkey, so the final syllable / word isn't clipped.
+_POSTROLL_MS = 150
+
+# HAL drain window. After ``stream.stop()`` returns, give CoreAudio's I/O
+# thread this long to settle before we ``close()`` the stream and drop the
+# Python reference. Empirically 100ms is more than enough — a single HAL
+# buffer cycle at 16kHz/1024-frames is ~64ms.
+_HAL_DRAIN_S = 0.1
 
 
 class AudioRecorder:
     """Records audio using a continuous sounddevice stream.
 
     The stream stays alive for the lifetime of the recorder (created once
-    on first start(), reused for every subsequent recording). This avoids
-    the 50-300ms stream-creation latency on Windows that was clipping the
-    first 1-2 syllables of speech every time the hotkey was pressed.
-
-    A ring buffer captures the last 500ms of audio continuously, so even if
-    the speaker started talking BEFORE pressing the hotkey, those samples
-    are spliced into the recording.
+    on first ``start()``, reused for every subsequent recording) so we don't
+    pay the 50-300ms stream-creation latency on every hotkey press.
     """
 
     def __init__(self, sample_rate: int = 16000, channels: int = 1):
@@ -36,69 +74,75 @@ class AudioRecorder:
         self.is_recording = False
         self.is_paused = False
         self._buffer = []
-        self._paused_buffer = []  # Audio captured while paused (discarded)
+        self._paused_buffer = []
         self._stream = None
         self._lock = threading.Lock()
-        self._stream_lock = threading.Lock()  # Protect stream start/stop
-        self._last_rms: float = 0.0   # normalised 0..1 for overlay
-        self._callback_active = False  # Guard against callback during teardown
+        self._stream_lock = threading.RLock()  # reentrant — teardown may be
+                                               # called while we already hold
+                                               # the lock for start/stop.
+        self._last_rms: float = 0.0
+        self._callback_active = False
 
-        # Pre-roll ring buffer — every audio chunk delivered by the stream is
-        # appended here regardless of whether we're recording. On start(), we
-        # splice this into the recording buffer so the moment-before-press is
-        # captured. blocksize is 1024 frames @ 16kHz = 64ms per chunk, so 8
-        # chunks = ~512ms of pre-roll headroom.
+        # CRITICAL: cache the bound callback method ONCE. Every ``self._callback``
+        # access creates a new bound-method object; we want exactly one to
+        # exist so PortAudio's CFFI closure always points at the same Python
+        # object for the recorder's lifetime. Without this caching, the
+        # bound method handed to ``sd.InputStream`` could be GC'd if the
+        # InputStream itself were GC'd, leaving a dangling CFFI closure.
+        self._callback_bound = self._callback
+
+        # Pre-roll ring buffer.
         chunks_per_preroll = max(1, int(_PREROLL_MS / 1000 * sample_rate / 1024) + 1)
         self._preroll = deque(maxlen=chunks_per_preroll)
 
-    def _callback(self, indata, frames, time, status):
-        """Called continuously by sounddevice while the stream is alive."""
+    # ── Callback (called on CoreAudio HAL thread) ───────────────────────
+
+    def _callback(self, indata, frames, time_info, status):
+        """Called continuously by PortAudio while the stream is alive.
+
+        ``_callback_active`` is the FIRST gate — it lets us drop callbacks
+        immediately during teardown without touching numpy / deque / locks
+        that another thread might be tearing down too.
+        """
         if not self._callback_active:
             return
         try:
-            # Always capture into pre-roll, even when not recording.
             chunk = indata.copy()
             self._preroll.append(chunk)
 
             if self.is_recording and not self.is_paused:
                 with self._lock:
                     self._buffer.append(chunk)
-                # Update live RMS for VU bars
                 rms_raw = float(np.sqrt(np.mean(indata.astype(np.float32) ** 2)))
-                # Normalise: whisper ~ 80-200, typical speech ~ 500-3000, silence < 30
                 self._last_rms = min(1.0, rms_raw / 800.0)
             elif self.is_paused:
                 self._last_rms = 0.0
         except Exception:
-            pass  # Never crash in callback
+            pass  # Never crash inside the audio callback.
+
+    # ── Public state inspection ─────────────────────────────────────────
 
     def get_level(self) -> float:
-        """Return normalised audio level (0.0-1.0) for the latest chunk."""
         return self._last_rms
 
     def get_is_paused(self) -> bool:
-        """Return paused state."""
         return self.is_paused
 
     def pause(self):
-        """Pause recording (audio continues but is discarded)."""
         self.is_paused = True
         print("Recording paused")
 
     def resume(self):
-        """Resume recording from paused state."""
         self.is_paused = False
         print("Recording resumed")
 
     def toggle_pause(self):
-        """Toggle pause state."""
         if self.is_paused:
             self.resume()
         else:
             self.pause()
 
     def print_devices(self):
-        """Print available audio input devices"""
         print("\nAvailable microphones:")
         default_input = sd.query_devices(kind='input')
         print(f"  Default input: {default_input['name']}")
@@ -108,16 +152,62 @@ class AudioRecorder:
                 print(f"  [{i}] {d['name']}")
         print()
 
+    # ── Stream lifecycle ────────────────────────────────────────────────
+
+    def _create_stream(self) -> None:
+        """Create a fresh InputStream using the cached bound callback."""
+        # ``self._callback_active`` is set true BEFORE start() so the very
+        # first callback that fires isn't dropped.
+        self._callback_active = True
+        self._stream = sd.InputStream(
+            samplerate=self.sample_rate,
+            channels=self.channels,
+            dtype='int16',
+            callback=self._callback_bound,  # stable bound method
+            blocksize=1024,
+        )
+        self._stream.start()
+
+    def _teardown_stream(self, stream) -> None:
+        """Safely tear down an InputStream.
+
+        Holds the Python reference (via the local ``stream`` argument) all
+        the way through the stop → drain → close sequence so the bound
+        callback can't be GC'd while CoreAudio's HAL thread might still
+        invoke it. See the file docstring for the rationale.
+
+        Must be called with ``self._stream`` already reassigned away from
+        the stream being torn down (or None) so a concurrent thread won't
+        see a half-closed stream.
+        """
+        if stream is None:
+            return
+        # 1. Tell our Python-level callback to bail immediately.
+        self._callback_active = False
+        # 2. Stop dispatching new audio.
+        try:
+            stream.stop()
+        except Exception as e:
+            print(f"audio._teardown_stream: stream.stop() failed: {e}")
+        # 3. Drain — let any in-flight HAL callback complete.
+        try:
+            time.sleep(_HAL_DRAIN_S)
+        except Exception:
+            pass
+        # 4. Release C-level resources and the CFFI closure.
+        try:
+            stream.close()
+        except Exception as e:
+            print(f"audio._teardown_stream: stream.close() failed: {e}")
+        # 5. ``stream`` goes out of scope when this function returns —
+        # the InputStream is GC-eligible only after the drain window.
+
     def start(self):
         """Begin recording.
 
-        Uses the long-lived monitor stream when available. If the stream
-        isn't running yet (first call after init or after an explicit
-        stop_monitoring()), creates and starts it now and waits briefly
-        for it to begin producing samples before flipping is_recording on.
-
-        The 500ms pre-roll is spliced into the recording buffer so the
-        first 1-2 syllables aren't lost to stream-startup latency.
+        Reuses the long-lived monitor stream when it's still healthy; if
+        the stream isn't running (first call, or after ``stop_monitoring``),
+        spins up a fresh one via the safe lifecycle helpers.
         """
         with self._stream_lock:
             self._buffer = []
@@ -129,70 +219,38 @@ class AudioRecorder:
             )
 
             if not stream_was_running:
-                # No live stream — create one. This is the slow path (~50-300ms
-                # on Windows). We close any stale stream first.
-                if self._stream is not None:
-                    try:
-                        self._stream.stop()
-                        self._stream.close()
-                    except Exception:
-                        pass
-                    self._stream = None
+                # Slow path. If there's a stale stream hanging around,
+                # tear it down properly before creating the new one. We
+                # detach it from ``self._stream`` FIRST so concurrent
+                # readers don't see a half-closed object.
+                stale = self._stream
+                self._stream = None
+                if stale is not None:
+                    self._teardown_stream(stale)
                 self._preroll.clear()
-                self._callback_active = True
-                self._stream = sd.InputStream(
-                    samplerate=self.sample_rate,
-                    channels=self.channels,
-                    dtype='int16',
-                    callback=self._callback,
-                    blocksize=1024,
-                )
-                self._stream.start()
+                self._create_stream()
                 # Wait briefly for the stream to actually start producing
-                # samples — Windows InputStream.start() returns before audio
-                # begins flowing. Without this, even the pre-roll is empty.
-                import time as _t
-                deadline = _t.time() + 0.5
-                while not self._preroll and _t.time() < deadline:
-                    _t.sleep(0.01)
+                # samples — InputStream.start() returns before audio
+                # begins flowing on Windows and sometimes on Mac.
+                deadline = time.time() + 0.5
+                while not self._preroll and time.time() < deadline:
+                    time.sleep(0.01)
 
-            # Splice the pre-roll into the recording buffer FIRST so the
-            # first syllable isn't lost. Snapshot via list() to avoid
-            # iterating a deque that the callback is appending to.
+            # Splice pre-roll into the recording buffer FIRST so the
+            # first syllable isn't lost.
             with self._lock:
                 self._buffer = list(self._preroll)
-
-            # Now flip the flag — subsequent callback invocations will
-            # append to _buffer.
             self.is_recording = True
 
-    # Post-roll: how long to keep recording AFTER the user releases the
-    # hotkey, so the final syllable / word isn't clipped. The user almost
-    # always finishes speaking just before they release — without this,
-    # the last 50-200ms of speech is sitting in the OS audio buffer when
-    # we flip is_recording=False, and it's lost.
-    #
-    # 150ms is the sweet spot on a modern Windows audio stack: long enough
-    # to catch the trailing word/syllable, short enough that the post-stop
-    # latency before the styled text arrives in the clipboard is barely
-    # noticeable. If end-clipping resurfaces (last word lost on slow
-    # devices), bump back to 200-250ms.
-    _POSTROLL_MS = 150
-
     def stop(self) -> bytes:
-        """Stop recording and return WAV bytes.
+        """Stop the *recording* (not the stream) and return WAV bytes.
 
-        Keeps capturing for an extra _POSTROLL_MS after the call so the
-        final word isn't clipped, then flips the recording flag and
-        snapshots the buffer. Does NOT close the underlying stream — that
-        stays alive so the next start() is instant. Use shutdown() for
-        full teardown on app exit.
+        The stream keeps running so the next ``start()`` is instant. The
+        post-roll trick: we sleep BEFORE flipping ``is_recording=False``
+        so the callback continues to append trailing audio chunks during
+        the wait, capturing the last word.
         """
-        # Sleep BEFORE flipping is_recording so the callback continues to
-        # append the trailing audio chunks during the wait. This is the
-        # end-of-recording mirror of the pre-roll buffer at the start.
-        import time as _t
-        _t.sleep(self._POSTROLL_MS / 1000.0)
+        time.sleep(_POSTROLL_MS / 1000.0)
 
         with self._stream_lock:
             self.is_recording = False
@@ -208,19 +266,16 @@ class AudioRecorder:
         duration = len(self.recording) / self.sample_rate
         rms = np.sqrt(np.mean(self.recording.astype(np.float32) ** 2))
         print(f"Recording stopped ({duration:.2f}s, RMS: {rms:.0f})")
-
         return self._to_wav_bytes(self.recording)
 
     def shutdown(self):
         """Fully tear down the audio stream. Called on app exit only.
 
-        Has the watchdog the old stop() had: sounddevice's _stream.stop()
-        can wedge for tens of seconds on long recordings or after device
-        hot-swap; we abandon the stream after 1.5s rather than block the
-        shutdown path.
+        sounddevice's ``stream.stop()`` can wedge for tens of seconds on a
+        long recording or after a device hot-swap; we abandon the stream
+        after 1.5s rather than block the shutdown path.
         """
         with self._stream_lock:
-            self._callback_active = False
             self.is_recording = False
             stream = self._stream
             self._stream = None
@@ -229,52 +284,41 @@ class AudioRecorder:
             return
 
         def _close():
-            try:
-                stream.stop()
-                stream.close()
-            except Exception:
-                pass
+            self._teardown_stream(stream)
+
         t = threading.Thread(target=_close, daemon=True, name="AudioStreamClose")
         t.start()
-        t.join(timeout=1.5)
+        t.join(timeout=2.0)  # 2.0 = 1.5 watchdog + 0.1 drain headroom + slack
         if t.is_alive():
-            print("audio.shutdown: stream.stop() did not return in 1.5s — abandoning")
+            print("audio.shutdown: teardown did not return in 2s — abandoning")
 
     def start_monitoring(self):
         """Start audio stream for level monitoring only (no recording)."""
         with self._stream_lock:
-            if self._stream and self._stream.active:
+            if self._stream and self._stream.active and self._callback_active:
                 return  # Already monitoring/recording
-
-            self.is_recording = False  # Don't save audio
+            stale = self._stream
+            self._stream = None
+            if stale is not None:
+                self._teardown_stream(stale)
+            self.is_recording = False
             self._buffer = []
-            self._callback_active = True
-
-            self._stream = sd.InputStream(
-                samplerate=self.sample_rate,
-                channels=self.channels,
-                dtype='int16',
-                callback=self._callback,
-                blocksize=1024
-            )
-            self._stream.start()
+            self._create_stream()
 
     def stop_monitoring(self):
-        """Stop audio monitoring stream."""
+        """Stop audio monitoring stream — used when switching devices etc."""
         with self._stream_lock:
-            self._callback_active = False
-            if self._stream:
-                try:
-                    self._stream.stop()
-                    self._stream.close()
-                except Exception:
-                    pass
-                self._stream = None
-                self._last_rms = 0.0
+            stream = self._stream
+            self._stream = None
+        if stream is not None:
+            self._teardown_stream(stream)
+        self._last_rms = 0.0
 
     def record_chunk(self, duration: float = 0.1):
-        """No-op - continuous stream handles recording automatically"""
+        """No-op — continuous stream handles recording automatically."""
         pass
+
+    # ── Encoding ───────────────────────────────────────────────────────
 
     def _to_wav_bytes(self, audio_data: np.ndarray) -> bytes:
         byte_io = io.BytesIO()

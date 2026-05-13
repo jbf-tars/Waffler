@@ -1130,7 +1130,7 @@ async function loadSettings() {
     if (cerebrasDesc) {
       cerebrasDesc.textContent = s.cerebras_key_set
         ? ('Active: ' + s.cerebras_key_masked)
-        : 'Fastest. Free tier ~1M tokens/day — cloud.cerebras.ai/keys';
+        : 'Fastest. Free tier ~1M tokens/day — cloud.cerebras.ai/platform/api-keys';
     }
 
     // Groq key

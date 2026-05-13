@@ -4,6 +4,25 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.14] - 2026-05-13
+
+### Fixed
+- **macOS `EXC_CRASH/SIGABRT` from PortAudio HAL callback (separate from the v3.14.13 segfault).** Different crash signature: `Py_FatalErrorFunc` → `abort()` on the `com.apple.audio.IOThread.client` thread, with the C trace going `convert_to_object` → `general_invoke_callback` → `ffi_closure_SYSV_inner` → `AdaptingInputOnlyProcess` → CoreAudio HAL. Trigger correlated with a Groq `RateLimitError` styling failure, but the rate-limit was incidental — the real bug was that sounddevice's CFFI closure could be invoked by CoreAudio's I/O thread for a brief window after `stream.stop()` had returned. If the `InputStream` Python object was GC'd (or the bound callback method was dropped) during that window, the next HAL callback fired into freed memory and CFFI hit a fatal Python state error.
+
+  Rewrote `src/audio.py`'s stream lifecycle with a strict teardown sequence:
+    1. `_callback_active = False` — Python-level guard so even a late HAL callback returns immediately.
+    2. `stream.stop()` — stop dispatching new audio.
+    3. `time.sleep(0.1)` — drain window for any in-flight HAL callback to complete.
+    4. `stream.close()` — release C-level resources and the CFFI closure.
+    5. Drop the Python reference last — bound method survives steps 2-4.
+
+  Also cached the bound `_callback` method as a stable `self._callback_bound` attribute in `__init__` so PortAudio's CFFI closure always points at the same Python object for the recorder's lifetime — previously every `self._callback` access created a new bound-method object, which made GC behaviour around stream replacement non-deterministic. Switched `_stream_lock` to `RLock` so the new `_teardown_stream(stream)` helper can be called while the caller already holds the stream lock. `shutdown()` watchdog timeout bumped from 1.5s → 2.0s to cover the new drain window.
+
+- **Cerebras "page does not exist" 404 on the wizard's "Get a key" link.** The link pointed at `cloud.cerebras.ai/keys` which returns a 404 from Cerebras's developer platform. Updated to the correct path `cloud.cerebras.ai/platform/api-keys` in the wizard, the settings panel description, and the dynamic settings hint — matching the URL already used in `wafflerai.com/api-key-guide`.
+
+### Changed
+- **Wizard Step 3 — Cerebras now has its own animated walkthrough.** Same three-card story as Groq (open → sign in → copy key) but with Cerebras's dark theme and orange-accent (`#FF6B00`) branding, the correct `cloud.cerebras.ai/platform/api-keys` URL in the mock browser titlebar, and a `csk-` key prefix in the reveal modal. Shares animation CSS with the Groq walkthrough so only one provider's cards animate visibly at a time (whichever tab is active).
+
 ## [3.14.13] - 2026-05-13
 
 ### Fixed
