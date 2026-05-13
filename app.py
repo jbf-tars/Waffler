@@ -1421,18 +1421,27 @@ class Api:
         }
 
     def complete_setup(self) -> dict:
-        """Called when the setup wizard finishes. Initializes the pipeline.
+        """Called when the setup wizard finishes. Initializes the pipeline
+        in a background thread so the IPC returns immediately and the
+        webview doesn't block while pipeline init runs (which can take
+        2-3 seconds for OpenAI/Cerebras client construction).
 
-        Runs pipeline init synchronously on the IPC thread instead of
-        spawning a fresh background thread. Pipeline init touches httpx
-        (which previously crashed on a nested worker thread under
-        PyInstaller); doing it inline keeps everything on one thread
-        and works with the main-thread SSL context patch installed in
-        main(). User waits ~1-2 seconds for "Finish Setup" — acceptable.
+        Earlier versions ran this synchronously to dodge an SSL crash
+        from PyInstaller-bundled httpx on Windows worker threads — but
+        that long-blocking IPC then crashed EdgeChromium's GUI thread
+        in C code (different crash, no Python frame in the dump). With
+        the main-thread SSL context monkey-patch from main() in place,
+        background-thread pipeline init is now safe again: every httpx
+        client reuses the pre-built context regardless of which thread
+        constructs it.
         """
         try:
             _mark_setup_complete()
-            _initialize_pipeline()
+            threading.Thread(
+                target=_initialize_pipeline,
+                daemon=True,
+                name="PipelineInit",
+            ).start()
             return {"ok": True, "message": "Setup complete! Waffler is ready."}
         except Exception as e:
             _log_to_file(f"complete_setup error: {e}")

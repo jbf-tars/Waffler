@@ -3176,12 +3176,12 @@ html, body {
   background: #FFFFFF;
   border: 1px solid rgba(200, 162, 86, 0.18);
   border-radius: 18px;
-  padding: 36px 28px;
+  padding: 24px 22px;
   text-align: center;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 18px;
+  gap: 14px;
 }
 .wiz-keycap-combo { display: flex; align-items: center; gap: 12px; }
 .wiz-keycap-large {
@@ -3551,8 +3551,16 @@ html, body {
   display: flex;
   justify-content: space-between;
   margin-top: 18px;
-  padding-top: 14px;
+  padding: 14px 0 4px;
+  /* Stick to the bottom of the scrollable wizard container so the
+     Back/Next buttons are always visible without scrolling. A soft
+     gradient fade behind it prevents content from showing through
+     when the user is mid-scroll. */
+  position: sticky;
+  bottom: -4px;
+  background: linear-gradient(180deg, rgba(251,247,235,0) 0%, #FBF7EB 35%, #FBF7EB 100%);
   border-top: 1px solid rgba(44, 37, 32, 0.08);
+  z-index: 5;
 }
 .wiz-btn-back, .wiz-btn-next {
   padding: 11px 22px;
@@ -4130,14 +4138,14 @@ body[data-theme="dark"] {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
+  gap: 10px;
   background: linear-gradient(180deg, #FFFFFF 0%, #FCF9F0 100%);
   border: 1px solid rgba(200, 162, 86, 0.18);
   border-radius: 14px;
-  padding: 20px 16px;
+  padding: 16px 14px;
   text-align: center;
   transition: all 0.2s ease;
-  min-height: 140px;
+  min-height: 110px;
 }
 .wiz-hotkey-card:hover {
   border-color: rgba(200, 162, 86, 0.45);

@@ -2149,17 +2149,31 @@ async function wizLoadHotkeyInfo() {
 let _currentWizardHotkey = ['fn']; // Track configured hotkey for wizard
 
 function initFnKeyFeedback() {
-  const hotkeyButton = document.getElementById('wizHotkeyBadge');
-  if (!hotkeyButton) return;
+  // Previously had `if (!document.getElementById('wizHotkeyBadge')) return;`
+  // — this early-return broke hotkey detection on Windows after the v3.14.5
+  // wizard redesign, because the new Windows keycap layout uses
+  // `wizHotkeyBadgeWin` for the Win key and no ID at all on the Ctrl
+  // keycap. So `wizHotkeyBadge` (without the Win suffix) didn't exist,
+  // initFnKeyFeedback returned early, startFnKeyPolling never ran, and
+  // get_fn_key_state was never called regardless of what the user
+  // pressed. The wizard's "Listening for hotkey press…" pill sat there
+  // forever even though the Python hook was firing PUSH_TO_TALK on every
+  // press (confirmed via hotkey.log).
+  //
+  // The visual-pressed feedback now targets `#wizHotkeyDisplay
+  // .wiz-keycap-large` (all keycaps inside the combo container), so we
+  // don't need a specific element to anchor on — just always start
+  // polling.
 
   // Get current configured hotkey
   pywebview.api.get_hotkey_config().then(config => {
-    _currentWizardHotkey = config.keys || ['fn'];
+    _currentWizardHotkey = config.keys || (isMacPlatform ? ['fn'] : ['win', 'ctrl']);
   }).catch(() => {
-    _currentWizardHotkey = ['fn']; // Fallback
+    _currentWizardHotkey = isMacPlatform ? ['fn'] : ['win', 'ctrl'];
   });
 
-  // Monitor for ANY modifier combination
+  // Monitor for ANY modifier combination (in-page keydown/keyup helps on
+  // platforms where the OS-level hook isn't fast enough)
   document.addEventListener('keydown', checkHotkeyState);
   document.addEventListener('keyup', checkHotkeyState);
 

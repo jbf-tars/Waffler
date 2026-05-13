@@ -4,6 +4,13 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.10] - 2026-05-13
+
+### Fixed
+- **Post-setup crash, take 3 — different crash, same wizard.** v3.14.9 fixed the SSL access-violation by monkey-patching `httpx.create_ssl_context` and running `_initialize_pipeline()` synchronously on the IPC thread for defence-in-depth. The synchronous version turned out to introduce a DIFFERENT crash: the IPC call blocked for 2-3 seconds while OpenAI/Cerebras clients were constructed, and EdgeChromium WebView2's GUI thread crashed in C code during that block (confirmed via crash dump — no Python frame in the crashed thread, only `evaluate_js` threads stuck on `threading.acquire`). Reverted `complete_setup()` to spawn `_initialize_pipeline()` in a background thread again. The SSL monkey-patch from v3.14.9 keeps that path safe because every httpx client now reuses the same pre-built main-thread SSL context regardless of which thread constructs it. So: SSL crash gone (v3.14.9 fix), WebView2 crash gone (v3.14.10 fix), and the user gets a snappy wizard close instead of a 3-second freeze.
+- **Wizard Step 1 hotkey detection on Windows.** `initFnKeyFeedback()` had `if (!document.getElementById('wizHotkeyBadge')) return;` at the top, left over from the pre-v3.14.5 wizard. After the wizard redesign, the Windows keycaps were renamed (Ctrl has no id, Win is `wizHotkeyBadgeWin`) so `wizHotkeyBadge` no longer existed → early return → `startFnKeyPolling()` never ran → `get_fn_key_state()` was never called even though the Python hook was happily firing PUSH_TO_TALK on every press (visible in `hotkey.log`). Removed the early return; polling now always starts when entering Step 2 of the wizard.
+- **Wizard "Next" button hidden below the fold.** The wizard's Back/Next nav was a normal flow element and got pushed below the viewport on shorter windows. Made it `position: sticky; bottom: -4px;` with a cream gradient fade behind it so it's always pinned visible regardless of scroll position. Also tightened the hotkey-stage padding and instruction-tile heights to reduce total wizard height.
+
 ## [3.14.9] - 2026-05-13
 
 ### Fixed
