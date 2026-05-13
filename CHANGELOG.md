@@ -4,6 +4,11 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.18] - 2026-05-13
+
+### Fixed
+- **Vocabulary / Settings pages had no way back.** The Journal top-nav was nested inside `<main id="mainArea">`. When the user clicked "Vocabulary" or "Settings", `showPage()` hid `mainArea` to reveal the relevant panel — which also hid the navigation, trapping the user on those pages with no way back to Journal. Moved the top-nav out of `mainArea` so it's a sibling of all three panels, persistently visible regardless of which page is active. Restructured `.app` as a column-flex container (top-nav on top, the active panel filling beneath) and overrode the old `height:100vh` on `.settings-panel` / `.vocabulary-panel` so they fill the remaining height instead of overflowing the viewport.
+
 ## [3.14.17] - 2026-05-13
 
 ### Fixed

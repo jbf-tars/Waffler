@@ -49,6 +49,7 @@ html, body {
 /* ── Layout ─────────────────────────────────────────────────── */
 .app {
   display: flex;
+  flex-direction: column;       /* v3.14.18 — top-nav on top, panels below */
   height: 100vh;
   overflow: hidden;
 }
@@ -4534,10 +4535,30 @@ body[data-theme="dark"] {
 .journal {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  /* Fill the remaining height below the persistent top-nav. Was 100vh
+     in v3.14.16-17 when the top-nav was nested INSIDE this container;
+     the nav now lives outside as a sibling, so we just take whatever
+     vertical space is left. min-height:0 lets nested scrollers work. */
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   background: var(--bg-base);
   color: var(--text-primary);
+}
+
+/* Persistent top-nav also needs to NOT shrink, and Settings/Vocabulary
+   panels need to fill remaining height like .journal does. We override
+   their original `height:100vh; max-height:100vh` (which made sense when
+   they were the only flex-row child but causes them to overflow now
+   that a top-nav is above them in a flex-column .app). */
+.app > .j-topnav { flex-shrink: 0; }
+.app > .settings-panel,
+.app > .vocabulary-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto !important;
+  max-height: none !important;
+  overflow-y: auto;
 }
 
 /* ── Top nav ──────────────────────────────────────────────────────── */

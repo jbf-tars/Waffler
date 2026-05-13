@@ -10,51 +10,56 @@
 <div class="app">
 
   <!-- ──────────────────────────────────────────────────────────────
-       JOURNAL LAYOUT (v3.14.16) — replaces the sidebar+main split.
-       Top nav across the whole window, then stat strip with the stack-
-       streak chip on the right, then a serif "journal page" of entries.
-       Settings + Vocabulary still mount their full panels below via
-       showPage() — the top nav drives the same routing the sidebar did.
+       JOURNAL LAYOUT (v3.14.16+) — replaces the sidebar+main split.
+
+       v3.14.18 fix: top nav was previously INSIDE `<main id="mainArea">`,
+       which meant clicking Vocabulary or Settings (which hides mainArea
+       via showPage) also hid the navigation — leaving the user trapped
+       on those pages with no way back to Journal. The nav now lives as
+       a sibling of all three panels so it's always visible regardless
+       of which page is active.
        ────────────────────────────────────────────────────────────── -->
-  <main class="journal" id="mainArea">
 
-    <!-- Top nav -->
-    <div class="j-topnav">
-      <div class="j-brand">
-        <img class="j-brand-icon" src="logo-icon.png" alt="">
-        <span class="j-brand-text">Waffler</span>
-      </div>
-
-      <nav class="j-nav">
-        <div class="j-nav-item j-nav-active" id="navHome" onclick="showPage('home')">Journal</div>
-        <div class="j-nav-item" id="navVocab" onclick="showPage('vocabulary')">Vocabulary</div>
-        <div class="j-nav-item" id="navSettings" onclick="showPage('settings')">Settings</div>
-      </nav>
-
-      <!-- Compact mode selector (replaces sidebar mode dropdown) -->
-      <div class="j-mode-wrap">
-        <select id="modeSelect" class="j-mode-select" onchange="onModeChange(this.value)" title="Style mode">
-          <option value="normal">✨ Normal</option>
-          <option value="email" disabled>Email — coming soon</option>
-          <option value="bullets" disabled>Bullets — coming soon</option>
-        </select>
-      </div>
-
-      <!-- Listening indicator (replaces sidebar hotkey-hint + status pill) -->
-      <div class="j-listen status-indicator idle" id="statusIndicator">
-        <span class="j-listen-dot status-dot"></span>
-        <span class="j-listen-text" id="statusText">Listening for</span>
-        <kbd class="j-kbd" id="hotkeyHint">Fn</kbd>
-      </div>
-
-      <!-- Hidden bits the existing JS code still references -->
-      <span id="hotkeyHintDesc" style="display:none">Hold to record • +Space = sticky mode</span>
-      <div id="sidebarUser" class="j-user" style="display:none">
-        <span class="j-user-email" id="sidebarUserEmail"></span>
-        <button class="j-user-logout" onclick="doSignOut()">Sign out</button>
-      </div>
-      <select id="micSelect" style="display:none" onchange="onMicChange(this.value)"></select>
+  <!-- Top nav — persistent across all pages -->
+  <div class="j-topnav">
+    <div class="j-brand">
+      <img class="j-brand-icon" src="logo-icon.png" alt="">
+      <span class="j-brand-text">Waffler</span>
     </div>
+
+    <nav class="j-nav">
+      <div class="j-nav-item j-nav-active" id="navHome" onclick="showPage('home')">Journal</div>
+      <div class="j-nav-item" id="navVocab" onclick="showPage('vocabulary')">Vocabulary</div>
+      <div class="j-nav-item" id="navSettings" onclick="showPage('settings')">Settings</div>
+    </nav>
+
+    <!-- Compact mode selector (replaces sidebar mode dropdown) -->
+    <div class="j-mode-wrap">
+      <select id="modeSelect" class="j-mode-select" onchange="onModeChange(this.value)" title="Style mode">
+        <option value="normal">✨ Normal</option>
+        <option value="email" disabled>Email — coming soon</option>
+        <option value="bullets" disabled>Bullets — coming soon</option>
+      </select>
+    </div>
+
+    <!-- Listening indicator (replaces sidebar hotkey-hint + status pill) -->
+    <div class="j-listen status-indicator idle" id="statusIndicator">
+      <span class="j-listen-dot status-dot"></span>
+      <span class="j-listen-text" id="statusText">Listening for</span>
+      <kbd class="j-kbd" id="hotkeyHint">Fn</kbd>
+    </div>
+
+    <!-- Hidden bits the existing JS code still references -->
+    <span id="hotkeyHintDesc" style="display:none">Hold to record • +Space = sticky mode</span>
+    <div id="sidebarUser" class="j-user" style="display:none">
+      <span class="j-user-email" id="sidebarUserEmail"></span>
+      <button class="j-user-logout" onclick="doSignOut()">Sign out</button>
+    </div>
+    <select id="micSelect" style="display:none" onchange="onMicChange(this.value)"></select>
+  </div>
+
+  <!-- Home page (journal) -->
+  <main class="journal" id="mainArea">
 
     <!-- Stat strip with stack-streak chip on the right -->
     <div class="j-strip">
