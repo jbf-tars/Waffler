@@ -4,6 +4,12 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.6] - 2026-05-13
+
+### Fixed
+- **Email mode no longer selectable.** The sidebar Mode dropdown still listed Email as a clickable option even after we'd reframed it as "coming soon" on the website. Reverted to one active mode (Normal) plus two disabled "coming soon" placeholders (Email, Bullets). `get_modes()` IPC now returns only the active set, and `get_current_mode()` falls back to "normal" if a previously-persisted Email selection is found, so old installs migrate cleanly.
+- **Fn preset shown on Windows.** The wizard's "Use a different hotkey" config panel rendered the Mac preset list (Fn / Cmd+Shift / Option+Shift) regardless of platform. Windows users could "select" a Fn key that doesn't exist on their hardware. Now `showWizardHotkeyConfig()` renders Mac-only presets on Mac and Windows-only presets (Win+Ctrl / Ctrl+Shift / Ctrl+Alt+Space) on Windows.
+
 ## [3.14.5] - 2026-05-13
 
 ### Fixed

@@ -387,17 +387,26 @@ class Api:
     # ── Mode / Prompt API ─────────────────────────────────────────────
 
     def get_modes(self) -> list:
-        """Return available prompt modes with display names."""
+        """Return available prompt modes with display names.
+
+        Only "Normal" is currently active. Email + Bullets modes are
+        planned but disabled in the UI until the prompt-tuning work is
+        finished — see settings dropdown which shows them as
+        "coming soon" non-clickable options.
+        """
         return [
-            {"id": "normal", "name": "Normal", "desc": "Keeps everything, cleans grammar"},
-            {"id": "email",  "name": "Email",  "desc": "Email body — paragraphed for readability, keeps your greetings/sign-offs as spoken"},
+            {"id": "normal", "name": "Normal", "desc": "Keeps everything, cleans grammar, handles emails, lists, and corrections"},
         ]
 
     def get_current_mode(self) -> str:
-        """Return the currently active prompt mode id."""
-        if _pipeline:
-            return _pipeline.styler.prompt_style
-        return _config.prompt_style if _config else "normal"
+        """Return the currently active prompt mode id, falling back to
+        'normal' if the persisted choice is no longer in the active
+        set (e.g. an old install had 'email' selected before email mode
+        was rolled back to 'coming soon' in v3.14.5)."""
+        valid = {m["id"] for m in self.get_modes()}
+        current = (_pipeline.styler.prompt_style if _pipeline
+                   else (_config.prompt_style if _config else "normal"))
+        return current if current in valid else "normal"
 
     def set_mode(self, mode_id: str) -> dict:
         """Switch to a different prompt mode and persist the choice so it

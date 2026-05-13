@@ -1559,6 +1559,26 @@ function wizBack() {
 // ── Step 2: Hotkey Configuration ─────────────────────────────
 
 function showWizardHotkeyConfig() {
+  // Render presets based on platform — Fn doesn't exist on Windows.
+  const list = document.getElementById('wizHotkeyPresetList');
+  if (list) {
+    const presets = isMacPlatform ? [
+      { keys: ['fn'],               label: 'Fn',             hint: 'Default · works on most MacBooks' },
+      { keys: ['cmd', 'shift'],     label: 'Cmd + Shift',    hint: "If Fn doesn't work" },
+      { keys: ['option', 'shift'],  label: 'Option + Shift', hint: 'Alternative' },
+    ] : [
+      { keys: ['win', 'ctrl'],          label: 'Win + Ctrl',          hint: 'Default · most reliable' },
+      { keys: ['ctrl', 'shift'],        label: 'Ctrl + Shift',        hint: "If Win + Ctrl doesn't work" },
+      { keys: ['ctrl', 'alt', 'space'], label: 'Ctrl + Alt + Space',  hint: 'Three-key combo' },
+    ];
+    list.innerHTML = presets.map((p) => {
+      const keysJson = JSON.stringify(p.keys).replace(/"/g, '&quot;');
+      return `<button class="hotkey-preset-btn" onclick='selectHotkeyPreset(${JSON.stringify(p.keys)})'>` +
+             `<span class="hotkey-preview">${p.label}</span>` +
+             ` <span style="opacity:0.6;font-size:13px">${p.hint}</span>` +
+             `</button>`;
+    }).join('');
+  }
   document.getElementById('wizHotkeyConfigPanel').style.display = 'block';
 }
 
