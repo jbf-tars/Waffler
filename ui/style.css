@@ -4112,3 +4112,132 @@ body[data-theme="dark"] {
   padding: 12px 8px;
   font-style: italic;
 }
+
+/* ── Hotkey instruction cards (clean vertical layout: keys on top, title under) ── */
+.wiz-hotkey-cards {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  width: 100%;
+  max-width: 720px;
+  margin-top: 8px;
+}
+@media (min-width: 720px) {
+  .wiz-hotkey-cards { grid-template-columns: repeat(3, 1fr); }
+}
+.wiz-hotkey-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: linear-gradient(180deg, #FFFFFF 0%, #FCF9F0 100%);
+  border: 1px solid rgba(200, 162, 86, 0.18);
+  border-radius: 14px;
+  padding: 20px 16px;
+  text-align: center;
+  transition: all 0.2s ease;
+  min-height: 140px;
+}
+.wiz-hotkey-card:hover {
+  border-color: rgba(200, 162, 86, 0.45);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 22px rgba(200, 162, 86, 0.12);
+}
+.wiz-hotkey-card-keys {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.wiz-mini-kbd {
+  background: linear-gradient(180deg, #FFFFFF 0%, #F4F2EC 100%);
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.1), 0 3px 6px rgba(0, 0, 0, 0.08);
+  border-radius: 7px;
+  padding: 6px 11px;
+  font-family: -apple-system, "SF Pro Text", sans-serif;
+  font-weight: 700;
+  color: #1A1A1A;
+  font-size: 12.5px;
+  min-width: 36px;
+  text-align: center;
+}
+.wiz-mini-plus {
+  color: #6B6560;
+  font-size: 13px;
+  font-weight: 600;
+}
+.wiz-hotkey-card-title {
+  font-weight: 700;
+  color: #1A1A1A;
+  font-size: 15px;
+  line-height: 1.2;
+}
+.wiz-hotkey-card-sub {
+  color: #6B6560;
+  font-size: 12px;
+  line-height: 1.5;
+  max-width: 22em;
+}
+/* "Release to stop" tile has no keycap chip — the title gets a bit bigger
+   to fill the card. */
+.wiz-hotkey-card-nokey .wiz-hotkey-card-title {
+  font-size: 17px;
+}
+
+/* ── Listening pill flips to "detected" when keys are held ── */
+.wiz-listening.detected {
+  color: #15803d;
+  background: #dcfce7;
+  border-color: #86efac;
+  transition: all 0.3s ease;
+}
+.wiz-listening.detected .wiz-listening-dot {
+  animation: none;
+  background: #15803d;
+}
+.wiz-listening.detected::before { display: none; }
+
+/* ── Keycap "pressed" state during detection (big keycap on Step 2) ── */
+.wiz-keycap-large.pressed {
+  animation: none !important;
+  background: linear-gradient(180deg, #D4B06A 0%, #C8A256 100%);
+  transform: translateY(2px);
+  box-shadow:
+    0 1px 0 0 rgba(0, 0, 0, 0.18),
+    0 2px 6px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+.wiz-keycap-large.pressed .wiz-keycap-label-large,
+.wiz-keycap-large.pressed .wiz-keycap-label {
+  color: #1A1612;
+}
+.wiz-keycap-large.pressed svg path,
+.wiz-keycap-large.pressed svg circle,
+.wiz-keycap-large.pressed svg ellipse,
+.wiz-keycap-large.pressed svg line {
+  stroke: #1A1612;
+  fill: #1A1612;
+}
+
+/* ── "TRY SAYING" label: louder, bolder, more visible ── */
+.wiz-suggest-label {
+  font-size: 11px !important;
+  font-weight: 800 !important;
+  color: #C8A256 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.14em !important;
+  display: inline-block;
+  background: rgba(200, 162, 86, 0.14);
+  padding: 4px 9px;
+  border-radius: 6px;
+  margin-bottom: 8px;
+}
+.wiz-suggest-text {
+  font-weight: 500 !important;
+  font-style: normal !important;
+  color: #1A1A1A !important;
+  font-size: 14.5px !important;
+}

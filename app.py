@@ -1335,11 +1335,20 @@ class Api:
             # Create temporary audio recorder
             _wizard_recorder = AudioRecorder(sample_rate=16000, channels=1)
 
-            # Create overlay for wizard Step 4 visual feedback
-            # Skip overlay creation - causes crashes on first run when called from non-main thread
-            # Overlay isn't critical for wizard functionality
+            # Create overlay for wizard Step 4 visual feedback.
+            # Previously skipped due to threading-crash concerns, but the
+            # overlay launches as a SUBPROCESS so it's GIL-independent.
+            # Wrap in try/except so any spawn failure doesn't take down the
+            # wizard — recording still works, just without the waffle pill.
             _wizard_overlay = None
-            _log_to_file("Wizard overlay skipped (prevents threading crashes)")
+            try:
+                from src.overlay import RecordingOverlay
+                _wizard_overlay = RecordingOverlay()
+                _wizard_overlay.prestart()
+                _log_to_file("Wizard overlay started for Try-It step")
+            except Exception as _e:
+                _log_to_file(f"Wizard overlay init failed (recording still works): {_e}")
+                _wizard_overlay = None
 
             # Create temporary transcriber using already-validated keys
             openai_key = os.getenv("OPENAI_API_KEY", "")

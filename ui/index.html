@@ -510,9 +510,15 @@
         </div>
         <div class="wiz-listening" id="wizHotkeyStatus">
           <span class="wiz-listening-dot"></span>
-          <span>Listening for hotkey press…</span>
+          <span class="wiz-listening-label">Listening for hotkey press…</span>
         </div>
-        <p class="wiz-keycap-tip" id="wizHotkeyDesc">Push the key shown above. Once we register the press, this card will tick green and the Next button will unlock.</p>
+
+        <!-- Slick instruction cards explaining how the hotkey works -->
+        <div class="wiz-hotkey-cards" id="wizHotkeyInstructionCards">
+          <!-- Populated by JS based on platform: tells you to hold the
+               combo, that release stops, and that Space locks recording. -->
+        </div>
+
         <button class="wiz-btn-ghost" onclick="showWizardHotkeyConfig()">Use a different hotkey instead</button>
       </div>
 
@@ -626,24 +632,24 @@
                appears on screen when you hold the hotkey. -->
           <div class="wiz-waffle-explainer">
             <div class="wiz-waffle-preview" aria-hidden="true">
-              <svg viewBox="0 0 64 64" class="wiz-waffle-icon">
+              <svg viewBox="0 0 64 64" class="wiz-waffle-icon" id="wizExplainerWaffle">
                 <rect x="2" y="2" width="60" height="60" rx="10" fill="#C8A256" stroke="#A07A28" stroke-width="2"/>
-                <rect class="wiz-wcell-static" x="9" y="9" width="10" height="10" rx="1.5" fill="#B89040"/>
-                <rect class="wiz-wcell-static" x="22" y="9" width="10" height="10" rx="1.5" fill="#B89040"/>
-                <rect class="wiz-wcell-static" x="35" y="9" width="10" height="10" rx="1.5" fill="#B89040"/>
-                <rect class="wiz-wcell-static" x="48" y="9" width="10" height="10" rx="1.5" fill="#B89040"/>
-                <rect class="wiz-wcell-static" x="9" y="22" width="10" height="10" rx="1.5" fill="#5C2E0E"/>
-                <rect class="wiz-wcell-static" x="22" y="22" width="10" height="10" rx="1.5" fill="#7A3F14"/>
-                <rect class="wiz-wcell-static" x="35" y="22" width="10" height="10" rx="1.5" fill="#5C2E0E"/>
-                <rect class="wiz-wcell-static" x="48" y="22" width="10" height="10" rx="1.5" fill="#B89040"/>
-                <rect class="wiz-wcell-static" x="9" y="35" width="10" height="10" rx="1.5" fill="#7A3F14"/>
-                <rect class="wiz-wcell-static" x="22" y="35" width="10" height="10" rx="1.5" fill="#5C2E0E"/>
-                <rect class="wiz-wcell-static" x="35" y="35" width="10" height="10" rx="1.5" fill="#7A3F14"/>
-                <rect class="wiz-wcell-static" x="48" y="35" width="10" height="10" rx="1.5" fill="#5C2E0E"/>
-                <rect class="wiz-wcell-static" x="9" y="48" width="10" height="10" rx="1.5" fill="#B89040"/>
-                <rect class="wiz-wcell-static" x="22" y="48" width="10" height="10" rx="1.5" fill="#7A3F14"/>
-                <rect class="wiz-wcell-static" x="35" y="48" width="10" height="10" rx="1.5" fill="#B89040"/>
-                <rect class="wiz-wcell-static" x="48" y="48" width="10" height="10" rx="1.5" fill="#B89040"/>
+                <rect class="wiz-wcell-anim" data-row="0" data-col="0" x="9" y="9" width="10" height="10" rx="1.5" fill="#B89040"/>
+                <rect class="wiz-wcell-anim" data-row="0" data-col="1" x="22" y="9" width="10" height="10" rx="1.5" fill="#B89040"/>
+                <rect class="wiz-wcell-anim" data-row="0" data-col="2" x="35" y="9" width="10" height="10" rx="1.5" fill="#B89040"/>
+                <rect class="wiz-wcell-anim" data-row="0" data-col="3" x="48" y="9" width="10" height="10" rx="1.5" fill="#B89040"/>
+                <rect class="wiz-wcell-anim" data-row="1" data-col="0" x="9" y="22" width="10" height="10" rx="1.5" fill="#B89040"/>
+                <rect class="wiz-wcell-anim" data-row="1" data-col="1" x="22" y="22" width="10" height="10" rx="1.5" fill="#B89040"/>
+                <rect class="wiz-wcell-anim" data-row="1" data-col="2" x="35" y="22" width="10" height="10" rx="1.5" fill="#B89040"/>
+                <rect class="wiz-wcell-anim" data-row="1" data-col="3" x="48" y="22" width="10" height="10" rx="1.5" fill="#B89040"/>
+                <rect class="wiz-wcell-anim" data-row="2" data-col="0" x="9" y="35" width="10" height="10" rx="1.5" fill="#B89040"/>
+                <rect class="wiz-wcell-anim" data-row="2" data-col="1" x="22" y="35" width="10" height="10" rx="1.5" fill="#B89040"/>
+                <rect class="wiz-wcell-anim" data-row="2" data-col="2" x="35" y="35" width="10" height="10" rx="1.5" fill="#B89040"/>
+                <rect class="wiz-wcell-anim" data-row="2" data-col="3" x="48" y="35" width="10" height="10" rx="1.5" fill="#B89040"/>
+                <rect class="wiz-wcell-anim" data-row="3" data-col="0" x="9" y="48" width="10" height="10" rx="1.5" fill="#B89040"/>
+                <rect class="wiz-wcell-anim" data-row="3" data-col="1" x="22" y="48" width="10" height="10" rx="1.5" fill="#B89040"/>
+                <rect class="wiz-wcell-anim" data-row="3" data-col="2" x="35" y="48" width="10" height="10" rx="1.5" fill="#B89040"/>
+                <rect class="wiz-wcell-anim" data-row="3" data-col="3" x="48" y="48" width="10" height="10" rx="1.5" fill="#B89040"/>
               </svg>
               <div class="wiz-waffle-pulse"></div>
             </div>

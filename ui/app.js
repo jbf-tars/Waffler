@@ -1531,7 +1531,7 @@ function wizShowStep(step) {
   }
   if (step === 2) { wizUpdateHotkeyBadge(); wizLoadHotkeyInfo(); initFnKeyFeedback(); }
   if (step === 3) { wizInitApiKeyStep(); wizInitProviderTabs(); }
-  if (step === 4) { wizInitTryItStep(); wizUpdateTryItKeycap(); initFnKeyFeedback(); }
+  if (step === 4) { wizInitTryItStep(); wizUpdateTryItKeycap(); initFnKeyFeedback(); wizStartExplainerWaffle(); }
 }
 
 function wizUpdateNextButton() {
@@ -2230,20 +2230,24 @@ function stopFnKeyPolling() {
 function setFnKeyActive(isActive) {
   if (_fnKeyPressed === isActive) return;
   _fnKeyPressed = isActive;
-  const fnButton = document.getElementById('wizHotkeyBadge');
-  if (fnButton) {
-    fnButton.classList.toggle('active', isActive);
-  }
 
-  // On Step 2: Show success feedback and auto-advance when Fn is first pressed
+  // Light up ALL keycaps inside the Step-2 hotkey display, not just one,
+  // so users see clear feedback whichever key they're focused on.
+  document.querySelectorAll('#wizHotkeyDisplay .wiz-keycap-large').forEach((el) => {
+    el.classList.toggle('pressed', isActive);
+  });
+
+  // On Step 2: Flip the listening pill to "Hotkey detected!" and
+  // auto-advance.
   if (_wizardStep === 2 && isActive && !window._fnKeyDetected) {
     window._fnKeyDetected = true;
 
-    // Show success message
-    const desc = document.getElementById('wizHotkeyDesc');
-    if (desc) {
-      desc.innerHTML = '✅ <strong>Hotkey detected!</strong> Advancing to next step...';
-      desc.style.color = '#C8A256';
+    // Flip the listening pill to a green "detected" state
+    const status = document.getElementById('wizHotkeyStatus');
+    if (status) {
+      status.classList.add('detected');
+      const label = status.querySelector('.wiz-listening-label');
+      if (label) label.textContent = '✓ Hotkey detected — advancing…';
     }
 
     // Auto-advance after 1 second
@@ -2562,20 +2566,121 @@ function wizUpdateTryItKeycap() {
     combo.innerHTML = '<span class="wiz-keycap-mini">fn</span>';
     if (kbd) kbd.textContent = 'fn';
   } else {
-    combo.innerHTML = '<span class="wiz-keycap-mini">Win</span><span class="wiz-keycap-plus-mini">+</span><span class="wiz-keycap-mini">Ctrl</span>';
-    if (kbd) kbd.textContent = 'Win+Ctrl';
+    // Ctrl first, then Win — user preference.
+    combo.innerHTML = '<span class="wiz-keycap-mini">Ctrl</span><span class="wiz-keycap-plus-mini">+</span><span class="wiz-keycap-mini">Win</span>';
+    if (kbd) kbd.textContent = 'Ctrl+Win';
   }
 }
 
 // Update the big hotkey badge on Step 2 based on platform.
+// On Windows, Ctrl is displayed first then Win (user preference).
 function wizUpdateHotkeyBadge() {
   const combo = document.getElementById('wizHotkeyDisplay');
   if (!combo) return;
   if (isMacPlatform) {
     combo.innerHTML = '<div class="wiz-keycap-large" id="wizHotkeyBadge"><svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.5" stroke="#1A1A1A" stroke-width="1"/><ellipse cx="8" cy="8" rx="3" ry="6.5" stroke="#1A1A1A" stroke-width="0.8"/><line x1="1.5" y1="5.5" x2="14.5" y2="5.5" stroke="#1A1A1A" stroke-width="0.7"/><line x1="1.5" y1="10.5" x2="14.5" y2="10.5" stroke="#1A1A1A" stroke-width="0.7"/><line x1="8" y1="1.5" x2="8" y2="14.5" stroke="#1A1A1A" stroke-width="0.5"/></svg><span class="wiz-keycap-label-large" style="font-size:14px;margin-top:2px">fn</span></div>';
   } else {
-    combo.innerHTML = '<div class="wiz-keycap-large" id="wizHotkeyBadgeWin"><svg viewBox="0 0 24 24" fill="#1A1A1A"><path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"/></svg></div><span class="wiz-keycap-plus">+</span><div class="wiz-keycap-large"><span class="wiz-keycap-label-large">Ctrl</span></div>';
+    // Ctrl first, then Win — user explicitly asked for this ordering.
+    combo.innerHTML =
+      '<div class="wiz-keycap-large"><span class="wiz-keycap-label-large">Ctrl</span></div>' +
+      '<span class="wiz-keycap-plus">+</span>' +
+      '<div class="wiz-keycap-large" id="wizHotkeyBadgeWin"><svg viewBox="0 0 24 24" fill="#1A1A1A"><path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"/></svg><span class="wiz-keycap-label" style="font-size:11px;margin-top:2px">Win</span></div>';
   }
+  // Render the new branded instruction cards underneath
+  wizRenderHotkeyInstructions();
+}
+
+// Render the three instruction tiles under the listening pill.
+// Vertical layout per tile: keys on top, title underneath. Sticky-mode
+// tile shows Space + the hotkey combo and includes a short description.
+// Release-to-stop has no keycap at all — just the title.
+function wizRenderHotkeyInstructions() {
+  const host = document.getElementById('wizHotkeyInstructionCards');
+  if (!host) return;
+  const k1 = isMacPlatform ? 'fn' : 'Ctrl';
+  const k2 = isMacPlatform ? null  : 'Win';
+  const comboHtml = k2
+    ? `<span class="wiz-mini-kbd">${k1}</span><span class="wiz-mini-plus">+</span><span class="wiz-mini-kbd">${k2}</span>`
+    : `<span class="wiz-mini-kbd">${k1}</span>`;
+  const stickyKeys = k2
+    ? `<span class="wiz-mini-kbd">Space</span><span class="wiz-mini-plus">+</span><span class="wiz-mini-kbd">${k1}</span><span class="wiz-mini-plus">+</span><span class="wiz-mini-kbd">${k2}</span>`
+    : `<span class="wiz-mini-kbd">Space</span><span class="wiz-mini-plus">+</span><span class="wiz-mini-kbd">${k1}</span>`;
+  host.innerHTML = `
+    <div class="wiz-hotkey-card">
+      <div class="wiz-hotkey-card-keys">${comboHtml}</div>
+      <div class="wiz-hotkey-card-title">Hold to record</div>
+    </div>
+    <div class="wiz-hotkey-card wiz-hotkey-card-nokey">
+      <div class="wiz-hotkey-card-title">Release to stop</div>
+    </div>
+    <div class="wiz-hotkey-card">
+      <div class="wiz-hotkey-card-keys">${stickyKeys}</div>
+      <div class="wiz-hotkey-card-title">Sticky mode</div>
+      <div class="wiz-hotkey-card-sub">Press Space to lock recording on. Press the hotkey again to disable.</div>
+    </div>
+  `;
+}
+
+// Animate the Step-4 explainer waffle cells the same way the website
+// homepage waffle animates — speech wave drives row-by-row darkening so
+// users see the cells "listening" before they ever press the hotkey.
+let _wizExplainerWaffleRAF = null;
+function wizStartExplainerWaffle() {
+  const svg = document.getElementById('wizExplainerWaffle');
+  if (!svg) return;
+  const cells = svg.querySelectorAll('.wiz-wcell-anim');
+  if (!cells.length) return;
+
+  const SYRUP_DARK = '#5C2E0E';
+  const SYRUP_LIGHT = '#7A3F14';
+  const LIGHT_GOLD = '#B89040';
+  const cellBars = new Float32Array(16);
+  const cellTargets = new Float32Array(16);
+  const speechWave = [
+    0, 0, 0.1, 0.3, 0.6, 0.8, 0.95, 0.85, 0.7, 0.5, 0.3, 0.1, 0, 0,
+    0.2, 0.5, 0.75, 0.9, 1.0, 0.85, 0.7, 0.8, 0.9, 0.75, 0.5, 0.3, 0.1, 0,
+    0, 0.15, 0.4, 0.65, 0.8, 0.7, 0.55, 0.4, 0.2, 0,
+  ];
+
+  function animate() {
+    const now = performance.now();
+    const progress = (now % 4000) / 4000;
+    const total = speechWave.length;
+    const exactIdx = progress * (total - 1);
+    const idx = Math.floor(exactIdx);
+    const frac = exactIdx - idx;
+    const level = speechWave[idx] * (1 - frac) + (speechWave[Math.min(idx + 1, total - 1)] || 0) * frac;
+    const powLevel = Math.pow(level, 0.4);
+    const t = now / 1000;
+
+    cells.forEach((cell, i) => {
+      const row = parseInt(cell.getAttribute('data-row') || '0', 10);
+      const col = i % 4;
+      const invRow = 3 - row;
+      const threshold = invRow / 4;
+      let cellLevel;
+      if (powLevel <= threshold) cellLevel = 0;
+      else if (powLevel >= threshold + 0.25) cellLevel = 1;
+      else cellLevel = (powLevel - threshold) / 0.25;
+      const phase = i * 0.7 + col * 2.3 + row * 1.8;
+      const bounce1 = Math.sin(phase + t * 4.5) * 0.25;
+      const bounce2 = Math.sin(phase * 1.7 + t * 6.2) * 0.15;
+      const jitter = (Math.random() - 0.5) * 0.2;
+      const wobble = 1.0 + bounce1 + bounce2 + jitter;
+      cellTargets[i] = Math.max(0, Math.min(1, cellLevel * wobble));
+      const diff = cellTargets[i] - cellBars[i];
+      if (Math.abs(diff) > 0.005) cellBars[i] += diff * 0.35;
+      else cellBars[i] = cellTargets[i];
+      const lvl = cellBars[i];
+      if (lvl < 0.05) cell.setAttribute('fill', LIGHT_GOLD);
+      else cell.setAttribute('fill', lvl > 0.6 ? SYRUP_DARK : SYRUP_LIGHT);
+    });
+
+    _wizExplainerWaffleRAF = requestAnimationFrame(animate);
+  }
+
+  if (_wizExplainerWaffleRAF) cancelAnimationFrame(_wizExplainerWaffleRAF);
+  _wizExplainerWaffleRAF = requestAnimationFrame(animate);
 }
 
 async function wizCompleteSetup() {

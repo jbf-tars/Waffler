@@ -4,6 +4,18 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.8] - 2026-05-13
+
+### Fixed
+- **Waffle overlay finally appears during the wizard Try-It step.** The `wizard_start_hotkey_test()` path was explicitly setting `_wizard_overlay = None` with a comment about "preventing threading crashes" from an older codebase. The overlay actually runs as a separate subprocess (GIL-independent), so this defensive skip wasn't needed any more. Now it instantiates `RecordingOverlay()` and calls `prestart()` inside a try/except — if the spawn fails for any reason, recording still works but without the pill, so the wizard can't be bricked by an overlay glitch. This was the long-standing "overlay doesn't appear in Step 3" complaint.
+
+### Changed
+- **Step 1 hotkey instructions redesigned as three clean tiles.** Replaced the prose paragraph under the listening pill with three centred tiles: `Hold to record` (keys on top, title under, no description), `Release to stop` (no keycap chip at all, just the title centred and slightly larger), and `Sticky mode` (Space + hotkey on top, title, short caption: "Press Space to lock recording. Press the hotkey again to disable.").
+- **Hotkey order swapped to `Ctrl + Win`** in the wizard (Windows) on Step 1, Step 4 try-it badge, and the mock chat placeholder — user preference.
+- **Listening pill flips green** when keys are pressed (was previously only the body text changing). Keycaps also depress visually.
+- **"TRY SAYING" label** in the Try-It step is now a bold gold-tinted pill with letter-spacing instead of small italic text.
+- **The waffle in the Try-It explainer animates** with the same speech-wave cell-darkening as the homepage instead of being a static pattern.
+
 ## [3.14.7] - 2026-05-13
 
 ### Fixed
