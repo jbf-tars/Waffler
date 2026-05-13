@@ -4,6 +4,11 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.17] - 2026-05-13
+
+### Fixed
+- **Journal page entries didn't fill the window.** The Journal layout shipped in v3.14.16 had `max-width: 760px; margin: 0 auto` on the entry container, so the white cards looked orphaned in the middle of a wider window while the top-nav and stat strip stretched edge-to-edge. Removed the constraint on the page container — entries now stretch flush with the strip above. Body text inside each card is still capped at `75ch` (≈ classic reading width) so long paragraphs don't sprawl across an ultrawide monitor, but the card itself fills the available width.
+
 ## [3.14.16] - 2026-05-13
 
 ### Changed

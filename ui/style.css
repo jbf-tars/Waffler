@@ -4772,9 +4772,15 @@ body[data-theme="cream"] .j-search-input, body:not([data-theme]) .j-search-input
 
 /* ── Page ─────────────────────────────────────────────────────────── */
 .j-page {
+  /* Fill the available window width so the entries line up flush with
+     the top-nav + stat-strip above (which already stretch edge-to-edge).
+     v3.14.17 fix: previously had max-width: 760px which made the cards
+     look orphaned in a wider window.
+
+     We DO cap the body-text reading width inside each card via
+     `.j-page .card-text` further down so long paragraphs don't run
+     across an ultrawide monitor. */
   padding: 28px 28px 48px;
-  max-width: 760px;
-  margin: 0 auto;
   width: 100%;
   flex: 1 1 auto;
 }
@@ -4883,6 +4889,10 @@ body:not([data-theme]) .j-page .card-words {
   white-space: pre-wrap;
   word-wrap: break-word;
   user-select: text;
+  /* Keep paragraphs at a comfortable reading width even when the card
+     is full-width (e.g. on an ultrawide window). 75ch ≈ 65–80 chars,
+     the classic body-text sweet spot. */
+  max-width: 75ch;
 }
 
 .j-page .card-actions {
