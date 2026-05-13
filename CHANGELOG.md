@@ -4,6 +4,14 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.7] - 2026-05-13
+
+### Fixed
+- **Auto-updater stuck at 0% on every platform (real root cause, finally).** Traced the bug by writing a standalone test script and running the updater module directly: `start_download()` was self-deadlocking on `_state_lock`. The function acquires the lock with `with _state_lock:` and then, while holding it, calls `_reset_state()` which *also* does `with _state_lock:`. `threading.Lock` is not reentrant, so the second acquire blocks forever on the same thread. The worker thread spawn at the end of `start_download()` was never reached, the request was never made, and `get_progress()` returned `total_bytes=0, downloaded=0` indefinitely — which the UI rendered as "0%". This has been the cause of every "stuck at 0%" report since v3.13.0. Both the `curl`-on-Mac path (v3.14.3) and the `requests`-on-Windows path (original) worked perfectly when invoked directly; they just never ran. Fixed by switching `_state_lock` to `threading.RLock` (reentrant). Verified end-to-end: 32 MB v3.14.6 installer downloads in ~2.5 seconds on Windows.
+
+### Added
+- **Usage section breakdown by provider.** Settings → Usage now shows four time buckets (Today / This Week / This Month / All Time) instead of just two, and a per-provider breakdown card listing Groq / Cerebras / OpenAI side-by-side with their accent colour, count of API calls, total cost, and a horizontal bar showing each one's share of overall spend. New `by_provider` field in `get_usage_stats()` aggregates the existing per-entry `provider` field that was already being recorded on every call but never surfaced anywhere.
+
 ## [3.14.6] - 2026-05-13
 
 ### Fixed

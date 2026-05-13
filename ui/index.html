@@ -252,7 +252,17 @@
       <!-- Usage Section -->
       <div class="settings-section">
         <div class="settings-section-title">📊 Usage</div>
-        <div class="usage-stats-grid">
+
+        <!-- Time-bucketed totals -->
+        <div class="usage-stats-grid usage-stats-grid-time">
+          <div class="usage-stat-card">
+            <div class="usage-stat-label">Today</div>
+            <div class="usage-stat-value" id="usageTodayCost">$0.00</div>
+          </div>
+          <div class="usage-stat-card">
+            <div class="usage-stat-label">This Week</div>
+            <div class="usage-stat-value" id="usageWeekCost">$0.00</div>
+          </div>
           <div class="usage-stat-card">
             <div class="usage-stat-label">This Month</div>
             <div class="usage-stat-value" id="usageMonthCost">$0.00</div>
@@ -261,13 +271,25 @@
             <div class="usage-stat-label">All Time</div>
             <div class="usage-stat-value" id="usageTotalCost">$0.00</div>
           </div>
-          <div class="usage-stat-card">
+        </div>
+
+        <!-- Activity totals -->
+        <div class="usage-stats-grid usage-stats-grid-activity" style="margin-top:10px">
+          <div class="usage-stat-card usage-stat-card-secondary">
             <div class="usage-stat-label">Transcriptions</div>
-            <div class="usage-stat-value" id="usageTranscriptions">0</div>
+            <div class="usage-stat-value usage-stat-value-sm" id="usageTranscriptions">0</div>
           </div>
-          <div class="usage-stat-card">
+          <div class="usage-stat-card usage-stat-card-secondary">
             <div class="usage-stat-label">Avg Cost</div>
-            <div class="usage-stat-value" id="usageAvgCost">$0.00</div>
+            <div class="usage-stat-value usage-stat-value-sm" id="usageAvgCost">$0.00</div>
+          </div>
+        </div>
+
+        <!-- Per-provider breakdown -->
+        <div class="usage-provider-block" style="margin-top:14px">
+          <div class="usage-provider-title">By provider <span class="usage-provider-hint">all time</span></div>
+          <div class="usage-provider-rows" id="usageProviderRows">
+            <div class="usage-provider-empty">No usage yet. Make your first dictation to see the breakdown.</div>
           </div>
         </div>
       </div>

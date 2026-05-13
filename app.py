@@ -1468,49 +1468,91 @@ class Api:
 
     # ── Usage Tracking API ─────────────────────────────────────────────────
     def get_usage_stats(self) -> dict:
-        """Return usage statistics for display in Settings."""
+        """Return usage statistics for display in Settings.
+
+        Now includes today / this-week / this-month buckets and a
+        per-provider breakdown (Groq · Cerebras · OpenAI) so the
+        Usage card in Settings can show where the money is going.
+        """
         usage = load_usage()
-        
-        # Get current month for "this month" calculation
+
         now = datetime.now()
+        today_iso = now.strftime("%Y-%m-%d")
         current_month = now.strftime("%Y-%m")
-        
-        # Calculate totals
+        # ISO week start (Monday)
+        from datetime import timedelta as _td
+        week_start = (now - _td(days=now.weekday())).strftime("%Y-%m-%d")
+
+        # Aggregates
         total_cost = 0.0
         month_cost = 0.0
+        week_cost = 0.0
+        today_cost = 0.0
         whisper_count = 0
         gpt_count = 0
         total_duration = 0.0
         total_input_tokens = 0
         total_output_tokens = 0
-        
+
+        # Per-provider buckets: { provider: { cost, count, type counts } }
+        by_provider: dict = {}
+
         for entry in usage:
-            total_cost += entry.get("cost_usd", 0)
-            if entry.get("type") == "whisper":
+            cost = entry.get("cost_usd", 0)
+            total_cost += cost
+            etype = entry.get("type")
+            provider = (entry.get("provider") or "unknown").lower()
+
+            if etype == "whisper":
                 whisper_count += 1
                 total_duration += entry.get("duration_seconds", 0)
-            elif entry.get("type") == "gpt":
+            elif etype == "gpt":
                 gpt_count += 1
                 total_input_tokens += entry.get("input_tokens", 0)
                 total_output_tokens += entry.get("output_tokens", 0)
-            
-            # Check if this month
+
+            # Bucket by date
             ts = entry.get("timestamp", "")
             if ts.startswith(current_month):
-                month_cost += entry.get("cost_usd", 0)
-        
+                month_cost += cost
+            if ts[:10] >= week_start:
+                week_cost += cost
+            if ts.startswith(today_iso):
+                today_cost += cost
+
+            # Per-provider running totals
+            bucket = by_provider.setdefault(provider, {
+                "cost_usd": 0.0,
+                "count": 0,
+                "whisper_count": 0,
+                "gpt_count": 0,
+            })
+            bucket["cost_usd"] += cost
+            bucket["count"] += 1
+            if etype == "whisper":
+                bucket["whisper_count"] += 1
+            elif etype == "gpt":
+                bucket["gpt_count"] += 1
+
+        # Round per-provider costs for clean display
+        for p, b in by_provider.items():
+            b["cost_usd"] = round(b["cost_usd"], 6)
+
         transcription_count = whisper_count
         avg_cost = total_cost / transcription_count if transcription_count > 0 else 0
-        
+
         return {
             "total_cost_usd": round(total_cost, 4),
             "month_cost_usd": round(month_cost, 4),
+            "week_cost_usd": round(week_cost, 4),
+            "today_cost_usd": round(today_cost, 4),
             "transcription_count": transcription_count,
             "gpt_count": gpt_count,
             "total_duration_seconds": round(total_duration, 2),
             "total_input_tokens": total_input_tokens,
             "total_output_tokens": total_output_tokens,
             "avg_cost_per_transcription": round(avg_cost, 4),
+            "by_provider": by_provider,
         }
 
     def reset_usage(self) -> dict:

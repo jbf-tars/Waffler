@@ -4007,3 +4007,108 @@ body[data-theme="dark"] {
   font-size: 12.5px;
   line-height: 1.5;
 }
+
+/* ── Usage section: per-provider breakdown (v3.14.7) ──────────────── */
+.usage-stats-grid-time {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+.usage-stats-grid-activity {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+@media (max-width: 720px) {
+  .usage-stats-grid-time { grid-template-columns: repeat(2, 1fr); }
+}
+.usage-stat-card-secondary {
+  background: rgba(200, 162, 86, 0.06);
+}
+.usage-stat-value-sm {
+  font-size: 18px;
+}
+
+.usage-provider-block {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+}
+.usage-provider-title {
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--text-primary);
+  margin-bottom: 10px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.usage-provider-hint {
+  font-weight: 500;
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.usage-provider-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.usage-provider-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.usage-provider-row-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  flex-wrap: wrap;
+}
+.usage-provider-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.usage-provider-name {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.usage-provider-desc {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-family: "SF Mono", Menlo, monospace;
+}
+.usage-provider-cost {
+  margin-left: auto;
+  font-weight: 700;
+  color: var(--accent-text);
+  font-family: "SF Mono", Menlo, monospace;
+}
+.usage-provider-count {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.usage-provider-bar {
+  width: 100%;
+  height: 4px;
+  background: rgba(44, 37, 32, 0.08);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.usage-provider-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.4s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+.usage-provider-empty {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 12px 8px;
+  font-style: italic;
+}

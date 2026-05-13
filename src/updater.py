@@ -29,7 +29,12 @@ _STALL_TIMEOUT_S = 45
 _USER_AGENT = "Waffler-Updater/1.0 (+https://github.com/jbf-tars/waffler)"
 
 # Module-level state — one download at a time is all this app needs.
-_state_lock = threading.Lock()
+# Must be RLock so start_download() can call _reset_state() from inside
+# its own `with _state_lock:` block. A plain Lock self-deadlocks here,
+# which is the long-standing "stuck at 0%" bug users have been hitting
+# since v3.13.0 — the worker thread never started because the main
+# thread was deadlocked acquiring the same lock twice.
+_state_lock = threading.RLock()
 _state = {
     "active": False,
     "bytes_downloaded": 0,

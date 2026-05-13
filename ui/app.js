@@ -2681,14 +2681,69 @@ loadSettings = async function() {
 };
 
 // ── Usage Stats ───────────────────────────────────────────────────────────
+// Provider display metadata — gold dot per provider for the breakdown rows.
+const PROVIDER_META = {
+  groq:     { name: 'Groq',     accent: '#f55036', desc: 'Llama 3.3 70B' },
+  cerebras: { name: 'Cerebras', accent: '#C8A256', desc: 'Qwen-3 235B' },
+  openai:   { name: 'OpenAI',   accent: '#10a37f', desc: 'gpt-4.1-mini' },
+  local:    { name: 'Local',    accent: '#6B6560', desc: 'On-device' },
+  unknown:  { name: 'Unknown',  accent: '#A09890', desc: '' },
+};
+
+function _fmtUsd(n, digits = 2) {
+  return '$' + (Number(n) || 0).toFixed(digits);
+}
+
 async function loadUsageStats() {
   try {
     const stats = await pywebview.api.get_usage_stats();
 
-    document.getElementById('usageMonthCost').textContent = '$' + (stats.month_cost_usd || 0).toFixed(2);
-    document.getElementById('usageTotalCost').textContent = '$' + (stats.total_cost_usd || 0).toFixed(2);
+    // Time buckets
+    const today = document.getElementById('usageTodayCost');
+    const week  = document.getElementById('usageWeekCost');
+    const month = document.getElementById('usageMonthCost');
+    const total = document.getElementById('usageTotalCost');
+    if (today) today.textContent = _fmtUsd(stats.today_cost_usd);
+    if (week)  week.textContent  = _fmtUsd(stats.week_cost_usd);
+    if (month) month.textContent = _fmtUsd(stats.month_cost_usd);
+    if (total) total.textContent = _fmtUsd(stats.total_cost_usd);
+
+    // Activity totals
     document.getElementById('usageTranscriptions').textContent = stats.transcription_count || 0;
-    document.getElementById('usageAvgCost').textContent = '$' + (stats.avg_cost_per_transcription || 0).toFixed(3);
+    document.getElementById('usageAvgCost').textContent = _fmtUsd(stats.avg_cost_per_transcription, 3);
+
+    // Per-provider breakdown
+    const rows = document.getElementById('usageProviderRows');
+    if (rows) {
+      const byProv = stats.by_provider || {};
+      // Order: groq, cerebras, openai, anything else
+      const order = ['groq', 'cerebras', 'openai'];
+      const sorted = order.filter((p) => byProv[p])
+        .concat(Object.keys(byProv).filter((p) => !order.includes(p)));
+
+      if (!sorted.length) {
+        rows.innerHTML = '<div class="usage-provider-empty">No usage yet. Make your first dictation to see the breakdown.</div>';
+      } else {
+        const totalAll = sorted.reduce((s, p) => s + (byProv[p].cost_usd || 0), 0) || 1;
+        rows.innerHTML = sorted.map((p) => {
+          const b = byProv[p];
+          const meta = PROVIDER_META[p] || PROVIDER_META.unknown;
+          const pct = ((b.cost_usd / totalAll) * 100).toFixed(1);
+          return `
+            <div class="usage-provider-row">
+              <div class="usage-provider-row-head">
+                <span class="usage-provider-dot" style="background:${meta.accent}"></span>
+                <span class="usage-provider-name">${meta.name}</span>
+                ${meta.desc ? `<span class="usage-provider-desc">${meta.desc}</span>` : ''}
+                <span class="usage-provider-cost">${_fmtUsd(b.cost_usd, 4)}</span>
+                <span class="usage-provider-count">${b.count} call${b.count === 1 ? '' : 's'}</span>
+              </div>
+              <div class="usage-provider-bar"><div class="usage-provider-bar-fill" style="width:${pct}%;background:${meta.accent}"></div></div>
+            </div>
+          `;
+        }).join('');
+      }
+    }
   } catch(e) {
     console.warn('loadUsageStats error:', e);
   }
