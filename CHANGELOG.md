@@ -4,6 +4,11 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.20] - 2026-05-13
+
+### Fixed
+- **"Waffler" brand wordmark and journal body text didn't match the website's typography.** The cream-theme CSS referenced Source Serif 4 (via `--serif`) for the brand wordmark, journal entry body text, and date dividers — but the font file wasn't actually loaded anywhere in the app, so the cascade silently fell through to Georgia. The result: subtle but visible "off-brand" feel compared to wafflerai.com. Added a Google Fonts `@import` at the top of `ui/style.css` that loads both **Source Serif 4** (serif) and **Inter** (UI sans) in the same weights the website uses. If the app is offline the cascade still falls back to Georgia / system fonts cleanly — but since the app needs internet for API calls anyway, the fonts will be there whenever the app is functional.
+
 ## [3.14.19] - 2026-05-13
 
 ### Fixed

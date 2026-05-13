@@ -1,5 +1,19 @@
 /* Waffler — Premium Dark UI */
 
+/* v3.14.20 — load Source Serif 4 (serif body / brand wordmark) and
+   Inter (UI sans) from Google Fonts so the in-app typography matches
+   the website exactly. Previously --serif resolved to Source Serif 4,
+   but the font wasn't loaded so it fell back to Georgia — the "Waffler"
+   wordmark and journal-entry body looked subtly different from the
+   website's. Importing via the CDN keeps the bundle small; if the
+   user is offline, the cascade falls through to Georgia / system
+   serif which is still a respectable fallback.
+
+   Note: pywebview's WebView2 / WKWebView resolve @import normally as
+   long as the app has internet — which it needs for API calls anyway,
+   so there's no scenario where fonts fail to load but the app works. */
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Source+Serif+4:opsz,wght@8..60,400;500;600;700;800&display=swap");
+
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
