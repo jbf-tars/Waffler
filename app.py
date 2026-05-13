@@ -446,9 +446,18 @@ class Api:
         try:
             # Check wizard Step 2 monitor first (used during setup)
             if _wizard_step2_monitor:
+                # On Windows, the wizard step-2 monitor IS a
+                # WindowsHotkeyListener which exposes is_combo_active
+                # directly as a property — there is no inner ._monitor.
+                # Previous code only looked for ._monitor._fn_pressed and
+                # always returned False on Windows, so the wizard's
+                # "press your hotkey" step could never auto-advance.
+                if hasattr(_wizard_step2_monitor, 'is_combo_active'):
+                    is_pressed = bool(_wizard_step2_monitor.is_combo_active)
+                    return {"ok": True, "pressed": is_pressed}
+                # macOS: SmartHotkeyListener wraps an inner monitor.
                 monitor = getattr(_wizard_step2_monitor, '_monitor', None)
                 if monitor:
-                    # FnKeyMonitor uses _fn_pressed, MacHotkeyMonitor uses _hotkey_active
                     is_pressed = getattr(monitor, '_fn_pressed', None)
                     if is_pressed is None:
                         is_pressed = getattr(monitor, '_hotkey_active', False)
@@ -2725,6 +2734,21 @@ def main():
     # Load config (reads .env from project root via dotenv)
     os.chdir(PROJECT_ROOT)  # so config.yaml and .env are found
     _log_to_file(f"=== Waffler starting === (PROJECT_ROOT={PROJECT_ROOT})")
+
+    # Pre-warm Python's SSL stack on the MAIN thread to prevent a
+    # PyInstaller-related crash on Windows where the OpenAI / httpx
+    # client's first ssl.create_default_context() call from a worker
+    # thread can segfault the entire process. Doing it once here from
+    # the main thread caches the context internally so subsequent
+    # background-thread calls are safe.
+    # Symptom this fixes: first dictation after completing setup
+    # crashes the app; user has to relaunch.
+    try:
+        import ssl
+        ssl.create_default_context()
+        _log_to_file("SSL stack pre-warmed on main thread")
+    except Exception as _e:
+        _log_to_file(f"SSL pre-warm failed (continuing): {_e}")
 
     try:
         config = Config()

@@ -3948,3 +3948,62 @@ body[data-theme="dark"] {
   z-index: -1;
 }
 .wizard-container { position: relative; }
+
+/* ── Waffle overlay explainer in Try-It step (v3.14.4) ──────────────── */
+.wiz-waffle-explainer {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: linear-gradient(135deg, rgba(200, 162, 86, 0.1) 0%, rgba(200, 162, 86, 0.04) 100%);
+  border: 1px solid rgba(200, 162, 86, 0.25);
+  border-radius: 12px;
+  padding: 14px;
+  margin-top: 4px;
+}
+.wiz-waffle-preview {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  flex-shrink: 0;
+}
+.wiz-waffle-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+  position: relative;
+  z-index: 2;
+  animation: wiz-waffle-bob 2.4s ease-in-out infinite;
+  filter: drop-shadow(0 4px 12px rgba(200, 162, 86, 0.3));
+}
+@keyframes wiz-waffle-bob {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-3px); }
+}
+.wiz-waffle-pulse {
+  position: absolute;
+  inset: -4px;
+  border-radius: 16px;
+  border: 2px solid rgba(200, 162, 86, 0.4);
+  animation: wiz-waffle-ring 2s ease-out infinite;
+  pointer-events: none;
+}
+@keyframes wiz-waffle-ring {
+  0%   { transform: scale(0.9); opacity: 0.8; }
+  100% { transform: scale(1.35); opacity: 0; }
+}
+.wiz-waffle-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.wiz-waffle-title {
+  font-weight: 700;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+.wiz-waffle-detail {
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  line-height: 1.5;
+}

@@ -4,6 +4,15 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.5] - 2026-05-13
+
+### Fixed
+- **Wizard hotkey step never auto-advanced on Windows.** `get_fn_key_state()` was looking for `_wizard_step2_monitor._monitor._fn_pressed`, but on Windows the wizard monitor *is* a `WindowsHotkeyListener` which exposes `is_combo_active` as a property directly — there's no inner `_monitor` wrapper. So on Windows every poll returned `pressed=False` no matter what the user pressed, and the "press your hotkey" step could only progress if the user noticed the Next button was already enabled (the manual `case 2: btn.disabled = false` override). Now uses `is_combo_active` on Windows, falls back to the inner-monitor lookup on macOS. The step now visibly registers the press and auto-advances after 1s.
+- **App crashed on the very first dictation after finishing setup.** The OpenAI Python client (via httpx) calls `ssl.create_default_context()` the first time it constructs a client. When that first call happens on a background thread in a PyInstaller-bundled app on Windows, it can segfault the whole process — and the pipeline is initialized from `_initialize_pipeline()` running in a thread spawned by `complete_setup()`. Fixed by pre-warming the SSL stack with a no-op `ssl.create_default_context()` on the main thread at app startup, before any worker threads exist.
+
+### Added
+- **Waffle overlay explainer in the Try-It step.** The floating waffle pill that appears on screen during dictation was previously a mystery to first-time users — they'd press the hotkey, see a small gold square pop up somewhere, and not know what it was. The Try-It step now includes a labelled preview: a bobbing waffle with a pulse ring and a short caption ("A floating pill shows on screen while you're recording. The squares darken with the volume of your voice…"). Sits below the "Waiting for you to dictate" status so it's visible before they press the hotkey.
+
 ## [3.14.4] - 2026-05-13
 
 ### Fixed
