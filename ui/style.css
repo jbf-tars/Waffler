@@ -4601,6 +4601,79 @@ body[data-theme="dark"] {
   fill: #1A1612;
 }
 
+/* ── "Fn not registering?" help card (v3.14.26) ──
+   Fades in below the listening pill in wizard step 2 after ~6 seconds
+   if no Fn key press has registered. Explains the macOS Globe-key
+   override that often blocks Fn on Mac Mini / Magic Keyboard setups. */
+.wiz-fn-help {
+  margin-top: 12px;
+  max-width: 600px;
+  align-self: center;
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.08) 0%, rgba(200, 162, 86, 0.05) 100%);
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  border-radius: 14px;
+  padding: 16px 20px;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 0.4s ease, transform 0.4s ease;
+}
+.wiz-fn-help-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+.wiz-fn-help-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.wiz-fn-help-icon { font-size: 20px; line-height: 1; }
+.wiz-fn-help-head h4 {
+  font-size: 15px;
+  font-weight: 700;
+  color: #1A1612;
+  margin: 0;
+}
+.wiz-fn-help-body {
+  font-size: 13px;
+  line-height: 1.5;
+  color: #4a3a1a;
+  margin: 0 0 10px;
+}
+.wiz-fn-help-list {
+  margin: 0;
+  padding-left: 22px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #4a3a1a;
+}
+.wiz-fn-help-list li {
+  margin-bottom: 10px;
+}
+.wiz-fn-help-list li:last-child { margin-bottom: 0; }
+.wiz-fn-help-list strong {
+  color: #1A1612;
+  font-weight: 600;
+}
+.wiz-fn-help-link {
+  display: inline-block;
+  background: rgba(200, 162, 86, 0.15);
+  border: 1px solid rgba(200, 162, 86, 0.4);
+  color: #8a6a26;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  margin-left: 6px;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.wiz-fn-help-link:hover {
+  background: rgba(200, 162, 86, 0.25);
+  border-color: rgba(200, 162, 86, 0.6);
+}
+
 /* ── "TRY SAYING" label: bigger CTA-style chip (v3.14.25) ── */
 .wiz-suggest-label {
   font-size: 14px !important;

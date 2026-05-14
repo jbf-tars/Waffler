@@ -2185,6 +2185,56 @@ async function wizLoadHotkeyInfo() {
 
 let _currentWizardHotkey = ['fn']; // Track configured hotkey for wizard
 
+// v3.14.26 — "Fn not registering?" help card.
+//
+// Shows up after ~6 seconds in wizard step 2 if the user is on macOS,
+// the configured hotkey is Fn, and no detection has fired yet. Common
+// trigger: Mac Mini setups with Magic Keyboards where macOS's "Press
+// 🌐 key to:" setting intercepts the Fn key before our event tap sees
+// it. The help card explains the fix (System Settings → Keyboard →
+// Modifier Keys → "Do Nothing") and offers an alternative-hotkey path.
+let _wizFnHelpTimer = null;
+
+function wizMaybeShowFnHelpTimer() {
+  // Only relevant on Mac when the configured hotkey is Fn.
+  if (!isMacPlatform) return;
+  const keys = _currentWizardHotkey || ['fn'];
+  if (!Array.isArray(keys) || keys.join(',').toLowerCase() !== 'fn') return;
+
+  wizClearFnHelpTimer();
+  _wizFnHelpTimer = setTimeout(() => {
+    // Don't show if the user has already pressed the key successfully.
+    if (window._fnKeyDetected) return;
+    const help = document.getElementById('wizFnHelp');
+    if (help) {
+      help.style.display = 'block';
+      // Trigger fade-in animation
+      requestAnimationFrame(() => help.classList.add('wiz-fn-help-visible'));
+    }
+  }, 6000);
+}
+
+function wizClearFnHelpTimer() {
+  if (_wizFnHelpTimer) {
+    clearTimeout(_wizFnHelpTimer);
+    _wizFnHelpTimer = null;
+  }
+  const help = document.getElementById('wizFnHelp');
+  if (help) {
+    help.classList.remove('wiz-fn-help-visible');
+    help.style.display = 'none';
+  }
+}
+
+// Open macOS Keyboard settings directly — surfaces the panel that
+// contains "Modifier Keys → Press 🌐 key to:" without making the user
+// hunt for it.
+function wizOpenKeyboardSettings() {
+  if (window.pywebview?.api?.open_url) {
+    pywebview.api.open_url('x-apple.systempreferences:com.apple.preference.keyboard');
+  }
+}
+
 function initFnKeyFeedback() {
   // Previously had `if (!document.getElementById('wizHotkeyBadge')) return;`
   // — this early-return broke hotkey detection on Windows after the v3.14.5
@@ -2215,6 +2265,10 @@ function initFnKeyFeedback() {
   document.addEventListener('keyup', checkHotkeyState);
 
   startFnKeyPolling();
+
+  // Start the "Fn not registering?" help timer. Hides automatically the
+  // moment a real key press is detected (see setFnKeyActive).
+  wizMaybeShowFnHelpTimer();
 }
 
 function checkHotkeyState(event) {
@@ -2292,6 +2346,8 @@ function setFnKeyActive(isActive) {
   // auto-advance.
   if (_wizardStep === 2 && isActive && !window._fnKeyDetected) {
     window._fnKeyDetected = true;
+    // Hide the "Fn not registering?" help card — the key clearly works.
+    wizClearFnHelpTimer();
 
     // Flip the listening pill to a green "detected" state
     const status = document.getElementById('wizHotkeyStatus');

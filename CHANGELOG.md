@@ -4,6 +4,17 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.26] - 2026-05-14
+
+### Fixed
+- **Fn key not detected on Mac Mini / Magic Keyboard setups.** Reported: "the Fn key won't work on my Mac Mini". Root cause is one of two things, both common on Mac Mini hardware:
+  1. **macOS "Press 🌐 key to:" override.** System Settings → Keyboard → Modifier Keys lets you remap the Fn / Globe key to actions like "Change Input Source" or "Show Emoji & Symbols". When this is set to anything other than "Do Nothing", macOS intercepts the Fn key at a system level *before* our CGEventTap sees it — the `kCGEventFlagMaskSecondaryFn` flag never fires.
+  2. **External Apple keyboards that send Fn as a raw keycode** (kVK_Function = 63) instead of a modifier flag. This used to surface as F13/F14/F15 (105/107/113) on older external keyboards, but on Magic Keyboard for Mac Mini it can be raw keycode 63 with no flag accompaniment.
+
+  Two-part fix:
+  - **Python `FnHandler` now catches keycode 63** in addition to the existing F13–F15 / F16 (`_EXT_FN_KEYCODES = {63, 105, 106, 107, 113}`). Fires the same press/release callbacks and suppresses the key event so the emoji picker / globe-key shortcut doesn't fire alongside.
+  - **Wizard "Fn not registering?" help card** — fades in below the listening pill in step 2 after ~6 seconds if no key press has registered AND the configured hotkey is Fn AND the user is on macOS. Explains the Globe-key override issue plainly and offers two one-click actions: (a) "Open Keyboard settings →" which deep-links to `x-apple.systempreferences:com.apple.preference.keyboard`, or (b) "Choose a different hotkey →" which opens the existing alternative-hotkey picker. Hides automatically the moment a real Fn press is detected.
+
 ## [3.14.25] - 2026-05-14
 
 ### Changed
