@@ -998,24 +998,16 @@ async function onModeChange(modeId) {
 
 // ── Custom Vocabulary ─────────────────────────────────────────────────
 
-async function loadVocab() {
-  const ta = document.getElementById('vocabInput');
-  if (!ta) return;
-  try {
-    const words = await pywebview.api.get_vocab();
-    ta.value = (words || []).join('\n');
-  } catch(e) { console.warn('loadVocab error:', e); }
-}
-
-async function onVocabSave() {
-  const ta = document.getElementById('vocabInput');
-  if (!ta) return;
-  const words = ta.value.split('\n').map(w => w.trim()).filter(Boolean);
-  try {
-    await pywebview.api.set_vocab(words);
-    showToast(`📖 Vocabulary saved (${words.length} words)`, 'success');
-  } catch(e) { console.warn('onVocabSave error:', e); }
-}
+// v3.14.23 — legacy loadVocab() / onVocabSave() removed.
+// They were leftovers from an older vocabulary UI where #vocabInput
+// was a multi-line <textarea> the user could edit directly. The current
+// UI is a single-line "Add word" input + a separate list with delete
+// buttons, all driven by loadVocabPage() / addVocabWord() / deleteVocabWord().
+// The old loadVocab() ran on pywebviewready and dumped every existing
+// vocab word joined by '\n' into #vocabInput — so the "Add word" box
+// showed up pre-filled with "WafflerAshkanGroqMLXkubernetes..." (all
+// the words concatenated, because newlines collapse in a text input).
+// Removing it leaves the input clean on every app load.
 
 // ── Vocabulary Page ───────────────────────────────────────────────────
 let _vocabWords = [];
@@ -1107,11 +1099,14 @@ async function deleteVocabWord(idx) {
   }
 }
 
-// Load devices + mode once pywebview is ready
+// Load devices + mode once pywebview is ready.
+// Vocab list is loaded lazily by loadVocabPage() when the user
+// navigates to the Vocabulary tab — no longer pre-loaded on startup
+// (which was the cause of the "Add word" box being pre-filled with
+// every existing word jammed together).
 window.addEventListener('pywebviewready', () => {
   loadAudioDevices();
   loadMode();
-  loadVocab();
 });
 
 // ── Page Navigation ──────────────────────────────────────────────────────

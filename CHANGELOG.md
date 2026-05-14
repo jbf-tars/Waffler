@@ -4,6 +4,11 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.23] - 2026-05-14
+
+### Fixed
+- **Vocabulary "Add word" input was pre-filled with every existing word jammed together.** A legacy `loadVocab()` function ran on every `pywebviewready` startup, joining all stored vocab words with `\n` and dumping the result into `#vocabInput`. The element used to be a multi-line `<textarea>` in an older UI, but the current UI uses a single-line `<input>` plus a separate list with delete buttons — so newlines collapsed and you'd see "WafflerAshkanGroqMLXkubernetesFargatepywebview…" stuffed into the box, forcing you to delete it before adding a new word. Removed the legacy `loadVocab()` / `onVocabSave()` functions and the startup call. Vocab list is loaded lazily by `loadVocabPage()` when you navigate to the tab; the input stays empty until you type in it.
+
 ## [3.14.22] - 2026-05-13
 
 ### Fixed
