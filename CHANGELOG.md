@@ -4,6 +4,12 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.31] - 2026-05-14
+
+### Fixed
+- **Fn key debounce on macOS — kills phantom multi-recording fan-out.** Reproduction on v3.14.29 showed a single Fn tap producing three full `Recording started → Recording stopped` cycles in ~1 s (durations 0.17 s, 0.19 s, 1.36 s). Root cause: macOS / external keyboard occasionally emits multiple `flagsChanged` events for one physical press, with FN_FLAG flickering 1→0→1 in under 10 ms. The v3.14.13 single-CGEventTap consolidation correctly suppresses *intra-tap* duplicates but doesn't filter *OS-level* phantom events. Added a 40 ms debounce in `FnHandler` — state transitions inside that window are rejected with a `Fn press REJECTED (debounce: 3.2ms < 40ms)` log line. Real human Fn taps last 80–300 ms so the floor accepts every plausible input; phantom flicker is universally <5 ms so it gets caught.
+- **Proper mic permission check via AVFoundation at startup (macOS).** The "bytes captured but RMS=0" signature in the 17:45 chaos log is *TCC-denied stream*: on macOS, an app without Microphone permission gets `sd.InputStream` opens that succeed silently and deliver zero-valued samples — no exception, no error, just permanent silence. The existing `PermissionsManager.check_microphone_permission()` was therefore lying (it returned GRANTED whenever the open succeeded). Added an `AVCaptureDevice.authorizationStatusForMediaType_(AVMediaTypeAudio)` call at startup, logging the actual status (NotDetermined / Restricted / Denied / Authorized). When denied, a `[mic-tcc] WARNING: mic permission DENIED` line lands in `app.log` with the fix steps. Any future zero-RMS reproduction now self-explains via the log instead of needing a debug session to diagnose.
+
 ## [3.14.30] - 2026-05-14
 
 ### Added

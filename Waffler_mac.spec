@@ -74,6 +74,8 @@ a = Analysis(
         'Foundation',
         'Quartz',
         'PyObjCTools',
+        # v3.14.31 — AVFoundation for the proper mic TCC check at startup
+        'AVFoundation',
         # ── Standard library sometimes missed ──
         'ctypes',
         'json',
