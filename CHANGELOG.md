@@ -4,6 +4,14 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.30] - 2026-05-14
+
+### Fixed
+- **"Restart now" sometimes quit the app without relaunching it on macOS.** The `restart_app()` IPC called `/usr/bin/open -n /Applications/Waffler.app` while the old process was still running, then `os._exit(0)`'d 600 ms later. For signed/notarized `.app` bundles, Launch Services occasionally *collapsed* the `-n` request into a no-op "bring existing to front" when it saw an instance of the same bundle ID already alive — leaving the user with a dead app and no replacement. Switched to the Sparkle-updater pattern: spawn a detached `/bin/sh` that polls our PID, and only once we're gone calls `open -n` on the bundle. By the time the launch request is made, Launch Services has nothing to collapse, so it always honors it. Source-run path and the Windows re-exec path are unchanged.
+
+### Changed
+- **Restart prompt is now a centered modal popup instead of a top-of-page banner.** User reported the banner was easy to miss above the fold. New modal has a soft blurred backdrop, a centered card with the rotating 🔄 icon, primary "Restart now" + secondary "Later" buttons, full keyboard support (Enter triggers restart, Esc dismisses, primary button is autofocused), and click-outside-to-dismiss on the backdrop. Same `showRestartBanner()` callsite — only the rendering changed.
+
 ## [3.14.29] - 2026-05-14
 
 ### Changed

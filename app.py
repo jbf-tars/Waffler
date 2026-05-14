@@ -1684,13 +1684,20 @@ class Api:
         called with the old key.
 
         Strategy per platform:
-          - **macOS** — walk up from `sys.executable` to find the .app
-            bundle, then `open -n` (new instance) on it. Launch Services
-            handles single-instance serialisation so the old process can
-            quit cleanly.
-          - **Windows** — re-spawn `sys.executable` directly. The Windows
-            installer puts Waffler.exe at the same path we're running
-            from, and there's no instance management overhead.
+          - **macOS (v3.14.30)** — spawn a *detached* shell that polls
+            our PID, and once we're gone, calls ``/usr/bin/open -n`` on
+            the .app bundle. This is the Sparkle-updater pattern. The
+            previous implementation called ``open -n`` *while we were
+            still running*, which Launch Services sometimes collapses
+            into a "bring existing to front" no-op for signed/notarized
+            bundles — even with ``-n``. The 600ms ``os._exit(0)`` then
+            killed us with no new instance ever spawned. Waiting for the
+            old PID to die first removes the race: by the time
+            ``open -n`` runs, Launch Services has nothing to collapse.
+          - **Windows** — re-spawn ``sys.executable`` directly. The
+            Windows installer puts ``Waffler.exe`` at the same path
+            we're running from, and there's no instance management
+            overhead.
         """
         import subprocess
         import sys
@@ -1704,18 +1711,38 @@ class Api:
                     if p.suffix == ".app":
                         break
                     p = p.parent
+
                 if p.suffix == ".app":
-                    subprocess.Popen(["/usr/bin/open", "-n", str(p)])
+                    # Detached "wait for parent to die, then relaunch" shell.
+                    # Escape single quotes in the bundle path so paths
+                    # containing apostrophes (rare but possible) survive.
+                    bundle_path = str(p).replace("'", "'\\''")
+                    parent_pid = os.getpid()
+                    script = (
+                        f"while kill -0 {parent_pid} 2>/dev/null; "
+                        f"do sleep 0.1; done; "
+                        f"/usr/bin/open -n '{bundle_path}'"
+                    )
+                    subprocess.Popen(
+                        ["/bin/sh", "-c", script],
+                        start_new_session=True,
+                        stdin=subprocess.DEVNULL,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
                 else:
-                    # Source-run fallback: just re-exec ourselves.
+                    # Source-run fallback: just re-exec ourselves immediately.
                     subprocess.Popen([sys.executable] + sys.argv)
             else:  # Windows / Linux
                 subprocess.Popen([sys.executable] + sys.argv[1:])
 
-            # Brief delay so the new instance is up before we exit.
+            # Quit promptly. On macOS the detached shell is already
+            # watching for us to die, so the sooner we go the faster the
+            # new instance launches. The 250ms delay just lets the IPC
+            # response flush back to the JS side first.
             def _quit_after():
                 import time
-                time.sleep(0.6)
+                time.sleep(0.25)
                 os._exit(0)
             threading.Thread(target=_quit_after, daemon=True).start()
             return {"ok": True}

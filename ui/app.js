@@ -1264,44 +1264,79 @@ async function loadSettings() {
 }
 
 // ── Settings Save ────────────────────────────────────────────────────────
-// v3.14.28 — after any API-key save, show a persistent restart banner.
-// User reported that Cerebras keys weren't being picked up by the running
-// styler instance until a restart, so the silent "saved" toast left them
-// thinking nothing happened. The banner is loud, sticky (no auto-dismiss),
-// and has a single "Restart now" CTA that relaunches the app.
+// v3.14.30 — after any API-key save, show a centered modal popup (was a
+// top-of-page banner in v3.14.28-29). User reported the top banner was
+// easy to miss; a centered modal with a soft backdrop is more obviously
+// "you need to do something here". Escape dismisses; Enter triggers
+// restart. The "Restart now" button is autofocused so the keyboard path
+// is one tap.
 
 function showRestartBanner(reason) {
-  let banner = document.getElementById('restartRequiredBanner');
-  if (banner) banner.remove();
-  banner = document.createElement('div');
-  banner.id = 'restartRequiredBanner';
-  banner.className = 'restart-required-banner';
-  banner.innerHTML = `
-    <div class="restart-required-icon">🔄</div>
-    <div class="restart-required-text">
-      <strong>Restart required</strong>
-      <span>${reason || 'Your changes need a fresh app start to take effect.'}</span>
+  // Tear down any prior modal so we don't stack them.
+  const prior = document.getElementById('restartRequiredModal');
+  if (prior) prior.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'restartRequiredModal';
+  overlay.className = 'restart-modal-overlay';
+  overlay.innerHTML = `
+    <div class="restart-modal-card" role="dialog" aria-modal="true"
+         aria-labelledby="restartModalTitle">
+      <div class="restart-modal-icon">🔄</div>
+      <h2 class="restart-modal-title" id="restartModalTitle">Restart required</h2>
+      <p class="restart-modal-body">${reason || 'Your changes need a fresh app start to take effect.'}</p>
+      <div class="restart-modal-actions">
+        <button class="restart-modal-btn-secondary" id="restartModalLater">Later</button>
+        <button class="restart-modal-btn-primary" id="restartModalNow">Restart now</button>
+      </div>
     </div>
-    <button class="restart-required-btn" id="restartRequiredBtn">Restart now</button>
-    <button class="restart-required-dismiss" id="restartRequiredDismiss" title="Dismiss">✕</button>
   `;
-  // Mount at the top of the currently visible panel so it's never missed.
-  const host = document.querySelector('.settings-panel:not([style*="display: none"])')
-            || document.querySelector('.settings-panel')
-            || document.body;
-  host.prepend(banner);
-  document.getElementById('restartRequiredBtn').onclick = async () => {
+  document.body.appendChild(overlay);
+
+  const dismiss = () => {
+    overlay.classList.add('restart-modal-closing');
+    setTimeout(() => overlay.remove(), 180);
+    document.removeEventListener('keydown', onKey);
+  };
+
+  const doRestart = async () => {
+    const btn = document.getElementById('restartModalNow');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Restarting…';
+    }
     try {
       if (window.pywebview?.api?.restart_app) {
         await pywebview.api.restart_app();
       } else {
         showToast('Restart Waffler manually to apply changes', 'info');
+        dismiss();
       }
     } catch (_e) {
       showToast('Couldn\'t auto-restart — please quit and reopen Waffler', 'error');
+      dismiss();
     }
   };
-  document.getElementById('restartRequiredDismiss').onclick = () => banner.remove();
+
+  const onKey = (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); dismiss(); }
+    else if (e.key === 'Enter') { e.preventDefault(); doRestart(); }
+  };
+
+  document.getElementById('restartModalNow').onclick = doRestart;
+  document.getElementById('restartModalLater').onclick = dismiss;
+  // Clicking the dimmed backdrop (but not the card) also dismisses.
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) dismiss();
+  });
+  document.addEventListener('keydown', onKey);
+
+  // Focus the primary CTA after the entry animation settles so keyboard
+  // users can hit Enter immediately.
+  requestAnimationFrame(() => {
+    const btn = document.getElementById('restartModalNow');
+    if (btn) btn.focus();
+  });
 }
 
 async function saveGroqKey() {
