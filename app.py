@@ -1641,6 +1641,37 @@ class Api:
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
+    # ── AI Debug Helper API (feature/ai-helper branch) ─────────────
+    #
+    # Lightweight in-app assistant that reads the user's redacted logs
+    # and settings to answer questions like "why is my dictation slow?"
+    # — see src/ai_helper.py for the design doc + redaction guarantees.
+    # Reuses the styler's existing chat clients (Option B from the
+    # design discussion) so no extra keys are required.
+
+    def ai_helper_ask(self, question: str = "", preset_id: str = "") -> dict:
+        """Answer a debug question by sending redacted logs + settings to
+        whichever chat provider the user has configured.
+        """
+        if _pipeline is None or not getattr(_pipeline, "styler", None):
+            return {
+                "ok": False,
+                "error": (
+                    "Waffler is still starting up. Wait a few seconds and "
+                    "try again, or check that you have at least one API key "
+                    "set in Settings → API Keys."
+                ),
+            }
+        try:
+            from src.ai_helper import AIHelper
+            helper = AIHelper(_pipeline.styler)
+            return helper.answer(question or "", preset_id=preset_id or None)
+        except Exception as e:
+            _log_to_file(f"ai_helper_ask error: {e}")
+            import traceback
+            _log_to_file(traceback.format_exc())
+            return {"ok": False, "error": f"Helper crashed: {str(e)[:200]}"}
+
     def restart_app(self) -> dict:
         """Quit and relaunch Waffler.
 

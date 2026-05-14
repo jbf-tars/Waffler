@@ -1282,6 +1282,71 @@
   </div>
 </div>
 
+<!-- ════════════════════════════════════════════════════════════════
+     AI DEBUG HELPER (feature/ai-helper)
+     Floating bottom-right button → opens a side panel with preset
+     questions + free-text input. Sends the user's redacted logs +
+     settings to their existing styler chat client via the
+     `ai_helper_ask` IPC. See src/ai_helper.py for the safety model.
+     ════════════════════════════════════════════════════════════════ -->
+
+<!-- Floating launcher button -->
+<button class="ai-helper-fab" id="aiHelperFab" onclick="aiHelperToggle()" title="Need help?">
+  <span class="ai-helper-fab-icon">🪄</span>
+  <span class="ai-helper-fab-label">Need help?</span>
+</button>
+
+<!-- Side panel (slides in from the right when open) -->
+<aside class="ai-helper-panel" id="aiHelperPanel" aria-hidden="true">
+  <header class="ai-helper-head">
+    <div class="ai-helper-head-title">
+      <span class="ai-helper-head-icon">🪄</span>
+      <div>
+        <h3>Waffler Helper</h3>
+        <p>Ask why something's not working. Uses your existing API keys.</p>
+      </div>
+    </div>
+    <button class="ai-helper-close" onclick="aiHelperToggle()" title="Close">✕</button>
+  </header>
+
+  <div class="ai-helper-body" id="aiHelperBody">
+    <!-- Welcome state — shown until the first question is asked -->
+    <div class="ai-helper-welcome" id="aiHelperWelcome">
+      <p class="ai-helper-welcome-text">Pick a question or type your own. The helper reads your <strong>redacted</strong> logs &amp; settings to answer — API keys never leave your machine.</p>
+      <div class="ai-helper-presets">
+        <button class="ai-helper-preset" data-preset="slow">
+          <span>🐌</span> Why is my dictation slow?
+        </button>
+        <button class="ai-helper-preset" data-preset="rate_limit">
+          <span>⏱️</span> Why am I getting rate-limited?
+        </button>
+        <button class="ai-helper-preset" data-preset="failed_recording">
+          <span>❌</span> My last recording failed
+        </button>
+        <button class="ai-helper-preset" data-preset="setup_check">
+          <span>✅</span> Is my setup correct?
+        </button>
+      </div>
+    </div>
+
+    <!-- Conversation thread — populated as the user asks questions -->
+    <div class="ai-helper-thread" id="aiHelperThread"></div>
+  </div>
+
+  <footer class="ai-helper-input-wrap">
+    <textarea
+      id="aiHelperInput"
+      class="ai-helper-input"
+      placeholder="Or type your own question…"
+      rows="2"
+      autocomplete="off"
+      spellcheck="false"></textarea>
+    <button class="ai-helper-send" id="aiHelperSend" onclick="aiHelperSend()" title="Send (⌘↵)">
+      <svg viewBox="0 0 24 24" width="18" height="18"><path d="M2 21l21-9L2 3v7l15 2-15 2v7z" fill="currentColor"/></svg>
+    </button>
+  </footer>
+</aside>
+
 <!-- Toast -->
 
 <div class="toast" id="toast"></div>

@@ -3068,4 +3068,134 @@ async function resetUsage() {
   }
 }
 
+// ═════════════════════════════════════════════════════════════════════
+// AI DEBUG HELPER (feature/ai-helper)
+//
+// Wires the floating "🪄 Need help?" button + side panel to the
+// `ai_helper_ask` IPC. Stays purely client-side — no other server, no
+// new accounts, no extra keys. The Python side handles redaction +
+// routing the question to whichever chat provider the user already
+// has configured for transcription styling.
+// ═════════════════════════════════════════════════════════════════════
+
+let _aiHelperOpen = false;
+let _aiHelperBusy = false;
+
+function aiHelperToggle() {
+  const panel = document.getElementById('aiHelperPanel');
+  if (!panel) return;
+  _aiHelperOpen = !_aiHelperOpen;
+  panel.classList.toggle('ai-helper-panel-open', _aiHelperOpen);
+  panel.setAttribute('aria-hidden', _aiHelperOpen ? 'false' : 'true');
+  if (_aiHelperOpen) {
+    // Focus the input so the user can start typing without an extra click
+    setTimeout(() => {
+      const inp = document.getElementById('aiHelperInput');
+      if (inp) inp.focus();
+    }, 250);
+  }
+}
+
+function aiHelperAddMessage(role, text, meta) {
+  const thread = document.getElementById('aiHelperThread');
+  const welcome = document.getElementById('aiHelperWelcome');
+  if (!thread) return null;
+  if (welcome) welcome.style.display = 'none';
+
+  const msg = document.createElement('div');
+  msg.className = `ai-msg ai-msg-${role}`;
+  const body = document.createElement('div');
+  body.className = 'ai-msg-body';
+  body.textContent = text || '';
+  msg.appendChild(body);
+  if (meta) {
+    const m = document.createElement('div');
+    m.className = 'ai-msg-meta';
+    m.textContent = meta;
+    msg.appendChild(m);
+  }
+  thread.appendChild(msg);
+  thread.scrollTop = thread.scrollHeight;
+  return body;
+}
+
+function aiHelperSetLoading(loading) {
+  const sendBtn = document.getElementById('aiHelperSend');
+  const inp = document.getElementById('aiHelperInput');
+  if (sendBtn) sendBtn.disabled = loading;
+  if (inp) inp.disabled = loading;
+  _aiHelperBusy = loading;
+}
+
+async function aiHelperAsk(question, presetId) {
+  if (_aiHelperBusy) return;
+  // Render the user's question first (with the preset label if any)
+  let userLine = question;
+  if (presetId && !question) {
+    const presetText = {
+      slow: 'Why is my dictation slow?',
+      rate_limit: 'Why am I getting rate-limited?',
+      failed_recording: 'My last recording failed',
+      setup_check: 'Is my setup correct?',
+    }[presetId] || presetId;
+    userLine = presetText;
+  }
+  aiHelperAddMessage('user', userLine);
+
+  // Show a thinking placeholder we'll fill in once the response arrives
+  const thinking = aiHelperAddMessage('assistant', 'Thinking…');
+  aiHelperSetLoading(true);
+
+  try {
+    const r = await pywebview.api.ai_helper_ask(question || '', presetId || '');
+    if (r && r.ok) {
+      thinking.textContent = r.answer || '(empty response)';
+      // Add a small "via provider · 1.2s" line under the message
+      const meta = document.createElement('div');
+      meta.className = 'ai-msg-meta';
+      const seconds = ((r.latency_ms || 0) / 1000).toFixed(1);
+      meta.textContent = `via ${r.provider || 'unknown'} · ${seconds}s`;
+      thinking.parentElement.appendChild(meta);
+    } else {
+      thinking.textContent = (r && r.error) || 'Helper request failed.';
+      thinking.parentElement.classList.add('ai-msg-error');
+    }
+  } catch (e) {
+    thinking.textContent = 'Lost connection to Waffler — try again.';
+    thinking.parentElement.classList.add('ai-msg-error');
+    console.warn('aiHelperAsk error:', e);
+  } finally {
+    aiHelperSetLoading(false);
+    const thread = document.getElementById('aiHelperThread');
+    if (thread) thread.scrollTop = thread.scrollHeight;
+  }
+}
+
+function aiHelperSend() {
+  const inp = document.getElementById('aiHelperInput');
+  if (!inp) return;
+  const text = inp.value.trim();
+  if (!text) return;
+  inp.value = '';
+  aiHelperAsk(text, null);
+}
+
+// Wire preset chip clicks + ⌘↵ / Ctrl↵ to send
+window.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.ai-helper-preset').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const preset = btn.getAttribute('data-preset');
+      if (preset) aiHelperAsk('', preset);
+    });
+  });
+  const inp = document.getElementById('aiHelperInput');
+  if (inp) {
+    inp.addEventListener('keydown', (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault();
+        aiHelperSend();
+      }
+    });
+  }
+});
 
