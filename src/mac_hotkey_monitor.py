@@ -47,7 +47,17 @@ from __future__ import annotations
 
 import itertools
 import threading
+import time
 from typing import Callable, List, Optional
+
+# v3.14.31 — minimum interval between FnHandler state transitions.
+# Real Fn presses last 80–300 ms; phantom flag flicker (hardware
+# chatter / external keyboard / OS-level event reposting) happens in
+# under 5 ms. A 40 ms floor accepts every plausible human press while
+# rejecting the spurious "press immediately followed by release" pairs
+# that produced the 17:45 chaos (three full Recording-cycle pairs from
+# one physical Fn tap).
+_FN_DEBOUNCE_S = 0.04
 
 try:
     from log_util import log as _diag_log  # bundled-app path
@@ -171,6 +181,10 @@ class FnHandler:
         self._on_press = on_press
         self._on_release = on_release
         self._pressed = False
+        # v3.14.31 — monotonic timestamp of last accepted state transition,
+        # used to reject phantom press/release pairs that fire too quickly
+        # to be a real human press.
+        self._last_transition: float = 0.0
         # v3.14.30 diagnostic: unique id so the log can distinguish
         # multiple FnHandler instances if any are alive simultaneously.
         self._id = _next_handler_id("Fn")
@@ -185,20 +199,50 @@ class FnHandler:
     def _fn_pressed(self) -> bool:
         return self._pressed
 
+    def _debounce_ok(self, now: float) -> bool:
+        """Return True iff enough time has passed since the last accepted
+        state transition. Phantom press/release pairs from hardware
+        chatter or external keyboard quirks fire in under 5 ms; real
+        human Fn taps last 80 ms or more. ``_FN_DEBOUNCE_S = 0.04``
+        accepts every plausible human input and rejects the noise.
+        """
+        return (now - self._last_transition) >= _FN_DEBOUNCE_S
+
     def handle(self, event_type, event) -> bool:
         # Laptop Fn — comes through as a modifier flag change
         if event_type == kCGEventFlagsChanged:
             flags = CGEventGetFlags(event)
             is_pressed = bool(flags & _FN_FLAG)
+            now = time.monotonic()
+
             if is_pressed and not self._pressed:
+                if not self._debounce_ok(now):
+                    # Phantom press within the debounce window. Skip it
+                    # but still suppress (we never want Fn-flag changes
+                    # to reach the OS).
+                    _diag_log(
+                        f"[HOTKEY/{self._id}] Fn press REJECTED (debounce: "
+                        f"{(now - self._last_transition)*1000:.1f}ms < "
+                        f"{_FN_DEBOUNCE_S*1000:.0f}ms)"
+                    )
+                    return True
                 self._pressed = True
+                self._last_transition = now
                 _diag_log(
                     f"[HOTKEY/{self._id}] Fn press (flagsChanged, flags=0x{flags:x}) "
                     f"thread={threading.current_thread().name}"
                 )
                 _fire(self._on_press)
             elif not is_pressed and self._pressed:
+                if not self._debounce_ok(now):
+                    _diag_log(
+                        f"[HOTKEY/{self._id}] Fn release REJECTED (debounce: "
+                        f"{(now - self._last_transition)*1000:.1f}ms < "
+                        f"{_FN_DEBOUNCE_S*1000:.0f}ms)"
+                    )
+                    return True
                 self._pressed = False
+                self._last_transition = now
                 _diag_log(
                     f"[HOTKEY/{self._id}] Fn release (flagsChanged, flags=0x{flags:x}) "
                     f"thread={threading.current_thread().name}"
@@ -211,15 +255,22 @@ class FnHandler:
         if event_type in (kCGEventKeyDown, kCGEventKeyUp):
             keycode = CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode)
             if keycode in _EXT_FN_KEYCODES:
+                now = time.monotonic()
                 if event_type == kCGEventKeyDown and not self._pressed:
+                    if not self._debounce_ok(now):
+                        return True
                     self._pressed = True
+                    self._last_transition = now
                     _diag_log(
                         f"[HOTKEY/{self._id}] Fn press (keyDown, keycode={keycode}) "
                         f"thread={threading.current_thread().name}"
                     )
                     _fire(self._on_press)
                 elif event_type == kCGEventKeyUp and self._pressed:
+                    if not self._debounce_ok(now):
+                        return True
                     self._pressed = False
+                    self._last_transition = now
                     _diag_log(
                         f"[HOTKEY/{self._id}] Fn release (keyUp, keycode={keycode}) "
                         f"thread={threading.current_thread().name}"

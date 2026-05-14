@@ -3120,6 +3120,43 @@ def main():
         f"PROJECT_ROOT={PROJECT_ROOT})"
     )
 
+    # v3.14.31 — log the actual macOS mic TCC status at startup. The
+    # existing PermissionsManager.check_microphone_permission() opens an
+    # sd.InputStream and returns GRANTED if no exception is raised — but
+    # that's wrong: a TCC-denied app on macOS gets a stream that opens
+    # silently and delivers zero-valued samples (no exception). That's
+    # the "bytes captured: 26668, RMS=0" signature in the 17:45 chaos
+    # log. The only reliable way to detect mic denial is to ask AVFoundation
+    # via PyObjC. Status codes:
+    #   0 = NotDetermined (will prompt on first capture)
+    #   1 = Restricted (parental controls / MDM, can't be changed)
+    #   2 = Denied (user actively denied)
+    #   3 = Authorized
+    if sys.platform == "darwin":
+        try:
+            from AVFoundation import (
+                AVCaptureDevice,
+                AVMediaTypeAudio,
+            )
+            _av_status = AVCaptureDevice.authorizationStatusForMediaType_(
+                AVMediaTypeAudio
+            )
+            _av_status_name = {
+                0: "NotDetermined",
+                1: "Restricted",
+                2: "Denied",
+                3: "Authorized",
+            }.get(_av_status, f"Unknown({_av_status})")
+            _log_to_file(f"[mic-tcc] AVCaptureDevice mic status: {_av_status_name}")
+            if _av_status == 2:
+                _log_to_file(
+                    "[mic-tcc] WARNING: mic permission DENIED. "
+                    "Streams will open but deliver zero samples. "
+                    "Fix: System Settings → Privacy & Security → Microphone → enable Waffler."
+                )
+        except Exception as _e:
+            _log_to_file(f"[mic-tcc] AVFoundation check failed: {_e}")
+
     # Pre-warm Python's SSL stack on the MAIN thread to prevent a
     # PyInstaller-related crash on Windows. The OpenAI / Groq / Cerebras
     # clients all go through httpx, which calls ssl.create_default_context()
