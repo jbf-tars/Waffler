@@ -1016,9 +1016,19 @@ async function loadVocabPage() {
   const listEl = document.getElementById('vocabList');
   const emptyEl = document.getElementById('vocabEmpty');
   const countEl = document.getElementById('vocabCount');
-  
+  const inputEl = document.getElementById('vocabInput');
+
   if (!listEl) return;
-  
+
+  // v3.14.24 — belt-and-suspenders: explicitly wipe the "Add word" input
+  // every time we render the vocab page. The legacy loadVocab() (removed
+  // in v3.14.23) used to dump every word joined by \n into this field on
+  // startup; some users on older builds still saw the pre-filled string
+  // after upgrading because WebView's form-restoration cached the value.
+  // Setting `.value = ''` here is unconditional, cheap, and means the
+  // box is guaranteed empty whenever the user lands on the page.
+  if (inputEl) inputEl.value = '';
+
   try {
     _vocabWords = await pywebview.api.get_vocab() || [];
     

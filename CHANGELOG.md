@@ -4,6 +4,13 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.24] - 2026-05-14
+
+### Fixed
+- **Vocab "Add word" input still pre-filled for some users on upgrade.** v3.14.23 removed the legacy `loadVocab()` that was dumping every stored word into the input on startup, but some users still saw the pre-filled string after updating — turns out WebView's form-restoration cache was holding the value from the previous version's bad behaviour. Belt-and-suspenders fix:
+  1. `loadVocabPage()` now unconditionally clears `#vocabInput.value` every time the page renders. Even if WebView, the browser cache, an extension, or future regression tries to put content there, it gets wiped the moment the user navigates to the Vocabulary tab.
+  2. Added `autocomplete="off"`, `autocorrect="off"`, `autocapitalize="off"`, `spellcheck="false"`, and an explicit empty `value=""` on the input element so WebView's form-restoration can't repopulate it across launches.
+
 ## [3.14.23] - 2026-05-14
 
 ### Fixed
