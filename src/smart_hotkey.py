@@ -31,6 +31,7 @@ that surface by exposing ``_monitor`` as the relevant handler (which carries
 both legacy attributes via property aliases).
 """
 
+import itertools
 import threading
 from mac_hotkey_monitor import (
     MacEventTap,
@@ -38,6 +39,15 @@ from mac_hotkey_monitor import (
     SpaceHandler,
     GenericHotkeyHandler,
 )
+
+try:
+    from log_util import log as _diag_log
+except ImportError:
+    from src.log_util import log as _diag_log
+
+# v3.14.30 diagnostic: unique id per SmartHotkeyListener so the log
+# distinguishes multiple listeners if more than one is alive at once.
+_LISTENER_ID_GEN = itertools.count(1)
 
 
 class SmartHotkeyListener:
@@ -57,6 +67,15 @@ class SmartHotkeyListener:
         self._hotkey_held = False   # Hotkey currently down
         self._sticky = False        # Locked-on (toggle) mode active
         self._recording = False     # Are we recording right now?
+
+        # v3.14.30 diagnostic: each listener gets an id so the log says
+        # "L01 fired press" / "L02 fired press" — instantly answers the
+        # "one listener fanning out vs N listeners firing once" question.
+        self._id = f"L{next(_LISTENER_ID_GEN):02d}"
+        _diag_log(
+            f"[HOTKEY/{self._id}] SmartHotkeyListener created keys={self._keys} "
+            f"thread={threading.current_thread().name}"
+        )
 
         # ── ONE event tap, multiple handlers ──────────────────────────
         self._tap = MacEventTap()
@@ -122,24 +141,39 @@ class SmartHotkeyListener:
     # ── Key events ────────────────────────────────────────────────────
 
     def _on_hotkey_press(self):
-        print(f"[HOTKEY] Hotkey pressed | sticky={self._sticky} recording={self._recording}")
+        _diag_log(
+            f"[HOTKEY/{self._id}] _on_hotkey_press entered "
+            f"sticky={self._sticky} recording={self._recording}"
+        )
         if not self._recording:
-            print("[HOTKEY] → Starting push-to-talk")
             self._hotkey_held = True
             self._recording = True
+            _diag_log(f"[HOTKEY/{self._id}] → starting push-to-talk (fire_press)")
             self._fire_press()
         else:
             # Hotkey pressed while already recording — keep held flag in
             # sync so Fn+Space detection still works in sticky mode.
             self._hotkey_held = True
+            _diag_log(
+                f"[HOTKEY/{self._id}] → press IGNORED (already recording); "
+                f"hotkey_held remains true"
+            )
 
     def _on_hotkey_release(self):
-        print(f"[HOTKEY] Hotkey released | sticky={self._sticky} recording={self._recording}")
+        _diag_log(
+            f"[HOTKEY/{self._id}] _on_hotkey_release entered "
+            f"sticky={self._sticky} recording={self._recording}"
+        )
         self._hotkey_held = False
         if self._recording and not self._sticky:
-            print("[HOTKEY] → Stopping push-to-talk")
             self._recording = False
+            _diag_log(f"[HOTKEY/{self._id}] → stopping push-to-talk (fire_release)")
             self._fire_release()
+        else:
+            _diag_log(
+                f"[HOTKEY/{self._id}] → release IGNORED "
+                f"(recording={self._recording} sticky={self._sticky})"
+            )
 
     def _on_space_press(self):
         print(
@@ -225,11 +259,14 @@ class SmartHotkeyListener:
 
     def start(self):
         hotkey_display = " + ".join(self._keys)
-        print(f"⌨️  Hotkey: Hold {hotkey_display} to record | Press Space while holding = sticky")
-        print("   To cancel sticky: tap hotkey again, OR press Esc (universal escape hatch)")
+        _diag_log(
+            f"[HOTKEY/{self._id}] start() called — hotkey={hotkey_display} "
+            f"thread={threading.current_thread().name}"
+        )
         self._tap.start()
 
     def stop(self):
+        _diag_log(f"[HOTKEY/{self._id}] stop() called")
         if self._tap is not None:
             self._tap.stop()
 

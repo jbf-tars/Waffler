@@ -45,8 +45,30 @@ Monitoring TCC prompt) keeps working without edits.
 
 from __future__ import annotations
 
+import itertools
 import threading
 from typing import Callable, List, Optional
+
+try:
+    from log_util import log as _diag_log  # bundled-app path
+except ImportError:
+    from src.log_util import log as _diag_log  # source-run path
+
+# v3.14.30 — diagnostic logging. Each MacEventTap / handler gets a unique
+# instance id so a single line in app.log tells us which listener fired
+# the event. Used to disambiguate "one handler fanning out 13 times" from
+# "13 separate handlers each firing once" when the 16:22-style chaos
+# reproduces. Behaviour is otherwise unchanged.
+_TAP_ID_GEN = itertools.count(1)
+_HANDLER_ID_GEN = itertools.count(1)
+
+
+def _next_tap_id() -> str:
+    return f"tap{next(_TAP_ID_GEN):02d}"
+
+
+def _next_handler_id(kind: str) -> str:
+    return f"{kind}{next(_HANDLER_ID_GEN):02d}"
 
 from Quartz import (
     CGEventTapCreate,
@@ -149,6 +171,10 @@ class FnHandler:
         self._on_press = on_press
         self._on_release = on_release
         self._pressed = False
+        # v3.14.30 diagnostic: unique id so the log can distinguish
+        # multiple FnHandler instances if any are alive simultaneously.
+        self._id = _next_handler_id("Fn")
+        _diag_log(f"[HOTKEY/{self._id}] FnHandler created")
 
     @property
     def is_pressed(self) -> bool:
@@ -166,9 +192,17 @@ class FnHandler:
             is_pressed = bool(flags & _FN_FLAG)
             if is_pressed and not self._pressed:
                 self._pressed = True
+                _diag_log(
+                    f"[HOTKEY/{self._id}] Fn press (flagsChanged, flags=0x{flags:x}) "
+                    f"thread={threading.current_thread().name}"
+                )
                 _fire(self._on_press)
             elif not is_pressed and self._pressed:
                 self._pressed = False
+                _diag_log(
+                    f"[HOTKEY/{self._id}] Fn release (flagsChanged, flags=0x{flags:x}) "
+                    f"thread={threading.current_thread().name}"
+                )
                 _fire(self._on_release)
             # Always suppress Fn-flag changes (prevents emoji picker)
             return True
@@ -179,9 +213,17 @@ class FnHandler:
             if keycode in _EXT_FN_KEYCODES:
                 if event_type == kCGEventKeyDown and not self._pressed:
                     self._pressed = True
+                    _diag_log(
+                        f"[HOTKEY/{self._id}] Fn press (keyDown, keycode={keycode}) "
+                        f"thread={threading.current_thread().name}"
+                    )
                     _fire(self._on_press)
                 elif event_type == kCGEventKeyUp and self._pressed:
                     self._pressed = False
+                    _diag_log(
+                        f"[HOTKEY/{self._id}] Fn release (keyUp, keycode={keycode}) "
+                        f"thread={threading.current_thread().name}"
+                    )
                     _fire(self._on_release)
                 return True
 
@@ -256,6 +298,12 @@ class GenericHotkeyHandler:
         self._pressed_modifiers: set = set()
         self._pressed_regular: set = set()
         self._active = False
+        # v3.14.30 diagnostic: unique id + remember the keys for logging.
+        self._id = _next_handler_id("Gen")
+        _diag_log(
+            f"[HOTKEY/{self._id}] GenericHotkeyHandler created keys={self._keys} "
+            f"suppress={self._suppress}"
+        )
 
     @property
     def is_active(self) -> bool:
@@ -290,9 +338,17 @@ class GenericHotkeyHandler:
             is_active = self._check_state()
             if is_active and not was_active:
                 self._active = True
+                _diag_log(
+                    f"[HOTKEY/{self._id}] press fired (flagsChanged, keys={self._keys}) "
+                    f"thread={threading.current_thread().name}"
+                )
                 _fire(self._on_press)
             elif not is_active and was_active:
                 self._active = False
+                _diag_log(
+                    f"[HOTKEY/{self._id}] release fired (flagsChanged, keys={self._keys}) "
+                    f"thread={threading.current_thread().name}"
+                )
                 _fire(self._on_release)
 
             # Surgical suppression: only when OUR modifiers changed.
@@ -319,11 +375,21 @@ class GenericHotkeyHandler:
                 is_active = self._check_state()
                 if is_active and not was_active:
                     self._active = True
+                    _diag_log(
+                        f"[HOTKEY/{self._id}] press fired (keyDown, "
+                        f"key={key_name}, keys={self._keys}) "
+                        f"thread={threading.current_thread().name}"
+                    )
                     _fire(self._on_press)
                     if self._suppress:
                         suppress = True
                 elif not is_active and was_active:
                     self._active = False
+                    _diag_log(
+                        f"[HOTKEY/{self._id}] release fired (keyUp, "
+                        f"key={key_name}, keys={self._keys}) "
+                        f"thread={threading.current_thread().name}"
+                    )
                     _fire(self._on_release)
                     if self._suppress:
                         suppress = True
@@ -358,6 +424,12 @@ class MacEventTap:
         # Lock guards the handler list — add_handler / start happen in main
         # thread, callback iterates in event-tap thread.
         self._lock = threading.Lock()
+        # v3.14.30 diagnostic: unique id so the log can tell us if two
+        # MacEventTaps are alive at once (which is the v3.14.13 bug the
+        # consolidated design was meant to make impossible — observability
+        # confirms it stays impossible in practice).
+        self._id = _next_tap_id()
+        _diag_log(f"[HOTKEY/{self._id}] MacEventTap created")
 
     def add_handler(self, handler) -> None:
         """Attach a handler. Must be called before ``start()``."""
@@ -422,17 +494,23 @@ class MacEventTap:
             CFRunLoopAddSource(self._runloop, self._runloop_source, kCFRunLoopCommonModes)
             CGEventTapEnable(self._tap, True)
 
-            print(f"[HOTKEY] Single CGEventTap started with {len(self._handlers)} handler(s)")
+            _diag_log(
+                f"[HOTKEY/{self._id}] CGEventTap started "
+                f"with {len(self._handlers)} handler(s), "
+                f"thread={threading.current_thread().name}"
+            )
             CFRunLoopRun()  # blocks until CFRunLoopStop
+            _diag_log(f"[HOTKEY/{self._id}] CFRunLoopRun returned (tap thread exiting)")
 
         except Exception as e:
-            print(f"[HOTKEY] Event tap error: {e}")
+            _diag_log(f"[HOTKEY/{self._id}] Event tap error: {e}")
 
     def start(self) -> None:
         if self._thread is not None and self._thread.is_alive():
+            _diag_log(f"[HOTKEY/{self._id}] start() called but thread already alive — no-op")
             return
         self._thread = threading.Thread(
-            target=self._run, daemon=True, name="MacEventTapThread"
+            target=self._run, daemon=True, name=f"MacEventTapThread-{self._id}"
         )
         self._thread.start()
 
@@ -442,6 +520,7 @@ class MacEventTap:
         and ``CGEventTapEnable(False)`` makes sure no further callbacks fire
         before we drop the tap reference.
         """
+        _diag_log(f"[HOTKEY/{self._id}] stop() called")
         if self._runloop is not None:
             try:
                 CFRunLoopStop(self._runloop)
