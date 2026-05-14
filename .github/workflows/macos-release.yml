@@ -228,11 +228,28 @@ jobs:
           end tell
           ' | osascript
 
-          # Wait for changes to apply
-          sleep 2
+          # Wait for changes to apply. The Finder AppleScript above can
+          # leave a file-handle on the mounted volume for a few seconds
+          # after `close` returns, so a naive detach races against it and
+          # fails with "Resource busy" (the v3.14.31 build hit this).
+          # Longer wait + sync, then retry with -force as a fallback.
+          sleep 5
+          sync
 
-          # Unmount
-          hdiutil detach "/Volumes/Waffler"
+          # Unmount, with retry. Up to 5 attempts with backoff; final
+          # attempt uses -force to break any stuck file-handle.
+          for attempt in 1 2 3 4 5; do
+            if hdiutil detach "/Volumes/Waffler" 2>&1; then
+              echo "[dmg] detached cleanly on attempt $attempt"
+              break
+            fi
+            echo "[dmg] detach attempt $attempt failed; backing off"
+            sleep 3
+            if [ "$attempt" = "5" ]; then
+              echo "[dmg] final attempt with -force"
+              hdiutil detach "/Volumes/Waffler" -force
+            fi
+          done
 
           # Convert to compressed read-only
           hdiutil convert "dist-installer/${TMP_DMG}" \
