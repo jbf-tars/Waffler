@@ -3135,9 +3135,13 @@ html, body {
   50%      { transform: scale(1.4); opacity: 0.5; }
 }
 
+/* v3.14.27 — wizard buttons recoloured to dark/black for high contrast
+   against the cream wizard background. Previously gold-on-cream which
+   blended in too much; now charcoal pills that read as proper action
+   buttons. The gold accent moves to hover/focus rings. */
 .wiz-btn-primary {
-  background: linear-gradient(180deg, #D4B06A, #C8A256);
-  color: #1A1612;
+  background: linear-gradient(180deg, #2C2520, #1A1612);
+  color: #FFFCF2;
   border: none;
   padding: 11px 20px;
   border-radius: 11px;
@@ -3145,26 +3149,29 @@ html, body {
   cursor: pointer;
   font-size: 14px;
   align-self: flex-start;
-  box-shadow: 0 4px 14px rgba(200, 162, 86, 0.25);
+  box-shadow: 0 4px 14px rgba(26, 22, 18, 0.2);
   transition: all 0.2s;
 }
 .wiz-btn-primary:hover {
   transform: translateY(-1px);
-  box-shadow: 0 8px 22px rgba(200, 162, 86, 0.32);
+  box-shadow: 0 8px 22px rgba(26, 22, 18, 0.3),
+              0 0 0 3px rgba(200, 162, 86, 0.25);
+  background: linear-gradient(180deg, #1A1612, #0F0B07);
 }
 .wiz-btn-ghost {
-  background: transparent;
-  color: #6B6560;
-  border: 1px solid rgba(44, 37, 32, 0.12);
-  padding: 8px 16px;
+  background: #FFFFFF;
+  color: #1A1612;
+  border: 1.5px solid #1A1612;
+  padding: 9px 18px;
   border-radius: 9px;
   cursor: pointer;
   font-size: 13px;
+  font-weight: 600;
   transition: all 0.2s;
 }
 .wiz-btn-ghost:hover {
-  color: #C8A256;
-  border-color: #C8A256;
+  background: #1A1612;
+  color: #FFFCF2;
 }
 
 .wiz-detect-note {
@@ -3943,24 +3950,30 @@ html, body {
   font-family: inherit;
   transition: all 0.2s;
 }
+/* v3.14.27 — Back / Next pills are also dark for contrast. The Back
+   button is an outlined dark pill (low-emphasis); Next is a solid
+   charcoal-gradient pill (high-emphasis); Finish on the last step keeps
+   the green accent so completion still reads as a positive action. */
 .wiz-btn-back {
-  background: transparent;
-  color: #6B6560;
-  border: 1px solid rgba(44, 37, 32, 0.12);
-}
-.wiz-btn-back:hover { color: #1A1A1A; border-color: #6B6560; }
-.wiz-btn-next {
-  background: linear-gradient(180deg, #D4B06A, #C8A256);
+  background: #FFFFFF;
   color: #1A1612;
+  border: 1.5px solid #1A1612;
+}
+.wiz-btn-back:hover { background: #1A1612; color: #FFFCF2; }
+.wiz-btn-next {
+  background: linear-gradient(180deg, #2C2520, #1A1612);
+  color: #FFFCF2;
   margin-left: auto;
-  box-shadow: 0 4px 12px rgba(200, 162, 86, 0.2);
+  box-shadow: 0 4px 12px rgba(26, 22, 18, 0.25);
 }
 .wiz-btn-next:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 8px 18px rgba(200, 162, 86, 0.3);
+  box-shadow: 0 8px 18px rgba(26, 22, 18, 0.35),
+              0 0 0 3px rgba(200, 162, 86, 0.25);
+  background: linear-gradient(180deg, #1A1612, #0F0B07);
 }
 .wiz-btn-next:disabled {
-  background: #F4EFE0;
+  background: #E8E4DC;
   color: #A09890;
   box-shadow: none;
   cursor: not-allowed;
@@ -4599,79 +4612,6 @@ body[data-theme="dark"] {
 .wiz-keycap-large.pressed svg line {
   stroke: #1A1612;
   fill: #1A1612;
-}
-
-/* ── "Fn not registering?" help card (v3.14.26) ──
-   Fades in below the listening pill in wizard step 2 after ~6 seconds
-   if no Fn key press has registered. Explains the macOS Globe-key
-   override that often blocks Fn on Mac Mini / Magic Keyboard setups. */
-.wiz-fn-help {
-  margin-top: 12px;
-  max-width: 600px;
-  align-self: center;
-  background: linear-gradient(135deg, rgba(251, 191, 36, 0.08) 0%, rgba(200, 162, 86, 0.05) 100%);
-  border: 1px solid rgba(251, 191, 36, 0.3);
-  border-radius: 14px;
-  padding: 16px 20px;
-  opacity: 0;
-  transform: translateY(6px);
-  transition: opacity 0.4s ease, transform 0.4s ease;
-}
-.wiz-fn-help-visible {
-  opacity: 1;
-  transform: translateY(0);
-}
-.wiz-fn-help-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 8px;
-}
-.wiz-fn-help-icon { font-size: 20px; line-height: 1; }
-.wiz-fn-help-head h4 {
-  font-size: 15px;
-  font-weight: 700;
-  color: #1A1612;
-  margin: 0;
-}
-.wiz-fn-help-body {
-  font-size: 13px;
-  line-height: 1.5;
-  color: #4a3a1a;
-  margin: 0 0 10px;
-}
-.wiz-fn-help-list {
-  margin: 0;
-  padding-left: 22px;
-  font-size: 13px;
-  line-height: 1.5;
-  color: #4a3a1a;
-}
-.wiz-fn-help-list li {
-  margin-bottom: 10px;
-}
-.wiz-fn-help-list li:last-child { margin-bottom: 0; }
-.wiz-fn-help-list strong {
-  color: #1A1612;
-  font-weight: 600;
-}
-.wiz-fn-help-link {
-  display: inline-block;
-  background: rgba(200, 162, 86, 0.15);
-  border: 1px solid rgba(200, 162, 86, 0.4);
-  color: #8a6a26;
-  padding: 4px 10px;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 600;
-  font-family: inherit;
-  cursor: pointer;
-  margin-left: 6px;
-  transition: background 0.15s ease, border-color 0.15s ease;
-}
-.wiz-fn-help-link:hover {
-  background: rgba(200, 162, 86, 0.25);
-  border-color: rgba(200, 162, 86, 0.6);
 }
 
 /* ── "TRY SAYING" label: bigger CTA-style chip (v3.14.25) ── */

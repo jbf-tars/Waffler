@@ -4,6 +4,17 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.27] - 2026-05-14
+
+### Fixed
+- **Wizard step 1 let users advance past macOS permissions without granting them.** The Next button on step 1 was `disabled = false` unconditionally in `wizUpdateNextButton()`. The polling enabled Next when both permissions were detected, but nothing kept it disabled in the meantime — and on initial render the button was already clickable. The visible symptom: user runs setup wizard, clicks Open System Settings, gets distracted before granting Input Monitoring, comes back, clicks Next anyway, lands on step 4 (Try It), holds the hotkey... and nothing fires. The hotkey listener can't function without Input Monitoring access. Tracked global state (`_wizardPermsAccessibility`, `_wizardPermsInputMon`), gated `case 1` on both being true, and added a belt-and-suspenders refusal inside `wizNext()` itself that shows a toast naming the missing permission(s) if the disabled-state was somehow bypassed.
+
+### Reverted
+- **v3.14.26 "Fn key on Mac Mini" changes.** That fix targeted what turned out to be a different bug — the user had simply not granted Input Monitoring (see Fixed above). Reverted the speculative keycode-63 (kVK_Function) detection in `FnHandler` and the "Fn not registering?" wizard help card so the codebase isn't carrying defensive logic for a problem that doesn't exist.
+
+### Changed
+- **Wizard buttons are now dark charcoal pills.** All cream-on-cream buttons (Open System Settings, Use a different hotkey, Back, Next) read as decorative on the cream wizard background; switched to solid `#1A1612` charcoal with `#FFFCF2` text so they pop as proper action buttons. The gold brand colour now appears as a hover glow ring instead of the base button colour. Finish-Setup button on the final step keeps its green for completion semantics.
+
 ## [3.14.26] - 2026-05-14
 
 ### Fixed

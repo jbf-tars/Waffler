@@ -111,17 +111,7 @@ _FN_FLAG = 0x800000
 _SPACE_KEYCODE = 49
 
 # External-keyboard Fn keycodes (some keyboards send Fn as a function key)
-#   105, 107, 113, 106 = F13, F14, F15, F16 — Older Apple external
-#       keyboards (pre-Magic) map their Fn key into the F13/F14/F15 range.
-#   63 = kVK_Function — The actual Fn key keycode. Normally Fn comes
-#       through as a `kCGEventFlagsChanged` event with the secondary-fn
-#       flag set (caught elsewhere in FnHandler), but on Mac Mini setups
-#       with Magic Keyboards — especially when macOS's "Press 🌐 key to:"
-#       setting is configured to override Fn — the modifier flag never
-#       fires, and the key surfaces as a bare keycode 63 KeyDown/KeyUp
-#       instead. Catching it here is the v3.14.26 fix for "Fn doesn't
-#       work on my Mac Mini keyboard".
-_EXT_FN_KEYCODES = {63, 105, 106, 107, 113}
+_EXT_FN_KEYCODES = {105, 107, 113}
 
 
 def _fire(callback: Optional[Callable[[], None]]) -> None:

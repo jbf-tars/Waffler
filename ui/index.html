@@ -632,41 +632,6 @@
                combo, that release stops, and that Space locks recording. -->
         </div>
 
-        <!-- "Fn not working?" help card. Hidden by default; fades in after
-             ~6 seconds in step 2 if no hotkey press has been detected
-             AND the user is on macOS with Fn as their configured hotkey.
-             Common cause on Mac Mini / Magic Keyboard setups: macOS's
-             "Press 🌐 key to:" setting intercepts Fn before our event
-             tap sees it. -->
-        <div class="wiz-fn-help" id="wizFnHelp" style="display:none">
-          <div class="wiz-fn-help-head">
-            <span class="wiz-fn-help-icon">💡</span>
-            <h4>Fn key not registering?</h4>
-          </div>
-          <p class="wiz-fn-help-body">
-            On Mac Mini setups and Magic Keyboards, macOS sometimes intercepts the
-            Fn / 🌐 key for system shortcuts before Waffler can see it.
-            Two ways to fix this:
-          </p>
-          <ol class="wiz-fn-help-list">
-            <li>
-              <strong>Turn off the Globe key override</strong> — Open System Settings →
-              Keyboard → <strong>Modifier Keys</strong>, set
-              <strong>"Press 🌐 key to:"</strong> to <strong>"Do Nothing"</strong>.
-              <button class="wiz-fn-help-link" onclick="wizOpenKeyboardSettings()">
-                Open Keyboard settings →
-              </button>
-            </li>
-            <li>
-              <strong>Or pick a different hotkey</strong> — any combo without Fn will
-              work everywhere.
-              <button class="wiz-fn-help-link" onclick="showWizardHotkeyConfig()">
-                Choose a different hotkey →
-              </button>
-            </li>
-          </ol>
-        </div>
-
         <button class="wiz-btn-ghost" onclick="showWizardHotkeyConfig()">Use a different hotkey instead</button>
       </div>
 
