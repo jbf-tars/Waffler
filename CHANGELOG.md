@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [3.14.30] - 2026-05-14
 
+### Added
+- **Version stamp in the startup banner.** The `=== Waffler starting ===` line in `app.log` now includes the running `__version__` (e.g. `=== Waffler starting === (v3.14.30, PROJECT_ROOT=…)`). Was previously a recurring source of confusion when diagnosing Mac issues — figuring out which bundle a log was from required a separate `grep __version__` against `/Applications/Waffler.app/Contents/Frameworks/src/__init__.py`. Now it's one grep against the log itself.
+
 ### Fixed
 - **"Restart now" sometimes quit the app without relaunching it on macOS.** The `restart_app()` IPC called `/usr/bin/open -n /Applications/Waffler.app` while the old process was still running, then `os._exit(0)`'d 600 ms later. For signed/notarized `.app` bundles, Launch Services occasionally *collapsed* the `-n` request into a no-op "bring existing to front" when it saw an instance of the same bundle ID already alive — leaving the user with a dead app and no replacement. Switched to the Sparkle-updater pattern: spawn a detached `/bin/sh` that polls our PID, and only once we're gone calls `open -n` on the bundle. By the time the launch request is made, Launch Services has nothing to collapse, so it always honors it. Source-run path and the Windows re-exec path are unchanged.
 
