@@ -3437,6 +3437,65 @@ html, body {
   transform: translateY(-2px);
   box-shadow: 0 12px 30px rgba(200, 162, 86, 0.12);
 }
+
+/* Clickable card 1 — the "Open the link" step. The entire card is a
+   tap target that opens the provider's API-keys page in the browser. */
+.wiz-story-card-clickable {
+  cursor: pointer;
+  user-select: none;
+}
+.wiz-story-card-clickable:hover {
+  border-color: rgba(200, 162, 86, 0.5);
+  box-shadow: 0 12px 30px rgba(200, 162, 86, 0.2);
+  background: linear-gradient(180deg, #fff 0%, #FFFCF2 100%);
+}
+.wiz-story-card-clickable:active {
+  transform: translateY(0);
+  box-shadow: 0 4px 10px rgba(200, 162, 86, 0.15);
+}
+.wiz-story-card-clickable:focus-visible {
+  outline: 2px solid #C8A256;
+  outline-offset: 3px;
+}
+/* "Click to open" hint on hover */
+.wiz-story-card-clickable::after {
+  content: "↗ Click to open";
+  position: absolute;
+  bottom: 8px;
+  right: 12px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #C8A256;
+  background: rgba(200, 162, 86, 0.1);
+  padding: 3px 8px;
+  border-radius: 99px;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+}
+.wiz-story-card-clickable:hover::after { opacity: 1; }
+
+/* "Save this key" warning notice — appears between the 3-card story
+   and the input row in each provider panel. */
+.wiz-prov-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.08) 0%, rgba(200, 162, 86, 0.06) 100%);
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  border-radius: 12px;
+  padding: 14px 18px;
+  margin: 16px 0 14px;
+  font-size: 13px;
+  color: #4a3a1a;
+  line-height: 1.5;
+}
+.wiz-prov-notice-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+.wiz-prov-notice strong { color: #1A1612; font-weight: 700; }
 .wiz-story-num {
   position: absolute;
   top: -12px;
@@ -3780,7 +3839,7 @@ html, body {
   min-height: 140px;
   background: #fff;
 }
-.wiz-msg-them { display: flex; align-items: flex-end; gap: 8px; }
+.wiz-msg-them { display: flex; align-items: flex-end; gap: 8px; margin-bottom: 8px; }
 .wiz-msg-bubble {
   background: #F4EFE0;
   padding: 9px 12px;
@@ -3790,6 +3849,34 @@ html, body {
   max-width: 70%;
 }
 .wiz-msg-time { font-size: 11px; color: #A09890; }
+
+/* "You" sent reply — right-aligned, gold-tinted, mirror corner radius.
+   Inserted by the wizard's mock send button when the user dictates +
+   sends a test message during step 4 (Try It). */
+.wiz-msg-you {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-bottom: 8px;
+  margin-top: 10px;
+  animation: wiz-msg-fade-in 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.wiz-msg-you .wiz-msg-bubble {
+  background: linear-gradient(135deg, #D4B06A 0%, #C8A256 100%);
+  color: #1A1612;
+  border-radius: 14px 14px 4px 14px;
+  font-weight: 500;
+  box-shadow: 0 2px 8px rgba(200, 162, 86, 0.25);
+  order: 2;
+}
+.wiz-msg-you .wiz-msg-time {
+  order: 1;
+}
+@keyframes wiz-msg-fade-in {
+  0% { opacity: 0; transform: translateY(8px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
 .wiz-mockapp-input {
   display: flex;
   align-items: center;
@@ -4514,18 +4601,28 @@ body[data-theme="dark"] {
   fill: #1A1612;
 }
 
-/* ── "TRY SAYING" label: louder, bolder, more visible ── */
+/* ── "TRY SAYING" label: bigger CTA-style chip (v3.14.25) ── */
 .wiz-suggest-label {
-  font-size: 11px !important;
+  font-size: 14px !important;
   font-weight: 800 !important;
-  color: #C8A256 !important;
+  color: #1A1612 !important;
   text-transform: uppercase !important;
-  letter-spacing: 0.14em !important;
+  letter-spacing: 0.12em !important;
+  display: inline-flex !important;
+  align-items: center;
+  gap: 6px;
+  background: linear-gradient(135deg, #FFE9C8 0%, #FFD79B 100%) !important;
+  padding: 8px 16px !important;
+  border-radius: 99px !important;
+  margin-bottom: 12px !important;
+  box-shadow: 0 2px 8px rgba(200, 162, 86, 0.25);
+  border: 1px solid rgba(200, 162, 86, 0.4);
+}
+.wiz-suggest-label::before {
+  content: "🗣️";
+  font-size: 16px;
   display: inline-block;
-  background: rgba(200, 162, 86, 0.14);
-  padding: 4px 9px;
-  border-radius: 6px;
-  margin-bottom: 8px;
+  filter: saturate(1.2);
 }
 .wiz-suggest-text {
   font-weight: 500 !important;

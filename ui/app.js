@@ -2379,24 +2379,53 @@ async function wizInitTryItStep() {
     if (ph) ph.innerHTML = 'Press <kbd>' + info.hotkey + '</kbd> and speak...';
   } catch(e) {}
 
-  // Attach event listener to mock send button
+  // v3.14.25 — Mock send button now actually moves the dictated text
+  // into the chat thread as a sent user-reply bubble. Previously it just
+  // showed a toast and cleared the input. This way the user sees the
+  // full loop: dictate → text in input → tap send → message appears as
+  // their reply in the conversation. Reinforces what the app will do
+  // for real in their actual messaging apps.
   const sendBtn = document.getElementById('wizMockSendBtn');
   if (sendBtn) {
     sendBtn.onclick = function() {
       const mockText = document.getElementById('wizMockText');
-      if (mockText && mockText.textContent.trim()) {
-        showToast('✨ Pushed to app!', 'success');
-        // Reset the mock input after "sending"
-        setTimeout(() => {
-          mockText.textContent = '';
-          sendBtn.disabled = true;
-          const placeholder = document.getElementById('wizMockPlaceholder');
-          if (placeholder) {
-            placeholder.style.display = 'inline';
-            placeholder.innerHTML = 'Try again or continue...';
-          }
-        }, 800);
-      }
+      const thread = document.querySelector('.wiz-mockapp-thread');
+      const placeholder = document.getElementById('wizMockPlaceholder');
+      if (!mockText || !thread) return;
+
+      const text = mockText.textContent.trim();
+      if (!text) return;
+
+      // Build a "you" reply bubble. Right-aligned, gold-tinted to match
+      // sent messages on iMessage / WhatsApp.
+      const sentMsg = document.createElement('div');
+      sentMsg.className = 'wiz-msg wiz-msg-you';
+      const bubble = document.createElement('span');
+      bubble.className = 'wiz-msg-bubble';
+      bubble.textContent = text;
+      const time = document.createElement('span');
+      time.className = 'wiz-msg-time';
+      const now = new Date();
+      const hours = now.getHours().toString().padStart(2, '0');
+      const minutes = now.getMinutes().toString().padStart(2, '0');
+      time.textContent = `${hours}:${minutes}`;
+      sentMsg.appendChild(bubble);
+      sentMsg.appendChild(time);
+      thread.appendChild(sentMsg);
+      // Scroll the new bubble into view inside the thread
+      sentMsg.scrollIntoView({ behavior: 'smooth', block: 'end' });
+
+      showToast('✨ Sent! That\'s how dictation works in any app.', 'success');
+
+      // Reset the mock input for another go
+      setTimeout(() => {
+        mockText.textContent = '';
+        sendBtn.disabled = true;
+        if (placeholder) {
+          placeholder.style.display = 'inline';
+          placeholder.innerHTML = 'Try another one — hold the hotkey and speak…';
+        }
+      }, 500);
     };
   }
 

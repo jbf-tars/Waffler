@@ -4,6 +4,15 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.25] - 2026-05-14
+
+### Changed
+- **Wizard Step 3 — "Open the link" card is now a clickable target.** All three provider panels (Groq, Cerebras, OpenAI) had a card 1 illustration captioned "It opens straight to the API Keys page" — but the card was decorative; you had to find the small link in the help text below to actually open the page. The whole card 1 is now a tap target: cursor-pointer, hover lift, focus ring, and a "↗ Click to open" chip that fades in on hover. Clicking opens the provider's API-keys page via `pywebview.api.open_url` (or `window.open` as a fallback when previewing in a browser).
+- **Wizard Step 3 — OpenAI now has the same animated three-step walkthrough as Groq and Cerebras.** Previously OpenAI was the only provider without the mock-browser walkthrough. Added the full structure with OpenAI's brand colours (dark theme, green `#10A37F` accent), `platform.openai.com/api-keys` URL bar, proper sidebar items (Playground / Assistants / Fine-tuning / **API Keys** / Usage), `+ Create new key` button matching their actual UI, and an `sk-proj-…` key prefix in the reveal modal.
+- **Wizard Step 3 — added "Save this key somewhere safe" notice.** Every provider panel now has a gold-amber banner between the walkthrough and the paste input: 🔐 *"Save this key somewhere safe. Groq/Cerebras/OpenAI only shows it once — keep it in a password manager so you don't have to regenerate it later."*
+- **Wizard Step 4 — "TRY SAYING" label is now a proper CTA chip.** Was a small 11px uppercase label; now it's a 14px gold-pill with a 🗣️ glyph, generous padding, soft drop-shadow, and a rounded-pill border. Stands out as an actionable prompt instead of decorative text.
+- **Wizard Step 4 — send button now actually sends the dictated message.** Previously pressing the ▶ button just showed a "Pushed to app!" toast and cleared the input. Now the dictated text actually appears as a sent reply bubble (right-aligned, gold-gradient, mirror corner-radius — proper iMessage-style) inside the conversation thread with Alex. The user sees the whole loop: dictate → text in input → tap send → message lands in the chat. Reinforces what the app will do for real in their actual messaging apps once setup is done.
+
 ## [3.14.24] - 2026-05-14
 
 ### Fixed
