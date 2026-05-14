@@ -891,13 +891,41 @@ function formatTime(ts) {
 }
 
 // ── Toast ───────────────────────────────────────────────────────────────
-function showToast(msg, type) {
+// v3.14.28 — hover-to-keep. The toast still auto-dismisses on a timer,
+// but if the user is hovering over it the timer pauses. This way a
+// slow reader (or someone reaching for the mouse to click an action
+// inside the toast) doesn't get robbed of the message half-way through.
+let _toastHoverBound = false;
+let _toastTimeoutMs = 2500;
+
+function showToast(msg, type, ms) {
   clearTimeout(toastTimer);
   $toast.textContent = msg;
   $toast.className = `toast visible ${type || ''}`;
-  toastTimer = setTimeout(() => {
-    $toast.classList.remove('visible');
-  }, 2500);
+  _toastTimeoutMs = (typeof ms === 'number' && ms > 0) ? ms : 2500;
+  toastTimer = setTimeout(dismissToast, _toastTimeoutMs);
+
+  // Bind hover behaviour once; same listener is reused for every toast.
+  if (!_toastHoverBound) {
+    _toastHoverBound = true;
+    $toast.addEventListener('mouseenter', () => {
+      clearTimeout(toastTimer);
+    });
+    $toast.addEventListener('mouseleave', () => {
+      // Resume the dismiss timer when the cursor leaves. Use a shorter
+      // window than the initial — the user has already read it.
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(dismissToast, 1200);
+    });
+    // Clicking the toast dismisses it immediately (in case the user
+    // wants to keep going without waiting for the timer).
+    $toast.addEventListener('click', dismissToast);
+  }
+}
+
+function dismissToast() {
+  clearTimeout(toastTimer);
+  $toast.classList.remove('visible');
 }
 
 // ── Audio Device Selector ─────────────────────────────────────────────
@@ -1236,6 +1264,46 @@ async function loadSettings() {
 }
 
 // ── Settings Save ────────────────────────────────────────────────────────
+// v3.14.28 — after any API-key save, show a persistent restart banner.
+// User reported that Cerebras keys weren't being picked up by the running
+// styler instance until a restart, so the silent "saved" toast left them
+// thinking nothing happened. The banner is loud, sticky (no auto-dismiss),
+// and has a single "Restart now" CTA that relaunches the app.
+
+function showRestartBanner(reason) {
+  let banner = document.getElementById('restartRequiredBanner');
+  if (banner) banner.remove();
+  banner = document.createElement('div');
+  banner.id = 'restartRequiredBanner';
+  banner.className = 'restart-required-banner';
+  banner.innerHTML = `
+    <div class="restart-required-icon">🔄</div>
+    <div class="restart-required-text">
+      <strong>Restart required</strong>
+      <span>${reason || 'Your changes need a fresh app start to take effect.'}</span>
+    </div>
+    <button class="restart-required-btn" id="restartRequiredBtn">Restart now</button>
+    <button class="restart-required-dismiss" id="restartRequiredDismiss" title="Dismiss">✕</button>
+  `;
+  // Mount at the top of the currently visible panel so it's never missed.
+  const host = document.querySelector('.settings-panel:not([style*="display: none"])')
+            || document.querySelector('.settings-panel')
+            || document.body;
+  host.prepend(banner);
+  document.getElementById('restartRequiredBtn').onclick = async () => {
+    try {
+      if (window.pywebview?.api?.restart_app) {
+        await pywebview.api.restart_app();
+      } else {
+        showToast('Restart Waffler manually to apply changes', 'info');
+      }
+    } catch (_e) {
+      showToast('Couldn\'t auto-restart — please quit and reopen Waffler', 'error');
+    }
+  };
+  document.getElementById('restartRequiredDismiss').onclick = () => banner.remove();
+}
+
 async function saveGroqKey() {
   const inp = document.getElementById('groqKeyInput');
   if (!inp) return;
@@ -1246,7 +1314,8 @@ async function saveGroqKey() {
     const r = await pywebview.api.save_settings({ groq_key: val });
     if (r.ok) {
       inp.value = '';
-      showToast('Groq key saved — restart for speed boost', 'success');
+      showToast('Groq key saved', 'success');
+      showRestartBanner('Restart Waffler to start using the new Groq key.');
       await loadSettings();
     } else {
       showToast('Error: ' + r.error, 'error');
@@ -1266,7 +1335,8 @@ async function saveCerebrasKey() {
     const r = await pywebview.api.validate_cerebras_key(val);
     if (r.ok) {
       inp.value = '';
-      showToast(r.message || 'Cerebras key saved — restart for speed boost', 'success');
+      showToast(r.message || 'Cerebras key saved', 'success');
+      showRestartBanner('Restart Waffler to start using the new Cerebras key.');
       await loadSettings();
     } else {
       showToast('Error: ' + (r.error || 'invalid'), 'error');
@@ -1291,7 +1361,8 @@ async function saveApiKey() {
         statusEl.textContent = 'Key saved and active';
         statusEl.className = 'api-key-status ok';
       }
-      showToast('API key saved', 'success');
+      showToast('OpenAI key saved', 'success');
+      showRestartBanner('Restart Waffler to start using the new OpenAI key.');
     } else {
       showToast('Error: ' + r.error, 'error');
     }

@@ -4,6 +4,20 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.28] - 2026-05-14
+
+### Added
+- **"Taking longer than usual" overlay toast.** If transcription takes >10 s or styling takes >15 s, a one-shot toast fires telling the user the provider may be slow and suggesting they add a fallback key in Settings → API Keys. Fires exactly once per dictation. The thresholds are tuned so they only trigger on genuine provider slowness — most dictations complete well under both.
+- **"Restart now" banner after saving an API key.** When the user pastes a key into Settings (Groq / Cerebras / OpenAI) and hits Save, a sticky banner now appears at the top of the page with a clear "Restart now" CTA. The styler's client objects are constructed once at pipeline init and don't re-read keys live — so a fresh Cerebras key wasn't taking over fallback duties until the user manually quit and reopened. The new banner is loud, non-auto-dismissing, and clicking "Restart now" cleanly relaunches the app via a new `restart_app()` API endpoint (uses `open -n` on macOS to spawn a fresh `.app` instance; re-execs `sys.executable` on Windows).
+- **Wizard reliability nudge in step 3.** Below the existing "Waffler tries them in order" intro, a soft amber-bordered tip card now reads: *"💡 Add more than one for reliability. If a provider hits a rate limit or has a slow day, Waffler will fall back to the next one automatically. You can always add more keys later from Settings."* Sets the right expectation without blocking advancement on a single key.
+
+### Changed
+- **Rate-limit toast wording shortened.** Was 3+ sentences (~140 chars body) which overflowed the toast and was hard to read in a flash. New version is one sentence: heading names the provider + when it resets ("Groq daily token limit hit · resets in about 3h"), body says "Pasted raw — Add a Cerebras key for fallback." Two ideas, fast to parse, still actionable.
+- **In-app toasts now stay visible on hover.** Hovering over a toast pauses the auto-dismiss timer; the cursor leaving restarts a shorter 1.2 s timer. Clicking the toast dismisses it immediately. Stops users losing important messages mid-read while reaching for the mouse.
+
+### Reverted
+- **The v3.14.26 "Fn on Mac Mini" misfire**, dropped in v3.14.27.
+
 ## [3.14.27] - 2026-05-14
 
 ### Fixed

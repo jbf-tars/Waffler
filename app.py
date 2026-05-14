@@ -1641,6 +1641,57 @@ class Api:
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
+    def restart_app(self) -> dict:
+        """Quit and relaunch Waffler.
+
+        Used after settings changes that require a fresh process to
+        pick up — most notably API key changes, since the styler's
+        client objects (OpenAI / Groq / Cerebras) are constructed once
+        at pipeline init and don't re-read the keys on the fly. Without
+        a restart the user saves a new Cerebras key, expects it to take
+        over fallback duties, and is confused when Groq is still being
+        called with the old key.
+
+        Strategy per platform:
+          - **macOS** — walk up from `sys.executable` to find the .app
+            bundle, then `open -n` (new instance) on it. Launch Services
+            handles single-instance serialisation so the old process can
+            quit cleanly.
+          - **Windows** — re-spawn `sys.executable` directly. The Windows
+            installer puts Waffler.exe at the same path we're running
+            from, and there's no instance management overhead.
+        """
+        import subprocess
+        import sys
+        try:
+            if _platform.system() == "Darwin":
+                from pathlib import Path
+                p = Path(sys.executable)
+                # Walk up to the .app bundle: typically
+                # /Applications/Waffler.app/Contents/MacOS/Waffler
+                for _ in range(5):
+                    if p.suffix == ".app":
+                        break
+                    p = p.parent
+                if p.suffix == ".app":
+                    subprocess.Popen(["/usr/bin/open", "-n", str(p)])
+                else:
+                    # Source-run fallback: just re-exec ourselves.
+                    subprocess.Popen([sys.executable] + sys.argv)
+            else:  # Windows / Linux
+                subprocess.Popen([sys.executable] + sys.argv[1:])
+
+            # Brief delay so the new instance is up before we exit.
+            def _quit_after():
+                import time
+                time.sleep(0.6)
+                os._exit(0)
+            threading.Thread(target=_quit_after, daemon=True).start()
+            return {"ok": True}
+        except Exception as e:
+            _log_to_file(f"restart_app error: {e}")
+            return {"ok": False, "error": str(e)}
+
     # ── Permission Checking API ────────────────────────────────────────
 
     def check_accessibility_permission(self) -> bool:
@@ -2349,8 +2400,17 @@ class WafflerPipeline:
             # Show "Transcribing…" progress on the overlay so the user sees
             # the app is working. Run a ticker thread that bumps the elapsed
             # seconds counter every 500ms while transcription runs.
+            #
+            # v3.14.28 — also fires a one-shot "taking longer than usual"
+            # toast once transcription crosses 10 seconds. Most dictations
+            # complete in well under 2s; 10s means something is wrong
+            # upstream (provider throttling, slow network, free tier
+            # congestion). The toast nudges the user toward adding a
+            # fallback key without blaming Waffler. Fires exactly once.
             _stage_start = time.time()
             _stage_stop = threading.Event()
+            _slow_toast_fired = [False]  # list-wrapped so closure can mutate
+
             def _ticker_transcribe():
                 while not _stage_stop.is_set():
                     elapsed = time.time() - _stage_start
@@ -2358,6 +2418,16 @@ class WafflerPipeline:
                         self.overlay.set_progress("Transcribing", elapsed)
                     except Exception:
                         pass
+                    if elapsed >= 10 and not _slow_toast_fired[0]:
+                        _slow_toast_fired[0] = True
+                        try:
+                            self.overlay.show_toast(
+                                style="warn",
+                                heading="Taking longer than usual",
+                                body="Provider may be slow. Add a fallback key in Settings for reliability.",
+                            )
+                        except Exception:
+                            pass
                     _stage_stop.wait(0.5)
             threading.Thread(target=_ticker_transcribe, daemon=True, name="ProgressTranscribe").start()
 
@@ -2401,6 +2471,7 @@ class WafflerPipeline:
             # dictations (15-25s on full gpt-4.1 for 400+ word inputs).
             _style_start = time.time()
             _style_stop = threading.Event()
+            _slow_style_toast_fired = [False]
             def _ticker_style():
                 while not _style_stop.is_set():
                     elapsed = time.time() - _style_start
@@ -2408,6 +2479,21 @@ class WafflerPipeline:
                         self.overlay.set_progress("Styling", elapsed)
                     except Exception:
                         pass
+                    # v3.14.28 — same slow-operation guard for styling.
+                    # Threshold is 15s here (vs 10 for transcription) because
+                    # styling legitimately takes 15-25s on full gpt-4.1 for
+                    # 400+ word inputs. 15s is a "this is slow even for
+                    # styling" threshold.
+                    if elapsed >= 15 and not _slow_style_toast_fired[0]:
+                        _slow_style_toast_fired[0] = True
+                        try:
+                            self.overlay.show_toast(
+                                style="warn",
+                                heading="Taking longer than usual",
+                                body="Provider may be slow. Add a fallback key in Settings for reliability.",
+                            )
+                        except Exception:
+                            pass
                     _style_stop.wait(0.5)
             threading.Thread(target=_ticker_style, daemon=True, name="ProgressStyle").start()
 
@@ -2509,24 +2595,24 @@ class WafflerPipeline:
                     else:
                         wait_hint = "resets shortly"
 
-                    # Build the actionable advice. Tell the user exactly
-                    # what to do next — add a fallback key — and what the
-                    # alternative is (wait for the reset).
+                    # v3.14.28 — concise version. Previously the body was
+                    # 3+ sentences (~140 chars) which overflowed the toast
+                    # and was hard to read in a flash. New version: one
+                    # sentence, two pieces of info — what happened + what
+                    # to do. Heading still names the provider + reset time.
                     other_providers = [
-                        p for p in ("Groq", "Cerebras", "OpenAI")
+                        p for p in ("Cerebras", "OpenAI")
                         if p != provider_name
                     ]
                     fallback_hint = (
-                        f"Add a {' or '.join(other_providers)} key in Settings → API Keys as a fallback"
+                        f"Add a {other_providers[0]} key for fallback."
                         if other_providers else
-                        "Add another provider's key in Settings as a fallback"
+                        "Add a fallback key in Settings."
                     )
 
-                    heading = f"{provider_name} {friendly} hit"
+                    heading = f"{provider_name} limit hit · {wait_hint}"
                     body = (
-                        f"Pasted raw text — styling skipped because "
-                        f"{provider_name}'s {friendly} {wait_hint}. "
-                        f"{fallback_hint}, or wait for the limit to reset."
+                        f"Pasted raw — {fallback_hint}"
                     )
 
                 elif "CONNECTION" in reason or "timeout" in reason.lower():

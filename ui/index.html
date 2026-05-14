@@ -652,6 +652,16 @@
     <!-- ─────────────── STEP 3: API Keys (tabbed) ─────────────── -->
     <div class="wiz-step-content" id="wizContent3" style="display:none">
       <p class="wiz-section-intro">One key is enough to get started. Waffler tries them in order: <strong>Groq → Cerebras → OpenAI</strong>.</p>
+      <!-- v3.14.28 — explicit reliability nudge. Most users grab just
+           Groq's free key, then get a "rate limit" toast on a heavy day
+           with no backup. Calling out the fallback story up-front saves
+           them that frustration without forcing them to add multiple
+           keys now — the wizard still advances with any single key. -->
+      <p class="wiz-section-tip">
+        <span class="wiz-section-tip-icon">💡</span>
+        <strong>Add more than one for reliability.</strong>
+        If a provider hits a rate limit or has a slow day, Waffler will fall back to the next one automatically. You can always add more keys later from Settings.
+      </p>
 
       <a href="#" onclick="pywebview.api.open_url('https://wafflerai.com/api-key-guide'); return false;" class="wiz-key-guide-link">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3M12 17h.01"/></svg>
