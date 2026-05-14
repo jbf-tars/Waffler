@@ -29,10 +29,3 @@ rumps>=0.4.0
 pyobjc-core>=9.0
 pyobjc-framework-Cocoa>=9.0
 pyobjc-framework-Quartz>=9.0
-# v3.14.32 — for the proper mic TCC check at startup via
-# AVCaptureDevice.authorizationStatusForMediaType_(AVMediaTypeAudio).
-# v3.14.31 added AVFoundation to PyInstaller hiddenimports but the
-# package wasn't actually installed in the build venv, so the import
-# failed at startup and the [mic-tcc] diagnostic line never reached
-# the log. Adding the requirement fixes that.
-pyobjc-framework-AVFoundation>=9.0

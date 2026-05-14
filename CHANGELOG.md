@@ -4,12 +4,6 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [3.14.32] - 2026-05-14
-
-### Fixed
-- **Fn hold-quiet release timer — eliminates the OS-oscillation duplicates v3.14.31's debounce missed (macOS).** The 18:07 reproduction on a Mac Mini showed macOS firing flagsChanged events that genuinely toggle the Fn bit (`0x800100` ↔ `0x100`) at 60–250 ms intervals during a single physical hold — far slower than v3.14.31's 40 ms debounce could catch, so one Fn tap still produced ~14 spurious recordings. v3.14.31's debounce was the wrong instrument: chatter isn't sub-millisecond noise here, it's the OS itself oscillating its modifier-state model. v3.14.32 swaps the strategy: when Fn=0 arrives, don't fire release; start a 250 ms hold-quiet timer. If Fn=1 returns inside the window the timer is canceled (we know the user is still physically holding because the OS will assert again within a few hundred ms of any oscillation). Only when 250 ms passes undisturbed does the real release fire. The leading-edge 60 ms debounce stays as defense-in-depth.
-- **`AVFoundation` mic-tcc check actually works now.** v3.14.31 added the import + the PyInstaller `hiddenimports` entry but the `pyobjc-framework-AVFoundation` wheel wasn't in `requirements.txt`, so the venv didn't have it and the import failed at startup. Added the requirement; the `[mic-tcc] AVCaptureDevice mic status: …` line should now actually land in `app.log`.
-
 ## [3.14.31] - 2026-05-14
 
 ### Fixed
