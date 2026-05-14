@@ -4,6 +4,11 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.29] - 2026-05-14
+
+### Changed
+- **Wizard hotkey keycaps are now black-on-cream.** The big "Fn" / "Ctrl+Win" keycap in step 2 and the mini chips inside the "Hold to record" / "Sticky mode" instruction tiles were all white-on-cream — they faded into the wizard background. Switched both to a dark `#1A1612 → #2C2520` raised pill with `#FFFCF2` text so they read as real physical keys. Pressed state still flips to brand-gold so visual feedback during a real key press is unchanged.
+
 ## [3.14.28] - 2026-05-14
 
 ### Added

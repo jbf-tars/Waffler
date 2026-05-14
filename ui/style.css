@@ -3220,16 +3220,21 @@ html, body {
   gap: 14px;
 }
 .wiz-keycap-combo { display: flex; align-items: center; gap: 12px; }
+/* v3.14.29 — big hotkey keycap (Fn / Ctrl+Win in step 2) is now a black
+   raised pill instead of white-on-cream. Stands out clearly against
+   the cream wizard background and matches the new dark button palette
+   from v3.14.27. Pressed state flips to brand-gold so the visual still
+   shifts when the user holds the hotkey. */
 .wiz-keycap-large {
   width: 88px;
   height: 88px;
   border-radius: 14px;
-  background: linear-gradient(180deg, #FFFFFF 0%, #F4F2EC 55%, #E5E2DA 100%);
-  border: 1px solid rgba(0, 0, 0, 0.18);
+  background: linear-gradient(180deg, #2C2520 0%, #1A1612 55%, #0F0B07 100%);
+  border: 1px solid #1A1612;
   box-shadow:
-    0 4px 0 0 rgba(0, 0, 0, 0.12),
-    0 6px 14px rgba(0, 0, 0, 0.16),
-    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+    0 4px 0 0 rgba(0, 0, 0, 0.18),
+    0 6px 14px rgba(0, 0, 0, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -3240,22 +3245,23 @@ html, body {
 .wiz-keycap-large.pressed {
   animation: none;
   transform: translateY(3px);
-  box-shadow: 0 1px 0 0 rgba(0,0,0,0.12), 0 2px 6px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.5);
+  box-shadow: 0 1px 0 0 rgba(0,0,0,0.18), 0 2px 6px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.4);
   background: linear-gradient(180deg, #D4B06A 0%, #C8A256 100%);
+  border-color: #8a6a26;
 }
 @keyframes wiz-keycap-bob {
   0%, 100% { transform: translateY(0); }
-  50%      { transform: translateY(-4px); box-shadow: 0 8px 0 0 rgba(0,0,0,0.12), 0 10px 20px rgba(0,0,0,0.16), inset 0 1px 0 rgba(255,255,255,0.95); }
+  50%      { transform: translateY(-4px); box-shadow: 0 8px 0 0 rgba(0,0,0,0.18), 0 10px 20px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.08); }
 }
-.wiz-keycap-large svg { width: 26px; height: 26px; }
+.wiz-keycap-large svg { width: 26px; height: 26px; color: #FFFCF2; }
 .wiz-keycap-label-large {
   font-family: -apple-system, "SF Pro Text", sans-serif;
   font-size: 22px;
   font-weight: 700;
-  color: #1A1A1A;
+  color: #FFFCF2;
   line-height: 1;
 }
-.wiz-keycap-plus { font-size: 26px; color: #6B6560; font-weight: 300; }
+.wiz-keycap-plus { font-size: 26px; color: #1A1612; font-weight: 600; }
 
 .wiz-listening {
   display: inline-flex;
@@ -3754,20 +3760,24 @@ html, body {
   align-items: center;
   gap: 4px;
 }
+/* v3.14.29 — mini keycap chips inside "Hold to record" / "Sticky mode"
+   instruction tiles are now black-on-white-text, matching the big
+   keycap. Everything-cream-on-cream blended in; the black mini chips
+   create a clear visual rhythm. */
 .wiz-keycap-mini {
-  background: linear-gradient(180deg, #FFFFFF 0%, #F4F2EC 100%);
-  border: 1px solid rgba(0, 0, 0, 0.15);
-  box-shadow: 0 2px 0 rgba(0,0,0,0.1), 0 3px 6px rgba(0,0,0,0.08);
+  background: linear-gradient(180deg, #2C2520 0%, #1A1612 100%);
+  border: 1px solid #1A1612;
+  box-shadow: 0 2px 0 rgba(0,0,0,0.12), 0 3px 6px rgba(0,0,0,0.1);
   border-radius: 6px;
   padding: 5px 9px;
   font-family: -apple-system, sans-serif;
   font-weight: 600;
-  color: #1A1A1A;
+  color: #FFFCF2;
   font-size: 12px;
   min-width: 30px;
   text-align: center;
 }
-.wiz-keycap-plus-mini { color: #6B6560; font-size: 13px; }
+.wiz-keycap-plus-mini { color: #1A1612; font-size: 13px; font-weight: 600; }
 .wiz-hint-label { font-weight: 700; color: #1A1A1A; font-size: 14px; }
 .wiz-hint-detail { font-size: 12px; color: #6B6560; margin-top: 2px; }
 
