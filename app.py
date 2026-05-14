@@ -3107,7 +3107,18 @@ def main():
 
     # Load config (reads .env from project root via dotenv)
     os.chdir(PROJECT_ROOT)  # so config.yaml and .env are found
-    _log_to_file(f"=== Waffler starting === (PROJECT_ROOT={PROJECT_ROOT})")
+    # v3.14.30 — stamp the running version into the banner so every
+    # "is this the right build?" question becomes a 1-second grep
+    # against app.log instead of a separate `grep __version__` against
+    # the installed bundle.
+    try:
+        from src import __version__ as _waffler_version
+    except Exception:
+        _waffler_version = "unknown"
+    _log_to_file(
+        f"=== Waffler starting === (v{_waffler_version}, "
+        f"PROJECT_ROOT={PROJECT_ROOT})"
+    )
 
     # Pre-warm Python's SSL stack on the MAIN thread to prevent a
     # PyInstaller-related crash on Windows. The OpenAI / Groq / Cerebras
