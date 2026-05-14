@@ -50,14 +50,31 @@ import threading
 import time
 from typing import Callable, List, Optional
 
-# v3.14.31 — minimum interval between FnHandler state transitions.
-# Real Fn presses last 80–300 ms; phantom flag flicker (hardware
-# chatter / external keyboard / OS-level event reposting) happens in
-# under 5 ms. A 40 ms floor accepts every plausible human press while
-# rejecting the spurious "press immediately followed by release" pairs
-# that produced the 17:45 chaos (three full Recording-cycle pairs from
-# one physical Fn tap).
-_FN_DEBOUNCE_S = 0.04
+# v3.14.31 — leading-edge debounce. Real Fn taps last 80 ms or longer;
+# anything below this threshold is hardware/OS chatter. Used as
+# defense-in-depth alongside the v3.14.33 trailing-edge hold-quiet timer.
+# Bumped from 40 ms (v3.14.31) to 60 ms because the chatter the user saw
+# at 18:07 included some sub-60-ms doubles slipping through the 40 ms gate.
+_FN_DEBOUNCE_S = 0.06
+
+# v3.14.33 — trailing-edge hold-quiet timer. The 18:07 reproduction proved
+# the chatter isn't sub-millisecond hardware bounce — it's macOS firing
+# flagsChanged events that genuinely flip the Fn bit on/off at 60–250 ms
+# intervals during a single physical hold (Touch ID sensor + Globe key on
+# M-series Macs both poke modifier state). v3.14.31's leading-edge
+# debounce was the wrong instrument for that timescale.
+#
+# When the OS reports "Fn released", we don't fire on_release immediately.
+# Instead we start a hold-quiet timer for this many seconds. If Fn=1 comes
+# back inside the window the user is still physically holding (the OS just
+# oscillated); we cancel the pending release. Only if the window expires
+# undisturbed do we fire the real release.
+#
+# 0.15 s is short enough that a deliberate quick tap (~100 ms press + 150 ms
+# trailing wait = 250 ms total) still feels snappy — and the audio post-roll
+# already adds 150 ms of trailing capture so nothing is lost. Long enough to
+# absorb the worst gap seen in the 18:07 log (~250 ms peak, ~60–120 ms typical).
+_FN_RELEASE_HOLD_S = 0.15
 
 try:
     from log_util import log as _diag_log  # bundled-app path
@@ -180,11 +197,34 @@ class FnHandler:
     ) -> None:
         self._on_press = on_press
         self._on_release = on_release
+        # ``_pressed`` reflects what we've reported to user callbacks — True
+        # after on_press has been fired, False after on_release has been
+        # fired. The OS's view of the Fn flag may oscillate during a single
+        # physical hold; this field is the *reported* state, not the OS state.
         self._pressed = False
         # v3.14.31 — monotonic timestamp of last accepted state transition,
-        # used to reject phantom press/release pairs that fire too quickly
-        # to be a real human press.
-        self._last_transition: float = 0.0
+        # used by the leading-edge debounce to reject phantom press pairs.
+        # Initialised to -1.0 (well in the past on every monotonic clock)
+        # so the very first press never gets falsely rejected on systems
+        # where time.monotonic() starts from a small value.
+        self._last_transition: float = -1.0
+        # v3.14.33 — trailing-edge hold-quiet machinery.
+        #
+        # ``_pending_release`` holds the threading.Timer currently waiting
+        # for the OS to potentially re-assert Fn before we fire on_release.
+        # ``_release_ticket`` is monotonically incremented every time we
+        # schedule, cancel, or supersede a release timer. The timer's
+        # callback captures the ticket value it was scheduled with and
+        # aborts harmlessly if the ticket has moved on — this is a robust
+        # cancel-race-proof pattern: ``threading.Timer.cancel()`` only
+        # stops a timer that hasn't already entered its callback, so we
+        # can't rely on it alone.
+        self._pending_release: Optional[threading.Timer] = None
+        self._release_ticket: int = 0
+        # Locks state mutation against the race between the event-tap
+        # thread (running ``handle()``) and the Timer thread (running
+        # ``_maybe_fire_release()``).
+        self._state_lock = threading.Lock()
         # v3.14.30 diagnostic: unique id so the log can distinguish
         # multiple FnHandler instances if any are alive simultaneously.
         self._id = _next_handler_id("Fn")
@@ -201,80 +241,159 @@ class FnHandler:
 
     def _debounce_ok(self, now: float) -> bool:
         """Return True iff enough time has passed since the last accepted
-        state transition. Phantom press/release pairs from hardware
-        chatter or external keyboard quirks fire in under 5 ms; real
-        human Fn taps last 80 ms or more. ``_FN_DEBOUNCE_S = 0.04``
-        accepts every plausible human input and rejects the noise.
+        press transition. Leading-edge defense — the primary anti-chatter
+        mechanism is the trailing-edge hold-quiet timer.
         """
         return (now - self._last_transition) >= _FN_DEBOUNCE_S
 
+    def _schedule_release(self, source_flags: int) -> None:
+        """Called from inside the state lock. Start a hold-quiet timer
+        that will fire the release callback in ``_FN_RELEASE_HOLD_S``
+        seconds unless cancelled by a re-assertion in the meantime.
+        """
+        # Bump the ticket so any in-flight timer becomes stale, then
+        # capture the new value for this scheduling.
+        self._release_ticket += 1
+        ticket = self._release_ticket
+        timer = threading.Timer(
+            _FN_RELEASE_HOLD_S, self._maybe_fire_release, args=(ticket,)
+        )
+        timer.daemon = True
+        self._pending_release = timer
+        timer.start()
+        _diag_log(
+            f"[HOTKEY/{self._id}] Fn release pending "
+            f"(flagsChanged, flags=0x{source_flags:x}) — "
+            f"waiting {_FN_RELEASE_HOLD_S*1000:.0f}ms to confirm"
+        )
+
+    def _cancel_release(self, reason: str) -> None:
+        """Called from inside the state lock. Cancel any pending release
+        timer. The ticket bump ensures that even if the timer's callback
+        has already started running, it will see a stale ticket and abort.
+        """
+        self._release_ticket += 1
+        if self._pending_release is not None:
+            self._pending_release.cancel()
+            self._pending_release = None
+            _diag_log(
+                f"[HOTKEY/{self._id}] Fn release CANCELLED ({reason}) — "
+                f"still held, no release fired"
+            )
+
+    def _maybe_fire_release(self, my_ticket: int) -> None:
+        """Timer callback. Runs on a ``threading.Timer`` thread.
+        Acquires the state lock, validates the ticket, and fires the
+        release callback if it hasn't been superseded.
+
+        Note: we deliberately do *not* touch ``_last_transition`` here.
+        The debounce gate is press-to-press: a real user re-press 300 ms
+        after the previous press event should be accepted even though the
+        release was only confirmed 150 ms ago.
+        """
+        with self._state_lock:
+            if my_ticket != self._release_ticket:
+                # Superseded by a cancel or a new scheduling — no-op.
+                return
+            if not self._pressed:
+                # Already released somehow (defensive — shouldn't happen).
+                self._pending_release = None
+                return
+            self._pressed = False
+            self._pending_release = None
+        _diag_log(
+            f"[HOTKEY/{self._id}] Fn release CONFIRMED "
+            f"(hold-quiet {_FN_RELEASE_HOLD_S*1000:.0f}ms elapsed)"
+        )
+        _fire(self._on_release)
+
     def handle(self, event_type, event) -> bool:
-        # Laptop Fn — comes through as a modifier flag change
+        # Laptop Fn — comes through as a modifier flag change.
+        # Uses the v3.14.33 hold-quiet machinery to absorb the
+        # 60–250 ms OS oscillation documented in the 18:07 log.
         if event_type == kCGEventFlagsChanged:
             flags = CGEventGetFlags(event)
             is_pressed = bool(flags & _FN_FLAG)
             now = time.monotonic()
+            fire_press = False
 
-            if is_pressed and not self._pressed:
-                if not self._debounce_ok(now):
-                    # Phantom press within the debounce window. Skip it
-                    # but still suppress (we never want Fn-flag changes
-                    # to reach the OS).
-                    _diag_log(
-                        f"[HOTKEY/{self._id}] Fn press REJECTED (debounce: "
-                        f"{(now - self._last_transition)*1000:.1f}ms < "
-                        f"{_FN_DEBOUNCE_S*1000:.0f}ms)"
-                    )
-                    return True
-                self._pressed = True
-                self._last_transition = now
-                _diag_log(
-                    f"[HOTKEY/{self._id}] Fn press (flagsChanged, flags=0x{flags:x}) "
-                    f"thread={threading.current_thread().name}"
-                )
-                _fire(self._on_press)
-            elif not is_pressed and self._pressed:
-                if not self._debounce_ok(now):
-                    _diag_log(
-                        f"[HOTKEY/{self._id}] Fn release REJECTED (debounce: "
-                        f"{(now - self._last_transition)*1000:.1f}ms < "
-                        f"{_FN_DEBOUNCE_S*1000:.0f}ms)"
-                    )
-                    return True
-                self._pressed = False
-                self._last_transition = now
-                _diag_log(
-                    f"[HOTKEY/{self._id}] Fn release (flagsChanged, flags=0x{flags:x}) "
-                    f"thread={threading.current_thread().name}"
-                )
-                _fire(self._on_release)
-            # Always suppress Fn-flag changes (prevents emoji picker)
-            return True
-
-        # External keyboards sometimes send Fn as F13/F14/F15 keycodes
-        if event_type in (kCGEventKeyDown, kCGEventKeyUp):
-            keycode = CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode)
-            if keycode in _EXT_FN_KEYCODES:
-                now = time.monotonic()
-                if event_type == kCGEventKeyDown and not self._pressed:
+            with self._state_lock:
+                if is_pressed and not self._pressed:
+                    # Leading edge: released → pressed.
                     if not self._debounce_ok(now):
+                        _diag_log(
+                            f"[HOTKEY/{self._id}] Fn press REJECTED (debounce: "
+                            f"{(now - self._last_transition)*1000:.1f}ms < "
+                            f"{_FN_DEBOUNCE_S*1000:.0f}ms)"
+                        )
                         return True
                     self._pressed = True
                     self._last_transition = now
                     _diag_log(
-                        f"[HOTKEY/{self._id}] Fn press (keyDown, keycode={keycode}) "
+                        f"[HOTKEY/{self._id}] Fn press fired "
+                        f"(flagsChanged, flags=0x{flags:x}) "
                         f"thread={threading.current_thread().name}"
                     )
+                    fire_press = True
+                elif is_pressed and self._pressed:
+                    # Re-assertion while we're already reporting "pressed".
+                    # If a release timer was running this is OS oscillation
+                    # mid-hold — cancel it, the user is still holding.
+                    if self._pending_release is not None:
+                        self._cancel_release(f"Fn re-asserted, flags=0x{flags:x}")
+                elif not is_pressed and self._pressed:
+                    # Trailing-edge candidate. Don't fire on_release yet —
+                    # start the hold-quiet timer. If a timer is already
+                    # pending, leave it alone (we'd just be re-arming the
+                    # same window).
+                    if self._pending_release is None:
+                        self._schedule_release(flags)
+                # else: not_pressed → not_pressed (no-op).
+
+            if fire_press:
+                _fire(self._on_press)
+            # Always suppress Fn-flag changes (prevents emoji picker).
+            return True
+
+        # External keyboards sometimes send Fn as F13/F14/F15 keycodes.
+        # These come through as clean keyDown/keyUp pairs (no oscillation
+        # observed in the wild), so the simpler debounce-only path is
+        # sufficient — no need for the hold-quiet timer here.
+        if event_type in (kCGEventKeyDown, kCGEventKeyUp):
+            keycode = CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode)
+            if keycode in _EXT_FN_KEYCODES:
+                now = time.monotonic()
+                fire_press = False
+                fire_release = False
+                with self._state_lock:
+                    if event_type == kCGEventKeyDown and not self._pressed:
+                        if not self._debounce_ok(now):
+                            return True
+                        self._pressed = True
+                        self._last_transition = now
+                        _diag_log(
+                            f"[HOTKEY/{self._id}] Fn press fired (keyDown, "
+                            f"keycode={keycode}) "
+                            f"thread={threading.current_thread().name}"
+                        )
+                        fire_press = True
+                    elif event_type == kCGEventKeyUp and self._pressed:
+                        if not self._debounce_ok(now):
+                            return True
+                        self._pressed = False
+                        self._last_transition = now
+                        # Cancel any pending laptop-Fn release timer too —
+                        # external Fn keyUp is authoritative.
+                        self._cancel_release(f"external Fn keyUp, keycode={keycode}")
+                        _diag_log(
+                            f"[HOTKEY/{self._id}] Fn release fired (keyUp, "
+                            f"keycode={keycode}) "
+                            f"thread={threading.current_thread().name}"
+                        )
+                        fire_release = True
+                if fire_press:
                     _fire(self._on_press)
-                elif event_type == kCGEventKeyUp and self._pressed:
-                    if not self._debounce_ok(now):
-                        return True
-                    self._pressed = False
-                    self._last_transition = now
-                    _diag_log(
-                        f"[HOTKEY/{self._id}] Fn release (keyUp, keycode={keycode}) "
-                        f"thread={threading.current_thread().name}"
-                    )
+                elif fire_release:
                     _fire(self._on_release)
                 return True
 
