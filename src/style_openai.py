@@ -357,7 +357,12 @@ Transcript: {transcript}"""
             "Clean up voice transcripts. Remove filler words (um, uh, like, yeah, you know). "
             "Preserve the speaker's exact wording. Never paraphrase or add words they didn't say. "
             "**NEVER censor profanity — keep swear words like 'fucking', 'shit', 'bloody' "
-            "exactly as the speaker said them.** Return only the cleaned text, no commentary."
+            "exactly as the speaker said them.** "
+            "**NEVER abbreviate content with filler-tail phrases like 'and many more', "
+            "'and so on', 'etc.', 'amongst others', 'to name a few'.** If the speaker listed "
+            "items, list those items verbatim. If they trailed off, output their actual "
+            "trailing fragment, not a manufactured summary. Only keep these phrases if the "
+            "speaker literally said them out loud. Return only the cleaned text, no commentary."
         )
         try:
             response = self._groq_client.chat.completions.create(
@@ -445,7 +450,12 @@ Transcript: {transcript}"""
             "Clean up voice transcripts. Remove filler words (um, uh, like, yeah, you know). "
             "Preserve the speaker's exact wording. Never paraphrase or add words they didn't say. "
             "**NEVER censor profanity — keep swear words like 'fucking', 'shit', 'bloody' "
-            "exactly as the speaker said them.** Return only the cleaned text, no commentary."
+            "exactly as the speaker said them.** "
+            "**NEVER abbreviate content with filler-tail phrases like 'and many more', "
+            "'and so on', 'etc.', 'amongst others', 'to name a few'.** If the speaker listed "
+            "items, list those items verbatim. If they trailed off, output their actual "
+            "trailing fragment, not a manufactured summary. Only keep these phrases if the "
+            "speaker literally said them out loud. Return only the cleaned text, no commentary."
         )
         try:
             response = self._cerebras_client.chat.completions.create(
@@ -531,8 +541,14 @@ Transcript: {transcript}"""
                         "fixing obvious stammers. Preserve the speaker's exact wording. "
                         "Never paraphrase or add words they didn't say. **NEVER censor "
                         "profanity — keep swear words like 'fucking', 'shit', 'bloody' "
-                        "exactly as the speaker said them.** Output ONLY the final "
-                        "cleaned text. No meta-commentary."
+                        "exactly as the speaker said them.** "
+                        "**NEVER abbreviate content with filler-tail phrases like "
+                        "'and many more', 'and so on', 'etc.', 'amongst others', 'to "
+                        "name a few'.** If the speaker listed items, list those items "
+                        "verbatim. If they trailed off, output their actual trailing "
+                        "fragment, not a manufactured summary. Only keep these phrases "
+                        "if the speaker literally said them out loud. "
+                        "Output ONLY the final cleaned text. No meta-commentary."
                     )},
                     {"role": "user", "content": prompt},
                 ],

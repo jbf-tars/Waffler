@@ -4,6 +4,11 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.38] - 2026-05-15
+
+### Fixed
+- **Styler no longer truncates long dictations with "and many more" filler.** User reported two transcripts where the model collapsed real content (a list of UI requests and a multi-feature suggestion) into the literal string "and many more" at the end — `I'd like it to and many more.` / `either that, and many more.`. Both outputs were grammatically broken because the filler was being spliced in where actual content should've gone. Root cause: the prompt's existing "NEVER drop whole sentences" rule didn't *explicitly* name the filler-tail phrases the model defaults to when it decides to abridge. Added an explicit hard-rule in `prompts/normal.txt` forbidding `"and many more"`, `"and so on"`, `"etc."`, `"etc etc"`, `"and other things"`, `"amongst others"`, `"to name a few"`, `"and the like"`, `"and similar"`, `"and others"` unless the speaker literally said those words. Mirrored the rule into the inline system message used by Groq, Cerebras, and OpenAI provider calls (higher-priority instruction-following slot). Two worked failure examples included so the model has a concrete pattern to recognise and avoid.
+
 ## [3.14.37] - 2026-05-15
 
 ### Added
