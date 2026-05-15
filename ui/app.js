@@ -182,8 +182,15 @@ async function checkForUpdates() {
       const downloadBtn = document.createElement('button');
       downloadBtn.textContent = 'Download';
       downloadBtn.addEventListener('click', () => {
-        // Always go to our own download page rather than GitHub's release UI.
-        pywebview.api.open_url('https://wafflerai.com/download/');
+        // v3.14.34 — open the same in-app download-and-install modal
+        // that Settings → About uses, instead of bouncing the user out
+        // to the website. The modal streams the installer with a
+        // progress bar and runs `install_update_and_restart` on
+        // completion, so the user never has to leave the app. Falls
+        // back to opening wafflerai.com/download/ via the modal's
+        // "Download in browser" button if the in-app fetch fails.
+        openUpdateModalFromCheck(r);
+        banner.remove();
       });
 
       const dismissBtn = document.createElement('button');

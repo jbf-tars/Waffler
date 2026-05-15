@@ -4,6 +4,16 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.34] - 2026-05-15
+
+### Changed
+- **Home-screen "Update available" banner now installs in-app instead of bouncing to the website.** The banner's `Download` button used to call `open_url('https://wafflerai.com/download/')`, sending the user out of the app to find the DMG / EXE themselves. It now opens the same in-app download-and-install modal that Settings → About already used: streams the installer with a progress bar, then runs `install_update_and_restart` on completion. The user never has to leave the app. The "Download in browser" fallback in the modal still works for cases where the in-app fetch fails.
+
+## [3.14.33] - 2026-05-14
+
+### Fixed
+- **Fn hold-quiet timer — third attempt at fixing the OS-level Fn oscillation chatter (macOS).** v3.14.31's 40 ms leading-edge debounce caught hardware bounce but not the 60–250 ms OS-level oscillation seen on M-series Macs (Touch ID + Globe key both poke modifier state). v3.14.32 took the right approach — defer `on_release` via a `threading.Timer` that cancels if Fn re-asserts inside the hold window — but was reverted. The likely culprit there was a known `threading.Timer` race: `cancel()` only stops a timer that hasn't entered its callback, so an OS Fn=1 arriving while `_fire_delayed_release` is mid-execution would silently fire `on_release` anyway. v3.14.33 fixes that with a ticket-based invalidation pattern — every schedule/cancel bumps `_release_ticket`, and the timer callback captures its ticket at schedule time and aborts harmlessly if the ticket has moved on. `cancel()` is still called best-effort to skip the wait, but correctness no longer depends on it. Hold window dropped to 150 ms (audio post-roll already adds 150 ms of trailing capture, so a deliberate quick tap stays snappy). Tests in `tests/test_fn_handler_chatter.py` include a verbatim replay of the 18:07 chatter pattern (14 OS toggles → exactly 1 `on_press` + 1 `on_release`).
+
 ## [3.14.31] - 2026-05-14
 
 ### Fixed
