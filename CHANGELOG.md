@@ -4,6 +4,15 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.37] - 2026-05-15
+
+### Added
+- **Esc is now a global cancel hotkey for active recordings.** Previously the only way to discard a recording was clicking the small X on the floating overlay — fiddly and slow, especially in sticky mode. Now pressing **Esc** at any time during a push-to-talk hold or sticky recording immediately cancels: audio is dropped, no transcription fires (saves API quota on accidental hits), no paste, clipboard is cleared, sticky state is reset. Goes through the same handler as the overlay X-button click. Esc is a no-op when no recording is in flight, so it stays available for dialogs, vim, file pickers, etc.
+- **Wizard step 2 now teaches Esc-to-cancel.** Added a fourth instruction tile alongside "Hold to record" / "Release to stop" / "Sticky mode" so users learn the shortcut up-front. Also updated the legacy sidebar hint string from `Hold to record • +Space = sticky mode` to `Hold to record • Space = sticky • Esc = cancel`.
+
+### Wired through
+- `SmartHotkeyListener` (macOS) and `WindowsHotkeyListener` both gain an optional `on_cancel` constructor parameter. The Mac event tap's existing Esc handler was repurposed from "sticky-mode-only escape hatch" to "universal cancel"; Windows' low-level keyboard hook + polling-fallback paths got new VK_ESCAPE branches that fire the cancel callback when state != IDLE. The pipeline wires `on_cancel=self._on_overlay_cancel` at both creation sites (initial start + hotkey-config restart). Wizard test-listeners (step 2 / step 4 / FnKeyMonitor) leave `on_cancel=None` so Esc behaves normally during onboarding.
+
 ## [3.14.36] - 2026-05-15
 
 ### Fixed

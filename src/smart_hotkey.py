@@ -52,16 +52,21 @@ _LISTENER_ID_GEN = itertools.count(1)
 
 class SmartHotkeyListener:
 
-    def __init__(self, on_press, on_release, keys=None):
+    def __init__(self, on_press, on_release, on_cancel=None, keys=None):
         """
         Args:
             on_press: Callback when recording should start
             on_release: Callback when recording should stop
+            on_cancel: Optional — callback when Esc is pressed mid-recording.
+                Receives no args. Used by app.py's pipeline to discard the
+                recording WITHOUT firing on_release (which would transcribe
+                + paste). Added v3.14.37 alongside Esc-cancel hotkey.
             keys: List of key names (default: ["fn"])
                  Examples: ["fn"], ["cmd", "shift", "space"], ["option", "space"]
         """
         self._on_press_cb = on_press
         self._on_release_cb = on_release
+        self._on_cancel_cb = on_cancel
         self._keys = keys or ["fn"]
 
         self._hotkey_held = False   # Hotkey currently down
@@ -192,20 +197,31 @@ class SmartHotkeyListener:
             self._fire_release()
 
     def _on_esc_press(self):
-        """Esc cancels recording in sticky mode — universal escape hatch.
+        """Esc cancels an active recording.
 
-        On Macs where macOS swallows Fn at HID level, Fn+Space cancel can be
-        finicky to end. Esc is never typed during normal dictation, so it's
-        safe as a fallback. We only fire when actively in sticky mode —
-        otherwise pressing Esc is a no-op so we don't interfere with normal
-        Esc usage in dialogs, vim, etc.
+        v3.14.37 — Esc is now the cancel hotkey: works in BOTH push-to-talk
+        hold mode and sticky mode, and discards the recording without
+        firing the normal release pipeline (no transcription, no paste).
+        When the user isn't recording, Esc is a no-op so it stays
+        available for dialogs, vim, etc.
+
+        The cancel path goes through `_fire_cancel` → the pipeline's
+        `_on_overlay_cancel`, which stops audio, hides the overlay,
+        resets sticky state, clears the clipboard, and aborts any
+        in-flight transcription thread. Same end-state as clicking the
+        X on the overlay.
         """
-        if self._recording and self._sticky:
-            print("[HOTKEY] Esc → Sticky mode OFF (universal cancel)")
-            self._sticky = False
-            self._recording = False
-            self._fire_visual_feedback("sticky_off_esc")
-            self._fire_release()
+        if not self._recording:
+            return  # No-op outside recording so Esc still works in dialogs/vim
+        _diag_log(
+            f"[HOTKEY/{self._id}] Esc → CANCEL recording "
+            f"(was sticky={self._sticky})"
+        )
+        self._sticky = False
+        self._recording = False
+        self._hotkey_held = False
+        self._fire_visual_feedback("sticky_off_esc")
+        self._fire_cancel()
 
     # ── Callbacks (run in a thread to avoid blocking the event tap) ──
 
@@ -214,6 +230,14 @@ class SmartHotkeyListener:
 
     def _fire_release(self):
         threading.Thread(target=self._on_release_cb, daemon=True).start()
+
+    def _fire_cancel(self):
+        """Esc-cancel — invoke the pipeline's cancel handler. No-op when
+        the constructor wasn't given an `on_cancel` callback (e.g. for
+        the wizard's test listeners)."""
+        if self._on_cancel_cb is None:
+            return
+        threading.Thread(target=self._on_cancel_cb, daemon=True).start()
 
     def _fire_visual_feedback(self, event_type):
         """Override in RecorderApp to push toast notifications. No-op by default."""

@@ -1149,6 +1149,7 @@ class Api:
                         _pipeline.hotkey_listener = WindowsHotkeyListener(
                             on_press=_pipeline.on_hotkey_press,
                             on_release=_pipeline.on_hotkey_release,
+                            on_cancel=_pipeline._on_overlay_cancel,  # v3.14.37 — Esc cancels
                             keys=keys,
                         )
                     elif _platform.system() == "Darwin":
@@ -1156,6 +1157,7 @@ class Api:
                         _pipeline.hotkey_listener = SmartHotkeyListener(
                             on_press=_pipeline.on_hotkey_press,
                             on_release=_pipeline.on_hotkey_release,
+                            on_cancel=_pipeline._on_overlay_cancel,  # v3.14.37 — Esc cancels
                             keys=keys,
                         )
                     _log_to_file("New hotkey listener starting...")
@@ -2870,6 +2872,7 @@ class WafflerPipeline:
                 self.hotkey_listener = WindowsHotkeyListener(
                     on_press=self.on_hotkey_press,
                     on_release=self.on_hotkey_release,
+                    on_cancel=self._on_overlay_cancel,  # v3.14.37 — Esc cancels
                     keys=keys,
                 )
             else:
@@ -2877,6 +2880,7 @@ class WafflerPipeline:
                 self.hotkey_listener = SmartHotkeyListener(
                     on_press=self.on_hotkey_press,
                     on_release=self.on_hotkey_release,
+                    on_cancel=self._on_overlay_cancel,  # v3.14.37 — Esc cancels
                     keys=keys,
                 )
             _log_to_file("Calling hotkey.start()...")

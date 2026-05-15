@@ -29,6 +29,7 @@ WM_SYSKEYDOWN  = 0x0104
 WM_SYSKEYUP    = 0x0105
 WM_QUIT        = 0x0012
 VK_SPACE       = 0x20
+VK_ESCAPE      = 0x1B  # v3.14.37 — Esc-cancel hotkey
 
 # KBDLLHOOKSTRUCT
 class KBDLLHOOKSTRUCT(ctypes.Structure):
@@ -157,9 +158,14 @@ class WindowsHotkeyListener:
     Default combo: Win+Ctrl. Users can rebind via Settings.
     """
 
-    def __init__(self, on_press, on_release, keys=None):
+    def __init__(self, on_press, on_release, on_cancel=None, keys=None):
         self._on_press   = on_press
         self._on_release = on_release
+        # v3.14.37 — Esc cancels an in-progress recording without firing
+        # on_release (which would transcribe + paste). Same pipeline as
+        # clicking X on the overlay. Optional so wizard test-listeners
+        # that don't want cancellation can just leave it as None.
+        self._on_cancel  = on_cancel
         self._state      = _State.IDLE
         self._running    = False
         self._hook       = None
@@ -268,6 +274,15 @@ class WindowsHotkeyListener:
                 if self._state == _State.PUSH_TO_TALK:
                     self._enter_sticky()
 
+            # ── Esc → cancel an active recording (v3.14.37) ──
+            # Only fires when actively recording; outside that, Esc passes
+            # through normally so dialogs / vim / file pickers still work.
+            elif vk == VK_ESCAPE and is_down and self._state != _State.IDLE:
+                _log(f"Esc → CANCEL recording (was {self._state.value})")
+                self._state = _State.IDLE
+                self._fire_cancel()
+                self._reset_key_states()  # clean stale modifier flags
+
         return user32.CallNextHookEx(self._hook, nCode, wParam, lParam)
 
     # ── State machine transitions ─────────────────────────────────────
@@ -324,6 +339,15 @@ class WindowsHotkeyListener:
         threading.Thread(target=self._safe_callback,
                          args=(self._on_release,), daemon=True).start()
 
+    def _fire_cancel(self):
+        """Esc-cancel — invoke the pipeline's cancel handler. Skipped when
+        the constructor wasn't given an `on_cancel` callback (e.g. for
+        the wizard's test listeners)."""
+        if self._on_cancel is None:
+            return
+        threading.Thread(target=self._safe_callback,
+                         args=(self._on_cancel,), daemon=True).start()
+
     @staticmethod
     def _safe_callback(fn):
         try:
@@ -355,6 +379,16 @@ class WindowsHotkeyListener:
                     for k in self._keys
                 )
                 space = _key_down(VK_SPACE)
+                esc = _key_down(VK_ESCAPE)
+
+                # v3.14.37 — Esc cancels any active recording. Same as the
+                # hook path: discards audio, no transcription, no paste.
+                if esc and self._state != _State.IDLE:
+                    _log(f"[poll] Esc → CANCEL recording (was {self._state.value})")
+                    self._state = _State.IDLE
+                    self._fire_cancel()
+                    time.sleep(0.3)  # debounce so a held Esc doesn't re-fire
+                    continue
 
                 if self._state == _State.IDLE:
                     if all_held:

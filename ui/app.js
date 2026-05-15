@@ -552,7 +552,7 @@ async function loadHotkeyConfig() {
       const sidebarBadge = document.getElementById("hotkeyHint");
       if (sidebarBadge) sidebarBadge.textContent = display;
       const hintDesc = document.getElementById("hotkeyHintDesc");
-      if (hintDesc) hintDesc.textContent = `Hold to record \u2022 +Space = sticky mode`;
+      if (hintDesc) hintDesc.textContent = `Hold to record \u2022 Space = sticky \u2022 Esc = cancel`;
       const badge = document.getElementById("hotkeyBadge");
       if (badge) badge.textContent = display;
       const emptyHint = document.getElementById("emptyHint");
@@ -2848,6 +2848,11 @@ function wizRenderHotkeyInstructions() {
       <div class="wiz-hotkey-card-keys">${stickyKeys}</div>
       <div class="wiz-hotkey-card-title">Sticky mode</div>
       <div class="wiz-hotkey-card-sub">Press Space to lock recording on. Press the hotkey again to disable.</div>
+    </div>
+    <div class="wiz-hotkey-card">
+      <div class="wiz-hotkey-card-keys"><span class="wiz-mini-kbd">Esc</span></div>
+      <div class="wiz-hotkey-card-title">Cancel</div>
+      <div class="wiz-hotkey-card-sub">Tap Esc to discard a recording without transcribing or pasting.</div>
     </div>
   `;
 }
