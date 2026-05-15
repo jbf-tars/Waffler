@@ -2205,12 +2205,35 @@ class WafflerPipeline:
             # User wants to keep recording — just hide toast
             self.overlay.hide_toast()
         elif action == "select_mic":
-            # Open mic settings
-            import subprocess as sp
+            # v3.14.35 — bring Waffler to front and open Settings, where
+            # the in-app mic picker lives. Previously this called
+            # ``start ms-settings:privacy-microphone`` which is
+            # *Windows-only* syntax — on macOS ``start`` isn't a command,
+            # ``Popen`` failed, the broad ``except`` swallowed the error,
+            # the toast hid, and the user saw nothing happen at all
+            # (then had to quit + relaunch). The new behaviour is the
+            # same on both platforms and strictly more useful: the user
+            # sees Waffler's own device dropdown so they can immediately
+            # switch to a different mic without leaving the app.
             try:
-                sp.Popen(["start", "ms-settings:privacy-microphone"], shell=True)
-            except Exception:
-                pass
+                if _window is not None:
+                    try:
+                        _window.show()
+                        # restore() only exists on some pywebview versions
+                        if hasattr(_window, "restore"):
+                            _window.restore()
+                    except Exception as e:
+                        _log_to_file(f"[select_mic] window restore failed: {e}")
+                    try:
+                        _window.evaluate_js(
+                            "if (typeof showPage === 'function') showPage('settings');"
+                        )
+                    except Exception as e:
+                        _log_to_file(f"[select_mic] navigate-to-settings failed: {e}")
+                else:
+                    _log_to_file("[select_mic] no window reference — toast button click lost")
+            except Exception as e:
+                _log_to_file(f"select_mic action failed: {e}")
             self.overlay.hide_toast()
 
     def on_hotkey_press(self):

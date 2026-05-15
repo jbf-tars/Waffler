@@ -4,6 +4,11 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.35] - 2026-05-15
+
+### Fixed
+- **"Select mic" button on the "We couldn't hear you" toast actually does something now (macOS).** The toast button click was being silently swallowed: the handler called `subprocess.Popen(["start", "ms-settings:privacy-microphone"], shell=True)` which is *Windows-only* syntax — on macOS the `start` command doesn't exist, `Popen` failed, the broad `except` swallowed the exception, the toast hid, and the user saw nothing happen at all (then had to quit + relaunch). Replaced with a platform-agnostic action that brings the Waffler window to the front and navigates to the in-app Settings page where the device dropdown lives. Strictly more useful than the old Windows-only "Open OS Privacy panel" behaviour too: users can now see exactly which mic Waffler is using and switch to a different one without leaving the app.
+
 ## [3.14.34] - 2026-05-15
 
 ### Changed
