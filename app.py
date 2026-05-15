@@ -2386,6 +2386,35 @@ class WafflerPipeline:
                 notify_js_status("idle")
                 return
 
+            # v3.14.36 — silently discard very short taps (< 0.5 s).
+            # Two failure modes this prevents:
+            #   1. Spam-Fn → 20 "We couldn't hear you" toasts stacking up
+            #   2. Spam-Fn → 20 transcription API calls → rate limit hit
+            #      almost immediately on Groq free tier (20 req/min)
+            # 0.5 s is comfortably below any deliberate dictation but well
+            # above the typical Fn-mistap duration. We still drain the
+            # audio buffer (otherwise the next press would start with
+            # stale samples) and ping the JS status back to idle, but
+            # everything downstream — stop_audio's RMS check, toast,
+            # transcription, styling, history — is skipped entirely.
+            #
+            # Note: the previous byte-count check (< 0.3 s) at this site
+            # was *dead code*: the 500 ms pre-roll buffer guarantees every
+            # recording has > 0.3 s of bytes regardless of physical
+            # press duration. The duration field is what actually tracks
+            # press-to-release time, so the check moves up here.
+            if recording_duration < 0.5:
+                _log_to_file(
+                    f"Recording too short ({recording_duration:.2f}s < 0.5s) — "
+                    f"discarding as accidental tap; no transcription, no toast"
+                )
+                try:
+                    self.audio.stop()  # drain the recording buffer
+                except Exception as _e:
+                    _log_to_file(f"audio.stop() during short-tap discard failed: {_e}")
+                notify_js_status("idle")
+                return
+
             transcript = None  # init for error handler
             _log_to_file("[pipeline] stopping audio capture...")
             audio_bytes = self.audio.stop()
@@ -2395,14 +2424,6 @@ class WafflerPipeline:
                 # Only show error toast if recording was held for > 1 second
                 if recording_duration >= 1.0:
                     threading.Thread(target=self._show_no_audio_toast, daemon=True).start()
-                notify_js_status("idle")
-                return
-
-            # Check minimum duration — < 0.3s is likely accidental (quick tap)
-            # Audio is 16kHz 16-bit mono = 32000 bytes/sec + 44 byte WAV header
-            if len(audio_bytes) < 44 + 9600:  # 0.3 seconds + header
-                _log_to_file(f"Recording too short ({len(audio_bytes)} bytes), treating as accidental tap")
-                # No error toast for quick taps - silently discard
                 notify_js_status("idle")
                 return
 

@@ -4,6 +4,11 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.36] - 2026-05-15
+
+### Fixed
+- **Fn-spam no longer stacks up "We couldn't hear you" toasts or burns transcription rate limits.** Pressing Fn 20 times in a row used to fire 20 transcription API calls (hitting Groq's 20-req/min cap almost instantly) and surface 20 toasts on screen. Root cause: the existing short-tap discard at `app.py:2403` was *dead code* — it checked `len(audio_bytes) < 44 + 9600` (i.e. < 0.3 s of bytes), but the recorder's 500 ms pre-roll buffer guarantees every recording has > 0.3 s of bytes regardless of how briefly Fn was pressed, so the check never fired. Replaced with a proper **time-based** check on `recording_duration` (press-to-release wall time): anything under 0.5 s is silently discarded — no transcription, no styling, no toast, no history entry. 0.5 s is comfortably below any deliberate dictation but well above typical Fn-mistap durations. The audio buffer is still drained so the next press starts clean.
+
 ## [3.14.35] - 2026-05-15
 
 ### Fixed
