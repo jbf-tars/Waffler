@@ -1815,6 +1815,7 @@ function wizInitApiKeyStep() {
       const val = cerebrasInp.value.trim();
       const v = document.getElementById('wizCerebrasValidation3');
       if (!val) { v.textContent = ''; v.className = 'wizard-validation'; return; }
+      if (!val.startsWith('csk-')) { v.textContent = 'Key should start with csk-'; v.className = 'wizard-validation error'; return; }
       if (val.length < 20) { v.textContent = 'Key seems too short...'; v.className = 'wizard-validation error'; return; }
       clearTimeout(_wizCerebrasTimer);
       v.textContent = 'Validating...';
@@ -1825,7 +1826,7 @@ function wizInitApiKeyStep() {
       if (e.key === 'Enter') {
         clearTimeout(_wizCerebrasTimer);
         const val = cerebrasInp.value.trim();
-        if (val.length >= 20) wizValidateCerebrasKey(val);
+        if (val.startsWith('csk-') && val.length >= 20) wizValidateCerebrasKey(val);
       }
     });
   }
@@ -1889,7 +1890,7 @@ async function wizValidateGroqKey(key) {
   try {
     const r = await pywebview.api.validate_groq_key(key);
     if (r.ok) {
-      v.textContent = 'Groq key is valid. Free tier active.';
+      v.textContent = 'Groq key is valid.';
       v.className = 'wizard-validation wiz-prov-status success';
       _wizardGroqKeyValidated = true;
       wizSetTick('wizGroqTick', true);
@@ -1914,7 +1915,7 @@ async function wizValidateCerebrasKey(key) {
   try {
     const r = await pywebview.api.validate_cerebras_key(key);
     if (r.ok) {
-      v.textContent = r.message || 'Cerebras key is valid. Fastest tier enabled.';
+      v.textContent = r.message || 'Cerebras key is valid.';
       v.className = 'wizard-validation wiz-prov-status success';
       _wizardCerebrasKeyValidated = true;
       wizSetTick('wizCerebrasTick', true);

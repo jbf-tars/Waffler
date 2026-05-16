@@ -4,6 +4,14 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.40] - 2026-05-16
+
+### Fixed
+- **Setup wizard API-key validation parity across providers.** Groq and OpenAI key inputs in the setup wizard already had client-side prefix checks (`gsk_` / `sk-`) that surface "wrong provider — paste a different key here" before any network call. Cerebras input didn't — pasting a Groq key into the Cerebras field went all the way to a remote auth round-trip and came back with a confusing "Invalid Cerebras API key" instead of the obvious diagnostic. Added the `csk-` prefix check on both the client (`ui/app.js`) and the server (`app.py::validate_cerebras_key`) to match the other two providers.
+
+### Changed
+- **Wizard success messages now state only what was actually checked.** Previously the Groq success message said "Groq key is valid. **Free tier active.**" — but the validate endpoint just confirms the key works; tier info is never queried. Users on Groq's Developer tier (paid) would see a false claim. Changed to plain "Groq key is valid." Same fix for the Cerebras JS-side fallback message which claimed "Fastest tier enabled" — dead code in practice (server always returns its own message), but misleading if it ever fired.
+
 ## [3.14.39] - 2026-05-16
 
 ### Fixed

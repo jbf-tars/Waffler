@@ -884,6 +884,13 @@ class Api:
         api_key = (api_key or "").strip()
         if not api_key:
             return {"ok": False, "error": "No API key provided"}
+        # v3.14.40 — match the prefix-check pattern used for Groq (gsk_) and
+        # OpenAI (sk-). Cerebras keys always start with "csk-" (Cerebras
+        # Secret Key); without this check, pasting a Groq key here previously
+        # produced a confusing "Invalid Cerebras API key" from the round-trip
+        # instead of the obvious "wrong provider" diagnostic.
+        if not api_key.startswith("csk-"):
+            return {"ok": False, "error": "Key should start with csk-"}
         try:
             from openai import OpenAI as _OpenAI
             client = _OpenAI(api_key=api_key, base_url="https://api.cerebras.ai/v1")
