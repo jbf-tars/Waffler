@@ -1078,7 +1078,18 @@ async function loadVocabPage() {
         <div class="vocab-empty" id="vocabEmpty">
           <div class="vocab-empty-icon">📝</div>
           <div class="vocab-empty-label">No words added yet</div>
-          <div class="vocab-empty-sub">Add custom words to improve transcription accuracy</div>
+          <div class="vocab-empty-sub">
+            Add tricky words once — names, acronyms, jargon — and Waffler will spell them right every time.
+          </div>
+          <div class="vocab-empty-examples">
+            <span class="vocab-empty-example"><strong>Siobhan</strong> &nbsp;<span style="opacity:.55">(catches "Shavon")</span></span>
+            <span class="vocab-empty-example"><strong>JSON</strong> &nbsp;<span style="opacity:.55">(catches "Jason")</span></span>
+            <span class="vocab-empty-example"><strong>Postgres</strong> &nbsp;<span style="opacity:.55">(catches "post grass")</span></span>
+            <span class="vocab-empty-example"><strong>macOS</strong> &nbsp;<span style="opacity:.55">(catches "Mac OS")</span></span>
+          </div>
+          <div class="vocab-empty-tip">
+            One word or short phrase per entry. No special syntax — just type it the way you want it written.
+          </div>
         </div>
       `;
       return;

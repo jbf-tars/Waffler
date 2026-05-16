@@ -1223,7 +1223,31 @@ html, body {
 .vocab-empty-sub {
   font-size: 12px;
   color: var(--text-muted);
-  opacity: 0.6;
+  opacity: 0.75;
+  max-width: 420px;
+  line-height: 1.5;
+}
+
+.vocab-empty-examples {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 24px;
+  margin-top: 20px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.vocab-empty-example {
+  white-space: nowrap;
+}
+
+.vocab-empty-tip {
+  margin-top: 20px;
+  font-size: 11px;
+  color: var(--text-muted);
+  opacity: 0.55;
+  max-width: 420px;
+  line-height: 1.5;
 }
 
 .vocab-word-row {
