@@ -1,7 +1,19 @@
 #!/usr/bin/env python3
-"""
-Overlay Diagnostic Test
-Run this to check if the overlay subprocess can start correctly.
+"""Manual diagnostic — spawns the overlay subprocess, drives it through a
+short show/level/hide animation, then tears it down.
+
+Run when:
+- The floating waffle pill isn't appearing during recordings
+- You want to confirm overlay_process.py / overlay_process_windows.py
+  can start as a child process from this Python environment
+- You're debugging an overlay-related crash and want a quick reproducer
+
+NOT a unit test. Lives in scripts/ not tests/ because it requires a
+real display (the overlay window is a native Cocoa / Win32 window;
+won't render on a headless CI runner) and takes ~5 seconds wall-clock.
+Reads ~/.waffler-hosted/app.log afterwards for detailed errors.
+
+Usage: python scripts/diagnose_overlay.py
 """
 
 import sys

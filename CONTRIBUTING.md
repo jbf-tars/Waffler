@@ -99,6 +99,16 @@ python scripts/auto_test_corpus.py --category email                  # the 33 em
 
 If you edit `prompts/normal.txt`, run the full corpus and check that every previously-passing case still passes before opening a PR — the corpus exists because every "NEVER" rule in the prompt has shipped a bug in production at some point.
 
+### Manual diagnostics (not CI tests)
+
+For debugging on a real machine — these need a display, live OS state, or interactive keypresses, so they don't run in CI:
+
+```bash
+python scripts/diagnose_overlay.py        # spin up the overlay subprocess, animate it, tear down (~5 s)
+python scripts/diagnose_accessibility.py  # report whether macOS Accessibility is granted (exit 0/1/2/3)
+python scripts/diagnose_fn_key.py         # print every Fn / Space event from the OS (Ctrl+C to exit)
+```
+
 ## Project Structure
 
 ```
