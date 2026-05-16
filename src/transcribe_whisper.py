@@ -248,6 +248,41 @@ _WHISPER_HALLUCINATIONS = frozenset(s.strip().lower() for s in [
     "[applause]",
     "you",  # Whisper's most common 1-token hallucination on noise
     ".",
+    # ── v3.14.39 — short-clip Whisper hallucinations ──────────────────
+    # Complementary to v3.14.38's styling-prompt fix. v3.14.38 stops the
+    # LLM styler from generating filler-tails like "and many more"; this
+    # catches the upstream case where Whisper ITSELF hallucinates these
+    # phrases on <1 s near-silent audio (so the styling LLM never even
+    # runs — local pass-through emits the Whisper output verbatim).
+    # User log on 14 May: 28 instances of literal "Done: and more." with
+    # `styling (local): 0ms` — every one was a Whisper-layer hallucination.
+    "and more",
+    "and more.",
+    "and more!",
+    "and more...",
+    # Sign-offs that show up on very short clips of room noise.
+    "bye",
+    "bye.",
+    "bye!",
+    "bye-bye",
+    "bye bye",
+    "goodbye",
+    "goodbye.",
+    "thank you",
+    "thank you.",
+    "thank you!",
+    "thanks",
+    "thanks.",
+    "okay",
+    "okay.",
+    "ok",
+    "ok.",
+    "yeah",
+    "yeah.",
+    "uh",
+    "um",
+    "hmm",
+    "mhm",
 ])
 
 
@@ -377,6 +412,15 @@ def _strip_hallucinations(text: str) -> str:
         r"caption(?:s|ing)?\s+provided\s+by\s+.*$",
         # Stock single-word hallucinations on silence.
         r"\byou\b[\.\!\?]*$",
+        # v3.14.39 — trailing "and more" / "and many more" / "with much more".
+        # YouTube ad-segment tails are common Whisper training data; on short
+        # clips it can append the phrase to whatever else it imagined. Pattern
+        # (not full-match) so we strip the tail off real content too.
+        # This is the transcription-layer complement to v3.14.38's
+        # styling-prompt fix: that prevents the LLM styler from generating
+        # filler-tails; this catches the case where Whisper itself emits one
+        # and local pass-through styling never gets a chance to fix it.
+        r"(?:and|with|plus)\s+(?:many\s+|much\s+|lots\s+)?more[\.\!\?]*$",
     ]
 
     stripped = text.strip()
