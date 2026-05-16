@@ -178,7 +178,7 @@
       <div class="settings-section">
         <div class="settings-section-title">⚡ API Keys</div>
         <div class="settings-row-desc" style="margin-bottom:8px;font-size:12px;opacity:0.75;">
-          Tried in order: <strong>Cerebras → Groq → OpenAI</strong>. Each is a fallback for the next.
+          Tried in order: <strong>Groq → Cerebras → OpenAI</strong>. Groq goes first so its free tier is used before any paid tokens; Cerebras and OpenAI catch the overflow.
         </div>
         <div class="settings-row">
           <div class="settings-row-info">

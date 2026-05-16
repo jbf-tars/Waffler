@@ -1233,14 +1233,18 @@ async function loadSettings() {
       }
     }
 
-    // Backend info
+    // Backend info — show the friendly name for whichever provider the
+    // pipeline currently has selected as primary.
     const backendInfo = document.getElementById('backendInfo');
     if (backendInfo) {
       const stt = s.transcription_backend === 'groq' ? 'Groq Whisper' :
-                  s.transcription_backend === 'api' ? 'OpenAI Whisper' :
+                  s.transcription_backend === 'api' ? 'OpenAI Whisper (gpt-4o-mini-transcribe)' :
+                  s.transcription_backend === 'mlx' ? 'Local mlx-whisper (on-device)' :
+                  s.transcription_backend === 'faster' ? 'Local faster-whisper (on-device)' :
                   s.transcription_backend || 'unknown';
-      const llm = s.styling_backend === 'groq' ? 'Groq LLaMA' :
-                  s.styling_backend === 'openai' ? 'GPT-4o-mini' :
+      const llm = s.styling_backend === 'groq' ? 'Groq Llama 3.3 70B' :
+                  s.styling_backend === 'cerebras' ? 'Cerebras Qwen-3 235B' :
+                  s.styling_backend === 'openai' ? 'OpenAI GPT-4.1-mini' :
                   s.styling_backend || 'unknown';
       backendInfo.textContent = `STT: ${stt} · LLM: ${llm}`;
     }

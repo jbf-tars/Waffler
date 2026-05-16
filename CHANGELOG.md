@@ -4,6 +4,12 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.43] - 2026-05-16
+
+### Fixed
+- **Settings panel correctly states the styler fallback order.** The "⚡ API Keys" section's description said "Tried in order: Cerebras → Groq → OpenAI" — the OPPOSITE of the actual code execution in `src/style_openai.py::style()`, which is Groq → Cerebras → OpenAI (so Groq's free tier is used up before any paid Cerebras tokens are spent). v3.14.41's iteration through this codebase fixed the same lie in 6 other places (README, prompts/README.md, config.py, style_openai.py module + class docstrings) but missed the most-visible site — the Settings panel users actually open when they want to add or change keys. Now reads "Tried in order: Groq → Cerebras → OpenAI. Groq goes first so its free tier is used before any paid tokens; Cerebras and OpenAI catch the overflow."
+- **"Active Backends" display now recognises Cerebras as a styling provider.** The friendly-name map in `ui/app.js::loadSettings()` only handled `groq`/`openai` for the LLM column — Cerebras users saw the raw `cerebras` token or "unknown" because the v3.14.0 multi-provider work never added the corresponding display case. Now shows "Cerebras Qwen-3 235B" / "Groq Llama 3.3 70B" / "OpenAI GPT-4.1-mini" so the same UI reflects whatever provider the pipeline actually chose. Also fixed a v3.14.0 model-name leftover ("GPT-4o-mini" → "GPT-4.1-mini" — the OpenAI default has been gpt-4.1-mini since v3.13.x) and added friendly names for the on-device `mlx` / `faster-whisper` transcription backends, which previously also fell through to the raw-token branch.
+
 ## [3.14.42] - 2026-05-16
 
 ### Fixed
