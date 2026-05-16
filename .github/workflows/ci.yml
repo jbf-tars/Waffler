@@ -75,6 +75,20 @@ jobs:
           PYTHONPATH: src
         run: python tests/test_fn_handler_chatter.py
 
+      - name: Audio stream lifecycle stress test
+        # Stress-reproduces the wizard → pipeline handoff SIGSEGV pattern
+        # fixed in v3.14.14/15: 50 serial then 20 overlapping
+        # AudioRecorder create → start_monitoring → shutdown cycles. Any
+        # regression in src/audio.py's _STREAM_LOCK serialisation or the
+        # 5-step teardown sequence would re-introduce the CoreAudio HAL
+        # thread firing into a freed CFFI closure → process abort. The
+        # test takes ~12 s wall-clock and doesn't require microphone
+        # permission (the InputStream lifecycle is what matters, not
+        # what samples come out).
+        env:
+          PYTHONPATH: src
+        run: python tests/test_audio_stream_lifecycle.py
+
       - name: CHANGELOG matches src/__init__.py version
         # Catches the easy mistake of bumping __version__ and shipping a tag
         # without adding the corresponding CHANGELOG entry. CHANGELOG drift
