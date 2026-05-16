@@ -2,23 +2,30 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- Allow event monitoring for Fn key detection -->
+	<!-- Microphone access — for recording the user's voice. -->
 	<key>com.apple.security.device.audio-input</key>
 	<true/>
 
-	<!-- Required for CGEventTap to work -->
+	<!-- Required for CGEventTap registration. The Accessibility framework
+	     gates event-tap creation on apple-events even though we don't
+	     actually script other apps. -->
 	<key>com.apple.security.automation.apple-events</key>
 	<true/>
 
-	<!-- Network access for API calls -->
+	<!-- Network access for API calls to Groq, Cerebras, OpenAI. -->
 	<key>com.apple.security.network.client</key>
 	<true/>
 
-	<!-- Disable App Sandbox to allow system-wide event monitoring -->
+	<!-- App Sandbox disabled so the CGEventTap can observe system-wide
+	     keyboard input (Fn on Mac, Win+Ctrl on Windows-on-Mac via VMs).
+	     A sandboxed app only sees events delivered to its own windows. -->
 	<key>com.apple.security.app-sandbox</key>
 	<false/>
 
-	<!-- Allow Input Monitoring -->
+	<!-- Input Monitoring — the actual permission backing the Fn / hotkey
+	     CGEventTap. Without this the tap registers but never fires
+	     (the cause of the silent 'bytes captured but RMS=0' / no-hotkey
+	     symptom users hit in v3.14.13 before the TCC check landed). -->
 	<key>com.apple.security.device.input-monitoring</key>
 	<true/>
 </dict>
