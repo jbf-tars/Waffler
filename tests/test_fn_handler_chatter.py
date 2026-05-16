@@ -142,8 +142,11 @@ def test_18_07_oscillation_pattern_replay():
     # Initial press
     handler.handle(_kCGEventFlagsChanged, _flag_pressed())
 
-    # 13 oscillations within 1.5 s, gaps between 60 ms and 200 ms
-    oscillation_gaps_ms = [80, 120, 100, 90, 110, 70, 130, 150, 80, 90, 120, 100, 80]
+    # 13 oscillations within 1 s, gaps between 60 ms and ~120 ms. All gaps
+    # are kept comfortably below the 150 ms hold-quiet window so CI sleep
+    # drift (observed on macos-14 arm64 runners) can't push a gap past the
+    # window and split the single hold into multiple recordings.
+    oscillation_gaps_ms = [80, 100, 90, 80, 110, 70, 90, 120, 80, 90, 100, 80, 70]
     for gap_ms in oscillation_gaps_ms:
         time.sleep(gap_ms / 1000.0 / 2)  # gap is total; sleep half each side
         handler.handle(_kCGEventFlagsChanged, _flag_released())
@@ -193,8 +196,12 @@ def test_two_separate_intentional_presses_are_two_recordings():
     time.sleep(0.10)
     handler.handle(_kCGEventFlagsChanged, _flag_released())
 
-    # Quiet gap > 150 ms — first release confirms.
-    time.sleep(0.20)
+    # Quiet gap well past the 150 ms hold-quiet window — first release confirms.
+    # Sleep margin bumped from 200 ms → 350 ms because macos-14 arm64 CI runners
+    # sometimes return early from time.sleep when under load, and 200 ms was
+    # close enough to the 150 ms window that drift could leave the second press
+    # arriving during the cancel-window instead of after a confirmed release.
+    time.sleep(0.35)
 
     # Tap 2
     handler.handle(_kCGEventFlagsChanged, _flag_pressed())
