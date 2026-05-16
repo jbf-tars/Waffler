@@ -4,6 +4,12 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.42] - 2026-05-16
+
+### Fixed
+- **"Rate limit reached" toast no longer hardcodes "Groq API limit hit".** The toast body said "Groq API limit hit. Wait a moment and try again." regardless of which provider actually rate-limited. A user who hit Cerebras's daily cap or OpenAI's RPM cap would see the wrong provider blamed and reach for the wrong fix (e.g. waiting for Groq's free-tier reset when their Cerebras credit had run out). The styler raises errors in the format `RATE_LIMIT|<limit>|<wait>|<details>`; the toast handler now parses out the actual wait time ("Try again in 16m12s" / "Try again in 3s") and surfaces it. When the format is unrecognised the body falls back to a generic "Wait a moment and try again". Either way the body now appends a concrete recovery hint: "Add another provider key in Settings → API Keys for instant fallback." Tested against five real error-msg shapes from the user's app.log (TPD, RPM, per-provider cooldowns, plain 429).
+- **Settings panel's "Save Cerebras key" button now does client-side prefix check too.** v3.14.40 added the `csk-` check to the wizard's API-key entry but missed the post-onboarding Settings UI. Pasting a Groq or OpenAI key into the Cerebras field in Settings still bounced to a remote auth round-trip and came back with a confusing "Invalid Cerebras API key" instead of the obvious "wrong provider" diagnostic. Same fix as v3.14.40, applied to `ui/app.js::saveCerebrasKey`.
+
 ## [3.14.41] - 2026-05-16
 
 ### Fixed

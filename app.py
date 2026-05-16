@@ -2810,10 +2810,33 @@ class WafflerPipeline:
                 # the Select-mic button. Everything else uses `warn` (single
                 # Dismiss) so the action matches the problem.
                 if "RATE_LIMIT" in error_msg or "429" in error_msg:
+                    # v3.14.42 — extract concrete wait time and provider from the
+                    # error format the styler raises: "RATE_LIMIT|<limit>|<wait>|<details>".
+                    # Old message hardcoded "Groq API limit hit" even when the actual
+                    # culprit was Cerebras or OpenAI — misleading the user about which
+                    # provider to wait on or top up.
+                    wait_label = ""
+                    if "RATE_LIMIT|" in error_msg:
+                        try:
+                            parts = error_msg.split("RATE_LIMIT|", 1)[1].split("|")
+                            # Field 1 is the limit type (e.g. "tokens per day (TPD)",
+                            # "cooldown", "Cerebras"); field 2 is the wait time
+                            # ("16m12s", "45s", "3s"). Show the wait if it parses.
+                            if len(parts) >= 2 and parts[1].strip():
+                                wait_label = parts[1].strip().rstrip(".")
+                        except Exception:
+                            pass
+                    body = (
+                        f"Try again in {wait_label}. (Add another provider key in "
+                        f"Settings → API Keys for instant fallback.)"
+                        if wait_label
+                        else "Wait a moment and try again. (Add another provider key in "
+                        "Settings → API Keys for instant fallback.)"
+                    )
                     self.overlay.show_toast(
                         style="warn",
                         heading="Rate limit reached",
-                        body="Groq API limit hit. Wait a moment and try again.",
+                        body=body,
                     )
                 elif "CONNECTION" in error_msg or "Connection error" in error_msg or "timeout" in error_msg.lower():
                     self.overlay.show_toast(

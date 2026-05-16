@@ -1372,6 +1372,7 @@ async function saveCerebrasKey() {
   if (!inp) return;
   const val = inp.value.trim();
   if (!val) { showToast('Enter a Cerebras API key first', 'error'); return; }
+  if (!val.startsWith('csk-')) { showToast('Invalid key — should start with csk-', 'error'); return; }
   try {
     // validate_cerebras_key persists on success.
     const r = await pywebview.api.validate_cerebras_key(val);
