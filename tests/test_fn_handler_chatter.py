@@ -142,11 +142,16 @@ def test_18_07_oscillation_pattern_replay():
     # Initial press
     handler.handle(_kCGEventFlagsChanged, _flag_pressed())
 
-    # 13 oscillations within 1 s, gaps between 60 ms and ~120 ms. All gaps
-    # are kept comfortably below the 150 ms hold-quiet window so CI sleep
-    # drift (observed on macos-14 arm64 runners) can't push a gap past the
-    # window and split the single hold into multiple recordings.
-    oscillation_gaps_ms = [80, 100, 90, 80, 110, 70, 90, 120, 80, 90, 100, 80, 70]
+    # 13 oscillations with tight gaps (40–60 ms each). All gaps are kept
+    # WELL below the 150 ms hold-quiet window so even severe CI sleep drift
+    # can't push a gap past the window and split the single hold into
+    # multiple recordings. Originally tested with 80–150 ms gaps matching the
+    # user's real-world 18:07 log, but macos-14 arm64 CI runners under load
+    # showed time.sleep returning as much as 50 ms LATE on a 60 ms sleep —
+    # so anything close to 150 ms total was flaky. The behavioural assertion
+    # (one physical hold = one on_press + one on_release, regardless of
+    # intra-hold OS chatter) doesn't depend on the absolute gap durations.
+    oscillation_gaps_ms = [40, 50, 60, 40, 50, 40, 60, 50, 40, 50, 60, 40, 50]
     for gap_ms in oscillation_gaps_ms:
         time.sleep(gap_ms / 1000.0 / 2)  # gap is total; sleep half each side
         handler.handle(_kCGEventFlagsChanged, _flag_released())
