@@ -378,10 +378,17 @@ async function installDownloadedUpdate() {
 }
 
 function updateHotkeyHint() {
+  // Always reflect the user's actual configured hotkey (Mac users can
+  // pick Cmd+Shift / Option+Shift via the wizard or Settings, not just
+  // Fn). Previous version hardcoded 'Fn' on Mac, so customised users
+  // saw 'Press Fn to start recording' on the home page no matter what
+  // they'd actually configured.
+  //
+  // We still set a platform-appropriate default IMMEDIATELY so the
+  // badges aren't blank during the async API round-trip to fetch the
+  // saved config — loadHotkeyConfig() overwrites them once it returns.
   const isWin = navigator.userAgent.includes('Windows');
-  if (isWin) {
-    loadHotkeyConfig();
-  } else {
+  if (!isWin) {
     const badge = document.getElementById('hotkeyBadge');
     const sidebarBadge = document.getElementById('hotkeyHint');
     const label = document.getElementById('hotkeyLabel');
@@ -391,6 +398,7 @@ function updateHotkeyHint() {
     if (label) label.textContent = 'Tap to start/stop';
     if (emptyHint) emptyHint.innerHTML = 'Press <strong>Fn</strong> to start recording';
   }
+  loadHotkeyConfig();
 }
 
 // ── Permissions (Step 1) ─────────────────────────────────────────────
