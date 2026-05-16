@@ -4,6 +4,17 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.39] - 2026-05-16
+
+### Fixed
+- **"and more" Whisper-layer hallucination stripped on short clips.** Complementary to v3.14.38, which addressed the same symptom at the styling-prompt layer (forbidding the LLM from generating filler-tails). This fix handles the upstream case: Whisper itself emits the literal phrase "and more." on near-silent <1 s audio, where local pass-through styling (no LLM call) never gets a chance to filter it. Evidence from one user's app.log on 14 May: 28 instances of `Done: and more.` with `styling (local): 0ms` — every one was a Whisper-layer hallucination, not a styler abridgement. Added "and more" + variants (`.`, `!`, `...`) to the exact-match `_WHISPER_HALLUCINATIONS` frozen set so bare outputs are discarded; added trailing-pattern regex `(?:and|with|plus)\s+(?:many|much|lots\s+)?more` so real content with a hallucinated `...and more` tail is stripped to just the content. Existing ≤2-word-remainder safeguard prevents discarding edge-case noise as real content. Also added a batch of short-filler hallucinations seen on noise-floor clips: `bye` / `goodbye` / `thank you` / `thanks` / `okay` / `yeah` / `uh` / `um` / `hmm` / `mhm`.
+
+### Tests
+- **5 regression cases added to `scripts/auto_test_corpus.py` (FT1–FT5)** guarding the v3.14.38 anti-filler-tail prompt rule. Each is a verbatim shape from the user's real-failure logs ("multi-feature request → 'and many more'" / "trailing-example file list → 'etc.'" / "long multi-clause sentence") or its negative-control complement (speaker LITERALLY said `and so on` / `etc` → rule must NOT strip it). Run with `python scripts/auto_test_corpus.py --filter FT`. Closes the regression-coverage gap: v3.14.38's prompt rule had no automated test.
+
+### Docs
+- **README + `.env.example` refresh.** Documentation had drifted 2+ months behind the v3.14 feature set. Now mentions: Cerebras (the primary styler since v3.14.0) and how to get a key for it; Esc as the universal cancel hotkey (v3.14.37); the in-app auto-updater; smart hallucination filtering; custom vocabulary. Fixed self-contradiction in Known Issues (doc said both "macOS signed and notarised" *and* "Gatekeeper will warn"). Fixed installer-filename pattern to match actual asset names (`Waffler-Setup-<version>.exe`, `Waffler-<version>-mac.dmg`). Added sign-up URLs for each provider so new users don't have to hunt.
+
 ## [3.14.38] - 2026-05-15
 
 ### Fixed

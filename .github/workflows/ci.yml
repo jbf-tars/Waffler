@@ -64,3 +64,29 @@ jobs:
         env:
           PYTHONPATH: src
         run: python tests/test_strip_hallucinations.py
+
+      - name: Whisper-hallucination filter test
+        env:
+          PYTHONPATH: src
+        run: python tests/test_and_more_hallucination.py
+
+      - name: Fn-handler chatter test (macOS event-tap state machine)
+        env:
+          PYTHONPATH: src
+        run: python tests/test_fn_handler_chatter.py
+
+      - name: CHANGELOG matches src/__init__.py version
+        # Catches the easy mistake of bumping __version__ and shipping a tag
+        # without adding the corresponding CHANGELOG entry. CHANGELOG drift
+        # has happened in v3.14.x already (v3.14.39 was tagged and DMG'd
+        # before its CHANGELOG entry landed); this is the cheapest possible
+        # guard against repeating it.
+        run: |
+          VER=$(grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' src/__init__.py | tr -d '"' | head -1)
+          if [ -z "$VER" ]; then echo "::error::Could not parse __version__ from src/__init__.py"; exit 1; fi
+          if ! grep -q "^## \[$VER\]" CHANGELOG.md; then
+            echo "::error::src/__init__.py is v$VER but CHANGELOG.md has no '## [$VER]' entry."
+            echo "::error::Add a CHANGELOG section for v$VER before shipping."
+            exit 1
+          fi
+          echo "✓ CHANGELOG.md has an entry for v$VER"
