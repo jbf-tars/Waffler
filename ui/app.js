@@ -1750,7 +1750,9 @@ function showWizardHotkeyConfig() {
       { keys: ['ctrl', 'alt', 'space'], label: 'Ctrl + Alt + Space',  hint: 'Three-key combo' },
     ];
     list.innerHTML = presets.map((p) => {
-      const keysJson = JSON.stringify(p.keys).replace(/"/g, '&quot;');
+      // Single-quoted attribute + JSON.stringify (which uses double quotes)
+      // is valid HTML. Safe because every key in MODIFIER_KEYS is ASCII
+      // alphanumeric — no escaping needed for the current set.
       return `<button class="hotkey-preset-btn" onclick='selectHotkeyPreset(${JSON.stringify(p.keys)})'>` +
              `<span class="hotkey-preview">${p.label}</span>` +
              ` <span style="opacity:0.6;font-size:13px">${p.hint}</span>` +
