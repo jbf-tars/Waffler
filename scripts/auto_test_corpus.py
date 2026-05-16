@@ -756,6 +756,55 @@ CORPUS: List[Case] = [
          must_match=[r"(?m)^\s*1\.\s", r"(?m)^\s*2\.\s"],
          must_not_contain=["number one", "number two"],
          expect="two items present — list rule SHOULD fire"),
+
+    # ─── FILLER-TAIL ABRIDGEMENT (v3.14.38 regression guard) ──────────────
+    # Real failure from the user's logs (2026-05-15):
+    #   raw:    "I'd like the filter to support zones, auto-tag the items, and let me drag them into groups."
+    #   output: "I'd like the filter to support zones and many more."
+    # The model decided to abridge a 3-item list into the first item + "and many
+    # more" filler. v3.14.38's prompt rule explicitly forbids that. These cases
+    # exist so that ban can't silently regress under prompt-tweaks or
+    # model-swaps.
+    Case("FT1 multi-feature request must not collapse to 'and many more'",
+         "medium", "prose",
+         "I'd like the filter to support zones, auto-tag the items, and let me drag them into groups.",
+         must_contain=["zones", "auto-tag", "drag"],
+         must_not_match=[r"(?i)\band many more\b", r"(?i)\band more\.\s*$", r"(?i)\band so on\b"],
+         retention_min=0.75,
+         expect="all three feature requests preserved; no filler-tail substitution"),
+    Case("FT2 trailing example list must not collapse to 'etc.'",
+         "medium", "prose",
+         "We need to handle PDFs, Word docs, spreadsheets, and the odd PowerPoint deck for the proposals.",
+         must_contain=["PDF", "Word", "spreadsheets", "PowerPoint"],
+         must_not_match=[r"(?i)\betc\.?\b", r"(?i)\band other\b", r"(?i)\bamongst others\b",
+                         r"(?i)\bto name a few\b"],
+         retention_min=0.75,
+         expect="all four file types preserved; no etc/and others substitution"),
+    Case("FT3 long multi-clause sentence — every clause survives",
+         "long", "prose",
+         "The snags list goes off the page and looks broken when there are more than ten items, so I'd like a 'Next' "
+         "button to paginate, and when you add a drawing and label it 'kitchen', I'd like the visible snags filtered "
+         "to that zone automatically.",
+         must_contain=["snags list", "Next", "kitchen", "filtered"],
+         must_not_match=[r"(?i)\band many more\b", r"(?i)\band more\.\s*$", r"(?i)\band so on\b",
+                         r"(?i)\band similar\b", r"(?i)\band the like\b"],
+         retention_min=0.70,
+         expect="both UI requests preserved end-to-end; no abridgement to a filler closer"),
+    Case("FT4 positive control — speaker actually says 'and so on'",
+         "short", "prose",
+         "We'll discuss timelines, budgets, and so on in the meeting.",
+         # Speaker LITERALLY said "and so on" — the rule must NOT strip it.
+         must_match=[r"(?i)\band so on\b"],
+         retention_min=0.75,
+         expect="'and so on' was spoken aloud — keep it. Rule only fires when filler substitutes for unsaid content."),
+    Case("FT5 positive control — speaker actually says 'etc'",
+         "short", "prose",
+         "Send me the design, the brief, the budget, etc. so I can review them tonight.",
+         # User explicitly said "etc" — preserve.
+         must_match=[r"(?i)\betc\b"],
+         must_contain=["design", "brief", "budget", "review"],
+         retention_min=0.75,
+         expect="'etc' spoken aloud — keep it. Other items preserved."),
 ]
 
 
