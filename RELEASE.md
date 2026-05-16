@@ -1,12 +1,14 @@
 # Waffler Release Runbook
 
-This file is the exact process to ship a new Waffler version for both Windows and macOS.
+Exact procedure for shipping a new Waffler version. Both platforms build from
+a single `v*` tag push; the website's download links are bumped from a
+separate repo.
 
 ---
 
 ## 0) Preconditions
 
-- You are on `main` with clean working tree:
+Clean working tree on `main`:
 
 ```bash
 git checkout main
@@ -14,11 +16,13 @@ git pull origin main
 git status
 ```
 
-- GitHub workflows exist:
-  - `.github/workflows/windows-release.yml`
-  - `.github/workflows/macos-release.yml`
+CI workflows exist and pass on `main`:
 
-- `gh` CLI is authenticated (optional but recommended):
+- `.github/workflows/ci.yml` — per-push CHANGELOG-version match + 4 test guards + doc-drift
+- `.github/workflows/macos-release.yml` — fires on `v*` tag, produces signed DMG
+- `.github/workflows/windows-release.yml` — fires on `v*` tag, produces Inno Setup EXE
+
+`gh` CLI authenticated:
 
 ```bash
 gh auth status
@@ -26,206 +30,201 @@ gh auth status
 
 ---
 
-## 1) Tag a version (this triggers CI automatically)
+## 1) Bump `__version__` AND add a CHANGELOG entry
 
-Pick a semver tag like `v1.2.3`.
+Both must happen in the same commit. CI's `CHANGELOG matches src/__init__.py version`
+step (added in v3.14.39) fails the build if `__version__` advances without a
+matching `## [X.Y.Z]` section in `CHANGELOG.md`.
 
 ```bash
-# 1) commit release-ready changes
-git add .
-git commit -m "release: v1.2.3"
+# 1) edit src/__init__.py — bump __version__ = "X.Y.Z"
+$EDITOR src/__init__.py
 
-# 2) push main first
+# 2) edit CHANGELOG.md — add a new section at the top:
+#      ## [X.Y.Z] - YYYY-MM-DD
+#      ### Fixed / ### Added / ### Changed
+$EDITOR CHANGELOG.md
+
+# 3) verify both line up locally
+VER=$(grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' src/__init__.py | tr -d '"' | head -1)
+grep -q "^## \[$VER\]" CHANGELOG.md && echo "✓ v$VER in CHANGELOG" || echo "✗ MISSING"
+
+# 4) commit + push the bump (no tag yet)
+git add src/__init__.py CHANGELOG.md
+git commit -m "release: vX.Y.Z — <one-line summary>"
 git push origin main
-
-# 3) create and push tag
-git tag v1.2.3
-git push origin v1.2.3
 ```
 
-What happens on tag push:
-- **Windows workflow** builds installer `.exe`, uploads artifact, and attaches it to GitHub Release.
-- **macOS workflow** builds unsigned `.dmg`, uploads artifact, and attaches it to GitHub Release.
-
-Both workflows are configured to run on `push.tags: v*`.
-
----
-
-## 2) Trigger CI builds manually (if needed)
-
-If you need to rerun without creating a new tag:
+The push triggers `ci.yml`. Wait for it to pass before tagging:
 
 ```bash
-# Run workflows manually from Actions tab in GitHub UI
-# (workflow_dispatch is enabled for both workflows)
-```
-
-Or with GitHub CLI:
-
-```bash
-gh workflow run windows-release.yml
-gh workflow run macos-release.yml
-```
-
-Check build status:
-
-```bash
-gh run list --limit 10
+gh run watch
 ```
 
 ---
 
-## 3) Collect artifacts
-
-### Option A: From GitHub Release (preferred)
-1. Open: `https://github.com/<OWNER>/<REPO>/releases`
-2. Open tag `v1.2.3`
-3. Download assets:
-   - `Waffler-Setup-*.exe`
-   - `Waffler-mac-unsigned.dmg`
-
-### Option B: From Actions artifacts
-1. Open the successful workflow runs in Actions.
-2. Download artifacts:
-   - `Waffler-Setup` (Windows)
-   - `Waffler-mac-unsigned` (macOS)
-
-### Option C: With GitHub CLI
+## 2) Tag + push (this triggers the actual release builds)
 
 ```bash
-# download latest release assets to ./release-assets
-gh release download v1.2.3 -D release-assets
+git tag -a vX.Y.Z -m "vX.Y.Z — <one-line summary>"
+git push origin vX.Y.Z
+```
 
-# verify
-ls -lh release-assets
+What happens:
+
+- **macOS workflow** builds the DMG, signs it with an Apple Developer ID,
+  notarizes it via `notarytool`, and uploads `Waffler-X.Y.Z-mac.dmg` to the
+  GitHub release.
+- **Windows workflow** builds the Inno Setup installer and uploads
+  `Waffler-Setup-X.Y.Z.exe` to the GitHub release.
+
+Both run for ~3 minutes. Watch them:
+
+```bash
+gh run list --workflow=macos-release.yml --limit 1
+gh run list --workflow=windows-release.yml --limit 1
+```
+
+To rerun manually without re-tagging (both workflows have `workflow_dispatch`):
+
+```bash
+gh workflow run macos-release.yml --ref vX.Y.Z
+gh workflow run windows-release.yml --ref vX.Y.Z
 ```
 
 ---
 
-## 3.5) Validate macOS DMG artifact integrity (recommended)
-
-Use this before sharing the `.dmg` from Actions artifacts:
+## 3) Verify both artifacts are live
 
 ```bash
-# Example: latest successful macOS run
-RUN_ID=$(gh run list \
-  --workflow "Build macOS App (Signed with Developer ID)" \
-  --status completed --json databaseId,conclusion \
-  --jq '.[] | select(.conclusion=="success") | .databaseId' | head -n1)
-
-# Download artifact
-mkdir -p tmp/artifacts/macos-$RUN_ID
-gh run download "$RUN_ID" \
-  -n Waffler-mac -D tmp/artifacts/macos-$RUN_ID
-
-# Verify DMG checksum/container integrity
-hdiutil verify tmp/artifacts/macos-$RUN_ID/Waffler-mac-unsigned.dmg
-
-# Mount and confirm app bundle exists
-MOUNT=$(hdiutil attach tmp/artifacts/macos-$RUN_ID/Waffler-mac-unsigned.dmg -nobrowse -readonly | awk '/\/Volumes\//{print $3; exit}')
-ls -lah "$MOUNT"
-test -d "$MOUNT/Waffler.app" && echo "Waffler.app present"
-hdiutil detach "$MOUNT"
+gh release view vX.Y.Z --json assets \
+  | python3 -c "import json,sys; [print(f\"  {a['name']} ({a['size']:,} bytes)\") for a in json.load(sys.stdin)['assets']]"
 ```
 
-Expected:
-- `hdiutil verify` ends with `checksum ... is VALID`
-- Mounted volume contains `Waffler.app`
+Expected output:
 
-## 4) Update website download links
+```
+  Waffler-X.Y.Z-mac.dmg          (~24 MB)
+  Waffler-Setup-X.Y.Z.exe        (~32 MB)
+```
 
-Update the website so each platform points to the **new release asset URLs**.
+Sanity-check the macOS DMG opens cleanly (no Gatekeeper warning — current
+DMGs have been signed + notarized since v3.8.5):
 
-### 4.1 Get direct asset URLs
-Use the GitHub release asset links in this format:
+```bash
+curl -sSL -o /tmp/Waffler-test.dmg \
+  "https://github.com/jbf-tars/Waffler/releases/download/vX.Y.Z/Waffler-X.Y.Z-mac.dmg"
+hdiutil verify /tmp/Waffler-test.dmg
+# expected: "checksum ... is VALID"
+```
 
-- Windows:
-  - `https://github.com/<OWNER>/<REPO>/releases/download/v1.2.3/Waffler-Setup-1.2.3.exe`
-- macOS:
-  - `https://github.com/<OWNER>/<REPO>/releases/download/v1.2.3/Waffler-mac-unsigned.dmg`
+---
 
-> Exact filenames can vary slightly. Copy the final URLs directly from the release page.
+## 4) Bump the website download links
 
-### 4.2 Update links in site code
-In this repo, update download buttons/links in website files (e.g. `landing-page/index.html` or your production site repo).
+The website lives in the separate `jbf-tars/waffler-website` repo. The
+download buttons point at a hardcoded version in `src/data/release.ts`. Use
+the one-liner script (added in v3.14.39, see `waffler-website/scripts/bump-release.mjs`):
 
-### 4.3 Deploy site
-Commit/push the link update and deploy the website.
+```bash
+cd /Users/james/waffler-website
+git pull origin main
+npm install                          # one-off
+npm run bump-release                 # auto-fetches latest stable tag from Waffler repo
+git add src/data/release.ts
+git commit -m "Bump release.ts to vX.Y.Z"
+git push origin main
+```
 
-### 4.4 Smoke test
-- Test Windows download link in a private/incognito window.
-- Test macOS download link in a private/incognito window.
-- Confirm both files download and launch instructions are correct.
+The script:
+
+1. Queries `https://api.github.com/repos/jbf-tars/Waffler/releases` for the
+   latest non-prerelease tag.
+2. HEAD-checks both the macOS DMG and Windows EXE assets exist for that
+   version (refuses to bump to a broken release).
+3. Rewrites `src/data/release.ts` with the new version, date, and download
+   URLs.
+
+The push to `main` triggers Cloudflare Pages deploy (see `DEPLOYMENT.md` in
+the website repo for the secret-setup and recovery procedure if the deploy
+fails).
+
+Smoke-test the live site:
+
+```bash
+curl -s https://wafflerai.com | grep -oE 'Waffler-[0-9.]+-mac\.dmg' | head -1
+# expected: Waffler-X.Y.Z-mac.dmg
+```
 
 ---
 
 ## 5) Post-release verification checklist
 
-- [ ] Tag exists on GitHub (`v1.2.3`)
-- [ ] Windows workflow succeeded
-- [ ] macOS workflow succeeded
-- [ ] `.exe` attached to GitHub Release
-- [ ] `.dmg` attached to GitHub Release
-- [ ] Website links updated to new version
-- [ ] Fresh download test passed on both platforms
+- [ ] CI workflow on the release commit passes (CHANGELOG match, tests, doc-drift)
+- [ ] Tag `vX.Y.Z` exists on GitHub
+- [ ] macOS release workflow succeeded
+- [ ] Windows release workflow succeeded
+- [ ] `Waffler-X.Y.Z-mac.dmg` attached to the release (signed + notarized)
+- [ ] `Waffler-Setup-X.Y.Z.exe` attached to the release
+- [ ] Website `release.ts` bumped, Cloudflare Pages deploy succeeded
+- [ ] Fresh download tested on both platforms (no Gatekeeper warning on Mac;
+      SmartScreen warning on Windows is expected — see Troubleshooting below)
 
 ---
 
 ## Troubleshooting
 
-### A) Windows SmartScreen warning (unsigned installer)
+### A) Windows SmartScreen warning (still unsigned)
 
-**Symptom:** “Windows protected your PC” when opening installer.
+**Symptom:** "Windows protected your PC" on first launch of the installer.
 
-**What to tell users:**
-1. Click **More info**
-2. Click **Run anyway**
+**What to tell users:** Click **More info** → **Run anyway**.
 
-Notes:
-- This is expected for unsigned installers.
-- Long-term fix is code signing certificate for Windows builds.
+Windows builds are not yet code-signed. The long-term fix is acquiring a
+Windows code-signing certificate; until then SmartScreen will warn until
+the installer earns enough reputation organically.
 
----
+### B) CI release workflow fails
 
-### B) macOS Gatekeeper warning (unsigned app/DMG)
+Most common causes:
 
-**Symptom:** “App can’t be opened because Apple cannot check it for malicious software.”
+- **CHANGELOG mismatch** — `__version__` was bumped without a `## [X.Y.Z]`
+  section in `CHANGELOG.md`. Edit `CHANGELOG.md`, commit, push.
+- **Test flake** — `tests/test_fn_handler_chatter.py` has timing-sensitive
+  cases. The one that's most likely to flake (`test_18_07_oscillation_pattern_replay`)
+  is already skipped on CI (`if os.environ.get("CI"): return`).
+  If a different test flakes, look at recent edits to `src/audio.py` or
+  `src/mac_hotkey_monitor.py`.
+- **Doc-drift guard fired** — see the error message in the failed log;
+  the guard prints the exact remediation line per match. Add
+  `# doc-drift-ok` to legitimate historical references; otherwise fix the
+  stale claim.
 
-**Quick user path:**
-1. Try opening app once (expect block)
-2. Go to **System Settings → Privacy & Security**
-3. Click **Open Anyway** for Waffler
+### C) Website deploy fails
 
-**Terminal workaround (power users):**
-
-```bash
-# remove quarantine recursively from extracted app folder
-xattr -dr com.apple.quarantine "/path/to/Waffler-folder"
-```
-
-Repo helper script:
-
-```bash
-chmod +x fix_macos_gatekeeper.sh
-./fix_macos_gatekeeper.sh "/path/to/Waffler-folder"
-```
-
-Notes:
-- Current macOS artifact is intentionally **unsigned** (`Waffler-mac-unsigned.dmg`).
-- Long-term fix is Apple Developer ID signing + notarization.
+See `waffler-website/DEPLOYMENT.md`. Almost always missing Cloudflare
+secrets (`CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`); the fail-fast
+step in `deploy.yml` prints the exact `gh secret set` commands.
 
 ---
 
-## Suggested release announcement template
+## Release announcement template
 
 ```text
-Waffler v1.2.3 is live 🎉
+Waffler vX.Y.Z is live 🥞
 
-Downloads:
-- Windows: <windows_url>
-- macOS: <mac_url>
+Downloads (latest, signed):
+- macOS: https://github.com/jbf-tars/Waffler/releases/download/vX.Y.Z/Waffler-X.Y.Z-mac.dmg
+- Windows: https://github.com/jbf-tars/Waffler/releases/download/vX.Y.Z/Waffler-Setup-X.Y.Z.exe
+- Direct from wafflerai.com (auto-detected per OS)
 
-Notes:
-- Windows/macOS builds are currently unsigned, so first-run security prompts are expected.
-- Installation guidance is included in the README.
+Highlights:
+- <one-bullet from the CHANGELOG ## [X.Y.Z] entry>
+- <one-bullet from the CHANGELOG ## [X.Y.Z] entry>
+
+Full notes: https://github.com/jbf-tars/Waffler/releases/tag/vX.Y.Z
 ```
+
+macOS users won't see a Gatekeeper warning — the DMG is signed with our
+Apple Developer ID and notarized by Apple. Windows users will still see
+SmartScreen on first install (see Troubleshooting A).
