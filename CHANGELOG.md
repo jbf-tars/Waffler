@@ -4,6 +4,17 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.44] - 2026-05-16
+
+### Fixed
+- **Home page now shows the user's actual hotkey on Mac.** `updateHotkeyHint()` in `ui/app.js` had a Windows branch that called `loadHotkeyConfig()` to fetch the saved hotkey, but the Mac branch hardcoded `'Fn'` in the badge, sidebar pill, and empty-state hint. Mac users who'd customised their hotkey via the wizard or Settings (Cmd+Shift, Option+Shift — both valid presets) still saw `Press Fn to start recording` on the home page regardless of what they'd configured. Now always calls `loadHotkeyConfig()`; the hardcoded `'Fn'` text stays as an optimistic fallback for the few milliseconds before the API responds, then gets overwritten with the actual saved hotkey display.
+
+### Changed
+- **Vocabulary tab empty state now teaches users what to add.** Previously read just *"No words added yet — Add custom words to improve transcription accuracy."* Meanwhile wafflerai.com's CustomVocab section sells the feature with vivid before-after examples (Siobhan, JSON, Postgres, macOS) that the in-app page didn't show. New users opening Vocabulary now see the same four concrete examples (each with the misrecognition it catches) plus a one-line tip lifted from the website's CustomVocab footer: *"One word or short phrase per entry. No special syntax — just type it the way you want it written."* In-app and on-site messaging now match.
+
+### Internal
+- Removed a dead `keysJson` local variable in the wizard's hotkey-preset renderer. Aborted attribute-escaping that was never wired up — the final `onclick` re-stringified directly. Two-line comment now explains why the existing single-quoted-attribute + JSON.stringify pattern is safe (all keys in `MODIFIER_KEYS` are ASCII alphanumeric).
+
 ## [3.14.43] - 2026-05-16
 
 ### Fixed
