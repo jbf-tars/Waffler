@@ -52,3 +52,6 @@ node_modules/
 session.json
 *.sqlite
 .worktrees/
+
+# Claude Code agent session state (locks, scheduled-task metadata, etc.)
+.claude/
