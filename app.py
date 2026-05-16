@@ -113,8 +113,8 @@ USAGE_FILE = DATA_DIR / "usage.json"
 # Pricing constants
 WHISPER_COST_PER_SECOND = 0.0001       # OpenAI: $0.006/minute
 GROQ_WHISPER_COST_PER_SECOND = 0.0000467  # Groq: $0.0028/minute
-GPT4O_MINI_INPUT_COST_PER_1M = 0.15   # GPT-4o-mini input
-GPT4O_MINI_OUTPUT_COST_PER_1M = 0.60  # GPT-4o-mini output
+GPT4O_MINI_INPUT_COST_PER_1M = 0.15   # GPT-4o-mini input  # doc-drift-ok (per-model cost)
+GPT4O_MINI_OUTPUT_COST_PER_1M = 0.60  # GPT-4o-mini output  # doc-drift-ok (per-model cost)
 GROQ_LLM_INPUT_COST_PER_1M = 0.59     # Groq LLaMA 3.3 70B input
 GROQ_LLM_OUTPUT_COST_PER_1M = 0.79    # Groq LLaMA 3.3 70B output
 

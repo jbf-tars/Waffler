@@ -36,7 +36,7 @@ class OpenAIStyler:
         self.api_key = api_key
         # Default styling model: gpt-4.1-mini.
         # Benchmark against the user's actual failing case (May 2026):
-        #   gpt-4o-mini     2507ms, occasionally censored "fucking"
+        #   gpt-4o-mini     2507ms, occasionally censored "fucking"  # doc-drift-ok (benchmark comparison)
         #   gpt-4.1-mini    1608ms, reliably preserved "fucking"   <-- winner
         #   gpt-4.1-nano     628ms, censored profanity (skipped)
         #   gpt-4.1         1021ms, ~4× the cost of mini for marginal gain
@@ -697,7 +697,7 @@ Transcript: {transcript}"""
         head = raw.lstrip().lower()
         return any(head.startswith(w) for w in self._GREETING_WORDS)
 
-    # Profanity that gpt-4o-mini's safety training sometimes strips even when
+    # Profanity that gpt-4o-mini's safety training sometimes strips even when  # doc-drift-ok (historical context)
     # the prompt and system message explicitly forbid censoring. Belt-and-braces:
     # if the speaker said it and the LLM dropped it, splice it back in.
     _PROFANITY_WORDS = (
