@@ -849,7 +849,14 @@ def main():
                          "without tripping per-minute token limits. Default 0.5.")
     ap.add_argument("--filter", type=str, default=None,
                     help="Only run cases whose label matches this substring "
-                         "(case-insensitive). Useful for targeted re-runs.")
+                         "(case-insensitive). Useful for targeted re-runs of a "
+                         "specific case prefix like 'FT1' or 'SOLO-NUM-3'.")
+    ap.add_argument("--category", type=str, default=None,
+                    help="Only run cases whose category matches this substring "
+                         "(case-insensitive). Categories include 'prose', "
+                         "'numbered list', 'bulleted list', 'email', "
+                         "'self-correction', 'hallucination-bait', "
+                         "'code/technical', 'double-words'.")
     args = ap.parse_args()
 
     styler = OpenAIStyler(
@@ -857,7 +864,14 @@ def main():
         groq_api_key=os.environ.get("GROQ_API_KEY", ""),
     )
 
-    cases = [c for c in CORPUS if (not args.filter or args.filter.lower() in c.label.lower())]
+    def _matches(c: Case) -> bool:
+        if args.filter and args.filter.lower() not in c.label.lower():
+            return False
+        if args.category and args.category.lower() not in c.category.lower():
+            return False
+        return True
+
+    cases = [c for c in CORPUS if _matches(c)]
     if not cases:
         print(f"no cases matched filter {args.filter!r}")
         return
