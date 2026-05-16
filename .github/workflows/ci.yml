@@ -92,13 +92,9 @@ jobs:
           echo "✓ CHANGELOG.md has an entry for v$VER"
 
       - name: Doc-drift guard
-        # Catches the recurring bugs that have been found across v3.14.x in
-        # user-facing strings: wrong styler fallback order ("Cerebras → Groq"
-        # instead of "Groq → Cerebras"), stale OpenAI model names
-        # ("gpt-4o-mini" instead of "gpt-4.1-mini"), etc. Three separate
-        # iterations of the doc audit had to fix sibling instances on
-        # different surfaces (README, prompts/, Settings panel, etc.); this
-        # check fails CI the first time any of them sneak back in. Add
-        # ' # doc-drift-ok' or ' <!-- doc-drift-ok -->' to a line for
-        # legitimate historical/cost-constant references.
+        # Catches the recurring user-facing-string bugs found across the
+        # v3.14.x audit (wrong styler fallback order, stale model names).
+        # Each check carries a one-line why-and-fix in the script itself
+        # for when CI fails. Add ' # doc-drift-ok' to a line for legitimate
+        # historical/cost-constant references that should be exempt.
         run: python scripts/check_doc_drift.py
