@@ -34,10 +34,12 @@ class Config:
         """Load API keys from environment variables"""
         self.openai_api_key = os.getenv('OPENAI_API_KEY')
         self.groq_api_key = os.getenv('GROQ_API_KEY')
-        # Cerebras hosts Llama 3.3 70B at the fastest inference speed
-        # available for this model (~2200+ tok/s). Free tier ~1M tokens/day,
-        # OpenAI-compatible API. Sits at the top of the styling fallback
-        # chain — Cerebras → Groq → OpenAI.
+        # Cerebras hosts Qwen-3 235B at the fastest inference speed available
+        # for that model (~2200+ tok/s). OpenAI-compatible API. Sits in the
+        # MIDDLE of the styling fallback chain — Groq → Cerebras → OpenAI —
+        # because Groq's 100k tokens/day free tier should be used before any
+        # paid Cerebras tokens are spent. See src/style_openai.py for the
+        # order-of-attempts logic.
         self.cerebras_api_key = os.getenv('CEREBRAS_API_KEY')
 
         # Prompt style precedence: settings.json (user's UI choice) >

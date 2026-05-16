@@ -1,8 +1,14 @@
 """LLM styling module — three-tier fallback chain:
 
-  1. Cerebras Llama 3.3 70B  (fastest in the world for this model, ~2200+ tok/s)
-  2. Groq Llama 3.3 70B       (very fast ~270 tok/s, but ~100k/day free-tier cap)
-  3. OpenAI gpt-4.1-mini      (slower but always available)
+  1. Groq Llama 3.3 70B       (very fast ~270 tok/s, ~100k tokens/day free)
+  2. Cerebras Qwen-3 235B    (paid, ~500 ms even on long inputs, ~2200+ tok/s)
+  3. OpenAI gpt-4.1-mini      (slower but always available, last-resort)
+
+Order rationale: Groq is tried FIRST — not because it's fastest, but because
+its free tier (100k tokens/day) means a typical user pays £0 for cleanup
+until that allowance is exhausted. Only then does Cerebras's paid tier
+take over. This is the opposite order from "fastest first" but it matches
+what every BYOK user actually wants.
 
 All three speak OpenAI-compatible chat-completions APIs. The same prompt is
 sent everywhere so behaviour is consistent.
@@ -22,7 +28,7 @@ except ImportError:
 
 
 class OpenAIStyler:
-    """Styles transcripts — Cerebras / Groq Llama 3.3 70B → OpenAI fallback."""
+    """Styles transcripts — Groq Llama 3.3 70B → Cerebras Qwen-3 235B → OpenAI fallback."""
 
     def __init__(self, api_key: str = "", model: str = "gpt-4.1-mini",
                  max_tokens: int = 1024, prompt_style: str = "normal",

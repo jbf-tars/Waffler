@@ -13,7 +13,7 @@ Waffler's styling step (the second LLM call after transcription) is driven by a 
 
 1. Waffler resolves the active mode from `~/.waffler-hosted/settings.json` (`prompt_style`), or the `PROMPT_STYLE` env var, or defaults to `normal`. See [`src/config.py`](../src/config.py).
 2. [`src/style_openai.py`](../src/style_openai.py) opens `prompts/<mode>.txt` once at startup.
-3. For each recording, the styler substitutes `{transcript}` with the cleaned Whisper output and sends the prompt to whichever provider is up in the fallback chain (Cerebras → Groq → OpenAI).
+3. For each recording, the styler substitutes `{transcript}` with the cleaned Whisper output and sends the prompt to whichever provider is up in the fallback chain (Groq → Cerebras → OpenAI — Groq first so the free 100k tokens/day allowance gets spent before any paid Cerebras tokens).
 4. The provider's response goes through `_strip_em_dashes` (v3.14.0) and `_strip_hallucinations` (catches YouTube-outro phrases, the v3.14.39 "and more" filter, etc.) before reaching the clipboard.
 
 ## Editing `normal.txt`

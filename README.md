@@ -36,7 +36,7 @@ It's gone through a ridiculous amount of prompt-wrangling and live-API testing t
 
 - **Global hotkey** — works in any app, instantly
 - **Multi-provider transcription** — Groq Whisper (fastest) or OpenAI Whisper
-- **Multi-provider AI cleanup** — Cerebras Qwen 235B (default, fastest), Groq Llama 3.3 70B, or OpenAI GPT-4.1-mini, with automatic fallback if a provider rate-limits
+- **Multi-provider AI cleanup** — Groq Llama 3.3 70B (free tier first), Cerebras Qwen-3 235B (paid, fastest), or OpenAI GPT-4.1-mini, with automatic fallback if a provider rate-limits
 - **Smart hallucination filtering** — strips Whisper's "and more / thanks for watching / please subscribe" outros on near-silent clips before they hit your clipboard
 - **Auto-clipboard** — result is copied the moment it's ready
 - **Local transcription history** — searchable, stays on your machine
@@ -139,7 +139,7 @@ Edit `.env` to set your API key(s).
 |-----------|-----------|
 | Language | Python 3.11 |
 | Speech-to-text | Groq Whisper (default) or OpenAI Whisper (`gpt-4o-mini-transcribe`) |
-| LLM cleanup | Cerebras Qwen-3 235B (default) → Groq Llama 3.3 70B → OpenAI GPT-4.1-mini, with automatic fallback |
+| LLM cleanup | Groq Llama 3.3 70B → Cerebras Qwen-3 235B → OpenAI GPT-4.1-mini (Groq first preserves free-tier; Cerebras is paid; OpenAI last-resort) |
 | Audio | sounddevice + NumPy |
 | UI | pywebview (WebView2 on Windows, WebKit on Mac) |
 | Hotkey (Mac) | Single HID-level CGEventTap with multi-handler dispatch + 150 ms hold-quiet trailing edge on Fn |
