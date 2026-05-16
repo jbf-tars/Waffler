@@ -1,14 +1,16 @@
 # Waffler
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![macOS](https://img.shields.io/badge/platform-macOS-blue)](https://github.com/jbf-tars/waffler/releases)
-[![Windows](https://img.shields.io/badge/platform-Windows-blue)](https://github.com/jbf-tars/waffler/releases)
+[![macOS](https://img.shields.io/badge/platform-macOS-blue)](https://github.com/jbf-tars/Waffler/releases)
+[![Windows](https://img.shields.io/badge/platform-Windows-blue)](https://github.com/jbf-tars/Waffler/releases)
 
 **Free, open-source voice-to-text for Mac and Windows. Bring your own API key.**
 
 Press a hotkey, speak, release — your polished text is in the clipboard, ready to paste anywhere.
 
 > A free alternative to Wispr Flow / Superwhisper. No account, no subscription, no telemetry.
+
+**Website:** [wafflerai.com](https://wafflerai.com)  ·  **Latest release:** [GitHub Releases](https://github.com/jbf-tars/Waffler/releases/latest)
 
 
 ---
@@ -33,12 +35,15 @@ It's gone through a ridiculous amount of prompt-wrangling and live-API testing t
 ## Features
 
 - **Global hotkey** — works in any app, instantly
-- **OpenAI Whisper or Groq** — your choice of transcription backend
-- **AI cleanup** — removes filler words, fixes grammar, polishes output
+- **Multi-provider transcription** — Groq Whisper (fastest) or OpenAI Whisper
+- **Multi-provider AI cleanup** — Cerebras Qwen 235B (default, fastest), Groq Llama 3.3 70B, or OpenAI GPT-4.1-mini, with automatic fallback if a provider rate-limits
+- **Smart hallucination filtering** — strips Whisper's "and more / thanks for watching / please subscribe" outros on near-silent clips before they hit your clipboard
 - **Auto-clipboard** — result is copied the moment it's ready
 - **Local transcription history** — searchable, stays on your machine
-- **Recording overlay** — floating VU meter shows when you're recording
+- **Recording overlay** — floating waffle indicator that lives over any app, including full-screen
 - **Setup wizard** — guided onboarding for first-time users
+- **In-app auto-update** — checks GitHub Releases and installs the new build with one click
+- **Custom vocabulary** — teach Waffler your jargon, names, and acronyms
 - **Mac + Windows** — native desktop app via PyInstaller
 
 ---
@@ -47,24 +52,34 @@ It's gone through a ridiculous amount of prompt-wrangling and live-API testing t
 
 ### 1. Install
 
-Download the latest installer from [GitHub Releases](https://github.com/jbf-tars/waffler/releases):
+Download the latest installer from [GitHub Releases](https://github.com/jbf-tars/Waffler/releases/latest):
 
-- **Windows:** `WafflerSetup-*.exe`
-- **Mac:** `Waffler-*-mac.dmg`
+- **Windows:** `Waffler-Setup-<version>.exe`
+- **Mac:** `Waffler-<version>-mac.dmg`
 
 > **Note:** macOS builds are signed with an Apple Developer ID and notarised — they open without Gatekeeper warnings. Windows builds are not yet signed; SmartScreen will warn on first launch — click "More info > Run anyway".
 
 ### 2. Add your API key
 
-On first launch, the setup wizard will ask for your key. Or manually copy `.env.example` to `.env`:
+On first launch, the setup wizard will ask for your key. Any one of the three providers below is enough — Waffler will use whatever you give it.
 
 ```bash
-# OpenAI (transcription via Whisper + GPT-4o-mini for cleanup)
-OPENAI_API_KEY=your_openai_api_key_here
+# Groq — fastest transcription AND cleanup, generous free tier (recommended)
+GROQ_API_KEY=your_groq_api_key_here
 
-# OR Groq (faster, often cheaper)
-# GROQ_API_KEY=your_groq_api_key_here
+# Cerebras — fastest cleanup in the world (~2200+ tok/s), free tier available
+CEREBRAS_API_KEY=your_cerebras_api_key_here
+
+# OpenAI — most reliable, cheapest at low volume
+OPENAI_API_KEY=your_openai_api_key_here
 ```
+
+You can set more than one key — Waffler will use the fastest available provider and fall back automatically if any single one rate-limits or errors.
+
+Where to get each one (all free to sign up):
+- **Groq:** <https://console.groq.com/keys>
+- **Cerebras:** <https://cloud.cerebras.ai>
+- **OpenAI:** <https://platform.openai.com/api-keys>
 
 ### 3. Run from source
 
@@ -97,7 +112,8 @@ python app.py
 - Press the hotkey again (Fn on Mac, `Win + Ctrl` on Windows) to stop and send.
 
 **Cancel a recording**
-- Click the **×** button on the floating recording overlay to discard the current take without transcribing or touching the clipboard. Works in both push-to-talk and hands-free modes.
+- Press **Esc** any time while recording to discard the current take without transcribing or touching the clipboard. Works in both push-to-talk and hands-free modes.
+- Or click the **×** button on the floating recording overlay.
 
 ---
 
@@ -121,15 +137,17 @@ Edit `.env` to set your API key(s).
 
 | Component | Technology |
 |-----------|-----------|
-| Language | Python 3.11+ |
-| STT | OpenAI Whisper API or Groq Whisper |
-| LLM cleanup | Groq (Llama 3.3 70B) or OpenAI (GPT-4o-mini) |
+| Language | Python 3.11 |
+| Speech-to-text | Groq Whisper (default) or OpenAI Whisper (`gpt-4o-mini-transcribe`) |
+| LLM cleanup | Cerebras Qwen-3 235B (default) → Groq Llama 3.3 70B → OpenAI GPT-4.1-mini, with automatic fallback |
 | Audio | sounddevice + NumPy |
 | UI | pywebview (WebView2 on Windows, WebKit on Mac) |
-| Hotkey | CGEventTap (Mac) / Win32 low-level keyboard hook via ctypes (Windows) |
+| Hotkey (Mac) | Single HID-level CGEventTap with multi-handler dispatch + 150 ms hold-quiet trailing edge on Fn |
+| Hotkey (Windows) | Win32 low-level keyboard hook via ctypes |
 | Menubar / Tray | rumps (Mac) / pystray (Windows) |
 | Clipboard | pyperclip |
-| Packaging | PyInstaller + Inno Setup (Win) / hdiutil (Mac) |
+| Auto-update | Native `curl` (Mac) / `requests` (Windows) → `.dmg` swap or Inno Setup silent upgrade |
+| Packaging | PyInstaller + Inno Setup (Win) / hdiutil + codesign + notarytool (Mac) |
 
 ---
 
@@ -160,8 +178,10 @@ Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for gu
 
 ## Known Issues
 
-- **Accessibility permissions (Mac):** Required for keyboard monitoring — grant in System Settings > Privacy & Security > Accessibility
-- **Unsigned builds:** SmartScreen (Windows) and Gatekeeper (Mac) will warn on first launch — this is expected
+- **Accessibility / Input Monitoring (Mac):** Required for keyboard monitoring. Granted via System Settings → Privacy & Security → Accessibility *and* Input Monitoring. The wizard walks you through it on first launch.
+- **Microphone permission:** Required for recording. Granted on first run via the standard macOS / Windows prompt.
+- **Windows SmartScreen warning:** Builds are not yet code-signed on Windows; SmartScreen will say "Windows protected your PC" on first launch. Click "More info" → "Run anyway". (Mac builds *are* signed and notarised — no Gatekeeper warning.)
+- **Rate limits:** Free tiers on Groq / Cerebras / OpenAI have daily / per-minute caps. Waffler falls back across providers automatically, but if all three hit limits in the same window you'll see a "Rate limit reached" toast. Set multiple keys to maximise headroom.
 
 ---
 
