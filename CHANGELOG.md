@@ -4,6 +4,11 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.41] - 2026-05-16
+
+### Fixed
+- **Removed em-dashes from "correct output" worked examples in `prompts/normal.txt`.** The prompt has an explicit hard rule banning em-dashes in the output ("they scream 'AI'"; v3.14.0). The runtime `_strip_em_dashes` post-processor enforces it. But four worked-example outputs in the prompt itself contained em-dashes — directly contradicting the rule the model was being trained on. Mixed signal: the model would see "em-dashes forbidden" and "here are 4 correct outputs that have em-dashes" in the same prompt. Replaced each with the comma/full-stop substitution the rule itself prescribes. Locations: `Correct output:` on line 74 (Ctrl+Alt+S example, em-dash → full stop), line 78 (Redis example, em-dash → comma), line 111 (solo "number three", em-dash → comma), and the indented `output:` block at line 155 (Sam dashboard example, em-dash → comma). Em-dashes elsewhere in the file are fine — they're either inside *input* strings the model needs to recognise, inside *WRONG* labelled-as-bad examples, or inside prose rule descriptions. Audited every em-dash in the file before/after; only the four "correct output" sites changed.
+
 ## [3.14.40] - 2026-05-16
 
 ### Fixed

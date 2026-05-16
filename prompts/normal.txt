@@ -71,11 +71,11 @@ NEGATIVE cases — when these phrases are NOT corrections, do NOT drop content:
 
 EXPLORATORY-SPEECH NEGATIVE EXAMPLES (CRITICAL — many models wrongly collapse these):
 - Input: "Okay, let's just speak through this so let's say yeah, I do ctrl alt plus s. I just want to have to highlight the text in Claude Code or any text then do ctrl S and it works, but it's already built in to Windows or is it not as simple as that. I have power toys installed."
-  Correct output: "Let's speak through this. Let's say I do Ctrl+Alt+S — I just want to highlight the text in Claude Code or any text, then do Ctrl+S, and it works. But is it already built in to Windows, or is it not as simple as that? I have PowerToys installed."
+  Correct output: "Let's speak through this. Let's say I do Ctrl+Alt+S. I just want to highlight the text in Claude Code or any text, then do Ctrl+S, and it works. But is it already built in to Windows, or is it not as simple as that? I have PowerToys installed."
   WRONG output (HARD-RULE VIOLATION — do not produce this): "Hi, I have power toys installed." (drops 95% of content, invents "Hi", collapses exploration into a single clause).
   Why: the speaker is exploring a feature request across multiple clauses. The hypothetical ("let's say I do Ctrl+Alt+S"), the desired behaviour ("I just want to highlight..."), the question ("is it already built in to Windows?"), and the fact ("I have PowerToys installed") are FOUR pieces of content. All four must appear.
 - Input: "So I was thinking, what if we used Redis for the cache layer, or maybe we just stick with the in-memory thing, I don't know, what do you think."
-  Correct output: "I was thinking — what if we used Redis for the cache layer? Or maybe we just stick with the in-memory thing. I don't know, what do you think?"
+  Correct output: "I was thinking, what if we used Redis for the cache layer? Or maybe we just stick with the in-memory thing. I don't know, what do you think?"
   WRONG output: "What do you think?" (drops the Redis proposal, the in-memory alternative, and the uncertainty — those are the substance of the message).
 
 LIGHT GRAMMAR SMOOTHING (allowed, do not overuse):
@@ -108,7 +108,7 @@ FORMATTING:
 
       CRITICAL TRIGGER REQUIREMENT — at least TWO **explicitly counted** items must appear in the input, in matching form (e.g. "number one ... number two" or "first ... second"). A solo count phrase is NOT a list trigger; treat it as prose.
         Worked example (POSITIVE, two items): "Number one, check the cards. Number two, ship the build." → "1. Check the cards.\n2. Ship the build."
-        Worked example (NEGATIVE, solo "number three" — external reference): input "So number three, we'll just skip that at the moment, we just want to see if it works." → output: "Number three, we'll just skip that at the moment — we just want to see if it works." Note the explicit "number three" stays in the output as a noun phrase the speaker said — it refers to item 3 of an external sequence (a screen, a checklist, a previous list). DO NOT strip "number three" as filler; it is content. DO NOT replace with "1." because there is no "number one" or "number two" preceding it to form a list. (The leading "So" is a connective filler and may be dropped per the WHAT TO REMOVE rule, but "number three" itself is content.)
+        Worked example (NEGATIVE, solo "number three" — external reference): input "So number three, we'll just skip that at the moment, we just want to see if it works." → output: "Number three, we'll just skip that at the moment, we just want to see if it works." Note the explicit "number three" stays in the output as a noun phrase the speaker said — it refers to item 3 of an external sequence (a screen, a checklist, a previous list). DO NOT strip "number three" as filler; it is content. DO NOT replace with "1." because there is no "number one" or "number two" preceding it to form a list. (The leading "So" is a connective filler and may be dropped per the WHAT TO REMOVE rule, but "number three" itself is content.)
         Worked example (NEGATIVE, solo "Question two" — reference): "Question two is the trickiest, give me a minute on that." → keep "Question two" as-is.
         Worked example (NEGATIVE, solo "step five" — reference): "I think step five is where it went wrong." → keep "step five" as-is.
         Worked example (NEGATIVE, "number one" as idiom): "Number one priority right now is the API rotation, nothing else really comes close." → keep ALL of "Number one priority right now is the API rotation, nothing else really comes close." as a single sentence. "Number one" here modifies "priority" (idiomatic = "top priority"); it is NOT introducing list item #1. The clause "nothing else really comes close" is a continuation of the same thought, NOT item #2 of a list. Do not split on commas.
@@ -152,7 +152,7 @@ FORMATTING:
       Worked example (POSITIVE with sign-off): input "Hi Sam, just a quick one — wanted to check whether the dashboard work is on track for Friday. Cheers." → output:
           Hi Sam,
 
-          Just a quick one — wanted to check whether the dashboard work is on track for Friday.
+          Just a quick one, wanted to check whether the dashboard work is on track for Friday.
 
           Cheers.
       Worked example (NEGATIVE — meta-language): input "Hi guys would never work as a greeting if I just said hi guys mid-sentence." → output: keep as a single connected sentence, do NOT split into a greeting + body. The phrase "Hi guys" here is the subject of a sentence ABOUT the phrase, not the speaker addressing anyone.
