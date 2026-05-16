@@ -36,25 +36,31 @@ echo "  Done."
 # Step 3: Create .icns icon if missing
 echo ""
 echo "[3/7] Preparing app icon..."
-if [ ! -f "icon.icns" ] && [ -f "icon_512.png" ]; then
-    echo "  Converting icon_512.png → icon.icns..."
+# Source file in the repo is icon_master_1024.png. sips downsamples to
+# every iconset resolution. Older script versions referenced icon_512.png
+# which never existed in the tree, so every build emitted a spurious
+# 'icon not found' warning and shipped a generic-icon app.
+ICON_SRC="icon_master_1024.png"
+if [ ! -f "icon.icns" ] && [ -f "$ICON_SRC" ]; then
+    echo "  Converting $ICON_SRC → icon.icns..."
     mkdir -p icon.iconset
-    sips -z 16 16     icon_512.png --out icon.iconset/icon_16x16.png      >/dev/null
-    sips -z 32 32     icon_512.png --out icon.iconset/icon_16x16@2x.png   >/dev/null
-    sips -z 32 32     icon_512.png --out icon.iconset/icon_32x32.png      >/dev/null
-    sips -z 64 64     icon_512.png --out icon.iconset/icon_32x32@2x.png   >/dev/null
-    sips -z 128 128   icon_512.png --out icon.iconset/icon_128x128.png    >/dev/null
-    sips -z 256 256   icon_512.png --out icon.iconset/icon_128x128@2x.png >/dev/null
-    sips -z 256 256   icon_512.png --out icon.iconset/icon_256x256.png    >/dev/null
-    sips -z 512 512   icon_512.png --out icon.iconset/icon_256x256@2x.png >/dev/null
-    sips -z 512 512   icon_512.png --out icon.iconset/icon_512x512.png    >/dev/null
+    sips -z 16 16     "$ICON_SRC" --out icon.iconset/icon_16x16.png      >/dev/null
+    sips -z 32 32     "$ICON_SRC" --out icon.iconset/icon_16x16@2x.png   >/dev/null
+    sips -z 32 32     "$ICON_SRC" --out icon.iconset/icon_32x32.png      >/dev/null
+    sips -z 64 64     "$ICON_SRC" --out icon.iconset/icon_32x32@2x.png   >/dev/null
+    sips -z 128 128   "$ICON_SRC" --out icon.iconset/icon_128x128.png    >/dev/null
+    sips -z 256 256   "$ICON_SRC" --out icon.iconset/icon_128x128@2x.png >/dev/null
+    sips -z 256 256   "$ICON_SRC" --out icon.iconset/icon_256x256.png    >/dev/null
+    sips -z 512 512   "$ICON_SRC" --out icon.iconset/icon_256x256@2x.png >/dev/null
+    sips -z 512 512   "$ICON_SRC" --out icon.iconset/icon_512x512.png    >/dev/null
+    sips -z 1024 1024 "$ICON_SRC" --out icon.iconset/icon_512x512@2x.png >/dev/null
     iconutil -c icns icon.iconset -o icon.icns
     rm -rf icon.iconset
     echo "  Done."
 elif [ -f "icon.icns" ]; then
     echo "  icon.icns already exists."
 else
-    echo "  WARNING: icon_512.png not found — app will have default icon."
+    echo "  WARNING: $ICON_SRC not found — app will have default icon."
 fi
 
 # Step 4: Clean previous build
