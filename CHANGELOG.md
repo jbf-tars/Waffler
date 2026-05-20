@@ -4,6 +4,11 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.48] - 2026-05-20
+
+### Added
+- **Startup VPN detection logged into `app.log`.** User report: *"Waffler doesn't work or is very slow with a VPN. Having this issue with NordVPN."* The underlying causes vary (VPN exit IPs blocked by Groq / Cerebras, added latency on every request, MTU fragmentation on Whisper audio uploads) and aren't always fixable from inside Waffler — but having a one-grep answer to *"was a VPN on when this happened?"* turns every future "why is Waffler slow today?" investigation into a one-line lookup. Added `src/vpn_detect.py` with a heuristic detector: on macOS we walk `ifconfig` blocks for an UP `utun*` interface with an IPv4 attached; on Windows we scan `ipconfig /all` for signatures of all major VPN clients (NordVPN, NordLynx, ExpressVPN, Surfshark, Mullvad, ProtonVPN, WireGuard, TAP-Windows, OpenVPN, PIA, Ivacy) gated on a same-block IPv4 line. Each detection has a 2 s subprocess timeout and any error returns False, so this never blocks startup. Result lands in `app.log` immediately after the version banner as `[vpn] on (VPN tunnel detected — providers may be slower or block requests)` or `[vpn] off`. No behaviour changes — Waffler runs identically whether VPN is detected or not; the detector exists only to enrich the log so future "is the user on VPN?" investigations are instant.
+
 ## [3.14.47] - 2026-05-20
 
 ### Fixed

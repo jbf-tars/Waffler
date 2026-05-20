@@ -3241,6 +3241,26 @@ def main():
         f"PROJECT_ROOT={PROJECT_ROOT})"
     )
 
+    # v3.14.48 — diagnostic VPN detection. User reported "Waffler doesn't
+    # work or is very slow with a VPN. Having this issue with NordVPN."
+    # The underlying cause (VPN exit IPs blocked by Groq / Cerebras, or
+    # added latency on every request) isn't always fixable from inside
+    # Waffler — but a one-line ``[vpn] on`` / ``[vpn] off`` in the
+    # startup banner makes future "why is this slow?" investigations
+    # one-grep instead of guessing. The detector is best-effort and
+    # never blocks startup; any error logs nothing extra.
+    try:
+        from src.vpn_detect import is_vpn_active as _is_vpn_active
+    except ImportError:
+        from vpn_detect import is_vpn_active as _is_vpn_active
+    try:
+        _vpn_on = _is_vpn_active()
+        _log_to_file(
+            f"[vpn] {'on (VPN tunnel detected — providers may be slower or block requests)' if _vpn_on else 'off'}"
+        )
+    except Exception as _e:
+        _log_to_file(f"[vpn] detection failed: {_e}")
+
     # v3.14.45 — single-instance lock. The 08:31:54 reproduction in the
     # user's app.log showed THREE simultaneous main-mode Waffler.exe
     # processes after an in-app update, each installing its own keyboard
