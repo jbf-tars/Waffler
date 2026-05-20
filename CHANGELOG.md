@@ -4,6 +4,11 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.47] - 2026-05-20
+
+### Fixed
+- **Mac mic hot-swap (plug in / change default while Waffler is open).** User report: *"When Waffler is already open and then I add my wireless mic, I go to settings and I make sure the sound input is the mic. Settings can receive it but then Waffler can't — I have to close the app and then reopen it."* Cause: `sd.InputStream` binds to whatever PortAudio considered the *default input device* at the moment the monitoring stream was created (once, at pipeline init), and the stream never gets re-created — so a device change at the OS layer doesn't propagate. Added `src/audio_device_monitor.py::AudioDeviceMonitor` — a 2 s background poll on the default input's name. When it changes, the registered callback fires `AudioRecorder.stop_monitoring()` + `start_monitoring()`, going through the existing `_STREAM_LOCK`-serialised teardown + creation path. The next `_create_stream()` reads PortAudio's *current* default, which now reflects the new device. Skipped during active recording — restarting the stream mid-recording would lose the audio captured so far; the new default takes effect on the next press. Cross-platform (Windows users get the same fix as a free side-effect).
+
 ## [3.14.46] - 2026-05-20
 
 ### Added

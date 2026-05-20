@@ -1837,6 +1837,7 @@ _window   = None
 _api      = None
 _pipeline = None   # set after WafflerPipeline is created
 _config   = None   # set in main()
+_device_monitor = None   # v3.14.47 — default-input-device watcher (audio_device_monitor.AudioDeviceMonitor)
 
 # ── Wizard temporary state ────────────────────────────────────────────
 _wizard_recorder      = None   # temporary AudioRecorder for wizard
@@ -2031,6 +2032,48 @@ def _initialize_pipeline():
         )
         hotkey_thread.start()
         _log_to_file(f"Hotkey thread started (config key: {_config.hotkey})")
+
+        # v3.14.47 — default-input-device monitor. User report: "When
+        # Waffler is open and I add my wireless mic, Settings sees it
+        # but Waffler doesn't — I have to close and reopen the app."
+        # Cause: ``sd.InputStream`` binds to whatever PortAudio considered
+        # the default at the moment it was created, and the monitoring
+        # stream we start above never gets re-created. Fix: poll the
+        # default input device every 2 s; on change, tear down + recreate
+        # the stream via the existing ``stop_monitoring`` /
+        # ``start_monitoring`` path on ``AudioRecorder``.
+        try:
+            from src.audio_device_monitor import AudioDeviceMonitor as _ADM
+        except ImportError:
+            from audio_device_monitor import AudioDeviceMonitor as _ADM
+
+        def _on_default_input_changed(old_name: str, new_name: str) -> None:
+            """Recreate the monitoring stream so the new device is used
+            immediately. Skipped if a recording is in flight — restarting
+            mid-recording would lose the captured audio."""
+            if _pipeline is None or not getattr(_pipeline, "audio", None):
+                return
+            if getattr(_pipeline.audio, "is_recording", False):
+                _log_to_file(
+                    f"[audio-monitor] device changed to {new_name!r} but "
+                    f"recording is in flight — deferring stream restart"
+                )
+                return
+            try:
+                _pipeline.audio.stop_monitoring()
+                _pipeline.audio.start_monitoring()
+                _log_to_file(
+                    f"[audio-monitor] monitoring stream restarted on "
+                    f"{new_name!r}"
+                )
+            except Exception as e:
+                _log_to_file(f"[audio-monitor] restart failed: {e}")
+
+        global _device_monitor
+        _device_monitor = _ADM(
+            on_change=_on_default_input_changed, log_fn=_log_to_file
+        )
+        _device_monitor.start()
     except Exception as e:
         _log_to_file(f"Pipeline init error: {e}")
         import traceback
