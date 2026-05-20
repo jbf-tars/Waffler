@@ -4,6 +4,11 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.45] - 2026-05-20
+
+### Fixed
+- **Multi-paste bug after in-app update.** After updating from v3.14.36 → v3.14.44 the user's `app.log` showed three simultaneous `=== Waffler starting === (v3.14.44, …)` banners at 08:31:54, three `WindowsHotkeyListener` instances each installing its own low-level keyboard hook, and every Win+Ctrl press fired three `on_release` callbacks → three `_process` threads → three transcriptions → three pastes per dictation (visible in the log as four-deep clusters of `Recording stopped, processing` / `audio captured: 329772 bytes` lines at the same timestamp). Root cause: Inno Setup's `/RESTARTAPPLICATIONS` flag (passed by the in-app updater) uses Windows Restart Manager to relaunch closed Waffler.exe instances after install, and with Waffler's multi-process layout (main + overlay subprocess) it ended up relaunching more main-mode processes than RM had originally killed. Fixed at the app layer with a defence-in-depth single-instance lock: on startup the main process acquires either a Windows named mutex (`Waffler-Single-Instance-Mutex-v1`) or a POSIX `fcntl.flock` on `~/.waffler-hosted/single-instance.lock`. Any subsequent main-mode process detects the lock and `sys.exit(0)`s before constructing a pipeline, hotkey listener, or audio recorder. Crash-safe — the kernel releases the lock on any process exit including SIGKILL, so it can never get stuck.
+
 ## [3.14.44] - 2026-05-16
 
 ### Fixed

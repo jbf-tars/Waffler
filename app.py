@@ -3198,6 +3198,30 @@ def main():
         f"PROJECT_ROOT={PROJECT_ROOT})"
     )
 
+    # v3.14.45 — single-instance lock. The 08:31:54 reproduction in the
+    # user's app.log showed THREE simultaneous main-mode Waffler.exe
+    # processes after an in-app update, each installing its own keyboard
+    # hook → Win+Ctrl press fired three on_release callbacks → three
+    # _process threads → three pastes per dictation. Root cause was Inno
+    # Setup's /RESTARTAPPLICATIONS flag relaunching more processes than
+    # Restart Manager had killed. Defence-in-depth at the app layer:
+    # acquire a named-mutex lock on Windows / fcntl.flock on POSIX. If
+    # any other Waffler main-mode process is already running, exit
+    # immediately before touching the pipeline / hotkey listener / audio
+    # stream. Crash-safe: the kernel releases the lock on process exit
+    # even on hard kill, so the lock can never get stuck.
+    try:
+        from src.single_instance import acquire as _acquire_lock
+    except ImportError:
+        from single_instance import acquire as _acquire_lock
+    if not _acquire_lock():
+        _log_to_file(
+            "[single-instance] another Waffler main-mode process is already "
+            "running — exiting this duplicate cleanly. (If you didn't expect "
+            "this, check Task Manager for stray Waffler.exe entries.)"
+        )
+        sys.exit(0)
+
     # v3.14.31 — log the actual macOS mic TCC status at startup. The
     # existing PermissionsManager.check_microphone_permission() opens an
     # sd.InputStream and returns GRANTED if no exception is raised — but
