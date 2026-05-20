@@ -3211,15 +3211,22 @@ def main():
     # stream. Crash-safe: the kernel releases the lock on process exit
     # even on hard kill, so the lock can never get stuck.
     try:
-        from src.single_instance import acquire as _acquire_lock
+        from src.single_instance import acquire as _acquire_lock, signal_focus_to_existing as _signal_focus
     except ImportError:
-        from single_instance import acquire as _acquire_lock
+        from single_instance import acquire as _acquire_lock, signal_focus_to_existing as _signal_focus
     if not _acquire_lock():
+        # v3.14.46 — Slack-style focus-existing-window UX. The second
+        # instance signals the first to bring its window to the front
+        # (via ~/.waffler-hosted/focus.signal — a polled file the first
+        # instance's watcher thread is waiting on) then exits. So a
+        # double-click of the Waffler icon while it's already running
+        # surfaces the existing window rather than silently doing
+        # nothing.
         _log_to_file(
             "[single-instance] another Waffler main-mode process is already "
-            "running — exiting this duplicate cleanly. (If you didn't expect "
-            "this, check Task Manager for stray Waffler.exe entries.)"
+            "running — signalling it to bring its window to front, then exiting."
         )
+        _signal_focus()
         sys.exit(0)
 
     # v3.14.31 — log the actual macOS mic TCC status at startup. The
@@ -3334,6 +3341,19 @@ def main():
 
     set_window(window)
     _window_ref = window
+
+    # v3.14.46 — start the focus-existing-window watcher. When a second
+    # main-mode Waffler attempts to launch, its single_instance.acquire()
+    # call fails and it touches ~/.waffler-hosted/focus.signal before
+    # exiting; the daemon thread we start here polls that file every
+    # 200 ms and calls window.show() (+ window.restore() if available)
+    # so the existing window comes to front. Slack/Discord/VS Code all
+    # do the same thing on duplicate-launch.
+    try:
+        from src.single_instance import start_focus_watcher
+    except ImportError:
+        from single_instance import start_focus_watcher
+    start_focus_watcher(window, log_fn=_log_to_file)
 
     # Intercept close → hide to tray (only if tray icon works)
     # Note: rumps tray icon on Mac must run on main thread (which pywebview owns),

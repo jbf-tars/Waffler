@@ -46,11 +46,24 @@ on the module level so it's not GC'd mid-run.
 from __future__ import annotations
 
 import sys
+import threading
+import time
 from pathlib import Path
 
 
 # Module-level handle so the lock outlives ``acquire()``'s scope.
 _HOLDER = None
+
+# v3.14.46 — Slack-style focus-existing-window UX. When a second main-
+# mode instance detects the lock is held, it touches FOCUS_SIGNAL_PATH
+# and exits. The first (lock-holding) instance runs a daemon thread
+# polling for that file, and brings its window to the front when it
+# appears. ~200 ms polling is well below the human "instant" threshold
+# and costs nothing measurable on a modern CPU. A file is the simplest
+# cross-platform IPC channel — works the same on Windows, macOS, Linux,
+# and survives any signal/named-pipe/socket nuance per OS.
+_FOCUS_SIGNAL_PATH = Path.home() / ".waffler-hosted" / "focus.signal"
+_FOCUS_POLL_INTERVAL_S = 0.2
 
 
 def acquire() -> bool:
@@ -154,3 +167,86 @@ def _acquire_posix() -> bool:
     except Exception:
         pass
     return True
+
+
+# ── v3.14.46 focus-existing-window signal ──────────────────────────────
+
+
+def signal_focus_to_existing() -> None:
+    """Touch the focus-signal file so the already-running Waffler brings
+    its window to the front. Call from the second instance immediately
+    before ``sys.exit(0)`` when the lock is already held.
+
+    Best-effort — any error is swallowed because a failed signal just
+    falls back to the v3.14.45 "silent exit" behaviour, which is still
+    acceptable (no extra processes spawn, no data lost; the user just
+    has to find the existing window themselves).
+    """
+    try:
+        _FOCUS_SIGNAL_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _FOCUS_SIGNAL_PATH.touch(exist_ok=True)
+        # Update mtime even if the file already existed (the watcher
+        # uses mtime as the trigger so back-to-back duplicate launches
+        # all bring the window forward).
+        _FOCUS_SIGNAL_PATH.write_text(f"{time.time():.6f}\n")
+    except Exception:
+        pass
+
+
+def start_focus_watcher(window_ref, log_fn=None) -> None:
+    """Start a daemon thread that polls ``focus.signal`` and brings the
+    window to the front when a second instance touches it.
+
+    Call from the FIRST (lock-holding) instance ONCE, AFTER the pywebview
+    window has been created. The thread runs for the lifetime of the
+    process and is a no-op if no second instance ever fires.
+
+    Args:
+        window_ref: the pywebview window object. Must expose ``show()``;
+            ``restore()`` is called too if present (some pywebview
+            versions don't have it).
+        log_fn: optional logger callable; defaults to ``print``.
+
+    The watcher consumes the signal file on every trigger so multiple
+    back-to-back duplicate launches each get a fresh focus.
+    """
+    log = log_fn or print
+
+    # Track the last mtime we processed so the same signal file isn't
+    # re-fired forever if the unlink races us. (On Windows particularly,
+    # unlink can fail briefly if another process has the handle open.)
+    last_processed_mtime = [0.0]
+
+    def _watch():
+        while True:
+            try:
+                if _FOCUS_SIGNAL_PATH.exists():
+                    try:
+                        mtime = _FOCUS_SIGNAL_PATH.stat().st_mtime
+                    except Exception:
+                        mtime = 0.0
+                    if mtime > last_processed_mtime[0]:
+                        last_processed_mtime[0] = mtime
+                        log("[single-instance] focus signal received — bringing window to front")
+                        try:
+                            window_ref.show()
+                        except Exception as e:
+                            log(f"[single-instance] window.show() failed: {e}")
+                        try:
+                            if hasattr(window_ref, "restore"):
+                                window_ref.restore()
+                        except Exception:
+                            pass
+                        # Consume the file so it doesn't repeatedly
+                        # trigger if mtime polling skips the next tick.
+                        try:
+                            _FOCUS_SIGNAL_PATH.unlink()
+                        except Exception:
+                            pass
+            except Exception:
+                # Never let the watcher die — swallow and keep polling.
+                pass
+            time.sleep(_FOCUS_POLL_INTERVAL_S)
+
+    t = threading.Thread(target=_watch, daemon=True, name="FocusWatcher")
+    t.start()

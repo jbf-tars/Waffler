@@ -4,6 +4,11 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.46] - 2026-05-20
+
+### Added
+- **Duplicate-launch now brings the existing Waffler window to the front.** v3.14.45's single-instance lock correctly blocked a second main-mode process from running, but it exited silently — so a user who double-clicked the Waffler icon while the app was already minimised / hidden / in the tray saw nothing happen. Followed the Slack / Discord / VS Code pattern instead: when a second instance fails to acquire the lock it touches `~/.waffler-hosted/focus.signal` (best-effort, swallowed on any error) and then exits. The first instance runs a daemon thread polling that file every 200 ms; on detection it calls `window.show()` + `window.restore()` (the latter only if pywebview exposes it on the running version) so the existing window comes forward. File-based signal because it's the simplest cross-platform IPC channel — works the same on Windows, macOS, Linux. The "silent exit" remains the graceful fallback if anything in the signal/watcher path fails: no extra processes spawn, no data lost, just back to the v3.14.45 behaviour.
+
 ## [3.14.45] - 2026-05-20
 
 ### Fixed
