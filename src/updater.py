@@ -251,19 +251,71 @@ def install_and_restart(installer_path: str) -> None:
 
 
 def _install_windows(exe_path: Path) -> None:
-    # Inno Setup silent upgrade:
-    #   /SILENT              — hide most dialogs, show progress only
-    #   /CLOSEAPPLICATIONS   — close running Waffler via Restart Manager
-    #   /RESTARTAPPLICATIONS — relaunch Waffler once install completes
-    #   /NORESTART           — never reboot the machine
+    """Install the update and relaunch Waffler.
+
+    v3.14.49 — switched from Inno Setup's ``/RESTARTAPPLICATIONS`` flag to
+    an explicit batch-script relaunch. The old flag relied on Windows
+    Restart Manager re-spawning the processes it closed, which had two
+    failure modes the user actually hit:
+
+      1. **"Installed but didn't reopen."** We called ``os._exit(0)`` just
+         500 ms after launching the installer. Restart Manager registers a
+         process for restart only if it's still alive when RM enumerates
+         it; our early exit killed Waffler first, so RM had nothing to
+         relaunch. Reported on the v3.14.45 update.
+      2. **Triple-instance multi-paste.** When RM *did* fire, it sometimes
+         relaunched more processes than it closed (main + overlay
+         subprocess), producing the duplicate-instance bug that the
+         v3.14.45 single-instance lock now defends against.
+
+    New approach — a detached batch script that:
+      1. Waits for the running Waffler.exe (our PID) to fully exit, so the
+         single-instance lock is released and all files are unlocked.
+      2. Runs the installer ``/SILENT /NORESTART`` (no RM restart — *we*
+         own the relaunch now).
+      3. Launches the freshly installed Waffler.exe exactly once.
+      4. Deletes itself.
+
+    Sleeps use ``ping`` rather than ``timeout`` because ``timeout`` needs a
+    console handle, and we spawn with ``CREATE_NO_WINDOW``. PID-liveness is
+    checked by image name ("Waffler") in the ``tasklist`` row so a digit
+    collision in the memory column can't false-match.
+    """
+    pid = os.getpid()
+    waffler_exe = Path(sys.executable)  # current Waffler.exe; same path post-install
+
+    bat = (
+        "@echo off\r\n"
+        f"REM Wait for Waffler (PID {pid}) to exit so the single-instance\r\n"
+        "REM lock is released and the installer can replace locked files.\r\n"
+        ":wait_loop\r\n"
+        f'tasklist /FI "PID eq {pid}" /NH 2>NUL | find /I "Waffler" >NUL\r\n'
+        "if not errorlevel 1 (\r\n"
+        "  ping -n 2 127.0.0.1 >NUL\r\n"
+        "  goto wait_loop\r\n"
+        ")\r\n"
+        "REM Settle so Restart Manager fully releases handles.\r\n"
+        "ping -n 3 127.0.0.1 >NUL\r\n"
+        "REM Install silently; we relaunch ourselves, so NO /RESTARTAPPLICATIONS.\r\n"
+        f'"{exe_path}" /SILENT /NORESTART\r\n'
+        "ping -n 2 127.0.0.1 >NUL\r\n"
+        "REM Launch the freshly installed Waffler exactly once.\r\n"
+        f'start "" "{waffler_exe}"\r\n'
+        'del "%~f0"\r\n'
+    )
+    bat_path = Path(tempfile.gettempdir()) / f"waffler_update_{pid}.bat"
+    bat_path.write_text(bat, encoding="utf-8")
+
     DETACHED_PROCESS = 0x00000008
     CREATE_NEW_PROCESS_GROUP = 0x00000200
+    CREATE_NO_WINDOW = 0x08000000
     subprocess.Popen(
-        [str(exe_path), "/SILENT", "/CLOSEAPPLICATIONS", "/RESTARTAPPLICATIONS", "/NORESTART"],
+        ["cmd", "/c", str(bat_path)],
         close_fds=True,
-        creationflags=DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP,
+        creationflags=DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW,
     )
-    time.sleep(0.5)
+    # Exit promptly so the batch's wait_loop sees us die and proceeds.
+    time.sleep(0.2)
     os._exit(0)
 
 

@@ -4,6 +4,11 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.49] - 2026-05-20
+
+### Fixed
+- **In-app update now reliably reopens Waffler after installing (Windows).** User report: *"I clicked install update, it closed the app and then it didn't reopen — I had to manually relaunch."* Cause: `_install_windows` spawned the Inno Setup installer with `/RESTARTAPPLICATIONS` and then called `os._exit(0)` 500 ms later. Windows Restart Manager only re-spawns a process if it's still alive when RM enumerates it for restart — our early exit killed Waffler first, so RM had nothing to relaunch. (The same `/RESTARTAPPLICATIONS` path was also implicated in the triple-instance multi-paste bug when RM *did* fire and over-restarted.) Replaced with an explicit detached batch script that (1) waits for the running Waffler.exe to fully exit — releasing the v3.14.45 single-instance lock and unlocking files, (2) runs the installer `/SILENT /NORESTART`, (3) launches the freshly installed Waffler.exe exactly once, (4) deletes itself. `ping`-based sleeps (not `timeout`, which needs a console we don't have under `CREATE_NO_WINDOW`); PID-liveness checked by the "Waffler" image name in the `tasklist` row so a digit collision in the memory column can't false-match. Combined with the single-instance lock, the relaunch is guaranteed to produce exactly one running instance.
+
 ## [3.14.48] - 2026-05-20
 
 ### Added
