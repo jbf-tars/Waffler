@@ -3067,9 +3067,9 @@ class WafflerPipeline:
                         os.environ.get("OPENAI_API_KEY") or os.environ.get("openai_api_key")
                     )
                     if _has_openai:
-                        body = "API key may be invalid, or VPN is blocking Groq."
+                        body = "API key may be invalid, or your VPN server's IP is blocked. Try a different VPN server."
                     else:
-                        body = "Groq blocked (likely your VPN). Add an OpenAI key in Settings as a fallback."
+                        body = "Your VPN server's IP is blocked by Groq. Switch to a different VPN server/location and try again."
                     self.overlay.show_toast(
                         style="warn",
                         heading="Access denied",
@@ -3138,13 +3138,13 @@ class WafflerPipeline:
 
         if is_block:
             note = (
-                "Transcription blocked — this is almost always a VPN exit IP "
-                "that Groq rejects. Your audio was saved below; turn the VPN "
-                "off and re-record to get the text."
+                "Transcription blocked — your VPN server's exit IP is on Groq's "
+                "block list. Switch to a different VPN server/location (or turn "
+                "the VPN off), then re-record. Your audio was saved below."
             )
             toast_body = (
-                "Your VPN is blocking transcription. The recording was saved "
-                "to your journal — turn the VPN off and try again."
+                "Your VPN server's IP is blocked by Groq. Try a different VPN "
+                "server (or turn it off) and re-record — your audio's saved to History."
             )
         else:
             note = (

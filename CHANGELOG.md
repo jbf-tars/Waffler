@@ -4,6 +4,11 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.55] - 2026-05-21
+
+### Changed
+- **VPN-block messaging now points to the fix that actually works: switch VPN servers.** Confirmed from the user's `app.log` that the failure is a Groq *edge* block — `403 "Access denied. Please check your network settings."` returned *before* authentication on the VPN's exit IP (not an API-key problem; a bad key returns `invalid_api_key`). The block is per-IP, verified empirically: same VPN provider flips between working and blocked as you change server/location, because each server sits on a different exit IP and only some ranges are on Groq's list. So the old "Add an OpenAI key in Settings as a fallback" advice was misleading — keys are irrelevant to a pre-auth IP block. Updated both the transcription-failure toast/journal note (`_handle_failed_transcription`) and the generic `403` error-branch toast to say *"Your VPN server's IP is blocked by Groq — try a different VPN server (or turn it off) and re-record."* Documented the two no-rebuild workarounds in `ROADMAP.md`: (1) switch VPN server, (2) split-tunnel / exclude Waffler from the VPN so its Groq requests use the unblocked real ISP IP. The proper auto-fallback (OpenAI/local Whisper) remains the roadmap'd durable fix.
+
 ## [3.14.54] - 2026-05-21
 
 ### Fixed

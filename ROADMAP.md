@@ -38,3 +38,20 @@ turn the VPN off and retry. The proper *automatic* fix is still outstanding:
 **Stretch:** auto-reprocess the saved `unsent/` recordings once a working
 transcription provider is reachable again, so the user doesn't have to
 re-record at all.
+
+**Workarounds available today (no rebuild):**
+
+- **Switch VPN server/location.** The block is per-IP — different servers sit
+  on different exit IPs, and only some ranges are on Groq's block list.
+  Hopping servers usually lands on a clean one. (Confirmed empirically: same
+  VPN provider, flips between working and blocked as you change location.)
+- **Split-tunnel / exclude Waffler from the VPN.** Most VPN clients can exclude
+  a specific app from the tunnel. Excluding Waffler routes its Groq requests
+  over the real ISP IP (never blocked) while the rest of the machine stays on
+  the VPN. One-time setup, then Groq always works.
+
+Note: there is **no client-side way** to make Groq accept a blocked IP — the
+`403 "Access denied. Please check your network settings."` is returned by
+Groq's edge *before* authentication, so no key/header/request change affects
+it. The only durable fixes are a non-Groq transcription path (above) or
+bypassing the blocked IP (the workarounds).
