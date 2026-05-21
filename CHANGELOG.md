@@ -4,6 +4,11 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.57] - 2026-05-21
+
+### Changed
+- **New app icon — sleek dark + white 3D waffle (replaces the golden waffle).** User-directed redesign so the Dock/Finder icon matches the new monochrome menu-bar glyph: a charcoal vertical-gradient squircle with a soft drop shadow, and a white 4×4 waffle of beveled square pockets rendered with 3D depth (lit top-left, shadowed bottom-right). Regenerated `icon_master_1024.png` and, from it, `icon.icns` (macOS, via `iconutil`) and `icon.ico` (Windows, multi-size). Both build specs already point at these files, so the next build picks up the new icon automatically. (The in-app UI logo and website favicon still use the old mark — those can be refreshed separately for full brand consistency.)
+
 ## [3.14.56] - 2026-05-21
 
 ### Fixed
