@@ -36,6 +36,7 @@ from AppKit import (
     NSColor,
     NSBezierPath,
     NSScreen,
+    NSWorkspace,
     NSFloatingWindowLevel,
     NSStatusWindowLevel,
     NSBackingStoreBuffered,
@@ -52,7 +53,56 @@ from AppKit import (
     NSCenterTextAlignment,
     NSParagraphStyleAttributeName,
 )
-from Foundation import NSTimer, NSRunLoop, NSDefaultRunLoopMode, NSMakePoint, NSMakeRect
+from Foundation import NSObject, NSTimer, NSRunLoop, NSDefaultRunLoopMode, NSMakePoint, NSMakeRect
+
+
+# Bundle of collection-behavior flags that make a window appear on every
+# Space (including other apps' full-screen Spaces). Re-set frequently
+# because macOS occasionally clears these during Space transitions —
+# especially when swiping through 3+ Spaces in quick succession.
+_OVERLAY_COLLECTION_BEHAVIOR = (
+    NSWindowCollectionBehaviorCanJoinAllSpaces
+    | NSWindowCollectionBehaviorStationary
+    | NSWindowCollectionBehaviorFullScreenAuxiliary
+    | NSWindowCollectionBehaviorIgnoresCycle
+)
+
+
+def _reassert_overlay_window():
+    """Force-refresh the overlay window's Space membership.
+
+    Called from three places now:
+      1. animTick every 250ms while visible (heartbeat reassert)
+      2. NSWorkspace activeSpaceDidChangeNotification (immediate on swipe)
+      3. show() handler (immediate on hotkey press)
+
+    Re-sets collection behavior AND re-orders front. The collection
+    behavior re-set is the key new piece — the old code only re-ordered
+    front, which doesn't help when macOS has silently cleared the
+    CanJoinAllSpaces flag during a Space transition.
+    """
+    if _g_window is None or not _visible:
+        return
+    try:
+        _g_window.setCollectionBehavior_(_OVERLAY_COLLECTION_BEHAVIOR)
+        _g_window.setLevel_(NSStatusWindowLevel)
+        _g_window.orderFrontRegardless()
+    except Exception:
+        pass
+
+
+class SpaceChangeObserver(NSObject):
+    """NSObject subclass that receives NSWorkspaceActiveSpaceDidChangeNotification.
+
+    macOS posts this every time the user swipes between Spaces (whether
+    a full-screen Space or a Mission Control desktop). Reacting to it
+    immediately — instead of waiting up to 250 ms for the heartbeat
+    re-assert to catch the next tick — eliminates the "swiped to the
+    3rd Space and the pill isn't there" race.
+    """
+
+    def spaceDidChange_(self, notification):  # noqa: N802 — Cocoa selector form
+        _reassert_overlay_window()
 
 NSWindowStyleMaskBorderless = 0
 
@@ -132,6 +182,7 @@ _g_view         = None
 _toast_win      = None
 _toast_style    = None
 _toast_auto_hide_timer = None
+_space_observer = None  # NSObject — strong ref so it isn't GC'd; see main()
 
 # Screen position (set during init, reused for toast positioning)
 _waffle_x = 0.0
@@ -395,27 +446,30 @@ class WaffleView(NSView):
         if changed and _visible:
             self.setNeedsDisplay_(True)
 
-        # macOS Space-tracking reliability fix (v3.14.15).
+        # macOS Space-tracking reliability heartbeat.
         # `NSWindowCollectionBehaviorCanJoinAllSpaces` *should* make the
         # overlay appear on whichever Space the user is currently on, but
         # there's a long-standing macOS quirk where the flag is sometimes
-        # silently "forgotten" — especially after a Space change or when
-        # the overlay's owning app isn't frontmost. The symptom is "I press
-        # the hotkey, swipe to another window/Space, and the pill doesn't
-        # appear there; it eventually catches up". Re-asserting `orderFront`
-        # at the animation frame rate is essentially free (CoreGraphics
-        # no-ops if the window is already topmost on the current Space) and
-        # makes the pill snap onto the active Space the next time we tick.
-        # Throttle to every ~250ms (5 ticks @ 50ms) so we're not yelling at
-        # WindowServer 20× a second.
+        # silently "forgotten" — especially after swiping through 3+
+        # full-screen Spaces in quick succession. The symptom is "appears
+        # on the 2nd Space but inconsistently on the 3rd / 4th / etc".
+        #
+        # v3.14.51 — the heartbeat now re-sets the *collection behavior*
+        # itself (not just orderFront), because the actual lost state
+        # during a Space transition is the CanJoinAllSpaces flag clearing,
+        # not the window simply being behind. Previous version only
+        # re-ordered front, which doesn't help when the flag is cleared.
+        # Throttle to every ~250ms (5 ticks @ 50ms) so we're not yelling
+        # at WindowServer 20× a second.
+        #
+        # Additionally, a `SpaceChangeObserver` (registered in main())
+        # listens for NSWorkspaceActiveSpaceDidChangeNotification so we
+        # react to swipes *immediately*, not on the next heartbeat tick.
         if _visible and _g_window is not None:
             self._reassert_counter = getattr(self, "_reassert_counter", 0) + 1
             if self._reassert_counter >= 5:
                 self._reassert_counter = 0
-                try:
-                    _g_window.orderFrontRegardless()
-                except Exception:
-                    pass
+                _reassert_overlay_window()
 
     def setTargets_(self, targets):
         self._targets = list(targets)
@@ -747,22 +801,20 @@ def _dispatch_cmd(cmd):
         _visible = True
         _hide_toast()
         if _g_window:
-            # Re-assert collection behaviour on every show. macOS sometimes
-            # "forgets" that a window is supposed to appear in fullscreen
-            # Spaces if it was created in a different Space; re-setting the
-            # behaviour forces re-evaluation. This is the fix for "pill
-            # doesn't appear in fullscreen 90% of the time".
-            _g_window.setCollectionBehavior_(
-                NSWindowCollectionBehaviorCanJoinAllSpaces
-                | NSWindowCollectionBehaviorStationary
-                | NSWindowCollectionBehaviorFullScreenAuxiliary
-                | NSWindowCollectionBehaviorIgnoresCycle
-            )
-            # Use orderFrontRegardless only — never makeKey. Stealing focus
-            # from a fullscreen app can prevent the window from appearing on
-            # that Space at all (macOS treats focus theft as a hint that the
-            # auxiliary doesn't belong here).
-            _g_window.orderFrontRegardless()
+            # Re-assert collection behaviour + level + orderFront on every
+            # show. macOS sometimes "forgets" that a window is supposed to
+            # appear in fullscreen Spaces if it was created in a different
+            # Space; re-setting the behaviour forces re-evaluation.
+            # _reassert_overlay_window() is the shared helper so the show
+            # handler, the heartbeat tick, and the NSWorkspace observer
+            # all do the EXACT same thing — no per-call-site drift.
+            #
+            # Note we deliberately use orderFrontRegardless (not
+            # makeKeyAndOrderFront): stealing focus from a full-screen app
+            # can prevent the auxiliary from appearing on that Space at
+            # all (macOS treats focus theft as a hint that the auxiliary
+            # doesn't belong here).
+            _reassert_overlay_window()
             if _g_view:
                 _g_view.setNeedsDisplay_(True)
 
@@ -994,6 +1046,25 @@ def main():
         0.05, _g_view, b"animTick:", None, True
     )
     NSRunLoop.mainRunLoop().addTimer_forMode_(timer, NSDefaultRunLoopMode)
+
+    # v3.14.51 — Space-change observer.
+    # Subscribes to NSWorkspaceActiveSpaceDidChangeNotification so that
+    # the moment the user finishes a trackpad swipe (or hits Ctrl+Arrow),
+    # we immediately re-set CanJoinAllSpaces and re-order the overlay
+    # front on the new Space. Without this, the only thing that fired
+    # on a Space change was the 250 ms heartbeat — and within a swipe
+    # storm (3+ Spaces in 2 s), some Spaces missed the heartbeat's
+    # narrow re-assert window. Holding a strong reference to the
+    # observer on the module-level _space_observer name so it isn't
+    # garbage-collected after main() returns from the registration call.
+    global _space_observer  # noqa: PLW0603 — module-level singleton by design
+    _space_observer = SpaceChangeObserver.alloc().init()
+    NSWorkspace.sharedWorkspace().notificationCenter().addObserver_selector_name_object_(
+        _space_observer,
+        b"spaceDidChange:",
+        "NSWorkspaceActiveSpaceDidChangeNotification",
+        None,
+    )
 
     # Start hidden; the parent will send {"type": "show"} when ready
     _g_window.orderOut_(None)

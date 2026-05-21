@@ -4,6 +4,13 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.51] - 2026-05-19
+
+### Fixed
+- **Overlay pill now appears reliably on every Mac Space when swiping through multiple full-screen apps.** User report: *"on Mac, when you've got 10 full-screen windows and swipe across with the trackpad, the pill appears on the 2nd one but sometimes doesn't on subsequent ones — sometimes yes, sometimes no, but it needs to consistently work."* Root cause: macOS occasionally clears the `NSWindowCollectionBehaviorCanJoinAllSpaces` flag during Space transitions, especially in a swipe-storm of 3+ full-screen Spaces. The v3.14.15 mitigation re-asserted `orderFrontRegardless` every 250 ms while visible — but only *orderFront*, not the collection behavior itself. When the flag was the thing macOS dropped, re-ordering front did nothing because the window was no longer considered Space-resident. Two-layer fix in `src/overlay_process.py`:
+  - **Heartbeat now re-sets collection behavior + window level + orderFront** every 250 ms (was just orderFront). All three paths (show, heartbeat, Space-change observer) now route through a single `_reassert_overlay_window()` helper so they can't drift.
+  - **NSWorkspace `activeSpaceDidChangeNotification` observer** registered in `main()` — fires immediately on swipe (no 0–250 ms latency window). The observer is held on a module-level strong reference so PyObjC doesn't garbage-collect it after registration.
+
 ## [3.14.50] - 2026-05-22
 
 ### Fixed
