@@ -35,6 +35,7 @@ from AppKit import (
     NSView,
     NSColor,
     NSBezierPath,
+    NSEvent,
     NSScreen,
     NSWorkspace,
     NSFloatingWindowLevel,
@@ -89,6 +90,90 @@ def _reassert_overlay_window():
         _g_window.orderFrontRegardless()
     except Exception:
         pass
+
+
+def _compute_overlay_position(verbose: bool = False):
+    """Pick the right screen + centred-above-dock position for the overlay.
+
+    v3.14.53 fix — the previous implementation snapshotted NSScreen.mainScreen()
+    once at startup and used `(sw - WIN_W) / 2.0` as x, which implicitly
+    assumes the primary screen's frame.origin is (0, 0). On multi-monitor
+    rigs where the primary is rearranged off-origin, where the dock lives
+    on the left/right, or where an external display gets plugged in after
+    launch, that calculation puts the waffle off-centre or off-screen
+    entirely (matches the "appearing underneath the screen to the right"
+    bug report).
+
+    Strategy — pick the screen with the cursor (so the overlay follows the
+    user across displays), then centre on the *visibleFrame* of that
+    screen so dock-on-side and the M1+ notch are both handled correctly.
+
+    Returns (x, y) in global Cocoa coords, suitable for setFrameOrigin_.
+    Fallbacks: cursor's screen → mainScreen → first screen → (0, 0).
+    """
+    target = None
+    chosen_via = "fallback-origin"
+
+    # Cursor screen first — best UX, follows the user across displays.
+    try:
+        mouse_loc = NSEvent.mouseLocation()  # global coords
+        for s in NSScreen.screens() or []:
+            f = s.frame()
+            if (f.origin.x <= mouse_loc.x < f.origin.x + f.size.width and
+                    f.origin.y <= mouse_loc.y < f.origin.y + f.size.height):
+                target = s
+                chosen_via = "cursor"
+                break
+    except Exception:
+        target = None
+
+    # mainScreen — the screen with the menu bar / key window.
+    if target is None:
+        try:
+            target = NSScreen.mainScreen()
+            if target is not None:
+                chosen_via = "mainScreen"
+        except Exception:
+            target = None
+
+    # First screen — last resort before (0, 0).
+    if target is None:
+        try:
+            screens = NSScreen.screens()
+            if screens:
+                target = screens[0]
+                chosen_via = "screens[0]"
+        except Exception:
+            pass
+
+    if target is None:
+        if verbose:
+            print("[overlay_mac] _compute_overlay_position: NO SCREEN FOUND, falling back to (0,0)",
+                  file=sys.stderr, flush=True)
+        return 0.0, 0.0
+
+    vf = target.visibleFrame()
+    gap = 16  # px above dock
+    # X: centre on the *visible* frame so a dock-on-left/right doesn't
+    # shove the waffle off-centre on the active screen.
+    x = vf.origin.x + (vf.size.width - WIN_W) / 2.0
+    # Y: just above the bottom of the visible frame. vf.origin.y is the
+    # bottom of the visible area in *global* coords; the dock occupies
+    # the strip between target.frame().origin.y and vf.origin.y.
+    y = vf.origin.y + gap
+
+    if verbose:
+        sf = target.frame()
+        print(
+            f"[overlay_mac] _compute_overlay_position: via={chosen_via} "
+            f"screen.frame=({sf.origin.x:.0f},{sf.origin.y:.0f},"
+            f"{sf.size.width:.0f}x{sf.size.height:.0f}) "
+            f"visibleFrame=({vf.origin.x:.0f},{vf.origin.y:.0f},"
+            f"{vf.size.width:.0f}x{vf.size.height:.0f}) "
+            f"→ waffle=({x:.0f},{y:.0f})",
+            file=sys.stderr, flush=True,
+        )
+    return x, y
 
 
 class SpaceChangeObserver(NSObject):
@@ -801,6 +886,23 @@ def _dispatch_cmd(cmd):
         _visible = True
         _hide_toast()
         if _g_window:
+            # v3.14.53 — Recompute position on every show so the overlay
+            # follows the cursor's screen on multi-monitor rigs and adapts
+            # to dock moves, display plug-in, or display rearrangement
+            # that happened since launch. This fixed the "waffle appears
+            # underneath the screen to the right" report from a friend
+            # whose external display sat at a non-(0,0) frame origin.
+            global _waffle_x, _waffle_y
+            new_x, new_y = _compute_overlay_position(verbose=True)
+            if (new_x, new_y) != (_waffle_x, _waffle_y):
+                _waffle_x = new_x
+                _waffle_y = new_y
+                try:
+                    _g_window.setFrameOrigin_(NSMakePoint(_waffle_x, _waffle_y))
+                except Exception as e:
+                    print(f"[overlay_mac] setFrameOrigin_ failed: {e}",
+                          file=sys.stderr, flush=True)
+
             # Re-assert collection behaviour + level + orderFront on every
             # show. macOS sometimes "forgets" that a window is supposed to
             # appear in fullscreen Spaces if it was created in a different
@@ -997,20 +1099,11 @@ def main():
     app = NSApplication.sharedApplication()
     app.setActivationPolicy_(AppKit.NSApplicationActivationPolicyAccessory)
 
-    # Screen geometry
-    screen = NSScreen.mainScreen()
-    sf = screen.frame()
-    vf = screen.visibleFrame()
-    sw = sf.size.width
-    sh = sf.size.height
-
-    # Calculate dock height (macOS dock is at bottom)
-    dock_height = vf.origin.y  # Space from bottom to visible frame
-    gap = 16  # px above dock
-
-    # Position: bottom-centre, 16 px above dock
-    _waffle_x = (sw - WIN_W) / 2.0
-    _waffle_y = dock_height + gap
+    # Initial position — full multi-monitor / dock-on-side handling lives
+    # in _compute_overlay_position(). This is just a launch-time best
+    # guess; the show dispatcher recomputes on every show so the overlay
+    # always follows the user's cursor across displays.
+    _waffle_x, _waffle_y = _compute_overlay_position(verbose=True)
 
     # Create NSWindow (borderless)
     _g_window = ClickableWindow.alloc().initWithContentRect_styleMask_backing_defer_(

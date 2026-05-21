@@ -453,6 +453,47 @@ async function openInputMonitoringSettings() {
   }
 }
 
+async function downloadLogs(btn) {
+  console.log("downloadLogs called");
+
+  if (!window.pywebview || !window.pywebview.api) {
+    showToast("App not ready yet", "error");
+    return;
+  }
+
+  // Disable + show progress on the button so the user knows we're working.
+  let originalText = null;
+  if (btn) {
+    originalText = btn.textContent;
+    btn.disabled = true;
+    btn.style.opacity = "0.6";
+    btn.style.cursor = "wait";
+    btn.textContent = "Bundling…";
+  }
+
+  try {
+    const result = await pywebview.api.download_logs();
+    console.log("downloadLogs result:", result);
+
+    if (result && result.ok) {
+      showToast(`Logs saved to ${result.path}`, "success", 6000);
+    } else {
+      const msg = (result && result.error) || "Failed to download logs";
+      showToast(msg, "error", 6000);
+    }
+  } catch (e) {
+    console.error("downloadLogs error:", e);
+    showToast("Error downloading logs", "error");
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.style.opacity = "";
+      btn.style.cursor = "";
+      btn.textContent = originalText || "Download Logs";
+    }
+  }
+}
+
 async function factoryReset() {
   console.log("factoryReset called");
 

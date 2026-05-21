@@ -757,6 +757,163 @@ class Api:
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
+    # ── Diagnostics / bug-report bundle ───────────────────────────────────────
+
+    def download_logs(self) -> dict:
+        """Bundle all diagnostic-relevant files into a single zip on the user's
+        Desktop, then open Finder/Explorer to it. Designed for "my friend's
+        Waffler is broken, send me your logs" workflows.
+
+        Includes:
+          - app.log, crash.log              (runtime + Python crash dumps)
+          - settings.json, config.json,
+            setup_complete.json, vocab.json (config / state — no PII)
+          - macOS DiagnosticReports/*.ips   (last 5 system crash dumps)
+          - sysinfo.txt                     (synthesised: version, OS,
+                                             hotkey, audio device, VPN)
+
+        Deliberately EXCLUDES:
+          - .env                            (API keys)
+          - history.json                    (user transcripts — PII)
+
+        Returns:
+          {"ok": True, "path": "/Users/.../Desktop/waffler-logs-...zip"}
+          {"ok": False, "error": str}
+        """
+        import zipfile
+        import platform as _plat
+
+        try:
+            from src import __version__ as _ver
+        except ImportError:
+            _ver = "unknown"
+
+        try:
+            home = Path.home()
+            desktop = home / "Desktop"
+            if not desktop.exists():
+                # Headless / containerised envs may not have Desktop; fall back to home.
+                desktop = home
+            stamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
+            zip_path = desktop / f"waffler-logs-{stamp}.zip"
+
+            with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+                # 1) Runtime logs from DATA_DIR. tail of app.log only if huge
+                # (cap at last 2 MB so the zip stays sharable over chat).
+                for name in ("app.log", "crash.log"):
+                    src_path = DATA_DIR / name
+                    if not src_path.exists():
+                        continue
+                    try:
+                        if src_path.stat().st_size > 2 * 1024 * 1024:
+                            with open(src_path, "rb") as f:
+                                f.seek(-2 * 1024 * 1024, 2)
+                                tail = f.read()
+                            zf.writestr(f"logs/{name}.tail", tail)
+                        else:
+                            zf.write(src_path, f"logs/{name}")
+                    except Exception as e:
+                        zf.writestr(f"logs/{name}.READ_ERROR", str(e))
+
+                # 2) Config snapshots (no PII, no keys).
+                for name in ("settings.json", "config.json",
+                             "setup_complete.json", "vocab.json"):
+                    src_path = DATA_DIR / name
+                    if src_path.exists():
+                        try:
+                            zf.write(src_path, f"config/{name}")
+                        except Exception as e:
+                            zf.writestr(f"config/{name}.READ_ERROR", str(e))
+
+                # 3) macOS system crash reports (last 5). Each .ips is ~70 KB.
+                if _plat.system() == "Darwin":
+                    reports_dir = home / "Library" / "Logs" / "DiagnosticReports"
+                    if reports_dir.is_dir():
+                        try:
+                            ips_files = sorted(
+                                reports_dir.glob("Waffler-*.ips"),
+                                key=lambda p: p.stat().st_mtime,
+                                reverse=True,
+                            )[:5]
+                            for ips in ips_files:
+                                zf.write(ips, f"crashes-system/{ips.name}")
+                        except Exception as e:
+                            zf.writestr("crashes-system.READ_ERROR", str(e))
+
+                # 4) Synthesised one-page system snapshot.
+                try:
+                    # Best-effort — every line wrapped so a single failure
+                    # doesn't kill the whole snapshot.
+                    def _safe(thunk, default="<error>"):
+                        try:
+                            return thunk()
+                        except Exception:
+                            return default
+
+                    lines = [
+                        f"Waffler version : {_ver}",
+                        f"Generated       : {datetime.now().isoformat(timespec='seconds')}",
+                        f"OS              : {_plat.system()} {_plat.release()} ({_plat.machine()})",
+                        f"Python          : {sys.version.splitlines()[0]}",
+                        f"DATA_DIR        : {DATA_DIR}",
+                        f"PROJECT_ROOT    : {PROJECT_ROOT}",
+                        "",
+                        "── Pipeline ────────────────────────────────",
+                        f"Pipeline init   : {_safe(lambda: _pipeline is not None)}",
+                        f"Transcribe back : {_safe(lambda: getattr(_pipeline.transcriber, '_backend', '?'))}",
+                        f"Style back      : {_safe(lambda: getattr(_pipeline.styler, '_backend', '?'))}",
+                        f"Style model     : {_safe(lambda: getattr(_pipeline.styler, 'model', '?'))}",
+                        "",
+                        "── Hotkey ──────────────────────────────────",
+                        f"Current config  : {_safe(lambda: self.get_hotkey_config())}",
+                        "",
+                        "── Audio ───────────────────────────────────",
+                        f"Sample rate     : {_safe(lambda: getattr(_pipeline.recorder, 'sample_rate', '?'))}",
+                        f"Devices         : {_safe(lambda: self.get_audio_devices())}",
+                        "",
+                        "── API keys (presence only) ───────────────",
+                        f"GROQ_API_KEY    : {'set' if (os.environ.get('GROQ_API_KEY') or '').strip() else 'unset'}",
+                        f"CEREBRAS_API_KEY: {'set' if (os.environ.get('CEREBRAS_API_KEY') or '').strip() else 'unset'}",
+                        f"OPENAI_API_KEY  : {'set' if (os.environ.get('OPENAI_API_KEY') or '').strip() else 'unset'}",
+                    ]
+                    zf.writestr("sysinfo.txt", "\n".join(lines))
+                except Exception as e:
+                    zf.writestr("sysinfo.ERROR", str(e))
+
+                # 5) A README for the recipient — what's in here, what's NOT,
+                # and how to read it.
+                zf.writestr("README.txt",
+                    "Waffler diagnostic bundle\n"
+                    "=========================\n\n"
+                    f"Generated by Waffler v{_ver} on {datetime.now().isoformat(timespec='seconds')}.\n\n"
+                    "Contents:\n"
+                    "  logs/app.log              — runtime log (tail-clipped if >2 MB)\n"
+                    "  logs/crash.log            — Python crash dumps\n"
+                    "  config/                   — non-secret settings + vocab\n"
+                    "  crashes-system/           — macOS system crash reports (.ips)\n"
+                    "  sysinfo.txt               — one-page system snapshot\n\n"
+                    "NOT included (intentional):\n"
+                    "  - API keys (~/.waffler-hosted/.env)\n"
+                    "  - Transcript history (~/.waffler-hosted/history.json)\n\n"
+                    "Share this zip when reporting a bug to https://github.com/jbf-tars/Waffler/issues\n"
+                )
+
+            _log_to_file(f"[download_logs] wrote {zip_path}")
+
+            # Open Finder/Explorer to the saved file so the user can see + share it.
+            try:
+                if _platform.system() == "Darwin":
+                    subprocess.Popen(["open", "-R", str(zip_path)])
+                elif _platform.system() == "Windows":
+                    subprocess.Popen(["explorer", "/select,", str(zip_path)])
+            except Exception:
+                pass  # File still saved; just couldn't auto-reveal.
+
+            return {"ok": True, "path": str(zip_path)}
+        except Exception as e:
+            _log_to_file(f"[download_logs] failed: {e}")
+            return {"ok": False, "error": str(e)}
+
     # ── History utilities ─────────────────────────────────────────────────────
 
     def export_history(self) -> dict:
