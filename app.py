@@ -2888,10 +2888,21 @@ class WafflerPipeline:
                         body="Couldn't reach the server. Check your internet or VPN.",
                     )
                 elif "403" in error_msg or "Access denied" in error_msg:
+                    # Most common cause on a working install is a VPN exit IP
+                    # that Groq blocks at the network layer. Without an
+                    # OpenAI key set, transcription has no fallback and the
+                    # whole pipeline 403s. Tell the user the actual fix.
+                    _has_openai = bool(
+                        os.environ.get("OPENAI_API_KEY") or os.environ.get("openai_api_key")
+                    )
+                    if _has_openai:
+                        body = "API key may be invalid, or VPN is blocking Groq."
+                    else:
+                        body = "Groq blocked (likely your VPN). Add an OpenAI key in Settings as a fallback."
                     self.overlay.show_toast(
                         style="warn",
                         heading="Access denied",
-                        body="API key may be invalid or VPN is blocking the request.",
+                        body=body,
                     )
                 else:
                     self.overlay.show_toast(
