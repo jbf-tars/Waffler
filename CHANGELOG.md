@@ -4,6 +4,14 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.56] - 2026-05-21
+
+### Fixed
+- **Styling no longer silently deletes most of a transcript.** User report: dictating *"testing testing testing testing one two three four five six seven bitches in heaven"* produced a styled output of just *"Bitches in heaven"* — 11 of 14 words gone. The model read the mic-test repetition as meaningless filler and dropped it; because only the styled text is shown (raw is behind "Show original"), that's silent content loss. `prompts/normal.txt` already forbids truncation with extensive rules, but nothing checked the *output*. Added `_guard_truncation()` in `src/style_openai.py`: after any provider (Groq/Cerebras/OpenAI) returns, if the styled text kept **< 50% of the words on a ≥ 8-word input**, the styler distrusts it and falls back to the lightly-cleaned raw transcript (`_basic_clean`), which preserves every word. It deliberately sets `provider` (not `fallback_reason`), so this raises **no error toast** — nothing failed, it just keeps your words. Short utterances (< 8 words, which legitimately compress hard, e.g. *"um, yeah, okay so, hi" → "Hi"*) are exempt. `_basic_clean`'s stutter-dedup still tidies the repetition, so the example now lands as *"testing one two three four five six seven bitches in heaven"* — all distinct content intact.
+
+### Changed
+- **Menu bar waffle glyph: thicker, more elegant.** User feedback on the v3.14.54 template: *"I still want it 4×4, but the current one is too thin — the lines just need to be thicker, then it'd be more elegant."* The thin gridlines read as a wireframe grid; bumped the white batter-line weight (1.4 → 2.8 px) so the 4×4 pockets read as a real waffle at menu-bar size, while staying a monochrome template (tints white on a dark bar, black on a light one).
+
 ## [3.14.55] - 2026-05-21
 
 ### Changed

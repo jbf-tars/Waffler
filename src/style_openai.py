@@ -246,7 +246,8 @@ Transcript: {transcript}"""
         if self._use_groq:
             if time.monotonic() >= self._groq_skip_until:
                 try:
-                    return self._style_groq(prompt, start_time)
+                    _styled, _usage = self._style_groq(prompt, start_time)
+                    return self._guard_truncation(_styled, _usage, transcript)
                 except Exception as e:
                     self._log_provider_failure("Groq", e)
                     failures.append(("Groq", str(e)))
@@ -265,7 +266,8 @@ Transcript: {transcript}"""
         if self._use_cerebras:
             if time.monotonic() >= self._cerebras_skip_until:
                 try:
-                    return self._style_cerebras(prompt, start_time)
+                    _styled, _usage = self._style_cerebras(prompt, start_time)
+                    return self._guard_truncation(_styled, _usage, transcript)
                 except Exception as e:
                     self._log_provider_failure("Cerebras", e)
                     failures.append(("Cerebras", str(e)))
@@ -281,7 +283,8 @@ Transcript: {transcript}"""
         # NoneType call and lose the real failure reason.
         if self.client is not None:
             try:
-                return self._style_openai(prompt, transcript, start_time)
+                _styled, _usage = self._style_openai(prompt, transcript, start_time)
+                return self._guard_truncation(_styled, _usage, transcript)
             except Exception as e:
                 self._log_provider_failure("OpenAI", e)
                 failures.append(("OpenAI", str(e)))
@@ -294,6 +297,44 @@ Transcript: {transcript}"""
             "api_used": False, "provider": "basic_clean",
             "fallback_reason": best,
         }
+
+    def _guard_truncation(self, styled, usage, transcript):
+        """Backstop against the model silently deleting most of the content.
+
+        The prompt forbids truncation, but LLMs still occasionally decide a
+        chunk is "meaningless" — e.g. a mic check like "testing testing one
+        two three four five six seven" — and drop it, turning a 14-word
+        dictation into 3 words. That's silent content loss: the user only ever
+        sees the styled text. If the styled output kept less than half the
+        words on a non-trivial input (>= 8 words), distrust the model and fall
+        back to the lightly-cleaned raw transcript, which preserves every word.
+
+        basic_clean is a worse *polish* but never drops content, so a rare
+        false trip just yields slightly-less-tidy text — never a lost
+        sentence. We deliberately set `provider` (not `fallback_reason`) so
+        this does NOT raise the "styling failed" toast: nothing failed, we
+        just chose to keep the user's words.
+        """
+        try:
+            raw_words = len(transcript.split())
+            out_words = len((styled or "").split())
+            # Short utterances legitimately compress hard ("um, yeah, okay so,
+            # hi" -> "Hi"), so only guard inputs of >= 8 words.
+            if raw_words >= 8 and out_words < raw_words * 0.5:
+                print(
+                    f"[styler] truncation-guard: output kept {out_words}/{raw_words} "
+                    f"words — using basic_clean to preserve content",
+                    flush=True,
+                )
+                guarded = self._basic_clean(transcript)
+                usage = dict(usage or {})
+                usage["api_used"] = False
+                usage["provider"] = "basic_clean"
+                usage["truncation_guard"] = f"{out_words}/{raw_words}"
+                return guarded, usage
+        except Exception as e:
+            print(f"[styler] truncation-guard error (ignored): {e}", flush=True)
+        return styled, usage
 
     @staticmethod
     def _pick_best_failure_reason(failures: list[tuple[str, str]]) -> str:
