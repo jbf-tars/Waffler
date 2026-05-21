@@ -2981,6 +2981,14 @@ _tray_icon = None
 _window_ref = None
 _should_quit = False
 
+# macOS NSStatusItem strong refs — set by _create_mac_menubar_icon().
+# Held at module scope so PyObjC's garbage collector doesn't reclaim them
+# once the constructor function returns (without these, the menu bar icon
+# silently disappears after a GC cycle).
+_mac_menubar_status_item = None
+_mac_menubar_target = None
+_mac_menubar_menu = None
+
 
 def _create_tray_icon():
     """Create a status-area icon so the app can run in background.
@@ -2994,52 +3002,135 @@ def _create_tray_icon():
 
 
 def _create_mac_menubar_icon():
-    """Create a macOS menu bar icon using rumps."""
-    global _tray_icon
+    """Create a macOS menu bar icon — must be called on the MAIN THREAD
+    BEFORE webview.start() blocks the NSRunLoop.
+
+    Uses NSStatusBar / NSStatusItem directly via PyObjC instead of rumps,
+    because rumps wants to own the NSApplication (its `app.run()` calls
+    NSApplication.shared().run()), which collides head-on with pywebview's
+    own NSApp event loop and produces NSInternalInconsistencyException.
+
+    NSStatusItem attaches to whatever NSApp is already running. Once
+    registered, the menu's action callbacks are dispatched by the existing
+    NSRunLoop — the same one pywebview uses — so menu clicks work
+    cooperatively while the app's window is open, hidden, or even fully
+    closed. That makes "close the window → app keeps running, click menu
+    bar to bring it back" finally work on Mac.
+    """
+    global _tray_icon, _mac_menubar_status_item, _mac_menubar_target, _mac_menubar_menu
 
     try:
-        import rumps
+        from AppKit import (
+            NSStatusBar, NSImage, NSMenu, NSMenuItem, NSVariableStatusItemLength,
+        )
+        from Foundation import NSObject
+        import objc
 
-        class WafflerMenuBar(rumps.App):
-            def __init__(self):
-                # Resolve icon path (dev or frozen)
-                _icon_path = PROJECT_ROOT / "menubar_icon_template.png"
-                if not _icon_path.exists() and hasattr(sys, '_MEIPASS'):
-                    _icon_path = Path(sys._MEIPASS) / "menubar_icon_template.png"
-                if not _icon_path.exists():
-                    _icon_path = Path(sys.executable).parent / "_internal" / "menubar_icon_template.png"
+        # 1) Resolve the menu bar icon. We prefer a *template* image
+        # (monochrome PNG with template=true) because that's the macOS
+        # convention — it auto-renders correctly in both light and dark
+        # menu-bar modes. Fall back to the regular icon if the template
+        # asset isn't found.
+        icon_path = PROJECT_ROOT / "menubar_icon_template.png"
+        is_template = True
+        if not icon_path.exists() and hasattr(sys, '_MEIPASS'):
+            icon_path = Path(sys._MEIPASS) / "menubar_icon_template.png"
+        if not icon_path.exists():
+            icon_path = Path(sys.executable).parent / "_internal" / "menubar_icon_template.png"
+        if not icon_path.exists():
+            # Fall back to full-color icon
+            is_template = False
+            icon_path = PROJECT_ROOT / "icon.icns"
+            if not icon_path.exists() and hasattr(sys, '_MEIPASS'):
+                icon_path = Path(sys._MEIPASS) / "icon.icns"
+            if not icon_path.exists():
+                icon_path = Path(sys.executable).parent / "_internal" / "icon.icns"
 
-                # Fallback to icon.icns if template not found
-                if not _icon_path.exists():
-                    _icon_path = PROJECT_ROOT / "icon.icns"
-                    if not _icon_path.exists() and hasattr(sys, '_MEIPASS'):
-                        _icon_path = Path(sys._MEIPASS) / "icon.icns"
-                    if not _icon_path.exists():
-                        _icon_path = Path(sys.executable).parent / "_internal" / "icon.icns"
+        # 2) Create the status item with variable length (so the icon
+        # determines its width, not a hardcoded square).
+        status_bar = NSStatusBar.systemStatusBar()
+        status_item = status_bar.statusItemWithLength_(NSVariableStatusItemLength)
 
-                if _icon_path.exists():
-                    super().__init__(None, icon=str(_icon_path), template=False)
-                else:
-                    super().__init__(None, title="🧇")
+        button = status_item.button()
+        if icon_path.exists() and button is not None:
+            ns_image = NSImage.alloc().initWithContentsOfFile_(str(icon_path))
+            if ns_image is not None:
+                # Resize to fit the menu bar (NSStatusBar height ≈ 22pt;
+                # 18×18 leaves a touch of padding and matches Slack /
+                # Discord menu-bar icons).
+                ns_image.setSize_((18, 18))
+                ns_image.setTemplate_(is_template)
+                button.setImage_(ns_image)
+            else:
+                # Image load failed — fall back to a textual indicator
+                # so the menu is at least findable.
+                button.setTitle_("🧇")
+        elif button is not None:
+            button.setTitle_("🧇")
 
-            @rumps.clicked("Show Waffler")
-            def show_window(self, _):
+        # 3) Action-handler NSObject. The selectors look weird (snake-case
+        # turned into camelCase with trailing colon and underscore) — that's
+        # how PyObjC maps Python identifiers to Objective-C selectors. The
+        # underscore at the end of e.g. `show_` becomes the `:` in the
+        # Objective-C selector `show:`, marking it as taking one argument
+        # (the sender).
+        class WafflerMenuTarget(NSObject):
+            def show_(self, _sender):  # noqa: N802 — Cocoa selector form
                 _tray_show_window()
 
-            @rumps.clicked("Factory Reset...")
-            def factory_reset(self, _):
+            def factoryReset_(self, _sender):  # noqa: N802
                 _perform_factory_reset()
 
-            @rumps.clicked("Quit")
-            def quit_app(self, _):
+            def quit_(self, _sender):  # noqa: N802
                 _tray_quit()
-                rumps.quit_application()
 
-        app = WafflerMenuBar()
-        _tray_icon = app
-        app.run()
+        target = WafflerMenuTarget.alloc().init()
+
+        # 4) Build the menu. Each item references the target + a selector
+        # by name. The empty string key-equivalent means "no keyboard
+        # shortcut" — menu-bar shortcuts in a non-frontmost app are
+        # finicky on macOS so we leave them off rather than ship a
+        # half-broken shortcut.
+        menu = NSMenu.alloc().init()
+
+        item_show = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            "Show Waffler", b"show:", ""
+        )
+        item_show.setTarget_(target)
+        menu.addItem_(item_show)
+
+        menu.addItem_(NSMenuItem.separatorItem())
+
+        item_reset = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            "Factory Reset...", b"factoryReset:", ""
+        )
+        item_reset.setTarget_(target)
+        menu.addItem_(item_reset)
+
+        menu.addItem_(NSMenuItem.separatorItem())
+
+        item_quit = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            "Quit Waffler", b"quit:", ""
+        )
+        item_quit.setTarget_(target)
+        menu.addItem_(item_quit)
+
+        status_item.setMenu_(menu)
+
+        # 5) Hold strong references on module-level globals so PyObjC's
+        # garbage collector doesn't reclaim them once this function
+        # returns. Without these, the menu-bar icon vanishes after a
+        # garbage-collection cycle.
+        _mac_menubar_status_item = status_item
+        _mac_menubar_target = target
+        _mac_menubar_menu = menu
+        _tray_icon = status_item  # legacy global for _tray_quit() etc.
+
+        _log_to_file("Mac menu bar (NSStatusItem) installed")
+        return True
     except Exception as e:
         _log_to_file(f"Mac menu bar error: {e}")
+        return False
 
 
 def _create_windows_tray_icon():
@@ -3429,10 +3520,20 @@ def main():
         from single_instance import start_focus_watcher
     start_focus_watcher(window, log_fn=_log_to_file)
 
-    # Intercept close → hide to tray (only if tray icon works)
-    # Note: rumps tray icon on Mac must run on main thread (which pywebview owns),
-    # so we skip it to avoid NSInternalInconsistencyException that corrupts the app.
-    if _platform.system() == "Windows":
+    # Intercept close → hide to menu bar / tray.
+    # v3.14.52 — Mac now installs an NSStatusItem directly into pywebview's
+    # existing NSApp (rumps wanted to own a separate NSApplication, which
+    # collided with pywebview's and corrupted the run loop, hence the long-
+    # standing comment about skipping the Mac path). The status item must
+    # be created on the MAIN THREAD before webview.start() takes it, which
+    # is exactly where we are right now.
+    if _platform.system() == "Darwin":
+        if _create_mac_menubar_icon():
+            # Only intercept close → hide if the menu bar actually came up;
+            # otherwise the user has no way to reopen the window and the
+            # app becomes invisible/unrecoverable.
+            window.events.closing += _on_window_closing
+    elif _platform.system() == "Windows":
         window.events.closing += _on_window_closing
         threading.Thread(target=_create_tray_icon, daemon=True).start()
 

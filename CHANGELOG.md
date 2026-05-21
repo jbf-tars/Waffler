@@ -4,6 +4,12 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.52] - 2026-05-19
+
+### Added
+- **macOS menu bar widget — Waffler now keeps running when you close the window.** User report: *"I need a widget on the top of Macs that shows Waffler is still running so it can run in the background even if you click off and click X on the app."* Implemented as a direct `NSStatusItem` attached to pywebview's existing NSApp (`src/`-level globals `_mac_menubar_status_item` / `_mac_menubar_target` / `_mac_menubar_menu` hold strong references so PyObjC doesn't GC them). The menu has *Show Waffler* / *Factory Reset…* / *Quit Waffler*. Clicking the window's red X-button now hides Waffler to the menu bar instead of quitting — the hotkey, recording pipeline, and overlay all keep working. The same `_on_window_closing` interceptor that Windows has used since v3.14.36 is now wired on Mac too, gated on the menu bar successfully installing (so the app can never become invisible-and-unrecoverable on a status-item failure).
+- **Why this didn't ship before:** the previous `_create_mac_menubar_icon()` used `rumps`, which wraps `NSApplication.shared().run()` — colliding with pywebview's own NSApp event loop and producing `NSInternalInconsistencyException` that corrupted the app. The codebase comment had warned about this since v3.x. The fix is to drop down a layer and use `NSStatusBar.systemStatusBar()` + `NSStatusItem` + `NSMenu` from PyObjC directly, which attaches to *whichever NSApp is already running* without trying to own one. The new code path runs on the main thread before `webview.start()` blocks, so the status item is registered with NSRunLoop before pywebview takes it over — menu clicks then dispatch cooperatively via the existing event loop.
+
 ## [3.14.51] - 2026-05-19
 
 ### Fixed
