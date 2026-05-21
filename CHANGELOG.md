@@ -4,6 +4,12 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.50] - 2026-05-22
+
+### Fixed
+- **Mic hot-swap actually works now.** v3.14.47 shipped an `AudioDeviceMonitor` that polled for default-input changes, but two layers below it kept reading PortAudio's *cached* default-device index: (a) `sd.query_devices(kind="input")` in the monitor itself, (b) `sd.InputStream(...)` with no explicit `device=` inside `AudioRecorder._create_stream`. So plugging in a wireless mic and switching the system default in Settings often produced no visible change — Waffler kept binding to the old built-in mic, and the user had to restart the app. Two-pronged fix: `_create_stream` now calls `sd._terminate(); sd._initialize()` before constructing the InputStream, forcing PortAudio to re-read the OS-level default. And `AudioRecorder.start()` now recycles the long-lived monitor stream whenever the previous press was >30 s ago — the exact moment a user is most likely to have switched mics since the last recording. The 50 ms one-off cost is invisible, but the user no longer has to close + reopen Waffler when they plug in headphones.
+- **VPN slowness: transcription no longer wastes a round-trip on a hard-blocked Groq.** The styler has had a 1-hour skip on Groq 403/401 since v3.12.4, but the transcriber didn't. On NordVPN exit IPs that Groq hard-blocks (confirmed today: `194.156.225.17` → `HTTP 403 "Access denied. Please check your network settings."` in 180 ms before any auth), every recording wasted that 180 ms before falling back to OpenAI Whisper. The transcriber now mirrors the styler's `_groq_skip_until` circuit-breaker — 1-hour cooldown on 403/401/auth, 30 s on connection/timeout. Recovery is automatic on the next launch (or hour). Note: this fixes *waste*, not the underlying VPN block — when Groq is unreachable the OpenAI fallback is still slower than direct Groq would be, by ~5-8 s per recording. There's no client-side cure for an IP block.
+
 ## [3.14.49] - 2026-05-20
 
 ### Fixed

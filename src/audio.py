@@ -177,8 +177,35 @@ class AudioRecorder:
         Serialised against any concurrent teardown (e.g. wizard → pipeline
         handoff) via ``_STREAM_LOCK`` so we never have two streams' HAL
         threads live in the same C-runtime moment.
+
+        Mic hot-swap fix (v3.14.50)
+        ---------------------------
+        We force a PortAudio reinitialisation (``sd._terminate(); sd._initialize()``)
+        right before creating the InputStream. Without this, PortAudio
+        keeps a process-lifetime cache of the default-input-device index
+        — so when a user plugs in a wireless mic and switches the
+        system default in Settings, ``InputStream(...)`` with no explicit
+        ``device=`` still binds to the old (cached) default. The previous
+        ``AudioDeviceMonitor`` (v3.14.47) read PortAudio's *same* cached
+        view, so it usually missed the change. The reinit costs ~50 ms
+        per stream creation, which is invisible to the user, and means
+        every press of the hotkey resolves the *current* OS default —
+        no app restart needed when the user changes their mic. We do
+        this inside ``_STREAM_LOCK`` so it can't race with another
+        thread's stream teardown.
         """
         with _STREAM_LOCK:
+            # Force PortAudio to re-read the OS-level default input device.
+            # Safe to call inside the lock — by definition there's no live
+            # stream right now (this function exists to create one).
+            try:
+                sd._terminate()
+                sd._initialize()
+            except Exception as e:
+                # Reinit failure (extremely rare — would mean PortAudio is
+                # in a corrupted state). Fall through to InputStream
+                # creation against the cached default and hope it works.
+                print(f"[audio] PortAudio reinit failed before stream create: {e}")
             # ``self._callback_active`` is set true BEFORE start() so the
             # very first callback that fires isn't dropped.
             self._callback_active = True
@@ -241,15 +268,35 @@ class AudioRecorder:
         Reuses the long-lived monitor stream when it's still healthy; if
         the stream isn't running (first call, or after ``stop_monitoring``),
         spins up a fresh one via the safe lifecycle helpers.
+
+        Mic hot-swap belt-and-suspenders (v3.14.50)
+        -------------------------------------------
+        If it's been more than 30 s since the last press, we recycle the
+        stream — i.e. force the slow path with its fresh PortAudio reinit.
+        This is the moment a user is most likely to have switched mics
+        (plugged in a wireless headset, gone to System Settings, etc.),
+        and PortAudio's cached default doesn't refresh on its own.
+        Recycling once-per-session-burst loses only ~50 ms of pre-roll
+        for that single press — invisible — and means the user no longer
+        has to restart the app to pick up a new default device.
         """
         with self._stream_lock:
             self._buffer = []
+
+            now = time.time()
+            time_since_last_press = now - getattr(self, "_last_press_time", 0.0)
+            self._last_press_time = now
+            force_recycle = time_since_last_press > 30.0
 
             stream_was_running = (
                 self._stream is not None
                 and getattr(self._stream, 'active', False)
                 and self._callback_active
+                and not force_recycle
             )
+
+            if force_recycle and self._stream is not None:
+                print(f"[audio] recycling stream after {time_since_last_press:.0f}s idle to pick up any mic change")
 
             if not stream_was_running:
                 # Slow path. If there's a stale stream hanging around,

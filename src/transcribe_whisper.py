@@ -469,6 +469,13 @@ class WhisperTranscriber:
         self.groq_api_key = groq_api_key
         self.client  = OpenAI(api_key=api_key) if api_key else None
         self._groq_client = None
+        # Monotonic-clock deadline: until this timestamp, skip Groq entirely
+        # and call OpenAI directly. Set when Groq returns a 403/401/auth error
+        # (typically a VPN exit-IP block — Groq hard-rejects many VPN nodes
+        # before authentication). Mirror of the same flag on OpenAIStyler.
+        # Without this every recording wastes ~150-300 ms on a dead Groq
+        # round-trip before fallback. Reset on process restart.
+        self._groq_skip_until = 0.0
 
         # Try Groq first (fastest cloud option)
         if groq_api_key and _groq_mod:
@@ -493,14 +500,33 @@ class WhisperTranscriber:
         audio_bytes = _pad_audio_with_silence(audio_bytes)
 
         if self._backend == "groq":
-            try:
-                raw = self._transcribe_groq(audio_bytes)
-            except Exception as e:
-                print(f"⚠️  Groq transcription failed ({e}), falling back to OpenAI")
-                if self.client:
-                    raw = self._transcribe_api(audio_bytes)
-                else:
-                    raise
+            import time as _time
+            # Circuit-breaker: if a recent Groq call returned 403/auth, skip
+            # straight to OpenAI for the rest of the cool-down window.
+            # Saves the 150-300 ms wasted round-trip per recording when a
+            # VPN exit IP is blocking Groq at the network layer.
+            if _time.monotonic() < self._groq_skip_until and self.client:
+                raw = self._transcribe_api(audio_bytes)
+            else:
+                try:
+                    raw = self._transcribe_groq(audio_bytes)
+                except Exception as e:
+                    err = str(e)
+                    # Auth/network block — cool down for an hour. Anything
+                    # else (transient 5xx, rate-limit, connection blip) gets
+                    # a shorter 30 s skip so we recover quickly.
+                    if any(s in err for s in ("403", "401")) or any(
+                        s in err.lower() for s in ("access denied", "unauthorized", "permission")
+                    ):
+                        self._groq_skip_until = _time.monotonic() + 3600.0
+                        print(f"⚠️  Groq auth/network blocked — skipping Groq transcription for 1h ({err[:80]})")
+                    else:
+                        self._groq_skip_until = _time.monotonic() + 30.0
+                        print(f"⚠️  Groq transcription failed ({err[:80]}), falling back to OpenAI")
+                    if self.client:
+                        raw = self._transcribe_api(audio_bytes)
+                    else:
+                        raise
         elif self._backend == "mlx":
             raw = self._transcribe_mlx(audio_bytes)
         elif self._backend == "faster":
