@@ -33,6 +33,11 @@ a = Analysis(
         ('src', 'src'),
         ('config.yaml', '.'),
         ('.env.example', '.'),
+        # Monochrome menu-bar template glyph (rendered white on dark bar,
+        # black on light bar via NSImage setTemplate:). Without this the
+        # status item falls back to the full-colour icon.icns and looks
+        # out of place next to the system's monochrome menu-bar icons.
+        ('menubar_icon_template.png', '.'),
     ],
     hiddenimports=[
         # ── Audio ──

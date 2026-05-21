@@ -2713,7 +2713,21 @@ class WafflerPipeline:
 
             # Transcribe
             _t0 = time.time()
-            transcript = self.transcriber.transcribe_sync(audio_bytes)
+            try:
+                transcript = self.transcriber.transcribe_sync(audio_bytes)
+            except Exception as _te:
+                # No transcription engine could turn the audio into text. The
+                # usual cause is a VPN exit IP that Groq blocks at the network
+                # layer (HTTP 403) with no OpenAI/local fallback wired up — so
+                # speech-to-text itself fails and there is no "raw text" to
+                # paste. Rather than silently dropping the recording, preserve
+                # the audio, journal it, and tell the user. Automatic
+                # transcription fallback over a VPN is tracked in ROADMAP.md.
+                _stage_stop.set()
+                _log_to_file(f"[pipeline] transcription FAILED, preserving audio: {_te}")
+                self._handle_failed_transcription(audio_bytes, str(_te))
+                notify_js_status("idle")
+                return
             _t_transcribe = (time.time() - _t0) * 1000
             _stage_stop.set()
             _log_to_file(f"[pipeline] transcription: {_t_transcribe:.0f}ms")
@@ -3061,6 +3075,14 @@ class WafflerPipeline:
                         heading="Access denied",
                         body=body,
                     )
+                    # Salvage: if a transcript already existed when the error
+                    # hit, don't throw the user's words away — copy the raw
+                    # text to the clipboard so it's at least recoverable.
+                    if transcript:
+                        try:
+                            self.clipboard.copy(transcript)
+                        except Exception:
+                            pass
                 else:
                     self.overlay.show_toast(
                         style="warn",
@@ -3077,6 +3099,93 @@ class WafflerPipeline:
                 pass
 
             notify_js_status("idle")
+
+    def _save_unsent_recording(self, audio_bytes: bytes):
+        """Persist the raw WAV of a recording we couldn't transcribe to
+        ``~/.waffler-hosted/unsent/`` so it is never lost. ``audio_bytes`` is
+        already a complete WAV (44-byte header + PCM), so it is written
+        verbatim. Returns the Path, or None on failure."""
+        try:
+            unsent_dir = DATA_DIR / "unsent"
+            unsent_dir.mkdir(parents=True, exist_ok=True)
+            stamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
+            wav_path = unsent_dir / f"recording-{stamp}.wav"
+            with open(wav_path, "wb") as f:
+                f.write(audio_bytes)
+            _log_to_file(
+                f"[pipeline] saved unsent recording: {wav_path} "
+                f"({len(audio_bytes)} bytes)"
+            )
+            return wav_path
+        except Exception as e:
+            _log_to_file(f"[pipeline] failed to save unsent recording: {e}")
+            return None
+
+    def _handle_failed_transcription(self, audio_bytes: bytes, reason: str):
+        """Transcription produced no text at all (typically a VPN exit-IP
+        block on Groq with no fallback engine). We can't conjure words from
+        nothing — but we can make sure the user never loses the recording:
+        save the audio, drop a journal entry pointing at it, and show an
+        honest toast. Proper automatic fallback is tracked in ROADMAP.md."""
+        wav_path = self._save_unsent_recording(audio_bytes)
+
+        lower = reason.lower()
+        is_block = (
+            "403" in reason or "401" in reason
+            or "access denied" in lower or "unauthorized" in lower
+            or "permission" in lower
+        )
+
+        if is_block:
+            note = (
+                "Transcription blocked — this is almost always a VPN exit IP "
+                "that Groq rejects. Your audio was saved below; turn the VPN "
+                "off and re-record to get the text."
+            )
+            toast_body = (
+                "Your VPN is blocking transcription. The recording was saved "
+                "to your journal — turn the VPN off and try again."
+            )
+        else:
+            note = (
+                "Transcription failed, so no text could be produced. Your "
+                "audio was saved so you can retry."
+            )
+            toast_body = (
+                "Couldn't transcribe that one. The recording was saved to your "
+                "journal so nothing is lost — please try again."
+            )
+
+        # Journal entry — shows in History so the recording is visible, and the
+        # saved WAV path rides along on the item for future recovery tooling.
+        try:
+            item = {
+                "timestamp": datetime.now().isoformat(timespec="seconds"),
+                "text": "",
+                "styled": f"⚠️ {note}",
+                "word_count": 0,
+                "failed": True,
+                "error": reason[:200],
+                "audio_path": str(wav_path) if wav_path else "",
+            }
+            history = load_history()
+            history.append(item)
+            save_history(history)
+            try:
+                notify_js_new_item(item)
+            except Exception:
+                pass
+        except Exception as e:
+            _log_to_file(f"[pipeline] failed to journal failed transcription: {e}")
+
+        try:
+            self.overlay.show_toast(
+                style="warn",
+                heading="Recording saved — not transcribed",
+                body=toast_body,
+            )
+        except Exception:
+            pass
 
     def _apply_snippets(self, text: str) -> str:
         """Replace snippet trigger phrases with their expansions."""
