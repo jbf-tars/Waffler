@@ -4,6 +4,11 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.58] - 2026-05-21
+
+### Reverted
+- **App icon reverted to the original golden waffle.** The dark + white 3D waffle introduced in v3.14.57 was only ever meant to be the **menu-bar widget glyph**, not the main Dock/Finder app icon — that change was a mistake in scope. Restored `icon_master_1024.png`, `icon.icns`, and `icon.ico` to the original golden waffle. The menu-bar widget keeps its monochrome waffle glyph (unchanged from v3.14.56), and the styling truncation guard (v3.14.56) and VPN save-audio safety net (v3.14.54) are unaffected.
+
 ## [3.14.57] - 2026-05-21
 
 ### Changed
