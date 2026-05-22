@@ -195,9 +195,11 @@ jobs:
           TMP_DMG="tmp-${DMG_NAME}"
 
           # Create temporary DMG staging directory
-          mkdir -p dmg-staging
+          mkdir -p dmg-staging/.background
           cp -R dist/Waffler.app dmg-staging/
           ln -s /Applications dmg-staging/Applications
+          # Granola-style drag-to-install background (committed asset).
+          cp installer/mac/dmg-background.png dmg-staging/.background/bg.png
 
           # Create temporary DMG
           hdiutil create -volname "Waffler" \
@@ -208,7 +210,11 @@ jobs:
           # Mount it
           hdiutil attach "dist-installer/${TMP_DMG}"
 
-          # Set background and icon positions using AppleScript
+          # Set background image and icon positions using AppleScript.
+          # Window content area is 660x440 points (bounds = origin + size);
+          # the 1320x880 @2x background fills it crisply on Retina. Icon
+          # positions and the arrow in the background art are aligned:
+          # app on the left (165,250), Applications on the right (495,250).
           echo '
           tell application "Finder"
             tell disk "Waffler"
@@ -216,12 +222,13 @@ jobs:
               set current view of container window to icon view
               set toolbar visible of container window to false
               set statusbar visible of container window to false
-              set the bounds of container window to {400, 100, 1000, 500}
+              set the bounds of container window to {300, 120, 960, 560}
               set viewOptions to the icon view options of container window
               set arrangement of viewOptions to not arranged
-              set icon size of viewOptions to 100
-              set position of item "Waffler.app" of container window to {150, 200}
-              set position of item "Applications" of container window to {450, 200}
+              set icon size of viewOptions to 112
+              set background picture of viewOptions to file ".background:bg.png"
+              set position of item "Waffler.app" of container window to {165, 250}
+              set position of item "Applications" of container window to {495, 250}
               update without registering applications
               close
             end tell
