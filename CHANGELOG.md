@@ -4,6 +4,11 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.61] - 2026-05-22
+
+### Fixed
+- **DMG installer background rendered at 2x zoom (v3.14.60 regression).** The committed background was a plain 1320x880 @2x PNG, but Finder places a background image at its native point size — so only the top-left quarter showed (title cut off, arrow stranded in the corner). Replaced it with a HiDPI TIFF combining 1x (660x440) and 2x (1320x880) representations via `tiffutil -cathidpicheck`, which Finder reads as 660x440 points AND renders crisp on Retina. Verified in a locally-mounted DMG before shipping: full title, waffle icon left, gold arrow, Applications right.
+
 ## [3.14.60] - 2026-05-22
 
 ### Changed

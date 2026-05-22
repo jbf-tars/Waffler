@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
 """Generate the Waffler DMG drag-to-install background.
 
-Produces installer/mac/dmg-background.png at 2x (1320x880) for a Retina-crisp
-Finder window whose logical content area is 660x440 points. The macOS release
-workflow copies this committed PNG into the DMG's hidden .background folder and
-sets it as the volume background via AppleScript.
+Produces a HiDPI TIFF (installer/mac/dmg-background.tiff) that combines a
+1x (660x440) and 2x (1320x880) representation. This is the crucial detail:
+Finder places a background image at its NATIVE point size, so a plain
+1320x880 PNG renders at 2x zoom and only the top-left quarter shows in a
+660x440 window (the "dead"-looking result). A multi-representation TIFF
+made with `tiffutil -cathidpicheck` is read as HiDPI — sized to 660x440
+points AND crisp on Retina.
+
+The macOS release workflow copies the committed TIFF into the DMG's hidden
+.background folder and sets it as the volume background via AppleScript.
 
 Layout (logical points, origin top-left — matches Finder icon coords):
   - App icon sits at  (165, 250)
@@ -120,8 +126,28 @@ def main():
     p_b = (ax - head * math.cos(ang + spread), ay - head * math.sin(ang + spread))
     d.polygon([(ax, ay), p_a, p_b], fill=ARROW_CLR + (235,))
 
-    img.save(out, "PNG")
-    print(f"wrote {out} ({img.size[0]}x{img.size[1]})")
+    # Save the 2x rep, then downscale a 1x rep, then combine into a HiDPI
+    # TIFF via tiffutil so Finder treats it as 660x440 points @2x.
+    import subprocess
+    import tempfile
+
+    here = Path(__file__).parent
+    png2x = here / "dmg-background@2x.png"
+    png1x = here / "dmg-background.png"
+    tiff_out = here / "dmg-background.tiff"
+
+    img.save(png2x, "PNG")
+    img.resize((660, 440), Image.LANCZOS).save(png1x, "PNG")
+    print(f"wrote {png1x} (660x440) and {png2x} ({W}x{H})")
+
+    try:
+        subprocess.run(
+            ["tiffutil", "-cathidpicheck", str(png1x), str(png2x), "-out", str(tiff_out)],
+            check=True, capture_output=True,
+        )
+        print(f"wrote {tiff_out} (HiDPI 1x+2x)")
+    except (subprocess.CalledProcessError, FileNotFoundError) as e:
+        print(f"WARNING: tiffutil failed ({e}); DMG will fall back to the 1x PNG")
 
 
 if __name__ == "__main__":

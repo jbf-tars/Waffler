@@ -199,7 +199,10 @@ jobs:
           cp -R dist/Waffler.app dmg-staging/
           ln -s /Applications dmg-staging/Applications
           # Granola-style drag-to-install background (committed asset).
-          cp installer/mac/dmg-background.png dmg-staging/.background/bg.png
+          # HiDPI TIFF (1x+2x reps) so Finder sizes it to 660x440 points
+          # AND renders crisp on Retina. A plain 2x PNG renders at 2x zoom
+          # (only top-left quarter visible) — that was the v3.14.60 bug.
+          cp installer/mac/dmg-background.tiff dmg-staging/.background/bg.tiff
 
           # Create temporary DMG
           hdiutil create -volname "Waffler" \
@@ -226,7 +229,7 @@ jobs:
               set viewOptions to the icon view options of container window
               set arrangement of viewOptions to not arranged
               set icon size of viewOptions to 112
-              set background picture of viewOptions to file ".background:bg.png"
+              set background picture of viewOptions to file ".background:bg.tiff"
               set position of item "Waffler.app" of container window to {165, 250}
               set position of item "Applications" of container window to {495, 250}
               update without registering applications
