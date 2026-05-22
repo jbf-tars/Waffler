@@ -2660,10 +2660,34 @@ class WafflerPipeline:
                 if is_silent:
                     overall_rms = float(np.sqrt(np.mean(audio_arr ** 2)))
                     _log_to_file(f"Audio too quiet (overall RMS={overall_rms:.0f}, no 250ms window >= {min_rms})")
-                    # Only show error toast if recording was held for > 1 second
+                    # DEAD-STREAM DETECTION: a real mic in a silent room always
+                    # has a noise floor of ~3-10. overall RMS ≈ 0 means the
+                    # stream is delivering zero-filled buffers — the device went
+                    # stale (Mac sleep/wake, mic hot-swap). The stream stays
+                    # ".active" so start() keeps reusing it and EVERY following
+                    # recording is silent too, until the user force-quits. Break
+                    # the loop: hard-rebuild the stream so the next press
+                    # re-acquires the device, and tell the user to retry.
+                    rms_is_dead = overall_rms < 1.0 and len(audio_arr) > 4000
+                    if rms_is_dead:
+                        _log_to_file("Dead audio stream (RMS≈0) — rebuilding so next press re-acquires the mic")
+                        try:
+                            self.audio.force_rebuild()
+                        except Exception as _e:
+                            _log_to_file(f"force_rebuild failed: {_e}")
                     if recording_duration >= 1.0:
-                        _log_to_file("Showing 'couldn't hear you' toast")
-                        threading.Thread(target=self._show_no_audio_toast, daemon=True).start()
+                        if rms_is_dead:
+                            threading.Thread(
+                                target=lambda: self.overlay.show_toast(
+                                    style="warn",
+                                    heading="Mic reset",
+                                    body="Your mic stopped responding (sleep or device change). Reset done — press and speak again.",
+                                ),
+                                daemon=True,
+                            ).start()
+                        else:
+                            _log_to_file("Showing 'couldn't hear you' toast")
+                            threading.Thread(target=self._show_no_audio_toast, daemon=True).start()
                     else:
                         _log_to_file("Suppressing error toast (quick tap)")
                     notify_js_status("idle")

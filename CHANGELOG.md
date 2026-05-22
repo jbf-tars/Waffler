@@ -4,6 +4,12 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.59] - 2026-05-22
+
+### Fixed
+- **Dead mic stream after sleep/wake (the "had to force-quit" bug).** When the Mac sleeps overnight (or a mic is hot-swapped), CoreAudio can leave the InputStream `.active` but delivering zero-filled buffers — every recording comes back as pure silence (`overall RMS=0`) and the app keeps reusing the same dead stream, so the user force-quits. A real mic in a silent room always has a noise floor of ~3-10, so RMS≈0 is a reliable "stream is poisoned" signal. The pipeline now detects it (`overall_rms < 1.0`), hard-rebuilds the stream via the new `AudioRecorder.force_rebuild()` (full teardown + PortAudio reinit on the next press), and shows a "Mic reset — press and speak again" toast instead of a misleading "We couldn't hear you". One wasted press instead of a force-quit.
+- **Pill flicker when swiping between Spaces in hands-free mode.** The Space-tracking heartbeat was calling `orderFrontRegardless()` every 250 ms while the pill was visible — forcing it to the front 4×/second, which read as glitchy/janky mid-swipe. Split the re-assert: the heartbeat now only refreshes Space-membership flags (no bring-to-front, invisible) and fires every ~1.5 s instead of 250 ms; the actual bring-to-front happens only on discrete events (hotkey show + the `SpaceChangeObserver`'s per-swipe notification), where it reads as intentional. Smoother swiping, same reliability.
+
 ## [3.14.58] - 2026-05-21
 
 ### Reverted

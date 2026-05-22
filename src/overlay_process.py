@@ -69,18 +69,35 @@ _OVERLAY_COLLECTION_BEHAVIOR = (
 )
 
 
+def _refresh_overlay_space_membership():
+    """Re-assert Space-membership flags WITHOUT bringing the window to front.
+
+    Used by the low-frequency heartbeat. Re-setting the collection behavior
+    is cheap and invisible — it just tells WindowServer "this window still
+    belongs on every Space". Crucially it does NOT call orderFrontRegardless,
+    because forcing the window to the front repeatedly (the old 250ms
+    heartbeat did) makes the pill visibly flicker / pop during a Space swipe.
+    With CanJoinAllSpaces set, the window reappears on the new Space on its
+    own — no orderFront needed for the steady-state case.
+    """
+    if _g_window is None or not _visible:
+        return
+    try:
+        _g_window.setCollectionBehavior_(_OVERLAY_COLLECTION_BEHAVIOR)
+        _g_window.setLevel_(NSStatusWindowLevel)
+    except Exception:
+        pass
+
+
 def _reassert_overlay_window():
-    """Force-refresh the overlay window's Space membership.
+    """Full re-assert: Space-membership flags AND bring-to-front.
 
-    Called from three places now:
-      1. animTick every 250ms while visible (heartbeat reassert)
-      2. NSWorkspace activeSpaceDidChangeNotification (immediate on swipe)
-      3. show() handler (immediate on hotkey press)
+    Used only for DISCRETE events where a one-shot bring-to-front is wanted
+    and won't be seen as flicker:
+      1. show() handler (hotkey press — pill is appearing anyway)
+      2. NSWorkspace activeSpaceDidChangeNotification (a single swipe event)
 
-    Re-sets collection behavior AND re-orders front. The collection
-    behavior re-set is the key new piece — the old code only re-ordered
-    front, which doesn't help when macOS has silently cleared the
-    CanJoinAllSpaces flag during a Space transition.
+    NOT used by the heartbeat — see _refresh_overlay_space_membership.
     """
     if _g_window is None or not _visible:
         return
@@ -544,17 +561,21 @@ class WaffleView(NSView):
         # during a Space transition is the CanJoinAllSpaces flag clearing,
         # not the window simply being behind. Previous version only
         # re-ordered front, which doesn't help when the flag is cleared.
-        # Throttle to every ~250ms (5 ticks @ 50ms) so we're not yelling
-        # at WindowServer 20× a second.
-        #
-        # Additionally, a `SpaceChangeObserver` (registered in main())
-        # listens for NSWorkspaceActiveSpaceDidChangeNotification so we
-        # react to swipes *immediately*, not on the next heartbeat tick.
+        # The heartbeat is a low-frequency SAFETY NET only — the
+        # SpaceChangeObserver (registered in main()) is the primary
+        # mechanism and reacts to each swipe immediately. So the heartbeat
+        # now (a) fires every ~1.5s instead of 250ms, and (b) only refreshes
+        # the Space-membership flags — it does NOT orderFrontRegardless.
+        # The old 250ms + orderFront heartbeat was forcing the pill to the
+        # front 4×/second, which is what made swiping between Spaces look
+        # glitchy / janky. Bring-to-front now only happens on discrete
+        # events (show, actual space change) where it reads as intentional.
+        # Throttle: 30 ticks @ 50ms ≈ 1.5s.
         if _visible and _g_window is not None:
             self._reassert_counter = getattr(self, "_reassert_counter", 0) + 1
-            if self._reassert_counter >= 5:
+            if self._reassert_counter >= 30:
                 self._reassert_counter = 0
-                _reassert_overlay_window()
+                _refresh_overlay_space_membership()
 
     def setTargets_(self, targets):
         self._targets = list(targets)

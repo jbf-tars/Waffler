@@ -394,6 +394,29 @@ class AudioRecorder:
             self._teardown_stream(stream)
         self._last_rms = 0.0
 
+    def force_rebuild(self):
+        """Hard-tear-down the current stream so the next start() builds fresh.
+
+        Called when the pipeline detects a *dead* stream — one delivering
+        zero-filled buffers (overall RMS ≈ 0). This happens after the Mac
+        sleeps/wakes or a mic is hot-swapped: PortAudio's stream stays
+        ``.active`` and keeps firing the callback, but CoreAudio hands back
+        pure silence. The 30 s idle-recycle and PortAudio reinit don't
+        always recover it, so we make the detection *reactive*: once we've
+        captured a recording that's pure digital silence, treat the stream
+        as poisoned and drop it. The next press takes the slow path in
+        start() → _create_stream() with a fresh sd._terminate()/_initialize()
+        and a brand-new InputStream, which reliably re-acquires the device.
+        """
+        with self._stream_lock:
+            stream = self._stream
+            self._stream = None
+            # Force start()'s slow path next time, regardless of timing.
+            self._last_press_time = 0.0
+        if stream is not None:
+            self._teardown_stream(stream)
+        self._last_rms = 0.0
+
     def record_chunk(self, duration: float = 0.1):
         """No-op — continuous stream handles recording automatically."""
         pass
