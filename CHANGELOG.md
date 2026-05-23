@@ -4,6 +4,11 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.62] - 2026-05-23
+
+### Fixed
+- **"It dropped about half of what I said" — partial dead audio stream.** Analysis of recent transcriptions found several long hands-free recordings with abnormally low word density (e.g. 204s → 166 words = 0.8 words/s vs a normal ~2.3). A controlled 5.5-minute test proved Whisper does NOT truncate long audio, and the transcripts otherwise matched their durations — so the loss is the mic stream going dead PART-WAY through a recording: CoreAudio keeps the stream `.active` but starts handing back zero-filled buffers, so the back half is digital silence and Whisper only returns the front half. The v3.14.59 dead-stream fix only caught *fully* silent recordings; this slips past it. Added partial-dead detection: the pipeline measures the fraction of each recording that is *exact* digital silence (RMS < 1 — a real mic always has a ~3-10 noise floor, so natural pauses never count), and if ≥30% of an otherwise-speaking take is dead, it rebuilds the stream for the next press and warns "Mic dropped out — please re-record". Also added always-on per-recording audio diagnostics (`[pipeline] audio diag: …s, N windows, digital-silence=X%, speech-windows=Y`) so any future occurrence is fully diagnosable from the log.
+
 ## [3.14.61] - 2026-05-22
 
 ### Fixed

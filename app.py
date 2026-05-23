@@ -2695,6 +2695,68 @@ class WafflerPipeline:
             except Exception:
                 pass  # If numpy check fails, continue with transcription
 
+            # PARTIAL-DEAD-STREAM DETECTION + per-recording audio diagnostics.
+            # The fully-silent check above only fires when the WHOLE recording
+            # is dead. But the mic stream can also go dead PART-WAY through a
+            # long hands-free recording — CoreAudio keeps the stream ".active"
+            # but starts handing back zero-filled buffers. The first half
+            # transcribes fine; the back half is digital silence, so Whisper
+            # returns only ~half the words and the user sees "it dropped half
+            # of what I said / it's not even picking it up". A real mic always
+            # has a noise floor (~3-10 RMS) even in a silent room, so a window
+            # of *exact* zeros (RMS < 1) means the stream delivered nothing —
+            # never a natural pause. We measure the digital-silence fraction
+            # and, if a meaningful chunk of an otherwise-speaking recording is
+            # dead, rebuild the stream for next time + warn the user that this
+            # take was likely truncated.
+            try:
+                import numpy as _np
+                _arr = _np.frombuffer(audio_bytes[44:], dtype=_np.int16).astype(_np.float32)
+                _win = 4000  # 0.25 s
+                _total = 0
+                _dead = 0
+                _speech = 0
+                for _i in range(0, len(_arr), _win):
+                    _w = _arr[_i:_i + _win]
+                    if len(_w) < 400:
+                        break
+                    _r = float(_np.sqrt(_np.mean(_w ** 2)))
+                    _total += 1
+                    if _r < 1.0:
+                        _dead += 1
+                    elif _r >= 12.0:
+                        _speech += 1
+                _dead_frac = (_dead / _total) if _total else 0.0
+                _log_to_file(
+                    f"[pipeline] audio diag: {recording_duration:.1f}s, "
+                    f"{_total} windows, digital-silence={_dead_frac*100:.0f}%, "
+                    f"speech-windows={_speech}"
+                )
+                # Degraded mid-recording: lots of dead windows but the take
+                # also clearly contained real speech (so it's not just a
+                # quiet pause-heavy dictation). 30% dead is far beyond any
+                # natural pause pattern — natural pauses keep room-tone, they
+                # don't go to exact zero.
+                if _dead_frac >= 0.30 and _speech >= 2 and recording_duration >= 3.0:
+                    _log_to_file(
+                        f"⚠️  Partial dead stream: {_dead_frac*100:.0f}% of this recording was "
+                        f"digital silence — mic stream went dead mid-take. Rebuilding for next press."
+                    )
+                    try:
+                        self.audio.force_rebuild()
+                    except Exception as _e:
+                        _log_to_file(f"force_rebuild (partial) failed: {_e}")
+                    threading.Thread(
+                        target=lambda: self.overlay.show_toast(
+                            style="warn",
+                            heading="Mic dropped out",
+                            body="Your mic cut out partway through — some of this may be missing. Mic reset; please re-record.",
+                        ),
+                        daemon=True,
+                    ).start()
+            except Exception:
+                pass
+
             # Check cancellation before expensive transcription
             if _is_cancelled():
                 _log_to_file(f"Processing {processing_id} aborted: cancelled before transcription")
