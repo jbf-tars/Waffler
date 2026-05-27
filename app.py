@@ -2136,7 +2136,8 @@ def _wizard_on_release():
 
         transcript = _wizard_transcriber.transcribe_sync(audio_bytes) if _wizard_transcriber else ""
         _wizard_result = transcript or "(Empty transcription)"
-        _log_to_file(f"Wizard transcription: {_wizard_result[:80]}")
+        # Metadata only — don't log the transcript text (PII; ships in the bundle).
+        _log_to_file(f"Wizard transcription: {len(_wizard_result)} chars")
         _push_wizard_result(_wizard_result)
     except Exception as e:
         _wizard_result = f"(Error: {e})"
@@ -2355,7 +2356,8 @@ class WafflerPipeline:
 
         # Cancellation tracking for _process() thread
         self._processing_cancelled = threading.Event()
-        self._processing_id = 0  # Increments with each recording
+        self._processing_id = 0  # Bumps on each PRESS (a new generation)
+        self._current_press_id = 0  # id of the in-flight recording, set on press
         self._processing_lock = threading.Lock()
 
     def set_device(self, device_index: int):
@@ -2365,8 +2367,13 @@ class WafflerPipeline:
 
     def _on_overlay_cancel(self):
         """User confirmed cancel — discard recording and clear clipboard."""
-        if self.is_recording:
+        # Flip is_recording and arm cancellation under one lock so a
+        # concurrent release can't slip a _process() through between them.
+        with self._processing_lock:
+            was_recording = self.is_recording
             self.is_recording = False
+            self._processing_cancelled.set()
+        if was_recording:
             self.audio.stop()
             self.overlay.hide()
             notify_js_status("idle")
@@ -2375,10 +2382,6 @@ class WafflerPipeline:
             if hasattr(self, 'hotkey_listener') and self.hotkey_listener:
                 if hasattr(self.hotkey_listener, 'reset_state'):
                     self.hotkey_listener.reset_state()
-
-        # Signal any running _process() thread to abort
-        with self._processing_lock:
-            self._processing_cancelled.set()
 
         # Clear clipboard to prevent paste of cancelled transcription
         try:
@@ -2447,19 +2450,30 @@ class WafflerPipeline:
 
     def on_hotkey_press(self):
         """Start recording."""
-        if self.is_recording:
-            return
+        # Claim the recording slot + open a new generation atomically. Doing
+        # the is_recording check+flip and the id bump under one lock closes
+        # two races: (a) two near-simultaneous presses both starting a
+        # recording, and (b) a stale _process() pasting cancelled text — by
+        # bumping _processing_id HERE (it used to bump on release), any
+        # in-flight _process from a previous generation is immediately
+        # superseded (see _is_cancelled). The old code bumped on release and
+        # cleared the cancel flag on press, which let a quick re-press clear
+        # the flag out from under the old thread → it pasted the cancelled
+        # transcript into the user's app.
+        with self._processing_lock:
+            if self.is_recording:
+                return
+            self.is_recording = True
+            self._processing_id += 1
+            self._current_press_id = self._processing_id
+            self._processing_cancelled.clear()
         # Capture focused window BEFORE overlay takes focus
         self._prev_window = self.clipboard.get_focused_window()
         _log_to_file("Recording started")
         self._recording_session += 1
-        self.is_recording = True
         # Track recording start time for duration checks
         import time
         self._recording_start_time = time.time()
-        # Clear any previous cancellation state
-        with self._processing_lock:
-            self._processing_cancelled.clear()
         self.audio.start()
         notify_js_status("listening")
         try:
@@ -2471,20 +2485,23 @@ class WafflerPipeline:
 
     def on_hotkey_release(self):
         """In toggle mode this fires on hotkey-up but is also called on second press."""
-        if not self.is_recording:
-            return
+        # Atomic check+flip so only the FIRST of two racing release events
+        # (overlay ■ click + hotkey-up, or the 12-min auto-stop racing a
+        # manual release) wins and spawns _process — otherwise both fire and
+        # produce a double transcription + double paste. The generation id was
+        # assigned on press, so we reuse it here.
+        with self._processing_lock:
+            if not self.is_recording:
+                return
+            self.is_recording = False
+            current_id = self._current_press_id
         _log_to_file("Recording stopped, processing")
-        self.is_recording = False
         self._is_paused = False
         notify_js_status("processing")
         try:
             self.overlay.hide()
         except Exception as e:
             print(f"[overlay] hide failed: {e}")
-        # Assign unique ID and spawn process thread
-        with self._processing_lock:
-            self._processing_id += 1
-            current_id = self._processing_id
         threading.Thread(target=lambda: self._process(current_id), daemon=True).start()
 
     def toggle_pause(self):
@@ -2574,14 +2591,21 @@ class WafflerPipeline:
         """Process audio: transcribe, style, copy to clipboard, paste."""
 
         def _is_cancelled():
-            """Check if this processing session has been cancelled."""
-            if self._processing_cancelled.is_set():
-                with self._processing_lock:
-                    # New recording started - old cancellation doesn't apply
-                    if processing_id != self._processing_id:
-                        return False
+            """True if this processing generation should abort.
+
+            Two ways to be cancelled:
+              1. A NEWER recording started (processing_id no longer current) —
+                 this generation is stale, so whatever it produced must not be
+                 pasted. Checked regardless of the cancel flag; this is what
+                 prevents the "ghost paste" of an old transcript after a quick
+                 re-press (the old code returned False here — the bug).
+              2. The user explicitly cancelled THIS generation (flag set while
+                 it is still the current one).
+            """
+            with self._processing_lock:
+                if processing_id != self._processing_id:
                     return True
-            return False
+                return self._processing_cancelled.is_set()
 
         try:
             # Calculate recording duration for error suppression
@@ -3096,7 +3120,10 @@ class WafflerPipeline:
             notify_js_status("done")
             notify_js_new_item(item)
 
-            _log_to_file(f"Done: {styled[:80]}")
+            # Log metadata only — never the transcript text. app.log is what
+            # the "Download Logs" diagnostic bundle ships, so logging content
+            # here would leak the user's dictations to anyone they send logs to.
+            _log_to_file(f"Done: {len(styled.split())} words, {len(styled)} chars")
 
         except Exception as e:
             error_msg = str(e)

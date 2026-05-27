@@ -187,11 +187,19 @@ class RecordingOverlay:
 
     def stop(self):
         """Terminate the overlay subprocess."""
+        process = self._process
         if self._is_alive():
             self._send({"type": "quit"})
             time.sleep(0.15)
             try:
-                self._process.terminate()
+                process.terminate()
+            except Exception:
+                pass
+            # Reap the process so it doesn't linger as a zombie — terminate()
+            # only signals; without wait() the OS keeps the exit status until
+            # the parent collects it. Guarded so a hung child can't block stop().
+            try:
+                process.wait(timeout=2)
             except Exception:
                 pass
         self._process = None
@@ -291,7 +299,12 @@ class RecordingOverlay:
         Returns:
             bool: True if restart successful, False if max attempts exceeded
         """
-        with self._restart_lock:  # Ensure atomic restart logic
+        # Compute the backoff delay + bump the counter UNDER the lock (the
+        # shared restart state must be mutated atomically), but do NOT sleep
+        # while holding it — a blocking time.sleep() under _restart_lock stalls
+        # every other UI-trigger thread (update_level, show_toast, …) for up to
+        # ~1s. Sleep happens outside the lock below.
+        with self._restart_lock:  # Ensure atomic restart bookkeeping
             current_time = time.time()
 
             # Reset counter if last restart was >60s ago (stable period)
@@ -310,19 +323,23 @@ class RecordingOverlay:
             if self._restart_count > 1:
                 delay = 0.5 * (2 ** (self._restart_count - 2))
                 self._log(f"[overlay] Restarting subprocess in {delay}s (attempt {self._restart_count}/3)")
-                time.sleep(delay)
             else:
+                delay = 0.0
                 self._log(f"[overlay] Starting subprocess (attempt 1/3)")
 
-            self._start_process()
-            success = self._is_alive()
+        # Backoff sleep OUTSIDE the lock so other threads aren't blocked.
+        if delay > 0:
+            time.sleep(delay)
 
-            if success:
-                self._log(f"[overlay] ✓ Subprocess restarted successfully, PID={self._process.pid}")
-            else:
-                self._log(f"[overlay] ✗ Subprocess restart failed")
+        self._start_process()
+        success = self._is_alive()
 
-            return success
+        if success:
+            self._log(f"[overlay] ✓ Subprocess restarted successfully, PID={self._process.pid}")
+        else:
+            self._log(f"[overlay] ✗ Subprocess restart failed")
+
+        return success
 
     def _send(self, data: dict) -> bool:
         """Write a JSON command to the subprocess stdin (thread-safe).
@@ -354,9 +371,16 @@ class RecordingOverlay:
         self._start_process()
         if self._is_alive():
             self._log("[overlay] ✓ Auto-restart successful")
-            # Retry the original command
             with self._send_lock:
                 try:
+                    # The fresh subprocess starts hidden. If the overlay was
+                    # visible, re-send `show` first — otherwise replaying a bare
+                    # `level` update leaves the pill invisible and it silently
+                    # vanishes mid-recording. Skip if the failed command IS a
+                    # `show` (the replay below already shows it).
+                    if self._visible and data.get("type") != "show":
+                        self._process.stdin.write(json.dumps({"type": "show"}) + "\n")
+                    # Retry the original command
                     self._process.stdin.write(json.dumps(data) + "\n")
                     self._process.stdin.flush()
                     return True

@@ -286,6 +286,14 @@ _toast_style    = None
 _toast_auto_hide_timer = None
 _space_observer = None  # NSObject — strong ref so it isn't GC'd; see main()
 
+# Progress text shown over the pill during the slow post-recording stages
+# (transcribing, styling). Mirrors overlay_process_windows.py — kept in
+# lockstep so both platforms show the same "Transcribing…/Styling…" status
+# and the pill doesn't look frozen. Cleared when recording resumes (level)
+# or the pill shows/hides. macOS draws immediate-mode in WaffleView.drawRect_,
+# so this is just the string to render (or "" for none).
+_progress_text: str = ""
+
 # Screen position (set during init, reused for toast positioning)
 _waffle_x = 0.0
 _waffle_y = 0.0
@@ -443,6 +451,53 @@ class WaffleView(NSView):
         # 6. Stop button (■) — dark filled circle with white square
         self._draw_button(BTN_STOP_CX, BTN_STOP_CY, BTN_R)
         self._draw_stop_square(BTN_STOP_CX, BTN_STOP_CY, 4)
+
+        # 7. Progress label (Transcribing…/Styling…) drawn over the pill during
+        # slow post-recording stages so the user knows work is happening. Empty
+        # string = nothing to draw. Mirrors the Windows _show_progress overlay.
+        if _progress_text:
+            self._draw_progress_label(_progress_text)
+
+    def _draw_progress_label(self, text):
+        """Draw a status label on a dark pill behind it, centred on the waffle.
+
+        Mirrors overlay_process_windows._show_progress: warm-cream text on a
+        dark-warm rounded background with a gold outline, centred on the pill.
+        """
+        para_style = NSMutableParagraphStyle.alloc().init()
+        para_style.setAlignment_(NSCenterTextAlignment)
+        font = NSFont.boldSystemFontOfSize_(10)
+        text_color = hex_to_ns_color('#F0E0C0')  # warm cream
+        attrs = {
+            NSFontAttributeName: font,
+            NSForegroundColorAttributeName: text_color,
+            NSParagraphStyleAttributeName: para_style,
+        }
+        attr_str = NSAttributedString.alloc().initWithString_attributes_(text, attrs)
+        text_size = attr_str.size()
+
+        # Centre on the pill, slightly above middle to avoid the bottom rows.
+        cx = WIN_W / 2.0
+        cy = WIN_H / 2.0
+        pad_x, pad_y = 8, 4
+        bg_w = text_size.width + pad_x * 2
+        bg_h = text_size.height + pad_y * 2
+        bg_rect = NSMakeRect(cx - bg_w / 2.0, cy - bg_h / 2.0, bg_w, bg_h)
+
+        # Background pill behind the text for legibility against the waffle.
+        bg_path = NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
+            bg_rect, bg_h / 2.0, bg_h / 2.0
+        )
+        hex_to_ns_color('#1A1208').set()  # dark warm
+        bg_path.fill()
+        hex_to_ns_color('#C8A256').set()  # gold outline
+        bg_path.setLineWidth_(1)
+        bg_path.stroke()
+
+        # Draw the text centred within the background pill.
+        text_rect = NSMakeRect(cx - bg_w / 2.0, cy - text_size.height / 2.0,
+                               bg_w, text_size.height)
+        attr_str.drawInRect_(text_rect)
 
     def _draw_rounded_rect(self, x, y, w, h, r, fill=None, outline=None, width=1):
         """Draw a rounded rectangle."""
@@ -897,6 +952,40 @@ class ToastView(NSView):
                 return
 
 
+# ── Progress label helpers ─────────────────────────────────────────────
+
+def _clear_progress():
+    """Clear any progress label drawn over the pill and request a redraw."""
+    global _progress_text
+    if _progress_text:
+        _progress_text = ""
+        if _g_view is not None:
+            _g_view.setNeedsDisplay_(True)
+
+
+def _show_progress(label: str, elapsed_seconds: float = 0.0):
+    """Set the status label drawn over the pill so the user knows the app is
+    doing work (transcribing / styling) and isn't frozen.
+
+    Mirrors overlay_process_windows._show_progress formatting ("Styling…  3s").
+    Pass label="" to clear. The actual drawing happens in WaffleView.drawRect_.
+    """
+    global _progress_text
+    label = (label or "").strip()
+    if not label:
+        _clear_progress()
+        return
+
+    # Format the visible text: "Styling…  3s"
+    if elapsed_seconds >= 1.0:
+        _progress_text = f"{label}…  {int(elapsed_seconds)}s"
+    else:
+        _progress_text = f"{label}…"
+
+    if _g_view is not None:
+        _g_view.setNeedsDisplay_(True)
+
+
 # ── Command dispatcher (runs on main thread via timer) ────────────────
 
 def _dispatch_cmd(cmd):
@@ -906,6 +995,7 @@ def _dispatch_cmd(cmd):
     if ctype == "show":
         _visible = True
         _hide_toast()
+        _clear_progress()        # fresh recording — drop any leftover progress text
         if _g_window:
             # v3.14.53 — Recompute position on every show so the overlay
             # follows the cursor's screen on multi-monitor rigs and adapts
@@ -944,10 +1034,12 @@ def _dispatch_cmd(cmd):
     elif ctype == "hide":
         _visible = False
         _hide_toast()
+        _clear_progress()
         if _g_window:
             _g_window.orderOut_(None)
 
     elif ctype == "level":
+        _clear_progress()        # active recording — VU bars resume, no status text
         raw_level = max(0.0, min(1.0, float(cmd.get("value", 0.0))))
         level = raw_level ** 0.4   # Power-curve: expand low volumes for responsiveness
         t = time.time()
@@ -986,6 +1078,9 @@ def _dispatch_cmd(cmd):
 
     elif ctype == "hide_toast":
         _hide_toast()
+
+    elif ctype == "progress":
+        _show_progress(cmd.get("label", ""), float(cmd.get("elapsed_seconds", 0.0)))
 
     elif ctype == "quit":
         _hide_toast()
@@ -1075,7 +1170,10 @@ def _hide_toast():
     global _toast_win, _toast_style, _toast_auto_hide_timer
     if _toast_auto_hide_timer is not None:
         try:
-            _toast_auto_hide_timer.invalidate()
+            # threading.Timer (created in _show_toast) cancels via .cancel();
+            # .invalidate() is NSTimer-only and would raise AttributeError,
+            # leaving a stale timer to fire hide_toast into a fresh toast.
+            _toast_auto_hide_timer.cancel()
         except Exception:
             pass
         _toast_auto_hide_timer = None

@@ -309,33 +309,47 @@ class AudioRecorder:
                     self._teardown_stream(stale)
                 self._preroll.clear()
                 self._create_stream()
-                # Cold-start warm-up. A freshly (re)built stream can hand back
-                # zero-filled buffers for a while before real audio flows —
-                # most painfully on Bluetooth mics: AirPods negotiate their
-                # HFP input link over ~1-2s. The old code only waited for the
-                # pre-roll to be NON-EMPTY, which a silent/dead stream satisfies
-                # instantly — so the first press right after popping in AirPods
-                # recorded pure silence, got flagged as a dead stream, and the
-                # dictation was lost (repeating for 2-3 presses until the link
-                # settled — see the 10:20 AirPods burst in app.log). Now we wait
-                # for LIVE audio (non-zero RMS) before proceeding, up to ~2s.
-                # A normal warm built-in mic still returns in ~100 ms because
-                # its pre-roll fills with live samples immediately, so this only
-                # adds latency on the rare cold start that actually needs it.
-                deadline = time.time() + 2.0
-                while time.time() < deadline:
-                    if self._preroll:
-                        try:
-                            recent = np.concatenate(list(self._preroll), axis=0)
-                            rms = float(np.sqrt(np.mean(recent.astype(np.float32) ** 2)))
-                            if rms > 1.0:
-                                break  # real audio is flowing — safe to record
-                        except Exception:
-                            break
-                    time.sleep(0.02)
+            else:
+                # Warm stream — the pre-roll is already full of live samples,
+                # so splice immediately with no warm-up wait and we're done.
+                with self._lock:
+                    self._buffer = list(self._preroll)
+                self.is_recording = True
+                return
 
-            # Splice pre-roll into the recording buffer FIRST so the
-            # first syllable isn't lost.
+        # ── Cold-start warm-up — deliberately OUTSIDE _stream_lock ──────────
+        # A freshly (re)built stream hands back zero-filled buffers for a
+        # while before real audio flows — most painfully on Bluetooth mics
+        # (AirPods negotiate their HFP input link over ~1-2s). Waiting only
+        # for the pre-roll to be NON-EMPTY (a silent/dead stream satisfies it
+        # instantly) let the first press after a mic switch record pure
+        # silence → flagged dead → lost (the 10:20 AirPods burst in app.log).
+        # So we wait for LIVE audio (non-zero RMS), up to ~2s.
+        #
+        # v3.14.64 — this loop previously ran *while holding _stream_lock*,
+        # so Esc-cancel / stop() / shutdown() / a device-switch all blocked
+        # on the lock for the full 2s right after a cold start (UI hang).
+        # Releasing the lock here lets them interrupt; we re-acquire below to
+        # finalise, and bail if the stream was torn down underneath us.
+        deadline = time.time() + 2.0
+        while time.time() < deadline:
+            if self._preroll:
+                try:
+                    recent = np.concatenate(list(self._preroll), axis=0)
+                    if float(np.sqrt(np.mean(recent.astype(np.float32) ** 2))) > 1.0:
+                        break  # real audio is flowing — safe to record
+                except Exception:
+                    break
+            time.sleep(0.02)
+
+        with self._stream_lock:
+            # If a concurrent stop / force_rebuild / device-switch tore the
+            # stream down during the warm-up, abort rather than record on a
+            # dead stream — the user can simply press again.
+            if self._stream is None:
+                return
+            # Splice pre-roll into the recording buffer FIRST so the first
+            # syllable isn't lost.
             with self._lock:
                 self._buffer = list(self._preroll)
             self.is_recording = True

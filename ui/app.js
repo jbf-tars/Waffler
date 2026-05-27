@@ -404,8 +404,6 @@ function updateHotkeyHint() {
 // ── Permissions (Step 1) ─────────────────────────────────────────────
 
 async function openAccessibilitySettings() {
-  console.log("openAccessibilitySettings called");
-
   if (!window.pywebview || !window.pywebview.api) {
     showToast("App not ready yet", "error");
     return;
@@ -413,12 +411,9 @@ async function openAccessibilitySettings() {
 
   try {
     const result = await pywebview.api.open_accessibility_settings();
-    console.log("openAccessibilitySettings result:", result);
-
     if (result.ok) {
       showToast("Opening System Settings...", "success");
-      // Check permission status after a moment (disabled - user manages permissions)
-      // setTimeout(checkPermissions, 2000);
+      // Permission status is managed manually by the user — no auto-recheck.
     } else {
       showToast(result.error || "Failed to open settings", "error");
     }
@@ -429,8 +424,6 @@ async function openAccessibilitySettings() {
 }
 
 async function openInputMonitoringSettings() {
-  console.log("openInputMonitoringSettings called");
-
   if (!window.pywebview || !window.pywebview.api) {
     showToast("App not ready yet", "error");
     return;
@@ -438,12 +431,9 @@ async function openInputMonitoringSettings() {
 
   try {
     const result = await pywebview.api.open_input_monitoring_settings();
-    console.log("openInputMonitoringSettings result:", result);
-
     if (result.ok) {
       showToast("Opening System Settings...", "success");
-      // Check permission status after a moment (disabled - user manages permissions)
-      // setTimeout(checkPermissions, 2000);
+      // Permission status is managed manually by the user — no auto-recheck.
     } else {
       showToast(result.error || "Failed to open settings", "error");
     }
@@ -454,8 +444,6 @@ async function openInputMonitoringSettings() {
 }
 
 async function downloadLogs(btn) {
-  console.log("downloadLogs called");
-
   if (!window.pywebview || !window.pywebview.api) {
     showToast("App not ready yet", "error");
     return;
@@ -473,8 +461,6 @@ async function downloadLogs(btn) {
 
   try {
     const result = await pywebview.api.download_logs();
-    console.log("downloadLogs result:", result);
-
     if (result && result.ok) {
       showToast(`Logs saved to ${result.path}`, "success", 6000);
     } else {
@@ -495,8 +481,6 @@ async function downloadLogs(btn) {
 }
 
 async function factoryReset() {
-  console.log("factoryReset called");
-
   if (!window.pywebview || !window.pywebview.api) {
     showToast("App not ready yet", "error");
     return;
@@ -521,8 +505,6 @@ async function factoryReset() {
 
   try {
     const result = await pywebview.api.factory_reset();
-    console.log("factoryReset result:", result);
-
     if (result.ok) {
       showToast("Resetting all data...", "success");
       // App will quit automatically
@@ -533,21 +515,6 @@ async function factoryReset() {
     console.error("factoryReset error:", e);
     showToast("Error resetting data", "error");
   }
-}
-
-// Permission checking disabled - just let users click through
-async function checkPermissions() {
-  // No automatic checking - users will manually grant permissions
-  return;
-}
-
-// Permission monitoring disabled
-function startPermissionMonitoring() {
-  // Disabled - no automatic checking
-}
-
-function stopPermissionMonitoring() {
-  // Disabled
 }
 
 function updatePermissionUI(permissionType, isGranted) {
@@ -605,7 +572,7 @@ async function loadHotkeyConfig() {
       const badge = document.getElementById("hotkeyBadge");
       if (badge) badge.textContent = display;
       const emptyHint = document.getElementById("emptyHint");
-      if (emptyHint) emptyHint.innerHTML = `Hold <strong>${display}</strong> to record`;
+      if (emptyHint) emptyHint.innerHTML = `Hold <strong>${escHtml(display)}</strong> to record`;
     }
   } catch (e) {
     console.error("loadHotkeyConfig error:", e);
@@ -869,13 +836,13 @@ function makeCard(item, isNew) {
 
   div.innerHTML = `
     <div class="card-meta">
-      <div class="card-time">${timeStr}</div>
+      <div class="card-time">${escHtml(timeStr)}</div>
       <div class="card-words">${words} words</div>
     </div>
-    <div class="card-text styled" id="text-${item.timestamp}">${escHtml(displayText)}</div>
+    <div class="card-text styled" id="text-${escHtml(String(item.timestamp))}">${escHtml(displayText)}</div>
     <div class="card-actions">
       <button class="btn-copy" data-text="${escHtml(displayText)}">📋 Copy</button>
-      ${hasStyled ? `<span class="text-toggle" data-timestamp="${item.timestamp}" data-raw="${escHtml(rawText)}" data-styled="${escHtml(displayText)}">Show original</span>` : ''}
+      ${hasStyled ? `<span class="text-toggle" data-timestamp="${escHtml(String(item.timestamp))}" data-raw="${escHtml(rawText)}" data-styled="${escHtml(displayText)}">Show original</span>` : ''}
     </div>
   `;
 
@@ -919,20 +886,14 @@ function toggleRawHandler(toggleEl, ts, rawText, styledText) {
   }
 }
 
-function encodeText(t) {
-  return encodeURIComponent(t);
-}
-
-function decodeText(t) {
-  return decodeURIComponent(t);
-}
-
 function escHtml(str) {
+  str = String(str ?? '');
   return str
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function formatTime(ts) {
@@ -1660,8 +1621,7 @@ function hideWizard() {
 
 async function triggerMacOSPermissions() {
   try {
-    const result = await pywebview.api.trigger_permission_requests();
-    console.log('[Wizard] Permission triggers:', result);
+    await pywebview.api.trigger_permission_requests();
   } catch (error) {
     console.warn('[Wizard] Permission trigger failed:', error);
     // Fail silently - users can still use "Open System Settings" buttons
@@ -1689,11 +1649,6 @@ function updateWizardProgress(step) {
 }
 
 function wizShowStep(step) {
-  // Clean up permission monitoring when leaving step 1 (disabled - no monitoring)
-  if (_wizardStep === 1 && step !== 1) {
-    // stopPermissionMonitoring();
-  }
-
   // Clean up Step 2 hotkey monitor when leaving step 2
   if (_wizardStep === 2 && step !== 2) {
     stopFnKeyPolling();
@@ -2233,134 +2188,6 @@ async function wizRequestInputMonitoringPermission() {
   }
 }
 
-// ── Permission Status Indicator for Main UI ──────────────────────
-async function showPermissionStatusIndicator() {
-  try {
-    const status = await pywebview.api.get_permission_status();
-    const indicator = document.getElementById('permissionStatusIndicator');
-    
-    if (!indicator) {
-      // Create the indicator if it doesn't exist
-      const indicatorHTML = `
-        <div id="permissionStatusIndicator" class="permission-status-indicator">
-          <div class="permission-status-header">
-            <span class="permission-status-icon">🔒</span>
-            <span class="permission-status-title">Permissions</span>
-            <button class="permission-status-toggle" onclick="togglePermissionStatus()">▼</button>
-          </div>
-          <div id="permissionStatusDetails" class="permission-status-details" style="display:none;">
-            <div id="permissionStatusContent"></div>
-            <button class="permission-recheck-btn" onclick="recheckPermissions()">Recheck</button>
-          </div>
-        </div>
-      `;
-      
-      // Insert at top of main content area
-      const mainContent = document.querySelector('.main-content') || document.body;
-      mainContent.insertAdjacentHTML('afterbegin', indicatorHTML);
-    }
-    
-    updatePermissionStatusIndicator(status);
-  } catch(e) {
-    console.warn('showPermissionStatusIndicator error:', e);
-  }
-}
-
-function updatePermissionStatusIndicator(status) {
-  const indicator = document.getElementById('permissionStatusIndicator');
-  const content = document.getElementById('permissionStatusContent');
-  const icon = indicator.querySelector('.permission-status-icon');
-  
-  if (!indicator || !content) return;
-  
-  // Update indicator icon and color based on overall status
-  if (status.all_granted) {
-    icon.textContent = '✅';
-    indicator.className = 'permission-status-indicator granted';
-  } else if (status.missing_critical.length === 0) {
-    icon.textContent = '⚠️';
-    indicator.className = 'permission-status-indicator partial';
-  } else {
-    icon.textContent = '❌';
-    indicator.className = 'permission-status-indicator denied';
-  }
-  
-  // Generate detailed status content
-  let contentHTML = '';
-  
-  Object.entries(status.permissions).forEach(([permName, permInfo]) => {
-    const statusIcon = permInfo.granted ? '✅' : (permInfo.critical ? '❌' : '⚠️');
-    const statusClass = permInfo.granted ? 'granted' : (permInfo.critical ? 'critical' : 'optional');
-    
-    contentHTML += `
-      <div class="permission-item ${statusClass}">
-        <span class="permission-item-icon">${statusIcon}</span>
-        <div class="permission-item-info">
-          <div class="permission-item-title">${permInfo.title}</div>
-          <div class="permission-item-desc">${permInfo.explanation || ''}</div>
-          ${!permInfo.granted && permInfo.error ? `<div class="permission-item-error">${permInfo.error}</div>` : ''}
-          ${!permInfo.granted && permInfo.fallback_available ? `<div class="permission-item-fallback">Fallback: ${permInfo.fallback_message}</div>` : ''}
-        </div>
-        ${!permInfo.granted ? `<button class="permission-item-btn" onclick="requestPermission('${permName}')">Fix</button>` : ''}
-      </div>
-    `;
-  });
-  
-  if (status.recommendations.length > 0) {
-    contentHTML += `
-      <div class="permission-recommendations">
-        <strong>Status:</strong> ${status.recommendations.join(' ')}
-      </div>
-    `;
-  }
-  
-  content.innerHTML = contentHTML;
-}
-
-function togglePermissionStatus() {
-  const details = document.getElementById('permissionStatusDetails');
-  const toggle = document.querySelector('.permission-status-toggle');
-  
-  if (details.style.display === 'none') {
-    details.style.display = 'block';
-    toggle.textContent = '▲';
-  } else {
-    details.style.display = 'none';
-    toggle.textContent = '▼';
-  }
-}
-
-async function recheckPermissions() {
-  try {
-    const status = await pywebview.api.get_permission_status();
-    updatePermissionStatusIndicator(status);
-  } catch(e) {
-    console.warn('recheckPermissions error:', e);
-  }
-}
-
-async function requestPermission(permissionType) {
-  try {
-    switch(permissionType) {
-      case 'microphone':
-        await pywebview.api.request_mic_permission();
-        break;
-      case 'accessibility':
-        await pywebview.api.request_accessibility_permission();
-        break;
-      case 'input_monitoring':
-        await pywebview.api.request_input_monitoring_permission();
-        break;
-    }
-    // Recheck status after request
-    setTimeout(recheckPermissions, 1000);
-  } catch(e) {
-    console.warn('requestPermission error:', e);
-  }
-}
-
-// (Permission status indicator removed — not needed for BYOK app)
-
 // ── Step 3: Hotkey Info ──────────────────────────────────────
 
 async function wizLoadHotkeyInfo() {
@@ -2580,7 +2407,7 @@ async function wizInitTryItStep() {
     const badge = document.getElementById('wizTryHotkeyBadge');
     if (badge) badge.textContent = info.hotkey;
     const ph = document.getElementById('wizMockPlaceholder');
-    if (ph) ph.innerHTML = 'Press <kbd>' + info.hotkey + '</kbd> and speak...';
+    if (ph) ph.innerHTML = 'Press <kbd>' + escHtml(info.hotkey) + '</kbd> and speak...';
   } catch(e) {}
 
   // v3.14.25 — Mock send button now actually moves the dictated text

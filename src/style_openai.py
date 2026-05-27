@@ -759,17 +759,38 @@ Transcript: {transcript}"""
     def _restore_censored_profanity(self, styled: str, raw: str) -> str:
         """Restore swear words the LLM stripped despite the no-censor rule.
 
-        Strategy: for each swear word present in raw but missing from styled,
-        find the word IMMEDIATELY BEFORE the swear in raw, locate that same
-        anchor word in styled, and splice the swear in directly after it.
-        Falls back to anchoring on the word AFTER the swear if the preceding
-        word isn't usable. Last resort: append at end with a marker.
+        For each swear present in raw but missing from styled we anchor on the
+        word IMMEDIATELY BEFORE it (preferred) or AFTER it (fallback) and splice
+        the swear back into the matching clause of the styled text.
+
+        Two things make this robust when MULTIPLE swears were censored:
+
+        * We process swears RIGHT-TO-LEFT (by raw position) and recompute the
+          anchor match against the *current* result on every iteration. Working
+          right-to-left means each insertion lands to the right of all
+          not-yet-restored anchors, so the left-to-right occurrence indices we
+          rely on never go stale, and a freshly-spliced swear can't be mistaken
+          for a later swear's anchor word.
+        * Anchoring is FAIL-SAFE. The anchor occurrence index is counted over
+          *non-swear* words only, and if styled genuinely doesn't contain that
+          Nth occurrence (or the anchor is too short/ambiguous) we leave the
+          swear censored rather than guess and splice it into the wrong place.
+
+        Last resort, for the simple unanchorable case, we append the swear at
+        the end with clean spacing/punctuation (no stray ".fucking" artifacts).
         """
         if not styled or not raw:
             return styled
         import re as _re
 
         raw_lower = raw.lower()
+        swear_set = {w.lower() for w in self._PROFANITY_WORDS}
+        # A "word" for anchoring purposes: alphabetic run that is NOT itself a
+        # swear (swears are anchors for nothing — they're what we're inserting).
+        word_re = _re.compile(r"[a-z']+")
+
+        def non_swear_words(text: str) -> list[str]:
+            return [w for w in word_re.findall(text) if w not in swear_set]
 
         # Find swears actually present in raw, in order.
         swears_in_raw = []
@@ -781,52 +802,61 @@ Transcript: {transcript}"""
             return styled
 
         result = styled
-        for raw_start, raw_end, swear in swears_in_raw:
-            # Already in current result? — nothing to do.
-            if _re.search(rf"\b{_re.escape(swear)}\b", result.lower()):
+        # Right-to-left so earlier (leftward) anchors keep their positions and
+        # occurrence counts as we mutate `result`.
+        for raw_start, raw_end, swear in sorted(swears_in_raw, reverse=True):
+            # Already present in current result? — nothing to do.
+            if _re.search(rf"\b{_re.escape(swear)}\b", result, _re.IGNORECASE):
                 continue
 
-            # Find the word IMMEDIATELY before the swear in raw, AND which
-            # occurrence of that word it is (so we anchor on the right one
-            # in styled when the word appears multiple times).
-            before = raw_lower[:raw_start]
-            prev_words = _re.findall(r"[a-z']+", before)
+            anchored = False
+
+            # 1) Preferred: anchor on the non-swear word IMMEDIATELY before the
+            #    swear in raw, matching the same (Nth) occurrence in result.
+            prev_words = non_swear_words(raw_lower[:raw_start])
             prev = prev_words[-1] if prev_words else None
             prev_occurrence = sum(1 for w in prev_words if w == prev) if prev else 0
-
-            anchored = False
             if prev and len(prev) >= 2 and prev_occurrence > 0:
-                # Find the Nth occurrence of `prev` in result (case-insensitive).
                 matches = list(_re.finditer(rf"\b{_re.escape(prev)}\b", result, _re.IGNORECASE))
-                # Take the closest occurrence at or before prev_occurrence,
-                # falling back to the last if styled has fewer.
-                target = matches[min(prev_occurrence, len(matches)) - 1] if matches else None
-                if target:
-                    insert_at = target.end()
+                # Only splice if styled actually has that occurrence; otherwise
+                # the clause is ambiguous and we must not guess.
+                if len(matches) >= prev_occurrence:
+                    insert_at = matches[prev_occurrence - 1].end()
                     result = result[:insert_at] + " " + swear + result[insert_at:]
                     anchored = True
 
-            if anchored:
-                continue
-
-            # Fallback: anchor on the FIRST word AFTER the swear in raw
-            # that's also in styled.
-            after = raw_lower[raw_end:]
-            for word in _re.findall(r"[a-z']+", after):
-                if len(word) < 3:
-                    continue
-                m = _re.search(rf"\b{_re.escape(word)}\b", result, _re.IGNORECASE)
-                if m:
-                    insert_at = m.start()
-                    result = result[:insert_at] + swear + " " + result[insert_at:]
-                    anchored = True
-                    break
-
+            # 2) Fallback: anchor on the first usable non-swear word AFTER the
+            #    swear in raw, again on the matching occurrence in result. Skip
+            #    insertion points at a sentence start (string start or just past
+            #    .!? + space): splicing a lowercase swear there yields awkward
+            #    ".  fucking Second" artifacts, so we'd rather try the next word.
             if not anchored:
-                # Last resort — append. Better than silently losing the word.
+                after_words = non_swear_words(raw_lower[raw_end:])
+                seen: dict[str, int] = {}
+                for word in after_words:
+                    seen[word] = seen.get(word, 0) + 1
+                    if len(word) < 3:
+                        continue
+                    matches = list(_re.finditer(rf"\b{_re.escape(word)}\b", result, _re.IGNORECASE))
+                    occ = seen[word]
+                    if len(matches) >= occ:
+                        insert_at = matches[occ - 1].start()
+                        preceding = result[:insert_at]
+                        if not preceding.strip() or preceding.rstrip()[-1:] in ".!?":
+                            continue  # sentence boundary — bad splice point
+                        result = result[:insert_at] + swear + " " + result[insert_at:]
+                        anchored = True
+                        break
+
+            # 3) Last resort: only when there were no usable anchors at all
+            #    (heavy rewrite / one-word transcript). Append cleanly. If we
+            #    couldn't anchor but DID have a candidate anchor that simply
+            #    didn't line up, leaving it censored is the safe choice.
+            if not anchored and not prev_words and not non_swear_words(raw_lower[raw_end:]):
                 trimmed = result.rstrip(".!?\n ")
                 tail_punct = result[len(trimmed):]
-                result = trimmed + " " + swear + tail_punct
+                sep = "" if (not trimmed or trimmed[-1].isspace()) else " "
+                result = trimmed + sep + swear + tail_punct
         return result
 
     def _strip_hallucinations(self, output: str, raw_transcript: str) -> str:
