@@ -3724,10 +3724,40 @@ def _on_window_closing():
     """Intercept window close: hide window, keep running in background.
     Both Mac and Windows have a status icon (menu bar / tray) to restore or quit.
     """
-    global _window_hidden
+    global _window_hidden, _should_quit
     if _should_quit:
         return True  # Allow close
-    # Hide window, keep running in background
+
+    # Distinguish a genuine quit (Cmd-Q / app-menu Quit) from the red-X close.
+    # pywebview routes BOTH through this single `closing` event, and since
+    # v3.14.52 we return False on a red-X to hide-to-menu-bar — but that also
+    # swallowed Cmd-Q, so the app could never be quit from the keyboard and
+    # the user had to Force Quit. The triggering NSEvent is still current
+    # while this fires: if it's a Cmd-Q key-down, treat it as a real quit.
+    # Anything else (red-X mouse click, Cmd-W, etc.) falls through to hide,
+    # so this can't misfire into an accidental quit.
+    if _platform.system() == "Darwin":
+        try:
+            from AppKit import (
+                NSApplication, NSEventTypeKeyDown, NSEventModifierFlagCommand,
+            )
+            ev = NSApplication.sharedApplication().currentEvent()
+            if ev is not None and ev.type() == NSEventTypeKeyDown:
+                chars = ev.charactersIgnoringModifiers()
+                if (chars and chars.lower() == "q"
+                        and (ev.modifierFlags() & NSEventModifierFlagCommand)):
+                    _log_to_file("[quit] Cmd-Q detected — allowing real quit")
+                    _should_quit = True
+                    if _window_ref:
+                        try:
+                            _window_ref.destroy()
+                        except Exception:
+                            pass
+                    return True  # allow the app to actually terminate
+        except Exception as e:
+            _log_to_file(f"[quit] Cmd-Q detection failed (ignored): {e}")
+
+    # Otherwise (red-X) → hide window, keep running in background.
     if _window_ref:
         try:
             _window_ref.hide()

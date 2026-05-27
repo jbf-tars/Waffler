@@ -4,6 +4,12 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.66] - 2026-05-27
+
+### Fixed
+- **Cmd-Q now actually quits Waffler.** Since v3.14.52 the close button hides to the menu bar — `_on_window_closing` returns `False` for every close — but pywebview routes Cmd-Q through that same `closing` event, so Cmd-Q was being swallowed too and the app could only be killed with Force Quit. It now inspects the triggering `NSEvent`: a genuine **Cmd-Q key-down** sets `_should_quit` and allows the real termination, while the red-X (and Cmd-W, mouse clicks, etc.) still fall through to hide. Fails safe — anything that isn't an unambiguous Cmd-Q hides rather than quits, so it can't terminate by accident.
+- **AirPods no longer drop your music to call quality.** Waffler keeps a continuous mic stream open for instant dictation, but opening an AirPods/Bluetooth *microphone* forces the headset from high-quality stereo (A2DP) into call-quality mono (HFP) — so while Waffler ran, music was permanently degraded. Per the user's choice, `audio.py` now detects when the OS default input is a Bluetooth mic and records from a non-Bluetooth mic instead (preferring the built-in one), so Waffler never opens the AirPods mic and they stay output-only in A2DP. Best-effort, name-based detection (`airpods`/`bluetooth`/`beats`/`buds`/…); any failure falls back to the default input, so it can never block recording. Trade-off the user accepted: dictation is captured by the built-in mic rather than the AirPods mic while AirPods are connected.
+
 ## [3.14.65] - 2026-05-27
 
 ### Fixed

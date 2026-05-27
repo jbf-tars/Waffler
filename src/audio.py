@@ -76,6 +76,69 @@ _HAL_DRAIN_S = 0.1
 _STREAM_LOCK = threading.Lock()
 
 
+# ── Bluetooth-mic avoidance (v3.14.64) ──────────────────────────────────────
+# Opening an AirPods/Bluetooth *microphone* forces the headset out of high-
+# quality stereo (A2DP) into call-quality mono (HFP), which wrecks any music
+# the user is playing — for as long as the mic stays open. Waffler holds a
+# continuous monitor stream, so on Bluetooth that degradation was permanent.
+# Per the user's choice, when the OS default input is a Bluetooth mic we record
+# from a non-Bluetooth mic (the built-in one) instead. Waffler then never opens
+# the AirPods mic, so they stay output-only in A2DP and music quality is kept.
+_BT_INPUT_MARKERS = (
+    "airpods", "bluetooth", "beats", "buds", "headset",
+    "jabra", "bose", "sony wh", "sony wf", "galaxy buds",
+)
+_BUILTIN_INPUT_MARKERS = ("macbook", "built-in", "imac", "mac mini", "mac studio")
+
+
+def _name_is_bluetooth(name: str) -> bool:
+    n = (name or "").lower()
+    return any(m in n for m in _BT_INPUT_MARKERS)
+
+
+def _resolve_input_device():
+    """Return the input device index to record from, or None to use PortAudio's
+    current default.
+
+    The normal case returns None (use the default). Only when the default input
+    is a Bluetooth mic do we override: we pick a non-Bluetooth input (preferring
+    the built-in mic) so opening the stream doesn't drag the user's AirPods into
+    call-quality HFP mode. Fully best-effort — any failure returns None and the
+    default is used, so this can never block recording.
+    """
+    try:
+        default_in = sd.query_devices(kind="input")
+        if not _name_is_bluetooth(default_in.get("name", "")):
+            return None  # built-in / wired default — nothing to avoid
+
+        devices = sd.query_devices()
+        builtin_idx = None
+        first_nonbt_idx = None
+        for idx, d in enumerate(devices):
+            if d.get("max_input_channels", 0) <= 0:
+                continue
+            dn = (d.get("name") or "").lower()
+            if _name_is_bluetooth(dn):
+                continue
+            if first_nonbt_idx is None:
+                first_nonbt_idx = idx
+            if any(m in dn for m in _BUILTIN_INPUT_MARKERS):
+                builtin_idx = idx
+                break
+
+        chosen = builtin_idx if builtin_idx is not None else first_nonbt_idx
+        if chosen is not None:
+            print(
+                f"[audio] default input '{default_in.get('name')}' is Bluetooth — "
+                f"recording from '{sd.query_devices(chosen)['name']}' instead so "
+                f"AirPods stay in high-quality (A2DP) mode"
+            )
+        return chosen
+    except Exception as e:
+        print(f"[audio] input-device resolve failed (using default): {e}")
+        return None
+
+
 class AudioRecorder:
     """Records audio using a continuous sounddevice stream.
 
@@ -209,12 +272,17 @@ class AudioRecorder:
             # ``self._callback_active`` is set true BEFORE start() so the
             # very first callback that fires isn't dropped.
             self._callback_active = True
+            # Avoid the AirPods mic when it's the default input (keeps music in
+            # A2DP). Resolved AFTER the PortAudio reinit above so it sees the
+            # current device list. None ⇒ PortAudio default (the normal case).
+            _input_device = _resolve_input_device()
             self._stream = sd.InputStream(
                 samplerate=self.sample_rate,
                 channels=self.channels,
                 dtype='int16',
                 callback=self._callback_bound,  # stable bound method
                 blocksize=1024,
+                device=_input_device,
             )
             self._stream.start()
 
