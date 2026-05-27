@@ -4,6 +4,26 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.64] - 2026-05-27
+
+Fixes from a full code review (7 parallel review agents: security, app.py core, audio/hotkey, overlay, transcription/styling/updater, UI/XSS, repo presentation).
+
+### Security
+- **Auto-update is no longer an arbitrary-code-execution path.** `src/updater.py` now **verifies the downloaded installer's code signature before executing it** — `codesign --verify --deep --strict` + `spctl --assess` on macOS, Authenticode on Windows — and **fails closed** if it can't be verified. The macOS install is now atomic (stage → verify → swap → roll back on failure) instead of `rm`-before-copy, and the DMG mount point is parsed via `hdiutil -plist` and always detached. On the bridge side (`app.py`), `start_update_download` only accepts https GitHub release-asset URLs, and `install_update_and_restart` only installs the exact file the updater downloaded — together these close the chain where a crafted webview-bridge call or tampered update metadata could download-and-run anything.
+- **Stopped logging transcript text.** Dictation content was written to `app.log`, which ships in the "Download Logs" diagnostic bundle — so sharing logs leaked transcripts. `app.py` and `transcribe_whisper.py` now log word/char counts only. (The bundle already excluded `.env` and `history.json`.)
+- **Fixed a UI XSS.** The journal escaped transcript *body* text but interpolated `item.timestamp` (and the `formatTime` fallback) raw into HTML attributes; the webview has full API-bridge access. Now escaped, and `escHtml` is null-safe + escapes single quotes.
+
+### Fixed
+- **Cancelled text no longer gets pasted ("ghost paste").** A quick re-press cleared the cancel flag out from under an in-flight processing thread, which then pasted the cancelled transcript into the active app. The recording state machine now opens a new generation id on press and treats a superseded generation as cancelled.
+- **No more double transcription / double paste.** Two racing stop events (overlay ■ + hotkey-up, or the auto-stop racing a manual release) could both spawn processing. The `is_recording` check+flip is now atomic under one lock.
+- **AirPods/Bluetooth cold-start hang.** The 2 s warm-up added in v3.14.63 ran while holding the audio stream lock, so Esc-cancel / quit / device-switch blocked for 2 s right after a cold start. The warm-up now runs outside the lock.
+- **Overlay:** the recording pill no longer looks frozen on slow stages on macOS (the `progress` message is now handled), the toast auto-hide timer is actually cancelled (`.cancel()`, was a no-op `.invalidate()`), the pill is re-shown after a broken-pipe subprocess restart, and the restart backoff no longer sleeps while holding its lock.
+- **Update version check** tolerates suffix tags (e.g. `v3.14.63-hotfix`) instead of mis-ranking them, and never offers the release web page as a "download".
+- **Profanity restoration** is order-stable for multi-swear transcripts (no cross-clause leak or stray-character artifacts; ambiguous cases are left as-is).
+
+### Changed
+- Redacted personal identifiers (legal name, Apple Team ID, home paths) from the planning docs and release runbook ahead of going public; removed dead UI code, leftover debug logging, and a malformed CSS rule.
+
 ## [3.14.63] - 2026-05-27
 
 ### Fixed
