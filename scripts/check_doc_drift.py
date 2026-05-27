@@ -35,7 +35,7 @@ What it skips
 - Cost-tracking constants in app.py (the GPT-4o-mini per-token costs
   ARE the per-model costs for that specific model and shouldn't be
   rewritten — the constants are named after the model they track).
-- docs/superpowers/ (out-of-tree planning archive).
+- docs/dev-notes/ (out-of-tree planning archive).
 
 Run locally
 ===========
@@ -56,7 +56,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 EXEMPT_PATHS = {
     "CHANGELOG.md",
     "scripts/check_doc_drift.py",
-    "docs/superpowers",   # prefix match — old planning archive
+    "docs/dev-notes",   # prefix match — old planning archive
 }
 
 # Globs that *are* checked. We deliberately exclude binary/large/generated

@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3, threading, subprocess management
 
-**Spec:** `docs/superpowers/specs/2026-04-09-overlay-reliability-fix-design.md`
+**Spec:** `docs/dev-notes/specs/2026-04-09-overlay-reliability-fix-design.md`
 
 ---
 

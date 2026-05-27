@@ -1006,6 +1006,6 @@ Specific revert points:
 
 ## References
 
-- Design Spec: `docs/superpowers/specs/2026-03-29-wizard-setup-improvements-design.md`
+- Design Spec: `docs/dev-notes/specs/2026-03-29-wizard-setup-improvements-design.md`
 - Visual Mockups: `.superpowers/brainstorm/80578-1774787343/`
 - Related Commits: e1a9759 (permission detection removal)
