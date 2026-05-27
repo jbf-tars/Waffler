@@ -127,7 +127,7 @@ download buttons point at a hardcoded version in `src/data/release.ts`. Use
 the one-liner script (added in v3.14.39, see `waffler-website/scripts/bump-release.mjs`):
 
 ```bash
-cd /Users/james/waffler-website
+cd ~/waffler-website
 git pull origin main
 npm install                          # one-off
 npm run bump-release                 # auto-fetches latest stable tag from Waffler repo

@@ -55,7 +55,7 @@ def _log(self, msg: str):
 
 Test manually:
 ```bash
-cd /Users/james/waffler
+cd ~/waffler
 python3 -c "
 from src.overlay import RecordingOverlay
 overlay = RecordingOverlay()
@@ -355,7 +355,7 @@ def show(self):
 
 Test manually:
 ```bash
-cd /Users/james/waffler
+cd ~/waffler
 python3 -c "
 from src.overlay import RecordingOverlay
 overlay = RecordingOverlay()
@@ -422,7 +422,7 @@ def update_level(self, level: float):
 This requires running the app:
 ```bash
 # Start the app
-cd /Users/james/waffler
+cd ~/waffler
 python3 app.py &
 APP_PID=$!
 
@@ -548,7 +548,7 @@ Expected output: Nothing (no matches)
 - [ ] **Step 7: Verify logging still works**
 
 ```bash
-cd /Users/james/waffler
+cd ~/waffler
 python3 -c "
 from src.overlay import RecordingOverlay
 overlay = RecordingOverlay()
@@ -583,7 +583,7 @@ Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
 
 **Goal:** Verify thread-safety under high contention
 
-1. Build and run the app: `cd /Users/james/waffler && python3 app.py`
+1. Build and run the app: `cd ~/waffler && python3 app.py`
 2. Press hotkey to start recording
 3. While recording (VU meter active):
    - Rapidly press hotkey 10 times (start/stop/start/stop)

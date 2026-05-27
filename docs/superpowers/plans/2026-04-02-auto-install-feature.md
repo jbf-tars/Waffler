@@ -398,9 +398,9 @@ Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
 - [ ] **Step 1: Build signed app locally**
 
 ```bash
-cd /Users/james/waffler
+cd ~/waffler
 rm -rf build dist
-SIGNING_IDENTITY="Developer ID Application: JAMES BERNARD FARRELLY (653JYT4U23)" ./build_mac.sh
+SIGNING_IDENTITY="Developer ID Application: <Your Name> (<TEAMID>)" ./build_mac.sh
 ```
 
 Expected: App builds successfully with Developer ID signature
@@ -408,7 +408,7 @@ Expected: App builds successfully with Developer ID signature
 - [ ] **Step 2: Manually sign with hardened runtime**
 
 ```bash
-codesign --sign "Developer ID Application: JAMES BERNARD FARRELLY (653JYT4U23)" \
+codesign --sign "Developer ID Application: <Your Name> (<TEAMID>)" \
   --force --options runtime --entitlements entitlements.plist \
   --timestamp --deep dist/Waffler.app
 ```
