@@ -11,6 +11,12 @@ on:
 permissions:
   contents: write
 
+# Run JS actions on Node 24 ahead of GitHub's 2026-06-02 forced cutover —
+# checkout@v4 / setup-python@v5 / upload-artifact@v4 / gh-release@v2 still
+# ship on the now-deprecated Node 20. Opting in early verifies compatibility.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 
 jobs:
   build-macos:

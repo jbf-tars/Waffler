@@ -11,6 +11,11 @@ on:
   pull_request:
     branches: [main]
 
+# Run JS actions on Node 24 ahead of GitHub's 2026-06-02 forced cutover —
+# checkout@v4 / setup-python@v5 still ship on the now-deprecated Node 20.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   check:
     runs-on: macos-14
