@@ -247,8 +247,16 @@ class Api:
         current_version = __version__
 
         def parse_ver(v: str):
+            # Extract the leading numeric dotted version, tolerating tag
+            # suffixes like "v3.14.63-hotfix" or "3.14.63b". The old
+            # int()-on-every-part threw on any such tag → coerced to (0,) →
+            # wrong "latest" pick / spurious infinite "update available".
+            import re as _re
+            m = _re.match(r"v?(\d+(?:\.\d+)*)", v or "")
+            if not m:
+                return (0,)
             try:
-                return tuple(int(x) for x in v.lstrip("v").split("."))
+                return tuple(int(x) for x in m.group(1).split("."))
             except Exception:
                 return (0,)
 
@@ -292,10 +300,15 @@ class Api:
             if parse_ver(latest_version) > parse_ver(current_version):
                 import platform as _plat
                 suffix = ".dmg" if _plat.system() == "Darwin" else ".exe"
-                download_url = latest_release.get("html_url", "")
+                # Only a real platform asset is a valid download target —
+                # never fall back to html_url (the release *web page*), which
+                # would download HTML and then try to "install" it. If no
+                # asset matches, download_url stays "" and JS falls back to
+                # opening release_url in the browser.
+                download_url = ""
                 for asset in latest_release.get("assets", []):
                     if asset.get("name", "").endswith(suffix):
-                        download_url = asset.get("browser_download_url", download_url)
+                        download_url = asset.get("browser_download_url", "")
                         break
                 return {
                     "update_available": True,
@@ -319,7 +332,22 @@ class Api:
 
     def start_update_download(self, url: str) -> dict:
         """Begin downloading the update installer in the background.
-        JS polls get_update_progress() to render a progress bar."""
+        JS polls get_update_progress() to render a progress bar.
+
+        This method is reachable from the webview JS bridge, so the URL is
+        validated against a GitHub-release allowlist — otherwise a crafted
+        call (or a tampered check_for_updates response) could make us download
+        an arbitrary file. We accept only https GitHub release-asset URLs; the
+        downloaded file is additionally signature-verified before it is ever
+        executed (see updater.install_and_restart)."""
+        from urllib.parse import urlparse
+        p = urlparse(url or "")
+        host = (p.hostname or "").lower()
+        host_ok = host == "github.com" or host.endswith(".githubusercontent.com")
+        path_ok = host != "github.com" or "/releases/download/" in p.path
+        if p.scheme != "https" or not host_ok or not path_ok:
+            _log_to_file(f"[update] refused untrusted download URL: {url[:120]}")
+            return {"ok": False, "error": "Refusing to download from an untrusted URL."}
         try:
             from src import updater
             _log_to_file(f"[update] start_download requested: {url[:120]}")
@@ -335,9 +363,19 @@ class Api:
         return updater.get_progress()
 
     def install_update_and_restart(self, installer_path: str) -> dict:
-        """Launch the installer detached and exit the app so the upgrade can replace files."""
+        """Launch the installer detached and exit the app so the upgrade can
+        replace files.
+
+        Only the file WE downloaded is accepted — the path must match the one
+        updater recorded in get_progress(), so a bridge call can't point the
+        installer at an arbitrary attacker-chosen path. (The installer is also
+        code-signature-verified before it runs, in updater.install_and_restart.)"""
         try:
             from src import updater
+            recorded = (updater.get_progress() or {}).get("path") or ""
+            if not recorded or os.path.abspath(installer_path) != os.path.abspath(recorded):
+                _log_to_file("[update] refused install of unrecognised path")
+                return {"ok": False, "error": "Refusing to install an unrecognised file."}
             updater.install_and_restart(installer_path)
             return {"ok": True}  # usually unreachable — process exits
         except Exception as e:

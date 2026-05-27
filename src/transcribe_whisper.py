@@ -536,7 +536,9 @@ class WhisperTranscriber:
 
         cleaned = _strip_hallucinations(raw)
         if cleaned != raw:
-            print(f"[whisper] Stripped hallucination: '{raw}' → '{cleaned}'")
+            # Metadata only — don't print the transcript text (PII; app.log
+            # ships in the Download Logs bundle).
+            print(f"[whisper] Stripped hallucination ({len(raw)}→{len(cleaned)} chars)")
 
         # Whisper sometimes echoes the vocab prompt verbatim on silence —
         # discard rather than pasting the user's vocabulary list as output.
@@ -580,7 +582,7 @@ class WhisperTranscriber:
                 kwargs["language"] = lang
             result = _mlx_whisper.transcribe(tmp, **kwargs)
             text = result["text"].strip()
-            print(f"⚡ mlx-whisper ({(time.time()-t0)*1000:.0f}ms): {text[:80]}")
+            print(f"⚡ mlx-whisper ({(time.time()-t0)*1000:.0f}ms, {len(text)} chars)")
             return text
         finally:
             if os.path.exists(tmp):
@@ -598,7 +600,7 @@ class WhisperTranscriber:
             fw_lang  = lang if lang != "auto" else None
             segments, _ = _faster_whisper.transcribe(tmp, beam_size=1, language=fw_lang)
             text = " ".join(seg.text for seg in segments).strip()
-            print(f"⚡ faster-whisper ({(time.time()-t0)*1000:.0f}ms): {text[:80]}")
+            print(f"⚡ faster-whisper ({(time.time()-t0)*1000:.0f}ms, {len(text)} chars)")
             return text
         finally:
             if os.path.exists(tmp):
@@ -632,7 +634,7 @@ class WhisperTranscriber:
             text = response.strip()
             duration = time.time() - t0
             self._last_duration = duration
-            print(f"⚡ Groq Whisper ({duration*1000:.0f}ms): {text[:80]}")
+            print(f"⚡ Groq Whisper ({duration*1000:.0f}ms, {len(text)} chars)")
             return text
         except Exception as e:
             print(f"❌ Groq Whisper error: {e}")
@@ -665,7 +667,7 @@ class WhisperTranscriber:
             text = response.strip()
             duration = time.time() - t0
             self._last_duration = duration  # Store for usage tracking
-            print(f"✅ API Whisper ({duration*1000:.0f}ms): {text[:80]}")
+            print(f"✅ API Whisper ({duration*1000:.0f}ms, {len(text)} chars)")
             return text
         except Exception as e:
             print(f"❌ Whisper API error: {e}")
