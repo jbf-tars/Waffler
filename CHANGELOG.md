@@ -4,6 +4,11 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.67] - 2026-05-27
+
+### Fixed
+- **Styling no longer falls through to raw text when Groq is rate-limited.** User report: a "Groq failed — add a Cerebras key for fallback" toast *despite* a working Cerebras key, with the unstyled transcript pasted. Root cause (confirmed in `app.log`): Cerebras **retired the hardcoded model** `qwen-3-235b-a22b-instruct-2507` mid-day — it styled fine at 18:09 and started returning `404 "Model … does not exist or you do not have access to it"` by 19:14. So once Groq hit its daily-token cap, the Cerebras fallback 404'd too and styling dropped to `basic_clean` (raw text); the toast then surfaced the Groq rate-limit reason. Repointed the default Cerebras model to **`gpt-oss-120b`** (verified live against the key — it styles transcripts correctly; the only other available model, `zai-glm-4.7`, returns a non-standard response shape and is skipped). The `CEREBRAS_MODEL` env var still overrides the default, so a future Cerebras model rotation can be hot-patched without shipping a build.
+
 ## [3.14.66] - 2026-05-27
 
 ### Fixed

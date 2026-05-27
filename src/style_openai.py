@@ -69,18 +69,18 @@ class OpenAIStyler:
         self._cerebras_skip_until = 0.0
 
         # Priority 1: Cerebras (fastest in the world for these models;
-        # ~hundreds-of-ms first-token even on the 235B Qwen). OpenAI-
-        # compatible API.
+        # ~hundreds-of-ms first-token). OpenAI-compatible API.
         #
-        # Model: qwen-3-235b-a22b-instruct-2507 — available on the free
-        # tier (probed live on the user's key). The previously used
-        # llama-3.1-8b is too small to follow the styler's nuanced
-        # rules on multi-clause exploratory speech — it collapses long
-        # transcripts and hallucinates greetings. The 235B Qwen is in
-        # a different league for instruction-following while still
-        # benefiting from Cerebras's wafer-scale inference speed.
-        # Llama 3.3 70B is NOT available on this key (404). Power
-        # users can override via CEREBRAS_MODEL env var.
+        # Model: gpt-oss-120b. We previously defaulted to
+        # qwen-3-235b-a22b-instruct-2507, but Cerebras RETIRED that model
+        # (it 404'd live mid-day on 2026-05-27 — "Model ... does not exist
+        # or you do not have access to it" — after having worked an hour
+        # earlier). When that happened, Groq-rate-limited dictations had no
+        # working styler and silently fell through to raw basic_clean. The
+        # key now exposes gpt-oss-120b (verified: strong instruction-follower,
+        # cleans transcripts correctly) and zai-glm-4.7 (non-standard response
+        # shape — skipped). Cerebras rotates models, so power users / a quick
+        # hotfix can override via the CEREBRAS_MODEL env var without a release.
         if cerebras_api_key:
             try:
                 self._cerebras_client = OpenAI(
@@ -89,7 +89,7 @@ class OpenAIStyler:
                 )
                 self._use_cerebras = True
                 import os as _os
-                self._cerebras_model = _os.getenv("CEREBRAS_MODEL", "").strip() or "qwen-3-235b-a22b-instruct-2507"
+                self._cerebras_model = _os.getenv("CEREBRAS_MODEL", "").strip() or "gpt-oss-120b"
                 print(f"Styling primary: Cerebras {self._cerebras_model}")
             except Exception as e:
                 print(f"Cerebras init failed ({e}), skipping")
