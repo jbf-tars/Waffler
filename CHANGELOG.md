@@ -4,6 +4,12 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.65] - 2026-05-27
+
+### Fixed
+- **History entries can no longer be lost to concurrent writes.** The `history.json` read-modify-write (load → append → save) wasn't serialised, so overlapping writers (a processing thread plus a `clear_history` from the UI, say) could clobber each other. Added a lock + an atomic `append_history()` helper used by all writers. (Verified: 80 parallel appends, zero lost.)
+- **The UI can't get stuck showing "recording"/"processing".** `_process` reset the status to idle at nine separate return sites by hand; a `try/finally` now guarantees it on every non-success exit, so any future early-return can't strand the UI. The success "done" status is preserved (the finally only fires when "done" wasn't reached).
+
 ## [3.14.64] - 2026-05-27
 
 Fixes from a full code review (7 parallel review agents: security, app.py core, audio/hotkey, overlay, transcription/styling/updater, UI/XSS, repo presentation).

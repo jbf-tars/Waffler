@@ -110,6 +110,12 @@ DATA_DIR = get_data_directory()
 HISTORY_FILE = DATA_DIR / "history.json"
 USAGE_FILE = DATA_DIR / "usage.json"
 
+# Serialises the load→append→save read-modify-write on history.json. The file
+# write itself is atomic (os.replace), but the read-modify-write around it is
+# not — two threads (a processing thread + clear_history from the JS bridge,
+# or two overlapping recordings) could otherwise interleave and lose entries.
+_history_lock = threading.Lock()
+
 # Pricing constants
 WHISPER_COST_PER_SECOND = 0.0001       # OpenAI: $0.006/minute
 GROQ_WHISPER_COST_PER_SECOND = 0.0000467  # Groq: $0.0028/minute
@@ -154,6 +160,15 @@ def save_history(history: list):
         except:
             pass
         raise e
+
+
+def append_history(item: dict):
+    """Atomically append one entry to history.json. Use this instead of a bare
+    load→append→save so concurrent writers don't clobber each other."""
+    with _history_lock:
+        history = load_history()
+        history.append(item)
+        save_history(history)
 
 
 # ── Usage Tracking ──────────────────────────────────────────────────────
@@ -976,7 +991,8 @@ class Api:
     def clear_history(self) -> dict:
         """Wipe all saved transcriptions."""
         try:
-            save_history([])
+            with _history_lock:
+                save_history([])
             return {"ok": True}
         except Exception as e:
             return {"ok": False, "error": str(e)}
@@ -2645,6 +2661,10 @@ class WafflerPipeline:
                     return True
                 return self._processing_cancelled.is_set()
 
+        # Tracks whether _process reached its success "done" status; the
+        # finally below resets the UI to idle on every OTHER exit so it can't
+        # get stuck showing "recording"/"processing".
+        _finalized = False
         try:
             # Calculate recording duration for error suppression
             import time
@@ -3150,9 +3170,7 @@ class WafflerPipeline:
                 "styled": styled,
                 "word_count": len(styled.split()),
             }
-            history = load_history()
-            history.append(item)
-            save_history(history)
+            append_history(item)
 
             # Notify JS
             notify_js_status("done")
@@ -3162,6 +3180,7 @@ class WafflerPipeline:
             # the "Download Logs" diagnostic bundle ships, so logging content
             # here would leak the user's dictations to anyone they send logs to.
             _log_to_file(f"Done: {len(styled.split())} words, {len(styled)} chars")
+            _finalized = True
 
         except Exception as e:
             error_msg = str(e)
@@ -3250,6 +3269,15 @@ class WafflerPipeline:
                 pass
 
             notify_js_status("idle")
+        finally:
+            # Belt-and-braces: if _process exits any way other than the success
+            # "done" path, return the UI to idle — so no future early-return can
+            # leave it stuck showing "recording"/"processing".
+            if not _finalized:
+                try:
+                    notify_js_status("idle")
+                except Exception:
+                    pass
 
     def _save_unsent_recording(self, audio_bytes: bytes):
         """Persist the raw WAV of a recording we couldn't transcribe to
@@ -3319,9 +3347,7 @@ class WafflerPipeline:
                 "error": reason[:200],
                 "audio_path": str(wav_path) if wav_path else "",
             }
-            history = load_history()
-            history.append(item)
-            save_history(history)
+            append_history(item)
             try:
                 notify_js_new_item(item)
             except Exception:
