@@ -29,3 +29,9 @@ rumps>=0.4.0
 pyobjc-core>=9.0
 pyobjc-framework-Cocoa>=9.0
 pyobjc-framework-Quartz>=9.0
+# AVFoundation: required by the startup mic-permission (TCC) check in app.py
+# (AVCaptureDevice.authorizationStatusForMediaType_). Without it the import
+# fails at runtime ("No module named 'AVFoundation'") and the check silently
+# no-ops, so a denied mic is never detected. Was missing from the build deps,
+# so CI-built apps shipped without it.
+pyobjc-framework-AVFoundation>=9.0

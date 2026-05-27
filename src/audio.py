@@ -309,12 +309,30 @@ class AudioRecorder:
                     self._teardown_stream(stale)
                 self._preroll.clear()
                 self._create_stream()
-                # Wait briefly for the stream to actually start producing
-                # samples — InputStream.start() returns before audio
-                # begins flowing on Windows and sometimes on Mac.
-                deadline = time.time() + 0.5
-                while not self._preroll and time.time() < deadline:
-                    time.sleep(0.01)
+                # Cold-start warm-up. A freshly (re)built stream can hand back
+                # zero-filled buffers for a while before real audio flows —
+                # most painfully on Bluetooth mics: AirPods negotiate their
+                # HFP input link over ~1-2s. The old code only waited for the
+                # pre-roll to be NON-EMPTY, which a silent/dead stream satisfies
+                # instantly — so the first press right after popping in AirPods
+                # recorded pure silence, got flagged as a dead stream, and the
+                # dictation was lost (repeating for 2-3 presses until the link
+                # settled — see the 10:20 AirPods burst in app.log). Now we wait
+                # for LIVE audio (non-zero RMS) before proceeding, up to ~2s.
+                # A normal warm built-in mic still returns in ~100 ms because
+                # its pre-roll fills with live samples immediately, so this only
+                # adds latency on the rare cold start that actually needs it.
+                deadline = time.time() + 2.0
+                while time.time() < deadline:
+                    if self._preroll:
+                        try:
+                            recent = np.concatenate(list(self._preroll), axis=0)
+                            rms = float(np.sqrt(np.mean(recent.astype(np.float32) ** 2)))
+                            if rms > 1.0:
+                                break  # real audio is flowing — safe to record
+                        except Exception:
+                            break
+                    time.sleep(0.02)
 
             # Splice pre-roll into the recording buffer FIRST so the
             # first syllable isn't lost.

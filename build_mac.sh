@@ -29,7 +29,7 @@ python3 -m pip install -q \
     httpx httpcore anyio sniffio \
     certifi h11 idna charset_normalizer urllib3 \
     pywebview rumps \
-    pyobjc-core pyobjc-framework-Cocoa pyobjc-framework-Quartz \
+    pyobjc-core pyobjc-framework-Cocoa pyobjc-framework-Quartz pyobjc-framework-AVFoundation \
     2>&1
 echo "  Done."
 

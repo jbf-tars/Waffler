@@ -4,6 +4,16 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.63] - 2026-05-27
+
+### Fixed
+- **Clicking the Dock icon now reopens the window** *(the main report)*. Since v3.14.52 the red close-button hides the window to the menu bar and the app keeps running — but pywebview owns the `NSApplication` delegate and never re-showed the `orderOut`'d window on reopen, so clicking the Dock icon did nothing and the *only* way back was the menu-bar "Show Waffler". Added `_install_mac_reopen_handler()` (`app.py`): an `NSApplicationDidBecomeActive` observer that brings the window forward when the app is reactivated (Dock click / Cmd-Tab) while a `_window_hidden` flag is set. The flag is set in `_on_window_closing` and cleared in `_tray_show_window`, so a normal activation (window already visible) is a no-op — it won't fight you mid-use.
+- **Startup mic-permission check works again in shipped builds.** `app.py`'s AVFoundation TCC check (`AVCaptureDevice.authorizationStatusForMediaType_`) imports `AVFoundation`, which is declared as a PyInstaller hidden import — but `pyobjc-framework-AVFoundation` was never in `requirements.txt` or `build_mac.sh`, so CI-built apps couldn't bundle it and logged `[mic-tcc] AVFoundation check failed: No module named 'AVFoundation'` on every launch, silently skipping the check (a denied mic would go undetected). Added the dependency to both. (It worked in older local builds only because the dev machine happened to have the package — a CI-build regression.)
+- **AirPods / Bluetooth mic switch no longer loses the first few dictations.** After a mic hot-swap the stream is rebuilt, but the cold-start wait only blocked until the pre-roll was *non-empty* (0.5s) — which a still-negotiating Bluetooth input satisfies instantly with zero-filled (silent) buffers. So the first 2-3 presses after popping in AirPods recorded pure silence, got flagged as a dead stream, and were lost (the 10:20 AirPods burst in `app.log`). `audio.py` now waits for *live* audio (non-zero RMS) up to 2s on a cold start; a normal warm built-in mic still returns in ~100 ms, so there's no latency cost on the common path.
+
+### Notes
+- Verified the styling fallback chain is healthy: when Groq's free-tier daily token cap is hit, styling correctly falls back to Cerebras (`Groq FAILED … → styling (cerebras)` in the logs), then OpenAI, then `basic_clean`. No change needed.
+
 ## [3.14.62] - 2026-05-23
 
 ### Fixed

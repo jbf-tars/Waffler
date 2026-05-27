@@ -3341,6 +3341,14 @@ _mac_menubar_status_item = None
 _mac_menubar_target = None
 _mac_menubar_menu = None
 
+# Dock-reopen support. When the window is closed it hides to the menu bar
+# (v3.14.52) and the app keeps running. _window_hidden tracks that state so
+# the activation observer below knows to bring the window back when the user
+# clicks the Dock icon. _mac_reopen_observer holds the observer (strong ref
+# so PyObjC doesn't GC it, same pattern as the menu-bar refs above).
+_window_hidden = False
+_mac_reopen_observer = None
+
 
 def _create_tray_icon():
     """Create a status-area icon so the app can run in background.
@@ -3546,7 +3554,11 @@ def _create_windows_tray_icon():
 
 
 def _tray_show_window(icon=None, item=None):
-    """Show the main window from tray."""
+    """Show the main window — from the menu bar, tray, Dock reopen, or the
+    duplicate-launch focus signal. Clears the hidden flag so the activation
+    observer treats the window as visible again."""
+    global _window_hidden
+    _window_hidden = False
     if _window_ref:
         try:
             _window_ref.show()
@@ -3621,6 +3633,7 @@ def _on_window_closing():
     """Intercept window close: hide window, keep running in background.
     Both Mac and Windows have a status icon (menu bar / tray) to restore or quit.
     """
+    global _window_hidden
     if _should_quit:
         return True  # Allow close
     # Hide window, keep running in background
@@ -3629,7 +3642,49 @@ def _on_window_closing():
             _window_ref.hide()
         except Exception:
             pass
+    _window_hidden = True
     return False  # Prevent close
+
+
+def _install_mac_reopen_handler():
+    """Bring the window back when the user clicks the Dock icon after the
+    window was closed to the menu bar.
+
+    Since v3.14.52 the red close-button hides the window instead of quitting;
+    the app keeps running with a Dock icon + menu-bar item. But pywebview owns
+    the NSApplication delegate and does NOT re-show an orderOut'd window on
+    reopen, so clicking the Dock icon did nothing — the ONLY way back was the
+    menu-bar 'Show Waffler'. We can't cleanly replace pywebview's delegate, so
+    instead we observe NSApplicationDidBecomeActive (posted on a Dock-icon
+    click / Cmd-Tab back) and, if the window is currently hidden, bring it
+    forward — restoring the standard macOS "click the Dock icon to get the
+    window" behaviour. The _window_hidden guard makes a normal activation
+    (window already visible) a no-op, so we never fight the user mid-use.
+    """
+    global _mac_reopen_observer
+    try:
+        from Foundation import NSObject, NSNotificationCenter
+        import objc  # noqa: F401 — ensures the PyObjC bridge is initialised
+
+        class _WafflerReopenObserver(NSObject):
+            def appBecameActive_(self, _notification):  # noqa: N802 — Cocoa selector
+                if _window_hidden:
+                    _log_to_file("[reopen] Dock activation with hidden window — showing")
+                    _tray_show_window()
+
+        obs = _WafflerReopenObserver.alloc().init()
+        NSNotificationCenter.defaultCenter().addObserver_selector_name_object_(
+            obs,
+            b"appBecameActive:",
+            "NSApplicationDidBecomeActiveNotification",
+            None,
+        )
+        _mac_reopen_observer = obs  # strong ref — PyObjC would GC it otherwise
+        _log_to_file("Mac Dock-reopen handler installed")
+        return True
+    except Exception as e:
+        _log_to_file(f"Mac reopen handler error: {e}")
+        return False
 
 
 # ── Main ──────────────────────────────────────────────────────────────
@@ -3885,6 +3940,9 @@ def main():
             # otherwise the user has no way to reopen the window and the
             # app becomes invisible/unrecoverable.
             window.events.closing += _on_window_closing
+            # Let a Dock-icon click reopen the window too, not just the
+            # menu-bar 'Show Waffler' item.
+            _install_mac_reopen_handler()
     elif _platform.system() == "Windows":
         window.events.closing += _on_window_closing
         threading.Thread(target=_create_tray_icon, daemon=True).start()
