@@ -54,19 +54,70 @@ from AppKit import (
     NSCenterTextAlignment,
     NSParagraphStyleAttributeName,
 )
-from Foundation import NSObject, NSTimer, NSRunLoop, NSDefaultRunLoopMode, NSMakePoint, NSMakeRect
+from Foundation import (
+    NSObject, NSTimer, NSRunLoop, NSDefaultRunLoopMode, NSRunLoopCommonModes,
+    NSMakePoint, NSMakeRect,
+)
 
 
 # Bundle of collection-behavior flags that make a window appear on every
-# Space (including other apps' full-screen Spaces). Re-set frequently
-# because macOS occasionally clears these during Space transitions —
-# especially when swiping through 3+ Spaces in quick succession.
+# Space (including other apps' full-screen Spaces).
+#
+# v3.14.68 — dropped NSWindowCollectionBehaviorStationary. Stationary means
+# "stays put when the user switches Spaces" — semantically aimed at desktop-
+# pinned widgets (Dashboard-style), not cross-Space follow-the-user pills.
+# Setting it alongside CanJoinAllSpaces can confuse the WindowServer's
+# per-Space book-keeping and gains nothing — CanJoinAllSpaces already gives
+# us the "show on every Space" behaviour. Multiple shipping overlay apps
+# (Hammerspoon canvas, Maccy, Raycast-likes) use CanJoinAllSpaces +
+# FullScreenAuxiliary WITHOUT Stationary.
 _OVERLAY_COLLECTION_BEHAVIOR = (
     NSWindowCollectionBehaviorCanJoinAllSpaces
-    | NSWindowCollectionBehaviorStationary
     | NSWindowCollectionBehaviorFullScreenAuxiliary
     | NSWindowCollectionBehaviorIgnoresCycle
 )
+
+# ── v3.14.68 diagnostic instrumentation ─────────────────────────────────────
+# This file emits structured single-line "[overlay-dbg] event=… key=val …"
+# records to stderr so the parent process (src/overlay.py) captures them into
+# ~/.waffler-hosted/app.log. Lets us trace the full show pipeline end-to-end
+# when the overlay fails to appear on a full-screen Space — grep app.log for
+# `[overlay-dbg]` to see the timeline. The `gen` field is a per-show counter
+# threaded from the parent (`show()` in overlay.py increments and sends it in
+# the JSON command) so a specific show's end-to-end trail can be isolated.
+_show_gen = 0  # last gen seen from a "show" command
+
+
+def _dbg(event: str, **fields) -> None:
+    """Emit a one-line structured debug record to stderr."""
+    try:
+        import time as _t
+        parts = [f"event={event}", f"t={_t.time():.3f}"]
+        for k, v in fields.items():
+            parts.append(f"{k}={v}")
+        print(f"[overlay-dbg] {' '.join(parts)}", file=sys.stderr, flush=True)
+    except Exception:
+        pass
+
+
+def _window_state_fields():
+    """Snapshot the WindowServer's view of the overlay window.
+
+    Used by _dbg(...) calls so we can correlate what we *think* we did
+    (orderFrontRegardless etc.) with what macOS actually believes.
+    """
+    if _g_window is None:
+        return {"window": "None"}
+    try:
+        return {
+            "visible": _g_window.isVisible(),
+            "onActiveSpace": _g_window.isOnActiveSpace(),
+            "occlusion": int(_g_window.occlusionState()),
+            "level": int(_g_window.level()),
+            "cb": hex(int(_g_window.collectionBehavior())),
+        }
+    except Exception as e:
+        return {"state_err": str(e)[:60]}
 
 
 def _refresh_overlay_space_membership():
@@ -85,8 +136,8 @@ def _refresh_overlay_space_membership():
     try:
         _g_window.setCollectionBehavior_(_OVERLAY_COLLECTION_BEHAVIOR)
         _g_window.setLevel_(NSStatusWindowLevel)
-    except Exception:
-        pass
+    except Exception as e:
+        _dbg("refresh.error", err=str(e)[:80])
 
 
 def _reassert_overlay_window():
@@ -100,13 +151,45 @@ def _reassert_overlay_window():
     NOT used by the heartbeat — see _refresh_overlay_space_membership.
     """
     if _g_window is None or not _visible:
+        _dbg("reassert.skip", reason="no_window" if _g_window is None else "not_visible",
+             gen=_show_gen)
         return
     try:
         _g_window.setCollectionBehavior_(_OVERLAY_COLLECTION_BEHAVIOR)
         _g_window.setLevel_(NSStatusWindowLevel)
         _g_window.orderFrontRegardless()
-    except Exception:
-        pass
+        _dbg("reassert.done", gen=_show_gen, **_window_state_fields())
+    except Exception as e:
+        _dbg("reassert.error", gen=_show_gen, err=str(e)[:80])
+
+
+def _schedule_show_retry(attempt: int) -> None:
+    """Schedule a deferred verification + retry for a recent show.
+
+    Bug being fixed (v3.14.68): if a show command lands while macOS is mid
+    Space-transition, the orderFrontRegardless can place the window into the
+    OLD Space and `isOnActiveSpace()` returns False afterwards — but the old
+    heartbeat assumed steady-state ("if visible, just refresh flags, never
+    re-orderFront"), so the window stayed orphaned until the *next* Space
+    change. We now defer a check 150ms / 300ms / 600ms after a show and, if
+    the window is not on the active Space, re-assert. Up to 3 attempts; gives
+    up after that (~1s total) to avoid a busy-loop on a stuck WindowServer.
+
+    Runs the timer off-thread (threading.Timer) but the actual re-assert is
+    enqueued via _cmd_queue so it executes on the main thread via animTick.
+    """
+    if attempt > 3:
+        _dbg("retry.give_up", gen=_show_gen)
+        return
+    delay_s = 0.15 * (2 ** (attempt - 1))  # 0.15, 0.30, 0.60
+    def _enqueue():
+        try:
+            _cmd_queue.put({"type": "_retry_show", "attempt": attempt, "gen": _show_gen})
+        except Exception:
+            pass
+    t = threading.Timer(delay_s, _enqueue)
+    t.daemon = True
+    t.start()
 
 
 def _compute_overlay_position(verbose: bool = False):
@@ -204,7 +287,23 @@ class SpaceChangeObserver(NSObject):
     """
 
     def spaceDidChange_(self, notification):  # noqa: N802 — Cocoa selector form
-        _reassert_overlay_window()
+        # v3.14.68 — route through _cmd_queue so the re-assert runs on the
+        # MAIN thread via animTick. NSWorkspace observers registered with
+        # addObserver_selector_name_object_:(no operation queue) execute on
+        # whichever thread the WindowServer client happens to be running —
+        # historically often the main thread, but not guaranteed during the
+        # Space animation. PyObjC + AppKit calls (setCollectionBehavior_,
+        # orderFrontRegardless) from a non-main thread can silently no-op.
+        # Pushing onto the queue is thread-safe; the dispatcher in animTick
+        # is on main; latency is ≤50ms which is fine for a Space-change
+        # response.
+        _dbg("space.changed",
+             thread=threading.current_thread().name,
+             is_main=(threading.current_thread() is threading.main_thread()))
+        try:
+            _cmd_queue.put({"type": "_space_changed"})
+        except Exception:
+            pass
 
 NSWindowStyleMaskBorderless = 0
 
@@ -993,16 +1092,21 @@ def _dispatch_cmd(cmd):
     ctype = cmd.get("type")
 
     if ctype == "show":
+        global _show_gen
+        _show_gen = int(cmd.get("gen", _show_gen + 1))
         _visible = True
+        _dbg("show.enter",
+             gen=_show_gen,
+             thread=threading.current_thread().name,
+             is_main=(threading.current_thread() is threading.main_thread()),
+             queue_depth=_cmd_queue.qsize())
         _hide_toast()
         _clear_progress()        # fresh recording — drop any leftover progress text
         if _g_window:
             # v3.14.53 — Recompute position on every show so the overlay
             # follows the cursor's screen on multi-monitor rigs and adapts
             # to dock moves, display plug-in, or display rearrangement
-            # that happened since launch. This fixed the "waffle appears
-            # underneath the screen to the right" report from a friend
-            # whose external display sat at a non-(0,0) frame origin.
+            # that happened since launch.
             global _waffle_x, _waffle_y
             new_x, new_y = _compute_overlay_position(verbose=True)
             if (new_x, new_y) != (_waffle_x, _waffle_y):
@@ -1011,25 +1115,55 @@ def _dispatch_cmd(cmd):
                 try:
                     _g_window.setFrameOrigin_(NSMakePoint(_waffle_x, _waffle_y))
                 except Exception as e:
-                    print(f"[overlay_mac] setFrameOrigin_ failed: {e}",
-                          file=sys.stderr, flush=True)
+                    _dbg("show.setFrameOrigin.error", gen=_show_gen, err=str(e)[:80])
 
-            # Re-assert collection behaviour + level + orderFront on every
-            # show. macOS sometimes "forgets" that a window is supposed to
-            # appear in fullscreen Spaces if it was created in a different
-            # Space; re-setting the behaviour forces re-evaluation.
-            # _reassert_overlay_window() is the shared helper so the show
-            # handler, the heartbeat tick, and the NSWorkspace observer
-            # all do the EXACT same thing — no per-call-site drift.
-            #
-            # Note we deliberately use orderFrontRegardless (not
-            # makeKeyAndOrderFront): stealing focus from a full-screen app
-            # can prevent the auxiliary from appearing on that Space at
-            # all (macOS treats focus theft as a hint that the auxiliary
-            # doesn't belong here).
+            # Re-assert collection behaviour + level + orderFront. We use
+            # orderFrontRegardless (not makeKeyAndOrderFront): stealing focus
+            # from a full-screen app can prevent the auxiliary from appearing
+            # on that Space at all.
             _reassert_overlay_window()
             if _g_view:
                 _g_view.setNeedsDisplay_(True)
+
+            # v3.14.68 — verify-and-retry. If the show landed while macOS was
+            # mid Space-transition, the window may not actually be on the
+            # active Space yet. Schedule a deferred check that re-asserts if
+            # so. Without this, the old heartbeat assumed steady-state and
+            # never re-orderFront'd, so a missed show stayed missed.
+            _schedule_show_retry(1)
+            _dbg("show.posted", gen=_show_gen, **_window_state_fields())
+
+    elif ctype == "_space_changed":
+        # Routed from SpaceChangeObserver. Runs on main thread (via animTick).
+        if _visible:
+            _dbg("space.handle.start", gen=_show_gen, **_window_state_fields())
+            _reassert_overlay_window()
+            _schedule_show_retry(1)
+            _dbg("space.handle.done", gen=_show_gen, **_window_state_fields())
+        else:
+            _dbg("space.handle.skip", reason="not_visible")
+
+    elif ctype == "_retry_show":
+        # Deferred check after a show or space-change. If the window isn't on
+        # the active Space, re-assert + schedule the next backoff retry.
+        attempt = int(cmd.get("attempt", 1))
+        retry_gen = int(cmd.get("gen", _show_gen))
+        if not _visible:
+            _dbg("retry.skip", reason="not_visible", attempt=attempt, gen=retry_gen)
+        elif retry_gen != _show_gen:
+            # A newer show superseded this retry. Drop it.
+            _dbg("retry.skip", reason="stale_gen",
+                 attempt=attempt, retry_gen=retry_gen, current_gen=_show_gen)
+        elif _g_window is None:
+            _dbg("retry.skip", reason="no_window", attempt=attempt, gen=retry_gen)
+        else:
+            on_space = bool(_g_window.isOnActiveSpace())
+            if on_space:
+                _dbg("retry.ok", attempt=attempt, gen=retry_gen, **_window_state_fields())
+            else:
+                _dbg("retry.miss", attempt=attempt, gen=retry_gen, **_window_state_fields())
+                _reassert_overlay_window()
+                _schedule_show_retry(attempt + 1)
 
     elif ctype == "hide":
         _visible = False
@@ -1189,19 +1323,37 @@ def _hide_toast():
 # ── Stdin reader (background thread) ─────────────────────────────────
 
 def _stdin_reader():
-    """Read JSON commands from stdin and push them onto the queue."""
+    """Read JSON commands from stdin and push them onto the queue.
+
+    v3.14.68 — uses sys.stdin.buffer.readline() (raw BufferedReader) instead
+    of iterating sys.stdin. The TextIOWrapper iteration protocol does internal
+    read-ahead that could hold a short {"type":"show"}\\n line in a CPython
+    buffer for hundreds of milliseconds while waiting for a full block — most
+    visibly during macOS Space transitions, where the subprocess's runloop is
+    also throttled. Going through the raw buffered reader makes each command
+    available the instant its terminating newline arrives in the pipe.
+    """
     try:
-        for line in sys.stdin:
-            line = line.strip()
+        while True:
+            raw = sys.stdin.buffer.readline()
+            if not raw:
+                break  # EOF (parent closed stdin)
+            try:
+                line = raw.decode("utf-8", errors="replace").strip()
+            except Exception:
+                continue
             if not line:
                 continue
             try:
                 cmd = json.loads(line)
                 _cmd_queue.put(cmd)
+                _dbg("stdin.cmd", type=cmd.get("type"),
+                     depth=_cmd_queue.qsize(),
+                     gen=cmd.get("gen", ""))
             except json.JSONDecodeError:
                 pass
-    except Exception:
-        pass
+    except Exception as e:
+        _dbg("stdin.error", err=str(e)[:80])
     # stdin closed — signal quit
     _cmd_queue.put({"type": "quit"})
 
@@ -1242,22 +1394,34 @@ def main():
     # FullScreenAuxiliary lets the window be drawn on a full-screen Space —
     # without it macOS keeps the window in the original Space and you only
     # see the overlay if you Mission-Control back out of full-screen.
-    _g_window.setCollectionBehavior_(
-        NSWindowCollectionBehaviorCanJoinAllSpaces
-        | NSWindowCollectionBehaviorStationary
-        | NSWindowCollectionBehaviorFullScreenAuxiliary
-        | NSWindowCollectionBehaviorIgnoresCycle
-    )
+    # v3.14.68 — use the single _OVERLAY_COLLECTION_BEHAVIOR constant so the
+    # creation site, _refresh_overlay_space_membership, and _reassert
+    # can't drift out of sync (the previous code repeated the bitmask three
+    # times). Stationary was dropped here too — see the constant's docstring.
+    _g_window.setCollectionBehavior_(_OVERLAY_COLLECTION_BEHAVIOR)
 
     # Create custom view
     _g_view = WaffleView.alloc().initWithFrame_(NSMakeRect(0, 0, WIN_W, WIN_H))
     _g_window.setContentView_(_g_view)
 
-    # Animation + command-drain timer (50 ms = 20 fps)
+    # Animation + command-drain timer (50 ms = 20 fps).
+    #
+    # v3.14.68 — runs in NSRunLoopCommonModes, not NSDefaultRunLoopMode.
+    # Critical reason: during a trackpad Space swipe, the WindowServer puts
+    # non-foreground accessory apps' runloops into a *tracking* mode
+    # (similar to NSEventTrackingRunLoopMode). NSTimers scheduled in
+    # NSDefaultRunLoopMode do NOT fire while the loop is in tracking mode,
+    # which meant the previous code stopped processing the command queue
+    # (and the heartbeat) for the entire duration of the swipe. A show
+    # command queued mid-swipe sat undelivered until the swipe ended — by
+    # which point the user had already swiped past, and the show would
+    # land on the wrong Space. CommonModes makes the timer fire across
+    # all the standard runloop modes, so the queue keeps draining.
     timer = NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
         0.05, _g_view, b"animTick:", None, True
     )
-    NSRunLoop.mainRunLoop().addTimer_forMode_(timer, NSDefaultRunLoopMode)
+    NSRunLoop.mainRunLoop().addTimer_forMode_(timer, NSRunLoopCommonModes)
+    _dbg("main.timer_scheduled", mode="NSRunLoopCommonModes", interval=0.05)
 
     # v3.14.51 — Space-change observer.
     # Subscribes to NSWorkspaceActiveSpaceDidChangeNotification so that

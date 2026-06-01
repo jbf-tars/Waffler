@@ -58,6 +58,11 @@ class RecordingOverlay:
         self._process   = None
         self._reader_thread = None
         self._visible   = False
+        # v3.14.68 — per-show generation counter. Threaded through to the
+        # subprocess in each {"type":"show","gen":N} command so the
+        # parent-side and child-side log lines for a specific show can be
+        # correlated end-to-end in app.log (grep `[overlay-dbg] … gen=N`).
+        self._show_gen = 0
 
         # Thread safety and restart tracking
         self._send_lock = threading.Lock()  # Protect stdin writes
@@ -81,12 +86,17 @@ class RecordingOverlay:
 
     def show(self):
         """Show the recording overlay."""
-        self._log("[overlay] show() called")
+        import time as _t
+        self._show_gen += 1
+        t0 = _t.time()
+        self._log(f"[overlay-dbg] event=parent.show.enter t={t0:.3f} gen={self._show_gen}")
 
         if self._is_alive():
             self._log("[overlay] Subprocess already alive, sending show command")
-            self._send({"type": "show"})
+            self._send({"type": "show", "gen": self._show_gen})
             self._visible = True
+            self._log(f"[overlay-dbg] event=parent.show.sent t={_t.time():.3f} "
+                      f"gen={self._show_gen} elapsed_ms={(_t.time()-t0)*1000:.1f}")
             return
 
         # Subprocess not running, start it
@@ -354,8 +364,19 @@ class RecordingOverlay:
 
         with self._send_lock:  # Ensure atomic write
             try:
+                import time as _t
+                t_before = _t.time()
                 self._process.stdin.write(json.dumps(data) + "\n")
                 self._process.stdin.flush()
+                # v3.14.68 — log the write timing on show/_space_changed so a
+                # delay between parent-flush and child-dispatch can be seen.
+                _ctype = data.get("type", "")
+                if _ctype in ("show", "_space_changed"):
+                    self._log(
+                        f"[overlay-dbg] event=parent.send t={_t.time():.3f} "
+                        f"type={_ctype} gen={data.get('gen','')} "
+                        f"flush_ms={(_t.time()-t_before)*1000:.2f}"
+                    )
                 return True
             except (BrokenPipeError, OSError) as e:
                 self._log(f"[overlay] ⚠️  Broken pipe during send: {e} — restarting subprocess")
