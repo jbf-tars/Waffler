@@ -109,4 +109,4 @@ The loop self-deletes its cron + pushes a `PushNotification` when ALL of these a
 | 1 | 2026-05-21 ~10:00 | Plan + `test_menubar_icon` rumps gate | shipped | `74bf29b` |
 | 2 | 2026-05-21 ~10:13 | `test_e2e_real` UTF-8 encoding fix + em-dash sweep | shipped | `8020691` |
 | 3 | 2026-05-21 ~10:43 | `test_model_bakeoff` UTF-8 encoding fix + em-dash sweep; full suite now passes with 0 exclusions | shipped | `b78113b` |
-| 4 | 2026-05-21 ~11:13 | META re-survey of OVERNIGHT_AUDIT.md vs current main — 3 audit fixes confirmed shipped, 1 MEDIUM still open, 1 LOW newly identified | docs only | `pending` |
+| 4 | 2026-05-21 ~11:13 | META re-survey of OVERNIGHT_AUDIT.md vs current main — 3 audit fixes confirmed shipped, 1 MEDIUM still open, 1 LOW newly identified | docs only | `978dd7c` |
