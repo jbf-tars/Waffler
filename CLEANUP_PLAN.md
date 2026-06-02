@@ -130,4 +130,4 @@ The loop self-deletes its cron + pushes a `PushNotification` when ALL of these a
 | 12 | 2026-05-21 ~15:13 | CONTRIBUTING.md verified — all concrete claims accurate (scripts, tests, CI files, paths); corpus filter counts deferred for a focused read | docs only | `0ee086f` |
 | 13 | 2026-05-21 ~15:43 | CODE_OF_CONDUCT.md verified — clean CC v2.1; flagged public-Issues-for-reports as a user-action UX call | docs only | `7b17b5e` |
 | 14 | 2026-05-21 ~16:13 | CHANGELOG.md structural check — fixed 5 stale release dates vs authoritative git tag timestamps | docs only | `72dddea` |
-| 15 | 2026-05-21 ~16:43 | macOS updater deeper read — VERIFIED SAFE (textbook stage-then-swap-with-rollback, all invariants hold) | docs only | `pending` |
+| 15 | 2026-05-21 ~16:43 | macOS updater deeper read — VERIFIED SAFE (textbook stage-then-swap-with-rollback, all invariants hold) | docs only | `6c9d3b6` |
