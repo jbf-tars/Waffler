@@ -49,6 +49,7 @@ These bump the version. **Only ship after the re-survey confirms they're still o
 - [x] **[LOW] `PermissionsManager.check_microphone_permission` annotated as superseded.** Iter 5: grep confirmed the full IPC chain (`get_permission_status` → `get_permission_status_summary` → `check_all_permissions` → this method) has **zero JS callers**, so the broken false-GRANTED behaviour isn't reaching users — it's only kept alive by `tests/test_enhanced_permissions.py`. Added a docstring note flagging the supersession and warning future contributors not to add new callers without switching to AVCaptureDevice. Deleting the whole dead IPC chain is a bigger multi-file surgery deferred to a later iteration. Commit `6f0f7e8`.
 - [ ] **[MEDIUM — needs deeper read] macOS updater swap ordering** — `src/updater.py` has `shutil.rmtree` at lines 554 + 601 and `shutil.copytree` at 581. Audit raised concern about the "remove-before-stage" window. Read the surrounding 100 lines and confirm there's a backup + rollback path (line 616 has a `shutil.rmtree(backup, ...)` which suggests there IS one — likely already safe, but worth confirming).
 - [ ] **[LOW — deferred from iter 5] Delete the dead `get_permission_status` IPC chain entirely.** Grep confirmed zero JS callers for `pywebview.api.get_permission_status`, but the Python chain (`get_permission_status` → `get_permission_status_summary` → `check_all_permissions` → `check_microphone_permission`) is still alive. Deletion needs updating `tests/test_enhanced_permissions.py` too — multi-file commit, kept separate from the docstring annotation in iter 5.
+- [ ] **[LOW — spotted iter 9] `src/style_openai.py` module-level docstring still names retired Cerebras model.** Lines 4 + 8 reference `Cerebras Qwen-3 235B`; the code at line 92 actually uses `gpt-oss-120b` (per the v3.14.67 swap). Same drift the README had — single-file find/replace.
 
 ### Dead code / referenced-nowhere
 
@@ -63,7 +64,7 @@ Each target must be verified zero references via `grep -rn "name"` against
 The six files exist (`LICENSE`, `README.md`, `CONTRIBUTING.md`, `SECURITY.md`,
 `CODE_OF_CONDUCT.md`, `CHANGELOG.md`) — they need a polish pass for the public.
 
-- [ ] **[META] README.md polish pass** — read fully, check it answers the three questions a first-time visitor needs: what does Waffler do, how do I install it, how do I contribute. Note polish items, then ship.
+- [x] **[META] README.md polish pass.** Iter 9: read all 196 lines. Structure is strong — answers what/install/contribute clearly, friendly "About this project" + "Known Issues" sections, all internal references (LICENSE badge + Section, CONTRIBUTING link, SECURITY link) check out. Found ONE concrete drift: line 39 (Features) + line 142 (Tech Stack) both named the retired Cerebras `Qwen-3 235B` instead of the current `gpt-oss-120b` (per v3.14.67 swap). Fixed both. Commit `fb24b80`. **Spotted but deferred to its own iter:** the same stale model name lives in `src/style_openai.py`'s module-level docstring (lines 4 + 8) — added below as the next concrete target.
 - [ ] **[META] CONTRIBUTING.md polish pass** — covers the contributor lifecycle (dev setup, test command, PR conventions, what's in scope).
 - [ ] **[META] SECURITY.md polish pass** — covers reporting channel and what's in/out of scope.
 - [ ] **[META] CODE_OF_CONDUCT.md polish pass** — matches the project's tone, no template-residue.
@@ -115,3 +116,4 @@ The loop self-deletes its cron + pushes a `PushNotification` when ALL of these a
 | 6 | 2026-05-21 ~12:13 | Delete dead `wizard_start_fn_detection` (25 lines) | refactor | `5d252a6` |
 | 7 | 2026-05-21 ~12:43 | Verify `FnKeyMonitor` is intentional shim (kept, no change) | docs only | `d76d6a4` |
 | 8 | 2026-05-21 ~13:13 | LICENSE check — verified clean, no change | docs only | `4927e2a` |
+| 9 | 2026-05-21 ~13:43 | README polish — fix stale Cerebras model name (Qwen-3 235B → gpt-oss-120b) | docs only | `fb24b80` |
