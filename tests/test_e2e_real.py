@@ -28,10 +28,10 @@ styler = OpenAIStyler(
     prompt_style="normal",
 )
 
-HISTORY = json.loads(Path.home().joinpath(".waffler-hosted/history.json").read_text())
+HISTORY = json.loads(Path.home().joinpath(".waffler-hosted/history.json").read_text(encoding="utf-8"))
 by_ts = {e["timestamp"]: e for e in HISTORY}
 
-# Hand-picked cases — the worst/longest/most-complex failures from history
+# Hand-picked cases -- the worst/longest/most-complex failures from history
 CASE_TIMESTAMPS = [
     "2026-04-14T16:21:08",  # dropped "like" as filler when meaningful
     "2026-04-15T16:37:56",  # long, paraphrased "I have to be honest"
@@ -39,10 +39,10 @@ CASE_TIMESTAMPS = [
     "2026-04-15T20:23:28",  # huge chargebacks monologue, got bulleted
     "2026-04-15T20:28:50",  # "Wait it seems there was a pause" hallucination
     "2026-04-15T21:17:56",  # "Dear Team / Best regards / [Your Name]"
-    "2026-04-16T22:12:07",  # worst — preamble + email wrap + bullets + bad sign-off
-    "2026-04-17T14:47:46",  # frozen row — "Hi," + "Best,[No Name]"
-    "2026-04-17T14:45:38",  # gym app — "Hi," + "Best,[No signature]"
-    "2026-04-17T15:15:28",  # call with Ashcan — "Hi," + bullets + "Best,[No signature]"
+    "2026-04-16T22:12:07",  # worst -- preamble + email wrap + bullets + bad sign-off
+    "2026-04-17T14:47:46",  # frozen row -- "Hi," + "Best,[No Name]"
+    "2026-04-17T14:45:38",  # gym app -- "Hi," + "Best,[No signature]"
+    "2026-04-17T15:15:28",  # call with Ashcan -- "Hi," + bullets + "Best,[No signature]"
 ]
 
 
