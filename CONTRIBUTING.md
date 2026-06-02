@@ -93,8 +93,7 @@ python tests/test_fn_handler_chatter.py          # v3.14.33 macOS Fn hold-quiet 
 python scripts/auto_test_corpus.py                                   # full 101-case corpus
 python scripts/auto_test_corpus.py --filter FT                       # the 5 v3.14.38 anti-abridgement cases (FT1–FT5) + 2 incidental "ft"-substring matches
 python scripts/auto_test_corpus.py --filter SOLO-NUM                 # the 5 solo-number-not-list cases
-python scripts/auto_test_corpus.py --category hallucination-bait     # the 5 hallucination-bait cases (H-prefix)
-python scripts/auto_test_corpus.py --category email                  # the 33 email-mode cases
+python scripts/auto_test_corpus.py --filter SOLO-NUM-3               # one specific case (any full ID — FT1, SOLO-NUM-3, EM12, H1 — isolates that case)
 ```
 
 If you edit `prompts/normal.txt`, run the full corpus and check that every previously-passing case still passes before opening a PR — the corpus exists because every "NEVER" rule in the prompt has shipped a bug in production at some point.
