@@ -212,10 +212,27 @@ def start_focus_watcher(window_ref, log_fn=None) -> None:
     """
     log = log_fn or print
 
+    # v3.14.70 — proactively clear any leftover signal file from a
+    # previous run that crashed or was killed before the watcher
+    # consumed it. Without this, a stale focus.signal would have an
+    # mtime > 0 and trigger window.show()/restore() during pywebview's
+    # bootstrap — visible as a spurious focus glitch / black-screen
+    # race on first launch after a crash.
+    try:
+        if _FOCUS_SIGNAL_PATH.exists():
+            _FOCUS_SIGNAL_PATH.unlink()
+    except Exception:
+        pass
+
     # Track the last mtime we processed so the same signal file isn't
     # re-fired forever if the unlink races us. (On Windows particularly,
     # unlink can fail briefly if another process has the handle open.)
-    last_processed_mtime = [0.0]
+    # v3.14.70 — initialise to watcher-start time, NOT 0.0, so any
+    # signal file written *before* this watcher started (e.g. a stale
+    # one the proactive unlink above couldn't catch on a slow FS) is
+    # ignored. Only signals freshly written by a duplicate launch
+    # *after* we start polling will trigger focus.
+    last_processed_mtime = [time.time()]
 
     def _watch():
         while True:

@@ -4,6 +4,11 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.70] - 2026-06-03
+
+### Fixed
+- **Stale `focus.signal` no longer triggers a spurious `window.show()` during pywebview bootstrap.** When the focus watcher in `src/single_instance.py:start_focus_watcher` started up, it initialised `last_processed_mtime = [0.0]`, so any leftover `~/.waffler-hosted/focus.signal` from a previous run (one that crashed or was killed before the watcher could consume the file) had an mtime > 0 and would immediately fire `window.show()` + `window.restore()` against a pywebview window that was still mid-bootstrap — surfacing as a spurious focus glitch or black-screen race on the first launch after a crash. Two-line fix: proactively `unlink()` any pre-existing signal file at watcher-start (catches the common case), plus initialise `last_processed_mtime` to `time.time()` so any signal whose mtime predates the watcher is ignored (catches the slow-FS / clock-skew edge case where the proactive unlink couldn't keep up). Only signals freshly written by an actual duplicate launch *after* we start polling will now trigger focus. Closes the last MEDIUM-severity behaviour item from the original OVERNIGHT_AUDIT.md.
+
 ## [3.14.69] - 2026-06-02
 
 ### Fixed
