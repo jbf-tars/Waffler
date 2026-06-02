@@ -114,4 +114,4 @@ The loop self-deletes its cron + pushes a `PushNotification` when ALL of these a
 | 5 | 2026-05-21 ~11:43 | `check_microphone_permission` docstring note (superseded by AVFoundation startup check) — deletion deferred to later iter | docs only | `6f0f7e8` |
 | 6 | 2026-05-21 ~12:13 | Delete dead `wizard_start_fn_detection` (25 lines) | refactor | `5d252a6` |
 | 7 | 2026-05-21 ~12:43 | Verify `FnKeyMonitor` is intentional shim (kept, no change) | docs only | `d76d6a4` |
-| 8 | 2026-05-21 ~13:13 | LICENSE check — verified clean, no change | docs only | `pending` |
+| 8 | 2026-05-21 ~13:13 | LICENSE check — verified clean, no change | docs only | `4927e2a` |
