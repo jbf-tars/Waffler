@@ -85,4 +85,4 @@ The loop self-deletes its cron + pushes a `PushNotification` when ALL of these a
 
 | Iter | Time | Target | Outcome | Commit |
 |------|------|--------|---------|--------|
-| 1 | 2026-05-21 ~10:00 | Plan + `test_menubar_icon` rumps gate | shipped (this commit) | TBD |
+| 1 | 2026-05-21 ~10:00 | Plan + `test_menubar_icon` rumps gate | shipped | `74bf29b` |
