@@ -20,7 +20,7 @@ load_dotenv(str(env), override=True)
 
 from style_openai import OpenAIStyler
 
-HISTORY = json.loads(Path.home().joinpath(".waffler-hosted/history.json").read_text())
+HISTORY = json.loads(Path.home().joinpath(".waffler-hosted/history.json").read_text(encoding="utf-8"))
 by_ts = {e["timestamp"]: e for e in HISTORY}
 
 MODELS = [
@@ -31,7 +31,7 @@ MODELS = [
     "qwen/qwen3-32b",
 ]
 
-# 6 representative cases — mix of short/long and known-failure patterns
+# 6 representative cases -- mix of short/long and known-failure patterns
 CASES = [
     "2026-04-14T16:21:08",  # "like" preservation test
     "2026-04-15T17:12:09",  # long, needs grammar smoothing
@@ -75,7 +75,7 @@ def main():
             print(f"    FAILED: {e}")
             all_results[model] = None
 
-    # Summary — avg latency per model
+    # Summary -- avg latency per model
     print("\n" + "=" * 78)
     print("LATENCY SUMMARY (avg ms over 6 cases)")
     print("=" * 78)
