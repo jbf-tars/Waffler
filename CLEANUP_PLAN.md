@@ -68,7 +68,7 @@ The six files exist (`LICENSE`, `README.md`, `CONTRIBUTING.md`, `SECURITY.md`,
 - [ ] **[META] SECURITY.md polish pass** — covers reporting channel and what's in/out of scope.
 - [ ] **[META] CODE_OF_CONDUCT.md polish pass** — matches the project's tone, no template-residue.
 - [ ] **[META] CHANGELOG.md structural check** — version order correct, no duplicate entries, links to release tags work.
-- [ ] **[META] LICENSE check** — the right license is named, no placeholder year/owner left.
+- [x] **[META] LICENSE verified clean.** Iter 8: canonical MIT text (matches the SPDX MIT reference byte-for-byte), year 2026 (current), owner "Waffler contributors" (intentional generic, not a `[YOUR NAME]` placeholder). Cross-checked: `README.md:3` MIT badge links to `LICENSE`, `README.md:188` License section names MIT and links to `LICENSE` — fully consistent. No source change.
 
 ### Cross-repo nudge (user-action items, not for the loop)
 
@@ -114,3 +114,4 @@ The loop self-deletes its cron + pushes a `PushNotification` when ALL of these a
 | 5 | 2026-05-21 ~11:43 | `check_microphone_permission` docstring note (superseded by AVFoundation startup check) — deletion deferred to later iter | docs only | `6f0f7e8` |
 | 6 | 2026-05-21 ~12:13 | Delete dead `wizard_start_fn_detection` (25 lines) | refactor | `5d252a6` |
 | 7 | 2026-05-21 ~12:43 | Verify `FnKeyMonitor` is intentional shim (kept, no change) | docs only | `d76d6a4` |
+| 8 | 2026-05-21 ~13:13 | LICENSE check — verified clean, no change | docs only | `pending` |
