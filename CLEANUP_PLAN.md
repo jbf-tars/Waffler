@@ -56,7 +56,7 @@ Each target must be verified zero references via `grep -rn "name"` against
 `app.py src/ ui/ tests/` before deletion.
 
 - [x] **[LOW] `app.py:wizard_start_fn_detection` deleted (25 lines).** Iter 6: re-verified zero callers across app.py, src/, ui/, tests/, docs/. Was a leftover from an older wizard layout where step 3 was Fn detection; current step 3 is API keys, and step-2 Fn detection goes through the live `wizard_init_step2` path on a separate `_wizard_step2_monitor` global. Commit `5d252a6`.
-- [ ] **[LOW] `src/fn_key_cgevent.FnKeyMonitor`** — audit found it only kept as a one-shot startup permission probe. Re-verify and either delete or document why it's preserved.
+- [x] **[LOW] `src/fn_key_cgevent.FnKeyMonitor` — verified intentional, keep.** Iter 7: grep confirmed exactly one live caller (`app.py:1169` startup Input Monitoring TCC probe in `request_permissions`) plus a test reference. The module is a deliberately-preserved 60-line backward-compat shim already documented in two places — its own head comment AND `mac_hotkey_monitor.py:40`. Both docstrings accurately describe the architecture (real impl is `MacEventTap + FnHandler + SpaceHandler`; this shim exists so the TCC probe and `tests/test_fn_key.py` work without edits; safe because the probe runs sequentially before the real listener). Inlining would only save ~50 lines and complicate `request_permissions`. No source change needed.
 
 ### OS-meta polish
 
@@ -113,3 +113,4 @@ The loop self-deletes its cron + pushes a `PushNotification` when ALL of these a
 | 4 | 2026-05-21 ~11:13 | META re-survey of OVERNIGHT_AUDIT.md vs current main — 3 audit fixes confirmed shipped, 1 MEDIUM still open, 1 LOW newly identified | docs only | `978dd7c` |
 | 5 | 2026-05-21 ~11:43 | `check_microphone_permission` docstring note (superseded by AVFoundation startup check) — deletion deferred to later iter | docs only | `6f0f7e8` |
 | 6 | 2026-05-21 ~12:13 | Delete dead `wizard_start_fn_detection` (25 lines) | refactor | `5d252a6` |
+| 7 | 2026-05-21 ~12:43 | Verify `FnKeyMonitor` is intentional shim (kept, no change) | docs only | `pending` |
