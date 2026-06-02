@@ -1,7 +1,7 @@
 """LLM styling module — three-tier fallback chain:
 
   1. Groq Llama 3.3 70B       (very fast ~270 tok/s, ~100k tokens/day free)
-  2. Cerebras Qwen-3 235B    (paid, ~500 ms even on long inputs, ~2200+ tok/s)
+  2. Cerebras gpt-oss-120b   (paid, ~500 ms even on long inputs, ~2200+ tok/s)
   3. OpenAI gpt-4.1-mini      (slower but always available, last-resort)
 
 Order rationale: Groq is tried FIRST — not because it's fastest, but because
@@ -28,7 +28,7 @@ except ImportError:
 
 
 class OpenAIStyler:
-    """Styles transcripts — Groq Llama 3.3 70B → Cerebras Qwen-3 235B → OpenAI fallback."""
+    """Styles transcripts — Groq Llama 3.3 70B → Cerebras gpt-oss-120b → OpenAI fallback."""
 
     def __init__(self, api_key: str = "", model: str = "gpt-4.1-mini",
                  max_tokens: int = 1024, prompt_style: str = "normal",
@@ -224,7 +224,7 @@ Transcript: {transcript}"""
         # Order rationale: Groq (free 100K TPD) is tried first so the
         # daily free quota gets used up before any paid Cerebras tokens
         # are spent. Once Groq's TPD is exhausted (or it errors), Cerebras
-        # Qwen-3 235B takes over — fast and smart on the paid tier.
+        # gpt-oss-120b takes over — fast and smart on the paid tier.
         # OpenAI gpt-4.1-mini sits as a last-resort fallback for the rare
         # case both fast providers are unavailable.
         #
@@ -261,7 +261,7 @@ Transcript: {transcript}"""
                     f"RATE_LIMIT|cooldown|{wait_s}s|Groq still in cooldown from previous limit",
                 ))
 
-        # Priority 2: Cerebras Qwen-3 235B — paid tier, ~500ms even on
+        # Priority 2: Cerebras gpt-oss-120b — paid tier, ~500ms even on
         # long inputs.
         if self._use_cerebras:
             if time.monotonic() >= self._cerebras_skip_until:
@@ -564,8 +564,9 @@ Transcript: {transcript}"""
     def _pick_openai_model(self, transcript: str) -> str:
         """OpenAI is now a last-resort fallback only — used when both Groq
         and Cerebras are unavailable. We always use gpt-4.1-mini here:
-        Cerebras Qwen-3 235B has been benchmarked at ~equal quality to
-        full gpt-4.1 on long inputs (and 6x faster), so the old
+        the previous Cerebras model (qwen-3-235b-a22b-instruct-2507) was
+        benchmarked at ~equal quality to full gpt-4.1 on long inputs
+        (and 6x faster), so the old
         ≥200-word → gpt-4.1-full routing has been removed. Mini is plenty
         for the rare emergency-fallback case. Power users can still pin
         a model via the OPENAI_STYLE_MODEL env var."""
