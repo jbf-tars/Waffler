@@ -4,7 +4,7 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [3.14.69] - 2026-05-27
+## [3.14.69] - 2026-06-02
 
 ### Fixed
 - **Waffle pill no longer reappears after dismissing the "We couldn't hear you" toast.** User report on a sticky/auto recording (Fn + Space) that produced silence: the popup showed, the user dismissed it, and then the pill briefly came back on its own — with no Fn press. Caught it cleanly in the new `[overlay-dbg]` logs from v3.14.68:
@@ -17,7 +17,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   ```
   Root cause: `_show_no_audio_toast` called `self.overlay.show()` immediately before `show_toast`, which set `_visible=True` in the overlay subprocess. `_show_toast` then `orderOut`'d the pill (to make room for the toast), but when the user dismissed, `_hide_toast` saw `_visible=True` and `orderFront`'d the pill back — even though the recording was already over and the user hadn't touched Fn. Removed the spurious `show()`/`hide()` pair: the toast positions itself from `_waffle_x/_waffle_y` (set by the prior recording — exactly the right screen), and `show_toast` already handles subprocess-alive on its own, so the pre-show was unnecessary as well as buggy.
 
-## [3.14.68] - 2026-05-27
+## [3.14.68] - 2026-06-01
 
 ### Fixed
 - **Overlay pill reliably appears on every Mac Space — properly this time** *(Mac only)*. The v3.14.51 fix mostly worked but stayed unreliable when swiping between full-screen apps. Diagnosed via two parallel investigation agents (code-path archaeology + macOS-API research); both converged on the same root causes, none of which the previous heartbeat actually fixed:
@@ -135,20 +135,20 @@ Fixes from a full code review (7 parallel review agents: security, app.py core, 
 ### Fixed
 - **Overlay pill now centres correctly on multi-monitor rigs and follows the cursor across displays.** User report from a friend's machine: *"The Waffler's appearing like underneath the screen to the right, it's not centralized. We just need a bit of consistency going on here."* Root cause: `src/overlay_process.py::main()` snapshotted `NSScreen.mainScreen()` once at launch and computed `_waffle_x = (sw - WIN_W) / 2.0`, which implicitly assumes the primary screen's frame origin is `(0, 0)`. On the friend's setup — an external display rearranged off-origin and the dock on a non-default edge — that calculation put the waffle at global coordinates that fell off the visible area of his active screen. Fix: extracted the geometry calc into `_compute_overlay_position()`, which (1) picks the screen containing the mouse cursor via `NSEvent.mouseLocation()` so the overlay follows the user across displays, (2) falls back gracefully (cursor's screen → `mainScreen` → `screens()[0]` → `(0, 0)`), (3) centres on `visibleFrame` rather than `frame.size.width` so a dock on the left/right doesn't shove the pill off-centre on the active screen, and (4) uses `vf.origin.y + 16` directly (no longer assumes the screen sits at y=0). The dispatcher recomputes on every `show` command and calls `setFrameOrigin_` if the position changed, so plug-in / unplug / rearrangement all just work without a restart. Every position computation is logged to stderr (`[overlay_mac] _compute_overlay_position: via=cursor screen.frame=(...) visibleFrame=(...) → waffle=(...)`) so the new Download Logs bundle will tell us exactly which screen was picked the next time this is reported.
 
-## [3.14.52] - 2026-05-19
+## [3.14.52] - 2026-05-21
 
 ### Added
 - **macOS menu bar widget — Waffler now keeps running when you close the window.** User report: *"I need a widget on the top of Macs that shows Waffler is still running so it can run in the background even if you click off and click X on the app."* Implemented as a direct `NSStatusItem` attached to pywebview's existing NSApp (`src/`-level globals `_mac_menubar_status_item` / `_mac_menubar_target` / `_mac_menubar_menu` hold strong references so PyObjC doesn't GC them). The menu has *Show Waffler* / *Factory Reset…* / *Quit Waffler*. Clicking the window's red X-button now hides Waffler to the menu bar instead of quitting — the hotkey, recording pipeline, and overlay all keep working. The same `_on_window_closing` interceptor that Windows has used since v3.14.36 is now wired on Mac too, gated on the menu bar successfully installing (so the app can never become invisible-and-unrecoverable on a status-item failure).
 - **Why this didn't ship before:** the previous `_create_mac_menubar_icon()` used `rumps`, which wraps `NSApplication.shared().run()` — colliding with pywebview's own NSApp event loop and producing `NSInternalInconsistencyException` that corrupted the app. The codebase comment had warned about this since v3.x. The fix is to drop down a layer and use `NSStatusBar.systemStatusBar()` + `NSStatusItem` + `NSMenu` from PyObjC directly, which attaches to *whichever NSApp is already running* without trying to own one. The new code path runs on the main thread before `webview.start()` blocks, so the status item is registered with NSRunLoop before pywebview takes it over — menu clicks then dispatch cooperatively via the existing event loop.
 
-## [3.14.51] - 2026-05-19
+## [3.14.51] - 2026-05-21
 
 ### Fixed
 - **Overlay pill now appears reliably on every Mac Space when swiping through multiple full-screen apps.** User report: *"on Mac, when you've got 10 full-screen windows and swipe across with the trackpad, the pill appears on the 2nd one but sometimes doesn't on subsequent ones — sometimes yes, sometimes no, but it needs to consistently work."* Root cause: macOS occasionally clears the `NSWindowCollectionBehaviorCanJoinAllSpaces` flag during Space transitions, especially in a swipe-storm of 3+ full-screen Spaces. The v3.14.15 mitigation re-asserted `orderFrontRegardless` every 250 ms while visible — but only *orderFront*, not the collection behavior itself. When the flag was the thing macOS dropped, re-ordering front did nothing because the window was no longer considered Space-resident. Two-layer fix in `src/overlay_process.py`:
   - **Heartbeat now re-sets collection behavior + window level + orderFront** every 250 ms (was just orderFront). All three paths (show, heartbeat, Space-change observer) now route through a single `_reassert_overlay_window()` helper so they can't drift.
   - **NSWorkspace `activeSpaceDidChangeNotification` observer** registered in `main()` — fires immediately on swipe (no 0–250 ms latency window). The observer is held on a module-level strong reference so PyObjC doesn't garbage-collect it after registration.
 
-## [3.14.50] - 2026-05-22
+## [3.14.50] - 2026-05-21
 
 ### Fixed
 - **Mic hot-swap actually works now.** v3.14.47 shipped an `AudioDeviceMonitor` that polled for default-input changes, but two layers below it kept reading PortAudio's *cached* default-device index: (a) `sd.query_devices(kind="input")` in the monitor itself, (b) `sd.InputStream(...)` with no explicit `device=` inside `AudioRecorder._create_stream`. So plugging in a wireless mic and switching the system default in Settings often produced no visible change — Waffler kept binding to the old built-in mic, and the user had to restart the app. Two-pronged fix: `_create_stream` now calls `sd._terminate(); sd._initialize()` before constructing the InputStream, forcing PortAudio to re-read the OS-level default. And `AudioRecorder.start()` now recycles the long-lived monitor stream whenever the previous press was >30 s ago — the exact moment a user is most likely to have switched mics since the last recording. The 50 ms one-off cost is invisible, but the user no longer has to close + reopen Waffler when they plug in headphones.
