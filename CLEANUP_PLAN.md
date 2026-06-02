@@ -46,8 +46,9 @@ These bump the version. **Only ship after the re-survey confirms they're still o
 
 ### Newly identified (iter-4 re-survey)
 
-- [ ] **[LOW] `PermissionsManager.check_microphone_permission` is likely dead post-AVFoundation wiring.** The startup AVFoundation check covers the actual TCC state. `grep -rn "check_microphone_permission" app.py src/ ui/ tests/` to confirm zero live callers, then delete or annotate as deprecated. Pure cleanup if dead.
+- [x] **[LOW] `PermissionsManager.check_microphone_permission` annotated as superseded.** Iter 5: grep confirmed the full IPC chain (`get_permission_status` → `get_permission_status_summary` → `check_all_permissions` → this method) has **zero JS callers**, so the broken false-GRANTED behaviour isn't reaching users — it's only kept alive by `tests/test_enhanced_permissions.py`. Added a docstring note flagging the supersession and warning future contributors not to add new callers without switching to AVCaptureDevice. Deleting the whole dead IPC chain is a bigger multi-file surgery deferred to a later iteration. Commit `6f0f7e8`.
 - [ ] **[MEDIUM — needs deeper read] macOS updater swap ordering** — `src/updater.py` has `shutil.rmtree` at lines 554 + 601 and `shutil.copytree` at 581. Audit raised concern about the "remove-before-stage" window. Read the surrounding 100 lines and confirm there's a backup + rollback path (line 616 has a `shutil.rmtree(backup, ...)` which suggests there IS one — likely already safe, but worth confirming).
+- [ ] **[LOW — deferred from iter 5] Delete the dead `get_permission_status` IPC chain entirely.** Grep confirmed zero JS callers for `pywebview.api.get_permission_status`, but the Python chain (`get_permission_status` → `get_permission_status_summary` → `check_all_permissions` → `check_microphone_permission`) is still alive. Deletion needs updating `tests/test_enhanced_permissions.py` too — multi-file commit, kept separate from the docstring annotation in iter 5.
 
 ### Dead code / referenced-nowhere
 
@@ -110,3 +111,4 @@ The loop self-deletes its cron + pushes a `PushNotification` when ALL of these a
 | 2 | 2026-05-21 ~10:13 | `test_e2e_real` UTF-8 encoding fix + em-dash sweep | shipped | `8020691` |
 | 3 | 2026-05-21 ~10:43 | `test_model_bakeoff` UTF-8 encoding fix + em-dash sweep; full suite now passes with 0 exclusions | shipped | `b78113b` |
 | 4 | 2026-05-21 ~11:13 | META re-survey of OVERNIGHT_AUDIT.md vs current main — 3 audit fixes confirmed shipped, 1 MEDIUM still open, 1 LOW newly identified | docs only | `978dd7c` |
+| 5 | 2026-05-21 ~11:43 | `check_microphone_permission` docstring note (superseded by AVFoundation startup check) — deletion deferred to later iter | docs only | `6f0f7e8` |
