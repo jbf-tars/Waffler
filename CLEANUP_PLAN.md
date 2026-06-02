@@ -120,4 +120,4 @@ The loop self-deletes its cron + pushes a `PushNotification` when ALL of these a
 | 9 | 2026-05-21 ~13:43 | README polish — fix stale Cerebras model name (Qwen-3 235B → gpt-oss-120b) | docs only | `fb24b80` |
 | 10 | 2026-05-21 ~14:13 | style_openai.py — fix 5 stale Cerebras model refs (incl. honest L567 benchmark rewrite) | docs only | `cd35084` |
 | 11 | 2026-05-21 ~14:43 | SECURITY.md verified clean — data paths match live code | docs only | `c71f4ec` |
-| 12 | 2026-05-21 ~15:13 | CONTRIBUTING.md verified — all concrete claims accurate (scripts, tests, CI files, paths); corpus filter counts deferred for a focused read | docs only | `pending` |
+| 12 | 2026-05-21 ~15:13 | CONTRIBUTING.md verified — all concrete claims accurate (scripts, tests, CI files, paths); corpus filter counts deferred for a focused read | docs only | `0ee086f` |
