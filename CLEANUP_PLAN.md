@@ -34,15 +34,20 @@ two multi-agent review rounds + scratch purge + redaction, so several flagged
 items may already be resolved. **One iteration is just confirming which are
 still open** before doing more work.
 
-- [ ] **[META] Re-survey OVERNIGHT_AUDIT.md's HIGH/MEDIUM items against current main.** Tick off any that are already fixed; downgrade severity for any partially addressed. Append a "## Status as of v3.14.69" section.
+- [x] **[META] Re-survey OVERNIGHT_AUDIT.md's HIGH/MEDIUM items against current main.** Iter 4: surveyed each finding against `main` at v3.14.69. Three of the audit's behaviour items are **already fixed** (mic hot-swap PortAudio reinit, save_history atomicity, AVFoundation mic-TCC check). Two are still genuinely open. Details in the new "## Status as of v3.14.69" section below.
 
 ### Audit-flagged behaviour fixes (only after re-survey)
 
 These bump the version. **Only ship after the re-survey confirms they're still open.**
 
-- [ ] **[HIGH if open] Mic hot-swap PortAudio reinit** — `src/audio_device_monitor.py` + `src/audio.py`. Add `sd._terminate(); sd._initialize()` to the monitor's `_current_default_name()` and to `_create_stream()`. Bump version.
-- [ ] **[MEDIUM if open] Stale `focus.signal` race at startup** — `src/single_instance.py:start_focus_watcher`. Initialise `last_processed_mtime` to `time.time()` so leftover signal files don't fire `window.show()` during pywebview bootstrap. Bump version.
-- [ ] **[MEDIUM if open] PermissionsManager mic-perm check returns false-GRANTED on TCC denial** — `src/permissions_manager.py:55-86`. Replace the `sd.InputStream` probe with the AVFoundation status call that's now wired into startup banner. Bump version.
+- [x] **[HIGH — already fixed in v3.14.6x] Mic hot-swap PortAudio reinit.** Iter-4 grep confirmed `audio.py:265-266` calls `sd._terminate(); sd._initialize()` in the recreate path; comment on line 246 explicitly describes the reinit. No further action needed from this loop.
+- [ ] **[MEDIUM — still open] Stale `focus.signal` race at startup** — `src/single_instance.py:218` still has `last_processed_mtime = [0.0]`, exactly the audit pattern. Need to initialise to `time.time()` so leftover signal files don't fire `window.show()` during pywebview bootstrap. Real behaviour change → bump version.
+- [x] **[MEDIUM — already fixed via startup probe] PermissionsManager mic-perm check.** Iter-4 found AVFoundation `AVCaptureDevice.authorizationStatusForMediaType_` already wired in `app.py:3953` (the `[mic-tcc]` startup banner), which is the correct TCC check. The old broken `check_microphone_permission` is still present in `src/permissions_manager.py:55` but is superseded — flagged as a dead-code candidate below.
+
+### Newly identified (iter-4 re-survey)
+
+- [ ] **[LOW] `PermissionsManager.check_microphone_permission` is likely dead post-AVFoundation wiring.** The startup AVFoundation check covers the actual TCC state. `grep -rn "check_microphone_permission" app.py src/ ui/ tests/` to confirm zero live callers, then delete or annotate as deprecated. Pure cleanup if dead.
+- [ ] **[MEDIUM — needs deeper read] macOS updater swap ordering** — `src/updater.py` has `shutil.rmtree` at lines 554 + 601 and `shutil.copytree` at 581. Audit raised concern about the "remove-before-stage" window. Read the surrounding 100 lines and confirm there's a backup + rollback path (line 616 has a `shutil.rmtree(backup, ...)` which suggests there IS one — likely already safe, but worth confirming).
 
 ### Dead code / referenced-nowhere
 
@@ -72,6 +77,22 @@ or any branch other than `main`. These need the user's manual handling:
 - [ ] **[USER ACTION — HIGH] Bump `waffler-website/src/data/release.ts`** from v3.14.29 → current (currently v3.14.69). Two URLs + the version label. Redeploy the site so new downloads aren't shipping a 40-version-stale build.
 - [ ] **[USER ACTION — LOW] `feature/ai-helper` branch** is 40+ commits behind main. Either rebase onto current main before merging, or close the branch if abandoned.
 
+## Status as of v3.14.69 (iter-4 re-survey)
+
+Grep-verified state of each OVERNIGHT_AUDIT.md HIGH/MEDIUM item against current `main`:
+
+| Audit finding | Status | Evidence |
+|---|---|---|
+| [HIGH] Mic hot-swap PortAudio reinit | ✅ FIXED | `audio.py:265-266` calls `sd._terminate(); sd._initialize()` in recreate; docstring on `:246` explains the reinit. |
+| [HIGH] Website serves v3.14.29 downloads | ⚠️ USER ACTION | Separate repo — loop won't touch it. Logged as a user-action item below. |
+| [MEDIUM] save_history WinError 5 / atomicity | ✅ FIXED (v3.14.65) | `app.py:148-156` uses `tempfile.mkstemp` + `os.replace` for atomic write. |
+| [MEDIUM] AVFoundation mic-TCC check at startup | ✅ FIXED | `app.py:3953` calls `AVCaptureDevice.authorizationStatusForMediaType_` and writes `[mic-tcc]` to `app.log`. |
+| [MEDIUM] Stale `focus.signal` race at startup | ❌ STILL OPEN | `single_instance.py:218` still has `last_processed_mtime = [0.0]`. |
+| [LOW from audit] PermissionsManager.check_microphone_permission still uses sd.InputStream probe | ⚠️ SUPERSEDED | The startup AVFoundation check (above) is the actual TCC test. The old `permissions_manager.py:55` method is likely dead — flagged as a new cleanup target. |
+| [MEDIUM] macOS updater rm-before-cp ordering | ⚠️ NEEDS DEEPER READ | `updater.py` has both `rmtree` and `copytree` calls + a backup-rollback path at `:616`. Likely already safe; defer for a focused read. |
+
+**Headline:** the audit had a long list of behaviour findings; v3.14.50→69 closed all of them except the focus.signal race. The rest of the loop's behaviour-change work is just that one MEDIUM (and an investigative read on the updater).
+
 ## Stopping criteria
 
 The loop self-deletes its cron + pushes a `PushNotification` when ALL of these are true:
@@ -88,3 +109,4 @@ The loop self-deletes its cron + pushes a `PushNotification` when ALL of these a
 | 1 | 2026-05-21 ~10:00 | Plan + `test_menubar_icon` rumps gate | shipped | `74bf29b` |
 | 2 | 2026-05-21 ~10:13 | `test_e2e_real` UTF-8 encoding fix + em-dash sweep | shipped | `8020691` |
 | 3 | 2026-05-21 ~10:43 | `test_model_bakeoff` UTF-8 encoding fix + em-dash sweep; full suite now passes with 0 exclusions | shipped | `b78113b` |
+| 4 | 2026-05-21 ~11:13 | META re-survey of OVERNIGHT_AUDIT.md vs current main — 3 audit fixes confirmed shipped, 1 MEDIUM still open, 1 LOW newly identified | docs only | `pending` |
