@@ -25,7 +25,7 @@ Every iteration:
 
 - [x] **[LOW] `tests/test_menubar_icon.py` — gate the `import rumps` with `pytest.importorskip` so collection succeeds on non-Mac.** Iter 1, commit pending.
 - [x] **[LOW] `tests/test_e2e_real.py` — Windows-collectable.** Iter 2: the real bug was `Path.read_text()` without `encoding=` falling back to cp1252 on Windows (history.json contains a 0x81 byte that breaks cp1252). Added `encoding="utf-8"`; also swept 5 em dashes in comments to `--` for ASCII-source consistency. Commit `8020691`.
-- [ ] **[LOW] `tests/test_model_bakeoff.py` — same em-dash → `--` swap.**
+- [x] **[LOW] `tests/test_model_bakeoff.py` — Windows-collectable.** Iter 3: identical root cause to iter 2 — `Path.read_text()` line 23 had no `encoding=`. Added `encoding="utf-8"` and swept 2 em dashes in comments. Commit `b78113b`. **🎉 Milestone:** with iters 1+2+3 all shipped, the full test suite now passes on Windows with ZERO `--ignore` exclusions (21 passed + 1 skipped via the rumps gate). The loop prompt's exclusion flags can be removed on the next prompt refresh.
 
 ### Re-survey OVERNIGHT_AUDIT.md against current main
 
@@ -87,3 +87,4 @@ The loop self-deletes its cron + pushes a `PushNotification` when ALL of these a
 |------|------|--------|---------|--------|
 | 1 | 2026-05-21 ~10:00 | Plan + `test_menubar_icon` rumps gate | shipped | `74bf29b` |
 | 2 | 2026-05-21 ~10:13 | `test_e2e_real` UTF-8 encoding fix + em-dash sweep | shipped | `8020691` |
+| 3 | 2026-05-21 ~10:43 | `test_model_bakeoff` UTF-8 encoding fix + em-dash sweep; full suite now passes with 0 exclusions | shipped | `b78113b` |
