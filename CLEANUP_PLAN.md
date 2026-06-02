@@ -41,7 +41,7 @@ still open** before doing more work.
 These bump the version. **Only ship after the re-survey confirms they're still open.**
 
 - [x] **[HIGH — already fixed in v3.14.6x] Mic hot-swap PortAudio reinit.** Iter-4 grep confirmed `audio.py:265-266` calls `sd._terminate(); sd._initialize()` in the recreate path; comment on line 246 explicitly describes the reinit. No further action needed from this loop.
-- [ ] **[MEDIUM — still open] Stale `focus.signal` race at startup** — `src/single_instance.py:218` still has `last_processed_mtime = [0.0]`, exactly the audit pattern. Need to initialise to `time.time()` so leftover signal files don't fire `window.show()` during pywebview bootstrap. Real behaviour change → bump version.
+- [x] **[MEDIUM — iter 16, v3.14.70] Stale `focus.signal` race fixed.** Two-line behaviour fix in `src/single_instance.py:start_focus_watcher`: proactively `unlink()` any pre-existing signal at watcher-start AND initialise `last_processed_mtime = [time.time()]` (was `[0.0]`). Verified empirically: stale signal with mtime = now-60s is correctly ignored (0 spurious `show()` calls). **This closes the LAST audit-flagged behaviour item from OVERNIGHT_AUDIT.md** — every MEDIUM/HIGH from the original audit is now resolved (either shipped here, shipped earlier in the multi-agent rounds, or verified-safe by deeper read). Commit `df8a68c`.
 - [x] **[MEDIUM — already fixed via startup probe] PermissionsManager mic-perm check.** Iter-4 found AVFoundation `AVCaptureDevice.authorizationStatusForMediaType_` already wired in `app.py:3953` (the `[mic-tcc]` startup banner), which is the correct TCC check. The old broken `check_microphone_permission` is still present in `src/permissions_manager.py:55` but is superseded — flagged as a dead-code candidate below.
 
 ### Newly identified (iter-4 re-survey)
@@ -131,3 +131,4 @@ The loop self-deletes its cron + pushes a `PushNotification` when ALL of these a
 | 13 | 2026-05-21 ~15:43 | CODE_OF_CONDUCT.md verified — clean CC v2.1; flagged public-Issues-for-reports as a user-action UX call | docs only | `7b17b5e` |
 | 14 | 2026-05-21 ~16:13 | CHANGELOG.md structural check — fixed 5 stale release dates vs authoritative git tag timestamps | docs only | `72dddea` |
 | 15 | 2026-05-21 ~16:43 | macOS updater deeper read — VERIFIED SAFE (textbook stage-then-swap-with-rollback, all invariants hold) | docs only | `6c9d3b6` |
+| 16 | 2026-06-03 ~10:13 | Stale focus.signal race fixed — v3.14.70, closes last audit-flagged behaviour item | **behaviour fix** | `df8a68c` |
