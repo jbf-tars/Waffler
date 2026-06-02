@@ -24,7 +24,7 @@ Every iteration:
 ### Test infrastructure — Windows-collectable
 
 - [x] **[LOW] `tests/test_menubar_icon.py` — gate the `import rumps` with `pytest.importorskip` so collection succeeds on non-Mac.** Iter 1, commit pending.
-- [ ] **[LOW] `tests/test_e2e_real.py` — replace em dashes (U+2014) in docstrings/comments with `--`** so pytest collection doesn't trip Windows cp1252.
+- [x] **[LOW] `tests/test_e2e_real.py` — Windows-collectable.** Iter 2: the real bug was `Path.read_text()` without `encoding=` falling back to cp1252 on Windows (history.json contains a 0x81 byte that breaks cp1252). Added `encoding="utf-8"`; also swept 5 em dashes in comments to `--` for ASCII-source consistency. Commit `8020691`.
 - [ ] **[LOW] `tests/test_model_bakeoff.py` — same em-dash → `--` swap.**
 
 ### Re-survey OVERNIGHT_AUDIT.md against current main
@@ -86,3 +86,4 @@ The loop self-deletes its cron + pushes a `PushNotification` when ALL of these a
 | Iter | Time | Target | Outcome | Commit |
 |------|------|--------|---------|--------|
 | 1 | 2026-05-21 ~10:00 | Plan + `test_menubar_icon` rumps gate | shipped | `74bf29b` |
+| 2 | 2026-05-21 ~10:13 | `test_e2e_real` UTF-8 encoding fix + em-dash sweep | shipped | `8020691` |
