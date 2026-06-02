@@ -1553,31 +1553,6 @@ class Api:
             _log_to_file(f"Wizard Step 2 cleanup error: {e}")
             return {"ok": False, "error": str(e)}
 
-    def wizard_start_fn_detection(self) -> dict:
-        """Start Fn key detection for wizard Step 3 (just detection, no recording)."""
-        try:
-            # Initialize hotkey listener if not already running
-            if not hasattr(self, 'hotkey_listener') or not self.hotkey_listener:
-                _log_to_file("Starting Fn key detection for wizard Step 3...")
-                stored = self._load_settings_file()
-                keys = stored.get("hotkey_keys")
-                if _platform.system() == "Windows":
-                    self.hotkey_listener = WindowsHotkeyListener(
-                        on_press=lambda: None,  # Dummy handlers - just need listener for get_fn_key_state()
-                        on_release=lambda: None,
-                        keys=keys,
-                    )
-                else:
-                    self.hotkey_listener = SmartHotkeyListener(
-                        on_press=lambda: None,
-                        on_release=lambda: None,
-                    )
-                threading.Thread(target=self.hotkey_listener.start, daemon=True, name="WizardFnDetection").start()
-            return {"ok": True}
-        except Exception as e:
-            _log_to_file(f"Wizard Fn detection error: {e}")
-            return {"ok": False, "error": str(e)}
-
     def wizard_start_hotkey_test(self, device_index) -> dict:
         """Start temporary hotkey listener for wizard Step 4."""
         global _wizard_recorder, _wizard_hotkey, _wizard_transcriber
