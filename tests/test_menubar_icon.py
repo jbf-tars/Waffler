@@ -1,6 +1,15 @@
 #!/usr/bin/env python3
-"""Test menubar icon loading"""
-import rumps
+"""Test menubar icon loading (macOS only).
+
+``rumps`` is a macOS-only library — this file can't be collected by pytest
+on non-Mac platforms without raising ImportError during discovery. The
+``pytest.importorskip`` below makes collection succeed everywhere; the
+file simply skips on Linux/Windows.
+"""
+import pytest
+
+rumps = pytest.importorskip("rumps")
+
 from pathlib import Path
 
 # Test with the actual icon file from the built app
