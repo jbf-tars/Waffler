@@ -53,7 +53,22 @@ class PermissionsManager:
     }
 
     def check_microphone_permission(self) -> PermissionResult:
-        """Check microphone access with detailed feedback."""
+        """Check microphone access with detailed feedback.
+
+        SUPERSEDED — kept only for test compatibility and the dead
+        ``get_permission_status`` IPC chain (no JS caller; grep
+        ``ui/`` to confirm). The authoritative mic-TCC check on
+        macOS is ``AVCaptureDevice.authorizationStatusForMediaType_``
+        in ``app.py``'s startup banner (search ``[mic-tcc]`` in
+        ``app.log``), which correctly detects the TCC-denied case
+        that the InputStream probe below silently misses: on macOS
+        a TCC-denied app gets streams that open without raising and
+        deliver zero-valued samples, so this method returns
+        ``GRANTED`` for genuinely denied mics. The startup
+        AVFoundation check is what actually surfaces TCC denial to
+        the user; trust that, not this. Do not add new callers of
+        this method without first switching to AVCaptureDevice.
+        """
         try:
             import sounddevice as sd
             # Try to create a stream to test mic access
