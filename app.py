@@ -2623,21 +2623,31 @@ class WafflerPipeline:
             _time.sleep(0.033)  # ~30 fps
 
     def _show_no_audio_toast(self):
-        """Show 'We couldn't hear you' toast on the overlay."""
-        session = self._recording_session  # snapshot — guard against new recordings
+        """Show 'We couldn't hear you' toast on the overlay.
+
+        v3.14.69 — previously this called self.overlay.show() before show_toast,
+        which set _visible=True in the overlay subprocess. The toast's own
+        _show_toast then orderOut'd the pill (to make room), but when the user
+        dismissed the toast, _hide_toast saw _visible=True and orderFront'd the
+        pill BACK — so the waffle visibly reappeared with no Fn press. Removed
+        the spurious show()/hide() pair; show_toast handles subprocess-alive on
+        its own, and the toast positions itself from the last-recording's
+        _waffle_x/_waffle_y, which is exactly the screen the user just spoke
+        on. The pill semantically does not belong in this code path: the
+        recording is already over.
+        """
         try:
-            self.overlay.show()
             self.overlay.show_toast(
                 style="error",
                 heading="We couldn't hear you",
                 body="Check your mic is connected and not muted.",
             )
-            # Auto-hide after 4 seconds, but only if no new recording has started
+            # Auto-hide after 4 seconds. show_toast also has a per-style
+            # auto-dismiss timer in the subprocess; this is a belt-and-braces
+            # cleanup if the user never dismisses and that timer fails.
             import time as _t
             _t.sleep(4)
             self.overlay.hide_toast()
-            if self._recording_session == session:
-                self.overlay.hide()
         except Exception as e:
             _log_to_file(f"[overlay] no-audio toast failed: {e}")
 

@@ -4,6 +4,19 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.69] - 2026-05-27
+
+### Fixed
+- **Waffle pill no longer reappears after dismissing the "We couldn't hear you" toast.** User report on a sticky/auto recording (Fn + Space) that produced silence: the popup showed, the user dismissed it, and then the pill briefly came back on its own — with no Fn press. Caught it cleanly in the new `[overlay-dbg]` logs from v3.14.68:
+  ```
+  Empty transcription result
+  Showing 'couldn't hear you' toast
+  [overlay-dbg] event=parent.show.enter gen=11   ← phantom show.show() — root cause
+  [overlay-dbg] event=parent.send type=show gen=11
+  [overlay.py] show_toast: style=error, heading="We couldn't hear you"
+  ```
+  Root cause: `_show_no_audio_toast` called `self.overlay.show()` immediately before `show_toast`, which set `_visible=True` in the overlay subprocess. `_show_toast` then `orderOut`'d the pill (to make room for the toast), but when the user dismissed, `_hide_toast` saw `_visible=True` and `orderFront`'d the pill back — even though the recording was already over and the user hadn't touched Fn. Removed the spurious `show()`/`hide()` pair: the toast positions itself from `_waffle_x/_waffle_y` (set by the prior recording — exactly the right screen), and `show_toast` already handles subprocess-alive on its own, so the pre-show was unnecessary as well as buggy.
+
 ## [3.14.68] - 2026-05-27
 
 ### Fixed
