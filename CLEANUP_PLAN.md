@@ -55,7 +55,7 @@ These bump the version. **Only ship after the re-survey confirms they're still o
 Each target must be verified zero references via `grep -rn "name"` against
 `app.py src/ ui/ tests/` before deletion.
 
-- [ ] **[LOW] `app.py:wizard_start_fn_detection`** — audit found no JS caller. Re-verify (the user may have added one in v3.14.50+) and delete if still dead. Pure refactor, no version bump.
+- [x] **[LOW] `app.py:wizard_start_fn_detection` deleted (25 lines).** Iter 6: re-verified zero callers across app.py, src/, ui/, tests/, docs/. Was a leftover from an older wizard layout where step 3 was Fn detection; current step 3 is API keys, and step-2 Fn detection goes through the live `wizard_init_step2` path on a separate `_wizard_step2_monitor` global. Commit `5d252a6`.
 - [ ] **[LOW] `src/fn_key_cgevent.FnKeyMonitor`** — audit found it only kept as a one-shot startup permission probe. Re-verify and either delete or document why it's preserved.
 
 ### OS-meta polish
@@ -112,3 +112,4 @@ The loop self-deletes its cron + pushes a `PushNotification` when ALL of these a
 | 3 | 2026-05-21 ~10:43 | `test_model_bakeoff` UTF-8 encoding fix + em-dash sweep; full suite now passes with 0 exclusions | shipped | `b78113b` |
 | 4 | 2026-05-21 ~11:13 | META re-survey of OVERNIGHT_AUDIT.md vs current main — 3 audit fixes confirmed shipped, 1 MEDIUM still open, 1 LOW newly identified | docs only | `978dd7c` |
 | 5 | 2026-05-21 ~11:43 | `check_microphone_permission` docstring note (superseded by AVFoundation startup check) — deletion deferred to later iter | docs only | `6f0f7e8` |
+| 6 | 2026-05-21 ~12:13 | Delete dead `wizard_start_fn_detection` (25 lines) | refactor | `5d252a6` |
