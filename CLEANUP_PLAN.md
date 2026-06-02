@@ -113,4 +113,4 @@ The loop self-deletes its cron + pushes a `PushNotification` when ALL of these a
 | 4 | 2026-05-21 ~11:13 | META re-survey of OVERNIGHT_AUDIT.md vs current main — 3 audit fixes confirmed shipped, 1 MEDIUM still open, 1 LOW newly identified | docs only | `978dd7c` |
 | 5 | 2026-05-21 ~11:43 | `check_microphone_permission` docstring note (superseded by AVFoundation startup check) — deletion deferred to later iter | docs only | `6f0f7e8` |
 | 6 | 2026-05-21 ~12:13 | Delete dead `wizard_start_fn_detection` (25 lines) | refactor | `5d252a6` |
-| 7 | 2026-05-21 ~12:43 | Verify `FnKeyMonitor` is intentional shim (kept, no change) | docs only | `pending` |
+| 7 | 2026-05-21 ~12:43 | Verify `FnKeyMonitor` is intentional shim (kept, no change) | docs only | `d76d6a4` |
