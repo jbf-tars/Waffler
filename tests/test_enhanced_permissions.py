@@ -20,15 +20,10 @@ def test_permissions():
     print("\n📋 Individual Permission Checks:")
     print("-" * 30)
     
-    mic_result = pm.check_microphone_permission()
-    print(f"🎤 Microphone: {mic_result.status.value}")
-    if mic_result.explanation:
-        print(f"   Explanation: {mic_result.explanation}")
-    if mic_result.error_message:
-        print(f"   Error: {mic_result.error_message}")
-    if mic_result.fallback_available:
-        print(f"   Fallback: {mic_result.fallback_message}")
-    
+    # Microphone TCC check is via app.py's startup AVCaptureDevice probe
+    # (see [mic-tcc] in app.log) -- the old check_microphone_permission was
+    # deleted because it returned false-GRANTED on TCC-denied streams.
+
     access_result = pm.check_accessibility_permission()
     print(f"♿ Accessibility: {access_result.status.value}")
     if access_result.explanation:
@@ -47,16 +42,10 @@ def test_permissions():
     if input_result.fallback_available:
         print(f"   Fallback: {input_result.fallback_message}")
     
-    # Test comprehensive status
-    print("\n📊 Comprehensive Status Summary:")
-    print("-" * 30)
-    
-    status = pm.get_permission_status_summary()
-    print(f"All granted: {status['all_granted']}")
-    print(f"Missing critical: {status['missing_critical']}")
-    print(f"Missing optional: {status['missing_optional']}")
-    print(f"Recommendations: {status['recommendations']}")
-    
+    # Comprehensive-status check removed: get_permission_status_summary
+    # was part of the dead get_permission_status IPC chain (no JS caller,
+    # confirmed via grep ui/) and was deleted with it.
+
     # Test permission explanations
     print("\n💡 Permission Explanations:")
     print("-" * 30)

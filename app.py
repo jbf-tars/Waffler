@@ -1407,11 +1407,6 @@ class Api:
 
         return result
 
-    def get_permission_status(self) -> dict:
-        """Get detailed permission status for enhanced UI."""
-        permissions_mgr = PermissionsManager()
-        return permissions_mgr.get_permission_status_summary()
-
     def get_permission_explanations(self) -> dict:
         """Get explanations for why each permission is needed."""
         permissions_mgr = PermissionsManager()

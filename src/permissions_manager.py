@@ -52,54 +52,6 @@ class PermissionsManager:
         }
     }
 
-    def check_microphone_permission(self) -> PermissionResult:
-        """Check microphone access with detailed feedback.
-
-        SUPERSEDED — kept only for test compatibility and the dead
-        ``get_permission_status`` IPC chain (no JS caller; grep
-        ``ui/`` to confirm). The authoritative mic-TCC check on
-        macOS is ``AVCaptureDevice.authorizationStatusForMediaType_``
-        in ``app.py``'s startup banner (search ``[mic-tcc]`` in
-        ``app.log``), which correctly detects the TCC-denied case
-        that the InputStream probe below silently misses: on macOS
-        a TCC-denied app gets streams that open without raising and
-        deliver zero-valued samples, so this method returns
-        ``GRANTED`` for genuinely denied mics. The startup
-        AVFoundation check is what actually surfaces TCC denial to
-        the user; trust that, not this. Do not add new callers of
-        this method without first switching to AVCaptureDevice.
-        """
-        try:
-            import sounddevice as sd
-            # Try to create a stream to test mic access
-            stream = sd.InputStream(samplerate=16000, channels=1, dtype='int16', blocksize=1024)
-            stream.start()
-            stream.stop()
-            stream.close()
-            
-            return PermissionResult(
-                status=PermissionStatus.GRANTED,
-                explanation="Microphone access is working properly"
-            )
-            
-        except Exception as e:
-            error_msg = str(e).lower()
-            
-            if "permission" in error_msg or "access" in error_msg:
-                return PermissionResult(
-                    status=PermissionStatus.DENIED,
-                    error_message="Microphone access was denied",
-                    explanation="Click 'Allow' when prompted, or open System Settings to grant permission",
-                    fallback_available=True,
-                    fallback_message="You can use keyboard-only mode without voice features"
-                )
-            else:
-                return PermissionResult(
-                    status=PermissionStatus.UNKNOWN,
-                    error_message=f"Microphone test failed: {str(e)}",
-                    explanation="There may be a hardware or configuration issue with your microphone"
-                )
-
     def check_accessibility_permission(self) -> PermissionResult:
         """Check accessibility permission with enhanced feedback."""
         if self.platform != "Darwin":
@@ -187,14 +139,6 @@ class PermissionsManager:
                 error_message=f"Error checking input monitoring permission: {str(e)}",
                 explanation="Could not verify input monitoring status"
             )
-
-    def check_all_permissions(self) -> Dict[str, PermissionResult]:
-        """Check all required permissions and return comprehensive status."""
-        return {
-            "microphone": self.check_microphone_permission(),
-            "accessibility": self.check_accessibility_permission(),
-            "input_monitoring": self.check_input_monitoring_permission()
-        }
 
     def request_microphone_permission(self) -> Dict[str, any]:
         """Enhanced microphone permission request with better UX."""
@@ -291,48 +235,3 @@ class PermissionsManager:
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
-    def get_permission_status_summary(self) -> Dict[str, any]:
-        """Get a summary of all permission statuses for UI display."""
-        results = self.check_all_permissions()
-        
-        summary = {
-            "all_granted": True,
-            "permissions": {},
-            "missing_critical": [],
-            "missing_optional": [],
-            "recommendations": []
-        }
-        
-        for perm_name, result in results.items():
-            if result.status == PermissionStatus.NOT_APPLICABLE:
-                continue
-                
-            is_granted = result.status == PermissionStatus.GRANTED
-            is_critical = perm_name in ["microphone"]  # Microphone is critical
-            
-            summary["permissions"][perm_name] = {
-                "granted": is_granted,
-                "critical": is_critical,
-                "title": self.PERMISSION_EXPLANATIONS[perm_name]["title"],
-                "explanation": result.explanation,
-                "error": result.error_message,
-                "fallback_available": result.fallback_available,
-                "fallback_message": result.fallback_message
-            }
-            
-            if not is_granted:
-                summary["all_granted"] = False
-                if is_critical:
-                    summary["missing_critical"].append(perm_name)
-                else:
-                    summary["missing_optional"].append(perm_name)
-        
-        # Generate recommendations
-        if summary["missing_critical"]:
-            summary["recommendations"].append("Critical permissions missing - some features won't work")
-        if summary["missing_optional"]:
-            summary["recommendations"].append("Optional permissions missing - some convenience features disabled")
-        if not summary["missing_critical"] and not summary["missing_optional"]:
-            summary["recommendations"].append("All permissions granted - full functionality available")
-            
-        return summary
