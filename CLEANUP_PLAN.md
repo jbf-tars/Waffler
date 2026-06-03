@@ -164,4 +164,4 @@ The loop self-deletes its cron + pushes a `PushNotification` when ALL of these a
 | 17 | 2026-06-03 ~10:43 | CONTRIBUTING corpus examples fixed — broken `--category` lines replaced with working pattern | docs only | `b6f97d2` |
 | 18 | 2026-06-03 ~11:13 | Delete dead `get_permission_status` IPC chain (~115 lines, 3 files) | refactor | `0da6acc` |
 | 19 | 2026-06-03 ~11:43 | Restore `--category` examples I wrongly removed in iter-17 (counts were always correct; category is a positional arg) | docs only | `d41a499` |
-| 20 | 2026-06-03 ~12:13 | Final summary + stopping criterion clarified + loop cron deleted | docs only | `pending` |
+| 20 | 2026-06-03 ~12:13 | Final summary + stopping criterion clarified + loop cron deleted | docs only | `3b102dd` |
