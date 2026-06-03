@@ -112,8 +112,8 @@ The six files exist (`LICENSE`, `README.md`, `CONTRIBUTING.md`, `SECURITY.md`,
 The loop will NOT touch the website repo (`C:/Users/james/waffler-website`)
 or any branch other than `main`. These need the user's manual handling:
 
-- [ ] **[USER ACTION — HIGH] Bump `waffler-website/src/data/release.ts`** from v3.14.29 → current (currently v3.14.69). Two URLs + the version label. Redeploy the site so new downloads aren't shipping a 40-version-stale build.
-- [ ] **[USER ACTION — LOW] `feature/ai-helper` branch** is 40+ commits behind main. Either rebase onto current main before merging, or close the branch if abandoned.
+- [x] **[USER ACTION — HIGH] Website `release.ts` bumped to v3.14.69.** User did this themselves (waffler-website commit `4c73fe0`). New downloads now serve the real latest release.
+- [x] **[USER ACTION — LOW] `feature/ai-helper` branch deleted.** User requested removal; main is clean (zero `ai_helper`/`aiHelper` references confirmed via grep before delete).
 - [ ] **[USER ACTION — LOW] `CODE_OF_CONDUCT.md` enforcement channel.** Currently points to public GitHub Issues — fine to ship but a private channel is the conventional norm for harassment reports. Either swap to GitHub's private vulnerability advisories (already configured per SECURITY.md), a dedicated email, or document why public Issues is the intentional choice.
 
 ## Status as of v3.14.69 (iter-4 re-survey)
