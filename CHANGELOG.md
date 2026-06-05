@@ -4,6 +4,11 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.78] - 2026-06-05
+
+### Diagnostics
+- **Capture real audio + real chunking logs to diagnose sporadic transcription truncation.** A user's 37.5 s recording came back as 35 words (truncated mid-word) while a 33 s one transcribed fully (89 words) — and a clean 51 s synthesized test clip also transcribed fully (107 words). So the truncation is content/acoustic-specific, not length-based, and can't be reproduced with synthetic audio. This build (a) saves the last 8 raw recording WAVs to `~/.waffler-hosted/debug_audio/` so the actual failing audio can be re-tested directly against Whisper, and (b) routes the chunking diagnostics (`clip=Ns -> N chunk(s)`, per-chunk word counts) through the file logger so they finally appear in `app.log` — previously they used `print()`, which the windowed build never captured, making it impossible to tell whether chunking even ran. No behaviour change to transcription itself; this is instrumentation to enable a verified fix.
+
 ## [3.14.77] - 2026-06-05
 
 ### Fixed

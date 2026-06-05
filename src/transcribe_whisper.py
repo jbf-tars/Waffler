@@ -24,6 +24,17 @@ try:
 except ImportError:
     pass
 
+# Shared file logger so transcription diagnostics reach ~/.waffler-hosted/app.log.
+# (Plain print() only goes to stdout, which the windowed bundle doesn't capture —
+# that's why the chunking logs were invisible when diagnosing truncation.)
+try:
+    from log_util import log as _wlog
+except ImportError:
+    try:
+        from src.log_util import log as _wlog
+    except ImportError:
+        _wlog = print
+
 _USE_LOCAL = os.getenv("LOCAL_WHISPER", "0") == "1"
 _IS_MAC_ARM = sys.platform == "darwin" and platform.machine() == "arm64"
 _IS_WINDOWS  = sys.platform == "win32"
@@ -490,7 +501,7 @@ def _split_audio_on_silence(
 
         return chunks if len(chunks) >= 2 else [audio_bytes]
     except Exception as e:
-        print(f"[whisper] chunk-split failed, using single-shot: {e}")
+        _wlog(f"[whisper] chunk-split failed, using single-shot: {e}")
         return [audio_bytes]
 
 
@@ -722,8 +733,16 @@ class WhisperTranscriber:
         # common case -- come back as a single chunk and take the unchanged
         # single-shot path.
         chunks = _split_audio_on_silence(audio_bytes)
+        # Diagnostic: how long was the clip and did we split it? Via _wlog so it
+        # actually lands in app.log (unlike the old print()s).
+        try:
+            import io as _io, wave as _wave
+            with _wave.open(_io.BytesIO(audio_bytes), "rb") as _w:
+                _clip_s = _w.getnframes() / float(_w.getframerate() or 1)
+            _wlog(f"[whisper] clip={_clip_s:.1f}s -> {len(chunks)} chunk(s)")
+        except Exception:
+            pass
         if len(chunks) > 1:
-            print(f"[whisper] long clip split into {len(chunks)} chunks for transcription")
             parts = []
             for idx, ch in enumerate(chunks):
                 part = self._dispatch_one(ch)
@@ -731,11 +750,13 @@ class WhisperTranscriber:
                 # tacks onto one chunk doesn't land in the middle of the joined
                 # transcript. (The trailing strip below still covers chunk N.)
                 part = _strip_hallucinations(part).strip()
+                _wlog(f"[whisper] chunk {idx+1}/{len(chunks)} -> {len(part.split())} words")
                 if part:
                     parts.append(part)
             raw = " ".join(parts)
         else:
             raw = self._dispatch_one(chunks[0])
+            _wlog(f"[whisper] single-shot -> {len(raw.split())} words")
 
         cleaned = _strip_hallucinations(raw)
         if cleaned != raw:
