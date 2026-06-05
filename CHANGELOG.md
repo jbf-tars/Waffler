@@ -4,6 +4,12 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.71] - 2026-06-05
+
+### Fixed
+- **Long recordings no longer lose most of what you said (the "I spoke for a minute and only the first bit survived + 'Thank you for watching!'" bug).** Root cause confirmed from real history + logs: a 90-second recording was being *fully captured* (2.9 MB of audio on disk) but Whisper's decoder terminates early on long audio — it transcribes the first ~20-30 s, emits an end-of-transcript token that surfaces as a hallucinated outro ("Thank you for watching!", "and so on", "and others"), and silently drops the remaining 60+ seconds. A 90 s clip that should be ~200 words was coming back as 45. **Fix:** `transcribe_whisper._split_audio_on_silence` now splits any clip over ~30 s into ≤25-30 s chunks at silence boundaries (so it never cuts mid-word), transcribes each chunk independently, strips per-chunk hallucinated outros, and stitches the parts back together. Each chunk is short enough that Whisper runs to completion. Short clips (the common case) are completely unaffected — they pass through the unchanged single-shot path. Malformed/odd-format audio falls back to single-shot too. Covered by `tests/test_audio_chunking.py` (5 cases incl. a simulated 92 s recording → 4 chunks, zero audio lost).
+- **The cleanup AI no longer reorders your sentences.** Confirmed from a real recording: Groq Llama 3.3 70B took a faithful transcript and *reversed the order of the last four sentences* to "improve the flow" — the speaker said "I'm in a bit of paralysis" LAST, and the clean version moved it to the middle, so it read as if content was missing. Cause: the "don't restructure" instruction was a soft line buried in the grammar-smoothing section, not one of the top HARD RULES, so the model treated it as optional. Promoted "NEVER reorder or rearrange what the speaker said — keep every sentence in the exact order spoken" to a HARD RULE with the exact real-world failure as a worked example. Applies to all three styler providers (Groq / Cerebras / OpenAI).
+
 ## [3.14.70] - 2026-06-03
 
 ### Fixed

@@ -380,6 +380,120 @@ def _pad_audio_with_silence(audio_bytes: bytes, padding_ms: int = 300) -> bytes:
         return audio_bytes
 
 
+def _split_audio_on_silence(
+    audio_bytes: bytes,
+    target_chunk_s: float = 25.0,
+    hard_max_s: float = 30.0,
+    window_ms: int = 30,
+    min_silence_run_ms: int = 300,
+) -> list:
+    """Split a long WAV clip into <= ~hard_max_s chunks, cutting at quiet points.
+
+    THE LONG-RECORDING FIX. Whisper's decoder terminates early on long audio
+    (>~30 s): it transcribes the first ~20-30 s, emits an end-of-transcript
+    token that surfaces as a hallucinated outro ("Thank you for watching!",
+    "and so on", "and others"), and silently drops the remaining audio. The
+    user speaks for 90 s, the clip is fully captured (2-3 MB on disk), but the
+    transcript comes back with only the first third plus a fake ending.
+
+    Splitting the clip into <= 25-30 s pieces sidesteps the failure entirely:
+    each chunk is short enough that the decoder runs to completion. Cutting on
+    *silence* (a quiet run >= ``min_silence_run_ms``) rather than a fixed
+    offset avoids slicing through the middle of a word.
+
+    Returns a list of WAV-byte chunks (each independently transcribable). For
+    clips already short enough, unusual formats, or any error, returns
+    ``[audio_bytes]`` unchanged -- i.e. the current single-shot path, so short
+    recordings (the common case) are completely unaffected.
+    """
+    import io
+    import wave
+    try:
+        import numpy as np
+        with wave.open(io.BytesIO(audio_bytes), "rb") as w:
+            params = w.getparams()
+            frames = w.readframes(w.getnframes())
+        framerate = params.framerate
+        sampwidth = params.sampwidth
+        nchannels = params.nchannels
+        nframes = params.nframes
+        duration = nframes / float(framerate) if framerate else 0.0
+
+        # Short clip or format we don't handle -> leave it alone.
+        if (
+            duration <= hard_max_s
+            or sampwidth != 2
+            or nchannels != 1
+            or nframes == 0
+        ):
+            return [audio_bytes]
+
+        samples = np.frombuffer(frames, dtype=np.int16)
+        win = max(1, int(framerate * window_ms / 1000))
+        n_win = len(samples) // win
+        if n_win < 2:
+            return [audio_bytes]
+
+        # Per-window RMS energy.
+        block = samples[: n_win * win].astype(np.float32).reshape(n_win, win)
+        rms = np.sqrt(np.mean(block * block, axis=1))
+
+        # Silence threshold: a small fraction of the median energy, floored at
+        # an absolute value so a near-silent recording doesn't flag everything.
+        # 0.15 * median sits well below speech but above room tone / breaths.
+        sil_thresh = max(150.0, float(np.median(rms)) * 0.15)
+        is_sil = rms < sil_thresh
+
+        target_win = max(1, int(target_chunk_s * 1000 / window_ms))
+        hard_win = max(target_win + 1, int(hard_max_s * 1000 / window_ms))
+        min_run = max(1, int(min_silence_run_ms / window_ms))
+
+        # Greedy cut points (window indices): once a chunk passes the target
+        # length, cut at the next silence run; if none appears by the hard max,
+        # force-cut so a continuous loud monologue is still bounded.
+        cuts = []
+        start = 0
+        i = 0
+        while i < n_win:
+            length = i - start
+            if length >= hard_win:
+                cuts.append(i)
+                start = i
+                i += 1
+                continue
+            if length >= target_win and is_sil[i]:
+                run_end = min(i + min_run, n_win)
+                if bool(np.all(is_sil[i:run_end])):
+                    cuts.append(i)
+                    start = i
+                    while i < n_win and is_sil[i]:
+                        i += 1
+                    continue
+            i += 1
+
+        if not cuts:
+            return [audio_bytes]
+
+        boundaries = [0] + [c * win for c in cuts] + [len(samples)]
+        chunks = []
+        for a, b in zip(boundaries[:-1], boundaries[1:]):
+            if b - a < win:  # skip empty / sub-window slivers
+                continue
+            seg = samples[a:b].tobytes()
+            buf = io.BytesIO()
+            with wave.open(buf, "wb") as ww:
+                ww.setnchannels(nchannels)
+                ww.setsampwidth(sampwidth)
+                ww.setframerate(framerate)
+                ww.writeframes(seg)
+            chunks.append(buf.getvalue())
+
+        return chunks if len(chunks) >= 2 else [audio_bytes]
+    except Exception as e:
+        print(f"[whisper] chunk-split failed, using single-shot: {e}")
+        return [audio_bytes]
+
+
 def _strip_hallucinations(text: str) -> str:
     """Remove common Whisper hallucinations from transcribed text.
 
@@ -496,9 +610,13 @@ class WhisperTranscriber:
             self._backend = "api"
             print("⚠️  No transcription backend available")
 
-    def transcribe_sync(self, audio_bytes: bytes):
-        audio_bytes = _pad_audio_with_silence(audio_bytes)
+    def _dispatch_one(self, audio_bytes: bytes) -> str:
+        """Transcribe ONE already-padded/chunked WAV blob via the configured
+        backend, with the Groq->OpenAI fallback + 403/auth circuit-breaker.
 
+        Extracted from ``transcribe_sync`` so the long-recording chunk loop can
+        call it per chunk without duplicating the fallback logic.
+        """
         if self._backend == "groq":
             import time as _time
             # Circuit-breaker: if a recent Groq call returned 403/auth, skip
@@ -506,33 +624,56 @@ class WhisperTranscriber:
             # Saves the 150-300 ms wasted round-trip per recording when a
             # VPN exit IP is blocking Groq at the network layer.
             if _time.monotonic() < self._groq_skip_until and self.client:
-                raw = self._transcribe_api(audio_bytes)
-            else:
-                try:
-                    raw = self._transcribe_groq(audio_bytes)
-                except Exception as e:
-                    err = str(e)
-                    # Auth/network block — cool down for an hour. Anything
-                    # else (transient 5xx, rate-limit, connection blip) gets
-                    # a shorter 30 s skip so we recover quickly.
-                    if any(s in err for s in ("403", "401")) or any(
-                        s in err.lower() for s in ("access denied", "unauthorized", "permission")
-                    ):
-                        self._groq_skip_until = _time.monotonic() + 3600.0
-                        print(f"⚠️  Groq auth/network blocked — skipping Groq transcription for 1h ({err[:80]})")
-                    else:
-                        self._groq_skip_until = _time.monotonic() + 30.0
-                        print(f"⚠️  Groq transcription failed ({err[:80]}), falling back to OpenAI")
-                    if self.client:
-                        raw = self._transcribe_api(audio_bytes)
-                    else:
-                        raise
+                return self._transcribe_api(audio_bytes)
+            try:
+                return self._transcribe_groq(audio_bytes)
+            except Exception as e:
+                err = str(e)
+                # Auth/network block — cool down for an hour. Anything
+                # else (transient 5xx, rate-limit, connection blip) gets
+                # a shorter 30 s skip so we recover quickly.
+                if any(s in err for s in ("403", "401")) or any(
+                    s in err.lower() for s in ("access denied", "unauthorized", "permission")
+                ):
+                    self._groq_skip_until = _time.monotonic() + 3600.0
+                    print(f"⚠️  Groq auth/network blocked — skipping Groq transcription for 1h ({err[:80]})")
+                else:
+                    self._groq_skip_until = _time.monotonic() + 30.0
+                    print(f"⚠️  Groq transcription failed ({err[:80]}), falling back to OpenAI")
+                if self.client:
+                    return self._transcribe_api(audio_bytes)
+                raise
         elif self._backend == "mlx":
-            raw = self._transcribe_mlx(audio_bytes)
+            return self._transcribe_mlx(audio_bytes)
         elif self._backend == "faster":
-            raw = self._transcribe_faster(audio_bytes)
+            return self._transcribe_faster(audio_bytes)
         else:
-            raw = self._transcribe_api(audio_bytes)
+            return self._transcribe_api(audio_bytes)
+
+    def transcribe_sync(self, audio_bytes: bytes):
+        audio_bytes = _pad_audio_with_silence(audio_bytes)
+
+        # Long-recording fix: split clips over ~30 s into <= 25-30 s chunks on
+        # silence so Whisper's decoder doesn't terminate early and drop the
+        # tail (the "speaks for a minute, only the first 20 s survives + a
+        # 'Thank you for watching!' hallucination" bug). Short clips -- the
+        # common case -- come back as a single chunk and take the unchanged
+        # single-shot path.
+        chunks = _split_audio_on_silence(audio_bytes)
+        if len(chunks) > 1:
+            print(f"[whisper] long clip split into {len(chunks)} chunks for transcription")
+            parts = []
+            for idx, ch in enumerate(chunks):
+                part = self._dispatch_one(ch)
+                # Strip a hallucinated outro PER CHUNK so a fake ending Whisper
+                # tacks onto one chunk doesn't land in the middle of the joined
+                # transcript. (The trailing strip below still covers chunk N.)
+                part = _strip_hallucinations(part).strip()
+                if part:
+                    parts.append(part)
+            raw = " ".join(parts)
+        else:
+            raw = self._dispatch_one(chunks[0])
 
         cleaned = _strip_hallucinations(raw)
         if cleaned != raw:
