@@ -4,6 +4,11 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.73] - 2026-06-05
+
+### Fixed
+- **In-app updates on Windows now actually update (they were silently doing nothing).** Confirmed from a user stuck on v3.14.49 through many "successful" updates: the download worked perfectly, the installer ran, the app relaunched — but the version never changed. Root cause: Waffler runs a second `Waffler.exe` (the overlay subprocess), and the v3.14.49 updater's relaunch batch only waited for the *main* PID to exit. The overlay child stayed alive and **kept the `_internal\` Python DLLs locked**, so Inno Setup silently skipped every locked file (with `/NORESTART` it just leaves them) — the install "succeeded" without replacing anything. The give-away was a pile of `waffler_update_*.bat` scripts in `%TEMP%` that never reached their self-delete. Fix: the relaunch batch now **force-kills every `Waffler.exe`** (main + overlay + any zombie), loops until none remain, then installs with `/VERYSILENT /SUPPRESSMSGBOXES` (so a hidden "files in use" dialog can't hang the headless script) and writes an install log to `%TEMP%\waffler_install.log`. The installer itself (`Waffler.iss`) also gained `CloseApplications=force` + `AppMutex` as defense-in-depth for manual re-runs. **Note:** because the *old* updater is broken, this fix can't arrive via in-app update — install v3.14.73 manually once, and every update after it will work.
+
 ## [3.14.72] - 2026-06-05
 
 ### Added

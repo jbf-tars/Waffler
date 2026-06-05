@@ -27,6 +27,16 @@ Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
 ArchitecturesInstallIn64BitMode=x64compatible
+; v3.14.73 — when updating over a running Waffler, force-close every running
+; instance (main + overlay subprocess) via Restart Manager before copying
+; files, so locked _internal\ DLLs don't make the install silently skip them.
+; The in-app updater also force-kills Waffler.exe first; this covers manual
+; re-runs of the installer too. RestartApplications=no because the updater
+; (or the user) owns the relaunch.
+CloseApplications=force
+CloseApplicationsFilter=*.exe,*.dll,*.pyd
+RestartApplications=no
+AppMutex=Waffler-Single-Instance-Mutex-v1
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"

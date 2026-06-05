@@ -374,33 +374,31 @@ def install_and_restart(installer_path: str) -> None:
 def _install_windows(exe_path: Path) -> None:
     """Install the update and relaunch Waffler.
 
-    v3.14.49 — switched from Inno Setup's ``/RESTARTAPPLICATIONS`` flag to
-    an explicit batch-script relaunch. The old flag relied on Windows
-    Restart Manager re-spawning the processes it closed, which had two
-    failure modes the user actually hit:
+    v3.14.73 — fix "update installs but the version never changes." The
+    v3.14.49 batch waited only for the *main* Waffler PID to exit before
+    running the installer. But Waffler also spawns an **overlay subprocess**
+    (a second ``Waffler.exe --overlay``) which kept the ``_internal`` Python
+    DLLs locked. Inno Setup then silently skipped the locked files (with
+    ``/NORESTART`` it just leaves them), so the install "succeeded" without
+    replacing anything and the user stayed on the old version forever — the
+    in-app updater literally could not update itself. The leftover
+    ``waffler_update_*.bat`` scripts piling up in %TEMP% (never reaching
+    their ``del``) were the tell.
 
-      1. **"Installed but didn't reopen."** We called ``os._exit(0)`` just
-         500 ms after launching the installer. Restart Manager registers a
-         process for restart only if it's still alive when RM enumerates
-         it; our early exit killed Waffler first, so RM had nothing to
-         relaunch. Reported on the v3.14.45 update.
-      2. **Triple-instance multi-paste.** When RM *did* fire, it sometimes
-         relaunched more processes than it closed (main + overlay
-         subprocess), producing the duplicate-instance bug that the
-         v3.14.45 single-instance lock now defends against.
-
-    New approach — a detached batch script that:
-      1. Waits for the running Waffler.exe (our PID) to fully exit, so the
-         single-instance lock is released and all files are unlocked.
-      2. Runs the installer ``/SILENT /NORESTART`` (no RM restart — *we*
-         own the relaunch now).
-      3. Launches the freshly installed Waffler.exe exactly once.
-      4. Deletes itself.
+    New batch:
+      1. Force-kill ALL ``Waffler.exe`` (main + overlay child + any zombie),
+         looping until none remain, so NOTHING holds a file handle.
+      2. Settle, then run the installer ``/VERYSILENT /SUPPRESSMSGBOXES
+         /NORESTART`` — VERYSILENT shows no UI and SUPPRESSMSGBOXES
+         auto-answers any prompt, so a hidden "files in use" dialog can never
+         hang the headless (CREATE_NO_WINDOW) batch (another way the old one
+         wedged).
+      3. Write an install log to %TEMP%\\waffler_install.log so a future
+         failure is diagnosable.
+      4. Relaunch the freshly installed Waffler exactly once, then self-delete.
 
     Sleeps use ``ping`` rather than ``timeout`` because ``timeout`` needs a
-    console handle, and we spawn with ``CREATE_NO_WINDOW``. PID-liveness is
-    checked by image name ("Waffler") in the ``tasklist`` row so a digit
-    collision in the memory column can't false-match.
+    console handle and we spawn with ``CREATE_NO_WINDOW``.
 
     SECURITY: before generating/spawning the relaunch batch, the downloaded
     EXE's Authenticode signature is verified. If it is not ``Valid`` (or
@@ -411,29 +409,34 @@ def _install_windows(exe_path: Path) -> None:
     # caller catches it and the unverified installer is never run.
     _verify_windows_exe_signature(exe_path)
 
-    pid = os.getpid()
     waffler_exe = Path(sys.executable)  # current Waffler.exe; same path post-install
+    log_path = Path(tempfile.gettempdir()) / "waffler_install.log"
 
     bat = (
         "@echo off\r\n"
-        f"REM Wait for Waffler (PID {pid}) to exit so the single-instance\r\n"
-        "REM lock is released and the installer can replace locked files.\r\n"
-        ":wait_loop\r\n"
-        f'tasklist /FI "PID eq {pid}" /NH 2>NUL | find /I "Waffler" >NUL\r\n'
+        "REM Give the parent a moment to exit on its own.\r\n"
+        "ping -n 2 127.0.0.1 >NUL\r\n"
+        "REM Force-kill EVERY Waffler.exe (main + overlay subprocess) so no\r\n"
+        "REM _internal\\ file is locked when the installer overwrites it. The\r\n"
+        "REM overlay child kept the DLLs locked, which is why updates silently\r\n"
+        "REM did nothing before v3.14.73.\r\n"
+        ":kill_loop\r\n"
+        "taskkill /F /IM Waffler.exe >NUL 2>&1\r\n"
+        'tasklist /FI "IMAGENAME eq Waffler.exe" /NH 2>NUL | find /I "Waffler.exe" >NUL\r\n'
         "if not errorlevel 1 (\r\n"
         "  ping -n 2 127.0.0.1 >NUL\r\n"
-        "  goto wait_loop\r\n"
+        "  goto kill_loop\r\n"
         ")\r\n"
-        "REM Settle so Restart Manager fully releases handles.\r\n"
-        "ping -n 3 127.0.0.1 >NUL\r\n"
-        "REM Install silently; we relaunch ourselves, so NO /RESTARTAPPLICATIONS.\r\n"
-        f'"{exe_path}" /SILENT /NORESTART\r\n'
+        "REM Settle so the OS releases all file handles.\r\n"
+        "ping -n 4 127.0.0.1 >NUL\r\n"
+        "REM No UI, auto-dismiss any prompt, log for diagnosis.\r\n"
+        f'"{exe_path}" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /LOG="{log_path}"\r\n'
         "ping -n 2 127.0.0.1 >NUL\r\n"
         "REM Launch the freshly installed Waffler exactly once.\r\n"
         f'start "" "{waffler_exe}"\r\n'
         'del "%~f0"\r\n'
     )
-    bat_path = Path(tempfile.gettempdir()) / f"waffler_update_{pid}.bat"
+    bat_path = Path(tempfile.gettempdir()) / f"waffler_update_{os.getpid()}.bat"
     bat_path.write_text(bat, encoding="utf-8")
 
     DETACHED_PROCESS = 0x00000008
@@ -444,7 +447,8 @@ def _install_windows(exe_path: Path) -> None:
         close_fds=True,
         creationflags=DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW,
     )
-    # Exit promptly so the batch's wait_loop sees us die and proceeds.
+    # Exit promptly so the batch's kill_loop finds nothing to wait on and the
+    # installer runs against fully-unlocked files.
     time.sleep(0.2)
     os._exit(0)
 
