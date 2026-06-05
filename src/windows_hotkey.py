@@ -281,7 +281,7 @@ class WindowsHotkeyListener:
                 _log(f"Esc → CANCEL recording (was {self._state.value})")
                 self._state = _State.IDLE
                 self._fire_cancel()
-                self._reset_key_states()  # clean stale modifier flags
+                self._clear_key_states()  # clean slate, no stale modifiers
 
         return user32.CallNextHookEx(self._hook, nCode, wParam, lParam)
 
@@ -292,6 +292,29 @@ class WindowsHotkeyListener:
         for key_id in self._key_states:
             vk_list = KEY_TO_VK.get(key_id, [])
             self._key_states[key_id] = any(_key_down(vk) for vk in vk_list)
+        self._suppress_vks.clear()
+
+    def _clear_key_states(self):
+        """Force every configured key to 'not held' and drop the suppress set.
+
+        Called whenever a recording STOPS. Why force-clear instead of polling
+        hardware (``_reset_key_states``)? Because a Win/Alt keydown gets
+        SUPPRESSED (return 1) when it triggers the combo, and Windows then may
+        never deliver the matching key-UP to our hook — and ``GetAsyncKeyState``
+        can't see a suppressed key as down either. So both the keyup path and a
+        hardware re-poll can leave a modifier stuck 'held' in the cache. A
+        single later key (e.g. Ctrl alone) would then complete the combo from
+        stale cache and phantom-fire a recording (the user's "press Ctrl within
+        a second of finishing and Waffler goes" bug).
+
+        A finished recording means the user let go of the combo, so a clean
+        slate is correct: the next recording just needs fresh keydowns, which
+        is exactly how push-to-talk should work. This touches only the cache —
+        real keydowns rebuild it immediately — so it can never block a genuine
+        press (unlike the reverted v3.14.75 GetAsyncKeyState guard).
+        """
+        for key_id in self._key_states:
+            self._key_states[key_id] = False
         self._suppress_vks.clear()
 
     def _check_combo_press(self):
@@ -313,6 +336,7 @@ class WindowsHotkeyListener:
             self._state = _State.IDLE
             _log(f"{hotkey_display(self._keys)} → cancel STICKY, stop recording")
             self._fire_release()
+            self._clear_key_states()
 
     def _check_release(self):
         """Called when any configured key is released."""
@@ -321,8 +345,9 @@ class WindowsHotkeyListener:
                 self._state = _State.IDLE
                 _log("Key released → stop PUSH_TO_TALK")
                 self._fire_release()
-                # Reset states by polling hardware to avoid stuck keys
-                self._reset_key_states()
+                # Clean slate so a suppressed/missed Win key-up can't leave a
+                # modifier stuck 'held' and phantom-fire on the next Ctrl press.
+                self._clear_key_states()
 
     def _enter_sticky(self):
         """Space pressed during push-to-talk → switch to sticky."""

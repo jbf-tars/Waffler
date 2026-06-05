@@ -4,6 +4,11 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.77] - 2026-06-05
+
+### Fixed
+- **Phantom recording from a single Ctrl press, correctly this time (Windows).** User pinned the exact repro: finish a Win+Ctrl dictation, then press **Ctrl alone within ~1 second** and Waffler fires a phantom recording; wait longer and it's fine. Root cause: when a Win/Alt keydown triggers the combo it gets **suppressed** (the hook returns 1 to stop the Start menu), and Windows then may never deliver the matching key-**up** — so `_key_states['win']` was left stuck "held" in the cache, and a later Ctrl alone completed the combo from stale state. (The previous attempt, v3.14.75, tried to detect this by polling `GetAsyncKeyState` and broke the hotkey entirely, because the OS can't see a suppressed key as down either — reverted in v3.14.76.) The real fix is purely in our own state cache: `_clear_key_states()` resets all configured keys to not-held whenever a recording **stops** (push-to-talk release, sticky cancel, Esc). A finished recording means the combo was released, so a clean slate is correct — the next recording just needs fresh keydowns, which real key presses rebuild instantly. Because it only touches our cache and never gates a keypress, it **cannot block a genuine press** the way the reverted guard did. Covered by `tests/test_windows_hotkey_clear_on_stop.py` (no phantom even with a simulated missed Win key-up; rapid re-record still works; Ctrl-alone never fires from a clean state).
+
 ## [3.14.76] - 2026-06-05
 
 ### Reverted
