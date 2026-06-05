@@ -4,6 +4,11 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.76] - 2026-06-05
+
+### Reverted
+- **Reverted the v3.14.75 "phantom overlay" hotkey guard — it broke the hotkey entirely on Windows.** v3.14.75 added a guard that re-polled `GetAsyncKeyState` before firing the Win+Ctrl combo, to stop a stale cached modifier from triggering a phantom overlay. The fatal flaw: Waffler **suppresses the Win keydown** (returns 1 from the low-level hook to stop the Start menu opening), which means the OS never registers Win as pressed — so `GetAsyncKeyState(VK_LWIN)` reports it as *up* even while it's physically held. The guard therefore concluded "stale cache" on every legitimate press and blocked the combo, leaving the user unable to record at all. Reverted to the known-good v3.14.74 hotkey behaviour. The original phantom-overlay annoyance (pressing Ctrl alone occasionally pops a stale overlay after the hook misses a key-up) remains a known, recoverable issue — cycling the real hotkey clears it — and needs a different fix that doesn't rely on hardware polling of a suppressed key.
+
 ## [3.14.74] - 2026-06-05
 
 ### Fixed
