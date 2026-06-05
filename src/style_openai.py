@@ -265,11 +265,13 @@ Transcript: {transcript}"""
         # dictations don't get truncated mid-sentence. Cleaning typically
         # shrinks input by 10-30% but list/bullet conversions can add a few
         # characters per item, so allow ~3 output tokens per input word.
-        # Floor 1024 (default headroom for short utterances), ceiling 8192
-        # (~6000 words / ~30 minutes of continuous speech — well past any
-        # realistic single dictation).
+        # Floor 2048 (was 1024): reasoning-capable models (e.g. Cerebras
+        # gpt-oss-120b) spend some output tokens on a reasoning pass BEFORE
+        # the cleaned text. Even with reasoning_effort=low that's ~70-150
+        # tokens of overhead; the higher floor guarantees the actual text
+        # always has room. Ceiling 8192 (~6000 words / ~30 min of speech).
         word_count = max(1, len(transcript.split()))
-        self._max_out_tokens = max(1024, min(8192, word_count * 3))
+        self._max_out_tokens = max(2048, min(8192, word_count * 3))
 
         # Three-tier fallback chain. Each provider has its own skip-until
         # deadline that pauses further attempts on that provider after a 429.
@@ -380,19 +382,32 @@ Transcript: {transcript}"""
         try:
             raw_words = len(transcript.split())
             out_words = len((styled or "").split())
-            # Short utterances legitimately compress hard ("um, yeah, okay so,
-            # hi" -> "Hi"), so only guard inputs of >= 8 words.
-            if raw_words >= 8 and out_words < raw_words * 0.5:
+
+            # Signal 1 (PRECISE): the model hit its max_tokens cap. The API
+            # tells us this exactly via finish_reason == "length" — the output
+            # is DEFINITELY incomplete (cut mid-sentence), regardless of how
+            # many words survived. This is what the 17:42 COBie/postcode bug
+            # was: Cerebras gpt-oss-120b kept 85/130 words (65%, above the
+            # ratio guard below) but finish_reason was "length". Catch it.
+            finish_reason = (usage or {}).get("finish_reason")
+            length_truncated = finish_reason == "length"
+
+            # Signal 2 (HEURISTIC): the model silently dropped most content
+            # (e.g. judged a mic-check "meaningless"). Only for >= 8 words.
+            ratio_truncated = raw_words >= 8 and out_words < raw_words * 0.5
+
+            if length_truncated or ratio_truncated:
+                why = "finish_reason=length" if length_truncated else f"kept {out_words}/{raw_words} words"
                 print(
-                    f"[styler] truncation-guard: output kept {out_words}/{raw_words} "
-                    f"words — using basic_clean to preserve content",
+                    f"[styler] truncation-guard ({why}) — using basic_clean "
+                    f"to preserve all content",
                     flush=True,
                 )
                 guarded = self._basic_clean(transcript)
                 usage = dict(usage or {})
                 usage["api_used"] = False
                 usage["provider"] = "basic_clean"
-                usage["truncation_guard"] = f"{out_words}/{raw_words}"
+                usage["truncation_guard"] = why
                 return guarded, usage
         except Exception as e:
             print(f"[styler] truncation-guard error (ignored): {e}", flush=True)
@@ -550,6 +565,7 @@ Transcript: {transcript}"""
             "output_tokens": usage.completion_tokens if usage else 0,
             "api_used": True,
             "provider": "groq",
+            "finish_reason": response.choices[0].finish_reason,
         }
 
     def _style_cerebras(self, prompt: str, start_time: float):
@@ -566,6 +582,13 @@ Transcript: {transcript}"""
             "trailing fragment, not a manufactured summary. Only keep these phrases if the "
             "speaker literally said them out loud. Return only the cleaned text, no commentary."
         )
+        # reasoning_effort=low is CRITICAL for gpt-oss-120b. It's a reasoning
+        # model: without this it spends 1000+ output tokens "thinking" before
+        # emitting any cleaned text, blows the max_tokens budget, and returns
+        # truncated (or empty) output — confirmed live, finish_reason=length,
+        # 1024 completion tokens, 0 words of actual output. With it, reasoning
+        # drops to ~70 tokens and the full faithful text comes back. Sent via
+        # extra_body so non-reasoning models that ignore it don't 400.
         try:
             response = self._cerebras_client.chat.completions.create(
                 model=self._cerebras_model,
@@ -575,6 +598,7 @@ Transcript: {transcript}"""
                 ],
                 max_tokens=getattr(self, "_max_out_tokens", 4096),
                 temperature=0.1,
+                extra_body={"reasoning_effort": "low"},
             )
         except Exception as e:
             error_msg = str(e)
@@ -621,6 +645,7 @@ Transcript: {transcript}"""
             "output_tokens": usage.completion_tokens if usage else 0,
             "api_used": True,
             "provider": "cerebras",
+            "finish_reason": response.choices[0].finish_reason,
         }
 
     def _pick_openai_model(self, transcript: str) -> str:
@@ -686,6 +711,7 @@ Transcript: {transcript}"""
                 "output_tokens": usage.completion_tokens if usage else 0,
                 "api_used": True,
                 "provider": "openai",
+                "finish_reason": response.choices[0].finish_reason,
             }
         except Exception as e:
             print(f"GPT styling error: {e}")

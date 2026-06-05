@@ -4,6 +4,11 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.74] - 2026-06-05
+
+### Fixed
+- **Cleanup no longer chops off the end of longer dictations (Cerebras reasoning-model truncation).** A 130-word dictation came back as 85 words, cut off mid-sentence at "…but surely their one should". Root cause, confirmed with a live API test: the Cerebras default model `gpt-oss-120b` is a **reasoning model** — it spends output tokens "thinking" before emitting the cleaned text. Measured live: with no reasoning control it burned **1,243 completion tokens** on reasoning for a one-line cleanup, blowing the `max_tokens` budget so the actual text was truncated (`finish_reason=length`, sometimes **0 words** of real output). Three-part fix: (1) send `reasoning_effort=low` to Cerebras — drops reasoning from ~1,100 tokens to ~70 and lets the full text complete; (2) raised the output-token floor 1024 → 2048 for headroom; (3) added a precise **`finish_reason=="length"` truncation guard** across all three providers (Groq / Cerebras / OpenAI) — if a model ever hits its token cap, Waffler now falls back to the lightly-cleaned raw transcript so it keeps **every word** instead of silently dropping the tail. The old guard only caught drops below 50%; this one had kept 65% (85/130) and slipped through. Verified end-to-end: the exact failing input now returns all 131 words, ending correctly.
+
 ## [3.14.73] - 2026-06-05
 
 ### Fixed
