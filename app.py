@@ -755,6 +755,7 @@ class Api:
             "language":              stored.get("language", "en"),
             "dialect":               stored.get("dialect", "auto"),
             "auto_paste":            stored.get("auto_paste", True),
+            "provider_order":        stored.get("provider_order", ["groq", "cerebras", "openai"]),
         }
 
     def save_settings(self, settings: dict) -> dict:
@@ -804,6 +805,24 @@ class Api:
             if "auto_paste" in settings:
                 stored["auto_paste"] = bool(settings["auto_paste"])
                 notes.append(f"Auto-paste: {'on' if settings['auto_paste'] else 'off'}")
+
+            # ── Provider fallback order ──────────────────────────────────────
+            # A list like ["cerebras","groq","openai"]. Persisted AND applied
+            # live to the running pipeline so reordering takes effect on the
+            # very next dictation — no restart needed.
+            if "provider_order" in settings and isinstance(settings["provider_order"], list):
+                from style_openai import _normalize_provider_order
+                order = _normalize_provider_order(settings["provider_order"])
+                stored["provider_order"] = order
+                if _pipeline:
+                    try:
+                        _pipeline.styler._provider_order = order
+                        _pipeline.transcriber._cloud_order = [
+                            p for p in order if p in ("groq", "openai")
+                        ]
+                    except Exception as _e:
+                        _log_to_file(f"provider_order live-apply failed: {_e}")
+                notes.append(f"Provider order: {' → '.join(order)}")
 
             self._save_settings_file(stored)
             return {"ok": True, "notes": notes}
@@ -2315,13 +2334,26 @@ class WafflerPipeline:
         if not groq_key and not openai_key:
             raise ValueError("At least one API key is required (Groq or OpenAI)")
 
-        # Transcriber — Groq Whisper (fast) → OpenAI Whisper (fallback).
+        # User-configurable provider fallback order (Settings → Provider
+        # order). Read once here and handed to both the transcriber and the
+        # styler. None -> each uses its canonical default (Groq first).
+        _provider_order = None
+        try:
+            _sf = DATA_DIR / "settings.json"
+            if _sf.exists():
+                _provider_order = json.loads(_sf.read_text(encoding="utf-8")).get("provider_order")
+        except Exception:
+            _provider_order = None
+
+        # Transcriber — Groq Whisper (fast) → OpenAI Whisper (fallback), in the
+        # user's configured order (Cerebras auto-skipped — no speech-to-text).
         # OpenAI model defaults to gpt-4o-mini-transcribe (half the cost of
         # whisper-1 and noticeably better quality). Override via
         # OPENAI_WHISPER_MODEL env var.
         self.transcriber = WhisperTranscriber(
             api_key=openai_key,
             groq_api_key=groq_key,
+            provider_order=_provider_order,
         )
         _log_to_file(f"Transcriber backend: {self.transcriber._backend}")
 
@@ -2341,6 +2373,7 @@ class WafflerPipeline:
             prompt_style=config.prompt_style,
             groq_api_key=groq_key,
             cerebras_api_key=cerebras_key,
+            provider_order=_provider_order,
         )
         _log_to_file(
             f"Styler chain: cerebras={'yes' if self.styler._use_cerebras else 'no'}"

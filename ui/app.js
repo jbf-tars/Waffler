@@ -1209,6 +1209,58 @@ function showPage(page) {
   }
 }
 
+// ── Provider fallback order ──────────────────────────────────────────────
+// Reorderable list of cleanup/transcription providers. The user sets the
+// order; Waffler tries them top-to-bottom. Persisted + applied live via
+// save_settings({provider_order}). Cerebras is tagged "cleanup only" because
+// it has no speech-to-text endpoint (it's skipped for the transcription step).
+let _providerOrder = ['groq', 'cerebras', 'openai'];
+
+const _PROVIDER_META = {
+  cerebras: { label: 'Cerebras', tag: 'cleanup only', note: 'Fastest cleanup' },
+  groq:     { label: 'Groq',     tag: '',             note: 'Fast · free tier' },
+  openai:   { label: 'OpenAI',   tag: '',             note: 'Reliable fallback' },
+};
+
+function renderProviderOrder() {
+  const host = document.getElementById('providerOrderList');
+  if (!host) return;
+  host.innerHTML = _providerOrder.map((p, i) => {
+    const m = _PROVIDER_META[p] || { label: p, tag: '', note: '' };
+    const tag = m.tag ? `<span class="po-tag">${m.tag}</span>` : '';
+    const up = i === 0 ? 'disabled' : '';
+    const down = i === _providerOrder.length - 1 ? 'disabled' : '';
+    return `
+      <div class="provider-order-item">
+        <span class="po-rank">${i + 1}</span>
+        <span class="po-name">${m.label} ${tag}<span class="po-note">${m.note}</span></span>
+        <span class="po-controls">
+          <button class="po-btn" ${up} onclick="moveProvider('${p}', -1)" title="Move up">&#9650;</button>
+          <button class="po-btn" ${down} onclick="moveProvider('${p}', 1)" title="Move down">&#9660;</button>
+        </span>
+      </div>`;
+  }).join('');
+}
+
+async function moveProvider(name, delta) {
+  const i = _providerOrder.indexOf(name);
+  if (i < 0) return;
+  const j = i + delta;
+  if (j < 0 || j >= _providerOrder.length) return;
+  [_providerOrder[i], _providerOrder[j]] = [_providerOrder[j], _providerOrder[i]];
+  renderProviderOrder();
+  try {
+    const r = await pywebview.api.save_settings({ provider_order: _providerOrder });
+    if (r && r.ok) {
+      showToast('Provider order: ' + _providerOrder.map(p => (_PROVIDER_META[p] || {label:p}).label).join(' → '), 'success');
+    } else {
+      showToast('Could not save provider order', 'error');
+    }
+  } catch (e) {
+    showToast('Could not save provider order', 'error');
+  }
+}
+
 // ── Settings Load ────────────────────────────────────────────────────────
 async function loadSettings() {
   try {
@@ -1268,6 +1320,12 @@ async function loadSettings() {
                   s.styling_backend === 'openai' ? 'OpenAI GPT-4.1-mini' :
                   s.styling_backend || 'unknown';
       backendInfo.textContent = `STT: ${stt} · LLM: ${llm}`;
+    }
+
+    // Provider fallback order (reorderable list)
+    if (Array.isArray(s.provider_order)) {
+      _providerOrder = s.provider_order.slice();
+      renderProviderOrder();
     }
 
     // Local Whisper

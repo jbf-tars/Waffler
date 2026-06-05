@@ -4,6 +4,14 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.72] - 2026-06-05
+
+### Added
+- **Choose your own provider fallback order (Settings → Provider Order).** The order Waffler tried providers in was hardcoded (Groq → Cerebras → OpenAI). Now there's a reorderable list in Settings — move Cerebras / Groq / OpenAI up or down and Waffler tries them top-to-bottom. Put your fast paid provider first to avoid free-tier slowdowns. Applies to **both** the transcription and cleanup steps from one unified list; takes effect on the next recording with **no restart** (it live-applies to the running pipeline). Cerebras is tagged "cleanup only" and auto-skipped for transcription because it has no speech-to-text endpoint — only Groq and OpenAI offer Whisper.
+
+### Fixed
+- **A wedged provider can no longer hang a dictation for minutes.** The OpenAI SDK's default request timeout is 600 seconds — a real recording showed a cleanup call stuck for **602 seconds (10 minutes)** before it gave up, blocking the whole dictation. Every cloud client (Groq / Cerebras / OpenAI, transcription and cleanup) now has an explicit timeout (30 s cleanup, 60 s transcription) and `max_retries=0`, so a slow or hung provider is abandoned quickly and Waffler fails over to the next one in your order instead of stalling. This is the main cause of the "sometimes it takes ages to process" reports.
+
 ## [3.14.71] - 2026-06-05
 
 ### Fixed

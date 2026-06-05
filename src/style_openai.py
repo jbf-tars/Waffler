@@ -27,12 +27,54 @@ except ImportError:
     pass
 
 
+# Per-request timeout (seconds) for the cleanup LLM call. The OpenAI SDK
+# default is 600 s (10 minutes) — that's the source of the "styling took
+# 602347 ms" hangs in the wild: a wedged provider blocked the whole
+# dictation for ten minutes instead of failing over. 30 s is far longer
+# than a healthy cleanup call (typ. 0.5-2 s) but short enough that a hung
+# provider is abandoned fast and we move to the next one in the order.
+_STYLE_TIMEOUT_S = 30.0
+
+# Canonical provider order used when the user hasn't configured one.
+# Groq first preserves its free daily quota before any paid Cerebras
+# tokens are spent; OpenAI last as the always-available backstop.
+_DEFAULT_PROVIDER_ORDER = ["groq", "cerebras", "openai"]
+
+
+def _normalize_provider_order(order) -> list:
+    """Return a clean [groq, cerebras, openai] permutation from user input.
+
+    Accepts a list/tuple of provider names in any case, drops unknowns and
+    duplicates, and appends any missing providers in canonical order so the
+    result is always a full 3-element fallback chain. Bad input -> default.
+    """
+    valid = ["groq", "cerebras", "openai"]
+    out = []
+    try:
+        for p in (order or []):
+            p = str(p).strip().lower()
+            if p in valid and p not in out:
+                out.append(p)
+    except Exception:
+        return list(_DEFAULT_PROVIDER_ORDER)
+    for p in _DEFAULT_PROVIDER_ORDER:
+        if p not in out:
+            out.append(p)
+    return out
+
+
 class OpenAIStyler:
-    """Styles transcripts — Groq Llama 3.3 70B → Cerebras gpt-oss-120b → OpenAI fallback."""
+    """Styles transcripts via a configurable provider fallback chain.
+
+    Default order Groq -> Cerebras -> OpenAI; the user can reorder it (see
+    ``provider_order``). Each provider call has a 30 s timeout so a wedged
+    provider fails over instead of hanging the dictation.
+    """
 
     def __init__(self, api_key: str = "", model: str = "gpt-4.1-mini",
                  max_tokens: int = 1024, prompt_style: str = "normal",
-                 groq_api_key: str = "", cerebras_api_key: str = ""):
+                 groq_api_key: str = "", cerebras_api_key: str = "",
+                 provider_order=None):
         self.api_key = api_key
         # Default styling model: gpt-4.1-mini.
         # Benchmark against the user's actual failing case (May 2026):
@@ -56,7 +98,14 @@ class OpenAIStyler:
         self.prompt_style = prompt_style
         self.groq_api_key = groq_api_key
         self.cerebras_api_key = cerebras_api_key
-        self.client = OpenAI(api_key=api_key) if api_key else None
+        # User-configurable fallback order (Settings → Provider order).
+        self._provider_order = _normalize_provider_order(provider_order)
+        # 30 s timeout + no SDK-level retries so a hung provider fails over
+        # to the next in the order fast (see _STYLE_TIMEOUT_S).
+        self.client = (
+            OpenAI(api_key=api_key, timeout=_STYLE_TIMEOUT_S, max_retries=0)
+            if api_key else None
+        )
         self._groq_client = None
         self._use_groq = False
         self._cerebras_client = None
@@ -86,6 +135,8 @@ class OpenAIStyler:
                 self._cerebras_client = OpenAI(
                     api_key=cerebras_api_key,
                     base_url="https://api.cerebras.ai/v1",
+                    timeout=_STYLE_TIMEOUT_S,
+                    max_retries=0,
                 )
                 self._use_cerebras = True
                 import os as _os
@@ -96,7 +147,9 @@ class OpenAIStyler:
 
         # Priority 2: Groq for styling if available
         if groq_api_key and _groq_mod:
-            self._groq_client = _groq_mod.Groq(api_key=groq_api_key)
+            self._groq_client = _groq_mod.Groq(
+                api_key=groq_api_key, timeout=_STYLE_TIMEOUT_S, max_retries=0
+            )
             self._use_groq = True
             self._groq_model = "llama-3.3-70b-versatile"
             print(f"Styling fallback: Groq {self._groq_model}")
@@ -242,52 +295,61 @@ Transcript: {transcript}"""
 
         failures: list[tuple[str, str]] = []  # (provider, error_str)
 
-        # Priority 1: Groq Llama 3.3 70B — free tier preserved.
-        if self._use_groq:
-            if time.monotonic() >= self._groq_skip_until:
-                try:
-                    _styled, _usage = self._style_groq(prompt, start_time)
-                    return self._guard_truncation(_styled, _usage, transcript)
-                except Exception as e:
-                    self._log_provider_failure("Groq", e)
-                    failures.append(("Groq", str(e)))
-            else:
-                # Groq is enabled but in cooldown from a previous 429.
-                # Synthesise a RATE_LIMIT-flavoured reason so the toast
-                # can still explain it.
+        # Try each configured provider in the user's chosen order. Each entry
+        # knows how to (a) check it's usable, (b) report a cooldown reason, and
+        # (c) run the actual cleanup. First success returns; otherwise we fall
+        # through to basic_clean with the most informative failure reason.
+        def _try_groq():
+            if not self._use_groq:
+                return None
+            if time.monotonic() < self._groq_skip_until:
                 wait_s = max(0, int(self._groq_skip_until - time.monotonic()))
-                failures.append((
-                    "Groq",
-                    f"RATE_LIMIT|cooldown|{wait_s}s|Groq still in cooldown from previous limit",
-                ))
+                failures.append(("Groq", f"RATE_LIMIT|cooldown|{wait_s}s|Groq still in cooldown from previous limit"))
+                return None
+            try:
+                _styled, _usage = self._style_groq(prompt, start_time)
+                return self._guard_truncation(_styled, _usage, transcript)
+            except Exception as e:
+                self._log_provider_failure("Groq", e)
+                failures.append(("Groq", str(e)))
+                return None
 
-        # Priority 2: Cerebras gpt-oss-120b — paid tier, ~500ms even on
-        # long inputs.
-        if self._use_cerebras:
-            if time.monotonic() >= self._cerebras_skip_until:
-                try:
-                    _styled, _usage = self._style_cerebras(prompt, start_time)
-                    return self._guard_truncation(_styled, _usage, transcript)
-                except Exception as e:
-                    self._log_provider_failure("Cerebras", e)
-                    failures.append(("Cerebras", str(e)))
-            else:
+        def _try_cerebras():
+            if not self._use_cerebras:
+                return None
+            if time.monotonic() < self._cerebras_skip_until:
                 wait_s = max(0, int(self._cerebras_skip_until - time.monotonic()))
-                failures.append((
-                    "Cerebras",
-                    f"RATE_LIMIT|cooldown|{wait_s}s|Cerebras still in cooldown",
-                ))
+                failures.append(("Cerebras", f"RATE_LIMIT|cooldown|{wait_s}s|Cerebras still in cooldown"))
+                return None
+            try:
+                _styled, _usage = self._style_cerebras(prompt, start_time)
+                return self._guard_truncation(_styled, _usage, transcript)
+            except Exception as e:
+                self._log_provider_failure("Cerebras", e)
+                failures.append(("Cerebras", str(e)))
+                return None
 
-        # Priority 3: OpenAI gpt-4.1-mini — last-resort fallback only.
-        # Skip entirely if no client is configured so we don't crash on a
-        # NoneType call and lose the real failure reason.
-        if self.client is not None:
+        def _try_openai():
+            # Skip entirely if no client is configured so we don't crash on a
+            # NoneType call and lose the real failure reason.
+            if self.client is None:
+                return None
             try:
                 _styled, _usage = self._style_openai(prompt, transcript, start_time)
                 return self._guard_truncation(_styled, _usage, transcript)
             except Exception as e:
                 self._log_provider_failure("OpenAI", e)
                 failures.append(("OpenAI", str(e)))
+                return None
+
+        _dispatch = {"groq": _try_groq, "cerebras": _try_cerebras, "openai": _try_openai}
+        for _name in self._provider_order:
+            _fn = _dispatch.get(_name)
+            if _fn is None:
+                continue
+            _result = _fn()
+            if _result is not None:
+                return _result
 
         # ── All providers exhausted ─────────────────────────────────
         # Pick the most informative reason and fall back to basic_clean.

@@ -560,18 +560,48 @@ def _strip_hallucinations(text: str) -> str:
     return stripped
 
 
-class WhisperTranscriber:
-    """Transcribes audio — Groq (fastest) → local → OpenAI API (fallback).
+# Per-request timeout (seconds) for a single transcription call. A chunked
+# clip is <= ~30 s of audio, which Groq/OpenAI Whisper turn around in 1-5 s;
+# 60 s is generous headroom but still abandons a wedged provider fast so we
+# fail over to the next instead of hanging the dictation.
+_TRANSCRIBE_TIMEOUT_S = 60.0
 
-    Priority:
-      1. Groq Whisper  (GROQ_API_KEY set + groq SDK installed)
-      2. mlx-whisper   (Mac Apple Silicon + LOCAL_WHISPER=1)
-      3. faster-whisper (Windows/Intel + LOCAL_WHISPER=1)
-      4. OpenAI Whisper API (always available, needs internet)
+
+def _normalize_transcriber_order(order) -> list:
+    """Return a clean provider permutation from user input for transcription.
+
+    Mirrors the styler's normalizer: dedupes, lowercases, drops unknowns, and
+    appends any missing canonical providers. Cerebras is kept here (so the
+    relative order is preserved) but the caller filters it out because it has
+    no speech-to-text endpoint. Bad input -> canonical default.
+    """
+    valid = ["groq", "cerebras", "openai"]
+    default = ["groq", "cerebras", "openai"]
+    out = []
+    try:
+        for p in (order or []):
+            p = str(p).strip().lower()
+            if p in valid and p not in out:
+                out.append(p)
+    except Exception:
+        return list(default)
+    for p in default:
+        if p not in out:
+            out.append(p)
+    return out
+
+
+class WhisperTranscriber:
+    """Transcribes audio via a configurable cloud provider order + local fallbacks.
+
+    Cloud transcribers (Groq Whisper, OpenAI Whisper) are tried in the user's
+    configured ``provider_order`` (Cerebras is skipped — it has no speech-to-text
+    API). On-device backends (mlx / faster-whisper, gated by LOCAL_WHISPER=1)
+    take precedence when enabled. Each cloud call has a 60 s timeout.
     """
 
     def __init__(self, api_key: str = "", model: str = "",
-                 groq_api_key: str = ""):
+                 groq_api_key: str = "", provider_order=None):
         self.api_key = api_key
         # Default to the newer, cheaper, better gpt-4o-mini-transcribe ($0.003/min
         # vs whisper-1's $0.006/min). Users can override via the OPENAI_WHISPER_MODEL
@@ -581,7 +611,17 @@ class WhisperTranscriber:
             model = os.getenv("OPENAI_WHISPER_MODEL", "gpt-4o-mini-transcribe")
         self.model   = model
         self.groq_api_key = groq_api_key
-        self.client  = OpenAI(api_key=api_key) if api_key else None
+        # Cloud transcriber order, filtered to providers that can do
+        # speech-to-text (groq, openai). Cerebras has no Whisper endpoint so
+        # it's dropped here; the relative order of groq vs openai is honoured.
+        self._cloud_order = [
+            p for p in _normalize_transcriber_order(provider_order)
+            if p in ("groq", "openai")
+        ]
+        self.client  = (
+            OpenAI(api_key=api_key, timeout=_TRANSCRIBE_TIMEOUT_S, max_retries=0)
+            if api_key else None
+        )
         self._groq_client = None
         # Monotonic-clock deadline: until this timestamp, skip Groq entirely
         # and call OpenAI directly. Set when Groq returns a 403/401/auth error
@@ -593,7 +633,9 @@ class WhisperTranscriber:
 
         # Try Groq first (fastest cloud option)
         if groq_api_key and _groq_mod:
-            self._groq_client = _groq_mod.Groq(api_key=groq_api_key)
+            self._groq_client = _groq_mod.Groq(
+                api_key=groq_api_key, timeout=_TRANSCRIBE_TIMEOUT_S, max_retries=0
+            )
             self._backend = "groq"
             print("⚡ Transcription: Groq Whisper (fastest)")
         elif _USE_LOCAL and _mlx_whisper:
@@ -611,44 +653,64 @@ class WhisperTranscriber:
             print("⚠️  No transcription backend available")
 
     def _dispatch_one(self, audio_bytes: bytes) -> str:
-        """Transcribe ONE already-padded/chunked WAV blob via the configured
-        backend, with the Groq->OpenAI fallback + 403/auth circuit-breaker.
+        """Transcribe ONE already-padded/chunked WAV blob.
+
+        On-device backends (mlx / faster-whisper) take precedence when enabled.
+        Otherwise cloud transcribers (Groq Whisper, OpenAI Whisper) are tried in
+        the user's configured order, with the Groq 403/auth circuit-breaker.
 
         Extracted from ``transcribe_sync`` so the long-recording chunk loop can
         call it per chunk without duplicating the fallback logic.
         """
-        if self._backend == "groq":
-            import time as _time
-            # Circuit-breaker: if a recent Groq call returned 403/auth, skip
-            # straight to OpenAI for the rest of the cool-down window.
-            # Saves the 150-300 ms wasted round-trip per recording when a
-            # VPN exit IP is blocking Groq at the network layer.
-            if _time.monotonic() < self._groq_skip_until and self.client:
-                return self._transcribe_api(audio_bytes)
-            try:
-                return self._transcribe_groq(audio_bytes)
-            except Exception as e:
-                err = str(e)
-                # Auth/network block — cool down for an hour. Anything
-                # else (transient 5xx, rate-limit, connection blip) gets
-                # a shorter 30 s skip so we recover quickly.
-                if any(s in err for s in ("403", "401")) or any(
-                    s in err.lower() for s in ("access denied", "unauthorized", "permission")
-                ):
-                    self._groq_skip_until = _time.monotonic() + 3600.0
-                    print(f"⚠️  Groq auth/network blocked — skipping Groq transcription for 1h ({err[:80]})")
-                else:
-                    self._groq_skip_until = _time.monotonic() + 30.0
-                    print(f"⚠️  Groq transcription failed ({err[:80]}), falling back to OpenAI")
-                if self.client:
-                    return self._transcribe_api(audio_bytes)
-                raise
-        elif self._backend == "mlx":
+        # On-device backends are an explicit local choice — order doesn't apply.
+        if self._backend == "mlx":
             return self._transcribe_mlx(audio_bytes)
-        elif self._backend == "faster":
+        if self._backend == "faster":
             return self._transcribe_faster(audio_bytes)
-        else:
+
+        # Cloud path: walk the configured cloud order (groq / openai), honouring
+        # the Groq 403/auth cooldown, and fall through to the next available.
+        import time as _time
+        order = self._cloud_order or ["groq", "openai"]
+        last_err = None
+        for prov in order:
+            if prov == "groq":
+                if self._groq_client is None:
+                    continue
+                # Circuit-breaker: skip Groq during its auth/network cooldown.
+                if _time.monotonic() < self._groq_skip_until:
+                    continue
+                try:
+                    return self._transcribe_groq(audio_bytes)
+                except Exception as e:
+                    last_err = e
+                    err = str(e)
+                    if any(s in err for s in ("403", "401")) or any(
+                        s in err.lower() for s in ("access denied", "unauthorized", "permission")
+                    ):
+                        self._groq_skip_until = _time.monotonic() + 3600.0
+                        print(f"⚠️  Groq auth/network blocked — skipping Groq transcription for 1h ({err[:80]})")
+                    else:
+                        self._groq_skip_until = _time.monotonic() + 30.0
+                        print(f"⚠️  Groq transcription failed ({err[:80]}), trying next provider")
+                    continue
+            elif prov == "openai":
+                if self.client is None:
+                    continue
+                try:
+                    return self._transcribe_api(audio_bytes)
+                except Exception as e:
+                    last_err = e
+                    print(f"⚠️  OpenAI transcription failed ({str(e)[:80]}), trying next provider")
+                    continue
+
+        # Nothing in the order worked. Re-raise the last real error, or fall
+        # back to whatever single backend was configured at init.
+        if last_err is not None:
+            raise last_err
+        if self.client is not None:
             return self._transcribe_api(audio_bytes)
+        raise RuntimeError("no transcription backend available")
 
     def transcribe_sync(self, audio_bytes: bytes):
         audio_bytes = _pad_audio_with_silence(audio_bytes)

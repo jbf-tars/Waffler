@@ -178,7 +178,7 @@
       <div class="settings-section">
         <div class="settings-section-title">⚡ API Keys</div>
         <div class="settings-row-desc" style="margin-bottom:8px;font-size:12px;opacity:0.75;">
-          Tried in order: <strong>Groq → Cerebras → OpenAI</strong>. Groq goes first so its free tier is used before any paid tokens; Cerebras and OpenAI catch the overflow.
+          Add any one or more. The order Waffler tries them in is set in <strong>Provider Order</strong> below.
         </div>
         <div class="settings-row">
           <div class="settings-row-info">
@@ -216,6 +216,15 @@
             <div class="settings-row-desc" id="backendInfo">Loading...</div>
           </div>
         </div>
+      </div>
+
+      <!-- Provider Order Section -->
+      <div class="settings-section">
+        <div class="settings-section-title">🔀 Provider Order</div>
+        <div class="settings-row-desc" style="margin-bottom:10px;font-size:12px;opacity:0.75;">
+          Waffler tries these top-to-bottom and uses the first that responds. Put your fastest (or paid) provider first to avoid free-tier slowdowns. Takes effect on your next recording — no restart needed.
+        </div>
+        <div id="providerOrderList" class="provider-order-list"></div>
       </div>
 
       <!-- Hotkey Section -->
