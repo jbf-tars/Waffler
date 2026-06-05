@@ -4,6 +4,11 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.75] - 2026-06-05
+
+### Fixed
+- **Phantom overlay from a single Ctrl press (stale-modifier bug, Windows).** User reported pressing *just* Ctrl (not the full Win+Ctrl hotkey) popped a stale Waffler overlay that did nothing and only cleared after cycling the real hotkey. Root cause: the low-level keyboard hook can miss a key-up (focus change, a suppressed Win keydown, or an OS gesture eating the event), leaving a modifier stuck "held" in the listener's cached key-state. With Win stuck-cached-True, pressing Ctrl alone completed the combo *from stale cache* → fired a phantom recording → showed the overlay. Fix: `_check_combo_press` now re-polls the **actual hardware key state** (`GetAsyncKeyState`) before committing — if any configured key isn't physically down, the cache is stale, so it resyncs from hardware and bails without firing. Covered by `tests/test_windows_hotkey_stale_guard.py` (stale cache → no fire; genuine combo → fires).
+
 ## [3.14.74] - 2026-06-05
 
 ### Fixed

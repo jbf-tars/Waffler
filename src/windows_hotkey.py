@@ -299,6 +299,25 @@ class WindowsHotkeyListener:
         if not self._all_keys_held():
             return
 
+        # Guard against a STALE cached key-state. The low-level keyboard hook
+        # can miss a key-up — a focus change, a suppressed Win keydown, or an
+        # OS gesture eating the event — leaving a modifier stuck "held" in our
+        # cache. Then pressing a single other key (e.g. Ctrl alone) would
+        # wrongly complete the combo from stale cache and pop a phantom overlay
+        # with no real recording: the "I pressed Ctrl and a stale Waffler
+        # overlay appeared, nothing happened" bug. Before committing, re-poll
+        # the ACTUAL hardware state via GetAsyncKeyState. If any configured key
+        # isn't physically down right now, the cache lied — resync from
+        # hardware and bail without firing.
+        for key_id in self._keys:
+            if not any(_key_down(vk) for vk in KEY_TO_VK.get(key_id, [])):
+                _log(
+                    f"Combo press IGNORED — '{key_id}' not physically held "
+                    f"(stale cached state); resyncing from hardware"
+                )
+                self._reset_key_states()
+                return
+
         # Block new recordings while transcription is still processing
         if self._busy and self._state == _State.IDLE:
             _log("Combo ignored — still processing")
