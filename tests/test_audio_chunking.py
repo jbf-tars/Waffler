@@ -53,6 +53,15 @@ def _wav_duration(b: bytes) -> float:
         return w.getnframes() / float(w.getframerate())
 
 
+def test_normal_dictation_not_chunked():
+    """v3.14.79: normal dictations (<= 150s) go single-shot. A 64s clip — the
+    length that was being WRONGLY chunked into empty pieces — must NOT split.
+    Groq Whisper transcribes these fully in one call (proven live)."""
+    clip = _wav(_tone(64.0))
+    chunks = _split_audio_on_silence(clip)
+    assert chunks == [clip], f"64s clip should be single-shot, got {len(chunks)} chunks"
+
+
 def test_short_clip_untouched():
     """A 10s clip is below threshold -> returned as a single unchanged chunk."""
     clip = _wav(_tone(10.0))
@@ -60,21 +69,21 @@ def test_short_clip_untouched():
     assert chunks == [clip], "short clip must pass through unchanged"
 
 
-def test_long_clip_splits_on_silence():
-    """40s tone + 1s silence + 40s tone -> at least 2 chunks, each <= ~31s."""
-    audio = np.concatenate([_tone(40.0), _silence(1.0), _tone(40.0)])
+def test_very_long_clip_splits_on_silence():
+    """Only genuinely huge clips (> 150s) split. 120s + 1s silence + 120s ->
+    >= 2 chunks, each <= ~151s (the file-size safety net for 12-min recordings)."""
+    audio = np.concatenate([_tone(120.0), _silence(1.0), _tone(120.0)])
     clip = _wav(audio)
     chunks = _split_audio_on_silence(clip)
-    assert len(chunks) >= 2, f"expected split, got {len(chunks)} chunk(s)"
+    assert len(chunks) >= 2, f"expected split for 241s clip, got {len(chunks)} chunk(s)"
     for c in chunks:
-        assert _wav_duration(c) <= 31.5, f"chunk too long: {_wav_duration(c):.1f}s"
+        assert _wav_duration(c) <= 151.5, f"chunk too long: {_wav_duration(c):.1f}s"
 
 
-def test_split_preserves_audio_length():
-    """Total chunk duration must be within ~1.5s of the original (silence at
-    cut points may be trimmed, but speech must not be dropped)."""
+def test_very_long_split_preserves_audio_length():
+    """A >150s clip splits without dropping speech (within ~2s at cut points)."""
     audio = np.concatenate(
-        [_tone(26.0), _silence(0.6), _tone(26.0), _silence(0.6), _tone(20.0)]
+        [_tone(110.0), _silence(0.6), _tone(110.0), _silence(0.6), _tone(40.0)]
     )
     clip = _wav(audio)
     orig = _wav_duration(clip)
@@ -84,14 +93,14 @@ def test_split_preserves_audio_length():
     assert len(chunks) >= 2
 
 
-def test_continuous_loud_clip_force_cut_no_crash():
-    """A 70s continuous tone with NO silence still gets bounded chunks via the
+def test_continuous_loud_long_clip_force_cut_no_crash():
+    """A 320s continuous tone with NO silence still gets bounded chunks via the
     hard force-cut, and never raises."""
-    clip = _wav(_tone(70.0))
+    clip = _wav(_tone(320.0))
     chunks = _split_audio_on_silence(clip)
     assert len(chunks) >= 2
     for c in chunks:
-        assert _wav_duration(c) <= 31.5
+        assert _wav_duration(c) <= 151.5
 
 
 def test_malformed_input_degrades_to_single_shot():
@@ -101,9 +110,10 @@ def test_malformed_input_degrades_to_single_shot():
 
 
 if __name__ == "__main__":
+    test_normal_dictation_not_chunked()
     test_short_clip_untouched()
-    test_long_clip_splits_on_silence()
-    test_split_preserves_audio_length()
-    test_continuous_loud_clip_force_cut_no_crash()
+    test_very_long_clip_splits_on_silence()
+    test_very_long_split_preserves_audio_length()
+    test_continuous_loud_long_clip_force_cut_no_crash()
     test_malformed_input_degrades_to_single_shot()
     print("All audio-chunking tests passed.")

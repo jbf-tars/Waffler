@@ -393,29 +393,34 @@ def _pad_audio_with_silence(audio_bytes: bytes, padding_ms: int = 300) -> bytes:
 
 def _split_audio_on_silence(
     audio_bytes: bytes,
-    target_chunk_s: float = 25.0,
-    hard_max_s: float = 30.0,
+    target_chunk_s: float = 120.0,
+    hard_max_s: float = 150.0,
     window_ms: int = 30,
     min_silence_run_ms: int = 300,
 ) -> list:
-    """Split a long WAV clip into <= ~hard_max_s chunks, cutting at quiet points.
+    """Split a VERY long WAV clip into <= ~hard_max_s chunks at quiet points.
 
-    THE LONG-RECORDING FIX. Whisper's decoder terminates early on long audio
-    (>~30 s): it transcribes the first ~20-30 s, emits an end-of-transcript
-    token that surfaces as a hallucinated outro ("Thank you for watching!",
-    "and so on", "and others"), and silently drops the remaining audio. The
-    user speaks for 90 s, the clip is fully captured (2-3 MB on disk), but the
-    transcript comes back with only the first third plus a fake ending.
+    v3.14.79 — threshold raised from 30 s to 150 s after the 30 s version made
+    things WORSE, not better. The original premise (Whisper truncates clips
+    over ~30 s) turned out to be false for Groq Whisper: live tests transcribed
+    51 s, 64 s and 111 s real recordings FULLY and correctly in a single call.
+    Meanwhile the 30 s chunking actively caused truncation — it split one
+    reliable Groq call into 3+ separate calls, and on a rate-limited free tier
+    (or when a silence boundary left a chunk mostly quiet) the later chunks came
+    back nearly empty (observed live: a 55.5 s clip -> chunks of 70 / 9 / 0
+    words). The inconsistency the user saw (lost content at the start, middle,
+    or end) was exactly this: whichever chunk degraded.
 
-    Splitting the clip into <= 25-30 s pieces sidesteps the failure entirely:
-    each chunk is short enough that the decoder runs to completion. Cutting on
-    *silence* (a quiet run >= ``min_silence_run_ms``) rather than a fixed
-    offset avoids slicing through the middle of a word.
+    So chunking is now reserved for genuinely huge clips that risk the provider
+    file-size limit (Groq/OpenAI cap ~25 MB; Waffler auto-stops at 12 min ≈
+    23 MB). Anything <= 150 s — i.e. every normal dictation — goes single-shot,
+    which is what reliably transcribes the whole thing. When a clip IS long
+    enough to split, chunks are ~120 s (proven to transcribe fully) to keep the
+    number of calls minimal. Cutting on *silence* still avoids slicing words.
 
-    Returns a list of WAV-byte chunks (each independently transcribable). For
-    clips already short enough, unusual formats, or any error, returns
-    ``[audio_bytes]`` unchanged -- i.e. the current single-shot path, so short
-    recordings (the common case) are completely unaffected.
+    Returns a list of WAV-byte chunks. For clips short enough (the overwhelming
+    common case), unusual formats, or any error, returns ``[audio_bytes]``
+    unchanged — the single-shot path.
     """
     import io
     import wave

@@ -4,6 +4,11 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.79] - 2026-06-09
+
+### Fixed
+- **Transcriptions no longer cut off — the chunking "fix" was the cause, now corrected.** Using the audio captured by the v3.14.78 diagnostic build, I ran the user's *actual* recordings through Groq Whisper directly: 51s, 64s and a 111s clip all transcribed **fully and correctly in a single call**. Groq Whisper does **not** truncate long audio. The real culprit was the client-side chunking added in v3.14.71 (on a false premise): it split one reliable Groq call into 3+ separate calls, and on the rate-limited free tier — or when a silence boundary left a chunk mostly quiet — the later chunks returned nearly empty. The new logging caught it red-handed: a 55.5s clip came back as chunks of **70 / 9 / 0 words**. That's exactly why the loss was inconsistent (sometimes the start, middle, or end) — it depended on which chunk degraded. **Fix:** raised the chunking threshold from 30s to **150s**, so every normal dictation now goes single-shot (the path that reliably transcribes the whole thing). Chunking is reserved only for genuinely huge clips (>150s) that risk the provider's ~25 MB file-size limit, and those now use ~120s chunks (proven to transcribe fully) to minimise calls. Verified end-to-end against the user's real 64s and 111s audio: full transcripts, correct endings. The temporary debug audio-saving from v3.14.78 has been removed.
+
 ## [3.14.78] - 2026-06-05
 
 ### Diagnostics

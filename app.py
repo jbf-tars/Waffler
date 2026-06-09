@@ -2723,25 +2723,6 @@ class WafflerPipeline:
             _log_to_file("[pipeline] stopping audio capture...")
             audio_bytes = self.audio.stop()
             _log_to_file(f"[pipeline] audio captured: {len(audio_bytes) if audio_bytes else 0} bytes")
-
-            # v3.14.78 DIAGNOSTIC — save the raw recording WAV so a truncated
-            # transcription can be re-tested against the *actual* audio (clean
-            # TTS won't reproduce the sporadic Whisper early-termination). Keeps
-            # the last 8 recordings, rotating, under ~/.waffler-hosted/debug_audio/.
-            try:
-                if audio_bytes and len(audio_bytes) > 44:
-                    _dbg_dir = DATA_DIR / "debug_audio"
-                    _dbg_dir.mkdir(parents=True, exist_ok=True)
-                    _ts = datetime.now().strftime("%H%M%S")
-                    (_dbg_dir / f"rec_{_ts}_{recording_duration:.0f}s.wav").write_bytes(audio_bytes)
-                    _existing = sorted(_dbg_dir.glob("rec_*.wav"))
-                    for _old in _existing[:-8]:
-                        try:
-                            _old.unlink()
-                        except Exception:
-                            pass
-            except Exception as _e:
-                _log_to_file(f"[pipeline] debug-audio save failed (ignored): {_e}")
             if not audio_bytes:
                 _log_to_file("No audio bytes captured")
                 # Only show error toast if recording was held for > 1 second
