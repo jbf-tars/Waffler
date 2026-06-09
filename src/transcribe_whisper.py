@@ -397,6 +397,7 @@ def _split_audio_on_silence(
     hard_max_s: float = 150.0,
     window_ms: int = 30,
     min_silence_run_ms: int = 300,
+    max_single_shot_bytes: int = 24 * 1024 * 1024,
 ) -> list:
     """Split a VERY long WAV clip into <= ~hard_max_s chunks at quiet points.
 
@@ -411,12 +412,15 @@ def _split_audio_on_silence(
     words). The inconsistency the user saw (lost content at the start, middle,
     or end) was exactly this: whichever chunk degraded.
 
-    So chunking is now reserved for genuinely huge clips that risk the provider
-    file-size limit (Groq/OpenAI cap ~25 MB; Waffler auto-stops at 12 min ≈
-    23 MB). Anything <= 150 s — i.e. every normal dictation — goes single-shot,
-    which is what reliably transcribes the whole thing. When a clip IS long
-    enough to split, chunks are ~120 s (proven to transcribe fully) to keep the
-    number of calls minimal. Cutting on *silence* still avoids slicing words.
+    v3.14.80 — the trigger is now FILE SIZE, not duration. Chunking is reserved
+    purely for clips that would breach the provider upload limit (Groq/OpenAI
+    cap ~25 MB). At 16 kHz mono 16-bit (32 KB/s) the 24 MB threshold is ~12.5
+    min, and Waffler auto-stops at 12 min, so in practice NOTHING ever splits —
+    every real dictation goes single-shot, which is what reliably transcribes
+    the whole thing. The split logic is retained only as a safety net so an
+    unexpectedly huge upload degrades gracefully instead of erroring. When a
+    clip IS large enough to split, chunks are ~120 s (proven to transcribe
+    fully). Cutting on *silence* still avoids slicing words.
 
     Returns a list of WAV-byte chunks. For clips short enough (the overwhelming
     common case), unusual formats, or any error, returns ``[audio_bytes]``
@@ -435,9 +439,17 @@ def _split_audio_on_silence(
         nframes = params.nframes
         duration = nframes / float(framerate) if framerate else 0.0
 
-        # Short clip or format we don't handle -> leave it alone.
+        # Single-shot unless the FILE itself is large enough to risk the
+        # provider upload limit. Whisper transcribes multi-minute clips fully in
+        # one call, so chunking now exists ONLY as a last-resort guard against
+        # the ~25 MB file-size cap — not as a duration limit. At 16 kHz mono
+        # 16-bit (32 KB/s) the 24 MB threshold is ~12.5 min, and Waffler
+        # auto-stops recording at 12 min, so in practice NOTHING here ever
+        # splits: every real dictation goes single-shot. (Splitting by
+        # *duration* used to cause the very truncation it was meant to prevent —
+        # see the module history above. This is the "chunking removed" change.)
         if (
-            duration <= hard_max_s
+            len(audio_bytes) <= max_single_shot_bytes
             or sampwidth != 2
             or nchannels != 1
             or nframes == 0

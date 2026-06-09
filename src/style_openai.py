@@ -351,12 +351,16 @@ Transcript: {transcript}"""
                 continue
             _result = _fn()
             if _result is not None:
-                return _result
+                _styled, _usage = _result
+                # Deterministic email layout so the greeting/sign-off sit on
+                # their own lines regardless of which provider produced the
+                # text (previously left to the LLM -> inconsistent Mac vs PC).
+                return self._format_email_layout(_styled), _usage
 
         # ── All providers exhausted ─────────────────────────────────
         # Pick the most informative reason and fall back to basic_clean.
         best = self._pick_best_failure_reason(failures)
-        return self._basic_clean(transcript), {
+        return self._format_email_layout(self._basic_clean(transcript)), {
             "input_tokens": 0, "output_tokens": 0,
             "api_used": False, "provider": "basic_clean",
             "fallback_reason": best,
@@ -823,6 +827,46 @@ Transcript: {transcript}"""
     _GREETING_WORDS = ("hi", "hello", "hey", "dear", "howdy", "good morning",
                        "good afternoon", "good evening", "yo")
 
+    # ── Deterministic email layout (v3.14.80) ──────────────────────────────
+    # Line-break placement in styled emails used to be left entirely to the
+    # LLM, so the SAME dictation came out formatted on one provider and run-on
+    # on another — e.g. Cerebras put the sign-off on its own line while another
+    # model glued "Thank you, James." onto the previous sentence. That made the
+    # output differ between a user's Mac and PC (which land on different
+    # providers). These regexes let _format_email_layout enforce the layout in
+    # code, so it's identical on every machine and provider.
+    #
+    # A sign-off GLUED to the final sentence by a space (NOT a newline): a
+    # sentence end [.!?], one-or-more spaces/tabs, a recognised closing phrase,
+    # an OPTIONAL name (1-3 capitalised words), an optional trailing . or !,
+    # then the very end of the text. The space-not-newline boundary means an
+    # already correctly-formatted sign-off (preceded by \n) never matches, so
+    # the pass is idempotent and won't touch good output.
+    _EMAIL_GLUED_SIGNOFF_RE = re.compile(
+        r"(?i)"
+        r"(?P<body_end>[.!?])"
+        r"[ \t]+"
+        r"(?P<signoff>"
+        r"(?:thank you so much|thanks so much|thank you|thanks again|thanks a lot|"
+        r"many thanks|thanks|kindest regards|kind regards|warmest regards|"
+        r"warm regards|best regards|best wishes|all the best|regards|cheers|"
+        r"speak to you soon|speak soon|talk soon|yours sincerely|yours faithfully|"
+        r"yours truly|sincerely|best)"
+        r"(?:[ \t]*,?[ \t]+[A-Z][\w.'’-]*(?:[ \t]+[A-Z][\w.'’-]*){0,2})?"
+        r"[ \t]*[.!]?"
+        r"[ \t]*$"
+        r")"
+    )
+
+    # A greeting at the very start, captured up to its first comma (e.g.
+    # "Hi Jamie,", "Hello team,", "Dear Sir/Madam,"). Used to push a greeting
+    # glued to the first sentence onto its own line.
+    _EMAIL_GREETING_LEAD_RE = re.compile(
+        r"(?i)^[ \t]*(?P<greeting>"
+        r"(?:hi|hii|hiya|hey|heya|hello|dear|good\s+morning|good\s+afternoon|"
+        r"good\s+evening)\b[^,\n]{0,40}?,)"
+    )
+
     def _raw_starts_with_greeting(self, raw: str) -> bool:
         head = raw.lstrip().lower()
         return any(head.startswith(w) for w in self._GREETING_WORDS)
@@ -1000,3 +1044,51 @@ Transcript: {transcript}"""
         cleaned = re.sub(r"\b([A-Za-z]+)(?:\s+\1\b)+", r"\1", cleaned, flags=re.IGNORECASE)
 
         return re.sub(r'\s+', ' ', cleaned).strip()
+
+    # ── Deterministic email layout ─────────────────────────────────────────
+    def _format_email_layout(self, text: str) -> str:
+        """Put an email greeting and sign-off each on their own line, in code.
+
+        Runs on the FINAL styled output regardless of which LLM produced it, so
+        every provider and machine yields the same layout (this is the fix for
+        "works on my PC but the sign-off is glued onto one line on my Mac").
+
+        Conservative by design: only reflows text that is already email- or
+        multi-paragraph-shaped, and the sign-off matcher requires the closing to
+        be glued to a real sentence end and sit at the very end of the text. A
+        one-line note that merely ends with "thanks Bob" is left untouched.
+        """
+        if not text or not text.strip():
+            return text
+        # Gate: only touch email/multi-paragraph-shaped text. A single-line
+        # note with no greeting is never reflowed.
+        looks_emailish = ("\n" in text) or bool(
+            self._EMAIL_GREETING_LEAD_RE.match(text.lstrip())
+        )
+        if not looks_emailish:
+            return text
+        out = self._split_trailing_signoff(text)
+        out = self._split_leading_greeting(out)
+        out = self._TRIPLE_NL_RE.sub("\n\n", out)
+        return out.strip()
+
+    def _split_trailing_signoff(self, text: str) -> str:
+        """Promote a sign-off glued to the last sentence onto its own paragraph."""
+        m = self._EMAIL_GLUED_SIGNOFF_RE.search(text)
+        if not m:
+            return text
+        body = text[: m.start()].rstrip()
+        return body + m.group("body_end") + "\n\n" + m.group("signoff").strip()
+
+    def _split_leading_greeting(self, text: str) -> str:
+        """Push a greeting glued to the first sentence onto its own line."""
+        head, sep, tail = text.partition("\n")
+        m = self._EMAIL_GREETING_LEAD_RE.match(head)
+        if not m:
+            return text
+        greeting = m.group("greeting").strip()
+        after = head[m.end():].strip()
+        if not after:
+            return text  # greeting already alone on its line
+        rebuilt = after + (("\n" + tail) if sep else "")
+        return greeting + "\n\n" + rebuilt
