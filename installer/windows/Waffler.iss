@@ -44,6 +44,22 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional icons:"; Flags: unchecked
 
+[InstallDelete]
+; Wipe the previous _internal before the new one is copied. [Files] below uses
+; ignoreversion/recursesubdirs, which overwrites and adds but NEVER removes
+; orphans, so anything dropped from a later build survived every upgrade. A
+; v3.14.79 install was found still carrying: 14 src modules deleted back around
+; v2.0.1; a python313.dll plus 211 cp313 .pyd files from a Python 3.13-era build
+; (releases ship on 3.11, so none of them can even load); and a 23 MB
+; WafflerOverlay bundle from an overlay architecture nothing has referenced for
+; months. Deleting the folder first makes every install start from exactly what
+; the build produced.
+;
+; Scope is deliberately only _internal: {app} itself keeps its uninstaller, and
+; user data lives in ~/.waffler-hosted and ~/.waffler, not here. CloseApplications
+; above has already force-closed any running instance before this runs.
+Type: filesandordirs; Name: "{app}\_internal"
+
 [Files]
 ; Resolve from this .iss location (installer\windows\) back to repo root
 Source: "..\..\dist\Waffler\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs

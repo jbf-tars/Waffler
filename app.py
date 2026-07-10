@@ -81,6 +81,7 @@ from audio_devices import (
     get_selected_device_name,
 )
 from app_detection import get_active_app
+from log_util import transcript_for_log
 
 
 # ── Overlay Mode Handler ──────────────────────────────────────────────
@@ -2084,6 +2085,15 @@ def _log_to_file(msg: str):
     print(msg)
 
 
+def _transcripts_loggable() -> bool:
+    """True only when the user opted into transcript text in app.log.
+
+    Fails closed while `_config` is still None, so anything logged during early
+    startup cannot leak speech even if config later turns the flag on.
+    """
+    return bool(_config and _config.log_transcripts)
+
+
 def _wizard_on_press():
     """Wizard hotkey press — start recording."""
     global _wizard_recording, _wizard_result
@@ -2179,8 +2189,12 @@ def _wizard_on_release():
 
         transcript = _wizard_transcriber.transcribe_sync(audio_bytes) if _wizard_transcriber else ""
         _wizard_result = transcript or "(Empty transcription)"
-        # Metadata only — don't log the transcript text (PII; ships in the bundle).
-        _log_to_file(f"Wizard transcription: {len(_wizard_result)} chars")
+        # Length only unless logging.log_transcripts is on. app.log ships inside
+        # the "Download Logs" bundle, so speech stays out of it by default.
+        _log_to_file(
+            f"Wizard transcription: "
+            f"{transcript_for_log(_wizard_result, allowed=_transcripts_loggable())}"
+        )
         _push_wizard_result(_wizard_result)
     except Exception as e:
         _wizard_result = f"(Error: {e})"
@@ -3189,10 +3203,14 @@ class WafflerPipeline:
             notify_js_status("done")
             notify_js_new_item(item)
 
-            # Log metadata only — never the transcript text. app.log is what
-            # the "Download Logs" diagnostic bundle ships, so logging content
-            # here would leak the user's dictations to anyone they send logs to.
+            # Metadata only. app.log is what the "Download Logs" diagnostic
+            # bundle ships, so logging content here would leak the user's
+            # dictations to anyone they send logs to. Setting
+            # logging.log_transcripts: true adds the styled text on the line
+            # below - opt-in, for chasing truncation bugs like v3.14.78's.
             _log_to_file(f"Done: {len(styled.split())} words, {len(styled)} chars")
+            if _transcripts_loggable():
+                _log_to_file(f"Styled text: {styled}")
             _finalized = True
 
         except Exception as e:

@@ -36,3 +36,18 @@ def log(msg: str) -> None:
     except Exception:
         pass
     print(msg)
+
+
+def transcript_for_log(text: str, *, allowed: bool) -> str:
+    """Render a transcript for ``app.log``, redacting the words unless allowed.
+
+    ``app.log`` is the file ``download_logs`` zips into a bug report, so
+    transcribed speech must not reach it unless the user opts in with
+    ``logging.log_transcripts: true``. Callers pass ``allowed`` explicitly
+    rather than reading config in here: modules under ``src/`` must not depend
+    on app-level state, and a required keyword makes the leak hard to
+    reintroduce by accident.
+    """
+    if allowed:
+        return text
+    return f"{len(text)} chars"

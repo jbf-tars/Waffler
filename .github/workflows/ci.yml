@@ -94,6 +94,16 @@ jobs:
           PYTHONPATH: src
         run: python tests/test_audio_stream_lifecycle.py
 
+      - name: Transcript privacy gate test
+        # logging.log_transcripts sat in config.yaml for months with no code
+        # reading it, while v3.14.79's wizard path sliced 80 characters of the
+        # user's speech into app.log - the file "Download Logs" ships to
+        # whoever they send a bug report to. These tests pin the gate shut and
+        # fail if a raw transcript slice ever comes back.
+        env:
+          PYTHONPATH: src
+        run: python -m pytest tests/test_log_transcripts.py -q
+
       - name: CHANGELOG matches src/__init__.py version
         # Catches the easy mistake of bumping __version__ and shipping a tag
         # without adding the corresponding CHANGELOG entry. CHANGELOG drift

@@ -4,6 +4,17 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **`logging.log_transcripts` is a real flag now, rather than a promise nothing kept.** It has sat in `config.yaml` since the open-source prep spec asked for it ("Don't log transcribed speech unless `logging.log_transcripts: true`") without a single line of code ever reading the key. It now gates whether transcript text may be written to `app.log` - the file `download_logs` bundles into a bug report, and therefore the file a user hands to a stranger. The default `false` preserves today's behaviour exactly: lengths only, never words. Set it to `true` to chase a transcription bug the way v3.14.78 was hand-instrumented, then set it back. `history.json` is deliberately untouched - that is the History feature, and `download_logs` already excludes it as PII. The flag fails closed: a missing key, a missing `logging:` block, or a non-boolean value all read as `false`. Pinned by `tests/test_log_transcripts.py` (now run in CI), including a regression guard against the v3.14.79 wizard path that interpolated `_wizard_result[:80]` straight into the log.
+
+### Fixed
+- **Upgrades no longer leave dead files behind in the install directory.** `installer/windows/Waffler.iss` copies each new build over the old one with `ignoreversion recursesubdirs`, which overwrites and adds files but never removes orphans, so anything dropped from a later build survived forever. A live v3.14.79 install was found still carrying 14 `src/*.py` modules deleted back around v2.0.1; a `python313.dll` and 211 `cp313` `.pyd` files left behind by a Python 3.13-era build (releases ship on 3.11, so none of them can even load); and a 23 MB `WafflerOverlay` bundle from an overlay architecture nothing has referenced in months. A new `[InstallDelete]` step wipes `{app}\_internal` before the new files land, so every install starts from exactly what the build produced. Scope is only `_internal` - the uninstaller stays, and user data in `~/.waffler-hosted` / `~/.waffler` is never touched.
+
+### Removed
+- **`.github/workflows/build-windows.yml`.** A stale duplicate of `windows-release.yml`. It triggered on `release: created` - an event `windows-release.yml` itself causes - and then failed every time it ran: it installed `requirements-windows.txt` (the file is `requirements_windows.txt`), pinned Python 3.9, and zipped `dist/Waffler.exe` although the onedir build emits `dist/Waffler/Waffler.exe`. `windows-release.yml` already builds and publishes the real Inno Setup installer.
+
 ## [3.14.80] - 2026-06-09
 
 ### Fixed

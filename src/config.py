@@ -109,3 +109,16 @@ class Config:
     @property
     def notifications_enabled(self) -> bool:
         return self.get('notifications.enabled', True)
+
+    @property
+    def log_transcripts(self) -> bool:
+        """Whether transcript TEXT may be written to app.log.
+
+        Fails closed. Only a real YAML ``true`` counts as consent - a missing
+        key, a missing ``logging:`` block, the quoted string "true", or a stray
+        1 all read as False. app.log ships inside the "Download Logs"
+        bug-report bundle, so the safe answer to an ambiguous config is always
+        "don't write the user's speech to disk". Set it to true to debug a
+        transcription problem, the way v3.14.78 was hand-instrumented.
+        """
+        return self.get('logging.log_transcripts', False) is True

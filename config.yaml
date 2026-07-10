@@ -19,4 +19,7 @@ notifications:
 logging:
   enabled: true
   level: "INFO"  # DEBUG, INFO, WARNING, ERROR
-  log_transcripts: false  # Privacy: don't log transcripts by default
+  # Privacy: transcript text stays out of app.log unless this is true.
+  # app.log is what "Download Logs" bundles into a bug report. Turn this on
+  # only to debug a transcription problem, then turn it back off.
+  log_transcripts: false
