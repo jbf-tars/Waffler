@@ -4,7 +4,7 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [3.14.81] - 2026-07-10
 
 ### Added
 - **`logging.log_transcripts` is a real flag now, rather than a promise nothing kept.** It has sat in `config.yaml` since the open-source prep spec asked for it ("Don't log transcribed speech unless `logging.log_transcripts: true`") without a single line of code ever reading the key. It now gates whether transcript text may be written to `app.log` - the file `download_logs` bundles into a bug report, and therefore the file a user hands to a stranger. The default `false` preserves today's behaviour exactly: lengths only, never words. Set it to `true` to chase a transcription bug the way v3.14.78 was hand-instrumented, then set it back. `history.json` is deliberately untouched - that is the History feature, and `download_logs` already excludes it as PII. The flag fails closed: a missing key, a missing `logging:` block, or a non-boolean value all read as `false`. Pinned by `tests/test_log_transcripts.py` (now run in CI), including a regression guard against the v3.14.79 wizard path that interpolated `_wizard_result[:80]` straight into the log.
