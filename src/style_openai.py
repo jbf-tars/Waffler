@@ -33,7 +33,41 @@ except ImportError:
 # dictation for ten minutes instead of failing over. 30 s is far longer
 # than a healthy cleanup call (typ. 0.5-2 s) but short enough that a hung
 # provider is abandoned fast and we move to the next one in the order.
-_STYLE_TIMEOUT_S = 30.0
+# Per-provider cap on a single cleanup call. Was 30.0, which let ONE hung
+# provider stall a dictation for half a minute — and with a 3-provider chain,
+# two hops could stack to 60-78s (observed live). 15s still leaves generous
+# headroom over every measured healthy p95 (all < 6s).
+_STYLE_TIMEOUT_S = 15.0
+
+# Overall wall-clock budget for the WHOLE styling step (all fallback attempts).
+#
+# The bug this fixes: there was only ever a PER-PROVIDER timeout, never an
+# aggregate one, so style() would keep grinding down the fallback chain until
+# something answered — 30s, 60s, 78s. The documented promise that Waffler
+# "pastes raw if the cleanup doesn't come through" therefore almost never
+# fired: it only triggers when EVERY provider fails outright (9 times in 2347
+# recordings), whereas 42 recordings sat >10s and 24 sat >30s because a
+# provider eventually won. Users waited instead of getting their words.
+#
+# Scaled to input length on purpose. A flat 10-12s cap would CLIP legitimate
+# long dictations: _max_out_tokens scales to 8192 and a 70B model at ~270
+# tok/s can genuinely need ~30s to clean a very long transcript. So: an 8s
+# base plus ~30ms/word, floored at 12s and capped at 30s.
+#   30 words -> 12s | 300 words -> 17s | 1000+ words -> 30s
+_STYLE_DEADLINE_FLOOR_S = 12.0
+_STYLE_DEADLINE_CAP_S = 30.0
+_STYLE_DEADLINE_BASE_S = 8.0
+_STYLE_DEADLINE_PER_WORD_S = 0.03
+
+# Don't start a provider call with less than this left on the clock — a
+# sub-second attempt just burns the remainder and still fails.
+_STYLE_MIN_ATTEMPT_S = 1.5
+
+
+def _style_deadline_for(word_count: int) -> float:
+    """Overall styling budget (seconds), scaled to transcript length."""
+    scaled = _STYLE_DEADLINE_BASE_S + max(0, word_count) * _STYLE_DEADLINE_PER_WORD_S
+    return max(_STYLE_DEADLINE_FLOOR_S, min(_STYLE_DEADLINE_CAP_S, scaled))
 
 # Canonical provider order used when the user hasn't configured one.
 # Groq first preserves its free daily quota before any paid Cerebras
@@ -273,6 +307,13 @@ Transcript: {transcript}"""
         word_count = max(1, len(transcript.split()))
         self._max_out_tokens = max(2048, min(8192, word_count * 3))
 
+        # Arm the overall styling budget. Every provider attempt below is
+        # bounded by whatever is LEFT on this clock, so the whole step can't
+        # outrun it no matter how the fallback chain goes. When it runs out we
+        # stop trying and paste the raw transcript — which is the behaviour
+        # that was promised but never actually fired (see _STYLE_DEADLINE_*).
+        self._deadline_at = time.monotonic() + _style_deadline_for(word_count)
+
         # Three-tier fallback chain. Each provider has its own skip-until
         # deadline that pauses further attempts on that provider after a 429.
         #
@@ -349,6 +390,16 @@ Transcript: {transcript}"""
             _fn = _dispatch.get(_name)
             if _fn is None:
                 continue
+            # Aggregate budget guard: never START another provider once the
+            # clock is spent. Without this the chain grinds on provider after
+            # provider (30s each) and the user waits instead of getting text.
+            if self._budget_left() < _STYLE_MIN_ATTEMPT_S:
+                failures.append((
+                    "deadline",
+                    f"TIMEOUT|styling budget exhausted after "
+                    f"{_style_deadline_for(word_count):.0f}s - pasted raw",
+                ))
+                break
             _result = _fn()
             if _result is not None:
                 _styled, _usage = _result
@@ -365,6 +416,23 @@ Transcript: {transcript}"""
             "api_used": False, "provider": "basic_clean",
             "fallback_reason": best,
         }
+
+    def _budget_left(self) -> float:
+        """Seconds left on the overall styling budget.
+
+        Returns the per-provider cap when no budget is armed (e.g. a provider
+        method called directly in a test), so the absence of a deadline never
+        accidentally starves a call.
+        """
+        deadline = getattr(self, "_deadline_at", None)
+        if deadline is None:
+            return float(_STYLE_TIMEOUT_S)
+        return max(0.0, deadline - time.monotonic())
+
+    def _attempt_timeout(self) -> float:
+        """Timeout for the next provider call: the per-provider cap, clamped to
+        whatever remains of the overall budget so one call can't overrun it."""
+        return max(0.1, min(_STYLE_TIMEOUT_S, self._budget_left()))
 
     def _guard_truncation(self, styled, usage, transcript):
         """Backstop against the model silently deleting most of the content.
@@ -501,6 +569,9 @@ Transcript: {transcript}"""
                 ],
                 max_tokens=getattr(self, "_max_out_tokens", 4096),
                 temperature=0.1,
+                # Bounded by whatever is LEFT of the overall styling budget, so
+                # this call can never overrun the deadline (see _attempt_timeout).
+                timeout=self._attempt_timeout(),
             )
         except Exception as e:
             error_msg = str(e)
@@ -603,6 +674,9 @@ Transcript: {transcript}"""
                 max_tokens=getattr(self, "_max_out_tokens", 4096),
                 temperature=0.1,
                 extra_body={"reasoning_effort": "low"},
+                # Bounded by whatever is LEFT of the overall styling budget, so
+                # this call can never overrun the deadline (see _attempt_timeout).
+                timeout=self._attempt_timeout(),
             )
         except Exception as e:
             error_msg = str(e)
@@ -693,6 +767,9 @@ Transcript: {transcript}"""
                 ],
                 max_tokens=getattr(self, "_max_out_tokens", 4096),
                 temperature=0.1,
+                # Bounded by whatever is LEFT of the overall styling budget, so
+                # this call can never overrun the deadline (see _attempt_timeout).
+                timeout=self._attempt_timeout(),
             )
             styled = response.choices[0].message.content.strip()
             # Fix mid-sentence capitalization bug

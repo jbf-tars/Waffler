@@ -8,8 +8,11 @@ detached from the current process, then exits the current app.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import os
 import plistlib
+import re
 import shutil
 import subprocess
 import sys
@@ -44,6 +47,11 @@ _state = {
     "done": False,
     "error": None,
     "path": None,
+    # Authenticity: the URL we pulled from, and the SHA-256 GitHub published
+    # for that asset. Resolved in-process (never accepted from the JS bridge)
+    # and enforced in install_and_restart() before anything is executed.
+    "source_url": None,
+    "expected_digest": None,
 }
 
 
@@ -74,6 +82,8 @@ def _reset_state():
             done=False,
             error=None,
             path=None,
+            source_url=None,
+            expected_digest=None,
         )
 
 
@@ -84,6 +94,7 @@ def start_download(url: str) -> None:
             return
         _reset_state()
         _state["active"] = True
+        _state["source_url"] = url
 
     t = threading.Thread(target=_download_worker, args=(url,), daemon=True)
     t.start()
@@ -108,6 +119,19 @@ def _download_worker(url: str) -> None:
     dest = Path(tempfile.gettempdir()) / f"waffler-update-{os.getpid()}-{name}"
     partial = dest.with_suffix(dest.suffix + ".partial")
     _log(f"download start: {url[:80]}... -> {partial}")
+
+    # Resolve the SHA-256 GitHub published for this asset, here in Python —
+    # deliberately NOT taken from the webview JS bridge, so a tampered bridge
+    # call can't hand us a digest matching a file it chose. A failure here is
+    # not fatal yet: install_and_restart() retries and fails closed if it
+    # still can't verify.
+    try:
+        digest = _expected_digest_for_url(url)
+        with _state_lock:
+            _state["expected_digest"] = digest
+        _log(f"expected digest from GitHub: {digest or '(unavailable)'}")
+    except Exception as e:
+        _log(f"could not fetch expected digest (will retry at install): {e}")
 
     try:
         if sys.platform == "darwin":
@@ -253,11 +277,115 @@ def _download_with_requests(url: str, partial: Path, dest: Path) -> None:
 # them could not propagate back to the caller. Doing the checks here is what
 # makes "fail closed" actually hold.
 #
-# This project does not record an expected SHA-256 of the artifact anywhere,
-# so we do not invent one; the platform code-signature checks below are the
-# authoritative trust anchor (Developer ID / notarization on macOS,
-# Authenticode on Windows).
+# TRUST ANCHOR (v3.14.82): the SHA-256 digest GitHub publishes for every
+# release asset. We fetch it from the GitHub API *in this process* and require
+# the downloaded bytes to match it exactly. That proves the artifact is
+# byte-identical to the one the release published, and fails closed on any
+# mismatch, malformed digest, or missing digest.
+#
+# Why not Authenticode on Windows? Because it could never pass. Waffler's
+# Windows installers are NOT code-signed (there is no Windows signing cert in
+# CI — only the Mac build is signed/notarized), so `Get-AuthenticodeSignature`
+# returns 'NotSigned' and the old fail-closed check aborted EVERY auto-update
+# after a successful 100% download. Windows auto-update was therefore broken
+# from the day the check landed; users sat stranded on old versions. On Windows
+# the signature is now advisory (logged), and the digest is what's enforced.
+#
+# Honest limitation: a digest fetched from the same GitHub API is a weaker
+# anchor than a real code signature. It proves "these bytes are what the
+# release published", NOT "a holder of our private key built this" — so an
+# attacker who compromised the GitHub repo could publish a malicious artifact
+# *and* its matching digest. A code-signing certificate (e.g. Azure Trusted
+# Signing) would resist that; when one exists, restore the hard Authenticode
+# gate below. Until then this is the strongest anchor available, and strictly
+# better than the status quo of an update path that can never install.
+#
+# macOS keeps its Developer ID / notarization checks (those DO pass) *in
+# addition* to the digest check.
 # ---------------------------------------------------------------------------
+
+# https://github.com/<owner>/<repo>/releases/download/<tag>/<asset>[?query]
+_RELEASE_ASSET_RE = re.compile(
+    r"^https://github\.com/([^/]+)/([^/]+)/releases/download/([^/]+)/([^/?#]+)"
+)
+
+
+def _parse_release_asset_url(url: str):
+    """Split a GitHub release-asset URL into (owner, repo, tag, asset_name).
+
+    Returns None for anything that is not an https github.com release-asset
+    URL. GitHub's signed-redirect URLs carry a query string; it is stripped.
+    """
+    m = _RELEASE_ASSET_RE.match((url or "").strip())
+    if not m:
+        return None
+    return m.group(1), m.group(2), m.group(3), m.group(4)
+
+
+def _expected_digest_for_url(url: str):
+    """Fetch the SHA-256 digest GitHub published for this release asset.
+
+    Returns e.g. ``"sha256:029098f1..."``, or None if it cannot be resolved.
+    Queried straight from the GitHub API in-process — never accepted from the
+    webview JS bridge (see the module note above).
+    """
+    parts = _parse_release_asset_url(url)
+    if not parts:
+        return None
+    owner, repo, tag, asset_name = parts
+    r = requests.get(
+        f"https://api.github.com/repos/{owner}/{repo}/releases/tags/{tag}",
+        timeout=15,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "User-Agent": _USER_AGENT,
+        },
+    )
+    if r.status_code != 200:
+        return None
+    for asset in (r.json() or {}).get("assets", []) or []:
+        if asset.get("name") == asset_name:
+            return asset.get("digest") or None
+    return None
+
+
+def _sha256_file(path: Path) -> str:
+    """Stream the file through SHA-256 (chunked — installers are ~33 MB)."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _verify_artifact_digest(path: Path, expected) -> None:
+    """Require the downloaded artifact to match GitHub's published SHA-256.
+
+    FAIL CLOSED: a missing, malformed, or non-matching digest raises, so an
+    unverified artifact is never executed.
+    """
+    if not expected or not isinstance(expected, str):
+        raise RuntimeError(
+            "no expected SHA-256 digest available for the downloaded update; "
+            "refusing to run an unverified installer"
+        )
+    algo, _, hexdigest = expected.strip().partition(":")
+    hexdigest = hexdigest.strip().lower()
+    if (
+        algo.strip().lower() != "sha256"
+        or len(hexdigest) != 64
+        or any(c not in "0123456789abcdef" for c in hexdigest)
+    ):
+        raise RuntimeError(
+            f"malformed expected digest {expected!r}; refusing to install"
+        )
+    actual = _sha256_file(path)
+    if not hmac.compare_digest(actual, hexdigest):
+        raise RuntimeError(
+            f"SHA-256 digest mismatch for {path.name}: expected "
+            f"{hexdigest[:16]}..., got {actual[:16]}... — refusing to install"
+        )
+    _log(f"SHA-256 digest verified for {path.name}: {actual[:16]}...")
 
 
 def _verify_macos_app_signature(app_path: Path) -> None:
@@ -304,19 +432,23 @@ def _verify_macos_app_signature(app_path: Path) -> None:
     _log(f"signature verification passed: {app_path}")
 
 
-def _verify_windows_exe_signature(exe_path: Path) -> None:
-    """Verify a Windows installer's Authenticode signature is Valid.
+def _log_windows_signature_status(exe_path: Path) -> None:
+    """Report the installer's Authenticode status. ADVISORY — never raises.
 
-    Uses PowerShell ``Get-AuthenticodeSignature`` and requires
-    ``Status -eq 'Valid'``. If PowerShell is missing or the call errors,
-    raises ``RuntimeError`` (fail closed — we do NOT run an unverified EXE).
+    This used to require ``Status -eq 'Valid'`` and fail closed. Waffler's
+    Windows installers are unsigned, so it returned 'NotSigned' and aborted
+    EVERY auto-update after a fully successful download — Windows auto-update
+    could never work. The enforced trust anchor is now the SHA-256 digest check
+    in ``install_and_restart()``, which has already proved these bytes are
+    exactly what GitHub published, so a missing signature is no longer fatal.
+
+    When a Windows code-signing certificate exists, promote this back to a hard
+    gate (require 'Valid') — it adds publisher identity, which a digest cannot.
     """
     powershell = shutil.which("powershell") or shutil.which("pwsh")
     if not powershell:
-        raise RuntimeError(
-            "signature verification unavailable: PowerShell not found; "
-            "refusing to run unverified installer"
-        )
+        _log("Authenticode status: unavailable (PowerShell not found)")
+        return
     # Print the Status; treat anything other than exactly 'Valid' as failure.
     # The path goes into a single-quoted PS literal; escape any single quote
     # by doubling it (PowerShell's escaping rule) so a crafted filename can't
@@ -334,21 +466,19 @@ def _verify_windows_exe_signature(exe_path: Path) -> None:
              "-ExecutionPolicy", "Bypass", "-Command", ps_script],
             capture_output=True, text=True, timeout=120,
         )
-    except FileNotFoundError as e:
-        raise RuntimeError(
-            f"signature verification unavailable (PowerShell not found): {e}"
-        ) from e
-    except subprocess.TimeoutExpired as e:
-        raise RuntimeError("signature verification timed out (PowerShell)") from e
+    except Exception as e:  # advisory only — never block the install
+        _log(f"Authenticode status: unavailable ({type(e).__name__}: {e})")
+        return
 
-    status = (proc.stdout or "").strip()
-    if proc.returncode != 0 or status != "Valid":
-        detail = status or (proc.stderr or "").strip()[:300]
-        raise RuntimeError(
-            f"Authenticode verification failed for {exe_path.name}: "
-            f"status={detail!r} (exit {proc.returncode})"
+    status = (proc.stdout or "").strip() or "Unknown"
+    if status == "Valid":
+        _log(f"Authenticode status: Valid (signed) for {exe_path.name}")
+    else:
+        _log(
+            f"Authenticode status: {status!r} for {exe_path.name} "
+            f"(advisory — installer is unsigned; authenticity was enforced "
+            f"via the SHA-256 digest check)"
         )
-    _log(f"Authenticode verification passed: {exe_path}")
 
 
 def install_and_restart(installer_path: str) -> None:
@@ -362,6 +492,22 @@ def install_and_restart(installer_path: str) -> None:
     path = Path(installer_path)
     if not path.exists():
         raise FileNotFoundError(f"Installer not found: {installer_path}")
+
+    # ── Authenticity gate: FAIL CLOSED ───────────────────────────────────
+    # Require the bytes we are about to execute to match, exactly, the SHA-256
+    # GitHub published for this release asset. The digest is resolved here in
+    # Python (from the GitHub API), never from the webview JS bridge. If the
+    # download worker couldn't fetch it, retry once; if it still can't be
+    # resolved, _verify_artifact_digest() raises and nothing is executed.
+    with _state_lock:
+        expected = _state.get("expected_digest")
+        source_url = _state.get("source_url")
+    if not expected and source_url:
+        try:
+            expected = _expected_digest_for_url(source_url)
+        except Exception as e:
+            _log(f"digest re-fetch failed: {e}")
+    _verify_artifact_digest(path, expected)
 
     if sys.platform.startswith("win"):
         _install_windows(path)
@@ -405,9 +551,11 @@ def _install_windows(exe_path: Path) -> None:
     verification can't run), we raise here — fail closed — so the installer
     is never executed.
     """
-    # Verify authenticity BEFORE doing anything else. Raises on failure; the
-    # caller catches it and the unverified installer is never run.
-    _verify_windows_exe_signature(exe_path)
+    # Authenticity was already enforced in install_and_restart() via the
+    # SHA-256 digest check (fail closed). Authenticode is advisory here: the
+    # installers are unsigned, and requiring a Valid signature is exactly what
+    # aborted every Windows auto-update after a successful download.
+    _log_windows_signature_status(exe_path)
 
     waffler_exe = Path(sys.executable)  # current Waffler.exe; same path post-install
     log_path = Path(tempfile.gettempdir()) / "waffler_install.log"
