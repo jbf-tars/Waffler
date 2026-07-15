@@ -60,6 +60,9 @@ def main():
         cerebras_api_key=os.environ.get("CEREBRAS_API_KEY", ""),
         provider_order=[args.provider],
     )
+    # _normalize_provider_order appends missing providers — override so the
+    # pin is real and a fallback can't silently answer (or burn quota).
+    styler._provider_order = [args.provider]
 
     def _match(c):
         if args.filter and args.filter.lower() not in c.label.lower():

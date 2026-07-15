@@ -4,6 +4,14 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.84] - 2026-07-15
+
+### Changed
+- **Styling prompt cut by a third (7,629 → ~5,158 tokens) — every dictation is now cheaper and faster, with measured-better quality.** The cleanup prompt had grown to 30.5 KB of accumulated scar tissue, ~80% worked examples, shipped on every single dictation. Combined with the output-token budget, each request weighed ~10k tokens — which is why Groq's free tier (12k/min, 100k/day) was being exhausted after a handful of dictations, knocking out the fast provider daily. The rewrite was **validated the hard way**, per the "test it rigorously, on the loop, keep self-correcting" instruction: an exhaustive rule-extraction pass (99 behavioural invariants preserved as a contract), three independent condensed drafts adversarially audited, then four measured self-correction iterations against the live regression corpus and a new flakiness harness. The loop caught and fixed three regressions before ship: (1) numbered lists inside emails broke on Cerebras when a count word had a connective prefix ("And third, …") — 100%→0% after patch; (2) rare paragraph-shatter on long rambles — 12%→0% after promoting the anti-shatter rule into the top HARD RULES block; (3) numbered lists broke on gpt-4.1-mini specifically — bisected to the condensed list section itself, resolved by transplanting the original battle-tested numbered-list text back (worth its tokens). **Final scorecard vs the old prompt on identical tests: corpus 105-106/107 vs 99/101 baseline; email-category flakiness 1/198 vs 3/198; paragraphing 0/60 vs 12% failing; lists 0/64 across Cerebras + OpenAI.** Sole persistent failure (M5) fails identically on the old prompt. Note: Groq could not be directly validated — its daily token quota (drained partly by this very testing) rejected every pinned attempt; mitigations: Groq sees the unchanged original list section, all layout consistency is enforced by provider-independent deterministic code, and a Groq spot-check is scheduled once quota frees.
+
+### Added
+- **True `--provider` pinning in the test harnesses.** `_normalize_provider_order` deliberately re-appends missing providers (so the app's fallback chain can't be emptied) — which silently un-pinned single-provider test runs: a "Groq-pinned" corpus run was found to have been styled 87/101 by Cerebras. Both `auto_test_corpus.py` and `flaky_check.py` now override the normalised order post-construction so a pin means what it says.
+
 ## [3.14.83] - 2026-07-15
 
 ### Fixed

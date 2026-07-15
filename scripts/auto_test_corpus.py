@@ -967,6 +967,11 @@ def main():
         provider_order=[args.provider] if args.provider else None,
     )
     if args.provider:
+        # _normalize_provider_order APPENDS missing providers (so the app's
+        # fallback chain can never be accidentally emptied) — which silently
+        # UN-pins a single-provider order. Override it after construction so
+        # --provider means what it says: this provider, no fallback.
+        styler._provider_order = [args.provider]
         print(f"PINNED to provider: {args.provider} (no fallback)")
 
     def _matches(c: Case) -> bool:
