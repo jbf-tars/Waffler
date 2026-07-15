@@ -4,6 +4,17 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.83] - 2026-07-15
+
+### Fixed
+- **"One thing per line" — continuous speech no longer shatters into a paragraph per sentence.** User report: dictations came back with every sentence as its own paragraph ("it's just a bit shit at the moment") — one real recording became **20 paragraphs**. Root cause, isolated with a controlled A/B test: the prompt listed `"ok so" / "okay so" / "right so"` as paragraph-break cues, and the model over-generalised that to **any sentence starting with "So"** — which is how the user naturally speaks. Same sentences WITH sentence-initial "So": broken 50% of runs; WITHOUT: 0%. The bug was intermittent (temperature 0.1), so single-shot tests always missed it — measured properly it failed **38% of runs** on the worst real transcript. Fix: the paragraph rule now **defaults to one paragraph** and explicitly forbids breaking on sentence-initial connectives (So/And/But/Then/Also/Right/Okay/Yeah/Now/Because), with the user's real failing transcript as the worked example. Re-measured after the fix: **0 failures in 48 runs** (was 12% overall / 38% worst-case). Six regression cases added (`OPL1-6` in the corpus), each a verbatim transcript from the user's history.
+- **Email sign-off is now deterministic: always `Closing,` newline `Name`.** The sign-off split was applied by the LLM only ~83% of the time (measured: EM23/EM24 failed 17% of pinned runs), and "Thank you" wasn't even in the prompt's recognised sign-off list — so "Thanks, James" split onto two lines while "Thank you, James" stayed on one. That inconsistency is exactly what the user kept seeing. New `_split_signoff_name()` post-pass normalises a trailing sign-off paragraph to the canonical two-line form (closing + comma, name on its own line, no trailing period) **in code**, regardless of which provider ran. Only fires when the final paragraph is entirely a recognised closing + name, so "I'll see you on Monday, James." is never touched. Re-measured: **0 email-layout failures in 198 pinned runs** (sole remaining flake is the unrelated numbered-list case).
+- **Exotic Unicode hyphens normalised to ASCII.** Cerebras emitted `rate‑limit` with U+2011 NON-BREAKING HYPHEN for spoken "rate-limit" — visually identical, but the pasted text breaks search/grep/diffs. U+2010/U+2011/U+2212 now map to `-` in the dash-cleanup pass (em/en-dash → comma behaviour unchanged).
+
+### Added
+- **`scripts/flaky_check.py` — consistency harness.** Runs each corpus case N times against a PINNED provider and reports a per-case failure rate. Exists because both bugs above were *intermittent*: a bug that fires 1-in-3 passes a single-shot test 67% of the time, which is why "it doesn't work consistently" reports never reproduced. Also surfaces silent fallback (a run that fell through to another provider is not scored as a pass).
+- **`--provider` flag on `scripts/auto_test_corpus.py`** to pin the styler to one provider with no fallback. Previously the harness silently fell through when Groq hit its daily cap — so it was testing OpenAI (which doesn't have the paragraph bug) while claiming to test the configured chain. Cerebras was not wired into the harness at all, despite being the provider that produced the user's broken output.
+
 ## [3.14.82] - 2026-07-14
 
 ### Fixed

@@ -41,6 +41,27 @@ def has_numbered_list(s: str) -> bool:
 def has_bullets(s: str) -> bool:
     return "\n- " in s or s.lstrip().startswith("- ")
 
+def paragraph_count(s: str) -> int:
+    """Blank-line-separated paragraphs in the styled output."""
+    return len([b for b in (s or "").split("\n\n") if b.strip()])
+
+
+def max_paras(n: int):
+    """Guard the 'one thing per line' bug: continuous speech being shattered into
+    one-sentence-per-paragraph. Real user reports (2026-07): a single connected
+    ramble came back as TWENTY paragraphs; 4-sentence thoughts came back as 4-5.
+    The prompt has always forbidden this ("when the whole transcript is a single
+    connected thought, leave it as one paragraph") -- the model just ignored it,
+    buried on line 141 of a 197-line prompt."""
+    def check(raw: str, styled: str) -> Optional[str]:
+        p = paragraph_count(styled)
+        if p > n:
+            return (f"over-paragraphed: {p} paragraphs (max {n}) - continuous "
+                    f"speech split one-sentence-per-line")
+        return None
+    return check
+
+
 def has_email_shape(s: str) -> bool:
     """Greeting line + body + sign-off line, separated by blanks."""
     has_greet = bool(re.match(r"(?i)^(hi|hello|dear|hey)\b[^,\n]{0,40},?\s*\n", s))
@@ -805,6 +826,76 @@ CORPUS: List[Case] = [
          must_contain=["design", "brief", "budget", "review"],
          retention_min=0.75,
          expect="'etc' spoken aloud — keep it. Other items preserved."),
+
+    # ─── OVER-PARAGRAPHING / "one thing per line" (real user reports, 2026-07) ──
+    # Every one of these is a VERBATIM transcript from the user's history where
+    # the shipped prompt shattered continuous speech into one-sentence paragraphs.
+    # The paragraph counts in each `expect` are what the model ACTUALLY produced.
+    Case("OPL1 continuous thought must stay ONE paragraph",
+         "short", "prose",
+         "Now you're confusing me, why should I move on? If you filled it in with "
+         "something but if you filled it in with something wrong then that's a "
+         "problem. Why can't we just leave it as NA and just leave it? You're not "
+         "really answering.",
+         custom=max_paras(1),
+         must_contain=["confusing", "NA", "answering"],
+         retention_min=0.75,
+         expect="One connected complaint, no topic shift -> ONE paragraph. Shipped prompt gave 4."),
+    Case("OPL2 short narrative must stay ONE paragraph",
+         "short", "prose",
+         "I don't know how to draft that script. So I've spoken to Simon and he's "
+         "given me the files that I need. It's the ITO. I won't send these yet, but "
+         "I don't think that's that relevant right now. We can come back to that, right?",
+         custom=max_paras(1),
+         must_contain=["Simon", "ITO", "come back"],
+         retention_min=0.75,
+         expect="Single connected thought -> ONE paragraph. Shipped prompt gave 5."),
+    Case("OPL3 status update must stay ONE paragraph",
+         "short", "prose",
+         "So I literally just ran one and I pushed it. So I'm looking at F02.05 and my "
+         "Morta hub, the template one, the testing DFE template 2026 home. And yeah, so "
+         "I can see loads of stuff has been filled out. Has this actually been filled "
+         "out recently?",
+         custom=max_paras(1),
+         must_contain=["F02.05", "Morta", "filled out"],
+         retention_min=0.7,
+         expect="One connected status update -> ONE paragraph. Shipped prompt gave 4."),
+    Case("OPL4 long ramble: a few paragraphs, NOT one per sentence",
+         "long", "prose",
+         "Okay, that's interesting. So, the whole book. So if we only did what we do now, "
+         "then there'll be significantly less bets, which is absolutely fine. As long as "
+         "they're more quality, and we would have made more. I suppose the question is, "
+         "how do we know that this is going to actually do anything? Or it's going to be "
+         "consistent in the long term? but I'll bet on that because seven months of data "
+         "and all this is pretty good. So how much would I have staked for that? Also, "
+         "this is a side task that I'd like to work on is how much is this operation "
+         "actually costing me as well? Because each month I pay £35 for Undetectable. "
+         "Then I pay for Proxies, which are now very cheap. And you've also got "
+         "electricity costs because it's running across three devices that are always on. "
+         "So could you help me with that as well?",
+         # It DOES contain a genuine topic shift (betting -> running costs), so a
+         # couple of paragraphs is legitimate. Twenty is not.
+         custom=max_paras(4),
+         must_contain=["seven months", "Undetectable", "electricity"],
+         retention_min=0.7,
+         expect="Genuine topic shift allows 2-4 paragraphs. Shipped prompt gave TWENTY."),
+    Case("OPL5 prose with commas must not become bullets",
+         "short", "prose",
+         "So the meeting went well, but the product team pushed back on the timeline, so "
+         "we agreed to revisit it next week and I'll send round the notes.",
+         must_not_match=[r"^\s*[-*]\s", r"^\s*\d+\.\s"],
+         custom=max_paras(1),
+         retention_min=0.75,
+         expect="Commas join clauses, not list items. No bullets, no numbering, one paragraph."),
+    Case("OPL6 conversational 'I need X, Y and Z' is prose, not a bullet list",
+         "short", "prose",
+         "I need to speak to Dave, Sarah and Tom about the rollout because they all had "
+         "different views on the timing and I want to get it straight before Friday.",
+         must_not_match=[r"^\s*[-*]\s", r"^\s*\d+\.\s"],
+         custom=max_paras(1),
+         must_contain=["Dave", "Sarah", "Tom"],
+         retention_min=0.75,
+         expect="Names in a sentence are not an enumeration. Stays prose."),
 ]
 
 
@@ -857,12 +948,26 @@ def main():
                          "'numbered list', 'bulleted list', 'email', "
                          "'self-correction', 'hallucination-bait', "
                          "'code/technical', 'double-words'.")
+    ap.add_argument("--provider", type=str, default=None,
+                    choices=["groq", "cerebras", "openai"],
+                    help="PIN the styler to one provider, with no fallback. Without "
+                         "this the harness silently falls through (e.g. Groq hits its "
+                         "daily cap -> OpenAI answers), so you end up testing a model "
+                         "you never actually use. Bugs are provider-specific: the "
+                         "'one sentence per paragraph' bug reproduces on groq/cerebras "
+                         "but NOT on openai, so a fallback run gives a false PASS.")
     args = ap.parse_args()
 
+    # Cerebras was never wired in here, so it was literally untestable -- despite
+    # being the provider that produced the user's broken output.
     styler = OpenAIStyler(
         api_key=os.environ.get("OPENAI_API_KEY", ""),
         groq_api_key=os.environ.get("GROQ_API_KEY", ""),
+        cerebras_api_key=os.environ.get("CEREBRAS_API_KEY", ""),
+        provider_order=[args.provider] if args.provider else None,
     )
+    if args.provider:
+        print(f"PINNED to provider: {args.provider} (no fallback)")
 
     def _matches(c: Case) -> bool:
         if args.filter and args.filter.lower() not in c.label.lower():

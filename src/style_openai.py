@@ -819,6 +819,14 @@ Transcript: {transcript}"""
         if not text:
             return text
         import re as _re
+        # First, normalise exotic hyphen codepoints the model sometimes swaps
+        # in for a plain ASCII hyphen: U+2010 (hyphen), U+2011 (non-breaking
+        # hyphen), U+2212 (minus sign). Observed live: Cerebras emitted
+        # "rate‑limit" (U+2011) for spoken "rate-limit" — invisible on screen
+        # but breaks search, diffs and downstream tooling in the pasted text.
+        # These are word-joining hyphens, NOT asides, so they map to "-"
+        # (the em/en-dash → comma rule below must not touch them).
+        text = _re.sub(r"[‐‑−]", "-", text)
         # Replace em/en-dashes with comma+space, with or without surrounding
         # whitespace. The \s* on both sides eats any padding so we don't
         # leave "X ,Y" or "X , Y" behind.
@@ -942,6 +950,25 @@ Transcript: {transcript}"""
         r"(?i)^[ \t]*(?P<greeting>"
         r"(?:hi|hii|hiya|hey|heya|hello|dear|good\s+morning|good\s+afternoon|"
         r"good\s+evening)\b[^,\n]{0,40}?,)"
+    )
+
+    # A trailing sign-off that is its OWN paragraph but still one line (or two),
+    # e.g. "Regards, James" / "Thank you, James." / "Cheers,\nJames". Used to
+    # normalise the sign-off to the canonical TWO-line form (closing on its own
+    # line ending with a comma, name on the next line, no trailing punctuation).
+    # Doing this in code makes the layout 100% consistent regardless of which
+    # LLM ran — the model was applying it only ~83% of the time (real flaky-rate
+    # measurement), which read as "email formatting isn't consistent".
+    _EMAIL_SIGNOFF_NAME_RE = re.compile(
+        r"(?is)^\s*"
+        r"(?P<closing>thank you so much|thanks so much|thank you|thanks again|"
+        r"thanks a lot|many thanks|thanks|kindest regards|kind regards|"
+        r"warmest regards|warm regards|best regards|best wishes|all the best|"
+        r"regards|cheers|speak to you soon|speak soon|talk soon|talk later|"
+        r"yours sincerely|yours faithfully|yours truly|sincerely|best)"
+        r"[ \t]*,?[ \t\r\n]+"
+        r"(?P<name>[A-Z][\w.'’-]*(?:[ \t]+[A-Z][\w.'’-]*){0,2})"
+        r"[ \t]*[.!]?[ \t]*$"
     )
 
     def _raw_starts_with_greeting(self, raw: str) -> bool:
@@ -1145,6 +1172,7 @@ Transcript: {transcript}"""
         if not looks_emailish:
             return text
         out = self._split_trailing_signoff(text)
+        out = self._split_signoff_name(out)
         out = self._split_leading_greeting(out)
         out = self._TRIPLE_NL_RE.sub("\n\n", out)
         return out.strip()
@@ -1156,6 +1184,29 @@ Transcript: {transcript}"""
             return text
         body = text[: m.start()].rstrip()
         return body + m.group("body_end") + "\n\n" + m.group("signoff").strip()
+
+    def _split_signoff_name(self, text: str) -> str:
+        """Normalise a trailing sign-off to the canonical two-line form.
+
+        "Thank you, James." / "Regards, James" / "Cheers,\\nJames" all become:
+            Closing,
+            Name
+        Operates only on the LAST paragraph and only when it is entirely a
+        recognised closing + name, so a normal final sentence that merely ends
+        in a name ("I'll see you on Monday, James.") is left untouched.
+        Idempotent — an already two-line sign-off normalises to itself.
+        """
+        paras = text.split("\n\n")
+        m = self._EMAIL_SIGNOFF_NAME_RE.match(paras[-1].strip())
+        if not m:
+            return text
+        closing = m.group("closing").strip()
+        closing = closing[0].upper() + closing[1:]  # capitalise as a sign-off
+        # The name char class can absorb a trailing "." (for "Dr."/initials), so
+        # strip a trailing sentence terminator — the name line takes no punctuation.
+        name = m.group("name").strip().rstrip(".! ")
+        paras[-1] = f"{closing},\n{name}"
+        return "\n\n".join(paras)
 
     def _split_leading_greeting(self, text: str) -> str:
         """Push a greeting glued to the first sentence onto its own line."""

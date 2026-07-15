@@ -38,23 +38,26 @@ def test_glued_signoff_split_to_own_paragraph():
         "Can we please schedule a meeting for Tuesday at 10.30am? Thank you, James."
     )
     out = S._format_email_layout(text)
-    assert out.endswith("10.30am?\n\nThank you, James."), repr(out)
+    # Sign-off promoted to its own paragraph AND split onto two lines (the
+    # canonical form: closing on its own line, name on the next, no period).
+    assert out.endswith("10.30am?\n\nThank you,\nJames"), repr(out)
 
 
 def test_user_real_example_matches_pc_output():
-    """Mac (glued) input must produce byte-identical output to the PC version."""
+    """Mac (glued) input must produce the canonical two-line sign-off layout."""
     mac_glued = (
         "Hi Jamie,\n\n"
         "Thanks for sending through the slides.\n\n"
         "Can we please schedule a meeting for Tuesday at 10.30am? Thank you, James."
     )
-    expected_pc = (
+    expected = (
         "Hi Jamie,\n\n"
         "Thanks for sending through the slides.\n\n"
         "Can we please schedule a meeting for Tuesday at 10.30am?\n\n"
-        "Thank you, James."
+        "Thank you,\n"
+        "James"
     )
-    assert S._format_email_layout(mac_glued) == expected_pc
+    assert S._format_email_layout(mac_glued) == expected
 
 
 def test_signoff_without_name_split():
@@ -66,21 +69,25 @@ def test_signoff_without_name_split():
 
 
 def test_various_closings_split():
-    for closing in ["Cheers, Sam", "Kind regards, Dr Smith", "Best regards, Alex",
-                    "Regards, J", "Many thanks, Priya", "Best wishes, Mum"]:
-        text = f"Hi there,\n\nHope you are well. {closing}."
+    # Each (closing, name) -> two lines: "Closing,\nName" as the final paragraph.
+    for closing, name in [("Cheers", "Sam"), ("Kind regards", "Dr Smith"),
+                          ("Best regards", "Alex"), ("Regards", "J"),
+                          ("Many thanks", "Priya"), ("Best wishes", "Mum")]:
+        text = f"Hi there,\n\nHope you are well. {closing}, {name}."
         out = S._format_email_layout(text)
-        assert f"\n\n{closing}." == out[-(len(closing) + 3):], (closing, repr(out))
+        assert out.endswith(f"\n\n{closing},\n{name}"), (closing, name, repr(out))
 
 
 # ── Idempotence: never double-break already-correct text ─────────────────────
 
-def test_already_formatted_signoff_unchanged():
+def test_already_two_line_signoff_unchanged():
+    """An already-canonical two-line sign-off normalises to itself."""
     text = (
         "Hi Jamie,\n\n"
         "Thanks for the slides.\n\n"
         "Can we meet Tuesday at 10.30am?\n\n"
-        "Thank you, James."
+        "Thank you,\n"
+        "James"
     )
     assert S._format_email_layout(text) == text
 
@@ -94,7 +101,7 @@ def test_idempotent_double_apply():
     once = S._format_email_layout(text)
     twice = S._format_email_layout(once)
     assert once == twice
-    assert once.endswith("10.30am?\n\nThank you, James.")
+    assert once.endswith("10.30am?\n\nThank you,\nJames")
 
 
 # ── Greeting on its own line ─────────────────────────────────────────────────
