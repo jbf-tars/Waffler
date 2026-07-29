@@ -8,10 +8,13 @@ History of this code:
     caused truncation (later chunks came back near-empty on the free tier).
   - v3.14.79 raised the duration threshold to 150 s.
   - v3.14.80 went further: the trigger is now FILE SIZE, not duration. Chunking
-    is reserved purely as a safety net against the provider's ~25 MB upload cap.
-    At 16 kHz mono 16-bit (32 KB/s) the 24 MB default threshold is ~12.5 min,
-    and Waffler auto-stops at 12 min, so in practice NOTHING ever splits — every
-    real dictation goes single-shot. This is effectively "chunking removed".
+    is reserved purely as a safety net against oversized uploads.
+  - v3.14.85 lowered the default gate 24 MB -> 18 MB after live evidence that
+    near-max single uploads are network-unreliable (the same 23.2 MB WAV
+    failed on Groq, passed on OpenAI, then failed on OpenAI 20 minutes later).
+    >18 MB (~9.4 min at 16 kHz mono 16-bit) splits into ~120 s chunks whose
+    ~4 MB uploads are reliably small. Everything under 18 MB — every normal
+    dictation — still goes single-shot.
 
 These tests prove:
   1. normal dictations go single-shot (the only path that matters in practice),
@@ -77,10 +80,32 @@ def test_short_clip_untouched():
 
 def test_multi_minute_clip_single_shot_by_default():
     """Even a 4-minute clip (well over the old 150 s duration threshold) goes
-    single-shot now, because it's far under the 24 MB file-size cap. This is the
+    single-shot now, because it's far under the 18 MB file-size cap. This is the
     'chunking removed for all real recordings' guarantee."""
-    clip = _wav(_tone(240.0))  # ~7.7 MB, << 24 MB
+    clip = _wav(_tone(240.0))  # ~7.7 MB, << 18 MB
     assert _split_audio_on_silence(clip) == [clip]
+
+
+def test_default_gate_splits_near_max_recording():
+    """A ~10.4-min clip (>18 MB) must split under the DEFAULT gate — near-max
+    single uploads are network-unreliable (proven live: the same 23 MB WAV
+    flip-flopped between success and 'Connection error.' on both providers)."""
+    audio = np.concatenate([_tone(310.0), _silence(1.0), _tone(313.0)])
+    clip = _wav(audio)  # ~19.9 MB > 18 MB
+    assert len(clip) > 18 * 1024 * 1024
+    chunks = _split_audio_on_silence(clip)
+    assert len(chunks) >= 2, "near-max recording must chunk by default"
+    for c in chunks:
+        assert len(c) <= 18 * 1024 * 1024
+
+
+def test_upload_timeout_scales_with_size():
+    from transcribe_whisper import _upload_timeout_s
+    assert _upload_timeout_s(1 * 1024 * 1024) == 60.0          # small: base
+    assert _upload_timeout_s(4 * 1024 * 1024) == 60.0          # knee point
+    t18 = _upload_timeout_s(18 * 1024 * 1024)
+    assert 140.0 <= t18 <= 148.0, t18                          # 18 MB ≈ 144s
+    assert _upload_timeout_s(100 * 1024 * 1024) == 240.0       # capped
 
 
 # ── The gate is byte-size based ──────────────────────────────────────────────

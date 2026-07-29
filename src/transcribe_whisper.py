@@ -397,7 +397,7 @@ def _split_audio_on_silence(
     hard_max_s: float = 150.0,
     window_ms: int = 30,
     min_silence_run_ms: int = 300,
-    max_single_shot_bytes: int = 24 * 1024 * 1024,
+    max_single_shot_bytes: int = 18 * 1024 * 1024,
 ) -> list:
     """Split a VERY long WAV clip into <= ~hard_max_s chunks at quiet points.
 
@@ -412,15 +412,17 @@ def _split_audio_on_silence(
     words). The inconsistency the user saw (lost content at the start, middle,
     or end) was exactly this: whichever chunk degraded.
 
-    v3.14.80 — the trigger is now FILE SIZE, not duration. Chunking is reserved
-    purely for clips that would breach the provider upload limit (Groq/OpenAI
-    cap ~25 MB). At 16 kHz mono 16-bit (32 KB/s) the 24 MB threshold is ~12.5
-    min, and Waffler auto-stops at 12 min, so in practice NOTHING ever splits —
-    every real dictation goes single-shot, which is what reliably transcribes
-    the whole thing. The split logic is retained only as a safety net so an
-    unexpectedly huge upload degrades gracefully instead of erroring. When a
-    clip IS large enough to split, chunks are ~120 s (proven to transcribe
-    fully). Cutting on *silence* still avoids slicing words.
+    v3.14.80 made the trigger FILE SIZE, not duration (24 MB). v3.14.85
+    lowered it to 18 MB after live evidence that near-max single uploads are
+    UNRELIABLE on real networks: the same 23.2 MB WAV failed with a bare
+    "Connection error." on Groq, succeeded on OpenAI, then failed on OpenAI
+    twenty minutes later — a ~23 MB POST against a busy uplink is a coin
+    flip, and the user experiences it as "half my recording is missing".
+    Clips over 18 MB (~9.4 min; rarer than 1 in 200 recordings) now split at
+    silence into ~120 s chunks whose ~4 MB uploads are reliably small (a
+    4-min chunk was proven live to transcribe 100% complete). Everything
+    under 18 MB — every normal dictation — still goes single-shot, which
+    remains the path that reliably transcribes the whole thing.
 
     Returns a list of WAV-byte chunks. For clips short enough (the overwhelming
     common case), unusual formats, or any error, returns ``[audio_bytes]``
@@ -594,6 +596,67 @@ def _strip_hallucinations(text: str) -> str:
 # fail over to the next instead of hanging the dictation.
 _TRANSCRIBE_TIMEOUT_S = 60.0
 
+# Groq's upload path stalls and dies with a connection error on near-max
+# files: proven live 2026-07-29 — a 23.2MB WAV failed ("Connection error.")
+# while a 7.7MB clip from the same audio transcribed fine. Above this gate we
+# skip Groq entirely and go straight to OpenAI, saving a doomed multi-second
+# upload on exactly the recordings that are already the slowest. (With the
+# 18MB chunk gate in _split_audio_on_silence no chunk should ever exceed
+# this; it remains as an independent safety net.)
+_GROQ_MAX_UPLOAD_BYTES = 18 * 1024 * 1024
+
+
+def _upload_timeout_s(nbytes: int) -> float:
+    """Per-request timeout scaled to upload size.
+
+    The flat 60s client timeout strangled big uploads: 23MB needs a sustained
+    ~3.1 Mbps uplink to fit inside 60s, so on a busy connection the POST dies
+    as a bare "Connection error" and the dictation loses its transcript.
+    Base 60s + ~6s per MB above 4MB, capped at 240s: 4MB -> 60s, 18MB -> 144s.
+    """
+    mb = nbytes / (1024.0 * 1024.0)
+    return min(240.0, max(_TRANSCRIBE_TIMEOUT_S, 60.0 + (mb - 4.0) * 6.0))
+
+# Incomplete-transcript detector. Real dictation is never sustained below
+# ~1 word per second OF SPEECH (measured across 205 real recordings: every
+# healthy one >= 1.17, the two confirmed-broken ones 0.32 and 0.81). Below
+# this, with enough speech to trust the measurement, the transcript is
+# near-certainly missing content and is worth a retry on the other provider.
+_MIN_WORDS_PER_SPEECH_SEC = 1.0
+_MIN_SPEECH_S_FOR_RETRY = 10.0
+# The alternate provider's transcript replaces the original only when it is
+# meaningfully fuller — not for noise-level differences.
+_RETRY_IMPROVEMENT_FACTOR = 1.25
+
+
+def _speech_seconds(audio_bytes: bytes) -> float:
+    """Estimate seconds of actual speech in a WAV via per-window RMS.
+
+    Same windowing/threshold approach as ``_split_audio_on_silence`` (30ms
+    windows, threshold at max(150, 15% of median RMS)). Returns 0.0 for
+    malformed input — callers treat that as "cannot judge, don't retry".
+    """
+    import io
+    import wave
+    try:
+        import numpy as np
+        with wave.open(io.BytesIO(audio_bytes), "rb") as w:
+            if w.getsampwidth() != 2 or w.getnchannels() != 1:
+                return 0.0
+            framerate = w.getframerate()
+            frames = w.readframes(w.getnframes())
+        samples = np.frombuffer(frames, dtype=np.int16)
+        win = max(1, int(framerate * 30 / 1000))
+        n_win = len(samples) // win
+        if n_win < 1:
+            return 0.0
+        block = samples[: n_win * win].astype(np.float32).reshape(n_win, win)
+        rms = np.sqrt(np.mean(block * block, axis=1))
+        thresh = max(150.0, float(np.median(rms)) * 0.15)
+        return float((rms >= thresh).sum()) * (win / float(framerate))
+    except Exception:
+        return 0.0
+
 
 def _normalize_transcriber_order(order) -> list:
     """Return a clean provider permutation from user input for transcription.
@@ -680,12 +743,17 @@ class WhisperTranscriber:
             self._backend = "api"
             print("⚠️  No transcription backend available")
 
-    def _dispatch_one(self, audio_bytes: bytes) -> str:
+    def _dispatch_one(self, audio_bytes: bytes, exclude: str = None) -> str:
         """Transcribe ONE already-padded/chunked WAV blob.
 
         On-device backends (mlx / faster-whisper) take precedence when enabled.
         Otherwise cloud transcribers (Groq Whisper, OpenAI Whisper) are tried in
         the user's configured order, with the Groq 403/auth circuit-breaker.
+
+        ``exclude`` skips one named cloud provider — used by the
+        incomplete-transcript retry to force the ALTERNATE provider.
+        Sets ``self._last_cloud_provider`` to whichever provider produced the
+        returned text (None for local backends).
 
         Extracted from ``transcribe_sync`` so the long-recording chunk loop can
         call it per chunk without duplicating the fallback logic.
@@ -700,6 +768,8 @@ class WhisperTranscriber:
         # the Groq 403/auth cooldown, and fall through to the next available.
         import time as _time
         order = self._cloud_order or ["groq", "openai"]
+        if exclude:
+            order = [p for p in order if p != exclude]
         last_err = None
         for prov in order:
             if prov == "groq":
@@ -708,8 +778,17 @@ class WhisperTranscriber:
                 # Circuit-breaker: skip Groq during its auth/network cooldown.
                 if _time.monotonic() < self._groq_skip_until:
                     continue
+                # Near-max uploads make Groq stall and die with a connection
+                # error (proven live at 23.2MB; fine at 7.7MB). Don't waste a
+                # doomed upload — let OpenAI take it directly.
+                if len(audio_bytes) > _GROQ_MAX_UPLOAD_BYTES:
+                    _wlog(f"[whisper] clip {len(audio_bytes)/1e6:.1f}MB > Groq "
+                          f"upload gate — going straight to OpenAI")
+                    continue
                 try:
-                    return self._transcribe_groq(audio_bytes)
+                    _result = self._transcribe_groq(audio_bytes)
+                    self._last_cloud_provider = "groq"
+                    return _result
                 except Exception as e:
                     last_err = e
                     err = str(e)
@@ -726,7 +805,9 @@ class WhisperTranscriber:
                 if self.client is None:
                     continue
                 try:
-                    return self._transcribe_api(audio_bytes)
+                    _result = self._transcribe_api(audio_bytes)
+                    self._last_cloud_provider = "openai"
+                    return _result
                 except Exception as e:
                     last_err = e
                     print(f"⚠️  OpenAI transcription failed ({str(e)[:80]}), trying next provider")
@@ -737,8 +818,50 @@ class WhisperTranscriber:
         if last_err is not None:
             raise last_err
         if self.client is not None:
-            return self._transcribe_api(audio_bytes)
+            _result = self._transcribe_api(audio_bytes)
+            self._last_cloud_provider = "openai"
+            return _result
         raise RuntimeError("no transcription backend available")
+
+    def _retry_if_incomplete(self, audio_bytes: bytes, transcript: str) -> str:
+        """Detect a transcript that is impossibly short for the measured speech
+        and retry on the alternate cloud provider.
+
+        The live failure this exists for: 57 seconds of MEASURED speech came
+        back as 18 words (0.32 words/speech-second) — the Whisper layer
+        silently dropped ~85% of a dictation. Real speech never sustains below
+        ~1 word/sec, so that ratio is a reliable broken-transcript signal
+        (across 205 real recordings every healthy one measured >= 1.17).
+
+        The alternate provider's transcript replaces the original only when
+        meaningfully fuller (>= 1.25x the words). Any error in the retry path
+        keeps the original — this can only ever improve the result.
+        """
+        try:
+            if self._backend in ("mlx", "faster"):
+                return transcript  # no alternate provider to retry on
+            words = len((transcript or "").split())
+            speech_s = _speech_seconds(audio_bytes)
+            if speech_s < _MIN_SPEECH_S_FOR_RETRY:
+                return transcript
+            wps = words / speech_s
+            if wps >= _MIN_WORDS_PER_SPEECH_SEC:
+                return transcript
+            first_provider = getattr(self, "_last_cloud_provider", None)
+            _wlog(f"[whisper] SUSPICIOUS transcript: {words} words for "
+                  f"{speech_s:.1f}s of speech ({wps:.2f} w/s) via "
+                  f"{first_provider or '?'} — retrying on alternate provider")
+            alt = self._dispatch_one(audio_bytes, exclude=first_provider)
+            alt_words = len((alt or "").split())
+            if alt_words >= max(1, words) * _RETRY_IMPROVEMENT_FACTOR:
+                _wlog(f"[whisper] retry recovered {alt_words} words "
+                      f"(was {words}) — using alternate transcript")
+                return alt
+            _wlog(f"[whisper] retry no better ({alt_words} words) — keeping original")
+            return transcript
+        except Exception as e:
+            _wlog(f"[whisper] incomplete-transcript retry failed: {e}")
+            return transcript
 
     def transcribe_sync(self, audio_bytes: bytes):
         audio_bytes = _pad_audio_with_silence(audio_bytes)
@@ -774,6 +897,12 @@ class WhisperTranscriber:
         else:
             raw = self._dispatch_one(chunks[0])
             _wlog(f"[whisper] single-shot -> {len(raw.split())} words")
+
+        # Incomplete-transcript safety net: if the word count is impossibly low
+        # for the measured seconds of speech, retry on the alternate provider
+        # and keep whichever transcript is fuller. (The live failure: 57s of
+        # speech -> 18 words, ~85% of a dictation silently gone.)
+        raw = self._retry_if_incomplete(audio_bytes, raw)
 
         cleaned = _strip_hallucinations(raw)
         if cleaned != raw:
@@ -871,6 +1000,9 @@ class WhisperTranscriber:
                     kwargs["prompt"] = hint
                 if lang and lang != "auto":
                     kwargs["language"] = lang
+                # Per-request timeout scaled to the upload size — the flat 60s
+                # client default kills large uploads on slow uplinks.
+                kwargs["timeout"] = _upload_timeout_s(len(audio_bytes))
                 response = self._groq_client.audio.transcriptions.create(**kwargs)
             text = response.strip()
             duration = time.time() - t0
@@ -904,6 +1036,9 @@ class WhisperTranscriber:
                     kwargs["prompt"] = hint
                 if lang and lang != "auto":
                     kwargs["language"] = lang
+                # Per-request timeout scaled to the upload size — the flat 60s
+                # client default kills large uploads on slow uplinks.
+                kwargs["timeout"] = _upload_timeout_s(len(audio_bytes))
                 response = self.client.audio.transcriptions.create(**kwargs)
             text = response.strip()
             duration = time.time() - t0

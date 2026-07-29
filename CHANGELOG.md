@@ -4,6 +4,14 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.85] - 2026-07-29
+
+### Fixed
+- **"Big recording, only half transcribed" — root-caused with hard evidence, and now both detected and auto-recovered.** Forensics across the full log ruled out everything downstream: audio capture is byte-complete (480 recordings, wall-clock vs captured = 100% even on the longest), and cleanup keeps 86–104% of its input (0 of 42 big recordings lost content). The loss is at the **Whisper API layer**, and it was caught red-handed: a 73.8s recording with **57 measured seconds of speech** came back as **18 words** (0.32 words/sec of speech — impossible for real dictation; every healthy recording measures ≥1.17). ~1% of recordings are hit, which is why it felt random. Three-part fix:
+  1. **Incomplete-transcript detector + cross-provider retry.** After transcription, Waffler compares the word count against the measured seconds of speech (per-window RMS, same maths as the silence splitter). Below 1.0 words/speech-second on ≥10s of speech, the transcript is near-certainly broken: it logs `SUSPICIOUS transcript` and immediately retries on the alternate provider, keeping whichever transcript is meaningfully fuller (≥1.25×). A silent 85% loss becomes an automatic recovery; any retry failure keeps the original, so it can only improve the result.
+  2. **Near-max uploads no longer gamble on the network.** Live testing proved a 23.2MB WAV is a coin flip: it failed on Groq with a bare "Connection error.", transcribed 100% on OpenAI, then failed on OpenAI 20 minutes later — a ~23MB POST needs a sustained ~3Mbps uplink to fit the 60s client timeout. The single-shot gate drops 24MB → **18MB**: bigger clips (>~9.4 min, rarer than 1 in 200) split at silence into ~120s chunks whose ~4MB uploads are reliably small. **Verified end-to-end: a 180-numbered-sentence 11.5-min clip transcribed 180/180, 0 missing, all six chunks on Groq, 18s total** — on the same network that failed it single-shot. Upload timeouts also now scale with file size (60s base + ~6s/MB, capped 240s) instead of strangling big uploads at a flat 60s, and Groq is skipped outright above 18MB as an independent safety net.
+  3. **The last 10 recordings' audio is kept locally** (`~/.waffler-hosted/debug_audio/`, date-stamped, auto-pruned by file age — fixing v3.14.78's rotation bug that deleted the newest files). Local-only, same privacy class as history.json, excluded from the Download Logs bundle. Exists because every previous "half transcribed" report was undiagnosable guesswork without the audio; the next one gets re-run against the actual recording in minutes.
+
 ## [3.14.84] - 2026-07-15
 
 ### Changed

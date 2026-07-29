@@ -2737,6 +2737,27 @@ class WafflerPipeline:
             _log_to_file("[pipeline] stopping audio capture...")
             audio_bytes = self.audio.stop()
             _log_to_file(f"[pipeline] audio captured: {len(audio_bytes) if audio_bytes else 0} bytes")
+            # Keep the last few recordings on disk (LOCAL ONLY — same privacy
+            # class as history.json; never leaves the machine, excluded from
+            # the Download Logs bundle). Exists because "the transcript is
+            # missing half my speech" reports are undiagnosable without the
+            # audio: v3.14.78 proved this once, then the capability was
+            # removed and the next incident (2026-07-29: 57s of speech -> 18
+            # words) was guesswork again. Date-stamped names + mtime pruning
+            # fix v3.14.78's rotation bug (HHMMSS-only names sorted wrongly
+            # across days and deleted the newest files).
+            try:
+                if audio_bytes:
+                    _dbg_dir = DATA_DIR / "debug_audio"
+                    _dbg_dir.mkdir(parents=True, exist_ok=True)
+                    _stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+                    (_dbg_dir / f"rec-{_stamp}.wav").write_bytes(audio_bytes)
+                    _old = sorted(_dbg_dir.glob("rec-*.wav"),
+                                  key=lambda p: p.stat().st_mtime)[:-10]
+                    for _p in _old:
+                        _p.unlink(missing_ok=True)
+            except Exception as _e:
+                _log_to_file(f"[pipeline] debug-audio save failed: {_e}")
             if not audio_bytes:
                 _log_to_file("No audio bytes captured")
                 # Only show error toast if recording was held for > 1 second
