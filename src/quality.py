@@ -117,3 +117,76 @@ def assess(*, speech_seconds, transcript_words, styled_words, asr_filtered,
 
     return {"level": level, "flags": flags,
             "words_per_speech_second": round(wps, 2)}
+
+
+# ── Microphone dropout ──────────────────────────────────────────────────────
+# A window is "dead" below this RMS: essentially digital zero.
+_DEAD_RMS = 1.0
+# ...and carries speech at or above this.
+_SPEECH_RMS = 12.0
+# A dead run must reach this long before it is even a candidate. Shorter runs
+# are pauses, and with noise suppression a pause IS digital silence.
+_MIN_DEAD_RUN_S = 3.0
+# The run must also cover a real share of the take, so a brief glitch in a long
+# recording is not treated as the stream dying.
+_MIN_DEAD_RUN_FRACTION = 0.25
+
+
+def mic_dropout_signal(window_rms, *, window_s: float) -> dict:
+    """Decide whether a recording looks like the mic stream DIED.
+
+    The previous rule flagged any recording where >=30% of windows were
+    digital silence, on the assumption that "natural pauses keep room-tone".
+    Modern capture breaks that assumption: noise suppression emits exact zeros
+    while you are not speaking, so pausing to think was indistinguishable from
+    the microphone dying. Measured over 861 real recordings it fired 4 times
+    and was wrong all 4 times - every one transcribed completely.
+
+    What actually separates the two is SHAPE, not amount:
+
+        gated pauses : many short dead runs, speech resumes after each
+        dead stream  : one long dead run that never recovers
+
+    So this measures the longest CONTIGUOUS dead run and requires it to reach
+    the end of the recording. A run that recovers proves the mic was alive.
+
+    Even a terminal run is not conclusive - a speaker who stops talking before
+    releasing the hotkey produces one too - so this is deliberately named a
+    *signal*. The caller should confirm against the transcript before telling
+    the user anything is missing.
+    """
+    n = len(window_rms or [])
+    if n == 0:
+        return {"suspected": False, "dead_fraction": 0.0,
+                "longest_dead_run_s": 0.0, "terminal": False}
+
+    dead = [r < _DEAD_RMS for r in window_rms]
+    has_speech = any(r >= _SPEECH_RMS for r in window_rms)
+
+    longest = run = 0
+    longest_end = -1
+    for i, d in enumerate(dead):
+        if d:
+            run += 1
+            if run > longest:
+                longest, longest_end = run, i
+        else:
+            run = 0
+
+    longest_s = longest * window_s
+    total_s = n * window_s
+    # "Terminal" = the longest dead run is still going when the recording ends.
+    terminal = longest_end == n - 1 and longest > 0
+
+    suspected = (
+        has_speech                                   # something was recorded
+        and terminal                                 # and it never came back
+        and longest_s >= _MIN_DEAD_RUN_S             # for a meaningful stretch
+        and (longest_s / total_s) >= _MIN_DEAD_RUN_FRACTION
+    )
+    return {
+        "suspected": bool(suspected),
+        "dead_fraction": round(sum(dead) / n, 3),
+        "longest_dead_run_s": round(longest_s, 2),
+        "terminal": bool(terminal),
+    }

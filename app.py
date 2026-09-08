@@ -2845,59 +2845,59 @@ class WafflerPipeline:
             # long hands-free recording — CoreAudio keeps the stream ".active"
             # but starts handing back zero-filled buffers. The first half
             # transcribes fine; the back half is digital silence, so Whisper
-            # returns only ~half the words and the user sees "it dropped half
-            # of what I said / it's not even picking it up". A real mic always
-            # has a noise floor (~3-10 RMS) even in a silent room, so a window
-            # of *exact* zeros (RMS < 1) means the stream delivered nothing —
-            # never a natural pause. We measure the digital-silence fraction
-            # and, if a meaningful chunk of an otherwise-speaking recording is
-            # dead, rebuild the stream for next time + warn the user that this
-            # take was likely truncated.
+            # returns only ~half the words.
+            #
+            # The original test — ">=30% of windows are digital silence" —
+            # assumed a real mic always has a noise floor, so exact zeros could
+            # only mean a dead stream. Modern capture breaks that assumption:
+            # noise suppression (Windows Voice Focus, headset DSP, Krisp-style
+            # filters) emits EXACT zeros whenever you are not speaking, so
+            # pausing to think looked identical to the mic dying. Measured over
+            # 861 real recordings it fired 4 times and was wrong all 4 times —
+            # every one transcribed completely, at 1.56-3.05 words per second
+            # of live audio, while telling the user to re-record.
+            #
+            # What separates the two is SHAPE, not amount: gated pauses are many
+            # short dead runs with speech after each, a dead stream is one long
+            # run that never recovers. mic_dropout_signal() measures that, and
+            # even then we do not alarm the user on audio alone — a speaker who
+            # stops talking before releasing the hotkey also ends on silence.
+            # The warning is deferred until the transcript can confirm it.
+            self._mic_dropout = None
             try:
                 import numpy as _np
+                from src.quality import mic_dropout_signal as _mic_signal
                 _arr = _np.frombuffer(audio_bytes[44:], dtype=_np.int16).astype(_np.float32)
                 _win = 4000  # 0.25 s
-                _total = 0
-                _dead = 0
-                _speech = 0
+                _rms_windows = []
                 for _i in range(0, len(_arr), _win):
                     _w = _arr[_i:_i + _win]
                     if len(_w) < 400:
                         break
-                    _r = float(_np.sqrt(_np.mean(_w ** 2)))
-                    _total += 1
-                    if _r < 1.0:
-                        _dead += 1
-                    elif _r >= 12.0:
-                        _speech += 1
-                _dead_frac = (_dead / _total) if _total else 0.0
+                    _rms_windows.append(float(_np.sqrt(_np.mean(_w ** 2))))
+                _sig = _mic_signal(_rms_windows, window_s=_win / 16000.0)
+                _speech = sum(1 for _r in _rms_windows if _r >= 12.0)
                 _log_to_file(
                     f"[pipeline] audio diag: {recording_duration:.1f}s, "
-                    f"{_total} windows, digital-silence={_dead_frac*100:.0f}%, "
-                    f"speech-windows={_speech}"
+                    f"{len(_rms_windows)} windows, "
+                    f"digital-silence={_sig['dead_fraction']*100:.0f}%, "
+                    f"speech-windows={_speech}, "
+                    f"longest-dead-run={_sig['longest_dead_run_s']:.1f}s, "
+                    f"terminal={_sig['terminal']}"
                 )
-                # Degraded mid-recording: lots of dead windows but the take
-                # also clearly contained real speech (so it's not just a
-                # quiet pause-heavy dictation). 30% dead is far beyond any
-                # natural pause pattern — natural pauses keep room-tone, they
-                # don't go to exact zero.
-                if _dead_frac >= 0.30 and _speech >= 2 and recording_duration >= 3.0:
+                if _sig["suspected"]:
                     _log_to_file(
-                        f"⚠️  Partial dead stream: {_dead_frac*100:.0f}% of this recording was "
-                        f"digital silence — mic stream went dead mid-take. Rebuilding for next press."
+                        f"⚠️  Possible dead stream: {_sig['longest_dead_run_s']:.1f}s "
+                        f"unbroken digital silence to end of take. Rebuilding for "
+                        f"next press; warning deferred until the transcript is in."
                     )
+                    # Rebuilding is cheap and harmless, so it happens on
+                    # suspicion. Only the user-facing alarm waits for evidence.
                     try:
                         self.audio.force_rebuild()
                     except Exception as _e:
                         _log_to_file(f"force_rebuild (partial) failed: {_e}")
-                    threading.Thread(
-                        target=lambda: self.overlay.show_toast(
-                            style="warn",
-                            heading="Mic dropped out",
-                            body="Your mic cut out partway through — some of this may be missing. Mic reset; please re-record.",
-                        ),
-                        daemon=True,
-                    ).start()
+                    self._mic_dropout = _sig
             except Exception:
                 pass
 
@@ -3257,6 +3257,40 @@ class WafflerPipeline:
                     )
             except Exception as _e:
                 _log_to_file(f"[pipeline] provenance capture failed: {_e}")
+
+            # A suspected mic dropout is only reported once the transcript
+            # agrees something is missing. If the words came back at a normal
+            # rate for the audio that DID have signal, nothing was lost and a
+            # "please re-record" toast would be a false alarm — which is what
+            # every previous firing of this warning turned out to be.
+            try:
+                if getattr(self, "_mic_dropout", None):
+                    _live_s = max(
+                        0.1,
+                        recording_duration * (1.0 - self._mic_dropout["dead_fraction"]),
+                    )
+                    _wps = len((transcript or "").split()) / _live_s
+                    if _wps < 1.0:
+                        threading.Thread(
+                            target=lambda: self.overlay.show_toast(
+                                style="warn",
+                                heading="Mic dropped out",
+                                body="Your mic cut out partway through - some of this "
+                                     "may be missing. Mic reset; please re-record.",
+                            ),
+                            daemon=True,
+                        ).start()
+                        _log_to_file(
+                            f"[pipeline] mic dropout CONFIRMED by transcript "
+                            f"({_wps:.2f} words/live-second)"
+                        )
+                    else:
+                        _log_to_file(
+                            f"[pipeline] mic dropout suspected but transcript is "
+                            f"healthy ({_wps:.2f} words/live-second) - no warning shown"
+                        )
+            except Exception as _e:
+                _log_to_file(f"[pipeline] dropout confirmation failed: {_e}")
 
             # ── Quality signals ────────────────────────────────────────────
             # Computed locally from MEASURED audio and from what the pipeline
