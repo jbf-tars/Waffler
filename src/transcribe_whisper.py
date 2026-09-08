@@ -439,7 +439,6 @@ def _split_audio_on_silence(
         sampwidth = params.sampwidth
         nchannels = params.nchannels
         nframes = params.nframes
-        duration = nframes / float(framerate) if framerate else 0.0
 
         # Single-shot unless the FILE itself is large enough to risk the
         # provider upload limit. Whisper transcribes multi-minute clips fully in

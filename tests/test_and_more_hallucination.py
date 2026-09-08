@@ -126,22 +126,25 @@ def test_existing_hallucinations_still_caught():
 
 
 def main():
-    tests = [
-        test_exact_and_more_variants_rejected,
-        test_trailing_and_more_stripped_from_real_content,
-        test_real_sentence_mentioning_more_left_alone,
-        test_short_filler_hallucinations_rejected,
-        test_existing_hallucinations_still_caught,
-    ]
-    print("v3.14.39 — Whisper-layer 'and more' hallucination filter tests")
+    """Run every test_* in this module.
+
+    Discovered, not listed. A hardcoded manifest silently drops tests: it
+    referenced a function that had been renamed (crashing the CI step with a
+    NameError) while omitting a newly added one entirely, so CI could have
+    reported success without ever running it. Discovery cannot drift.
+    """
+    tests = [v for k, v in sorted(globals().items())
+             if k.startswith("test_") and callable(v)]
+    print("Whisper-layer 'and more' hallucination filter tests")
     print("=" * 70)
     failed = 0
     for fn in tests:
         try:
             fn()
+            print(f"  ok  {fn.__name__}")
         except AssertionError as e:
             failed += 1
-            print(f"  ✗ {fn.__name__}: {e}")
+            print(f"  FAIL {fn.__name__}: {e}")
     print("=" * 70)
     if failed:
         print(f"FAILED: {failed}/{len(tests)}")

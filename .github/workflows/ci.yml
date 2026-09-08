@@ -36,12 +36,27 @@ jobs:
           pip install pytest pyflakes
 
       - name: Static analysis (pyflakes)
-        # Best-effort lint. Allow Windows-only / cosmetic warnings to pass
-        # (gated branches show as "unused" on Mac, intentionally).
+        # This step used to end in `|| echo "no lint findings"`, so it exited 0
+        # whatever pyflakes reported and no finding could ever fail CI. It had
+        # been reporting `app.py: undefined name 'subprocess'` - a real
+        # NameError in download_logs(), swallowed at runtime by a bare except.
+        #
+        # `undefined name` is the class that becomes a crash in production, so
+        # it now HARD-FAILS. Cosmetic findings (unused imports/locals,
+        # platform-gated branches) are printed but do not fail, because the
+        # macOS runner legitimately sees Windows-only code as unused.
         run: |
-          python -m pyflakes src/*.py app.py | grep -vE \
-            'overlay_process_windows|windows_hotkey|wintypes|f-string is missing|global.*is unused|local variable .e.|local variable .sh.|local variable ._api_ref.|local variable .LR_DEFAULTSIZE.' \
-          || echo "no lint findings"
+          RAW=$(python -m pyflakes src/*.py app.py || true)
+          FATAL=$(echo "$RAW" | grep -E 'undefined name' | grep -vE 'overlay_process_windows|windows_hotkey|wintypes' || true)
+          COSMETIC=$(echo "$RAW" | grep -vE 'undefined name' || true)
+          if [ -n "$COSMETIC" ]; then echo "--- non-fatal findings ---"; echo "$COSMETIC"; fi
+          if [ -n "$FATAL" ]; then
+            echo "--- FATAL: undefined names (NameErrors waiting to happen) ---"
+            echo "$FATAL"
+            echo "::error::pyflakes found undefined name(s)"
+            exit 1
+          fi
+          echo "no fatal lint findings"
 
       - name: Import every src module (catches any reference / dependency regression)
         env:
@@ -94,6 +109,17 @@ jobs:
           PYTHONPATH: src
         run: python tests/test_audio_stream_lifecycle.py
 
+      - name: Offline test suite (pytest)
+        # The steps above invoke individual files by name, so a test file added
+        # later is simply never run by CI - and one of them invoked a hardcoded
+        # list of functions that had drifted out of sync with its module.
+        # Running the whole suite covers new regression tests automatically.
+        # tests/conftest.py keeps the live benchmark scripts out of collection,
+        # so this needs no API keys and touches no private history.
+        env:
+          PYTHONPATH: src
+        run: python -m pytest tests/ -q
+
       - name: Transcript privacy gate test
         # logging.log_transcripts sat in config.yaml for months with no code
         # reading it, while v3.14.79's wizard path sliced 80 characters of the
@@ -127,3 +153,36 @@ jobs:
         # for when CI fails. Add ' # doc-drift-ok' to a line for legitimate
         # historical/cost-constant references that should be exempt.
         run: python scripts/check_doc_drift.py
+
+  # The macOS job skips every Windows-only module, so the updater batch
+  # generation, the low-level hotkey handler and the Windows installer paths
+  # had no CI coverage at all - on a product that ships a Windows build.
+  check-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements_windows.txt
+          pip install pytest pyflakes
+
+      - name: Offline test suite (pytest)
+        env:
+          PYTHONPATH: src
+        run: python -m pytest tests/ -q
+
+      - name: Static analysis (undefined names only)
+        run: |
+          $raw = python -m pyflakes src/*.py app.py
+          $fatal = $raw | Select-String 'undefined name'
+          if ($fatal) { $fatal; Write-Error 'pyflakes found undefined name(s)'; exit 1 }
+          Write-Output 'no fatal lint findings'

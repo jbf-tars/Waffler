@@ -981,6 +981,13 @@ class Api:
             _log_to_file(f"[download_logs] wrote {zip_path}")
 
             # Open Finder/Explorer to the saved file so the user can see + share it.
+            # `subprocess` is imported here because this method never had it in
+            # scope: it was only imported inside OTHER methods, so both Popen
+            # calls below raised NameError, which the bare `except` swallowed.
+            # Net effect: the zip was written but the folder never opened and
+            # nothing said why. pyflakes had been reporting this as an
+            # undefined name, but the CI lint step could never fail.
+            import subprocess
             try:
                 if _platform.system() == "Darwin":
                     subprocess.Popen(["open", "-R", str(zip_path)])
