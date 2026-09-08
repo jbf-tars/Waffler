@@ -9,6 +9,7 @@ detached from the current process, then exits the current app.
 from __future__ import annotations
 
 import hashlib
+import json
 import hmac
 import os
 import plistlib
@@ -310,6 +311,99 @@ _RELEASE_ASSET_RE = re.compile(
 )
 
 
+# ---------------------------------------------------------------------------
+# Update outcome verification.
+#
+# An update that silently does nothing used to be indistinguishable from one
+# that worked: _install_windows spawns a detached batch, exits, and nothing
+# ever checks the result. On 2026-07-29 a v3.14.85 update passed digest and
+# Authenticode verification, restarted, and came back running v3.14.84 with no
+# error anywhere. The user reported "I updated and it's the same version"
+# repeatedly and the logs could not confirm or deny it.
+#
+# So we record the INTENTION before restarting and reconcile it with reality on
+# the next start. The marker is diagnostics, never a gate: if it cannot be
+# written the update still proceeds.
+# ---------------------------------------------------------------------------
+
+PENDING_MARKER_NAME = "pending_update.json"
+PENDING_RESULT_NAME = "pending_update_result.txt"
+
+
+def _pending_dir(base_dir=None) -> Path:
+    return Path(base_dir) if base_dir is not None else (Path.home() / ".waffler-hosted")
+
+
+def record_pending_update(expected_version: str, base_dir=None) -> None:
+    """Note which version the user asked to install, before we restart."""
+    try:
+        d = _pending_dir(base_dir)
+        d.mkdir(parents=True, exist_ok=True)
+        (d / PENDING_MARKER_NAME).write_text(
+            json.dumps({
+                "expected_version": str(expected_version),
+                "recorded_at": datetime.now().isoformat(timespec="seconds"),
+            }),
+            encoding="utf-8",
+        )
+        # Clear any stale result from a previous attempt.
+        try:
+            (d / PENDING_RESULT_NAME).unlink()
+        except OSError:
+            pass
+    except Exception as e:  # diagnostics must never block the update
+        _log(f"could not record pending update: {e}")
+
+
+def check_pending_update(current_version: str, base_dir=None):
+    """Reconcile the recorded intention with the version actually running.
+
+    Returns None when no update was pending, else a dict with ``ok``,
+    ``expected``, ``actual``, ``installer_exit_code`` (when the batch recorded
+    one) and a human-readable ``message``. The marker is consumed either way so
+    the outcome is reported exactly once.
+    """
+    d = _pending_dir(base_dir)
+    marker = d / PENDING_MARKER_NAME
+    result = d / PENDING_RESULT_NAME
+    if not marker.exists():
+        return None
+    expected = None
+    try:
+        expected = json.loads(marker.read_text(encoding="utf-8")).get("expected_version")
+    except Exception:
+        expected = None
+
+    exit_code = None
+    try:
+        if result.exists():
+            exit_code = int((result.read_text(encoding="utf-8") or "").strip())
+    except Exception:
+        exit_code = None
+
+    for f in (marker, result):  # report once
+        try:
+            f.unlink()
+        except OSError:
+            pass
+
+    if not expected:
+        return None
+
+    actual = str(current_version)
+    ok = actual == str(expected)
+    if ok:
+        msg = f"Update to v{expected} completed."
+    else:
+        msg = (f"Update to v{expected} did NOT apply - still running v{actual}. "
+               f"The installer was launched but the version did not change.")
+        if exit_code is not None:
+            msg += f" Installer exit code {exit_code}."
+        msg += " Install the release manually and report this."
+    return {"ok": ok, "expected": str(expected), "actual": actual,
+            "installer_exit_code": exit_code, "message": msg}
+
+
 def _parse_release_asset_url(url: str):
     """Split a GitHub release-asset URL into (owner, repo, tag, asset_name).
 
@@ -493,6 +587,12 @@ def install_and_restart(installer_path: str) -> None:
     if not path.exists():
         raise FileNotFoundError(f"Installer not found: {installer_path}")
 
+    # Record WHICH version this should produce so the next start can tell
+    # whether the install actually applied (see check_pending_update).
+    _m = re.search(r"(\d+\.\d+\.\d+)", path.name)
+    if _m:
+        record_pending_update(_m.group(1))
+
     # ── Authenticity gate: FAIL CLOSED ───────────────────────────────────
     # Require the bytes we are about to execute to match, exactly, the SHA-256
     # GitHub published for this release asset. The digest is resolved here in
@@ -559,6 +659,7 @@ def _install_windows(exe_path: Path) -> None:
 
     waffler_exe = Path(sys.executable)  # current Waffler.exe; same path post-install
     log_path = Path(tempfile.gettempdir()) / "waffler_install.log"
+    result_path = _pending_dir() / PENDING_RESULT_NAME
 
     bat = (
         "@echo off\r\n"
@@ -579,6 +680,10 @@ def _install_windows(exe_path: Path) -> None:
         "ping -n 4 127.0.0.1 >NUL\r\n"
         "REM No UI, auto-dismiss any prompt, log for diagnosis.\r\n"
         f'"{exe_path}" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /LOG="{log_path}"\r\n'
+        "REM Capture the installer exit code. It used to be discarded and the\r\n"
+        "REM batch relaunched regardless, so a failed install was silent.\r\n"
+        "set RC=%ERRORLEVEL%\r\n"
+        f'> "{result_path}" echo %RC%\r\n'
         "ping -n 2 127.0.0.1 >NUL\r\n"
         "REM Launch the freshly installed Waffler exactly once.\r\n"
         f'start "" "{waffler_exe}"\r\n'

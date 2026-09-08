@@ -262,6 +262,12 @@ class Api:
         from src import __version__
         current_version = __version__
 
+        # Surface a silently-failed update through the call the UI already
+        # makes on startup, rather than adding a new bridge method. Set by the
+        # startup reconciliation; read once so the warning does not persist
+        # after the user has seen it.
+        _failed = globals().pop("_UPDATE_FAILURE_NOTICE", None)
+
         def parse_ver(v: str):
             # Extract the leading numeric dotted version, tolerating tag
             # suffixes like "v3.14.63-hotfix" or "3.14.63b". The old
@@ -337,6 +343,7 @@ class Api:
                 "update_available": False,
                 "current_version": current_version,
                 "latest_version": latest_version,
+                "last_update_failed": _failed,
             }
         except Exception as e:
             _log_to_file(f"[update] check failed: {e}")
@@ -3947,6 +3954,25 @@ def main():
         f"=== Waffler starting === (v{_waffler_version}, "
         f"PROJECT_ROOT={PROJECT_ROOT})"
     )
+
+    # Reconcile the last update attempt against what is actually running.
+    # Without this an update that silently did nothing looked exactly like one
+    # that worked: on 2026-07-29 a v3.14.85 install passed digest and
+    # Authenticode verification, restarted, and came back on v3.14.84 with no
+    # error anywhere. The result is logged unconditionally and surfaced to the
+    # UI on failure, so "I updated and it is the same version" is now provable
+    # from app.log instead of being a matter of the user's word against ours.
+    try:
+        from src import updater as _upd
+        _pending = _upd.check_pending_update(_waffler_version)
+        if _pending:
+            _log_to_file(
+                f"[update] {'OK' if _pending['ok'] else 'FAILED'}: {_pending['message']}"
+            )
+            if not _pending["ok"]:
+                globals()["_UPDATE_FAILURE_NOTICE"] = _pending
+    except Exception as _e:
+        _log_to_file(f"[update] pending-update check failed: {_e}")
 
     # v3.14.48 — diagnostic VPN detection. User reported "Waffler doesn't
     # work or is very slow with a VPN. Having this issue with NordVPN."

@@ -168,6 +168,23 @@ async function checkForUpdates() {
   try {
     if (!window.pywebview || !window.pywebview.api) return;
     const r = await pywebview.api.check_for_updates();
+    // A previous update that silently did nothing used to leave no trace at
+    // all — the app just restarted on the old version. Say so plainly.
+    if (r.last_update_failed && r.last_update_failed.message) {
+      const host0 = document.querySelector('.sidebar') || document.querySelector('.journal');
+      if (host0) {
+        const warn = document.createElement('div');
+        warn.className = 'update-banner';
+        const w = document.createElement('span');
+        w.textContent = r.last_update_failed.message;
+        const x = document.createElement('button');
+        x.className = 'dismiss';
+        x.textContent = '✕';
+        x.addEventListener('click', () => warn.remove());
+        warn.appendChild(w); warn.appendChild(x);
+        host0.prepend(warn);
+      }
+    }
     if (r.update_available) {
       // Show update banner — sidebar in legacy layout, top of `.journal`
       // in the v3.14.16+ Journal layout. Prepend so it's the very first
