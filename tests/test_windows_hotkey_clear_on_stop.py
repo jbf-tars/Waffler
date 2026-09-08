@@ -16,6 +16,19 @@ These tests drive the state machine directly, including simulating a MISSED Win
 key-up, to prove: (1) no phantom fire after stop, (2) normal rapid re-record
 still works.
 """
+
+import sys
+
+import pytest
+
+# windows_hotkey binds ctypes.WINFUNCTYPE at import time, which does not exist
+# on macOS/Linux, so merely COLLECTING this module errored there. Skipping at
+# module level keeps the assertions intact and running on Windows (where CI now
+# has a job) instead of deleting them to make the macOS run green.
+if sys.platform != "win32":
+    pytest.skip("Windows-only: windows_hotkey needs ctypes.WINFUNCTYPE",
+                allow_module_level=True)
+
 import os
 import sys
 

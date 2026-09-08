@@ -1,6 +1,12 @@
 """TDD: Tray icon must render as a waffle grid with syrup filling."""
 
 import pytest
+
+# Pillow is declared in requirements_windows.txt but not the macOS
+# requirements, so this module could not even be imported on the macOS runner.
+# Skip when it is absent rather than dropping the test; the Windows CI job
+# installs Pillow and runs these assertions for real.
+pytest.importorskip("PIL", reason="Pillow not installed on this platform")
 from PIL import Image, ImageDraw
 
 

@@ -181,8 +181,15 @@ jobs:
         run: python -m pytest tests/ -q
 
       - name: Static analysis (undefined names only)
+        # bash, not PowerShell: Actions sets $ErrorActionPreference='Stop' and
+        # appends `exit $LASTEXITCODE`, so pyflakes exiting non-zero for
+        # ordinary cosmetic findings failed the whole step regardless of what
+        # the script decided. This reuses the same logic as the macOS job.
+        shell: bash
         run: |
-          $raw = python -m pyflakes src/*.py app.py
-          $fatal = $raw | Select-String 'undefined name'
-          if ($fatal) { $fatal; Write-Error 'pyflakes found undefined name(s)'; exit 1 }
-          Write-Output 'no fatal lint findings'
+          RAW=$(python -m pyflakes src/*.py app.py || true)
+          FATAL=$(echo "$RAW" | grep -E 'undefined name' || true)
+          if [ -n "$FATAL" ]; then
+            echo "$FATAL"; echo "::error::pyflakes found undefined name(s)"; exit 1
+          fi
+          echo "no fatal lint findings"
