@@ -4,6 +4,48 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.87] - 2026-09-08
+
+### Fixed
+- **"Mic dropped out" no longer appears over a perfectly good transcript.** The
+  detector flagged any recording where >=30% of windows were digital silence,
+  on the reasoning that a real microphone always has a noise floor, so exact
+  zeros could only mean a dead stream. Modern capture breaks that assumption:
+  noise suppression (Windows Voice Focus, headset DSP, Krisp-style filters)
+  emits **exact zeros** whenever you are not speaking, so pausing to think was
+  indistinguishable from the mic dying. Measured across 861 real recordings it
+  fired 4 times and was wrong all 4 times - every one transcribed completely,
+  at 1.56-3.05 words per second of live audio, while telling the user to
+  re-record. What actually separates the two cases is *shape*, not amount:
+  gated pauses are many short dead runs with speech after each, whereas a dead
+  stream is one long run that never recovers. Detection now measures the
+  longest **contiguous** dead run and requires it to still be running when the
+  recording ends. Because even that is not conclusive - stopping talking before
+  releasing the hotkey also ends on silence - the warning is now deferred until
+  the transcript confirms words are genuinely missing.
+
+### Added
+- **Per-recording quality signals.** Every dictation is assessed locally and
+  instantly from measured audio and observed pipeline behaviour: too few words
+  for the speech duration, cleanup discarding an unusual amount, cleanup not
+  running at all, output ending mid-clause, a provider retry, an expired
+  styling budget. Flagged recordings get a badge in the history list explaining
+  why; a clean recording shows nothing, so the signal cannot become noise. It
+  reports - it never blocks the paste or alters the text.
+
+  Deliberately *not* an LLM reviewing each transcript: judging a transcript
+  from its text cannot detect omission, because the words that come back read
+  perfectly whatever is missing. The only ground truth is the audio.
+
+  Calibrating against 2,851 real recordings produced a finding worth acting on:
+  **10% of recordings end without terminal punctuation and 2.2% end on a
+  dangling function word** ("Then based on the", "I'm also sure that") - near-
+  certain mid-clause truncation that nothing was measuring. The two are graded
+  separately because an unterminated content word is often a legitimate title.
+- `~/.waffler-hosted/quality.jsonl` - one metadata-only row per recording (no
+  transcript text, so it is safe to read, share and aggregate), bounded at
+  ~2 MB, as the dataset for reviewing quality trends over time.
+
 ## [3.14.86] - 2026-09-08
 
 Maintainer audit release. Every item below was reproduced offline before being
