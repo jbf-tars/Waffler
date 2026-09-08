@@ -22,9 +22,14 @@ authorised** — no spend or call budget given, so all work below is offline.
 | 1 | Baseline + version mismatch | Published fixes are not what is running | **Confirmed.** Update passes digest+Authenticode then silently no-ops; install log never created; `%TEMP%` cleanup and Defender excluded as explanations | — (evidence only) |
 | 2 | ASR filter fidelity | Trailing-anchored patterns delete legitimate speech | **Confirmed and fixed.** 5 reproductions; 3 guards added (boundary / no-dangling-word / audio evidence); 29 controls | `a3723b3` |
 | 3 | Provenance | The saved "original" is a filtered artifact | **Confirmed and fixed.** Untouched ASR response preserved; field meaning stamped; UI label corrected | `3095c56` |
+| 4 | Updater invisibility | A failed update is indistinguishable from a successful one | **Confirmed and fixed.** Intent recorded before restart, installer exit code captured, reconciled on next start, surfaced in UI | `89c7301` |
+| 5 | CI / lint integrity | The checks cannot fail, and the suite reads private data | **Confirmed and fixed.** Always-green lint (hiding a real NameError), collection-time credential+history loading, a drifted hardcoded manifest, no Windows job | `d915f28` |
+| 6 | Unavailable model re-probed | A 404 sets no cooldown, so every dictation pays a wasted round-trip | **Confirmed and fixed.** 458 occurrences in log; 1-hour cooldown + named error on both providers | `4fc2085` |
 
-**Suite:** 128 → **134 passed, 1 skipped** (33 new tests, 1 pre-existing test
+**Suite:** 128 → **147 passed, 1 skipped** (46 new tests, 1 pre-existing test
 refined with its cases preserved — see AUDIT F2 and the commit message).
+Offline isolation proven: the suite passes with `HOME`/`USERPROFILE`
+redirected to an empty directory and all provider keys cleared.
 
 ## Current state
 
@@ -33,14 +38,29 @@ refined with its cases preserved — see AUDIT F2 and the commit message).
 
 ## Next actions (ranked)
 
-1. **A1 — make update failure visible.** Record the intended version before
-   restart, verify it after, and surface a real error instead of silence.
-   Highest leverage: while it is broken, no fix reaches the user (F1).
-2. **A6 — versioned evaluation fixture set** with independently specified
-   expected content, so fidelity claims stop resting on single examples, and
-   `_retry_if_incomplete`'s heuristics (A2) can be measured rather than assumed.
+1. **A6 — versioned evaluation fixture set** with independently specified
+   expected content. Everything about *recognition* fidelity is still
+   unmeasured; needs the user to approve a fixture set and a spend/call budget.
+   Unblocks A2.
+2. **A2 — validate `_retry_if_incomplete`.** Its words-per-second threshold and
+   1.25x "improvement" rule are unvalidated heuristics: an omission can pass the
+   threshold, and a longer output can be a *hallucinated* one. It is currently
+   trusted to overwrite a transcript.
 3. **A4 — separate ASR routing from styling routing**, or state plainly in the
-   UI how each stage reads the single `provider_order`.
+   UI how each stage reads the single `provider_order` (Cerebras is silently
+   skipped for ASR).
+
+## Release candidate / rollback
+
+No build, tag or release was produced — deploying is a separate approval step.
+The work is on branch `audit/maintainer-2026-09` only; `main`, the user's
+checkout and the installed 3.14.84 app are untouched.
+
+To build an RC from the branch (Windows): `build_windows.bat` after checking it
+out. To roll back at any point: `git checkout main` (the branch is additive and
+has not been merged), or reinstall the published v3.14.85 installer. No user
+data, history or settings are migrated or rewritten by these changes, so
+rollback needs no data steps.
 
 ## Known limitations of this run
 

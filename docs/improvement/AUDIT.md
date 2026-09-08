@@ -122,9 +122,45 @@ relabelled, and the UI button corrected to "Show transcript".
 
 | # | Item | Why it matters | Evidence status |
 |---|---|---|---|
-| A1 | Updater cannot detect its own failure | Fixes never reach the user (F1) | Defect proven |
+| ~~A1~~ | ~~Updater cannot detect its own failure~~ | **FIXED** `89c7301` | Defect proven |
 | A2 | `_retry_if_incomplete` heuristics unvalidated | Words/sec + 1.25× rules can miss omissions and can prefer a longer *hallucinated* transcript | UNPROVEN either way; needs the fixture set |
 | A3 | Styling guard misses partial loss | `finish_reason=length` + <50% word rule cannot catch one dropped crucial clause | Structural, unproven in the wild |
 | A4 | ASR vs styling provider routing conflated | One `provider_order` drives both; Cerebras is silently skipped for ASR | Confirmed by code read |
-| A5 | Groq model 404 handling | `model_not_found` sets no cooldown → repeated latency on a dead model | Reported earlier; re-verify before acting |
+| ~~A5~~ | ~~Groq model 404 handling~~ | **FIXED** `4fc2085`. Re-verified: 458 occurrences, latest 2026-09-08 08:14:15; 404 fell through to a bare `raise` with no cooldown | Proven |
 | A6 | No versioned evaluation fixture set | Every fidelity claim so far rests on synthetic or single examples | See EVALUATION.md |
+
+
+---
+
+## F5 — The checks could not fail  (PROVEN, FIXED `d915f28`)
+
+* CI's pyflakes step ended in `|| echo "no lint findings"` → **always exit 0**.
+  It had been reporting `app.py: undefined name 'subprocess'`: `download_logs()`
+  calls `subprocess.Popen` but imports the module only inside *other* methods,
+  so both calls raised `NameError`, swallowed by a bare `except`. The log zip
+  was written but the folder never opened and nothing said why. Fixed; guard
+  verified by negative control (removing the import again is caught).
+* `pytest tests/` imported two live benchmark scripts at collection time, which
+  `load_dotenv` the user's real keys and read their private `history.json`
+  while contributing **zero** test functions. The "offline" suite therefore
+  depended on the maintainer's credentials and would error for any contributor.
+  Excluded via `tests/conftest.py`; isolation proven by running with a
+  redirected home and cleared keys.
+* `test_and_more_hallucination.py::main()` ran a **hardcoded list** that had
+  drifted: it named a renamed function (NameError under CI's
+  `python tests/<file>.py`, invisible to pytest) and omitted a newly added test.
+  Replaced with discovery.
+* CI invoked test files individually → files added later were never run. Now
+  runs the full suite.
+* CI ran only on `macos-14`, skipping every Windows-only module, on a product
+  that ships a Windows build. Added a `windows-latest` job.
+
+## F6 — Unavailable model re-probed every dictation  (PROVEN, FIXED `4fc2085`)
+
+458 Groq `404 model_not_found` for `llama-3.3-70b-versatile` (latest
+2026-09-08 08:14:15) with the user on groq-first. The except-chain cooled down
+429s, connection errors and 401/403 but let 404 reach a bare `raise`, so the
+model was re-probed on every recording. Now a 1-hour cooldown plus a distinct
+`MODEL_UNAVAILABLE` error naming the model. **Not** silently swapped for
+another model: the message is ambiguous between "retired" and "this key lacks
+access", and a default change needs a benchmark plus a docs check.
