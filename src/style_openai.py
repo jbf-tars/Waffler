@@ -37,6 +37,11 @@ except ImportError:
 # provider stall a dictation for half a minute — and with a 3-provider chain,
 # two hops could stack to 60-78s (observed live). 15s still leaves generous
 # headroom over every measured healthy p95 (all < 6s).
+# A 404/model_not_found is a standing condition, not a blip: re-probing it
+# every dictation costs a full round-trip for nothing. Long enough to stop
+# the bleeding, short enough that restored access recovers without a restart.
+_MODEL_UNAVAILABLE_COOLDOWN_S = 3600.0
+
 _STYLE_TIMEOUT_S = 15.0
 
 # Overall wall-clock budget for the WHOLE styling step (all fallback attempts).
@@ -627,6 +632,25 @@ Transcript: {transcript}"""
                 self._groq_skip_until = time.monotonic() + 3600.0
                 print(f"[styling] Groq returned auth/network error — skipping Groq for 1 hour")
                 raise RuntimeError(f"AUTH: Groq auth/network blocked — {error_msg[:120]}")
+            elif ("model_not_found" in error_msg
+                  or "does not exist" in error_msg.lower()
+                  or "404" in error_msg):
+                # An unavailable model is not transient. Without a
+                # cooldown it is re-probed on EVERY dictation: app.log
+                # carried 458 of these for llama-3.3-70b-versatile, so
+                # every recording paid a wasted round-trip before
+                # falling through to the next provider. The message is
+                # ambiguous between "retired" and "this key lacks
+                # access", so we do NOT silently swap in another model
+                # (that needs a benchmark and a docs check) - we just
+                # stop paying the latency and say why.
+                self._groq_skip_until = time.monotonic() + _MODEL_UNAVAILABLE_COOLDOWN_S
+                _model = getattr(self, "_groq_model", "?")
+                self._log_provider_failure("Groq", 
+                    f"model {_model!r} unavailable - skipping for "
+                    f"{int(_MODEL_UNAVAILABLE_COOLDOWN_S // 60)}m")
+                raise RuntimeError(
+                    f"MODEL_UNAVAILABLE: Groq model {_model!r} is not available to this account - {error_msg[:100]}")
             raise
         styled = response.choices[0].message.content.strip()
         # Fix mid-sentence capitalization bug
@@ -711,6 +735,25 @@ Transcript: {transcript}"""
                 self._cerebras_skip_until = time.monotonic() + 3600.0
                 print(f"[styling] Cerebras returned auth error — skipping for 1 hour")
                 raise RuntimeError(f"AUTH: Cerebras auth failed — {error_msg[:120]}")
+            elif ("model_not_found" in error_msg
+                  or "does not exist" in error_msg.lower()
+                  or "404" in error_msg):
+                # An unavailable model is not transient. Without a
+                # cooldown it is re-probed on EVERY dictation: app.log
+                # carried 458 of these for llama-3.3-70b-versatile, so
+                # every recording paid a wasted round-trip before
+                # falling through to the next provider. The message is
+                # ambiguous between "retired" and "this key lacks
+                # access", so we do NOT silently swap in another model
+                # (that needs a benchmark and a docs check) - we just
+                # stop paying the latency and say why.
+                self._cerebras_skip_until = time.monotonic() + _MODEL_UNAVAILABLE_COOLDOWN_S
+                _model = getattr(self, "_cerebras_model", "?")
+                self._log_provider_failure("Cerebras", 
+                    f"model {_model!r} unavailable - skipping for "
+                    f"{int(_MODEL_UNAVAILABLE_COOLDOWN_S // 60)}m")
+                raise RuntimeError(
+                    f"MODEL_UNAVAILABLE: Cerebras model {_model!r} is not available to this account - {error_msg[:100]}")
             raise
         styled = response.choices[0].message.content.strip()
         styled = self._strip_em_dashes(styled)
