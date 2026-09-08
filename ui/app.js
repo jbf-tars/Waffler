@@ -842,7 +842,7 @@ function makeCard(item, isNew) {
     <div class="card-text styled" id="text-${escHtml(String(item.timestamp))}">${escHtml(displayText)}</div>
     <div class="card-actions">
       <button class="btn-copy" data-text="${escHtml(displayText)}">📋 Copy</button>
-      ${hasStyled ? `<span class="text-toggle" data-timestamp="${escHtml(String(item.timestamp))}" data-raw="${escHtml(rawText)}" data-styled="${escHtml(displayText)}">Show original</span>` : ''}
+      ${hasStyled ? `<span class="text-toggle" data-timestamp="${escHtml(String(item.timestamp))}" data-raw="${escHtml(rawText)}" data-styled="${escHtml(displayText)}">Show transcript</span>` : ''}
     </div>
   `;
 
@@ -882,7 +882,7 @@ function toggleRawHandler(toggleEl, ts, rawText, styledText) {
   } else {
     textEl.textContent = styledText;
     textEl.classList.replace('raw', 'styled');
-    toggleEl.textContent = 'Show original';
+    toggleEl.textContent = 'Show transcript';
   }
 }
 

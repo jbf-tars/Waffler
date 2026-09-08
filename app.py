@@ -3211,13 +3211,38 @@ class WafflerPipeline:
                 notify_js_status("idle")
                 return
 
-            # Save to history
+            # Save to history.
+            #
+            # PROVENANCE — "text" is the FILTERED transcript, not the raw
+            # speech-recognition response. transcribe_sync() applies the
+            # hallucination filter and the vocab-echo / boilerplate discards
+            # before returning, so what the UI labels "original" has always
+            # been a processed artifact. When filtering actually changed
+            # something we now also store the untouched provider words under
+            # "asr_text" so a filtering mistake stays recoverable, and stamp
+            # "text_is" so the meaning of this field is explicit rather than
+            # assumed. Entries WITHOUT "text_is" pre-date this change: their
+            # "text" is also filtered, but by an older filter whose exact
+            # behaviour is not recorded — they must not be presented as
+            # recovered originals.
             item = {
                 "timestamp": datetime.now().isoformat(timespec="seconds"),
                 "text": transcript,
                 "styled": styled,
                 "word_count": len(styled.split()),
+                "text_is": "asr_filtered",
             }
+            try:
+                _asr_raw = getattr(self.transcriber, "last_asr_response", "") or ""
+                if getattr(self.transcriber, "last_asr_filtered", False) and _asr_raw != transcript:
+                    item["asr_text"] = _asr_raw
+                    _log_to_file(
+                        f"[pipeline] ASR filter changed the transcript "
+                        f"({len(_asr_raw.split())} -> {len(transcript.split())} words); "
+                        f"untouched response preserved in history"
+                    )
+            except Exception as _e:
+                _log_to_file(f"[pipeline] provenance capture failed: {_e}")
             append_history(item)
 
             # Notify JS

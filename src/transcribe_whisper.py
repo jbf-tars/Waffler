@@ -927,6 +927,13 @@ class WhisperTranscriber:
             return transcript
 
     def transcribe_sync(self, audio_bytes: bytes):
+        # Provenance, reset per recording so a stale response from an earlier
+        # dictation can never be attributed to this one. These are the
+        # UNTOUCHED provider words: everything below (hallucination filter,
+        # vocab-echo discard, boilerplate discard) edits a copy, and the
+        # caller stores both so a filtering mistake stays recoverable.
+        self.last_asr_response = ""
+        self.last_asr_filtered = False
         audio_bytes = _pad_audio_with_silence(audio_bytes)
 
         # Long-recording fix: split clips over ~30 s into <= 25-30 s chunks on
@@ -974,6 +981,9 @@ class WhisperTranscriber:
         # speech -> 18 words, ~85% of a dictation silently gone.)
         raw = self._retry_if_incomplete(audio_bytes, raw)
 
+        # Snapshot the provider's words BEFORE any filtering runs.
+        self.last_asr_response = raw
+
         # Pass MEASURED speech duration so the filter decides ambiguous
         # cases on audio evidence instead of guessing from the text.
         cleaned = _strip_hallucinations(raw, speech_seconds=_clip_speech_s)
@@ -990,6 +1000,7 @@ class WhisperTranscriber:
             vocab = []
         if _is_vocab_echo(cleaned, vocab):
             print(f"[whisper] Discarded vocab-echo hallucination: '{cleaned}'")
+            self.last_asr_filtered = True
             return ""
 
         # Discard known boilerplate Whisper produces on silence / near-silence
@@ -1003,8 +1014,10 @@ class WhisperTranscriber:
                       f"{_clip_speech_s:.1f}s of measured speech says it is real")
             else:
                 print(f"[whisper] Discarded boilerplate hallucination: '{cleaned}'")
+                self.last_asr_filtered = True
                 return ""
 
+        self.last_asr_filtered = cleaned != raw
         return cleaned
 
     def get_duration_seconds(self) -> float:
