@@ -913,6 +913,7 @@ class WhisperTranscriber:
             _wlog(f"[whisper] SUSPICIOUS transcript: {words} words for "
                   f"{speech_s:.1f}s of speech ({wps:.2f} w/s) via "
                   f"{first_provider or '?'} — retrying on alternate provider")
+            self.last_retry_fired = True
             alt = self._dispatch_one(audio_bytes, exclude=first_provider)
             alt_words = len((alt or "").split())
             if alt_words >= max(1, words) * _RETRY_IMPROVEMENT_FACTOR:
@@ -933,6 +934,10 @@ class WhisperTranscriber:
         # caller stores both so a filtering mistake stays recoverable.
         self.last_asr_response = ""
         self.last_asr_filtered = False
+        # Measured speech and whether a cross-provider retry fired. Surfaced so
+        # the quality signals are computed from evidence, not guesses.
+        self.last_speech_seconds = 0.0
+        self.last_retry_fired = False
         audio_bytes = _pad_audio_with_silence(audio_bytes)
 
         # Long-recording fix: split clips over ~30 s into <= 25-30 s chunks on
@@ -947,6 +952,7 @@ class WhisperTranscriber:
         # guesses about the text, and measuring twice on a 20 MB clip is
         # wasted work.
         _clip_speech_s = _speech_seconds(audio_bytes)
+        self.last_speech_seconds = _clip_speech_s
         # Diagnostic: how long was the clip and did we split it? Via _wlog so it
         # actually lands in app.log (unlike the old print()s).
         try:

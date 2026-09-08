@@ -841,6 +841,29 @@ function renderFeed(newTimestamp) {
   });
 }
 
+// Quality badge. The pipeline attaches item.quality only when a recording
+// looks suspect, so a clean dictation shows nothing at all - if ordinary
+// recordings lit up, the badge would become noise and get ignored.
+// It reports; it never blocks or alters the text.
+function qualityBadge(item) {
+  const q = item && item.quality;
+  if (!q || !q.level || q.level === 'ok') return '';
+  const labels = {
+    low_word_rate:        'far fewer words than the audio length suggests',
+    styled_dropped_words: 'cleanup removed an unusual amount of text',
+    styling_fallback:     'cleanup did not run - this is the raw transcript',
+    truncated_midsentence:'ends mid-sentence - speech may be missing',
+    unterminated_ending:  'ends without punctuation',
+    asr_filter_edited:    'the transcript filter altered the result',
+    retry_used:           'the first provider returned too little; it was retried',
+    styling_deadline:     'cleanup ran out of time; raw text was kept',
+  };
+  const why = (q.flags || []).map(f => labels[f] || f).join('; ');
+  const cls = q.level === 'low' ? 'q-low' : 'q-check';
+  const mark = q.level === 'low' ? '⚠ check this one' : 'ℹ worth a look';
+  return ` <span class="q-badge ${cls}" title="${escHtml(why)}">${mark}</span>`;
+}
+
 function makeCard(item, isNew) {
   const div = document.createElement('div');
   div.className = 'transcript-card' + (isNew ? ' new' : '');
@@ -854,7 +877,7 @@ function makeCard(item, isNew) {
   div.innerHTML = `
     <div class="card-meta">
       <div class="card-time">${escHtml(timeStr)}</div>
-      <div class="card-words">${words} words</div>
+      <div class="card-words">${words} words${qualityBadge(item)}</div>
     </div>
     <div class="card-text styled" id="text-${escHtml(String(item.timestamp))}">${escHtml(displayText)}</div>
     <div class="card-actions">

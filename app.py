@@ -3257,6 +3257,56 @@ class WafflerPipeline:
                     )
             except Exception as _e:
                 _log_to_file(f"[pipeline] provenance capture failed: {_e}")
+
+            # ── Quality signals ────────────────────────────────────────────
+            # Computed locally from MEASURED audio and from what the pipeline
+            # actually did - never from a judgement about the prose, because
+            # reading a transcript cannot reveal what is missing from it.
+            # Flag, never block: the paste already happened above.
+            try:
+                from src.quality import assess as _assess
+                _q = _assess(
+                    speech_seconds=getattr(self.transcriber, "last_speech_seconds", 0.0),
+                    transcript_words=len((transcript or "").split()),
+                    styled_words=len((styled or "").split()),
+                    asr_filtered=getattr(self.transcriber, "last_asr_filtered", False),
+                    styling_provider=(gpt_usage or {}).get("provider", ""),
+                    styled_text=styled or "",
+                    retry_fired=getattr(self.transcriber, "last_retry_fired", False),
+                    deadline_fired="TIMEOUT" in str((gpt_usage or {}).get("fallback_reason", "")),
+                )
+                if _q["level"] != "ok":
+                    item["quality"] = _q
+                    _log_to_file(
+                        f"[quality] {_q['level']}: {','.join(_q['flags'])} "
+                        f"({_q['words_per_speech_second']} w/s)"
+                    )
+                # Metadata-only quality log. Deliberately contains NO transcript
+                # text: it sits beside history.json but must stay safe to read,
+                # share and aggregate. Bounded so it cannot grow without limit.
+                try:
+                    _qlog = DATA_DIR / "quality.jsonl"
+                    if _qlog.exists() and _qlog.stat().st_size > 2_000_000:
+                        _keep = _qlog.read_text(encoding="utf-8").splitlines()[-5000:]
+                        _qlog.write_text("\n".join(_keep) + "\n", encoding="utf-8")
+                    with open(_qlog, "a", encoding="utf-8") as _f:
+                        _f.write(json.dumps({
+                            "timestamp": item["timestamp"],
+                            "level": _q["level"],
+                            "flags": _q["flags"],
+                            "speech_s": round(float(getattr(
+                                self.transcriber, "last_speech_seconds", 0.0)), 1),
+                            "transcript_words": len((transcript or "").split()),
+                            "styled_words": len((styled or "").split()),
+                            "words_per_speech_second": _q["words_per_speech_second"],
+                            "styling_provider": (gpt_usage or {}).get("provider", ""),
+                            "asr_provider": getattr(
+                                self.transcriber, "_last_cloud_provider", ""),
+                        }) + "\n")
+                except Exception as _e:
+                    _log_to_file(f"[quality] log write failed: {_e}")
+            except Exception as _e:
+                _log_to_file(f"[quality] assessment failed: {_e}")
             append_history(item)
 
             # Notify JS

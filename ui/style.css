@@ -5353,3 +5353,23 @@ body:not([data-theme]) .j-page .btn-copy {
   opacity: 0.3;
   cursor: not-allowed;
 }
+
+/* Quality badge - shown only on recordings the pipeline flagged. Deliberately
+   low-contrast: it is information, not an alarm, and most recordings show
+   nothing here at all. */
+.q-badge {
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: help;
+  vertical-align: baseline;
+}
+.q-badge.q-check { background: rgba(180, 140, 20, 0.14); color: #8a6d1a; }
+.q-badge.q-low   { background: rgba(190, 60, 40, 0.14);  color: #a8362a; }
+@media (prefers-color-scheme: dark) {
+  .q-badge.q-check { background: rgba(230, 190, 80, 0.18); color: #e6c05a; }
+  .q-badge.q-low   { background: rgba(240, 110, 90, 0.18); color: #f08a72; }
+}
