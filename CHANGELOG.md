@@ -4,6 +4,87 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.86] - 2026-09-08
+
+Maintainer audit release. Every item below was reproduced offline before being
+changed; see `docs/improvement/AUDIT.md` for the evidence and for what remains
+unproven.
+
+### Fixed
+- **The transcript filter was deleting real speech.** `_strip_hallucinations`
+  matched stock Whisper outros anchored only to the end of the text, with no
+  grammatical guard and no reference to the audio. Reproduced: *"Please send
+  the deck to Priya and thank you."* → *"…to Priya and"*; *"I'll sign it. Over
+  to you."* → *"…Over to"*; *"…onboarding, payroll, benefits and more."* →
+  *"…benefits"*; *"The tutorial ends by saying thanks for watching."* → *"…by
+  saying"*; and a bare *"Thank you."* was erased entirely. Every one is silent,
+  unrecoverable loss of the speaker's own words, and the dangling function word
+  ("Over to") is the signature of a phrase that was *integrated speech*, never
+  an appended outro. Three guards now apply: the phrase must start its own
+  sentence; removing it must not leave a dangling conjunction/preposition; and
+  **measured** speech duration decides the ambiguous cases, so a transcript is
+  never blanked when the recording actually contained speech. Evidence of
+  silence still licenses the original aggressive filtering, which is the case
+  that behaviour was written for. 29 negative/positive control tests.
+- **A silently failed update looked exactly like a successful one.** A
+  v3.14.85 update passed the SHA-256 digest gate and the Authenticode
+  advisory, restarted, and came back running v3.14.84 with no error anywhere —
+  the reason "I updated and it's the same version" kept recurring. The install
+  batch discarded the installer's exit code, relaunched unconditionally and
+  deleted itself, and nothing compared the running version against the
+  requested one. Waffler now records the intended version before restarting,
+  captures the installer exit code, reconciles the two on the next start, logs
+  the outcome unconditionally and shows a banner on failure. (The underlying
+  cause of that specific failure remains unproven; `%TEMP%` cleanup and a
+  recorded Defender detection were both excluded.)
+- **An unavailable model was re-probed on every single dictation.** `app.log`
+  carried 458 Groq `404 model_not_found` responses for
+  `llama-3.3-70b-versatile`. The error chain set cooldowns for 429s,
+  connection failures and 401/403 but let a 404 fall through with no cooldown,
+  so every recording paid a wasted round-trip before failing over. Both the
+  Groq and Cerebras paths now start a 1-hour cooldown and raise a distinct
+  `MODEL_UNAVAILABLE` error naming the model. The model is deliberately *not*
+  swapped automatically: the provider message is ambiguous between "retired"
+  and "this key lacks access".
+- **"Download Logs" never opened the folder.** `download_logs()` called
+  `subprocess.Popen` without importing `subprocess` in that scope, so it raised
+  `NameError` on every use — swallowed by a bare `except`. The zip was written
+  and nothing said why the folder did not appear.
+
+### Added
+- **The untouched speech-recognition response is now preserved.** Waffler has
+  four distinct artifacts — captured audio, ASR response, filtered transcript,
+  formatted output — but only the last two were kept: the filtered text was
+  saved as history `text` and shown under a button labelled "Show original", so
+  the provider's actual words existed nowhere and any filtering mistake was
+  permanently unrecoverable. History entries now carry `asr_text` (when
+  filtering changed something) and a `text_is` stamp making the field's meaning
+  explicit. Entries without that stamp pre-date this change and are documented
+  as filtered by an older filter, **not** relabelled as recovered originals.
+- `docs/improvement/` — durable audit, status and evaluation records, including
+  an explicit list of what is still unmeasured.
+
+### Changed
+- UI: **"Show original" → "Show transcript"**. It shows the pre-styling
+  transcript, which is not the untouched original; the old label claimed a
+  provenance the data never had.
+- Per-provider styling timeout 30 s → 15 s (every measured healthy p95 < 6 s).
+
+### Internal
+- **CI could not fail.** The pyflakes step ended in `|| echo`, so it exited 0
+  whatever it reported — it had been reporting the `subprocess` NameError
+  above. `undefined name` now hard-fails; cosmetic findings are printed.
+- **The offline test suite was reading private data.** `pytest tests/` imported
+  two live benchmark scripts at collection time, which loaded the maintainer's
+  real API keys and private `history.json` while contributing zero tests. They
+  are excluded from collection; the suite is verified to pass with a redirected
+  home directory and no provider keys.
+- A test module ran a hardcoded list of functions that had drifted out of sync
+  with itself — naming a renamed function and omitting a new one. Replaced with
+  discovery. CI now runs the whole suite rather than named files, and a
+  **Windows job** was added: the updater batch, hotkey handler and installer
+  paths previously had no CI coverage on a product that ships a Windows build.
+
 ## [3.14.85] - 2026-07-29
 
 ### Fixed

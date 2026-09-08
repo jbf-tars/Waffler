@@ -27,22 +27,22 @@ except ImportError:
     pass
 
 
-# Per-request timeout (seconds) for the cleanup LLM call. The OpenAI SDK
-# default is 600 s (10 minutes) — that's the source of the "styling took
-# 602347 ms" hangs in the wild: a wedged provider blocked the whole
-# dictation for ten minutes instead of failing over. 30 s is far longer
-# than a healthy cleanup call (typ. 0.5-2 s) but short enough that a hung
-# provider is abandoned fast and we move to the next one in the order.
-# Per-provider cap on a single cleanup call. Was 30.0, which let ONE hung
-# provider stall a dictation for half a minute — and with a 3-provider chain,
-# two hops could stack to 60-78s (observed live). 15s still leaves generous
-# headroom over every measured healthy p95 (all < 6s).
-# A 404/model_not_found is a standing condition, not a blip: re-probing it
-# every dictation costs a full round-trip for nothing. Long enough to stop
-# the bleeding, short enough that restored access recovers without a restart.
-_MODEL_UNAVAILABLE_COOLDOWN_S = 3600.0
-
+# Per-provider cap on a single cleanup call.
+#
+# The OpenAI SDK default is 600 s, which is where the "styling took 602347 ms"
+# hangs came from: a wedged provider blocked the whole dictation for ten
+# minutes instead of failing over. That became 30 s, which was still enough for
+# ONE hung provider to stall a dictation for half a minute - and across a
+# 3-provider chain two hops could stack to 60-78 s (observed live). 15 s leaves
+# generous headroom over every measured healthy p95 (all < 6 s) while
+# abandoning a hung provider fast.
 _STYLE_TIMEOUT_S = 15.0
+
+# A 404 / model_not_found is a standing condition, not a blip: re-probing it on
+# every dictation costs a full round-trip for nothing (app.log carried 458 such
+# probes). Long enough to stop the bleeding, short enough that restored access
+# recovers without a restart.
+_MODEL_UNAVAILABLE_COOLDOWN_S = 3600.0
 
 # Overall wall-clock budget for the WHOLE styling step (all fallback attempts).
 #
