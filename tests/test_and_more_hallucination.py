@@ -43,10 +43,20 @@ def test_exact_and_more_variants_rejected():
     print(f"  ✓ all {len(cases)} bare 'and more' variants rejected")
 
 
-def test_trailing_and_more_stripped_from_real_content():
-    """When a real utterance has 'and more' appended by Whisper, strip it.
-    Existing safeguard discards ≤2-word remainders as probable noise babble,
-    so all real-content cases here have 3+ surviving words.
+def test_trailing_and_more_stripped_on_near_silent_clip():
+    """Strip an "and more" tail when the AUDIO says the clip was near-silent.
+
+    v3.14.86 note — expectation refined, cases preserved. This test previously
+    called the filter with no audio evidence and asserted the tail was always
+    stripped. That is what this module's own header describes as the target
+    case ("Whisper ITSELF emits 'and more.' on near-silent <1 s clips"), but
+    end-of-string matching alone cannot tell that clip apart from a real
+    enumeration: "The pack covers onboarding, payroll, benefits and more."
+    is the speaker's own words, and deleting "and more" there drops the
+    substantive signal that the list was open-ended.
+
+    The filter now takes measured speech seconds, so the original intent is
+    expressed directly instead of by proxy. All five inputs are unchanged.
     """
     cases = [
         ("This is a real sentence and more.", "This is a real sentence"),
@@ -56,9 +66,20 @@ def test_trailing_and_more_stripped_from_real_content():
         ("The tools we offer all developers and much more!", "The tools we offer all developers"),
     ]
     for inp, expected in cases:
-        out = _strip_hallucinations(inp)
+        out = _strip_hallucinations(inp, speech_seconds=0.4)
         assert out == expected, f"strip({inp!r}) = {out!r}, expected {expected!r}"
-    print(f"  ✓ all {len(cases)} trailing-tail cases stripped correctly")
+
+
+def test_trailing_and_more_kept_when_clip_had_real_speech():
+    """The complement, and the reason the expectation above is conditional:
+    on a clip with real speech the same tails are the speaker's content and
+    must survive."""
+    for inp, _stripped in [
+        ("This is a real sentence and more.", None),
+        ("Buy our gadgets, gizmos, accessories, and more!", None),
+        ("The tools we offer all developers and much more!", None),
+    ]:
+        assert _strip_hallucinations(inp, speech_seconds=11.0) == inp
 
 
 def test_real_sentence_mentioning_more_left_alone():

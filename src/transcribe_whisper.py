@@ -524,71 +524,134 @@ def _split_audio_on_silence(
         return [audio_bytes]
 
 
-def _strip_hallucinations(text: str) -> str:
-    """Remove common Whisper hallucinations from transcribed text.
+# Below this many measured seconds of speech a clip is treated as effectively
+# silent, which is the only situation where discarding transcript text is
+# justified. Measured from the audio, never inferred from the text.
+_NEAR_SILENCE_S = 1.5
 
-    Whisper often hallucinates stock phrases when it encounters silence
-    or low-quality audio, especially at the end of a recording. The
-    training data skews heavily toward YouTube transcripts, so the
-    failure modes cluster around channel-end outros.
+
+def _strip_hallucinations(text: str, speech_seconds: float = None) -> str:
+    """Remove stock Whisper outros without eating the speaker's own words.
+
+    Whisper's training data skews to YouTube, so on silence or poor audio it
+    invents channel-end outros. Those are APPENDED AFTER a finished clause.
+    Legitimate speech that happens to end with the same words is
+    GRAMMATICALLY INTEGRATED into the sentence:
+
+        hallucination : "That is the plan. Thanks for watching!"
+        real speech   : "The tutorial ends by saying thanks for watching."
+
+    Before v3.14.86 the patterns were anchored only to end-of-string, so both
+    were truncated. Reproduced offline: "Please send the deck to Priya and
+    thank you." -> "...to Priya and"; "Over to you." -> "Over to";
+    "...benefits and more." -> "...benefits"; "Thank you." -> "". That is
+    silent, unrecoverable loss of the user's words, and the dangling function
+    word ("Over to") is the signature of a phrase that was never an outro.
+
+    Three guards, in order of strength:
+
+    1. BOUNDARY. A phrase is only a candidate when it starts its own sentence.
+       Unambiguous YouTube outros also accept a comma boundary ("...Monday,
+       please subscribe!"); short high-risk phrases ("thank you", bare "you",
+       "and more") require a full stop, because they are everywhere in
+       ordinary speech.
+    2. NO DANGLING WORD. If removing the phrase would leave a trailing
+       conjunction/preposition, it was integrated speech — the strip is
+       rejected.
+    3. AUDIO EVIDENCE. ``speech_seconds`` (measured, not guessed) decides the
+       genuinely ambiguous cases. A transcript is never blanked when the
+       recording actually contained speech; "Thank you." with four seconds of
+       speech is the user talking, the same text on a silent clip is not.
+
+    ``speech_seconds=None`` means "unknown" and keeps the conservative
+    behaviour: guards 1 and 2 still apply, so integrated speech is safe.
     """
-    # Trailing-only patterns (anchored to end of string). Every entry tolerates
-    # optional punctuation/whitespace so we catch "Thanks for watching!",
-    # "Thanks for watching." etc.
-    _HALLUCINATION_PATTERNS = [
-        r"thank you[\.\!\?]*$",
-        r"thanks for watching[\.\!\?]*$",
-        r"thanks for listening[\.\!\?]*$",
-        # YouTube-style subscribe outros in all the usual prefixes.
-        r"(?:please|remember to|don'?t forget to|and|like and|so please)\s+subscribe[\.\!\?]*$",
-        r"subscribe to (?:my|the|our) channel[\.\!\?]*$",
-        r"subscribe[\.\!\?]*$",
-        # Channel sign-offs.
-        r"see you (?:in the next one|next time|later|in the next video)[\.\!\?]*$",
-        r"hit the like button[\.\!\?]*$",
-        r"smash that like button[\.\!\?]*$",
-        # Auto-caption credits — the WKNO-MEMPHIS / station-attribution shape
-        # (real instance from history: "CLOSED CAPTION PROVIDED BY WKNO-MEMPHIS.").
-        r"subtitles by .*$",
-        r"translated by .*$",
-        r"captioned by .*$",
-        r"closed\s+caption(?:s|ing)?\s+(?:by|provided\s+by)\s+.*$",
-        r"caption(?:s|ing)?\s+provided\s+by\s+.*$",
-        # Stock single-word hallucinations on silence.
-        r"\byou\b[\.\!\?]*$",
-        # v3.14.39 — trailing "and more" / "and many more" / "with much more".
-        # YouTube ad-segment tails are common Whisper training data; on short
-        # clips it can append the phrase to whatever else it imagined. Pattern
-        # (not full-match) so we strip the tail off real content too.
-        # This is the transcription-layer complement to v3.14.38's
-        # styling-prompt fix: that prevents the LLM styler from generating
-        # filler-tails; this catches the case where Whisper itself emits one
-        # and local pass-through styling never gets a chance to fix it.
-        r"(?:and|with|plus)\s+(?:many\s+|much\s+|lots\s+)?more[\.\!\?]*$",
+    # Unambiguous channel outros: accept a sentence end OR a comma before them.
+    _STRONG_TAIL_PATTERNS = [
+        r"thanks for watching[.!?]*",
+        r"thanks for listening[.!?]*",
+        r"(?:please|remember to|don'?t forget to|and|like and|so please)\s+subscribe[.!?]*",
+        r"subscribe to (?:my|the|our) channel[.!?]*",
+        r"subscribe[.!?]*",
+        r"see you (?:in the next one|next time|later|in the next video)[.!?]*",
+        r"hit the like button[.!?]*",
+        r"smash that like button[.!?]*",
+        r"subtitles by .*",
+        r"translated by .*",
+        r"captioned by .*",
+        r"closed\s+caption(?:s|ing)?\s+(?:by|provided\s+by)\s+.*",
+        r"caption(?:s|ing)?\s+provided\s+by\s+.*",
     ]
+    # Short phrases that are common in real speech: own-sentence only.
+    _WEAK_TAIL_PATTERNS = [
+        r"thank you[.!?]*",
+        r"thanks[.!?]*",
+        r"you[.!?]*",
+        r"(?:and|with|plus)\s+(?:many\s+|much\s+|lots\s+)?more[.!?]*",
+    ]
+    # A trailing one of these proves the removed phrase was part of the clause.
+    _DANGLING = {
+        "and", "to", "for", "of", "with", "or", "plus", "by", "saying", "the",
+        "a", "an", "but", "so", "that", "is", "are", "was", "were", "than",
+        "from", "into", "about", "at", "on", "in",
+    }
 
-    stripped = text.strip()
-    original_len = len(stripped)
-    for pattern in _HALLUCINATION_PATTERNS:
-        stripped = re.sub(pattern, "", stripped, flags=re.IGNORECASE).strip()
-        # Clean up any trailing comma/semicolon left dangling after a strip,
-        # e.g. "web outfits, remember to subscribe!" -> "web outfits," -> "web outfits".
-        stripped = re.sub(r"[,;\s]+$", "", stripped)
-
-    # If the entire transcription was a hallucination, return empty.
-    if not stripped or stripped in (".", ",", "!"):
+    if not text or not text.strip():
         return ""
 
-    # If stripping removed content AND what remains is just a tiny word or
-    # two with no real shape, the leading fragment was almost certainly
-    # Whisper-on-silence babble too (e.g. "web outfits" left over after the
-    # subscribe tail was removed). Discard the remainder rather than pasting
-    # garbage into the user's clipboard.
-    if len(stripped) < original_len and len(stripped.split()) <= 2:
+    stripped = text.strip()
+    original = stripped
+    had_speech = speech_seconds is not None and speech_seconds >= _NEAR_SILENCE_S
+    # Evidence of silence licenses aggressive filtering; absence of evidence
+    # does not. On a clip measured as effectively silent the ENTIRE transcript
+    # is model invention, so the boundary and dangling-word guards (which exist
+    # to protect real speech) are stood down and the original end-anchored
+    # patterns apply. This is the case v3.14.39 was written for: Whisper
+    # emitting "and more." on a sub-second clip.
+    near_silent = speech_seconds is not None and speech_seconds < _NEAR_SILENCE_S
+
+    def _tidy(s: str) -> str:
+        # Drop a comma/semicolon left dangling by a strip, but keep terminators.
+        return re.sub(r"[,;\s]+$", "", s).strip()
+
+    def _try(patterns, boundary):
+        nonlocal stripped
+        for pat in patterns:
+            # Near-silence: match the bare pattern anywhere at the end.
+            expr = (r"\s*(?:" + pat + r")\s*$") if near_silent else (
+                boundary + r"\s*(?:" + pat + r")\s*$")
+            m = re.search(expr, stripped, flags=re.IGNORECASE)
+            if not m:
+                continue
+            candidate = _tidy(stripped[: m.start()])
+            if not near_silent:
+                # Guard 2: never leave a dangling function word.
+                words = candidate.rstrip(".!?,").split()
+                if words and words[-1].lower() in _DANGLING:
+                    continue
+                # Guard 3: never blank real speech.
+                if not candidate and had_speech:
+                    continue
+            stripped = candidate
+
+    _try(_STRONG_TAIL_PATTERNS, r"(?:^|(?<=[.!?])|(?<=,))")
+    _try(_WEAK_TAIL_PATTERNS, r"(?:^|(?<=[.!?]))")
+
+    if not stripped or stripped in (".", ",", "!"):
+        # Everything was boilerplate. Only honour that when the audio agrees
+        # (or is unknown); with measured speech, keep the words.
+        return original if had_speech else ""
+
+    # A near-empty remainder after a strip used to be discarded unconditionally,
+    # which deleted real short dictations. It is now an audio-evidenced call:
+    # only discard when the clip was effectively silent.
+    if (len(stripped) < len(original)
+            and len(stripped.split()) <= 2
+            and speech_seconds is not None
+            and speech_seconds < _NEAR_SILENCE_S):
         return ""
 
     return stripped
-
 
 # Per-request timeout (seconds) for a single transcription call. A chunked
 # clip is <= ~30 s of audio, which Groq/OpenAI Whisper turn around in 1-5 s;
@@ -873,6 +936,11 @@ class WhisperTranscriber:
         # common case -- come back as a single chunk and take the unchanged
         # single-shot path.
         chunks = _split_audio_on_silence(audio_bytes)
+        # Measure speech ONCE here: the hallucination filter and the
+        # incomplete-transcript check both need audio evidence rather than
+        # guesses about the text, and measuring twice on a 20 MB clip is
+        # wasted work.
+        _clip_speech_s = _speech_seconds(audio_bytes)
         # Diagnostic: how long was the clip and did we split it? Via _wlog so it
         # actually lands in app.log (unlike the old print()s).
         try:
@@ -889,7 +957,9 @@ class WhisperTranscriber:
                 # Strip a hallucinated outro PER CHUNK so a fake ending Whisper
                 # tacks onto one chunk doesn't land in the middle of the joined
                 # transcript. (The trailing strip below still covers chunk N.)
-                part = _strip_hallucinations(part).strip()
+                part = _strip_hallucinations(
+                    part, speech_seconds=_speech_seconds(ch)
+                ).strip()
                 _wlog(f"[whisper] chunk {idx+1}/{len(chunks)} -> {len(part.split())} words")
                 if part:
                     parts.append(part)
@@ -904,7 +974,9 @@ class WhisperTranscriber:
         # speech -> 18 words, ~85% of a dictation silently gone.)
         raw = self._retry_if_incomplete(audio_bytes, raw)
 
-        cleaned = _strip_hallucinations(raw)
+        # Pass MEASURED speech duration so the filter decides ambiguous
+        # cases on audio evidence instead of guessing from the text.
+        cleaned = _strip_hallucinations(raw, speech_seconds=_clip_speech_s)
         if cleaned != raw:
             # Metadata only — don't print the transcript text (PII; app.log
             # ships in the Download Logs bundle).
@@ -921,10 +993,17 @@ class WhisperTranscriber:
             return ""
 
         # Discard known boilerplate Whisper produces on silence / near-silence
-        # ("Thanks for watching!", "Please subscribe", etc.).
+        # ("Thanks for watching!", "Please subscribe", etc.) — but ONLY when the
+        # audio agrees it was silence. A user who genuinely says just "Thank
+        # you." or "Thanks." produces text identical to the classic
+        # hallucination, and blanking that is silent loss of their words.
         if _is_whisper_hallucination(cleaned):
-            print(f"[whisper] Discarded boilerplate hallucination: '{cleaned}'")
-            return ""
+            if _clip_speech_s >= _NEAR_SILENCE_S:
+                _wlog(f"[whisper] boilerplate-shaped text kept: "
+                      f"{_clip_speech_s:.1f}s of measured speech says it is real")
+            else:
+                print(f"[whisper] Discarded boilerplate hallucination: '{cleaned}'")
+                return ""
 
         return cleaned
 
