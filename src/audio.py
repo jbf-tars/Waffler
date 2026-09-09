@@ -96,16 +96,34 @@ def _name_is_bluetooth(name: str) -> bool:
     return any(m in n for m in _BT_INPUT_MARKERS)
 
 
-def _resolve_input_device():
+def _resolve_input_device(selected_index=None):
     """Return the input device index to record from, or None to use PortAudio's
     current default.
 
-    The normal case returns None (use the default). Only when the default input
-    is a Bluetooth mic do we override: we pick a non-Bluetooth input (preferring
-    the built-in mic) so opening the stream doesn't drag the user's AirPods into
-    call-quality HFP mode. Fully best-effort — any failure returns None and the
-    default is used, so this can never block recording.
+    ``selected_index`` is the microphone the user explicitly chose in Settings.
+    It wins outright: if someone has picked a device, recording from a different
+    one is a silent failure of the worst kind, because the app reports success
+    while capturing the wrong source (or silence). Before v3.14.91 the selection
+    was stored but never reached stream creation, so the picker did nothing at
+    all.
+
+    With no explicit selection the normal case returns None (use the default).
+    Only when the default input is a Bluetooth mic do we override: we pick a
+    non-Bluetooth input (preferring the built-in mic) so opening the stream
+    doesn't drag the user's AirPods into call-quality HFP mode. Fully
+    best-effort — any failure returns None and the default is used, so this can
+    never block recording.
     """
+    if selected_index is not None:
+        try:
+            info = sd.query_devices(selected_index)
+            if info.get("max_input_channels", 0) > 0:
+                return int(selected_index)
+            print(f"[audio] selected device {selected_index} has no input "
+                  f"channels — falling back to the default")
+        except Exception as e:
+            print(f"[audio] selected device {selected_index} unavailable "
+                  f"({e}) — falling back to the default")
     try:
         default_in = sd.query_devices(kind="input")
         if not _name_is_bluetooth(default_in.get("name", "")):
@@ -147,9 +165,15 @@ class AudioRecorder:
     pay the 50-300ms stream-creation latency on every hotkey press.
     """
 
-    def __init__(self, sample_rate: int = 16000, channels: int = 1):
+    def __init__(self, sample_rate: int = 16000, channels: int = 1,
+                 device_index=None):
         self.sample_rate = sample_rate
         self.channels = channels
+        # Microphone the user picked in Settings. None means "use the OS
+        # default". Applied on the NEXT stream creation, which is every hotkey
+        # press, so a change takes effect without a restart and never mutates a
+        # live stream mid-recording.
+        self._device_index = device_index
         self.recording: Optional[np.ndarray] = None
         self.is_recording = False
         self.is_paused = False
@@ -275,7 +299,7 @@ class AudioRecorder:
             # Avoid the AirPods mic when it's the default input (keeps music in
             # A2DP). Resolved AFTER the PortAudio reinit above so it sees the
             # current device list. None ⇒ PortAudio default (the normal case).
-            _input_device = _resolve_input_device()
+            _input_device = _resolve_input_device(self._device_index)
             self._stream = sd.InputStream(
                 samplerate=self.sample_rate,
                 channels=self.channels,
@@ -285,6 +309,16 @@ class AudioRecorder:
                 device=_input_device,
             )
             self._stream.start()
+
+    def set_device(self, device_index) -> None:
+        """Choose the input device for subsequent recordings.
+
+        Deliberately does not touch the current stream: streams are rebuilt on
+        every hotkey press, so the next recording picks this up, and an
+        in-flight recording is never disturbed.
+        """
+        self._device_index = int(device_index) if device_index is not None else None
+        print(f"[audio] input device set to {self._device_index if self._device_index is not None else 'system default'}")
 
     def _teardown_stream(self, stream) -> None:
         """Safely tear down an InputStream.

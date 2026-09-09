@@ -4,6 +4,37 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.91] - 2026-09-09
+
+Three deterministic ways to lose speech, found by an external code review and
+confirmed here by reading the code. None needs unusual timing, and all three
+reported success while losing the user's words.
+
+### Fixed
+- **The microphone picker did not control recording.** `AudioRecorder` took no
+  device argument and had no setter, and `_resolve_input_device()` resolved the
+  OS default independently. Choosing a microphone in Settings saved an index
+  that never reached stream creation, so the app kept capturing from a
+  different source while reporting the choice had been applied. If the selected
+  mic was the one you were actually speaking into, the recording was of
+  something else, or of nothing. The selection now flows Settings to pipeline
+  to recorder to `InputStream(device=...)`, wins over the Bluetooth-avoidance
+  heuristic (choosing AirPods is a decision, not an accident), and falls back
+  safely if the device is unplugged or has no input channels.
+- **Deliberate short answers were deleted.** Any press under 500 ms was
+  discarded on press duration alone, before the audio was looked at: no
+  transcription, no history, no toast, not even retained debug audio. Saying
+  "Yes", "No" or a single number quickly was silently thrown away. A brush of
+  the hotkey and a real one-word dictation are only distinguishable by what was
+  captured, so the decision now rests on measured speech: below 0.15s of voiced
+  audio it is a tap, above it the words are transcribed.
+- **A failed clipboard write still pasted.** `ClipboardManager.copy()` returns
+  False on failure and the pipeline discarded that value, so it went on to send
+  the paste keystroke anyway. Whatever unrelated text was already on the
+  clipboard replaced the user's selection, and the run was reported as
+  successful. Paste is now conditional on the copy succeeding; the transcript
+  is still written to History either way, and a toast points there.
+
 ## [3.14.90] - 2026-09-09
 
 ### Fixed

@@ -69,7 +69,7 @@ if _platform.system() == "Windows":
     from windows_hotkey import WindowsHotkeyListener
 else:
     from smart_hotkey import SmartHotkeyListener
-from transcribe_whisper import WhisperTranscriber
+from transcribe_whisper import WhisperTranscriber, _speech_seconds
 from style_openai import OpenAIStyler
 from clipboard import ClipboardManager
 from overlay import RecordingOverlay
@@ -2337,12 +2337,22 @@ def notify_js_new_item(item: dict):
 
 
 # ── Pipeline ──────────────────────────────────────────────────────────
+# Minimum measured speech in a sub-500ms press for it to count as a real
+# dictation rather than a brush of the hotkey. A deliberate "Yes" runs to
+# roughly 0.3s of voiced audio; an accidental tap has essentially none.
+_MIN_TAP_SPEECH_S = 0.15
+
+
 class WafflerPipeline:
     def __init__(self, config: Config):
         self.config = config
         self.audio = AudioRecorder(
             sample_rate=config.sample_rate,
-            channels=config.channels
+            channels=config.channels,
+            # The saved microphone choice. Passed at construction because the
+            # picker previously stored a selection that never reached stream
+            # creation, so choosing a mic in Settings silently did nothing.
+            device_index=get_selected_device_index(),
         )
         # Pre-warm the audio input stream at pipeline init so the FIRST
         # hotkey press is instant. The stream stays alive across recordings
@@ -2446,8 +2456,16 @@ class WafflerPipeline:
         self._processing_lock = threading.Lock()
 
     def set_device(self, device_index: int):
-        """Update the audio device used for future recordings."""
+        """Update the audio device used for future recordings.
+
+        Forwards to the recorder. Storing it here alone was the bug: the
+        picker reported success while capture carried on using the OS default.
+        """
         self._device_index = device_index
+        try:
+            self.audio.set_device(device_index)
+        except Exception as e:
+            _log_to_file(f"Failed to apply device {device_index} to recorder: {e}")
         _log_to_file(f"Audio device changed to index {device_index}")
 
     def _on_overlay_cancel(self):
@@ -2735,21 +2753,33 @@ class WafflerPipeline:
             # recording has > 0.3 s of bytes regardless of physical
             # press duration. The duration field is what actually tracks
             # press-to-release time, so the check moves up here.
-            if recording_duration < 0.5:
-                _log_to_file(
-                    f"Recording too short ({recording_duration:.2f}s < 0.5s) — "
-                    f"discarding as accidental tap; no transcription, no toast"
-                )
-                try:
-                    self.audio.stop()  # drain the recording buffer
-                except Exception as _e:
-                    _log_to_file(f"audio.stop() during short-tap discard failed: {_e}")
-                notify_js_status("idle")
-                return
-
             transcript = None  # init for error handler
             _log_to_file("[pipeline] stopping audio capture...")
             audio_bytes = self.audio.stop()
+
+            # Accidental-tap guard. This used to discard ANY press under 500 ms
+            # on press duration alone, before looking at the audio at all, so a
+            # deliberate short answer ("Yes", "No", a date, a number) was
+            # deleted outright: no transcription, no history, no toast, not
+            # even debug audio. A brush of the hotkey and a real one-word
+            # dictation are only distinguishable by what was actually captured,
+            # so the decision now rests on measured speech.
+            if recording_duration < 0.5:
+                try:
+                    _tap_speech = _speech_seconds(audio_bytes) if audio_bytes else 0.0
+                except Exception:
+                    _tap_speech = 0.0
+                if _tap_speech < _MIN_TAP_SPEECH_S:
+                    _log_to_file(
+                        f"Short press ({recording_duration:.2f}s) with "
+                        f"{_tap_speech:.2f}s of speech — discarding as accidental tap"
+                    )
+                    notify_js_status("idle")
+                    return
+                _log_to_file(
+                    f"Short press ({recording_duration:.2f}s) but {_tap_speech:.2f}s "
+                    f"of real speech — transcribing it rather than discarding"
+                )
             _log_to_file(f"[pipeline] audio captured: {len(audio_bytes) if audio_bytes else 0} bytes")
             # Keep the last few recordings on disk (LOCAL ONLY — same privacy
             # class as history.json; never leaves the machine, excluded from
@@ -3195,9 +3225,23 @@ class WafflerPipeline:
                 notify_js_status("idle")
                 return
 
-            # Copy to clipboard
+            # Copy to clipboard. The result was previously discarded, so a
+            # failed write still went on to "paste" — replacing the user's
+            # selection with whatever unrelated text happened to be on the
+            # clipboard already, and reporting success. The transcript is still
+            # saved to history below either way, so the words are never lost.
             _t2 = time.time()
-            self.clipboard.copy(styled)
+            _copied = self.clipboard.copy(styled)
+            if not _copied:
+                _log_to_file("Clipboard write FAILED — skipping paste so stale "
+                             "clipboard contents cannot overwrite the selection")
+                try:
+                    threading.Thread(target=lambda: self.overlay.show_toast(
+                        style="warn", heading="Couldn't copy to clipboard",
+                        body="Your text is saved in History. Copy it from there.",
+                    ), daemon=True).start()
+                except Exception:
+                    pass
 
             # Check cancellation before auto-paste
             if _is_cancelled():
