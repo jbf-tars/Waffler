@@ -254,18 +254,37 @@ jobs:
 
           # Unmount, with retry. Up to 5 attempts with backoff; final
           # attempt uses -force to break any stuck file-handle.
+          # What matters is whether the volume is GONE, not what any single
+          # hdiutil call returned. A "Resource busy" failure often detaches the
+          # volume moments later anyway, and every subsequent retry then fails
+          # with "No such file or directory" - which the old loop counted as
+          # failure, so a build that had actually succeeded exited 1. Check the
+          # state instead of the exit code.
           for attempt in 1 2 3 4 5; do
-            if hdiutil detach "/Volumes/Waffler" 2>&1; then
+            if [ ! -d "/Volumes/Waffler" ]; then
+              echo "[dmg] volume is detached (attempt $attempt)"
+              break
+            fi
+            hdiutil detach "/Volumes/Waffler" 2>&1 || true
+            if [ ! -d "/Volumes/Waffler" ]; then
               echo "[dmg] detached cleanly on attempt $attempt"
               break
             fi
-            echo "[dmg] detach attempt $attempt failed; backing off"
+            echo "[dmg] still mounted after attempt $attempt; backing off"
             sleep 3
-            if [ "$attempt" = "5" ]; then
-              echo "[dmg] final attempt with -force"
-              hdiutil detach "/Volumes/Waffler" -force
-            fi
           done
+
+          if [ -d "/Volumes/Waffler" ]; then
+            echo "[dmg] final attempt with -force"
+            hdiutil detach "/Volumes/Waffler" -force 2>&1 || true
+            sleep 2
+          fi
+
+          if [ -d "/Volumes/Waffler" ]; then
+            echo "[dmg] ERROR: volume is still mounted; cannot package a "
+            echo "[dmg] consistent DMG from a live volume."
+            exit 1
+          fi
 
           # Convert to compressed read-only
           hdiutil convert "dist-installer/${TMP_DMG}" \
