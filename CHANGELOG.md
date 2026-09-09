@@ -4,6 +4,41 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.93] - 2026-09-09
+
+### Fixed
+- **A longer transcript could silently reverse what you said.** When the first
+  transcription comes back impossibly short for the measured speech, Waffler
+  retries on the other provider and keeps whichever is better. "Better" was
+  decided on word count alone, which is no evidence that the two are even the
+  same utterance. External review reproduced the consequence:
+
+      original  : "Do not transfer the money to that account."
+      alternate : "Please transfer the money to that account right now
+                   without any delay."
+
+  The alternate wins on count and inverts the instruction. Replacing a
+  transcript is destructive, so the alternate must now look like *more of the
+  same speech* rather than different speech: most of the original's words have
+  to survive in it, a negation present in the original may not vanish, and a
+  figure in the original may not change. Each check can only ever refuse a
+  replacement, so the worst outcome is keeping the transcript already in hand.
+  When a longer result is refused, the recording is flagged `retry_rejected`,
+  because it is then known to be both suspect and unrecovered, which is worth
+  saying rather than leaving to be discovered in a sent email.
+- **Capture problems left no evidence.** PortAudio reports dropped input
+  through the callback's `status`, and the callback swallowed every exception
+  so it could never crash the audio thread. Both were discarded, so a recording
+  that had genuinely lost chunks looked identical to a clean one. Overflows and
+  callback errors are now counted per recording and reported at stop, outside
+  the real-time callback.
+- **macOS: a failed DMG detach was treated as success.** `hdiutil detach` can
+  return non-zero without raising, usually because the volume is still busy.
+  The exit status was discarded, leaving a volume mounted and nothing in the
+  log. It is now checked, retried once since "busy" is typically transient, and
+  reported if it still fails. It never raises: by that point the update has
+  either happened or already failed.
+
 ## [3.14.92] - 2026-09-09
 
 Concurrency work from the external review. `is_recording` and the capture

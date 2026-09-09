@@ -142,3 +142,11 @@ def test_result_shape_is_stable():
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+def test_rejected_retry_is_content_loss():
+    """Suspect AND unrecovered: the transcript looked short, the retry found
+    more, and that more contradicted the original so it was refused."""
+    r = assess(**_clean(retry_rejected=True))
+    assert r["level"] == "low"
+    assert "retry_rejected" in r["flags"]

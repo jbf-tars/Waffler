@@ -755,17 +755,37 @@ def _hdiutil_attach(dmg_path: Path) -> tuple[str, str]:
     return mount_point, dev_entry
 
 
-def _hdiutil_detach(target: str) -> None:
-    """Best-effort ``hdiutil detach`` of a mount point or dev-entry."""
+def _hdiutil_detach(target: str, attempts: int = 2) -> bool:
+    """Detach a mount point or dev-entry. Returns True if it came away.
+
+    Still best-effort, in that a failure never raises: by the time this runs
+    the update has either happened or already failed, and refusing to continue
+    would not help. But the exit status is no longer discarded. hdiutil can
+    return non-zero WITHOUT raising, typically because the volume is still
+    busy, and the previous version treated that as success, leaving a mounted
+    volume behind with nothing in the log to say so. Retried once, briefly,
+    since "busy" is usually transient.
+    """
     if not target:
-        return
-    try:
-        subprocess.run(
-            ["/usr/bin/hdiutil", "detach", target, "-force"],
-            capture_output=True, timeout=60,
-        )
-    except Exception as e:
-        _log(f"hdiutil detach failed for {target!r} (ignored): {e}")
+        return False
+    for attempt in range(1, max(1, attempts) + 1):
+        try:
+            proc = subprocess.run(
+                ["/usr/bin/hdiutil", "detach", target, "-force"],
+                capture_output=True, timeout=60,
+            )
+            if proc.returncode == 0:
+                return True
+            detail = proc.stderr.decode("utf-8", errors="replace").strip()[:200]
+            _log(f"hdiutil detach exit {proc.returncode} for {target!r} "
+                 f"(attempt {attempt}/{attempts}): {detail}")
+        except Exception as e:
+            _log(f"hdiutil detach raised for {target!r} "
+                 f"(attempt {attempt}/{attempts}): {e}")
+        if attempt < attempts:
+            time.sleep(1.0)
+    _log(f"hdiutil detach FAILED for {target!r} — the volume is still mounted")
+    return False
 
 
 def _install_macos(dmg_path: Path) -> None:

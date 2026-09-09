@@ -47,12 +47,12 @@ _DANGLING_TAIL = {
 
 # Signals that mean content was probably lost.
 _CONTENT_LOSS = {"low_word_rate", "styled_dropped_words", "styling_fallback",
-                 "truncated_midsentence"}
+                 "truncated_midsentence", "retry_rejected"}
 
 
 def assess(*, speech_seconds, transcript_words, styled_words, asr_filtered,
            styling_provider, styled_text, retry_fired=False,
-           deadline_fired=False) -> dict:
+           deadline_fired=False, retry_rejected=False) -> dict:
     """Return {"level": "ok"|"check"|"low", "flags": [...],
     "words_per_speech_second": float}.
 
@@ -91,6 +91,13 @@ def assess(*, speech_seconds, transcript_words, styled_words, asr_filtered,
     # 5. Advisory: a provider had to be retried, or the styling budget expired.
     if retry_fired:
         flags.append("retry_used")
+    # The transcript looked short, the retry found more, and that longer result
+    # was refused because it contradicted the original (a dropped negation, a
+    # changed number, or simply different words). So the recording is both
+    # suspect AND unrecovered, which the user should be told rather than left
+    # to discover in a sent email.
+    if retry_rejected:
+        flags.append("retry_rejected")
     if deadline_fired:
         flags.append("styling_deadline")
 

@@ -856,6 +856,7 @@ function qualityBadge(item) {
     unterminated_ending:  'ends without punctuation',
     asr_filter_edited:    'the transcript filter altered the result',
     retry_used:           'the first provider returned too little; it was retried',
+    retry_rejected:       'looks incomplete, and the retry disagreed with it too much to trust',
     styling_deadline:     'cleanup ran out of time; raw text was kept',
   };
   const why = (q.flags || []).map(f => labels[f] || f).join('; ');

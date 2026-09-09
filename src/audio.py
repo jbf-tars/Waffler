@@ -194,6 +194,13 @@ class AudioRecorder:
         # session number and only finalises if it still holds it; every stop()
         # only touches shared state if it still owns the session it began with.
         self._session = 0
+        # Capture health for THIS recording. PortAudio reports overruns via the
+        # callback's `status`, and the callback swallows every exception so it
+        # can never crash the audio thread. Both were invisible, so a recording
+        # that lost chunks looked identical to a clean one and went on to be
+        # transcribed as if nothing had happened.
+        self._capture_overflows = 0
+        self._capture_errors = 0
 
         # CRITICAL: cache the bound callback method ONCE. Every ``self._callback``
         # access creates a new bound-method object; we want exactly one to
@@ -218,6 +225,10 @@ class AudioRecorder:
         """
         if not self._callback_active:
             return
+        if status:
+            # Input overflow means PortAudio dropped samples before we saw
+            # them: that audio is gone, and the recording is incomplete.
+            self._capture_overflows += 1
         try:
             chunk = indata.copy()
             self._preroll.append(chunk)
@@ -237,7 +248,9 @@ class AudioRecorder:
             elif self.is_paused:
                 self._last_rms = 0.0
         except Exception:
-            pass  # Never crash inside the audio callback.
+            # Never crash inside the audio callback, but do not pretend it did
+            # not happen: a failed append is a missing chunk.
+            self._capture_errors += 1
 
     # ── Public state inspection ─────────────────────────────────────────
 
@@ -401,6 +414,8 @@ class AudioRecorder:
             # Claim this recording. Anything older is now superseded.
             self._session += 1
             my_session = self._session
+            self._capture_overflows = 0
+            self._capture_errors = 0
             self._buffer = []
 
             now = time.time()
@@ -517,6 +532,11 @@ class AudioRecorder:
 
         if not buf_snapshot:
             return b""
+
+        if self._capture_overflows or self._capture_errors:
+            # Reported outside the real-time callback, where logging is safe.
+            print(f"[audio] CAPTURE INCOMPLETE: {self._capture_overflows} overflow(s), "
+                  f"{self._capture_errors} callback error(s) during this recording")
 
         self.recording = np.concatenate(buf_snapshot, axis=0)
         duration = len(self.recording) / self.sample_rate

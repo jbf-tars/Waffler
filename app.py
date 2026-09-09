@@ -3379,6 +3379,7 @@ class WafflerPipeline:
                     styled_text=styled or "",
                     retry_fired=getattr(self.transcriber, "last_retry_fired", False),
                     deadline_fired="TIMEOUT" in str((gpt_usage or {}).get("fallback_reason", "")),
+                    retry_rejected=getattr(self.transcriber, "last_retry_rejected", False),
                 )
                 if _q["level"] != "ok":
                     item["quality"] = _q

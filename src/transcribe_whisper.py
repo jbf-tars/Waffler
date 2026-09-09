@@ -691,6 +691,84 @@ _MIN_SPEECH_S_FOR_RETRY = 10.0
 _RETRY_IMPROVEMENT_FACTOR = 1.25
 
 
+# Words whose loss inverts an instruction. A retry that drops one of these has
+# not recovered the sentence, it has replaced it with the opposite sentence.
+_NEGATIONS = {
+    "not", "no", "never", "none", "nothing", "nobody", "nowhere", "cannot",
+    "nor", "neither", "without", "dont", "doesnt", "didnt", "wont", "cant",
+    "couldnt", "shouldnt", "wouldnt", "isnt", "arent", "wasnt", "werent",
+    "hasnt", "havent", "hadnt",
+}
+
+# How much of the original must survive in the alternate for the two to be
+# plausibly the same utterance rather than a different one.
+_MIN_TOKEN_OVERLAP = 0.5
+
+
+def _normalise_tokens(text: str):
+    """Lowercase word tokens with punctuation stripped, so "don't", "dont" and
+    "Don't." all compare equal.
+
+    Apostrophes are removed BEFORE splitting: otherwise "can't" tokenises as
+    "can" plus "t" and the negation disappears, which is exactly the case the
+    negation guard exists to catch.
+    """
+    cleaned = (text or "").lower().replace("'", "").replace("’", "")
+    return [t for t in re.findall(r"[a-z0-9]+", cleaned) if t]
+
+
+def _alternate_is_safe_replacement(original: str, alternate: str):
+    """Decide whether a retry's transcript may REPLACE the first one.
+
+    Returns ``(safe, reason)``.
+
+    The retry fires when a transcript is impossibly short for the measured
+    speech, so a real recovery is *the same speech, more completely
+    transcribed*. Word count alone cannot tell that apart from a different or
+    invented utterance, and acting on count alone allowed a longer transcript
+    to silently reverse an instruction:
+
+        "Do not transfer the money to that account."
+        -> "Please transfer the money to that account right now..."
+
+    Three checks, each of which can only ever REFUSE a replacement, so the
+    worst outcome is keeping the transcript we already had:
+
+    1. Overlap. Most of the original's words should still be present, since
+       the alternate is meant to contain the same speech and more.
+    2. Negation. A negation in the original that is absent from the alternate
+       means the sentence now says the opposite. Disqualifying.
+    3. Numbers. A figure in the original that is absent from the alternate has
+       been changed or dropped, which is precisely the detail a user cannot
+       afford to have quietly rewritten.
+    """
+    alt_tokens = _normalise_tokens(alternate)
+    if not alt_tokens:
+        return False, "alternate is empty"
+
+    orig_tokens = _normalise_tokens(original)
+    if not orig_tokens:
+        return True, "original was empty"
+
+    orig_set, alt_set = set(orig_tokens), set(alt_tokens)
+
+    missing_negations = {t for t in orig_set if t in _NEGATIONS} - alt_set
+    if missing_negations:
+        return False, f"alternate drops negation {sorted(missing_negations)}"
+
+    orig_numbers = {t for t in orig_set if any(c.isdigit() for c in t)}
+    missing_numbers = orig_numbers - alt_set
+    if missing_numbers:
+        return False, f"alternate changes/drops number {sorted(missing_numbers)}"
+
+    overlap = len(orig_set & alt_set) / len(orig_set)
+    if overlap < _MIN_TOKEN_OVERLAP:
+        return False, (f"only {overlap:.0%} token overlap - the two look like "
+                       f"different utterances")
+
+    return True, f"{overlap:.0%} token overlap, no contradictions"
+
+
 def _speech_seconds(audio_bytes: bytes) -> float:
     """Estimate seconds of actual speech in a WAV via per-window RMS.
 
@@ -916,12 +994,22 @@ class WhisperTranscriber:
             self.last_retry_fired = True
             alt = self._dispatch_one(audio_bytes, exclude=first_provider)
             alt_words = len((alt or "").split())
-            if alt_words >= max(1, words) * _RETRY_IMPROVEMENT_FACTOR:
-                _wlog(f"[whisper] retry recovered {alt_words} words "
-                      f"(was {words}) — using alternate transcript")
-                return alt
-            _wlog(f"[whisper] retry no better ({alt_words} words) — keeping original")
-            return transcript
+            if alt_words < max(1, words) * _RETRY_IMPROVEMENT_FACTOR:
+                _wlog(f"[whisper] retry no better ({alt_words} words) — keeping original")
+                return transcript
+            # Being longer is necessary but nowhere near sufficient. Replacing
+            # the user's transcript is destructive, so the alternate has to look
+            # like MORE OF THE SAME SPEECH rather than a different utterance.
+            safe, why = _alternate_is_safe_replacement(transcript, alt)
+            if not safe:
+                self.last_retry_rejected = True
+                _wlog(f"[whisper] retry produced {alt_words} words (was {words}) "
+                      f"but REJECTED: {why}. Keeping the original transcript; "
+                      f"this recording is flagged as possibly incomplete.")
+                return transcript
+            _wlog(f"[whisper] retry recovered {alt_words} words "
+                  f"(was {words}) — using alternate transcript ({why})")
+            return alt
         except Exception as e:
             _wlog(f"[whisper] incomplete-transcript retry failed: {e}")
             return transcript
@@ -938,6 +1026,10 @@ class WhisperTranscriber:
         # the quality signals are computed from evidence, not guesses.
         self.last_speech_seconds = 0.0
         self.last_retry_fired = False
+        # Set when a retry produced a longer transcript that was refused as
+        # unsafe. The recording is then known to be suspect AND unrecovered,
+        # which is worth telling the user about.
+        self.last_retry_rejected = False
         audio_bytes = _pad_audio_with_silence(audio_bytes)
 
         # Long-recording fix: split clips over ~30 s into <= 25-30 s chunks on
