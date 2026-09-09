@@ -186,6 +186,14 @@ class AudioRecorder:
                                                # the lock for start/stop.
         self._last_rms: float = 0.0
         self._callback_active = False
+        # Recording ownership. is_recording and _buffer are shared, so with
+        # overlapping presses one dictation could damage another: an old stop()
+        # sleeping through its post-roll would wake to find a NEW recording in
+        # progress and drain its buffer, and a slow cold-start warm-up could
+        # finish after a stop and switch capture back on. Every start() takes a
+        # session number and only finalises if it still holds it; every stop()
+        # only touches shared state if it still owns the session it began with.
+        self._session = 0
 
         # CRITICAL: cache the bound callback method ONCE. Every ``self._callback``
         # access creates a new bound-method object; we want exactly one to
@@ -214,9 +222,16 @@ class AudioRecorder:
             chunk = indata.copy()
             self._preroll.append(chunk)
 
-            if self.is_recording and not self.is_paused:
-                with self._lock:
+            # Test and append under the SAME lock stop() uses, so an admitted
+            # callback either makes it into the returned WAV or is dropped. It
+            # can no longer append to a buffer that has just been cleared.
+            with self._lock:
+                _captured = self.is_recording and not self.is_paused
+                if _captured:
                     self._buffer.append(chunk)
+            # RMS is computed outside the lock to keep the held region to a
+            # single list append on the real-time audio thread.
+            if _captured:
                 rms_raw = float(np.sqrt(np.mean(indata.astype(np.float32) ** 2)))
                 self._last_rms = min(1.0, rms_raw / 800.0)
             elif self.is_paused:
@@ -383,6 +398,9 @@ class AudioRecorder:
         has to restart the app to pick up a new default device.
         """
         with self._stream_lock:
+            # Claim this recording. Anything older is now superseded.
+            self._session += 1
+            my_session = self._session
             self._buffer = []
 
             now = time.time()
@@ -414,9 +432,11 @@ class AudioRecorder:
             else:
                 # Warm stream — the pre-roll is already full of live samples,
                 # so splice immediately with no warm-up wait and we're done.
+                # is_recording flips under _lock so the callback's check and
+                # this assignment cannot interleave.
                 with self._lock:
                     self._buffer = list(self._preroll)
-                self.is_recording = True
+                    self.is_recording = True
                 return
 
         # ── Cold-start warm-up — deliberately OUTSIDE _stream_lock ──────────
@@ -450,11 +470,17 @@ class AudioRecorder:
             # dead stream — the user can simply press again.
             if self._stream is None:
                 return
+            # Someone stopped, cancelled or started a newer recording while we
+            # waited. Finalising now would resurrect a recording the user has
+            # already ended, so drop this one instead.
+            if self._session != my_session:
+                print("[audio] cold-start superseded during warm-up — not starting")
+                return
             # Splice pre-roll into the recording buffer FIRST so the first
             # syllable isn't lost.
             with self._lock:
                 self._buffer = list(self._preroll)
-            self.is_recording = True
+                self.is_recording = True
 
     def stop(self) -> bytes:
         """Stop the *recording* (not the stream) and return WAV bytes.
@@ -464,14 +490,30 @@ class AudioRecorder:
         so the callback continues to append trailing audio chunks during
         the wait, capturing the last word.
         """
+        with self._stream_lock:
+            my_session = self._session
+
+        # The post-roll runs BEFORE we take ownership, so a press landing in
+        # this window starts a new recording. That is why the session check
+        # below matters: without it this stop would disable the new capture and
+        # drain its buffer, losing a dictation the user had only just begun.
         time.sleep(_POSTROLL_MS / 1000.0)
 
         with self._stream_lock:
-            self.is_recording = False
-
-        with self._lock:
-            buf_snapshot = list(self._buffer)
-            self._buffer = []
+            if self._session != my_session:
+                print("[audio] stop superseded by a newer recording — leaving it alone")
+                return b""
+            # Invalidate: no in-flight start() for this session may finalise.
+            self._session += 1
+            # is_recording and the snapshot flip together under _lock, so a
+            # callback either lands in this snapshot or sees recording off.
+            # Previously the callback tested is_recording outside the lock and
+            # appended inside it, so a late chunk could be appended to the
+            # buffer after it had been cleared, and was then thrown away.
+            with self._lock:
+                self.is_recording = False
+                buf_snapshot = list(self._buffer)
+                self._buffer = []
 
         if not buf_snapshot:
             return b""
@@ -490,6 +532,7 @@ class AudioRecorder:
         after 1.5s rather than block the shutdown path.
         """
         with self._stream_lock:
+            self._session += 1  # nothing in flight may finalise after shutdown
             self.is_recording = False
             stream = self._stream
             self._stream = None
@@ -543,6 +586,9 @@ class AudioRecorder:
         and a brand-new InputStream, which reliably re-acquires the device.
         """
         with self._stream_lock:
+            # Invalidate any in-flight start(): the stream it warmed up against
+            # is being destroyed, so it must not finalise onto the new one.
+            self._session += 1
             stream = self._stream
             self._stream = None
             # Force start()'s slow path next time, regardless of timing.

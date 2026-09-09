@@ -4,6 +4,48 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.92] - 2026-09-09
+
+Concurrency work from the external review. `is_recording` and the capture
+buffer were global to the recorder with no notion of which dictation owned
+them, so overlapping presses corrupted each other. Recordings now carry a
+session, and interrupted work is no longer confused with cancelled work.
+
+### Fixed
+- **Starting a second dictation destroyed the first one's finished
+  transcript.** Pressing the hotkey again while the previous recording was
+  still transcribing or styling looked identical to cancelling it, so the
+  completed result was dropped before it reached History: nothing pasted,
+  nothing saved, no error. The two are now distinguished. Superseded work is
+  still the user's words and is kept; only an explicit cancel discards
+  anything. Pasting is about the present (whose window and clipboard is this),
+  keeping is about the past (did the user get words out of it). The rule lives
+  in `src/pipeline_policy.py` with its own tests rather than buried in the
+  pipeline.
+- **A late stop could consume and kill the next recording.** `stop()` sleeps
+  through the post-roll BEFORE taking ownership, so a press landing in that
+  window started a new recording, and the old stop then set
+  `is_recording=False` and drained the new recording's buffer. A stop now only
+  touches shared state if it still owns the session it began with; otherwise it
+  leaves the newer recording alone and returns nothing.
+- **A slow cold start could resurrect a stopped recording.** `start()` waits up
+  to two seconds for live audio outside the stream lock, and its only check on
+  return was that a stream still existed, so a stop or cancel during warm-up
+  was undone and capture silently restarted. A start now finalises only if it
+  still holds its session, which `stop()`, `force_rebuild()` and `shutdown()`
+  all invalidate.
+- **The last callback could append to a cleared buffer.** The audio callback
+  tested `is_recording` outside `_lock` and appended inside it, so a chunk
+  admitted just before a stop could land in the buffer after the snapshot had
+  taken and cleared it, and was then discarded by the next recording. The test
+  and the append now happen under the same lock the snapshot uses, so an
+  admitted chunk either makes it into the returned audio or is dropped. RMS is
+  still computed outside the lock, so the real-time callback holds it for one
+  list append.
+- **A paste could be sent to the wrong window.** The target was read from
+  shared state at paste time, which the next press had already overwritten.
+  Each dictation now snapshots its own target when processing begins.
+
 ## [3.14.91] - 2026-09-09
 
 Three deterministic ways to lose speech, found by an external code review and

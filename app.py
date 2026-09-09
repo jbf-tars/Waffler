@@ -2703,27 +2703,40 @@ class WafflerPipeline:
     def _process(self, processing_id: int):
         """Process audio: transcribe, style, copy to clipboard, paste."""
 
-        def _is_cancelled():
-            """True if this processing generation should abort.
+        # These two were previously one predicate, which is what discarded
+        # finished work: pressing the hotkey again while the previous dictation
+        # was still processing looked identical to the user cancelling it, so
+        # the completed transcript was thrown away without ever being saved.
+        # They mean different things and now have different consequences (see
+        # src/pipeline_policy.py).
+        def _is_superseded():
+            """A NEWER recording has started. This generation must not paste,
+            because the newer one owns the focus and the clipboard, but what it
+            produced is still the user's words."""
+            with self._processing_lock:
+                return processing_id != self._processing_id
 
-            Two ways to be cancelled:
-              1. A NEWER recording started (processing_id no longer current) —
-                 this generation is stale, so whatever it produced must not be
-                 pasted. Checked regardless of the cancel flag; this is what
-                 prevents the "ghost paste" of an old transcript after a quick
-                 re-press (the old code returned False here — the bug).
-              2. The user explicitly cancelled THIS generation (flag set while
-                 it is still the current one).
-            """
+        def _is_cancelled_explicitly():
+            """The user cancelled THIS generation (Esc / overlay cancel)."""
             with self._processing_lock:
                 if processing_id != self._processing_id:
-                    return True
+                    return False
                 return self._processing_cancelled.is_set()
+
+        def _is_cancelled():
+            """Abort-early predicate for the stages BEFORE a result exists.
+            Up to that point there is nothing worth preserving, so either
+            condition should stop the work."""
+            return _is_superseded() or _is_cancelled_explicitly()
 
         # Tracks whether _process reached its success "done" status; the
         # finally below resets the UI to idle on every OTHER exit so it can't
         # get stuck showing "recording"/"processing".
         _finalized = False
+        # Snapshot the paste target NOW. self._prev_window is overwritten by
+        # the next press, so reading it later could send this dictation's paste
+        # into the window the user opened for the following one.
+        _target_window = self._prev_window
         try:
             # Calculate recording duration for error suppression
             import time
@@ -3243,29 +3256,43 @@ class WafflerPipeline:
                 except Exception:
                     pass
 
-            # Check cancellation before auto-paste
-            if _is_cancelled():
-                _log_to_file(f"Processing {processing_id} aborted: cancelled before paste")
-                notify_js_status("idle")
-                return
+            # One decision, taken once, for both remaining side effects.
+            # Pasting is about the present (whose window and clipboard is
+            # this?); keeping is about the past (did the user get words out of
+            # it?). Deciding them together under the lock also closes the gap
+            # where a cancel landing between two separate checks let the paste
+            # through anyway.
+            from src.pipeline_policy import decide as _decide
+            with self._processing_lock:
+                _superseded = processing_id != self._processing_id
+                _cancelled = (not _superseded) and self._processing_cancelled.is_set()
+            _policy = _decide(superseded=_superseded, cancelled=_cancelled)
 
-            # Auto-paste (respects settings)
-            stored = {}
-            _sf = DATA_DIR / "settings.json"
-            try:
-                if _sf.exists():
-                    stored = json.loads(_sf.read_text())
-            except Exception:
-                pass
-            if stored.get("auto_paste", True):
-                self.clipboard.auto_paste(self._prev_window)
-            _t_paste = (time.time() - _t2) * 1000
-            _log_to_file(f"[pipeline] clipboard+paste: {_t_paste:.0f}ms")
-            _log_to_file(f"[pipeline] TOTAL: {_t_transcribe + _t_style + _t_paste:.0f}ms")
+            _t_paste = 0.0
+            if _policy["paste"] and _copied:
+                stored = {}
+                _sf = DATA_DIR / "settings.json"
+                try:
+                    if _sf.exists():
+                        stored = json.loads(_sf.read_text())
+                except Exception:
+                    pass
+                if stored.get("auto_paste", True):
+                    # _target_window, not self._prev_window: the latter now
+                    # belongs to whatever the user pressed most recently.
+                    self.clipboard.auto_paste(_target_window)
+                _t_paste = (time.time() - _t2) * 1000
+                _log_to_file(f"[pipeline] clipboard+paste: {_t_paste:.0f}ms")
+                _log_to_file(f"[pipeline] TOTAL: {_t_transcribe + _t_style + _t_paste:.0f}ms")
+            elif _policy["reason"] != "ok":
+                _log_to_file(
+                    f"Processing {processing_id} not pasted ({_policy['reason']})"
+                    + (" — transcript still saved to History"
+                       if _policy["save_history"] else "")
+                )
 
-            # Check cancellation before saving to history
-            if _is_cancelled():
-                _log_to_file(f"Processing {processing_id} aborted: cancelled before history")
+            if not _policy["save_history"]:
+                _log_to_file(f"Processing {processing_id} discarded: cancelled by the user")
                 notify_js_status("idle")
                 return
 
