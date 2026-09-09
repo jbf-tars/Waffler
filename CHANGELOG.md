@@ -4,6 +4,39 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.95] - 2026-09-09
+
+### Fixed
+- **The Usage panel was confidently wrong, in both directions.** Costs were
+  keyed by provider rather than by the model actually called, and the constants
+  had drifted from what the app runs. Verified against published rates on
+  2026-09-09: Groq cleanup was priced as Llama 3.3 70B at $0.59/$0.79 long
+  after the app moved to `openai/gpt-oss-120b` at $0.15/$0.60, overstating it
+  about fourfold; Groq transcription used $0.168/hour against a published
+  $0.111; OpenAI cleanup used gpt-4o-mini's $0.15/$0.60 while the app calls
+  gpt-4.1-mini at $0.40/$1.60, understating it; OpenAI transcription used
+  whisper-1's $0.006/min while the app calls gpt-4o-mini-transcribe at $0.003.
+  Worst of all, **Cerebras had no branch at all**, so every Cerebras call was
+  billed at OpenAI's rates. Rates now live in a table keyed by model, each
+  recording its source and the date checked, and each usage entry stores the
+  model it was billed as so this cannot go quietly stale again.
+- **Cerebras is priced as an estimate, and says so.** Cerebras publishes no
+  per-token rate on its pricing page or inference docs (both checked, the docs
+  URL redirects to the pricing page, which lists only tier prices). Rather than
+  invent a figure, its rate mirrors the same model's published Groq rate and is
+  flagged unverified so it can be shown as an estimate.
+- **Stale model names in the Usage panel.** It advertised "Llama 3.3 70B" and
+  "Qwen-3 235B", both retired. A wrong label there is a claim about what you
+  are being billed for.
+
+### Added
+- `scripts/recost_usage.py` recomputes stored history with the corrected rates.
+  Every entry already keeps what its cost was derived from (duration for
+  transcription, token counts for cleanup), so the past is recoverable rather
+  than written off. Writes a timestamped backup first and supports `--dry-run`.
+  On the maintainer's own 4,926 entries this corrected an all-time total of
+  $6.20 to $3.86.
+
 ## [3.14.94] - 2026-09-09
 
 Closes the external review. All fourteen findings are now addressed.

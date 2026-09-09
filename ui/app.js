@@ -1356,8 +1356,8 @@ async function loadSettings() {
                   s.transcription_backend === 'mlx' ? 'Local mlx-whisper (on-device)' :
                   s.transcription_backend === 'faster' ? 'Local faster-whisper (on-device)' :
                   s.transcription_backend || 'unknown';
-      const llm = s.styling_backend === 'groq' ? 'Groq Llama 3.3 70B' :
-                  s.styling_backend === 'cerebras' ? 'Cerebras Qwen-3 235B' :
+      const llm = s.styling_backend === 'groq' ? 'Groq gpt-oss-120b' :
+                  s.styling_backend === 'cerebras' ? 'Cerebras gpt-oss-120b' :
                   s.styling_backend === 'openai' ? 'OpenAI GPT-4.1-mini' :
                   s.styling_backend || 'unknown';
       backendInfo.textContent = `STT: ${stt} · LLM: ${llm}`;
@@ -3018,8 +3018,11 @@ loadSettings = async function() {
 // ── Usage Stats ───────────────────────────────────────────────────────────
 // Provider display metadata — gold dot per provider for the breakdown rows.
 const PROVIDER_META = {
-  groq:     { name: 'Groq',     accent: '#f55036', desc: 'Llama 3.3 70B' },
-  cerebras: { name: 'Cerebras', accent: '#C8A256', desc: 'Qwen-3 235B' },
+  // Model names shown in the Usage panel. These are labels only, but a
+  // stale one is a lie about what you are being billed for: both Groq and
+  // Cerebras were still advertised as models that had been retired.
+  groq:     { name: 'Groq',     accent: '#f55036', desc: 'gpt-oss-120b' },
+  cerebras: { name: 'Cerebras', accent: '#C8A256', desc: 'gpt-oss-120b' },
   openai:   { name: 'OpenAI',   accent: '#10a37f', desc: 'gpt-4.1-mini' },
   local:    { name: 'Local',    accent: '#6B6560', desc: 'On-device' },
   unknown:  { name: 'Unknown',  accent: '#A09890', desc: '' },

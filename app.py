@@ -117,13 +117,60 @@ USAGE_FILE = DATA_DIR / "usage.json"
 # or two overlapping recordings) could otherwise interleave and lose entries.
 _history_lock = threading.Lock()
 
-# Pricing constants
-WHISPER_COST_PER_SECOND = 0.0001       # OpenAI: $0.006/minute
-GROQ_WHISPER_COST_PER_SECOND = 0.0000467  # Groq: $0.0028/minute
-GPT4O_MINI_INPUT_COST_PER_1M = 0.15   # GPT-4o-mini input  # doc-drift-ok (per-model cost)
-GPT4O_MINI_OUTPUT_COST_PER_1M = 0.60  # GPT-4o-mini output  # doc-drift-ok (per-model cost)
-GROQ_LLM_INPUT_COST_PER_1M = 0.59     # Groq LLaMA 3.3 70B input
-GROQ_LLM_OUTPUT_COST_PER_1M = 0.79    # Groq LLaMA 3.3 70B output
+# ── Pricing ────────────────────────────────────────────────────────────────
+# Rates are keyed by the MODEL actually called, not merely by provider. The old
+# constants had drifted from what the app runs, in both directions, so the
+# Usage panel was confidently wrong:
+#
+#   * Groq cleanup priced as Llama 3.3 70B ($0.59/$0.79) long after the app
+#     moved to openai/gpt-oss-120b ($0.15/$0.60): overstated about 4x.
+#   * Groq transcription used $0.168/hour against a published $0.111/hour.
+#   * OpenAI cleanup used gpt-4o-mini rates while the app calls gpt-4.1-mini
+#     ($0.40/$1.60): understated about 2.7x.
+#   * OpenAI transcription used whisper-1's $0.006/min while the app calls
+#     gpt-4o-mini-transcribe at $0.003/min: overstated 2x.
+#   * Cerebras had no branch at all and was billed at OpenAI's rates.
+#
+# Each entry records where the figure came from and when it was checked, so a
+# stale rate is distinguishable from a current one. `verified` is False where
+# the provider publishes no per-token rate; the UI shows those as estimates
+# rather than implying precision we do not have.
+_RATES_CHECKED = "2026-09-09"
+
+MODEL_RATES = {
+    "groq": {
+        "gpt":     {"model": "openai/gpt-oss-120b", "in_per_1m": 0.15,
+                    "out_per_1m": 0.60, "verified": True,
+                    "source": "console.groq.com/docs/models"},
+        "whisper": {"model": "whisper-large-v3", "per_hour": 0.111,
+                    "verified": True, "source": "console.groq.com/docs/models"},
+    },
+    "openai": {
+        "gpt":     {"model": "gpt-4.1-mini", "in_per_1m": 0.40,
+                    "out_per_1m": 1.60, "verified": True,
+                    "source": "developers.openai.com/api/docs/pricing"},
+        "whisper": {"model": "gpt-4o-mini-transcribe", "per_minute": 0.003,
+                    "verified": True,
+                    "source": "developers.openai.com/api/docs/pricing"},
+    },
+    "cerebras": {
+        # Cerebras publishes no per-token rate on cerebras.ai/pricing or its
+        # inference docs (both checked 2026-09-09; the docs URL redirects to
+        # the pricing page, which lists only tier prices). Rather than invent a
+        # figure this mirrors the same model's published Groq rate and is
+        # flagged unverified so the UI can label it an estimate.
+        "gpt":     {"model": "gpt-oss-120b", "in_per_1m": 0.15,
+                    "out_per_1m": 0.60, "verified": False,
+                    "source": "estimated from the same model on Groq; "
+                              "Cerebras does not publish per-token pricing"},
+    },
+}
+
+
+def _rate_for(provider: str, kind: str) -> dict:
+    """Rate spec for a provider/kind, falling back to OpenAI's published rate."""
+    return (MODEL_RATES.get(provider, {}).get(kind)
+            or MODEL_RATES["openai"].get(kind, {}))
 
 
 def ensure_data_dir():
@@ -212,18 +259,16 @@ def record_usage(entry_type: str, duration_seconds: float = None,
     """Record an API usage entry with cost calculation."""
     cost_usd = 0.0
 
+    rate = _rate_for(provider, entry_type)
+
     if entry_type == "whisper" and duration_seconds is not None:
-        if provider == "groq":
-            cost_usd = duration_seconds * GROQ_WHISPER_COST_PER_SECOND
+        if "per_hour" in rate:
+            cost_usd = duration_seconds / 3600.0 * rate["per_hour"]
         else:
-            cost_usd = duration_seconds * WHISPER_COST_PER_SECOND
+            cost_usd = duration_seconds / 60.0 * rate.get("per_minute", 0.0)
     elif entry_type == "gpt":
-        if provider == "groq":
-            cost_usd = (input_tokens / 1_000_000) * GROQ_LLM_INPUT_COST_PER_1M + \
-                       (output_tokens / 1_000_000) * GROQ_LLM_OUTPUT_COST_PER_1M
-        else:
-            cost_usd = (input_tokens / 1_000_000) * GPT4O_MINI_INPUT_COST_PER_1M + \
-                       (output_tokens / 1_000_000) * GPT4O_MINI_OUTPUT_COST_PER_1M
+        cost_usd = ((input_tokens / 1_000_000) * rate.get("in_per_1m", 0.0)
+                    + (output_tokens / 1_000_000) * rate.get("out_per_1m", 0.0))
 
     entry = {
         "timestamp": datetime.now().isoformat(timespec="seconds"),
@@ -232,6 +277,11 @@ def record_usage(entry_type: str, duration_seconds: float = None,
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
         "cost_usd": round(cost_usd, 6),
+        # Which model this was billed as, and whether the rate is published.
+        # Historic rows lack these, which is why old Cerebras entries cannot
+        # be recomputed with confidence.
+        "model": rate.get("model", ""),
+        "rate_verified": bool(rate.get("verified", False)),
     }
     if duration_seconds is not None:
         entry["duration_seconds"] = round(duration_seconds, 3)
