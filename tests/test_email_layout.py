@@ -160,3 +160,57 @@ if __name__ == "__main__":
             traceback.print_exc()
     print(f"\n{len(fns) - failed}/{len(fns)} passed")
     sys.exit(1 if failed else 0)
+
+
+# ── Body capitalisation after a greeting split (v3.14.89) ───────────────────
+# Found by consistency-testing the Groq gpt-oss model: "Hi James, the docs are
+# now live." split correctly onto two lines but left the body lowercase, on
+# 3 runs out of 3. Splitting a sentence in two makes the second half a new
+# sentence, so it has to start like one.
+
+def test_body_capitalised_after_greeting_split():
+    out = S._format_email_layout("Hi James, the docs are now live on the staging site.")
+    assert out == "Hi James,\n\nThe docs are now live on the staging site.", repr(out)
+
+
+def test_greeting_split_preserves_lowercase_brand_names():
+    """Do not blindly upper-case: 'iPhone' must survive intact."""
+    out = S._format_email_layout("Hi Sam, iPhone stock arrives on Tuesday.")
+    assert out == "Hi Sam,\n\niPhone stock arrives on Tuesday.", repr(out)
+
+
+def test_already_capitalised_body_untouched():
+    text = "Hi Jo,\n\nThe report is attached."
+    assert S._format_email_layout(text) == text
+
+
+# ── Never invent a sign-off name the speaker did not say ────────────────────
+# The model appended "James" to a bare "Cheers." on ~1 run in 3, taking the
+# name from the GREETING. That signs the message as its own recipient, and it
+# is words the speaker never said.
+
+def test_invented_signoff_name_is_removed():
+    raw = "Hi James, the docs are now live. Cheers."
+    styled = "Hi James,\n\nThe docs are now live.\n\nCheers,\nJames"
+    out = S._strip_invented_signoff_name(styled, raw)
+    assert out.endswith("\n\nCheers."), repr(out)
+
+
+def test_genuine_signoff_name_is_kept():
+    """When the speaker DID say the name, it stays."""
+    raw = "Hi Priya, the docs are live. Cheers, James."
+    styled = "Hi Priya,\n\nThe docs are live.\n\nCheers,\nJames"
+    assert S._strip_invented_signoff_name(styled, raw) == styled
+
+
+def test_signoff_guard_ignores_non_email_text():
+    raw = "Remind me to buy milk and cheese."
+    styled = "Remind me to buy milk and cheese."
+    assert S._strip_invented_signoff_name(styled, raw) == styled
+
+
+def test_body_capitalised_when_greeting_already_split():
+    """The model usually splits the greeting itself and leaves the body
+    lowercase. Observed on 5 of 5 live runs before this fix."""
+    out = S._format_email_layout("Hi James,\n\nthe docs are now live on the staging site.")
+    assert out == "Hi James,\n\nThe docs are now live on the staging site.", repr(out)

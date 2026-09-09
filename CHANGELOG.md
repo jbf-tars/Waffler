@@ -4,6 +4,37 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.89] - 2026-09-09
+
+Both bugs below were found by consistency-testing the new Groq model rather
+than by a single pass. Each was invisible to the existing suite.
+
+### Fixed
+- **Waffler no longer signs your email with the recipient's name.** Dictating
+  "Hi James, the docs are live. Cheers." returned a sign-off of "Cheers," then
+  "James" on roughly one run in three: the model took the name from the
+  GREETING, so the message was signed as the person it was addressed to. Those
+  are words the speaker never said, which the prompt already forbids, but
+  nothing enforced it. A deterministic guard now removes a sign-off name when
+  the raw transcript's closing had no name after it. A genuinely dictated
+  "Cheers, James." is untouched. Verified live: 5 runs out of 5 clean, where
+  the same input previously failed about a third of the time.
+- **The email body is capitalised after the greeting is split.** "Hi James, the
+  docs are now live." became "Hi James," followed by a lowercase "the docs are
+  now live", on 5 live runs out of 5. Splitting one sentence into two makes the
+  second half a new sentence, so it now starts like one. This applies whether
+  Waffler splits the greeting itself or the model has already done it, which is
+  the common case and the reason the first version of the fix never fired.
+  Words carrying an internal capital (iPhone, eBay) are left alone.
+
+### Testing
+- Groq `openai/gpt-oss-120b` consistency-tested across every styling category,
+  6 runs per case: email 1/198 failing (was 6/198 before these fixes),
+  numbered lists 0/48, bulleted lists 1/18, self-correction 0/24, prose 2/240.
+  Full corpus 106/107, up from 105/107. The one remaining failure
+  (`M5 self-correction`) predates this work and fails identically on every
+  provider and prompt version tried.
+
 ## [3.14.88] - 2026-09-09
 
 ### Fixed

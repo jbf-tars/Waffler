@@ -1235,6 +1235,8 @@ Transcript: {transcript}"""
         if not looks_emailish:
             return text
         out = self._split_trailing_signoff(text)
+        out = self._strip_invented_signoff_name(
+            out, getattr(self, "_last_raw", "") or "")
         out = self._split_signoff_name(out)
         out = self._split_leading_greeting(out)
         out = self._TRIPLE_NL_RE.sub("\n\n", out)
@@ -1247,6 +1249,37 @@ Transcript: {transcript}"""
             return text
         body = text[: m.start()].rstrip()
         return body + m.group("body_end") + "\n\n" + m.group("signoff").strip()
+
+    # Closings recognised when checking whether a sign-off name was invented.
+    _SIGNOFF_WORDS = (r"thank you|thanks again|many thanks|thanks|kind regards|"
+                      r"warm regards|best regards|best wishes|all the best|"
+                      r"regards|cheers|speak soon|talk soon|sincerely|best")
+
+    def _strip_invented_signoff_name(self, styled: str, raw: str) -> str:
+        """Remove a sign-off name the speaker never actually said.
+
+        Observed live on roughly one run in three: the transcript ended with a
+        bare "Cheers." and the model returned "Cheers," + "James", taking the
+        name from the GREETING. That signs the message as its own recipient,
+        and it is words the speaker did not say, which the prompt forbids.
+
+        The rule is deliberately narrow. Only when the RAW transcript's closing
+        has no name after it, and the styled output has grown one, is the name
+        dropped. A genuinely dictated "Cheers, James." is left alone.
+        """
+        if not styled or not raw:
+            return styled
+        # Did the SPEAKER put a name after their closing?
+        if re.search(r"(?i)\b(?:" + self._SIGNOFF_WORDS + r")\s*,?\s+[A-Z][\w'\u2019-]*\s*[.!]?\s*$",
+                     raw.strip()):
+            return styled
+        # Did the OUTPUT grow one?
+        m = re.search(r"(?i)(\n\n)(" + self._SIGNOFF_WORDS + r")\s*,\s*\n([A-Z][\w'\u2019-]*)\s*$",
+                      styled)
+        if not m:
+            return styled
+        closing = m.group(2)
+        return styled[: m.start()] + m.group(1) + closing[0].upper() + closing[1:] + "."
 
     def _split_signoff_name(self, text: str) -> str:
         """Normalise a trailing sign-off to the canonical two-line form.
@@ -1280,6 +1313,22 @@ Transcript: {transcript}"""
         greeting = m.group("greeting").strip()
         after = head[m.end():].strip()
         if not after:
+            # Greeting already on its own line, but the body under it can still
+            # be lowercase: the model splits "Hi James, the docs are live." and
+            # leaves "the docs" mid-sentence. Capitalise the body's first word
+            # there too, otherwise the glued-case fix below never sees it.
+            _t = tail.lstrip(chr(10))
+            _w = _t.split(' ', 1)[0]
+            if _t[:1].islower() and not any(c.isupper() for c in _w[1:]):
+                _lead = tail[: len(tail) - len(_t)]
+                return greeting + sep + _lead + _t[0].upper() + _t[1:]
             return text  # greeting already alone on its line
+        # Splitting "Hi James, the docs are live." in two makes the second
+        # half a new sentence, so it has to start like one. Observed on 3 of
+        # 3 runs leaving "the docs are live" lowercase under the greeting.
+        # Words with an internal capital (iPhone, eBay) are left alone.
+        _first = after.split(" ", 1)[0]
+        if after[:1].islower() and not any(c.isupper() for c in _first[1:]):
+            after = after[0].upper() + after[1:]
         rebuilt = after + (("\n" + tail) if sep else "")
         return greeting + "\n\n" + rebuilt
