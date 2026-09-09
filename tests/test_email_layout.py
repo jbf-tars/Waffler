@@ -214,3 +214,31 @@ def test_body_capitalised_when_greeting_already_split():
     lowercase. Observed on 5 of 5 live runs before this fix."""
     out = S._format_email_layout("Hi James,\n\nthe docs are now live on the staging site.")
     assert out == "Hi James,\n\nThe docs are now live on the staging site.", repr(out)
+
+
+# ── Sign-off introduced by a comma, not a full stop (real report 2026-09-09) ─
+# Dictated: "...Greatly appreciate that, thank you James." The greeting split
+# and body capitalisation both worked, but the sign-off stayed glued to the
+# body because the matcher only accepted . ! ? as the preceding boundary. In
+# speech a sign-off very often follows a comma.
+
+def test_signoff_after_comma_is_split():
+    text = ("Hi Darren,\n\nThanks for your email, can you please send me over the "
+            "powerpoint? Greatly appreciate that, thank you James.")
+    out = S._format_email_layout(text)
+    assert out.endswith("Greatly appreciate that.\n\nThank you,\nJames"), repr(out)
+
+
+def test_comma_becomes_full_stop_when_signoff_is_split():
+    """The comma was joining a clause. Once the sign-off moves to its own
+    paragraph the body must not be left dangling on a comma."""
+    out = S._format_email_layout("Hi Jo,\n\nThe deck is attached, thanks Priya.")
+    assert "attached." in out and "attached," not in out, repr(out)
+
+
+def test_comma_boundary_does_not_break_midtext_thanks():
+    """The guard that matters: 'thank you, Sarah did a great job' continues
+    past the name, so it is not a sign-off and must survive untouched."""
+    text = ("Hi team,\n\nI wanted to thank you, Sarah did a great job on the "
+            "launch and the numbers look strong.")
+    assert S._format_email_layout(text) == text

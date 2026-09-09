@@ -4,6 +4,26 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.90] - 2026-09-09
+
+### Fixed
+- **A sign-off introduced by a comma now moves onto its own lines.** Reported
+  from a real dictation: "Hi Darren, thanks for your email, can you please send
+  me over the powerpoint? Greatly appreciate that, thank you James." came back
+  with the greeting split correctly and the body capitalised, but "thank you
+  James" still glued to the end of the last sentence. The matcher only accepted
+  a full stop, question mark or exclamation mark before a closing phrase, and
+  in speech a sign-off very often follows a comma instead. A comma is now a
+  valid boundary, and because the clause it was joining has moved to its own
+  paragraph, that comma becomes a full stop rather than leaving the body
+  dangling. The guard against false positives is unchanged and still holds:
+  "I wanted to thank you, Sarah did a great job on the launch" continues past
+  the name, so it is not a sign-off and is left alone.
+
+  Verified on the reported dictation: 4 runs out of 4 now produce the intended
+  layout. Email consistency across the category is **0 failures in 198 runs**,
+  up from 1/198, with the full corpus steady at 106/107.
+
 ## [3.14.89] - 2026-09-09
 
 Both bugs below were found by consistency-testing the new Groq model rather

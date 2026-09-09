@@ -985,14 +985,14 @@ Transcript: {transcript}"""
     # code, so it's identical on every machine and provider.
     #
     # A sign-off GLUED to the final sentence by a space (NOT a newline): a
-    # sentence end [.!?], one-or-more spaces/tabs, a recognised closing phrase,
+    # sentence end [.!?] OR a comma, one-or-more spaces/tabs, a closing phrase,
     # an OPTIONAL name (1-3 capitalised words), an optional trailing . or !,
     # then the very end of the text. The space-not-newline boundary means an
     # already correctly-formatted sign-off (preceded by \n) never matches, so
     # the pass is idempotent and won't touch good output.
     _EMAIL_GLUED_SIGNOFF_RE = re.compile(
         r"(?i)"
-        r"(?P<body_end>[.!?])"
+        r"(?P<body_end>[.!?,])"
         r"[ \t]+"
         r"(?P<signoff>"
         r"(?:thank you so much|thanks so much|thank you|thanks again|thanks a lot|"
@@ -1248,7 +1248,12 @@ Transcript: {transcript}"""
         if not m:
             return text
         body = text[: m.start()].rstrip()
-        return body + m.group("body_end") + "\n\n" + m.group("signoff").strip()
+        _end = m.group("body_end")
+        # The comma was joining a clause. With the sign-off moved to its own
+        # paragraph the body would otherwise be left dangling on a comma.
+        if _end == ",":
+            _end = "."
+        return body + _end + "\n\n" + m.group("signoff").strip()
 
     # Closings recognised when checking whether a sign-off name was invented.
     _SIGNOFF_WORDS = (r"thank you|thanks again|many thanks|thanks|kind regards|"
