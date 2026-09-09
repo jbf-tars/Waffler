@@ -4,6 +4,43 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.96] - 2026-09-09
+
+Setup was doing more work than it needed to before a new user could speak a
+single word. This is the first pass at that.
+
+### Changed
+- **The key step asks for one key, not a choice of three.** It opened by
+  explaining a three-provider fallback chain to someone who had not yet
+  dictated anything, offered Cerebras as a first-run option even though
+  Cerebras cannot transcribe at all (so a setup using only that key could never
+  work), and still described the retired ordering "Groq to Cerebras to OpenAI".
+  It now says one Groq key does both jobs, and the Cerebras tab is gone.
+  Cerebras remains available in Settings for anyone who wants it.
+- **The hotkey step says the default already works.** It was never a blocking
+  step, but "Listening for hotkey press..." reads like an instruction, so
+  people stopped and configured something. It now says to press Next to keep
+  the default.
+
+### Added
+- **A key copied on the provider's site fills itself in.** While the key step
+  is open, Waffler notices a key-shaped clipboard entry, drops it in the right
+  provider's field, switches to that tab and validates it. That removes the
+  fiddliest part of setup: alt-tab back, find the field, paste.
+
+  It only ever returns text matching a known key shape, so ordinary clipboard
+  contents are never read into the UI, logged or stored. 16 tests cover the
+  refusals as well as the matches, including that a Cerebras key starting
+  "csk-" is not claimed by the OpenAI "sk-" pattern.
+- **Code signing is wired into the Windows release, pending a certificate.**
+  Unsigned installers raise SmartScreen's "unknown publisher" dialog before the
+  user has seen anything, which is the worst moment in the product and the
+  likeliest place to lose someone. The release workflow now signs and verifies
+  the installer when `WINDOWS_CERT_PFX` and `WINDOWS_CERT_PASSWORD` exist, and
+  skips with a note in the log until then, so builds are unaffected in the
+  meantime. `docs/CODE_SIGNING.md` covers what to buy, what it costs and how to
+  wire it up.
+
 ## [3.14.95] - 2026-09-09
 
 ### Fixed

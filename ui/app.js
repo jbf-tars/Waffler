@@ -1701,6 +1701,7 @@ function showWizard() {
 
 function hideWizard() {
   stopFnKeyPolling();
+  stopWizClipboardWatch();
   const overlay = document.getElementById('wizardOverlay');
   if (!overlay) return;
   overlay.classList.add('hiding');
@@ -1747,6 +1748,60 @@ function updateWizardProgress(step) {
   }
 }
 
+// ── Clipboard key pickup (wizard step 3) ─────────────────────────────────────
+// Setup's most annoying moment is the hand-off: create a key on the provider's
+// site, copy it, come back, find the field, paste. The copy has already
+// happened, so the app can just notice. While the key step is open we poll for
+// a key-shaped clipboard entry and fill it in.
+//
+// The backend only ever returns text matching a known key shape, so ordinary
+// clipboard contents are never read into the UI. Filling the field is not
+// irreversible either: the user can clear or overwrite it.
+let _wizClipTimer = null;
+let _wizClipLastSeen = '';
+
+const _WIZ_KEY_FIELDS = {
+  groq:     { input: 'wizGroqKeyInput3',     validate: (k) => wizValidateGroqKey(k) },
+  openai:   { input: 'wizApiKeyInput3',      validate: (k) => wizValidateApiKey(k) },
+  cerebras: { input: 'wizCerebrasKeyInput3', validate: (k) => (typeof wizValidateCerebrasKey === 'function' ? wizValidateCerebrasKey(k) : null) },
+};
+
+function startWizClipboardWatch() {
+  stopWizClipboardWatch();
+  if (!(window.pywebview && pywebview.api && pywebview.api.peek_clipboard_key)) return;
+  _wizClipTimer = setInterval(async () => {
+    try {
+      const r = await pywebview.api.peek_clipboard_key();
+      if (!r || !r.found || !r.key) return;
+      if (r.key === _wizClipLastSeen) return;   // already handled this one
+      const field = _WIZ_KEY_FIELDS[r.provider];
+      if (!field) return;
+      const el = document.getElementById(field.input);
+      if (!el || el.value.trim() === r.key) return;
+      _wizClipLastSeen = r.key;
+      el.value = r.key;
+      // Switch to that provider's tab so the user sees where it landed.
+      const tab = document.querySelector(`.wiz-prov-tab[data-provider="${r.provider}"]`);
+      if (tab) tab.click();
+      wizNotePickedUpKey(r.provider);
+      field.validate(r.key);
+    } catch (e) { /* clipboard unavailable: the user can still paste by hand */ }
+  }, 1200);
+}
+
+function stopWizClipboardWatch() {
+  if (_wizClipTimer) { clearInterval(_wizClipTimer); _wizClipTimer = null; }
+}
+
+function wizNotePickedUpKey(provider) {
+  const v = document.getElementById(
+    provider === 'groq' ? 'wizGroqValidation3'
+    : provider === 'cerebras' ? 'wizCerebrasValidation3' : 'wizApiValidation3');
+  if (!v) return;
+  v.textContent = 'Found the key you just copied. Checking it...';
+  v.className = 'wizard-validation loading';
+}
+
 function wizShowStep(step) {
   // Clean up Step 2 hotkey monitor when leaving step 2
   if (_wizardStep === 2 && step !== 2) {
@@ -1759,6 +1814,9 @@ function wizShowStep(step) {
     pywebview.api.wizard_stop_hotkey_test().catch(() => {});
     _wizardHotkeyTestActive = false;
   }
+
+  // Only watch the clipboard while the key step is actually on screen.
+  if (step === 3) { startWizClipboardWatch(); } else { stopWizClipboardWatch(); }
 
   _wizardStep = step;
   updateWizardProgress(step);

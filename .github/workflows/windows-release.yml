@@ -116,6 +116,47 @@ jobs:
         run: |
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "installer\windows\Waffler.iss"
 
+      # Code-sign the installer, if a certificate has been configured.
+      #
+      # Unsigned installers trigger SmartScreen's "Windows protected your PC /
+      # Unknown publisher" dialog, which is the single worst moment in the
+      # whole product: it happens before the user has seen anything, and it is
+      # where non-technical people give up. Signing removes it.
+      #
+      # This step is deliberately CONDITIONAL and non-fatal when no certificate
+      # exists, so builds keep working exactly as before until one is bought.
+      # To enable, add these repository secrets:
+      #
+      #   WINDOWS_CERT_PFX       base64 of the .pfx      (base64 -w0 cert.pfx)
+      #   WINDOWS_CERT_PASSWORD  the .pfx password
+      #
+      # See docs/CODE_SIGNING.md for how to obtain one.
+      - name: Sign installer (skipped until a certificate is configured)
+        shell: pwsh
+        env:
+          CERT_PFX: ${{ secrets.WINDOWS_CERT_PFX }}
+          CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: |
+          if (-not $env:CERT_PFX) {
+            Write-Output "No WINDOWS_CERT_PFX secret set - shipping unsigned."
+            Write-Output "Users will see a SmartScreen warning. See docs/CODE_SIGNING.md."
+            exit 0
+          }
+          $pfx = Join-Path $env:RUNNER_TEMP "cert.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:CERT_PFX))
+          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\bin" -Recurse -Filter signtool.exe -ErrorAction SilentlyContinue |
+                      Where-Object { $_.FullName -match 'x64' } | Select-Object -First 1
+          if (-not $signtool) { Write-Error "signtool.exe not found on the runner"; exit 1 }
+          $installer = Get-ChildItem "installer/windows/dist-installer/*.exe" | Select-Object -First 1
+          & $signtool.FullName sign /f $pfx /p $env:CERT_PASSWORD `
+              /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
+              $installer.FullName
+          if ($LASTEXITCODE -ne 0) { Write-Error "signing failed"; exit 1 }
+          & $signtool.FullName verify /pa $installer.FullName
+          if ($LASTEXITCODE -ne 0) { Write-Error "signature did not verify"; exit 1 }
+          Remove-Item $pfx -Force
+          Write-Output "Installer signed and verified."
+
       - name: Upload installer artifact
         continue-on-error: true
         uses: actions/upload-artifact@v4

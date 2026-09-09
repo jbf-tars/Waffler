@@ -1119,6 +1119,46 @@ class Api:
             "setup_complete": setup_done,
         }
 
+    # Key shapes we will lift from the clipboard. Deliberately strict: this
+    # reads the user's clipboard, so it must be incapable of returning anything
+    # that is not obviously an API key. Anything not matching these is ignored
+    # and never leaves the function.
+    _KEY_PATTERNS = (
+        # Each is anchored so it cannot match inside another key: without
+        # the lookbehind, a Cerebras "csk-..." key matches the OpenAI
+        # "sk-..." pattern and is filed under the wrong provider.
+        ("groq",     r"(?<![A-Za-z0-9])gsk_[A-Za-z0-9]{20,}"),
+        ("cerebras", r"(?<![A-Za-z0-9])csk-[A-Za-z0-9_\-]{20,}"),
+        ("openai",   r"(?<![A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_\-]{20,}"),
+    )
+
+    def peek_clipboard_key(self) -> dict:
+        """Return an API key sitting on the clipboard, if there is one.
+
+        Setup's most annoying moment is the hand-off: the user creates a key on
+        the provider's site, copies it, alt-tabs back, finds the field and
+        pastes. The copy has already happened, so the app can simply notice.
+
+        Privacy: this only ever returns text matching a known key shape. Normal
+        clipboard contents are never read back into the UI, never logged, and
+        never stored. Returns {"found": False} for anything else.
+        """
+        try:
+            from src.clipboard import ClipboardManager
+            import re as _re
+            text = (ClipboardManager.paste() or "").strip()
+            if not text or len(text) > 300:
+                return {"found": False}
+            for provider, pattern in self._KEY_PATTERNS:
+                m = _re.search(pattern, text)
+                if m:
+                    return {"found": True, "provider": provider, "key": m.group(0)}
+            return {"found": False}
+        except Exception:
+            # A clipboard that cannot be read is not an error worth surfacing;
+            # the user can always paste by hand.
+            return {"found": False}
+
     def validate_api_key(self, api_key: str) -> dict:
         """Validate an OpenAI API key by making a lightweight API call."""
         api_key = (api_key or "").strip()
