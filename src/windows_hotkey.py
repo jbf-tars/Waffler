@@ -168,6 +168,10 @@ class WindowsHotkeyListener:
         self._on_cancel  = on_cancel
         self._state      = _State.IDLE
         self._running    = False
+        # Polling fallback only. A held combination is ONE activation: this
+        # stays True from a transition until the keys are seen released, so
+        # the still-down combo cannot read as a fresh press on the next poll.
+        self._poll_awaiting_release = False
         self._hook       = None
         self._thread_id  = None
 
@@ -415,8 +419,19 @@ class WindowsHotkeyListener:
                     time.sleep(0.3)  # debounce so a held Esc doesn't re-fire
                     continue
 
+                # A held combination is ONE activation, not a stream of them.
+                # Polling only samples key state, so without this latch the
+                # keys still being down after a transition read as a brand new
+                # press: holding the combo produced PUSH_TO_TALK, then an
+                # instant "cancel STICKY", then a fresh PUSH_TO_TALK, i.e.
+                # start -> stop -> start with the user never moving a finger.
+                # A fresh activation now requires the combo to be released
+                # first.
+                if not all_held:
+                    self._poll_awaiting_release = False
+
                 if self._state == _State.IDLE:
-                    if all_held:
+                    if all_held and not self._poll_awaiting_release:
                         self._state = _State.PUSH_TO_TALK
                         _log(f"[poll] {hotkey_display(self._keys)} → PUSH_TO_TALK")
                         self._fire_press()
@@ -424,16 +439,22 @@ class WindowsHotkeyListener:
                 elif self._state == _State.PUSH_TO_TALK:
                     if space:
                         self._enter_sticky()
+                        # The combo is still down; it must be released before
+                        # it can mean "cancel".
+                        self._poll_awaiting_release = True
                     elif not all_held:
                         self._state = _State.IDLE
                         _log("[poll] released → stop PUSH_TO_TALK")
                         self._fire_release()
 
                 elif self._state == _State.STICKY:
-                    if all_held:
+                    if all_held and not self._poll_awaiting_release:
                         self._state = _State.IDLE
                         _log(f"[poll] {hotkey_display(self._keys)} → cancel STICKY")
                         self._fire_release()
+                        # Stop the release that ends this cancel from reading
+                        # as the start of the next recording.
+                        self._poll_awaiting_release = True
                         time.sleep(0.3)  # debounce
 
             except Exception as e:

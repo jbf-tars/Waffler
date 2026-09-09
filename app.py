@@ -2601,11 +2601,17 @@ class WafflerPipeline:
         _log_to_file("Recording stopped, processing")
         self._is_paused = False
         notify_js_status("processing")
+        # Start processing FIRST. hide() writes to the overlay child's stdin,
+        # and if that child is alive but has stopped reading, the pipe fills and
+        # the write blocks indefinitely. Doing it before this line meant a
+        # wedged overlay stopped the audio ever being snapshotted, losing a
+        # recording the user had already finished speaking. Nothing about
+        # keeping the user's words should depend on the UI being responsive.
+        threading.Thread(target=lambda: self._process(current_id), daemon=True).start()
         try:
             self.overlay.hide()
         except Exception as e:
             print(f"[overlay] hide failed: {e}")
-        threading.Thread(target=lambda: self._process(current_id), daemon=True).start()
 
     def toggle_pause(self):
         """Toggle pause state during recording."""

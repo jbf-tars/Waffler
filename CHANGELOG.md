@@ -4,6 +4,40 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.94] - 2026-09-09
+
+Closes the external review. All fourteen findings are now addressed.
+
+### Fixed
+- **A wedged overlay could cost you a finished recording.** `on_hotkey_release`
+  called `overlay.hide()` before starting the processing thread. A child
+  process that has died raises immediately and was always handled, but one that
+  is alive and has simply stopped reading its stdin is worse: the pipe fills and
+  the write blocks forever. The audio was then never snapshotted and a recording
+  the user had already finished speaking was lost. Processing now starts first,
+  so keeping your words never depends on the UI being responsive. Separately,
+  every write to the overlay is now bounded: a child that will not drain within
+  two seconds is judged wedged and terminated rather than allowed to stall the
+  app, and VU level frames (about thirty a second, purely cosmetic) take the
+  write lock only if it is free and are dropped otherwise.
+- **Two callers could spawn two overlay processes.** `_start_process` had no
+  serialisation and no liveness re-check, so `prestart()` racing `show()`, or
+  two restarts arriving together, each launched a child. The second assignment
+  to `self._process` orphaned the first, leaving a stray overlay running with
+  nothing managing it. Starting is now serialised and skipped when a live child
+  exists. The reader threads were also started without arguments, so they read
+  the mutable `self._process` field and after a restart an old reader drained
+  the new child's pipes; each reader is now handed its own process.
+- **Holding the hotkey could start, stop and restart a recording.** In the
+  polling fallback (used when the low-level keyboard hook cannot be installed)
+  key state is only sampled, so a combination still held after a state change
+  read as a brand new press. Holding Ctrl+Win+Space produced push-to-talk, then
+  an instant "cancel sticky", then a fresh push-to-talk, with the user never
+  moving a finger, which then fed the recording-loss paths fixed earlier in this
+  series. A held combination is now one activation until the keys are seen
+  released. Verified by driving the real poll loop over the reported key
+  sequence: the tests fail without the latch and pass with it.
+
 ## [3.14.93] - 2026-09-09
 
 ### Fixed

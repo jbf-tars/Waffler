@@ -16,6 +16,14 @@ import platform
 _PLATFORM = platform.system()  # "Darwin", "Windows", "Linux"
 
 
+# How long a caller may wait for the overlay write lock, and how long a single
+# stdin write may take before the child is judged wedged. Both are generous for
+# a healthy child (writes are sub-millisecond) and short enough that a stuck one
+# cannot hold up a dictation.
+_SEND_LOCK_TIMEOUT_S = 2.0
+_WRITE_TIMEOUT_S = 2.0
+
+
 class RecordingOverlay:
     """
     Floating pill-shaped recording overlay.
@@ -66,6 +74,12 @@ class RecordingOverlay:
 
         # Thread safety and restart tracking
         self._send_lock = threading.Lock()  # Protect stdin writes
+        # Serialises process creation. Callers previously protected only their
+        # bookkeeping and then launched outside the lock without re-checking
+        # liveness, so two of them (prestart racing show, or two restarts)
+        # could each spawn a child. The second assignment to self._process
+        # orphaned the first, leaving a stray overlay process running.
+        self._start_lock = threading.RLock()
         self._restart_lock = threading.Lock()  # Protect restart state
         self._restart_count = 0             # Track restart attempts
         self._last_restart_time = 0         # For exponential backoff
@@ -137,7 +151,9 @@ class RecordingOverlay:
 
         # Send level update (thread-safe)
         level = max(0.0, min(1.0, float(level)))
-        self._send({"type": "level", "value": level})
+        # Cosmetic and ~30/sec: never let a VU frame queue behind a stalled
+        # writer. Dropped frames are invisible; a blocked level loop is not.
+        self._send({"type": "level", "value": level}, best_effort=True)
 
     def update_state(self, state: str):
         """
@@ -237,7 +253,20 @@ class RecordingOverlay:
     # ── Internals ─────────────────────────────────────────────────────
 
     def _start_process(self):
-        """Launch the overlay subprocess using frozen app's --overlay mode."""
+        """Launch the overlay subprocess using frozen app's --overlay mode.
+
+        Serialised, and a no-op if a live child already exists: two callers
+        racing here used to produce two children, with the second overwriting
+        the first and orphaning it.
+        """
+        with self._start_lock:
+            if self._is_alive():
+                self._log("[overlay] _start_process: a live child already "
+                          "exists - not launching another")
+                return
+            self._start_process_locked()
+
+    def _start_process_locked(self):
         self._log(f"[overlay] _start_process called")
 
         # Use CREATE_NO_WINDOW on Windows to avoid a console flash
@@ -273,8 +302,13 @@ class RecordingOverlay:
             self._log(f"[overlay] ✓ Subprocess started, PID={self._process.pid}")
 
             # Start stderr reader thread to log any errors
+            # Bind the readers to THIS child. Reading self._process instead
+            # meant that after a restart the old reader drained the NEW
+            # child's pipes while the old one was left orphaned.
+            _child = self._process
             self._stderr_thread = threading.Thread(
                 target=self._read_stderr,
+                args=(_child,),
                 daemon=True,
                 name="OverlayStderr",
             )
@@ -282,6 +316,7 @@ class RecordingOverlay:
 
             self._reader_thread = threading.Thread(
                 target=self._read_stdout,
+                args=(_child,),
                 daemon=True,
                 name="OverlayReader",
             )
@@ -351,7 +386,45 @@ class RecordingOverlay:
 
         return success
 
-    def _send(self, data: dict) -> bool:
+    def _write_bounded(self, payload: str) -> bool:
+        """Write to the child's stdin, giving up if it will not drain.
+
+        A child that has DIED raises BrokenPipeError immediately, which callers
+        already handle. A child that is ALIVE but has stopped reading is worse:
+        the pipe buffer fills and write/flush block forever while holding the
+        send lock, stalling everything behind it. That is how a wedged overlay
+        could stop a finished recording ever being transcribed.
+
+        The write runs on a short-lived thread so it can be abandoned. If it
+        does not finish in time the child is killed, which breaks the pipe and
+        releases the stranded thread.
+        """
+        done = threading.Event()
+        failure = []
+
+        def _do_write():
+            try:
+                self._process.stdin.write(payload)
+                self._process.stdin.flush()
+            except BaseException as e:      # noqa: BLE001 - handed to caller
+                failure.append(e)
+            finally:
+                done.set()
+
+        threading.Thread(target=_do_write, daemon=True, name="OverlayWrite").start()
+        if not done.wait(_WRITE_TIMEOUT_S):
+            self._log(f"[overlay] stdin write blocked for {_WRITE_TIMEOUT_S}s - "
+                      f"child is not reading; terminating it")
+            try:
+                self._process.kill()
+            except Exception:
+                pass
+            return False
+        if failure:
+            raise failure[0]
+        return True
+
+    def _send(self, data: dict, best_effort: bool = False) -> bool:
         """Write a JSON command to the subprocess stdin (thread-safe).
 
         Auto-restarts the subprocess on broken pipe (e.g. after sleep/wake).
@@ -362,12 +435,25 @@ class RecordingOverlay:
         if not self._is_alive():
             return False
 
-        with self._send_lock:  # Ensure atomic write
+        # Acquire the write lock WITHOUT the risk of waiting forever behind a
+        # stalled writer. Level updates arrive ~30 times a second and are purely
+        # cosmetic, so they take the lock only if it is free and are dropped
+        # otherwise (coalescing naturally). Everything else waits, but briefly.
+        if best_effort:
+            if not self._send_lock.acquire(blocking=False):
+                return False
+        elif not self._send_lock.acquire(timeout=_SEND_LOCK_TIMEOUT_S):
+            self._log(f"[overlay] send lock busy for {_SEND_LOCK_TIMEOUT_S}s "
+                      f"(type={data.get('type','')}) - dropping command")
+            return False
+        try:
             try:
                 import time as _t
                 t_before = _t.time()
-                self._process.stdin.write(json.dumps(data) + "\n")
-                self._process.stdin.flush()
+                if not self._write_bounded(json.dumps(data) + chr(10)):
+                    # Child alive but not draining stdin: the pipe filled and
+                    # this write would have blocked forever. Treat as dead.
+                    raise BrokenPipeError("write timed out - child not reading stdin")
                 # v3.14.68 — log the write timing on show/_space_changed so a
                 # delay between parent-flush and child-dispatch can be seen.
                 _ctype = data.get("type", "")
@@ -386,6 +472,8 @@ class RecordingOverlay:
                 except Exception:
                     pass
                 self._process = None
+        finally:
+            self._send_lock.release()
 
         # Restart outside the send_lock to avoid deadlock
         self._log("[overlay] Auto-restarting after broken pipe...")
@@ -409,15 +497,20 @@ class RecordingOverlay:
                     return False
         return False
 
-    def _read_stdout(self):
-        """Read event callbacks from subprocess stdout."""
-        if not self._process or not self._process.stdout:
+    def _read_stdout(self, proc=None):
+        """Read event callbacks from subprocess stdout.
+
+        ``proc`` is the child this thread belongs to, so a restart cannot leave
+        this thread draining a different child's pipe.
+        """
+        proc = proc or self._process
+        if not proc or not proc.stdout:
             self._log("[overlay] _read_stdout: no process or stdout")
             return
 
         self._log("[overlay] _read_stdout: started reading")
 
-        for line in self._process.stdout:
+        for line in proc.stdout:
             line = line.strip()
             if not line:
                 continue
@@ -442,12 +535,18 @@ class RecordingOverlay:
 
         self._log("[overlay] _read_stdout: ended (subprocess stdout closed)")
 
-    def _read_stderr(self):
-        """Read and log errors from subprocess stderr."""
-        if not self._process or not self._process.stderr:
+    def _read_stderr(self, proc=None):
+        """Read and log errors from subprocess stderr.
+
+        ``proc`` is the child this thread belongs to. Defaulting to the current
+        one keeps older callers working, but every internal caller passes it so
+        a restart cannot make this thread drain someone else's pipe.
+        """
+        proc = proc or self._process
+        if not proc or not proc.stderr:
             return
 
-        for line in self._process.stderr:
+        for line in proc.stderr:
             line = line.strip()
             if line:
                 self._log(f"[overlay STDERR] {line}")
