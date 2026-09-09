@@ -75,9 +75,13 @@ def _style_deadline_for(word_count: int) -> float:
     return max(_STYLE_DEADLINE_FLOOR_S, min(_STYLE_DEADLINE_CAP_S, scaled))
 
 # Canonical provider order used when the user hasn't configured one.
-# Groq first preserves its free daily quota before any paid Cerebras
-# tokens are spent; OpenAI last as the always-available backstop.
-_DEFAULT_PROVIDER_ORDER = ["groq", "cerebras", "openai"]
+# Groq first: it is the only provider that covers BOTH pipeline stages
+# (Whisper for speech, gpt-oss for cleanup) and it is the faster of the two
+# at each. OpenAI second as the always-available backstop. Cerebras is still
+# supported for anyone who has a key, but it is no longer recommended: it has
+# no speech-to-text endpoint at all, so it can never run a dictation on its
+# own, and it therefore always needed a second provider alongside it.
+_DEFAULT_PROVIDER_ORDER = ["groq", "openai", "cerebras"]
 
 
 def _normalize_provider_order(order) -> list:
@@ -190,7 +194,16 @@ class OpenAIStyler:
                 api_key=groq_api_key, timeout=_STYLE_TIMEOUT_S, max_retries=0
             )
             self._use_groq = True
-            self._groq_model = "llama-3.3-70b-versatile"
+            # llama-3.3-70b-versatile was retired from this account's Groq
+            # catalogue: app.log carried 433 `model_not_found` 404s for it, and
+            # a live models.list() on 2026-09-09 returned no Llama chat model at
+            # all. Groq now serves the gpt-oss family, which is the same model
+            # Cerebras uses here - so both fast providers speak the same
+            # dialect and the prompt behaves consistently across them.
+            # Overridable without a release, mirroring OPENAI_STYLE_MODEL.
+            self._groq_model = (
+                _os.getenv("GROQ_STYLE_MODEL", "").strip() or "openai/gpt-oss-120b"
+            )
             print(f"Styling fallback: Groq {self._groq_model}")
         elif not self._use_cerebras:
             print(f"Styling: OpenAI {model}")
@@ -574,6 +587,13 @@ Transcript: {transcript}"""
                 ],
                 max_tokens=getattr(self, "_max_out_tokens", 4096),
                 temperature=0.1,
+                # gpt-oss is a REASONING model: without this it spends its whole
+                # output budget thinking before emitting any cleaned text and
+                # returns empty or truncated output (verified live - a probe
+                # against openai/gpt-oss-120b with no reasoning_effort came back
+                # as ''). The Cerebras path has needed the same flag since
+                # v3.14.74. Harmless on non-reasoning models, which ignore it.
+                extra_body={"reasoning_effort": "low"},
                 # Bounded by whatever is LEFT of the overall styling budget, so
                 # this call can never overrun the deadline (see _attempt_timeout).
                 timeout=self._attempt_timeout(),

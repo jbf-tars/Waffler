@@ -4,6 +4,43 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.88] - 2026-09-09
+
+### Fixed
+- **Groq cleanup worked again after its model was retired.** Groq removed the
+  Llama chat models from the catalogue this key can reach: `app.log` carried
+  **433** `model_not_found` 404s for `llama-3.3-70b-versatile`, and a live
+  `models.list()` returned no Llama chat model at all. Because Groq is first in
+  the chain, every dictation was paying a failed round-trip before falling
+  through. Cleanup now uses `openai/gpt-oss-120b`, which the same key can
+  reach, overridable via `GROQ_STYLE_MODEL`. Validated against the full 107-case
+  regression corpus pinned to Groq: **105/107**, with the two failures
+  (`M5 self-correction`, `EM21 Cheers no name`) byte-identical to the Cerebras
+  run, so neither is a regression from the swap.
+- **The Groq cleanup call was missing `reasoning_effort`.** gpt-oss is a
+  reasoning model: without it, the whole output budget goes on thinking and the
+  call returns empty or truncated text. A live probe with no flag came back as
+  `''`. The Cerebras path has needed this since v3.14.74; the Groq path now
+  sends it too.
+
+### Changed
+- **Groq is the recommended provider, with OpenAI as the backup.** Groq is the
+  only provider that covers both halves of a dictation, speech to text and then
+  cleanup, and it is the faster of the two at each. Measured on identical audio:
+  Groq Whisper **664ms** against OpenAI Whisper **1298ms**, same transcript.
+  Default order is now Groq, then OpenAI, then Cerebras.
+- **Cerebras is no longer recommended.** It has no speech-to-text endpoint, so
+  it could never run a dictation on its own and always required a second
+  provider alongside it. Existing Cerebras keys keep working and it stays in the
+  fallback chain; it is simply no longer suggested to new users. Settings now
+  labels it "cleanup only, no speech-to-text" instead of "fastest".
+- Settings, README and the website updated to match, including corrected
+  pricing. The published figures were derived from Cerebras rates and
+  understated the cost; recomputed from Groq's rates (gpt-oss-120b at
+  $0.15/$0.60 per million tokens, whisper-large-v3 at $0.111/hour) a 30 second
+  dictation costs about $0.0018, so the free tier covers roughly 18 a day and
+  30 a day works out near a dollar a month.
+
 ## [3.14.87] - 2026-09-08
 
 ### Fixed

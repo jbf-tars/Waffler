@@ -36,7 +36,7 @@ It's gone through a ridiculous amount of prompt-wrangling and live-API testing t
 
 - **Global hotkey** — works in any app, instantly
 - **Multi-provider transcription** — Groq Whisper (fastest) or OpenAI Whisper
-- **Multi-provider AI cleanup** — Groq Llama 3.3 70B (free tier first), Cerebras gpt-oss-120b (paid, fastest), or OpenAI GPT-4.1-mini, with automatic fallback if a provider rate-limits
+- **AI cleanup with automatic fallback.** Groq gpt-oss-120b first, OpenAI GPT-4.1-mini as backup. Groq covers both transcription and cleanup, so one key is enough to run the whole app.
 - **Smart hallucination filtering** — strips Whisper's "and more / thanks for watching / please subscribe" outros on near-silent clips before they hit your clipboard
 - **Auto-clipboard** — result is copied the moment it's ready
 - **Local transcription history** — searchable, stays on your machine
@@ -67,8 +67,8 @@ On first launch, the setup wizard will ask for your key. Any one of the three pr
 # Groq — fastest transcription AND cleanup, generous free tier (recommended)
 GROQ_API_KEY=your_groq_api_key_here
 
-# Cerebras — fastest cleanup in the world (~2200+ tok/s), free tier available
-CEREBRAS_API_KEY=your_cerebras_api_key_here
+# Cerebras (optional, cleanup only, no speech-to-text)
+# CEREBRAS_API_KEY=your_cerebras_api_key_here
 
 # OpenAI — most reliable, cheapest at low volume
 OPENAI_API_KEY=your_openai_api_key_here
@@ -78,7 +78,7 @@ You can set more than one key — Waffler will use the fastest available provide
 
 Where to get each one (all free to sign up):
 - **Groq:** <https://console.groq.com/keys>
-- **Cerebras:** <https://cloud.cerebras.ai>
+- **Cerebras (optional):** <https://cloud.cerebras.ai>
 - **OpenAI:** <https://platform.openai.com/api-keys>
 
 ### 3. Run from source
@@ -139,7 +139,7 @@ Edit `.env` to set your API key(s).
 |-----------|-----------|
 | Language | Python 3.11 |
 | Speech-to-text | Groq Whisper (default) or OpenAI Whisper (`gpt-4o-mini-transcribe`) |
-| LLM cleanup | Groq Llama 3.3 70B → Cerebras gpt-oss-120b → OpenAI GPT-4.1-mini (Groq first preserves free-tier; Cerebras is paid; OpenAI last-resort) |
+| LLM cleanup | Groq gpt-oss-120b → OpenAI GPT-4.1-mini (Groq is faster and has a free tier; OpenAI is the backstop). Cerebras is still supported if a key is set, but it has no speech-to-text so it can never run a dictation alone |
 | Audio | sounddevice + NumPy |
 | UI | pywebview (WebView2 on Windows, WebKit on Mac) |
 | Hotkey (Mac) | Single HID-level CGEventTap with multi-handler dispatch + 150 ms hold-quiet trailing edge on Fn |
@@ -181,7 +181,7 @@ Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for gu
 - **Accessibility / Input Monitoring (Mac):** Required for keyboard monitoring. Granted via System Settings → Privacy & Security → Accessibility *and* Input Monitoring. The wizard walks you through it on first launch.
 - **Microphone permission:** Required for recording. Granted on first run via the standard macOS / Windows prompt.
 - **Windows SmartScreen warning:** Builds are not yet code-signed on Windows; SmartScreen will say "Windows protected your PC" on first launch. Click "More info" → "Run anyway". (Mac builds *are* signed and notarised — no Gatekeeper warning.)
-- **Rate limits:** Free tiers on Groq / Cerebras / OpenAI have daily / per-minute caps. Waffler falls back across providers automatically, but if all three hit limits in the same window you'll see a "Rate limit reached" toast. Set multiple keys to maximise headroom.
+- **Rate limits:** Groq's free tier has daily and per-minute caps. Waffler falls back to OpenAI automatically, but if both hit limits in the same window you'll see a "Rate limit reached" toast. Set multiple keys to maximise headroom.
 
 ---
 

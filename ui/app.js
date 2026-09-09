@@ -1254,12 +1254,12 @@ function showPage(page) {
 // order; Waffler tries them top-to-bottom. Persisted + applied live via
 // save_settings({provider_order}). Cerebras is tagged "cleanup only" because
 // it has no speech-to-text endpoint (it's skipped for the transcription step).
-let _providerOrder = ['groq', 'cerebras', 'openai'];
+let _providerOrder = ['groq', 'openai', 'cerebras'];
 
 const _PROVIDER_META = {
-  cerebras: { label: 'Cerebras', tag: 'cleanup only', note: 'Fastest cleanup' },
-  groq:     { label: 'Groq',     tag: '',             note: 'Fast · free tier' },
-  openai:   { label: 'OpenAI',   tag: '',             note: 'Reliable fallback' },
+  groq:     { label: 'Groq',     tag: 'recommended',  note: 'Speech + cleanup · free tier' },
+  openai:   { label: 'OpenAI',   tag: 'backup',       note: 'Speech + cleanup · pay as you go' },
+  cerebras: { label: 'Cerebras', tag: 'cleanup only', note: 'No speech-to-text' },
 };
 
 function renderProviderOrder() {
@@ -1306,7 +1306,7 @@ async function loadSettings() {
   try {
     const s = await pywebview.api.get_settings();
 
-    // Cerebras key (primary tier — fastest)
+    // Cerebras key (optional, cleanup only)
     const cerebrasInput = document.getElementById('cerebrasKeyInput');
     const cerebrasDesc = document.getElementById('cerebrasKeyDesc');
     if (cerebrasInput) {
@@ -1315,7 +1315,7 @@ async function loadSettings() {
     if (cerebrasDesc) {
       cerebrasDesc.textContent = s.cerebras_key_set
         ? ('Active: ' + s.cerebras_key_masked)
-        : 'Fastest. Free tier ~1M tokens/day — cloud.cerebras.ai/platform/api-keys';
+        : 'Optional. Cleanup only, no speech-to-text. cloud.cerebras.ai/platform/api-keys';
     }
 
     // Groq key
