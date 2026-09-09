@@ -125,7 +125,7 @@ _history_lock = threading.Lock()
 #   * Groq cleanup priced as Llama 3.3 70B ($0.59/$0.79) long after the app
 #     moved to openai/gpt-oss-120b ($0.15/$0.60): overstated about 4x.
 #   * Groq transcription used $0.168/hour against a published $0.111/hour.
-#   * OpenAI cleanup used gpt-4o-mini rates while the app calls gpt-4.1-mini
+#   * OpenAI cleanup used gpt-4o-mini rates while the app calls gpt-4.1-mini  # doc-drift-ok (the superseded rate)
 #     ($0.40/$1.60): understated about 2.7x.
 #   * OpenAI transcription used whisper-1's $0.006/min while the app calls
 #     gpt-4o-mini-transcribe at $0.003/min: overstated 2x.

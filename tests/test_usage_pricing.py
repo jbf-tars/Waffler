@@ -7,7 +7,7 @@ at OpenAI's rates:
 
     Groq cleanup   priced as Llama 3.3 70B  $0.59/$0.79  actual $0.15/$0.60
     Groq whisper   priced at $0.168/hour                 actual $0.111/hour
-    OpenAI cleanup priced as gpt-4o-mini    $0.15/$0.60  actual $0.40/$1.60
+    OpenAI cleanup priced as gpt-4o-mini    $0.15/$0.60  actual $0.40/$1.60  # doc-drift-ok (records the wrong rate deliberately)
     OpenAI whisper priced as whisper-1      $0.006/min   actual $0.003/min
     Cerebras       no rate at all, fell through to OpenAI's
 
@@ -58,7 +58,7 @@ def test_groq_whisper_rate_matches_published():
 
 
 def test_openai_cleanup_rate_matches_published():
-    """gpt-4.1-mini, not gpt-4o-mini: the app calls the former."""
+    """gpt-4.1-mini, not gpt-4o-mini: the app calls the former."""  # doc-drift-ok (names the wrong model deliberately)
     r = RATES["openai"]["gpt"]
     assert r["model"] == "gpt-4.1-mini"
     assert (r["in_per_1m"], r["out_per_1m"]) == (0.40, 1.60)
