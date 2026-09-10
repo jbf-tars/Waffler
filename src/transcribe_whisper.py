@@ -257,6 +257,13 @@ _WHISPER_HALLUCINATIONS = frozenset(s.strip().lower() for s in [
     "subscribe to my channel",
     "[music]",
     "[applause]",
+    # ── v3.14.97 — decoder derailments seen on real clips (see
+    # _DERAIL_TAIL_RE): list completions and the Amara credit line.
+    "and the rest of the team",
+    "the rest of the team",
+    "and the likes",
+    "and so on",
+    "subtitles by the amara.org community",
     "you",  # Whisper's most common 1-token hallucination on noise
     ".",
     # ── v3.14.39 — short-clip Whisper hallucinations ──────────────────
@@ -587,6 +594,12 @@ def _strip_hallucinations(text: str, speech_seconds: float = None) -> str:
         r"thanks[.!?]*",
         r"you[.!?]*",
         r"(?:and|with|plus)\s+(?:many\s+|much\s+|lots\s+)?more[.!?]*",
+        # List completions the decoder falls into after a weak window (see
+        # _DERAIL_TAIL_RE). Own-sentence only: "...to Malak and the rest of
+        # the team." inside a sentence is real speech and is left alone.
+        r"(?:and\s+)?the rest of the team[.!?]*",
+        r"and the likes[.!?]*",
+        r"thank you for watching[.!?]*",
     ]
     # A trailing one of these proves the removed phrase was part of the clause.
     _DANGLING = {
@@ -680,15 +693,53 @@ def _upload_timeout_s(nbytes: int) -> float:
     return min(240.0, max(_TRANSCRIBE_TIMEOUT_S, 60.0 + (mb - 4.0) * 6.0))
 
 # Incomplete-transcript detector. Real dictation is never sustained below
-# ~1 word per second OF SPEECH (measured across 205 real recordings: every
-# healthy one >= 1.17, the two confirmed-broken ones 0.32 and 0.81). Below
-# this, with enough speech to trust the measurement, the transcript is
-# near-certainly missing content and is worth a retry on the other provider.
-_MIN_WORDS_PER_SPEECH_SEC = 1.0
+# ~1.5 words per second OF SPEECH. Recalibrated for the noise-floor-relative
+# ``_speech_seconds`` (v3.14.97): across 160 real recordings measured that way
+# the healthy distribution was p5 = 1.74, p10 = 2.0, median 3.0 w/s, and the
+# confirmed-broken ones sat at 0.47, 0.73 and 1.31 (the 08:47 clip that lost
+# half its words to a "Thank you for watching!" derailment). The old 1.0
+# floor was tuned against a speech measure that undercounted ~2.5x, which is
+# why it never fired on a real loss. Below this, with enough speech to trust
+# the measurement, the transcript is near-certainly missing content and is
+# worth a retry on the other provider.
+_MIN_WORDS_PER_SPEECH_SEC = 1.5
 _MIN_SPEECH_S_FOR_RETRY = 10.0
 # The alternate provider's transcript replaces the original only when it is
 # meaningfully fuller — not for noise-level differences.
 _RETRY_IMPROVEMENT_FACTOR = 1.25
+# When the transcript ENDS on a known decoder-derailment phrase the loss is
+# already evidenced, so a smaller gain is enough to accept the retry. A
+# 6-window clip that loses its last window recovers only ~1.2x, which the
+# rate-triggered factor above would refuse.
+_TAIL_RETRY_IMPROVEMENT_FACTOR = 1.10
+
+# Whisper decoder derailments. When a window of a long clip is uncertain the
+# decoder falls into a stock continuation instead of the audio: the YouTube
+# outro family, and list completions. "and the rest of the team" was
+# produced 27 times between June and September 2026 for one user because the
+# custom-vocabulary prompt (a comma list of colleagues' names) read to the
+# model like a roll-call, so any weak window became "...and the rest of the
+# team." Proven on retained audio: 80 s clip -> 159 words ending in that
+# phrase with the prompt, 214 correct words without it. A transcript that
+# ends on one of these, after real speech, is treated as suspect and retried.
+_DERAIL_TAIL_RE = re.compile(
+    r"(?:^|(?<=[.!?,]))\s*(?:"
+    r"(?:and\s+)?the\s+rest\s+of\s+the\s+team"
+    r"|and\s+the\s+likes"
+    r"|thanks?\s+(?:you\s+)?for\s+(?:watching|listening)"
+    r"|see\s+you\s+in\s+the\s+next\s+(?:one|video)"
+    r"|subtitles\s+by\s+.*"
+    r")[.!?]*\s*$",
+    re.IGNORECASE,
+)
+
+
+def _ends_on_derailment(text: str) -> bool:
+    """True when the transcript's final clause is a known derailment phrase
+    standing as its own sentence (or the whole output). A phrase used inside a
+    real sentence ("send it to Malak and the rest of the team") is not
+    preceded by punctuation and does not match."""
+    return bool(text) and _DERAIL_TAIL_RE.search(text.strip()) is not None
 
 
 # Words whose loss inverts an instruction. A retry that drops one of these has
@@ -769,12 +820,30 @@ def _alternate_is_safe_replacement(original: str, alternate: str):
     return True, f"{overlap:.0%} token overlap, no contradictions"
 
 
+# Speech-window threshold for ``_speech_seconds``: see its docstring.
+_SPEECH_RMS_FLOOR = 12.0
+_SPEECH_NOISE_MULTIPLIER = 3.0
+
+
 def _speech_seconds(audio_bytes: bytes) -> float:
     """Estimate seconds of actual speech in a WAV via per-window RMS.
 
-    Same windowing/threshold approach as ``_split_audio_on_silence`` (30ms
-    windows, threshold at max(150, 15% of median RMS)). Returns 0.0 for
-    malformed input — callers treat that as "cannot judge, don't retry".
+    30 ms windows; a window counts as speech when its RMS clears
+    ``max(_SPEECH_RMS_FLOOR, 3 x noise floor)`` where the noise floor is the
+    10th-percentile window RMS of the clip itself.
+
+    Until v3.14.97 the threshold was ``max(150, 15% of median RMS)``, i.e. a
+    fixed 150 floor. That is a fine cut point for *splitting* audio at
+    silence, but as a speech measure it undercounted a normally gained
+    laptop mic (median window RMS ~50) by ~2.5x: a 79 s clip with 64 s of
+    audible speech measured 23 s. Every consumer of this number (the
+    incomplete-transcript retry, the quality signals, the near-silence
+    licence in the hallucination filter, the short-tap guard) was therefore
+    reasoning from a third of the real speech. The floor of 12 is the same
+    one the capture diagnostics have used since v3.14.5 (room tone on a
+    well-gained mic is ~3-8 RMS); the 3x-noise-floor term keeps a noisy mic
+    from counting hiss as speech. Returns 0.0 for malformed input — callers
+    treat that as "cannot judge, don't retry".
     """
     import io
     import wave
@@ -792,7 +861,15 @@ def _speech_seconds(audio_bytes: bytes) -> float:
             return 0.0
         block = samples[: n_win * win].astype(np.float32).reshape(n_win, win)
         rms = np.sqrt(np.mean(block * block, axis=1))
-        thresh = max(150.0, float(np.median(rms)) * 0.15)
+        noise_floor = float(np.percentile(rms, 10))
+        # The old split-oriented threshold is kept as a CEILING: a clip that
+        # is speech from end to end (a 0.3 s "Yes") has no quiet windows, so
+        # its 10th percentile is speech and 3x that would exclude everything.
+        # Capping at the old value means this measure can only ever count
+        # more speech than before, never less.
+        legacy = max(150.0, float(np.median(rms)) * 0.15)
+        thresh = max(_SPEECH_RMS_FLOOR,
+                     min(noise_floor * _SPEECH_NOISE_MULTIPLIER, legacy))
         return float((rms >= thresh).sum()) * (win / float(framerate))
     except Exception:
         return 0.0
@@ -985,16 +1062,28 @@ class WhisperTranscriber:
             if speech_s < _MIN_SPEECH_S_FOR_RETRY:
                 return transcript
             wps = words / speech_s
-            if wps >= _MIN_WORDS_PER_SPEECH_SEC:
+            # Two independent triggers. A low word rate catches a transcript
+            # that lost most of the clip; a derailment tail catches the case
+            # where only the final window was replaced (the rate then looks
+            # healthy: 159 words for 57 s is 2.8 w/s, but the last 20 s of
+            # speech had become "and the rest of the team.").
+            tail_derailed = _ends_on_derailment(transcript)
+            if wps >= _MIN_WORDS_PER_SPEECH_SEC and not tail_derailed:
                 return transcript
+            factor = _RETRY_IMPROVEMENT_FACTOR
+            if tail_derailed:
+                factor = _TAIL_RETRY_IMPROVEMENT_FACTOR
+                why_suspect = "ends on a known decoder-derailment phrase"
+            else:
+                why_suspect = f"{wps:.2f} w/s is below {_MIN_WORDS_PER_SPEECH_SEC}"
             first_provider = getattr(self, "_last_cloud_provider", None)
             _wlog(f"[whisper] SUSPICIOUS transcript: {words} words for "
-                  f"{speech_s:.1f}s of speech ({wps:.2f} w/s) via "
+                  f"{speech_s:.1f}s of speech ({why_suspect}) via "
                   f"{first_provider or '?'} — retrying on alternate provider")
             self.last_retry_fired = True
             alt = self._dispatch_one(audio_bytes, exclude=first_provider)
             alt_words = len((alt or "").split())
-            if alt_words < max(1, words) * _RETRY_IMPROVEMENT_FACTOR:
+            if alt_words < max(1, words) * factor:
                 _wlog(f"[whisper] retry no better ({alt_words} words) — keeping original")
                 return transcript
             # Being longer is necessary but nowhere near sufficient. Replacing
@@ -1175,10 +1264,22 @@ class WhisperTranscriber:
             f.write(audio_bytes)
             tmp = f.name
         try:
-            vocab    = load_vocab()
-            hint     = vocab_to_prompt(vocab)
             settings = load_settings()
             lang     = settings.get("language", "en")
+            # The custom vocabulary is deliberately NOT sent as a prompt to
+            # whisper-large-v3. Proven on retained audio (v3.14.97): with the
+            # name list as the prompt, an 80 s clip came back as 159 words
+            # ending "...and the rest of the team." (the whole final window
+            # replaced by a list completion); every list-shaped variant
+            # derailed the same way ("Thank you for watching!", "Subtitles by
+            # the Amara.org community", "and so on."); with no prompt the same
+            # model returned all 214 words, twice. On the same day's clips the
+            # prompt gave no spelling benefit either ("craic" -> "Craig" both
+            # ways); ``apply_vocab_corrections`` downstream fixes those.
+            # ``WAFFLER_WHISPER_PROMPT=1`` restores the old behaviour.
+            hint = ""
+            if os.environ.get("WAFFLER_WHISPER_PROMPT") == "1":
+                hint = vocab_to_prompt(load_vocab())
             with open(tmp, "rb") as af:
                 kwargs = dict(
                     model="whisper-large-v3",

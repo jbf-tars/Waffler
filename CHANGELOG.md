@@ -4,6 +4,80 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.97] - 2026-09-10
+
+Two long dictations this morning came back ending "...and the rest of the
+team." and "Thank you for watching!" with a chunk of what was said missing,
+and the raw transcript view showed the same thing. For the first time the
+failing audio was still on disk (the last-10-recordings retention from
+3.14.85), so this was diagnosed against the actual recording rather than
+guessed at.
+
+### Fixed
+- **The custom-vocabulary prompt was derailing Whisper on long recordings.**
+  Re-running the retained 80 s clip through Groq `whisper-large-v3` with the
+  app's prompt (the comma-separated vocabulary list: `Ashkan, COBie, Morta,
+  ... Malak, XBim`) reproduced the stored result exactly, twice: 159 words,
+  final 20 s of speech replaced by "and the rest of the team." The same audio
+  with no prompt returned all 214 words, twice. Every list-shaped prompt
+  variant derailed the same clip ("Thank you for watching!", "Subtitles by
+  the Amara.org community", "and so on."). The mechanism: a list of
+  colleagues' names reads to the decoder like a roll-call, so any uncertain
+  window becomes the natural continuation of that list. History bears it
+  out: "and the rest of the team" had ended 27 transcripts since June, and
+  2% of all recordings ended on a known derailment phrase. On the same day's
+  clips the prompt gave no spelling benefit ("craic" came back as "Craig"
+  with and without it; the post-transcription vocabulary matcher fixed it
+  either way). Groq Whisper is now called **without** the vocabulary prompt;
+  the Levenshtein/bigram matcher (`apply_vocab_corrections`) remains the
+  vocabulary mechanism. `WAFFLER_WHISPER_PROMPT=1` restores the old call for
+  anyone who wants to compare. Verified live: the 09:42 clip transcribes to
+  214 words with the correct ending through the real pipeline.
+- **The speech measure was undercounting a normal mic by ~2.5x, which
+  blinded every safety net.** `_speech_seconds` used a fixed RMS floor of
+  150, a fine cut point for splitting audio at silence but far above a
+  normally gained laptop mic (median window RMS ~50). The 80 s clip with 64 s
+  of audible speech measured as 23 s, so the "impossibly few words for this
+  much speech" retry saw 6.9 w/s and stood down; the 08:47 clip that lost
+  half its words looked like 3.5 w/s instead of the real 1.3. The threshold
+  is now noise-floor-relative (`max(12, 3x the clip's 10th-percentile RMS)`,
+  capped at the old value so it can only ever count more speech than before).
+  On the ten retained recordings it now tracks the capture diagnostics
+  within ~10%.
+- **Retry now fires on the derailment signature, not only on word rate.** A
+  clip that loses just its final window keeps a healthy overall rate (2.8
+  w/s for the 09:42 clip), so the rate gate alone can never catch it. A
+  transcript that ends on a known derailment phrase standing as its own
+  sentence ("and the rest of the team", "Thank you for watching", "and the
+  likes", "Subtitles by ...") after 10 s+ of measured speech is now retried
+  on the alternate provider, and a modestly fuller alternate (1.10x rather
+  than 1.25x) is accepted, still subject to the semantic-safety checks from
+  3.14.93. The phrase inside a real sentence ("send it to Malak and the rest
+  of the team") does not trigger.
+- **The hallucination filter knows the list-completion family.** An
+  own-sentence "and the rest of the team." / "Thank you for watching!" tail
+  is stripped after real speech; the bare phrase on a near-silent clip (the
+  08:35 one-second tap that produced six words) is discarded; the phrase
+  inside a sentence is untouched.
+
+### Changed
+- Word-rate gate recalibrated for the corrected speech measure: 1.0 -> 1.5
+  words per speech-second in both the transcriber retry and the quality
+  signals. Across 160 real recordings measured the new way the healthy
+  distribution is p5 = 1.74, median 3.0; the confirmed losses sat at 0.47,
+  0.73 and 1.31.
+- Raw Whisper output without the prompt is occasionally less punctuated on
+  long clips (the styler re-punctuates anything it processes; this only
+  affects the "Show transcript" view of pass-through clips).
+
+### Tests
+- `tests/test_prompt_derailment.py` (17 cases, offline): Groq is called
+  without the prompt and the env override restores it; a quiet mic is
+  counted and hiss is not; each derailment tail triggers the retry while the
+  phrase inside a sentence does not; the recalibrated rate catches the
+  half-lost clip and leaves slow speech alone; the filter strips own-sentence
+  tails and keeps in-sentence uses. Suite: 283 passed, 1 skipped.
+
 ## [3.14.96] - 2026-09-09
 
 Setup was doing more work than it needed to before a new user could speak a

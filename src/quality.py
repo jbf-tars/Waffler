@@ -22,10 +22,12 @@ DESIGN RULES
 * Never invent a signal from a missing measurement.
 """
 
-# Real speech does not sustain below ~1 word per second OF SPEECH. Measured
-# across 205 real recordings: every healthy one >= 1.17; the two confirmed
-# broken ones sat at 0.32 and 0.81.
-_MIN_WORDS_PER_SPEECH_SEC = 1.0
+# Real speech does not sustain below ~1.5 words per second OF SPEECH, as
+# measured by transcribe_whisper._speech_seconds (noise-floor-relative since
+# v3.14.97). Across 160 real recordings the healthy distribution was p5 =
+# 1.74, median 3.0; confirmed-broken ones sat at 0.47, 0.73 and 1.31. Keep in
+# step with transcribe_whisper._MIN_WORDS_PER_SPEECH_SEC.
+_MIN_WORDS_PER_SPEECH_SEC = 1.5
 # Below this much measured speech the ratio is too noisy to judge, and short
 # utterances ("Yes.") are legitimate.
 _MIN_SPEECH_S_TO_JUDGE = 10.0
