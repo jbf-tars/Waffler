@@ -4,6 +4,58 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.98] - 2026-09-11
+
+Reported from the Mac, on 3.14.97: an email dictation lost its "Thank you,
+James." sign-off entirely, and "really appreciate your time today" pasted as
+"really appreciate Nour time today". Both reproduced here, and neither was
+what it first looked like.
+
+### Fixed
+- **A dictated sign-off could be deleted outright by the styler.** Raw ASR
+  ended `...which version that you're on? Thank you, James.`; the styled
+  output ended `...which version that you're on?`. Reproduced deterministically
+  against Groq `openai/gpt-oss-120b` with a 12-cell matrix, 3 runs per cell,
+  and the trigger is narrow: a greeting must be present (which engages the
+  model's email machinery) AND the closing must be "Thank you" **with** a
+  comma before the name. `Thanks, James.` survived 3/3, `Thank you James.`
+  without the comma survived 3/3, and every form survived with no greeting.
+  Root cause: "Thank you" was absent from the prompt's Recognised sign-offs
+  list (the same half-closed gap noted in 3.14.83), so with the comma the
+  model read "Thank you, James" as thanking James mid-body and dropped it as
+  a pleasantry. Two fixes, because a prompt is a request and not a guarantee:
+  `prompts/normal.txt` now lists "Thank you" and its variants plus an
+  explicit **NEVER DELETE A SIGN-OFF** hard rule, and a new deterministic
+  `_restore_dropped_signoff()` puts back any closing present at the end of
+  the raw transcript but missing from the styled output — provider-independent,
+  idempotent, and narrow enough that a closing used mid-body ("thanks for
+  meeting today, James, it was really useful") never triggers it. This is the
+  same reasoning that moved email *layout* into code in 3.14.80: deleting the
+  user's words is a worse failure than misplacing them. Matrix now 12/12.
+- **A short vocabulary entry could overwrite ordinary English words.** With
+  `Nour` in `vocab.json`, "your" pasted as "Nour" — and so did "our", "hour",
+  "tour" and "pour". This was **not** the Whisper prompt (3.14.97 stopped
+  sending vocabulary to the decoder); it was the post-hoc fuzzy corrector
+  `apply_vocab_corrections()`. At the default 0.75 similarity threshold a
+  four-character vocab entry matches any four-character word one edit away,
+  because `1 - 1/4` is exactly 0.75 — sitting precisely on the bar, so the
+  most common words in English were the ones it hit. Vocabulary entries
+  shorter than 5 characters are now **exact-match only**, and a protected
+  list of ~150 everyday words may never be overwritten by any entry however
+  close. Short entries still correct on an exact match, and genuine
+  mishearings of longer names are untouched (`cobia` -> `COBie`, `Nash can`
+  -> `Ashkan` both still pass). A surname misheard as a capitalised proper
+  noun ("roman" -> `Rohan`) is deliberately still corrected: that is the
+  feature working.
+
+### Tests
+- `tests/test_signoff_preservation.py` (12 cases) and
+  `tests/test_vocab_false_positives.py` (18 cases). Suite: **313 passed, 1
+  skipped**, up from 283.
+- Styling regression corpus re-run after the prompt change: **106/107 on
+  Groq**, sole failure the long-known M5 self-correction flake, which fails
+  identically on the previous prompt.
+
 ## [3.14.97] - 2026-09-10
 
 Two long dictations this morning came back ending "...and the rest of the

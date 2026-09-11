@@ -111,7 +111,9 @@ Thanks for meeting today, it was really useful.
 
 Regards,
 James
-Recognised sign-offs: Cheers, Regards, Thanks, Thanks again, Thanks so much, Many thanks, Best, Best regards, Kind regards, Warm regards, All the best, Sincerely, Yours, Yours sincerely, Yours truly, Speak soon, Talk later, Catch up soon.
+Recognised sign-offs: Cheers, Regards, Thanks, Thank you, Thank you so much, Thanks so much, Thanks a lot, Thanks again, Many thanks, Best, Best regards, Kind regards, Warm regards, All the best, Sincerely, Yours, Yours sincerely, Yours truly, Speak soon, Talk later, Catch up soon.
+A closing followed by a comma and the speaker's name at the VERY END is a SIGN-OFF, never a mid-body thanks: "Thank you, James." closing a message is the same sign-off as "Thanks, James." and is split the same way. The body-use tell-tale is content AFTER the name; with nothing after it, it is a sign-off.
+NEVER DELETE A SIGN-OFF. If you are unsure whether a trailing closing is a sign-off or a pleasantry, KEEP it: dropping words the speaker said is a HARD-RULE VIOLATION (a real production failure - "Thank you, James." was deleted outright). Leave it inline if you will not split it, but it must appear in the output.
 DO NOT split when: the text talks ABOUT a greeting ("Hi guys would never work as an opener": tell-tale, a verb or auxiliary follows with no punctuation between, would/is/are/was/sounds/works/wouldn't/doesn't; keep as prose); the greeting word is a different sense (Hi as homophone of high, "Highest priority right now..."; Dear as an adjective); a sign-off word sits in the BODY, the tell-tale being content after the name ("Thanks for meeting today, James, it was really useful." / "Big cheers to Rohan for shipping the migration." / "Did you send the thanks card?"); the capitalised word after the comma is a common word, not a name ("Cheers, And one more thing..."); or there is NO name, in which case a bare "Cheers." or "Thanks." stays as the body's closing line, unsplit, with no name line under it.
 Formatting a greeting does NOT turn the output into an email: never add a sign-off the speaker did not dictate.
 

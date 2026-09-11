@@ -124,13 +124,42 @@ def _levenshtein_distance(a: str, b: str) -> int:
     return previous_row[-1]
 
 
+# Ordinary English words a vocabulary entry may never overwrite. A custom
+# vocab is a list of names and jargon; when one of them lands within an edit
+# or two of a everyday word, the everyday word is what the speaker said.
+# Live failure (2026-09-11): vocab entry "Nour" rewrote "your" in
+# "really appreciate your time today", because at four characters a
+# single-edit neighbour scores exactly the 0.75 threshold. Exact matches are
+# unaffected — a speaker who genuinely says "Nour" still gets it.
+_VOCAB_PROTECTED_WORDS = frozenset("""
+about after again all also and any are because been before being both but
+came come could day did does down each even every first for four from get
+give going good got had has have her here him his how hour hours into its
+just keep know like little long look made make many may might more morning
+most much must name need new next now off often once only other our out
+over own part people place put right said same see seem she should since
+some soon still such sure take team than thank thanks that the their them
+then there these they thing think this those though thought three through
+time times today too took tour tours two under until use used very want
+was way week well went were what when where which while who why will with
+within without word work would year years yes yet you your yours
+""".split())
+
+# Below this length a vocabulary entry carries too little signal to correct
+# on: at four characters, every word one edit away scores 0.75, which is the
+# default threshold. Short entries still match EXACTLY.
+_MIN_FUZZY_VOCAB_LEN = 5
+
+
 def fuzzy_match_word(transcribed: str, vocab: list[str], threshold: float = 0.75) -> list[tuple[str, str]]:
     """
     Find vocabulary words that are similar to transcribed words.
     Returns list of (transcribed_phrase, vocab_word) pairs to substitute.
 
     Two passes:
-      1. Single-token fuzzy match (Levenshtein-similarity ≥ threshold).
+      1. Single-token fuzzy match (Levenshtein-similarity ≥ threshold),
+         refused for protected everyday words and for vocab entries shorter
+         than ``_MIN_FUZZY_VOCAB_LEN``.
       2. **Bigram collapse** match — when Whisper splits a compound name into
          two words ("Ashkan" → "Nash can", "Ashcan", "Ash can"), pass 1
          can't find it. We glue every adjacent bigram together
@@ -164,8 +193,12 @@ def fuzzy_match_word(transcribed: str, vocab: list[str], threshold: float = 0.75
             if word != canonical:
                 corrections.append((word, canonical))
             continue
+        # An everyday word is what the speaker said, not a near-miss of a
+        # name. Checked before the loop so no vocab entry can claim it.
+        if word in _VOCAB_PROTECTED_WORDS:
+            continue
         for vword in vocab_words:
-            if len(word) < 3 or len(vword) < 3:
+            if len(word) < 3 or len(vword) < _MIN_FUZZY_VOCAB_LEN:
                 continue
             max_len = max(len(word), len(vword))
             if max_len == 0:

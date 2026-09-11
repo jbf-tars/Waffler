@@ -421,6 +421,10 @@ Transcript: {transcript}"""
             _result = _fn()
             if _result is not None:
                 _styled, _usage = _result
+                # Restore a dictated sign-off the model deleted BEFORE the
+                # layout pass, so the restored block gets laid out like any
+                # other. Losing the user's words beats misplacing them.
+                _styled = self._restore_dropped_signoff(_styled, transcript)
                 # Deterministic email layout so the greeting/sign-off sit on
                 # their own lines regardless of which provider produced the
                 # text (previously left to the LLM -> inconsistent Mac vs PC).
@@ -1285,6 +1289,57 @@ Transcript: {transcript}"""
             return styled
         closing = m.group(2)
         return styled[: m.start()] + m.group(1) + closing[0].upper() + closing[1:] + "."
+
+    # A closing at the very END of the raw transcript, with an optional name
+    # after it. Anchored to the end so a closing used mid-body ("thanks for
+    # meeting today, James, it was really useful") never matches — the
+    # tell-tale of body use is content after the name.
+    _RAW_TRAILING_SIGNOFF_RE = re.compile(
+        r"(?i)(?:^|[.!?,])\s*"
+        r"(?P<closing>thank you so much|thanks so much|thank you|thanks again|"
+        r"thanks a lot|many thanks|thanks|kindest regards|kind regards|"
+        r"warmest regards|warm regards|best regards|best wishes|all the best|"
+        r"regards|cheers|speak to you soon|speak soon|talk soon|"
+        r"yours sincerely|yours faithfully|yours truly|sincerely|best)"
+        r"(?:\s*,?\s+(?P<name>[A-Z][\w.'’-]*(?:\s+[A-Z][\w.'’-]*){0,2}))?"
+        r"\s*[.!]?\s*$"
+    )
+
+    def _restore_dropped_signoff(self, styled: str, raw: str) -> str:
+        """Put back a sign-off the speaker dictated and the model deleted.
+
+        The mirror image of ``_strip_invented_signoff_name``: that one removes
+        a closing the speaker never said, this one restores one they did.
+
+        Live failure (2026-09-11, v3.14.97): raw ended "...that you're on?
+        Thank you, James." and the styled output ended "...that you're on?".
+        Reproduced 4/4 on Groq openai/gpt-oss-120b, with a narrow trigger —
+        a greeting present AND the closing being "Thank you" WITH a comma
+        before the name. "Thanks, James." and "Thank you James." both
+        survived. "Thank you" was missing from the prompt's recognised
+        sign-off list, so with the comma the model read it as thanking James
+        mid-sentence and dropped it as a pleasantry.
+
+        The prompt now lists it, but a prompt is a request. This guard is
+        deterministic and provider-independent, which is the same reasoning
+        that put the email LAYOUT in code in v3.14.80 — deleting the user's
+        words is a worse failure than misplacing them.
+        """
+        if not styled or not styled.strip() or not raw or not raw.strip():
+            return styled
+        m = self._RAW_TRAILING_SIGNOFF_RE.search(raw.strip())
+        if not m:
+            return styled
+        closing = m.group("closing").strip()
+        name = (m.group("name") or "").strip().rstrip(".! ")
+        # Already there in any shape (own line, or glued to the last
+        # sentence)? Then nothing was dropped — leave it for the layout pass.
+        tail = styled.strip()[-120:].lower()
+        if closing.lower() in tail:
+            return styled
+        closing = closing[0].upper() + closing[1:]
+        block = f"{closing},\n{name}" if name else f"{closing},"
+        return styled.rstrip() + "\n\n" + block
 
     def _split_signoff_name(self, text: str) -> str:
         """Normalise a trailing sign-off to the canonical two-line form.
