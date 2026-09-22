@@ -4,6 +4,53 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.99] - 2026-09-22
+
+Windows Defender started deleting `Waffler.exe` mid-install this morning, so
+Setup failed with "CreateProcess failed; code 225 - the file contains a virus
+or potentially unwanted software" and the app could not be installed at all.
+
+### Fixed
+- **Defender was classifying the running app as credential-stealing malware,
+  and the clipboard poll is why.** The detection was
+  `Behavior:Win32/CredentialAccess.A!ml`, severity 5, `DidThreatExecute:
+  True` - a behavioural ML verdict on the live process, not a signature match
+  on the file. The downloaded installer was verified **byte-identical** to the
+  asset our own CI built (SHA-256 `47103517...d88e9d7c`), so nothing had
+  tampered with it and the verdict was wrong. The behaviour behind it was
+  nonetheless real: the setup wizard called `peek_clipboard_key` on a
+  **1200 ms `setInterval`**, and that call reads the clipboard and regex-matches
+  it against API-key shapes (`sk-`, `gsk_`, `csk-`). Roughly 50 clipboard
+  secret-scans a minute, for a key that arrives once, in an unsigned binary
+  that also installs a `WH_KEYBOARD_LL` hook - behaviourally indistinguishable
+  from an infostealer. Defender's signatures updated 2026-09-21 20:07 and the
+  first detection followed at 10:05 the next morning; no Waffler code had
+  changed since 3.14.98 on 11 Sept, so a model update is what moved.
+  **Fix:** the pickup now runs on **window focus** instead of on a timer,
+  debounced at 400 ms, with the listener removed when step 3 closes. The user
+  experience is unchanged, because the alt-tab back from the provider's
+  website was the only moment the poll ever caught anything - and that moment
+  is exactly a focus event. Same pickup, ~1/50th of the reads, and no standing
+  clipboard surveillance in a dictation app. The keyboard hook stays: it *is*
+  push-to-talk.
+
+### Note
+- Not fixed by this release: the binary is still unsigned, which is the other
+  half of why a no-reputation executable trips ML heuristics at all. The
+  signing step has been wired into `windows-release.yml` since 3.14.96 and
+  skips only because no `WINDOWS_CERT_PFX` secret is set - see
+  `docs/CODE_SIGNING.md`. A false-positive report to Microsoft is the free
+  route to having the verdict withdrawn for every user rather than allowed
+  per-machine.
+
+### Tests
+- `tests/test_no_clipboard_polling.py` (5 cases): no `setInterval`/`setTimeout`
+  body may reach the clipboard key API, the focus trigger is wired, the
+  listener is removed again, the check is debounced, and `app.py` keeps exactly
+  one clipboard reader so the read surface cannot grow unnoticed. Verified
+  non-vacuous - the timer check fails against the previous `ui/app.js`.
+  Suite: **318 passed, 1 skipped**.
+
 ## [3.14.98] - 2026-09-11
 
 Reported from the Mac, on 3.14.97: an email dictation lost its "Thank you,

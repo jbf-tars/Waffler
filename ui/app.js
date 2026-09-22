@@ -1757,8 +1757,11 @@ function updateWizardProgress(step) {
 // The backend only ever returns text matching a known key shape, so ordinary
 // clipboard contents are never read into the UI. Filling the field is not
 // irreversible either: the user can clear or overwrite it.
-let _wizClipTimer = null;
+let _wizClipTimer = null;        // legacy poll handle, kept so an in-flight
+                                 // timer from a previous build is cleared
 let _wizClipLastSeen = '';
+let _wizClipLastCheck = 0;
+let _wizClipOnFocus = null;
 
 const _WIZ_KEY_FIELDS = {
   groq:     { input: 'wizGroqKeyInput3',     validate: (k) => wizValidateGroqKey(k) },
@@ -1766,31 +1769,61 @@ const _WIZ_KEY_FIELDS = {
   cerebras: { input: 'wizCerebrasKeyInput3', validate: (k) => (typeof wizValidateCerebrasKey === 'function' ? wizValidateCerebrasKey(k) : null) },
 };
 
+// Check the clipboard ONCE, on demand. Never on a timer.
+//
+// This used to poll every 1200 ms while step 3 was open. Windows Defender's
+// behavioural model started flagging the app as
+// Behavior:Win32/CredentialAccess.A!ml on 2026-09-22 and deleting
+// Waffler.exe mid-install, and a process repeatedly reading the clipboard
+// and regex-matching it for `sk-` / `gsk_` secrets is the single most
+// credential-stealer-shaped thing in the codebase — roughly 50 scans a
+// minute, for a key that arrives once.
+//
+// The user experience is unchanged, because the only moment the poll ever
+// caught anything was the alt-tab back from the provider's website. That
+// moment IS a window focus event, so we read the clipboard then: once per
+// return to the app instead of continuously. Same pickup, ~1/50th of the
+// reads, and no standing clipboard surveillance.
+async function _wizCheckClipboardOnce() {
+  if (!(window.pywebview && pywebview.api && pywebview.api.peek_clipboard_key)) return;
+  // Debounce: a focus flap must not turn back into a poll.
+  const now = Date.now();
+  if (now - _wizClipLastCheck < 400) return;
+  _wizClipLastCheck = now;
+  try {
+    const r = await pywebview.api.peek_clipboard_key();
+    if (!r || !r.found || !r.key) return;
+    if (r.key === _wizClipLastSeen) return;   // already handled this one
+    const field = _WIZ_KEY_FIELDS[r.provider];
+    if (!field) return;
+    const el = document.getElementById(field.input);
+    if (!el || el.value.trim() === r.key) return;
+    _wizClipLastSeen = r.key;
+    el.value = r.key;
+    // Switch to that provider's tab so the user sees where it landed.
+    const tab = document.querySelector(`.wiz-prov-tab[data-provider="${r.provider}"]`);
+    if (tab) tab.click();
+    wizNotePickedUpKey(r.provider);
+    field.validate(r.key);
+  } catch (e) { /* clipboard unavailable: the user can still paste by hand */ }
+}
+
 function startWizClipboardWatch() {
   stopWizClipboardWatch();
   if (!(window.pywebview && pywebview.api && pywebview.api.peek_clipboard_key)) return;
-  _wizClipTimer = setInterval(async () => {
-    try {
-      const r = await pywebview.api.peek_clipboard_key();
-      if (!r || !r.found || !r.key) return;
-      if (r.key === _wizClipLastSeen) return;   // already handled this one
-      const field = _WIZ_KEY_FIELDS[r.provider];
-      if (!field) return;
-      const el = document.getElementById(field.input);
-      if (!el || el.value.trim() === r.key) return;
-      _wizClipLastSeen = r.key;
-      el.value = r.key;
-      // Switch to that provider's tab so the user sees where it landed.
-      const tab = document.querySelector(`.wiz-prov-tab[data-provider="${r.provider}"]`);
-      if (tab) tab.click();
-      wizNotePickedUpKey(r.provider);
-      field.validate(r.key);
-    } catch (e) { /* clipboard unavailable: the user can still paste by hand */ }
-  }, 1200);
+  // One check on arrival (the key may already be copied), then one per
+  // return to the window.
+  _wizClipOnFocus = () => { _wizCheckClipboardOnce(); };
+  window.addEventListener('focus', _wizClipOnFocus);
+  _wizCheckClipboardOnce();
 }
 
 function stopWizClipboardWatch() {
   if (_wizClipTimer) { clearInterval(_wizClipTimer); _wizClipTimer = null; }
+  if (_wizClipOnFocus) {
+    window.removeEventListener('focus', _wizClipOnFocus);
+    _wizClipOnFocus = null;
+  }
 }
 
 function wizNotePickedUpKey(provider) {
