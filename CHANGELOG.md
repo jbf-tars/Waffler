@@ -21,6 +21,12 @@ counts Groq's 10-second minimum per transcription and marks Cerebras costs
 as estimates. And the setup wizard now describes Groq's free plan and
 OpenAI's prepaid billing correctly.
 
+The window got a round of fixes too. The status pill no longer sticks on
+"Done", nothing animates while Waffler sits in the tray, the setup wizard's
+messages and keycaps can be seen, hotkey and error messages say plainly what
+happened, Settings shows what Waffler really uses, the Usage panel no longer
+reads like a bill, and a Journal search with no matches says so.
+
 ### Fixed
 - **Every launch sent the user's IP address to Google, for fonts that never
   loaded.** Since 3.14.20, `ui/style.css` pulled Inter and Source Serif 4 with
@@ -229,6 +235,56 @@ OpenAI's prepaid billing correctly.
   installs. One real install folder held two, with only the newer one
   registered. `tests/test_startup_config.py` (20 checks) covers these and
   the theme colours.
+- **The status pill in the top bar broke on the first dictation.** Every
+  status update replaced the pill's classes, which dropped its styling, and
+  then failed on a recording overlay that no longer exists. So the pill lost
+  its colours while recording, and after the first dictation it stuck on
+  "Done". It now changes only its state, uses one set of labels (Ready,
+  Recording, Cleaning up), shows its colours in the dark theme too, and
+  goes back to Ready 3 seconds after Done. The idle label "Waiting for
+  activation" is now "Ready".
+- **Waffler kept drawing about 60 frames a second while it sat in the
+  tray.** Idle, it used about 11% of one processor core, almost all of it in
+  the WebView2 graphics process, which was animating the status dot (pulsing
+  even at Ready) and the streak logo (wobbling for ever, with a shadow). The
+  dot now pulses only while recording or cleaning up, and the logo wobbles
+  once when the Journal opens. Every animation pauses while the window is
+  hidden, minimised or in the tray: `app.py` now tells the page when the
+  window hides, minimises and comes back, because a minimised WebView2
+  window can still count as visible. One rule honours the computer's
+  "reduce motion" setting, and the setup's animated waffle stops once setup
+  is over (it used to run for the rest of the session). In headless Chrome
+  the idle Journal now draws no frames in 5 seconds, against 300 before, and
+  has no running animations. The installed app's processor use has not been
+  measured again yet.
+- **The setup wizard could strand people, and hid its own messages.**
+  - Every message shown during setup sat behind the wizard, so none was
+    ever seen. Messages now show above it, and above the hotkey dialog.
+  - The Windows logo, the "Win" label and the Mac's fn globe were drawn in
+    near-black on the black keycaps, and the Hotkey and Try-it steps then
+    replaced each keycap with plain dark text, so the keys looked blank.
+    Keycaps, the tiles under them and the Try-it chips now have light
+    labels and are drawn from the saved hotkey.
+  - A disabled "Finish Setup" kept its bright green and looked like the
+    main button. It now looks disabled, and a quiet "Skip for now" finishes
+    setup when the test dictation won't work, so a microphone problem no
+    longer leaves anyone stuck on the last step.
+  - Back after the hotkey step moved on by itself showed a stale "Hotkey
+    detected, advancing" that never advanced. The step now starts afresh.
+  - With no key saved, the Try-it step said "Complete Step 1 first", which
+    is the wrong step. It now says "Go back a step and add your key.", and a
+    test recording that can't start says so in a sentence instead of
+    showing the error text.
+  - On a Mac the two permission cards were stacked about two screens tall
+    instead of side by side, because each step was shown with a style that
+    overrode the grid.
+- **A Journal search with no matches said "Your journal is empty."**, as if
+  the history had gone. It now says 'No entries match "..."', with a "Clear
+  search" button that shows every entry again. Search also waits for a
+  150 ms pause in typing instead of rebuilding every entry on every key: in
+  headless Chrome with 3,290 entries, typing "invoice" rebuilt the list once
+  instead of 7 times, the slowest key took 14 ms instead of 539 ms, and the
+  word cost 99 ms of work instead of 1,061 ms.
 
 ### Changed
 - **Error messages are plain sentences instead of raw error text.** Checking
@@ -265,9 +321,54 @@ OpenAI's prepaid billing correctly.
   always named in one order, so the default reads "Win + Ctrl" everywhere,
   as on the website, whichever key was pressed first. On a Mac the same
   keys pass and fail as before, and the answer now names them in words
-  ("Command + Shift") like the rest of the app. The screens still need to
-  show these answers; that part is separate. `tests/test_hotkey_save.py` (30
-  checks, one more on each platform against its own key table).
+  ("Command + Shift") like the rest of the app. `tests/test_hotkey_save.py`
+  (30 checks, one more on each platform against its own key table).
+- **Settings and the setup wizard offer only this computer's hotkeys, and
+  show the answer.** Windows now gets Win + Ctrl, Ctrl + Shift and Custom
+  (which opens the existing key-recording dialog; nothing opened it before),
+  and a Mac gets Fn, Command + Shift and Option + Shift. Both screens check
+  whether the save worked: a refused hotkey shows the app's sentence and
+  changes nothing, where Settings used to flash green and the wizard said
+  the hotkey had changed. After a save, the top bar, Settings and the
+  wizard's keycaps are redrawn from the keys actually saved. The hotkey is
+  called "Win + Ctrl" everywhere, as on the website; "press Ctrl first,
+  then Win" is now a tip under it rather than a different name.
+- **The window shows the plain messages instead of error text.** The update
+  dialog shows the app's sentences as they are ("Couldn't check for
+  updates" / "Try again later." rather than "GitHub API returned HTTP 403").
+  A failed download or install is one sentence with an "Open download page"
+  button (it said "Download in browser"). An install the app refuses no
+  longer leaves "Installing..." on screen, and a release with no installer
+  for this computer opens that release's page instead of trying a download
+  that failed as an "untrusted URL". Saving a key, clearing History,
+  resetting usage, saving logs, opening System Settings and finishing setup
+  no longer show the raw error (often "Error: " and whatever the call
+  raised); they say what failed in plain words and keep the detail for the
+  log. The setup's OpenAI
+  tab says "Backup if Groq is busy" instead of "Last-resort fallback".
+- **Settings now says what Waffler really uses.**
+  - Keys are listed Groq, OpenAI, then Cerebras (optional). Cerebras, which
+    can't do speech to text, was listed above the recommended Groq.
+  - Provider Order greys out a provider with no key ("No key yet, so
+    Waffler skips it"). It can still be moved.
+  - With no order saved, Settings showed Groq, Cerebras, OpenAI while the
+    app ran Groq, OpenAI, Cerebras. The screen and the app now start from
+    the same list, and a test keeps them equal.
+  - "Active Backends: STT: Groq Whisper · LLM: Groq gpt-oss-120b" is now
+    "In use: Speech to text: Groq · Clean-up: Groq", naming the first
+    provider in your order that has a key for each step. Any Cerebras key
+    used to make it say Cerebras for clean-up, even with Groq first.
+  - About said "Powered by Groq + Whisper + LLaMA" for everyone. It now
+    names the models in use ("Powered by Whisper large v3 and
+    gpt-oss-120b"); clean-up hasn't used LLaMA since Groq retired it.
+  - The "Normal" menu in the top bar is gone. Normal was its only real
+    choice, so it took space and did nothing.
+- **The Usage panel no longer reads like a bill.** It opened with four
+  dollar figures ("$0.06 all time"), which people on Groq's free plan took
+  as a charge. It now shows how many dictations and words first, then
+  "Estimated cost" with the line "Estimated at each provider's published
+  paid rates. Waffler can't see your bill.", and the per-provider list is
+  marked "estimated, all time".
 - **The app now looks the way 3.14.20 intended.** Because the fonts finally
   load, the "Waffler" wordmark is Inter and the Journal text, date dividers
   and timestamps are Source Serif 4. This is a visible change from the
@@ -451,7 +552,26 @@ OpenAI's prepaid billing correctly.
   as CI already did. `tests/test_data_dir_isolation.py` (11 checks) fails if
   any module builds the folder itself again. A full run with the home folder
   pointed at an empty folder leaves it empty.
-- Suite: 709 passed, 2 skipped (one key-table check per platform runs only
+- `tests/test_ui_logic.py` (60 checks, no network or keys) runs the window's
+  pure logic, `ui/logic.js`, in Node: the status labels, the hotkeys each
+  platform is offered (every one passes `src/hotkey_rules.py` on its own
+  platform), the update messages (the same sentences as
+  `src/user_messages.py`), the provider order (equal to the app's, and
+  cleaned the same way), the "In use" and About lines, the Usage figures,
+  the search delay and the no-matches state. It also runs `app.py`'s
+  `get_settings()` against the real speech and clean-up classes built with
+  made-up keys. Without Node the Node checks are skipped and the source
+  checks still run. `tests/test_idle_motion.py` (9 checks) reads the
+  stylesheet, `app.js` and `app.py` for the idle-animation rules.
+- In the audit harness (the real `ui/` in headless Chrome with a stand-in
+  for the app), every screen was captured before and after on Windows and
+  Mac sizes. There are no page errors in the status, wizard, Settings,
+  Journal or update screens, a message shown during setup is the top
+  element where it appears, the keycap labels are 14.7:1 against the key,
+  the Mac permission cards are side by side (the step scrolls 909 px in
+  its 714 px box, down from 1,540 px), and a refused hotkey shows the
+  sentence with no green flash on either screen.
+- Suite: 778 passed, 2 skipped (one key-table check per platform runs only
   on that platform). A full run leaves the real `app.log` byte for byte
   unchanged.
 
