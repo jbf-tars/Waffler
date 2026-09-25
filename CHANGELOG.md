@@ -162,14 +162,23 @@ OpenAI's prepaid billing correctly.
   meet on Tuesday to go through the numbers. Actually, Thursday works too if
   you're busy." (2 of 10). The version first committed for this fix pasted
   an answer with a word missing in 17 of 225 runs and with broken grammar or
-  a stray comma in 15, against 15 and 3 for the current prompt. Uncorrected
-  words lose nothing, while a sentence with a word silently missing can say
-  something the speaker did not, so the rules stay as they are in 3.14.99.
+  a stray comma in 15, against 15 and 3 for the current prompt. In total the
+  best rewrite damaged slightly fewer runs than the current prompt (13 with a
+  word missing and 2 garbled, against 15 and 3), so this is not a case of the
+  old rules being clean. The difference is where the damage lands: most of
+  the current prompt's damage is in sentences that contain a spoken
+  correction, while the rewrites added new losses to ordinary sentences with
+  no correction in them ("Actually, Thursday works too", "then", "No, wait
+  until..."), which people say every day. Uncorrected words lose nothing,
+  while a sentence with a word silently missing can say something the speaker
+  did not, so the rules stay as they are in 3.14.99.
   Each loss above was seen in at least 2 of 10 runs against 0 of 5 for the
   current prompt, which is weak evidence one case at a time (the current
   prompt may drop "really" too, at a rate 5 runs did not show), but every
   candidate had at least one loss that came back when its case was run 5
-  more times.
+  more times. The "no, wait" comparison holds only for the dash form ("but
+  no, wait until you see this" set off by dashes); with commas instead, the
+  current prompt and the best rewrite both drop words in 4 of 5 runs.
 - **Known limits of the rules this release ships**, measured the same way:
   159 of 225 runs pass, 21 of 45 on the nine lead-in cases. In five cases
   the pasted answer has a word missing (15 runs) or broken grammar (3). A
@@ -188,6 +197,10 @@ OpenAI's prepaid billing correctly.
   107; the one failure is a correction inside a spoken numbered list, left
   as spoken. These are the rules 3.14.99 has. On Windows it sent them
   garbled (see Fixed), so these figures are what both platforms now get.
+  One shape changes on Windows because of that fix: an aside like "We
+  shipped it on Monday, no, wait until you hear this, with zero bugs" set
+  off by dashes right after a day or time now loses the aside (about 8 of 10
+  runs), as it already did on a Mac; Windows 3.14.99 kept it in about 5 of 7.
 
 ### Verified
 - With every non-local request blocked, the UI renders with zero network

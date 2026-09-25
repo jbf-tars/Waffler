@@ -363,6 +363,13 @@ CORPUS: List[Case] = [
          must_contain=["six", "an hour"],
          must_match=[r"(?i)\bno,?\s+wait\s+until\s+you\s+see\s+this\b"],
          note="NEG-4 as Whisper usually punctuates it, with a comma for the dash"),
+    Case("NEG-4c rhetorical 'no, wait' aside in dashes after a day",
+         "We shipped it on Monday — no, wait until you hear this — with zero bugs.",
+         must_contain=["Monday", "zero bugs"],
+         must_match=[r"(?i)\bno,?\s+wait\s+until\s+you\s+hear\s+this\b"],
+         note="Found in review (2026-09-25): read as UTF-8 the prompt's dash example "
+              "makes the model delete this aside (8 of 10 runs); Windows 3.14.99, "
+              "which sent a garbled prompt, kept it. A known limit, pinned here."),
     Case("VERB-1 replacement brings its own verb (cross-sentence)",
          "Email the draft to Priya. No, wait, just Slack it to her instead.",
          must_contain=["Slack it to"],
@@ -432,7 +439,7 @@ DROPPABLE: Dict[str, List[str]] = {
     "LEAD-9": ["14th", "sorry"],
     "NEG-LEAD-1": [], "NEG-LEAD-1b": [], "NEG-LEAD-2": [],
     "NEG-LEAD-3": [], "NEG-LEAD-3b": [],
-    "NEG-LEAD-4": [], "NEG-LEAD-5": [], "NEG-LEAD-6": [], "NEG-4b": [],
+    "NEG-LEAD-4": [], "NEG-LEAD-5": [], "NEG-LEAD-6": [], "NEG-4b": [], "NEG-4c": [],
     # A correct answer here rewrites the frame, so only the new plan's words
     # are required; GARBLE and must_not_contain catch the broken merges.
     "VERB-1": ["email", "the", "draft", "Priya", "her", "no", "wait", "just", "instead"],
