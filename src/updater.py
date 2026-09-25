@@ -25,6 +25,11 @@ from pathlib import Path
 
 import requests
 
+try:
+    from data_paths import data_dir as _data_dir
+except ImportError:  # imported as src.updater
+    from src.data_paths import data_dir as _data_dir
+
 # No-progress stall threshold: the download worker fails out if no bytes
 # arrive for this many seconds. Without this the request can wedge silently
 # and the UI sits at 0% forever (the symptom users actually report).
@@ -60,7 +65,7 @@ def _log(msg: str) -> None:
     """Append to ~/.waffler-hosted/app.log. Mirrors app._log_to_file but local
     to avoid an import cycle. Silent on any failure."""
     try:
-        log_path = Path.home() / ".waffler-hosted" / "app.log"
+        log_path = _data_dir() / "app.log"
         log_path.parent.mkdir(parents=True, exist_ok=True)
         ts = datetime.now().strftime("%H:%M:%S")
         with open(log_path, "a", encoding="utf-8") as f:
@@ -331,7 +336,7 @@ PENDING_RESULT_NAME = "pending_update_result.txt"
 
 
 def _pending_dir(base_dir=None) -> Path:
-    return Path(base_dir) if base_dir is not None else (Path.home() / ".waffler-hosted")
+    return Path(base_dir) if base_dir is not None else _data_dir()
 
 
 def record_pending_update(expected_version: str, base_dir=None) -> None:

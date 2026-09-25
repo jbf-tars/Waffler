@@ -286,6 +286,20 @@ OpenAI's prepaid billing correctly.
   storing the real duration, `scripts/recost_usage.py` prices a short clip
   the same way, and `get_usage_stats` counts Cerebras calls, with and
   without the stored flag, as estimates, which the panel renders.
+- **The tests no longer write into the real data folder.** Modules built
+  `~/.waffler-hosted` themselves, at import time, so every test run appended
+  fake events to the real `app.log`: of 346 "SUSPICIOUS" transcript retries
+  in the maintainer's log, 322 came from tests, which made the real retry
+  rate (3.2%) look like 56%. Every module now asks one function,
+  `src/data_paths.py`, which honours a `WAFFLER_DATA_DIR` variable, and
+  `tests/conftest.py` points it at a temporary folder before collection and
+  at a fresh one for each test. The installed app never sets the variable,
+  so nothing changes for users. A bare `python -m pytest` from the repo root
+  also collected the live harnesses in `scripts/`, which load real keys and
+  can call providers when imported; `pytest.ini` now limits it to `tests/`,
+  as CI already did. `tests/test_data_dir_isolation.py` (11 checks) fails if
+  any module builds the folder itself again. A full run with the home folder
+  pointed at an empty folder leaves it empty.
 - Suite: 475 passed, 1 skipped.
 
 ## [3.14.99] - 2026-09-22

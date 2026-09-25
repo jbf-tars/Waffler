@@ -6,12 +6,17 @@ from pathlib import Path
 from typing import Any, Dict
 from dotenv import load_dotenv
 
+try:
+    from data_paths import data_dir as _data_dir
+except ImportError:  # imported as src.config
+    from src.data_paths import data_dir as _data_dir
+
 # Load .env files — user data dir first, then project root as fallback
 
 # utf-8-sig, not python-dotenv's default utf-8: a .env saved by an editor that
 # adds a byte-order mark would otherwise hide its first key (dotenv reads it as
 # "\ufeffGROQ_API_KEY") and the app would ask for a key it already has.
-_user_env = Path.home() / ".waffler-hosted" / ".env"
+_user_env = _data_dir() / ".env"
 if _user_env.exists():
     load_dotenv(str(_user_env), override=True, encoding="utf-8-sig")
 load_dotenv(override=True, encoding="utf-8-sig")  # Also check project root .env as fallback
@@ -61,7 +66,7 @@ class Config:
 
     def reload_env(self):
         """Re-read .env and refresh keys. Called after wizard sets a key."""
-        user_env = Path.home() / ".waffler-hosted" / ".env"
+        user_env = _data_dir() / ".env"
         if user_env.exists():
             load_dotenv(str(user_env), override=True, encoding="utf-8-sig")
         load_dotenv(override=True, encoding="utf-8-sig")
@@ -73,7 +78,7 @@ class Config:
         so callers can fall through to the env-var / default path."""
         try:
             import json
-            settings_path = Path.home() / ".waffler-hosted" / "settings.json"
+            settings_path = _data_dir() / "settings.json"
             if not settings_path.exists():
                 return None
             data = json.loads(settings_path.read_text(encoding="utf-8-sig"))

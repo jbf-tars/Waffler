@@ -19,6 +19,11 @@ from pathlib import Path
 import time
 import re
 
+try:
+    from data_paths import data_dir as _data_dir
+except ImportError:  # imported as src.style_openai
+    from src.data_paths import data_dir as _data_dir
+
 # ── Try to load Groq SDK ────────────────────────────────────────────────────
 _groq_mod = None
 try:
@@ -564,7 +569,7 @@ Transcript: {transcript}"""
         err_detail = traceback.format_exc()
         print(f"{provider_name} styling failed ({exc}), trying next provider")
         try:
-            log_file = Path.home() / ".waffler-hosted" / "app.log"
+            log_file = _data_dir() / "app.log"
             with open(log_file, "a", encoding="utf-8") as f:
                 ts = datetime.now().strftime("%H:%M:%S")
                 f.write(f"{ts}  [styling] {provider_name} FAILED: {exc}\n")
@@ -852,7 +857,7 @@ Transcript: {transcript}"""
             # is visible in the app log.
             try:
                 from datetime import datetime as _dt
-                log_path = Path.home() / ".waffler-hosted" / "app.log"
+                log_path = _data_dir() / "app.log"
                 with open(log_path, "a", encoding="utf-8") as _fp:
                     _fp.write(f"{_dt.now().strftime('%H:%M:%S')}  [styling] OpenAI model used: {chosen_model} ({len(transcript.split())} input words)\n")
             except Exception:

@@ -4,8 +4,12 @@ Lists available microphones and persists the selected device.
 """
 
 import json
-from pathlib import Path
 from typing import List, Dict, Optional
+
+try:
+    from data_paths import data_dir as _data_dir
+except ImportError:  # imported as src.audio_devices
+    from src.data_paths import data_dir as _data_dir
 
 try:
     import sounddevice as sd
@@ -13,7 +17,7 @@ try:
 except ImportError:
     _HAS_SD = False
 
-CONFIG_FILE = Path.home() / ".waffler-hosted" / "config.json"
+CONFIG_FILE = _data_dir() / "config.json"
 
 
 def list_input_devices() -> List[Dict]:

@@ -48,7 +48,11 @@ from __future__ import annotations
 import sys
 import threading
 import time
-from pathlib import Path
+
+try:
+    from data_paths import data_dir as _data_dir
+except ImportError:  # imported as src.single_instance
+    from src.data_paths import data_dir as _data_dir
 
 
 # Module-level handle so the lock outlives ``acquire()``'s scope.
@@ -62,7 +66,7 @@ _HOLDER = None
 # and costs nothing measurable on a modern CPU. A file is the simplest
 # cross-platform IPC channel — works the same on Windows, macOS, Linux,
 # and survives any signal/named-pipe/socket nuance per OS.
-_FOCUS_SIGNAL_PATH = Path.home() / ".waffler-hosted" / "focus.signal"
+_FOCUS_SIGNAL_PATH = _data_dir() / "focus.signal"
 _FOCUS_POLL_INTERVAL_S = 0.2
 
 
@@ -129,7 +133,7 @@ def _acquire_posix() -> bool:
 
     global _HOLDER
 
-    lock_dir = Path.home() / ".waffler-hosted"
+    lock_dir = _data_dir()
     lock_dir.mkdir(parents=True, exist_ok=True)
     lock_path = lock_dir / "single-instance.lock"
 

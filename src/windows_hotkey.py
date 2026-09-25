@@ -21,6 +21,11 @@ import threading
 from pathlib import Path
 from enum import Enum
 
+try:
+    from data_paths import data_dir as _data_dir
+except ImportError:  # imported as src.windows_hotkey
+    from src.data_paths import data_dir as _data_dir
+
 # ── Win32 constants ───────────────────────────────────────────────────
 WH_KEYBOARD_LL = 13
 WM_KEYDOWN     = 0x0100
@@ -117,15 +122,17 @@ def hotkey_display(keys):
 
 
 # ── Debug log ─────────────────────────────────────────────────────────
-_LOG_FILE = Path.home() / ".waffler-hosted" / "hotkey.log"
+def _log_file() -> Path:
+    return _data_dir() / "hotkey.log"
 
 
 def _log(msg: str):
     ts = time.strftime("%H:%M:%S")
     line = f"{ts}  {msg}"
     try:
-        _LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
-        with open(_LOG_FILE, "a", encoding="utf-8") as f:
+        log_file = _log_file()
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(log_file, "a", encoding="utf-8") as f:
             f.write(line + "\n")
     except Exception:
         pass

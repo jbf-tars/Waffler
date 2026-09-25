@@ -19,7 +19,10 @@ from datetime import datetime, date
 
 # Enable faulthandler to catch segfaults and write tracebacks to a file
 try:
-    _crash_log = open(Path.home() / ".waffler-hosted" / "crash.log", "a",
+    # Same folder as src/data_paths.data_dir(), which cannot be imported yet
+    # because src/ is not on sys.path at this point.
+    _crash_log = open(Path(os.environ.get("WAFFLER_DATA_DIR", "").strip()
+                           or Path.home() / ".waffler-hosted") / "crash.log", "a",
                       encoding="utf-8")
     faulthandler.enable(file=_crash_log)
 
@@ -101,8 +104,10 @@ if '--overlay' in sys.argv:
 
 # ── Data Directory ────────────────────────────────────────────────────
 def get_data_directory():
-    """Get the data directory for Waffler (~/.waffler-hosted/)."""
-    data_dir = Path.home() / ".waffler-hosted"
+    """Get the data directory for Waffler (~/.waffler-hosted/, or
+    $WAFFLER_DATA_DIR when set; see src/data_paths.py)."""
+    from data_paths import data_dir as _resolve_data_dir
+    data_dir = _resolve_data_dir()
     data_dir.mkdir(parents=True, exist_ok=True)
     return data_dir
 
@@ -1394,7 +1399,7 @@ class Api:
         """Clear all Waffler data and quit the app."""
         try:
             import shutil
-            data_dir = Path.home() / ".waffler-hosted"
+            data_dir = DATA_DIR
             if data_dir.exists():
                 shutil.rmtree(data_dir)
                 _log_to_file("[factory reset] Data directory cleared via UI")
@@ -4078,7 +4083,7 @@ def _perform_factory_reset():
 
         if response == 1:  # User clicked "Reset Everything"
             # Clear data directory
-            data_dir = Path.home() / ".waffler-hosted"
+            data_dir = DATA_DIR
             if data_dir.exists():
                 import shutil
                 shutil.rmtree(data_dir)

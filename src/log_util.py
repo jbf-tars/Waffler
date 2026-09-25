@@ -17,8 +17,15 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
+try:
+    from data_paths import data_file
+except ImportError:  # imported as src.log_util
+    from src.data_paths import data_file
 
-_LOG_PATH = Path.home() / ".waffler-hosted" / "app.log"
+
+def _log_path() -> Path:
+    """app.log in the data folder, resolved per call (see data_paths)."""
+    return data_file("app.log")
 
 
 def log(msg: str) -> None:
@@ -29,9 +36,10 @@ def log(msg: str) -> None:
     developer running from source sees the line live.
     """
     try:
-        _LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        log_path = _log_path()
+        log_path.parent.mkdir(parents=True, exist_ok=True)
         ts = datetime.now().strftime("%H:%M:%S")
-        with open(_LOG_PATH, "a", encoding="utf-8") as f:
+        with open(log_path, "a", encoding="utf-8") as f:
             f.write(f"{ts}  {msg}\n")
     except Exception:
         pass

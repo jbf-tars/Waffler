@@ -13,7 +13,6 @@ import time
 import tempfile
 import platform
 import re
-from pathlib import Path
 
 from openai import OpenAI
 
@@ -66,8 +65,13 @@ if _USE_LOCAL:
             print("   Run: pip install faster-whisper")
 
 
-VOCAB_FILE    = Path.home() / ".waffler-hosted" / "vocab.json"
-SETTINGS_FILE = Path.home() / ".waffler-hosted" / "settings.json"
+try:
+    from data_paths import data_dir as _data_dir
+except ImportError:  # imported as src.transcribe_whisper
+    from src.data_paths import data_dir as _data_dir
+
+VOCAB_FILE    = _data_dir() / "vocab.json"
+SETTINGS_FILE = _data_dir() / "settings.json"
 
 
 def load_vocab() -> list[str]:

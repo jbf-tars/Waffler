@@ -13,6 +13,11 @@ import time
 import threading
 import platform
 
+try:
+    from data_paths import data_dir as _data_dir
+except ImportError:  # imported as src.overlay
+    from src.data_paths import data_dir as _data_dir
+
 _PLATFORM = platform.system()  # "Darwin", "Windows", "Linux"
 
 
@@ -40,10 +45,9 @@ class RecordingOverlay:
 
     def _log(self, msg: str):
         """Centralized logging to app.log with timestamp."""
-        from pathlib import Path
         from datetime import datetime
         try:
-            log_file = Path.home() / ".waffler-hosted" / "app.log"
+            log_file = _data_dir() / "app.log"
             with open(log_file, "a", encoding="utf-8") as f:
                 ts = datetime.now().strftime("%H:%M:%S")
                 f.write(f"{ts}  {msg}\n")
