@@ -677,7 +677,7 @@
 
     <!-- ─────────────── STEP 3: API Keys (tabbed) ─────────────── -->
     <div class="wiz-step-content" id="wizContent3" style="display:none">
-      <p class="wiz-section-intro"><strong>One Groq key is all you need.</strong> It does both jobs: turning your speech into text, and tidying it up. The free tier covers most people without ever paying.</p>
+      <p class="wiz-section-intro"><strong>One Groq key is all you need.</strong> It does both jobs: turning your speech into text, and tidying it up. Groq's free plan covers roughly 30 cleaned dictations a day at no cost.</p>
       <!-- v3.14.28 — explicit reliability nudge. Most users grab just
            Groq's free key, then get a "rate limit" toast on a heavy day
            with no backup. Calling out the fallback story up-front saves
@@ -698,7 +698,7 @@
         <button class="wiz-prov-tab wiz-prov-tab-active" data-provider="groq" role="tab">
           <span class="wiz-prov-badge wiz-prov-badge-rec">Free · recommended</span>
           <span class="wiz-prov-name">Groq</span>
-          <span class="wiz-prov-meta">100k tokens/day free</span>
+          <span class="wiz-prov-meta">About 30 cleanups a day free</span>
         </button>
         <button class="wiz-prov-tab" data-provider="openai" role="tab">
           <span class="wiz-prov-badge">Optional</span>
@@ -972,7 +972,7 @@
               </svg>
             </div>
             <h4>Sign in</h4>
-            <p>Continue with Google or email. Credit card needed.</p>
+            <p>Continue with Google or email. The API is prepaid: you buy credit first (minimum $5).</p>
           </div>
 
           <div class="wiz-story-connector">
@@ -1039,11 +1039,11 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/></svg>
           </span>
         </div>
-        <p class="wiz-prov-help">Get a key: <a href="#" onclick="pywebview.api.open_url('https://platform.openai.com/api-keys'); return false;">platform.openai.com/api-keys →</a> · Pay-as-you-go.</p>
+        <p class="wiz-prov-help">Get a key: <a href="#" onclick="pywebview.api.open_url('https://platform.openai.com/api-keys'); return false;">platform.openai.com/api-keys →</a> · Prepaid: you buy credit first (minimum $5). Unused credit expires after a year.</p>
         <div class="wiz-prov-status" id="wizApiValidation3"></div>
       </div>
 
-      <p class="wiz-prov-foot">A typical dictation costs about a sixth of a cent, and nothing at all until you pass the free tier. You can add a backup provider later from Settings.</p>
+      <p class="wiz-prov-foot">On Groq's free plan dictations cost nothing, within its daily and per-minute limits. On Groq's paid plan a typical dictation costs about a sixth of a cent. You can add a backup provider later from Settings.</p>
     </div>
 
     <!-- ─────────────── STEP 4: Try It ─────────────── -->

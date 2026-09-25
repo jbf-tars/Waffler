@@ -17,7 +17,8 @@ Thursday") now comes out corrected instead of pasted word for word.
 On Windows the clean-up model was being sent a garbled copy of its
 instructions; it now gets the same text as on a Mac. The Usage panel now
 counts Groq's 10-second minimum per transcription and marks Cerebras costs
-as estimates.
+as estimates. And the setup wizard now describes Groq's free plan and
+OpenAI's prepaid billing correctly.
 
 ### Fixed
 - **Every launch sent the user's IP address to Google, for fonts that never
@@ -161,6 +162,19 @@ as estimates.
   load, the "Waffler" wordmark is Inter and the Journal text, date dividers
   and timestamps are Source Serif 4. This is a visible change from the
   system and Georgia fallbacks people have been seeing.
+- **The setup wizard now says what Groq's free plan and OpenAI's billing
+  really are.** The Groq tab said "100k tokens/day free" and the intro said
+  the free tier "covers most people without ever paying". Groq's free plan
+  allows 200,000 tokens a day and 8,000 a minute for openai/gpt-oss-120b
+  (console.groq.com/docs/rate-limits), and a clean-up uses about 5,800
+  tokens: about 30 clean-ups a day, and roughly one a minute. The wizard now
+  says "about 30". The OpenAI steps said "Credit card needed" and
+  "Pay-as-you-go", but OpenAI's API is prepaid: you buy credit first, at
+  least $5, and unused credit expires after a year. The cost line now says
+  dictations cost nothing within Groq's daily and per-minute limits, and
+  gives about a sixth of a cent as Groq's paid-plan figure (on OpenAI a
+  typical dictation is nearer 0.4 cents). The "No styling provider" notice,
+  which also said "100k tokens/day", now matches.
 
 ### Verified
 - With every non-local request blocked, the UI renders with zero network

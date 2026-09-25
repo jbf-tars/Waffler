@@ -3343,7 +3343,7 @@ class WafflerPipeline:
                     heading = "No styling provider"
                     body = (
                         "Pasted raw text — no API key is set up yet. "
-                        "Add a Groq key (free, 100k tokens/day) in Settings → API Keys to enable styling."
+                        "Add a free Groq key (about 30 cleanups a day) in Settings → API Keys to enable styling."
                     )
 
                 else:
