@@ -86,7 +86,10 @@ OpenAI's prepaid billing correctly.
   nearly all of those involve word fragments nobody says on their own
   ("ver cell", "supp base"). Real phrases still joined include "power paint"
   (PowerPoint), "soup base" (Supabase), "fast time" (FaceTime) and "air Dan"
-  (Aidan). `tests/test_vocab_bigram_join.py` (85 checks) runs every phrase
+  (Aidan). With the 6,000 most common words it is 5,795 before and 773
+  after; most of the rest pair a common word with one outside the list
+  ("Meg hand" for Meghan, "clue card" for Clubcard), which is where "Nash
+  can" sits too. `tests/test_vocab_bigram_join.py` (85 checks) runs every phrase
   above both ways: 22 ordinary phrases are left alone (the old rule rewrote
   all 22) and the split names "Nash can", "Nash-can", "club card", "post
   grass", "post-grass" and "Ash can" are still joined.
