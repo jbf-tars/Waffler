@@ -32,7 +32,73 @@
       ? STATUS_VIEWS[status] : STATUS_VIEWS.idle;
   }
 
+  // ── Hotkeys ───────────────────────────────────────────────────────────
+  // Names and order match src/hotkey_rules.py, so a hotkey reads the same
+  // on every screen and on the website: Windows modifiers always come as
+  // Win, Ctrl, Alt, Shift ("Win + Ctrl"); a Mac uses words ("Command").
+  const WIN_MODIFIER_ORDER = ['win', 'ctrl', 'alt', 'shift'];
+  const WIN_NAMES = {
+    win: 'Win', ctrl: 'Ctrl', control: 'Ctrl', alt: 'Alt', option: 'Alt',
+    shift: 'Shift', cmd: 'Win', command: 'Win', meta: 'Win', space: 'Space', fn: 'Fn',
+  };
+  const MAC_NAMES = {
+    fn: 'Fn', cmd: 'Command', command: 'Command', shift: 'Shift', option: 'Option',
+    alt: 'Option', ctrl: 'Control', control: 'Control', space: 'Space', win: 'Command',
+  };
+  const DEFAULT_KEYS = { mac: ['fn'], win: ['win', 'ctrl'] };
+
+  function defaultHotkey(isMac) {
+    return (isMac ? DEFAULT_KEYS.mac : DEFAULT_KEYS.win).slice();
+  }
+
+  function _clean(keys) {
+    return (Array.isArray(keys) ? keys : [])
+      .map((k) => String(k || '').trim().toLowerCase())
+      .filter(Boolean);
+  }
+
+  function keyName(key, isMac) {
+    const k = String(key || '').toLowerCase();
+    const names = isMac ? MAC_NAMES : WIN_NAMES;
+    if (names[k]) return names[k];
+    if (k.length === 1 || /^f\d+$/.test(k)) return k.toUpperCase();
+    return k.charAt(0).toUpperCase() + k.slice(1);
+  }
+
+  function orderKeys(keys, isMac) {
+    const list = _clean(keys);
+    if (isMac) return list;
+    const mods = WIN_MODIFIER_ORDER.filter((m) => list.includes(m));
+    return mods.concat(list.filter((k) => !WIN_MODIFIER_ORDER.includes(k)));
+  }
+
+  // "Win + Ctrl", "Command + Shift", "Fn". Empty keys mean the default.
+  function hotkeyName(keys, isMac) {
+    const list = orderKeys(keys, isMac);
+    return (list.length ? list : defaultHotkey(isMac)).map((k) => keyName(k, isMac)).join(' + ');
+  }
+
+  // What each keycap shows: a Mac's fn key is printed "fn" with a globe,
+  // the Windows key has the Windows logo; everything else is its name.
+  function keycaps(keys, isMac) {
+    const list = orderKeys(keys, isMac);
+    return (list.length ? list : defaultHotkey(isMac)).map((k) => ({
+      key: k,
+      label: isMac && k === 'fn' ? 'fn' : keyName(k, isMac),
+      icon: isMac && k === 'fn' ? 'globe' : (!isMac && k === 'win' ? 'windows' : null),
+    }));
+  }
+
+  // The name is always "Win + Ctrl"; pressing Ctrl first is a separate tip,
+  // so Windows never sees the Win key held on its own.
+  function pressOrderHint(keys, isMac) {
+    const list = _clean(keys);
+    return !isMac && list.includes('win') && list.includes('ctrl')
+      ? 'Tip: press Ctrl first, then Win.' : '';
+  }
+
   return {
     STATUS_VIEWS, STATUS_CLASSES, DONE_RESET_MS, statusView,
+    defaultHotkey, keyName, orderKeys, hotkeyName, keycaps, pressOrderHint,
   };
 });

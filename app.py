@@ -1788,7 +1788,9 @@ class Api:
             openai_key = os.getenv("OPENAI_API_KEY", "")
             groq_key = os.getenv("GROQ_API_KEY", "")
             if not openai_key and not groq_key:
-                return {"ok": False, "error": "No API key found. Complete Step 1 first."}
+                # Keys are the step before this one (step 2 of 3 on Windows,
+                # 3 of 4 on a Mac); this used to say "Complete Step 1".
+                return {"ok": False, "error": "No API key found. Go back a step and add your key."}
 
             _wizard_transcriber = WhisperTranscriber(
                 api_key=openai_key, groq_api_key=groq_key,
@@ -1821,7 +1823,8 @@ class Api:
             return {"ok": True, "message": f"Press {display} to start recording"}
         except Exception as e:
             _log_to_file(f"Wizard hotkey test error: {e}")
-            return {"ok": False, "error": str(e)}
+            return {"ok": False, "error": "Couldn't start the test recording. Try again, or skip "
+                                          "for now and try it from the Journal."}
 
     def wizard_stop_hotkey_test(self) -> dict:
         """Stop the temporary wizard hotkey listener and clean up.

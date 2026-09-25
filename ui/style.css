@@ -624,7 +624,9 @@ html, body {
   font-size: 13px;
   color: var(--text-primary);
   box-shadow: 0 8px 24px rgba(0,0,0,0.4);
-  z-index: 200;
+  /* Above the setup wizard (9999) and the dialogs (10001): at 200 every
+     message shown during setup was hidden behind the wizard. */
+  z-index: 10002;
   opacity: 0;
   transform: translateY(6px);
   transition: all 0.2s;
@@ -635,6 +637,9 @@ html, body {
 .toast.visible {
   opacity: 1;
   transform: translateY(0);
+  /* A shown toast takes the pointer, so hovering keeps it and a click
+     dismisses it, as app.js intends; hidden, it lets clicks through. */
+  pointer-events: auto;
 }
 
 .toast.success { border-color: var(--green); }
@@ -2743,7 +2748,8 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 9999;
+  /* Above the setup wizard (9999), which can open the hotkey dialog. */
+  z-index: 10001;
 }
 .hotkey-modal {
   background: var(--bg-card);
@@ -3334,6 +3340,14 @@ html, body {
   50%      { transform: translateY(-4px); box-shadow: 0 8px 0 0 rgba(0,0,0,0.18), 0 10px 20px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.08); }
 }
 .wiz-keycap-large svg { width: 26px; height: 26px; color: #FFFCF2; }
+/* Small label under a keycap icon (the Win key's "Win"). It had no colour
+   of its own and inherited near-black, invisible on the black key. */
+.wiz-keycap-label {
+  font-family: -apple-system, "SF Pro Text", sans-serif;
+  font-weight: 700;
+  color: #FFFCF2;
+  line-height: 1;
+}
 .wiz-keycap-label-large {
   font-family: -apple-system, "SF Pro Text", sans-serif;
   font-size: 22px;
@@ -4073,6 +4087,30 @@ html, body {
   color: #fff;
   box-shadow: 0 4px 12px rgba(16, 185, 129, 0.25);
 }
+/* A disabled Finish looked like the brightest button on the page. */
+.wiz-btn-next.finish:disabled {
+  background: #E8E4DC;
+  color: #A09890;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+/* Quiet way out of the last step, beside Finish. */
+.wiz-btn-skip {
+  background: none;
+  border: none;
+  padding: 11px 6px;
+  color: #6B6560;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.wiz-btn-skip:hover:not(:disabled) { color: #1A1612; }
+.wiz-btn-skip:disabled { opacity: 0.5; cursor: default; }
+.wiz-btn-skip:not([hidden]) { margin-left: auto; }
+.wiz-btn-skip:not([hidden]) + .wiz-btn-next { margin-left: 14px; }
 
 .wiz-validation { min-height: 18px; font-size: 13px; }
 .wiz-validation.success { color: #15803d; }
@@ -4319,6 +4357,10 @@ body[data-theme="dark"] {
 .wizard-overlay .wizard-container.wide {
   max-width: min(1500px, calc(100vw - 64px)) !important;
 }
+/* Stacked (narrow window): a gap between the two permission cards. It was
+   an inline style, which the side-by-side rule below could not undo, so
+   the second card sat 14 px lower than the first. */
+#wizPermInputMon { margin-top: 14px; }
 /* Side-by-side permission cards on wide screens — gated on the
    data-wiz-step body attribute so this CANNOT leak onto Windows. */
 @media (min-width: 980px) {
@@ -4334,8 +4376,7 @@ body[data-theme="dark"] {
 }
 
 /* Smooth fade + slide on every step swap — SaaS feel, no hard cuts. */
-.wiz-step-content[style*="block"],
-.wiz-step-content:not([style]) {
+.wiz-step-content:not([style*="none"]) {
   animation: wiz-step-in 0.35s cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 @keyframes wiz-step-in {
@@ -4712,12 +4753,9 @@ body[data-theme="dark"] {
 .wiz-keycap-large.pressed .wiz-keycap-label {
   color: #1A1612;
 }
-.wiz-keycap-large.pressed svg path,
-.wiz-keycap-large.pressed svg circle,
-.wiz-keycap-large.pressed svg ellipse,
-.wiz-keycap-large.pressed svg line {
-  stroke: #1A1612;
-  fill: #1A1612;
+/* The icons draw in currentColor, so they turn dark with the label. */
+.wiz-keycap-large.pressed svg {
+  color: #1A1612;
 }
 
 /* ── Wizard reliability tip (v3.14.28) ── */

@@ -532,7 +532,7 @@
         </p>
       </div>
 
-      <div class="wiz-perm-card" id="wizPermInputMon" style="margin-top:14px">
+      <div class="wiz-perm-card" id="wizPermInputMon">
         <div class="wiz-perm-head">
           <div class="wiz-perm-icon wiz-perm-icon-apple">
             <!-- Apple Input Monitoring icon: dark slab, keyboard glyph -->
@@ -635,7 +635,7 @@
       <div class="wiz-hotkey-stage">
         <div class="wiz-keycap-combo" id="wizHotkeyDisplay">
           <!-- Populated by JS based on platform -->
-          <div class="wiz-keycap-large" id="wizHotkeyBadge">
+          <div class="wiz-keycap-large">
             <span class="wiz-keycap-label-large">fn</span>
           </div>
         </div>
@@ -1128,6 +1128,7 @@
     <!-- Navigation -->
     <nav class="wiz-nav">
       <button class="wiz-btn-back" id="wizBtnBack" onclick="wizBack()" style="display:none">Back</button>
+      <button class="wiz-btn-skip" id="wizBtnSkip" onclick="wizSkipTryIt()" hidden>Skip for now</button>
       <button class="wiz-btn-next" id="wizBtnNext" onclick="wizNext()" disabled>Next</button>
     </nav>
 

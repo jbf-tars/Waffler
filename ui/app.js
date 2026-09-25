@@ -1922,11 +1922,15 @@ function wizShowStep(step) {
   // where step-1 content leaked onto Windows.
   document.body.setAttribute('data-wiz-step', String(step));
 
-  // Show/hide wizard step content (always loop to 4 — the actual number of content divs)
+  // Show/hide wizard step content (always loop to 4 — the actual number of content divs).
+  // The shown step gets no inline display at all, so its stylesheet layout
+  // applies: an inline "block" overrode the Mac permissions grid, stacking
+  // the two cards into a page about two screens tall.
   for (let i = 1; i <= 4; i++) {
     const con = document.getElementById('wizContent' + i);
     if (!con) continue;
-    con.style.display = (i === step) ? 'block' : 'none';
+    if (i === step) con.style.removeProperty('display');
+    else con.style.display = 'none';
   }
 
   // Toggle wide container for step 4 (mock app split layout)
@@ -1952,10 +1956,23 @@ function wizShowStep(step) {
   } else {
     wizStopPermissionPoll();
   }
-  if (step === 2) { wizUpdateHotkeyBadge(); wizLoadHotkeyInfo(); initFnKeyFeedback(); }
+  if (step === 2) { wizResetHotkeyPill(); wizRenderHotkey(); wizLoadHotkeyInfo(); initFnKeyFeedback(); }
   if (step === 3) { wizInitApiKeyStep(); wizInitProviderTabs(); }
-  if (step === 4) { wizInitTryItStep(); wizUpdateTryItKeycap(); initFnKeyFeedback(); wizStartExplainerWaffle(); }
+  if (step === 4) { wizRenderHotkey(); wizInitTryItStep(); initFnKeyFeedback(); wizStartExplainerWaffle(); }
   else wizStopExplainerWaffle();
+}
+
+// The Hotkey step's pill says "Listening" whenever the step is shown. After
+// an auto-advance, Back used to bring up a stale "Hotkey detected,
+// advancing" that never advanced.
+function wizResetHotkeyPill() {
+  window._fnKeyDetected = false;
+  const status = document.getElementById('wizHotkeyStatus');
+  if (!status) return;
+  status.classList.remove('detected', 'error');
+  status.style.color = '';
+  const label = status.querySelector('.wiz-listening-label');
+  if (label) label.textContent = 'Listening for hotkey press…';
 }
 
 function wizUpdateNextButton() {
@@ -1975,8 +1992,15 @@ function wizUpdateNextButton() {
       break;
     case 2: btn.disabled = false; break;  // Hotkeys - always allow
     case 3: btn.disabled = !(_wizardCerebrasKeyValidated || _wizardGroqKeyValidated || _wizardApiKeyValidated); break;
-    case 4: btn.disabled = !_wizardMicTested; break;  // Try It - require mic test
+    case 4:  // Try It - finish after one dictation, or skip
+      btn.disabled = !_wizardMicTested;
+      btn.title = btn.disabled ? 'Dictate once to finish, or skip for now.' : '';
+      break;
   }
+  // "Skip for now" is there on the last step until a dictation works, so a
+  // microphone problem never strands anyone on it.
+  const skip = document.getElementById('wizBtnSkip');
+  if (skip) skip.hidden = !(_wizardStep === 4 && !_wizardMicTested);
 }
 
 async function wizNext() {
@@ -2451,19 +2475,10 @@ async function wizLoadHotkeyInfo() {
   try {
     // Start hotkey monitor for Step 2 (provides visual feedback)
     await pywebview.api.wizard_init_step2();
-
-    const info = await pywebview.api.test_hotkey();
-    const badge = document.getElementById('wizHotkeyBadge');
-    if (badge) badge.textContent = info.hotkey;
-    const modeEl = document.getElementById('wizHotkeyMode');
-    if (modeEl) modeEl.textContent = info.mode === 'toggle'
-      ? 'Toggle mode: press once to start, press again to stop'
-      : 'Hold mode: hold key to record, release to stop';
-    const descEl = document.getElementById('wizHotkeyDesc');
-    if (descEl) descEl.textContent = info.description;
   } catch(e) {
     console.warn('wizLoadHotkeyInfo error:', e);
   }
+  await wizRefreshHotkey();
 }
 
 // ── Hotkey Visual Feedback (works for any configured hotkey) ──────────────────────────────────
@@ -2586,9 +2601,9 @@ function setFnKeyActive(isActive) {
       if (label) label.textContent = '✓ Hotkey detected — advancing…';
     }
 
-    // Auto-advance after 1 second
+    // Auto-advance after 1 second, unless the user has moved on already.
     setTimeout(() => {
-      wizNext();
+      if (_wizardStep === 2 && window._fnKeyDetected) wizNext();
     }, 1000);
   }
 
@@ -2655,14 +2670,8 @@ let _wizardHotkeyTestActive = false;
 async function wizInitTryItStep() {
   if (_wizardMicDeviceIndex === null) _wizardMicDeviceIndex = 0;
 
-  // Update hotkey badge text
-  try {
-    const info = await pywebview.api.test_hotkey();
-    const badge = document.getElementById('wizTryHotkeyBadge');
-    if (badge) badge.textContent = info.hotkey;
-    const ph = document.getElementById('wizMockPlaceholder');
-    if (ph) ph.innerHTML = 'Press <kbd>' + escHtml(info.hotkey) + '</kbd> and speak...';
-  } catch(e) {}
+  // Keycaps and the mock box's hotkey come from the saved keys.
+  wizRefreshHotkey();
 
   // v3.14.25 — Mock send button now actually moves the dictated text
   // into the chat thread as a sent user-reply bubble. Previously it just
@@ -2936,65 +2945,54 @@ function wizInitProviderTabs() {
   });
 }
 
-// Update the hotkey badge text in the Try-It step (Step 4) and the mock app
-// placeholder, based on platform.
-function wizUpdateTryItKeycap() {
-  const combo = document.getElementById('wizTryHotkeyBadge');
-  const kbd = document.getElementById('wizMockKbd');
-  if (!combo) return;
-  if (isMacPlatform) {
-    combo.innerHTML = '<span class="wiz-keycap-mini">fn</span>';
-    if (kbd) kbd.textContent = 'fn';
-  } else {
-    // Ctrl first, then Win — user preference.
-    combo.innerHTML = '<span class="wiz-keycap-mini">Ctrl</span><span class="wiz-keycap-plus-mini">+</span><span class="wiz-keycap-mini">Win</span>';
-    if (kbd) kbd.textContent = 'Ctrl+Win';
-  }
-}
+// ── Wizard keycaps, drawn from the saved hotkey ──────────────────────────
+// Every keycap, tile and hint on the Hotkey and Try-it steps is drawn from
+// the keys actually saved, so choosing another hotkey redraws them all.
+// Text only ever goes into the label spans. Setting textContent on a keycap
+// itself (as the Hotkey and Try-it steps used to, with the display name)
+// wiped its light label and icon and left dark text on a black key; and the
+// icons were drawn in near-black, so the Win and fn keys looked blank.
+const _KEYCAP_ICONS = {
+  windows: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"/></svg>',
+  globe: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><circle cx="8" cy="8" r="6.5" stroke-width="1"/><ellipse cx="8" cy="8" rx="3" ry="6.5" stroke-width="0.8"/><line x1="1.5" y1="5.5" x2="14.5" y2="5.5" stroke-width="0.7"/><line x1="1.5" y1="10.5" x2="14.5" y2="10.5" stroke-width="0.7"/><line x1="8" y1="1.5" x2="8" y2="14.5" stroke-width="0.5"/></svg>',
+};
 
-// Update the big hotkey badge on Step 2 based on platform.
-// On Windows, Ctrl is displayed first then Win (user preference).
-function wizUpdateHotkeyBadge() {
+function wizRenderHotkey(keys) {
+  if (Array.isArray(keys) && keys.length) _currentHotkeyKeys = keys.slice();
+  const caps = WL.keycaps(_currentHotkeyKeys, isMacPlatform);
+  const name = WL.hotkeyName(_currentHotkeyKeys, isMacPlatform);
+
+  // Step 2: the big keycaps.
   const combo = document.getElementById('wizHotkeyDisplay');
-  if (!combo) return;
-  if (isMacPlatform) {
-    combo.innerHTML = '<div class="wiz-keycap-large" id="wizHotkeyBadge"><svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.5" stroke="#1A1A1A" stroke-width="1"/><ellipse cx="8" cy="8" rx="3" ry="6.5" stroke="#1A1A1A" stroke-width="0.8"/><line x1="1.5" y1="5.5" x2="14.5" y2="5.5" stroke="#1A1A1A" stroke-width="0.7"/><line x1="1.5" y1="10.5" x2="14.5" y2="10.5" stroke="#1A1A1A" stroke-width="0.7"/><line x1="8" y1="1.5" x2="8" y2="14.5" stroke="#1A1A1A" stroke-width="0.5"/></svg><span class="wiz-keycap-label-large" style="font-size:14px;margin-top:2px">fn</span></div>';
-  } else {
-    // Ctrl first, then Win — user explicitly asked for this ordering.
-    combo.innerHTML =
-      '<div class="wiz-keycap-large"><span class="wiz-keycap-label-large">Ctrl</span></div>' +
-      '<span class="wiz-keycap-plus">+</span>' +
-      '<div class="wiz-keycap-large" id="wizHotkeyBadgeWin"><svg viewBox="0 0 24 24" fill="#1A1A1A"><path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"/></svg><span class="wiz-keycap-label" style="font-size:11px;margin-top:2px">Win</span></div>';
+  if (combo) {
+    combo.innerHTML = caps.map((c) => {
+      const icon = c.icon ? _KEYCAP_ICONS[c.icon] : '';
+      const label = !icon
+        ? `<span class="wiz-keycap-label-large">${escHtml(c.label)}</span>`
+        : c.icon === 'globe'
+          ? `<span class="wiz-keycap-label-large" style="font-size:14px;margin-top:2px">${escHtml(c.label)}</span>`
+          : `<span class="wiz-keycap-label" style="font-size:11px;margin-top:2px">${escHtml(c.label)}</span>`;
+      return `<div class="wiz-keycap-large">${icon}${label}</div>`;
+    }).join('<span class="wiz-keycap-plus">+</span>');
   }
-  // Render the new branded instruction cards underneath
-  wizRenderHotkeyInstructions();
-}
 
-// Render the three instruction tiles under the listening pill.
-// Vertical layout per tile: keys on top, title underneath. Sticky-mode
-// tile shows Space + the hotkey combo and includes a short description.
-// Release-to-stop has no keycap at all — just the title.
-function wizRenderHotkeyInstructions() {
+  // Step 2: the instruction tiles under the listening pill.
   const host = document.getElementById('wizHotkeyInstructionCards');
-  if (!host) return;
-  const k1 = isMacPlatform ? 'fn' : 'Ctrl';
-  const k2 = isMacPlatform ? null  : 'Win';
-  const comboHtml = k2
-    ? `<span class="wiz-mini-kbd">${k1}</span><span class="wiz-mini-plus">+</span><span class="wiz-mini-kbd">${k2}</span>`
-    : `<span class="wiz-mini-kbd">${k1}</span>`;
-  const stickyKeys = k2
-    ? `<span class="wiz-mini-kbd">Space</span><span class="wiz-mini-plus">+</span><span class="wiz-mini-kbd">${k1}</span><span class="wiz-mini-plus">+</span><span class="wiz-mini-kbd">${k2}</span>`
-    : `<span class="wiz-mini-kbd">Space</span><span class="wiz-mini-plus">+</span><span class="wiz-mini-kbd">${k1}</span>`;
-  host.innerHTML = `
+  if (host) {
+    const plus = '<span class="wiz-mini-plus">+</span>';
+    const comboHtml = caps.map((c) => `<span class="wiz-mini-kbd">${escHtml(c.label)}</span>`).join(plus);
+    const hint = WL.pressOrderHint(_currentHotkeyKeys, isMacPlatform);
+    host.innerHTML = `
     <div class="wiz-hotkey-card">
       <div class="wiz-hotkey-card-keys">${comboHtml}</div>
       <div class="wiz-hotkey-card-title">Hold to record</div>
+      ${hint ? `<div class="wiz-hotkey-card-sub">${escHtml(hint)}</div>` : ''}
     </div>
     <div class="wiz-hotkey-card wiz-hotkey-card-nokey">
       <div class="wiz-hotkey-card-title">Release to stop</div>
     </div>
     <div class="wiz-hotkey-card">
-      <div class="wiz-hotkey-card-keys">${stickyKeys}</div>
+      <div class="wiz-hotkey-card-keys"><span class="wiz-mini-kbd">Space</span>${plus}${comboHtml}</div>
       <div class="wiz-hotkey-card-title">Sticky mode</div>
       <div class="wiz-hotkey-card-sub">Press Space to lock recording on. Press the hotkey again to disable.</div>
     </div>
@@ -3004,6 +3002,29 @@ function wizRenderHotkeyInstructions() {
       <div class="wiz-hotkey-card-sub">Tap Esc to discard a recording without transcribing or pasting.</div>
     </div>
   `;
+  }
+
+  // Step 4: the "Hold this" chips and the mock reply box.
+  const mini = document.getElementById('wizTryHotkeyBadge');
+  if (mini) {
+    mini.innerHTML = caps.map((c) => `<span class="wiz-keycap-mini">${escHtml(c.label)}</span>`)
+      .join('<span class="wiz-keycap-plus-mini">+</span>');
+  }
+  const kbd = document.getElementById('wizMockKbd');
+  if (kbd) kbd.textContent = name;
+}
+
+// Fetch the saved hotkey and redraw from it.
+async function wizRefreshHotkey() {
+  try {
+    const config = await pywebview.api.get_hotkey_config();
+    if (config && config.ok && Array.isArray(config.keys) && config.keys.length) {
+      _currentWizardHotkey = config.keys.slice();
+      wizRenderHotkey(config.keys);
+    }
+  } catch (e) {
+    console.warn('wizRefreshHotkey error:', e);
+  }
 }
 
 // Animate the Step-4 explainer waffle cells the same way the website
@@ -3089,10 +3110,19 @@ function wizStopExplainerWaffle() {
   _wizExplainerWaffleRAF = null;
 }
 
+// Finish without a test dictation (for example when the microphone isn't
+// working yet). Waffler is set up either way; the hotkey works from the
+// Journal as soon as the key is saved.
+async function wizSkipTryIt() {
+  await wizCompleteSetup();
+}
+
 async function wizCompleteSetup() {
   const btn = document.getElementById('wizBtnNext');
+  const skip = document.getElementById('wizBtnSkip');
   btn.disabled = true;
   btn.textContent = 'Setting up...';
+  if (skip) skip.disabled = true;
   try {
     // Clean up
     clearInterval(_wizardPermCheckInterval);
@@ -3105,15 +3135,18 @@ async function wizCompleteSetup() {
       showToast('Waffler is ready!', 'success');
       hideWizard();
     } else {
-      showToast('Setup error: ' + r.error, 'error');
-      btn.disabled = false;
+      console.warn('complete_setup failed:', r.error);
+      showToast("Couldn't finish setup. Try again.", 'error');
       btn.textContent = 'Finish Setup';
+      wizUpdateNextButton();
     }
   } catch(e) {
-    showToast('Setup failed: ' + e, 'error');
-    btn.disabled = false;
+    console.warn('complete_setup failed:', e);
+    showToast("Couldn't finish setup. Try again.", 'error');
     btn.textContent = 'Finish Setup';
+    wizUpdateNextButton();
   }
+  if (skip) skip.disabled = false;
 }
 
 // ── Snippets ──────────────────────────────────────────────────────────────
