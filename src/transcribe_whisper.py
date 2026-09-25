@@ -259,8 +259,14 @@ def apply_vocab_corrections(transcribed: str, vocab: list[str]) -> tuple[str, li
     applied = []
     
     for misheard, correct in corrections:
-        # Replace word boundaries with proper case
-        pattern = r'\b' + re.escape(misheard) + r'\b'
+        # A multi-word mishearing can reach us hyphenated: Whisper wrote
+        # "post-grass" for spoken "Postgres" when tested on real audio.
+        # fuzzy_match_word tokenises on letters, so it finds ("post grass",
+        # "Postgres") either way, but a pattern built from the space-joined
+        # phrase never matched the hyphenated text, so the correction was
+        # found and then silently not applied. Accept either separator.
+        words = misheard.split()
+        pattern = r'\b' + r'[\s\-]+'.join(re.escape(w) for w in words) + r'\b'
         if re.search(pattern, corrected, re.IGNORECASE):
             corrected = re.sub(pattern, correct, corrected, flags=re.IGNORECASE)
             applied.append(f"'{misheard}' → '{correct}'")

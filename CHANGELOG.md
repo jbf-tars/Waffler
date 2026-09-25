@@ -42,6 +42,16 @@ the binaries inside it, instead of 10.13.
   app failed to open rather than macOS saying it needs a newer version.
   `LSMinimumSystemVersion` in `Waffler_mac.spec` is now `14.0.0`, so macOS
   refuses it cleanly with its standard message instead.
+- **Vocabulary corrections silently failed when Whisper hyphenated a
+  mishearing.** Running a real recording of "check the Postgres migration"
+  through Waffler, Whisper wrote "post-grass". The corrector's two-word pass
+  found the match ("post grass" -> Postgres), but the replacement searched for
+  the space-separated phrase, so the correction was found and then never
+  applied; "Nash-can" -> Ashkan failed the same way. Multi-word corrections
+  now accept a space or a hyphen between the words. Four new checks in
+  `tests/test_vocab_false_positives.py`, including one that ordinary
+  hyphenated words ("well-known", "long-term") are left alone. Measured on the
+  real recording: 0 of 5 runs produced "Postgres" before, 5 of 5 after.
 - **The release build now checks this.** `scripts/check_macos_minos.py` reads
   the minimum macOS of every binary in the built `Waffler.app` (including each
   slice of a universal binary) and fails the macOS release if any needs a
@@ -76,7 +86,7 @@ the binaries inside it, instead of 10.13.
   bundled font the CSS references is missing, if the true italic or a
   licence is dropped, or if either spec stops bundling `ui/`. Four of its
   checks fail against the old stylesheet.
-- Suite: 337 passed, 1 skipped.
+- Suite: 341 passed, 1 skipped.
 
 ## [3.14.99] - 2026-09-22
 

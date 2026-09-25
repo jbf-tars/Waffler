@@ -89,3 +89,32 @@ def test_real_vocab_list_leaves_an_ordinary_sentence_untouched():
     corrected, applied = apply_vocab_corrections(text, vocab)
     assert corrected == text, applied
     assert applied == []
+
+
+# ── hyphenated mishearings (found by running real audio through Waffler) ─────
+
+def test_hyphenated_mishearing_of_a_split_word_is_corrected():
+    """Whisper wrote "post-grass" for spoken "Postgres" in a real test clip.
+
+    The bigram pass found the match, but the replacement only looked for the
+    space-separated phrase, so the correction silently never applied.
+    """
+    corrected, applied = apply_vocab_corrections("check the post-grass migration", ["Postgres"])
+    assert corrected == "check the Postgres migration"
+    assert applied
+
+
+def test_hyphenated_name_is_corrected():
+    corrected, _ = apply_vocab_corrections("spoke to Nash-can today", ["Ashkan"])
+    assert corrected == "spoke to Ashkan today"
+
+
+def test_space_separated_mishearing_still_corrected():
+    corrected, _ = apply_vocab_corrections("check the post grass migration", ["Postgres"])
+    assert corrected == "check the Postgres migration"
+
+
+def test_hyphen_handling_does_not_touch_unrelated_hyphenated_words():
+    text = "a well-known long-term plan"
+    corrected, applied = apply_vocab_corrections(text, ["Postgres", "Ashkan"])
+    assert corrected == text and applied == []
