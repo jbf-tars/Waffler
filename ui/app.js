@@ -866,8 +866,15 @@ function renderFeed(newTimestamp) {
       })
     : history;
 
-  if (!filtered.length) {
-    $empty.style.display = 'flex';
+  // First run, a search with no matches, or the list (logic.js feedView).
+  // A search with no matches used to show "Your journal is empty."
+  const view = WL.feedView(history.length, _searchText, filtered.length);
+  $empty.style.display = view.kind === 'empty' ? 'flex' : 'none';
+  const $noMatch = document.getElementById('noMatchState');
+  if ($noMatch) $noMatch.style.display = view.kind === 'no_match' ? 'flex' : 'none';
+  if (view.kind !== 'list') {
+    const label = document.getElementById('noMatchLabel');
+    if (label && view.label) label.textContent = view.label;
     $feed.innerHTML = '';
     $feedCount.textContent = history.length
       ? `0 of ${history.length} (filtered)`
@@ -875,7 +882,6 @@ function renderFeed(newTimestamp) {
     return;
   }
 
-  $empty.style.display = 'none';
   $feedCount.textContent = _searchQuery
     ? `${filtered.length} of ${history.length}`
     : `${filtered.length} ${filtered.length === 1 ? 'entry' : 'entries'}`;
@@ -1645,9 +1651,26 @@ async function clearHistory() {
 
 // ── Search ────────────────────────────────────────────────────────────────
 let _searchQuery = '';
+let _searchText = '';  // as typed, for "No entries match "…""
+
+// The feed is rebuilt once typing pauses (logic.js SEARCH_DEBOUNCE_MS), not
+// on every keystroke: each rebuild took 340 to 713 ms with 3,300 entries.
+const _renderFeedSoon = WL.debounce(() => renderFeed(), WL.SEARCH_DEBOUNCE_MS);
 
 function onSearchInput(q) {
-  _searchQuery = q.trim().toLowerCase();
+  _searchText = String(q || '').trim();
+  _searchQuery = _searchText.toLowerCase();
+  _renderFeedSoon();
+}
+
+// "Clear search" on the no-matches state: empties the box and shows every
+// entry straight away.
+function clearSearch() {
+  const input = document.getElementById('searchInput');
+  if (input) { input.value = ''; input.focus(); }
+  _searchText = '';
+  _searchQuery = '';
+  _renderFeedSoon.cancel();
   renderFeed();
 }
 

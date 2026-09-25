@@ -125,6 +125,15 @@
         <div class="j-empty-sub" id="emptyHint">Press your hotkey and speak — the first entry will appear here.</div>
       </div>
 
+      <!-- A search with no matches. It used to show "Your journal is
+           empty." above, as if the history had gone. -->
+      <div class="j-empty j-no-match" id="noMatchState" style="display:none">
+        <div class="j-empty-icon">🔍</div>
+        <div class="j-empty-label" id="noMatchLabel">No entries match</div>
+        <div class="j-empty-sub">Try other words, or clear the search to see every entry.</div>
+        <button class="settings-btn j-clear-search" onclick="clearSearch()">Clear search</button>
+      </div>
+
       <div id="transcriptFeed"></div>
     </div>
   </main>

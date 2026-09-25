@@ -553,3 +553,65 @@ def test_usage_fills_in_from_the_logic_helper():
     body = body[:body.index("\n}\n") + 3]
     assert "WL.usageView(" in body
     assert "get_stats()" in body
+
+
+# ── Journal search (QW11) ────────────────────────────────────────────────────
+
+@needs_node
+def test_a_search_with_no_matches_says_so_and_keeps_the_journal():
+    assert js("L.feedView(0, '', 0)") == {"kind": "empty"}
+    assert js("L.feedView(0, 'invoice', 0)") == {"kind": "empty"}
+    assert js("L.feedView(60, '', 60)") == {"kind": "list"}
+    assert js("L.feedView(60, 'invoice', 3)") == {"kind": "list"}
+    # It used to show the first-run "Your journal is empty." here.
+    assert js("L.feedView(60, '  quarterly budget ', 0)") == \
+        {"kind": "no_match", "label": 'No entries match "quarterly budget"'}
+    long = js("L.feedView(60, 'x'.repeat(80), 0)")["label"]
+    assert long == 'No entries match "' + "x" * 40 + '…"'
+
+
+@needs_node
+def test_search_waits_for_a_pause_in_typing():
+    assert 100 <= js("L.SEARCH_DEBOUNCE_MS") <= 200
+    # A fake clock: five quick keystrokes make one render, with the last text.
+    setup = """
+      let now = 0, seq = 0; const timers = new Map();
+      const T = { setTimeout: (f, ms) => { const id = ++seq; timers.set(id, [now + ms, f]); return id; },
+                  clearTimeout: (id) => timers.delete(id) };
+      const tick = (ms) => { now += ms; for (const [id, [at, f]] of [...timers]) if (at <= now) { timers.delete(id); f(); } };
+      const seen = [];
+      const run = L.debounce((q) => seen.push(q), 150, T);
+    """
+    assert js("(() => { ['i','in','inv','invo','invoice'].forEach((q) => { run(q); tick(40); }); "
+              "const before = seen.length; tick(150); return [before, seen]; })()", setup) == [0, ["invoice"]]
+    # cancel() drops a pending render (Clear search renders at once instead).
+    assert js("(() => { run('a'); run.cancel(); tick(500); return seen; })()", setup) == []
+
+
+
+@needs_node
+def test_debounce_calls_the_browser_timers_the_way_a_browser_allows():
+    # A browser's setTimeout throws "Illegal invocation" when called as a
+    # method of another object, which Node allows; make Node strict too.
+    setup = """
+      const realSet = setTimeout;
+      globalThis.setTimeout = function (f, d) {
+        if (this !== undefined && this !== globalThis) throw new TypeError('Illegal invocation');
+        return realSet(f, d);
+      };
+    """
+    assert js("new Promise((done) => { const run = L.debounce((q) => done(q), 5); run('a'); run('b'); })",
+              setup) == "b"
+
+def test_search_input_is_debounced_and_clear_search_exists():
+    app = code_only(read("app.js"))
+    body = app[app.index("function onSearchInput"):]
+    body = body[:body.index("\n}\n") + 3]
+    assert "_renderFeedSoon()" in body and "renderFeed()" not in body
+    assert "WL.debounce(() => renderFeed(), WL.SEARCH_DEBOUNCE_MS)" in app
+    assert "WL.feedView(history.length, _searchText, filtered.length)" in app
+    assert "function clearSearch()" in app
+    html = read("index.html")
+    no_match = html[html.index('id="noMatchState"'):]
+    no_match = no_match[:no_match.index("</button>")]
+    assert 'onclick="clearSearch()"' in no_match and ">Clear search" in no_match

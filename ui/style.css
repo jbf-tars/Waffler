@@ -5268,6 +5268,8 @@ body[data-theme="cream"] .j-search-input, body:not([data-theme]) .j-search-input
   text-align: center;
 }
 .j-empty-icon { font-size: 48px; margin-bottom: 12px; opacity: 0.8; }
+.j-no-match .j-empty-icon { font-size: 36px; }
+.j-no-match .j-clear-search { margin-top: 16px; }
 .j-empty-label {
   font-family: var(--serif);
   font-size: 18px; font-weight: 600;

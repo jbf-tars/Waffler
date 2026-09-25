@@ -292,6 +292,36 @@
     };
   }
 
+  // ── Journal search ────────────────────────────────────────────────────
+  // Search waits for a short pause in typing: every keystroke used to
+  // rebuild every card, 340 to 713 ms each at 3,300 entries.
+  const SEARCH_DEBOUNCE_MS = 150;
+
+  function debounce(fn, ms, timers) {
+    // Wrapped: a browser's setTimeout throws "Illegal invocation" when it is
+    // called as a method of another object.
+    const t = timers || { setTimeout: (f, d) => setTimeout(f, d), clearTimeout: (id) => clearTimeout(id) };
+    let id = null;
+    const run = function (...args) {
+      if (id !== null) t.clearTimeout(id);
+      id = t.setTimeout(() => { id = null; fn(...args); }, ms);
+    };
+    run.cancel = () => { if (id !== null) t.clearTimeout(id); id = null; };
+    return run;
+  }
+
+  // What the Journal shows. A search with no matches used to show "Your
+  // journal is empty.", as if the history had gone.
+  function feedView(total, query, matches) {
+    const q = String(query || '').trim();
+    if (!total) return { kind: 'empty' };
+    if (q && !matches) {
+      const shown = q.length > 40 ? q.slice(0, 40) + '…' : q;
+      return { kind: 'no_match', label: `No entries match "${shown}"` };
+    }
+    return { kind: 'list' };
+  }
+
   return {
     STATUS_VIEWS, STATUS_CLASSES, DONE_RESET_MS, statusView,
     defaultHotkey, keyName, orderKeys, hotkeyName, keycaps, pressOrderHint, hotkeyPresets,
@@ -299,5 +329,6 @@
     DEFAULT_PROVIDER_ORDER, PROVIDER_NAMES, providerHasKey, normalizeProviderOrder,
     providerOrderRows, activeProviders, backendsLine, aboutLine,
     USAGE_NOTE, formatCount, usageView,
+    SEARCH_DEBOUNCE_MS, debounce, feedView,
   };
 });
