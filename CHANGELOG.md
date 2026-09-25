@@ -209,6 +209,31 @@ OpenAI's prepaid billing correctly.
   negative-control cases, and can run each case several times, against a
   candidate prompt, recording the model's answer before the safety check.
   `scripts/auto_test_corpus.py` gains `--prompt-file` and `--json`.
+- `scripts/test_self_correction_corpus.py` now counts silent damage
+  separately, because it had been passing broken answers: "Can we shift it
+  to Monday works better.", "Send it to James, Wednesday at three." (the
+  "by" gone) and "...but until you see this, it took six." (the "no, wait"
+  gone). A run now also fails as LOSS when a word of the transcript is
+  missing that is neither a filler nor a value the speaker took back, or
+  when every correction marker is deleted but the value it took back stays
+  ("The quote was £500, £750 for the whole package." reads as if both
+  stand). It fails as GARBLE on a stray comma ("the, updated", "to James,
+  by") or a lead-in glued onto a replacement that brings its own verb. The
+  table, totals and JSON count those runs on the pasted text and on the
+  model's answer. Seven cases are added from a review of the fix: an added
+  option after a comma, and at 11 and 14 words; a rhetorical "no, wait"
+  mid-sentence; two replacements that bring their own verb; and an email
+  with fillers ("I'll bring the, uh, updated numbers"). `--rescore`
+  re-scores a recorded run with the current checks at no cost, and the
+  harness refuses to start if a check would fail the speaker's own words.
+  Both harnesses now read a `--prompt-file` as UTF-8, as the app does, and
+  the key file as `utf-8-sig`. On Windows they had decoded candidates as
+  cp1252, so the self-correction figures above were measured on the garbled
+  prompt the app no longer sends. `scripts/auto_test_corpus.py` now clears a
+  provider cooldown and retries a case when every provider failed, and fails
+  the case if it still fell back. Before, one dropped connection parked Groq
+  for 30 seconds and the next 55 cases were scored on the unstyled fallback
+  text as if the model had written it.
 - `tests/test_utf8_file_io.py` (40 checks, no network or keys) builds the
   real `OpenAIStyler` with an `open()` that behaves like Windows (no
   encoding means cp1252), so it catches the bug on a Mac too, and checks the

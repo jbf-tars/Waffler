@@ -25,7 +25,8 @@ from typing import Callable, List, Optional
 
 env = Path.home() / ".waffler-hosted" / ".env"
 if env.exists():
-    for line in env.read_text().splitlines():
+    # utf-8-sig, as the app reads .env: a byte-order mark must not hide a key.
+    for line in env.read_text(encoding="utf-8-sig").splitlines():
         if line.strip() and not line.startswith("#") and "=" in line:
             k, _, v = line.partition("=")
             os.environ.setdefault(k.strip(), v.strip())
@@ -960,6 +961,9 @@ def main():
                     help="Evaluate this prompt template instead of prompts/normal.txt "
                          "(loaded into the styler after construction, decoded the same "
                          "way the app decodes prompts/normal.txt). Default: unchanged.")
+    ap.add_argument("--retries", type=int, default=2,
+                    help="Retries per case when every provider failed (a 429 or a "
+                         "dropped connection), 10s then 20s apart. Default 2.")
     ap.add_argument("--json", type=str, default=None,
                     help="Also write per-case results (styled output, provider, "
                          "failures, guard reason, tokens) to this JSON file.")
@@ -982,9 +986,10 @@ def main():
         print(f"PINNED to provider: {args.provider} (no fallback)")
     if args.prompt_file:
         # Read exactly as OpenAIStyler._load_prompt_template reads
-        # prompts/<style>.txt (plain open(), platform default encoding) so a
-        # candidate is decoded the way the app would decode it once shipped.
-        with open(args.prompt_file, "r") as f:
+        # prompts/<style>.txt (text mode, UTF-8) so a candidate is decoded the
+        # way the app decodes it once shipped. Before 3.14.100 both used the
+        # platform default, which on Windows turned every em-dash to mojibake.
+        with open(args.prompt_file, "r", encoding="utf-8") as f:
             _tmpl = f.read()
         _tmpl.format(transcript="x", dialect_instruction="y")  # fail fast on bad braces
         styler.prompt_template = _tmpl
@@ -1023,18 +1028,37 @@ def main():
     tok_in = tok_out = 0
     records = []
     for i, case in enumerate(cases, 1):
-        _captured.clear()
-        try:
-            t0 = time.time()
-            styled, usage = styler.style(case.raw)
-            elapsed = (time.time() - t0) * 1000
-        except Exception as e:
+        attempt = 0
+        while True:
+            attempt += 1
+            _captured.clear()
+            # A 429 or one dropped connection parks the provider for a
+            # cooldown, and every case in that window would be pasted by
+            # basic_clean and scored as if the model had answered. Clear it
+            # and retry, so each case really asks the model.
+            styler._groq_skip_until = 0.0
+            styler._cerebras_skip_until = 0.0
+            try:
+                t0 = time.time()
+                styled, usage = styler.style(case.raw)
+                elapsed = (time.time() - t0) * 1000
+            except Exception as e:
+                styled, usage, elapsed = None, {"fallback_reason": f"styler exception: {e}"}, 0
+            if usage.get("fallback_reason") and attempt <= args.retries:
+                time.sleep(10 * attempt)
+                continue
+            break
+        if styled is None:
+            e = usage["fallback_reason"]
             print(f"{i:<3} {case.label:<{width}} {case.length:<11} {case.category:<18} ERROR: {e!s:.80}")
-            results.append((case, "", [f"styler exception: {e}"], 0))
+            results.append((case, "", [e], 0))
             records.append({"label": case.label, "raw": case.raw, "styled": "",
-                            "pass": False, "failures": [f"styler exception: {e}"]})
+                            "pass": False, "failures": [e], "attempts": attempt})
             continue
         failures = evaluate(case, styled)
+        if usage.get("fallback_reason"):
+            # Every provider failed: this is basic_clean, not the model.
+            failures.append(f"styling failed, basic_clean pasted: {usage['fallback_reason'][:120]}")
         verdict = "PASS" if not failures else f"FAIL ({len(failures)})"
         print(f"{i:<3} {case.label:<{width}} {case.length:<11} {case.category:<18} {verdict:<10} ({elapsed:.0f}ms via {usage.get('provider','?')})")
         results.append((case, styled, failures, elapsed))
@@ -1048,7 +1072,7 @@ def main():
                         "fallback_reason": usage.get("fallback_reason"),
                         "input_tokens": usage.get("input_tokens", 0),
                         "output_tokens": usage.get("output_tokens", 0),
-                        "ms": round(elapsed)})
+                        "ms": round(elapsed), "attempts": attempt})
         if i < len(cases):
             time.sleep(args.delay)
 
