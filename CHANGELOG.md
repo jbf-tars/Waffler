@@ -62,6 +62,34 @@ OpenAI's prepaid billing correctly.
   `tests/test_vocab_false_positives.py`, including one that ordinary
   hyphenated words ("well-known", "long-term") are left alone. Measured on the
   real recording: 0 of 5 runs produced "Postgres" before, 5 of 5 after.
+- **Vocabulary names were written over ordinary phrases.** To catch a name
+  that Whisper splits in two ("Ashkan" heard as "Nash can"), the corrector
+  also joins each pair of neighbouring words and compares the join with
+  your vocabulary. That check used a looser bar than single words and had no
+  guard for everyday words, so with "Aidan" in the vocabulary "add an", "and
+  an" and "said and" became Aidan (17 times in one person's real
+  dictations), "Isobel" turned "is hotel" and "is model" into Isobel,
+  "Clubcard" turned "colour card" and "blue card" into Clubcard, and
+  "Sinéad" turned "the sign had" into "the Sinéad".
+- **Fix:** a pair of words is joined into a name only when the join spells
+  it exactly ("club card"), or when both words are at least three letters,
+  the join is within one letter of the name's length, and: if both are
+  everyday English words (a new list of about 4,100, `src/common_words.py`,
+  built from public word-frequency and dictionary data, no personal data),
+  the join differs from the name only in its vowels and doubled letters
+  ("post grass" for Postgres); otherwise the old bar still applies but the
+  consonant sounds may differ by at most one ("Nash can" for Ashkan). The
+  single-word corrections are unchanged (identical results on 14,000 words
+  against 40 names). Checked offline by joining every pair of the 3,000
+  most common English words and comparing each join with 56 names and
+  product words: the old rule rewrote 2,784 pairs, the new one 196, and
+  nearly all of those involve word fragments nobody says on their own
+  ("ver cell", "supp base"). Real phrases still joined include "power paint"
+  (PowerPoint), "soup base" (Supabase), "fast time" (FaceTime) and "air Dan"
+  (Aidan). `tests/test_vocab_bigram_join.py` (85 checks) runs every phrase
+  above both ways: 22 ordinary phrases are left alone (the old rule rewrote
+  all 22) and the split names "Nash can", "Nash-can", "club card", "post
+  grass", "post-grass" and "Ash can" are still joined.
 - **The release build now checks this.** `scripts/check_macos_minos.py` reads
   the minimum macOS of every binary in the built `Waffler.app` (including each
   slice of a universal binary) and fails the macOS release if any needs a

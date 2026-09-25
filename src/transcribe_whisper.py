@@ -154,6 +154,85 @@ within without word work would year years yes yet you your yours
 # default threshold. Short entries still match EXACTLY.
 _MIN_FUZZY_VOCAB_LEN = 5
 
+# ── Joining two words into one vocabulary entry (pass 2) ────────────────────
+# Whisper sometimes splits an unfamiliar name into two words ("Ashkan" ->
+# "Nash can", "Postgres" -> "post grass", "Clubcard" -> "club card"), so pass
+# 2 joins each adjacent pair and compares the join with each entry. It used a
+# looser bar than single words (0.70) and no common-word guard, so ordinary
+# pairs of words were rewritten as names. Found on real speech (2026-09-25):
+# "add an", "and an" and "said and" became Aidan (17 times in one user's
+# history), "is hotel" and "is model" became Isobel, "colour card" and "blue
+# card" became Clubcard, and "the sign had" became "the Sinéad".
+#
+# The rule now, for words a and b and entry v:
+#   * a join that spells v exactly is always taken ("club card");
+#   * otherwise a word under 3 letters rules the pair out: two-letter words
+#     are almost all glue ("an", "is", "on", "me") and caused most of the
+#     damage ("add an", "is hotel", "month on", "me thank");
+#   * so does a join more than one letter longer or shorter than v: a split
+#     name keeps its length ("said Dan" is not "Aidan");
+#   * when both words are everyday English (common_words.py), the pair is
+#     what the speaker said unless the join differs from v only in its
+#     vowels and doubled letters (same consonant skeleton, both words 4+
+#     letters, similarity >= the single-word bar): "post grass" -> Postgres
+#     passes, "blue card", "colour card", "reach all" do not;
+#   * when at least one word is not everyday English ("nash"), the old 0.70
+#     bar still applies, but the consonant skeletons may differ by at most
+#     one sound: "Nash can" -> Ashkan passes, "chat bot" -> ChatGPT does not.
+try:
+    from common_words import COMMON_WORDS as _COMMON_WORDS
+except ImportError:  # imported as src.transcribe_whisper
+    from src.common_words import COMMON_WORDS as _COMMON_WORDS
+_BIGRAM_COMMON = _COMMON_WORDS | _VOCAB_PROTECTED_WORDS
+_BIGRAM_MIN_WORD_LEN = 3
+_BIGRAM_COMMON_MIN_WORD_LEN = 4
+
+
+def _consonant_skeleton(text: str) -> str:
+    """Consonants only, accents folded, doubles collapsed, and letters that
+    sound alike merged (hard c/k/q, soft c/s/z, ph/f): what survives when a
+    word is misspelled by ear. "postgrass" and "Postgres" both give
+    "pstgrs"; "bluecard" gives "blkrd" against "Clubcard"'s "klbkrd"; and
+    "facttime" gives "fktm" against "FaceTime"'s "fstm", because the c in
+    "face" is soft."""
+    import unicodedata
+    s = "".join(ch for ch in unicodedata.normalize("NFKD", text.lower())
+                if not unicodedata.combining(ch))
+    s = s.replace("ck", "k").replace("ph", "f").replace("q", "k")
+    s = re.sub(r"c(?=[eiy])", "s", s).replace("c", "k")
+    s = s.replace("z", "s")
+    out = []
+    for ch in s:
+        if not ch.isalpha() or ch in "aeiouy":
+            continue
+        if not out or out[-1] != ch:
+            out.append(ch)
+    return "".join(out)
+
+
+def _bigram_join_matches(a: str, b: str, vword: str, similarity: float,
+                         bigram_threshold: float, threshold: float) -> bool:
+    """May the adjacent words ``a b`` be replaced by vocab entry ``vword``?
+    ``similarity`` is that of the join ``a + b`` to ``vword``. See the rule
+    above."""
+    glued = a + b
+    if glued == vword:
+        return True
+    if min(len(a), len(b)) < _BIGRAM_MIN_WORD_LEN:
+        return False
+    # A split name keeps the name's length, give or take a letter ("nashcan"
+    # 7 for "Ashkan" 6). "said dan" (7) for "Aidan" (5) is two words, not one.
+    if abs(len(glued) - len(vword)) > 1:
+        return False
+    skel_glued = _consonant_skeleton(glued)
+    skel_vword = _consonant_skeleton(vword)
+    if a in _BIGRAM_COMMON and b in _BIGRAM_COMMON:
+        return (min(len(a), len(b)) >= _BIGRAM_COMMON_MIN_WORD_LEN
+                and similarity >= threshold
+                and skel_glued == skel_vword)
+    return (similarity >= bigram_threshold
+            and _levenshtein_distance(skel_glued, skel_vword) <= 1)
+
 
 def fuzzy_match_word(transcribed: str, vocab: list[str], threshold: float = 0.75) -> list[tuple[str, str]]:
     """
@@ -217,11 +296,9 @@ def fuzzy_match_word(transcribed: str, vocab: list[str], threshold: float = 0.75
     # Pass 2 — bigram collapse against single-word vocab entries.
     # We only target vocab terms that are themselves single words (no spaces),
     # because the failure mode is "Whisper split a compound into two words".
-    # Threshold is intentionally a touch lower than the unigram pass: gluing
-    # two words always adds 1 char vs the original (the implicit space), so
-    # a perfect distortion still scores ~0.85 instead of 1.0. 0.70 catches
-    # "Nash can" ↔ "Ashkan" (similarity 0.71) without admitting unrelated
-    # bigrams.
+    # The 0.70 bar catches "Nash can" ↔ "Ashkan" (similarity 0.71), but on its
+    # own it also admitted ordinary pairs ("add an" -> Aidan), so every
+    # candidate must also pass _bigram_join_matches (rule above it).
     bigram_threshold = max(0.65, threshold - 0.05)
     single_vocab_words = [v for v in vocab_words if " " not in v and len(v) >= 4]
     for i in range(len(words) - 1):
@@ -235,7 +312,8 @@ def fuzzy_match_word(transcribed: str, vocab: list[str], threshold: float = 0.75
                 continue
             distance = _levenshtein_distance(glued, vword)
             similarity = 1 - (distance / max_len)
-            if similarity >= bigram_threshold:
+            if similarity >= bigram_threshold and _bigram_join_matches(
+                    a, b, vword, similarity, bigram_threshold, threshold):
                 # Substitute the literal "a b" two-word sequence (with the
                 # space) so apply_vocab_corrections can replace it as a phrase.
                 corrections.append((f"{a} {b}", vocab_lower[vword]))
