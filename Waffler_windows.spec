@@ -81,7 +81,9 @@ a = Analysis(
     ],
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=[],
+    # Caps NumPy's BLAS thread pools before anything imports it; see the
+    # hook's docstring. (hooks/runtime_hook.py is a different, unused hook.)
+    runtime_hooks=[os.path.join(PROJECT_ROOT, 'hooks', 'rthook_thread_caps.py')],
     excludes=[
         # macOS-only packages — exclude on Windows
         'pyobjc',

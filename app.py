@@ -6,6 +6,19 @@ Entry point: pywebview window + background hotkey/pipeline thread
 
 import sys
 import os
+
+# ── Thread caps, before anything can import NumPy ─────────────────────
+# NumPy's OpenBLAS starts an idle worker thread per CPU core the moment it is
+# imported, and reserves memory for each. Waffler only uses NumPy for RMS
+# sums on short audio buffers, which never touch BLAS. Measured on a 28-thread
+# PC: "import numpy" committed 754 MB across 27 threads, against 15 MB and 4
+# threads with these set. Both the main process and the overlay paid it. The
+# frozen builds also set them in hooks/rthook_thread_caps.py, which runs
+# before this file; setdefault keeps any value a user set on purpose.
+for _var in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS",
+             "VECLIB_MAXIMUM_THREADS"):
+    os.environ.setdefault(_var, "1")
+
 import io
 import json
 import time
@@ -64,6 +77,24 @@ sys.stderr = _fix_stream(sys.stderr)
 PROJECT_ROOT = Path(__file__).parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
+
+# ── Overlay Mode Handler ──────────────────────────────────────────────
+# When launched with --overlay flag, run the overlay subprocess instead
+# of the main app. This allows PyInstaller to freeze both entry points.
+# It runs BEFORE the main app's imports on purpose: the overlay needs only
+# its UI toolkit (Tk on Windows, AppKit on a Mac), but it used to import
+# pywebview, NumPy, sounddevice and the OpenAI and Groq SDKs first, which
+# cost it about a second of start-up and the same memory as the main process.
+if '--overlay' in sys.argv:
+    import platform as _plat
+    if _plat.system() == "Windows":
+        import overlay_process_windows
+        overlay_process_windows.main()
+    else:
+        import overlay_process
+        overlay_process.main()
+    sys.exit(0)
+
 import webview
 
 from config import Config
@@ -87,20 +118,6 @@ from audio_devices import (
 from app_detection import get_active_app
 from log_util import transcript_for_log
 from atomic_json import write_json_atomic
-
-
-# ── Overlay Mode Handler ──────────────────────────────────────────────
-# When launched with --overlay flag, run the overlay subprocess instead
-# of the main app. This allows PyInstaller to freeze both entry points.
-if '--overlay' in sys.argv:
-    import platform as _plat
-    if _plat.system() == "Windows":
-        import overlay_process_windows
-        overlay_process_windows.main()
-    else:
-        import overlay_process
-        overlay_process.main()
-    sys.exit(0)
 
 
 # ── Data Directory ────────────────────────────────────────────────────

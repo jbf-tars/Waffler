@@ -152,6 +152,25 @@ OpenAI's prepaid billing correctly.
   clipboard alone. `tests/test_bookkeeping_never_fails_dictation.py` (12
   checks) runs `app.py`'s own save and cancel code with a file that stays
   locked and with a fake clipboard.
+- **Waffler reserved about 1.7 GB of memory it never used.** NumPy's maths
+  library starts one idle worker thread per processor core as soon as it is
+  loaded, and reserves memory for each. Waffler only uses NumPy to measure
+  how loud the microphone is, which never needs those threads. The installed
+  app held about 878 MB (main window) and 811 MB (recording pill) of private
+  memory, almost all of it this pool. The recording pill paid it too,
+  because `app.py` loaded the whole app, including the AI provider
+  libraries, before noticing it had been started as the pill.
+- **Fix:** the thread pools are capped at one thread before anything loads
+  NumPy, by a new start-up hook registered in both the Windows and Mac builds
+  (`hooks/rthook_thread_caps.py`; the Windows build registered no hook at
+  all) and at the top of `app.py` for runs from source. Measured on this PC,
+  loading NumPy went from 754 MB and 27 threads to 15 MB and 4. The
+  recording pill now starts before the main app's libraries load, so it
+  skips them entirely. The saving in the installed app, and the pill's
+  faster start, are estimates until measured on a new build.
+  `tests/test_startup_memory.py` (8 checks) checks the hook, that both
+  builds register it, and that `app.py` sets the caps and starts the pill
+  before any heavy import.
 
 ### Changed
 - **The app now looks the way 3.14.20 intended.** Because the fonts finally
