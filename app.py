@@ -86,6 +86,7 @@ from audio_devices import (
 )
 from app_detection import get_active_app
 from log_util import transcript_for_log
+from atomic_json import write_json_atomic
 
 
 # ── Overlay Mode Handler ──────────────────────────────────────────────
@@ -244,23 +245,10 @@ def load_history() -> list:
 
 
 def save_history(history: list):
-    """Save transcription history with atomic write"""
+    """Save transcription history with an atomic write. The replace is
+    retried while another handle briefly locks the file (Windows)."""
     ensure_data_dir()
-    tmp_fd, tmp_path = tempfile.mkstemp(
-        dir=HISTORY_FILE.parent,
-        suffix='.tmp',
-        text=True
-    )
-    try:
-        with os.fdopen(tmp_fd, 'w', encoding='utf-8') as f:
-            json.dump(history, f, ensure_ascii=False, indent=2)
-        os.replace(tmp_path, HISTORY_FILE)  # Atomic on POSIX
-    except Exception as e:
-        try:
-            os.unlink(tmp_path)
-        except:
-            pass
-        raise e
+    write_json_atomic(HISTORY_FILE, history)
 
 
 def append_history(item: dict):
@@ -287,23 +275,10 @@ def load_usage() -> list:
 
 
 def save_usage(usage: list):
-    """Save usage records to usage.json with atomic write"""
+    """Save usage records to usage.json with an atomic write. The replace is
+    retried while another handle briefly locks the file (Windows)."""
     ensure_data_dir()
-    tmp_fd, tmp_path = tempfile.mkstemp(
-        dir=USAGE_FILE.parent,
-        suffix='.tmp',
-        text=True
-    )
-    try:
-        with os.fdopen(tmp_fd, 'w', encoding='utf-8') as f:
-            json.dump(usage, f, ensure_ascii=False, indent=2)
-        os.replace(tmp_path, USAGE_FILE)  # Atomic on POSIX
-    except Exception as e:
-        try:
-            os.unlink(tmp_path)
-        except:
-            pass
-        raise e
+    write_json_atomic(USAGE_FILE, usage)
 
 
 def record_usage(entry_type: str, duration_seconds: float = None,
@@ -334,6 +309,34 @@ def record_usage(entry_type: str, duration_seconds: float = None,
     usage.append(entry)
     save_usage(usage)
     return entry
+
+
+# ── Bookkeeping on the dictation path ─────────────────────────────────────
+# Usage and history are records ABOUT a dictation. Neither may fail one.
+# A usage.json write that raised used to fall into _process's generic
+# handler: no paste, a "Something went wrong" toast, and the words only on
+# the clipboard. A history.json failure after the paste then overwrote the
+# clipboard with the raw transcript. "Access is denied" did this to 6 real
+# dictations.
+
+def record_usage_safely(*args, **kwargs):
+    """record_usage for the dictation path: logs a failure, never raises."""
+    try:
+        return record_usage(*args, **kwargs)
+    except Exception as e:
+        _log_to_file(f"[usage] not recorded ({type(e).__name__}: {e})")
+        return None
+
+
+def append_history_safely(item: dict) -> bool:
+    """append_history for the dictation path: True when saved. Logs a
+    failure and returns False instead of raising."""
+    try:
+        append_history(item)
+        return True
+    except Exception as e:
+        _log_to_file(f"[history] not saved ({type(e).__name__}: {e})")
+        return False
 
 
 # ── PyWebView API ─────────────────────────────────────────────────────
@@ -2610,7 +2613,13 @@ class WafflerPipeline:
         _log_to_file(f"Audio device changed to index {device_index}")
 
     def _on_overlay_cancel(self):
-        """User confirmed cancel — discard recording and clear clipboard."""
+        """User confirmed cancel — discard the recording.
+
+        The clipboard is left alone. It used to be cleared "to prevent paste of
+        cancelled transcription", but the transcript is only copied after
+        styling, and _process checks for a cancel before that, so clearing
+        protected nothing and wiped whatever the user had copied themselves
+        (23 times in one user's log)."""
         # Flip is_recording and arm cancellation under one lock so a
         # concurrent release can't slip a _process() through between them.
         with self._processing_lock:
@@ -2626,14 +2635,6 @@ class WafflerPipeline:
             if hasattr(self, 'hotkey_listener') and self.hotkey_listener:
                 if hasattr(self.hotkey_listener, 'reset_state'):
                     self.hotkey_listener.reset_state()
-
-        # Clear clipboard to prevent paste of cancelled transcription
-        try:
-            import pyperclip
-            pyperclip.copy("")
-            _log_to_file("Clipboard cleared after cancel")
-        except Exception as e:
-            _log_to_file(f"Clipboard clear failed: {e}")
 
     def _on_overlay_stop(self):
         """User clicked ■ on overlay — stop & process."""
@@ -2884,6 +2885,9 @@ class WafflerPipeline:
         # the next press, so reading it later could send this dictation's paste
         # into the window the user opened for the following one.
         _target_window = self._prev_window
+        # Set once the styled text is on the clipboard. After that point the
+        # error handler must not "salvage" the raw transcript over it.
+        _clipboard_written = False
         try:
             # Calculate recording duration for error suppression
             import time
@@ -3179,8 +3183,8 @@ class WafflerPipeline:
             elif whisper_provider == "api":
                 whisper_provider = "openai"
             if whisper_duration > 0:
-                record_usage("whisper", duration_seconds=whisper_duration,
-                             provider=whisper_provider)
+                record_usage_safely("whisper", duration_seconds=whisper_duration,
+                                    provider=whisper_provider)
             # Show "Styling…" progress — this is the slow stage on long
             # dictations (15-25s on full gpt-4.1 for 400+ word inputs).
             _style_start = time.time()
@@ -3369,7 +3373,7 @@ class WafflerPipeline:
 
             # Record GPT usage (if API was used)
             if gpt_usage.get("api_used"):
-                record_usage(
+                record_usage_safely(
                     "gpt",
                     input_tokens=gpt_usage.get("input_tokens", 0),
                     output_tokens=gpt_usage.get("output_tokens", 0),
@@ -3392,6 +3396,7 @@ class WafflerPipeline:
             # saved to history below either way, so the words are never lost.
             _t2 = time.time()
             _copied = self.clipboard.copy(styled)
+            _clipboard_written = bool(_copied)
             if not _copied:
                 _log_to_file("Clipboard write FAILED — skipping paste so stale "
                              "clipboard contents cannot overwrite the selection")
@@ -3560,11 +3565,22 @@ class WafflerPipeline:
                     _log_to_file(f"[quality] log write failed: {_e}")
             except Exception as _e:
                 _log_to_file(f"[quality] assessment failed: {_e}")
-            append_history(item)
+            _saved = append_history_safely(item)
+            if not _saved:
+                # The words were pasted (or are on the clipboard); only the
+                # History copy is missing. Say so, and leave the clipboard.
+                try:
+                    threading.Thread(target=lambda: self.overlay.show_toast(
+                        style="warn", heading="Not saved to History",
+                        body="Your text was pasted, but Waffler couldn't save it to History.",
+                    ), daemon=True).start()
+                except Exception:
+                    pass
 
             # Notify JS
             notify_js_status("done")
-            notify_js_new_item(item)
+            if _saved:
+                notify_js_new_item(item)
 
             # Metadata only. app.log is what the "Download Logs" diagnostic
             # bundle ships, so logging content here would leak the user's
@@ -3642,7 +3658,8 @@ class WafflerPipeline:
                     # Salvage: if a transcript already existed when the error
                     # hit, don't throw the user's words away — copy the raw
                     # text to the clipboard so it's at least recoverable.
-                    if transcript:
+                    # Never over the styled text already put there.
+                    if transcript and not _clipboard_written:
                         try:
                             self.clipboard.copy(transcript)
                         except Exception:
@@ -3653,8 +3670,9 @@ class WafflerPipeline:
                         heading="Something went wrong",
                         body="Your text was copied to clipboard. Check logs for details.",
                     )
-                    # Still try to salvage — paste the raw transcript
-                    if transcript:
+                    # Still try to salvage — paste the raw transcript, unless
+                    # the styled text is already on the clipboard.
+                    if transcript and not _clipboard_written:
                         try:
                             self.clipboard.copy(transcript)
                         except Exception:

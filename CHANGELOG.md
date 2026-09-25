@@ -133,6 +133,25 @@ OpenAI's prepaid billing correctly.
   of an hour. `tests/test_groq_only_reliability.py` (30 checks, no network)
   covers a 500 then a success, a retried connection error, Groq never skipped
   when alone, the retry limit and time budget, and the error classes.
+- **A locked file could lose a dictation, and cancelling wiped the
+  clipboard.** On Windows, saving `usage.json` or `history.json` fails with
+  "Access is denied" while anything else has the file open for a moment (the
+  app's own stats panel, antivirus, search indexing). The usage save runs
+  before the paste, so the dictation stopped with "Something went wrong" and
+  was never pasted: 6 real dictations were lost this way. A history save
+  failing after the paste then copied the raw transcript over the tidied
+  text the user had just pasted. And cancelling a recording cleared the
+  clipboard, although Waffler had put nothing there yet (23 times in one
+  log).
+- **Fix:** the save is retried for up to about three quarters of a second
+  while the file is locked (`src/atomic_json.py`). If it still fails, the
+  dictation carries on: a usage record is skipped and logged, and a History
+  entry that cannot be saved gets a "Not saved to History" notice while the
+  text is still pasted. The error handler no longer copies the raw transcript
+  once the tidied text is on the clipboard, and cancelling leaves the
+  clipboard alone. `tests/test_bookkeeping_never_fails_dictation.py` (12
+  checks) runs `app.py`'s own save and cancel code with a file that stays
+  locked and with a fake clipboard.
 
 ### Changed
 - **The app now looks the way 3.14.20 intended.** Because the fonts finally
