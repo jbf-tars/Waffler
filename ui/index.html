@@ -232,12 +232,11 @@
           <div class="settings-row-info">
             <div class="settings-row-label">Recording Hotkey</div>
             <div class="settings-row-desc">Current: <span id="settingsHotkeyBadge" style="font-weight:600;color:#C8A256;">Loading...</span></div>
+            <div class="settings-row-desc settings-hotkey-error" id="settingsHotkeyError" role="alert" hidden></div>
           </div>
-          <div class="settings-row-control" style="gap:10px;">
-            <button class="settings-btn" onclick="changeSettingsHotkey(['fn'])" title="Works on most MacBooks">Fn</button>
-            <button class="settings-btn" onclick="changeSettingsHotkey(['cmd', 'shift'])" title="If Fn doesn't work">Command + Shift</button>
-            <button class="settings-btn" onclick="changeSettingsHotkey(['option', 'shift'])" title="Alternative">Option + Shift</button>
-          </div>
+          <!-- Filled by app.js with this platform's choices (logic.js
+               hotkeyPresets): Windows and Mac have different keys. -->
+          <div class="settings-row-control" id="settingsHotkeyPresets" style="gap:10px;"></div>
         </div>
         <div class="settings-row">
           <div class="settings-row-info">
@@ -665,8 +664,9 @@
           <h3 style="margin:0 0 6px 0">Choose your hotkey</h3>
           <p style="margin:0 0 14px 0;color:#6B6560;font-size:13px">💡 Press <strong>Space</strong> while holding to activate auto mode.</p>
           <div id="wizHotkeyPresetList" style="display:flex;flex-direction:column;gap:8px">
-            <!-- Populated by JS based on platform — Mac shows Fn/Cmd+Shift/Option+Shift,
-                 Windows shows Win+Ctrl / Ctrl+Alt+Space / Ctrl+Shift -->
+            <!-- Filled by app.js from logic.js hotkeyPresets: Mac shows Fn,
+                 Command + Shift and Option + Shift; Windows shows Win + Ctrl,
+                 Ctrl + Shift and Custom. -->
           </div>
           <button onclick="hideWizardHotkeyConfig()" style="margin-top:12px;color:#6B6560;background:none;border:none;cursor:pointer;font-size:13px">← Back</button>
         </div>

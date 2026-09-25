@@ -104,36 +104,8 @@ function jsKeyToId(e) {
 }
 
 function hotkeyDisplayStr(keys) {
-  // Plain text key names (no symbols)
-  const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
-  const keyNameMap = isMac ? {
-    'alt': 'Option',
-    'option': 'Option',
-    'ctrl': 'Control',
-    'control': 'Control',
-    'cmd': 'Command',
-    'command': 'Command',
-    'win': 'Command',
-    'shift': 'Shift',
-    'fn': 'Fn',
-    'space': 'Space'
-  } : {
-    'alt': 'Alt',
-    'option': 'Alt',
-    'ctrl': 'Ctrl',
-    'control': 'Ctrl',
-    'cmd': 'Win',
-    'command': 'Win',
-    'win': 'Win',
-    'shift': 'Shift',
-    'fn': 'Fn',
-    'space': 'Space'
-  };
-
-  return keys.map(k => {
-    const lowerKey = k.toLowerCase();
-    return keyNameMap[lowerKey] || k.charAt(0).toUpperCase() + k.slice(1);
-  }).join(" + ");
+  // Plain key names, in the same order as the backend and the website.
+  return WL.hotkeyName(keys, isMacPlatform);
 }
 
 // ── DOM refs ────────────────────────────────────────────────────────────
@@ -188,6 +160,7 @@ window.addEventListener('pywebviewready', () => {
 document.addEventListener('DOMContentLoaded', () => {
   updateDateLabel();
   updateHotkeyHint();
+  renderSettingsHotkeyPresets();
 
   // Prevent Mac error sound when space is pressed in the app
   // (Space monitor observes at OS level, but we need to handle it in UI to avoid "bonk" sound)
@@ -655,26 +628,65 @@ async function loadHotkeyConfig() {
   }
 }
 
+// Settings offers this platform's hotkeys only (logic.js hotkeyPresets).
+// It used to show the Mac keys on Windows too; the backend refused them,
+// the screen never checked, and the badge flashed green anyway.
+function renderSettingsHotkeyPresets() {
+  const host = document.getElementById('settingsHotkeyPresets');
+  if (!host) return;
+  host.textContent = '';
+  WL.hotkeyPresets(isMacPlatform).forEach((p) => {
+    const b = document.createElement('button');
+    b.className = 'settings-btn';
+    b.textContent = p.label;
+    b.title = p.hint;
+    b.addEventListener('click', () => (p.custom ? openHotkeyCapture() : changeSettingsHotkey(p.keys)));
+    host.appendChild(b);
+  });
+}
+
+function _showSettingsHotkeyError(msg) {
+  const el = document.getElementById('settingsHotkeyError');
+  if (!el) return;
+  el.textContent = msg || '';
+  el.hidden = !msg;
+}
+
+// Everything that shows the hotkey follows a successful save: the top bar,
+// Settings, and the wizard's keycaps, tiles and Try-it chips. The keys come
+// from the backend's answer, which may be normalised (Windows names are
+// always saved as Win, Ctrl, Alt, Shift).
+async function _onHotkeySaved(result) {
+  if (Array.isArray(result.keys) && result.keys.length) {
+    _currentHotkeyKeys = result.keys.slice();
+    _currentWizardHotkey = result.keys.slice();
+    wizRenderHotkey(result.keys);
+  }
+  await loadHotkeyConfig();
+}
+
 async function changeSettingsHotkey(keys) {
+  const settingsBadge = document.getElementById("settingsHotkeyBadge");
+  let result;
   try {
-    // Save the new hotkey
-    await window.pywebview.api.save_hotkey_config(keys);
-
-    // Reload to update all displays
-    await loadHotkeyConfig();
-
-    // Show success feedback
-    const settingsBadge = document.getElementById("settingsHotkeyBadge");
-    if (settingsBadge) {
-      const originalColor = settingsBadge.style.color;
-      settingsBadge.style.color = '#4CAF50';
-      setTimeout(() => {
-        settingsBadge.style.color = originalColor;
-      }, 1000);
-    }
+    result = await window.pywebview.api.save_hotkey_config(keys);
   } catch (e) {
     console.error("Failed to change hotkey:", e);
-    alert("Failed to change hotkey. Please try again.");
+    result = { ok: false, error: "Couldn't change the hotkey. Try again." };
+  }
+  if (!result || !result.ok) {
+    const msg = (result && result.error) || "Couldn't change the hotkey. Try again.";
+    _showSettingsHotkeyError(msg);
+    showToast(msg, 'error', 6000);
+    return;
+  }
+  _showSettingsHotkeyError('');
+  await _onHotkeySaved(result);
+  showToast(`Hotkey is now ${result.display || WL.hotkeyName(result.keys, isMacPlatform)}`, 'success');
+  // Brief green on the badge, only when the save really worked.
+  if (settingsBadge) {
+    settingsBadge.style.color = '#4CAF50';
+    setTimeout(() => { settingsBadge.style.color = '#C8A256'; }, 1000);
   }
 }
 
@@ -722,32 +734,24 @@ function resetHotkeyDefault() {
 
 async function saveHotkeyCapture() {
   const keys = _lastCapturedKeys;
-  if (!keys.length) return;
-  if (!keys.some(k => MODIFIER_IDS.has(k))) {
-    const modList = isMacPlatform ? "Command, Option, Control, Shift, or Fn" : "Ctrl, Alt, Shift, or Win";
-    document.getElementById("hotkeyError").textContent = `At least one modifier key required (${modList})`;
-    document.getElementById("hotkeyError").style.display = "block";
-    return;
-  }
-  if (keys.length > 3) {
-    document.getElementById("hotkeyError").textContent = "Maximum 3 keys allowed";
-    document.getElementById("hotkeyError").style.display = "block";
-    return;
-  }
+  const errEl = document.getElementById("hotkeyError");
+  const fail = (msg) => { errEl.textContent = msg; errEl.style.display = "block"; };
+  if (!keys.length) { fail("Hold the keys you want, then press Save."); return; }
+  // The backend decides (src/hotkey_rules.py) and says why in one sentence.
+  let result;
   try {
-    const result = await window.pywebview.api.save_hotkey_config(JSON.stringify(keys));
-    if (result.ok) {
-      _currentHotkeyKeys = keys;
-      closeHotkeyCapture();
-      loadHotkeyConfig();
-    } else {
-      document.getElementById("hotkeyError").textContent = result.error;
-      document.getElementById("hotkeyError").style.display = "block";
-    }
+    result = await window.pywebview.api.save_hotkey_config(JSON.stringify(keys));
   } catch (e) {
-    document.getElementById("hotkeyError").textContent = "Failed to save";
-    document.getElementById("hotkeyError").style.display = "block";
+    console.error("saveHotkeyCapture error:", e);
+    result = { ok: false, error: "Couldn't change the hotkey. Try again." };
   }
+  if (!result || !result.ok) { fail((result && result.error) || "Couldn't change the hotkey. Try again."); return; }
+  closeHotkeyCapture();
+  _showSettingsHotkeyError('');
+  await _onHotkeySaved(result);
+  // Opened from the wizard's hotkey step: say so there too.
+  if (_wizardStep === 2 && _wizardVisible()) wizHotkeyChanged(result);
+  showToast(`Hotkey is now ${result.display || WL.hotkeyName(result.keys, isMacPlatform)}`, 'success');
 }
 
 // ── API Calls ─────────────────────────────────────────────────────────
@@ -2030,27 +2034,24 @@ function wizBack() {
 // ── Step 2: Hotkey Configuration ─────────────────────────────
 
 function showWizardHotkeyConfig() {
-  // Render presets based on platform — Fn doesn't exist on Windows.
+  // This platform's choices only (logic.js hotkeyPresets). Windows used to
+  // be offered "Ctrl + Alt + Space", which it never accepted.
   const list = document.getElementById('wizHotkeyPresetList');
   if (list) {
-    const presets = isMacPlatform ? [
-      { keys: ['fn'],               label: 'Fn',             hint: 'Default · works on most MacBooks' },
-      { keys: ['cmd', 'shift'],     label: 'Cmd + Shift',    hint: "If Fn doesn't work" },
-      { keys: ['option', 'shift'],  label: 'Option + Shift', hint: 'Alternative' },
-    ] : [
-      { keys: ['win', 'ctrl'],          label: 'Win + Ctrl',          hint: 'Default · most reliable' },
-      { keys: ['ctrl', 'shift'],        label: 'Ctrl + Shift',        hint: "If Win + Ctrl doesn't work" },
-      { keys: ['ctrl', 'alt', 'space'], label: 'Ctrl + Alt + Space',  hint: 'Three-key combo' },
-    ];
-    list.innerHTML = presets.map((p) => {
-      // Single-quoted attribute + JSON.stringify (which uses double quotes)
-      // is valid HTML. Safe because every key in MODIFIER_KEYS is ASCII
-      // alphanumeric — no escaping needed for the current set.
-      return `<button class="hotkey-preset-btn" onclick='selectHotkeyPreset(${JSON.stringify(p.keys)})'>` +
-             `<span class="hotkey-preview">${p.label}</span>` +
-             ` <span style="opacity:0.6;font-size:13px">${p.hint}</span>` +
-             `</button>`;
-    }).join('');
+    list.textContent = '';
+    WL.hotkeyPresets(isMacPlatform).forEach((p) => {
+      const b = document.createElement('button');
+      b.className = 'hotkey-preset-btn';
+      const name = document.createElement('span');
+      name.className = 'hotkey-preview';
+      name.textContent = p.label;
+      const hint = document.createElement('span');
+      hint.style.cssText = 'opacity:0.6;font-size:13px';
+      hint.textContent = p.hint;
+      b.append(name, ' ', hint);
+      b.addEventListener('click', () => (p.custom ? openHotkeyCapture() : selectHotkeyPreset(p.keys)));
+      list.appendChild(b);
+    });
   }
   document.getElementById('wizHotkeyConfigPanel').style.display = 'block';
 }
@@ -2059,39 +2060,45 @@ function hideWizardHotkeyConfig() {
   document.getElementById('wizHotkeyConfigPanel').style.display = 'none';
 }
 
+function _wizardVisible() {
+  const o = document.getElementById('wizardOverlay');
+  return !!o && o.style.display !== 'none';
+}
+
+// The Hotkey step's pill, set through its label so the dot and spacing
+// stay (setting the pill's own text wiped them and the dot sat on the
+// first letter).
+function _wizSetHotkeyPill(text, kind) {
+  const status = document.getElementById('wizHotkeyStatus');
+  if (!status) return;
+  status.classList.remove('detected', 'error');
+  if (kind) status.classList.add(kind);
+  status.style.color = '';
+  const label = status.querySelector('.wiz-listening-label');
+  if (label) label.textContent = text;
+}
+
+function wizHotkeyChanged(result) {
+  window._fnKeyDetected = false;
+  _wizSetHotkeyPill(`Hotkey changed to ${result.display || WL.hotkeyName(result.keys, isMacPlatform)}. Hold it to test.`);
+  hideWizardHotkeyConfig();
+}
+
 async function selectHotkeyPreset(keys) {
+  let result;
   try {
-    // Save hotkey configuration
-    await pywebview.api.save_hotkey_config(keys);
-
-    // Update display
-    const config = await pywebview.api.get_hotkey_config();
-    const badge = document.getElementById('wizHotkeyBadge');
-    if (badge && config.display) {
-      badge.textContent = config.display;
-    }
-
-    // Update detection to use new hotkey
-    _currentWizardHotkey = keys;
-    window._fnKeyDetected = false; // Reset detection flag
-
-    // Update status message
-    const statusEl = document.getElementById('wizHotkeyStatus');
-    if (statusEl) {
-      statusEl.textContent = `Hotkey changed to ${config.display}. Press it to test!`;
-      statusEl.style.color = '#C8A256';
-    }
-
-    // Hide config panel
-    hideWizardHotkeyConfig();
+    result = await pywebview.api.save_hotkey_config(keys);
   } catch (e) {
     console.error('Failed to save hotkey:', e);
-    const statusEl = document.getElementById('wizHotkeyStatus');
-    if (statusEl) {
-      statusEl.textContent = 'Failed to save hotkey. Please try again.';
-      statusEl.style.color = '#f44336';
-    }
+    result = { ok: false, error: "Couldn't change the hotkey. Try again." };
   }
+  if (!result || !result.ok) {
+    // Nothing changed, so the keycaps stay as they are and the pill says why.
+    _wizSetHotkeyPill((result && result.error) || "Couldn't change the hotkey. Try again.", 'error');
+    return;
+  }
+  await _onHotkeySaved(result);
+  wizHotkeyChanged(result);
 }
 
 // ── Step 3: API Key ──────────────────────────────────────────
@@ -2967,8 +2974,10 @@ function wizRenderHotkey(keys) {
   if (combo) {
     combo.innerHTML = caps.map((c) => {
       const icon = c.icon ? _KEYCAP_ICONS[c.icon] : '';
+      // Long names ("Command", "Option") get a smaller size to fit the key.
+      const size = c.label.length > 5 ? ' style="font-size:15px"' : '';
       const label = !icon
-        ? `<span class="wiz-keycap-label-large">${escHtml(c.label)}</span>`
+        ? `<span class="wiz-keycap-label-large"${size}>${escHtml(c.label)}</span>`
         : c.icon === 'globe'
           ? `<span class="wiz-keycap-label-large" style="font-size:14px;margin-top:2px">${escHtml(c.label)}</span>`
           : `<span class="wiz-keycap-label" style="font-size:11px;margin-top:2px">${escHtml(c.label)}</span>`;

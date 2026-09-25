@@ -97,8 +97,31 @@
       ? 'Tip: press Ctrl first, then Win.' : '';
   }
 
+  // The hotkeys Settings and the setup wizard offer, per platform. Each one
+  // must pass src/hotkey_rules.py on its platform (tests/test_ui_logic.py
+  // checks): Windows used to be offered the Mac keys (Fn, Command, Option)
+  // and "Ctrl + Alt + Space", all of which the backend refused. "Custom"
+  // opens the dialog that records whatever keys you hold.
+  const HOTKEY_PRESETS = {
+    mac: [
+      { keys: ['fn'], label: 'Fn', hint: 'Default · works on most MacBooks' },
+      { keys: ['cmd', 'shift'], label: 'Command + Shift', hint: "If Fn doesn't work" },
+      { keys: ['option', 'shift'], label: 'Option + Shift', hint: 'Another choice' },
+    ],
+    win: [
+      { keys: ['win', 'ctrl'], label: 'Win + Ctrl', hint: 'Default · most reliable' },
+      { keys: ['ctrl', 'shift'], label: 'Ctrl + Shift', hint: "If Win + Ctrl doesn't work" },
+      { custom: true, label: 'Custom…', hint: 'Hold your own keys to choose them' },
+    ],
+  };
+
+  function hotkeyPresets(isMac) {
+    return (isMac ? HOTKEY_PRESETS.mac : HOTKEY_PRESETS.win)
+      .map((p) => Object.assign({}, p, p.keys ? { keys: p.keys.slice() } : {}));
+  }
+
   return {
     STATUS_VIEWS, STATUS_CLASSES, DONE_RESET_MS, statusView,
-    defaultHotkey, keyName, orderKeys, hotkeyName, keycaps, pressOrderHint,
+    defaultHotkey, keyName, orderKeys, hotkeyName, keycaps, pressOrderHint, hotkeyPresets,
   };
 });

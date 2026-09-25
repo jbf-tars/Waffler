@@ -188,3 +188,90 @@ def test_press_ctrl_first_is_a_tip_not_a_different_name():
     hints = js("[L.pressOrderHint(['win','ctrl'], false), L.pressOrderHint(['ctrl','shift'], false), "
                "L.pressOrderHint(['fn'], true)]")
     assert hints == ["Tip: press Ctrl first, then Win.", "", ""]
+
+
+# ── hotkey choices per platform (QW3) ────────────────────────────────────────
+
+import string  # noqa: E402
+import sys  # noqa: E402
+
+sys.path.insert(0, str(ROOT / "src"))
+import hotkey_rules as hr  # noqa: E402
+
+# The listeners' key tables, as rebuilt in tests/test_hotkey_save.py.
+WIN_KEYS = {"win", "ctrl", "alt", "shift"} | {f"f{i}" for i in range(1, 25)} \
+    | set(string.ascii_lowercase) | set(string.digits)
+WIN_MODS = {"win", "ctrl", "alt", "shift"}
+MAC_MODS = {"cmd", "command", "shift", "option", "alt", "control", "ctrl", "fn"}
+MAC_KEYS = MAC_MODS | {"space", "return", "enter", "tab", "delete", "escape", "esc",
+                       "f13", "f14", "f15", "f16", "f17", "f18", "f19"} | set(string.ascii_lowercase)
+
+
+@needs_node
+def test_every_hotkey_windows_is_offered_saves_on_windows():
+    presets = js("L.hotkeyPresets(false)")
+    fixed = [p for p in presets if not p.get("custom")]
+    assert [p["label"] for p in fixed] == ["Win + Ctrl", "Ctrl + Shift"]
+    assert any(p.get("custom") for p in presets), "Windows offers a custom hotkey"
+    for p in fixed:
+        verdict = hr.check(p["keys"], hr.WINDOWS, WIN_KEYS, WIN_MODS)
+        assert verdict["ok"], (p, verdict)
+        # One name everywhere: the button says what the backend will call it.
+        assert p["label"] == verdict["display"]
+        assert not {"fn", "cmd", "command", "option", "space"} & set(p["keys"])
+
+
+@needs_node
+@pytest.mark.skipif(sys.platform != "win32", reason="windows_hotkey needs Win32")
+def test_every_windows_preset_passes_the_real_listener_table():
+    import windows_hotkey
+    for p in js("L.hotkeyPresets(false)"):
+        if not p.get("custom"):
+            assert hr.check(p["keys"], hr.WINDOWS, windows_hotkey.KEY_TO_VK,
+                            windows_hotkey.MODIFIER_KEYS)["ok"], p
+
+
+@needs_node
+def test_every_hotkey_a_mac_is_offered_saves_on_a_mac():
+    presets = js("L.hotkeyPresets(true)")
+    assert [p["label"] for p in presets] == ["Fn", "Command + Shift", "Option + Shift"]
+    for p in presets:
+        verdict = hr.check(p["keys"], hr.MAC, MAC_KEYS, MAC_MODS)
+        assert verdict["ok"], (p, verdict)
+        assert p["label"] == verdict["display"]
+
+
+def test_settings_draws_its_hotkey_buttons_per_platform():
+    html = read("index.html")
+    # The Mac buttons were hard-coded, so Windows showed Fn and Command too.
+    assert "changeSettingsHotkey(['fn'])" not in html
+    assert 'id="settingsHotkeyPresets"' in html and 'id="settingsHotkeyError"' in html
+    app = code_only(read("app.js"))
+    assert "renderSettingsHotkeyPresets();" in app
+    assert "WL.hotkeyPresets(isMacPlatform)" in app
+
+
+def _body(app, head):
+    body = app[app.index(head):]
+    return body[:body.index("\n}\n")]
+
+
+def test_saving_a_hotkey_checks_the_answer_before_saying_it_worked():
+    app = code_only(read("app.js"))
+    settings = _body(app, "async function changeSettingsHotkey(keys)")
+    assert settings.index("if (!result || !result.ok)") < settings.index("'#4CAF50'")
+    assert "_showSettingsHotkeyError(msg)" in settings
+    wizard = _body(app, "async function selectHotkeyPreset(keys)")
+    assert wizard.index("if (!result || !result.ok)") < wizard.index("_onHotkeySaved(result)")
+    # The keycaps are redrawn from the keys the backend saved.
+    saved = _body(app, "async function _onHotkeySaved(result)")
+    assert "wizRenderHotkey(result.keys)" in saved
+    assert "wizHotkeyBadge" not in app
+
+
+def test_no_screen_calls_the_default_ctrl_plus_win():
+    for path in [UI / "app.js", UI / "index.html", UI / "logic.js", ROOT / "app.py"]:
+        text = path.read_text(encoding="utf-8")
+        text = code_only(text) if path.suffix == ".js" else text
+        assert not re.search(r"Ctrl ?\+ ?Win", text), f"{path.name} names the hotkey 'Ctrl + Win'"
+        assert "Ctrl + Alt + Space" not in text or path.suffix != ".js"

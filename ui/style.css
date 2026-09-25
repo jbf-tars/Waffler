@@ -4738,6 +4738,14 @@ body[data-theme="dark"] {
   background: #15803d;
 }
 .wiz-listening.detected::before { display: none; }
+/* A hotkey the computer can't use: the pill says why, in red, still. */
+.wiz-listening.error {
+  color: #b91c1c;
+  background: #fee2e2;
+  border-color: #fca5a5;
+}
+.wiz-listening.error .wiz-listening-dot { animation: none; background: #b91c1c; }
+.wiz-listening.error::before { display: none; }
 
 /* ── Keycap "pressed" state during detection (big keycap on Step 2) ── */
 .wiz-keycap-large.pressed {
@@ -5394,6 +5402,14 @@ body:not([data-theme]) .j-page .btn-copy {
   .j-search-input { width: 140px; }
   .j-stat-group { gap: 14px; }
   .j-stat-num { font-size: 18px; }
+}
+
+/* Settings → Hotkey: why a hotkey couldn't be saved. */
+.settings-hotkey-error {
+  color: var(--red);
+  font-size: 12.5px;
+  margin-top: 4px;
+  max-width: 340px;
 }
 
 /* ── Provider fallback order (Settings → Provider Order) ──────────────── */
