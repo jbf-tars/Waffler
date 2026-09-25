@@ -6,10 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [3.14.100] - 2026-09-25
 
-Two things the app claimed that were not true. Its window fonts now ship
-inside the app, so opening Waffler no longer contacts Google. And the Mac
-build now declares the macOS version it really needs (14.0), measured from
-the binaries inside it, instead of 10.13.
+Two things the app claimed that were not true, and two dictation fixes. Its
+window fonts now ship inside the app, so opening Waffler no longer contacts
+Google. The Mac build now declares the macOS version it really needs (14.0),
+measured from the binaries inside it, instead of 10.13. Vocabulary
+corrections now apply when Whisper hyphenates a mishearing. And a change of
+mind spoken across sentences ("Tuesday. No, wait, Wednesday. Actually,
+Thursday") now comes out corrected instead of pasted word for word.
 
 ### Fixed
 - **Every launch sent the user's IP address to Google, for fonts that never
@@ -59,6 +62,48 @@ the binaries inside it, instead of 10.13.
   before signing, so a bad build fails in about a minute. A dependency upgrade
   can raise the real minimum without anyone noticing; this is what caught
   NumPy. On the real v3.14.99 bundle it fails at 10.13.0 and passes at 14.0.0.
+- **A change of mind spoken across sentences came out uncorrected.** Saying
+  "Let's meet on Tuesday. No, wait, Wednesday. Actually, Thursday at two."
+  pasted exactly those words, wrong days and all. Whisper writes each attempt
+  as its own sentence, and the clean-up model (Groq gpt-oss-120b) then
+  deleted the lead-in along with the wrong days: it answered "Thursday at
+  two." in 5 of 5 runs. The safety check that stops the model silently
+  dropping content saw only 3 of 11 words survive, correctly refused that
+  answer, and pasted the transcript instead. The prompt already said to drop
+  the wrong version "ENTIRELY", but it never said that the words the
+  correction does not replace ("Let's meet on", "Send it to") stay.
+- **Fix:** the SELF-CORRECTION rules in `prompts/normal.txt` are now a short
+  procedure. Find the value the speaker takes back, keep every word around it
+  (the lead-in and whatever follows), replace it with the value said last,
+  and check the result still reads as a full sentence. A full stop or dash
+  between attempts counts as a comma, and a cross-sentence example shows its
+  wrong form (the bare final value on its own). Two guardrails stop
+  over-correcting: a later value said with "too", "also" or "as well" is an
+  extra option, not a correction, and a "No, wait" that opens the message has
+  nothing to take back, so it stays. The safety check is unchanged. Measured
+  live on Groq with `scripts/test_self_correction_corpus.py` (5 runs per case
+  before, 3 after): the exact sentence went from 0 of 5 corrected to 3 of 3,
+  the one-sentence version ("Tuesday, no wait Wednesday, actually Thursday at
+  2.") from 1 of 5 to 3 of 3, the lead-in cases from 18 of 35 runs to 18 of
+  21, and the original 24 self-correction cases from 91 of 120 to 67 of 72.
+  Every negative control on the app's path (an "I mean" that clarifies, an
+  apology, a rhetorical "No, wait", an added option) still keeps every word,
+  and `scripts/auto_test_corpus.py` is unchanged at 106 of 107.
+- **Known limits of that fix.** Two corrections in one sentence ("Send it to
+  John, sorry James, by Tuesday, no wait, Wednesday at three.") now keep
+  "John, sorry James" in 3 of 8 runs (0 of 5 before). No words are lost when
+  that happens. The wordings tried that fixed it brought back the "No, wait"
+  deletion, which does lose words, so this is the trade chosen. An 8-word
+  added option ("Let's meet on Tuesday. Actually, Thursday works too.") is
+  misread as a correction in 4 of 5 runs when the model is made to see it,
+  but the app never sends a sentence that short to the model, and a 16-word
+  version keeps every word. Two lead-in cases still fail for reasons outside
+  the prompt. "The budget is five thousand. No, six. Actually, let's say
+  seven thousand." is corrected by the model every time, but the answer
+  keeps 5 of 12 words, so the safety check refuses it. And 8-word
+  corrections split by a full stop ("Can you send it on Monday. Sorry,
+  Tuesday.") never reach the model, because the short-input shortcut does
+  not recognise the marker.
 
 ### Changed
 - **The app now looks the way 3.14.20 intended.** Because the fonts finally
@@ -86,7 +131,20 @@ the binaries inside it, instead of 10.13.
   bundled font the CSS references is missing, if the true italic or a
   licence is dropped, or if either spec stops bundling `ui/`. Four of its
   checks fail against the old stylesheet.
-- Suite: 341 passed, 1 skipped.
+- `tests/test_truncation_guard_self_correction.py` (20 checks, no network or
+  keys) pins the safety check on the cross-sentence correction: "Let's meet
+  on Thursday at two." is pasted unchanged, "Thursday at two." is refused
+  with every spoken word kept, an answer cut off by the token limit and a
+  long dictation cut below half are still caught, and inputs under 8 words
+  are never checked. It also fails if the SELF-CORRECTION section loses the
+  keep-the-lead-in rule, the full-stop rule, the cross-sentence example with
+  its wrong form, or either guardrail. Four of those checks fail against the
+  old prompt.
+- `scripts/test_self_correction_corpus.py` gains 14 lead-in and
+  negative-control cases, and can run each case several times, against a
+  candidate prompt, recording the model's answer before the safety check.
+  `scripts/auto_test_corpus.py` gains `--prompt-file` and `--json`.
+- Suite: 361 passed, 1 skipped.
 
 ## [3.14.99] - 2026-09-22
 

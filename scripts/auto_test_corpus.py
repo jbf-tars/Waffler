@@ -21,7 +21,7 @@ import sys
 import time
 from pathlib import Path
 from dataclasses import dataclass, field
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, List, Optional
 
 env = Path.home() / ".waffler-hosted" / ".env"
 if env.exists():
@@ -956,6 +956,13 @@ def main():
                          "you never actually use. Bugs are provider-specific: the "
                          "'one sentence per paragraph' bug reproduces on groq/cerebras "
                          "but NOT on openai, so a fallback run gives a false PASS.")
+    ap.add_argument("--prompt-file", type=str, default=None,
+                    help="Evaluate this prompt template instead of prompts/normal.txt "
+                         "(loaded into the styler after construction, decoded the same "
+                         "way the app decodes prompts/normal.txt). Default: unchanged.")
+    ap.add_argument("--json", type=str, default=None,
+                    help="Also write per-case results (styled output, provider, "
+                         "failures, guard reason, tokens) to this JSON file.")
     args = ap.parse_args()
 
     # Cerebras was never wired in here, so it was literally untestable -- despite
@@ -973,6 +980,27 @@ def main():
         # --provider means what it says: this provider, no fallback.
         styler._provider_order = [args.provider]
         print(f"PINNED to provider: {args.provider} (no fallback)")
+    if args.prompt_file:
+        # Read exactly as OpenAIStyler._load_prompt_template reads
+        # prompts/<style>.txt (plain open(), platform default encoding) so a
+        # candidate is decoded the way the app would decode it once shipped.
+        with open(args.prompt_file, "r") as f:
+            _tmpl = f.read()
+        _tmpl.format(transcript="x", dialect_instruction="y")  # fail fast on bad braces
+        styler.prompt_template = _tmpl
+        print(f"PROMPT FILE: {args.prompt_file}")
+
+    # Record the model's answer BEFORE the truncation guard can replace it, so
+    # the --json output shows what a guard trip actually refused. Passes the
+    # call straight through; the pasted output is unchanged.
+    _captured = {}
+    _orig_guard = styler._guard_truncation
+
+    def _spy_guard(styled, usage, transcript):
+        _captured["model_output"] = styled
+        return _orig_guard(styled, usage, transcript)
+
+    styler._guard_truncation = _spy_guard
 
     def _matches(c: Case) -> bool:
         if args.filter and args.filter.lower() not in c.label.lower():
@@ -992,7 +1020,10 @@ def main():
     print(f"{'#':<3} {'LABEL':<{width}} {'LENGTH':<11} {'CAT':<18} VERDICT")
     print("─" * (width + 50))
 
+    tok_in = tok_out = 0
+    records = []
     for i, case in enumerate(cases, 1):
+        _captured.clear()
         try:
             t0 = time.time()
             styled, usage = styler.style(case.raw)
@@ -1000,11 +1031,24 @@ def main():
         except Exception as e:
             print(f"{i:<3} {case.label:<{width}} {case.length:<11} {case.category:<18} ERROR: {e!s:.80}")
             results.append((case, "", [f"styler exception: {e}"], 0))
+            records.append({"label": case.label, "raw": case.raw, "styled": "",
+                            "pass": False, "failures": [f"styler exception: {e}"]})
             continue
         failures = evaluate(case, styled)
         verdict = "PASS" if not failures else f"FAIL ({len(failures)})"
         print(f"{i:<3} {case.label:<{width}} {case.length:<11} {case.category:<18} {verdict:<10} ({elapsed:.0f}ms via {usage.get('provider','?')})")
         results.append((case, styled, failures, elapsed))
+        tok_in += int(usage.get("input_tokens") or 0)
+        tok_out += int(usage.get("output_tokens") or 0)
+        records.append({"label": case.label, "category": case.category, "raw": case.raw,
+                        "styled": styled, "pass": not failures, "failures": failures,
+                        "model_output_before_guard": _captured.get("model_output"),
+                        "provider": usage.get("provider"),
+                        "truncation_guard": usage.get("truncation_guard"),
+                        "fallback_reason": usage.get("fallback_reason"),
+                        "input_tokens": usage.get("input_tokens", 0),
+                        "output_tokens": usage.get("output_tokens", 0),
+                        "ms": round(elapsed)})
         if i < len(cases):
             time.sleep(args.delay)
 
@@ -1012,6 +1056,19 @@ def main():
     passed = sum(1 for _, _, f, _ in results if not f)
     total = len(results)
     print(f"PASSED {passed}/{total}")
+    # Estimate at gpt-oss-120b on Groq prices ($0.15/M in, $0.60/M out).
+    print(f"tokens: {tok_in} in / {tok_out} out  "
+          f"est. cost ${(tok_in * 0.15 + tok_out * 0.60) / 1_000_000:.4f} at gpt-oss-120b Groq prices")
+    if args.json:
+        Path(args.json).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.json).write_text(json.dumps({
+            "prompt_file": args.prompt_file or "prompts/normal.txt (default)",
+            "provider": args.provider or "app order",
+            "passed": passed, "total": total,
+            "input_tokens": tok_in, "output_tokens": tok_out,
+            "cases": records,
+        }, indent=2, ensure_ascii=False), encoding="utf-8")
+        print(f"wrote {args.json}")
 
     print("\n=== FAILURE DETAILS ===")
     for case, styled, failures, _ in results:
