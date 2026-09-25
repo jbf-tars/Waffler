@@ -1507,7 +1507,7 @@ class Api:
             stored = self._load_settings_file()
             keys = stored.get("hotkey_keys")
             if _platform.system() == "Windows":
-                from windows_hotkey import KEY_TO_VK, DEFAULT_HOTKEY, MODIFIER_KEYS, hotkey_display
+                from windows_hotkey import KEY_TO_VK, DEFAULT_HOTKEY, MODIFIER_KEYS
             else:
                 # Mac: Default to Fn (only reliable option until modifier detection is fixed)
                 if not keys:
@@ -1521,53 +1521,42 @@ class Api:
                     _log_to_file(f"Invalid hotkey key '{k}', falling back to default")
                     keys = DEFAULT_HOTKEY
                     break
-            return {"ok": True, "keys": keys, "display": hotkey_display(keys)}
+            from hotkey_rules import display as _hk_display, WINDOWS as _HK_WIN
+            return {"ok": True, "keys": keys, "display": _hk_display(keys, _HK_WIN)}
         except Exception as e:
             return {"ok": True, "keys": ["win", "ctrl"], "display": "Win + Ctrl"}
 
     def save_hotkey_config(self, keys) -> dict:
-        """Save hotkey config and restart the listener."""
+        """Save hotkey config and restart the listener.
+
+        Returns {"ok": True, "keys": [...], "display": "..."} with the keys
+        actually saved, or {"ok": False, "error": "<one sentence>"}. The rules
+        live in src/hotkey_rules.py; the key table comes from the platform's
+        own listener, so only keys it can watch are accepted."""
         try:
             if isinstance(keys, str):
-                keys = json.loads(keys)
-            if not isinstance(keys, list) or len(keys) == 0:
-                return {"ok": False, "error": "Invalid keys format"}
+                try:
+                    keys = json.loads(keys)
+                except ValueError:
+                    keys = None
 
-            # Platform-specific imports
+            # Platform-specific key tables
+            from hotkey_rules import check as _check_hotkey
             if _platform.system() == "Windows":
-                from windows_hotkey import KEY_TO_VK, MODIFIER_KEYS, hotkey_display
+                from windows_hotkey import KEY_TO_VK, MODIFIER_KEYS
                 KEY_MAP = KEY_TO_VK
             elif _platform.system() == "Darwin":
                 from mac_hotkey_monitor import KEY_TO_KEYCODE, MODIFIER_FLAGS
                 KEY_MAP = {**KEY_TO_KEYCODE, **{k: v for k, v in MODIFIER_FLAGS.items()}}
                 MODIFIER_KEYS = set(MODIFIER_FLAGS.keys())
-                def hotkey_display(keys):
-                    display_map = {"cmd": "⌘", "shift": "⇧", "option": "⌥", "control": "⌃", "fn": "Fn"}
-                    return " + ".join(display_map.get(k, k.title()) for k in keys)
             else:
-                return {"ok": False, "error": "Hotkey customization not supported on this platform"}
+                return {"ok": False, "error": "Changing the hotkey isn't supported on this computer."}
 
-            # Validate: all keys recognized
-            for k in keys:
-                if k not in KEY_MAP:
-                    return {"ok": False, "error": f"Unknown key: {k}"}
-
-            # Validate: at least one modifier (or Fn on Mac)
-            if not any(k in MODIFIER_KEYS for k in keys):
-                modifier_names = "Cmd, Ctrl, Alt, Shift, or Fn" if _platform.system() == "Darwin" else "Ctrl, Alt, Shift, or Win"
-                return {"ok": False, "error": f"At least one modifier key required ({modifier_names})"}
-
-            # Validate: max 3 keys
-            if len(keys) > 3:
-                return {"ok": False, "error": "Maximum 3 keys allowed"}
-
-            # Validate: reject reserved combos
-            key_set = set(keys)
-            if key_set == {"alt"} or key_set == {"win"}:
-                return {"ok": False, "error": "Single modifier not allowed"}
-            reserved = [{"ctrl", "alt"}, {"alt", "f4"}, {"alt", "tab"}]
-            if key_set in reserved:
-                return {"ok": False, "error": "This key combination is reserved by the system"}
+            verdict = _check_hotkey(keys, _platform.system(), KEY_MAP, MODIFIER_KEYS)
+            if not verdict["ok"]:
+                _log_to_file(f"Hotkey not saved ({keys!r}): {verdict['error']}")
+                return verdict
+            keys = verdict["keys"]
 
             # Save to settings.json
             stored = self._load_settings_file()
@@ -1603,10 +1592,10 @@ class Api:
 
                 threading.Thread(target=_restart, daemon=True, name="HotkeyRestart").start()
 
-            return {"ok": True, "display": hotkey_display(keys)}
+            return {"ok": True, "keys": keys, "display": verdict["display"]}
         except Exception as e:
             _log_to_file(f"save_hotkey_config error: {e}")
-            return {"ok": False, "error": str(e)}
+            return {"ok": False, "error": "Couldn't save the hotkey. Please try again."}
 
     # ── Permission APIs ─────────────────────────────────────────────────
 

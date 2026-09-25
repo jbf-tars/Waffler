@@ -220,6 +220,23 @@ OpenAI's prepaid billing correctly.
   `tests/test_plain_error_messages.py` (34 checks) runs the key checks, the
   update check and the download with the providers' own error types and no
   network.
+- **Saving a hotkey now says plainly whether it worked.** Settings offered
+  the Mac hotkeys (Fn, Command + Shift, Option + Shift) on Windows too, and
+  the setup wizard offered Ctrl + Alt + Space, which Windows never accepted.
+  The app refused them with "Unknown key: fn", which no screen showed, so the
+  hotkey looked changed when it was not. The rules now live in
+  `src/hotkey_rules.py` and answer per platform: every Windows choice (Win +
+  Ctrl, Ctrl + Shift, a custom combination) saves, and the answer includes
+  the keys actually saved so the screen can redraw from them. A Mac key on
+  Windows gets "Fn is a Mac key, so Windows can't use it for the hotkey.
+  Choose Win + Ctrl or Ctrl + Shift instead.", and Space gets a sentence
+  explaining that it switches on hands-free mode. On Windows the keys are
+  always named in one order, so the default reads "Win + Ctrl" everywhere,
+  as on the website, whichever key was pressed first. On a Mac the same
+  keys pass and fail as before, and the answer now names them in words
+  ("Command + Shift") like the rest of the app. The screens still need to
+  show these answers; that part is separate. `tests/test_hotkey_save.py` (30
+  checks, one more on each platform against its own key table).
 - **The app now looks the way 3.14.20 intended.** Because the fonts finally
   load, the "Waffler" wordmark is Inter and the Journal text, date dividers
   and timestamps are Source Serif 4. This is a visible change from the
