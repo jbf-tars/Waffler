@@ -149,6 +149,30 @@ const $statCount     = document.getElementById('statCount');
 const $statTotal     = document.getElementById('statTotal');
 const $dateLabel     = document.getElementById('dateLabel');
 
+// ── Pause animations while the window can't be seen ───────────────────
+// Idle, the window used about 11% of a core, almost all of it the WebView2
+// GPU process drawing animations nobody could see. style.css pauses every
+// animation under html.waffler-hidden. The page's own visibility covers
+// most cases; app.py also reports hide, minimise and restore through
+// waffler_window_visible(), because a minimised WebView2 window may still
+// count as visible. Any sign of use (focus, a click, a key) clears it.
+function _setWindowHidden(hidden) {
+  document.documentElement.classList.toggle('waffler-hidden', !!hidden);
+}
+document.addEventListener('visibilitychange', () => _setWindowHidden(document.hidden));
+window.waffler_window_visible = function(visible) { _setWindowHidden(!visible); };
+['focus', 'pointerdown', 'keydown'].forEach((type) => {
+  window.addEventListener(type, () => _setWindowHidden(false), true);
+});
+_setWindowHidden(document.hidden);
+
+function _windowHidden() {
+  return document.documentElement.classList.contains('waffler-hidden');
+}
+function _prefersReducedMotion() {
+  return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+}
+
 // ── Init ─────────────────────────────────────────────────────────────
 window.addEventListener('pywebviewready', () => {
   checkOnboarding();  // Check if wizard needed or show main app
@@ -1740,6 +1764,7 @@ function showWizard() {
 function hideWizard() {
   stopFnKeyPolling();
   stopWizClipboardWatch();
+  wizStopExplainerWaffle();
   const overlay = document.getElementById('wizardOverlay');
   if (!overlay) return;
   overlay.classList.add('hiding');
@@ -1930,6 +1955,7 @@ function wizShowStep(step) {
   if (step === 2) { wizUpdateHotkeyBadge(); wizLoadHotkeyInfo(); initFnKeyFeedback(); }
   if (step === 3) { wizInitApiKeyStep(); wizInitProviderTabs(); }
   if (step === 4) { wizInitTryItStep(); wizUpdateTryItKeycap(); initFnKeyFeedback(); wizStartExplainerWaffle(); }
+  else wizStopExplainerWaffle();
 }
 
 function wizUpdateNextButton() {
@@ -3001,7 +3027,21 @@ function wizStartExplainerWaffle() {
     0, 0.15, 0.4, 0.65, 0.8, 0.7, 0.55, 0.4, 0.2, 0,
   ];
 
+  // With reduced motion asked for, the waffle stays still at mid volume.
+  if (_prefersReducedMotion()) {
+    cells.forEach((cell) => {
+      const row = parseInt(cell.getAttribute('data-row') || '0', 10);
+      cell.setAttribute('fill', row >= 2 ? SYRUP_LIGHT : LIGHT_GOLD);
+    });
+    return;
+  }
+
   function animate() {
+    // Keep the loop alive but do no work while the window is hidden.
+    if (_windowHidden()) {
+      _wizExplainerWaffleRAF = requestAnimationFrame(animate);
+      return;
+    }
     const now = performance.now();
     const progress = (now % 4000) / 4000;
     const total = speechWave.length;
@@ -3040,6 +3080,13 @@ function wizStartExplainerWaffle() {
 
   if (_wizExplainerWaffleRAF) cancelAnimationFrame(_wizExplainerWaffleRAF);
   _wizExplainerWaffleRAF = requestAnimationFrame(animate);
+}
+
+// The loop used to run for the rest of the session once the Try-it step had
+// been shown, redrawing 16 hidden squares every frame behind the Journal.
+function wizStopExplainerWaffle() {
+  if (_wizExplainerWaffleRAF) cancelAnimationFrame(_wizExplainerWaffleRAF);
+  _wizExplainerWaffleRAF = null;
 }
 
 async function wizCompleteSetup() {

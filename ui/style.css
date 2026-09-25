@@ -5027,6 +5027,13 @@ body[data-theme="dark"] .j-listen {
   width: 7px; height: 7px;
   background: var(--accent);
   border-radius: 50%;
+}
+/* The dot pulses only while something is happening. Pulsing at idle kept
+   the window drawing 60 frames a second in the tray (about 9% of a core in
+   the WebView2 GPU process). */
+.j-listen.listening .j-listen-dot,
+.j-listen.recording .j-listen-dot,
+.j-listen.processing .j-listen-dot {
   animation: j-pulse 1.6s ease-in-out infinite;
 }
 /* State variants — green when recording. waffler_status() sets
@@ -5116,7 +5123,9 @@ body[data-theme="cream"] .j-streak, body:not([data-theme]) .j-streak {
 }
 .j-stack-svg {
   filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.1));
-  animation: j-stack-wobble 5s ease-in-out infinite;
+  /* One wobble when the Journal opens, not forever: an endless animation
+     with a drop-shadow kept the window redrawing while idle. */
+  animation: j-stack-wobble 5s ease-in-out 1;
   transform-origin: center bottom;
 }
 @keyframes j-stack-wobble {
@@ -5449,4 +5458,33 @@ body:not([data-theme]) .j-page .btn-copy {
 @media (prefers-color-scheme: dark) {
   .q-badge.q-check { background: rgba(230, 190, 80, 0.18); color: #e6c05a; }
   .q-badge.q-low   { background: rgba(240, 110, 90, 0.18); color: #f08a72; }
+}
+
+/* ── Motion ────────────────────────────────────────────────────────────
+   Nothing animates while the window is hidden in the tray or menu bar, or
+   minimised. app.js sets .waffler-hidden on <html> from the page's
+   visibility and from app.py, which reports hide, minimise and restore. */
+html.waffler-hidden *,
+html.waffler-hidden *::before,
+html.waffler-hidden *::after {
+  animation-play-state: paused !important;
+}
+
+/* One rule for people who ask their computer for less motion: every
+   animation and transition finishes at once. The macOS walkthrough and the
+   story cards are then shown at their final, readable frame. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0s !important;
+    scroll-behavior: auto !important;
+  }
+  .vb-phase-list, .vb-list-row-new { opacity: 1; }
+  .vb-phase-picker, .vb-cursor { display: none; }
+  .vb-target-toggle { background: #3b82f6; }
+  .vb-target-toggle .vb-toggle-knob { left: 15px; }
+  .wiz-listening:not(.detected)::before { display: none; }
 }

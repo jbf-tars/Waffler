@@ -2504,6 +2504,27 @@ def notify_js_status(status: str):
             pass
 
 
+def notify_js_window_visible(visible: bool):
+    """Tell the page whether its window can be seen, so it pauses every
+    animation while hidden in the tray or menu bar, or minimised
+    (ui/app.js waffler_window_visible). Sent from its own thread:
+    evaluate_js waits for the page, and the callers include pywebview's
+    window event handlers, which must not block."""
+    w = _window
+    if not w:
+        return
+    js = ("window.waffler_window_visible && window.waffler_window_visible(%s)"
+          % ("true" if visible else "false"))
+
+    def _send():
+        try:
+            w.evaluate_js(js)
+        except Exception:
+            pass
+
+    threading.Thread(target=_send, daemon=True, name="JsWindowVisible").start()
+
+
 def notify_js_new_item(item: dict):
     """Push a new transcript item to the JS frontend."""
     if _window:
@@ -4104,6 +4125,7 @@ def _tray_show_window(icon=None, item=None):
             _window_ref.restore()
         except Exception as e:
             _log_to_file(f"Tray show error: {e}")
+    notify_js_window_visible(True)
 
 
 def _tray_quit(icon=None, item=None):
@@ -4212,6 +4234,7 @@ def _on_window_closing():
         except Exception:
             pass
     _window_hidden = True
+    notify_js_window_visible(False)
     return False  # Prevent close
 
 
@@ -4605,6 +4628,20 @@ def main():
             _log_to_file(f"Window icon error: {e}")
 
     window.events.shown += _on_shown
+
+    # Minimised windows can still count as visible to the page, so say so:
+    # the page pauses its animations until the window is restored. The
+    # handlers take no arguments, so pywebview calls them as they are.
+    def _on_minimized():
+        notify_js_window_visible(False)
+
+    def _on_restored():
+        notify_js_window_visible(True)
+
+    if getattr(window.events, "minimized", None) is not None:
+        window.events.minimized += _on_minimized
+    if getattr(window.events, "restored", None) is not None:
+        window.events.restored += _on_restored
 
     print("Waffler window launching...")
     # Start webview — this blocks until window is closed
