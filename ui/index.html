@@ -46,14 +46,12 @@
       </select>
     </div>
 
-    <!-- Status pill — v3.14.22 wording.
-         "Listening for [Fn]" was misleading (sounded like the mic was
-         already hot). Changed to "Waiting for activation" — calmer,
-         clearer, matches the actual idle state. The Fn key is shown
-         to the side as a small chip so users still know how to start. -->
+    <!-- Status pill. window.waffler_status() swaps the state class and
+         the label (Ready, Recording, Cleaning up); the labels live in
+         logic.js. The hotkey chip beside it shows how to start. -->
     <div class="j-listen status-indicator idle" id="statusIndicator">
       <span class="j-listen-dot status-dot"></span>
-      <span class="j-listen-text" id="statusText">Waiting for activation</span>
+      <span class="j-listen-text" id="statusText">Ready</span>
       <kbd class="j-kbd" id="hotkeyHint">Fn</kbd>
     </div>
 
@@ -1140,6 +1138,7 @@
 
 <div class="toast" id="toast"></div>
 
+<script src="logic.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

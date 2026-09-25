@@ -1,5 +1,9 @@
 /* Waffler — Frontend Logic */
 
+// Pure helpers (labels, presets, formatting) live in logic.js, which
+// index.html loads first, so the tests can run them without a page.
+const WL = window.WafflerLogic;
+
 // ── Theme (v3.14.3+) ──────────────────────────────────────────────────
 // Apply the saved theme as early as possible so the page doesn't flash
 // in the wrong colours. Default for new installs is "cream".
@@ -139,7 +143,6 @@ const $empty         = document.getElementById('emptyState');
 const $feedCount     = document.getElementById('feedCount');
 const $statusInd     = document.getElementById('statusIndicator');
 const $statusText    = document.getElementById('statusText');
-const $overlay       = document.getElementById('recordingOverlay');
 const $toast         = document.getElementById('toast');
 const $statWords     = document.getElementById('statWords');
 const $statCount     = document.getElementById('statCount');
@@ -787,27 +790,30 @@ window.waffler_refresh = function(newItem) {
 };
 
 // ── Called by Python for status updates ──────────────────────────────
+// Only the state class changes: the pill keeps its own j-listen class,
+// which the old `className = ...` assignment wiped, so the pill lost its
+// styling while recording. That version also threw on a #recordingOverlay
+// element that no longer exists, before the "Done" to "Ready" reset was
+// scheduled, so after the first dictation the label stuck on "Done".
+let _statusResetTimer = null;
+
+function _showStatus(view) {
+  if (!$statusInd || !$statusText) return;
+  $statusInd.classList.remove(...WL.STATUS_CLASSES);
+  $statusInd.classList.add(view.cls);
+  $statusText.textContent = view.label;
+}
+
 window.waffler_status = function(status) {
-  $statusInd.className = 'status-indicator ' + status;
-  const labels = {
-    idle:       'Ready',
-    listening:  'Listening…',
-    processing: 'Processing…',
-    done:       'Done'
-  };
-  $statusText.textContent = labels[status] || status;
-
-  if (status === 'listening') {
-    $overlay.classList.add('visible');
-  } else {
-    $overlay.classList.remove('visible');
-  }
-
-  if (status === 'done') {
-    setTimeout(() => {
-      $statusInd.className = 'status-indicator idle';
-      $statusText.textContent = 'Ready';
-    }, 3000);
+  clearTimeout(_statusResetTimer);
+  _statusResetTimer = null;
+  const view = WL.statusView(status);
+  _showStatus(view);
+  if (view.cls === 'done') {
+    _statusResetTimer = setTimeout(() => {
+      _statusResetTimer = null;
+      _showStatus(WL.statusView('idle'));
+    }, WL.DONE_RESET_MS);
   }
 };
 

@@ -5029,10 +5029,15 @@ body[data-theme="dark"] .j-listen {
   border-radius: 50%;
   animation: j-pulse 1.6s ease-in-out infinite;
 }
-/* State variants — green when recording */
-.j-listen.recording { background: #dcfce7; color: #15803d; border-color: #86efac; }
+/* State variants — green when recording. waffler_status() sets
+   "listening" while the hotkey is held ("recording" is the older name).
+   The extra .status-indicator makes these win over the dark theme's
+   idle colours above, so the states show in both themes. */
+.j-listen.status-indicator.listening,
+.j-listen.status-indicator.recording { background: #dcfce7; color: #15803d; border-color: #86efac; }
+.j-listen.listening .j-listen-dot,
 .j-listen.recording .j-listen-dot { background: #15803d; }
-.j-listen.processing { background: #fef3c7; color: #d97706; border-color: #fcd34d; }
+.j-listen.status-indicator.processing { background: #fef3c7; color: #d97706; border-color: #fcd34d; }
 .j-listen.processing .j-listen-dot { background: #d97706; }
 @keyframes j-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
 
