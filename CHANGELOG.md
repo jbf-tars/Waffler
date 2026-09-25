@@ -4,6 +4,54 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.100] - 2026-09-25
+
+The app window's fonts now ship inside the app instead of being fetched from
+Google Fonts, so opening Waffler no longer contacts Google.
+
+### Fixed
+- **Every launch sent the user's IP address to Google, for fonts that never
+  loaded.** Since 3.14.20, `ui/style.css` pulled Inter and Source Serif 4 with
+  an `@import` from fonts.googleapis.com. That broke Waffler's rule that the
+  only network calls are your chosen AI provider (on your own key) and the
+  GitHub update check. It was also malformed: `opsz,wght@8..60,400;500;...`
+  gives single values where the two-axis syntax needs pairs, so Google
+  answered **HTTP 400** and neither font ever loaded. The wordmark has been
+  drawn in the system UI font (Segoe UI on Windows) and the Journal's serif
+  text in Georgia ever since, while the request still went out on every
+  launch. Verified by reading the platform font Chrome actually rendered
+  with (DevTools `getPlatformFontsForNode`), not the CSS it asked for.
+- **Fix:** Inter and Source Serif 4 are bundled in `ui/fonts/` as variable
+  WOFF2 files (latin and latin-ext, the same subsets and unicode ranges Google
+  serves) and loaded with local `@font-face` rules. Weights are declared as
+  400 to 800, the range the old import requested. Source Serif 4 includes its
+  optical-size axis (8 to 60) and a true italic, because the Journal's date
+  dividers and entry timestamps are set in serif italic and would otherwise be
+  a slanted fake. Both families are SIL Open Font License 1.1; the licence
+  texts and provenance are in `ui/fonts/`. About 600 KB added.
+
+### Changed
+- **The app now looks the way 3.14.20 intended.** Because the fonts finally
+  load, the "Waffler" wordmark is Inter and the Journal text, date dividers
+  and timestamps are Source Serif 4. This is a visible change from the
+  system and Georgia fallbacks people have been seeing.
+
+### Verified
+- With every non-local request blocked, the UI renders with zero network
+  requests, both themes use the bundled faces (wordmark: Inter, serif:
+  Source Serif 4), latin-ext text such as "Łukasz" renders entirely in the
+  bundled font, and there are no console errors.
+- PyInstaller's own datas expansion of the existing `('ui', 'ui')` entry in
+  `Waffler_windows.spec` and `Waffler_mac.spec` includes all nine files in
+  `ui/fonts/`, so both builds ship them without spec changes.
+- Version ordering: the updater compares integer tuples, so 3.14.100 is
+  correctly newer than 3.14.99.
+- `tests/test_ui_no_remote_assets.py` (7 checks) fails if any UI stylesheet
+  or page loads a remote font, script, style or image on start-up, if a
+  bundled font the CSS references is missing, if the true italic or a
+  licence is dropped, or if either spec stops bundling `ui/`. Four of its
+  checks fail against the old stylesheet. Suite: 325 passed, 1 skipped.
+
 ## [3.14.99] - 2026-09-22
 
 Windows Defender started deleting `Waffler.exe` mid-install this morning, so

@@ -1,18 +1,74 @@
 /* Waffler — Premium Dark UI */
 
-/* v3.14.20 — load Source Serif 4 (serif body / brand wordmark) and
-   Inter (UI sans) from Google Fonts so the in-app typography matches
-   the website exactly. Previously --serif resolved to Source Serif 4,
-   but the font wasn't loaded so it fell back to Georgia — the "Waffler"
-   wordmark and journal-entry body looked subtly different from the
-   website's. Importing via the CDN keeps the bundle small; if the
-   user is offline, the cascade falls through to Georgia / system
-   serif which is still a respectable fallback.
+/* Bundled UI fonts: Inter (brand wordmark) and Source Serif 4 (--serif,
+   journal text and date dividers), served from ui/fonts/ inside the app.
 
-   Note: pywebview's WebView2 / WKWebView resolve @import normally as
-   long as the app has internet — which it needs for API calls anyway,
-   so there's no scenario where fonts fail to load but the app works. */
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Source+Serif+4:opsz,wght@8..60,400;500;600;700;800&display=swap");
+   v3.14.20 loaded these with an @import from Google Fonts. That
+   had two problems. Every launch sent the user's IP address to Google,
+   which breaks Waffler's rule that the only network calls are the user's
+   chosen AI provider and the GitHub update check. And the request was
+   malformed ("opsz,wght@8..60,400;500;..." gives single values where the
+   two-axis syntax needs pairs), so Google answered HTTP 400 and neither
+   font ever loaded: the wordmark fell back to the system UI font and the
+   serif to Georgia. Bundling fixes both.
+
+   Families, subsets and unicode ranges match what Google Fonts serves
+   (latin and latin-ext). font-weight is declared as 400 800, the range
+   the old import asked for, so any other weight clamps the same way.
+   Source Serif 4's opsz axis (8-60) is applied automatically from the
+   font size by font-optical-sizing: auto. Provenance and the OFL licence
+   texts are in ui/fonts/. */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400 800;
+  src: url("fonts/inter-latin-ext-wght-normal.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400 800;
+  src: url("fonts/inter-latin-wght-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Source Serif 4";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400 800;
+  src: url("fonts/source-serif-4-latin-ext-opsz-normal.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Source Serif 4";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400 800;
+  src: url("fonts/source-serif-4-latin-opsz-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* True italic for the Journal's date dividers (.j-date-day) and entry
+   timestamps (.j-page .card-time). Without it the browser fakes the italic
+   by slanting the upright letters. */
+@font-face {
+  font-family: "Source Serif 4";
+  font-style: italic;
+  font-display: swap;
+  font-weight: 400 800;
+  src: url("fonts/source-serif-4-latin-ext-opsz-italic.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Source Serif 4";
+  font-style: italic;
+  font-display: swap;
+  font-weight: 400 800;
+  src: url("fonts/source-serif-4-latin-opsz-italic.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
 
 *, *::before, *::after {
   box-sizing: border-box;
