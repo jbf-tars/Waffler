@@ -84,8 +84,10 @@ def key_check_error(provider: str, exc) -> str:
 
 UPDATE_CHECK_FAILED = "Couldn't check for updates. Try again later."
 UPDATE_CHECK_OFFLINE = "Couldn't check for updates. Check you're online and try again."
+# The app opens the release's own page for this one (ui/logic.js
+# updateCheckView), so the sentence points there.
 UPDATE_NO_INSTALLER = ("This update has no installer for this computer yet. "
-                       "You can get it from the download page.")
+                       "Try again later, or see the release page.")
 UPDATE_DOWNLOAD_FAILED = ("The update didn't download. Try again, or get it from the "
                           "download page.")
 UPDATE_INSTALL_FAILED = ("The update couldn't be installed. Get it from the download "

@@ -120,8 +120,72 @@
       .map((p) => Object.assign({}, p, p.keys ? { keys: p.keys.slice() } : {}));
   }
 
+  // ── Update messages ───────────────────────────────────────────────────
+  // The backend (src/user_messages.py) answers with plain sentences; the
+  // screen shows them as they are and never adds exception text. These
+  // fallbacks are the same sentences, for when the call itself fails.
+  const DOWNLOAD_PAGE = 'https://wafflerai.com/download/';
+  const UPDATE_TEXT = {
+    checkFailed: "Couldn't check for updates. Try again later.",
+    noInstaller: 'This update has no installer for this computer yet. Try again later, or see the release page.',
+    downloadFailed: "The update didn't download. Try again, or get it from the download page.",
+    installFailed: "The update couldn't be installed. Get it from the download page instead.",
+  };
+
+  // "Couldn't check for updates. Try again later." becomes a title
+  // ("Couldn't check for updates") and a subtitle ("Try again later.").
+  function splitMessage(msg) {
+    const text = String(msg || '').trim();
+    const m = text.match(/^(.+?[.!?])\s+(\S.*)$/s);
+    if (!m) return { title: text.replace(/\.$/, ''), subtitle: '' };
+    return { title: m[1].replace(/\.$/, ''), subtitle: m[2] };
+  }
+
+  // What the update dialog shows for a check_for_updates() answer.
+  function updateCheckView(r) {
+    r = r || {};
+    if (r.update_available) {
+      const title = `Waffler v${r.latest_version} is available`;
+      // No installer for this computer in the release: open its page rather
+      // than trying to download (which used to fail as an "untrusted URL").
+      if (r.no_installer || !r.download_url) {
+        return {
+          kind: 'no_installer', icon: '⬆️', title,
+          subtitle: r.no_installer_message || UPDATE_TEXT.noInstaller,
+          primary: r.release_url
+            ? { label: 'Open release page', url: r.release_url }
+            : { label: 'Open download page', url: DOWNLOAD_PAGE },
+          cancelLabel: 'Later',
+        };
+      }
+      return {
+        kind: 'available', icon: '⬆️', title,
+        subtitle: `You're on v${r.current_version}. Download and install now?`,
+        primary: { label: 'Download & Install', download: r.download_url },
+        browserUrl: DOWNLOAD_PAGE, cancelLabel: 'Later',
+      };
+    }
+    if (r.error) {
+      const m = splitMessage(r.error);
+      const on = r.current_version ? ` You're on v${r.current_version}.` : '';
+      return { kind: 'error', icon: '⚠️', title: m.title, subtitle: (m.subtitle + on).trim() };
+    }
+    const latest = r.latest_version ? ` (latest: v${r.latest_version})` : '';
+    return { kind: 'up_to_date', icon: '✓', title: "You're up to date",
+             subtitle: `Running Waffler v${r.current_version || '?'}${latest}.` };
+  }
+
+  // A failed download or install: the backend's sentence, and a way to the
+  // download page.
+  function updateFailureView(r, fallback) {
+    const m = splitMessage((r && r.error) || fallback || UPDATE_TEXT.downloadFailed);
+    return { icon: '⚠️', title: m.title, subtitle: m.subtitle,
+             browserUrl: (r && r.download_page) || DOWNLOAD_PAGE };
+  }
+
   return {
     STATUS_VIEWS, STATUS_CLASSES, DONE_RESET_MS, statusView,
     defaultHotkey, keyName, orderKeys, hotkeyName, keycaps, pressOrderHint, hotkeyPresets,
+    DOWNLOAD_PAGE, UPDATE_TEXT, splitMessage, updateCheckView, updateFailureView,
   };
 });

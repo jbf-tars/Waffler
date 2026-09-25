@@ -275,3 +275,80 @@ def test_no_screen_calls_the_default_ctrl_plus_win():
         text = code_only(text) if path.suffix == ".js" else text
         assert not re.search(r"Ctrl ?\+ ?Win", text), f"{path.name} names the hotkey 'Ctrl + Win'"
         assert "Ctrl + Alt + Space" not in text or path.suffix != ".js"
+
+
+# ── plain messages on screen (QW8) ───────────────────────────────────────────
+
+import user_messages as um  # noqa: E402
+
+
+@needs_node
+def test_the_screen_fallbacks_are_the_backends_sentences():
+    ui = js("({text: L.UPDATE_TEXT, page: L.DOWNLOAD_PAGE})")
+    assert ui["page"] == um.DOWNLOAD_PAGE
+    assert ui["text"] == {
+        "checkFailed": um.UPDATE_CHECK_FAILED,
+        "noInstaller": um.UPDATE_NO_INSTALLER,
+        "downloadFailed": um.UPDATE_DOWNLOAD_FAILED,
+        "installFailed": um.UPDATE_INSTALL_FAILED,
+    }
+
+
+@needs_node
+def test_a_failed_update_check_shows_the_backends_sentence():
+    for msg in (um.UPDATE_CHECK_FAILED, um.UPDATE_CHECK_OFFLINE):
+        v = js(f"L.updateCheckView({{update_available: false, current_version: '3.14.100', error: {json.dumps(msg)}}})")
+        assert v["kind"] == "error"
+        assert v["title"] == "Couldn't check for updates"
+        assert v["subtitle"].startswith(msg.split(". ", 1)[1])
+        assert v["subtitle"].endswith("You're on v3.14.100.")
+        assert "primary" not in v
+
+
+@needs_node
+def test_a_release_with_no_installer_opens_its_page():
+    v = js("L.updateCheckView({update_available: true, latest_version: '3.14.101', current_version: '3.14.100', "
+           "download_url: '', release_url: 'https://github.com/jbf-tars/Waffler/releases/tag/v3.14.101', "
+           f"no_installer: true, no_installer_message: {json.dumps(um.UPDATE_NO_INSTALLER)}}})")
+    assert v["kind"] == "no_installer"
+    assert v["subtitle"] == um.UPDATE_NO_INSTALLER
+    assert v["primary"] == {"label": "Open release page",
+                            "url": "https://github.com/jbf-tars/Waffler/releases/tag/v3.14.101"}
+    # Without a release page it falls back to the download page, never a download.
+    v = js("L.updateCheckView({update_available: true, latest_version: '9', current_version: '1', download_url: ''})")
+    assert v["primary"] == {"label": "Open download page", "url": um.DOWNLOAD_PAGE}
+
+
+@needs_node
+def test_an_update_with_an_installer_downloads_it():
+    v = js("L.updateCheckView({update_available: true, latest_version: '3.14.101', current_version: '3.14.100', "
+           "download_url: 'https://github.com/x/releases/download/v3.14.101/Waffler-Setup.exe'})")
+    assert v["primary"] == {"label": "Download & Install",
+                            "download": "https://github.com/x/releases/download/v3.14.101/Waffler-Setup.exe"}
+    assert v["browserUrl"] == um.DOWNLOAD_PAGE
+
+
+@needs_node
+def test_a_failed_download_is_one_sentence_and_the_download_page():
+    v = js(f"L.updateFailureView({{error: {json.dumps(um.UPDATE_DOWNLOAD_FAILED)}, "
+           f"error_detail: 'curl: (28) Operation timed out', download_page: {json.dumps(um.DOWNLOAD_PAGE)}}})")
+    assert v == {"icon": "⚠️", "title": "The update didn't download",
+                 "subtitle": "Try again, or get it from the download page.", "browserUrl": um.DOWNLOAD_PAGE}
+    # A bridge failure with no answer at all still gets the plain sentence.
+    v = js("L.updateFailureView(null, L.UPDATE_TEXT.installFailed)")
+    assert v["title"] == "The update couldn't be installed"
+    assert v["browserUrl"] == um.DOWNLOAD_PAGE
+
+
+def test_no_raw_error_text_reaches_the_screen():
+    app = code_only(read("app.js"))
+    # Exception text and the backend's str(e) answers used to be shown as-is.
+    assert "'Error: ' +" not in app
+    assert "subtitle: String(e)" not in app
+    assert "subtitle: p.error" not in app
+    assert "throw new Error(r.error" not in app
+    html = read("index.html")
+    assert "Download in browser" not in html and ">Open download page<" in html
+    for text in (app, html, code_only(read("logic.js"))):
+        for jargon in ("HTTPSConnectionPool", "HTTP 403", "provider key", "untrusted URL"):
+            assert jargon not in text

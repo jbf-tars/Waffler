@@ -237,7 +237,7 @@ async function checkForUpdates() {
         // progress bar and runs `install_update_and_restart` on
         // completion, so the user never has to leave the app. Falls
         // back to opening wafflerai.com/download/ via the modal's
-        // "Download in browser" button if the in-app fetch fails.
+        // "Open download page" button if the in-app fetch fails.
         openUpdateModalFromCheck(r);
         banner.remove();
       });
@@ -272,7 +272,7 @@ function closeUpdateModal(ev) {
   if (m) m.style.display = 'none';
   stopProgressPolling();
 }
-function setUpdateModal({ icon, title, subtitle, showProgress, primaryLabel, primaryHandler, cancelLabel, browserUrl }) {
+function setUpdateModal({ icon, title, subtitle, showProgress, primaryLabel, primaryHandler, cancelLabel, browserUrl, browserLabel }) {
   document.getElementById('updateModalIcon').textContent = icon || '⬆️';
   document.getElementById('updateModalTitle').textContent = title || '';
   document.getElementById('updateModalSubtitle').textContent = subtitle || '';
@@ -287,6 +287,7 @@ function setUpdateModal({ icon, title, subtitle, showProgress, primaryLabel, pri
   }
   const browserBtn = document.getElementById('updateBrowserBtn');
   if (browserUrl) {
+    browserBtn.textContent = browserLabel || 'Open download page';
     browserBtn.style.display = '';
     browserBtn.onclick = () => pywebview.api.open_url(browserUrl);
   } else {
@@ -299,27 +300,17 @@ function setUpdateModal({ icon, title, subtitle, showProgress, primaryLabel, pri
 async function checkForUpdatesManual() {
   showUpdateModal();
   setUpdateModal({ icon: '🔄', title: 'Checking for updates…', subtitle: 'Contacting GitHub…' });
+  let r;
   try {
-    const r = await pywebview.api.check_for_updates();
-    if (r.update_available) {
-      openUpdateModalFromCheck(r);
-    } else if (r.error) {
-      setUpdateModal({
-        icon: '⚠️',
-        title: 'Couldn\'t check for updates',
-        subtitle: `${r.error}${r.current_version ? ` (you're on v${r.current_version})` : ''}`,
-      });
-    } else {
-      const latest = r.latest_version ? ` (latest: v${r.latest_version})` : '';
-      setUpdateModal({
-        icon: '✓',
-        title: 'You\'re up to date',
-        subtitle: `Running Waffler v${r.current_version || '?'}${latest}.`,
-      });
-    }
+    r = await pywebview.api.check_for_updates();
   } catch(e) {
-    setUpdateModal({ icon: '⚠️', title: 'Check failed', subtitle: String(e) });
+    console.warn('check_for_updates failed:', e);
+    r = { error: WL.UPDATE_TEXT.checkFailed };
   }
+  if (r && r.update_available) { openUpdateModalFromCheck(r); return; }
+  // The backend's sentence as it is ("Couldn't check for updates. Try
+  // again later."), never "GitHub API returned HTTP 403".
+  setUpdateModal(WL.updateCheckView(r));
 }
 
 function openUpdateModalFromCheck(r) {
@@ -330,43 +321,38 @@ function openUpdateModalFromCheck(r) {
   // (no more PyInstaller-bundled-requests SSL hang). Both platforms get
   // the same "Download & Install" experience: stream the installer
   // in-app, show a progress bar, run the platform installer, relaunch.
+  // A release with no installer for this computer opens its page instead.
+  const v = WL.updateCheckView(r);
   setUpdateModal({
-    icon: '⬆️',
-    title: `Waffler v${r.latest_version} is available`,
-    subtitle: `You're on v${r.current_version}. Download and install now?`,
-    primaryLabel: 'Download & Install',
-    primaryHandler: () => startDownloadFlow(r.download_url),
-    browserUrl: 'https://wafflerai.com/download/',
-    cancelLabel: 'Later',
+    ...v,
+    primaryLabel: v.primary.label,
+    primaryHandler: v.primary.download
+      ? () => startDownloadFlow(v.primary.download)
+      : () => pywebview.api.open_url(v.primary.url),
   });
 }
 
 async function startDownloadFlow(url) {
   _downloadedPath = null;
-  // On any failure / "Download in browser" click, send users to the
-  // website's download page rather than the GitHub release page —
-  // it's the user-friendly entry point we control.
-  const fallbackUrl = 'https://wafflerai.com/download/';
+  // On any failure, or a click on "Open download page", send people to the
+  // website's download page: the friendly place to get the installer.
   setUpdateModal({
     icon: '⬇️',
     title: 'Downloading update…',
     subtitle: 'Please keep Waffler open.',
     showProgress: true,
-    browserUrl: fallbackUrl,
+    browserUrl: WL.DOWNLOAD_PAGE,
     cancelLabel: 'Cancel',
   });
+  let r;
   try {
-    const r = await pywebview.api.start_update_download(url);
-    if (!r.ok) throw new Error(r.error || 'Failed to start download');
-    startProgressPolling();
+    r = await pywebview.api.start_update_download(url);
   } catch(e) {
-    setUpdateModal({
-      icon: '⚠️',
-      title: 'Download failed',
-      subtitle: String(e),
-      browserUrl: fallbackUrl,
-    });
+    console.warn('start_update_download failed:', e);
+    r = { ok: false };
   }
+  if (r && r.ok) { startProgressPolling(); return; }
+  setUpdateModal(WL.updateFailureView(r, WL.UPDATE_TEXT.downloadFailed));
 }
 
 function startProgressPolling() {
@@ -381,13 +367,9 @@ async function pollUpdateProgress() {
   try {
     const p = await pywebview.api.get_update_progress();
     if (p.error) {
+      // One plain sentence from the updater; its raw detail stays in the log.
       stopProgressPolling();
-      setUpdateModal({
-        icon: '⚠️',
-        title: 'Download failed',
-        subtitle: p.error,
-        browserUrl: 'https://wafflerai.com/download/',
-      });
+      setUpdateModal(WL.updateFailureView(p, WL.UPDATE_TEXT.downloadFailed));
       return;
     }
     if (p.total_bytes > 0) {
@@ -419,11 +401,16 @@ async function pollUpdateProgress() {
 async function installDownloadedUpdate() {
   if (!_downloadedPath) return;
   setUpdateModal({ icon: '⚙️', title: 'Installing…', subtitle: 'Waffler is closing to apply the update.' });
+  let r;
   try {
-    await pywebview.api.install_update_and_restart(_downloadedPath);
+    r = await pywebview.api.install_update_and_restart(_downloadedPath);
   } catch(e) {
-    setUpdateModal({ icon: '⚠️', title: 'Install failed', subtitle: String(e) });
+    console.warn('install_update_and_restart failed:', e);
+    r = { ok: false };
   }
+  // Success usually never answers (Waffler quits); a refusal used to be
+  // ignored and left "Installing…" on screen.
+  if (r && r.ok === false) setUpdateModal(WL.updateFailureView(r, WL.UPDATE_TEXT.installFailed));
 }
 
 function updateHotkeyHint() {
@@ -464,11 +451,12 @@ async function openAccessibilitySettings() {
       showToast("Opening System Settings...", "success");
       // Permission status is managed manually by the user — no auto-recheck.
     } else {
-      showToast(result.error || "Failed to open settings", "error");
+      console.warn('open settings failed:', result.error);
+      showToast("Couldn't open System Settings. Open it from the Apple menu instead.", "error");
     }
   } catch (e) {
     console.error("openAccessibilitySettings error:", e);
-    showToast("Error opening settings", "error");
+    showToast("Couldn't open System Settings. Open it from the Apple menu instead.", "error");
   }
 }
 
@@ -484,11 +472,12 @@ async function openInputMonitoringSettings() {
       showToast("Opening System Settings...", "success");
       // Permission status is managed manually by the user — no auto-recheck.
     } else {
-      showToast(result.error || "Failed to open settings", "error");
+      console.warn('open settings failed:', result.error);
+      showToast("Couldn't open System Settings. Open it from the Apple menu instead.", "error");
     }
   } catch (e) {
     console.error("openInputMonitoringSettings error:", e);
-    showToast("Error opening settings", "error");
+    showToast("Couldn't open System Settings. Open it from the Apple menu instead.", "error");
   }
 }
 
@@ -513,12 +502,12 @@ async function downloadLogs(btn) {
     if (result && result.ok) {
       showToast(`Logs saved to ${result.path}`, "success", 6000);
     } else {
-      const msg = (result && result.error) || "Failed to download logs";
-      showToast(msg, "error", 6000);
+      console.warn('download_logs failed:', result && result.error);
+      showToast("Couldn't save the logs. Try again.", "error", 6000);
     }
   } catch (e) {
     console.error("downloadLogs error:", e);
-    showToast("Error downloading logs", "error");
+    showToast("Couldn't save the logs. Try again.", "error");
   } finally {
     if (btn) {
       btn.disabled = false;
@@ -558,11 +547,12 @@ async function factoryReset() {
       showToast("Resetting all data...", "success");
       // App will quit automatically
     } else {
-      showToast(result.error || "Failed to reset", "error");
+      console.warn('factory_reset failed:', result.error);
+      showToast("Couldn't reset Waffler. Try again.", "error");
     }
   } catch (e) {
     console.error("factoryReset error:", e);
-    showToast("Error resetting data", "error");
+    showToast("Couldn't reset Waffler. Try again.", "error");
   }
 }
 
@@ -1541,7 +1531,7 @@ async function saveGroqKey() {
   if (!inp) return;
   const val = inp.value.trim();
   if (!val) { showToast('Enter a Groq API key first', 'error'); return; }
-  if (!val.startsWith('gsk_')) { showToast('Invalid key — should start with gsk_', 'error'); return; }
+  if (!val.startsWith('gsk_')) { showToast("That isn't a Groq key. Groq keys start with gsk_", 'error'); return; }
   try {
     const r = await pywebview.api.save_settings({ groq_key: val });
     if (r.ok) {
@@ -1550,10 +1540,11 @@ async function saveGroqKey() {
       showRestartBanner('Restart Waffler to start using the new Groq key.');
       await loadSettings();
     } else {
-      showToast('Error: ' + r.error, 'error');
+      console.warn('save_settings failed:', r.error);
+      showToast("Couldn't save the key. Try again.", 'error');
     }
   } catch(e) {
-    showToast('Failed to save key', 'error');
+    showToast("Couldn't save the key. Try again.", 'error');
   }
 }
 
@@ -1562,7 +1553,7 @@ async function saveCerebrasKey() {
   if (!inp) return;
   const val = inp.value.trim();
   if (!val) { showToast('Enter a Cerebras API key first', 'error'); return; }
-  if (!val.startsWith('csk-')) { showToast('Invalid key — should start with csk-', 'error'); return; }
+  if (!val.startsWith('csk-')) { showToast("That isn't a Cerebras key. Cerebras keys start with csk-", 'error'); return; }
   try {
     // validate_cerebras_key persists on success.
     const r = await pywebview.api.validate_cerebras_key(val);
@@ -1572,10 +1563,10 @@ async function saveCerebrasKey() {
       showRestartBanner('Restart Waffler to start using the new Cerebras key.');
       await loadSettings();
     } else {
-      showToast('Error: ' + (r.error || 'invalid'), 'error');
+      showToast(r.error || "Couldn't check that key with Cerebras. Try again in a moment.", 'error', 6000);
     }
   } catch(e) {
-    showToast('Failed to save Cerebras key', 'error');
+    showToast("Couldn't save the key. Try again.", 'error');
   }
 }
 
@@ -1585,7 +1576,7 @@ async function saveApiKey() {
   if (!inp) return;
   const val = inp.value.trim();
   if (!val) { showToast('Enter an API key first', 'error'); return; }
-  if (!val.startsWith('sk-')) { showToast('Invalid key — should start with sk-', 'error'); return; }
+  if (!val.startsWith('sk-')) { showToast("That isn't an OpenAI key. OpenAI keys start with sk-", 'error'); return; }
   try {
     const r = await pywebview.api.save_settings({ api_key: val });
     if (r.ok) {
@@ -1597,10 +1588,11 @@ async function saveApiKey() {
       showToast('OpenAI key saved', 'success');
       showRestartBanner('Restart Waffler to start using the new OpenAI key.');
     } else {
-      showToast('Error: ' + r.error, 'error');
+      console.warn('save_settings failed:', r.error);
+      showToast("Couldn't save the key. Try again.", 'error');
     }
   } catch(e) {
-    showToast('Failed to save key', 'error');
+    showToast("Couldn't save the key. Try again.", 'error');
   }
 }
 
@@ -1672,10 +1664,11 @@ async function clearHistory() {
       renderFeed();
       showToast('🗑️ History cleared', 'success');
     } else {
-      showToast('Error: ' + r.error, 'error');
+      console.warn('clear_history failed:', r.error);
+      showToast("Couldn't clear History. Try again.", 'error');
     }
   } catch(e) {
-    showToast('Failed to clear history', 'error');
+    showToast("Couldn't clear History. Try again.", 'error');
   }
 }
 
@@ -2208,7 +2201,7 @@ async function wizValidateGroqKey(key) {
       wizSetTick('wizGroqTick', false);
     }
   } catch(e) {
-    v.textContent = 'Failed to validate — check your internet connection';
+    v.textContent = "Couldn't check that key. Check you're online and try again.";
     v.className = 'wizard-validation error';
     _wizardGroqKeyValidated = false;
   }
@@ -2233,7 +2226,7 @@ async function wizValidateCerebrasKey(key) {
       wizSetTick('wizCerebrasTick', false);
     }
   } catch(e) {
-    v.textContent = 'Failed to validate — check your internet connection';
+    v.textContent = "Couldn't check that key. Check you're online and try again.";
     v.className = 'wizard-validation error';
     _wizardCerebrasKeyValidated = false;
   }
@@ -2258,7 +2251,7 @@ async function wizValidateApiKey(key) {
       wizSetTick('wizOpenAITick', false);
     }
   } catch(e) {
-    v.textContent = 'Failed to validate — check your internet connection';
+    v.textContent = "Couldn't check that key. Check you're online and try again.";
     v.className = 'wizard-validation error';
     _wizardApiKeyValidated = false;
   }
@@ -2738,7 +2731,7 @@ async function wizInitTryItStep() {
       _wizardHotkeyTestActive = true;
     } else {
       const valid = document.getElementById('wizMicValidation');
-      if (valid) { valid.textContent = r.error || 'Failed to start'; valid.className = 'wizard-validation error'; }
+      if (valid) { valid.textContent = r.error || "Couldn't start the test recording. Try again, or skip for now."; valid.className = 'wizard-validation error'; }
     }
   } catch(e) {
     console.warn('wizInitTryItStep error:', e);
@@ -3327,10 +3320,11 @@ async function resetUsage() {
       await loadUsageStats();
       showToast('🗑️ Usage stats reset', 'success');
     } else {
-      showToast('Error: ' + r.error, 'error');
+      console.warn('reset_usage failed:', r.error);
+      showToast("Couldn't reset the usage figures. Try again.", 'error');
     }
   } catch(e) {
-    showToast('Failed to reset usage', 'error');
+    showToast("Couldn't reset the usage figures. Try again.", 'error');
   }
 }
 
