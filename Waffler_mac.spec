@@ -152,7 +152,16 @@ app = BUNDLE(
         'NSAppleEventsUsageDescription': 'Waffler needs accessibility access for hotkey detection and auto-paste.',
         'NSLocalNetworkUsageDescription': 'Waffler uses a local web interface for its UI. No data is sent over the network.',
         'CFBundleShortVersionString': _VERSION,
-        'LSMinimumSystemVersion': '10.13.0',
+        # The real minimum, measured from the bundled binaries (v3.14.100).
+        # The macOS 14 build runner installs NumPy's macosx_14_0_arm64
+        # wheel: its extension modules are built for macOS 14.0 and call
+        # Accelerate's $NEWLAPACK$ILP64 functions, which older releases
+        # lack. NumPy is imported at start-up (src/audio.py), so declaring
+        # 10.13 meant older Macs got an app that failed to open rather than
+        # a clean "requires a newer version of macOS" refusal. The release
+        # workflow runs scripts/check_macos_minos.py on the built app and
+        # fails if any binary needs a newer macOS than this line says.
+        'LSMinimumSystemVersion': '14.0.0',
         # Launch Services: prevent a second instance when something fires
         # `open -a Waffler` while it's already running. Fixes the "app
         # opens twice on first launch" issue where a race between the

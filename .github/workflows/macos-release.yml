@@ -98,6 +98,12 @@ jobs:
           fi
           python -m PyInstaller --noconfirm --clean Waffler_mac.spec
 
+          # The declared minimum macOS must be true of every bundled binary.
+          # A dependency upgrade can silently raise it (NumPy's macOS 14 wheel
+          # did, while the app still claimed 10.13), so check before signing.
+          echo "=== Checking LSMinimumSystemVersion against bundled binaries ==="
+          python scripts/check_macos_minos.py dist/Waffler.app
+
           # Manually sign the app with hardened runtime and entitlements
           if [ -n "$SIGNING_IDENTITY" ]; then
             echo "=== Manually signing app with hardened runtime ==="

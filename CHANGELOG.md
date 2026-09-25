@@ -6,8 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [3.14.100] - 2026-09-25
 
-The app window's fonts now ship inside the app instead of being fetched from
-Google Fonts, so opening Waffler no longer contacts Google.
+Two things the app claimed that were not true. Its window fonts now ship
+inside the app, so opening Waffler no longer contacts Google. And the Mac
+build now declares the macOS version it really needs (14.0), measured from
+the binaries inside it, instead of 10.13.
 
 ### Fixed
 - **Every launch sent the user's IP address to Google, for fonts that never
@@ -30,6 +32,24 @@ Google Fonts, so opening Waffler no longer contacts Google.
   a slanted fake. Both families are SIL Open Font License 1.1; the licence
   texts and provenance are in `ui/fonts/`. About 600 KB added.
 
+- **The Mac app claimed to run on macOS 10.13 but needs macOS 14.** A scan of
+  every Mach-O binary in the shipped v3.14.99 bundle (105 of them, all Apple
+  Silicon) found 92 built for macOS 11.0 and 13 built for macOS 14.0: all of
+  NumPy. The macOS 14 build runner installs NumPy 2.4.6's `macosx_14_0_arm64`
+  wheel, which links Apple's Accelerate framework and calls 23
+  `$NEWLAPACK$ILP64` functions that older macOS releases do not have. NumPy is
+  imported at start-up (`src/audio.py`, via `app.py`), so on an older Mac the
+  app failed to open rather than macOS saying it needs a newer version.
+  `LSMinimumSystemVersion` in `Waffler_mac.spec` is now `14.0.0`, so macOS
+  refuses it cleanly with its standard message instead.
+- **The release build now checks this.** `scripts/check_macos_minos.py` reads
+  the minimum macOS of every binary in the built `Waffler.app` (including each
+  slice of a universal binary) and fails the macOS release if any needs a
+  newer version than the bundle declares. It runs straight after PyInstaller,
+  before signing, so a bad build fails in about a minute. A dependency upgrade
+  can raise the real minimum without anyone noticing; this is what caught
+  NumPy. On the real v3.14.99 bundle it fails at 10.13.0 and passes at 14.0.0.
+
 ### Changed
 - **The app now looks the way 3.14.20 intended.** Because the fonts finally
   load, the "Waffler" wordmark is Inter and the Journal text, date dividers
@@ -46,11 +66,17 @@ Google Fonts, so opening Waffler no longer contacts Google.
   `ui/fonts/`, so both builds ship them without spec changes.
 - Version ordering: the updater compares integer tuples, so 3.14.100 is
   correctly newer than 3.14.99.
+- `tests/test_macos_minimum_version.py` (12 checks) covers the Mach-O parsing
+  with synthetic binaries (modern and legacy version records, universal
+  binaries, Java class files that share the universal magic number), the
+  pass and fail paths on a fake bundle, and that the release workflow runs
+  the check after PyInstaller and before signing.
 - `tests/test_ui_no_remote_assets.py` (7 checks) fails if any UI stylesheet
   or page loads a remote font, script, style or image on start-up, if a
   bundled font the CSS references is missing, if the true italic or a
   licence is dropped, or if either spec stops bundling `ui/`. Four of its
-  checks fail against the old stylesheet. Suite: 325 passed, 1 skipped.
+  checks fail against the old stylesheet.
+- Suite: 337 passed, 1 skipped.
 
 ## [3.14.99] - 2026-09-22
 
