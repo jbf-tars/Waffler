@@ -87,7 +87,7 @@ def test_an_unknown_error_is_still_a_sentence():
 
 
 _JARGON = ("HTTPSConnectionPool", "HTTP 403", "fallback", "provider key", "untrusted",
-           "Refusing", "Traceback", "Error code", "—")
+           "Refusing", "Traceback", "Error code", chr(0x2014))
 
 
 def _all_messages():

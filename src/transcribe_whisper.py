@@ -1249,7 +1249,7 @@ class WhisperTranscriber:
                               f"only speech provider, so it is not paused")
                     elif kind == "auth":
                         self._groq_skip_until = _time.monotonic() + _GROQ_AUTH_COOLDOWN_S
-                        print(f"⚠️  Groq auth/network blocked — skipping Groq transcription "
+                        print(f"⚠️  Groq auth/network blocked: skipping Groq transcription "
                               f"for {_GROQ_AUTH_COOLDOWN_S:.0f}s ({err[:80]})")
                     else:
                         self._groq_skip_until = _time.monotonic() + _GROQ_ERROR_COOLDOWN_S

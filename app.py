@@ -2649,7 +2649,7 @@ class WafflerPipeline:
         _log_to_file(f"Audio device changed to index {device_index}")
 
     def _on_overlay_cancel(self):
-        """User confirmed cancel — discard the recording.
+        """User confirmed cancel: discard the recording.
 
         The clipboard is left alone. It used to be cleared "to prevent paste of
         cancelled transcription", but the transcript is only copied after
@@ -3706,7 +3706,7 @@ class WafflerPipeline:
                         heading="Something went wrong",
                         body="Your text was copied to clipboard. Check logs for details.",
                     )
-                    # Still try to salvage — paste the raw transcript, unless
+                    # Still try to salvage: paste the raw transcript, unless
                     # the styled text is already on the clipboard.
                     if transcript and not _clipboard_written:
                         try:

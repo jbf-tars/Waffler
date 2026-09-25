@@ -112,7 +112,7 @@ def test_windows_refusals_are_plain(keys, fragment):
     assert r["ok"] is False
     assert fragment in r["error"], r["error"]
     assert r["error"].endswith(".")
-    assert "Unknown key" not in r["error"] and "—" not in r["error"]
+    assert "Unknown key" not in r["error"] and chr(0x2014) not in r["error"]
 
 
 def test_mac_refuses_windows_keys_plainly():
