@@ -183,9 +183,90 @@
              browserUrl: (r && r.download_page) || DOWNLOAD_PAGE };
   }
 
+  // ── Settings: providers ───────────────────────────────────────────────
+  // The engine's default order (src/style_openai.py _DEFAULT_PROVIDER_ORDER);
+  // tests/test_ui_logic.py keeps the two equal. The UI used to start from
+  // groq, cerebras, openai while the engine ran groq, openai, cerebras.
+  const DEFAULT_PROVIDER_ORDER = ['groq', 'openai', 'cerebras'];
+  const PROVIDER_NAMES = { groq: 'Groq', openai: 'OpenAI', cerebras: 'Cerebras' };
+  const KEY_FLAGS = { groq: 'groq_key_set', openai: 'api_key_set', cerebras: 'cerebras_key_set' };
+
+  function providerHasKey(provider, settings) {
+    return !!(settings && settings[KEY_FLAGS[provider]]);
+  }
+
+  // Same rules as src/style_openai.py _normalize_provider_order: known
+  // names only, no repeats, and any missing provider added in the default
+  // order, so the list always has all three.
+  function normalizeProviderOrder(order) {
+    const out = [];
+    (Array.isArray(order) ? order : []).forEach((p) => {
+      const k = String(p == null ? '' : p).trim().toLowerCase();
+      if (DEFAULT_PROVIDER_ORDER.includes(k) && !out.includes(k)) out.push(k);
+    });
+    DEFAULT_PROVIDER_ORDER.forEach((p) => { if (!out.includes(p)) out.push(p); });
+    return out;
+  }
+
+  // One row per provider for Settings → Provider Order. A provider with no
+  // key is shown greyed out: Waffler skips it.
+  function providerOrderRows(order, settings) {
+    return normalizeProviderOrder(order).map((id, i) => ({
+      id, rank: i + 1, name: PROVIDER_NAMES[id], hasKey: providerHasKey(id, settings),
+    }));
+  }
+
+  // What each stage uses first. get_settings() answers with the provider
+  // name ("api" is OpenAI's speech to text, "mlx" and "faster" run on the
+  // computer), "none" when no key can do that stage, or "unknown" while
+  // Waffler is starting; then it's worked out from the keys and the order.
+  const SPEECH_IDS = ['groq', 'api', 'mlx', 'faster'];
+  const CLEANUP_IDS = ['groq', 'cerebras', 'openai'];
+
+  function activeProviders(s) {
+    s = s || {};
+    const order = normalizeProviderOrder(s.provider_order);
+    let speech = SPEECH_IDS.includes(s.transcription_backend) ? s.transcription_backend : null;
+    if (!speech && s.transcription_backend !== 'none') {
+      const p = order.find((id) => id !== 'cerebras' && providerHasKey(id, s));
+      speech = p === 'openai' ? 'api' : (p || null);
+    }
+    let cleanup = CLEANUP_IDS.includes(s.styling_backend) ? s.styling_backend : null;
+    if (!cleanup && s.styling_backend !== 'none') {
+      cleanup = order.find((id) => providerHasKey(id, s)) || null;
+    }
+    return { speech, cleanup };
+  }
+
+  const SPEECH_BY = { groq: 'Groq', api: 'OpenAI', mlx: 'on this Mac', faster: 'on this computer' };
+  const SPEECH_MODEL = { groq: 'Whisper large v3', api: 'gpt-4o-mini-transcribe', mlx: 'Whisper', faster: 'Whisper' };
+  const CLEANUP_MODEL = { groq: 'gpt-oss-120b', cerebras: 'gpt-oss-120b', openai: 'gpt-4.1-mini' };
+
+  // "Speech to text: Groq · Clean-up: Groq". It used to read
+  // "STT: Groq Whisper · LLM: Groq gpt-oss-120b" under "Active Backends".
+  function backendsLine(s) {
+    const a = activeProviders(s);
+    const speech = a.speech ? SPEECH_BY[a.speech] : 'no key yet';
+    const cleanup = a.cleanup ? PROVIDER_NAMES[a.cleanup] : 'no key yet';
+    return `Speech to text: ${speech} · Clean-up: ${cleanup}`;
+  }
+
+  // "v3.14.100 · Powered by Whisper large v3 and gpt-oss-120b": the models
+  // in use. It said "Powered by Groq + Whisper + LLaMA" for everyone, and
+  // clean-up hasn't used LLaMA since Groq retired it.
+  function aboutLine(version, s) {
+    const line = `v${version}`;
+    const a = activeProviders(s);
+    const speech = a.speech && SPEECH_MODEL[a.speech];
+    const cleanup = a.cleanup && CLEANUP_MODEL[a.cleanup];
+    return speech && cleanup ? `${line} · Powered by ${speech} and ${cleanup}` : line;
+  }
+
   return {
     STATUS_VIEWS, STATUS_CLASSES, DONE_RESET_MS, statusView,
     defaultHotkey, keyName, orderKeys, hotkeyName, keycaps, pressOrderHint, hotkeyPresets,
     DOWNLOAD_PAGE, UPDATE_TEXT, splitMessage, updateCheckView, updateFailureView,
+    DEFAULT_PROVIDER_ORDER, PROVIDER_NAMES, providerHasKey, normalizeProviderOrder,
+    providerOrderRows, activeProviders, backendsLine, aboutLine,
   };
 });

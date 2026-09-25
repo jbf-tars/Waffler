@@ -90,7 +90,7 @@ _DEFAULT_PROVIDER_ORDER = ["groq", "openai", "cerebras"]
 
 
 def _normalize_provider_order(order) -> list:
-    """Return a clean [groq, cerebras, openai] permutation from user input.
+    """Return a clean permutation of groq, openai and cerebras from user input.
 
     Accepts a list/tuple of provider names in any case, drops unknowns and
     duplicates, and appends any missing providers in canonical order so the
@@ -114,7 +114,8 @@ def _normalize_provider_order(order) -> list:
 class OpenAIStyler:
     """Styles transcripts via a configurable provider fallback chain.
 
-    Default order Groq -> Cerebras -> OpenAI; the user can reorder it (see
+    Default order _DEFAULT_PROVIDER_ORDER (Groq, OpenAI, Cerebras, the same
+    list the Settings screen starts from); the user can reorder it (see
     ``provider_order``). Each provider call has a 30 s timeout so a wedged
     provider fails over instead of hanging the dictation.
     """

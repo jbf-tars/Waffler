@@ -352,3 +352,160 @@ def test_no_raw_error_text_reaches_the_screen():
     for text in (app, html, code_only(read("logic.js"))):
         for jargon in ("HTTPSConnectionPool", "HTTP 403", "provider key", "untrusted URL"):
             assert jargon not in text
+
+
+# ── Settings tells the truth (QW9) ───────────────────────────────────────────
+
+import ast  # noqa: E402
+import os  # noqa: E402
+import types  # noqa: E402
+
+import style_openai  # noqa: E402
+
+
+@needs_node
+def test_the_ui_starts_from_the_engines_provider_order():
+    assert js("L.DEFAULT_PROVIDER_ORDER") == style_openai._DEFAULT_PROVIDER_ORDER
+    assert js("L.normalizeProviderOrder(null)") == style_openai._normalize_provider_order(None)
+
+
+def test_app_js_takes_its_starting_order_from_logic_js():
+    app = code_only(read("app.js"))
+    assert "let _providerOrder = WL.DEFAULT_PROVIDER_ORDER.slice();" in app
+    # No hand-typed order left anywhere in the screen code.
+    assert not re.search(r"\[\s*'groq'\s*,\s*'(?:cerebras|openai)'\s*,\s*'(?:cerebras|openai)'\s*\]", app)
+
+
+@needs_node
+@pytest.mark.parametrize("order", [
+    [], ["openai"], ["cerebras", "groq"], ["OpenAI", "groq", "groq", "bogus"],
+    ["cerebras", "openai", "groq"], [" Groq ", "CEREBRAS"],
+])
+def test_the_ui_cleans_an_order_the_same_way_as_the_engine(order):
+    assert js(f"L.normalizeProviderOrder({json.dumps(order)})") == \
+        style_openai._normalize_provider_order(order)
+
+
+@needs_node
+def test_providers_without_a_key_are_marked_in_the_order_list():
+    rows = js("L.providerOrderRows(['cerebras','groq','openai'], "
+              "{groq_key_set: true, api_key_set: false, cerebras_key_set: false})")
+    assert [(r["id"], r["rank"], r["name"], r["hasKey"]) for r in rows] == [
+        ("cerebras", 1, "Cerebras", False), ("groq", 2, "Groq", True), ("openai", 3, "OpenAI", False)]
+    # Before settings load, nothing claims to have a key.
+    assert [r["hasKey"] for r in js("L.providerOrderRows(null, null)")] == [False, False, False]
+
+
+def test_the_order_list_greys_out_providers_with_no_key():
+    app = code_only(read("app.js"))
+    assert "WL.providerOrderRows(_providerOrder, _lastSettings)" in app
+    assert "po-nokey" in app
+    assert re.search(r"\.provider-order-item\.po-nokey\s*\{", code_only(read("style.css")))
+
+
+@needs_node
+@pytest.mark.parametrize("settings, line", [
+    ({"transcription_backend": "groq", "styling_backend": "groq"},
+     "Speech to text: Groq · Clean-up: Groq"),
+    ({"transcription_backend": "api", "styling_backend": "cerebras"},
+     "Speech to text: OpenAI · Clean-up: Cerebras"),
+    ({"transcription_backend": "mlx", "styling_backend": "openai"},
+     "Speech to text: on this Mac · Clean-up: OpenAI"),
+    ({"transcription_backend": "none", "styling_backend": "cerebras"},
+     "Speech to text: no key yet · Clean-up: Cerebras"),
+    # Still starting: worked out from the keys and the order.
+    ({"transcription_backend": "unknown", "styling_backend": "unknown", "groq_key_set": True,
+      "cerebras_key_set": True, "provider_order": ["cerebras", "groq", "openai"]},
+     "Speech to text: Groq · Clean-up: Cerebras"),
+    ({"transcription_backend": "unknown", "styling_backend": "unknown"},
+     "Speech to text: no key yet · Clean-up: no key yet"),
+])
+def test_the_in_use_line_says_what_each_stage_uses(settings, line):
+    assert js(f"L.backendsLine({json.dumps(settings)})") == line
+
+
+@needs_node
+def test_the_about_line_names_the_models_in_use():
+    about = js("L.aboutLine('3.14.100', {transcription_backend: 'groq', styling_backend: 'groq'})")
+    assert about == "v3.14.100 · Powered by Whisper large v3 and gpt-oss-120b"
+    assert "LLaMA" not in about
+    assert js("L.aboutLine('3.14.100', {transcription_backend: 'api', styling_backend: 'openai'})") == \
+        "v3.14.100 · Powered by gpt-4o-mini-transcribe and gpt-4.1-mini"
+    # Nothing known yet: just the version, never a guess.
+    assert js("L.aboutLine('3.14.100', null)") == "v3.14.100"
+
+
+def test_settings_lists_groq_then_openai_then_cerebras():
+    html = read("index.html")
+    groq, openai, cerebras = (html.index(f'<div class="settings-row-label">{n} API Key</div>')
+                              for n in ("Groq", "OpenAI", "Cerebras"))
+    assert groq < openai < cerebras
+    assert 'id="cerebrasKeyDesc">Optional.' in html
+
+
+def test_the_header_and_settings_carry_no_stale_labels():
+    html = read("index.html")
+    app = code_only(read("app.js"))
+    # The one-option mode menu is gone from the header.
+    assert 'id="modeSelect"' not in html and "✨ Normal" not in html
+    assert "loadMode(" not in app and "onModeChange" not in app
+    assert "Active Backends" not in html and "STT: ${" not in app
+    for text in (html, app):
+        assert "LLaMA" not in text
+        assert "Waiting for activation" not in text
+    assert "WL.backendsLine(_lastSettings)" in app
+    assert "WL.aboutLine(ver, _lastSettings)" in app
+
+
+# get_settings() in app.py, lifted out of the source and run against the real
+# WhisperTranscriber and OpenAIStyler built with made-up keys (no network).
+
+def _get_settings(pipeline, stored=None):
+    tree = ast.parse((ROOT / "app.py").read_text(encoding="utf-8"))
+    klass = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "Api")
+    fn = next(n for n in klass.body if isinstance(n, ast.FunctionDef) and n.name == "get_settings")
+    ns = {"os": os, "_pipeline": pipeline}
+    exec(compile(ast.Module([fn], []), "<app.py>", "exec"), ns)
+    this = types.SimpleNamespace(_load_settings_file=lambda: dict(stored or {}))
+    return ns["get_settings"](this)
+
+
+def _pipeline(groq="", openai="", cerebras="", order=None):
+    import transcribe_whisper as tw
+    return types.SimpleNamespace(
+        transcriber=tw.WhisperTranscriber(api_key=openai, groq_api_key=groq, provider_order=order),
+        styler=style_openai.OpenAIStyler(api_key=openai, groq_api_key=groq,
+                                         cerebras_api_key=cerebras, provider_order=order),
+    )
+
+
+FAKE = {"groq": "gsk_test_not_a_real_key", "openai": "sk-test-not-a-real-key",
+        "cerebras": "csk-test-not-a-real-key"}
+
+
+@pytest.mark.parametrize("keys, order, speech, cleanup", [
+    # A Cerebras key used to make Settings name Cerebras for clean-up even
+    # with Groq first in the order.
+    (("groq", "cerebras"), None, "groq", "groq"),
+    (("groq", "cerebras"), ["cerebras", "groq", "openai"], "groq", "cerebras"),
+    (("groq", "openai"), ["openai", "groq", "cerebras"], "api", "openai"),
+    (("openai",), None, "api", "openai"),
+    (("cerebras",), None, "none", "cerebras"),
+])
+def test_get_settings_names_the_provider_each_stage_tries_first(monkeypatch, keys, order, speech, cleanup):
+    monkeypatch.delenv("LOCAL_WHISPER", raising=False)
+    p = _pipeline(order=order, **{k: FAKE[k] for k in keys})
+    s = _get_settings(p, {"provider_order": order} if order else {})
+    assert (s["transcription_backend"], s["styling_backend"]) == (speech, cleanup)
+
+
+def test_get_settings_reports_the_engines_order_when_none_is_saved(monkeypatch):
+    for k in ("OPENAI_API_KEY", "GROQ_API_KEY", "CEREBRAS_API_KEY"):
+        monkeypatch.delenv(k, raising=False)
+    s = _get_settings(None)
+    # It said groq, cerebras, openai while the engine ran groq, openai, cerebras.
+    assert s["provider_order"] == style_openai._DEFAULT_PROVIDER_ORDER
+    assert (s["transcription_backend"], s["styling_backend"]) == ("unknown", "unknown")
+    # A saved order comes back cleaned, as the engine applies it.
+    s = _get_settings(None, {"provider_order": ["Cerebras", "bogus"]})
+    assert s["provider_order"] == ["cerebras", "groq", "openai"]

@@ -897,16 +897,28 @@ class Api:
 
         local_whisper_active = _pipeline and hasattr(_pipeline.transcriber, "_backend") and \
                                _pipeline.transcriber._backend in ("mlx", "faster")
+        from style_openai import _normalize_provider_order
         transcription_backend = "unknown"
         styling_backend = "unknown"
         if _pipeline:
-            transcription_backend = getattr(_pipeline.transcriber, "_backend", "api")
-            if getattr(_pipeline.styler, "_use_cerebras", False):
-                styling_backend = "cerebras"
-            elif getattr(_pipeline.styler, "_use_groq", False):
-                styling_backend = "groq"
-            else:
-                styling_backend = "openai"
+            # Report the provider each stage tries first: the first one in the
+            # user's order that has a key. This used to name Cerebras for
+            # clean-up whenever a Cerebras key existed, even with Groq first,
+            # and ignored the order for speech.
+            transcriber = _pipeline.transcriber
+            transcription_backend = getattr(transcriber, "_backend", "api")
+            if transcription_backend not in ("mlx", "faster"):
+                has_stt = {"groq": bool(getattr(transcriber, "_groq_client", None)),
+                           "openai": bool(getattr(transcriber, "client", None))}
+                first = next((p for p in (getattr(transcriber, "_cloud_order", None)
+                                          or ["groq", "openai"]) if has_stt.get(p)), None)
+                transcription_backend = {"groq": "groq", "openai": "api"}.get(first, "none")
+            styler = _pipeline.styler
+            has_cleanup = {"groq": bool(getattr(styler, "_use_groq", False)),
+                           "cerebras": bool(getattr(styler, "_use_cerebras", False)),
+                           "openai": bool(getattr(styler, "client", None))}
+            order = _normalize_provider_order(getattr(styler, "_provider_order", None))
+            styling_backend = next((p for p in order if has_cleanup.get(p)), "none")
         return {
             "api_key_set":           bool(key),
             "api_key_masked":        _mask(key),
@@ -921,7 +933,10 @@ class Api:
             "language":              stored.get("language", "en"),
             "dialect":               stored.get("dialect", "auto"),
             "auto_paste":            stored.get("auto_paste", True),
-            "provider_order":        stored.get("provider_order", ["groq", "cerebras", "openai"]),
+            # The engine's own default and clean-up, so Settings shows the
+            # order Waffler really uses (it showed groq, cerebras, openai
+            # while the engine ran groq, openai, cerebras).
+            "provider_order":        _normalize_provider_order(stored.get("provider_order")),
         }
 
     def save_settings(self, settings: dict) -> dict:

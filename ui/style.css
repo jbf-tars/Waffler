@@ -5030,22 +5030,9 @@ body:not([data-theme]) .j-nav-item.active {
   box-shadow: 0 1px 3px rgba(200, 162, 86, 0.15);
 }
 
-.j-mode-wrap { margin-left: auto; }
-.j-mode-select {
-  background: var(--bg-card);
-  color: var(--text-primary);
-  border: 1px solid var(--border-soft);
-  border-radius: 99px;
-  padding: 5px 28px 5px 12px;
-  font-size: 12px; font-weight: 500;
-  cursor: pointer;
-  appearance: none;
-  -webkit-appearance: none;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'><path d='M3 5l3 3 3-3' stroke='%238a8278' stroke-width='1.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");
-  background-repeat: no-repeat;
-  background-position: right 8px center;
-  background-size: 10px;
-}
+/* The status pill sits at the right of the top bar. (The "Normal" mode
+   menu that used to push it there has been removed.) */
+.j-topnav > .j-listen { margin-left: auto; }
 
 /* Listening indicator (top-right). Uses the same status-indicator class
    the rest of the JS toggles via .idle / .recording / .processing. */
@@ -5493,6 +5480,18 @@ body:not([data-theme]) .j-page .btn-copy {
   opacity: 0.3;
   cursor: not-allowed;
 }
+/* A provider with no key: greyed out, because Waffler skips it. The arrows
+   stay usable so the order can be set before the key is added. */
+.provider-order-item.po-nokey {
+  background: transparent;
+  border-style: dashed;
+}
+.provider-order-item.po-nokey .po-rank {
+  background: var(--border);
+  color: var(--text-secondary);
+}
+.provider-order-item.po-nokey .po-name { color: var(--text-secondary); }
+.provider-order-item.po-nokey .po-tag { opacity: 0.55; }
 
 /* Quality badge - shown only on recordings the pipeline flagged. Deliberately
    low-contrast: it is information, not an alarm, and most recordings show

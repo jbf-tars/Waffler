@@ -38,13 +38,8 @@
       <div class="j-nav-item" id="navSettings" onclick="showPage('settings')">Settings</div>
     </nav>
 
-    <!-- Compact mode selector (replaces sidebar mode dropdown) -->
-    <div class="j-mode-wrap">
-      <select id="modeSelect" class="j-mode-select" onchange="onModeChange(this.value)" title="Style mode">
-        <option value="normal">✨ Normal</option>
-        <option value="__more" disabled>More coming soon</option>
-      </select>
-    </div>
+    <!-- The mode menu was here. Normal was its only real choice, so it
+         is gone until there are more modes. -->
 
     <!-- Status pill. window.waffler_status() swaps the state class and
          the label (Ready, Recording, Cleaning up); the labels live in
@@ -178,20 +173,12 @@
         <div class="settings-row-desc" style="margin-bottom:8px;font-size:12px;opacity:0.75;">
           Add any one or more. The order Waffler tries them in is set in <strong>Provider Order</strong> below.
         </div>
-        <div class="settings-row">
-          <div class="settings-row-info">
-            <div class="settings-row-label">Cerebras API Key</div>
-            <div class="settings-row-desc" id="cerebrasKeyDesc">Optional. Cleanup only, no speech-to-text. cloud.cerebras.ai/platform/api-keys</div>
-          </div>
-          <div class="settings-row-control stacked">
-            <input type="password" id="cerebrasKeyInput" class="settings-input" placeholder="csk-…">
-            <button class="settings-btn" onclick="saveCerebrasKey()">Save</button>
-          </div>
-        </div>
+        <!-- Groq, OpenAI, then Cerebras (optional): the recommended key
+             first, as in setup. Cerebras used to be listed first. -->
         <div class="settings-row">
           <div class="settings-row-info">
             <div class="settings-row-label">Groq API Key</div>
-            <div class="settings-row-desc" id="groqKeyDesc">Very fast, free — console.groq.com</div>
+            <div class="settings-row-desc" id="groqKeyDesc">Recommended. Very fast, with a free plan. console.groq.com</div>
           </div>
           <div class="settings-row-control stacked">
             <input type="password" id="groqKeyInput" class="settings-input" placeholder="gsk_…">
@@ -201,7 +188,7 @@
         <div class="settings-row">
           <div class="settings-row-info">
             <div class="settings-row-label">OpenAI API Key</div>
-            <div class="settings-row-desc">Slower fallback — platform.openai.com</div>
+            <div class="settings-row-desc">Optional. A backup if Groq is busy. platform.openai.com</div>
           </div>
           <div class="settings-row-control stacked">
             <input type="password" id="apiKeyInput" class="settings-input" placeholder="sk-…">
@@ -210,7 +197,17 @@
         </div>
         <div class="settings-row">
           <div class="settings-row-info">
-            <div class="settings-row-label">Active Backends</div>
+            <div class="settings-row-label">Cerebras API Key</div>
+            <div class="settings-row-desc" id="cerebrasKeyDesc">Optional. Clean-up only, no speech to text. cloud.cerebras.ai/platform/api-keys</div>
+          </div>
+          <div class="settings-row-control stacked">
+            <input type="password" id="cerebrasKeyInput" class="settings-input" placeholder="csk-…">
+            <button class="settings-btn" onclick="saveCerebrasKey()">Save</button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-label">In use</div>
             <div class="settings-row-desc" id="backendInfo">Loading...</div>
           </div>
         </div>

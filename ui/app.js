@@ -1103,40 +1103,9 @@ async function onMicChange(indexStr) {
   }
 }
 
-// ── Mode Selector ─────────────────────────────────────────────────────
-
-const MODE_DESCS = {
-  normal: 'Keeps everything, cleans grammar',
-  email: 'Email body — paragraphed for readability, keeps your greetings/sign-offs as spoken',
-};
-
-async function loadMode() {
-  const sel = document.getElementById('modeSelect');
-  const desc = document.getElementById('modeDesc');
-  if (!sel) return;
-  try {
-    const current = await pywebview.api.get_current_mode();
-    sel.value = current;
-    if (desc) desc.textContent = MODE_DESCS[current] || '';
-  } catch(e) {
-    console.warn('loadMode error:', e);
-  }
-}
-
-async function onModeChange(modeId) {
-  const desc = document.getElementById('modeDesc');
-  try {
-    const result = await pywebview.api.set_mode(modeId);
-    if (result && result.ok) {
-      if (desc) desc.textContent = MODE_DESCS[modeId] || '';
-      showToast(`✨ Mode: ${modeId.replace('_', ' ')}`, 'success');
-    } else {
-      showToast('Failed to switch mode', 'error');
-    }
-  } catch(e) {
-    console.warn('onModeChange error:', e);
-  }
-}
+// The top bar's "✨ Normal" mode menu is gone: Normal was its only real
+// choice, so it took space and did nothing. The backend keeps its mode
+// calls (get_current_mode, set_mode) for when more modes exist.
 
 // ── Custom Vocabulary ─────────────────────────────────────────────────
 
@@ -1262,14 +1231,13 @@ async function deleteVocabWord(idx) {
   }
 }
 
-// Load devices + mode once pywebview is ready.
+// Load devices once pywebview is ready.
 // Vocab list is loaded lazily by loadVocabPage() when the user
 // navigates to the Vocabulary tab — no longer pre-loaded on startup
 // (which was the cause of the "Add word" box being pre-filled with
 // every existing word jammed together).
 window.addEventListener('pywebviewready', () => {
   loadAudioDevices();
-  loadMode();
 });
 
 // ── Page Navigation ──────────────────────────────────────────────────────
@@ -1311,7 +1279,10 @@ function showPage(page) {
 // order; Waffler tries them top-to-bottom. Persisted + applied live via
 // save_settings({provider_order}). Cerebras is tagged "cleanup only" because
 // it has no speech-to-text endpoint (it's skipped for the transcription step).
-let _providerOrder = ['groq', 'openai', 'cerebras'];
+// The starting order is the engine's own (logic.js DEFAULT_PROVIDER_ORDER).
+let _providerOrder = WL.DEFAULT_PROVIDER_ORDER.slice();
+// The last get_settings() answer: which keys are set, and what is in use.
+let _lastSettings = null;
 
 const _PROVIDER_META = {
   groq:     { label: 'Groq',     tag: 'recommended',  note: 'Speech + cleanup · free tier' },
@@ -1322,15 +1293,19 @@ const _PROVIDER_META = {
 function renderProviderOrder() {
   const host = document.getElementById('providerOrderList');
   if (!host) return;
-  host.innerHTML = _providerOrder.map((p, i) => {
+  const rows = WL.providerOrderRows(_providerOrder, _lastSettings);
+  host.innerHTML = rows.map((r, i) => {
+    const p = r.id;
     const m = _PROVIDER_META[p] || { label: p, tag: '', note: '' };
     const tag = m.tag ? `<span class="po-tag">${m.tag}</span>` : '';
     const up = i === 0 ? 'disabled' : '';
-    const down = i === _providerOrder.length - 1 ? 'disabled' : '';
+    const down = i === rows.length - 1 ? 'disabled' : '';
+    // No key: greyed out, because Waffler skips it. It can still be moved.
+    const note = r.hasKey ? m.note : 'No key yet, so Waffler skips it';
     return `
-      <div class="provider-order-item">
-        <span class="po-rank">${i + 1}</span>
-        <span class="po-name">${m.label} ${tag}<span class="po-note">${m.note}</span></span>
+      <div class="provider-order-item${r.hasKey ? '' : ' po-nokey'}">
+        <span class="po-rank">${r.rank}</span>
+        <span class="po-name">${m.label} ${tag}<span class="po-note">${note}</span></span>
         <span class="po-controls">
           <button class="po-btn" ${up} onclick="moveProvider('${p}', -1)" title="Move up">&#9650;</button>
           <button class="po-btn" ${down} onclick="moveProvider('${p}', 1)" title="Move down">&#9660;</button>
@@ -1350,6 +1325,9 @@ async function moveProvider(name, delta) {
     const r = await pywebview.api.save_settings({ provider_order: _providerOrder });
     if (r && r.ok) {
       showToast('Provider order: ' + _providerOrder.map(p => (_PROVIDER_META[p] || {label:p}).label).join(' → '), 'success');
+      // The new order applies at once, so "Speech to text / Clean-up" may change.
+      try { _lastSettings = await pywebview.api.get_settings(); } catch (_) {}
+      _renderBackendInfo();
     } else {
       showToast('Could not save provider order', 'error');
     }
@@ -1359,10 +1337,17 @@ async function moveProvider(name, delta) {
 }
 
 // ── Settings Load ────────────────────────────────────────────────────────
+function _renderBackendInfo() {
+  const backendInfo = document.getElementById('backendInfo');
+  if (backendInfo) backendInfo.textContent = WL.backendsLine(_lastSettings);
+}
+
 async function loadSettings() {
   try {
     const s = await pywebview.api.get_settings();
+    _lastSettings = s;
 
+    // Keys are listed Groq, OpenAI, then Cerebras (optional), as in setup.
     // Cerebras key (optional, cleanup only)
     const cerebrasInput = document.getElementById('cerebrasKeyInput');
     const cerebrasDesc = document.getElementById('cerebrasKeyDesc');
@@ -1372,7 +1357,7 @@ async function loadSettings() {
     if (cerebrasDesc) {
       cerebrasDesc.textContent = s.cerebras_key_set
         ? ('Active: ' + s.cerebras_key_masked)
-        : 'Optional. Cleanup only, no speech-to-text. cloud.cerebras.ai/platform/api-keys';
+        : 'Optional. Clean-up only, no speech to text. cloud.cerebras.ai/platform/api-keys';
     }
 
     // Groq key
@@ -1384,7 +1369,7 @@ async function loadSettings() {
     if (groqDesc) {
       groqDesc.textContent = s.groq_key_set
         ? ('Active: ' + s.groq_key_masked)
-        : 'Very fast, free — console.groq.com';
+        : 'Recommended. Very fast, with a free plan. console.groq.com';
     }
 
     // OpenAI key
@@ -1403,27 +1388,13 @@ async function loadSettings() {
       }
     }
 
-    // Backend info — show the friendly name for whichever provider the
-    // pipeline currently has selected as primary.
-    const backendInfo = document.getElementById('backendInfo');
-    if (backendInfo) {
-      const stt = s.transcription_backend === 'groq' ? 'Groq Whisper' :
-                  s.transcription_backend === 'api' ? 'OpenAI Whisper (gpt-4o-mini-transcribe)' :
-                  s.transcription_backend === 'mlx' ? 'Local mlx-whisper (on-device)' :
-                  s.transcription_backend === 'faster' ? 'Local faster-whisper (on-device)' :
-                  s.transcription_backend || 'unknown';
-      const llm = s.styling_backend === 'groq' ? 'Groq gpt-oss-120b' :
-                  s.styling_backend === 'cerebras' ? 'Cerebras gpt-oss-120b' :
-                  s.styling_backend === 'openai' ? 'OpenAI GPT-4.1-mini' :
-                  s.styling_backend || 'unknown';
-      backendInfo.textContent = `STT: ${stt} · LLM: ${llm}`;
-    }
+    // "Speech to text: Groq · Clean-up: Groq": what each stage uses first.
+    _renderBackendInfo();
 
-    // Provider fallback order (reorderable list)
-    if (Array.isArray(s.provider_order)) {
-      _providerOrder = s.provider_order.slice();
-      renderProviderOrder();
-    }
+    // Provider fallback order (reorderable list). Providers without a key
+    // are greyed out, so the list shows what Waffler will really try.
+    _providerOrder = WL.normalizeProviderOrder(s.provider_order);
+    renderProviderOrder();
 
     // Local Whisper
     const lwToggle = document.getElementById('localWhisperToggle');
@@ -1773,7 +1744,6 @@ function hideWizard() {
     showPage('home');
     refreshAll();
     loadAudioDevices();
-    loadMode();
   }, 400);
 }
 
@@ -3265,8 +3235,8 @@ async function loadUsageStats() {
     const rows = document.getElementById('usageProviderRows');
     if (rows) {
       const byProv = stats.by_provider || {};
-      // Order: groq, cerebras, openai, anything else
-      const order = ['groq', 'cerebras', 'openai'];
+      // The engine's order (groq, openai, cerebras), then anything else.
+      const order = WL.DEFAULT_PROVIDER_ORDER;
       const sorted = order.filter((p) => byProv[p])
         .concat(Object.keys(byProv).filter((p) => !order.includes(p)));
 
@@ -3306,7 +3276,8 @@ async function loadAppVersion() {
   try {
     const ver = await pywebview.api.get_app_version();
     const el = document.getElementById('aboutVersion');
-    if (el) el.textContent = 'v' + ver + ' · Powered by Groq + Whisper + LLaMA';
+    // The models in use ("Powered by Whisper large v3 and gpt-oss-120b").
+    if (el) el.textContent = WL.aboutLine(ver, _lastSettings);
   } catch(e) {
     console.warn('loadAppVersion error:', e);
   }
