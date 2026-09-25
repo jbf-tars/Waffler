@@ -200,6 +200,26 @@ OpenAI's prepaid billing correctly.
   the theme colours.
 
 ### Changed
+- **Error messages are plain sentences instead of raw error text.** Checking
+  a key while offline used to show "Connection error:
+  HTTPSConnectionPool(host='api.groq.com', ...)", a VPN block said the key
+  "may be expired or revoked", the update check said "GitHub API returned
+  HTTP 403", a failed download showed the download tool's output, and an
+  update with no installer for this computer said "Refusing to download
+  from an untrusted URL." Key checks now say, for example, "Couldn't reach
+  Groq. Check you're online. If you use a VPN, turn it off and try again.",
+  "Groq didn't accept that key. Make a new one and click Copy again.", "Groq
+  blocked this connection. This usually means a VPN is on. Turn it off and
+  try again." or "Groq is busy for a moment. Try again in a few seconds.",
+  and an OpenAI key with no credit says so. The update check says
+  "Couldn't check for updates. Try again later." A failed download or
+  install says so in one sentence and points to the download page, and a
+  release with no installer for this computer is flagged so the app can open
+  its page instead. The underlying error still goes to the log. The
+  sentences live in one place, `src/user_messages.py`;
+  `tests/test_plain_error_messages.py` (34 checks) runs the key checks, the
+  update check and the download with the providers' own error types and no
+  network.
 - **The app now looks the way 3.14.20 intended.** Because the fonts finally
   load, the "Waffler" wordmark is Inter and the Journal text, date dividers
   and timestamps are Source Serif 4. This is a visible change from the

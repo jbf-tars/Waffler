@@ -118,6 +118,15 @@ from audio_devices import (
 from app_detection import get_active_app
 from log_util import transcript_for_log
 from atomic_json import write_json_atomic
+from user_messages import (
+    DOWNLOAD_PAGE,
+    UPDATE_DOWNLOAD_FAILED,
+    UPDATE_INSTALL_FAILED,
+    UPDATE_NO_INSTALLER,
+    classify_request_error,
+    key_check_error,
+    update_check_error,
+)
 
 
 # ── Data Directory ────────────────────────────────────────────────────
@@ -405,17 +414,21 @@ class Api:
                 params={"per_page": 20},
             )
             if r.status_code != 200:
+                # 403 is GitHub's rate limit for unauthenticated checks. The
+                # status goes to the log; the user gets a sentence.
+                _log_to_file(f"[update] check failed: GitHub returned HTTP {r.status_code}")
                 return {
                     "update_available": False,
                     "current_version": current_version,
-                    "error": f"GitHub API returned HTTP {r.status_code}",
+                    "error": update_check_error(),
                 }
             releases = r.json()
             if not isinstance(releases, list) or not releases:
+                _log_to_file("[update] check failed: no releases in the GitHub response")
                 return {
                     "update_available": False,
                     "current_version": current_version,
-                    "error": "No releases found",
+                    "error": update_check_error(),
                 }
 
             # Filter out drafts and prereleases, pick highest semver
@@ -424,10 +437,11 @@ class Api:
                 if not rel.get("draft") and not rel.get("prerelease") and rel.get("tag_name")
             ]
             if not candidates:
+                _log_to_file("[update] check failed: no published releases")
                 return {
                     "update_available": False,
                     "current_version": current_version,
-                    "error": "No published releases found",
+                    "error": update_check_error(),
                 }
 
             latest_release = max(candidates, key=lambda rel: parse_ver(rel["tag_name"]))
@@ -452,6 +466,10 @@ class Api:
                     "current_version": current_version,
                     "download_url": download_url,
                     "release_url": latest_release.get("html_url", ""),
+                    # No installer for this platform in the release: the UI
+                    # opens the release page instead of trying to download.
+                    "no_installer": not download_url,
+                    "no_installer_message": "" if download_url else UPDATE_NO_INSTALLER,
                 }
             return {
                 "update_available": False,
@@ -464,7 +482,7 @@ class Api:
             return {
                 "update_available": False,
                 "current_version": current_version,
-                "error": str(e),
+                "error": update_check_error(e),
             }
 
     def start_update_download(self, url: str) -> dict:
@@ -478,13 +496,18 @@ class Api:
         downloaded file is additionally signature-verified before it is ever
         executed (see updater.install_and_restart)."""
         from urllib.parse import urlparse
+        if not (url or "").strip():
+            # The release had no installer for this computer (check_for_updates
+            # sets no_installer). Not an attack, so don't say "untrusted".
+            _log_to_file("[update] download requested with no installer URL")
+            return {"ok": False, "error": UPDATE_NO_INSTALLER, "download_page": DOWNLOAD_PAGE}
         p = urlparse(url or "")
         host = (p.hostname or "").lower()
         host_ok = host == "github.com" or host.endswith(".githubusercontent.com")
         path_ok = host != "github.com" or "/releases/download/" in p.path
         if p.scheme != "https" or not host_ok or not path_ok:
             _log_to_file(f"[update] refused untrusted download URL: {url[:120]}")
-            return {"ok": False, "error": "Refusing to download from an untrusted URL."}
+            return {"ok": False, "error": UPDATE_DOWNLOAD_FAILED, "download_page": DOWNLOAD_PAGE}
         try:
             from src import updater
             _log_to_file(f"[update] start_download requested: {url[:120]}")
@@ -492,7 +515,7 @@ class Api:
             return {"ok": True}
         except Exception as e:
             _log_to_file(f"[update] start_download failed: {e}")
-            return {"ok": False, "error": str(e)}
+            return {"ok": False, "error": UPDATE_DOWNLOAD_FAILED, "download_page": DOWNLOAD_PAGE}
 
     def get_update_progress(self) -> dict:
         """Poll current download state. Returns active / bytes / total / done / path / error."""
@@ -512,12 +535,12 @@ class Api:
             recorded = (updater.get_progress() or {}).get("path") or ""
             if not recorded or os.path.abspath(installer_path) != os.path.abspath(recorded):
                 _log_to_file("[update] refused install of unrecognised path")
-                return {"ok": False, "error": "Refusing to install an unrecognised file."}
+                return {"ok": False, "error": UPDATE_INSTALL_FAILED, "download_page": DOWNLOAD_PAGE}
             updater.install_and_restart(installer_path)
             return {"ok": True}  # usually unreachable — process exits
         except Exception as e:
             _log_to_file(f"[update] install failed: {e}")
-            return {"ok": False, "error": str(e)}
+            return {"ok": False, "error": UPDATE_INSTALL_FAILED, "download_page": DOWNLOAD_PAGE}
 
     def get_history(self) -> list:
         """Return transcript history (newest first)."""
@@ -1260,13 +1283,8 @@ class Api:
             os.environ["OPENAI_API_KEY"] = api_key
             return {"ok": True, "message": "API key is valid"}
         except Exception as e:
-            error_msg = str(e)
-            if "401" in error_msg or "invalid" in error_msg.lower():
-                return {"ok": False, "error": "Invalid API key"}
-            elif "429" in error_msg:
-                return {"ok": False, "error": "Rate limited — key may be valid but has no quota"}
-            else:
-                return {"ok": False, "error": f"Connection error: {error_msg[:100]}"}
+            _log_to_file(f"[keys] OpenAI key check failed: {type(e).__name__}: {str(e)[:160]}")
+            return {"ok": False, "error": key_check_error("OpenAI", e)}
 
     def validate_groq_key(self, api_key: str) -> dict:
         """Validate a Groq API key by listing models."""
@@ -1286,15 +1304,8 @@ class Api:
         except ImportError:
             return {"ok": False, "error": "Groq SDK not installed"}
         except Exception as e:
-            error_msg = str(e)
-            if "401" in error_msg or "invalid" in error_msg.lower():
-                return {"ok": False, "error": "Invalid Groq API key"}
-            elif "403" in error_msg:
-                return {"ok": False, "error": "Access denied — this key may be expired or revoked. Generate a new one at console.groq.com/keys"}
-            elif "429" in error_msg:
-                return {"ok": False, "error": "Rate limited — try again shortly"}
-            else:
-                return {"ok": False, "error": f"Connection error: {error_msg[:100]}"}
+            _log_to_file(f"[keys] Groq key check failed: {type(e).__name__}: {str(e)[:160]}")
+            return {"ok": False, "error": key_check_error("Groq", e)}
 
     def validate_cerebras_key(self, api_key: str) -> dict:
         """Validate a Cerebras API key by doing a minimal chat-completions
@@ -1327,10 +1338,10 @@ class Api:
         except Exception as e:
             error_msg = str(e)
             lower = error_msg.lower()
-            if "401" in error_msg or "unauthorized" in lower or "invalid" in lower:
-                return {"ok": False, "error": "Invalid Cerebras API key"}
-            elif "403" in error_msg:
-                return {"ok": False, "error": "Access denied — key may be expired or scope-restricted"}
+            _log_to_file(f"[keys] Cerebras key check failed: {type(e).__name__}: {error_msg[:160]}")
+            kind = classify_request_error(e)
+            if kind in ("unauthorized", "forbidden"):
+                return {"ok": False, "error": key_check_error("Cerebras", e)}
             elif "429" in error_msg or "high traffic" in lower:
                 # The validation hit Cerebras's load-shedding. The key is
                 # probably valid; we just can't confirm right now. Accept
@@ -1345,7 +1356,7 @@ class Api:
                 os.environ["CEREBRAS_API_KEY"] = api_key
                 return {"ok": True, "message": "Key saved (your tier may not include some models, that's fine)"}
             else:
-                return {"ok": False, "error": f"Connection error: {error_msg[:100]}"}
+                return {"ok": False, "error": key_check_error("Cerebras", e)}
 
     def test_hotkey(self) -> dict:
         """Return hotkey configuration info for the current platform."""

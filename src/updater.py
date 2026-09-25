@@ -30,6 +30,13 @@ try:
 except ImportError:  # imported as src.updater
     from src.data_paths import data_dir as _data_dir
 
+try:
+    from user_messages import DOWNLOAD_PAGE as _DOWNLOAD_PAGE
+    from user_messages import UPDATE_DOWNLOAD_FAILED as _DOWNLOAD_FAILED_MESSAGE
+except ImportError:  # imported as src.updater
+    from src.user_messages import DOWNLOAD_PAGE as _DOWNLOAD_PAGE
+    from src.user_messages import UPDATE_DOWNLOAD_FAILED as _DOWNLOAD_FAILED_MESSAGE
+
 # No-progress stall threshold: the download worker fails out if no bytes
 # arrive for this many seconds. Without this the request can wedge silently
 # and the UI sits at 0% forever (the symptom users actually report).
@@ -51,7 +58,9 @@ _state = {
     "bytes_downloaded": 0,
     "total_bytes": 0,
     "done": False,
-    "error": None,
+    "error": None,          # a plain sentence for the screen
+    "error_detail": None,   # the underlying exception, for diagnosis
+    "download_page": None,  # where to get the installer by hand
     "path": None,
     # Authenticity: the URL we pulled from, and the SHA-256 GitHub published
     # for that asset. Resolved in-process (never accepted from the JS bridge)
@@ -87,6 +96,8 @@ def _reset_state():
             total_bytes=0,
             done=False,
             error=None,
+            error_detail=None,
+            download_page=None,
             path=None,
             source_url=None,
             expected_digest=None,
@@ -152,7 +163,11 @@ def _download_worker(url: str) -> None:
         except Exception:
             pass
         with _state_lock:
-            _state["error"] = str(e)
+            # One plain sentence for the screen (it used to show curl output
+            # or a Python exception); the detail is in app.log and here.
+            _state["error"] = _DOWNLOAD_FAILED_MESSAGE
+            _state["error_detail"] = f"{type(e).__name__}: {e}"[:300]
+            _state["download_page"] = _DOWNLOAD_PAGE
             _state["active"] = False
 
 
