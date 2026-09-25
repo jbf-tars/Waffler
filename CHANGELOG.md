@@ -6,13 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [3.14.100] - 2026-09-25
 
-Two things the app claimed that were not true, and two dictation fixes. Its
+Two things the app claimed that were not true, and a dictation fix. Its
 window fonts now ship inside the app, so opening Waffler no longer contacts
 Google. The Mac build now declares the macOS version it really needs (14.0),
-measured from the binaries inside it, instead of 10.13. Vocabulary
-corrections now apply when Whisper hyphenates a mishearing. And a change of
-mind spoken across sentences ("Tuesday. No, wait, Wednesday. Actually,
-Thursday") now comes out corrected instead of pasted word for word.
+measured from the binaries inside it, instead of 10.13. And vocabulary
+corrections now apply when Whisper hyphenates a mishearing. A change of mind
+spoken across sentences ("Tuesday. No, wait, Wednesday. Actually,
+Thursday") is still pasted word for word: a fix was tried and held back,
+because every version of it made the clean-up model silently delete words.
 
 On Windows the clean-up model was being sent a garbled copy of its
 instructions; it now gets the same text as on a Mac. The Usage panel now
@@ -68,48 +69,6 @@ OpenAI's prepaid billing correctly.
   before signing, so a bad build fails in about a minute. A dependency upgrade
   can raise the real minimum without anyone noticing; this is what caught
   NumPy. On the real v3.14.99 bundle it fails at 10.13.0 and passes at 14.0.0.
-- **A change of mind spoken across sentences came out uncorrected.** Saying
-  "Let's meet on Tuesday. No, wait, Wednesday. Actually, Thursday at two."
-  pasted exactly those words, wrong days and all. Whisper writes each attempt
-  as its own sentence, and the clean-up model (Groq gpt-oss-120b) then
-  deleted the lead-in along with the wrong days: it answered "Thursday at
-  two." in 5 of 5 runs. The safety check that stops the model silently
-  dropping content saw only 3 of 11 words survive, correctly refused that
-  answer, and pasted the transcript instead. The prompt already said to drop
-  the wrong version "ENTIRELY", but it never said that the words the
-  correction does not replace ("Let's meet on", "Send it to") stay.
-- **Fix:** the SELF-CORRECTION rules in `prompts/normal.txt` are now a short
-  procedure. Find the value the speaker takes back, keep every word around it
-  (the lead-in and whatever follows), replace it with the value said last,
-  and check the result still reads as a full sentence. A full stop or dash
-  between attempts counts as a comma, and a cross-sentence example shows its
-  wrong form (the bare final value on its own). Two guardrails stop
-  over-correcting: a later value said with "too", "also" or "as well" is an
-  extra option, not a correction, and a "No, wait" that opens the message has
-  nothing to take back, so it stays. The safety check is unchanged. Measured
-  live on Groq with `scripts/test_self_correction_corpus.py` (5 runs per case
-  before, 3 after): the exact sentence went from 0 of 5 corrected to 3 of 3,
-  the one-sentence version ("Tuesday, no wait Wednesday, actually Thursday at
-  2.") from 1 of 5 to 3 of 3, the lead-in cases from 18 of 35 runs to 18 of
-  21, and the original 24 self-correction cases from 91 of 120 to 67 of 72.
-  Every negative control on the app's path (an "I mean" that clarifies, an
-  apology, a rhetorical "No, wait", an added option) still keeps every word,
-  and `scripts/auto_test_corpus.py` is unchanged at 106 of 107.
-- **Known limits of that fix.** Two corrections in one sentence ("Send it to
-  John, sorry James, by Tuesday, no wait, Wednesday at three.") now keep
-  "John, sorry James" in 3 of 8 runs (0 of 5 before). No words are lost when
-  that happens. The wordings tried that fixed it brought back the "No, wait"
-  deletion, which does lose words, so this is the trade chosen. An 8-word
-  added option ("Let's meet on Tuesday. Actually, Thursday works too.") is
-  misread as a correction in 4 of 5 runs when the model is made to see it,
-  but the app never sends a sentence that short to the model, and a 16-word
-  version keeps every word. Two lead-in cases still fail for reasons outside
-  the prompt. "The budget is five thousand. No, six. Actually, let's say
-  seven thousand." is corrected by the model every time, but the answer
-  keeps 5 of 12 words, so the safety check refuses it. And 8-word
-  corrections split by a full stop ("Can you send it on Monday. Sorry,
-  Tuesday.") never reach the model, because the short-input shortcut does
-  not recognise the marker.
 - **On Windows the clean-up model was sent a garbled prompt.**
   `OpenAIStyler` opened `prompts/normal.txt` with a bare `open(path, 'r')`.
   With no encoding, Python uses the system's: UTF-8 on a Mac, cp1252 on
@@ -176,6 +135,60 @@ OpenAI's prepaid billing correctly.
   typical dictation is nearer 0.4 cents). The "No styling provider" notice,
   which also said "100k tokens/day", now matches.
 
+### Note
+- **Not fixed by this release: a change of mind spoken across sentences is
+  still pasted as spoken.** Saying "Let's meet on Tuesday. No, wait,
+  Wednesday. Actually, Thursday at two." pastes exactly those words, wrong
+  days and all. Whisper writes each attempt as its own sentence, and the
+  clean-up model (Groq gpt-oss-120b) deletes the lead-in along with the
+  wrong days. The safety check that stops the model silently dropping
+  content sees only 3 of 11 words survive, refuses that answer, and pastes
+  the transcript instead. Measured with the prompt read as UTF-8, as every
+  platform now reads it: 0 of 5 runs corrected, and no word lost.
+- **Why the fix was held back.** Four rewrites of the SELF-CORRECTION rules
+  in `prompts/normal.txt` were measured with
+  `scripts/test_self_correction_corpus.py` (Groq gpt-oss-120b, 5 runs of
+  each of 45 cases). The best one corrected that sentence in 5 of 5 runs and
+  raised the nine lead-in cases from 21 of 45 runs to 27. But every one of
+  them also deleted words that the current prompt kept in all 5 of its runs,
+  and the safety check let those answers through with no warning, because
+  enough of the words survived or the sentence was too short to check. The
+  best one dropped "then" from "We could do the review on Tuesday at noon
+  then. Actually, Thursday works too." in 4 of 10 runs, and the "no" or "no,
+  wait" from "but no, wait until you see this" in 3 of 10. The others turned
+  "No, wait until you see the numbers." into "Wait until you see the
+  numbers." (8 of 10), dropped "really" from "I actually really enjoyed
+  working on this project" (up to 5 of 10), and deleted Tuesday from "Let's
+  meet on Tuesday to go through the numbers. Actually, Thursday works too if
+  you're busy." (2 of 10). The version first committed for this fix pasted
+  an answer with a word missing in 17 of 225 runs and with broken grammar or
+  a stray comma in 15, against 15 and 3 for the current prompt. Uncorrected
+  words lose nothing, while a sentence with a word silently missing can say
+  something the speaker did not, so the rules stay as they are in 3.14.99.
+  Each loss above was seen in at least 2 of 10 runs against 0 of 5 for the
+  current prompt, which is weak evidence one case at a time (the current
+  prompt may drop "really" too, at a rate 5 runs did not show), but every
+  candidate had at least one loss that came back when its case was run 5
+  more times.
+- **Known limits of the rules this release ships**, measured the same way:
+  159 of 225 runs pass, 21 of 45 on the nine lead-in cases. In five cases
+  the pasted answer has a word missing (15 runs) or broken grammar (3). A
+  correction inside a spoken numbered list ("book the room for Tuesday, no
+  Monday") comes out as "Book the room for Tuesday." in 5 of 5 runs. "but
+  no, wait until you see this, it took six" loses the "no", or the whole
+  aside, in 4 of 5. "Let's meet on Tuesday. Actually, scratch that, let's
+  just do a quick call." becomes "Let's meet on Tuesday. Let's just do a
+  quick call." in 4 of 5. "Let's meet on Tuesday, actually Thursday works
+  too." becomes "Let's meet on Thursday works too." in 2 of 5. And "Can we
+  shift it to Tuesday, actually Monday works better." becomes "Can we shift
+  it to Monday works better." in 1 of 5. Eight-word corrections split by a
+  full stop ("Can you send it on Monday. Sorry, Tuesday.") never reach the
+  model, because the short-input shortcut does not recognise the marker, so
+  they are pasted as spoken. `scripts/auto_test_corpus.py` passes 106 of
+  107; the one failure is a correction inside a spoken numbered list, left
+  as spoken. These are the rules 3.14.99 has. On Windows it sent them
+  garbled (see Fixed), so these figures are what both platforms now get.
+
 ### Verified
 - With every non-local request blocked, the UI renders with zero network
   requests, both themes use the bundled faces (wordmark: Inter, serif:
@@ -196,15 +209,22 @@ OpenAI's prepaid billing correctly.
   bundled font the CSS references is missing, if the true italic or a
   licence is dropped, or if either spec stops bundling `ui/`. Four of its
   checks fail against the old stylesheet.
-- `tests/test_truncation_guard_self_correction.py` (20 checks, no network or
-  keys) pins the safety check on the cross-sentence correction: "Let's meet
-  on Thursday at two." is pasted unchanged, "Thursday at two." is refused
-  with every spoken word kept, an answer cut off by the token limit and a
-  long dictation cut below half are still caught, and inputs under 8 words
-  are never checked. It also fails if the SELF-CORRECTION section loses the
-  keep-the-lead-in rule, the full-stop rule, the cross-sentence example with
-  its wrong form, or either guardrail. Four of those checks fail against the
-  old prompt.
+- `tests/test_truncation_guard_self_correction.py` (82 checks, no network
+  or keys) pins the safety check on the cross-sentence correction: "Let's
+  meet on Thursday at two." is pasted unchanged, "Thursday at two." is
+  refused with every spoken word kept, an answer cut off by the token limit
+  and a long dictation cut below half are still caught, and inputs under 8
+  words are never checked. It records the check's blind spot: 20 answers
+  seen in these measurements that lost or garbled words (Tuesday deleted,
+  "no, wait" dropped, "James, by") are pasted unchanged. It checks that the
+  live harness scores each of them as LOSS or GARBLE and the right answers
+  as clean, and that it reads a candidate prompt as UTF-8 where the default
+  is cp1252. And it fails if the SELF-CORRECTION section changes from the
+  measured text (the test names the measurement to run first), loses its
+  worked examples or its list of what is not a correction, or brings back
+  the wording the rejected versions used to teach a correction across a
+  full stop. Each of the four rejected versions fails 3 to 6 of those
+  checks.
 - `scripts/test_self_correction_corpus.py` gains 14 lead-in and
   negative-control cases, and can run each case several times, against a
   candidate prompt, recording the model's answer before the safety check.
@@ -220,16 +240,17 @@ OpenAI's prepaid billing correctly.
   stand). It fails as GARBLE on a stray comma ("the, updated", "to James,
   by") or a lead-in glued onto a replacement that brings its own verb. The
   table, totals and JSON count those runs on the pasted text and on the
-  model's answer. Seven cases are added from a review of the fix: an added
-  option after a comma, and at 11 and 14 words; a rhetorical "no, wait"
-  mid-sentence; two replacements that bring their own verb; and an email
-  with fillers ("I'll bring the, uh, updated numbers"). `--rescore`
+  model's answer. Seven cases are added from a review of the held-back fix:
+  an added option after a comma, and at 11 and 14 words; a rhetorical "no,
+  wait" mid-sentence; two replacements that bring their own verb; and an
+  email with fillers ("I'll bring the, uh, updated numbers"). `--rescore`
   re-scores a recorded run with the current checks at no cost, and the
   harness refuses to start if a check would fail the speaker's own words.
   Both harnesses now read a `--prompt-file` as UTF-8, as the app does, and
   the key file as `utf-8-sig`. On Windows they had decoded candidates as
-  cp1252, so the self-correction figures above were measured on the garbled
-  prompt the app no longer sends. `scripts/auto_test_corpus.py` now clears a
+  cp1252, so the first measurements of the held-back fix were taken on the
+  garbled prompt; every self-correction figure in this entry was measured
+  after that change. `scripts/auto_test_corpus.py` now clears a
   provider cooldown and retries a case when every provider failed, and fails
   the case if it still fell back. Before, one dropped connection parked Groq
   for 30 seconds and the next 55 cases were scored on the unstyled fallback
@@ -252,7 +273,7 @@ OpenAI's prepaid billing correctly.
   storing the real duration, `scripts/recost_usage.py` prices a short clip
   the same way, and `get_usage_stats` counts Cerebras calls, with and
   without the stored flag, as estimates, which the panel renders.
-- Suite: 413 passed, 1 skipped.
+- Suite: 475 passed, 1 skipped.
 
 ## [3.14.99] - 2026-09-22
 
