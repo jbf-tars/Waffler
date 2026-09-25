@@ -818,6 +818,25 @@ class Api:
                 pass
             raise e
 
+    def set_theme(self, theme: str) -> dict:
+        """Remember the UI theme ('cream', 'dark' or 'auto') in settings.json,
+        so the next launch can paint the window in the right colour before the
+        page loads (see src/theme.py). The UI's own copy stays in
+        localStorage."""
+        try:
+            from theme import THEMES
+            theme = str(theme or "").strip().lower()
+            if theme not in THEMES:
+                return {"ok": False, "error": "Unknown theme."}
+            stored = self._load_settings_file()
+            if stored.get("theme") != theme:
+                stored["theme"] = theme
+                self._save_settings_file(stored)
+            return {"ok": True}
+        except Exception as e:
+            _log_to_file(f"[theme] could not save theme: {e}")
+            return {"ok": False, "error": "Couldn't save the theme."}
+
     def _update_env_var(self, key: str, value: str):
         """Update or add a variable in the user's .env file."""
         env_path = DATA_DIR / ".env"
@@ -4287,6 +4306,44 @@ def main():
 
     # Load config (reads .env from project root via dotenv)
     os.chdir(PROJECT_ROOT)  # so config.yaml and .env are found
+
+    # v3.14.45 — single-instance lock. The 08:31:54 reproduction in the
+    # user's app.log showed THREE simultaneous main-mode Waffler.exe
+    # processes after an in-app update, each installing its own keyboard
+    # hook → Win+Ctrl press fired three on_release callbacks → three
+    # _process threads → three pastes per dictation. Root cause was Inno
+    # Setup's /RESTARTAPPLICATIONS flag relaunching more processes than
+    # Restart Manager had killed. Defence-in-depth at the app layer:
+    # acquire a named-mutex lock on Windows / fcntl.flock on POSIX. If
+    # any other Waffler main-mode process is already running, exit
+    # immediately before touching the pipeline / hotkey listener / audio
+    # stream. Crash-safe: the kernel releases the lock on process exit
+    # even on hard kill, so the lock can never get stuck.
+    #
+    # Taken FIRST, before the banner, the update reconciliation and VPN
+    # detection. It used to come after them, so a duplicate launch wrote a
+    # start-up banner, probed the network adapters and could read (and
+    # consume) the pending-update marker meant for the running instance,
+    # all before exiting.
+    try:
+        from src.single_instance import acquire as _acquire_lock, signal_focus_to_existing as _signal_focus
+    except ImportError:
+        from single_instance import acquire as _acquire_lock, signal_focus_to_existing as _signal_focus
+    if not _acquire_lock():
+        # v3.14.46 — Slack-style focus-existing-window UX. The second
+        # instance signals the first to bring its window to the front
+        # (via ~/.waffler-hosted/focus.signal — a polled file the first
+        # instance's watcher thread is waiting on) then exits. So a
+        # double-click of the Waffler icon while it's already running
+        # surfaces the existing window rather than silently doing
+        # nothing.
+        _log_to_file(
+            "[single-instance] another Waffler main-mode process is already "
+            "running — signalling it to bring its window to front, then exiting."
+        )
+        _signal_focus()
+        sys.exit(0)
+
     # v3.14.30 — stamp the running version into the banner so every
     # "is this the right build?" question becomes a 1-second grep
     # against app.log instead of a separate `grep __version__` against
@@ -4338,37 +4395,6 @@ def main():
         )
     except Exception as _e:
         _log_to_file(f"[vpn] detection failed: {_e}")
-
-    # v3.14.45 — single-instance lock. The 08:31:54 reproduction in the
-    # user's app.log showed THREE simultaneous main-mode Waffler.exe
-    # processes after an in-app update, each installing its own keyboard
-    # hook → Win+Ctrl press fired three on_release callbacks → three
-    # _process threads → three pastes per dictation. Root cause was Inno
-    # Setup's /RESTARTAPPLICATIONS flag relaunching more processes than
-    # Restart Manager had killed. Defence-in-depth at the app layer:
-    # acquire a named-mutex lock on Windows / fcntl.flock on POSIX. If
-    # any other Waffler main-mode process is already running, exit
-    # immediately before touching the pipeline / hotkey listener / audio
-    # stream. Crash-safe: the kernel releases the lock on process exit
-    # even on hard kill, so the lock can never get stuck.
-    try:
-        from src.single_instance import acquire as _acquire_lock, signal_focus_to_existing as _signal_focus
-    except ImportError:
-        from single_instance import acquire as _acquire_lock, signal_focus_to_existing as _signal_focus
-    if not _acquire_lock():
-        # v3.14.46 — Slack-style focus-existing-window UX. The second
-        # instance signals the first to bring its window to the front
-        # (via ~/.waffler-hosted/focus.signal — a polled file the first
-        # instance's watcher thread is waiting on) then exits. So a
-        # double-click of the Waffler icon while it's already running
-        # surfaces the existing window rather than silently doing
-        # nothing.
-        _log_to_file(
-            "[single-instance] another Waffler main-mode process is already "
-            "running — signalling it to bring its window to front, then exiting."
-        )
-        _signal_focus()
-        sys.exit(0)
 
     # v3.14.31 — log the actual macOS mic TCC status at startup. The
     # existing PermissionsManager.check_microphone_permission() opens an
@@ -4467,6 +4493,17 @@ def main():
     ui_dir = PROJECT_ROOT / "ui"
     html_path = ui_dir / "index.html"
 
+    # Paint the native window in the theme's own background, so opening the
+    # app no longer flashes dark under the default Cream theme.
+    try:
+        from theme import window_background, os_prefers_dark
+        _theme = api._load_settings_file().get("theme", "cream")
+        _window_bg = window_background(
+            _theme, os_prefers_dark() if _theme == "auto" else None)
+    except Exception as _e:
+        _log_to_file(f"[theme] window background fell back to cream: {_e}")
+        _window_bg = "#FBF7EB"
+
     window = webview.create_window(
         title="Waffler",
         url=str(html_path),
@@ -4474,7 +4511,7 @@ def main():
         height=780,
         min_size=(900, 640),
         resizable=True,
-        background_color="#0d0d0f",
+        background_color=_window_bg,
         js_api=api,
         frameless=False,
         easy_drag=False,

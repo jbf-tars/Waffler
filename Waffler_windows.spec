@@ -110,7 +110,10 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    # UPX off: packed executables are a common antivirus false-positive
+    # trigger (Waffler has had one Defender flag), and unpacking at every
+    # launch slows start-up.
+    upx=False,
     console=False,
     icon='icon.ico',
 )
@@ -120,7 +123,7 @@ coll = COLLECT(
     a.binaries,
     a.datas,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
     name='Waffler',
 )

@@ -171,6 +171,33 @@ OpenAI's prepaid billing correctly.
   `tests/test_startup_memory.py` (8 checks) checks the hook, that both
   builds register it, and that `app.py` sets the caps and starts the pill
   before any heavy import.
+- **A `.env` file elsewhere on the computer could replace your keys.** After
+  reading Waffler's own key file, `src/config.py` also called
+  `load_dotenv(override=True)` with no path, which searches upward from the
+  app's folder and, in an installed app, through your home folder. A
+  developer's `~/.env` holding `GROQ_API_KEY` or `OPENAI_API_KEY` silently
+  won over the key entered in Waffler. Now only the repo's own `.env` is read
+  as a fallback, by exact path, and it can only fill a key nothing else set.
+  `tests/test_env_precedence.py` (4 checks) loads the config from a folder
+  with an unrelated `.env` above it.
+- **The window flashed dark on every launch, and "System" was dark on a
+  light computer.** The window was always created with the dark theme's
+  background, although Cream is the default. It now takes the saved theme's
+  colour; the theme is kept in `settings.json` as well as the page's own
+  storage, because the window is painted before the page loads. The System
+  theme had no light version, so on a light computer it fell back to the
+  dark colours; it now follows the computer's setting, including when that
+  changes while Waffler is open.
+- **A second copy of Waffler did start-up work before closing.** It wrote a
+  start-up line to the log, checked for a VPN, and could use up the note
+  about a pending update meant for the copy already running. The
+  one-copy-only check is now the first thing Waffler does.
+- **Packaging:** UPX compression is off in both builds (packed programs are
+  a common cause of false antivirus alarms, and Waffler has had one), and
+  the Windows installer now removes uninstallers left behind by older
+  installs. One real install folder held two, with only the newer one
+  registered. `tests/test_startup_config.py` (20 checks) covers these and
+  the theme colours.
 
 ### Changed
 - **The app now looks the way 3.14.20 intended.** Because the fonts finally

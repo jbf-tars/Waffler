@@ -4187,8 +4187,13 @@ html, body {
  * - "auto": follows the OS via prefers-color-scheme media query
  * ══════════════════════════════════════════════════════════════════ */
 
-/* Cream theme variables (default) */
+/* Cream theme variables (default). "auto" (System) is listed too, as its
+   light branch: app.js resolves System to cream or dark, but if that script
+   has not run, a light OS must not fall through to the dark :root values
+   (it did, so System looked dark on a light OS). The dark branch below
+   overrides this under prefers-color-scheme: dark. */
 body[data-theme="cream"],
+body[data-theme="auto"],
 body:not([data-theme]) {
   --bg-base:     #FBF7EB;
   --bg-surface:  #F4EFE0;

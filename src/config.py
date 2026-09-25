@@ -16,10 +16,25 @@ except ImportError:  # imported as src.config
 # utf-8-sig, not python-dotenv's default utf-8: a .env saved by an editor that
 # adds a byte-order mark would otherwise hide its first key (dotenv reads it as
 # "\ufeffGROQ_API_KEY") and the app would ask for a key it already has.
+#
+# The fallback is the repo's own .env (CONTRIBUTING: cp .env.example .env), by
+# explicit path and with override=False, so it only fills keys nothing else
+# set. It used to be load_dotenv(override=True) with no path, which searches
+# upward from this file: in an installed app that walks up through the
+# user's home folder, so an unrelated ~/.env holding OPENAI_API_KEY or
+# GROQ_API_KEY silently replaced the key the user entered in Waffler.
 _user_env = _data_dir() / ".env"
-if _user_env.exists():
-    load_dotenv(str(_user_env), override=True, encoding="utf-8-sig")
-load_dotenv(override=True, encoding="utf-8-sig")  # Also check project root .env as fallback
+_project_env = Path(__file__).resolve().parent.parent / ".env"
+
+
+def _load_env_files():
+    if _user_env.exists():
+        load_dotenv(str(_user_env), override=True, encoding="utf-8-sig")
+    if _project_env.exists():
+        load_dotenv(str(_project_env), override=False, encoding="utf-8-sig")
+
+
+_load_env_files()
 
 
 class Config:
@@ -69,7 +84,8 @@ class Config:
         user_env = _data_dir() / ".env"
         if user_env.exists():
             load_dotenv(str(user_env), override=True, encoding="utf-8-sig")
-        load_dotenv(override=True, encoding="utf-8-sig")
+        if _project_env.exists():
+            load_dotenv(str(_project_env), override=False, encoding="utf-8-sig")
         self._load_env_vars()
 
     def _load_persisted_prompt_style(self):

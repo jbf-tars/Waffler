@@ -70,3 +70,46 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent
+
+[Code]
+// v3.14.100: remove uninstallers left behind by older installs. Setup names
+// its uninstaller unins000, unins001 and so on, and starts a new number when
+// it cannot append to the existing log. A real install folder held unins000
+// from March beside unins001 from September, while Add/Remove Programs
+// pointed only at unins001, so unins000 was an orphan. After installing,
+// delete every unins###.exe/.dat/.msg except the uninstaller this install
+// registered ({uninstallexe}).
+procedure DeleteStaleUninstallers;
+var
+  FindRec: TFindRec;
+  AppDir, Current, Base, Ext: String;
+begin
+  AppDir := AddBackslash(ExpandConstant('{app}'));
+  Current := ChangeFileExt(ExtractFileName(ExpandConstant('{uninstallexe}')), '');
+  if FindFirst(AppDir + 'unins???.*', FindRec) then
+  begin
+    try
+      repeat
+        Base := ChangeFileExt(FindRec.Name, '');
+        Ext := ExtractFileExt(FindRec.Name);
+        if (CompareText(Base, Current) <> 0) and
+           ((CompareText(Ext, '.exe') = 0) or (CompareText(Ext, '.dat') = 0) or
+            (CompareText(Ext, '.msg') = 0)) then
+        begin
+          if DeleteFile(AppDir + FindRec.Name) then
+            Log('Removed stale uninstaller file: ' + FindRec.Name)
+          else
+            Log('Could not remove stale uninstaller file: ' + FindRec.Name);
+        end;
+      until not FindNext(FindRec);
+    finally
+      FindClose(FindRec);
+    end;
+  end;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssPostInstall then
+    DeleteStaleUninstallers;
+end;

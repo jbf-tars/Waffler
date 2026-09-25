@@ -3,28 +3,60 @@
 // ── Theme (v3.14.3+) ──────────────────────────────────────────────────
 // Apply the saved theme as early as possible so the page doesn't flash
 // in the wrong colours. Default for new installs is "cream".
-(function applyStoredTheme() {
+//
+// "auto" (Settings: System) is resolved here to "cream" or "dark" from the
+// OS setting, and followed live. It used to be set on <body> as-is, and the
+// stylesheet only had a dark branch for it, so on a light OS "System" showed
+// the dark colours. Resolving it means every cream- and dark-specific rule
+// applies to System too. The choice itself is kept in data-theme-pref.
+const THEME_CHOICES = ['cream', 'dark', 'auto'];
+const _darkQuery = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+let _themePref = 'cream';
+
+function _resolveTheme(pref) {
+  if (pref !== 'auto') return pref;
+  return _darkQuery && _darkQuery.matches ? 'dark' : 'cream';
+}
+
+function _applyTheme(pref) {
+  _themePref = THEME_CHOICES.includes(pref) ? pref : 'cream';
+  document.body.setAttribute('data-theme', _resolveTheme(_themePref));
+  document.body.setAttribute('data-theme-pref', _themePref);
+}
+
+// Also saved in settings.json, so the app can paint its window in the
+// theme's colour before this page loads (no dark flash on open).
+function _syncThemeToApp(pref) {
   try {
-    const t = localStorage.getItem('waffler_theme') || 'cream';
-    document.body.setAttribute('data-theme', t);
-  } catch (_) {
-    document.body.setAttribute('data-theme', 'cream');
+    if (window.pywebview && window.pywebview.api && window.pywebview.api.set_theme) {
+      window.pywebview.api.set_theme(pref);
+    }
+  } catch (_) {}
+}
+
+(function applyStoredTheme() {
+  let t = 'cream';
+  try { t = localStorage.getItem('waffler_theme') || 'cream'; } catch (_) {}
+  _applyTheme(t);
+  if (_darkQuery) {
+    const follow = () => { if (_themePref === 'auto') _applyTheme('auto'); };
+    if (_darkQuery.addEventListener) _darkQuery.addEventListener('change', follow);
+    else if (_darkQuery.addListener) _darkQuery.addListener(follow);
   }
+  window.addEventListener('pywebviewready', () => _syncThemeToApp(_themePref));
 })();
 
 function setAppTheme(theme) {
-  if (!['cream', 'dark', 'auto'].includes(theme)) return;
-  document.body.setAttribute('data-theme', theme);
+  if (!THEME_CHOICES.includes(theme)) return;
+  _applyTheme(theme);
   try { localStorage.setItem('waffler_theme', theme); } catch (_) {}
-  // Update theme-picker active state
-  document.querySelectorAll('.theme-option').forEach((el) => {
-    el.classList.toggle('active', el.getAttribute('data-theme') === theme);
-  });
+  _syncThemeToApp(theme);
+  refreshThemePicker();
 }
 
 // Mark the current theme button as active when settings opens
 function refreshThemePicker() {
-  const cur = document.body.getAttribute('data-theme') || 'cream';
+  const cur = _themePref || 'cream';
   document.querySelectorAll('.theme-option').forEach((el) => {
     el.classList.toggle('active', el.getAttribute('data-theme') === cur);
   });
