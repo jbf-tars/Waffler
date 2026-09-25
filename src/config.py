@@ -8,10 +8,13 @@ from dotenv import load_dotenv
 
 # Load .env files — user data dir first, then project root as fallback
 
+# utf-8-sig, not python-dotenv's default utf-8: a .env saved by an editor that
+# adds a byte-order mark would otherwise hide its first key (dotenv reads it as
+# "\ufeffGROQ_API_KEY") and the app would ask for a key it already has.
 _user_env = Path.home() / ".waffler-hosted" / ".env"
 if _user_env.exists():
-    load_dotenv(str(_user_env), override=True)
-load_dotenv(override=True)  # Also check project root .env as fallback
+    load_dotenv(str(_user_env), override=True, encoding="utf-8-sig")
+load_dotenv(override=True, encoding="utf-8-sig")  # Also check project root .env as fallback
 
 
 class Config:
@@ -27,7 +30,7 @@ class Config:
         if not self.config_path.exists():
             raise FileNotFoundError(f"Config file not found: {self.config_path}")
             
-        with open(self.config_path, 'r') as f:
+        with open(self.config_path, 'r', encoding='utf-8-sig') as f:
             return yaml.safe_load(f)
             
     def _load_env_vars(self):
@@ -60,8 +63,8 @@ class Config:
         """Re-read .env and refresh keys. Called after wizard sets a key."""
         user_env = Path.home() / ".waffler-hosted" / ".env"
         if user_env.exists():
-            load_dotenv(str(user_env), override=True)
-        load_dotenv(override=True)
+            load_dotenv(str(user_env), override=True, encoding="utf-8-sig")
+        load_dotenv(override=True, encoding="utf-8-sig")
         self._load_env_vars()
 
     def _load_persisted_prompt_style(self):
@@ -73,7 +76,7 @@ class Config:
             settings_path = Path.home() / ".waffler-hosted" / "settings.json"
             if not settings_path.exists():
                 return None
-            data = json.loads(settings_path.read_text())
+            data = json.loads(settings_path.read_text(encoding="utf-8-sig"))
             value = data.get("prompt_style")
             if isinstance(value, str) and value.strip():
                 return value.strip()

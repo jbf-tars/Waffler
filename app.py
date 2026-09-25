@@ -19,7 +19,8 @@ from datetime import datetime, date
 
 # Enable faulthandler to catch segfaults and write tracebacks to a file
 try:
-    _crash_log = open(Path.home() / ".waffler-hosted" / "crash.log", "a")
+    _crash_log = open(Path.home() / ".waffler-hosted" / "crash.log", "a",
+                      encoding="utf-8")
     faulthandler.enable(file=_crash_log)
 
     def close_crash_log():
@@ -662,7 +663,7 @@ class Api:
         from transcribe_whisper import VOCAB_FILE
         try:
             VOCAB_FILE.parent.mkdir(parents=True, exist_ok=True)
-            VOCAB_FILE.write_text(json.dumps(words, indent=2))
+            VOCAB_FILE.write_text(json.dumps(words, indent=2), encoding="utf-8")
             return {"ok": True, "count": len(words)}
         except Exception as e:
             return {"ok": False, "error": str(e)}
@@ -729,7 +730,7 @@ class Api:
         try:
             sf = self._settings_file()
             if sf.exists():
-                return json.loads(sf.read_text())
+                return json.loads(sf.read_text(encoding="utf-8-sig"))
         except Exception:
             pass
         return {}
@@ -760,7 +761,9 @@ class Api:
         env_path.parent.mkdir(parents=True, exist_ok=True)
         lines = []
         if env_path.exists():
-            lines = env_path.read_text().splitlines()
+            # utf-8-sig drops a BOM an editor may have added; the rewrite below
+            # then saves plain UTF-8, which is what python-dotenv reads.
+            lines = env_path.read_text(encoding="utf-8-sig").splitlines()
         new_lines = []
         found = False
         for line in lines:
@@ -771,7 +774,7 @@ class Api:
                 new_lines.append(line)
         if not found:
             new_lines.append(f"{key}={value}")
-        env_path.write_text("\n".join(new_lines) + "\n")
+        env_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
 
     def get_settings(self) -> dict:
         """Return current settings for the UI."""
@@ -1829,7 +1832,7 @@ class Api:
         try:
             sf = self._snippets_file()
             if sf.exists():
-                return json.loads(sf.read_text())
+                return json.loads(sf.read_text(encoding="utf-8-sig"))
         except Exception:
             pass
         return []
@@ -2160,7 +2163,7 @@ def _is_setup_complete() -> bool:
     """Check if the setup wizard has been completed before."""
     try:
         if SETUP_FILE.exists():
-            data = json.loads(SETUP_FILE.read_text())
+            data = json.loads(SETUP_FILE.read_text(encoding="utf-8-sig"))
             return data.get("complete", False)
     except Exception:
         pass
@@ -2173,7 +2176,7 @@ def _mark_setup_complete():
     SETUP_FILE.write_text(json.dumps({
         "complete": True,
         "completed_at": datetime.now().isoformat(timespec="seconds"),
-    }, indent=2))
+    }, indent=2), encoding="utf-8")
 
 
 def _log_to_file(msg: str):
@@ -2469,7 +2472,7 @@ class WafflerPipeline:
         try:
             _sf = DATA_DIR / "settings.json"
             if _sf.exists():
-                _provider_order = json.loads(_sf.read_text(encoding="utf-8")).get("provider_order")
+                _provider_order = json.loads(_sf.read_text(encoding="utf-8-sig")).get("provider_order")
         except Exception:
             _provider_order = None
 
@@ -3370,7 +3373,7 @@ class WafflerPipeline:
                 _sf = DATA_DIR / "settings.json"
                 try:
                     if _sf.exists():
-                        stored = json.loads(_sf.read_text())
+                        stored = json.loads(_sf.read_text(encoding="utf-8-sig"))
                 except Exception:
                     pass
                 if stored.get("auto_paste", True):
@@ -3713,7 +3716,7 @@ class WafflerPipeline:
         snip_file = DATA_DIR / "snippets.json"
         try:
             if snip_file.exists():
-                snippets = json.loads(snip_file.read_text())
+                snippets = json.loads(snip_file.read_text(encoding="utf-8-sig"))
                 for s in snippets:
                     trigger   = s.get("trigger", "").strip()
                     expansion = s.get("expansion", "")
@@ -3732,7 +3735,7 @@ class WafflerPipeline:
             try:
                 sf = DATA_DIR / "settings.json"
                 if sf.exists():
-                    stored = json.loads(sf.read_text())
+                    stored = json.loads(sf.read_text(encoding="utf-8-sig"))
                     keys = stored.get("hotkey_keys")
             except Exception:
                 pass

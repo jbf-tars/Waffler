@@ -919,7 +919,7 @@ rm -f "$DMG"
 rm -f "$0"
 """
     script_path = Path(tempfile.gettempdir()) / f"waffler_update_{pid}.sh"
-    script_path.write_text(script)
+    script_path.write_text(script, encoding="utf-8")
     script_path.chmod(0o755)
 
     subprocess.Popen(

@@ -96,7 +96,7 @@ def get_selected_device_index() -> Optional[int]:
     Falls back to the system default.
     """
     try:
-        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+        with open(CONFIG_FILE, "r", encoding="utf-8-sig") as f:
             cfg = json.load(f)
             idx = cfg.get("audio_device_index")
             if idx is not None:
@@ -114,7 +114,7 @@ def set_selected_device_index(device_index: Optional[int]):
     CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
 
     try:
-        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+        with open(CONFIG_FILE, "r", encoding="utf-8-sig") as f:
             cfg = json.load(f)
     except Exception:
         cfg = {}

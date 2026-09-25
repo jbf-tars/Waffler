@@ -14,6 +14,9 @@ corrections now apply when Whisper hyphenates a mishearing. And a change of
 mind spoken across sentences ("Tuesday. No, wait, Wednesday. Actually,
 Thursday") now comes out corrected instead of pasted word for word.
 
+On Windows the clean-up model was being sent a garbled copy of its
+instructions; it now gets the same text as on a Mac.
+
 ### Fixed
 - **Every launch sent the user's IP address to Google, for fonts that never
   loaded.** Since 3.14.20, `ui/style.css` pulled Inter and Source Serif 4 with
@@ -104,6 +107,32 @@ Thursday") now comes out corrected instead of pasted word for word.
   corrections split by a full stop ("Can you send it on Monday. Sorry,
   Tuesday.") never reach the model, because the short-input shortcut does
   not recognise the marker.
+- **On Windows the clean-up model was sent a garbled prompt.**
+  `OpenAIStyler` opened `prompts/normal.txt` with a bare `open(path, 'r')`.
+  With no encoding, Python uses the system's: UTF-8 on a Mac, cp1252 on
+  Windows. The prompt is UTF-8, so on Windows each of its 12 em-dashes
+  reached the model as "â€”", and its 6 arrows, "≥", 4 "…", "€" and "£"
+  were garbled the same way, while a Mac sent the real text. The two
+  platforms have been running different instructions. The same bare calls
+  read `settings.json`, `vocab.json`, `snippets.json`,
+  `setup_complete.json`, `config.yaml` and the `.env` key file, and three
+  of the writers to `app.log` used them too, so on Windows a log line with a
+  character cp1252 has no code for (the overlay's "✓ Subprocess started")
+  was silently dropped.
+- **Fix:** every text-mode `open()`, `read_text()` and `write_text()` in
+  `src/` and `app.py` now names its encoding. Writes are UTF-8. Files a
+  person might edit by hand (`settings.json`, `vocab.json`, `snippets.json`,
+  `config.json`, `config.yaml`, `.env`) are read as `utf-8-sig`, so a
+  byte-order mark added by an editor such as Notepad is ignored. Before,
+  `json.loads` rejected the mark and the loaders swallowed the error, so the
+  words or settings silently disappeared. python-dotenv now reads `.env` the
+  same way: a mark there hid the first key, and the app asked for a key it
+  already had. The overlay's pipes are now decoded as UTF-8 to match the
+  overlay process, which already writes UTF-8. Windows decoded them as
+  cp1252, which garbled non-ASCII lines in `app.log`, and a byte cp1252
+  cannot map would have stopped the thread reading them. Files written by
+  earlier versions still read correctly: the app wrote its JSON as plain
+  ASCII (or already as UTF-8), and keys are ASCII.
 
 ### Changed
 - **The app now looks the way 3.14.20 intended.** Because the fonts finally
@@ -144,7 +173,18 @@ Thursday") now comes out corrected instead of pasted word for word.
   negative-control cases, and can run each case several times, against a
   candidate prompt, recording the model's answer before the safety check.
   `scripts/auto_test_corpus.py` gains `--prompt-file` and `--json`.
-- Suite: 361 passed, 1 skipped.
+- `tests/test_utf8_file_io.py` (40 checks, no network or keys) builds the
+  real `OpenAIStyler` with an `open()` that behaves like Windows (no
+  encoding means cp1252), so it catches the bug on a Mac too, and checks the
+  loaded prompt equals `prompts/normal.txt` and `prompts/email.txt` decoded
+  as UTF-8, with no "â€" in it. It checks the vocabulary and settings
+  loaders accept a byte-order mark. And it scans `src/*.py` and `app.py` for
+  any text-mode `open()`, `io.open()`, `os.fdopen()`, `Path.open()`,
+  `read_text()`, `write_text()` or text-mode temporary file with no
+  encoding (binary modes are exempt), with 34 checks that the scanner flags
+  what it should and nothing else. The prompt checks and the scan fail
+  against the old code.
+- Suite: 401 passed, 1 skipped.
 
 ## [3.14.99] - 2026-09-22
 

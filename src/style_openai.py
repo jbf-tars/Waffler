@@ -219,7 +219,10 @@ class OpenAIStyler:
             print(f"Prompt file not found: {prompt_path}, using default")
             return self._get_default_prompt()
 
-        with open(prompt_path, 'r') as f:
+        # UTF-8 explicitly: the prompts are UTF-8 (em-dashes, arrows, "≥",
+        # "…", "€"). Without it Windows decodes them as cp1252, so the model
+        # was sent "â€”" for every em-dash while a Mac sent the real text.
+        with open(prompt_path, 'r', encoding='utf-8') as f:
             return f.read()
 
     def _get_default_prompt(self) -> str:
@@ -562,7 +565,7 @@ Transcript: {transcript}"""
         print(f"{provider_name} styling failed ({exc}), trying next provider")
         try:
             log_file = Path.home() / ".waffler-hosted" / "app.log"
-            with open(log_file, "a") as f:
+            with open(log_file, "a", encoding="utf-8") as f:
                 ts = datetime.now().strftime("%H:%M:%S")
                 f.write(f"{ts}  [styling] {provider_name} FAILED: {exc}\n")
                 f.write(f"{ts}  [styling] {err_detail}\n")
@@ -850,7 +853,7 @@ Transcript: {transcript}"""
             try:
                 from datetime import datetime as _dt
                 log_path = Path.home() / ".waffler-hosted" / "app.log"
-                with open(log_path, "a") as _fp:
+                with open(log_path, "a", encoding="utf-8") as _fp:
                     _fp.write(f"{_dt.now().strftime('%H:%M:%S')}  [styling] OpenAI model used: {chosen_model} ({len(transcript.split())} input words)\n")
             except Exception:
                 pass

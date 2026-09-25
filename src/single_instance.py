@@ -137,7 +137,7 @@ def _acquire_posix() -> bool:
         # Open in read-write append mode and keep the file descriptor
         # alive on the module-level _HOLDER so the kernel keeps the
         # lock attributed to us.
-        fp = open(lock_path, "a+")
+        fp = open(lock_path, "a+", encoding="utf-8")
     except Exception as e:
         print(f"[single-instance] could not open lock file ({e}); proceeding without lock")
         return True
@@ -188,7 +188,7 @@ def signal_focus_to_existing() -> None:
         # Update mtime even if the file already existed (the watcher
         # uses mtime as the trigger so back-to-back duplicate launches
         # all bring the window forward).
-        _FOCUS_SIGNAL_PATH.write_text(f"{time.time():.6f}\n")
+        _FOCUS_SIGNAL_PATH.write_text(f"{time.time():.6f}\n", encoding="utf-8")
     except Exception:
         pass
 

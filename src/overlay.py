@@ -44,7 +44,7 @@ class RecordingOverlay:
         from datetime import datetime
         try:
             log_file = Path.home() / ".waffler-hosted" / "app.log"
-            with open(log_file, "a") as f:
+            with open(log_file, "a", encoding="utf-8") as f:
                 ts = datetime.now().strftime("%H:%M:%S")
                 f.write(f"{ts}  {msg}\n")
         except Exception:
@@ -296,6 +296,14 @@ class RecordingOverlay:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                # The child is this same app.py, which switches its stdout and
+                # stderr to UTF-8 at start-up. Without a matching encoding here
+                # Windows decodes the pipes as cp1252: non-ASCII lines are
+                # garbled in app.log, and a byte cp1252 cannot map (0x81, 0x8D,
+                # 0x8F, 0x90, 0x9D) raises in the reader thread and stops it.
+                # errors='replace' keeps a stray bad byte from doing the same.
+                encoding="utf-8",
+                errors="replace",
                 bufsize=1,
                 **kwargs,
             )

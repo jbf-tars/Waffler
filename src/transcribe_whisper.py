@@ -75,7 +75,7 @@ def load_vocab() -> list[str]:
     try:
         if VOCAB_FILE.exists():
             import json
-            return json.loads(VOCAB_FILE.read_text())
+            return json.loads(VOCAB_FILE.read_text(encoding="utf-8-sig"))
     except Exception:
         pass
     return []
@@ -86,7 +86,7 @@ def load_settings() -> dict:
     try:
         if SETTINGS_FILE.exists():
             import json
-            return json.loads(SETTINGS_FILE.read_text())
+            return json.loads(SETTINGS_FILE.read_text(encoding="utf-8-sig"))
     except Exception:
         pass
     return {}
