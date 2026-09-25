@@ -448,7 +448,9 @@ OpenAI's prepaid billing correctly.
   as CI already did. `tests/test_data_dir_isolation.py` (11 checks) fails if
   any module builds the folder itself again. A full run with the home folder
   pointed at an empty folder leaves it empty.
-- Suite: 475 passed, 1 skipped.
+- Suite: 709 passed, 2 skipped (one key-table check per platform runs only
+  on that platform). A full run leaves the real `app.log` byte for byte
+  unchanged.
 
 ## [3.14.99] - 2026-09-22
 
