@@ -723,6 +723,71 @@ _TRANSCRIBE_TIMEOUT_S = 60.0
 # this; it remains as an independent safety net.)
 _GROQ_MAX_UPLOAD_BYTES = 18 * 1024 * 1024
 
+# ── Transient-error retries and the Groq circuit-breaker ────────────────────
+# Both SDK clients run with max_retries=0, so one dropped connection used to
+# fail the call outright. With another provider configured that is fine: the
+# next one takes the clip at once. But the recommended free setup is a Groq
+# key alone, and there one blip also put Groq on a 30 s cooldown (1 h for an
+# auth-looking error), during which every dictation failed with "no
+# transcription backend available" and was saved as an unsent WAV. Real use
+# logged 7 Groq connection errors and 5 lost dictations.
+#
+# Now: the LAST provider left to try gets up to _TRANSIENT_RETRIES more
+# attempts on a timeout, a 5xx or a connection error, with jittered
+# exponential backoff, and only while the time already spent on that provider
+# plus the next wait stays inside _TRANSIENT_RETRY_BUDGET_S. A request that
+# has already run into its 60 s timeout is therefore not repeated, so a
+# retry can never double a long wait. Earlier providers are not retried:
+# falling over to the next one is faster than waiting.
+_TRANSIENT_RETRIES = 2
+_TRANSIENT_BACKOFF_S = 0.6
+_TRANSIENT_RETRY_BUDGET_S = 20.0
+# Cooldowns only apply when another speech provider can take the clip. When
+# Groq is the only one, it is never skipped: a skipped sole provider is a
+# guaranteed failure, while a retried one usually works.
+_GROQ_AUTH_COOLDOWN_S = 60.0   # was 3600: a VPN switch should not cost an hour
+_GROQ_ERROR_COOLDOWN_S = 30.0
+
+# Patched by tests so retries do not really wait.
+_retry_sleep = time.sleep
+
+
+def _classify_asr_error(exc: BaseException) -> str:
+    """Sort a transcription failure into 'auth', 'transient' or 'other'.
+
+    Uses the HTTP status and exception type the OpenAI and Groq SDKs attach
+    (both name their classes the same way), then falls back to the message
+    text the old code matched on, so behaviour is unchanged for anything the
+    SDKs do not type.
+    """
+    status = getattr(exc, "status_code", None)
+    if not isinstance(status, int):
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+    name = type(exc).__name__
+    text = str(exc)
+    lower = text.lower()
+
+    if status in (401, 403) or name in ("AuthenticationError", "PermissionDeniedError"):
+        return "auth"
+    if isinstance(status, int):
+        if status >= 500 or status == 408:
+            return "transient"
+        return "other"
+    if name in ("APIConnectionError", "APITimeoutError", "InternalServerError",
+                "ConnectError", "ConnectTimeout", "ReadTimeout", "WriteTimeout",
+                "PoolTimeout", "ReadError", "WriteError", "RemoteProtocolError"):
+        return "transient"
+    if isinstance(exc, (TimeoutError, ConnectionError)):
+        return "transient"
+    if any(s in text for s in ("403", "401")) or any(
+        s in lower for s in ("access denied", "unauthorized", "permission")
+    ):
+        return "auth"
+    if any(s in lower for s in ("connection error", "timed out", "timeout",
+                                "connection reset", "connection aborted")):
+        return "transient"
+    return "other"
+
 
 def _upload_timeout_s(nbytes: int) -> float:
     """Per-request timeout scaled to upload size.
@@ -979,7 +1044,9 @@ class WhisperTranscriber:
         # (typically a VPN exit-IP block — Groq hard-rejects many VPN nodes
         # before authentication). Mirror of the same flag on OpenAIStyler.
         # Without this every recording wastes ~150-300 ms on a dead Groq
-        # round-trip before fallback. Reset on process restart.
+        # round-trip before fallback. Reset on process restart. Only set, and
+        # only honoured, when OpenAI is configured too: with Groq as the sole
+        # speech provider a cooldown would fail every dictation inside it.
         self._groq_skip_until = 0.0
 
         # Try Groq first (fastest cloud option)
@@ -1003,6 +1070,34 @@ class WhisperTranscriber:
             self._backend = "api"
             print("⚠️  No transcription backend available")
 
+    def _call_with_transient_retries(self, prov: str, fn, audio_bytes: bytes,
+                                     retry: bool) -> str:
+        """Call ``fn(audio_bytes)``, retrying timeouts, 5xx and connection
+        errors when ``retry`` is set. See _TRANSIENT_RETRIES for the rules."""
+        import random as _random
+        import time as _time
+        started = _time.monotonic()
+        attempt = 0
+        while True:
+            try:
+                return fn(audio_bytes)
+            except Exception as e:
+                if not retry or attempt >= _TRANSIENT_RETRIES:
+                    raise
+                kind = _classify_asr_error(e)
+                if kind != "transient":
+                    raise
+                delay = _TRANSIENT_BACKOFF_S * (2 ** attempt) * _random.uniform(0.5, 1.5)
+                spent = _time.monotonic() - started
+                if spent + delay > _TRANSIENT_RETRY_BUDGET_S:
+                    _wlog(f"[whisper] {prov} {type(e).__name__} after {spent:.1f}s: "
+                          f"no retry, the {_TRANSIENT_RETRY_BUDGET_S:.0f}s budget is spent")
+                    raise
+                attempt += 1
+                _wlog(f"[whisper] {prov} {type(e).__name__} ({str(e)[:60]}); "
+                      f"retry {attempt}/{_TRANSIENT_RETRIES} in {delay:.1f}s")
+                _retry_sleep(delay)
+
     def _dispatch_one(self, audio_bytes: bytes, exclude: str = None) -> str:
         """Transcribe ONE already-padded/chunked WAV blob.
 
@@ -1025,47 +1120,67 @@ class WhisperTranscriber:
             return self._transcribe_faster(audio_bytes)
 
         # Cloud path: walk the configured cloud order (groq / openai), honouring
-        # the Groq 403/auth cooldown, and fall through to the next available.
+        # the Groq cooldown, and fall through to the next available.
         import time as _time
-        order = self._cloud_order or ["groq", "openai"]
+        order = getattr(self, "_cloud_order", None) or ["groq", "openai"]
         if exclude:
             order = [p for p in order if p != exclude]
-        last_err = None
+        # Groq is the only speech provider when no OpenAI client exists. Then
+        # it is never skipped, for a cooldown or for the upload-size gate:
+        # skipping the sole provider is a certain failure.
+        groq_only = getattr(self, "client", None) is None
+        candidates = []
         for prov in order:
             if prov == "groq":
-                if self._groq_client is None:
+                if getattr(self, "_groq_client", None) is None:
                     continue
-                # Circuit-breaker: skip Groq during its auth/network cooldown.
-                if _time.monotonic() < self._groq_skip_until:
+                if not groq_only:
+                    # Circuit-breaker: skip Groq during its cooldown.
+                    if _time.monotonic() < getattr(self, "_groq_skip_until", 0.0):
+                        continue
+                    # Near-max uploads make Groq stall and die with a connection
+                    # error (proven live at 23.2MB; fine at 7.7MB). Don't waste a
+                    # doomed upload — let OpenAI take it directly.
+                    if len(audio_bytes) > _GROQ_MAX_UPLOAD_BYTES:
+                        _wlog(f"[whisper] clip {len(audio_bytes)/1e6:.1f}MB > Groq "
+                              f"upload gate — going straight to OpenAI")
+                        continue
+                candidates.append(prov)
+            elif prov == "openai":
+                if getattr(self, "client", None) is None:
                     continue
-                # Near-max uploads make Groq stall and die with a connection
-                # error (proven live at 23.2MB; fine at 7.7MB). Don't waste a
-                # doomed upload — let OpenAI take it directly.
-                if len(audio_bytes) > _GROQ_MAX_UPLOAD_BYTES:
-                    _wlog(f"[whisper] clip {len(audio_bytes)/1e6:.1f}MB > Groq "
-                          f"upload gate — going straight to OpenAI")
-                    continue
+                candidates.append(prov)
+
+        last_err = None
+        for i, prov in enumerate(candidates):
+            # Only the last provider left is retried; before that, moving on
+            # to the next provider is the faster recovery.
+            retry = i == len(candidates) - 1
+            if prov == "groq":
                 try:
-                    _result = self._transcribe_groq(audio_bytes)
+                    _result = self._call_with_transient_retries(
+                        "groq", self._transcribe_groq, audio_bytes, retry)
                     self._last_cloud_provider = "groq"
                     return _result
                 except Exception as e:
                     last_err = e
                     err = str(e)
-                    if any(s in err for s in ("403", "401")) or any(
-                        s in err.lower() for s in ("access denied", "unauthorized", "permission")
-                    ):
-                        self._groq_skip_until = _time.monotonic() + 3600.0
-                        print(f"⚠️  Groq auth/network blocked — skipping Groq transcription for 1h ({err[:80]})")
+                    kind = _classify_asr_error(e)
+                    if groq_only:
+                        print(f"⚠️  Groq transcription failed ({err[:80]}); Groq is the "
+                              f"only speech provider, so it is not paused")
+                    elif kind == "auth":
+                        self._groq_skip_until = _time.monotonic() + _GROQ_AUTH_COOLDOWN_S
+                        print(f"⚠️  Groq auth/network blocked — skipping Groq transcription "
+                              f"for {_GROQ_AUTH_COOLDOWN_S:.0f}s ({err[:80]})")
                     else:
-                        self._groq_skip_until = _time.monotonic() + 30.0
+                        self._groq_skip_until = _time.monotonic() + _GROQ_ERROR_COOLDOWN_S
                         print(f"⚠️  Groq transcription failed ({err[:80]}), trying next provider")
                     continue
             elif prov == "openai":
-                if self.client is None:
-                    continue
                 try:
-                    _result = self._transcribe_api(audio_bytes)
+                    _result = self._call_with_transient_retries(
+                        "openai", self._transcribe_api, audio_bytes, retry)
                     self._last_cloud_provider = "openai"
                     return _result
                 except Exception as e:

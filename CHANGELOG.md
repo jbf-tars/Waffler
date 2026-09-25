@@ -116,6 +116,24 @@ OpenAI's prepaid billing correctly.
   any provider with calls priced at an unpublished rate. Cerebras entries
   from before the flag existed count as estimates too.
 
+- **With only a Groq key, one network blip could lose every dictation for
+  up to an hour.** Both speech clients run with no automatic retries, and any
+  Groq failure paused Groq for 30 seconds (an hour for anything that looked
+  like a permissions error, which a VPN often causes). With no OpenAI key,
+  which is the setup the wizard recommends, every dictation in that window
+  failed with "no transcription backend available" and was saved as audio
+  instead. Real use logged 7 Groq connection errors and 5 lost dictations.
+- **Fix:** when Groq is the only speech provider it is never paused. The last
+  provider left to try is retried up to twice on a timeout, a server error or
+  a dropped connection, after a short randomised wait (about 0.6 and then 1.2
+  seconds), and only while the time already spent stays under 20 seconds, so
+  a request that has already waited out its timeout is not repeated. With an
+  OpenAI key as well, a Groq failure still moves straight to OpenAI without
+  waiting, and the pause after a permissions error is now 60 seconds instead
+  of an hour. `tests/test_groq_only_reliability.py` (30 checks, no network)
+  covers a 500 then a success, a retried connection error, Groq never skipped
+  when alone, the retry limit and time budget, and the error classes.
+
 ### Changed
 - **The app now looks the way 3.14.20 intended.** Because the fonts finally
   load, the "Waffler" wordmark is Inter and the Journal text, date dividers
