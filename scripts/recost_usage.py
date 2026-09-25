@@ -25,29 +25,39 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 USAGE = pathlib.Path.home() / ".waffler-hosted" / "usage.json"
 
 
-def load_rates() -> dict:
-    """Read MODEL_RATES out of app.py without importing it (app.py pulls in
-    pywebview and audio hardware at module scope)."""
+def load_from_app(*names: str) -> dict:
+    """Run the named top-level assignments and functions of app.py in a fresh
+    namespace, without importing it (app.py pulls in pywebview and audio
+    hardware at module scope)."""
     tree = ast.parse((ROOT / "app.py").read_text(encoding="utf-8"))
-    for node in tree.body:
-        if isinstance(node, ast.Assign) and getattr(node.targets[0], "id", "") == "MODEL_RATES":
-            ns: dict = {}
-            exec(compile(ast.Module([node], []), "<rates>", "exec"), ns)
-            return ns["MODEL_RATES"]
-    raise SystemExit("MODEL_RATES not found in app.py")
+    nodes = [
+        node for node in tree.body
+        if (isinstance(node, ast.Assign) and getattr(node.targets[0], "id", "") in names)
+        or (isinstance(node, ast.FunctionDef) and node.name in names)
+    ]
+    ns: dict = {}
+    exec(compile(ast.Module(nodes, []), "<app.py pricing>", "exec"), ns)
+    missing = [n for n in names if n not in ns]
+    if missing:
+        raise SystemExit(f"not found in app.py: {', '.join(missing)}")
+    return ns
 
 
-def cost_for(rates: dict, entry: dict) -> tuple[float, dict]:
+def load_rates() -> dict:
+    return load_from_app("MODEL_RATES")["MODEL_RATES"]
+
+
+def cost_for(rates: dict, entry: dict, usage_cost) -> tuple[float, dict]:
+    """Price one stored entry with app.py's own ``_usage_cost``, so a recost
+    applies the same rules as a live dictation (including Groq's 10-second
+    minimum per transcription request)."""
     provider, kind = entry.get("provider", "openai"), entry.get("type", "gpt")
     rate = rates.get(provider, {}).get(kind) or rates["openai"].get(kind, {})
-    if kind == "whisper":
-        dur = float(entry.get("duration_seconds") or 0.0)
-        if "per_hour" in rate:
-            return dur / 3600.0 * rate["per_hour"], rate
-        return dur / 60.0 * rate.get("per_minute", 0.0), rate
-    return (
-        int(entry.get("input_tokens") or 0) / 1e6 * rate.get("in_per_1m", 0.0)
-        + int(entry.get("output_tokens") or 0) / 1e6 * rate.get("out_per_1m", 0.0)
+    return usage_cost(
+        rate, kind,
+        float(entry.get("duration_seconds") or 0.0),
+        int(entry.get("input_tokens") or 0),
+        int(entry.get("output_tokens") or 0),
     ), rate
 
 
@@ -60,7 +70,8 @@ def main() -> int:
         print(f"no usage file at {USAGE}")
         return 0
 
-    rates = load_rates()
+    pricing = load_from_app("MODEL_RATES", "_usage_cost")
+    rates, usage_cost = pricing["MODEL_RATES"], pricing["_usage_cost"]
     data = json.loads(USAGE.read_text(encoding="utf-8"))
     rows = data if isinstance(data, list) else data.get("entries", [])
 
@@ -69,7 +80,7 @@ def main() -> int:
     by_provider: dict[str, list[float]] = {}
 
     for r in rows:
-        new_cost, rate = cost_for(rates, r)
+        new_cost, rate = cost_for(rates, r, usage_cost)
         if r.get("type") == "whisper" and not r.get("duration_seconds"):
             skipped += 1          # nothing to recompute from
             new_cost = float(r.get("cost_usd") or 0)

@@ -143,13 +143,24 @@ MODEL_RATES = {
         "gpt":     {"model": "openai/gpt-oss-120b", "in_per_1m": 0.15,
                     "out_per_1m": 0.60, "verified": True,
                     "source": "console.groq.com/docs/models"},
+        # Groq bills every transcription request as at least 10 seconds of
+        # audio: "Minimum Billed Length: 10 seconds. If you submit a request
+        # less than this, you will still be billed for 10 seconds."
+        # (console.groq.com/docs/speech-to-text, checked 2026-09-25). A 3 s
+        # dictation is therefore billed as 10 s. _usage_cost applies this to
+        # the cost only; the stored duration_seconds stays the real length.
         "whisper": {"model": "whisper-large-v3", "per_hour": 0.111,
+                    "min_billed_seconds": 10.0,
+                    "min_billed_source": "console.groq.com/docs/speech-to-text",
                     "verified": True, "source": "console.groq.com/docs/models"},
     },
     "openai": {
         "gpt":     {"model": "gpt-4.1-mini", "in_per_1m": 0.40,
                     "out_per_1m": 1.60, "verified": True,
                     "source": "developers.openai.com/api/docs/pricing"},
+        # No minimum here on purpose: OpenAI's pricing page lists
+        # gpt-4o-mini-transcribe at an estimated $0.003/min and documents no
+        # minimum billed length per request (checked 2026-09-25).
         "whisper": {"model": "gpt-4o-mini-transcribe", "per_minute": 0.003,
                     "verified": True,
                     "source": "developers.openai.com/api/docs/pricing"},
@@ -172,6 +183,42 @@ def _rate_for(provider: str, kind: str) -> dict:
     """Rate spec for a provider/kind, falling back to OpenAI's published rate."""
     return (MODEL_RATES.get(provider, {}).get(kind)
             or MODEL_RATES["openai"].get(kind, {}))
+
+
+def _usage_cost(rate: dict, entry_type: str, duration_seconds: float = None,
+                input_tokens: int = 0, output_tokens: int = 0) -> float:
+    """Dollar cost of one API call under ``rate`` (a MODEL_RATES entry).
+
+    Pure arithmetic, separate from record_usage so the tests and
+    scripts/recost_usage.py price an entry exactly the way the app does.
+    """
+    if entry_type == "whisper":
+        if not duration_seconds or duration_seconds <= 0:
+            return 0.0
+        # A provider's per-request minimum (Groq: 10 s) is what it bills, so
+        # it is what the cost uses, even though the clip was shorter.
+        billed = max(float(duration_seconds),
+                     float(rate.get("min_billed_seconds", 0.0)))
+        if "per_hour" in rate:
+            return billed / 3600.0 * rate["per_hour"]
+        return billed / 60.0 * rate.get("per_minute", 0.0)
+    if entry_type == "gpt":
+        return ((input_tokens / 1_000_000) * rate.get("in_per_1m", 0.0)
+                + (output_tokens / 1_000_000) * rate.get("out_per_1m", 0.0))
+    return 0.0
+
+
+def _entry_rate_is_estimate(entry: dict) -> bool:
+    """True when a usage entry's cost rests on an unpublished (estimated) rate.
+
+    Entries written since 3.14.95 carry ``rate_verified``. Older ones do not,
+    so for those the current rate table decides: every Cerebras row is an
+    estimate, because Cerebras publishes no per-token price.
+    """
+    if "rate_verified" in entry:
+        return not entry["rate_verified"]
+    provider = (entry.get("provider") or "openai").lower()
+    return not _rate_for(provider, entry.get("type") or "gpt").get("verified", False)
 
 
 def ensure_data_dir():
@@ -258,18 +305,9 @@ def record_usage(entry_type: str, duration_seconds: float = None,
                  input_tokens: int = 0, output_tokens: int = 0,
                  provider: str = "openai"):
     """Record an API usage entry with cost calculation."""
-    cost_usd = 0.0
-
     rate = _rate_for(provider, entry_type)
-
-    if entry_type == "whisper" and duration_seconds is not None:
-        if "per_hour" in rate:
-            cost_usd = duration_seconds / 3600.0 * rate["per_hour"]
-        else:
-            cost_usd = duration_seconds / 60.0 * rate.get("per_minute", 0.0)
-    elif entry_type == "gpt":
-        cost_usd = ((input_tokens / 1_000_000) * rate.get("in_per_1m", 0.0)
-                    + (output_tokens / 1_000_000) * rate.get("out_per_1m", 0.0))
+    cost_usd = _usage_cost(rate, entry_type, duration_seconds,
+                           input_tokens, output_tokens)
 
     entry = {
         "timestamp": datetime.now().isoformat(timespec="seconds"),
@@ -1921,9 +1959,14 @@ class Api:
                 "count": 0,
                 "whisper_count": 0,
                 "gpt_count": 0,
+                # Calls priced at an unpublished rate (Cerebras). The panel
+                # marks the provider's cost as an estimate when this is > 0.
+                "estimated_count": 0,
             })
             bucket["cost_usd"] += cost
             bucket["count"] += 1
+            if _entry_rate_is_estimate(entry):
+                bucket["estimated_count"] += 1
             if etype == "whisper":
                 bucket["whisper_count"] += 1
             elif etype == "gpt":

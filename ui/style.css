@@ -4565,6 +4565,17 @@ body[data-theme="dark"] {
   font-size: 11px;
   font-family: "SF Mono", Menlo, monospace;
 }
+.usage-provider-est {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 6px;
+  cursor: help;
+}
 .usage-provider-cost {
   margin-left: auto;
   font-weight: 700;

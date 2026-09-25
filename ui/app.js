@@ -3158,13 +3158,17 @@ async function loadUsageStats() {
           const b = byProv[p];
           const meta = PROVIDER_META[p] || PROVIDER_META.unknown;
           const pct = ((b.cost_usd / totalAll) * 100).toFixed(1);
+          // Calls priced at an unpublished rate (Cerebras publishes no
+          // per-token price) are labelled, so the figure is not read as exact.
+          const est = (b.estimated_count || 0) > 0;
           return `
             <div class="usage-provider-row">
               <div class="usage-provider-row-head">
                 <span class="usage-provider-dot" style="background:${meta.accent}"></span>
                 <span class="usage-provider-name">${meta.name}</span>
                 ${meta.desc ? `<span class="usage-provider-desc">${meta.desc}</span>` : ''}
-                <span class="usage-provider-cost">${_fmtUsd(b.cost_usd, 4)}</span>
+                ${est ? `<span class="usage-provider-est" title="Estimated cost: this provider does not publish a per-token price.">estimate</span>` : ''}
+                <span class="usage-provider-cost">${est ? '~' : ''}${_fmtUsd(b.cost_usd, 4)}</span>
                 <span class="usage-provider-count">${b.count} call${b.count === 1 ? '' : 's'}</span>
               </div>
               <div class="usage-provider-bar"><div class="usage-provider-bar-fill" style="width:${pct}%;background:${meta.accent}"></div></div>

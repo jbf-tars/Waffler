@@ -15,7 +15,9 @@ mind spoken across sentences ("Tuesday. No, wait, Wednesday. Actually,
 Thursday") now comes out corrected instead of pasted word for word.
 
 On Windows the clean-up model was being sent a garbled copy of its
-instructions; it now gets the same text as on a Mac.
+instructions; it now gets the same text as on a Mac. The Usage panel now
+counts Groq's 10-second minimum per transcription and marks Cerebras costs
+as estimates.
 
 ### Fixed
 - **Every launch sent the user's IP address to Google, for fonts that never
@@ -133,6 +135,26 @@ instructions; it now gets the same text as on a Mac.
   cannot map would have stopped the thread reading them. Files written by
   earlier versions still read correctly: the app wrote its JSON as plain
   ASCII (or already as UTF-8), and keys are ASCII.
+- **The Usage panel under-counted short Groq dictations.** Groq bills every
+  speech-to-text request as at least 10 seconds of audio ("Minimum Billed
+  Length: 10 seconds", console.groq.com/docs/speech-to-text), but the panel
+  priced each clip at its real length, so a 3-second dictation was counted
+  at under a third of what Groq charges for it. The sums are small (10
+  seconds on Groq is $0.0003), but they were wrong.
+- **Fix:** the Groq transcription rate now records the 10-second minimum and
+  its source, and the cost uses it. The stored `duration_seconds` stays the
+  real length. OpenAI documents no minimum billed length for
+  gpt-4o-mini-transcribe (its pricing page, checked 2026-09-25), so none is
+  applied there. The pricing arithmetic is now one function, `_usage_cost`
+  in `app.py`, and `scripts/recost_usage.py` uses it too, so recomputing
+  history applies the same rule instead of quietly undoing it.
+- **Cerebras costs were never shown as estimates.** Since 3.14.95 Cerebras
+  has been priced at the same model's Groq rate and flagged unverified,
+  because Cerebras publishes no per-token price, and the rate table said the
+  Usage panel would label it. Nothing read the flag. The panel's "By
+  provider" list now shows an "estimate" tag, and a "~" before the cost, for
+  any provider with calls priced at an unpublished rate. Cerebras entries
+  from before the flag existed count as estimates too.
 
 ### Changed
 - **The app now looks the way 3.14.20 intended.** Because the fonts finally
@@ -184,7 +206,14 @@ instructions; it now gets the same text as on a Mac.
   encoding (binary modes are exempt), with 34 checks that the scanner flags
   what it should and nothing else. The prompt checks and the scan fail
   against the old code.
-- Suite: 401 passed, 1 skipped.
+- `tests/test_usage_pricing.py` gains 12 checks that run `app.py`'s own
+  pricing code: a 3-second or 0.4-second Groq clip costs the same as 10
+  seconds, a 29-second clip is unchanged, an OpenAI clip has no minimum,
+  clean-up costs are untouched, `record_usage` bills the minimum while
+  storing the real duration, `scripts/recost_usage.py` prices a short clip
+  the same way, and `get_usage_stats` counts Cerebras calls, with and
+  without the stored flag, as estimates, which the panel renders.
+- Suite: 413 passed, 1 skipped.
 
 ## [3.14.99] - 2026-09-22
 

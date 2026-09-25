@@ -127,5 +127,146 @@ def test_typical_dictation_is_a_fraction_of_a_cent():
     assert 0.0005 < total < 0.005, f"${total:.5f} is outside the plausible range"
 
 
+# ── Groq bills at least 10 seconds per transcription request ────────────────
+# console.groq.com/docs/speech-to-text: "Minimum Billed Length: 10 seconds.
+# If you submit a request less than this, you will still be billed for 10
+# seconds." The panel priced the raw duration, so every short dictation was
+# under-reported. These run app.py's own pricing code, lifted out of the
+# source the same way as MODEL_RATES above.
+
+def _app_defs(*names, cls=None):
+    """Execute the named top-level definitions of app.py (or, with ``cls``,
+    methods of that class) in one fresh namespace."""
+    tree = ast.parse((ROOT / "app.py").read_text(encoding="utf-8"))
+    body = tree.body
+    if cls:
+        body = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == cls).body
+    nodes = [n for n in body
+             if (isinstance(n, ast.Assign) and getattr(n.targets[0], "id", "") in names)
+             or (isinstance(n, ast.FunctionDef) and n.name in names)]
+    ns: dict = {}
+    exec(compile(ast.Module(nodes, []), "<app.py>", "exec"), ns)
+    for n in names:
+        assert n in ns, f"{n} not found in app.py"
+    return ns
+
+
+_P = _app_defs("MODEL_RATES", "_rate_for", "_usage_cost", "_entry_rate_is_estimate",
+               "record_usage")
+_usage_cost = _P["_usage_cost"]
+GROQ_WHISPER = RATES["groq"]["whisper"]
+OPENAI_WHISPER = RATES["openai"]["whisper"]
+
+
+def _record(provider, dur):
+    """Run the real record_usage with storage stubbed out; return the entry."""
+    from datetime import datetime
+    saved = []
+    _P.update(datetime=datetime, load_usage=lambda: [],
+              save_usage=lambda rows: saved.extend(rows))
+    entry = _P["record_usage"]("whisper", duration_seconds=dur, provider=provider)
+    assert saved == [entry]
+    return entry
+
+
+def test_groq_whisper_records_the_published_minimum():
+    assert GROQ_WHISPER["min_billed_seconds"] == 10.0
+    assert "speech-to-text" in GROQ_WHISPER["min_billed_source"]
+
+
+def test_short_groq_clip_is_billed_as_ten_seconds():
+    ten = 10 / 3600 * 0.111
+    assert _usage_cost(GROQ_WHISPER, "whisper", 3.0) == pytest.approx(ten)
+    assert _usage_cost(GROQ_WHISPER, "whisper", 0.4) == pytest.approx(ten)
+    assert _usage_cost(GROQ_WHISPER, "whisper", 10.0) == pytest.approx(ten)
+
+
+def test_groq_clip_over_ten_seconds_is_billed_as_is():
+    assert _usage_cost(GROQ_WHISPER, "whisper", 29.0) == pytest.approx(29 / 3600 * 0.111)
+    assert _usage_cost(GROQ_WHISPER, "whisper", 3600.0) == pytest.approx(0.111)
+
+
+def test_openai_transcription_has_no_minimum():
+    """OpenAI documents no minimum billed length, so none is applied."""
+    assert "min_billed_seconds" not in OPENAI_WHISPER
+    assert _usage_cost(OPENAI_WHISPER, "whisper", 3.0) == pytest.approx(3 / 60 * 0.003)
+
+
+def test_no_audio_costs_nothing():
+    assert _usage_cost(GROQ_WHISPER, "whisper", 0.0) == 0.0
+    assert _usage_cost(GROQ_WHISPER, "whisper", None) == 0.0
+
+
+def test_cleanup_costs_are_untouched_by_the_minimum():
+    assert _usage_cost(RATES["groq"]["gpt"], "gpt", None, 5400, 200) == pytest.approx(
+        5400 / 1e6 * 0.15 + 200 / 1e6 * 0.60)
+
+
+def test_record_usage_bills_the_minimum_but_keeps_the_real_duration():
+    entry = _record("groq", 3.0)
+    assert entry["duration_seconds"] == 3.0, "the stored duration must stay the real length"
+    assert entry["cost_usd"] == round(10 / 3600 * 0.111, 6)
+    assert entry["model"] == "whisper-large-v3"
+
+
+def test_record_usage_bills_a_short_openai_clip_as_is():
+    entry = _record("openai", 3.0)
+    assert entry["duration_seconds"] == 3.0
+    assert entry["cost_usd"] == round(3 / 60 * 0.003, 6)
+
+
+def test_recost_script_applies_the_same_minimum():
+    """scripts/recost_usage.py must price history the way the app does, or a
+    recost would quietly undo the minimum."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "recost_usage", ROOT / "scripts" / "recost_usage.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    pricing = mod.load_from_app("MODEL_RATES", "_usage_cost")
+    row = {"type": "whisper", "provider": "groq", "duration_seconds": 3.0}
+    cost, _ = mod.cost_for(pricing["MODEL_RATES"], row, pricing["_usage_cost"])
+    assert cost == pytest.approx(10 / 3600 * 0.111)
+
+
+# ── Estimated rates are labelled in the Usage panel ─────────────────────────
+
+def test_cerebras_entries_count_as_estimates():
+    est = _P["_entry_rate_is_estimate"]
+    assert est({"provider": "cerebras", "type": "gpt", "rate_verified": False})
+    # Rows from before 3.14.95 carry no flag; Cerebras is still an estimate.
+    assert est({"provider": "cerebras", "type": "gpt"})
+    assert not est({"provider": "groq", "type": "gpt", "rate_verified": True})
+    assert not est({"provider": "groq", "type": "whisper"})
+    assert not est({"provider": "openai", "type": "gpt"})
+
+
+def test_usage_stats_report_estimated_calls_per_provider():
+    stats_ns = _app_defs("get_usage_stats", cls="Api")
+    from datetime import datetime
+    rows = [
+        {"timestamp": "2026-09-25T10:00:00", "type": "gpt", "provider": "cerebras",
+         "cost_usd": 0.001, "rate_verified": False},
+        {"timestamp": "2026-09-25T10:00:01", "type": "gpt", "provider": "cerebras",
+         "cost_usd": 0.001},
+        {"timestamp": "2026-09-25T10:00:02", "type": "gpt", "provider": "groq",
+         "cost_usd": 0.001, "rate_verified": True},
+    ]
+    stats_ns.update(datetime=datetime, load_usage=lambda: rows,
+                    _entry_rate_is_estimate=_P["_entry_rate_is_estimate"])
+    by = stats_ns["get_usage_stats"](None)["by_provider"]
+    assert by["cerebras"]["estimated_count"] == 2
+    assert by["groq"]["estimated_count"] == 0
+
+
+def test_usage_panel_marks_estimated_costs():
+    js = (ROOT / "ui" / "app.js").read_text(encoding="utf-8")
+    render = js[js.index("async function loadUsageStats"):js.index("async function loadAppVersion")]
+    assert "estimated_count" in render, "the panel ignores which costs are estimates"
+    assert ">estimate</span>" in render
+    css = (ROOT / "ui" / "style.css").read_text(encoding="utf-8")
+    assert ".usage-provider-est" in css
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
