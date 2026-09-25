@@ -509,3 +509,47 @@ def test_get_settings_reports_the_engines_order_when_none_is_saved(monkeypatch):
     # A saved order comes back cleaned, as the engine applies it.
     s = _get_settings(None, {"provider_order": ["Cerebras", "bogus"]})
     assert s["provider_order"] == ["cerebras", "groq", "openai"]
+
+
+# ── Usage is counts first, and the money is labelled an estimate (QW10) ─────
+
+USAGE_NOTE = "Estimated at each provider's published paid rates. Waffler can't see your bill."
+
+
+@needs_node
+def test_usage_shows_counts_and_a_labelled_estimate():
+    v = js("L.usageView({transcription_count: 3291, today_cost_usd: 0.012, week_cost_usd: 0.0567, "
+           "month_cost_usd: 0.06, total_cost_usd: 5.4321, avg_cost_per_transcription: 0.00165}, "
+           "{total_words: 110457})")
+    assert v["dictations"] == "3,291"
+    assert v["words"] == "110,457"
+    assert v["costs"] == {"today": "$0.01", "week": "$0.06", "month": "$0.06", "total": "$5.43",
+                          "perDictation": "$0.002"}
+    assert v["note"] == USAGE_NOTE
+    # Nothing loaded yet: zeros, never "undefined" or "NaN".
+    v = js("L.usageView(null, null)")
+    assert v["dictations"] == "0" and v["words"] == "0" and v["costs"]["total"] == "$0.00"
+
+
+def _usage_section():
+    html = read("index.html")
+    start = html.index('<div class="settings-section-title">📊 Usage</div>')
+    return html[start:html.index('<div class="settings-section-title">', start + 10)]
+
+
+def test_usage_puts_the_counts_before_the_money():
+    usage = _usage_section()
+    assert usage.index(">Dictations<") < usage.index(">Words<") < usage.index("Estimated cost") \
+        < usage.index('id="usageTodayCost"')
+    assert USAGE_NOTE in usage
+    # decisions.md: the panel is never presented as what you spent.
+    for word in ("spent", "spend", ">Transcriptions<", ">Avg Cost<"):
+        assert word not in usage
+
+
+def test_usage_fills_in_from_the_logic_helper():
+    app = code_only(read("app.js"))
+    body = app[app.index("async function loadUsageStats"):]
+    body = body[:body.index("\n}\n") + 3]
+    assert "WL.usageView(" in body
+    assert "get_stats()" in body

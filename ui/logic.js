@@ -262,11 +262,42 @@
     return speech && cleanup ? `${line} · Powered by ${speech} and ${cleanup}` : line;
   }
 
+  // ── Settings: Usage ───────────────────────────────────────────────────
+  // The panel counts what you did, then shows what it would have cost at
+  // each provider's published paid rates. It can't see anyone's bill or
+  // plan, and a free Groq plan costs nothing, so the money is labelled an
+  // estimate and never as spending.
+  const USAGE_NOTE = "Estimated at each provider's published paid rates. Waffler can't see your bill.";
+
+  function formatCount(n) {
+    const v = Math.max(0, Math.round(Number(n) || 0));
+    return String(v).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  }
+
+  function usageView(usage, stats) {
+    usage = usage || {};
+    stats = stats || {};
+    const money = (n, digits) => '$' + (Number(n) || 0).toFixed(digits);
+    return {
+      dictations: formatCount(usage.transcription_count),
+      words: formatCount(stats.total_words),
+      costs: {
+        today: money(usage.today_cost_usd, 2),
+        week: money(usage.week_cost_usd, 2),
+        month: money(usage.month_cost_usd, 2),
+        total: money(usage.total_cost_usd, 2),
+        perDictation: money(usage.avg_cost_per_transcription, 3),
+      },
+      note: USAGE_NOTE,
+    };
+  }
+
   return {
     STATUS_VIEWS, STATUS_CLASSES, DONE_RESET_MS, statusView,
     defaultHotkey, keyName, orderKeys, hotkeyName, keycaps, pressOrderHint, hotkeyPresets,
     DOWNLOAD_PAGE, UPDATE_TEXT, splitMessage, updateCheckView, updateFailureView,
     DEFAULT_PROVIDER_ORDER, PROVIDER_NAMES, providerHasKey, normalizeProviderOrder,
     providerOrderRows, activeProviders, backendsLine, aboutLine,
+    USAGE_NOTE, formatCount, usageView,
   };
 });

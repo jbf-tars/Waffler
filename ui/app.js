@@ -3216,20 +3216,22 @@ function _fmtUsd(n, digits = 2) {
 async function loadUsageStats() {
   try {
     const stats = await pywebview.api.get_usage_stats();
+    // Words come from the Journal, as in the stats strip.
+    let words = null;
+    try { words = await pywebview.api.get_stats(); } catch (_) {}
+    const v = WL.usageView(stats, words);
+    const put = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
 
-    // Time buckets
-    const today = document.getElementById('usageTodayCost');
-    const week  = document.getElementById('usageWeekCost');
-    const month = document.getElementById('usageMonthCost');
-    const total = document.getElementById('usageTotalCost');
-    if (today) today.textContent = _fmtUsd(stats.today_cost_usd);
-    if (week)  week.textContent  = _fmtUsd(stats.week_cost_usd);
-    if (month) month.textContent = _fmtUsd(stats.month_cost_usd);
-    if (total) total.textContent = _fmtUsd(stats.total_cost_usd);
-
-    // Activity totals
-    document.getElementById('usageTranscriptions').textContent = stats.transcription_count || 0;
-    document.getElementById('usageAvgCost').textContent = _fmtUsd(stats.avg_cost_per_transcription, 3);
+    // Counts first, then the cost estimate at published paid rates, which
+    // is labelled as such: Waffler can't see anyone's bill or plan.
+    put('usageTranscriptions', v.dictations);
+    put('usageWords', v.words);
+    put('usageEstimateNote', v.note);
+    put('usageAvgCost', `${v.costs.perDictation} a dictation`);
+    put('usageTodayCost', v.costs.today);
+    put('usageWeekCost', v.costs.week);
+    put('usageMonthCost', v.costs.month);
+    put('usageTotalCost', v.costs.total);
 
     // Per-provider breakdown
     const rows = document.getElementById('usageProviderRows');

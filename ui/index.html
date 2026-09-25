@@ -278,41 +278,47 @@
       <div class="settings-section">
         <div class="settings-section-title">📊 Usage</div>
 
-        <!-- Time-bucketed totals -->
-        <div class="usage-stats-grid usage-stats-grid-time">
+        <!-- Counts first: what you did. The money below is an estimate at
+             paid rates; it used to come first and read like a bill, though
+             Waffler can't see anyone's bill and Groq's free plan is free. -->
+        <div class="usage-stats-grid usage-stats-grid-activity">
           <div class="usage-stat-card">
-            <div class="usage-stat-label">Today</div>
-            <div class="usage-stat-value" id="usageTodayCost">$0.00</div>
+            <div class="usage-stat-label">Dictations</div>
+            <div class="usage-stat-value" id="usageTranscriptions">0</div>
           </div>
           <div class="usage-stat-card">
-            <div class="usage-stat-label">This Week</div>
-            <div class="usage-stat-value" id="usageWeekCost">$0.00</div>
-          </div>
-          <div class="usage-stat-card">
-            <div class="usage-stat-label">This Month</div>
-            <div class="usage-stat-value" id="usageMonthCost">$0.00</div>
-          </div>
-          <div class="usage-stat-card">
-            <div class="usage-stat-label">All Time</div>
-            <div class="usage-stat-value" id="usageTotalCost">$0.00</div>
+            <div class="usage-stat-label">Words</div>
+            <div class="usage-stat-value" id="usageWords">0</div>
           </div>
         </div>
 
-        <!-- Activity totals -->
-        <div class="usage-stats-grid usage-stats-grid-activity" style="margin-top:10px">
+        <!-- Estimated cost at each provider's published paid rates -->
+        <div class="usage-estimate">
+          <div class="usage-provider-title">Estimated cost <span class="usage-provider-hint" id="usageAvgCost">$0.000 a dictation</span></div>
+          <div class="usage-estimate-note" id="usageEstimateNote">Estimated at each provider's published paid rates. Waffler can't see your bill.</div>
+        </div>
+        <div class="usage-stats-grid usage-stats-grid-time">
           <div class="usage-stat-card usage-stat-card-secondary">
-            <div class="usage-stat-label">Transcriptions</div>
-            <div class="usage-stat-value usage-stat-value-sm" id="usageTranscriptions">0</div>
+            <div class="usage-stat-label">Today</div>
+            <div class="usage-stat-value usage-stat-value-sm" id="usageTodayCost">$0.00</div>
           </div>
           <div class="usage-stat-card usage-stat-card-secondary">
-            <div class="usage-stat-label">Avg Cost</div>
-            <div class="usage-stat-value usage-stat-value-sm" id="usageAvgCost">$0.00</div>
+            <div class="usage-stat-label">This Week</div>
+            <div class="usage-stat-value usage-stat-value-sm" id="usageWeekCost">$0.00</div>
+          </div>
+          <div class="usage-stat-card usage-stat-card-secondary">
+            <div class="usage-stat-label">This Month</div>
+            <div class="usage-stat-value usage-stat-value-sm" id="usageMonthCost">$0.00</div>
+          </div>
+          <div class="usage-stat-card usage-stat-card-secondary">
+            <div class="usage-stat-label">All Time</div>
+            <div class="usage-stat-value usage-stat-value-sm" id="usageTotalCost">$0.00</div>
           </div>
         </div>
 
         <!-- Per-provider breakdown -->
         <div class="usage-provider-block" style="margin-top:14px">
-          <div class="usage-provider-title">By provider <span class="usage-provider-hint">all time</span></div>
+          <div class="usage-provider-title">By provider <span class="usage-provider-hint">estimated, all time</span></div>
           <div class="usage-provider-rows" id="usageProviderRows">
             <div class="usage-provider-empty">No usage yet. Make your first dictation to see the breakdown.</div>
           </div>

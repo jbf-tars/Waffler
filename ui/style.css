@@ -4553,6 +4553,15 @@ body[data-theme="dark"] {
 .usage-stat-card-secondary {
   background: rgba(200, 162, 86, 0.06);
 }
+/* "Estimated cost" heading and the line saying what the figures are. */
+.usage-estimate { margin: 16px 0 10px; }
+.usage-estimate .usage-provider-title { margin-bottom: 4px; }
+.usage-estimate .usage-provider-hint { text-transform: none; letter-spacing: 0; }
+.usage-estimate-note {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
 .usage-stat-value-sm {
   font-size: 18px;
 }
