@@ -100,6 +100,12 @@ def _css_rules():
             for m in re.finditer(r"([^{}@;]+)\{([^{}]*)\}", css)]
 
 
+def _css_rules_of(name):
+    css = code_only(read(name))
+    return [(" ".join(m.group(1).split()), m.group(2))
+            for m in re.finditer(r"([^{}@;]+)\{([^{}]*)\}", css)]
+
+
 def _z(selector):
     zs = [int(m.group(1)) for sel, body in _css_rules() if sel == selector
           for m in [re.search(r"z-index:\s*(\d+)", body)] if m]
@@ -130,33 +136,57 @@ def test_a_message_over_the_wizard_sits_clear_of_its_buttons():
     shown = [body for sel, body in _css_rules() if sel == ".toast.over-wizard.visible"]
     assert shown and "translate(-50%, 0)" in shown[0]
     # The wizard's buttons sit at the bottom of the window.
-    assert '<nav class="wiz-nav">' in read("index.html")
+    assert '<nav class="wiz-nav ob-foot">' in read("index.html")
+    foot = [body for sel, body in _css_rules_of("setup.css") if sel == ".ob-foot"]
+    assert foot and "height: 76px" in foot[0]
 
 
-def test_a_disabled_finish_button_looks_disabled():
-    rule = [body for sel, body in _css_rules() if sel == ".wiz-btn-next.finish:disabled"]
-    assert rule, "Finish Setup had no disabled style, so it looked like the main action"
-    assert "background: #E8E4DC" in rule[0] and "cursor: not-allowed" in rule[0]
-
-
-def test_the_last_step_offers_skip_for_now():
+def test_a_disabled_continue_button_looks_disabled():
+    """Continue (and Done) is the shared .btn-pri; while it can't be used it
+    takes the shared disabled look, so it never looks like the main action."""
     html = read("index.html")
-    assert re.search(r'<button class="wiz-btn-skip" id="wizBtnSkip" onclick="wizSkipTryIt\(\)" hidden>Skip for now</button>', html)
+    assert re.search(r'<button class="btn btn-pri btn-lg ob-next" id="wizBtnNext" onclick="wizNext\(\)" disabled>', html)
+    rule = [body for sel, body in _css_rules_of("components.css") if sel.startswith(".btn:disabled")]
+    assert rule, "no disabled style for buttons"
+    assert "background: var(--surface-2)" in rule[0] and "color: var(--muted)" in rule[0]
+    assert "box-shadow: none" in rule[0]
+    # wizNext refuses while it is disabled, even if the click gets through.
+    app = code_only(read("app.js"))
+    nxt = app[app.index("async function wizNext()"):]
+    assert "if (btn && btn.disabled) return;" in nxt[:nxt.index("\n}")]
+
+
+def test_try_it_always_offers_skip_for_now():
+    """A microphone problem never strands anyone: "Skip for now" is there on
+    the practice until one dictation works, and goes on to the last step
+    (Notepad or TextEdit, start at sign-in), not straight out of setup."""
+    html = read("index.html")
+    assert re.search(r'<button class="btn btn-quiet ob-skip" id="wizBtnSkip" onclick="wizSkipTryIt\(\)" hidden>Skip for now</button>', html)
     app = code_only(read("app.js"))
     skip = app[app.index("async function wizSkipTryIt()"):]
-    assert "await wizCompleteSetup();" in skip[:skip.index("\n}")]
-    assert "skip.hidden = !(_wizardStep === 4 && !_wizardMicTested);" in app
+    assert "wizShowStep('anywhere');" in skip[:skip.index("\n}")]
+    assert "skip.hidden = !(step === 'try' && !_wizardMicTested);" in app
+    # Continue unlocks after one practice dictation.
+    assert "if (step === 'try') enabled = _wizardMicTested;" in app
 
 
 def test_steps_are_shown_without_an_inline_display():
+    """An inline display:block once overrode a step's grid and stacked it two
+    screens tall. The shown step gets no inline display, so setup.css's
+    two-column grid applies, and every step has one."""
     app = code_only(read("app.js"))
     show = app[app.index("function wizShowStep("):]
     show = show[:show.index("\nfunction ")]
-    assert "'block'" not in show, "an inline display:block overrode the Mac permissions grid"
+    assert "'block'" not in show, "an inline display:block overrode the step's grid"
     assert "con.style.removeProperty('display')" in show
-    assert "wizResetHotkeyPill();" in show
-    assert '<div class="wiz-perm-card" id="wizPermInputMon">' in read("index.html")
-    assert '.wiz-step-content:not([style*="none"])' in read("style.css")
+    grid = [body for sel, body in _css_rules_of("setup.css") if sel == ".ob-step"]
+    assert grid and "display: grid" in grid[0]
+    html = read("index.html")
+    for step in ("connect", "permissions", "try", "anywhere"):
+        assert re.search(rf'<section class="ob-step" id="\w+" data-step="{step}"', html), step
+    # A step's parts show by state (data-when), so a hidden part can't leak.
+    assert "el.hidden = !el.dataset.when.split(' ').includes(state);" in app
+    assert ".ob [hidden] { display: none !important; }" in read("setup.css")
 
 
 def test_keycaps_are_never_overwritten_with_plain_text():
@@ -164,14 +194,19 @@ def test_keycaps_are_never_overwritten_with_plain_text():
     # wizLoadHotkeyInfo and wizInitTryItStep set the keycap's textContent to
     # the display name, wiping its light label and icon.
     assert not re.search(r"getElementById\('wizTryHotkeyBadge'\)[^;]*;\s*if \(\w+\) \w+\.textContent", app)
-    for fn in ("async function wizLoadHotkeyInfo()", "async function wizInitTryItStep()"):
-        body = app[app.index(fn):]
-        body = body[:body.index("\n}")]
-        assert "textContent = info.hotkey" not in body
-        assert "wizRefreshHotkey()" in body
+    body = app[app.index("async function wizInitTryItStep()"):]
+    body = body[:body.index("\n}")]
+    assert "textContent = info.hotkey" not in body
+    assert "wizRefreshHotkey()" in body
+    # The big key is drawn from the saved keys: an icon, then each label
+    # escaped, never one display string written over the icon.
+    render = app[app.index("function wizRenderHotkey("):]
+    render = render[:render.index("\n}")]
+    assert "hold.innerHTML = caps.map(" in render and "escHtml(c.label)" in render
+    assert "hold.textContent" not in render
     # Keycap icons draw in the label colour, not a hard-coded near-black.
     assert 'fill="#1A1A1A"' not in app and 'stroke="#1A1A1A"' not in app
-    assert "wiz-keycap-label {" in read("style.css")
+    assert "holdkey {" in read("components.css") and "color: #FDFCFC;" in read("components.css")
 
 
 def test_try_it_without_a_key_points_at_the_right_step():

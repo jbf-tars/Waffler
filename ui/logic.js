@@ -434,7 +434,103 @@
     return { kind: 'list' };
   }
 
+  // ── First-run setup (3.15) ────────────────────────────────────────────
+
+  // What the key box says about what was typed or pasted, before asking
+  // Groq. Setup only takes a Groq key; OpenAI and Cerebras are added later
+  // in Settings, so their keys are named rather than called wrong.
+  function keyInputView(value) {
+    const v = String(value || '').trim();
+    if (!v) return { kind: 'empty', message: '' };
+    if (v.startsWith('gsk_')) {
+      return v.length >= 20 ? { kind: 'ok', message: '' }
+        : { kind: 'short', message: 'That key looks too short. Click Copy in Groq and try again.' };
+    }
+    if (v.startsWith('csk-')) return { kind: 'cerebras', message: "That's a Cerebras key. Setup needs a free Groq key. You can add Cerebras later in Settings." };
+    if (v.startsWith('sk-')) return { kind: 'openai', message: "That's an OpenAI key. Setup needs a free Groq key. You can add OpenAI later in Settings." };
+    return { kind: 'bad', message: "That doesn't look like a Groq key. Groq keys start with gsk_." };
+  }
+
+  // One row per job a new Groq key has to do (app.py validate_groq_key,
+  // src/first_run.py groq_services).
+  const SERVICE_CHIPS = {
+    ok: { chip: 'Ready', cls: 'chip-ok', icon: 'check', tile: 'is-ok' },
+    missing: { chip: 'Not listed', cls: 'chip-warn', icon: 'alert', tile: 'is-warn' },
+    unchecked: { chip: 'Key saved', cls: '', icon: 'check', tile: 'is-ok' },
+  };
+  function serviceRows(services) {
+    const list = Array.isArray(services) && services.length ? services
+      : [{ name: 'Speech to text', provider: 'Groq', model: '', status: 'unchecked' },
+         { name: 'Clean-up', provider: 'Groq', model: '', status: 'unchecked' }];
+    return list.map((s) => {
+      const v = SERVICE_CHIPS[s.status] || SERVICE_CHIPS.unchecked;
+      const where = [s.provider || 'Groq', s.model].filter(Boolean).join(' · ');
+      return {
+        title: s.name, chip: v.chip, chipCls: v.cls, icon: v.icon, tile: v.tile,
+        desc: s.status === 'missing' ? `${where}. Groq didn't list this model for your key.` : where,
+      };
+    });
+  }
+
+  // "You said", with the words the clean-up left out struck through, as on
+  // the website: "Send it to [John, sorry,] James, by Wednesday at three."
+  // A word-level longest common subsequence of the two texts, ignoring case
+  // and punctuation. When the clean-up rewrote more than half the words,
+  // striking most of the sentence would say nothing useful, so nothing is
+  // struck. Returns [{text, cut}] pieces that join back to `said` exactly.
+  function saidDiff(said, wrote) {
+    const text = String(said || '');
+    const tokens = text.match(/\S+\s*/g) || [];
+    const lead = text.slice(0, text.length - tokens.join('').length);
+    const norm = (t) => t.toLowerCase().replace(/[^\p{L}\p{N}']/gu, '');
+    const a = tokens.map(norm);
+    const b = (String(wrote || '').match(/\S+/g) || []).map(norm).filter(Boolean);
+    const n = a.length, m = b.length;
+    const L = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+    for (let i = n - 1; i >= 0; i--) {
+      for (let j = m - 1; j >= 0; j--) {
+        L[i][j] = a[i] && a[i] === b[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+      }
+    }
+    const cut = new Array(n).fill(false);
+    let i = 0, j = 0;
+    while (i < n) {
+      if (!a[i]) { i++; continue; }                       // punctuation on its own stays
+      if (j < m && a[i] === b[j]) { i++; j++; continue; }
+      if (j < m && L[i][j + 1] > L[i + 1][j]) { j++; continue; }
+      cut[i] = true; i++;
+    }
+    const words = a.filter(Boolean).length;
+    const cutWords = cut.filter(Boolean).length;
+    if (!cutWords || cutWords * 2 > words) return text ? [{ text, cut: false }] : [];
+    const out = lead ? [{ text: lead, cut: false }] : [];
+    tokens.forEach((t, k) => {
+      if (cut[k]) {
+        const body = t.replace(/\s+$/, ''), space = t.slice(body.length);
+        const last = out[out.length - 1];
+        // Join a run of cut words, keeping the spaces between them inside.
+        if (last && last.cut && last.pendingSpace !== undefined) { last.text += last.pendingSpace + body; last.pendingSpace = space; }
+        else out.push({ text: body, cut: true, pendingSpace: space });
+      } else {
+        const last = out[out.length - 1];
+        const pre = last && last.cut ? last.pendingSpace : '';
+        if (last && last.cut) delete last.pendingSpace;
+        if (last && !last.cut) last.text += pre + t;
+        else out.push({ text: pre + t, cut: false });
+      }
+    });
+    const last = out[out.length - 1];
+    if (last && last.cut) { const s = last.pendingSpace; delete last.pendingSpace; if (s) out.push({ text: s, cut: false }); }
+    return out;
+  }
+
+  // The steps of setup, in order. The Mac adds its permissions screen.
+  function setupSteps(isMac) {
+    return isMac ? ['connect', 'permissions', 'try', 'anywhere'] : ['connect', 'try', 'anywhere'];
+  }
+
   return {
+    keyInputView, serviceRows, saidDiff, setupSteps,
     STATUS_VIEWS, STATUS_CLASSES, DONE_RESET_MS, statusView, statusResetMs, workingLabel, workingTime, recordingTime,
     notSentId, notSentView, retryFailedMessage, unsentSummary,
     defaultHotkey, keyName, orderKeys, hotkeyName, keycaps, pressOrderHint, hotkeyPresets,

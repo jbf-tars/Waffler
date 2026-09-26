@@ -72,8 +72,6 @@ function refreshThemePicker() {
 let history = [];
 let stats = { today_words: 0, today_count: 0, total_words: 0 };
 let toastTimer = null;
-let _fnKeyPressed = false;
-let _fnKeyCheckInterval = null;
 
 // ── Hotkey capture state ──────────────────────────────────────────
 let _capturedKeys = new Set();
@@ -152,7 +150,6 @@ function _prefersReducedMotion() {
 // ── Init ─────────────────────────────────────────────────────────────
 window.addEventListener('pywebviewready', () => {
   checkOnboarding();  // Check if wizard needed or show main app
-  initializeProviderSelection();
   refreshAll();
   loadHotkeyConfig();
   updateDateLabel();
@@ -725,8 +722,9 @@ async function saveHotkeyCapture() {
   closeHotkeyCapture();
   _showSettingsHotkeyError('');
   await _onHotkeySaved(result);
-  // Opened from the wizard's hotkey step: say so there too.
-  if (_wizardStep === 2 && _wizardVisible()) wizHotkeyChanged(result);
+  // Opened from setup's "Pick another key": the practice listens for it
+  // (wizHotkeyChanged says so).
+  if (_wizardStep === 'try' && _wizardVisible()) { wizHotkeyChanged(result); return; }
   showToast(`Hotkey is now ${result.display || WL.hotkeyName(result.keys, isMacPlatform)}`, 'success');
 }
 
@@ -1772,27 +1770,39 @@ function clearSearch() {
 }
 
 // ============================================================
-// ── Setup Wizard ─────────────────────────────────────────────
+// ── First-run setup (3.15) ───────────────────────────────────
 // ============================================================
+// Three steps on Windows, four on a Mac (logic.js setupSteps):
+//   connect      Connect your free Groq account
+//   permissions  (Mac) Let Waffler listen and type for you
+//   try          Hold <hotkey> and talk: a full practice dictation
+//   anywhere     Now use it anywhere: Notepad or TextEdit, start at sign-in
+// Each step is a <section class="ob-step"> in index.html. A step's state
+// lives in its data-state, and elements marked data-when="a b" show only in
+// those states (wizSetState), so the markup holds every sentence and this
+// code only switches between them.
+// Existing users never see this: it opens only when setup is needed.
 
-let _wizardStep = 1;
-const WIZARD_TOTAL_STEPS = isMacPlatform ? 4 : 3;
-const WIZARD_FIRST_STEP = isMacPlatform ? 1 : 2;  // Skip permissions on Windows
-let _wizardGroqKeyValidated = false;
-let _wizardApiKeyValidated = false;
-let _wizardCerebrasKeyValidated = false;
-let _wizardMicTested = false;
-let _wizardMicDeviceIndex = null;
-let _wizardPermissionsGranted = false;
-let _wizardPermCheckInterval = null;
+const WIZ_STEPS = WL.setupSteps(isMacPlatform);
+const WIZ_LABELS = { connect: 'Connect Groq', permissions: 'Permissions', try: 'Try it', anywhere: 'Use it anywhere' };
+const WIZ_SECTIONS = { connect: 'obStepConnect', permissions: 'obStepPermissions', try: 'obStepTry', anywhere: 'obStepAnywhere' };
+let _wizardStep = '';
+let _wizardShown = false;
+let _wizKeyOk = false;          // a Groq key passed the check
+let _wizardMicTested = false;   // a practice dictation came back
+let _wizardHotkeyTestActive = false;
+let _wizDictationLive = false;  // the real hotkey is listening (Notepad/TextEdit)
+let _wizLastWrote = '';
+let _wizLoginChoice = true;     // start at sign-in: on by default (owner decision D6)
+let _currentWizardHotkey = isMacPlatform ? ['fn'] : ['win', 'ctrl'];
 
 async function checkOnboarding() {
   try {
     if (!window.pywebview || !window.pywebview.api) return;
-
+    if (_wizardShown) return;
     const status = await pywebview.api.get_onboarding_status();
     if (status.needs_setup) {
-      showWizard();
+      showWizard(status);
     } else {
       const main = document.getElementById('mainArea');
       if (main) main.style.display = '';
@@ -1805,9 +1815,10 @@ async function checkOnboarding() {
 
 window.addEventListener('pywebviewready', checkOnboarding);
 
-function showWizard() {
+function showWizard(status) {
   const overlay = document.getElementById('wizardOverlay');
-  if (!overlay) return;
+  if (!overlay || _wizardShown) return;
+  _wizardShown = true;
   overlay.style.display = 'flex';
   // Hide main app UI
   const main = document.getElementById('mainArea');
@@ -1816,123 +1827,201 @@ function showWizard() {
   if (settings) settings.style.display = 'none';
   const vocab = document.getElementById('vocabularyPanel');
   if (vocab) vocab.style.display = 'none';
-  // Initialize progress bar — skip permissions step on Windows
-  const wizSub = document.getElementById('wizSubtitle');
-  if (wizSub) wizSub.textContent = `Let's get you set up in ${WIZARD_TOTAL_STEPS} quick steps.`;
-  updateWizardProgress(WIZARD_FIRST_STEP);
-  wizShowStep(WIZARD_FIRST_STEP);
-  setTimeout(() => {
-    const inp = document.getElementById('wizApiKeyInput3');
-    if (inp) inp.focus();
-  }, 200);
+  document.body.dataset.platform = isMacPlatform ? 'mac' : 'win';
+  if (window.WafflerIcons) WafflerIcons.mount(document);
+  wizRenderHotkey();
+  wizRefreshHotkey();
+
+  // A key already saved (setup left part-way, or a Mac "Quit & Reopen")
+  // carries on where it was.
+  let first = 'connect';
+  if (status && status.has_key) {
+    _wizKeyOk = true;
+    wizSetState('connect', 'connected');
+    wizRenderServices(null);
+    if (WIZ_STEPS.includes(status.resume_step)) first = status.resume_step;
+  }
+  wizShowStep(first);
 }
 
 function hideWizard() {
-  stopFnKeyPolling();
+  wizStopPractice();
   stopWizClipboardWatch();
-  wizStopExplainerWaffle();
+  wizStopPermissionPoll();
+  wizStopRecTimer();
   const overlay = document.getElementById('wizardOverlay');
   if (!overlay) return;
   overlay.classList.add('hiding');
   setTimeout(() => {
     overlay.style.display = 'none';
     overlay.classList.remove('hiding');
+    _wizardShown = false;
     showPage('home');
     refreshAll();
     loadAudioDevices();
   }, 400);
 }
 
-// ── Step Navigation ──────────────────────────────────────────
-
-function updateWizardProgress(step) {
-  // Update step text — offset display number on Windows (no permissions step)
-  const displayStep = step - WIZARD_FIRST_STEP + 1;
-  const stepText = document.getElementById('wizStepText');
-  if (stepText) {
-    stepText.textContent = `Step ${displayStep} of ${WIZARD_TOTAL_STEPS}`;
-  }
-
-  // Update progress segments — hide segment 1 on Windows
-  for (let i = 1; i <= 4; i++) {
-    const segment = document.getElementById(`wizProgress${i}`);
-    if (!segment) continue;
-    if (i < WIZARD_FIRST_STEP) {
-      segment.style.display = 'none';
-    } else {
-      segment.classList.toggle('active', i === step);
-    }
-  }
+function _wizardVisible() {
+  const o = document.getElementById('wizardOverlay');
+  return !!o && o.style.display !== 'none';
 }
 
-// ── Clipboard key pickup (wizard step 3) ─────────────────────────────────────
-// Setup's most annoying moment is the hand-off: create a key on the provider's
+function _wizSection(step) {
+  return document.getElementById(WIZ_SECTIONS[step || _wizardStep]);
+}
+
+// Show the parts of a step meant for this state and hide the rest.
+function wizSetState(step, state) {
+  const sec = _wizSection(step);
+  if (!sec) return;
+  sec.dataset.state = state;
+  sec.querySelectorAll('[data-when]').forEach((el) => {
+    el.hidden = !el.dataset.when.split(' ').includes(state);
+  });
+  if (step === _wizardStep) wizUpdateNextButton();
+}
+
+function wizRenderStepper() {
+  const host = document.getElementById('obStepper');
+  if (!host) return;
+  const cur = WIZ_STEPS.indexOf(_wizardStep);
+  host.innerHTML = WIZ_STEPS.map((s, i) => {
+    const cls = i < cur ? 'is-done' : i === cur ? 'is-on' : '';
+    const n = i < cur ? '<svg class="ic" aria-hidden="true"><use href="#i-check"/></svg>' : String(i + 1);
+    const sep = i ? '<li class="ob-ssep" aria-hidden="true"></li>' : '';
+    return `${sep}<li class="${cls}"${i === cur ? ' aria-current="step"' : ''}><span class="ob-sn">${n}</span>${WIZ_LABELS[s]}</li>`;
+  }).join('');
+}
+
+function wizShowStep(step) {
+  if (!WIZ_STEPS.includes(step)) step = WIZ_STEPS[0];
+  const prev = _wizardStep;
+  // Leaving a step stops what it started.
+  if (prev === 'try' && step !== 'try') wizStopPractice();
+  if (prev === 'permissions' && step !== 'permissions') wizStopPermissionPoll();
+  if (step !== 'connect') stopWizClipboardWatch();
+
+  _wizardStep = step;
+  document.body.setAttribute('data-wiz-step', step);
+  // The shown step gets no inline display at all, so its stylesheet layout
+  // (the two-column grid) applies.
+  Object.entries(WIZ_SECTIONS).forEach(([s, id]) => {
+    const con = document.getElementById(id);
+    if (!con) return;
+    if (s === step) con.style.removeProperty('display');
+    else con.style.display = 'none';
+  });
+  // Every step's parts start in the right state.
+  const sec = _wizSection(step);
+  if (sec) wizSetState(step, sec.dataset.state);
+  wizRenderStepper();
+  wizUpdateNextButton();
+  try { pywebview.api.save_setup_step(step); } catch (_) {}
+
+  if (step === 'connect') wizInitConnect();
+  if (step === 'permissions') wizStartPermissionPoll();
+  if (step === 'try') wizInitTryItStep();
+  if (step === 'anywhere') wizInitAnywhere();
+}
+
+function wizUpdateNextButton() {
+  const btn = document.getElementById('wizBtnNext');
+  const label = document.getElementById('wizBtnNextLabel');
+  const back = document.getElementById('wizBtnBack');
+  const skip = document.getElementById('wizBtnSkip');
+  const left = document.getElementById('obFootLeft');
+  if (!btn) return;
+  const step = _wizardStep;
+  const i = WIZ_STEPS.indexOf(step);
+  const sec = _wizSection(step);
+  const state = sec ? sec.dataset.state : '';
+  let enabled = false;
+  if (step === 'connect') enabled = _wizKeyOk;
+  if (step === 'permissions') enabled = _wizPermsAll();
+  if (step === 'try') enabled = _wizardMicTested;
+  if (step === 'anywhere') enabled = true;
+  btn.disabled = !enabled;
+  if (label) label.textContent = step === 'anywhere' ? 'Done' : 'Continue';
+  btn.title = !enabled && step === 'try' ? 'Hold the keys and talk once, or skip for now.' : '';
+  // Back once the real hotkey is on would start a second listener.
+  if (back) back.hidden = i <= 0 || (step === 'anywhere' && _wizDictationLive);
+  // "Skip for now" is there until a practice dictation works, so a
+  // microphone problem never strands anyone.
+  if (skip) skip.hidden = !(step === 'try' && !_wizardMicTested);
+  if (left) left.hidden = !(step === 'connect' && state === 'start');
+}
+
+async function wizNext() {
+  const btn = document.getElementById('wizBtnNext');
+  if (btn && btn.disabled) return;
+  const i = WIZ_STEPS.indexOf(_wizardStep);
+  if (_wizardStep === 'anywhere') { await wizCompleteSetup(); return; }
+  if (i >= 0 && i < WIZ_STEPS.length - 1) wizShowStep(WIZ_STEPS[i + 1]);
+}
+
+function wizBack() {
+  const i = WIZ_STEPS.indexOf(_wizardStep);
+  if (i > 0) wizShowStep(WIZ_STEPS[i - 1]);
+}
+
+// "Skip for now" skips the practice, not the rest of setup: the last step
+// still offers Notepad or TextEdit and start at sign-in.
+async function wizSkipTryIt() {
+  wizShowStep('anywhere');
+}
+
+// ── Clipboard key pickup (Connect) ────────────────────────────────────────
+// Setup's most annoying moment is the hand-off: create a key on Groq's
 // site, copy it, come back, find the field, paste. The copy has already
-// happened, so the app can just notice. While the key step is open we poll for
-// a key-shaped clipboard entry and fill it in.
+// happened, so the app can just notice.
 //
 // The backend only ever returns text matching a known key shape, so ordinary
 // clipboard contents are never read into the UI. Filling the field is not
 // irreversible either: the user can clear or overwrite it.
+//
+// Check the clipboard ONCE, on demand. Never on a timer. This used to poll
+// every 1200 ms while the key step was open. Windows Defender's behavioural
+// model started flagging the app as Behavior:Win32/CredentialAccess.A!ml on
+// 2026-09-22 and deleting Waffler.exe mid-install, and a process repeatedly
+// reading the clipboard and regex-matching it for `sk-` / `gsk_` secrets is
+// the most credential-stealer-shaped thing in the codebase. The only moment
+// the poll ever caught anything was the alt-tab back from the provider's
+// website. That moment IS a window focus event, so the clipboard is read
+// then: once on arriving, once per return to the window, and when Paste is
+// clicked.
 let _wizClipTimer = null;        // legacy poll handle, kept so an in-flight
                                  // timer from a previous build is cleared
 let _wizClipLastSeen = '';
 let _wizClipLastCheck = 0;
 let _wizClipOnFocus = null;
 
-const _WIZ_KEY_FIELDS = {
-  groq:     { input: 'wizGroqKeyInput3',     validate: (k) => wizValidateGroqKey(k) },
-  openai:   { input: 'wizApiKeyInput3',      validate: (k) => wizValidateApiKey(k) },
-  cerebras: { input: 'wizCerebrasKeyInput3', validate: (k) => (typeof wizValidateCerebrasKey === 'function' ? wizValidateCerebrasKey(k) : null) },
-};
-
-// Check the clipboard ONCE, on demand. Never on a timer.
-//
-// This used to poll every 1200 ms while step 3 was open. Windows Defender's
-// behavioural model started flagging the app as
-// Behavior:Win32/CredentialAccess.A!ml on 2026-09-22 and deleting
-// Waffler.exe mid-install, and a process repeatedly reading the clipboard
-// and regex-matching it for `sk-` / `gsk_` secrets is the single most
-// credential-stealer-shaped thing in the codebase — roughly 50 scans a
-// minute, for a key that arrives once.
-//
-// The user experience is unchanged, because the only moment the poll ever
-// caught anything was the alt-tab back from the provider's website. That
-// moment IS a window focus event, so we read the clipboard then: once per
-// return to the app instead of continuously. Same pickup, ~1/50th of the
-// reads, and no standing clipboard surveillance.
-async function _wizCheckClipboardOnce() {
-  if (!(window.pywebview && pywebview.api && pywebview.api.peek_clipboard_key)) return;
+async function _wizCheckClipboardOnce(fromClick) {
+  if (!(window.pywebview && pywebview.api && pywebview.api.peek_clipboard_key)) return false;
   // Debounce: a focus flap must not turn back into a poll.
   const now = Date.now();
-  if (now - _wizClipLastCheck < 400) return;
+  if (!fromClick && now - _wizClipLastCheck < 400) return false;
   _wizClipLastCheck = now;
+  if (_wizKeyOk && !fromClick) return false;
   try {
     const r = await pywebview.api.peek_clipboard_key();
-    if (!r || !r.found || !r.key) return;
-    if (r.key === _wizClipLastSeen) return;   // already handled this one
-    const field = _WIZ_KEY_FIELDS[r.provider];
-    if (!field) return;
-    const el = document.getElementById(field.input);
-    if (!el || el.value.trim() === r.key) return;
+    if (!r || !r.found || !r.key || r.provider !== 'groq') return false;
+    if (r.key === _wizClipLastSeen && !fromClick) return false;   // already handled this one
+    const el = document.getElementById('wizGroqKeyInput');
+    if (!el) return false;
     _wizClipLastSeen = r.key;
     el.value = r.key;
-    // Switch to that provider's tab so the user sees where it landed.
-    const tab = document.querySelector(`.wiz-prov-tab[data-provider="${r.provider}"]`);
-    if (tab) tab.click();
-    wizNotePickedUpKey(r.provider);
-    field.validate(r.key);
-  } catch (e) { /* clipboard unavailable: the user can still paste by hand */ }
+    wizValidateGroqKey(r.key, true);
+    return true;
+  } catch (e) { return false; }  // clipboard unavailable: the user can still paste by hand
 }
 
 function startWizClipboardWatch() {
   stopWizClipboardWatch();
   if (!(window.pywebview && pywebview.api && pywebview.api.peek_clipboard_key)) return;
-  // One check on arrival (the key may already be copied), then one per
-  // return to the window.
-  _wizClipOnFocus = () => { _wizCheckClipboardOnce(); };
+  _wizClipOnFocus = () => { _wizCheckClipboardOnce(false); };
   window.addEventListener('focus', _wizClipOnFocus);
-  _wizCheckClipboardOnce();
+  _wizCheckClipboardOnce(false);
 }
 
 function stopWizClipboardWatch() {
@@ -1943,195 +2032,340 @@ function stopWizClipboardWatch() {
   }
 }
 
-function wizNotePickedUpKey(provider) {
-  const v = document.getElementById(
-    provider === 'groq' ? 'wizGroqValidation3'
-    : provider === 'cerebras' ? 'wizCerebrasValidation3' : 'wizApiValidation3');
-  if (!v) return;
-  v.textContent = 'Found the key you just copied. Checking it...';
-  v.className = 'wizard-validation loading';
+// The Paste button: the same one-off check, started by the click.
+async function wizPasteKey() {
+  const found = await _wizCheckClipboardOnce(true);
+  if (!found) {
+    wizKeyMessage('alert', "There's no Groq key on the clipboard yet.", 'In Groq, click Copy, then try again. Or paste it with Ctrl+V.'.replace('Ctrl+V', isMacPlatform ? 'Cmd+V' : 'Ctrl+V'));
+  }
 }
 
-function wizShowStep(step) {
-  // Clean up Step 2 hotkey monitor when leaving step 2
-  if (_wizardStep === 2 && step !== 2) {
-    stopFnKeyPolling();
-    pywebview.api.wizard_cleanup_step2().catch(() => {});
-  }
+// ── Step: Connect your free Groq account ─────────────────────────────────
 
-  // Clean up wizard hotkey test when leaving step 3
-  if (_wizardStep === 3 && step !== 3 && _wizardHotkeyTestActive) {
-    pywebview.api.wizard_stop_hotkey_test().catch(() => {});
-    _wizardHotkeyTestActive = false;
-  }
+let _wizKeyListenerAttached = false;
+let _wizKeyRetries = 0;
 
-  // Only watch the clipboard while the key step is actually on screen.
-  if (step === 3) { startWizClipboardWatch(); } else { stopWizClipboardWatch(); }
-
-  _wizardStep = step;
-  updateWizardProgress(step);
-  // Tell CSS which step is active so step-specific layout rules
-  // (e.g. the side-by-side permission grid for step 1) only apply
-  // when that step is genuinely visible — prevents the v3.14.3 bug
-  // where step-1 content leaked onto Windows.
-  document.body.setAttribute('data-wiz-step', String(step));
-
-  // Show/hide wizard step content (always loop to 4 — the actual number of content divs).
-  // The shown step gets no inline display at all, so its stylesheet layout
-  // applies: an inline "block" overrode the Mac permissions grid, stacking
-  // the two cards into a page about two screens tall.
-  for (let i = 1; i <= 4; i++) {
-    const con = document.getElementById('wizContent' + i);
-    if (!con) continue;
-    if (i === step) con.style.removeProperty('display');
-    else con.style.display = 'none';
-  }
-
-  // Toggle wide container for step 4 (mock app split layout)
-  const container = document.querySelector('.wizard-container');
-  if (container) container.classList.toggle('wide', step === 4);
-
-  const backBtn = document.getElementById('wizBtnBack');
-  const nextBtn = document.getElementById('wizBtnNext');
-  backBtn.style.display = step > WIZARD_FIRST_STEP ? 'inline-block' : 'none';
-  if (step === 4) {
-    nextBtn.textContent = 'Finish Setup';
-    nextBtn.classList.add('finish');
-  } else {
-    nextBtn.textContent = 'Next';
-    nextBtn.classList.remove('finish');
-  }
-  wizUpdateNextButton();
-
-  // Step-specific initialization
-  // Permission polling — start when entering step 1, stop when leaving.
-  if (step === 1) {
-    wizStartPermissionPoll();
-  } else {
-    wizStopPermissionPoll();
-  }
-  if (step === 2) { wizResetHotkeyPill(); wizRenderHotkey(); wizLoadHotkeyInfo(); initFnKeyFeedback(); }
-  if (step === 3) { wizInitApiKeyStep(); wizInitProviderTabs(); }
-  if (step === 4) { wizRenderHotkey(); wizInitTryItStep(); initFnKeyFeedback(); wizStartExplainerWaffle(); }
-  else wizStopExplainerWaffle();
-}
-
-// The Hotkey step's pill says "Listening" whenever the step is shown. After
-// an auto-advance, Back used to bring up a stale "Hotkey detected,
-// advancing" that never advanced.
-function wizResetHotkeyPill() {
-  window._fnKeyDetected = false;
-  const status = document.getElementById('wizHotkeyStatus');
-  if (!status) return;
-  status.classList.remove('detected', 'error');
-  status.style.color = '';
-  const label = status.querySelector('.wiz-listening-label');
-  if (label) label.textContent = 'Listening for hotkey press…';
-}
-
-function wizUpdateNextButton() {
-  const btn = document.getElementById('wizBtnNext');
-  switch (_wizardStep) {
-    case 1:
-      // v3.14.27 — require BOTH Accessibility and Input Monitoring before
-      // letting the user advance. Previously this was `disabled = false`
-      // unconditionally, so users could click Next without granting one
-      // (most commonly Input Monitoring) — which broke the hotkey
-      // detection later in step 4 with no obvious cause. Windows wizard
-      // doesn't use step 1, so this branch only runs on macOS.
-      btn.disabled = !(_wizardPermsAccessibility && _wizardPermsInputMon);
-      btn.title = btn.disabled
-        ? 'Grant both Accessibility and Input Monitoring above to continue.'
-        : '';
-      break;
-    case 2: btn.disabled = false; break;  // Hotkeys - always allow
-    case 3: btn.disabled = !(_wizardCerebrasKeyValidated || _wizardGroqKeyValidated || _wizardApiKeyValidated); break;
-    case 4:  // Try It - finish after one dictation, or skip
-      btn.disabled = !_wizardMicTested;
-      btn.title = btn.disabled ? 'Dictate once to finish, or skip for now.' : '';
-      break;
-  }
-  // "Skip for now" is there on the last step until a dictation works, so a
-  // microphone problem never strands anyone on it.
-  const skip = document.getElementById('wizBtnSkip');
-  if (skip) skip.hidden = !(_wizardStep === 4 && !_wizardMicTested);
-}
-
-async function wizNext() {
-  // v3.14.27 — belt-and-suspenders for step 1 on macOS: refuse to
-  // advance unless both Accessibility and Input Monitoring are granted,
-  // even if the button's disabled state was somehow bypassed.
-  if (_wizardStep === 1 && isMacPlatform) {
-    if (!_wizardPermsAccessibility || !_wizardPermsInputMon) {
-      const missing = [];
-      if (!_wizardPermsAccessibility) missing.push('Accessibility');
-      if (!_wizardPermsInputMon) missing.push('Input Monitoring');
-      showToast(`Grant ${missing.join(' + ')} above to continue`, 'error');
+function wizInitConnect() {
+  startWizClipboardWatch();
+  if (_wizKeyListenerAttached) return;
+  _wizKeyListenerAttached = true;
+  const inp = document.getElementById('wizGroqKeyInput');
+  if (!inp) return;
+  const check = WL.debounce(() => {
+    const v = WL.keyInputView(inp.value);
+    if (v.kind === 'ok') wizValidateGroqKey(inp.value.trim(), false);
+  }, 600);
+  inp.addEventListener('input', () => {
+    _wizKeyOk = false;
+    inp.removeAttribute('aria-invalid');
+    const v = WL.keyInputView(inp.value);
+    if (v.kind === 'empty') { wizKeyWaiting(); check.cancel(); return; }
+    if (v.kind !== 'ok') {
+      wizSetState('connect', 'error');
+      wizKeyMessage('alert', v.message, '');
+      inp.setAttribute('aria-invalid', 'true');
+      check.cancel();
       return;
     }
-  }
-  if (_wizardStep < 4) {
-    wizShowStep(_wizardStep + 1);
-  } else {
-    await wizCompleteSetup();
+    check();
+  });
+  inp.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    check.cancel();
+    if (WL.keyInputView(inp.value).kind === 'ok') wizValidateGroqKey(inp.value.trim(), false);
+  });
+}
+
+// "Get my free Groq key": Groq's key page in the browser, and this screen
+// switches to waiting for the key to come back.
+function wizOpenGroq() {
+  try { pywebview.api.open_url('https://console.groq.com/keys'); } catch (_) {}
+  if (!_wizKeyOk) wizKeyWaiting();
+}
+
+// "Already have a key? Paste it here"
+function wizPasteInstead() {
+  wizKeyWaiting();
+  const inp = document.getElementById('wizGroqKeyInput');
+  if (inp) setTimeout(() => inp.focus(), 50);
+}
+
+function wizKeyWaiting() {
+  wizSetState('connect', 'waiting');
+  const box = document.getElementById('obKeyState');
+  if (box) {
+    box.className = 'ob-keystate';
+    box.innerHTML = '<span class="ob-pulse" aria-hidden="true"></span><span>Waiting for your key. Waffler picks it up when you come back.</span>';
   }
 }
 
-function wizBack() {
-  if (_wizardStep > WIZARD_FIRST_STEP) wizShowStep(_wizardStep - 1);
+// A line in the key box: an icon tile, a sentence, and a second line.
+function wizKeyMessage(icon, title, detail) {
+  const box = document.getElementById('obKeyState');
+  if (!box) return;
+  const tile = icon === 'loader'
+    ? '<span class="ob-pulse" aria-hidden="true"></span>'
+    : `<span class="itile ${icon === 'alert' ? 'is-err' : 'is-ok'}"><svg class="ic" aria-hidden="true"><use href="#i-${icon}"/></svg></span>`;
+  box.className = 'ob-keystate' + (icon === 'alert' ? ' is-err' : '');
+  box.innerHTML = `${tile}<span><b class="ob-keystate-t">${escHtml(title)}</b>`
+    + (detail ? `<span class="ob-keystate-d">${escHtml(detail)}</span>` : '') + '</span>';
 }
 
-// ── Step 2: Hotkey Configuration ─────────────────────────────
+async function wizValidateGroqKey(key, fromClipboard) {
+  const inp = document.getElementById('wizGroqKeyInput');
+  wizSetState('connect', 'checking');
+  wizKeyMessage('loader', fromClipboard ? 'Got your key. Checking it with Groq…' : 'Checking your key with Groq…', '');
+  let r;
+  try {
+    r = await pywebview.api.validate_groq_key(key);
+  } catch (e) {
+    r = { ok: false, error: "Couldn't check that key. Check you're online and try again." };
+  }
+  if (inp && inp.value.trim() !== key) return;   // the field changed meanwhile
+  if (r && r.ok) {
+    _wizKeyOk = true;
+    _wizKeyRetries = 0;
+    if (inp) inp.removeAttribute('aria-invalid');
+    const tail = document.getElementById('obKeyTail');
+    if (tail) tail.textContent = key.slice(0, 8) + '…' + key.slice(-4);
+    wizRenderServices(r.services);
+    wizSetState('connect', 'connected');
+    stopWizClipboardWatch();
+    return;
+  }
+  _wizKeyOk = false;
+  // A busy moment at Groq: say so and try again by itself.
+  if (r && r.kind === 'rate_limited' && _wizKeyRetries < 3) {
+    _wizKeyRetries += 1;
+    wizKeyMessage('loader', 'Groq is busy for a moment.', 'Trying again in a few seconds.');
+    wizRetryKeyCheckSoon(key);
+    return;
+  }
+  _wizKeyRetries = 0;
+  const m = WL.splitMessage((r && r.error) || "Couldn't check that key. Try again.");
+  wizSetState('connect', 'error');
+  wizKeyMessage('alert', m.title + '.', m.subtitle);
+  if (inp && r && r.kind === 'unauthorized') inp.setAttribute('aria-invalid', 'true');
+  wizUpdateNextButton();
+}
 
-function showWizardHotkeyConfig() {
-  // This platform's choices only (logic.js hotkeyPresets). Windows used to
-  // be offered "Ctrl + Alt + Space", which it never accepted.
-  const list = document.getElementById('wizHotkeyPresetList');
-  if (list) {
-    list.textContent = '';
-    WL.hotkeyPresets(isMacPlatform).forEach((p) => {
-      const b = document.createElement('button');
-      b.className = 'hotkey-preset-btn';
-      const name = document.createElement('span');
-      name.className = 'hotkey-preview';
-      name.textContent = p.label;
-      const hint = document.createElement('span');
-      hint.style.cssText = 'opacity:0.6;font-size:13px';
-      hint.textContent = p.hint;
-      b.append(name, ' ', hint);
-      b.addEventListener('click', () => (p.custom ? openHotkeyCapture() : selectHotkeyPreset(p.keys)));
-      list.appendChild(b);
+function wizRetryKeyCheckSoon(key) {
+  setTimeout(() => {
+    const inp = document.getElementById('wizGroqKeyInput');
+    if (_wizardStep === 'connect' && inp && inp.value.trim() === key) wizValidateGroqKey(key, false);
+  }, 5000);
+}
+
+function wizRenderServices(services) {
+  const host = document.getElementById('obServices');
+  if (!host) return;
+  const rows = WL.serviceRows(services).map((v) => `
+    <div class="row">
+      <span class="itile ${v.tile}"><svg class="ic" aria-hidden="true"><use href="#i-${v.icon}"/></svg></span>
+      <div class="row-main"><div class="row-t">${escHtml(v.title)}</div><div class="row-d">${escHtml(v.desc)}</div></div>
+      <span class="chip ${v.chipCls}">${escHtml(v.chip)}</span>
+    </div>`).join('');
+  host.innerHTML = rows + `
+    <div class="row">
+      <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg></span>
+      <div class="row-main"><div class="row-t">Backup <span class="chip">Optional</span></div><div class="row-d">Add an OpenAI key later in Settings.</div></div>
+    </div>`;
+}
+
+// ── Step: Mac permissions ────────────────────────────────────────────────
+// Each Allow calls the prompt macOS provides (app.py request_permission,
+// src/mac_permissions.py), so Waffler is already in each list and the user
+// flips one switch. A check every second ticks the rows; when all three are
+// allowed, setup moves on by itself.
+let _wizPerms = { microphone: false, input_monitoring: false, accessibility: false };
+let _wizPermPollTimer = null;
+let _wizPermsWereMissing = false;
+const _WIZ_PERM_ROWS = { microphone: 'obPermMic', input_monitoring: 'obPermKeys', accessibility: 'obPermTyping' };
+const _WIZ_PERM_ALERTS = {
+  microphone: { title: '“Waffler” would like to access the microphone.', body: 'Waffler needs microphone access for voice transcription.',
+    buttons: ["Don't Allow", 'Allow'], row: true, cap: 'Click Allow. Waffler notices by itself.' },
+  input_monitoring: { title: '“Waffler” would like to receive keystrokes from any application.', body: 'Grant access to this application in Privacy & Security settings, located in System Settings.',
+    buttons: ['Open System Settings', 'Deny'], row: false, cap: 'Turn Waffler on, then come back here.' },
+  accessibility: { title: '“Waffler” would like to control this computer using accessibility features.', body: 'Grant access to this application in Privacy & Security settings, located in System Settings.',
+    buttons: ['Open System Settings', 'Deny'], row: false, cap: 'Turn Waffler on, then come back here.' },
+};
+
+function _wizPermsAll() {
+  return !isMacPlatform || (_wizPerms.microphone && _wizPerms.input_monitoring && _wizPerms.accessibility);
+}
+
+function wizRenderPermissions() {
+  const order = ['microphone', 'input_monitoring', 'accessibility'];
+  const next = order.find((p) => !_wizPerms[p]);
+  order.forEach((p) => {
+    const row = document.getElementById(_WIZ_PERM_ROWS[p]);
+    const ctl = row && row.querySelector('.ob-perm-ctl');
+    if (!ctl) return;
+    ctl.innerHTML = _wizPerms[p]
+      ? '<span class="chip chip-ok"><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg>Allowed</span>'
+      : `<button class="btn btn-sm ${p === next ? 'btn-pri' : 'btn-sec'}" onclick="wizAllow('${p}')">Allow</button>`;
+  });
+  // The picture shows the macOS dialog the next Allow brings up.
+  const a = _WIZ_PERM_ALERTS[next || 'accessibility'];
+  const put = (id, t) => { const el = document.getElementById(id); if (el) el.textContent = t; };
+  put('obMacAlertTitle', a.title);
+  put('obMacAlertBody', a.body);
+  put('obMacCap', next ? a.cap : 'All three are allowed. Setup carries on by itself.');
+  const btns = document.getElementById('obMacAlertBtns');
+  if (btns) {
+    btns.classList.toggle('is-row', a.row);
+    btns.innerHTML = a.row
+      ? `<span class="ob-mac-btn">${a.buttons[0]}</span><span class="ob-mac-btn ob-mac-btn-pri ob-hl">${a.buttons[1]}</span>`
+      : `<span class="ob-mac-btn ob-mac-btn-pri ob-hl">${a.buttons[0]}</span><span class="ob-mac-btn">${a.buttons[1]}</span>`;
+  }
+  const sw = document.getElementById('obMacSwitch');
+  if (sw) sw.hidden = a.row;
+}
+
+async function wizAllow(name) {
+  try { await pywebview.api.request_permission(name); } catch (_) {}
+  wizPermTick();
+}
+
+async function wizPermTick() {
+  try {
+    const r = await pywebview.api.check_permissions();
+    const before = _wizPermsAll();
+    _wizPerms = {
+      microphone: !!r.mic_granted,
+      input_monitoring: !!r.input_monitoring_granted,
+      accessibility: !!r.accessibility_granted,
+    };
+    if (!_wizPermsAll()) _wizPermsWereMissing = true;
+    wizRenderPermissions();
+    if (_wizardStep === 'permissions') {
+      wizUpdateNextButton();
+      if (!before && _wizPermsAll() && _wizPermsWereMissing) wizNext();
+    }
+  } catch (e) { /* poll errors are silent */ }
+}
+
+function wizStartPermissionPoll() {
+  if (_wizPermPollTimer) return;
+  _wizPermsWereMissing = false;
+  wizPermTick();
+  _wizPermPollTimer = setInterval(wizPermTick, 1000);
+}
+
+function wizStopPermissionPoll() {
+  if (_wizPermPollTimer) { clearInterval(_wizPermPollTimer); _wizPermPollTimer = null; }
+}
+
+// ── Step: Hold <hotkey> and talk ─────────────────────────────────────────
+
+async function wizLoadMicDevices() {
+  const sel = document.getElementById('wizMicSelect');
+  if (!sel) return;
+  try {
+    const devices = await pywebview.api.get_audio_devices();
+    const current = await pywebview.api.get_selected_device();
+    sel.innerHTML = '';
+    if (!devices || !devices.length) {
+      sel.innerHTML = '<option value="">No microphone found</option>';
+      return;
+    }
+    devices.forEach((d) => {
+      const opt = document.createElement('option');
+      opt.value = d.index;
+      opt.textContent = d.name;
+      if ((current && current.index === d.index) || (current && current.index === null && d.is_default)) opt.selected = true;
+      sel.appendChild(opt);
     });
+  } catch (e) {
+    console.warn('wizLoadMicDevices error:', e);
   }
-  document.getElementById('wizHotkeyConfigPanel').style.display = 'block';
 }
 
-function hideWizardHotkeyConfig() {
-  document.getElementById('wizHotkeyConfigPanel').style.display = 'none';
+async function wizInitTryItStep() {
+  wizRenderHotkey();
+  wizRefreshHotkey();
+  wizCheckFnKey();
+  wizSetMeter(0);
+  const sec = _wizSection('try');
+  if (_wizardMicTested && sec && sec.dataset.state === 'done') wizSetState('try', 'done');
+  else wizSetState('try', 'wait');
+  await wizLoadMicDevices();
+  await wizStartPractice();
 }
 
-function _wizardVisible() {
-  const o = document.getElementById('wizardOverlay');
-  return !!o && o.style.display !== 'none';
+async function wizStartPractice() {
+  const sel = document.getElementById('wizMicSelect');
+  const idx = sel && sel.value !== '' ? Number(sel.value) : null;
+  try {
+    if (idx !== null) await pywebview.api.set_audio_device(idx);
+    const r = await pywebview.api.wizard_start_hotkey_test(idx);
+    if (r && r.ok) {
+      _wizardHotkeyTestActive = true;
+      return;
+    }
+    _wizardHotkeyTestActive = false;
+    if (r && r.mic === 'denied') { wizSetState('try', 'nomic'); return; }
+    wizPracticeError((r && r.error) || "Couldn't start the practice. Try again, or skip for now.");
+  } catch (e) {
+    console.warn('wizStartPractice error:', e);
+  }
 }
 
-// The Hotkey step's pill, set through its label so the dot and spacing
-// stay (setting the pill's own text wiped them and the dot sat on the
-// first letter).
-function _wizSetHotkeyPill(text, kind) {
-  const status = document.getElementById('wizHotkeyStatus');
-  if (!status) return;
-  status.classList.remove('detected', 'error');
-  if (kind) status.classList.add(kind);
-  status.style.color = '';
-  const label = status.querySelector('.wiz-listening-label');
-  if (label) label.textContent = text;
+function wizStopPractice() {
+  wizStopRecTimer();
+  if (_wizardHotkeyTestActive) {
+    try { pywebview.api.wizard_stop_hotkey_test(); } catch (_) {}
+    _wizardHotkeyTestActive = false;
+  }
 }
 
-function wizHotkeyChanged(result) {
-  window._fnKeyDetected = false;
-  _wizSetHotkeyPill(`Hotkey changed to ${result.display || WL.hotkeyName(result.keys, isMacPlatform)}. Hold it to test.`);
-  hideWizardHotkeyConfig();
+async function wizMicChanged(value) {
+  if (value === '') return;
+  try { await pywebview.api.set_audio_device(Number(value)); } catch (_) {}
+  if (_wizardStep === 'try') wizStartPractice();
+}
+
+// The Fn (Globe) key's own job on a Mac (src/mac_permissions.py). Shown,
+// never changed.
+async function wizCheckFnKey() {
+  const box = document.getElementById('obFnWarn');
+  if (!box || !isMacPlatform) return;
+  try {
+    const r = await pywebview.api.get_fn_key_conflict();
+    box.hidden = !(r && r.conflict);
+    if (r && r.conflict) {
+      document.getElementById('obFnWarnTitle').textContent = r.title;
+      document.getElementById('obFnWarnDetail').innerHTML = escHtml(r.detail)
+        .replace('\u{1F310}', '<svg class="ic ob-inl-globe" aria-label="Globe"><use href="#i-globe"/></svg>');
+    }
+  } catch (_) { box.hidden = true; }
+}
+
+function wizOpenKeyboardSettings() {
+  try { pywebview.api.open_keyboard_settings(); } catch (_) {}
+}
+
+// "Doesn't work on this keyboard? Pick another key": this platform's
+// choices (logic.js hotkeyPresets). Windows used to be offered
+// "Ctrl + Alt + Space", which it never accepted.
+function wizShowKeyPicker() {
+  const panel = document.getElementById('obKeyPicker');
+  const list = document.getElementById('wizHotkeyPresetList');
+  if (!panel || !list) return;
+  const cur = WL.hotkeyName(_currentHotkeyKeys, isMacPlatform);
+  list.textContent = '';
+  WL.hotkeyPresets(isMacPlatform).forEach((p) => {
+    const b = document.createElement('button');
+    b.className = 'btn btn-sec btn-sm';
+    b.textContent = p.label;
+    b.title = p.hint || '';
+    if (!p.custom && p.label === cur) b.classList.add('is-current');
+    b.addEventListener('click', () => (p.custom ? openHotkeyCapture() : selectHotkeyPreset(p.keys)));
+    list.appendChild(b);
+  });
+  const err = document.getElementById('obKeyPickerErr');
+  if (err) err.hidden = true;
+  panel.hidden = !panel.hidden;
 }
 
 async function selectHotkeyPreset(keys) {
@@ -2143,759 +2377,23 @@ async function selectHotkeyPreset(keys) {
     result = { ok: false, error: "Couldn't change the hotkey. Try again." };
   }
   if (!result || !result.ok) {
-    // Nothing changed, so the keycaps stay as they are and the pill says why.
-    _wizSetHotkeyPill((result && result.error) || "Couldn't change the hotkey. Try again.", 'error');
+    // Nothing changed, so the keys stay as they are and the picker says why.
+    const err = document.getElementById('obKeyPickerErr');
+    if (err) { err.textContent = (result && result.error) || "Couldn't change the hotkey. Try again."; err.hidden = false; }
     return;
   }
   await _onHotkeySaved(result);
   wizHotkeyChanged(result);
 }
 
-// ── Step 3: API Key ──────────────────────────────────────────
-
-let _wizGroqTimer = null;
-let _wizApiTimer = null;
-let _wizCerebrasTimer = null;
-let _apiKeyListenersAttached = false;
-
-function wizInitApiKeyStep() {
-  // Only attach listeners once
-  if (_apiKeyListenersAttached) return;
-  _apiKeyListenersAttached = true;
-
-  // ── Cerebras key input (primary) ──
-  const cerebrasInp = document.getElementById('wizCerebrasKeyInput3');
-  if (cerebrasInp) {
-    cerebrasInp.addEventListener('input', () => {
-      _wizardCerebrasKeyValidated = false;
-      wizUpdateNextButton();
-      const val = cerebrasInp.value.trim();
-      const v = document.getElementById('wizCerebrasValidation3');
-      if (!val) { v.textContent = ''; v.className = 'wizard-validation'; return; }
-      if (!val.startsWith('csk-')) { v.textContent = 'Key should start with csk-'; v.className = 'wizard-validation error'; return; }
-      if (val.length < 20) { v.textContent = 'Key seems too short...'; v.className = 'wizard-validation error'; return; }
-      clearTimeout(_wizCerebrasTimer);
-      v.textContent = 'Validating...';
-      v.className = 'wizard-validation loading';
-      _wizCerebrasTimer = setTimeout(() => wizValidateCerebrasKey(val), 800);
-    });
-    cerebrasInp.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        clearTimeout(_wizCerebrasTimer);
-        const val = cerebrasInp.value.trim();
-        if (val.startsWith('csk-') && val.length >= 20) wizValidateCerebrasKey(val);
-      }
-    });
-  }
-
-  // ── Groq key input ──
-  const groqInp = document.getElementById('wizGroqKeyInput3');
-  if (groqInp) {
-    groqInp.addEventListener('input', () => {
-      _wizardGroqKeyValidated = false;
-      wizUpdateNextButton();
-      const val = groqInp.value.trim();
-      const v = document.getElementById('wizGroqValidation3');
-      if (!val) { v.textContent = ''; v.className = 'wizard-validation'; return; }
-      if (!val.startsWith('gsk_')) { v.textContent = 'Key should start with gsk_'; v.className = 'wizard-validation error'; return; }
-      if (val.length < 20) { v.textContent = 'Key seems too short...'; v.className = 'wizard-validation error'; return; }
-      clearTimeout(_wizGroqTimer);
-      v.textContent = 'Validating...';
-      v.className = 'wizard-validation loading';
-      _wizGroqTimer = setTimeout(() => wizValidateGroqKey(val), 800);
-    });
-    groqInp.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        clearTimeout(_wizGroqTimer);
-        const val = groqInp.value.trim();
-        if (val.startsWith('gsk_') && val.length >= 20) wizValidateGroqKey(val);
-      }
-    });
-  }
-
-  // ── OpenAI key input ──
-  const inp = document.getElementById('wizApiKeyInput3');
-  if (inp) {
-    inp.addEventListener('input', () => {
-      _wizardApiKeyValidated = false;
-      wizUpdateNextButton();
-      const val = inp.value.trim();
-      const v = document.getElementById('wizApiValidation3');
-      if (!val) { v.textContent = ''; v.className = 'wizard-validation'; return; }
-      if (!val.startsWith('sk-')) { v.textContent = 'Key should start with sk-'; v.className = 'wizard-validation error'; return; }
-      if (val.length < 20) { v.textContent = 'Key seems too short...'; v.className = 'wizard-validation error'; return; }
-      clearTimeout(_wizApiTimer);
-      v.textContent = 'Validating...';
-      v.className = 'wizard-validation loading';
-      _wizApiTimer = setTimeout(() => wizValidateApiKey(val), 800);
-    });
-    inp.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        clearTimeout(_wizApiTimer);
-        const val = inp.value.trim();
-        if (val.startsWith('sk-') && val.length >= 20) wizValidateApiKey(val);
-      }
-    });
-  }
-
-}
-
-async function wizValidateGroqKey(key) {
-  const v = document.getElementById('wizGroqValidation3');
-  v.textContent = 'Validating with Groq...';
-  v.className = 'wizard-validation loading';
-  try {
-    const r = await pywebview.api.validate_groq_key(key);
-    if (r.ok) {
-      v.textContent = 'Groq key is valid.';
-      v.className = 'wizard-validation wiz-prov-status success';
-      _wizardGroqKeyValidated = true;
-      wizSetTick('wizGroqTick', true);
-    } else {
-      v.textContent = r.error || 'Invalid key';
-      v.className = 'wizard-validation wiz-prov-status error';
-      _wizardGroqKeyValidated = false;
-      wizSetTick('wizGroqTick', false);
-    }
-  } catch(e) {
-    v.textContent = "Couldn't check that key. Check you're online and try again.";
-    v.className = 'wizard-validation error';
-    _wizardGroqKeyValidated = false;
-  }
-  wizUpdateNextButton();
-}
-
-async function wizValidateCerebrasKey(key) {
-  const v = document.getElementById('wizCerebrasValidation3');
-  v.textContent = 'Validating with Cerebras...';
-  v.className = 'wizard-validation loading';
-  try {
-    const r = await pywebview.api.validate_cerebras_key(key);
-    if (r.ok) {
-      v.textContent = r.message || 'Cerebras key is valid.';
-      v.className = 'wizard-validation wiz-prov-status success';
-      _wizardCerebrasKeyValidated = true;
-      wizSetTick('wizCerebrasTick', true);
-    } else {
-      v.textContent = r.error || 'Invalid key';
-      v.className = 'wizard-validation wiz-prov-status error';
-      _wizardCerebrasKeyValidated = false;
-      wizSetTick('wizCerebrasTick', false);
-    }
-  } catch(e) {
-    v.textContent = "Couldn't check that key. Check you're online and try again.";
-    v.className = 'wizard-validation error';
-    _wizardCerebrasKeyValidated = false;
-  }
-  wizUpdateNextButton();
-}
-
-async function wizValidateApiKey(key) {
-  const v = document.getElementById('wizApiValidation3');
-  v.textContent = 'Validating with OpenAI...';
-  v.className = 'wizard-validation loading';
-  try {
-    const r = await pywebview.api.validate_api_key(key);
-    if (r.ok) {
-      v.textContent = 'OpenAI key is valid.';
-      v.className = 'wizard-validation wiz-prov-status success';
-      _wizardApiKeyValidated = true;
-      wizSetTick('wizOpenAITick', true);
-    } else {
-      v.textContent = r.error || 'Invalid key';
-      v.className = 'wizard-validation wiz-prov-status error';
-      _wizardApiKeyValidated = false;
-      wizSetTick('wizOpenAITick', false);
-    }
-  } catch(e) {
-    v.textContent = "Couldn't check that key. Check you're online and try again.";
-    v.className = 'wizard-validation error';
-    _wizardApiKeyValidated = false;
-  }
-  wizUpdateNextButton();
-}
-
-// Provider switching for API keys
-function switchProvider(provider) {
-    // Update button states
-    document.querySelectorAll('.pill-button').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.provider === provider);
-    });
-
-    // Update field visibility
-    const fields = ['groqField', 'openaiField'];
-    const providerFieldMap = { groq: 'groqField', openai: 'openaiField' };
-
-    fields.forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.classList.toggle('active', id === providerFieldMap[provider]);
-    });
-
-    // Save preference to localStorage
-    localStorage.setItem('preferredProvider', provider);
-}
-
-// Toggle API key visibility
-function toggleKeyVisibility(inputId) {
-    const input = document.getElementById(inputId);
-    if (!input) return;
-
-    if (input.type === 'password') {
-        input.type = 'text';
-    } else {
-        input.type = 'password';
-    }
-}
-
-// Initialize provider selection
-function initializeProviderSelection() {
-    // Restore saved preference or default to Groq
-    const savedProvider = localStorage.getItem('preferredProvider') || 'groq';
-    switchProvider(savedProvider);
-}
-
-// ── Step 3: Hotkey Info ──────────────────────────────────────
-
-async function wizLoadHotkeyInfo() {
-  // Reset Fn key detection flag for this step
-  window._fnKeyDetected = false;
-
-  try {
-    // Start hotkey monitor for Step 2 (provides visual feedback)
-    await pywebview.api.wizard_init_step2();
-  } catch(e) {
-    console.warn('wizLoadHotkeyInfo error:', e);
-  }
-  await wizRefreshHotkey();
-}
-
-// ── Hotkey Visual Feedback (works for any configured hotkey) ──────────────────────────────────
-
-let _currentWizardHotkey = ['fn']; // Track configured hotkey for wizard
-
-function initFnKeyFeedback() {
-  // Previously had `if (!document.getElementById('wizHotkeyBadge')) return;`
-  // — this early-return broke hotkey detection on Windows after the v3.14.5
-  // wizard redesign, because the new Windows keycap layout uses
-  // `wizHotkeyBadgeWin` for the Win key and no ID at all on the Ctrl
-  // keycap. So `wizHotkeyBadge` (without the Win suffix) didn't exist,
-  // initFnKeyFeedback returned early, startFnKeyPolling never ran, and
-  // get_fn_key_state was never called regardless of what the user
-  // pressed. The wizard's "Listening for hotkey press…" pill sat there
-  // forever even though the Python hook was firing PUSH_TO_TALK on every
-  // press (confirmed via hotkey.log).
-  //
-  // The visual-pressed feedback now targets `#wizHotkeyDisplay
-  // .wiz-keycap-large` (all keycaps inside the combo container), so we
-  // don't need a specific element to anchor on — just always start
-  // polling.
-
-  // Get current configured hotkey
-  pywebview.api.get_hotkey_config().then(config => {
-    _currentWizardHotkey = config.keys || (isMacPlatform ? ['fn'] : ['win', 'ctrl']);
-  }).catch(() => {
-    _currentWizardHotkey = isMacPlatform ? ['fn'] : ['win', 'ctrl'];
-  });
-
-  // Monitor for ANY modifier combination (in-page keydown/keyup helps on
-  // platforms where the OS-level hook isn't fast enough)
-  document.addEventListener('keydown', checkHotkeyState);
-  document.addEventListener('keyup', checkHotkeyState);
-
-  startFnKeyPolling();
-}
-
-function checkHotkeyState(event) {
-  try {
-    const isPressed = isHotkeyPressed(_currentWizardHotkey, event);
-    setFnKeyActive(isPressed);
-  } catch (e) {
-    console.warn('checkHotkeyState error:', e);
-  }
-}
-
-function isHotkeyPressed(keys, event) {
-  // Check if all keys in the hotkey combination are currently pressed
-  for (const key of keys) {
-    switch(key.toLowerCase()) {
-      case 'fn':
-        if (!event.getModifierState?.('Fn')) return false;
-        break;
-      case 'cmd':
-      case 'command':
-        if (!event.metaKey) return false;
-        break;
-      case 'shift':
-        if (!event.shiftKey) return false;
-        break;
-      case 'option':
-      case 'alt':
-        if (!event.altKey) return false;
-        break;
-      case 'control':
-      case 'ctrl':
-        if (!event.ctrlKey) return false;
-        break;
-      default:
-        // Regular key - check if it matches
-        if (event.key.toLowerCase() !== key.toLowerCase()) return false;
-    }
-  }
-  return true;
-}
-
-function startFnKeyPolling() {
-  stopFnKeyPolling();
-  _fnKeyCheckInterval = setInterval(async () => {
-    if (_wizardStep !== 2 && _wizardStep !== 3) return;
-    try {
-      if (window.pywebview?.api) {
-        const state = await window.pywebview.api.get_fn_key_state();
-        if (state?.pressed !== undefined) {
-          setFnKeyActive(state.pressed);
-        }
-      }
-    } catch (e) {}
-  }, 100);
-}
-
-function stopFnKeyPolling() {
-  if (_fnKeyCheckInterval) {
-    clearInterval(_fnKeyCheckInterval);
-    _fnKeyCheckInterval = null;
-  }
-}
-
-function setFnKeyActive(isActive) {
-  if (_fnKeyPressed === isActive) return;
-  _fnKeyPressed = isActive;
-
-  // Light up ALL keycaps inside the Step-2 hotkey display, not just one,
-  // so users see clear feedback whichever key they're focused on.
-  document.querySelectorAll('#wizHotkeyDisplay .wiz-keycap-large').forEach((el) => {
-    el.classList.toggle('pressed', isActive);
-  });
-
-  // On Step 2: Flip the listening pill to "Hotkey detected!" and
-  // auto-advance.
-  if (_wizardStep === 2 && isActive && !window._fnKeyDetected) {
-    window._fnKeyDetected = true;
-
-    // Flip the listening pill to a green "detected" state
-    const status = document.getElementById('wizHotkeyStatus');
-    if (status) {
-      status.classList.add('detected');
-      const label = status.querySelector('.wiz-listening-label');
-      if (label) label.textContent = 'Hotkey detected. Moving on…';
-    }
-
-    // Auto-advance after 1 second, unless the user has moved on already.
-    setTimeout(() => {
-      if (_wizardStep === 2 && window._fnKeyDetected) wizNext();
-    }, 1000);
-  }
-
-  // On Step 3: Show waffle overlay with mic feedback when Fn is held
-  if (_wizardStep === 3) {
-    if (isActive) {
-      // Show overlay with mic sensitivity
-      if (window.pywebview?.api) {
-        pywebview.api.demo_overlay_show().catch(e => {
-          console.warn('demo_overlay_show error:', e);
-        });
-      }
-    } else {
-      // Hide overlay when Fn is released
-      if (window.pywebview?.api) {
-        pywebview.api.demo_overlay_hide().catch(e => {
-          console.warn('demo_overlay_hide error:', e);
-        });
-      }
-    }
-  }
-}
-
-// ── Step 4: Try It Out (Mock App) ────────────────────────────
-
-async function wizLoadMicDevices() {
-  const sel = document.getElementById('wizMicSelect');
-  if (!sel) return;
-  try {
-    const devices = await pywebview.api.get_audio_devices();
-    const current = await pywebview.api.get_selected_device();
-    sel.innerHTML = '';
-    if (!devices || !devices.length) {
-      sel.innerHTML = '<option value="">No microphones found</option>';
-      return;
-    }
-    devices.forEach(d => {
-      const opt = document.createElement('option');
-      opt.value = d.index;
-      opt.textContent = d.name + (d.is_default ? ' (default)' : '');
-      if ((current && current.index === d.index) || (current && current.index === null && d.is_default)) {
-        opt.selected = true;
-        _wizardMicDeviceIndex = d.index;
-      }
-      sel.appendChild(opt);
-    });
-    if (_wizardMicDeviceIndex === null && devices.length > 0) {
-      _wizardMicDeviceIndex = devices[0].index;
-      sel.value = _wizardMicDeviceIndex;
-    }
-  } catch(e) {
-    console.warn('wizLoadMicDevices error:', e);
-  }
-}
-
-let _wizardHotkeyTestActive = false;
-
-async function wizInitTryItStep() {
-  if (_wizardMicDeviceIndex === null) _wizardMicDeviceIndex = 0;
-
-  // Keycaps and the mock box's hotkey come from the saved keys.
-  wizRefreshHotkey();
-
-  // v3.14.25 — Mock send button now actually moves the dictated text
-  // into the chat thread as a sent user-reply bubble. Previously it just
-  // showed a toast and cleared the input. This way the user sees the
-  // full loop: dictate → text in input → tap send → message appears as
-  // their reply in the conversation. Reinforces what the app will do
-  // for real in their actual messaging apps.
-  const sendBtn = document.getElementById('wizMockSendBtn');
-  if (sendBtn) {
-    sendBtn.onclick = function() {
-      const mockText = document.getElementById('wizMockText');
-      const thread = document.querySelector('.wiz-mockapp-thread');
-      const placeholder = document.getElementById('wizMockPlaceholder');
-      if (!mockText || !thread) return;
-
-      const text = mockText.textContent.trim();
-      if (!text) return;
-
-      // Build a "you" reply bubble. Right-aligned, gold-tinted to match
-      // sent messages on iMessage / WhatsApp.
-      const sentMsg = document.createElement('div');
-      sentMsg.className = 'wiz-msg wiz-msg-you';
-      const bubble = document.createElement('span');
-      bubble.className = 'wiz-msg-bubble';
-      bubble.textContent = text;
-      const time = document.createElement('span');
-      time.className = 'wiz-msg-time';
-      const now = new Date();
-      const hours = now.getHours().toString().padStart(2, '0');
-      const minutes = now.getMinutes().toString().padStart(2, '0');
-      time.textContent = `${hours}:${minutes}`;
-      sentMsg.appendChild(bubble);
-      sentMsg.appendChild(time);
-      thread.appendChild(sentMsg);
-      // Scroll the new bubble into view inside the thread
-      sentMsg.scrollIntoView({ behavior: 'smooth', block: 'end' });
-
-      showToast('Sent. That\'s how dictation works in any app.', 'success');
-
-      // Reset the mock input for another go
-      setTimeout(() => {
-        mockText.textContent = '';
-        sendBtn.disabled = true;
-        if (placeholder) {
-          placeholder.style.display = 'inline';
-          placeholder.innerHTML = 'Try another one — hold the hotkey and speak…';
-        }
-      }, 500);
-    };
-  }
-
-  // Auto-start hotkey test
-  try {
-    await pywebview.api.set_audio_device(_wizardMicDeviceIndex);
-    const r = await pywebview.api.wizard_start_hotkey_test(_wizardMicDeviceIndex);
-    if (r.ok) {
-      _wizardHotkeyTestActive = true;
-    } else {
-      const valid = document.getElementById('wizMicValidation');
-      if (valid) { valid.textContent = r.error || "Couldn't start the test recording. Try again, or skip for now."; valid.className = 'wizard-validation error'; }
-    }
-  } catch(e) {
-    console.warn('wizInitTryItStep error:', e);
-  }
-}
-
-// Called from Python via evaluate_js when recording starts
-window.wizOnRecordingStart = function() {
-  const status = document.getElementById('wizRecordingStatus');
-  const mockInput = document.getElementById('wizMockInput');
-  const placeholder = document.getElementById('wizMockPlaceholder');
-  const cursor = document.getElementById('wizMockCursor');
-  const mockText = document.getElementById('wizMockText');
-
-  if (status) {
-    status.textContent = 'Listening...';
-    status.className = 'wizard-recording-status active';
-  }
-  if (mockInput) mockInput.classList.add('active');
-  if (placeholder) placeholder.style.display = 'none';
-  if (mockText) mockText.textContent = '';
-  if (cursor) cursor.style.display = 'inline-block';
-};
-
-// Called from Python via evaluate_js when recording stops
-window.wizOnRecordingStop = function() {
-  const status = document.getElementById('wizRecordingStatus');
-  if (status) {
-    status.textContent = 'Transcribing...';
-    status.className = 'wizard-recording-status processing';
-  }
-};
-
-// Called from Python via evaluate_js with transcription result
-window.wizOnTranscriptionResult = function(text) {
-  const status = document.getElementById('wizRecordingStatus');
-  const mockInput = document.getElementById('wizMockInput');
-  const placeholder = document.getElementById('wizMockPlaceholder');
-  const cursor = document.getElementById('wizMockCursor');
-  const mockText = document.getElementById('wizMockText');
-  const sendBtn = document.getElementById('wizMockSendBtn');
-  const valid = document.getElementById('wizMicValidation');
-
-  if (status) {
-    status.textContent = '';
-    status.className = 'wizard-recording-status';
-  }
-  if (mockInput) mockInput.classList.remove('active');
-  if (cursor) cursor.style.display = 'none';
-
-  const isError = text.startsWith('(') && text.endsWith(')');
-  if (!isError && text.trim().length > 0) {
-    if (mockText) wizAnimateText(mockText, text);
-    if (sendBtn) sendBtn.disabled = false;
-    if (placeholder) placeholder.style.display = 'none';
-    if (valid) {
-      valid.textContent = 'Waffler is working! Try again or finish setup.';
-      valid.className = 'wizard-validation success';
-    }
-    _wizardMicTested = true;
-  } else {
-    if (mockText) mockText.textContent = '';
-    if (placeholder) { placeholder.style.display = 'inline'; placeholder.textContent = 'No speech detected. Try again!'; }
-    if (sendBtn) sendBtn.disabled = true;
-    if (valid) {
-      valid.textContent = 'No speech detected. Give it another go!';
-      valid.className = 'wizard-validation error';
-    }
-    _wizardMicTested = false;
-  }
-  wizUpdateNextButton();
-};
-
-// Called from Python when wizard recording captured silence / no audio
-window.wizOnSilentRecording = function() {
-  const status = document.getElementById('wizRecordingStatus');
-  const mockInput = document.getElementById('wizMockInput');
-  const cursor = document.getElementById('wizMockCursor');
-  const placeholder = document.getElementById('wizMockPlaceholder');
-  const valid = document.getElementById('wizMicValidation');
-
-  if (status) {
-    status.textContent = "We couldn't hear you";
-    status.className = 'wizard-recording-status error';
-  }
-  if (mockInput) mockInput.classList.remove('active');
-  if (cursor) cursor.style.display = 'none';
-  if (placeholder) {
-    placeholder.style.display = 'inline';
-    placeholder.textContent = 'Check your mic and try again';
-  }
-  if (valid) {
-    valid.textContent = "No speech detected — make sure your mic isn't muted.";
-    valid.className = 'wizard-validation error';
-  }
-};
-
-function wizAnimateText(el, text) {
-  el.textContent = '';
-  let i = 0;
-  const interval = setInterval(() => {
-    if (i < text.length) {
-      el.textContent += text[i];
-      i++;
-    } else {
-      clearInterval(interval);
-    }
-  }, 20);
-}
-
-// ── Complete Setup ──────────────────────────────────────────
-
-// ════════════════════════════════════════════════════════════════════
-// ── Branded wizard (v3.14.2+) helpers ──────────────────────────────
-// New UI uses provider tabs, status pills, and animated walkthrough.
-// These helpers bridge to the existing IPC calls.
-// ════════════════════════════════════════════════════════════════════
-
-// Update a permission status pill (Step 1 — Accessibility / Input Monitoring).
-function wizSetPermPill(pillId, cardId, granted) {
-  const pill = document.getElementById(pillId);
-  const card = document.getElementById(cardId);
-  if (!pill) return;
-  const label = pill.querySelector('.wiz-pill-label');
-  if (granted) {
-    pill.classList.remove('wiz-pill-waiting');
-    pill.classList.add('wiz-pill-granted');
-    if (label) label.textContent = 'Granted';
-    if (card) card.classList.add('granted');
-  } else {
-    pill.classList.add('wiz-pill-waiting');
-    pill.classList.remove('wiz-pill-granted');
-    if (label) label.textContent = 'Not granted yet';
-    if (card) card.classList.remove('granted');
-  }
-}
-
-// Background poll for macOS permissions. Runs every 1s while step 1 is open.
-// v3.14.27 — track permission state across the whole wizard lifetime
-// so wizUpdateNextButton() can gate step 1's Next button on BOTH
-// permissions being granted. Without this, the user can advance past
-// the permissions step with no Input Monitoring access, which then
-// breaks the hotkey detection on step 4 — they hold the key and
-// nothing happens, with no clear indicator of why.
-let _wizardPermsAccessibility = false;
-let _wizardPermsInputMon = false;
-let _wizPermPollTimer = null;
-async function wizStartPermissionPoll() {
-  if (_wizPermPollTimer) return;
-  const tick = async () => {
-    try {
-      const r = await pywebview.api.check_permissions();
-      const accOk = !!r.accessibility_granted;
-      const inpOk = !!r.input_monitoring_granted;
-      wizSetPermPill('wizAccessStatus', 'wizPermAccessibility', accOk);
-      wizSetPermPill('wizInputMonStatus', 'wizPermInputMon', inpOk);
-      // v3.14.27 — record state globally + recompute Next via the
-      // central wizUpdateNextButton() so the button correctly toggles
-      // OFF if the user revokes a permission, not just ON when both
-      // are granted. Previously the Next button could be left enabled
-      // when one of the two permissions had been revoked partway
-      // through, letting the user proceed without Input Monitoring —
-      // which then broke step 4 because the hotkey never fired.
-      _wizardPermsAccessibility = accOk;
-      _wizardPermsInputMon = inpOk;
-      if (_wizardStep === 1) wizUpdateNextButton();
-    } catch (e) { /* poll errors are silent */ }
-  };
-  tick();  // immediate
-  _wizPermPollTimer = setInterval(tick, 1000);
-}
-function wizStopPermissionPoll() {
-  if (_wizPermPollTimer) { clearInterval(_wizPermPollTimer); _wizPermPollTimer = null; }
-}
-
-// Flip the green tick on a provider's input row (Step 3).
-function wizSetTick(tickId, valid) {
-  const t = document.getElementById(tickId);
-  if (!t) return;
-  if (valid) {
-    t.classList.remove('wiz-prov-tick-empty');
-    t.classList.add('wiz-prov-tick-valid');
-    t.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>';
-  } else {
-    t.classList.add('wiz-prov-tick-empty');
-    t.classList.remove('wiz-prov-tick-valid');
-    t.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/></svg>';
-  }
-}
-
-// Switch between provider tabs (Step 3).
-let _provTabsBound = false;
-function wizInitProviderTabs() {
-  if (_provTabsBound) return;
-  _provTabsBound = true;
-  const tabs = document.querySelectorAll('.wiz-prov-tab');
-  tabs.forEach((tab) => {
-    tab.addEventListener('click', () => {
-      const target = tab.getAttribute('data-provider');
-      tabs.forEach((t) => t.classList.toggle('wiz-prov-tab-active', t === tab));
-      const panels = {
-        groq: 'wizProvPanelGroq',
-        cerebras: 'wizProvPanelCerebras',
-        openai: 'wizProvPanelOpenAI',
-      };
-      Object.entries(panels).forEach(([prov, id]) => {
-        const el = document.getElementById(id);
-        if (el) el.style.display = (prov === target) ? 'flex' : 'none';
-      });
-    });
-  });
-}
-
-// ── Wizard keycaps, drawn from the saved hotkey ──────────────────────────
-// Every keycap, tile and hint on the Hotkey and Try-it steps is drawn from
-// the keys actually saved, so choosing another hotkey redraws them all.
-// Text only ever goes into the label spans. Setting textContent on a keycap
-// itself (as the Hotkey and Try-it steps used to, with the display name)
-// wiped its light label and icon and left dark text on a black key; and the
-// icons were drawn in near-black, so the Win and fn keys looked blank.
-const _KEYCAP_ICONS = {
-  windows: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"/></svg>',
-  globe: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><circle cx="8" cy="8" r="6.5" stroke-width="1"/><ellipse cx="8" cy="8" rx="3" ry="6.5" stroke-width="0.8"/><line x1="1.5" y1="5.5" x2="14.5" y2="5.5" stroke-width="0.7"/><line x1="1.5" y1="10.5" x2="14.5" y2="10.5" stroke-width="0.7"/><line x1="8" y1="1.5" x2="8" y2="14.5" stroke-width="0.5"/></svg>',
-};
-
-function wizRenderHotkey(keys) {
-  if (Array.isArray(keys) && keys.length) _currentHotkeyKeys = keys.slice();
-  const caps = WL.keycaps(_currentHotkeyKeys, isMacPlatform);
-  const name = WL.hotkeyName(_currentHotkeyKeys, isMacPlatform);
-
-  // Step 2: the big keycaps.
-  const combo = document.getElementById('wizHotkeyDisplay');
-  if (combo) {
-    combo.innerHTML = caps.map((c) => {
-      const icon = c.icon ? _KEYCAP_ICONS[c.icon] : '';
-      // Long names ("Command", "Option") get a smaller size to fit the key.
-      const size = c.label.length > 5 ? ' style="font-size:15px"' : '';
-      const label = !icon
-        ? `<span class="wiz-keycap-label-large"${size}>${escHtml(c.label)}</span>`
-        : c.icon === 'globe'
-          ? `<span class="wiz-keycap-label-large" style="font-size:14px;margin-top:2px">${escHtml(c.label)}</span>`
-          : `<span class="wiz-keycap-label" style="font-size:11px;margin-top:2px">${escHtml(c.label)}</span>`;
-      return `<div class="wiz-keycap-large">${icon}${label}</div>`;
-    }).join('<span class="wiz-keycap-plus">+</span>');
-  }
-
-  // Step 2: the instruction tiles under the listening pill.
-  const host = document.getElementById('wizHotkeyInstructionCards');
-  if (host) {
-    const plus = '<span class="wiz-mini-plus">+</span>';
-    const comboHtml = caps.map((c) => `<span class="wiz-mini-kbd">${escHtml(c.label)}</span>`).join(plus);
-    const hint = WL.pressOrderHint(_currentHotkeyKeys, isMacPlatform);
-    host.innerHTML = `
-    <div class="wiz-hotkey-card">
-      <div class="wiz-hotkey-card-keys">${comboHtml}</div>
-      <div class="wiz-hotkey-card-title">Hold to record</div>
-      ${hint ? `<div class="wiz-hotkey-card-sub">${escHtml(hint)}</div>` : ''}
-    </div>
-    <div class="wiz-hotkey-card wiz-hotkey-card-nokey">
-      <div class="wiz-hotkey-card-title">Release to stop</div>
-    </div>
-    <div class="wiz-hotkey-card">
-      <div class="wiz-hotkey-card-keys"><span class="wiz-mini-kbd">Space</span>${plus}${comboHtml}</div>
-      <div class="wiz-hotkey-card-title">Sticky mode</div>
-      <div class="wiz-hotkey-card-sub">Press Space to lock recording on. Press the hotkey again to disable.</div>
-    </div>
-    <div class="wiz-hotkey-card">
-      <div class="wiz-hotkey-card-keys"><span class="wiz-mini-kbd">Esc</span></div>
-      <div class="wiz-hotkey-card-title">Cancel</div>
-      <div class="wiz-hotkey-card-sub">Tap Esc to discard a recording without transcribing or pasting.</div>
-    </div>
-  `;
-  }
-
-  // Step 4: the "Hold this" chips and the mock reply box.
-  const mini = document.getElementById('wizTryHotkeyBadge');
-  if (mini) {
-    mini.innerHTML = caps.map((c) => `<span class="wiz-keycap-mini">${escHtml(c.label)}</span>`)
-      .join('<span class="wiz-keycap-plus-mini">+</span>');
-  }
-  const kbd = document.getElementById('wizMockKbd');
-  if (kbd) kbd.textContent = name;
+// A new hotkey from the picker or the capture dialog: the practice listens
+// for it from now on.
+function wizHotkeyChanged(result) {
+  const panel = document.getElementById('obKeyPicker');
+  if (panel) panel.hidden = true;
+  showToast(`Hotkey is now ${result.display || WL.hotkeyName(result.keys, isMacPlatform)}`, 'success');
+  wizCheckFnKey();
+  if (_wizardStep === 'try') wizStartPractice();
 }
 
 // Fetch the saved hotkey and redraw from it.
@@ -2911,126 +2409,210 @@ async function wizRefreshHotkey() {
   }
 }
 
-// Animate the Step-4 explainer waffle cells the same way the website
-// homepage waffle animates — speech wave drives row-by-row darkening so
-// users see the cells "listening" before they ever press the hotkey.
-let _wizExplainerWaffleRAF = null;
-function wizStartExplainerWaffle() {
-  const svg = document.getElementById('wizExplainerWaffle');
-  if (!svg) return;
-  const cells = svg.querySelectorAll('.wiz-wcell-anim');
-  if (!cells.length) return;
+// Every place setup names the hotkey is drawn from the keys actually saved,
+// so choosing another hotkey redraws them all. Text only ever goes into the
+// label parts, never over a keycap's icon.
+const _KEYCAP_ICONS = { globe: '<svg class="ic" aria-hidden="true"><use href="#i-globe"/></svg>' };
 
-  const SYRUP_DARK = '#5C2E0E';
-  const SYRUP_LIGHT = '#7A3F14';
-  const LIGHT_GOLD = '#B89040';
-  const cellBars = new Float32Array(16);
-  const cellTargets = new Float32Array(16);
-  const speechWave = [
-    0, 0, 0.1, 0.3, 0.6, 0.8, 0.95, 0.85, 0.7, 0.5, 0.3, 0.1, 0, 0,
-    0.2, 0.5, 0.75, 0.9, 1.0, 0.85, 0.7, 0.8, 0.9, 0.75, 0.5, 0.3, 0.1, 0,
-    0, 0.15, 0.4, 0.65, 0.8, 0.7, 0.55, 0.4, 0.2, 0,
-  ];
-
-  // With reduced motion asked for, the waffle stays still at mid volume.
-  if (_prefersReducedMotion()) {
-    cells.forEach((cell) => {
-      const row = parseInt(cell.getAttribute('data-row') || '0', 10);
-      cell.setAttribute('fill', row >= 2 ? SYRUP_LIGHT : LIGHT_GOLD);
-    });
-    return;
+function wizRenderHotkey(keys) {
+  if (Array.isArray(keys) && keys.length) _currentHotkeyKeys = keys.slice();
+  const caps = WL.keycaps(_currentHotkeyKeys, isMacPlatform);
+  const name = WL.hotkeyName(_currentHotkeyKeys, isMacPlatform);
+  document.querySelectorAll('#wizardOverlay .ob-hk-name').forEach((el) => { el.textContent = name; });
+  const hold = document.getElementById('obHoldKey');
+  if (hold) {
+    hold.innerHTML = caps.map((c) => (c.icon && _KEYCAP_ICONS[c.icon] ? _KEYCAP_ICONS[c.icon] : '') + escHtml(c.label))
+      .join(' + ');
   }
+  const any = document.getElementById('obAnyKeys');
+  if (any) any.innerHTML = caps.map((c) => `<kbd class="kc kc-md">${escHtml(c.label)}</kbd>`).join('<span class="plus">+</span>');
+}
 
-  function animate() {
-    // Keep the loop alive but do no work while the window is hidden.
-    if (_windowHidden()) {
-      _wizExplainerWaffleRAF = requestAnimationFrame(animate);
-      return;
+// The live level, drawn as the waffle's 4 x 4 cells: rows fill from the
+// bottom as the voice gets louder, like the overlay.
+function _wizLevels(level) {
+  const l = Math.max(0, Math.min(1, Number(level) || 0));
+  const p = Math.pow(l, 0.5);
+  const out = [];
+  for (let row = 0; row < 4; row++) {
+    const threshold = (3 - row) / 4;
+    const cell = p <= threshold ? 0 : Math.min(1, (p - threshold) / 0.25);
+    for (let col = 0; col < 4; col++) out.push(cell);
+  }
+  return out;
+}
+
+function wizSetMeter(level) {
+  if (!window.WafflerIcons) return;
+  const meter = document.getElementById('obMeter');
+  if (meter) meter.innerHTML = WafflerIcons.waffle({ levels: level ? _wizLevels(level) : 'empty', size: 24 });
+  const big = document.getElementById('obBigWaffle');
+  if (big) big.innerHTML = WafflerIcons.waffle({ levels: level ? _wizLevels(level) : 'empty', size: 118 });
+}
+
+let _wizRecTimer = null;
+function wizStopRecTimer() {
+  if (_wizRecTimer) { clearInterval(_wizRecTimer); _wizRecTimer = null; }
+}
+
+// Called from Python (app.py _wizard_on_press) when the keys go down.
+window.wizOnRecordingStart = function() {
+  const hold = document.getElementById('obHoldKey');
+  if (hold) hold.classList.add('is-down');
+  const cap = document.getElementById('obHoldCap');
+  if (cap) cap.textContent = 'Holding';
+  const panel = document.getElementById('obKeyPicker');
+  if (panel) panel.hidden = true;
+  wizSetMeter(0);
+  wizSetState('try', 'rec');
+  const t0 = Date.now();
+  const time = document.getElementById('obRecTime');
+  wizStopRecTimer();
+  if (time) time.textContent = WL.recordingTime(0);
+  _wizRecTimer = setInterval(() => {
+    if (time) time.textContent = WL.recordingTime((Date.now() - t0) / 1000);
+  }, 250);
+};
+
+// The microphone level while recording (app.py _wizard_level_loop).
+window.wizOnLevel = function(level) {
+  if (_wizardStep === 'try') wizSetMeter(level);
+};
+
+// The keys came up: the words are on their way to Groq.
+window.wizOnRecordingStop = function() {
+  const hold = document.getElementById('obHoldKey');
+  if (hold) hold.classList.remove('is-down');
+  const cap = document.getElementById('obHoldCap');
+  if (cap) cap.textContent = 'Hold to talk';
+  wizStopRecTimer();
+  wizSetMeter(0);
+  const said = document.getElementById('obSaid');
+  if (said) said.innerHTML = '<span class="ob-skel"><i></i><i></i></span>';
+  wizSetState('try', 'clean');
+};
+
+// The words came back; the clean-up is running.
+window.wizOnCleaning = function(said) {
+  const el = document.getElementById('obSaid');
+  if (el) el.textContent = said || '';
+  wizSetState('try', 'clean');
+};
+
+// The practice worked: "You said" next to "Waffler wrote".
+window.wizOnPracticeResult = function(r) {
+  r = r || {};
+  const saidEl = document.getElementById('obSaid');
+  if (saidEl) {
+    saidEl.innerHTML = WL.saidDiff(r.said || '', r.cleaned ? (r.wrote || '') : (r.said || ''))
+      .map((p) => (p.cut ? `<del>${escHtml(p.text)}</del>` : escHtml(p.text))).join('');
+  }
+  const wroteEl = document.getElementById('obWrote');
+  if (wroteEl) wroteEl.textContent = r.wrote || '';
+  const savedLine = document.getElementById('obSavedLine');
+  if (savedLine) savedLine.hidden = !r.saved;
+  const savedChip = document.getElementById('obSavedChip');
+  const note = document.getElementById('obPracticeNote');
+  _wizLastWrote = r.wrote || '';
+  _wizardMicTested = true;
+  wizSetState('try', 'done');
+  if (savedChip) savedChip.hidden = !r.saved;
+  if (note) { note.textContent = r.note || ''; note.hidden = !r.note; }
+};
+
+// Nothing was heard: the microphone may be muted, or the wrong one.
+window.wizOnSilentRecording = function() {
+  const hold = document.getElementById('obHoldKey');
+  if (hold) hold.classList.remove('is-down');
+  wizStopRecTimer();
+  wizSetMeter(0);
+  wizSetState('try', 'silent');
+};
+
+window.wizOnPracticeError = function(message) { wizPracticeError(message); };
+
+function wizPracticeError(message) {
+  const el = document.getElementById('obPracticeError');
+  if (el) el.textContent = message || 'Something went wrong with that one. Hold the keys and try again.';
+  wizSetState('try', 'error');
+}
+
+// ── Step: Now use it anywhere ────────────────────────────────────────────
+
+async function wizInitAnywhere() {
+  wizRenderHotkey();
+  const put = (id, t) => { const el = document.getElementById(id); if (el) el.textContent = t; };
+  put('obEditorLabel', isMacPlatform ? 'Open TextEdit and try it' : 'Open Notepad and try it');
+  put('obTrayTitle', isMacPlatform ? 'Waffler waits in the menu bar' : 'Waffler waits in the tray');
+  put('obTrayDesc', isMacPlatform ? "Look for the waffle at the top right. Closing this window doesn't stop it."
+                                  : "Under the ^ by the clock. Closing this window doesn't stop it.");
+  if (_wizLastWrote) document.querySelectorAll('#obDesk .ob-desk-text').forEach((el) => { el.textContent = _wizLastWrote; });
+  const tog = document.getElementById('wizStartAtLogin');
+  const desc = document.getElementById('obLoginDesc');
+  try {
+    const s = await pywebview.api.get_start_at_login();
+    if (tog) {
+      tog.disabled = !s.supported;
+      tog.checked = s.supported ? (s.enabled || _wizLoginChoice) : false;
     }
-    const now = performance.now();
-    const progress = (now % 4000) / 4000;
-    const total = speechWave.length;
-    const exactIdx = progress * (total - 1);
-    const idx = Math.floor(exactIdx);
-    const frac = exactIdx - idx;
-    const level = speechWave[idx] * (1 - frac) + (speechWave[Math.min(idx + 1, total - 1)] || 0) * frac;
-    const powLevel = Math.pow(level, 0.4);
-    const t = now / 1000;
-
-    cells.forEach((cell, i) => {
-      const row = parseInt(cell.getAttribute('data-row') || '0', 10);
-      const col = i % 4;
-      const invRow = 3 - row;
-      const threshold = invRow / 4;
-      let cellLevel;
-      if (powLevel <= threshold) cellLevel = 0;
-      else if (powLevel >= threshold + 0.25) cellLevel = 1;
-      else cellLevel = (powLevel - threshold) / 0.25;
-      const phase = i * 0.7 + col * 2.3 + row * 1.8;
-      const bounce1 = Math.sin(phase + t * 4.5) * 0.25;
-      const bounce2 = Math.sin(phase * 1.7 + t * 6.2) * 0.15;
-      const jitter = (Math.random() - 0.5) * 0.2;
-      const wobble = 1.0 + bounce1 + bounce2 + jitter;
-      cellTargets[i] = Math.max(0, Math.min(1, cellLevel * wobble));
-      const diff = cellTargets[i] - cellBars[i];
-      if (Math.abs(diff) > 0.005) cellBars[i] += diff * 0.35;
-      else cellBars[i] = cellTargets[i];
-      const lvl = cellBars[i];
-      if (lvl < 0.05) cell.setAttribute('fill', LIGHT_GOLD);
-      else cell.setAttribute('fill', lvl > 0.6 ? SYRUP_DARK : SYRUP_LIGHT);
-    });
-
-    _wizExplainerWaffleRAF = requestAnimationFrame(animate);
+    if (desc) desc.textContent = s.supported ? 'So the hotkey works after a restart.' : s.reason;
+  } catch (_) {
+    if (tog) { tog.disabled = true; tog.checked = false; }
   }
-
-  if (_wizExplainerWaffleRAF) cancelAnimationFrame(_wizExplainerWaffleRAF);
-  _wizExplainerWaffleRAF = requestAnimationFrame(animate);
 }
 
-// The loop used to run for the rest of the session once the Try-it step had
-// been shown, redrawing 16 hidden squares every frame behind the Journal.
-function wizStopExplainerWaffle() {
-  if (_wizExplainerWaffleRAF) cancelAnimationFrame(_wizExplainerWaffleRAF);
-  _wizExplainerWaffleRAF = null;
+async function wizLoginToggled(on) {
+  _wizLoginChoice = !!on;
+  try {
+    const r = await pywebview.api.set_start_at_login(!!on);
+    const tog = document.getElementById('wizStartAtLogin');
+    if (r && !r.ok) {
+      if (tog) tog.checked = !!r.enabled;
+      showToast(r.error || "Couldn't change starting at sign-in. Try again.", 'error');
+    }
+  } catch (_) {}
 }
 
-// Finish without a test dictation (for example when the microphone isn't
-// working yet). Waffler is set up either way; the hotkey works from the
-// Journal as soon as the key is saved.
-async function wizSkipTryIt() {
-  await wizCompleteSetup();
+// Notepad or TextEdit, with the real hotkey listening: the first real paste
+// happens during setup.
+async function wizOpenEditor() {
+  _wizDictationLive = true;
+  wizUpdateNextButton();
+  const err = document.getElementById('obEditorErr');
+  if (err) err.hidden = true;
+  try {
+    const r = await pywebview.api.open_practice_editor();
+    if (r && !r.ok && err) { err.textContent = r.error; err.hidden = false; }
+  } catch (_) {}
 }
 
+// Done: start at sign-in as chosen (on unless switched off), then the
+// pipeline starts and the Journal opens with the practice as its first
+// entry.
 async function wizCompleteSetup() {
   const btn = document.getElementById('wizBtnNext');
-  const skip = document.getElementById('wizBtnSkip');
+  const label = document.getElementById('wizBtnNextLabel');
   btn.disabled = true;
-  btn.textContent = 'Setting up...';
-  if (skip) skip.disabled = true;
+  if (label) label.textContent = 'Setting up…';
   try {
-    // Clean up
-    clearInterval(_wizardPermCheckInterval);
-    if (_wizardHotkeyTestActive) {
-      await pywebview.api.wizard_stop_hotkey_test();
-      _wizardHotkeyTestActive = false;
+    wizStopPractice();
+    const tog = document.getElementById('wizStartAtLogin');
+    if (tog && !tog.disabled) {
+      try { await pywebview.api.set_start_at_login(tog.checked); } catch (_) {}
     }
     const r = await pywebview.api.complete_setup();
     if (r.ok) {
       showToast('Waffler is ready!', 'success');
       hideWizard();
-    } else {
-      console.warn('complete_setup failed:', r.error);
-      showToast("Couldn't finish setup. Try again.", 'error');
-      btn.textContent = 'Finish Setup';
-      wizUpdateNextButton();
+      return;
     }
+    console.warn('complete_setup failed:', r.error);
+    showToast("Couldn't finish setup. Try again.", 'error');
   } catch(e) {
     console.warn('complete_setup failed:', e);
     showToast("Couldn't finish setup. Try again.", 'error');
-    btn.textContent = 'Finish Setup';
-    wizUpdateNextButton();
   }
-  if (skip) skip.disabled = false;
+  wizUpdateNextButton();
 }
 
 // Opening Settings also loads Usage, the version and the Not sent count.
@@ -3040,7 +2622,55 @@ loadSettings = async function() {
   await loadUsageStats();
   await loadAppVersion();
   await loadUnsentSummary();
+  await loadStartAtLogin();
+  await loadSettingsFnWarning();
 };
+
+// ── Start at sign-in (Settings, Preferences) ─────────────────────────────
+// The switch shows what the operating system has, read each time Settings
+// opens: the user can also remove it in Task Manager or Login Items.
+async function loadStartAtLogin() {
+  const tog = document.getElementById('startAtLoginToggle');
+  const desc = document.getElementById('startAtLoginDesc');
+  if (!tog || !window.pywebview || !pywebview.api || !pywebview.api.get_start_at_login) return;
+  try {
+    const s = await pywebview.api.get_start_at_login();
+    tog.checked = !!s.enabled;
+    tog.disabled = !s.supported && !s.enabled;
+    if (desc) desc.textContent = s.supported
+      ? `So the hotkey works after a restart. Waffler waits in the ${isMacPlatform ? 'menu bar' : 'tray'}.`
+      : s.reason;
+  } catch (e) {
+    console.warn('get_start_at_login failed:', e);
+  }
+}
+
+async function setStartAtLogin(on) {
+  const tog = document.getElementById('startAtLoginToggle');
+  try {
+    const r = await pywebview.api.set_start_at_login(!!on);
+    if (tog) tog.checked = !!(r && r.enabled);
+    if (r && !r.ok) showToast(r.error || "Couldn't change starting at sign-in. Try again.", 'error');
+  } catch (e) {
+    if (tog) tog.checked = !on;
+    showToast("Couldn't change starting at sign-in. Try again.", 'error');
+  }
+}
+
+// ── The Fn key's own job (Settings, Hotkey; Mac) ─────────────────────────
+async function loadSettingsFnWarning() {
+  const box = document.getElementById('settingsFnWarn');
+  if (!box || !isMacPlatform || !window.pywebview || !pywebview.api.get_fn_key_conflict) return;
+  try {
+    const r = await pywebview.api.get_fn_key_conflict();
+    box.hidden = !(r && r.conflict);
+    if (r && r.conflict) {
+      document.getElementById('settingsFnWarnTitle').textContent = r.title;
+      document.getElementById('settingsFnWarnDetail').innerHTML = escHtml(r.detail)
+        .replace('\u{1F310}', '<svg class="ic ob-inl-globe" aria-label="Globe"><use href="#i-globe"/></svg>');
+    }
+  } catch (_) { box.hidden = true; }
+}
 
 // ── Recordings not sent (Settings, Data) ─────────────────────────────────
 async function loadUnsentSummary() {
