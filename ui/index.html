@@ -4,1166 +4,800 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Waffler</title>
+  <!-- tokens.css: colours, fonts and sizes; components.css: the shared
+       parts (buttons, keycaps, the status pill...); style.css: the screens;
+       setup.css: first-run setup. -->
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="components.css">
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="setup.css">
 </head>
 <body>
 <div class="app">
 
-  <!-- ──────────────────────────────────────────────────────────────
-       JOURNAL LAYOUT (v3.14.16+) — replaces the sidebar+main split.
-
-       v3.14.18 fix: top nav was previously INSIDE `<main id="mainArea">`,
-       which meant clicking Vocabulary or Settings (which hides mainArea
-       via showPage) also hid the navigation — leaving the user trapped
-       on those pages with no way back to Journal. The nav now lives as
-       a sibling of all three panels so it's always visible regardless
-       of which page is active.
-       ────────────────────────────────────────────────────────────── -->
-
-  <!-- Top nav — persistent across all pages -->
-  <div class="j-topnav">
-    <div class="j-brand">
-      <img class="j-brand-icon" src="logo-icon.png" alt="">
-      <span class="j-brand-text">Waffler</span>
+  <!-- Top bar: the waffle and wordmark, the three pages, and the status
+       pill. It sits outside the pages, so it is on screen whichever page is
+       open. -->
+  <header class="topbar" id="topbar">
+    <div class="brand">
+      <span class="brand-mark" data-waffle="logo" data-size="24"></span>
+      <span class="brand-word">Waffler</span>
     </div>
 
-    <nav class="j-nav">
-      <!-- v3.14.21 bug fix: the active state is driven by the `.active`
-           class that showPage() toggles. The previous default used
-           `j-nav-active` (a sibling class) which showPage() never
-           touched, so Journal stayed highlighted forever even after
-           clicking another tab. -->
-      <div class="j-nav-item active" id="navHome" onclick="showPage('home')">Journal</div>
-      <div class="j-nav-item" id="navVocab" onclick="showPage('vocabulary')">Vocabulary</div>
-      <div class="j-nav-item" id="navSettings" onclick="showPage('settings')">Settings</div>
+    <!-- showPage() marks the open page (.active and aria-current="page").
+         Plain buttons, not tabs: each opens a page. -->
+    <nav class="seg topbar-nav" aria-label="Pages">
+      <button type="button" id="navHome" class="active" aria-current="page" onclick="showPage('home')">Journal</button>
+      <button type="button" id="navVocab" onclick="showPage('vocabulary')">Vocabulary</button>
+      <button type="button" id="navSettings" onclick="showPage('settings')">Settings</button>
     </nav>
 
-    <!-- The mode menu was here. Normal was its only real choice, so it
-         is gone until there are more modes. -->
-
-    <!-- Status pill. window.waffler_status() swaps the state class and
-         the label (Ready, Recording, Cleaning up); the labels live in
-         logic.js. The hotkey chip beside it shows how to start. -->
-    <div class="j-listen status-indicator idle" id="statusIndicator">
-      <span class="j-listen-dot status-dot"></span>
-      <span class="j-listen-text" id="statusText">Ready</span>
-      <kbd class="j-kbd" id="hotkeyHint">Fn</kbd>
+    <!-- Status pill. window.waffler_status() sets its state class and label
+         (logic.js: Ready, Recording, Cleaning up...). At Ready it shows the
+         hotkey as keycaps; while recording or cleaning up, the seconds. It
+         has one width in every state, so the bar never shifts. -->
+    <div class="status idle" id="statusIndicator" role="status">
+      <span class="status-dot" aria-hidden="true"></span>
+      <span class="status-lbl" id="statusText">Ready</span>
+      <span class="status-t" id="statusTime" aria-hidden="true"></span>
+      <span class="keys status-keys" id="hotkeyHint"></span>
     </div>
+  </header>
 
-    <!-- Hidden bits the existing JS code still references -->
-    <span id="hotkeyHintDesc" style="display:none">Hold to record • Space = sticky • Esc = cancel</span>
-    <div id="sidebarUser" class="j-user" style="display:none">
-      <span class="j-user-email" id="sidebarUserEmail"></span>
-      <button class="j-user-logout" onclick="doSignOut()">Sign out</button>
-    </div>
-    <select id="micSelect" style="display:none" onchange="onMicChange(this.value)"></select>
-  </div>
-
-  <!-- Home page (journal) -->
+  <!-- ── Journal ───────────────────────────────────────────────────────
+       One 880 px column. app.js draws the newest 50 entries, grouped by day,
+       and more as you scroll (get_history pages); a new dictation is added
+       at the top without redrawing the rest. -->
   <main class="journal" id="mainArea">
+    <div class="j-col">
+      <h1 class="sr-only" id="journalTitle" tabindex="-1">Journal</h1>
+      <!-- Notices: an update, a failed update, clean-up paused by a limit. -->
+      <div class="j-notices" id="journalNotices"></div>
 
-    <!-- Stat strip with stack-streak chip on the right -->
-    <div class="j-strip">
-      <div class="j-stat-group">
+      <div class="group j-strip" id="statStrip">
         <div class="j-stat">
           <span class="j-stat-num" id="statWords">0</span>
           <span class="j-stat-lbl">words today</span>
         </div>
-        <div class="j-stat-divider"></div>
         <div class="j-stat">
           <span class="j-stat-num" id="statCount">0</span>
-          <span class="j-stat-lbl">entries today</span>
+          <span class="j-stat-lbl">dictations today</span>
         </div>
-        <div class="j-stat-divider"></div>
         <div class="j-stat">
           <span class="j-stat-num" id="statTotal">0</span>
-          <span class="j-stat-lbl">all-time</span>
+          <span class="j-stat-lbl">words all time</span>
+        </div>
+        <div class="j-right-group">
+          <!-- Days in a row with a dictation; hidden at 0. -->
+          <div class="j-streak j-streak-empty" id="streakChip" title="Days in a row with at least one dictation">
+            <span class="j-stack-svg" data-waffle="logo" data-size="20"></span>
+            <span class="j-streak-text"><span id="streakNum">0</span>-day streak</span>
+          </div>
+          <label class="j-search-wrap">
+            <svg class="ic j-search-icon" aria-hidden="true"><use href="#i-search"/></svg>
+            <input type="search" id="searchInput" class="j-search-input" placeholder="Search" aria-label="Search the Journal" aria-describedby="searchStatus" autocomplete="off" spellcheck="false" oninput="onSearchInput(this.value)">
+          </label>
+          <span class="sr-only" id="searchStatus" role="status" aria-live="polite"></span>
         </div>
       </div>
 
-      <div class="j-right-group">
-        <!-- 🥞 Stacked-waffles streak chip -->
-        <div class="j-streak" id="streakChip" title="Daily stack streak">
-          <svg viewBox="0 0 32 26" width="26" height="22" class="j-stack-svg" aria-hidden="true">
-            <ellipse cx="16" cy="22" rx="13" ry="3" fill="#8B6914" opacity="0.9"/>
-            <ellipse cx="16" cy="20" rx="13" ry="3" fill="#C8A256" stroke="#8a6a26" stroke-width="0.5"/>
-            <line x1="6" y1="20" x2="26" y2="20" stroke="#8a6a26" stroke-width="0.4" opacity="0.5"/>
-            <ellipse cx="16" cy="15" rx="13" ry="3" fill="#8B6914" opacity="0.9"/>
-            <ellipse cx="16" cy="13" rx="13" ry="3" fill="#D4B06A" stroke="#8a6a26" stroke-width="0.5"/>
-            <line x1="6" y1="13" x2="26" y2="13" stroke="#8a6a26" stroke-width="0.4" opacity="0.5"/>
-            <ellipse cx="16" cy="8" rx="13" ry="3" fill="#8B6914" opacity="0.9"/>
-            <ellipse cx="16" cy="6" rx="13" ry="3" fill="#E6B864" stroke="#8a6a26" stroke-width="0.5"/>
-            <line x1="6" y1="6" x2="26" y2="6" stroke="#8a6a26" stroke-width="0.4" opacity="0.5"/>
-            <path d="M12 4 q4 -2 8 0 q-1 2 -4 2 q-3 0 -4 -2 z" fill="#8B6914"/>
-          </svg>
-          <span class="j-streak-text"><strong id="streakNum">0</strong> stack streak</span>
+      <!-- First run: how to make the first entry. The strip above is hidden. -->
+      <section class="j-first" id="emptyState" hidden>
+        <div class="j-first-art" aria-hidden="true"></div>
+        <div class="j-first-card">
+          <div class="j-first-waffle" data-waffle="logo" data-size="76"></div>
+          <h2 class="j-first-title">Your first dictation goes here</h2>
+          <p class="j-first-text">Click into any text box, hold <span class="keys" id="emptyKeys"></span> and talk. When you let go, the text is pasted there and kept here.</p>
+          <div class="j-first-acts">
+            <button type="button" class="btn btn-pri" onclick="openPracticeEditor(this)"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg><span id="emptyEditorLabel">Open Notepad and try it</span></button>
+            <a class="link" href="#" onclick="showPage('vocabulary'); return false;">Teach it your words</a>
+          </div>
+          <p class="j-first-err" id="emptyEditorErr" role="alert" hidden></p>
         </div>
+      </section>
 
-        <!-- Search input — keeps existing id/handler -->
-        <div class="j-search-wrap">
-          <svg viewBox="0 0 16 16" width="14" height="14" class="j-search-icon">
-            <circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.5" fill="none"/>
-            <line x1="11" y1="11" x2="14" y2="14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-          </svg>
-          <input type="text" id="searchInput" class="j-search-input" placeholder="Search 0 entries…" oninput="onSearchInput(this.value)">
-        </div>
-        <div class="j-feed-count" id="feedCount" style="display:none">0 entries</div>
+      <!-- A search with no matches (it used to say "Your journal is empty."). -->
+      <section class="j-no-match" id="noMatchState" hidden>
+        <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-search"/></svg></span>
+        <div class="j-nm-title" id="noMatchLabel">No entries match</div>
+        <p class="j-nm-text">Try other words, or clear the search to see every entry.</p>
+        <button type="button" class="btn btn-sec btn-sm j-clear-search" onclick="clearSearch()">Clear search</button>
+      </section>
+
+      <div id="transcriptFeed" class="j-feed" role="feed" aria-label="Journal entries" aria-busy="false"></div>
+
+      <!-- Older entries load as this comes into view; the button is there
+           for keyboards and in case the window can't tell. -->
+      <div class="j-more" id="feedMore" hidden>
+        <button type="button" class="btn btn-sec btn-sm" id="feedMoreBtn" onclick="loadMoreEntries()">Show older entries</button>
       </div>
-    </div>
-
-    <!-- Journal page (entries) -->
-    <div class="j-page">
-      <div class="j-date-divider" id="dateLabel">
-        <span class="j-date-month">Today</span>
-        <span class="j-date-line"></span>
-        <span class="j-date-day"></span>
-      </div>
-
-      <div class="j-empty" id="emptyState">
-        <div class="j-empty-icon">🥞</div>
-        <div class="j-empty-label">Your journal is empty.</div>
-        <div class="j-empty-sub" id="emptyHint">Press your hotkey and speak — the first entry will appear here.</div>
-      </div>
-
-      <!-- A search with no matches. It used to show "Your journal is
-           empty." above, as if the history had gone. -->
-      <div class="j-empty j-no-match" id="noMatchState" style="display:none">
-        <div class="j-empty-icon">🔍</div>
-        <div class="j-empty-label" id="noMatchLabel">No entries match</div>
-        <div class="j-empty-sub">Try other words, or clear the search to see every entry.</div>
-        <button class="settings-btn j-clear-search" onclick="clearSearch()">Clear search</button>
-      </div>
-
-      <div id="transcriptFeed"></div>
     </div>
   </main>
 
-  <!-- Settings Panel -->
+  <!-- ── Settings ──────────────────────────────────────────────────────
+       Six short sections with a side nav; each fits one screen. Only the
+       chosen one is shown (showSettingsSection). -->
   <div class="settings-panel" id="settingsPanel" style="display:none">
-    <div class="settings-header">
-      <div class="settings-header-row">
-        <div>
-          <h1>Settings</h1>
-          <div class="subtitle">Configure Waffler to your preferences.</div>
-        </div>
-        <button class="settings-icon-btn" onclick="showPage('home')" title="Back to Home">🏠</button>
-      </div>
-    </div>
-    
-    <div class="settings-body">
-      <!-- Appearance Section (v3.14.3+) -->
-      <div class="settings-section">
-        <div class="settings-section-title">🎨 Appearance</div>
-        <p style="color:var(--text-secondary);font-size:13px;margin-bottom:10px">
-          Match the wizard's branded look, or stick with the original dark theme.
-        </p>
-        <div class="theme-picker">
-          <button class="theme-option" data-theme="cream" onclick="setAppTheme('cream')">
-            <div class="theme-swatch theme-swatch-cream"></div>
-            <span class="theme-option-name">Cream</span>
-            <span class="theme-option-meta">Matches wizard &amp; site</span>
-          </button>
-          <button class="theme-option" data-theme="dark" onclick="setAppTheme('dark')">
-            <div class="theme-swatch theme-swatch-dark"></div>
-            <span class="theme-option-name">Dark</span>
-            <span class="theme-option-meta">Original look</span>
-          </button>
-          <button class="theme-option" data-theme="auto" onclick="setAppTheme('auto')">
-            <div class="theme-swatch theme-swatch-auto"></div>
-            <span class="theme-option-name">System</span>
-            <span class="theme-option-meta">Follows macOS / Windows</span>
-          </button>
-        </div>
-      </div>
-
-      <!-- API Section -->
-      <div class="settings-section">
-        <div class="settings-section-title">⚡ API Keys</div>
-        <div class="settings-row-desc" style="margin-bottom:8px;font-size:12px;opacity:0.75;">
-          Add any one or more. The order Waffler tries them in is set in <strong>Provider Order</strong> below.
-        </div>
-        <!-- Groq, OpenAI, then Cerebras (optional): the recommended key
-             first, as in setup. Cerebras used to be listed first. -->
-        <div class="settings-row">
-          <div class="settings-row-info">
-            <div class="settings-row-label">Groq API Key</div>
-            <div class="settings-row-desc" id="groqKeyDesc">Recommended. Very fast, with a free plan. console.groq.com</div>
-          </div>
-          <div class="settings-row-control stacked">
-            <input type="password" id="groqKeyInput" class="settings-input" placeholder="gsk_…">
-            <button class="settings-btn" onclick="saveGroqKey()">Save</button>
-          </div>
-        </div>
-        <div class="settings-row">
-          <div class="settings-row-info">
-            <div class="settings-row-label">OpenAI API Key</div>
-            <div class="settings-row-desc">Optional. A backup if Groq is busy. platform.openai.com</div>
-          </div>
-          <div class="settings-row-control stacked">
-            <input type="password" id="apiKeyInput" class="settings-input" placeholder="sk-…">
-            <button class="settings-btn" onclick="saveApiKey()">Save</button>
-          </div>
-        </div>
-        <div class="settings-row">
-          <div class="settings-row-info">
-            <div class="settings-row-label">Cerebras API Key</div>
-            <div class="settings-row-desc" id="cerebrasKeyDesc">Optional. Clean-up only, no speech to text. cloud.cerebras.ai/platform/api-keys</div>
-          </div>
-          <div class="settings-row-control stacked">
-            <input type="password" id="cerebrasKeyInput" class="settings-input" placeholder="csk-…">
-            <button class="settings-btn" onclick="saveCerebrasKey()">Save</button>
-          </div>
-        </div>
-        <div class="settings-row">
-          <div class="settings-row-info">
-            <div class="settings-row-label">In use</div>
-            <div class="settings-row-desc" id="backendInfo">Loading...</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Provider Order Section -->
-      <div class="settings-section">
-        <div class="settings-section-title">🔀 Provider Order</div>
-        <div class="settings-row-desc" style="margin-bottom:10px;font-size:12px;opacity:0.75;">
-          Waffler tries these top-to-bottom and uses the first that responds. Put your fastest (or paid) provider first to avoid free-tier slowdowns. Takes effect on your next recording — no restart needed.
-        </div>
-        <div id="providerOrderList" class="provider-order-list"></div>
-      </div>
-
-      <!-- Hotkey Section -->
-      <div class="settings-section">
-        <div class="settings-section-title">⌨️ Hotkey</div>
-        <div class="settings-row">
-          <div class="settings-row-info">
-            <div class="settings-row-label">Recording Hotkey</div>
-            <div class="settings-row-desc">Current: <span id="settingsHotkeyBadge" style="font-weight:600;color:#C8A256;">Loading...</span></div>
-            <div class="settings-row-desc settings-hotkey-error" id="settingsHotkeyError" role="alert" hidden></div>
-          </div>
-          <!-- Filled by app.js with this platform's choices (logic.js
-               hotkeyPresets): Windows and Mac have different keys. -->
-          <div class="settings-row-control" id="settingsHotkeyPresets" style="gap:10px;"></div>
-        </div>
-        <div class="settings-row">
-          <div class="settings-row-info">
-            <div class="settings-row-label"></div>
-            <div class="settings-row-desc" style="font-size:13px;color:#999;">💡 Press Space while holding your hotkey to activate auto mode</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Preferences Section -->
-      <div class="settings-section">
-        <div class="settings-section-title">🎙️ Preferences</div>
-        <div class="settings-row">
-          <div class="settings-row-info">
-            <div class="settings-row-label">Spelling</div>
-            <div class="settings-row-desc">Choose your English spelling style</div>
-          </div>
-          <div class="settings-row-control">
-            <select id="dialectSelect" onchange="saveSetting('dialect', this.value)" class="settings-select">
-              <option value="auto">Auto (match speaker)</option>
-              <option value="en-GB">British English</option>
-              <option value="en-US">American English</option>
-            </select>
-          </div>
-        </div>
-        <div class="settings-row">
-          <div class="settings-row-info">
-            <div class="settings-row-label">Auto-paste</div>
-            <div class="settings-row-desc">Automatically paste transcription into the active app</div>
-          </div>
-          <div class="settings-row-control">
-            <label class="toggle-switch">
-              <input type="checkbox" id="autoPasteToggle" onchange="saveSetting('auto_paste', this.checked)">
-              <span class="toggle-slider"></span>
-            </label>
-            <span class="toggle-label" id="autoPasteLabel">On</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- Usage Section -->
-      <div class="settings-section">
-        <div class="settings-section-title">📊 Usage</div>
-
-        <!-- Counts first: what you did. The money below is an estimate at
-             paid rates; it used to come first and read like a bill, though
-             Waffler can't see anyone's bill and Groq's free plan is free. -->
-        <div class="usage-stats-grid usage-stats-grid-activity">
-          <div class="usage-stat-card">
-            <div class="usage-stat-label">Dictations</div>
-            <div class="usage-stat-value" id="usageTranscriptions">0</div>
-          </div>
-          <div class="usage-stat-card">
-            <div class="usage-stat-label">Words</div>
-            <div class="usage-stat-value" id="usageWords">0</div>
-          </div>
-        </div>
-
-        <!-- Estimated cost at each provider's published paid rates -->
-        <div class="usage-estimate">
-          <div class="usage-provider-title">Estimated cost <span class="usage-provider-hint" id="usageAvgCost">$0.000 a dictation</span></div>
-          <div class="usage-estimate-note" id="usageEstimateNote">Estimated at each provider's published paid rates. Waffler can't see your bill.</div>
-        </div>
-        <div class="usage-stats-grid usage-stats-grid-time">
-          <div class="usage-stat-card usage-stat-card-secondary">
-            <div class="usage-stat-label">Today</div>
-            <div class="usage-stat-value usage-stat-value-sm" id="usageTodayCost">$0.00</div>
-          </div>
-          <div class="usage-stat-card usage-stat-card-secondary">
-            <div class="usage-stat-label">This Week</div>
-            <div class="usage-stat-value usage-stat-value-sm" id="usageWeekCost">$0.00</div>
-          </div>
-          <div class="usage-stat-card usage-stat-card-secondary">
-            <div class="usage-stat-label">This Month</div>
-            <div class="usage-stat-value usage-stat-value-sm" id="usageMonthCost">$0.00</div>
-          </div>
-          <div class="usage-stat-card usage-stat-card-secondary">
-            <div class="usage-stat-label">All Time</div>
-            <div class="usage-stat-value usage-stat-value-sm" id="usageTotalCost">$0.00</div>
-          </div>
-        </div>
-
-        <!-- Per-provider breakdown -->
-        <div class="usage-provider-block" style="margin-top:14px">
-          <div class="usage-provider-title">By provider <span class="usage-provider-hint">estimated, all time</span></div>
-          <div class="usage-provider-rows" id="usageProviderRows">
-            <div class="usage-provider-empty">No usage yet. Make your first dictation to see the breakdown.</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- About -->
-      <div class="settings-section">
-        <div class="settings-section-title">ℹ️ About</div>
-        <div class="settings-row">
-          <div class="settings-row-info">
-            <div class="settings-row-label">Waffler</div>
-            <div class="settings-row-desc" id="aboutVersion">Loading...</div>
-          </div>
-          <div class="settings-row-control">
-            <button class="settings-btn" id="checkUpdateBtn" onclick="checkForUpdatesManual()">Check for Update</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Data Management -->
-      <div class="settings-section">
-        <div class="settings-section-title">🗑️ Data</div>
-        <!-- Recordings that were not turned into text (Journal "Not sent"
-             cards). Waffler sends them by itself when the speech service
-             answers; this is the count, and a way to send them now. -->
-        <div class="settings-row" id="unsentRow">
-          <div class="settings-row-info">
-            <div class="settings-row-label">Recordings not sent</div>
-            <div class="settings-row-desc" id="unsentSummary">Nothing waiting. Every recording has been sent.</div>
-          </div>
-          <div class="settings-row-control">
-            <button class="settings-btn" id="unsentSendNow" onclick="sendUnsentNow(this)" style="display:none">Send now</button>
-          </div>
-        </div>
-        <div class="settings-row">
-          <div class="settings-row-info">
-            <div class="settings-row-label">Download Logs</div>
-            <div class="settings-row-desc">Save a diagnostic bundle to your Desktop (no API keys, no transcripts) so you can send it to support when something breaks</div>
-          </div>
-          <div class="settings-row-control">
-            <button onclick="downloadLogs(this)" style="padding: 8px 16px; background: #0d6efd; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 500;">
-              Download Logs
-            </button>
-          </div>
-        </div>
-        <div class="settings-row">
-          <div class="settings-row-info">
-            <div class="settings-row-label">Factory Reset</div>
-            <div class="settings-row-desc">Clear all data and start fresh from setup</div>
-          </div>
-          <div class="settings-row-control">
-            <button class="btn-danger" onclick="factoryReset()" style="padding: 8px 16px; background: #dc3545; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 500;">
-              Reset All Data
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Vocabulary Panel -->
-  <div class="vocabulary-panel" id="vocabularyPanel" style="display:none">
-    <div class="vocab-header">
-      <h1>📖 Vocabulary</h1>
-      <div class="subtitle">Custom words for better transcription.</div>
-    </div>
-    <div class="vocab-add-row">
-      <input type="text" id="vocabInput" class="vocab-input" placeholder="Add word or phrase..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" value="">
-      <button class="vocab-add-btn" onclick="addVocabWord()">+ Add</button>
-    </div>
-    <div id="vocabList" class="vocab-list"></div>
-  </div>
-
-</div>
-
-<!-- Update Modal -->
-<div class="hotkey-modal-overlay" id="updateModal" style="display:none" onclick="closeUpdateModal(event)">
-  <div class="hotkey-modal" onclick="event.stopPropagation()" style="max-width:440px">
-    <div class="hotkey-modal-icon" id="updateModalIcon">⬆️</div>
-    <div class="hotkey-modal-title" id="updateModalTitle">Checking for updates…</div>
-    <div class="hotkey-modal-subtitle" id="updateModalSubtitle">Contacting GitHub…</div>
-
-    <div id="updateProgressWrap" style="display:none; margin: 16px 0 4px;">
-      <div style="background: rgba(255,255,255,0.08); border-radius: 6px; height: 8px; overflow: hidden;">
-        <div id="updateProgressBar" style="background: var(--accent, #6c63ff); height: 100%; width: 0%; transition: width .15s linear;"></div>
-      </div>
-      <div id="updateProgressText" style="font-size: 12px; opacity: 0.7; margin-top: 8px; text-align: center;">0%</div>
-    </div>
-
-    <div id="updateModalActions" style="display:flex; gap:8px; justify-content:center; margin-top:20px;">
-      <button class="settings-btn" id="updateCancelBtn" onclick="closeUpdateModal()">Close</button>
-      <button class="settings-btn" id="updateBrowserBtn" style="display:none;">Open download page</button>
-      <button class="settings-btn" id="updatePrimaryBtn" style="display:none; background: var(--accent, #6c63ff); color: white;"></button>
-    </div>
-  </div>
-</div>
-
-<!-- Hotkey Capture Modal -->
-<div class="hotkey-modal-overlay" id="hotkeyModal" style="display:none" onclick="closeHotkeyCapture()">
-  <div class="hotkey-modal" onclick="event.stopPropagation()">
-    <div class="hotkey-modal-icon">⌨️</div>
-    <div class="hotkey-modal-title">Change Hotkey</div>
-    <div class="hotkey-modal-subtitle">Press your new key combination...</div>
-    <div class="hotkey-capture-box" id="hotkeyCaptureBox">
-      <div class="hotkey-capture-keys" id="hotkeyCaptureKeys">Win + Ctrl</div>
-      <div class="hotkey-capture-hint">Hold your desired keys together</div>
-    </div>
-    <div class="hotkey-modal-error" id="hotkeyError" style="display:none"></div>
-    <div class="hotkey-modal-buttons">
-      <button class="hotkey-btn secondary" onclick="closeHotkeyCapture()">Cancel</button>
-      <button class="hotkey-btn secondary" onclick="resetHotkeyDefault()">Reset Default</button>
-      <button class="hotkey-btn primary" onclick="saveHotkeyCapture()">Save</button>
-    </div>
-  </div>
-</div>
-
-<!-- Setup Wizard Overlay (redesigned, branded) -->
-<div class="wizard-overlay" id="wizardOverlay" style="display:none">
-  <div class="wizard-container">
-
-    <!-- Header: brand mark on left, step counter pill on right -->
-    <header class="wiz-header">
-      <div class="wiz-brand">
-        <img src="logo-icon.png" alt="Waffler" class="wiz-logo">
-        <span class="wiz-brandname">Waffler</span>
-      </div>
-      <span class="wiz-step-counter" id="wizStepText">Step 1 of 4</span>
-    </header>
-
-    <!-- Branded progress bar -->
-    <div class="wiz-progress">
-      <div class="wiz-progress-seg" id="wizProgress1"></div>
-      <div class="wiz-progress-seg" id="wizProgress2"></div>
-      <div class="wiz-progress-seg" id="wizProgress3"></div>
-      <div class="wiz-progress-seg" id="wizProgress4"></div>
-    </div>
-
-    <h1 class="wiz-title" id="wizTitle">Welcome to Waffler</h1>
-    <p class="wiz-subtitle" id="wizSubtitle">Let's get you set up in 4 quick steps.</p>
-
-    <!-- ─────────────── STEP 1: Permissions (macOS only) ─────────────── -->
-    <div class="wiz-step-content" id="wizContent1">
-      <div class="wiz-perm-card" id="wizPermAccessibility">
-        <div class="wiz-perm-head">
-          <div class="wiz-perm-icon wiz-perm-icon-apple">
-            <!-- Apple Accessibility icon: blue square, white universal-access figure -->
-            <svg viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
-              <defs>
-                <linearGradient id="wizAccBg" x1="0%" y1="0%" x2="0%" y2="100%">
-                  <stop offset="0%" stop-color="#3FA0FF"/>
-                  <stop offset="100%" stop-color="#0F6CE0"/>
-                </linearGradient>
-              </defs>
-              <rect width="40" height="40" rx="9" fill="url(#wizAccBg)"/>
-              <circle cx="20" cy="20" r="13.5" fill="none" stroke="#fff" stroke-width="2.2"/>
-              <circle cx="20" cy="11.6" r="2.2" fill="#fff"/>
-              <path d="M11 15.5 L29 15.5" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/>
-              <path d="M20 15.5 L20 22.5 L16.5 29 M20 22.5 L23.5 29" stroke="#fff" stroke-width="2.2" stroke-linecap="round" fill="none"/>
-            </svg>
-          </div>
-          <div class="wiz-perm-text">
-            <h3>Accessibility</h3>
-            <p>So Waffler can paste your text wherever your cursor is.</p>
-          </div>
-          <span class="wiz-pill wiz-pill-waiting" id="wizAccessStatus">
-            <span class="wiz-pill-dot"></span>
-            <span class="wiz-pill-label">Not granted yet</span>
-          </span>
-        </div>
-        <button class="wiz-btn-primary" onclick="openAccessibilitySettings()">Open System Settings</button>
-
-        <!-- Always-visible animated walkthrough -->
-        <div class="wiz-anim-frame">
-          <p class="wiz-anim-cap"><strong>macOS will open here.</strong> Follow the cursor:</p>
-          <div class="vb-window vba-window">
-            <div class="vb-phase vb-phase-list">
-              <div class="vb-titlebar"><span class="vb-dots"><span></span><span></span><span></span></span><span class="vb-titlebar-text">Privacy &amp; Security → Accessibility</span></div>
-              <div class="vb-content">
-                <p class="vb-content-desc">Allow the applications below to control your computer.</p>
-                <div class="vb-list">
-                  <div class="vb-list-row">
-                    <span class="vb-app-icon">
-                      <!-- Chrome: tri-colour ring with blue centre -->
-                      <svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#fff"/><path d="M16 4 A12 12 0 0 1 26.39 10 L20.5 14 A6 6 0 0 0 16 10 Z" fill="#EA4335"/><path d="M26.39 10 A12 12 0 0 1 26.39 22 L20.5 18 A6 6 0 0 0 20.5 14 Z" fill="#FBBC04"/><path d="M26.39 22 A12 12 0 0 1 5.61 22 L11.5 18 A6 6 0 0 0 20.5 18 Z" fill="#34A853"/><circle cx="16" cy="16" r="5" fill="#4285F4"/><circle cx="16" cy="16" r="4" fill="#1A73E8"/></svg>
-                    </span>
-                    <span class="vb-app-name">Google Chrome</span>
-                    <span class="vb-toggle vb-toggle-on"><span class="vb-toggle-knob"></span></span>
-                  </div>
-                  <div class="vb-list-row">
-                    <span class="vb-app-icon">
-                      <!-- 1Password: blue square with white "1" -->
-                      <svg viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#0572EC"/><circle cx="16" cy="16" r="9" fill="none" stroke="#fff" stroke-width="2"/><text x="16" y="21" font-family="-apple-system,SF Pro Display,Arial" font-size="13" font-weight="800" fill="#fff" text-anchor="middle">1</text></svg>
-                    </span>
-                    <span class="vb-app-name">1Password</span>
-                    <span class="vb-toggle vb-toggle-on"><span class="vb-toggle-knob"></span></span>
-                  </div>
-                  <div class="vb-list-row vb-list-row-new">
-                    <img src="logo-icon.png" alt="" class="vb-app-icon-img"/>
-                    <span class="vb-app-name">Waffler</span>
-                    <span class="vb-toggle vb-target-toggle"><span class="vb-toggle-knob"></span></span>
-                  </div>
-                </div>
-                <div class="vb-plus-bar"><span class="vb-plus vb-target-plus">+</span><span class="vb-minus">—</span></div>
-              </div>
-            </div>
-            <div class="vb-phase vb-phase-picker">
-              <div class="vb-picker-titlebar"><span class="vb-dots"><span></span><span></span><span></span></span><span class="vb-titlebar-text">Applications</span></div>
-              <div class="vb-picker-list">
-                <div class="vb-pick-item"><svg viewBox="0 0 32 32" class="vb-pick-icon"><rect width="32" height="32" rx="7" fill="#fff" stroke="#ddd"/><rect x="9" y="7" width="14" height="18" rx="1.5" fill="#fff" stroke="#999" stroke-width="1.4"/><line x1="12" y1="12" x2="20" y2="12" stroke="#999" stroke-width="1.2"/><line x1="12" y1="16" x2="20" y2="16" stroke="#999" stroke-width="1.2"/><line x1="12" y1="20" x2="17" y2="20" stroke="#999" stroke-width="1.2"/></svg>TextEdit</div>
-                <div class="vb-pick-item"><svg viewBox="0 0 32 32" class="vb-pick-icon"><rect width="32" height="32" rx="7" fill="#0572EC"/><circle cx="16" cy="16" r="9" fill="none" stroke="#fff" stroke-width="2"/><text x="16" y="21" font-size="13" font-weight="800" fill="#fff" text-anchor="middle">1</text></svg>1Password</div>
-                <div class="vb-pick-item vb-target-app"><img src="logo-icon.png" alt="" class="vb-pick-icon"/>Waffler</div>
-                <div class="vb-pick-item"><svg viewBox="0 0 32 32" class="vb-pick-icon"><rect width="32" height="32" rx="7" fill="#25D366"/><path d="M16 7 a9 9 0 1 0 4.5 16.8 L24 25 l-1.2-3.4 A9 9 0 0 0 16 7 z" fill="#fff"/><path d="M12.5 12 c0.3 -0.5 0.8 -0.6 1.3 -0.6 c0.3 0 0.5 0.4 0.8 1 c0.2 0.4 0.5 1.3 0.6 1.4 c0.1 0.2 0.1 0.4 0 0.6 c-0.1 0.2 -0.2 0.3 -0.4 0.5 c-0.2 0.2 -0.3 0.4 -0.1 0.7 c0.2 0.3 0.9 1.5 2 2.4 c1.4 1.2 2.5 1.5 2.8 1.7 c0.3 0.1 0.5 0.1 0.7 -0.1 c0.2 -0.2 0.8 -0.9 1 -1.2 c0.2 -0.3 0.4 -0.2 0.7 -0.1 c0.3 0.1 1.8 0.9 2.1 1 c0.3 0.2 0.5 0.2 0.6 0.4 c0.1 0.2 0.1 1 -0.3 1.9 c-0.4 0.9 -2.1 1.7 -2.8 1.8 c-0.7 0.1 -1.6 0.1 -2.6 -0.2 c-0.6 -0.2 -1.4 -0.5 -2.4 -0.9 c-4.2 -1.8 -6.9 -6 -7.1 -6.3 c-0.2 -0.3 -1.7 -2.2 -1.7 -4.2 c0 -2 1.1 -3 1.5 -3.4 c0.4 -0.4 0.9 -0.5 1.2 -0.5 c0.3 0 0.6 0 0.8 0 c0.3 0 0.6 -0.1 1 0.8 z" fill="#25D366"/></svg>WhatsApp</div>
-                <div class="vb-pick-item"><svg viewBox="0 0 32 32" class="vb-pick-icon"><rect width="32" height="32" rx="7" fill="#1DB954"/><circle cx="16" cy="16" r="9" fill="#1DB954"/><path d="M11 13.5 c3 -1 7 -1 10 0.5" stroke="#fff" stroke-width="1.6" fill="none" stroke-linecap="round"/><path d="M11.5 16.5 c2.5 -0.8 5.5 -0.7 8 0.5" stroke="#fff" stroke-width="1.4" fill="none" stroke-linecap="round"/><path d="M12 19 c2 -0.6 4.5 -0.5 6.5 0.5" stroke="#fff" stroke-width="1.2" fill="none" stroke-linecap="round"/></svg>Spotify</div>
-              </div>
-              <div class="vb-picker-buttons"><span class="vb-btn-cancel">Cancel</span><span class="vb-btn-open vb-target-open">Open</span></div>
-            </div>
-            <div class="vb-cursor"><svg viewBox="0 0 24 24" fill="black" stroke="white" stroke-width="1"><path d="M3 2 L3 18 L8 14 L11 21 L14 20 L11 13 L18 13 Z"/></svg></div>
-          </div>
-        </div>
-
-        <p class="wiz-detect-note">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6v6l4 2"/><circle cx="12" cy="12" r="10"/></svg>
-          Waffler watches in the background. This pill ticks green automatically when granted.
-        </p>
-      </div>
-
-      <div class="wiz-perm-card" id="wizPermInputMon">
-        <div class="wiz-perm-head">
-          <div class="wiz-perm-icon wiz-perm-icon-apple">
-            <!-- Apple Input Monitoring icon: dark slab, keyboard glyph -->
-            <svg viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
-              <defs>
-                <linearGradient id="wizImBg" x1="0%" y1="0%" x2="0%" y2="100%">
-                  <stop offset="0%" stop-color="#6B6B70"/>
-                  <stop offset="100%" stop-color="#3D3D42"/>
-                </linearGradient>
-              </defs>
-              <rect width="40" height="40" rx="9" fill="url(#wizImBg)"/>
-              <rect x="7" y="13" width="26" height="16" rx="2.5" fill="#1A1A1C" stroke="#9D9DA3" stroke-width="0.8"/>
-              <!-- Keyboard keys: top row -->
-              <rect x="9.5" y="15.5" width="3" height="3" rx="0.5" fill="#9D9DA3"/>
-              <rect x="13.5" y="15.5" width="3" height="3" rx="0.5" fill="#9D9DA3"/>
-              <rect x="17.5" y="15.5" width="3" height="3" rx="0.5" fill="#9D9DA3"/>
-              <rect x="21.5" y="15.5" width="3" height="3" rx="0.5" fill="#9D9DA3"/>
-              <rect x="25.5" y="15.5" width="5" height="3" rx="0.5" fill="#9D9DA3"/>
-              <!-- middle row -->
-              <rect x="9.5" y="19.5" width="3" height="3" rx="0.5" fill="#9D9DA3"/>
-              <rect x="13.5" y="19.5" width="3" height="3" rx="0.5" fill="#9D9DA3"/>
-              <rect x="17.5" y="19.5" width="3" height="3" rx="0.5" fill="#9D9DA3"/>
-              <rect x="21.5" y="19.5" width="3" height="3" rx="0.5" fill="#9D9DA3"/>
-              <rect x="25.5" y="19.5" width="5" height="3" rx="0.5" fill="#9D9DA3"/>
-              <!-- bottom space row -->
-              <rect x="9.5" y="23.5" width="3" height="3" rx="0.5" fill="#9D9DA3"/>
-              <rect x="13.5" y="23.5" width="13" height="3" rx="0.5" fill="#9D9DA3"/>
-              <rect x="27.5" y="23.5" width="3" height="3" rx="0.5" fill="#9D9DA3"/>
-            </svg>
-          </div>
-          <div class="wiz-perm-text">
-            <h3>Input Monitoring</h3>
-            <p>So Waffler can hear when you press the hotkey.</p>
-          </div>
-          <span class="wiz-pill wiz-pill-waiting" id="wizInputMonStatus">
-            <span class="wiz-pill-dot"></span>
-            <span class="wiz-pill-label">Not granted yet</span>
-          </span>
-        </div>
-        <button class="wiz-btn-primary" onclick="openInputMonitoringSettings()">Open System Settings</button>
-
-        <!-- Always-visible animated walkthrough -->
-        <div class="wiz-anim-frame">
-          <p class="wiz-anim-cap"><strong>macOS will open here.</strong> Follow the cursor:</p>
-          <div class="vb-window">
-            <div class="vb-phase vb-phase-list">
-              <div class="vb-titlebar"><span class="vb-dots"><span></span><span></span><span></span></span><span class="vb-titlebar-text">Privacy &amp; Security → Input Monitoring</span></div>
-              <div class="vb-content">
-                <p class="vb-content-desc">Allow the applications below to monitor input from your keyboard.</p>
-                <div class="vb-list">
-                  <div class="vb-list-row">
-                    <span class="vb-app-icon">
-                      <!-- Spotify -->
-                      <svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#1DB954"/><path d="M9 13 c4 -1.5 10 -1.5 14 0.6" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M10 17 c3.5 -1.2 8 -1 11.5 0.8" stroke="#fff" stroke-width="1.7" fill="none" stroke-linecap="round"/><path d="M11 20.5 c2.8 -0.9 6 -0.7 9 0.8" stroke="#fff" stroke-width="1.4" fill="none" stroke-linecap="round"/></svg>
-                    </span>
-                    <span class="vb-app-name">Spotify</span>
-                    <span class="vb-toggle vb-toggle-on"><span class="vb-toggle-knob"></span></span>
-                  </div>
-                  <div class="vb-list-row">
-                    <span class="vb-app-icon">
-                      <!-- Discord -->
-                      <svg viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#5865F2"/><path d="M22.5 10 a14 14 0 0 0 -3.4 -1 l-0.3 0.5 a12 12 0 0 0 -3.6 0 L14.9 9 a14 14 0 0 0 -3.4 1 c-2.3 3.3 -2.9 6.5 -2.6 9.7 a14 14 0 0 0 4.3 2.1 l1 -1.3 a9 9 0 0 1 -1.5 -0.7 l0.4 -0.3 a10 10 0 0 0 7.8 0 l0.4 0.3 a9 9 0 0 1 -1.5 0.7 l1 1.3 a14 14 0 0 0 4.3 -2.1 c0.4 -3.7 -0.6 -6.9 -2.6 -9.7 z M13.5 17.5 c-0.8 0 -1.5 -0.8 -1.5 -1.7 c0 -0.9 0.7 -1.7 1.5 -1.7 c0.9 0 1.6 0.8 1.5 1.7 c0 0.9 -0.7 1.7 -1.5 1.7 z M18.5 17.5 c-0.8 0 -1.5 -0.8 -1.5 -1.7 c0 -0.9 0.7 -1.7 1.5 -1.7 c0.9 0 1.6 0.8 1.5 1.7 c0 0.9 -0.7 1.7 -1.5 1.7 z" fill="#fff"/></svg>
-                    </span>
-                    <span class="vb-app-name">Discord</span>
-                    <span class="vb-toggle vb-toggle-on"><span class="vb-toggle-knob"></span></span>
-                  </div>
-                  <div class="vb-list-row vb-list-row-new">
-                    <img src="logo-icon.png" alt="" class="vb-app-icon-img"/>
-                    <span class="vb-app-name">Waffler</span>
-                    <span class="vb-toggle vb-target-toggle"><span class="vb-toggle-knob"></span></span>
-                  </div>
-                </div>
-                <div class="vb-plus-bar"><span class="vb-plus vb-target-plus">+</span><span class="vb-minus">—</span></div>
-              </div>
-            </div>
-            <div class="vb-phase vb-phase-picker">
-              <div class="vb-picker-titlebar"><span class="vb-dots"><span></span><span></span><span></span></span><span class="vb-titlebar-text">Applications</span></div>
-              <div class="vb-picker-list">
-                <div class="vb-pick-item"><svg viewBox="0 0 32 32" class="vb-pick-icon"><rect width="32" height="32" rx="7" fill="#0AB3FF"/><rect x="9" y="11" width="11" height="10" rx="1.5" fill="#fff"/><path d="M20 14 L24 11 L24 21 L20 18 Z" fill="#fff"/></svg>Zoom</div>
-                <div class="vb-pick-item"><svg viewBox="0 0 32 32" class="vb-pick-icon"><circle cx="16" cy="16" r="16" fill="#1DB954"/><path d="M9 13 c4 -1.5 10 -1.5 14 0.6" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M10 17 c3.5 -1.2 8 -1 11.5 0.8" stroke="#fff" stroke-width="1.7" fill="none" stroke-linecap="round"/><path d="M11 20.5 c2.8 -0.9 6 -0.7 9 0.8" stroke="#fff" stroke-width="1.4" fill="none" stroke-linecap="round"/></svg>Spotify</div>
-                <div class="vb-pick-item vb-target-app"><img src="logo-icon.png" alt="" class="vb-pick-icon"/>Waffler</div>
-                <div class="vb-pick-item"><svg viewBox="0 0 32 32" class="vb-pick-icon"><rect width="32" height="32" rx="7" fill="#25D366"/><circle cx="16" cy="16" r="9" fill="#fff"/><path d="M11.5 12.5 c0 5 4 8.5 8.5 8.5 l-1.5 -2.5 a5 5 0 0 1 -4.5 -4.5 z" fill="#25D366"/></svg>WhatsApp</div>
-                <div class="vb-pick-item"><svg viewBox="0 0 32 32" class="vb-pick-icon"><rect width="32" height="32" rx="7" fill="#5865F2"/><path d="M22.5 10 a14 14 0 0 0 -3.4 -1 l-0.3 0.5 a12 12 0 0 0 -3.6 0 L14.9 9 a14 14 0 0 0 -3.4 1 c-2.3 3.3 -2.9 6.5 -2.6 9.7 a14 14 0 0 0 4.3 2.1 l1 -1.3 a9 9 0 0 1 -1.5 -0.7 l0.4 -0.3 a10 10 0 0 0 7.8 0 l0.4 0.3 a9 9 0 0 1 -1.5 0.7 l1 1.3 a14 14 0 0 0 4.3 -2.1 c0.4 -3.7 -0.6 -6.9 -2.6 -9.7 z" fill="#fff"/></svg>Discord</div>
-              </div>
-              <div class="vb-picker-buttons"><span class="vb-btn-cancel">Cancel</span><span class="vb-btn-open vb-target-open">Open</span></div>
-            </div>
-            <div class="vb-cursor"><svg viewBox="0 0 24 24" fill="black" stroke="white" stroke-width="1"><path d="M3 2 L3 18 L8 14 L11 21 L14 20 L11 13 L18 13 Z"/></svg></div>
-          </div>
-        </div>
-
-        <p class="wiz-detect-note">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6v6l4 2"/><circle cx="12" cy="12" r="10"/></svg>
-          Waffler watches in the background. This pill ticks green automatically when granted.
-        </p>
-      </div>
-    </div>
-
-    <!-- ─────────────── STEP 2: Hotkey ─────────────── -->
-    <div class="wiz-step-content" id="wizContent2" style="display:none">
-      <div class="wiz-hotkey-stage">
-        <div class="wiz-keycap-combo" id="wizHotkeyDisplay">
-          <!-- Populated by JS based on platform -->
-          <div class="wiz-keycap-large">
-            <span class="wiz-keycap-label-large">fn</span>
-          </div>
-        </div>
-        <div class="wiz-listening" id="wizHotkeyStatus">
-          <span class="wiz-listening-dot"></span>
-          <span class="wiz-listening-label">Listening for hotkey press…</span>
-        </div>
-
-        <!-- Slick instruction cards explaining how the hotkey works -->
-        <div class="wiz-hotkey-cards" id="wizHotkeyInstructionCards">
-          <!-- Populated by JS based on platform: tells you to hold the
-               combo, that release stops, and that Space locks recording. -->
-        </div>
-
-        <button class="wiz-btn-ghost" onclick="showWizardHotkeyConfig()">Use a different hotkey instead</button>
-            <!-- The default already works, and this step never blocked Next.
-                 Saying so removes a step people thought was mandatory. -->
-            <p class="wiz-section-tip" style="margin-top:10px">
-              This one already works. Press <strong>Next</strong> to keep it, or hold your
-              own combination now to change it. You can change it later in Settings.
-            </p>
-      </div>
-
-      <!-- Hotkey config panel (hidden by default) -->
-      <div id="wizHotkeyConfigPanel" style="display:none;margin-top:16px">
-        <div class="wiz-perm-card">
-          <h3 style="margin:0 0 6px 0">Choose your hotkey</h3>
-          <p style="margin:0 0 14px 0;color:#6B6560;font-size:13px">💡 Press <strong>Space</strong> while holding to activate auto mode.</p>
-          <div id="wizHotkeyPresetList" style="display:flex;flex-direction:column;gap:8px">
-            <!-- Filled by app.js from logic.js hotkeyPresets: Mac shows Fn,
-                 Command + Shift and Option + Shift; Windows shows Win + Ctrl,
-                 Ctrl + Shift and Custom. -->
-          </div>
-          <button onclick="hideWizardHotkeyConfig()" style="margin-top:12px;color:#6B6560;background:none;border:none;cursor:pointer;font-size:13px">← Back</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- ─────────────── STEP 3: API Keys (tabbed) ─────────────── -->
-    <div class="wiz-step-content" id="wizContent3" style="display:none">
-      <p class="wiz-section-intro"><strong>One Groq key is all you need.</strong> It does both jobs: turning your speech into text, and tidying it up. Groq's free plan covers roughly 30 cleaned dictations a day at no cost.</p>
-      <!-- v3.14.28 — explicit reliability nudge. Most users grab just
-           Groq's free key, then get a "rate limit" toast on a heavy day
-           with no backup. Calling out the fallback story up-front saves
-           them that frustration without forcing them to add multiple
-           keys now — the wizard still advances with any single key. -->
-      <p class="wiz-section-tip">
-        <span class="wiz-section-tip-icon">💡</span>
-        <strong>Add more than one for reliability.</strong>
-        If a provider hits a rate limit or has a slow day, Waffler will fall back to the next one automatically. You can always add more keys later from Settings.
-      </p>
-
-      <a href="#" onclick="pywebview.api.open_url('https://wafflerai.com/api-key-guide'); return false;" class="wiz-key-guide-link">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3M12 17h.01"/></svg>
-        Don't know which to pick? See our step-by-step guide → wafflerai.com/api-key-guide
-      </a>
-
-      <div class="wiz-prov-tabs" role="tablist">
-        <button class="wiz-prov-tab wiz-prov-tab-active" data-provider="groq" role="tab">
-          <span class="wiz-prov-badge wiz-prov-badge-rec">Free · recommended</span>
-          <span class="wiz-prov-name">Groq</span>
-          <span class="wiz-prov-meta">About 30 cleanups a day free</span>
-        </button>
-        <button class="wiz-prov-tab" data-provider="openai" role="tab">
-          <span class="wiz-prov-badge">Optional</span>
-          <span class="wiz-prov-name">OpenAI</span>
-          <span class="wiz-prov-meta">Backup if Groq is busy</span>
-        </button>
-      </div>
-
-      <!-- Groq panel (active by default) -->
-      <div class="wiz-prov-panel wiz-prov-panel-active" id="wizProvPanelGroq">
-
-        <!-- Animated three-step walkthrough: open → sign in → copy key.
-             Each card shows a tiny mock-screenshot scene with looping CSS
-             animations (cursor click, email typing, copy-button press, etc).
-             Staggered ~1s between cards so the row reads left → right. -->
-        <div class="wiz-story-row">
-
-          <!-- Card 1: Open the link (CLICKABLE — opens console.groq.com) -->
-          <div class="wiz-story-card wiz-story-card-clickable"
-               onclick="(window.pywebview&&pywebview.api)?pywebview.api.open_url('https://console.groq.com/keys'):window.open('https://console.groq.com/keys','_blank')"
-               role="link" tabindex="0"
-               title="Click to open console.groq.com/keys">
-            <div class="wiz-story-num">1</div>
-            <div class="wiz-story-scene">
-              <svg viewBox="0 0 200 140" preserveAspectRatio="xMidYMid meet">
-                <rect x="4" y="4" width="192" height="132" rx="8" fill="#0F0F12" stroke="#2a2a32" stroke-width="0.5"/>
-                <rect x="4" y="4" width="192" height="18" rx="8" fill="#1a1a1f"/>
-                <rect x="4" y="14" width="192" height="8" fill="#1a1a1f"/>
-                <circle cx="13" cy="13" r="2.5" fill="#ff5f56"/>
-                <circle cx="22" cy="13" r="2.5" fill="#ffbd2e"/>
-                <circle cx="31" cy="13" r="2.5" fill="#27c93f"/>
-                <rect x="42" y="9" width="100" height="8" rx="3" fill="#0F0F12"/>
-                <text x="92" y="15.5" font-size="5" text-anchor="middle" fill="#888" font-family="-apple-system,sans-serif">🔒 console.groq.com/keys</text>
-                <rect x="4" y="22" width="44" height="114" fill="#0a0a0c"/>
-                <text x="11" y="35" font-size="9" font-weight="800" fill="#F55036" font-family="-apple-system,sans-serif">groq</text>
-                <line x1="9" y1="40" x2="44" y2="40" stroke="#1f1f24" stroke-width="0.5"/>
-                <text x="12" y="50" font-size="4.5" fill="#888" font-family="-apple-system,sans-serif">Playground</text>
-                <rect x="8" y="55" width="36" height="9" rx="2" fill="rgba(245, 80, 54, 0.15)"/>
-                <text x="12" y="61" font-size="4.5" fill="#F55036" font-weight="700" font-family="-apple-system,sans-serif">API Keys</text>
-                <text x="12" y="72" font-size="4.5" fill="#888" font-family="-apple-system,sans-serif">Models</text>
-                <text x="12" y="83" font-size="4.5" fill="#888" font-family="-apple-system,sans-serif">Usage</text>
-                <text x="12" y="94" font-size="4.5" fill="#888" font-family="-apple-system,sans-serif">Settings</text>
-                <text x="55" y="34" font-size="9" font-weight="700" fill="#fff" font-family="-apple-system,sans-serif">API Keys</text>
-                <text x="55" y="42" font-size="4.5" fill="#888" font-family="-apple-system,sans-serif">Manage your API keys</text>
-                <g>
-                  <circle class="s1-ripple" cx="168" cy="34.5" r="14" fill="none" stroke="#F55036" stroke-width="1.5"/>
-                  <rect class="s1-btn" x="138" y="28" width="60" height="13" rx="3" fill="#F55036"/>
-                  <text x="168" y="36.5" font-size="5.5" font-weight="700" text-anchor="middle" fill="#fff" font-family="-apple-system,sans-serif">+ Create API Key</text>
-                </g>
-                <rect x="55" y="50" width="135" height="78" rx="5" fill="transparent" stroke="#2a2a32" stroke-width="0.5" stroke-dasharray="2 2"/>
-                <circle cx="122" cy="78" r="6" fill="none" stroke="#444" stroke-width="0.8"/>
-                <line x1="118" y1="82" x2="108" y2="92" stroke="#444" stroke-width="0.8"/>
-                <text x="122" y="106" font-size="5" text-anchor="middle" fill="#666" font-family="-apple-system,sans-serif">No API keys yet</text>
-                <text x="122" y="114" font-size="3.5" text-anchor="middle" fill="#555" font-family="-apple-system,sans-serif">Create your first key to get started</text>
-                <g class="s1-cursor">
-                  <path d="M0 0 L0 11 L4 8.5 L6 13 L9 12 L7 7.5 L11 7.5 Z" fill="#fff" stroke="#000" stroke-width="0.5" stroke-linejoin="round"/>
-                </g>
-              </svg>
-            </div>
-            <h4>Open the link</h4>
-            <p>Click here to open Groq's API Keys page.</p>
-          </div>
-
-          <div class="wiz-story-connector">
-            <svg viewBox="0 0 60 24"><path d="M0 12 L52 12 M44 6 L52 12 L44 18" stroke="#C8A256" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            <span class="wiz-connector-dot wiz-connector-dot-1"></span>
-          </div>
-
-          <!-- Card 2: Sign in -->
-          <div class="wiz-story-card">
-            <div class="wiz-story-num">2</div>
-            <div class="wiz-story-scene">
-              <svg viewBox="0 0 200 140" preserveAspectRatio="xMidYMid meet">
-                <rect x="20" y="14" width="160" height="112" rx="10" fill="#fff" stroke="#E8E4DC" stroke-width="1"/>
-                <text x="100" y="34" font-size="13" font-weight="800" text-anchor="middle" fill="#F55036" font-family="-apple-system,sans-serif">groq</text>
-                <text x="100" y="44" font-size="6" text-anchor="middle" fill="#888" font-family="-apple-system,sans-serif">Sign in to your account</text>
-                <g class="s2-google">
-                  <rect x="40" y="52" width="120" height="16" rx="4" fill="#fff" stroke="#ddd" stroke-width="0.8"/>
-                  <g transform="translate(48, 56)">
-                    <path d="M8 4.36C8 3.92 7.96 3.49 7.89 3.08H4.08V5.51H6.31C6.21 6.03 5.94 6.47 5.51 6.77V7.95H7.06C7.93 7.16 8 5.84 8 4.36Z" fill="#4285F4"/>
-                    <path d="M4.08 8.16C5.17 8.16 6.09 7.81 6.78 7.18L5.27 6.07C4.89 6.33 4.41 6.49 4.08 6.49C3.05 6.49 2.18 5.86 1.85 5.04H0.30V6.18C0.99 7.40 2.42 8.16 4.08 8.16Z" fill="#34A853"/>
-                    <path d="M1.85 5.04C1.77 4.79 1.72 4.51 1.72 4.23C1.72 3.95 1.77 3.67 1.85 3.42V2.28H0.30C-0.01 2.85 -0.19 3.51 -0.19 4.23C-0.19 4.95 -0.01 5.61 0.30 6.18L1.85 5.04Z" fill="#FBBC05"/>
-                    <path d="M4.08 1.97C4.67 1.97 5.20 2.17 5.61 2.55L6.86 1.30C6.09 0.58 5.17 0.30 4.08 0.30C2.42 0.30 0.99 1.06 0.30 2.28L1.85 3.42C2.18 2.60 3.05 1.97 4.08 1.97Z" fill="#EA4335"/>
-                  </g>
-                  <text x="92" y="62.5" font-size="5.5" fill="#1a1a1a" font-weight="500" font-family="-apple-system,sans-serif">Continue with Google</text>
-                </g>
-                <line x1="50" y1="76" x2="93" y2="76" stroke="#eee" stroke-width="0.5"/>
-                <text x="100" y="78" font-size="4.5" text-anchor="middle" fill="#aaa" font-family="-apple-system,sans-serif">OR</text>
-                <line x1="108" y1="76" x2="150" y2="76" stroke="#eee" stroke-width="0.5"/>
-                <rect x="40" y="84" width="120" height="14" rx="3" fill="#fafafa" stroke="#e0e0e0" stroke-width="0.8"/>
-                <g class="s2-type">
-                  <text x="46" y="94" font-size="5.5" fill="#1a1a1a" font-family="-apple-system,monospace">you@example.com</text>
-                </g>
-                <line class="s2-caret" x1="46" y1="88" x2="46" y2="95" stroke="#1a1a1a" stroke-width="0.8"/>
-                <g class="s2-signin">
-                  <rect x="40" y="104" width="120" height="14" rx="3" fill="#F55036"/>
-                  <text x="100" y="113" font-size="6" font-weight="700" text-anchor="middle" fill="#fff" font-family="-apple-system,sans-serif">Sign in</text>
-                </g>
-                <g class="s2-check">
-                  <circle r="12" fill="#22c55e" stroke="#fff" stroke-width="2"/>
-                  <path d="M-5 0 L-1 4 L5 -4" stroke="#fff" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-                </g>
-              </svg>
-            </div>
-            <h4>Sign in (free)</h4>
-            <p>Continue with Google — no card needed.</p>
-          </div>
-
-          <div class="wiz-story-connector">
-            <svg viewBox="0 0 60 24"><path d="M0 12 L52 12 M44 6 L52 12 L44 18" stroke="#C8A256" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            <span class="wiz-connector-dot wiz-connector-dot-2"></span>
-          </div>
-
-          <!-- Card 3: Copy key -->
-          <div class="wiz-story-card">
-            <div class="wiz-story-num">3</div>
-            <div class="wiz-story-scene">
-              <svg viewBox="0 0 200 140" preserveAspectRatio="xMidYMid meet">
-                <defs>
-                  <linearGradient id="wiz-s3-shimmer-grad" x1="0%" y1="0%" x2="100%" y2="0%">
-                    <stop offset="0%" stop-color="rgba(255,255,255,0)"/>
-                    <stop offset="50%" stop-color="rgba(255,255,255,0.18)"/>
-                    <stop offset="100%" stop-color="rgba(255,255,255,0)"/>
-                  </linearGradient>
-                </defs>
-                <rect x="6" y="6" width="188" height="128" rx="8" fill="#0F0F12" stroke="#2a2a32" stroke-width="0.5"/>
-                <g transform="translate(16, 18)">
-                  <circle r="6" fill="#22c55e"/>
-                  <path d="M-3 0 L-1 2.5 L3 -2" stroke="#fff" stroke-width="1.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-                </g>
-                <text x="28" y="22" font-size="7" font-weight="700" fill="#fff" font-family="-apple-system,sans-serif">Your key is ready</text>
-                <rect x="14" y="32" width="172" height="20" rx="4" fill="rgba(251, 191, 36, 0.08)" stroke="rgba(251, 191, 36, 0.25)" stroke-width="0.5"/>
-                <text x="20" y="41" font-size="4.5" fill="#fbbf24" font-weight="700" font-family="-apple-system,sans-serif">⚠ Save this — shown only once</text>
-                <text x="20" y="48" font-size="4" fill="#a08855" font-family="-apple-system,sans-serif">For security, you won't see it again.</text>
-                <rect x="14" y="60" width="140" height="18" rx="4" fill="#1a1a1f" stroke="#2a2a32" stroke-width="0.5"/>
-                <text x="22" y="71" font-size="5" fill="#C8A256" font-family="SF Mono, monospace">gsk_AB12cd34EF56gh78IJ•••</text>
-                <rect class="s3-shimmer" x="14" y="60" width="20" height="18" rx="4" fill="url(#wiz-s3-shimmer-grad)"/>
-                <g class="s3-copy">
-                  <rect x="158" y="60" width="28" height="18" rx="4" fill="#22c55e"/>
-                  <g transform="translate(165, 65)">
-                    <rect x="2" y="2" width="6" height="7" rx="0.6" fill="none" stroke="#fff" stroke-width="0.8"/>
-                    <path d="M1 4 v5 a0.7 0.7 0 00.7.7 H6" fill="none" stroke="#fff" stroke-width="0.8"/>
-                  </g>
-                  <text x="178" y="71" font-size="5" font-weight="700" fill="#fff" font-family="-apple-system,sans-serif">Copy</text>
-                </g>
-                <g class="s3-toast">
-                  <rect width="60" height="14" rx="7" fill="#22c55e"/>
-                  <text x="30" y="9.5" font-size="5.5" font-weight="700" text-anchor="middle" fill="#fff" font-family="-apple-system,sans-serif">✓ Copied!</text>
-                </g>
-                <g class="s3-arrow">
-                  <path d="M100 114 L100 126 M96 122 L100 126 L104 122" stroke="#C8A256" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-                </g>
-              </svg>
-            </div>
-            <h4>Copy + paste it here</h4>
-            <p>Hit <strong>Copy</strong> in Groq, then paste below ↓</p>
-          </div>
-        </div>
-
-        <!-- Warning: save your key somewhere safe -->
-        <div class="wiz-prov-notice">
-          <span class="wiz-prov-notice-icon">🔐</span>
-          <span><strong>Save this key somewhere safe.</strong> Groq only shows it once — keep it in a password manager so you don't have to regenerate it later.</span>
-        </div>
-
-        <div class="wiz-prov-row">
-          <input type="password" id="wizGroqKeyInput3" class="wiz-prov-input" placeholder="gsk_..." autocomplete="off" spellcheck="false">
-          <button class="wiz-prov-eye" onclick="toggleKeyVisibility('wizGroqKeyInput3')" type="button">👁</button>
-          <span class="wiz-prov-tick wiz-prov-tick-empty" id="wizGroqTick">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/></svg>
-          </span>
-        </div>
-        <p class="wiz-prov-help">Don't have one? <a href="#" onclick="pywebview.api.open_url('https://console.groq.com/keys'); return false;">console.groq.com/keys →</a></p>
-        <div class="wiz-prov-status" id="wizGroqValidation3"></div>
-      </div>
-
-      <!-- OpenAI panel -->
-      <div class="wiz-prov-panel" id="wizProvPanelOpenAI" style="display:none">
-
-        <!-- v3.14.25 — animated three-step walkthrough for OpenAI to
-             match the Groq walkthrough. Same structure, OpenAI
-             branding (dark theme, green #10A37F accent) and an sk-...
-             key prefix. -->
-        <div class="wiz-story-row">
-
-          <!-- Card 1: Open the link (CLICKABLE — opens platform.openai.com) -->
-          <div class="wiz-story-card wiz-story-card-clickable"
-               onclick="(window.pywebview&&pywebview.api)?pywebview.api.open_url('https://platform.openai.com/api-keys'):window.open('https://platform.openai.com/api-keys','_blank')"
-               role="link" tabindex="0"
-               title="Click to open platform.openai.com/api-keys">
-            <div class="wiz-story-num">1</div>
-            <div class="wiz-story-scene">
-              <svg viewBox="0 0 200 140" preserveAspectRatio="xMidYMid meet">
-                <rect x="4" y="4" width="192" height="132" rx="8" fill="#0F0F12" stroke="#2a2a32" stroke-width="0.5"/>
-                <rect x="4" y="4" width="192" height="18" rx="8" fill="#1a1a1f"/>
-                <rect x="4" y="14" width="192" height="8" fill="#1a1a1f"/>
-                <circle cx="13" cy="13" r="2.5" fill="#ff5f56"/>
-                <circle cx="22" cy="13" r="2.5" fill="#ffbd2e"/>
-                <circle cx="31" cy="13" r="2.5" fill="#27c93f"/>
-                <rect x="42" y="9" width="115" height="8" rx="3" fill="#0F0F12"/>
-                <text x="100" y="15.5" font-size="4.8" text-anchor="middle" fill="#888" font-family="-apple-system,sans-serif">🔒 platform.openai.com/api-keys</text>
-                <rect x="4" y="22" width="44" height="114" fill="#0a0a0c"/>
-                <text x="9" y="35" font-size="7" font-weight="800" fill="#10A37F" font-family="-apple-system,sans-serif">OpenAI</text>
-                <line x1="9" y1="40" x2="44" y2="40" stroke="#1f1f24" stroke-width="0.5"/>
-                <text x="12" y="50" font-size="4.5" fill="#888" font-family="-apple-system,sans-serif">Playground</text>
-                <text x="12" y="61" font-size="4.5" fill="#888" font-family="-apple-system,sans-serif">Assistants</text>
-                <text x="12" y="72" font-size="4.5" fill="#888" font-family="-apple-system,sans-serif">Fine-tuning</text>
-                <rect x="8" y="77" width="36" height="9" rx="2" fill="rgba(16, 163, 127, 0.15)"/>
-                <text x="12" y="83" font-size="4.5" fill="#10A37F" font-weight="700" font-family="-apple-system,sans-serif">API Keys</text>
-                <text x="12" y="94" font-size="4.5" fill="#888" font-family="-apple-system,sans-serif">Usage</text>
-                <text x="55" y="34" font-size="9" font-weight="700" fill="#fff" font-family="-apple-system,sans-serif">API Keys</text>
-                <text x="55" y="42" font-size="4.5" fill="#888" font-family="-apple-system,sans-serif">Manage your secret API keys</text>
-                <g>
-                  <circle class="s1-ripple" cx="168" cy="34.5" r="14" fill="none" stroke="#10A37F" stroke-width="1.5"/>
-                  <rect class="s1-btn" x="138" y="28" width="60" height="13" rx="3" fill="#10A37F"/>
-                  <text x="168" y="36.5" font-size="5.5" font-weight="700" text-anchor="middle" fill="#fff" font-family="-apple-system,sans-serif">+ Create new key</text>
-                </g>
-                <rect x="55" y="50" width="135" height="78" rx="5" fill="transparent" stroke="#2a2a32" stroke-width="0.5" stroke-dasharray="2 2"/>
-                <circle cx="122" cy="78" r="6" fill="none" stroke="#444" stroke-width="0.8"/>
-                <line x1="118" y1="82" x2="108" y2="92" stroke="#444" stroke-width="0.8"/>
-                <text x="122" y="106" font-size="5" text-anchor="middle" fill="#666" font-family="-apple-system,sans-serif">No API keys yet</text>
-                <text x="122" y="114" font-size="3.5" text-anchor="middle" fill="#555" font-family="-apple-system,sans-serif">Create your first secret key</text>
-                <g class="s1-cursor">
-                  <path d="M0 0 L0 11 L4 8.5 L6 13 L9 12 L7 7.5 L11 7.5 Z" fill="#fff" stroke="#000" stroke-width="0.5" stroke-linejoin="round"/>
-                </g>
-              </svg>
-            </div>
-            <h4>Open the link</h4>
-            <p>Click here to open OpenAI's API Keys page.</p>
-          </div>
-
-          <div class="wiz-story-connector">
-            <svg viewBox="0 0 60 24"><path d="M0 12 L52 12 M44 6 L52 12 L44 18" stroke="#C8A256" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            <span class="wiz-connector-dot wiz-connector-dot-1"></span>
-          </div>
-
-          <!-- Card 2: Sign in -->
-          <div class="wiz-story-card">
-            <div class="wiz-story-num">2</div>
-            <div class="wiz-story-scene">
-              <svg viewBox="0 0 200 140" preserveAspectRatio="xMidYMid meet">
-                <rect x="20" y="14" width="160" height="112" rx="10" fill="#fff" stroke="#E8E4DC" stroke-width="1"/>
-                <text x="100" y="34" font-size="12" font-weight="800" text-anchor="middle" fill="#10A37F" font-family="-apple-system,sans-serif">OpenAI</text>
-                <text x="100" y="44" font-size="6" text-anchor="middle" fill="#888" font-family="-apple-system,sans-serif">Sign in to your account</text>
-                <g class="s2-google">
-                  <rect x="40" y="52" width="120" height="16" rx="4" fill="#fff" stroke="#ddd" stroke-width="0.8"/>
-                  <g transform="translate(48, 56)">
-                    <path d="M8 4.36C8 3.92 7.96 3.49 7.89 3.08H4.08V5.51H6.31C6.21 6.03 5.94 6.47 5.51 6.77V7.95H7.06C7.93 7.16 8 5.84 8 4.36Z" fill="#4285F4"/>
-                    <path d="M4.08 8.16C5.17 8.16 6.09 7.81 6.78 7.18L5.27 6.07C4.89 6.33 4.41 6.49 4.08 6.49C3.05 6.49 2.18 5.86 1.85 5.04H0.30V6.18C0.99 7.40 2.42 8.16 4.08 8.16Z" fill="#34A853"/>
-                    <path d="M1.85 5.04C1.77 4.79 1.72 4.51 1.72 4.23C1.72 3.95 1.77 3.67 1.85 3.42V2.28H0.30C-0.01 2.85 -0.19 3.51 -0.19 4.23C-0.19 4.95 -0.01 5.61 0.30 6.18L1.85 5.04Z" fill="#FBBC05"/>
-                    <path d="M4.08 1.97C4.67 1.97 5.20 2.17 5.61 2.55L6.86 1.30C6.09 0.58 5.17 0.30 4.08 0.30C2.42 0.30 0.99 1.06 0.30 2.28L1.85 3.42C2.18 2.60 3.05 1.97 4.08 1.97Z" fill="#EA4335"/>
-                  </g>
-                  <text x="92" y="62.5" font-size="5.5" fill="#1a1a1a" font-weight="500" font-family="-apple-system,sans-serif">Continue with Google</text>
-                </g>
-                <line x1="50" y1="76" x2="93" y2="76" stroke="#eee" stroke-width="0.5"/>
-                <text x="100" y="78" font-size="4.5" text-anchor="middle" fill="#aaa" font-family="-apple-system,sans-serif">OR</text>
-                <line x1="108" y1="76" x2="150" y2="76" stroke="#eee" stroke-width="0.5"/>
-                <rect x="40" y="84" width="120" height="14" rx="3" fill="#fafafa" stroke="#e0e0e0" stroke-width="0.8"/>
-                <g class="s2-type">
-                  <text x="46" y="94" font-size="5.5" fill="#1a1a1a" font-family="-apple-system,monospace">you@example.com</text>
-                </g>
-                <line class="s2-caret" x1="46" y1="88" x2="46" y2="95" stroke="#1a1a1a" stroke-width="0.8"/>
-                <g class="s2-signin">
-                  <rect x="40" y="104" width="120" height="14" rx="3" fill="#10A37F"/>
-                  <text x="100" y="113" font-size="6" font-weight="700" text-anchor="middle" fill="#fff" font-family="-apple-system,sans-serif">Sign in</text>
-                </g>
-                <g class="s2-check">
-                  <circle r="12" fill="#22c55e" stroke="#fff" stroke-width="2"/>
-                  <path d="M-5 0 L-1 4 L5 -4" stroke="#fff" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-                </g>
-              </svg>
-            </div>
-            <h4>Sign in</h4>
-            <p>Continue with Google or email. The API is prepaid: you buy credit first (minimum $5).</p>
-          </div>
-
-          <div class="wiz-story-connector">
-            <svg viewBox="0 0 60 24"><path d="M0 12 L52 12 M44 6 L52 12 L44 18" stroke="#C8A256" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            <span class="wiz-connector-dot wiz-connector-dot-2"></span>
-          </div>
-
-          <!-- Card 3: Copy key -->
-          <div class="wiz-story-card">
-            <div class="wiz-story-num">3</div>
-            <div class="wiz-story-scene">
-              <svg viewBox="0 0 200 140" preserveAspectRatio="xMidYMid meet">
-                <defs>
-                  <linearGradient id="wiz-openai-shimmer-grad" x1="0%" y1="0%" x2="100%" y2="0%">
-                    <stop offset="0%" stop-color="rgba(255,255,255,0)"/>
-                    <stop offset="50%" stop-color="rgba(255,255,255,0.18)"/>
-                    <stop offset="100%" stop-color="rgba(255,255,255,0)"/>
-                  </linearGradient>
-                </defs>
-                <rect x="6" y="6" width="188" height="128" rx="8" fill="#0F0F12" stroke="#2a2a32" stroke-width="0.5"/>
-                <g transform="translate(16, 18)">
-                  <circle r="6" fill="#22c55e"/>
-                  <path d="M-3 0 L-1 2.5 L3 -2" stroke="#fff" stroke-width="1.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-                </g>
-                <text x="28" y="22" font-size="7" font-weight="700" fill="#fff" font-family="-apple-system,sans-serif">Your key is ready</text>
-                <rect x="14" y="32" width="172" height="20" rx="4" fill="rgba(251, 191, 36, 0.08)" stroke="rgba(251, 191, 36, 0.25)" stroke-width="0.5"/>
-                <text x="20" y="41" font-size="4.5" fill="#fbbf24" font-weight="700" font-family="-apple-system,sans-serif">⚠ Save this — shown only once</text>
-                <text x="20" y="48" font-size="4" fill="#a08855" font-family="-apple-system,sans-serif">For security, you won't see it again.</text>
-                <rect x="14" y="60" width="140" height="18" rx="4" fill="#1a1a1f" stroke="#2a2a32" stroke-width="0.5"/>
-                <text x="22" y="71" font-size="5" fill="#10A37F" font-family="SF Mono, monospace">sk-proj-AB12cd34EF56gh78•••</text>
-                <rect class="s3-shimmer" x="14" y="60" width="20" height="18" rx="4" fill="url(#wiz-openai-shimmer-grad)"/>
-                <g class="s3-copy">
-                  <rect x="158" y="60" width="28" height="18" rx="4" fill="#22c55e"/>
-                  <g transform="translate(165, 65)">
-                    <rect x="2" y="2" width="6" height="7" rx="0.6" fill="none" stroke="#fff" stroke-width="0.8"/>
-                    <path d="M1 4 v5 a0.7 0.7 0 00.7.7 H6" fill="none" stroke="#fff" stroke-width="0.8"/>
-                  </g>
-                  <text x="178" y="71" font-size="5" font-weight="700" fill="#fff" font-family="-apple-system,sans-serif">Copy</text>
-                </g>
-                <g class="s3-toast">
-                  <rect width="60" height="14" rx="7" fill="#22c55e"/>
-                  <text x="30" y="9.5" font-size="5.5" font-weight="700" text-anchor="middle" fill="#fff" font-family="-apple-system,sans-serif">✓ Copied!</text>
-                </g>
-                <g class="s3-arrow">
-                  <path d="M100 114 L100 126 M96 122 L100 126 L104 122" stroke="#C8A256" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-                </g>
-              </svg>
-            </div>
-            <h4>Copy + paste it here</h4>
-            <p>Hit <strong>Copy</strong> in OpenAI, then paste below ↓</p>
-          </div>
-        </div>
-
-        <!-- Warning: save your key somewhere safe -->
-        <div class="wiz-prov-notice">
-          <span class="wiz-prov-notice-icon">🔐</span>
-          <span><strong>Save this key somewhere safe.</strong> OpenAI only shows it once — keep it in a password manager so you don't have to regenerate it later.</span>
-        </div>
-
-        <div class="wiz-prov-row">
-          <input type="password" id="wizApiKeyInput3" class="wiz-prov-input" placeholder="sk-proj-..." autocomplete="off" spellcheck="false">
-          <button class="wiz-prov-eye" onclick="toggleKeyVisibility('wizApiKeyInput3')" type="button">👁</button>
-          <span class="wiz-prov-tick wiz-prov-tick-empty" id="wizOpenAITick">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/></svg>
-          </span>
-        </div>
-        <p class="wiz-prov-help">Get a key: <a href="#" onclick="pywebview.api.open_url('https://platform.openai.com/api-keys'); return false;">platform.openai.com/api-keys →</a> · Prepaid: you buy credit first (minimum $5). Unused credit expires after a year.</p>
-        <div class="wiz-prov-status" id="wizApiValidation3"></div>
-      </div>
-
-      <p class="wiz-prov-foot">On Groq's free plan dictations cost nothing, within its daily and per-minute limits. On Groq's paid plan a typical dictation costs about a sixth of a cent. You can add a backup provider later from Settings.</p>
-    </div>
-
-    <!-- ─────────────── STEP 4: Try It ─────────────── -->
-    <div class="wiz-step-content wiz-step-wide" id="wizContent4" style="display:none">
-      <div class="wiz-tryit">
-        <div class="wiz-tryit-left">
-          <div class="wiz-hint-card">
-            <div class="wiz-hint-keycap-combo" id="wizTryHotkeyBadge">
-              <span class="wiz-keycap-mini">fn</span>
-            </div>
-            <div>
-              <div class="wiz-hint-label">Hold this</div>
-              <div class="wiz-hint-detail">Speak naturally. Release when done.</div>
-            </div>
-          </div>
-          <div class="wiz-suggest">
-            <span class="wiz-suggest-label">Try saying</span>
-            <p class="wiz-suggest-text">"Sounds great, count me in! What time should I show up and want me to bring a bottle of red?"</p>
-          </div>
-          <div class="wiz-tryit-status wiz-tryit-status-waiting" id="wizRecordingStatus">
-            <span class="wiz-pill-dot"></span>
-            Waiting for you to dictate
-          </div>
-          <div class="wiz-validation" id="wizMicValidation"></div>
-
-          <!-- Waffle overlay preview — explains the floating pill that
-               appears on screen when you hold the hotkey. -->
-          <div class="wiz-waffle-explainer">
-            <div class="wiz-waffle-preview" aria-hidden="true">
-              <svg viewBox="0 0 64 64" class="wiz-waffle-icon" id="wizExplainerWaffle">
-                <rect x="2" y="2" width="60" height="60" rx="10" fill="#C8A256" stroke="#A07A28" stroke-width="2"/>
-                <rect class="wiz-wcell-anim" data-row="0" data-col="0" x="9" y="9" width="10" height="10" rx="1.5" fill="#B89040"/>
-                <rect class="wiz-wcell-anim" data-row="0" data-col="1" x="22" y="9" width="10" height="10" rx="1.5" fill="#B89040"/>
-                <rect class="wiz-wcell-anim" data-row="0" data-col="2" x="35" y="9" width="10" height="10" rx="1.5" fill="#B89040"/>
-                <rect class="wiz-wcell-anim" data-row="0" data-col="3" x="48" y="9" width="10" height="10" rx="1.5" fill="#B89040"/>
-                <rect class="wiz-wcell-anim" data-row="1" data-col="0" x="9" y="22" width="10" height="10" rx="1.5" fill="#B89040"/>
-                <rect class="wiz-wcell-anim" data-row="1" data-col="1" x="22" y="22" width="10" height="10" rx="1.5" fill="#B89040"/>
-                <rect class="wiz-wcell-anim" data-row="1" data-col="2" x="35" y="22" width="10" height="10" rx="1.5" fill="#B89040"/>
-                <rect class="wiz-wcell-anim" data-row="1" data-col="3" x="48" y="22" width="10" height="10" rx="1.5" fill="#B89040"/>
-                <rect class="wiz-wcell-anim" data-row="2" data-col="0" x="9" y="35" width="10" height="10" rx="1.5" fill="#B89040"/>
-                <rect class="wiz-wcell-anim" data-row="2" data-col="1" x="22" y="35" width="10" height="10" rx="1.5" fill="#B89040"/>
-                <rect class="wiz-wcell-anim" data-row="2" data-col="2" x="35" y="35" width="10" height="10" rx="1.5" fill="#B89040"/>
-                <rect class="wiz-wcell-anim" data-row="2" data-col="3" x="48" y="35" width="10" height="10" rx="1.5" fill="#B89040"/>
-                <rect class="wiz-wcell-anim" data-row="3" data-col="0" x="9" y="48" width="10" height="10" rx="1.5" fill="#B89040"/>
-                <rect class="wiz-wcell-anim" data-row="3" data-col="1" x="22" y="48" width="10" height="10" rx="1.5" fill="#B89040"/>
-                <rect class="wiz-wcell-anim" data-row="3" data-col="2" x="35" y="48" width="10" height="10" rx="1.5" fill="#B89040"/>
-                <rect class="wiz-wcell-anim" data-row="3" data-col="3" x="48" y="48" width="10" height="10" rx="1.5" fill="#B89040"/>
-              </svg>
-              <div class="wiz-waffle-pulse"></div>
-            </div>
-            <div class="wiz-waffle-text">
-              <div class="wiz-waffle-title">This little waffle appears</div>
-              <div class="wiz-waffle-detail">A floating pill shows on screen while you're recording. The squares darken with the volume of your voice, so you know Waffler is hearing you. Release the hotkey and the waffle vanishes.</div>
-            </div>
-          </div>
-        </div>
-        <div class="wiz-tryit-right">
-          <div class="wiz-mockapp">
-            <header class="wiz-mockapp-bar">
-              <div class="wiz-mockapp-dots"><span></span><span></span><span></span></div>
-              <span class="wiz-mockapp-title">Messages — Alex</span>
-            </header>
-            <div class="wiz-mockapp-thread">
-              <div class="wiz-msg wiz-msg-them">
-                <span class="wiz-msg-bubble">Hey! A few of us are getting dinner Friday at 7. Want to join? 🍕</span>
-                <span class="wiz-msg-time">2:34 PM</span>
-              </div>
-            </div>
-            <div class="wiz-mockapp-input">
-              <div class="wiz-mockapp-field" id="wizMockInput">
-                <span class="wiz-mockapp-placeholder" id="wizMockPlaceholder">Hold <kbd id="wizMockKbd">fn</kbd> to dictate your reply…</span>
-                <span class="mock-input-text" id="wizMockText"></span>
-                <span class="mock-input-cursor" id="wizMockCursor" style="display:none"></span>
-              </div>
-              <button class="wiz-mockapp-send" id="wizMockSendBtn" disabled>
-                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 21l21-9L2 3v7l15 2-15 2v7z"/></svg>
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Navigation -->
-    <nav class="wiz-nav">
-      <button class="wiz-btn-back" id="wizBtnBack" onclick="wizBack()" style="display:none">Back</button>
-      <button class="wiz-btn-skip" id="wizBtnSkip" onclick="wizSkipTryIt()" hidden>Skip for now</button>
-      <button class="wiz-btn-next" id="wizBtnNext" onclick="wizNext()" disabled>Next</button>
+    <nav class="snav" aria-label="Settings sections">
+      <button type="button" class="snav-item" data-sec="general" onclick="showSettingsSection('general')"><svg class="ic" aria-hidden="true"><use href="#i-sliders"/></svg>General</button>
+      <button type="button" class="snav-item" data-sec="keys" onclick="showSettingsSection('keys')"><svg class="ic" aria-hidden="true"><use href="#i-key"/></svg>Keys and providers</button>
+      <button type="button" class="snav-item" data-sec="hotkey" onclick="showSettingsSection('hotkey')"><svg class="ic" aria-hidden="true"><use href="#i-keyboard"/></svg>Hotkey</button>
+      <button type="button" class="snav-item" data-sec="usage" onclick="showSettingsSection('usage')"><svg class="ic" aria-hidden="true"><use href="#i-chart"/></svg>Usage</button>
+      <button type="button" class="snav-item" data-sec="privacy" onclick="showSettingsSection('privacy')"><svg class="ic" aria-hidden="true"><use href="#i-shield"/></svg>Privacy and data</button>
+      <button type="button" class="snav-item" data-sec="about" onclick="showSettingsSection('about')"><svg class="ic" aria-hidden="true"><use href="#i-info"/></svg>About</button>
+      <span class="snav-ver" id="snavVersion">Waffler</span>
     </nav>
 
+    <div class="scontent" id="settingsScroll">
+      <div class="scol">
+
+        <!-- General -->
+        <section class="s-sec" id="secGeneral" data-sec="general">
+          <h1 class="ptitle">General</h1>
+          <p class="pdesc">How Waffler looks, listens and starts.</p>
+
+          <div class="glabel"><span class="eyebrow">Appearance</span></div>
+          <div class="group"><div class="panel">
+            <div class="row">
+              <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-sun"/></svg></span>
+              <div class="row-main"><div class="row-t">Theme</div><div class="row-d" id="themeDesc">Light, dark, or match Windows.</div></div>
+              <div class="seg seg-sm" id="themeSeg" role="radiogroup" aria-label="Theme">
+                <button type="button" role="radio" data-theme="cream" aria-checked="false" tabindex="0" onclick="setAppTheme('cream')">Light</button>
+                <button type="button" role="radio" data-theme="dark" aria-checked="false" tabindex="-1" onclick="setAppTheme('dark')">Dark</button>
+                <button type="button" role="radio" data-theme="auto" aria-checked="false" tabindex="-1" onclick="setAppTheme('auto')">System</button>
+              </div>
+            </div>
+          </div></div>
+
+          <div class="glabel"><span class="eyebrow">Dictation</span></div>
+          <div class="group"><div class="panel">
+            <div class="row">
+              <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-book"/></svg></span>
+              <div class="row-main"><div class="row-t"><label for="dialectSelect">Spelling</label></div><div class="row-d">British or American, or match how you speak.</div></div>
+              <select id="dialectSelect" class="select" onchange="saveSetting('dialect', this.value)">
+                <option value="auto">Match how I speak</option>
+                <option value="en-GB">British English</option>
+                <option value="en-US">American English</option>
+              </select>
+            </div>
+            <div class="row">
+              <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-clipboard"/></svg></span>
+              <div class="row-main"><div class="row-t"><label for="autoPasteToggle">Paste when I let go</label></div><div class="row-d">Puts the text where you were typing. Off, it's only copied.</div></div>
+              <input type="checkbox" class="tog" role="switch" id="autoPasteToggle" onchange="saveSetting('auto_paste', this.checked)">
+            </div>
+            <!-- The microphone is kept ready so the first word isn't clipped:
+                 audio from half a second before the keys go down is part of
+                 each recording (src/audio.py _PREROLL_MS; owner decision D5). -->
+            <div class="row">
+              <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-mic"/></svg></span>
+              <div class="row-main"><div class="row-t"><label for="micSelect">Microphone</label></div><div class="row-d">Waffler uses what you say while you hold the keys, and the half-second before, so your first word isn't clipped.</div></div>
+              <select id="micSelect" class="select" onchange="onMicChange(this.value)"></select>
+            </div>
+          </div></div>
+
+          <div class="glabel"><span class="eyebrow">Startup</span></div>
+          <div class="group"><div class="panel">
+            <!-- Start at sign-in: read from the operating system each time
+                 Settings opens (app.py get_start_at_login). -->
+            <div class="row" id="startAtLoginRow">
+              <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-power"/></svg></span>
+              <div class="row-main"><div class="row-t"><label for="startAtLoginToggle">Start Waffler when I turn on my computer</label></div><div class="row-d" id="startAtLoginDesc">So the hotkey works after a restart.</div></div>
+              <input type="checkbox" class="tog" role="switch" id="startAtLoginToggle" aria-label="Start Waffler when I turn on my computer" onchange="setStartAtLogin(this.checked)">
+            </div>
+            <div class="row">
+              <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-retry"/></svg></span>
+              <div class="row-main"><div class="row-t">Run setup again</div><div class="row-d">Your keys and history stay as they are.</div></div>
+              <button type="button" class="btn btn-sec btn-sm" onclick="runSetupAgain()">Run setup</button>
+            </div>
+          </div></div>
+        </section>
+
+        <!-- Keys and providers: the keys and the order in one list. app.js
+             draws the rows (logic.js keyRows) in the order Waffler tries
+             them; each key's editor below moves under its row when opened. -->
+        <section class="s-sec" id="secKeys" data-sec="keys" hidden>
+          <h1 class="ptitle">Keys and providers</h1>
+          <p class="pdesc">Waffler tries these in order and uses the first that answers. Changes to the order apply to your next dictation.</p>
+
+          <div class="group s-first"><div class="panel provider-order-list" id="providerOrderList"></div></div>
+
+          <!-- Groq, OpenAI, then Cerebras (optional). -->
+          <div class="key-editors" hidden>
+            <div class="key-editor" id="groqKeyEditor" data-provider="groq">
+              <div class="key-editor-row">
+                <input type="password" id="groqKeyInput" class="input input-mono" placeholder="gsk_…" autocomplete="off" spellcheck="false" aria-label="Groq key">
+                <button type="button" class="btn btn-pri btn-sm" onclick="saveGroqKey()">Save</button>
+                <button type="button" class="btn btn-quiet btn-sm" onclick="closeKeyEditor()">Cancel</button>
+              </div>
+              <p class="key-help">Make one at <a class="link" href="#" onclick="openKeyPage('groq'); return false;">console.groq.com/keys</a>. Groq keys start with gsk_.</p>
+            </div>
+            <div class="key-editor" id="apiKeyEditor" data-provider="openai">
+              <div class="key-editor-row">
+                <input type="password" id="apiKeyInput" class="input input-mono" placeholder="sk-…" autocomplete="off" spellcheck="false" aria-label="OpenAI key">
+                <button type="button" class="btn btn-pri btn-sm" onclick="saveApiKey()">Save</button>
+                <button type="button" class="btn btn-quiet btn-sm" onclick="closeKeyEditor()">Cancel</button>
+              </div>
+              <p class="key-help">Optional. Make one at <a class="link" href="#" onclick="openKeyPage('openai'); return false;">platform.openai.com/api-keys</a>. OpenAI keys start with sk-.</p>
+            </div>
+            <div class="key-editor" id="cerebrasKeyEditor" data-provider="cerebras">
+              <div class="key-editor-row">
+                <input type="password" id="cerebrasKeyInput" class="input input-mono" placeholder="csk-…" autocomplete="off" spellcheck="false" aria-label="Cerebras key">
+                <button type="button" class="btn btn-pri btn-sm" onclick="saveCerebrasKey()">Save</button>
+                <button type="button" class="btn btn-quiet btn-sm" onclick="closeKeyEditor()">Cancel</button>
+              </div>
+              <p class="key-help">Optional. Make one at <a class="link" href="#" onclick="openKeyPage('cerebras'); return false;">cloud.cerebras.ai/platform/api-keys</a>. Cerebras keys start with csk-.</p>
+            </div>
+          </div>
+
+          <div class="glabel"><span class="eyebrow">In use now</span></div>
+          <div class="group"><div class="panel">
+            <div class="row">
+              <span class="itile is-ok" id="backendTile"><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg></span>
+              <div class="row-main"><div class="row-t" id="backendTitle">Speech to text and clean-up</div><div class="row-d" id="backendInfo">Loading…</div></div>
+            </div>
+          </div></div>
+          <p class="s-foot">New to keys? <a class="link" href="#" onclick="openKeyPage('groq'); return false;">Get a free Groq key</a><svg class="ic ic-sm" aria-hidden="true"><use href="#i-external"/></svg></p>
+        </section>
+
+        <!-- Hotkey -->
+        <section class="s-sec" id="secHotkey" data-sec="hotkey" hidden>
+          <h1 class="ptitle">Hotkey</h1>
+          <p class="pdesc">Hold it to talk. Let go and the text is pasted.</p>
+
+          <div class="group s-first"><div class="panel hk-hero">
+            <span class="keys hk-caps" id="settingsHotkeyCaps"></span>
+            <div class="hk-name">
+              <div class="hk-name-t" id="settingsHotkeyBadge">Win + Ctrl</div>
+              <div class="row-d" id="settingsHotkeyNote">The default on Windows.</div>
+            </div>
+            <button type="button" class="btn btn-sec" onclick="openHotkeyCapture()">Change…</button>
+          </div></div>
+          <p class="s-error" id="settingsHotkeyError" role="alert" hidden></p>
+
+          <!-- Mac: Fn also has a job of its own (emoji picker, input source
+               or dictation). Said here and in setup; never changed. -->
+          <div class="notice notice-honey settings-fn-warn" id="settingsFnWarn" hidden>
+            <span class="itile is-warn"><svg class="ic" aria-hidden="true"><use href="#i-globe"/></svg></span>
+            <div class="notice-body">
+              <div class="notice-title" id="settingsFnWarnTitle"></div>
+              <div class="notice-desc" id="settingsFnWarnDetail"></div>
+            </div>
+            <div class="notice-acts"><button type="button" class="btn btn-sec btn-sm" onclick="wizOpenKeyboardSettings()">Open Keyboard settings</button></div>
+          </div>
+
+          <div class="glabel"><span class="eyebrow">While you're recording</span></div>
+          <div class="group"><div class="panel">
+            <div class="row">
+              <span class="hk-key"><kbd class="kc kc-md">Space</kbd></span>
+              <div class="row-main"><div class="row-t">Keep going hands-free</div><div class="row-d">Tap Space while you hold the keys, then let go. Tap the keys again to finish.</div></div>
+            </div>
+            <div class="row">
+              <span class="hk-key"><kbd class="kc kc-md">Esc</kbd></span>
+              <div class="row-main"><div class="row-t">Cancel</div><div class="row-d">Stops recording. Nothing is pasted.</div></div>
+            </div>
+          </div></div>
+        </section>
+
+        <!-- Usage: counts first, from the Journal; then the money, labelled
+             an estimate at published paid rates. Waffler can't see anyone's
+             bill, and Groq's free plan is free. -->
+        <section class="s-sec" id="secUsage" data-sec="usage" hidden>
+          <h1 class="ptitle">Usage</h1>
+          <p class="pdesc">Counted on this computer, from your own history.</p>
+
+          <div class="group s-first"><div class="utiles" id="usageTiles">
+            <div class="utile"><span class="eyebrow">Today</span><b id="usageTodayCount">0</b><span class="u1">dictations</span><span class="u2" id="usageTodayWords">0 words</span></div>
+            <div class="utile"><span class="eyebrow">This week</span><b id="usageWeekCount">0</b><span class="u1">dictations</span><span class="u2" id="usageWeekWords">0 words</span></div>
+            <div class="utile"><span class="eyebrow">This month</span><b id="usageMonthCount">0</b><span class="u1">dictations</span><span class="u2" id="usageMonthWords">0 words</span></div>
+            <div class="utile"><span class="eyebrow">All time</span><b id="usageAllCount">0</b><span class="u1">dictations</span><span class="u2" id="usageAllWords">0 words</span></div>
+          </div></div>
+
+          <div class="glabel"><span class="eyebrow">Estimated cost</span></div>
+          <div class="group"><div class="panel usage-cost">
+            <div class="usage-figs">
+              <div><div class="usage-big" id="usageTotalCost">$0.00</div><div class="small">all time, estimated</div></div>
+              <div><div class="usage-mid" id="usageMonthCost">$0.00</div><div class="small">this month</div></div>
+              <div><div class="usage-mid" id="usageWeekCost">$0.00</div><div class="small">this week</div></div>
+              <div><div class="usage-mid" id="usageTodayCost">$0.00</div><div class="small">today</div></div>
+            </div>
+            <p class="small usage-note"><span id="usageEstimateNote">Estimated at each provider's published paid rates. Waffler can't see your bill.</span> On Groq's free plan dictations cost nothing, within its daily and per-minute limits. <span id="usageAvgCost"></span></p>
+            <div class="dots-h usage-sep"></div>
+            <div class="usage-provider-rows" id="usageProviderRows">
+              <div class="usage-provider-empty">No usage yet. Make your first dictation to see it here.</div>
+            </div>
+          </div></div>
+        </section>
+
+        <!-- Privacy and data -->
+        <section class="s-sec" id="secPrivacy" data-sec="privacy" hidden>
+          <h1 class="ptitle">Privacy and data</h1>
+          <!-- Owner decision D5: the microphone stream stays open and the
+               half-second before the keys go down is part of each recording
+               (src/audio.py _PREROLL_MS). Said as it is. -->
+          <p class="pdesc" id="privIntro">Your history, recordings and keys stay on this computer. The microphone stays ready so your first word isn't clipped: what you say while you hold the keys, and the half-second before, goes only to the providers you set up.</p>
+
+          <div class="glabel"><span class="eyebrow">Kept on this computer</span></div>
+          <div class="group"><div class="panel">
+            <!-- History retention (src/privacy_data.py): keep everything
+                 unless the user picks 30, 90 or 365 days. A shorter choice
+                 that would delete dictations asks first, in the panel. -->
+            <div class="row" id="historyRow">
+              <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-history"/></svg></span>
+              <div class="row-main"><div class="row-t"><label for="historyKeep">History</label></div><div class="row-d" id="privHistoryDesc">Your dictations, searchable in your Journal.</div></div>
+              <select id="historyKeep" class="select" onchange="onHistoryKeepChange(this)">
+                <option value="0">Keep forever</option>
+                <option value="365">Keep for a year</option>
+                <option value="90">Keep for 90 days</option>
+                <option value="30">Keep for 30 days</option>
+              </select>
+            </div>
+            <div class="row row-confirm" id="historyKeepConfirm" hidden>
+              <div class="row-main"><div class="row-t" id="historyKeepConfirmTitle">Delete older dictations?</div><div class="row-d">They go from your Journal now, and this can't be undone.</div></div>
+              <button type="button" class="btn btn-sec btn-sm" id="historyKeepNo" onclick="cancelHistoryKeep()">Keep them</button>
+              <button type="button" class="btn btn-danger btn-sm" onclick="confirmHistoryKeep()">Delete them</button>
+            </div>
+            <!-- Owner decision D9: the last 10 recordings are kept, said
+                 here, with a switch and "Delete now" (src/recent_audio.py). -->
+            <div class="row" id="recentAudioRow">
+              <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-audio-lines"/></svg></span>
+              <div class="row-main"><div class="row-t"><label for="recentAudioToggle">Recent recordings</label></div><div class="row-d" id="recentAudioDesc">The audio of your last 10 dictations, kept to help look into a problem. It never leaves this computer.</div></div>
+              <button type="button" class="btn btn-sec btn-sm" id="recentAudioDelete" onclick="deleteRecentAudio(this)">Delete now</button>
+              <input type="checkbox" class="tog" role="switch" id="recentAudioToggle" checked onchange="setRecentAudio(this.checked)">
+            </div>
+            <!-- Recordings that were not turned into text (Journal "Not sent"
+                 cards). Waffler sends them by itself when the speech service
+                 answers; this is the count, Try again for all of them, and
+                 Delete, which asks first. -->
+            <div class="row" id="unsentRow">
+              <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-wifi-off"/></svg></span>
+              <div class="row-main"><div class="row-t">Not sent yet</div><div class="row-d" id="unsentSummary">Nothing waiting. Every recording has been sent.</div></div>
+              <button type="button" class="btn btn-sec btn-sm" id="unsentDelete" onclick="askDeleteUnsent(true)" hidden>Delete</button>
+              <button type="button" class="btn btn-sec btn-sm" id="unsentSendNow" onclick="sendUnsentNow(this)" hidden><svg class="ic" aria-hidden="true"><use href="#i-retry"/></svg><span>Try again</span></button>
+            </div>
+            <div class="row row-confirm" id="unsentDeleteConfirm" hidden>
+              <div class="row-main"><div class="row-t" id="unsentDeleteTitle">Delete the recordings waiting to be sent?</div><div class="row-d">What you said in them is lost, and this can't be undone.</div></div>
+              <button type="button" class="btn btn-sec btn-sm" id="unsentDeleteNo" onclick="askDeleteUnsent(false)">Keep them</button>
+              <button type="button" class="btn btn-danger btn-sm" onclick="deleteAllUnsent(this)">Delete them</button>
+            </div>
+          </div></div>
+
+          <div class="glabel"><span class="eyebrow">Help</span></div>
+          <div class="group"><div class="panel">
+            <div class="row">
+              <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg></span>
+              <div class="row-main"><div class="row-t">Logs</div><div class="row-d">Saved as a zip on your Desktop, with no keys and no transcripts. Handy for a bug report.</div></div>
+              <button type="button" class="btn btn-sec btn-sm" id="logsBtn" onclick="downloadLogs(this)"><svg class="ic" aria-hidden="true"><use href="#i-folder"/></svg><span>Show in folder</span></button>
+            </div>
+          </div></div>
+
+          <div class="glabel"><span class="eyebrow">Start over</span></div>
+          <div class="group"><div class="panel">
+            <!-- Delete all my data (src/privacy_data.py) keeps the keys, words
+                 and settings; deleting those too is the full reset, which
+                 asks again on its own. -->
+            <div class="row" id="resetRow">
+              <span class="itile is-err"><svg class="ic" aria-hidden="true"><use href="#i-trash"/></svg></span>
+              <div class="row-main"><div class="row-t">Delete all my data</div><div class="row-d">History, usage, recordings and logs. Your keys, words and settings stay.</div></div>
+              <button type="button" class="btn btn-danger btn-sm" id="resetAsk" onclick="askFactoryReset(true)">Delete…</button>
+            </div>
+            <div class="row reset-confirm" id="resetConfirm" hidden>
+              <div class="row-main"><div class="row-t">Delete your history, usage, recordings and logs?</div><div class="row-d">This can't be undone. Waffler keeps running with your keys and words. <a class="link" href="#" id="resetKeysAsk" onclick="askFactoryResetKeys(true); return false;">Delete my keys and settings too</a></div></div>
+              <button type="button" class="btn btn-sec btn-sm" id="resetNo" onclick="askFactoryReset(false)">Keep it</button>
+              <button type="button" class="btn btn-danger btn-sm" id="resetYes" onclick="deleteMyData(this)">Delete my data</button>
+            </div>
+            <div class="row reset-confirm" id="resetKeysConfirm" hidden>
+              <div class="row-main"><div class="row-t">Delete everything, your keys too?</div><div class="row-d">This can't be undone. Your keys, words and settings go as well. Waffler closes, and setup starts the next time you open it.</div></div>
+              <button type="button" class="btn btn-sec btn-sm" id="resetKeysNo" onclick="askFactoryResetKeys(false)">Keep my keys</button>
+              <button type="button" class="btn btn-danger btn-sm" onclick="factoryReset()">Delete everything</button>
+            </div>
+          </div></div>
+        </section>
+
+        <!-- About -->
+        <section class="s-sec" id="secAbout" data-sec="about" hidden>
+          <div class="about-head">
+            <span class="about-mark" data-waffle="logo" data-size="56"></span>
+            <div class="about-id">
+              <h1 class="ptitle">Waffler</h1>
+              <p class="small about-ver"><span id="aboutVersion">Version</span><span class="chip" id="aboutUpdateChip" hidden></span></p>
+            </div>
+            <button type="button" class="btn btn-sec" id="checkUpdateBtn" onclick="checkForUpdatesManual()"><svg class="ic" aria-hidden="true"><use href="#i-refresh"/></svg>Check for updates</button>
+          </div>
+
+          <div class="glabel"><span class="eyebrow">What Waffler uses</span></div>
+          <div class="group"><div class="panel">
+            <div class="row row-tight">
+              <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-mic"/></svg></span>
+              <div class="row-main"><div class="row-t">Speech to text</div></div>
+              <span class="mono about-model" id="aboutSpeech">No key yet</span>
+            </div>
+            <div class="row row-tight">
+              <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-sliders"/></svg></span>
+              <div class="row-main"><div class="row-t">Clean-up</div></div>
+              <span class="mono about-model" id="aboutCleanup">No key yet</span>
+            </div>
+          </div></div>
+
+          <div class="about-links">
+            <button type="button" class="btn btn-sec btn-sm" onclick="openAboutLink('source')"><svg class="ic" aria-hidden="true"><use href="#i-github"/></svg>Open source on GitHub</button>
+            <button type="button" class="btn btn-sec btn-sm" onclick="openAboutLink('issues')"><svg class="ic" aria-hidden="true"><use href="#i-bug"/></svg>Report a problem</button>
+            <button type="button" class="btn btn-sec btn-sm" onclick="openAboutLink('releases')"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg>Release notes</button>
+          </div>
+        </section>
+
+      </div>
+    </div>
   </div>
+
+  <!-- ── Vocabulary ────────────────────────────────────────────────────── -->
+  <div class="vocabulary-panel" id="vocabularyPanel" style="display:none">
+    <div class="v-col">
+      <h1 class="ptitle">Vocabulary</h1>
+      <p class="pdesc">Names and words Waffler should spell your way. Add each one once.</p>
+      <form class="vocab-add-row" onsubmit="addVocabWord(); return false;">
+        <label class="vocab-field">
+          <svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg>
+          <input type="text" id="vocabInput" class="vocab-input" placeholder="Add a name or word" aria-label="Add a name or word" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" value="">
+        </label>
+        <button type="submit" class="btn btn-pri vocab-add-btn">Add</button>
+      </form>
+      <p class="s-error" id="vocabError" role="alert" hidden></p>
+      <div id="vocabList" class="vocab-list"></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Update dialog: one modal (VR10). Later is a quiet link. -->
+<div class="modal-overlay" id="updateModal" style="display:none" onclick="closeUpdateModal(event)">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="updateModalTitle" tabindex="-1" onclick="event.stopPropagation()">
+    <span class="itile" id="updateModalIcon"><svg class="ic" aria-hidden="true"><use href="#i-circle-up"/></svg></span>
+    <h2 class="modal-title" id="updateModalTitle">Checking for updates…</h2>
+    <p class="modal-sub" id="updateModalSubtitle">Asking GitHub for the latest version.</p>
+
+    <div class="modal-progress" id="updateProgressWrap" style="display:none">
+      <div class="modal-track"><div class="modal-fill" id="updateProgressBar"></div></div>
+      <div class="modal-progress-t" id="updateProgressText">0%</div>
+    </div>
+
+    <div class="modal-acts" id="updateModalActions">
+      <button type="button" class="btn btn-quiet" id="updateCancelBtn" onclick="closeUpdateModal()">Close</button>
+      <span class="modal-sp"></span>
+      <button type="button" class="btn btn-sec" id="updateBrowserBtn" style="display:none;">Open download page</button>
+      <button type="button" class="btn btn-pri" id="updatePrimaryBtn" style="display:none"></button>
+    </div>
+  </div>
+</div>
+
+<!-- Hotkey dialog: hold the keys you want (Settings, Hotkey, Change…; and
+     setup's "Pick another key"). Settings also offers this computer's own
+     presets (logic.js hotkeyPresets): Windows and Mac have different keys. -->
+<div class="modal-overlay hotkey-modal-overlay" id="hotkeyModal" style="display:none" onclick="closeHotkeyCapture()">
+  <div class="modal hotkey-modal" role="dialog" aria-modal="true" aria-labelledby="hotkeyModalTitle" tabindex="-1" onclick="event.stopPropagation()">
+    <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-keyboard"/></svg></span>
+    <h2 class="modal-title" id="hotkeyModalTitle">Hold your new keys</h2>
+    <p class="modal-sub">Hold the combination you want, then let go. Esc cancels.</p>
+    <div class="hk-capture" id="hotkeyCaptureBox">
+      <span class="keys hk-capture-keys" id="hotkeyCaptureKeys"></span>
+    </div>
+    <p class="sr-only" id="hotkeyCaptureLive" role="status" aria-live="polite"></p>
+    <p class="modal-error" id="hotkeyError" role="alert" style="display:none"></p>
+    <div class="hk-presets" id="hotkeyPresetRow">
+      <span class="small">Or pick one:</span>
+      <span class="hk-preset-list" id="settingsHotkeyPresets"></span>
+    </div>
+    <div class="modal-acts">
+      <button type="button" class="btn btn-quiet" onclick="resetHotkeyDefault()">Use the default</button>
+      <span class="modal-sp"></span>
+      <button type="button" class="btn btn-sec" onclick="closeHotkeyCapture()">Cancel</button>
+      <button type="button" class="btn btn-pri" onclick="saveHotkeyCapture()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- First-run setup (3.15). Three steps on Windows (Connect Groq, Try it,
+     Use it anywhere) and four on a Mac (Permissions after Connect Groq).
+     Each step is one screen with a title that says the task. app.js
+     (wizShowStep) shows one .ob-step at a time and sets data-state on it;
+     elements with data-when="..." show only in those states. It follows the
+     chosen theme like the rest of the window. -->
+<div class="wizard-overlay ob" id="wizardOverlay" role="dialog" aria-modal="true" aria-labelledby="obTitleConnect" style="display:none">
+  <header class="ob-head">
+    <div class="ob-brand">
+      <span class="ob-mark" data-waffle="logo" data-size="26"></span>
+      <span class="ob-word">Waffler</span>
+    </div>
+    <ol class="ob-stepper" id="obStepper" aria-label="Setup steps"></ol>
+  </header>
+
+  <div class="ob-main">
+
+    <!-- ── Connect your free Groq account ─────────────────────────────── -->
+    <section class="ob-step" id="obStepConnect" data-step="connect" data-state="start" style="display:none">
+      <div class="ob-left">
+        <h1 class="ob-title" id="obTitleConnect" tabindex="-1" data-when="start waiting checking error">Connect your free Groq account</h1>
+        <h1 class="ob-title" id="obTitleConnected" tabindex="-1" data-when="connected">Groq is connected</h1>
+
+        <p class="ob-lede" data-when="start">Waffler uses Groq, a free AI service, to turn your voice into tidy text. It's your own account, so your words go from this computer to Groq and nowhere else.</p>
+        <p class="ob-lede" data-when="waiting checking error">Groq opened in your browser. Follow these, then come back to this window.</p>
+        <p class="ob-lede" data-when="connected">Waffler checked your key with Groq. You won't need it again: it stays on this computer.</p>
+
+        <div data-when="start">
+          <button class="btn btn-pri btn-lg ob-cta" id="obGetKey" onclick="wizOpenGroq()">Get my free Groq key<svg class="ic" aria-hidden="true"><use href="#i-external"/></svg></button>
+          <p class="ob-small ob-under-cta">Free for roughly 30 cleaned dictations a day.</p>
+          <div class="eyebrow ob-then">Then, in Groq</div>
+        </div>
+
+        <ol class="ob-checklist" data-when="start waiting checking error">
+          <li><span class="ob-n">1</span><span>Sign in with Google or email</span></li>
+          <li><span class="ob-n">2</span><span>Click <b>Create API Key</b></span></li>
+          <li><span class="ob-n">3</span><span>Name it Waffler and click <b>Submit</b></span></li>
+          <li><span class="ob-n">4</span><span>Click <b>Copy</b>, then come back here</span></li>
+        </ol>
+
+        <div class="ob-callout" data-when="start">
+          <svg class="ic" aria-hidden="true"><use href="#i-info"/></svg>
+          <span>Groq shows the key once. Click Copy before you close that box.</span>
+        </div>
+
+        <div class="panel ob-keybox" data-when="waiting checking error">
+          <div class="ob-keystate" id="obKeyState" role="status" aria-live="polite">
+            <span class="ob-pulse" aria-hidden="true"></span>
+            <span>Waiting for your key. Waffler picks it up when you come back.</span>
+          </div>
+          <div class="dots-h ob-keysep"></div>
+          <label class="ob-small ob-pastelabel" for="wizGroqKeyInput">Or paste it here</label>
+          <div class="ob-keyrow">
+            <input type="password" id="wizGroqKeyInput" class="input input-mono" placeholder="gsk_…" autocomplete="off" spellcheck="false" aria-describedby="obKeyState">
+            <button class="btn btn-sec ob-paste" type="button" onclick="wizPasteKey()"><svg class="ic" aria-hidden="true"><use href="#i-clipboard"/></svg>Paste</button>
+          </div>
+        </div>
+        <p class="ob-small ob-after" data-when="waiting checking">Browser closed by mistake? <a class="link" href="#" onclick="wizOpenGroq(); return false;">Open Groq again</a></p>
+        <p class="ob-small ob-after" data-when="error"><a class="link" href="#" onclick="wizOpenGroq(); return false;">Open Groq keys</a> to make a new one.</p>
+
+        <div class="group ob-services" data-when="connected">
+          <div class="panel" id="obServices"></div>
+        </div>
+      </div>
+
+      <div class="ob-stage">
+        <!-- A real result, as the reason to bother (examples.ts "email"). -->
+        <div class="ob-art ob-art-honey" data-when="start">
+          <div class="ob-art-in ob-example">
+            <span class="ob-example-waffle" data-waffle="logo" data-size="84"></span>
+            <div class="ob-tape"><div class="ob-pl">What you said</div><div class="ob-tx">Hi, Sam. <del>Um, so, yeah,</del> for the review, can we do Thursday at two? I'll bring the<del>, uh,</del> updated numbers. Cheers, James.</div></div>
+            <div class="ob-wrote"><div class="ob-pl">Waffler wrote</div><div class="ob-tx"><p>Hi Sam,</p><p>For the review, can we do Thursday at two? I'll bring the updated numbers.</p><p>Cheers,<br>James</p></div></div>
+          </div>
+          <div class="ob-footnote">A real result from Waffler. Example voice.</div>
+        </div>
+
+        <!-- Where the key is, in the browser (a plain replica). -->
+        <div class="ob-art ob-art-cream" data-when="waiting checking error">
+          <div class="ob-art-in ob-center">
+            <span class="ob-chip"><svg class="ic" aria-hidden="true"><use href="#i-external"/></svg>In your browser</span>
+            <div class="ob-browser" aria-hidden="true">
+              <div class="ob-browser-bar"><span class="ob-dots"><i></i><i></i><i></i></span><span class="ob-url"><svg class="ic ic-sm"><use href="#i-lock"/></svg>console.groq.com/keys</span></div>
+              <div class="ob-browser-page">
+                <div class="ob-browser-row"><span class="ob-browser-h">API Keys</span><span class="ob-fake-btn ob-fake-pri" id="obFakeCreate"><svg class="ic"><use href="#i-plus"/></svg>Create API Key</span></div>
+                <div class="ob-keydialog" data-when="waiting checking">
+                  <div class="ob-keydialog-t">Your new key: Waffler</div>
+                  <div class="ob-keydialog-d">Copy it now. It won't be shown again.</div>
+                  <div class="ob-keydialog-row"><span class="ob-keydialog-key">gsk_••••••••••••••••••••••••</span><span class="ob-fake-btn ob-fake-sec ob-hl"><svg class="ic"><use href="#i-copy"/></svg>Copy</span></div>
+                </div>
+                <div class="ob-skeleton" data-when="error"><i></i><i></i></div>
+              </div>
+            </div>
+            <p class="ob-art-cap" data-when="waiting checking">Click Copy, then come back to Waffler. It picks the key up on its own.</p>
+            <p class="ob-art-cap" data-when="error">Make a new key, then click Copy. The old one can stay or go.</p>
+          </div>
+        </div>
+
+        <!-- What connected means: no Waffler server in between. -->
+        <div class="ob-art ob-art-honey" data-when="connected">
+          <div class="ob-art-in ob-center">
+            <div class="ob-flow">
+              <div class="ob-fcard"><span class="ob-fmark" data-waffle="logo" data-size="34"></span><div><b>This computer</b><span class="ob-fd">Waffler, with your key</span><span class="ob-kchip"><svg class="ic ic-sm" aria-hidden="true"><use href="#i-key"/></svg><span id="obKeyTail">gsk_…</span></span></div></div>
+              <div class="ob-flink"><span class="ob-flab">your voice, on your key</span><span class="ob-nows">No Waffler server</span><span class="ob-flab2">clean text, back to you</span></div>
+              <div class="ob-fcard"><span class="itile is-ok"><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg></span><div><b>Groq</b><span class="ob-fd">Turns speech into text, then tidies it</span></div></div>
+            </div>
+            <span class="ob-go"><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg>Checked just now. Next, try it out.</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Mac: Let Waffler listen and type for you ───────────────────── -->
+    <section class="ob-step" id="obStepPermissions" data-step="permissions" data-state="asking" style="display:none">
+      <div class="ob-left">
+        <h1 class="ob-title" id="obTitlePermissions" tabindex="-1">Let Waffler listen and type for you</h1>
+        <p class="ob-lede">Your Mac asks once for each. Allow all three and setup carries on by itself.</p>
+        <p class="sr-only" id="obPermLive" role="status" aria-live="polite"></p>
+        <div class="group ob-perms"><div class="panel">
+          <div class="row ob-perm" id="obPermMic">
+            <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-mic"/></svg></span>
+            <div class="row-main"><div class="row-t">Microphone</div><div class="row-d">So it hears you while you hold <span class="ob-hk-name">Fn</span>.</div></div>
+            <span class="ob-perm-ctl"><button class="btn btn-sm btn-pri" aria-label="Allow microphone" onclick="wizAllow('microphone')">Allow</button></span>
+          </div>
+          <div class="row ob-perm" id="obPermKeys">
+            <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-keyboard"/></svg></span>
+            <div class="row-main"><div class="row-t">Keyboard</div><div class="row-d">To spot <span class="ob-hk-name">Fn</span>. It never records your typing.</div></div>
+            <span class="ob-perm-ctl"><button class="btn btn-sm btn-sec" aria-label="Allow keyboard monitoring" onclick="wizAllow('input_monitoring')">Allow</button></span>
+          </div>
+          <div class="row ob-perm" id="obPermTyping">
+            <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-text-cursor"/></svg></span>
+            <div class="row-main"><div class="row-t">Typing for you</div><div class="row-d">To paste into the app you're using.</div></div>
+            <span class="ob-perm-ctl"><button class="btn btn-sm btn-sec" aria-label="Allow typing for you" onclick="wizAllow('accessibility')">Allow</button></span>
+          </div>
+        </div></div>
+        <p class="ob-small ob-after">Your Mac may ask you to quit and reopen Waffler. That's normal. Setup carries on from here.</p>
+      </div>
+      <div class="ob-stage">
+        <div class="ob-art ob-art-cream">
+          <div class="ob-art-in ob-center">
+            <span class="ob-chip">What your Mac shows next</span>
+            <div class="ob-macalert" aria-hidden="true">
+              <span class="ob-macalert-icon" data-waffle="logo" data-size="48"></span>
+              <div class="ob-macalert-t" id="obMacAlertTitle">“Waffler” would like to access the microphone.</div>
+              <div class="ob-macalert-d" id="obMacAlertBody">Waffler needs microphone access for voice transcription.</div>
+              <div class="ob-macalert-btns" id="obMacAlertBtns"><span class="ob-mac-btn">Don't Allow</span><span class="ob-mac-btn ob-mac-btn-pri ob-hl">Allow</span></div>
+            </div>
+            <div class="ob-macswitch" id="obMacSwitch" aria-hidden="true"><span data-waffle="logo" data-size="22"></span><span class="ob-macswitch-name">Waffler</span><span class="ob-macswitch-tog ob-hl"><i></i></span></div>
+            <p class="ob-art-cap" id="obMacCap">Click Allow. Waffler notices by itself.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Hold <hotkey> and talk ─────────────────────────────────────── -->
+    <section class="ob-step" id="obStepTry" data-step="try" data-state="wait" style="display:none">
+      <div class="ob-left">
+        <h1 class="ob-title" id="obTitleTry" tabindex="-1">Hold <span class="ob-hk-name" id="obTryTitleKey">Win + Ctrl</span> and talk</h1>
+        <p class="ob-lede">Say it however it comes out, then let go.</p>
+        <p class="sr-only" id="obTryLive" role="status" aria-live="polite"></p>
+        <p class="sr-only" id="obTryAlert" role="alert"></p>
+        <div class="panel ob-suggest">
+          <div class="eyebrow">Try saying</div>
+          <p class="ob-suggest-t">“Send it to John, sorry, James, by Wednesday at three.”</p>
+        </div>
+        <div class="panel ob-microw">
+          <svg class="ic ob-micicon" aria-hidden="true"><use href="#i-mic"/></svg>
+          <select id="wizMicSelect" class="ob-micselect" aria-label="Microphone" onchange="wizMicChanged(this.value)"></select>
+          <span class="ob-meter" id="obMeter" aria-hidden="true"></span>
+        </div>
+
+        <div class="ob-extra" data-when="wait">
+          <div class="ob-callout ob-fnwarn" id="obFnWarn" hidden>
+            <svg class="ic" aria-hidden="true"><use href="#i-globe"/></svg>
+            <span><b id="obFnWarnTitle">Your Fn key also opens the emoji picker.</b> <span id="obFnWarnDetail"></span><br>
+              <button class="btn btn-sec btn-sm ob-fnbtn" onclick="wizOpenKeyboardSettings()">Open Keyboard settings</button></span>
+          </div>
+          <p class="ob-small" id="obOtherKey">Doesn't work on this keyboard? <a class="link" href="#" onclick="wizShowKeyPicker(); return false;">Pick another key</a></p>
+          <div class="panel ob-keypicker" id="obKeyPicker" hidden>
+            <div class="eyebrow">Choose your hotkey</div>
+            <div class="ob-keypicker-list" id="wizHotkeyPresetList"></div>
+            <p class="ob-small ob-keypicker-err" id="obKeyPickerErr" role="alert" hidden></p>
+          </div>
+        </div>
+        <p class="ob-small ob-extra" data-when="rec">Let go when you're done.</p>
+        <p class="ob-small ob-extra" data-when="clean">Tidying it up.</p>
+        <div class="ob-callout ob-callout-ok ob-extra" data-when="done">
+          <svg class="ic" aria-hidden="true"><use href="#i-check-circle"/></svg>
+          <span><b>That's it.</b> In any other app, it's pasted where you were typing.<span id="obSavedLine"> This one is also saved in your Journal.</span></span>
+        </div>
+        <p class="ob-small ob-extra ob-note" id="obPracticeNote" data-when="done" hidden></p>
+        <div class="ob-callout ob-callout-err ob-extra" data-when="silent">
+          <svg class="ic" aria-hidden="true"><use href="#i-mic-off"/></svg>
+          <span><b>Waffler heard silence.</b> Your microphone may be muted, or a different one is picked. Check it above, then hold <span class="ob-hk-name">the keys</span> again.</span>
+        </div>
+        <div class="ob-callout ob-callout-err ob-extra" data-when="error">
+          <svg class="ic" aria-hidden="true"><use href="#i-alert"/></svg>
+          <span id="obPracticeError">Something went wrong with that one. Hold the keys and try again.</span>
+        </div>
+        <div class="ob-callout ob-callout-err ob-extra" data-when="nomic">
+          <svg class="ic" aria-hidden="true"><use href="#i-mic-off"/></svg>
+          <span><b>Waffler isn't allowed to use the microphone.</b> Allow it in System Settings, then come back.<br>
+            <button class="btn btn-sec btn-sm ob-fnbtn" onclick="wizAllow('microphone')">Open Microphone settings</button></span>
+        </div>
+      </div>
+
+      <div class="ob-stage">
+        <div class="ob-art ob-art-lattice">
+          <div class="ob-art-in ob-try">
+            <div class="ob-keyblock">
+              <span class="holdkey" id="obHoldKey">Win + Ctrl</span>
+              <span class="ob-holdcap" id="obHoldCap">Hold to talk</span>
+            </div>
+            <div class="ob-try-mid" data-when="wait">
+              <div class="ob-ghost"><span data-waffle="empty" data-size="76"></span></div>
+              <span class="ob-ghostcap">This waffle appears while you talk</span>
+            </div>
+            <div class="ob-try-mid" data-when="rec silent">
+              <div class="ob-bigwaffle" id="obBigWaffle"></div>
+              <span class="ob-chip ob-recchip" data-when="rec"><i></i>Recording <span id="obRecTime">0:00</span></span>
+              <span class="ob-chip ob-recchip ob-recchip-off" data-when="silent"><i></i>Nothing heard</span>
+            </div>
+            <div class="ob-pair" data-when="wait">
+              <div class="ob-said-ph"><div class="ob-pl">What you said</div><div>Your words appear here.</div></div>
+              <div class="ob-wrote-ph"><div class="ob-pl">Waffler wrote</div><div>And the tidy version here.</div></div>
+            </div>
+            <div class="ob-pair" data-when="clean done">
+              <span class="ob-chip ob-recchip ob-recchip-honey" data-when="clean"><i></i>Cleaning up</span>
+              <div class="ob-tape"><div class="ob-pl">What you said</div><div class="ob-tx" id="obSaid"></div></div>
+              <div class="ob-wrote"><div class="ob-pl">Waffler wrote</div>
+                <div class="ob-skel" data-when="clean"><i></i><i></i></div>
+                <div class="ob-tx" id="obWrote" data-when="done"></div>
+              </div>
+              <span class="ob-go" id="obSavedChip" data-when="done"><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg>Saved as your first Journal entry</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Now use it anywhere ─────────────────────────────────────────── -->
+    <section class="ob-step" id="obStepAnywhere" data-step="anywhere" data-state="ready" style="display:none">
+      <div class="ob-left">
+        <h1 class="ob-title" id="obTitleAnywhere" tabindex="-1">Now use it anywhere</h1>
+        <p class="ob-lede">Click into any text box, in email, WhatsApp, Word or anywhere else, then hold <span class="keys" id="obAnyKeys"></span> and talk.</p>
+        <button class="btn btn-sec btn-lg ob-editor-btn" id="obEditorBtn" onclick="wizOpenEditor()"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg><span id="obEditorLabel">Open Notepad and try it</span></button>
+        <p class="ob-small ob-editor-err" id="obEditorErr" role="alert" hidden></p>
+        <div class="group ob-anyrows"><div class="panel">
+          <label class="row ob-loginrow" for="wizStartAtLogin">
+            <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-power"/></svg></span>
+            <span class="row-main"><span class="row-t">Start Waffler when I turn on my computer</span><span class="row-d" id="obLoginDesc">So the hotkey works after a restart.</span></span>
+            <input type="checkbox" class="tog" role="switch" id="wizStartAtLogin" checked onchange="wizLoginToggled(this.checked)">
+          </label>
+          <div class="row">
+            <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-chevron-up"/></svg></span>
+            <div class="row-main"><div class="row-t" id="obTrayTitle">Waffler waits in the tray</div><div class="row-d" id="obTrayDesc">Under the ^ by the clock. Closing this window doesn't stop it.</div></div>
+          </div>
+        </div></div>
+      </div>
+      <div class="ob-stage">
+        <div class="ob-art ob-art-cream ob-desk" id="obDesk">
+          <!-- Windows: Notepad and the tray. -->
+          <div class="ob-desk-win">
+            <div class="ob-notepad">
+              <div class="ob-np-title"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg><span>Untitled - Notepad</span><span class="ob-np-ctl"><i>&#8211;</i><i>&#9633;</i><i>&#10005;</i></span></div>
+              <div class="ob-np-menu"><span>File</span><span>Edit</span><span>View</span></div>
+              <div class="ob-np-body"><span class="ob-desk-text">Send it to James by Wednesday at three.</span><span class="ob-caret"></span></div>
+            </div>
+            <span class="ob-chip ob-tray-arrow">Waffler<svg class="ic" aria-hidden="true"><use href="#i-arrow"/></svg></span>
+            <div class="ob-trayflyout">
+              <span><svg class="ic"><use href="#i-volume"/></svg></span><span><svg class="ic"><use href="#i-shield"/></svg></span><span><svg class="ic"><use href="#i-download"/></svg></span><span><svg class="ic"><use href="#i-monitor"/></svg></span>
+              <span class="ob-tray-me" data-waffle="logo" data-size="20"></span><span><svg class="ic"><use href="#i-clock"/></svg></span>
+            </div>
+            <div class="ob-taskbar"><span class="ob-taskbar-up"><svg class="ic"><use href="#i-chevron-up"/></svg></span><span class="ob-taskbar-clock">16:31<br>25/09/2026</span></div>
+          </div>
+          <!-- Mac: TextEdit and the menu bar. -->
+          <div class="ob-desk-mac">
+            <div class="ob-menubar"><b>TextEdit</b><span>File</span><span>Edit</span><span>Format</span><span class="ob-menubar-right"><span class="ob-menubar-me" data-waffle="logo" data-size="15"></span><svg class="ic"><use href="#i-volume"/></svg><svg class="ic"><use href="#i-search"/></svg><span>Fri 25 Sep 16:31</span></span></div>
+            <span class="ob-chip ob-menubar-arrow"><svg class="ic" aria-hidden="true"><use href="#i-chevron-up"/></svg>Waffler lives here</span>
+            <div class="ob-textedit">
+              <div class="ob-te-title"><span class="ob-dots ob-dots-mac"><i></i><i></i><i></i></span><span>Untitled</span></div>
+              <div class="ob-te-body"><span class="ob-desk-text">Send it to James by Wednesday at three.</span><span class="ob-caret"></span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <nav class="wiz-nav ob-foot">
+    <button class="btn btn-quiet ob-back" id="wizBtnBack" onclick="wizBack()" hidden>Back</button>
+    <span class="ob-foot-left" id="obFootLeft"><span class="ob-small">Already have a key?</span><a class="link ob-small" href="#" onclick="wizPasteInstead(); return false;">Paste it here</a></span>
+    <span class="ob-sp"></span>
+    <button class="btn btn-quiet ob-skip" id="wizBtnSkip" onclick="wizSkipTryIt()" hidden>Skip for now</button>
+    <button class="btn btn-pri btn-lg ob-next" id="wizBtnNext" onclick="wizNext()" disabled><span id="wizBtnNextLabel">Continue</span><svg class="ic" aria-hidden="true"><use href="#i-arrow"/></svg></button>
+  </nav>
 </div>
 
 <!-- Toast -->
-
-<div class="toast" id="toast"></div>
+<!-- An ink pill at the bottom centre (top centre over setup). -->
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script src="logic.js"></script>
+<script src="icons.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

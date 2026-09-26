@@ -4,6 +4,219 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.15.0] - Unreleased
+
+Waffler's window now looks like the website. This release rebuilds it in
+stages; this first part lays the foundation that every screen is built on.
+
+### Changed
+
+- The window uses the website's colours: the eggshell background in the
+  light theme, and the site's warm night colours (in place of the old
+  blue-grey) in Dark. Gold is only ever a fill or a light; where gold is
+  text on a light background it is the darker #7A5717, so it can be read.
+- New type, matching the site: Inter for everything you read and click,
+  Geist for titles and the wordmark, Geist Mono for keys and versions, and
+  Source Serif italic for dates and times. Geist and Geist Mono ship inside
+  the app with their licences, like Inter and Source Serif, so opening the
+  window still contacts nobody.
+- One set of buttons, inputs, toggles, tabs, keycaps and cards. The main
+  window's buttons use it now; the setup screens move over later in 3.15.
+  Controls now use the app's font; some buttons fell back to Arial.
+- Line icons replace the emoji, so the window looks the same on Windows and
+  on a Mac and the icons follow the theme.
+- A new top bar: the waffle and wordmark, the three pages as one segmented
+  control, and a status pill that keeps one width in every state, so the bar
+  no longer shifts when you start or stop a dictation. At Ready the pill
+  shows your hotkey as keys; while you record it counts the time, and while
+  your words are cleaned up it counts the seconds.
+- Update notices are a card with the text in ink, readable in both themes.
+- The restart and update dialogs share one look and follow the theme; the
+  restart dialog no longer stays cream in Dark, and its icon no longer spins.
+- The native window opens in the new background colour, so there is no
+  flash of the old one before the page appears.
+
+### Removed
+
+- Code nothing could reach: the old overlay page, handlers for snippets,
+  history export, clearing history and resetting usage that no screen
+  offered, the old sidebar's leftovers, and four bridge methods nothing
+  called (focus_window, request_permissions, test_microphone and
+  wizard_get_recording_state).
+
+### Setup
+
+First-run setup is rebuilt: three steps on Windows and four on a Mac, each
+one screen with a title that says the task. People who have already set
+Waffler up never see it.
+
+- **Connect your free Groq account.** One "Get my free Groq key" button
+  opens Groq's key page, with Groq's four steps in order under it. Waffler
+  waits for the key and picks it up from the clipboard when you come back
+  (on arrival, on returning to the window, or when you click Paste; never
+  on a timer), then checks it with Groq by itself. Each failure is one plain
+  sentence: offline, key not accepted, blocked (usually a VPN), and a busy
+  moment, which is tried again by itself. When it works, setup shows what
+  the key can do: speech to text and the clean-up, each with its model. The
+  provider tabs, the OpenAI panel and the long explanations are gone from
+  setup; OpenAI and Cerebras keys are added in Settings as before.
+- **Mac: Let Waffler listen and type for you.** Microphone, Keyboard and
+  Typing for you on one screen. Each Allow shows macOS's own prompt, so
+  Waffler is already in each list and there is no + button or file picker.
+  The microphone is now asked for here, so the first practice recording
+  isn't silent. Setup moves on by itself once all three are allowed, and
+  carries on from the same screen if macOS asks you to quit and reopen.
+- **Hold your hotkey and talk.** The hotkey step and Try it are one screen.
+  Holding the real keys lights the key and shows the live microphone level.
+  The practice now runs the whole dictation, transcription and clean-up, on
+  your own key, and shows "You said" (with the words the clean-up left out
+  struck through) next to "Waffler wrote". It is saved as your first Journal
+  entry. Continue unlocks after one dictation, and Skip for now is always
+  there. Silence, a microphone macOS isn't allowing, and a failed dictation
+  each say what to do, and "Pick another key" changes the hotkey on the spot.
+  On a Mac, if the Fn key also opens the emoji picker (or switches input
+  source, or starts dictation), setup says so and offers Keyboard settings;
+  Waffler never changes that setting itself. The same note is in Settings,
+  under Hotkey.
+- **Now use it anywhere.** "Open Notepad and try it" ("Open TextEdit" on a
+  Mac) starts the real hotkey and opens an empty page to dictate into, and
+  the screen says where Waffler waits (the tray, or the menu bar) and that
+  closing the window doesn't stop it.
+- **Start at sign-in.** Waffler now starts when you sign in to the computer,
+  waiting in the tray or menu bar, so the hotkey works after a restart. It
+  is on by default at the end of setup, with the switch right there and in
+  Settings, under General; the switch reads what Windows or macOS
+  actually has. On Windows it is a "Waffler" entry in your user's startup
+  programs, removed when you uninstall; on a Mac a login item in your
+  LaunchAgents folder. A factory reset removes it too. It isn't offered while
+  a Mac runs Waffler from the downloaded disk image.
+- Setup follows the chosen theme; it used to stay cream in Dark.
+- Clicking Done while "Open Notepad and try it" was still starting Waffler
+  could start it twice, so each dictation would paste, cost and appear in
+  the Journal twice. Waffler now starts once however it is asked.
+- On a Mac, starting at sign-in opens Waffler in the background, so the
+  window no longer appears at every login.
+- The Windows installer asks nothing: no folder page, no "Ready to install"
+  page and no desktop-shortcut question.
+
+### The main window
+
+The Journal, Vocabulary and Settings are rebuilt on the same parts as the
+website and setup, in light and Dark.
+
+- **Journal.** One 880 px column: your numbers in a cream card (words
+  today, dictations today, words all time, your streak of days and search),
+  then your entries under a row for each day. Entry text is larger (Inter
+  16/26) and the time is in serif italic. Copy is a proper button and
+  "Copied" shows a tick; Show transcript is a quiet link. A flagged entry
+  shows a chip ("Worth a look" or "Check this one") and says why in a
+  sentence under the text; it used to hide the reason in a tooltip.
+- **It stays quick with a long history.** The Journal draws the newest 50
+  entries and more as you scroll, adds a new dictation at the top instead of
+  rebuilding every card, and searches the whole history without drawing it.
+  With 3,290 entries (a real user's), building the Journal went from about
+  450 ms to about 15 ms, a new dictation from about 430 ms to about 2 ms,
+  and the page from 38,924 elements to 1,847. The counts are worked out once
+  each time history changes, not on every request, and start-up asks for
+  each thing once (it asked for the whole history three to five times).
+- **The first time**, the Journal shows how: hold your keys in any text box
+  and talk, with a button that opens Notepad (TextEdit on a Mac) to try it
+  and a link to your Vocabulary. The empty numbers are hidden. A search
+  with no matches says so and offers to clear it.
+- **Clean-up paused.** When every clean-up provider has reached its limit,
+  the Journal says "Clean-up is paused until 14:32" at the top, with Add a
+  backup key, until it ends. Dictation keeps working and those entries are
+  tagged "As said: limit reached".
+- **Vocabulary.** A bigger box and an ink Add button; your words are chips,
+  A to Z, each with its own remove button. With no words yet, the page
+  explains what it's for with the website's checked examples: Isabel to
+  Isobel, Caitlin to Caitlyn, Sinead to Sinéad, Hayley to Hailey, and club
+  card to Clubcard.
+- **Settings** is six short sections with a menu down the side: General,
+  Keys and providers, Hotkey, Usage, Privacy and data, and About. It used to
+  be one long page of eight cards.
+  - General: Light, Dark or System; spelling; paste when you let go; the
+    microphone (the list was hidden before); start at sign-in; and Run setup
+    again, which keeps your keys and history.
+  - Keys and providers: your keys and the order Waffler tries them in are
+    one list. Groq is marked Recommended; OpenAI and Cerebras are Optional.
+    Each shows its key (masked), whether it's in use, Replace or Add key,
+    and arrows to change the order.
+  - Hotkey: your keys as big keycaps and a Change button, which opens a
+    dialog where you hold the new keys or pick one of this computer's own
+    choices. Space and Esc are explained underneath.
+  - Usage: dictations and words for today, this week, this month and all
+    time first, then the estimated cost at each provider's published rates,
+    as before.
+  - Privacy and data: what is kept on this computer, logs, and Delete all my
+    data, which now asks in the page instead of a system dialog.
+  - About: your version, Check for updates, which model does each job, and
+    links to the source, issues and release notes.
+- **Recent recordings are now said out loud.** Waffler has kept the audio of
+  your last 10 dictations on this computer, to help look into problems like
+  missing words. Settings, Privacy and data now says so, with a switch to
+  stop keeping them and Delete now. It never leaves your computer.
+- **The microphone, described honestly.** Waffler keeps the microphone
+  ready so your first word isn't clipped; each recording includes the
+  half-second before you hold the keys. Settings now says so.
+- Dialogs (updates, restart after a new key, the hotkey) share one look,
+  with Later as a quiet link. Messages at the bottom of the window are an
+  ink pill with an icon, and saving logs no longer prints the whole file
+  path.
+- Plainer words throughout: "Click Try again" instead of "Press Try again",
+  "Waffler 3.15.1 is ready to download", and the download shows "42% · 36.7
+  of 87.3 MB".
+
+### Keyboard, screen readers and zoom
+
+- **Setup is one dialog.** The Journal, Vocabulary and Settings buttons
+  behind it are no longer reachable with Tab, and Tab goes round inside
+  setup. Each new step puts focus on its title, and when a button you used
+  disappears (Get my free Groq key, an Allow on a Mac, the key box once the
+  key works) focus moves to what comes next instead of being lost. After
+  Done, focus starts at the Journal.
+- **Setup says what is happening.** Recording, tidying up, the result, and
+  silence, an error or a microphone that isn't allowed are read out. The key
+  check reads each message once instead of on every keystroke, and "That key
+  looks too short" waits until you stop typing. The three Mac Allow buttons
+  say what each one allows.
+- **Dialogs.** The hotkey, update and restart dialogs take focus when they
+  open, keep Tab inside, and give focus back when they close. Esc closes the
+  update dialog. The hotkey dialog reads out the keys once you let go, and
+  its error.
+- **The Journal** has a heading for each day, each Copy button says which
+  dictation it copies, and a search says how many entries match.
+- Removing a word in Vocabulary keeps focus on the next word.
+- The page buttons at the top are plain buttons marked as the current page,
+  and the Theme choice is one Tab stop you change with the arrow keys.
+- Fields, dropdowns, switches and the chosen tab or section have edges you
+  can see (at least 3:1 against what is around them) in Light and Dark.
+- At 200% zoom in the smallest window, nothing is cut off: the top bar and
+  Settings menu wrap, a setting's control moves under its text, and a
+  dialog taller than the window scrolls.
+
+### Privacy and data
+
+- **Choose how long your history is kept.** Settings, Privacy and data has
+  Keep forever (still the default), for a year, 90 days or 30 days. If a
+  shorter choice would delete dictations, it says how many and asks first.
+  Recordings waiting to be sent are never removed by it.
+- **Recordings not sent** show their count with Try again and Delete, which
+  asks first.
+- **Delete all my data** deletes your history, usage, recent recordings,
+  recordings not sent and the logs, and Waffler keeps running with your
+  keys, words and settings. To delete the keys and settings as well, there
+  is a separate link with its own question; that closes Waffler and setup
+  starts again, as the old reset did.
+- **Old transcripts removed from the log.** Versions from before transcripts
+  were kept out of app.log wrote the start of each dictation there. The
+  first time 3.15 starts it removes those lines, once, and leaves the rest
+  of the log as it was. A log over 5 MB is then started afresh, keeping the
+  previous one as app.log.1.
+- The microphone line is now at the top of Privacy and data too, and the
+  code-signing policy no longer says audio is captured only while you hold
+  the hotkey: the half-second before is part of each recording.
+
 ## [3.14.100] - 2026-09-26
 
 Two things the app claimed that were not true, and a dictation fix. Its
