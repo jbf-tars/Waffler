@@ -22,14 +22,113 @@
     paused:     { cls: 'paused',     label: 'Paused' },
     processing: { cls: 'processing', label: 'Cleaning up' },
     done:       { cls: 'done',       label: 'Done' },
+    // How a dictation can end besides Done (the pipeline watchdog in
+    // src/pipeline_watchdog.py always ends it one of these ways).
+    cancelled:  { cls: 'cancelled',  label: 'Cancelled' },
+    not_sent:   { cls: 'not-sent',   label: 'Not sent' },
+    error:      { cls: 'error',      label: 'Something went wrong' },
   };
   const STATUS_CLASSES = Object.keys(STATUS_VIEWS).map((k) => STATUS_VIEWS[k].cls);
   const DONE_RESET_MS = 3000;
+  // An end state shows for a moment, then the pill says Ready again. Bad
+  // news stays a little longer, so it can be read.
+  const STATUS_RESET_MS = { done: DONE_RESET_MS, cancelled: DONE_RESET_MS, 'not-sent': 6000, error: 6000 };
 
   // An unknown status shows as Ready rather than as its raw name.
   function statusView(status) {
     return Object.prototype.hasOwnProperty.call(STATUS_VIEWS, status)
       ? STATUS_VIEWS[status] : STATUS_VIEWS.idle;
+  }
+
+  // Milliseconds before a status class goes back to Ready, or 0 to stay.
+  function statusResetMs(cls) {
+    return Object.prototype.hasOwnProperty.call(STATUS_RESET_MS, cls) ? STATUS_RESET_MS[cls] : 0;
+  }
+
+  // While processing, the pill counts: "Cleaning up · 4 s". Nothing under a
+  // second, so a quick dictation never flickers a number.
+  function workingLabel(label, seconds) {
+    const s = Math.max(0, Math.floor(Number(seconds) || 0));
+    if (s < 1) return label;
+    return s < 60 ? `${label} · ${s} s` : `${label} · ${Math.floor(s / 60)} min ${s % 60} s`;
+  }
+
+  // ── Not sent recordings (Journal cards) ────────────────────────────────
+  // app.py saves a recording that could not be turned into text and adds a
+  // card with not_sent_reason. The card explains it in plain words; the raw
+  // error never reaches the screen.
+  const NOT_SENT_ID = /^recording-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}(?:-\d{1,3})?\.wav$/;
+
+  // The recording's id. app.py sends unsent_id ("" once the file has gone);
+  // only a card that never had the field falls back to its audio_path.
+  function notSentId(item) {
+    if (!item || !item.failed) return '';
+    const id = Object.prototype.hasOwnProperty.call(item, 'unsent_id')
+      ? String(item.unsent_id || '')
+      : String(item.audio_path || '').split(/[\\/]/).pop();
+    return NOT_SENT_ID.test(id) ? id : '';
+  }
+
+  function _reasonOf(item) {
+    if (item.not_sent_reason) return item.not_sent_reason;
+    // Cards saved before 3.14.100 only have the raw error text.
+    const e = String(item.error || '').toLowerCase();
+    if (/403|401|access denied|unauthori[sz]ed|permission/.test(e)) return 'blocked';
+    if (/429|rate.?limit/.test(e)) return 'rate_limited';
+    if (/timed out|timeout|deadline/.test(e)) return 'timeout';
+    if (/connection|network|resolve|no transcription backend/.test(e)) return 'offline';
+    return 'error';
+  }
+
+  function notSentView(item) {
+    const id = notSentId(item);
+    const p = (item && item.provider_name) || 'your speech service';
+    const P = p.charAt(0).toUpperCase() + p.slice(1);
+    const kept = "The recording is saved on this computer.";
+    const reason = _reasonOf(item || {});
+    const text = {
+      offline: `Waffler couldn't reach ${p}, so this wasn't turned into text. ${kept}`,
+      blocked: `${P} refused the connection, which usually means a VPN is on. ${kept}`,
+      timeout: `${P} took too long to answer, so Waffler stopped waiting. ${kept}`,
+      rate_limited: `${P} said you'd reached your limit for now. ${kept}`,
+      later: `You chose to send this later. ${kept}`,
+      stuck: `Waffler stopped waiting for this one. ${kept}`,
+      empty: "This recording was sent again, but no words could be heard in it.",
+      error: `This wasn't turned into text. ${kept}`,
+    }[reason] || `This wasn't turned into text. ${kept}`;
+    if (!id) {
+      return { id: '', badge: 'Not sent', text: "This wasn't turned into text, and the recording couldn't be saved.",
+        next: '', canRetry: false, canReveal: false, canDelete: true };
+    }
+    let next = 'Press Try again to send it.';
+    if (reason === 'empty') next = '';
+    else if (item.will_retry === true) next = `Waffler will send it by itself when ${p} answers.`;
+    return { id, badge: 'Not sent', text, next, canRetry: reason !== 'empty', canReveal: true, canDelete: true };
+  }
+
+  // What Try again says when it did not work this time.
+  function retryFailedMessage(reason) {
+    return {
+      offline: "Still couldn't connect. Check you're online and try again.",
+      blocked: 'The connection was refused again. If a VPN is on, turn it off and try again.',
+      timeout: 'No answer again. Try again in a moment.',
+      rate_limited: "You're still at your limit. Try again later.",
+      empty: 'It went through, but no words could be heard in this recording.',
+      missing: 'The recording file is no longer there.',
+      busy: 'Waffler is already sending this one.',
+    }[reason] || "It didn't go through. Try again in a moment.";
+  }
+
+  // Settings, Data: how many recordings are waiting.
+  function unsentSummary(s) {
+    const n = (s && s.count) || 0;
+    if (!n) return { label: 'Nothing waiting. Every recording has been sent.', canSend: false };
+    const p = (s && s.provider) || 'your speech service';
+    return {
+      label: `${n === 1 ? '1 recording is' : `${n} recordings are`} waiting to be sent. `
+        + `Waffler sends ${n === 1 ? 'it' : 'them'} when ${p} answers, or you can send ${n === 1 ? 'it' : 'them'} now.`,
+      canSend: true,
+    };
   }
 
   // ── Hotkeys ───────────────────────────────────────────────────────────
@@ -323,7 +422,8 @@
   }
 
   return {
-    STATUS_VIEWS, STATUS_CLASSES, DONE_RESET_MS, statusView,
+    STATUS_VIEWS, STATUS_CLASSES, DONE_RESET_MS, statusView, statusResetMs, workingLabel,
+    notSentId, notSentView, retryFailedMessage, unsentSummary,
     defaultHotkey, keyName, orderKeys, hotkeyName, keycaps, pressOrderHint, hotkeyPresets,
     DOWNLOAD_PAGE, UPDATE_TEXT, splitMessage, updateCheckView, updateFailureView,
     DEFAULT_PROVIDER_ORDER, PROVIDER_NAMES, providerHasKey, normalizeProviderOrder,

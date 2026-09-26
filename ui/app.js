@@ -803,7 +803,9 @@ window.waffler_refresh = function(newItem) {
   }
   renderFeed(newItem ? newItem.timestamp : null);
   if (newItem) {
-    showToast('Transcription complete ✨', 'success');
+    // A Not sent card is not a finished transcription.
+    if (newItem.failed) showToast('Not sent. The recording is saved in the Journal.', 'error');
+    else showToast('Transcription complete ✨', 'success');
   }
 };
 
@@ -814,6 +816,10 @@ window.waffler_refresh = function(newItem) {
 // element that no longer exists, before the "Done" to "Ready" reset was
 // scheduled, so after the first dictation the label stuck on "Done".
 let _statusResetTimer = null;
+// While a dictation is processed the pill counts the seconds ("Cleaning up
+// · 4 s"), so working and stuck no longer look the same. One timer, only
+// while processing; it stops on the next status.
+let _workingTimer = null;
 
 function _showStatus(view) {
   if (!$statusInd || !$statusText) return;
@@ -825,13 +831,23 @@ function _showStatus(view) {
 window.waffler_status = function(status) {
   clearTimeout(_statusResetTimer);
   _statusResetTimer = null;
+  clearInterval(_workingTimer);
+  _workingTimer = null;
   const view = WL.statusView(status);
   _showStatus(view);
-  if (view.cls === 'done') {
+  if (view.cls === 'processing') {
+    const started = Date.now();
+    _workingTimer = setInterval(() => {
+      if ($statusText) $statusText.textContent = WL.workingLabel(view.label, (Date.now() - started) / 1000);
+    }, 1000);
+  }
+  // Done, Cancelled, Not sent and the error show for a moment, then Ready.
+  const resetMs = WL.statusResetMs(view.cls);
+  if (resetMs) {
     _statusResetTimer = setTimeout(() => {
       _statusResetTimer = null;
       _showStatus(WL.statusView('idle'));
-    }, WL.DONE_RESET_MS);
+    }, resetMs);
   }
 };
 
@@ -927,7 +943,147 @@ function qualityBadge(item) {
   return ` <span class="q-badge ${cls}" title="${escHtml(why)}">${mark}</span>`;
 }
 
+// ── Not sent cards ──────────────────────────────────────────────────────
+// A recording that was not turned into text. The card used to show the raw
+// note and a Copy button for text that did not exist, although it promised
+// the audio was "saved so you can retry": nothing in the app could reach it.
+// Now: a plain sentence (logic.js notSentView), Try again, Show the file and
+// Delete. Messages from the last try are kept per recording, because a
+// card is rebuilt when its entry changes.
+const _unsentMessages = {};
+
+function makeNotSentCard(item, isNew) {
+  const v = WL.notSentView(item);
+  const div = document.createElement('div');
+  div.className = 'transcript-card not-sent-card' + (isNew ? ' new' : '');
+  if (v.id) div.dataset.unsentId = v.id;
+  const msg = v.id ? (_unsentMessages[v.id] || '') : '';
+  div.innerHTML = `
+    <div class="card-meta">
+      <div class="card-time">${escHtml(formatTime(item.timestamp))}</div>
+      <div class="ns-badge">${escHtml(v.badge)}</div>
+    </div>
+    <p class="ns-text">${escHtml(v.text)}</p>
+    ${v.next ? `<p class="ns-next">${escHtml(v.next)}</p>` : ''}
+    <p class="ns-status" role="status" aria-live="polite"${msg ? '' : ' hidden'}>${escHtml(msg)}</p>
+    <div class="card-actions ns-actions">
+      ${v.canRetry ? '<button class="btn-copy ns-retry">Try again</button>' : ''}
+      ${v.canReveal ? '<button class="btn-copy ns-reveal">Show the file</button>' : ''}
+      ${v.canDelete ? '<button class="ns-delete">Delete</button>' : ''}
+    </div>
+    <div class="ns-confirm" hidden>
+      <span>Delete this recording? This can't be undone.</span>
+      <button class="ns-confirm-yes">Delete</button>
+      <button class="btn-copy ns-confirm-no">Keep it</button>
+    </div>
+  `;
+  const say = (text) => {
+    const el = div.querySelector('.ns-status');
+    if (v.id) _unsentMessages[v.id] = text;
+    if (el) { el.textContent = text; el.hidden = !text; }
+  };
+  const api = () => (window.pywebview && window.pywebview.api) || null;
+  const retry = div.querySelector('.ns-retry');
+  if (retry) {
+    retry.addEventListener('click', async () => {
+      const a = api(); if (!a || !a.retry_unsent) return;
+      div.querySelectorAll('button').forEach((b) => { b.disabled = true; });
+      retry.textContent = 'Sending…';
+      say('');
+      try {
+        const r = await a.retry_unsent(v.id);
+        if (r && r.ok && r.item) {
+          delete _unsentMessages[v.id];
+          _applyItemUpdate(v.id, r.item);
+          return;
+        }
+        const message = WL.retryFailedMessage(r && r.reason);
+        // The rebuilt card (with this try counted) shows the message too.
+        _unsentMessages[v.id] = message;
+        if (r && r.item && _applyItemUpdate(v.id, r.item)) return;
+        say(message);
+      } catch (e) {
+        say(WL.retryFailedMessage(''));
+      }
+      div.querySelectorAll('button').forEach((b) => { b.disabled = false; });
+      retry.textContent = 'Try again';
+    });
+  }
+  const reveal = div.querySelector('.ns-reveal');
+  if (reveal) {
+    reveal.addEventListener('click', async () => {
+      const a = api(); if (!a || !a.reveal_unsent) return;
+      try {
+        const r = await a.reveal_unsent(v.id);
+        if (!r || !r.ok) say(WL.retryFailedMessage((r && r.reason) || 'missing'));
+      } catch (e) { say(WL.retryFailedMessage('missing')); }
+    });
+  }
+  const del = div.querySelector('.ns-delete');
+  const confirmRow = div.querySelector('.ns-confirm');
+  if (del && confirmRow) {
+    del.addEventListener('click', () => {
+      confirmRow.hidden = false;
+      div.querySelector('.ns-actions').hidden = true;
+      const no = confirmRow.querySelector('.ns-confirm-no');
+      if (no) no.focus();
+    });
+    confirmRow.querySelector('.ns-confirm-no').addEventListener('click', () => {
+      confirmRow.hidden = true;
+      div.querySelector('.ns-actions').hidden = false;
+    });
+    confirmRow.querySelector('.ns-confirm-yes').addEventListener('click', async () => {
+      const a = api();
+      let ok = false;
+      if (a && a.delete_unsent) {
+        // With no recording (v.id is ""), only the Journal entry goes, found
+        // by its time.
+        try { const r = await a.delete_unsent(v.id, item.timestamp); ok = !!(r && r.ok); if (!ok) say(WL.retryFailedMessage(r && r.reason)); }
+        catch (e) { say(WL.retryFailedMessage('')); }
+      }
+      if (ok) {
+        const i = history.indexOf(item);
+        if (i >= 0) history.splice(i, 1);
+        if (v.id) delete _unsentMessages[v.id];
+        div.remove();
+        $feedCount.textContent = `${history.length} ${history.length === 1 ? 'entry' : 'entries'}`;
+      } else {
+        confirmRow.hidden = true;
+        div.querySelector('.ns-actions').hidden = false;
+      }
+    });
+  }
+  if (isNew) setTimeout(() => div.classList.remove('new'), 3000);
+  return div;
+}
+
+// Swap a Not sent entry for its update, in the list and on screen. True when
+// the entry was found. A card that became a normal entry gets a toast.
+function _applyItemUpdate(unsentId, item) {
+  const i = history.findIndex((h) => WL.notSentId(h) === unsentId);
+  if (i < 0 || !item) return false;
+  history[i] = item;
+  const el = $feed.querySelector(`[data-unsent-id="${unsentId}"]`);
+  if (el) el.replaceWith(makeCard(item, !item.failed));
+  else renderFeed();
+  if (!item.failed) {
+    showToast('Sent. The words are in the Journal.', 'success');
+    if (window.pywebview && window.pywebview.api) {
+      window.pywebview.api.get_stats().then((s) => { stats = s || stats; renderStats(); }).catch(() => {});
+    }
+  }
+  return true;
+}
+
+// Called by Python when a Not sent recording changes: an automatic try
+// failed again, or it went through and the card is now a normal entry.
+window.waffler_item_updated = function(unsentId, item) {
+  _applyItemUpdate(unsentId, item);
+  if (_currentPage === 'settings') loadUnsentSummary();
+};
+
 function makeCard(item, isNew) {
+  if (item && item.failed) return makeNotSentCard(item, isNew);
   const div = document.createElement('div');
   div.className = 'transcript-card' + (isNew ? ' new' : '');
 
@@ -3217,7 +3373,40 @@ loadSettings = async function() {
   await loadSnippets();
   await loadUsageStats();
   await loadAppVersion();
+  await loadUnsentSummary();
 };
+
+// ── Recordings not sent (Settings, Data) ─────────────────────────────────
+async function loadUnsentSummary() {
+  const desc = document.getElementById('unsentSummary');
+  const btn = document.getElementById('unsentSendNow');
+  if (!desc || !window.pywebview || !window.pywebview.api || !pywebview.api.get_unsent_summary) return;
+  try {
+    const v = WL.unsentSummary(await pywebview.api.get_unsent_summary());
+    desc.textContent = v.label;
+    if (btn) btn.style.display = v.canSend ? '' : 'none';
+  } catch (e) {
+    console.warn('get_unsent_summary failed:', e);
+  }
+}
+
+async function sendUnsentNow(btn) {
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+  try {
+    const r = await pywebview.api.retry_all_unsent();
+    if (r && r.total) {
+      showToast(r.sent === r.total
+        ? (r.total === 1 ? 'Sent. The words are in the Journal.' : `All ${r.total} sent. The words are in the Journal.`)
+        : `${r.sent} of ${r.total} sent. The rest will be tried again later.`,
+        r.sent ? 'success' : 'error');
+    }
+  } catch (e) {
+    showToast("Couldn't send them. Try again in a moment.", 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Send now'; }
+    await loadUnsentSummary();
+  }
+}
 
 // ── Usage Stats ───────────────────────────────────────────────────────────
 // Provider display metadata — gold dot per provider for the breakdown rows.

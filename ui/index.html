@@ -351,6 +351,18 @@
       <!-- Data Management -->
       <div class="settings-section">
         <div class="settings-section-title">🗑️ Data</div>
+        <!-- Recordings that were not turned into text (Journal "Not sent"
+             cards). Waffler sends them by itself when the speech service
+             answers; this is the count, and a way to send them now. -->
+        <div class="settings-row" id="unsentRow">
+          <div class="settings-row-info">
+            <div class="settings-row-label">Recordings not sent</div>
+            <div class="settings-row-desc" id="unsentSummary">Nothing waiting. Every recording has been sent.</div>
+          </div>
+          <div class="settings-row-control">
+            <button class="settings-btn" id="unsentSendNow" onclick="sendUnsentNow(this)" style="display:none">Send now</button>
+          </div>
+        </div>
         <div class="settings-row">
           <div class="settings-row-info">
             <div class="settings-row-label">Download Logs</div>

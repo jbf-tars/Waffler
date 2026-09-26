@@ -5086,8 +5086,17 @@ body[data-theme="dark"] .j-listen {
 .j-listen.status-indicator.recording { background: #dcfce7; color: #15803d; border-color: #86efac; }
 .j-listen.listening .j-listen-dot,
 .j-listen.recording .j-listen-dot { background: #15803d; }
-.j-listen.status-indicator.processing { background: #fef3c7; color: #d97706; border-color: #fcd34d; }
+.j-listen.status-indicator.processing { background: #fef3c7; color: #b45309; border-color: #fcd34d; }
 .j-listen.processing .j-listen-dot { background: #d97706; }
+/* How a dictation ended, shown for a few seconds before Ready. The number
+   in "Cleaning up · 4 s" keeps its width steady as it counts. */
+.j-listen.processing .j-listen-text { font-variant-numeric: tabular-nums; }
+.j-listen.status-indicator.cancelled { background: #f1efe9; color: #57534e; border-color: #d6d3cb; }
+.j-listen.cancelled .j-listen-dot { background: #a8a29e; }
+.j-listen.status-indicator.not-sent,
+.j-listen.status-indicator.error { background: #fee2e2; color: #b91c1c; border-color: #fca5a5; }
+.j-listen.not-sent .j-listen-dot,
+.j-listen.error .j-listen-dot { background: #dc2626; }
 @keyframes j-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
 
 .j-kbd {
@@ -5391,6 +5400,53 @@ body:not([data-theme]) .j-page .btn-copy {
   font-family: var(--serif);
 }
 .j-page .text-toggle:hover { color: var(--text-primary); }
+
+/* ── Not sent cards ──
+   A recording that was not turned into text: a plain sentence, what
+   happens next, and Try again / Show the file / Delete (app.js
+   makeNotSentCard). Amber, not red: the recording is safe. */
+/* "body" so it outranks the cream theme's border colour for every card. */
+body .j-page .transcript-card.not-sent-card { border-left: 3px solid #d97706; }
+.j-page .ns-badge {
+  font-size: 11px; font-weight: 600;
+  padding: 3px 10px; border-radius: 99px;
+  background: #fef3c7; color: #92400e;
+}
+.j-page .ns-text {
+  font-size: 14px; line-height: 1.5;
+  color: var(--text-primary);
+  margin: 0 0 6px 0; max-width: 75ch;
+}
+.j-page .ns-next {
+  font-size: 13px; line-height: 1.45;
+  color: var(--text-secondary);
+  margin: 0 0 10px 0; max-width: 75ch;
+}
+.j-page .ns-status { font-size: 13px; color: #b91c1c; margin: 0 0 10px 0; max-width: 75ch; }
+.j-page .ns-actions[hidden],
+.j-page .ns-confirm[hidden] { display: none; }
+.j-page .btn-copy:disabled { opacity: 0.6; cursor: default; }
+.j-page .ns-delete {
+  background: transparent; border: none;
+  color: #b91c1c; font-size: 12px; font-weight: 500;
+  padding: 5px 6px; cursor: pointer; font-family: inherit;
+}
+.j-page .ns-delete:hover { text-decoration: underline; }
+.j-page .ns-confirm {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 10px;
+  font-size: 13px; color: var(--text-primary);
+  padding-top: 4px;
+}
+.j-page .ns-confirm-yes {
+  background: #b91c1c; color: #fff;
+  border: 1px solid #b91c1c; border-radius: 7px;
+  padding: 5px 12px; font-size: 12px; font-weight: 600;
+  cursor: pointer; font-family: inherit;
+}
+body[data-theme="dark"] .j-page .ns-badge { background: rgba(217, 119, 6, 0.18); color: #fbbf24; }
+body[data-theme="dark"] .j-page .ns-status,
+body[data-theme="dark"] .j-page .ns-delete { color: #fca5a5; }
+body[data-theme="dark"] .j-page .ns-confirm-yes { background: #dc2626; border-color: #dc2626; }
 
 /* Narrow screens */
 @media (max-width: 720px) {
