@@ -44,6 +44,56 @@ stages; this first part lays the foundation that every screen is built on.
   called (focus_window, request_permissions, test_microphone and
   wizard_get_recording_state).
 
+### Setup
+
+First-run setup is rebuilt: three steps on Windows and four on a Mac, each
+one screen with a title that says the task. People who have already set
+Waffler up never see it.
+
+- **Connect your free Groq account.** One "Get my free Groq key" button
+  opens Groq's key page, with Groq's four steps in order under it. Waffler
+  waits for the key and picks it up from the clipboard when you come back
+  (on arrival, on returning to the window, or when you click Paste; never
+  on a timer), then checks it with Groq by itself. Each failure is one plain
+  sentence: offline, key not accepted, blocked (usually a VPN), and a busy
+  moment, which is tried again by itself. When it works, setup shows what
+  the key can do: speech to text and the clean-up, each with its model. The
+  provider tabs, the OpenAI panel and the long explanations are gone from
+  setup; OpenAI and Cerebras keys are added in Settings as before.
+- **Mac: Let Waffler listen and type for you.** Microphone, Keyboard and
+  Typing for you on one screen. Each Allow shows macOS's own prompt, so
+  Waffler is already in each list and there is no + button or file picker.
+  The microphone is now asked for here, so the first practice recording
+  isn't silent. Setup moves on by itself once all three are allowed, and
+  carries on from the same screen if macOS asks you to quit and reopen.
+- **Hold your hotkey and talk.** The hotkey step and Try it are one screen.
+  Holding the real keys lights the key and shows the live microphone level.
+  The practice now runs the whole dictation, transcription and clean-up, on
+  your own key, and shows "You said" (with the words the clean-up left out
+  struck through) next to "Waffler wrote". It is saved as your first Journal
+  entry. Continue unlocks after one dictation, and Skip for now is always
+  there. Silence, a microphone macOS isn't allowing, and a failed dictation
+  each say what to do, and "Pick another key" changes the hotkey on the spot.
+  On a Mac, if the Fn key also opens the emoji picker (or switches input
+  source, or starts dictation), setup says so and offers Keyboard settings;
+  Waffler never changes that setting itself. The same note is in Settings,
+  under Hotkey.
+- **Now use it anywhere.** "Open Notepad and try it" ("Open TextEdit" on a
+  Mac) starts the real hotkey and opens an empty page to dictate into, and
+  the screen says where Waffler waits (the tray, or the menu bar) and that
+  closing the window doesn't stop it.
+- **Start at sign-in.** Waffler now starts when you sign in to the computer,
+  waiting in the tray or menu bar, so the hotkey works after a restart. It
+  is on by default at the end of setup, with the switch right there and in
+  Settings, under Preferences; the switch reads what Windows or macOS
+  actually has. On Windows it is a "Waffler" entry in your user's startup
+  programs, removed when you uninstall; on a Mac a login item in your
+  LaunchAgents folder. A factory reset removes it too. It isn't offered while
+  a Mac runs Waffler from the downloaded disk image.
+- Setup follows the chosen theme; it used to stay cream in Dark.
+- The Windows installer asks nothing: no folder page, no "Ready to install"
+  page and no desktop-shortcut question.
+
 ## [3.14.100] - 2026-09-26
 
 Two things the app claimed that were not true, and a dictation fix. Its
