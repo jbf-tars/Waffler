@@ -3,6 +3,8 @@
 // Pure helpers (labels, presets, formatting) live in logic.js, which
 // index.html loads first, so the tests can run them without a page.
 const WL = window.WafflerLogic;
+// Line icons and the waffle (icons.js, loaded before this file).
+const WI = window.WafflerIcons;
 
 // ── Theme (v3.14.3+) ──────────────────────────────────────────────────
 // Apply the saved theme as early as possible so the page doesn't flash
@@ -115,6 +117,8 @@ const $empty         = document.getElementById('emptyState');
 const $feedCount     = document.getElementById('feedCount');
 const $statusInd     = document.getElementById('statusIndicator');
 const $statusText    = document.getElementById('statusText');
+const $statusTime    = document.getElementById('statusTime');
+const $hotkeyCaps    = document.getElementById('hotkeyHint');
 const $toast         = document.getElementById('toast');
 const $statWords     = document.getElementById('statWords');
 const $statCount     = document.getElementById('statCount');
@@ -196,6 +200,43 @@ function updateDateLabel() {
   }
 }
 
+// A notice card (components.css .notice): an icon tile, a title, a line of
+// detail, actions and a close button. Used for the update notices.
+function makeNotice({ icon, tone, title, desc, actions }) {
+  const box = document.createElement('div');
+  box.className = 'notice update-banner' + (tone === 'honey' || tone === 'warn' ? ' notice-honey' : '');
+  box.setAttribute('role', 'status');
+  const tile = document.createElement('span');
+  tile.className = 'itile' + (tone === 'warn' ? ' is-warn' : '');
+  tile.innerHTML = WI.icon(icon || 'info');
+  const body = document.createElement('div');
+  body.className = 'notice-body';
+  const t = document.createElement('div');
+  t.className = 'notice-title';
+  t.textContent = title || '';
+  body.appendChild(t);
+  if (desc) {
+    const d = document.createElement('div');
+    d.className = 'notice-desc';
+    d.textContent = desc;
+    body.appendChild(d);
+  }
+  box.append(tile, body);
+  if (actions && actions.length) {
+    const acts = document.createElement('div');
+    acts.className = 'notice-acts';
+    acts.append(...actions);
+    box.appendChild(acts);
+  }
+  const x = document.createElement('button');
+  x.className = 'rbtn rbtn-sm dismiss';
+  x.setAttribute('aria-label', 'Dismiss');
+  x.innerHTML = WI.icon('x');
+  x.addEventListener('click', () => box.remove());
+  box.appendChild(x);
+  return box;
+}
+
 async function checkForUpdates() {
   try {
     if (!window.pywebview || !window.pywebview.api) return;
@@ -203,53 +244,27 @@ async function checkForUpdates() {
     // A previous update that silently did nothing used to leave no trace at
     // all — the app just restarted on the old version. Say so plainly.
     if (r.last_update_failed && r.last_update_failed.message) {
-      const host0 = document.querySelector('.sidebar') || document.querySelector('.journal');
+      const host0 = document.querySelector('.journal');
       if (host0) {
-        const warn = document.createElement('div');
-        warn.className = 'update-banner';
-        const w = document.createElement('span');
-        w.textContent = r.last_update_failed.message;
-        const x = document.createElement('button');
-        x.className = 'dismiss';
-        x.textContent = '✕';
-        x.addEventListener('click', () => warn.remove());
-        warn.appendChild(w); warn.appendChild(x);
+        const m = WL.splitMessage(r.last_update_failed.message);
+        const warn = makeNotice({ icon: 'alert', tone: 'warn', title: m.title, desc: m.subtitle });
         host0.prepend(warn);
       }
     }
     if (r.update_available) {
-      // Show update banner — sidebar in legacy layout, top of `.journal`
-      // in the v3.14.16+ Journal layout. Prepend so it's the very first
-      // child the user sees.
-      const host = document.querySelector('.sidebar') || document.querySelector('.journal');
+      // The update notice goes at the top of the Journal, the first thing
+      // you see. Download opens the same in-app download-and-install dialog
+      // as Settings, About (v3.14.34), which falls back to the download page.
+      const host = document.querySelector('.journal');
       if (!host) return;
-      const banner = document.createElement('div');
-      banner.className = 'update-banner';
-      const span = document.createElement('span');
-      span.textContent = `Update v${r.latest_version} available`;
-
-      const downloadBtn = document.createElement('button');
-      downloadBtn.textContent = 'Download';
-      downloadBtn.addEventListener('click', () => {
-        // v3.14.34 — open the same in-app download-and-install modal
-        // that Settings → About uses, instead of bouncing the user out
-        // to the website. The modal streams the installer with a
-        // progress bar and runs `install_update_and_restart` on
-        // completion, so the user never has to leave the app. Falls
-        // back to opening wafflerai.com/download/ via the modal's
-        // "Open download page" button if the in-app fetch fails.
+      const download = document.createElement('button');
+      download.className = 'btn btn-pri btn-sm';
+      download.textContent = 'Download';
+      const banner = makeNotice({ icon: 'circle-up', tone: 'honey', title: `Update v${r.latest_version} available`, actions: [download] });
+      download.addEventListener('click', () => {
         openUpdateModalFromCheck(r);
         banner.remove();
       });
-
-      const dismissBtn = document.createElement('button');
-      dismissBtn.className = 'dismiss';
-      dismissBtn.textContent = '✕';
-      dismissBtn.addEventListener('click', () => {
-        banner.remove();
-      });
-
-      banner.append(span, downloadBtn, dismissBtn);
       host.prepend(banner);
     }
   } catch(e) {
@@ -273,7 +288,8 @@ function closeUpdateModal(ev) {
   stopProgressPolling();
 }
 function setUpdateModal({ icon, title, subtitle, showProgress, primaryLabel, primaryHandler, cancelLabel, browserUrl, browserLabel }) {
-  document.getElementById('updateModalIcon').textContent = icon || '⬆️';
+  // icon is a name from icons.js ('circle-up', 'download', 'alert'...).
+  document.getElementById('updateModalIcon').innerHTML = WI.icon(icon || 'circle-up', 'ic-lg');
   document.getElementById('updateModalTitle').textContent = title || '';
   document.getElementById('updateModalSubtitle').textContent = subtitle || '';
   document.getElementById('updateProgressWrap').style.display = showProgress ? 'block' : 'none';
@@ -299,7 +315,7 @@ function setUpdateModal({ icon, title, subtitle, showProgress, primaryLabel, pri
 
 async function checkForUpdatesManual() {
   showUpdateModal();
-  setUpdateModal({ icon: '🔄', title: 'Checking for updates…', subtitle: 'Contacting GitHub…' });
+  setUpdateModal({ icon: 'refresh', title: 'Checking for updates…', subtitle: 'Contacting GitHub…' });
   let r;
   try {
     r = await pywebview.api.check_for_updates();
@@ -337,7 +353,7 @@ async function startDownloadFlow(url) {
   // On any failure, or a click on "Open download page", send people to the
   // website's download page: the friendly place to get the installer.
   setUpdateModal({
-    icon: '⬇️',
+    icon: 'download',
     title: 'Downloading update…',
     subtitle: 'Please keep Waffler open.',
     showProgress: true,
@@ -385,7 +401,7 @@ async function pollUpdateProgress() {
       stopProgressPolling();
       _downloadedPath = p.path;
       setUpdateModal({
-        icon: '✓',
+        icon: 'check-circle',
         title: 'Ready to install',
         subtitle: 'Waffler will close, install the update, and relaunch.',
         primaryLabel: 'Install Now',
@@ -400,7 +416,7 @@ async function pollUpdateProgress() {
 
 async function installDownloadedUpdate() {
   if (!_downloadedPath) return;
-  setUpdateModal({ icon: '⚙️', title: 'Installing…', subtitle: 'Waffler is closing to apply the update.' });
+  setUpdateModal({ icon: 'settings', title: 'Installing…', subtitle: 'Waffler is closing to apply the update.' });
   let r;
   try {
     r = await pywebview.api.install_update_and_restart(_downloadedPath);
@@ -423,18 +439,30 @@ function updateHotkeyHint() {
   // We still set a platform-appropriate default IMMEDIATELY so the
   // badges aren't blank during the async API round-trip to fetch the
   // saved config — loadHotkeyConfig() overwrites them once it returns.
-  const isWin = navigator.userAgent.includes('Windows');
-  if (!isWin) {
-    const badge = document.getElementById('hotkeyBadge');
-    const sidebarBadge = document.getElementById('hotkeyHint');
-    const label = document.getElementById('hotkeyLabel');
-    const emptyHint = document.getElementById('emptyHint');
-    if (badge) badge.textContent = 'Fn';
-    if (sidebarBadge) sidebarBadge.textContent = 'Fn';
-    if (label) label.textContent = 'Tap to start/stop';
-    if (emptyHint) emptyHint.innerHTML = 'Press <strong>Fn</strong> to start recording';
-  }
+  renderHotkeyCaps(_currentHotkeyKeys);
+  const emptyHint = document.getElementById('emptyHint');
+  if (emptyHint) emptyHint.innerHTML = `Hold <strong>${escHtml(hotkeyDisplayStr(_currentHotkeyKeys))}</strong> to record`;
   loadHotkeyConfig();
+}
+
+// The top bar's keycaps: the saved hotkey, one key per cap ("Win" + "Ctrl").
+// The pill keeps one width whatever it says; if the keycaps don't fit beside
+// "Ready", it takes its wider size, decided here when the hotkey changes and
+// never during a dictation.
+function renderHotkeyCaps(keys) {
+  if (!$hotkeyCaps) return;
+  $hotkeyCaps.innerHTML = WL.keycaps(keys, isMacPlatform)
+    .map((c) => `<kbd class="kc">${escHtml(c.label)}</kbd>`)
+    .join('<span class="plus" aria-hidden="true">+</span>');
+  $hotkeyCaps.setAttribute('aria-label', 'Hotkey: ' + hotkeyDisplayStr(keys));
+  _fitStatusPill();
+}
+
+function _fitStatusPill() {
+  if (!$statusInd || !$statusText || !$statusInd.classList.contains('idle')) return;
+  $statusInd.classList.remove('is-wide');
+  // At its normal width, "Ready" is cut short when the keycaps need more room.
+  if ($statusText.scrollWidth > $statusText.clientWidth + 1) $statusInd.classList.add('is-wide');
 }
 
 // ── Permissions (Step 1) ─────────────────────────────────────────────
@@ -556,43 +584,6 @@ async function factoryReset() {
   }
 }
 
-function updatePermissionUI(permissionType, isGranted) {
-  const card = document.getElementById(`${permissionType}Card`);
-  const badge = document.getElementById(`${permissionType}Badge`);
-  const button = document.getElementById(`${permissionType}Btn`);
-  const status = document.getElementById(`${permissionType}Status`);
-
-  if (!card || !badge || !button || !status) return;
-
-  if (isGranted) {
-    // Update card
-    card.classList.add('granted');
-
-    // Update badge
-    badge.textContent = '✓';
-    badge.classList.add('granted');
-
-    // Update button
-    button.textContent = '✓ Granted';
-    button.classList.add('granted');
-    button.disabled = true;
-
-    // Update status
-    status.textContent = 'Granted';
-    status.classList.add('granted');
-  } else {
-    // Reset to default state
-    card.classList.remove('granted');
-    badge.textContent = '○';
-    badge.classList.remove('granted');
-    button.textContent = 'Open System Settings';
-    button.classList.remove('granted');
-    button.disabled = false;
-    status.textContent = 'Not granted';
-    status.classList.remove('granted');
-  }
-}
-
 // ── Hotkey Config ────────────────────────────────────────────────────
 
 async function loadHotkeyConfig() {
@@ -604,12 +595,7 @@ async function loadHotkeyConfig() {
       const display = config.display;
       const settingsBadge = document.getElementById("settingsHotkeyBadge");
       if (settingsBadge) settingsBadge.textContent = display;
-      const sidebarBadge = document.getElementById("hotkeyHint");
-      if (sidebarBadge) sidebarBadge.textContent = display;
-      const hintDesc = document.getElementById("hotkeyHintDesc");
-      if (hintDesc) hintDesc.textContent = `Hold to record \u2022 Space = sticky \u2022 Esc = cancel`;
-      const badge = document.getElementById("hotkeyBadge");
-      if (badge) badge.textContent = display;
+      renderHotkeyCaps(config.keys);
       const emptyHint = document.getElementById("emptyHint");
       if (emptyHint) emptyHint.innerHTML = `Hold <strong>${escHtml(display)}</strong> to record`;
     }
@@ -769,19 +755,11 @@ async function copyItem(text, btnEl) {
     } else {
       await navigator.clipboard.writeText(text);
     }
-    btnEl.classList.add('copied');
-    btnEl.innerHTML = '<span style="font-size:1.1em">✅</span> Copied!';
-    btnEl.style.background = 'rgba(34, 197, 94, 0.25)';
-    btnEl.style.borderColor = '#22c55e';
-    btnEl.style.color = '#22c55e';
-    btnEl.style.fontWeight = '600';
+    btnEl.classList.add('copied', 'is-done');
+    btnEl.innerHTML = WI.icon('check') + '<span>Copied</span>';
     setTimeout(() => {
-      btnEl.classList.remove('copied');
-      btnEl.innerHTML = '📋 Copy';
-      btnEl.style.background = '';
-      btnEl.style.borderColor = '';
-      btnEl.style.color = '';
-      btnEl.style.fontWeight = '';
+      btnEl.classList.remove('copied', 'is-done');
+      btnEl.innerHTML = WI.icon('copy') + '<span>Copy</span>';
     }, 2500);
   } catch (e) {
     showToast('Failed to copy', 'error');
@@ -805,40 +783,65 @@ window.waffler_refresh = function(newItem) {
   if (newItem) {
     // A Not sent card is not a finished transcription.
     if (newItem.failed) showToast('Not sent. The recording is saved in the Journal.', 'error');
-    else showToast('Transcription complete ✨', 'success');
+    else showToast('Transcription complete', 'success');
   }
 };
 
 // ── Called by Python for status updates ──────────────────────────────
-// Only the state class changes: the pill keeps its own j-listen class,
-// which the old `className = ...` assignment wiped, so the pill lost its
-// styling while recording. That version also threw on a #recordingOverlay
-// element that no longer exists, before the "Done" to "Ready" reset was
-// scheduled, so after the first dictation the label stuck on "Done".
+// Only the state class changes (the pill keeps its own classes; an old
+// `className = ...` assignment wiped them). A version that touched a
+// missing #recordingOverlay threw before the "Done" to "Ready" reset was
+// scheduled, so the label stuck on "Done".
 let _statusResetTimer = null;
-// While a dictation is processed the pill counts the seconds ("Cleaning up
-// · 4 s"), so working and stuck no longer look the same. One timer, only
-// while processing; it stops on the next status.
-let _workingTimer = null;
+// The pill shows the seconds while you record ("0:04") and while the
+// dictation is cleaned up ("4 s"), so working and stuck no longer look the
+// same. One timer, only in those states; it stops on the next status.
+let _statusTimer = null;
+let _recordingStarted = 0;   // when this recording began (0: not recording)
+let _recordingPausedAt = 0;  // while paused: when the pause began
 
 function _showStatus(view) {
   if (!$statusInd || !$statusText) return;
   $statusInd.classList.remove(...WL.STATUS_CLASSES);
   $statusInd.classList.add(view.cls);
   $statusText.textContent = view.label;
+  if ($statusTime) $statusTime.textContent = '';
+  $statusInd.removeAttribute('title');
+}
+
+function _recordingSeconds() {
+  const now = _recordingPausedAt || Date.now();
+  return _recordingStarted ? (now - _recordingStarted) / 1000 : 0;
 }
 
 window.waffler_status = function(status) {
   clearTimeout(_statusResetTimer);
   _statusResetTimer = null;
-  clearInterval(_workingTimer);
-  _workingTimer = null;
+  clearInterval(_statusTimer);
+  _statusTimer = null;
   const view = WL.statusView(status);
   _showStatus(view);
+  if (view.cls === 'listening') {
+    // A new recording starts the clock; coming back from a pause carries on.
+    if (!_recordingStarted) _recordingStarted = Date.now();
+    else if (_recordingPausedAt) _recordingStarted += Date.now() - _recordingPausedAt;
+    _recordingPausedAt = 0;
+    const tick = () => { if ($statusTime) $statusTime.textContent = WL.recordingTime(_recordingSeconds()); };
+    tick();
+    _statusTimer = setInterval(tick, 1000);
+  } else if (view.cls === 'paused') {
+    if (_recordingStarted && !_recordingPausedAt) _recordingPausedAt = Date.now();
+    if ($statusTime) $statusTime.textContent = WL.recordingTime(_recordingSeconds());
+  } else {
+    _recordingStarted = 0;
+    _recordingPausedAt = 0;
+  }
   if (view.cls === 'processing') {
     const started = Date.now();
-    _workingTimer = setInterval(() => {
-      if ($statusText) $statusText.textContent = WL.workingLabel(view.label, (Date.now() - started) / 1000);
+    _statusTimer = setInterval(() => {
+      const secs = (Date.now() - started) / 1000;
+      if ($statusTime) $statusTime.textContent = WL.workingTime(secs);
+      $statusInd.title = WL.workingLabel(view.label, secs);
     }, 1000);
   }
   // Done, Cancelled, Not sent and the error show for a moment, then Ready.
@@ -938,9 +941,10 @@ function qualityBadge(item) {
     styling_deadline:     'cleanup ran out of time; raw text was kept',
   };
   const why = (q.flags || []).map(f => labels[f] || f).join('; ');
-  const cls = q.level === 'low' ? 'q-low' : 'q-check';
-  const mark = q.level === 'low' ? '⚠ check this one' : 'ℹ worth a look';
-  return ` <span class="q-badge ${cls}" title="${escHtml(why)}">${mark}</span>`;
+  const low = q.level === 'low';
+  const cls = low ? 'q-low chip-err' : 'q-check chip-warn';
+  const mark = low ? WI.icon('alert') + 'Check this one' : WI.icon('eye') + 'Worth a look';
+  return ` <span class="q-badge chip ${cls}" title="${escHtml(why)}">${mark}</span>`;
 }
 
 // ── Not sent cards ──────────────────────────────────────────────────────
@@ -967,14 +971,14 @@ function makeNotSentCard(item, isNew) {
     ${v.next ? `<p class="ns-next">${escHtml(v.next)}</p>` : ''}
     <p class="ns-status" role="status" aria-live="polite"${msg ? '' : ' hidden'}>${escHtml(msg)}</p>
     <div class="card-actions ns-actions">
-      ${v.canRetry ? '<button class="btn-copy ns-retry">Try again</button>' : ''}
-      ${v.canReveal ? '<button class="btn-copy ns-reveal">Show the file</button>' : ''}
-      ${v.canDelete ? '<button class="ns-delete">Delete</button>' : ''}
+      ${v.canRetry ? '<button class="btn btn-sec btn-sm btn-copy ns-retry">Try again</button>' : ''}
+      ${v.canReveal ? '<button class="btn btn-quiet btn-sm ns-reveal">Show the file</button>' : ''}
+      ${v.canDelete ? '<button class="btn btn-quiet btn-sm ns-delete">Delete</button>' : ''}
     </div>
     <div class="ns-confirm" hidden>
       <span>Delete this recording? This can't be undone.</span>
-      <button class="ns-confirm-yes">Delete</button>
-      <button class="btn-copy ns-confirm-no">Keep it</button>
+      <button class="btn btn-danger btn-sm ns-confirm-yes">Delete</button>
+      <button class="btn btn-sec btn-sm btn-copy ns-confirm-no">Keep it</button>
     </div>
   `;
   const say = (text) => {
@@ -1100,7 +1104,7 @@ function makeCard(item, isNew) {
     </div>
     <div class="card-text styled" id="text-${escHtml(String(item.timestamp))}">${escHtml(displayText)}</div>
     <div class="card-actions">
-      <button class="btn-copy" data-text="${escHtml(displayText)}">📋 Copy</button>
+      <button class="btn btn-sec btn-sm btn-copy" data-text="${escHtml(displayText)}">${WI.icon('copy')}<span>Copy</span></button>
       ${hasStyled ? `<span class="text-toggle" data-timestamp="${escHtml(String(item.timestamp))}" data-raw="${escHtml(rawText)}" data-styled="${escHtml(displayText)}">Show transcript</span>` : ''}
     </div>
   `;
@@ -1215,7 +1219,7 @@ async function loadAudioDevices() {
     const devices = await pywebview.api.get_audio_devices();
     const current = await pywebview.api.get_selected_device();
 
-    // Populate both the settings page dropdown and sidebar dropdown
+    // Fill the microphone lists (the top bar keeps one, not shown yet).
     const selectors = ['deviceSelect', 'micSelect'].map(id => document.getElementById(id)).filter(Boolean);
     if (!selectors.length) return;
 
@@ -1239,21 +1243,6 @@ async function loadAudioDevices() {
   }
 }
 
-async function onDeviceChange(indexStr) {
-  const idx = parseInt(indexStr, 10);
-  try {
-    const result = await pywebview.api.set_audio_device(idx);
-    if (result && result.ok) {
-      // Keep sidebar mic dropdown in sync
-      const micSel = document.getElementById('micSelect');
-      if (micSel) micSel.value = idx;
-      showToast(`🎙️ Mic: ${result.name}`, 'success');
-    }
-  } catch(e) {
-    console.warn('setAudioDevice error:', e);
-  }
-}
-
 async function onMicChange(indexStr) {
   const idx = parseInt(indexStr, 10);
   try {
@@ -1262,14 +1251,14 @@ async function onMicChange(indexStr) {
       // Keep settings page dropdown in sync
       const devSel = document.getElementById('deviceSelect');
       if (devSel) devSel.value = idx;
-      showToast(`🎙️ Mic: ${result.name}`, 'success');
+      showToast(`Microphone: ${result.name}`, 'success');
     }
   } catch(e) {
     console.warn('setAudioDevice error:', e);
   }
 }
 
-// The top bar's "✨ Normal" mode menu is gone: Normal was its only real
+// The top bar's "Normal" mode menu is gone: Normal was its only real
 // choice, so it took space and did nothing. The backend keeps its mode
 // calls (get_current_mode, set_mode) for when more modes exist.
 
@@ -1318,7 +1307,7 @@ async function loadVocabPage() {
     if (_vocabWords.length === 0) {
       listEl.innerHTML = `
         <div class="vocab-empty" id="vocabEmpty">
-          <div class="vocab-empty-icon">📝</div>
+          <div class="vocab-empty-icon">${WI.icon('book', 'ic-lg')}</div>
           <div class="vocab-empty-label">No words added yet</div>
           <div class="vocab-empty-sub">
             Add tricky words once — names, acronyms, jargon — and Waffler will spell them right every time.
@@ -1343,7 +1332,7 @@ async function loadVocabPage() {
       row.className = 'vocab-word-row';
       row.innerHTML = `
         <span class="vocab-word-text">${escHtml(word)}</span>
-        <button class="vocab-word-delete" onclick="deleteVocabWord(${idx})" title="Delete">🗑️</button>
+        <button class="vocab-word-delete rbtn" onclick="deleteVocabWord(${idx})" title="Delete" aria-label="Delete ${escHtml(word)}">${WI.icon('trash')}</button>
       `;
       listEl.appendChild(row);
     });
@@ -1413,9 +1402,12 @@ function showPage(page) {
   _currentPage = page;
 
   // Update nav
-  document.getElementById('navHome').classList.toggle('active', page === 'home');
-  document.getElementById('navVocab').classList.toggle('active', page === 'vocabulary');
-  document.getElementById('navSettings').classList.toggle('active', page === 'settings');
+  [['navHome', 'home'], ['navVocab', 'vocabulary'], ['navSettings', 'settings']].forEach(([id, p]) => {
+    const tab = document.getElementById(id);
+    if (!tab) return;
+    tab.classList.toggle('active', page === p);
+    tab.setAttribute('aria-selected', String(page === p));
+  });
 
   // Toggle panels - use direct style manipulation
   const mainArea = document.getElementById('mainArea');
@@ -1606,7 +1598,7 @@ function showRestartBanner(reason) {
   overlay.innerHTML = `
     <div class="restart-modal-card" role="dialog" aria-modal="true"
          aria-labelledby="restartModalTitle">
-      <div class="restart-modal-icon">🔄</div>
+      <div class="restart-modal-icon">${WI.icon('refresh', 'ic-lg')}</div>
       <h2 class="restart-modal-title" id="restartModalTitle">Restart required</h2>
       <p class="restart-modal-body">${reason || 'Your changes need a fresh app start to take effect.'}</p>
       <div class="restart-modal-actions">
@@ -1738,17 +1730,12 @@ async function saveSetting(key, value) {
     const r = await pywebview.api.save_settings({ [key]: value });
     if (r.ok) {
       // Update toggle labels
-      if (key === 'local_whisper') {
-        const lbl = document.getElementById('localWhisperLabel');
-        if (lbl) lbl.textContent = value ? 'On (restart required)' : 'Off';
-        if (value) showToast('⚡ Local Whisper enabled — restart to activate', 'success');
-        else       showToast('Local Whisper off', 'success');
-      } else if (key === 'auto_paste') {
+      if (key === 'auto_paste') {
         const lbl = document.getElementById('autoPasteLabel');
         if (lbl) lbl.textContent = value ? 'On' : 'Off';
         showToast('Auto-paste ' + (value ? 'enabled' : 'disabled'), 'success');
       } else if (key === 'language') {
-        showToast('🌐 Language saved', 'success');
+        showToast('Language saved', 'success');
       } else if (key === 'dialect') {
         const labels = {'auto': 'Auto', 'en-GB': 'British English', 'en-US': 'American English'};
         showToast('Spelling: ' + (labels[value] || value), 'success');
@@ -1756,56 +1743,6 @@ async function saveSetting(key, value) {
     }
   } catch(e) {
     console.warn('saveSetting error:', e);
-  }
-}
-
-function toggleApiReveal() {
-  const inp = document.getElementById('apiKeyInput');
-  if (!inp) return;
-  inp.type = inp.type === 'password' ? 'text' : 'password';
-}
-
-function openApiLink() {
-  if (window.pywebview && window.pywebview.api && window.pywebview.api.open_url) {
-    window.pywebview.api.open_url('https://platform.openai.com/api-keys');
-  }
-}
-
-// ── Export / Clear History ────────────────────────────────────────────────
-async function exportHistory() {
-  try {
-    const r = await pywebview.api.export_history();
-    if (!r.ok) { showToast(r.error || 'Nothing to export', 'error'); return; }
-    // Trigger file download via data URI
-    const blob = new Blob([r.content], { type: 'text/plain' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href     = url;
-    a.download = `waffler-history-${new Date().toISOString().slice(0,10)}.txt`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    showToast(`📥 Exported ${r.count} transcriptions`, 'success');
-  } catch(e) {
-    showToast('Export failed', 'error');
-  }
-}
-
-async function clearHistory() {
-  if (!confirm('Delete all transcription history? This cannot be undone.')) return;
-  try {
-    const r = await pywebview.api.clear_history();
-    if (r.ok) {
-      history = [];
-      renderFeed();
-      showToast('🗑️ History cleared', 'success');
-    } else {
-      console.warn('clear_history failed:', r.error);
-      showToast("Couldn't clear History. Try again.", 'error');
-    }
-  } catch(e) {
-    showToast("Couldn't clear History. Try again.", 'error');
   }
 }
 
@@ -1857,32 +1794,12 @@ async function checkOnboarding() {
     if (status.needs_setup) {
       showWizard();
     } else {
-      const sidebar = document.querySelector('.sidebar');
-      if (sidebar) sidebar.style.display = '';
       const main = document.getElementById('mainArea');
       if (main) main.style.display = '';
       refreshAll();
     }
   } catch(e) {
     console.warn('checkOnboarding error:', e);
-  }
-}
-
-async function checkOnboardingAfterAuth() {
-  try {
-    const status = await pywebview.api.get_onboarding_status();
-    if (status.needs_setup) {
-      showWizard();
-    } else {
-      // Show main app
-      const sidebar = document.querySelector('.sidebar');
-      if (sidebar) sidebar.style.display = '';
-      const main = document.getElementById('mainArea');
-      if (main) main.style.display = '';
-      refreshAll();
-    }
-  } catch(e) {
-    console.warn('checkOnboardingAfterAuth error:', e);
   }
 }
 
@@ -1893,8 +1810,6 @@ function showWizard() {
   if (!overlay) return;
   overlay.style.display = 'flex';
   // Hide main app UI
-  const sidebar = document.querySelector('.sidebar');
-  if (sidebar) sidebar.style.display = 'none';
   const main = document.getElementById('mainArea');
   if (main) main.style.display = 'none';
   const settings = document.getElementById('settingsPanel');
@@ -1922,8 +1837,6 @@ function hideWizard() {
   setTimeout(() => {
     overlay.style.display = 'none';
     overlay.classList.remove('hiding');
-    const sidebar = document.querySelector('.sidebar');
-    if (sidebar) sidebar.style.display = 'flex';
     showPage('home');
     refreshAll();
     loadAudioDevices();
@@ -1931,15 +1844,6 @@ function hideWizard() {
 }
 
 // ── Step Navigation ──────────────────────────────────────────
-
-async function triggerMacOSPermissions() {
-  try {
-    await pywebview.api.trigger_permission_requests();
-  } catch (error) {
-    console.warn('[Wizard] Permission trigger failed:', error);
-    // Fail silently - users can still use "Open System Settings" buttons
-  }
-}
 
 function updateWizardProgress(step) {
   // Update step text — offset display number on Windows (no permissions step)
@@ -2411,11 +2315,6 @@ async function wizValidateApiKey(key) {
   wizUpdateNextButton();
 }
 
-function wizToggleVisibility(inputId) {
-  const inp = document.getElementById(inputId);
-  if (inp) inp.type = inp.type === 'password' ? 'text' : 'password';
-}
-
 // Provider switching for API keys
 function switchProvider(provider) {
     // Update button states
@@ -2453,170 +2352,6 @@ function initializeProviderSelection() {
     // Restore saved preference or default to Groq
     const savedProvider = localStorage.getItem('preferredProvider') || 'groq';
     switchProvider(savedProvider);
-}
-
-// ── Step 2: Permissions ──────────────────────────────────────
-
-async function wizCheckPermissions() {
-  try {
-    const result = await pywebview.api.check_permissions();
-    const explanations = await pywebview.api.get_permission_explanations();
-    
-    // Update microphone permission display
-    updatePermissionRow('wizPermMic', {
-      granted: result.mic_granted,
-      error: result.mic_error,
-      explanation: explanations.microphone,
-      buttonText: 'Allow Microphone',
-      buttonAction: 'wizRequestMicPermission()'
-    });
-
-    // Update accessibility permission display (macOS only)
-    const accessRow = document.getElementById('wizPermAccessibility');
-    const isMac = result.platform === 'Darwin';
-
-    if (isMac && result.accessibility_granted !== undefined) {
-      accessRow.style.display = 'flex';
-      updatePermissionRow('wizPermAccessibility', {
-        granted: result.accessibility_granted,
-        error: result.accessibility_error,
-        explanation: explanations.accessibility,
-        buttonText: 'Open System Settings',
-        buttonAction: 'wizRequestAccessibilityPermission()',
-        isAccessibility: true
-      });
-    } else {
-      accessRow.style.display = 'none';
-    }
-
-    // Check for input monitoring if on macOS
-    if (isMac && result.input_monitoring_granted !== undefined) {
-      const inputMonitoringRow = document.getElementById('wizPermInputMonitoring');
-      if (inputMonitoringRow) {
-        inputMonitoringRow.style.display = 'flex';
-        updatePermissionRow('wizPermInputMonitoring', {
-          granted: result.input_monitoring_granted,
-          error: result.input_monitoring_error,
-          explanation: explanations.input_monitoring,
-          buttonText: 'Open System Settings',
-          buttonAction: 'wizRequestInputMonitoringPermission()'
-        });
-      }
-    }
-
-    // Overall state - require microphone as critical, others as optional
-    const micOk = result.mic_granted;
-    const accessOk = isMac ? (result.accessibility_granted || false) : true;
-    _wizardPermissionsGranted = micOk; // Only microphone is critical for basic functionality
-
-    // Update status and recommendations
-    updatePermissionStatus(result);
-
-    const recheckBtn = document.getElementById('wizRecheckBtn');
-    if (recheckBtn) recheckBtn.style.display = _wizardPermissionsGranted ? 'none' : 'block';
-
-    wizUpdateNextButton();
-  } catch(e) {
-    console.warn('wizCheckPermissions error:', e);
-    // If check fails, allow user through anyway with warning
-    _wizardPermissionsGranted = true;
-    updatePermissionStatus({all_granted: false, recommendations: ['Could not check permissions - proceeding anyway']});
-    wizUpdateNextButton();
-  }
-}
-
-function updatePermissionRow(rowId, config) {
-  const row = document.getElementById(rowId);
-  if (!row) return;
-
-  const icon = row.querySelector('.wizard-perm-icon');
-  const desc = row.querySelector('.wizard-perm-desc');
-  const btn = row.querySelector('.wizard-perm-btn');
-
-  if (config.granted) {
-    icon.innerHTML = '<span class="wizard-perm-granted">&#10003;</span>';
-    desc.innerHTML = `<strong>${config.explanation.title}</strong><br>${config.explanation.why}<br><em style="color: #28a745;">✓ Permission granted</em>`;
-    btn.style.display = 'none';
-    row.classList.add('granted');
-  } else {
-    icon.innerHTML = '<span class="wizard-perm-denied">&#10007;</span>';
-    let descHTML = `<strong>${config.explanation.title}</strong><br>${config.explanation.why}`;
-    
-    if (config.error) {
-      descHTML += `<br><em style="color: #dc3545;">⚠ ${config.error}</em>`;
-    }
-    
-    if (config.isAccessibility) {
-      descHTML += `<br><br><strong>Steps to grant:</strong><br>1. Click "Open System Settings" below<br>2. Click + button → Applications → Waffler.app<br>3. Toggle switch ON<br>4. Return here and click "Recheck"`;
-    }
-    
-    desc.innerHTML = descHTML;
-    btn.style.display = 'inline-block';
-    btn.textContent = config.buttonText;
-    btn.setAttribute('onclick', config.buttonAction);
-    row.classList.remove('granted');
-  }
-}
-
-function updatePermissionStatus(result) {
-  const valid = document.getElementById('wizPermValidation');
-  if (!valid) return;
-
-  if (result.all_granted) {
-    valid.innerHTML = '<strong style="color: #28a745;">✓ All permissions granted!</strong><br>Waffler has full functionality available.';
-    valid.className = 'wizard-validation success';
-  } else if (_wizardPermissionsGranted) {
-    valid.innerHTML = '<strong style="color: #ffc107;">⚠ Core functionality ready</strong><br>Some optional features may be limited without additional permissions.';
-    valid.className = 'wizard-validation warning';
-  } else {
-    valid.innerHTML = '<strong style="color: #dc3545;">⚠ Required permissions missing</strong><br>Grant microphone access to continue.';
-    valid.className = 'wizard-validation error';
-  }
-
-  if (result.recommendations && result.recommendations.length > 0) {
-    const recDiv = document.getElementById('wizPermRecommendations');
-    if (recDiv) {
-      recDiv.innerHTML = result.recommendations.map(rec => `<li>${rec}</li>`).join('');
-      recDiv.style.display = 'block';
-    }
-  }
-}
-
-function wizStartPermPolling() {
-  clearInterval(_wizardPermCheckInterval);
-  _wizardPermCheckInterval = setInterval(() => {
-    if (_wizardStep === 2 && !_wizardPermissionsGranted) {
-      wizCheckPermissions();
-    } else if (_wizardPermissionsGranted) {
-      clearInterval(_wizardPermCheckInterval);
-      _wizardPermCheckInterval = null;
-    }
-  }, 2000);
-}
-
-async function wizRequestMicPermission() {
-  try {
-    await pywebview.api.request_mic_permission();
-    setTimeout(wizCheckPermissions, 1000);
-  } catch(e) {
-    console.warn('wizRequestMicPermission error:', e);
-  }
-}
-
-async function wizRequestAccessibilityPermission() {
-  try {
-    await pywebview.api.open_permission_settings('accessibility');
-  } catch(e) {
-    console.warn('wizRequestAccessibilityPermission error:', e);
-  }
-}
-
-async function wizRequestInputMonitoringPermission() {
-  try {
-    await pywebview.api.request_input_monitoring_permission();
-  } catch(e) {
-    console.warn('wizRequestInputMonitoringPermission error:', e);
-  }
 }
 
 // ── Step 3: Hotkey Info ──────────────────────────────────────
@@ -2751,7 +2486,7 @@ function setFnKeyActive(isActive) {
     if (status) {
       status.classList.add('detected');
       const label = status.querySelector('.wiz-listening-label');
-      if (label) label.textContent = '✓ Hotkey detected — advancing…';
+      if (label) label.textContent = 'Hotkey detected. Moving on…';
     }
 
     // Auto-advance after 1 second, unless the user has moved on already.
@@ -2812,12 +2547,6 @@ async function wizLoadMicDevices() {
   }
 }
 
-function wizOnMicChange(val) {
-  _wizardMicDeviceIndex = parseInt(val, 10);
-  // Re-check permissions with new mic
-  if (_wizardStep === 2) wizCheckPermissions();
-}
-
 let _wizardHotkeyTestActive = false;
 
 async function wizInitTryItStep() {
@@ -2862,7 +2591,7 @@ async function wizInitTryItStep() {
       // Scroll the new bubble into view inside the thread
       sentMsg.scrollIntoView({ behavior: 'smooth', block: 'end' });
 
-      showToast('✨ Sent! That\'s how dictation works in any app.', 'success');
+      showToast('Sent. That\'s how dictation works in any app.', 'success');
 
       // Reset the mock input for another go
       setTimeout(() => {
@@ -3304,77 +3033,10 @@ async function wizCompleteSetup() {
   if (skip) skip.disabled = false;
 }
 
-// ── Snippets ──────────────────────────────────────────────────────────────
-let _snippets = [];
-
-async function loadSnippets() {
-  try {
-    _snippets = (await pywebview.api.get_snippets()) || [];
-    renderSnippets();
-  } catch(e) {
-    console.warn('loadSnippets error:', e);
-  }
-}
-
-function renderSnippets() {
-  const list = document.getElementById('snippetsList');
-  if (!list) return;
-  list.innerHTML = '';
-  if (!_snippets.length) {
-    list.innerHTML = '<div class="snippet-empty">No snippets yet. Click + Add to create one.</div>';
-    return;
-  }
-  _snippets.forEach((s, i) => {
-    const row = document.createElement('div');
-    row.className = 'snippet-row';
-    row.innerHTML = `
-      <input class="snippet-trigger" type="text" value="${escHtml(s.trigger || '')}"
-        placeholder="trigger phrase" onchange="updateSnippet(${i}, 'trigger', this.value)">
-      <span class="snippet-arrow">→</span>
-      <textarea class="snippet-expansion" rows="2"
-        placeholder="expansion text"
-        onchange="updateSnippet(${i}, 'expansion', this.value)">${escHtml(s.expansion || '')}</textarea>
-      <button class="icon-btn" onclick="deleteSnippet(${i})" title="Delete">🗑</button>
-    `;
-    list.appendChild(row);
-  });
-}
-
-function addSnippetRow() {
-  _snippets.push({ trigger: '', expansion: '' });
-  renderSnippets();
-  // Focus the new trigger input
-  const inputs = document.querySelectorAll('.snippet-trigger');
-  if (inputs.length) inputs[inputs.length - 1].focus();
-}
-
-function updateSnippet(i, field, value) {
-  if (_snippets[i]) {
-    _snippets[i][field] = value;
-    saveSnippets();
-  }
-}
-
-function deleteSnippet(i) {
-  _snippets.splice(i, 1);
-  renderSnippets();
-  saveSnippets();
-}
-
-async function saveSnippets() {
-  try {
-    const valid = _snippets.filter(s => s.trigger.trim());
-    await pywebview.api.set_snippets(valid);
-  } catch(e) {
-    console.warn('saveSnippets error:', e);
-  }
-}
-
-// Load snippets when settings page opens
+// Opening Settings also loads Usage, the version and the Not sent count.
 const _origLoadSettings = loadSettings;
 loadSettings = async function() {
   await _origLoadSettings();
-  await loadSnippets();
   await loadUsageStats();
   await loadAppVersion();
   await loadUnsentSummary();
@@ -3498,22 +3160,6 @@ async function loadAppVersion() {
     if (el) el.textContent = WL.aboutLine(ver, _lastSettings);
   } catch(e) {
     console.warn('loadAppVersion error:', e);
-  }
-}
-
-async function resetUsage() {
-  if (!confirm('Reset all usage statistics? This cannot be undone.')) return;
-  try {
-    const r = await pywebview.api.reset_usage();
-    if (r.ok) {
-      await loadUsageStats();
-      showToast('🗑️ Usage stats reset', 'success');
-    } else {
-      console.warn('reset_usage failed:', r.error);
-      showToast("Couldn't reset the usage figures. Try again.", 'error');
-    }
-  } catch(e) {
-    showToast("Couldn't reset the usage figures. Try again.", 'error');
   }
 }
 

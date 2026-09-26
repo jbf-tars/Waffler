@@ -45,12 +45,24 @@
     return Object.prototype.hasOwnProperty.call(STATUS_RESET_MS, cls) ? STATUS_RESET_MS[cls] : 0;
   }
 
-  // While processing, the pill counts: "Cleaning up · 4 s". Nothing under a
-  // second, so a quick dictation never flickers a number.
-  function workingLabel(label, seconds) {
+  // While processing, the pill counts the seconds beside its label: "4 s",
+  // then "1 min 4 s". Nothing under a second, so a quick dictation never
+  // flickers a number. workingLabel is the whole line, for the tooltip.
+  function workingTime(seconds) {
     const s = Math.max(0, Math.floor(Number(seconds) || 0));
-    if (s < 1) return label;
-    return s < 60 ? `${label} · ${s} s` : `${label} · ${Math.floor(s / 60)} min ${s % 60} s`;
+    if (s < 1) return '';
+    return s < 60 ? `${s} s` : `${Math.floor(s / 60)} min ${s % 60} s`;
+  }
+
+  function workingLabel(label, seconds) {
+    const t = workingTime(seconds);
+    return t ? `${label} · ${t}` : label;
+  }
+
+  // While recording, the pill shows how long you've been talking: "0:04".
+  function recordingTime(seconds) {
+    const s = Math.max(0, Math.floor(Number(seconds) || 0));
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
   }
 
   // ── Not sent recordings (Journal cards) ────────────────────────────────
@@ -250,7 +262,7 @@
       // than trying to download (which used to fail as an "untrusted URL").
       if (r.no_installer || !r.download_url) {
         return {
-          kind: 'no_installer', icon: '⬆️', title,
+          kind: 'no_installer', icon: 'circle-up', title,
           subtitle: r.no_installer_message || UPDATE_TEXT.noInstaller,
           primary: r.release_url
             ? { label: 'Open release page', url: r.release_url }
@@ -259,7 +271,7 @@
         };
       }
       return {
-        kind: 'available', icon: '⬆️', title,
+        kind: 'available', icon: 'circle-up', title,
         subtitle: `You're on v${r.current_version}. Download and install now?`,
         primary: { label: 'Download & Install', download: r.download_url },
         browserUrl: DOWNLOAD_PAGE, cancelLabel: 'Later',
@@ -268,10 +280,10 @@
     if (r.error) {
       const m = splitMessage(r.error);
       const on = r.current_version ? ` You're on v${r.current_version}.` : '';
-      return { kind: 'error', icon: '⚠️', title: m.title, subtitle: (m.subtitle + on).trim() };
+      return { kind: 'error', icon: 'alert', title: m.title, subtitle: (m.subtitle + on).trim() };
     }
     const latest = r.latest_version ? ` (latest: v${r.latest_version})` : '';
-    return { kind: 'up_to_date', icon: '✓', title: "You're up to date",
+    return { kind: 'up_to_date', icon: 'check-circle', title: "You're up to date",
              subtitle: `Running Waffler v${r.current_version || '?'}${latest}.` };
   }
 
@@ -279,7 +291,7 @@
   // download page.
   function updateFailureView(r, fallback) {
     const m = splitMessage((r && r.error) || fallback || UPDATE_TEXT.downloadFailed);
-    return { icon: '⚠️', title: m.title, subtitle: m.subtitle,
+    return { icon: 'alert', title: m.title, subtitle: m.subtitle,
              browserUrl: (r && r.download_page) || DOWNLOAD_PAGE };
   }
 
@@ -423,7 +435,7 @@
   }
 
   return {
-    STATUS_VIEWS, STATUS_CLASSES, DONE_RESET_MS, statusView, statusResetMs, workingLabel,
+    STATUS_VIEWS, STATUS_CLASSES, DONE_RESET_MS, statusView, statusResetMs, workingLabel, workingTime, recordingTime,
     notSentId, notSentView, retryFailedMessage, unsentSummary,
     defaultHotkey, keyName, orderKeys, hotkeyName, keycaps, pressOrderHint, hotkeyPresets,
     DOWNLOAD_PAGE, UPDATE_TEXT, splitMessage, updateCheckView, updateFailureView,

@@ -776,31 +776,6 @@ class Api:
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
-    def focus_window(self) -> dict:
-        """Bring the Waffler window to the foreground."""
-        try:
-            import platform
-            import webview
-
-            if platform.system() == "Darwin":
-                # macOS - activate the application using NSApp
-                try:
-                    from AppKit import NSApp, NSApplicationActivateIgnoringOtherApps
-                    NSApp.activateIgnoringOtherApps_(NSApplicationActivateIgnoringOtherApps)
-                except ImportError:
-                    # Fallback if AppKit not available
-                    pass
-
-            # Also try webview's method
-            windows = webview.windows
-            if windows:
-                windows[0].on_top = True
-                windows[0].on_top = False
-
-            return {"ok": True}
-        except Exception as e:
-            return {"ok": False, "error": str(e)}
-
     def demo_overlay_show(self) -> dict:
         """Show overlay with mic feedback for wizard demo (Step 4)."""
         global _pipeline
@@ -1504,40 +1479,6 @@ class Api:
             ),
         }
 
-    def request_permissions(self) -> dict:
-        """Request macOS permissions by attempting to create event tap. This triggers system prompts."""
-        import platform as plat
-        if plat.system() != "Darwin":
-            return {"ok": True, "message": "Permissions not needed on this platform"}
-
-        try:
-            # Import the Fn key monitor which will attempt to create CGEventTap
-            # This triggers the Input Monitoring permission prompt
-            from fn_key_cgevent import FnKeyMonitor
-
-            def dummy_callback():
-                pass
-
-            # Try to create the monitor - this will request permissions
-            monitor = FnKeyMonitor(on_fn_press=dummy_callback, on_fn_release=dummy_callback)
-            monitor.start()
-
-            # Give it a moment to start
-            time.sleep(0.5)
-
-            # Stop it
-            monitor.stop()
-
-            return {
-                "ok": True,
-                "message": "Permission request triggered. Please grant Input Monitoring and Accessibility permissions in System Settings."
-            }
-        except Exception as e:
-            return {
-                "ok": False,
-                "error": f"Failed to request permissions: {str(e)}"
-            }
-
     def open_accessibility_settings(self) -> dict:
         """Open System Settings to the Accessibility permission panel."""
         import platform as plat
@@ -1805,34 +1746,6 @@ class Api:
             # Fail silently - users can still use "Open System Settings" buttons
             return {"ok": True, "platform": "darwin", "triggered": False, "error": str(e)}
 
-    def test_microphone(self, device_index, duration=2.0) -> dict:
-        """Record a short clip and return the audio level."""
-        try:
-            import sounddevice as sd
-            import numpy as np
-            device_index = int(device_index)
-            duration = min(float(duration), 5.0)
-            recording = sd.rec(
-                int(16000 * duration),
-                samplerate=16000,
-                channels=1,
-                dtype='int16',
-                device=device_index,
-            )
-            sd.wait()
-            rms = float(np.sqrt(np.mean(recording.astype(np.float32) ** 2)))
-            peak = float(np.max(np.abs(recording)))
-            has_audio = rms > 100
-            return {
-                "ok": True,
-                "rms": round(rms, 1),
-                "peak": round(peak, 1),
-                "has_audio": has_audio,
-                "message": "Audio detected" if has_audio else "No audio detected — check your microphone",
-            }
-        except Exception as e:
-            return {"ok": False, "error": str(e)}
-
     # ── Wizard Hotkey Test API ─────────────────────────────────────────────
 
     def wizard_init_step2(self) -> dict:
@@ -1997,13 +1910,6 @@ class Api:
             return {"ok": True}
         except Exception as e:
             return {"ok": False, "error": str(e)}
-
-    def wizard_get_recording_state(self) -> dict:
-        """Poll the wizard recording state and result."""
-        return {
-            "recording": _wizard_recording,
-            "result": _wizard_result,
-        }
 
     def complete_setup(self) -> dict:
         """Called when the setup wizard finishes. Initializes the pipeline

@@ -4,60 +4,46 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Waffler</title>
+  <!-- tokens.css: colours, fonts and sizes; components.css: the shared
+       parts (buttons, keycaps, the status pill...); style.css: the screens. -->
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="components.css">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <div class="app">
 
-  <!-- ──────────────────────────────────────────────────────────────
-       JOURNAL LAYOUT (v3.14.16+) — replaces the sidebar+main split.
-
-       v3.14.18 fix: top nav was previously INSIDE `<main id="mainArea">`,
-       which meant clicking Vocabulary or Settings (which hides mainArea
-       via showPage) also hid the navigation — leaving the user trapped
-       on those pages with no way back to Journal. The nav now lives as
-       a sibling of all three panels so it's always visible regardless
-       of which page is active.
-       ────────────────────────────────────────────────────────────── -->
-
-  <!-- Top nav — persistent across all pages -->
-  <div class="j-topnav">
-    <div class="j-brand">
-      <img class="j-brand-icon" src="logo-icon.png" alt="">
-      <span class="j-brand-text">Waffler</span>
+  <!-- Top bar: the waffle and wordmark, the three pages, and the status
+       pill. It sits outside the pages, so it is on screen whichever page is
+       open (v3.14.18: inside the Journal, it vanished with it). -->
+  <header class="topbar" id="topbar">
+    <div class="brand">
+      <span class="brand-mark" data-waffle="logo" data-size="24"></span>
+      <span class="brand-word">Waffler</span>
     </div>
 
-    <nav class="j-nav">
-      <!-- v3.14.21 bug fix: the active state is driven by the `.active`
-           class that showPage() toggles. The previous default used
-           `j-nav-active` (a sibling class) which showPage() never
-           touched, so Journal stayed highlighted forever even after
-           clicking another tab. -->
-      <div class="j-nav-item active" id="navHome" onclick="showPage('home')">Journal</div>
-      <div class="j-nav-item" id="navVocab" onclick="showPage('vocabulary')">Vocabulary</div>
-      <div class="j-nav-item" id="navSettings" onclick="showPage('settings')">Settings</div>
+    <!-- showPage() marks the open page (.active and aria-selected). -->
+    <nav class="seg topbar-nav" role="tablist" aria-label="Pages">
+      <button type="button" role="tab" id="navHome" class="active" aria-selected="true" onclick="showPage('home')">Journal</button>
+      <button type="button" role="tab" id="navVocab" aria-selected="false" onclick="showPage('vocabulary')">Vocabulary</button>
+      <button type="button" role="tab" id="navSettings" aria-selected="false" onclick="showPage('settings')">Settings</button>
     </nav>
 
-    <!-- The mode menu was here. Normal was its only real choice, so it
-         is gone until there are more modes. -->
-
-    <!-- Status pill. window.waffler_status() swaps the state class and
-         the label (Ready, Recording, Cleaning up); the labels live in
-         logic.js. The hotkey chip beside it shows how to start. -->
-    <div class="j-listen status-indicator idle" id="statusIndicator">
-      <span class="j-listen-dot status-dot"></span>
-      <span class="j-listen-text" id="statusText">Ready</span>
-      <kbd class="j-kbd" id="hotkeyHint">Fn</kbd>
+    <!-- Status pill. window.waffler_status() sets its state class and label
+         (logic.js: Ready, Recording, Cleaning up...). At Ready it shows the
+         hotkey as keycaps; while recording or cleaning up, the seconds. It
+         has one width in every state, so the bar never shifts. -->
+    <div class="status idle" id="statusIndicator" role="status">
+      <span class="status-dot" aria-hidden="true"></span>
+      <span class="status-lbl" id="statusText">Ready</span>
+      <span class="status-t" id="statusTime" aria-hidden="true"></span>
+      <span class="keys status-keys" id="hotkeyHint"></span>
     </div>
 
-    <!-- Hidden bits the existing JS code still references -->
-    <span id="hotkeyHintDesc" style="display:none">Hold to record • Space = sticky • Esc = cancel</span>
-    <div id="sidebarUser" class="j-user" style="display:none">
-      <span class="j-user-email" id="sidebarUserEmail"></span>
-      <button class="j-user-logout" onclick="doSignOut()">Sign out</button>
-    </div>
-    <select id="micSelect" style="display:none" onchange="onMicChange(this.value)"></select>
-  </div>
+    <!-- The microphone list app.js keeps filled. Not shown yet: Settings
+         will give it a place. -->
+    <select id="micSelect" hidden aria-label="Microphone" onchange="onMicChange(this.value)"></select>
+  </header>
 
   <!-- Home page (journal) -->
   <main class="journal" id="mainArea">
@@ -82,7 +68,7 @@
       </div>
 
       <div class="j-right-group">
-        <!-- 🥞 Stacked-waffles streak chip -->
+        <!-- Stacked-waffles streak chip -->
         <div class="j-streak" id="streakChip" title="Daily stack streak">
           <svg viewBox="0 0 32 26" width="26" height="22" class="j-stack-svg" aria-hidden="true">
             <ellipse cx="16" cy="22" rx="13" ry="3" fill="#8B6914" opacity="0.9"/>
@@ -101,13 +87,10 @@
 
         <!-- Search input — keeps existing id/handler -->
         <div class="j-search-wrap">
-          <svg viewBox="0 0 16 16" width="14" height="14" class="j-search-icon">
-            <circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.5" fill="none"/>
-            <line x1="11" y1="11" x2="14" y2="14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-          </svg>
+          <svg class="ic j-search-icon" aria-hidden="true"><use href="#i-search"/></svg>
           <input type="text" id="searchInput" class="j-search-input" placeholder="Search 0 entries…" oninput="onSearchInput(this.value)">
         </div>
-        <div class="j-feed-count" id="feedCount" style="display:none">0 entries</div>
+        <div class="j-feed-count" id="feedCount" hidden>0 entries</div>
       </div>
     </div>
 
@@ -120,15 +103,15 @@
       </div>
 
       <div class="j-empty" id="emptyState">
-        <div class="j-empty-icon">🥞</div>
+        <div class="j-empty-icon" data-waffle="logo" data-size="48"></div>
         <div class="j-empty-label">Your journal is empty.</div>
-        <div class="j-empty-sub" id="emptyHint">Press your hotkey and speak — the first entry will appear here.</div>
+        <div class="j-empty-sub" id="emptyHint">Hold your hotkey and speak. The first entry will appear here.</div>
       </div>
 
       <!-- A search with no matches. It used to show "Your journal is
            empty." above, as if the history had gone. -->
       <div class="j-empty j-no-match" id="noMatchState" style="display:none">
-        <div class="j-empty-icon">🔍</div>
+        <div class="j-empty-icon"><svg class="ic ic-lg" aria-hidden="true"><use href="#i-search"/></svg></div>
         <div class="j-empty-label" id="noMatchLabel">No entries match</div>
         <div class="j-empty-sub">Try other words, or clear the search to see every entry.</div>
         <button class="settings-btn j-clear-search" onclick="clearSearch()">Clear search</button>
@@ -146,14 +129,13 @@
           <h1>Settings</h1>
           <div class="subtitle">Configure Waffler to your preferences.</div>
         </div>
-        <button class="settings-icon-btn" onclick="showPage('home')" title="Back to Home">🏠</button>
       </div>
     </div>
     
     <div class="settings-body">
       <!-- Appearance Section (v3.14.3+) -->
       <div class="settings-section">
-        <div class="settings-section-title">🎨 Appearance</div>
+        <div class="settings-section-title"><svg class="ic" aria-hidden="true"><use href="#i-palette"/></svg> Appearance</div>
         <p style="color:var(--text-secondary);font-size:13px;margin-bottom:10px">
           Match the wizard's branded look, or stick with the original dark theme.
         </p>
@@ -178,7 +160,7 @@
 
       <!-- API Section -->
       <div class="settings-section">
-        <div class="settings-section-title">⚡ API Keys</div>
+        <div class="settings-section-title"><svg class="ic" aria-hidden="true"><use href="#i-key"/></svg> API Keys</div>
         <div class="settings-row-desc" style="margin-bottom:8px;font-size:12px;opacity:0.75;">
           Add any one or more. The order Waffler tries them in is set in <strong>Provider Order</strong> below.
         </div>
@@ -224,7 +206,7 @@
 
       <!-- Provider Order Section -->
       <div class="settings-section">
-        <div class="settings-section-title">🔀 Provider Order</div>
+        <div class="settings-section-title"><svg class="ic" aria-hidden="true"><use href="#i-arrow-up-down"/></svg> Provider Order</div>
         <div class="settings-row-desc" style="margin-bottom:10px;font-size:12px;opacity:0.75;">
           Waffler tries these top-to-bottom and uses the first that responds. Put your fastest (or paid) provider first to avoid free-tier slowdowns. Takes effect on your next recording — no restart needed.
         </div>
@@ -233,11 +215,11 @@
 
       <!-- Hotkey Section -->
       <div class="settings-section">
-        <div class="settings-section-title">⌨️ Hotkey</div>
+        <div class="settings-section-title"><svg class="ic" aria-hidden="true"><use href="#i-keyboard"/></svg> Hotkey</div>
         <div class="settings-row">
           <div class="settings-row-info">
             <div class="settings-row-label">Recording Hotkey</div>
-            <div class="settings-row-desc">Current: <span id="settingsHotkeyBadge" style="font-weight:600;color:#C8A256;">Loading...</span></div>
+            <div class="settings-row-desc">Current: <span id="settingsHotkeyBadge" class="settings-hotkey-badge">Loading...</span></div>
             <div class="settings-row-desc settings-hotkey-error" id="settingsHotkeyError" role="alert" hidden></div>
           </div>
           <!-- Filled by app.js with this platform's choices (logic.js
@@ -247,14 +229,14 @@
         <div class="settings-row">
           <div class="settings-row-info">
             <div class="settings-row-label"></div>
-            <div class="settings-row-desc" style="font-size:13px;color:#999;">💡 Press Space while holding your hotkey to activate auto mode</div>
+            <div class="settings-row-desc settings-tip"><svg class="ic" aria-hidden="true"><use href="#i-lightbulb"/></svg> Press Space while holding your hotkey to keep recording hands-free</div>
           </div>
         </div>
       </div>
 
       <!-- Preferences Section -->
       <div class="settings-section">
-        <div class="settings-section-title">🎙️ Preferences</div>
+        <div class="settings-section-title"><svg class="ic" aria-hidden="true"><use href="#i-sliders"/></svg> Preferences</div>
         <div class="settings-row">
           <div class="settings-row-info">
             <div class="settings-row-label">Spelling</div>
@@ -285,7 +267,7 @@
 
       <!-- Usage Section -->
       <div class="settings-section">
-        <div class="settings-section-title">📊 Usage</div>
+        <div class="settings-section-title"><svg class="ic" aria-hidden="true"><use href="#i-chart"/></svg> Usage</div>
 
         <!-- Counts first: what you did. The money below is an estimate at
              paid rates; it used to come first and read like a bill, though
@@ -336,7 +318,7 @@
 
       <!-- About -->
       <div class="settings-section">
-        <div class="settings-section-title">ℹ️ About</div>
+        <div class="settings-section-title"><svg class="ic" aria-hidden="true"><use href="#i-info"/></svg> About</div>
         <div class="settings-row">
           <div class="settings-row-info">
             <div class="settings-row-label">Waffler</div>
@@ -350,7 +332,7 @@
 
       <!-- Data Management -->
       <div class="settings-section">
-        <div class="settings-section-title">🗑️ Data</div>
+        <div class="settings-section-title"><svg class="ic" aria-hidden="true"><use href="#i-database"/></svg> Data</div>
         <!-- Recordings that were not turned into text (Journal "Not sent"
              cards). Waffler sends them by itself when the speech service
              answers; this is the count, and a way to send them now. -->
@@ -369,9 +351,7 @@
             <div class="settings-row-desc">Save a diagnostic bundle to your Desktop (no API keys, no transcripts) so you can send it to support when something breaks</div>
           </div>
           <div class="settings-row-control">
-            <button onclick="downloadLogs(this)" style="padding: 8px 16px; background: #0d6efd; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 500;">
-              Download Logs
-            </button>
+            <button class="btn btn-sec btn-sm" onclick="downloadLogs(this)">Download Logs</button>
           </div>
         </div>
         <div class="settings-row">
@@ -380,9 +360,7 @@
             <div class="settings-row-desc">Clear all data and start fresh from setup</div>
           </div>
           <div class="settings-row-control">
-            <button class="btn-danger" onclick="factoryReset()" style="padding: 8px 16px; background: #dc3545; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 500;">
-              Reset All Data
-            </button>
+            <button class="btn btn-danger btn-sm" onclick="factoryReset()">Reset All Data</button>
           </div>
         </div>
       </div>
@@ -392,7 +370,7 @@
   <!-- Vocabulary Panel -->
   <div class="vocabulary-panel" id="vocabularyPanel" style="display:none">
     <div class="vocab-header">
-      <h1>📖 Vocabulary</h1>
+      <h1>Vocabulary</h1>
       <div class="subtitle">Custom words for better transcription.</div>
     </div>
     <div class="vocab-add-row">
@@ -407,7 +385,7 @@
 <!-- Update Modal -->
 <div class="hotkey-modal-overlay" id="updateModal" style="display:none" onclick="closeUpdateModal(event)">
   <div class="hotkey-modal" onclick="event.stopPropagation()" style="max-width:440px">
-    <div class="hotkey-modal-icon" id="updateModalIcon">⬆️</div>
+    <div class="hotkey-modal-icon" id="updateModalIcon"><svg class="ic" aria-hidden="true"><use href="#i-circle-up"/></svg></div>
     <div class="hotkey-modal-title" id="updateModalTitle">Checking for updates…</div>
     <div class="hotkey-modal-subtitle" id="updateModalSubtitle">Contacting GitHub…</div>
 
@@ -429,7 +407,7 @@
 <!-- Hotkey Capture Modal -->
 <div class="hotkey-modal-overlay" id="hotkeyModal" style="display:none" onclick="closeHotkeyCapture()">
   <div class="hotkey-modal" onclick="event.stopPropagation()">
-    <div class="hotkey-modal-icon">⌨️</div>
+    <div class="hotkey-modal-icon"><svg class="ic" aria-hidden="true"><use href="#i-keyboard"/></svg></div>
     <div class="hotkey-modal-title">Change Hotkey</div>
     <div class="hotkey-modal-subtitle">Press your new key combination...</div>
     <div class="hotkey-capture-box" id="hotkeyCaptureBox">
@@ -686,7 +664,7 @@
       <div id="wizHotkeyConfigPanel" style="display:none;margin-top:16px">
         <div class="wiz-perm-card">
           <h3 style="margin:0 0 6px 0">Choose your hotkey</h3>
-          <p style="margin:0 0 14px 0;color:#6B6560;font-size:13px">💡 Press <strong>Space</strong> while holding to activate auto mode.</p>
+          <p style="margin:0 0 14px 0;color:#6B6560;font-size:13px">Press <strong>Space</strong> while holding to keep recording hands-free.</p>
           <div id="wizHotkeyPresetList" style="display:flex;flex-direction:column;gap:8px">
             <!-- Filled by app.js from logic.js hotkeyPresets: Mac shows Fn,
                  Command + Shift and Option + Shift; Windows shows Win + Ctrl,
@@ -706,7 +684,7 @@
            them that frustration without forcing them to add multiple
            keys now — the wizard still advances with any single key. -->
       <p class="wiz-section-tip">
-        <span class="wiz-section-tip-icon">💡</span>
+        <span class="wiz-section-tip-icon"><svg class="ic" aria-hidden="true"><use href="#i-lightbulb"/></svg></span>
         <strong>Add more than one for reliability.</strong>
         If a provider hits a rate limit or has a slow day, Waffler will fall back to the next one automatically. You can always add more keys later from Settings.
       </p>
@@ -753,7 +731,7 @@
                 <circle cx="22" cy="13" r="2.5" fill="#ffbd2e"/>
                 <circle cx="31" cy="13" r="2.5" fill="#27c93f"/>
                 <rect x="42" y="9" width="100" height="8" rx="3" fill="#0F0F12"/>
-                <text x="92" y="15.5" font-size="5" text-anchor="middle" fill="#888" font-family="-apple-system,sans-serif">🔒 console.groq.com/keys</text>
+                <text x="92" y="15.5" font-size="5" text-anchor="middle" fill="#888" font-family="-apple-system,sans-serif">console.groq.com/keys</text>
                 <rect x="4" y="22" width="44" height="114" fill="#0a0a0c"/>
                 <text x="11" y="35" font-size="9" font-weight="800" fill="#F55036" font-family="-apple-system,sans-serif">groq</text>
                 <line x1="9" y1="40" x2="44" y2="40" stroke="#1f1f24" stroke-width="0.5"/>
@@ -853,7 +831,7 @@
                 </g>
                 <text x="28" y="22" font-size="7" font-weight="700" fill="#fff" font-family="-apple-system,sans-serif">Your key is ready</text>
                 <rect x="14" y="32" width="172" height="20" rx="4" fill="rgba(251, 191, 36, 0.08)" stroke="rgba(251, 191, 36, 0.25)" stroke-width="0.5"/>
-                <text x="20" y="41" font-size="4.5" fill="#fbbf24" font-weight="700" font-family="-apple-system,sans-serif">⚠ Save this — shown only once</text>
+                <text x="20" y="41" font-size="4.5" fill="#fbbf24" font-weight="700" font-family="-apple-system,sans-serif">Save this. It is shown only once</text>
                 <text x="20" y="48" font-size="4" fill="#a08855" font-family="-apple-system,sans-serif">For security, you won't see it again.</text>
                 <rect x="14" y="60" width="140" height="18" rx="4" fill="#1a1a1f" stroke="#2a2a32" stroke-width="0.5"/>
                 <text x="22" y="71" font-size="5" fill="#C8A256" font-family="SF Mono, monospace">gsk_AB12cd34EF56gh78IJ•••</text>
@@ -882,13 +860,13 @@
 
         <!-- Warning: save your key somewhere safe -->
         <div class="wiz-prov-notice">
-          <span class="wiz-prov-notice-icon">🔐</span>
+          <span class="wiz-prov-notice-icon"><svg class="ic" aria-hidden="true"><use href="#i-lock"/></svg></span>
           <span><strong>Save this key somewhere safe.</strong> Groq only shows it once — keep it in a password manager so you don't have to regenerate it later.</span>
         </div>
 
         <div class="wiz-prov-row">
           <input type="password" id="wizGroqKeyInput3" class="wiz-prov-input" placeholder="gsk_..." autocomplete="off" spellcheck="false">
-          <button class="wiz-prov-eye" onclick="toggleKeyVisibility('wizGroqKeyInput3')" type="button">👁</button>
+          <button class="wiz-prov-eye" onclick="toggleKeyVisibility('wizGroqKeyInput3')" type="button" aria-label="Show or hide the key"><svg class="ic" aria-hidden="true"><use href="#i-eye"/></svg></button>
           <span class="wiz-prov-tick wiz-prov-tick-empty" id="wizGroqTick">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/></svg>
           </span>
@@ -921,7 +899,7 @@
                 <circle cx="22" cy="13" r="2.5" fill="#ffbd2e"/>
                 <circle cx="31" cy="13" r="2.5" fill="#27c93f"/>
                 <rect x="42" y="9" width="115" height="8" rx="3" fill="#0F0F12"/>
-                <text x="100" y="15.5" font-size="4.8" text-anchor="middle" fill="#888" font-family="-apple-system,sans-serif">🔒 platform.openai.com/api-keys</text>
+                <text x="100" y="15.5" font-size="4.8" text-anchor="middle" fill="#888" font-family="-apple-system,sans-serif">platform.openai.com/api-keys</text>
                 <rect x="4" y="22" width="44" height="114" fill="#0a0a0c"/>
                 <text x="9" y="35" font-size="7" font-weight="800" fill="#10A37F" font-family="-apple-system,sans-serif">OpenAI</text>
                 <line x1="9" y1="40" x2="44" y2="40" stroke="#1f1f24" stroke-width="0.5"/>
@@ -1021,7 +999,7 @@
                 </g>
                 <text x="28" y="22" font-size="7" font-weight="700" fill="#fff" font-family="-apple-system,sans-serif">Your key is ready</text>
                 <rect x="14" y="32" width="172" height="20" rx="4" fill="rgba(251, 191, 36, 0.08)" stroke="rgba(251, 191, 36, 0.25)" stroke-width="0.5"/>
-                <text x="20" y="41" font-size="4.5" fill="#fbbf24" font-weight="700" font-family="-apple-system,sans-serif">⚠ Save this — shown only once</text>
+                <text x="20" y="41" font-size="4.5" fill="#fbbf24" font-weight="700" font-family="-apple-system,sans-serif">Save this. It is shown only once</text>
                 <text x="20" y="48" font-size="4" fill="#a08855" font-family="-apple-system,sans-serif">For security, you won't see it again.</text>
                 <rect x="14" y="60" width="140" height="18" rx="4" fill="#1a1a1f" stroke="#2a2a32" stroke-width="0.5"/>
                 <text x="22" y="71" font-size="5" fill="#10A37F" font-family="SF Mono, monospace">sk-proj-AB12cd34EF56gh78•••</text>
@@ -1050,13 +1028,13 @@
 
         <!-- Warning: save your key somewhere safe -->
         <div class="wiz-prov-notice">
-          <span class="wiz-prov-notice-icon">🔐</span>
+          <span class="wiz-prov-notice-icon"><svg class="ic" aria-hidden="true"><use href="#i-lock"/></svg></span>
           <span><strong>Save this key somewhere safe.</strong> OpenAI only shows it once — keep it in a password manager so you don't have to regenerate it later.</span>
         </div>
 
         <div class="wiz-prov-row">
           <input type="password" id="wizApiKeyInput3" class="wiz-prov-input" placeholder="sk-proj-..." autocomplete="off" spellcheck="false">
-          <button class="wiz-prov-eye" onclick="toggleKeyVisibility('wizApiKeyInput3')" type="button">👁</button>
+          <button class="wiz-prov-eye" onclick="toggleKeyVisibility('wizApiKeyInput3')" type="button" aria-label="Show or hide the key"><svg class="ic" aria-hidden="true"><use href="#i-eye"/></svg></button>
           <span class="wiz-prov-tick wiz-prov-tick-empty" id="wizOpenAITick">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/></svg>
           </span>
@@ -1130,7 +1108,7 @@
             </header>
             <div class="wiz-mockapp-thread">
               <div class="wiz-msg wiz-msg-them">
-                <span class="wiz-msg-bubble">Hey! A few of us are getting dinner Friday at 7. Want to join? 🍕</span>
+                <span class="wiz-msg-bubble">Hey! A few of us are getting dinner Friday at 7. Want to join?</span>
                 <span class="wiz-msg-time">2:34 PM</span>
               </div>
             </div>
@@ -1164,6 +1142,7 @@
 <div class="toast" id="toast"></div>
 
 <script src="logic.js"></script>
+<script src="icons.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

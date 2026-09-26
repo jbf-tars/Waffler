@@ -1,0 +1,337 @@
+/* Waffler design tokens (3.15)
+ *
+ * One place for the window's colours, type, spacing, radii, shadows and
+ * motion, taken from the website's design system (site.css :root) as mapped
+ * for the app in the design audit. components.css builds the shared parts
+ * from these, and style.css uses them for every screen. Load order in
+ * index.html: tokens.css, components.css, style.css.
+ *
+ * Rules the tokens keep:
+ * - Gold is a fill or a light, never text on a light background. The only
+ *   gold allowed as text on light is --accent-ink (#7A5717, 6.6:1 on white).
+ *   On the night theme, --accent-ink is honey-light (#E8C86C).
+ * - --muted (#6E6860) is the lightest colour for text anyone has to read
+ *   (5.4:1 on --bg). --faint is for decoration and disabled things only.
+ * - Weights 400 and 500 only, with Geist at the site's 390 for display.
+ * - Hover changes colour, never position. Only the recording state moves.
+ *
+ * Themes: body[data-theme] is "cream" (light, the default), "dark" (night)
+ * or, before app.js has resolved it, "auto" (System). The light values sit on
+ * :root and body; the night values override them on body. Tokens that point
+ * at other tokens are declared on body too, so they resolve in the right
+ * theme.
+ */
+
+/* ── Fonts ─────────────────────────────────────────────────────────────────
+   All bundled in ui/fonts/ with their SIL Open Font Licences, so opening the
+   window never touches the network. Latin and latin-ext subsets, the same
+   files and ranges the Fontsource packages ship. Roles:
+     Inter           everything you read and click
+     Geist           titles, figures and the wordmark
+     Geist Mono      keys, versions, costs, model names, small labels
+     Source Serif 4  italic, only for dates and times                        */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("fonts/inter-latin-ext-wght-normal.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("fonts/inter-latin-wght-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Geist";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("fonts/geist-latin-ext-wght-normal.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Geist";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("fonts/geist-latin-wght-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Geist Mono";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("fonts/geist-mono-latin-ext-wght-normal.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Geist Mono";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("fonts/geist-mono-latin-wght-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Source Serif 4";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 200 900;
+  src: url("fonts/source-serif-4-latin-ext-opsz-normal.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Source Serif 4";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 200 900;
+  src: url("fonts/source-serif-4-latin-opsz-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* A true italic for the dates and times; without it the browser slants the
+   upright letters. */
+@font-face {
+  font-family: "Source Serif 4";
+  font-style: italic;
+  font-display: swap;
+  font-weight: 200 900;
+  src: url("fonts/source-serif-4-latin-ext-opsz-italic.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Source Serif 4";
+  font-style: italic;
+  font-display: swap;
+  font-weight: 200 900;
+  src: url("fonts/source-serif-4-latin-opsz-italic.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* ── Light theme (Cream in Settings; the default) ──────────────────────────
+   Also the light branch of System: app.js resolves System to cream or dark,
+   and before it runs a light OS must not fall through to night values. */
+:root,
+body {
+  color-scheme: light;
+
+  /* surfaces */
+  --bg:          #FDFCFC;              /* site --page, the eggshell (owner decision D1) */
+  --surface:     #F5F3F1;              /* site --cream: strips, groups, tab tracks */
+  --surface-2:   #EBE8E4;              /* site --gray-200: hover fills, empty tracks */
+  --card:        #FFFFFF;              /* entries, panels, inputs */
+  --line:        rgba(12, 10, 9, 0.07);   /* hairlines (top bar, dividers) */
+  --ring:        rgba(12, 10, 9, 0.075);  /* card outlines, drawn as inset shadows */
+  --ring-strong: #D7D2CC;              /* input and segmented outlines */
+  --dots:        rgba(12, 10, 9, 0.18);   /* dotted separators, link underlines */
+
+  /* text */
+  --text:   #0C0A09;                   /* site --ink */
+  --text-2: #44403B;                   /* strong secondary: inactive tabs */
+  --muted:  #6E6860;                   /* the floor for readable text, 5.4:1 */
+  --faint:  #A59F97;                   /* decoration and disabled only */
+
+  /* honey: a fill or a light, never text on light */
+  --honey:       #D9A441;
+  --honey-light: #E8C86C;
+  --honey-deep:  #C48A2E;
+  --honey-tint:  #FBE7B0;              /* held keycap, warning chip (ink text on it) */
+  --honey-wash:  #FBF3DF;              /* notice background */
+  --accent-ink:  #7A5717;              /* the only gold allowed as text on light */
+  --focus:       #7A5717;
+  --tape:        #2A1F0E;              /* the overlay's button fill, dark notes */
+
+  /* states: text colours meet 4.5:1 on --card and on their tints */
+  --ok:          #28702B;
+  --ok-tint:     #E7F1E4;
+  --danger:      #B42318;
+  --danger-tint: #FBEAE7;
+  --rec:         #D94040;              /* the recording dot, never text */
+
+  /* controls */
+  --btn-pri-bg:    #0C0A09;
+  --btn-pri-fg:    #FDFCFC;
+  --btn-pri-hover: #44403B;
+  --btn-sec-bg:    #FFFFFF;
+  --btn-sec-hover: #F5F3F1;
+  --kc-fg: #0C0A09;
+  --kc-bg: linear-gradient(#FFFFFF, #F5F3F1);
+  --kc-shadow: inset 0 0 0 0.5px rgba(12, 10, 9, 0.18), 0 1px 0 rgba(12, 10, 9, 0.12), 0 2px 0 #E0DAD2;
+  --scrim: rgba(12, 10, 9, 0.20);
+
+  /* shadows: the site's strings, no gold glows */
+  --shadow-btn:    0 0 1px 0 rgba(0, 0, 0, 0.40), 0 1px 1px 0 rgba(0, 0, 0, 0.04), 0 2px 4px 0 rgba(0, 0, 0, 0.04);
+  --shadow-bubble: 0 0 0 0.5px rgba(0, 0, 0, 0.08), 0 1.677px 3.354px 0 rgba(0, 0, 0, 0.04);
+  --shadow-panel:  0 0 1.143px 0 rgba(0, 0, 0, 0.40), 0 2px 4px 0 rgba(0, 0, 0, 0.04);
+  --shadow-pop:    0 0 1.143px 0 rgba(0, 0, 0, 0.40), 0 2px 4px 0 rgba(0, 0, 0, 0.04), 0 18px 36px -18px rgba(78, 50, 23, 0.28);
+  --shadow-window: 0 0 0 0.5px rgba(12, 10, 9, 0.10), 0 1px 2px rgba(12, 10, 9, 0.04), 0 18px 40px -16px rgba(78, 50, 23, 0.22);
+}
+
+/* ── Night theme (Dark in Settings) ────────────────────────────────────────
+   The site's warm night materials, in place of the old cool blue-grey. */
+body[data-theme="dark"] {
+  color-scheme: dark;
+  --bg:          #0C0A09;
+  --surface:     #151311;
+  --surface-2:   #292524;
+  --card:        #1C1917;
+  --line:        rgba(253, 252, 252, 0.08);
+  --ring:        rgba(253, 252, 252, 0.09);
+  --ring-strong: #44403B;
+  --dots:        rgba(253, 252, 252, 0.18);
+  --text:   #FDFCFC;
+  --text-2: #CEC6BB;
+  --muted:  #B8AFA4;                   /* 8.1:1 on --card */
+  --faint:  #6E6860;
+  --honey-tint:  #3A2A10;
+  --honey-wash:  #1F1810;
+  --accent-ink:  #E8C86C;              /* honey-light is fine as text on night */
+  --focus:       #E8C86C;
+  --ok:          #8BC78E;
+  --ok-tint:     rgba(139, 199, 142, 0.13);
+  --danger:      #F29B8F;
+  --danger-tint: rgba(242, 155, 143, 0.13);
+  --btn-pri-bg:    #FDFCFC;
+  --btn-pri-fg:    #0C0A09;
+  --btn-pri-hover: #EBE8E4;
+  --btn-sec-bg:    #292524;
+  --btn-sec-hover: #35302B;
+  --kc-fg: #FDFCFC;
+  --kc-bg: linear-gradient(#3A3530, #292524);
+  --kc-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.14), 0 1px 0 rgba(0, 0, 0, 0.5), 0 2px 0 #0C0A09;
+  --scrim: rgba(0, 0, 0, 0.5);
+  --shadow-btn:    0 0 0 0.5px rgba(255, 255, 255, 0.10), 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-bubble: 0 0 0 0.5px rgba(255, 255, 255, 0.08), 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+/* System on a dark OS, before app.js resolves it: the same night values. */
+@media (prefers-color-scheme: dark) {
+  body[data-theme="auto"] {
+    color-scheme: dark;
+    --bg:          #0C0A09;
+    --surface:     #151311;
+    --surface-2:   #292524;
+    --card:        #1C1917;
+    --line:        rgba(253, 252, 252, 0.08);
+    --ring:        rgba(253, 252, 252, 0.09);
+    --ring-strong: #44403B;
+    --dots:        rgba(253, 252, 252, 0.18);
+    --text:   #FDFCFC;
+    --text-2: #CEC6BB;
+    --muted:  #B8AFA4;
+    --faint:  #6E6860;
+    --honey-tint:  #3A2A10;
+    --honey-wash:  #1F1810;
+    --accent-ink:  #E8C86C;
+    --focus:       #E8C86C;
+    --ok:          #8BC78E;
+    --ok-tint:     rgba(139, 199, 142, 0.13);
+    --danger:      #F29B8F;
+    --danger-tint: rgba(242, 155, 143, 0.13);
+    --btn-pri-bg:    #FDFCFC;
+    --btn-pri-fg:    #0C0A09;
+    --btn-pri-hover: #EBE8E4;
+    --btn-sec-bg:    #292524;
+    --btn-sec-hover: #35302B;
+    --kc-fg: #FDFCFC;
+    --kc-bg: linear-gradient(#3A3530, #292524);
+    --kc-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.14), 0 1px 0 rgba(0, 0, 0, 0.5), 0 2px 0 #0C0A09;
+    --scrim: rgba(0, 0, 0, 0.5);
+    --shadow-btn:    0 0 0 0.5px rgba(255, 255, 255, 0.10), 0 1px 2px rgba(0, 0, 0, 0.5);
+    --shadow-bubble: 0 0 0 0.5px rgba(255, 255, 255, 0.08), 0 1px 2px rgba(0, 0, 0, 0.4);
+  }
+}
+
+/* ── Type, space, shape, motion (the same in both themes) ─────────────── */
+:root {
+  --f-display: "Geist", system-ui, sans-serif;
+  --f-ui:      "Inter", system-ui, sans-serif;
+  --f-mono:    "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --f-serif:   "Source Serif 4", Georgia, serif;
+
+  /* text styles: use these, not ad hoc sizes */
+  --t-title:   390 28px/34px var(--f-display);   /* page and setup titles */
+  --t-heading: 390 20px/28px var(--f-display);   /* panel and dialog titles, empty states */
+  --t-stat:    390 24px/28px var(--f-display);   /* figures (tabular) */
+  --t-body-lg: 400 16px/26px var(--f-ui);        /* Journal entry text (owner decision D2) */
+  --t-body:    400 14px/20px var(--f-ui);        /* the default: nav, rows, buttons, inputs */
+  --t-desc:    400 13px/18px var(--f-ui);        /* descriptions, captions, meta */
+  --t-mono:    400 12px/18px var(--f-mono);      /* keys, versions, costs, paths */
+  --t-label:   500 11px/16px var(--f-mono);      /* the only uppercase: small eyebrows */
+  --t-accent:  italic 400 13px/18px var(--f-serif); /* dates and times */
+
+  /* spacing: a 4 px grid */
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 20px; --s6: 24px; --s8: 32px; --s10: 40px; --s12: 48px;
+  --gutter: 24px;     /* the window's side gutter */
+  --column: 880px;    /* the reading column for the Journal and Settings */
+  --bar-h: 60px;      /* the top bar */
+
+  /* radii: seven, as on the site */
+  --r-pill: 9999px; --r-input: 8px; --r-tile: 10px; --r-media: 12px;
+  --r-card-sm: 16px; --r-card: 20px; --r-card-lg: 24px;
+
+  /* motion: hover changes colour only; nothing lifts */
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --dur-fast: 150ms;
+  --dur-ui: 300ms;
+  --dur-enter: 260ms;
+}
+
+/* ── Names the older screens still use ─────────────────────────────────────
+   style.css was written against these. They now point at the tokens above,
+   so the Journal, Settings, Vocabulary and the dialogs take the new colours
+   before each is rebuilt. Delete each one when nothing uses it. Declared on
+   body so they resolve in the active theme. */
+body {
+  --bg-base:     var(--bg);
+  --bg-surface:  var(--surface);
+  --bg-card:     var(--card);
+  --bg-hover:    var(--surface-2);
+  --border:      var(--ring-strong);
+  --border-soft: var(--line);
+  --accent:      var(--honey);
+  --accent-dim:  var(--honey-deep);
+  --accent-glow: rgba(217, 164, 65, 0.15);
+  --accent-text: var(--accent-ink);
+  --text-primary:   var(--text);
+  --text-secondary: var(--muted);
+  --text-muted:     var(--muted);
+  --red:   var(--danger);
+  --green: var(--ok);
+  --amber: var(--accent-ink);
+  --radius-sm: var(--r-input);
+  --radius-md: var(--r-media);
+  --radius-lg: var(--r-card-sm);
+  --font:  var(--f-ui);
+  --serif: var(--f-serif);
+}
+
+/* ── Base ──────────────────────────────────────────────────────────────── */
+html, body {
+  background: var(--bg);
+  color: var(--text);
+}
+body {
+  font: var(--t-body);
+  letter-spacing: 0.005em;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+/* Controls take the page's font. Nine buttons used to render in Arial
+   because a <button> does not inherit it by default. */
+button, input, select, textarea {
+  font: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+}
+kbd, code { font-family: var(--f-mono); }
+strong, b { font-weight: 500; }
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
