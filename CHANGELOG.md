@@ -4,6 +4,46 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.15.0] - Unreleased
+
+Waffler's window now looks like the website. This release rebuilds it in
+stages; this first part lays the foundation that every screen is built on.
+
+### Changed
+
+- The window uses the website's colours: the eggshell background in the
+  light theme, and the site's warm night colours (in place of the old
+  blue-grey) in Dark. Gold is only ever a fill or a light; where gold is
+  text on a light background it is the darker #7A5717, so it can be read.
+- New type, matching the site: Inter for everything you read and click,
+  Geist for titles and the wordmark, Geist Mono for keys and versions, and
+  Source Serif italic for dates and times. Geist and Geist Mono ship inside
+  the app with their licences, like Inter and Source Serif, so opening the
+  window still contacts nobody.
+- One set of buttons, inputs, toggles, tabs, keycaps and cards. The main
+  window's buttons use it now; the setup screens move over later in 3.15.
+  Controls now use the app's font; some buttons fell back to Arial.
+- Line icons replace the emoji, so the window looks the same on Windows and
+  on a Mac and the icons follow the theme.
+- A new top bar: the waffle and wordmark, the three pages as one segmented
+  control, and a status pill that keeps one width in every state, so the bar
+  no longer shifts when you start or stop a dictation. At Ready the pill
+  shows your hotkey as keys; while you record it counts the time, and while
+  your words are cleaned up it counts the seconds.
+- Update notices are a card with the text in ink, readable in both themes.
+- The restart and update dialogs share one look and follow the theme; the
+  restart dialog no longer stays cream in Dark, and its icon no longer spins.
+- The native window opens in the new background colour, so there is no
+  flash of the old one before the page appears.
+
+### Removed
+
+- Code nothing could reach: the old overlay page, handlers for snippets,
+  history export, clearing history and resetting usage that no screen
+  offered, the old sidebar's leftovers, and four bridge methods nothing
+  called (focus_window, request_permissions, test_microphone and
+  wizard_get_recording_state).
+
 ## [3.14.100] - 2026-09-26
 
 Two things the app claimed that were not true, and a dictation fix. Its
