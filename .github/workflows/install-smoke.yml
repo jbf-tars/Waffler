@@ -1,0 +1,151 @@
+name: Install smoke test
+
+# Installs a built Waffler on a clean Windows and a clean Mac runner, starts
+# it as a first-time user (empty data folder), and records what happens:
+# screenshots, whether it stays up, CPU and memory after it settles, and any
+# errors it logged. Nothing is published. Run it against the artifacts of a
+# "Build Windows Installer" and a "Build macOS App" run before tagging a
+# release.
+
+on:
+  workflow_dispatch:
+    inputs:
+      windows_run_id:
+        description: 'Run ID of a "Build Windows Installer" run (artifact Waffler-Setup)'
+        required: true
+      mac_run_id:
+        description: 'Run ID of a "Build macOS App" run (artifact Waffler-mac)'
+        required: true
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: Waffler-Setup
+          path: setup
+          run-id: ${{ inputs.windows_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install silently
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem setup -Filter *.exe | Select-Object -First 1
+          "Installer: $($exe.Name) ($([math]::Round($exe.Length/1MB,1)) MB)" | Tee-Object -FilePath report.txt
+          $dir = Join-Path $env:RUNNER_TEMP 'WafflerApp'
+          $p = Start-Process $exe.FullName -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=$dir" -PassThru -Wait
+          "Installer exit code: $($p.ExitCode)" | Tee-Object -FilePath report.txt -Append
+          if (-not (Test-Path "$dir\Waffler.exe")) { throw "Waffler.exe not installed" }
+          New-Item -ItemType Directory -Force (Join-Path $env:RUNNER_TEMP 'waffler-data') | Out-Null
+
+      - name: Start as a first-time user and measure
+        shell: pwsh
+        run: |
+          $env:WAFFLER_DATA_DIR = Join-Path $env:RUNNER_TEMP 'waffler-data'
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          function Shot($name) {
+            $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+            $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+            $g = [System.Drawing.Graphics]::FromImage($bmp)
+            $g.CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+            $bmp.Save((Join-Path 'shots' "$name.png"))
+            $g.Dispose(); $bmp.Dispose()
+          }
+          New-Item -ItemType Directory -Force shots | Out-Null
+          $dir = Join-Path $env:RUNNER_TEMP 'WafflerApp'
+          $t0 = Get-Date
+          $app = Start-Process "$dir\Waffler.exe" -PassThru
+          Start-Sleep -Seconds 12; Shot '01-after-12s'
+          Start-Sleep -Seconds 18; Shot '02-after-30s'
+          $alive = -not $app.HasExited
+          "Alive after 30 s: $alive" | Tee-Object -FilePath report.txt -Append
+          function Family { Get-Process | Where-Object { $_.ProcessName -like 'Waffler*' -or $_.ProcessName -like 'msedgewebview2*' } }
+          $c1 = (Family | Measure-Object CPU -Sum).Sum
+          Start-Sleep -Seconds 20
+          $c2 = (Family | Measure-Object CPU -Sum).Sum
+          $cores = [Environment]::ProcessorCount
+          $idle = [math]::Round((($c2 - $c1) / 20) * 100, 1)
+          $ws = [math]::Round(((Family | Measure-Object WorkingSet64 -Sum).Sum) / 1MB)
+          "Idle CPU over 20 s (percent of one core, Waffler + WebView2): $idle (runner has $cores cores)" | Tee-Object -FilePath report.txt -Append
+          "Memory (working set, Waffler + WebView2): $ws MB" | Tee-Object -FilePath report.txt -Append
+          Family | Select-Object ProcessName, Id, CPU, @{n='MB';e={[math]::Round($_.WorkingSet64/1MB)}} | Format-Table | Out-String | Tee-Object -FilePath report.txt -Append
+          # A second launch must not start a second copy.
+          $second = Start-Process "$dir\Waffler.exe" -PassThru
+          Start-Sleep -Seconds 8
+          "Second launch exited on its own: $($second.HasExited)" | Tee-Object -FilePath report.txt -Append
+          Shot '03-after-second-launch'
+          Get-ChildItem -Recurse $env:WAFFLER_DATA_DIR | Select-Object FullName, Length | Format-Table | Out-String | Tee-Object -FilePath report.txt -Append
+          $logs = Get-ChildItem -Recurse $env:WAFFLER_DATA_DIR -Include *.log -ErrorAction SilentlyContinue
+          foreach ($l in $logs) { Copy-Item $l.FullName shots\ }
+          $bad = $logs | Select-String -Pattern 'Traceback|Exception|CRITICAL' -ErrorAction SilentlyContinue
+          "Error lines in logs: $(@($bad).Count)" | Tee-Object -FilePath report.txt -Append
+          $bad | Select-Object -First 40 | Out-String | Tee-Object -FilePath report.txt -Append
+          Get-Process | Where-Object { $_.ProcessName -like 'Waffler*' } | Stop-Process -Force -ErrorAction SilentlyContinue
+          if (-not $alive) { throw "Waffler exited within 30 s of launch" }
+
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-windows
+          path: |
+            report.txt
+            shots/
+
+  mac:
+    runs-on: macos-14
+    timeout-minutes: 20
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: Waffler-mac
+          path: dmg
+          run-id: ${{ inputs.mac_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Mount, check the signature, start as a first-time user
+        run: |
+          set -u
+          mkdir -p shots
+          DMG=$(ls dmg/*.dmg | head -1)
+          echo "DMG: $(basename "$DMG") ($(du -h "$DMG" | cut -f1))" | tee report.txt
+          hdiutil attach "$DMG" -nobrowse -mountpoint /tmp/wm >/dev/null
+          cp -R /tmp/wm/Waffler.app "$RUNNER_TEMP/"
+          APP="$RUNNER_TEMP/Waffler.app"
+          echo "--- codesign" | tee -a report.txt
+          codesign --verify --deep --strict --verbose=2 "$APP" 2>&1 | tail -3 | tee -a report.txt || true
+          echo "--- gatekeeper" | tee -a report.txt
+          spctl --assess --type execute -vv "$APP" 2>&1 | tee -a report.txt || true
+          echo "--- minimum macOS" | tee -a report.txt
+          /usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$APP/Contents/Info.plist" | tee -a report.txt
+          export WAFFLER_DATA_DIR="$RUNNER_TEMP/waffler-data"; mkdir -p "$WAFFLER_DATA_DIR"
+          "$APP/Contents/MacOS/Waffler" > shots/stdout.txt 2>&1 &
+          PID=$!
+          sleep 12; screencapture -x shots/01-after-12s.png || true
+          sleep 18; screencapture -x shots/02-after-30s.png || true
+          if kill -0 $PID 2>/dev/null; then ALIVE=true; else ALIVE=false; fi
+          echo "Alive after 30 s: $ALIVE" | tee -a report.txt
+          ps -o pid,%cpu,rss,command -A | grep -i "[W]affler" | tee -a report.txt
+          sleep 20
+          echo "--- after 20 s more (idle)" | tee -a report.txt
+          ps -o pid,%cpu,rss,command -A | grep -i "[W]affler" | tee -a report.txt
+          ls -la "$WAFFLER_DATA_DIR" | tee -a report.txt
+          cp "$WAFFLER_DATA_DIR"/*.log shots/ 2>/dev/null || true
+          echo "Error lines in logs: $(cat "$WAFFLER_DATA_DIR"/*.log shots/stdout.txt 2>/dev/null | grep -cE 'Traceback|Exception|CRITICAL')" | tee -a report.txt
+          cat "$WAFFLER_DATA_DIR"/*.log shots/stdout.txt 2>/dev/null | grep -E -A6 'Traceback|Exception|CRITICAL' | head -80 | tee -a report.txt
+          pkill -f "Waffler.app/Contents/MacOS" || true
+          hdiutil detach /tmp/wm >/dev/null || true
+          [ "$ALIVE" = true ] || { echo "Waffler exited within 30 s of launch"; exit 1; }
+
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-mac
+          path: |
+            report.txt
+            shots/
