@@ -18,6 +18,11 @@ AppUpdatesURL={#MyAppURL}
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
+; 3.15 (OB10): one click. The folder page and the "Ready to install" page
+; asked two questions nobody needs to answer; an upgrade keeps the folder
+; it was installed to.
+DisableDirPage=yes
+DisableReadyPage=yes
 LicenseFile=
 PrivilegesRequired=lowest
 OutputDir=dist-installer
@@ -41,8 +46,11 @@ AppMutex=Waffler-Single-Instance-Mutex-v1
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
-[Tasks]
-Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional icons:"; Flags: unchecked
+[Registry]
+; Start at sign-in is switched on and off inside Waffler (setup and
+; Settings), which writes this value itself; the installer never creates it
+; (ValueType: none), so there is one switch, not two. Uninstalling removes it.
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueName: "Waffler"; ValueType: none; Flags: uninsdeletevalue
 
 [InstallDelete]
 ; Wipe the previous _internal before the new one is copied. [Files] below uses
@@ -66,7 +74,6 @@ Source: "..\..\dist\Waffler\*"; DestDir: "{app}"; Flags: ignoreversion recursesu
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent
