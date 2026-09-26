@@ -13,8 +13,9 @@ rights, which matches the installer (PrivilegesRequired=lowest), and the
 installer removes the value on uninstall.
 
 macOS: a LaunchAgent, ~/Library/LaunchAgents/com.waffler.app.login.plist,
-which asks launchd to open the app bundle with --hidden at login. launchd
-reads the folder at every login, so writing or deleting the file is enough.
+which asks launchd to open the app bundle in the background (open -g) with
+--hidden at login. launchd reads the folder at every login, so writing or
+deleting the file is enough.
 
 Only an installed build can be started at sign-in. A copy run from source,
 or a Mac app still running from the downloaded disk image (or from macOS's
@@ -105,9 +106,15 @@ class LoginItem:
         return f'"{self.executable}" {HIDDEN_FLAG}'
 
     def program_arguments(self) -> list:
-        """The macOS LaunchAgent's ProgramArguments."""
+        """The macOS LaunchAgent's ProgramArguments.
+
+        -g opens the app without bringing it to the front. Without it, open
+        activates Waffler at login, and the Dock-reopen handler in app.py
+        treats that activation as a Dock click and shows the window that
+        --hidden asked to keep hidden.
+        """
         bundle = mac_bundle_path(self.executable)
-        return ["/usr/bin/open", "-a", str(bundle), "--args", HIDDEN_FLAG]
+        return ["/usr/bin/open", "-g", "-a", str(bundle), "--args", HIDDEN_FLAG]
 
     # ── Windows ─────────────────────────────────────────────────────────
     def _reg(self):

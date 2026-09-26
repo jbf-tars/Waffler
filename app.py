@@ -1511,7 +1511,7 @@ class Api:
             self.wizard_stop_hotkey_test()
         except Exception:
             pass
-        if _pipeline is not None:
+        if _pipeline_running_or_starting():
             return {"ok": True}
         threading.Thread(target=_initialize_pipeline, daemon=True,
                          name="PipelineInitSetup").start()
@@ -2070,7 +2070,7 @@ class Api:
             # The real hotkey is already listening (setup's last screen was
             # reached and then left with Back): two listeners would both
             # record, so the practice doesn't start.
-            if _pipeline is not None:
+            if _pipeline_running_or_starting():
                 return {"ok": False, "error": "Waffler is already listening. Hold the hotkey in "
                                               "any app to try it there."}
             # Starting again (after a hotkey change) replaces the old
@@ -2581,6 +2581,12 @@ class Api:
 _window   = None
 _api      = None
 _pipeline = None   # set after WafflerPipeline is created
+# Setup's last screen and its Done button can both start the pipeline, and
+# WafflerPipeline takes a second or more to build. The lock and flag make the
+# second call a no-op while the first is still building, so only one hotkey
+# listener ever starts (two would paste, bill and log every dictation twice).
+_pipeline_init_lock = threading.Lock()
+_pipeline_initialising = False
 _config   = None   # set in main()
 _device_monitor = None   # v3.14.47 — default-input-device watcher (audio_device_monitor.AudioDeviceMonitor)
 
@@ -2823,12 +2829,31 @@ def _push_wizard_silent():
             pass
 
 
+def _pipeline_running_or_starting() -> bool:
+    """True once the real pipeline exists or is being built, so nothing
+    starts a second hotkey listener alongside it."""
+    return _pipeline is not None or _pipeline_initialising
+
+
 def _initialize_pipeline():
-    """Create pipeline and start hotkey after setup is complete."""
+    """Create pipeline and start hotkey after setup is complete. Safe to call
+    from several threads at once: only the first call builds the pipeline."""
+    global _pipeline_initialising
+    with _pipeline_init_lock:
+        if _pipeline is not None or _pipeline_initialising:
+            _log_to_file("Pipeline already initialized or starting, skipping")
+            return
+        _pipeline_initialising = True
+    try:
+        _build_pipeline()
+    finally:
+        with _pipeline_init_lock:
+            _pipeline_initialising = False
+
+
+def _build_pipeline():
+    """The body of _initialize_pipeline; only ever runs under its guard."""
     global _pipeline
-    if _pipeline:
-        _log_to_file("Pipeline already initialized, skipping")
-        return
 
     _config.reload_env()
 
@@ -4988,6 +5013,16 @@ _mac_menubar_menu = None
 # so PyObjC doesn't GC it, same pattern as the menu-bar refs above).
 _window_hidden = False
 _mac_reopen_observer = None
+# A start at sign-in (--hidden) keeps the window hidden. macOS can still
+# activate the app while it launches, which the Dock-reopen handler would
+# read as a Dock click; activations before this monotonic time are ignored.
+_HIDDEN_START_GRACE_S = 5.0
+_hidden_start_until = 0.0
+
+
+def _reopen_should_show(window_hidden: bool, now: float, hidden_start_until: float) -> bool:
+    """Whether an app activation should bring the hidden window back."""
+    return bool(window_hidden) and now >= hidden_start_until
 
 
 def _create_tray_icon():
@@ -5352,9 +5387,11 @@ def _install_mac_reopen_handler():
 
         class _WafflerReopenObserver(NSObject):
             def appBecameActive_(self, _notification):  # noqa: N802 — Cocoa selector
-                if _window_hidden:
+                if _reopen_should_show(_window_hidden, time.monotonic(), _hidden_start_until):
                     _log_to_file("[reopen] Dock activation with hidden window — showing")
                     _tray_show_window()
+                elif _window_hidden:
+                    _log_to_file("[reopen] activation while starting hidden at sign-in, ignored")
 
         obs = _WafflerReopenObserver.alloc().init()
         NSNotificationCenter.defaultCenter().addObserver_selector_name_object_(
@@ -5417,7 +5454,7 @@ def _disable_input_source_shortcut():
 
 
 def main():
-    global _config, _window_ref, _window_hidden
+    global _config, _window_ref, _window_hidden, _hidden_start_until
 
     # Load config (reads .env from project root via dotenv)
     os.chdir(PROJECT_ROOT)  # so config.yaml and .env are found
@@ -5648,6 +5685,7 @@ def main():
                     and _is_setup_complete())
     if start_hidden:
         _window_hidden = True
+        _hidden_start_until = time.monotonic() + _HIDDEN_START_GRACE_S
         _log_to_file("Started at sign-in: window stays hidden until opened")
     # An update can install to a new folder; keep an existing start-at-sign-in
     # entry pointing at this copy. Never switches it on by itself.

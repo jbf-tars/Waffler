@@ -138,7 +138,8 @@ def test_mac_on_writes_a_launch_agent_that_opens_the_bundle_hidden(tmp_path):
         plist = plistlib.load(fh)
     assert plist["Label"] == LAUNCH_AGENT_LABEL
     assert plist["RunAtLoad"] is True
-    assert plist["ProgramArguments"] == ["/usr/bin/open", "-a", "/Applications/Waffler.app",
+    # -g: open without activating, or the Dock-reopen handler shows the window.
+    assert plist["ProgramArguments"] == ["/usr/bin/open", "-g", "-a", "/Applications/Waffler.app",
                                          "--args", HIDDEN_FLAG]
 
 
@@ -193,3 +194,30 @@ def test_the_uninstaller_removes_the_run_value():
     assert 'ValueName: "Waffler"' in line and "uninsdeletevalue" in line
     # The app owns the switch (one place only): the installer never writes the value.
     assert "ValueType: none" in line
+
+
+# ── app.py: an activation while starting hidden does not show the window ────
+
+def _app_reopen_helper():
+    import ast
+    root = Path(__file__).resolve().parent.parent
+    tree = ast.parse((root / "app.py").read_text(encoding="utf-8"))
+    nodes = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "_reopen_should_show"]
+    assert nodes, "_reopen_should_show not found in app.py"
+    ns = {}
+    exec(compile(ast.Module(nodes, []), "<app.py>", "exec"), ns)
+    return ns["_reopen_should_show"]
+
+
+def test_mac_activation_during_a_hidden_start_keeps_the_window_hidden():
+    show = _app_reopen_helper()
+    # Started at sign-in at t=100 with a 5 s grace: launch activation ignored.
+    assert show(True, 101.0, 105.0) is False
+    # A Dock click afterwards brings the window back, as before.
+    assert show(True, 106.0, 105.0) is True
+    # A normal start has no grace, and a visible window is never re-shown.
+    assert show(True, 1.0, 0.0) is True
+    assert show(False, 106.0, 105.0) is False
+    src = (Path(__file__).resolve().parent.parent / "app.py").read_text(encoding="utf-8")
+    assert "_reopen_should_show(_window_hidden, time.monotonic(), _hidden_start_until)" in src
+    assert "_hidden_start_until = time.monotonic() + _HIDDEN_START_GRACE_S" in src

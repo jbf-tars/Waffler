@@ -91,6 +91,11 @@ Waffler up never see it.
   LaunchAgents folder. A factory reset removes it too. It isn't offered while
   a Mac runs Waffler from the downloaded disk image.
 - Setup follows the chosen theme; it used to stay cream in Dark.
+- Clicking Done while "Open Notepad and try it" was still starting Waffler
+  could start it twice, so each dictation would paste, cost and appear in
+  the Journal twice. Waffler now starts once however it is asked.
+- On a Mac, starting at sign-in opens Waffler in the background, so the
+  window no longer appears at every login.
 - The Windows installer asks nothing: no folder page, no "Ready to install"
   page and no desktop-shortcut question.
 

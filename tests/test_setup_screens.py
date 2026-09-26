@@ -263,7 +263,9 @@ def test_back_is_hidden_once_the_real_hotkey_is_listening():
     assert "back.hidden = i <= 0 || (step === 'anywhere' && _wizDictationLive);" in app
     py = (ROOT / "app.py").read_text(encoding="utf-8")
     start = py[py.index("def wizard_start_hotkey_test"):py.index("def wizard_stop_hotkey_test")]
-    assert "if _pipeline is not None:" in start
+    assert "if _pipeline_running_or_starting():" in start
+    setup = py[py.index("def start_dictation_for_setup"):py.index("def open_practice_editor")]
+    assert "if _pipeline_running_or_starting():" in setup
 
 
 # ── Existing users, and resuming ─────────────────────────────────────────────
