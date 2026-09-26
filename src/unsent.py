@@ -147,7 +147,10 @@ def entry_id(entry: dict) -> str:
     entry with a recording. Older entries carry only ``audio_path``."""
     if not isinstance(entry, dict) or not entry.get("failed"):
         return ""
-    uid = entry.get("unsent_id") or Path(str(entry.get("audio_path") or "")).name
+    # Split on both separators: Path() only knows the running platform's, so
+    # a Windows path ("C:\\...\\recording-....wav") read on a Mac would
+    # otherwise come back whole and fail is_valid_id.
+    uid = entry.get("unsent_id") or re.split(r"[\\/]", str(entry.get("audio_path") or ""))[-1]
     return uid if is_valid_id(uid) else ""
 
 

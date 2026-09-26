@@ -273,6 +273,8 @@ def test_ids_have_one_shape():
 def test_an_older_entry_is_found_by_its_file_name():
     old = {"failed": True, "audio_path": "C:\\Users\\x\\.waffler-hosted\\unsent\\recording-2026-06-05T09-12-44.wav"}
     assert unsent.entry_id(old) == "recording-2026-06-05T09-12-44.wav"
+    mac = {"failed": True, "audio_path": "/Users/x/.waffler-hosted/unsent/recording-2026-06-05T09-12-44.wav"}
+    assert unsent.entry_id(mac) == "recording-2026-06-05T09-12-44.wav"
     assert unsent.entry_id({"failed": True, "audio_path": ""}) == ""
     assert unsent.entry_id({"text": "fine", "unsent_id": "recording-2026-06-05T09-12-44.wav"}) == ""
 
