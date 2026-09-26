@@ -259,3 +259,110 @@ def test_a_failed_download_reports_one_sentence(monkeypatch):
     assert state["active"] is False
     updater._reset_state()
     assert updater.get_progress()["error_detail"] is None
+
+
+# ── The pill's messages after a dictation (QW8, review of Round A) ───────────
+# After a limit or a clean-up that failed, the pill said "Groq limit hit ·
+# resets in about 16 minutes / Pasted raw", "Add a Cerebras key for
+# fallback", "Auth blocked" and "Try another provider key in Settings", and a
+# clean-up that ran out of its own time was called "Connection failed".
+
+# The styler raises its reasons with a dash, so the cases do too.
+_DASH = chr(0x2014)
+_WORDS_WENT_IN = ("pasted as you said them", "went in as you said them")
+_PILL_JARGON = _JARGON + ("Pasted raw", "raw text", "styling", "Rate limit", "Auth ",
+                          "API Keys", chr(0xb7), "provider")
+
+# (the styler's fallback_reason, the heading, words the body must hold)
+_CLEANUP_CASES = [
+    ("RATE_LIMIT|tokens per day (TPD)|16m12.5s|Groq: Rate limit reached for model",
+     "Clean-up paused for about 17 minutes", "Groq says you've reached your limit"),
+    ("RATE_LIMIT|cooldown|45s|Groq: Groq still in cooldown from previous limit",
+     "Clean-up paused for about 45 seconds", "Groq says"),
+    ("RATE_LIMIT|Cerebras|30s|Cerebras: too many requests",
+     "Clean-up paused for about 30 seconds", "Cerebras says"),
+    ("RATE_LIMIT|requests per day (RPD)||Groq: limit reached",
+     "Clean-up paused until tomorrow", "Groq says"),
+    ("RATE_LIMIT|rate limit|2h3m|OpenAI: limit reached",
+     "Clean-up paused for about 2 hours", "OpenAI says"),
+    ("deadline: TIMEOUT|styling budget exhausted after 30s - pasted raw",
+     "Pasted without the clean-up", "took too long"),
+    ("TIMEOUT|clean-up took longer than 40s - pasted raw",
+     "Pasted without the clean-up", "took too long"),
+    (f"Groq: CONNECTION: Groq connection failed {_DASH} Connection error.",
+     "Pasted without the clean-up", "couldn't reach Groq"),
+    ("OpenAI: Request timed out.", "Pasted without the clean-up", "couldn't reach OpenAI"),
+    (f"Groq: AUTH: Groq auth/network blocked {_DASH} Error code: 403 - Access denied",
+     "Pasted without the clean-up", "Groq refused the connection"),
+    ("OpenAI: Error code: 401 - {'error': {'code': 'invalid_api_key'}}",
+     "Pasted without the clean-up", "OpenAI refused the connection"),
+    ("No styling providers configured. Add a key in Settings, API Keys.",
+     "Pasted without the clean-up", "Add a free Groq key in Settings"),
+    ("ValueError: something unexpected", "Pasted without the clean-up", "didn't work this time"),
+]
+
+
+@pytest.mark.parametrize("reason,heading,says", _CLEANUP_CASES)
+def test_a_skipped_clean_up_is_said_plainly(reason, heading, says):
+    got_heading, body = um.cleanup_skipped_message(reason)
+    assert got_heading == heading
+    assert says in body and body.endswith(".")
+    if "No styling providers" not in reason:
+        assert any(w in body for w in _WORDS_WENT_IN), body
+    for word in _PILL_JARGON:
+        assert word not in got_heading and word not in body, (word, got_heading, body)
+    # One line on the pill's message: its heading is not wrapped.
+    assert len(got_heading) <= 38
+
+
+def test_a_groq_limit_no_longer_sends_people_to_cerebras():
+    _h, body = um.cleanup_skipped_message(
+        "RATE_LIMIT|tokens per day (TPD)|16m12s|Groq: Rate limit reached")
+    assert "Cerebras" not in body and "key" not in body
+
+
+def test_the_real_styler_reasons_read_as_what_happened():
+    """Through the styler's own chooser: its time budget running out used to
+    be reported as "Connection failed"."""
+    from style_openai import OpenAIStyler
+    pick = OpenAIStyler._pick_best_failure_reason
+    budget = pick([("deadline", "TIMEOUT|styling budget exhausted after 30s - pasted raw")])
+    assert um.cleanup_skipped_message(budget)[1].startswith("The clean-up took too long")
+    limit = pick([("Cerebras", "CONNECTION: Cerebras connection failed"),
+                  ("Groq", "RATE_LIMIT|tokens per day (TPD)|16m12s|Rate limit reached")])
+    assert um.cleanup_skipped_message(limit)[0] == "Clean-up paused for about 17 minutes"
+    blocked = pick([("Groq", "AUTH: Groq auth/network blocked - Error code: 403")])
+    assert "Groq refused the connection" in um.cleanup_skipped_message(blocked)[1]
+    assert um.cleanup_skipped_message(pick([]))[1].startswith("No key is set up")
+
+
+@pytest.mark.parametrize("error,body", [
+    ("RATE_LIMIT|tokens per day (TPD)|16m12s|Groq: Rate limit reached",
+     "Groq says you've reached your limit for now. Try again in about 17 minutes."),
+    ("RATE_LIMIT|requests per day (RPD)||Groq: limit",
+     "Groq says you've reached your limit for now. Try again tomorrow."),
+    ("Error code: 429 - Too Many Requests",
+     "Your speech service says you've reached your limit for now. Wait a moment and try again."),
+])
+def test_a_limit_that_stopped_a_dictation_is_said_plainly(error, body):
+    heading, got = um.limit_reached_message(error)
+    assert heading == "Limit reached" and got == body
+    for word in _PILL_JARGON:
+        assert word not in got, word
+
+
+def test_no_pill_message_in_the_app_carries_jargon_or_an_em_dash():
+    """Every overlay message app.py writes out in full."""
+    tree = ast.parse((ROOT / "app.py").read_text(encoding="utf-8"))
+    calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call)
+             and getattr(n.func, "attr", "") == "show_toast"]
+    assert len(calls) > 10
+    texts = [c.value for call in calls for c in ast.walk(call)
+             if isinstance(c, ast.Constant) and isinstance(c.value, str)]
+    for text in texts:
+        for word in ("provider key", "instant fallback", "fallback key", "Pasted raw",
+                     "styling provider", "Rate limit reached", chr(0x2014)):
+            assert word not in text, (word, text)
+    src = (ROOT / "app.py").read_text(encoding="utf-8")
+    assert "cleanup_skipped_message(reason)" in src
+    assert "limit_reached_message(error_msg)" in src

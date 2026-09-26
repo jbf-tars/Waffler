@@ -32,6 +32,7 @@ import atomic_json  # noqa: E402
 import pipeline_watchdog as pw  # noqa: E402
 import tray_state  # noqa: E402
 import unsent  # noqa: E402
+import user_messages  # noqa: E402
 
 _TREE = ast.parse((ROOT / "app.py").read_text(encoding="utf-8"))
 _PIPELINE = next(n for n in _TREE.body
@@ -267,6 +268,8 @@ def make_pipeline(data_dir: Path, *, transcriber=None, styler=None, clipboard=No
         _transcripts_loggable=lambda: False,
         _window=None, _window_hidden=False,
         _platform=types.SimpleNamespace(system=lambda: "Windows"),
+        cleanup_skipped_message=user_messages.cleanup_skipped_message,
+        limit_reached_message=user_messages.limit_reached_message,
     )
     from transcribe_whisper import _speech_seconds
     ns["_speech_seconds"] = _speech_seconds

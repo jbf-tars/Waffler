@@ -128,7 +128,9 @@ from user_messages import (
     UPDATE_INSTALL_FAILED,
     UPDATE_NO_INSTALLER,
     classify_request_error,
+    cleanup_skipped_message,
     key_check_error,
+    limit_reached_message,
     update_check_error,
 )
 
@@ -3398,7 +3400,8 @@ class WafflerPipeline:
                                 target=lambda: self.overlay.show_toast(
                                     style="warn",
                                     heading="Mic reset",
-                                    body="Your mic stopped responding (sleep or device change). Reset done — press and speak again.",
+                                    body="Your mic stopped responding after sleep or a device "
+                                         "change. It has been reset: press and speak again.",
                                 ),
                                 daemon=True,
                             ).start()
@@ -3577,155 +3580,14 @@ class WafflerPipeline:
             if not styled:
                 styled = transcript
 
-            # Warn the user when every styling provider failed and we had to
-            # fall back to the regex-only cleaner. Without this, quality drops
-            # silently (e.g. when Groq's free-tier quota is exhausted).
-            #
-            # v3.14.19: rewrote the wording to be actionable. The previous
-            # `else` branch ("Pasted raw. See the log for details.") gave the
-            # user no idea what was wrong or what to do. Every branch now
-            # tells the user (a) what happened, (b) what to do RIGHT NOW
-            # (add a fallback key in Settings), and (c) the alternative
-            # (wait until the limit resets).
+            # Say so when the words were pasted without the clean-up, in
+            # plain words (src/user_messages.py cleanup_skipped_message):
+            # "Clean-up paused for about 17 minutes" after a limit, and a
+            # sentence for a block, no connection, running out of time or no
+            # key. The styler's raw reason stays in the log.
             if gpt_usage.get("fallback_reason"):
                 reason = gpt_usage["fallback_reason"]
-                # Extract provider name if the styler prefixed it (v3.14.19+).
-                # Format inside RATE_LIMIT messages: parts[3] now starts
-                # with "<Provider>: " when the styler enriched it.
-                provider_name = "Your styling provider"
-                if reason.startswith("RATE_LIMIT|"):
-                    _parts = reason.split("|", 3)
-                    snippet = _parts[3] if len(_parts) > 3 else ""
-                    if ":" in snippet:
-                        cand = snippet.split(":", 1)[0].strip()
-                        if cand in ("Groq", "Cerebras", "OpenAI"):
-                            provider_name = cand
-
-                heading = "Rate limit hit"
-
-                if reason.startswith("RATE_LIMIT|"):
-                    # Format: RATE_LIMIT|<limit>|<retry_in>|<raw error snippet>
-                    parts = reason.split("|", 3)
-                    limit_kind = parts[1] if len(parts) > 1 else ""
-                    retry_in = parts[2] if len(parts) > 2 else ""
-
-                    # Map the technical limit label to something readable.
-                    lk = limit_kind.lower()
-                    is_daily = (
-                        "per day" in lk
-                        or "TPD" in limit_kind
-                        or "RPD" in limit_kind
-                        or "ASD" in limit_kind
-                    )
-                    if "tokens per day" in lk:
-                        friendly = "daily token limit"
-                        is_daily = True
-                    elif "tokens per minute" in lk:
-                        friendly = "per-minute token limit"
-                    elif "requests per day" in lk:
-                        friendly = "daily request limit"
-                        is_daily = True
-                    elif "requests per minute" in lk:
-                        friendly = "per-minute request limit"
-                    elif "audio seconds" in lk:
-                        friendly = "daily audio limit" if is_daily else "hourly audio limit"
-                    elif lk == "cooldown":
-                        friendly = "rate limit (cooldown active)"
-                    else:
-                        friendly = "rate limit"
-
-                    # Format the retry duration (e.g. "15m43.488s" or
-                    # "12s") as a human-friendly "about N minutes" —
-                    # strip milliseconds and round up so we never tell
-                    # the user to wait "0 minutes".
-                    import re as _re_fmt
-                    _m = _re_fmt.match(
-                        r"^\s*(?:(\d+)h)?(?:(\d+)m)?(?:([\d.]+)s)?\s*$",
-                        retry_in,
-                    )
-                    if _m and _m.group(0).strip():
-                        _h = int(_m.group(1) or 0)
-                        _mn = int(_m.group(2) or 0)
-                        _sec = float(_m.group(3) or 0)
-                        if _h >= 1:
-                            wait_hint = (
-                                f"resets in about {_h}h {_mn}m" if _mn
-                                else f"resets in about {_h}h"
-                            )
-                        else:
-                            _total_min = _mn + (1 if _sec > 0 else 0)
-                            if _total_min >= 1:
-                                wait_hint = (
-                                    f"resets in about {_total_min} "
-                                    f"minute{'s' if _total_min != 1 else ''}"
-                                )
-                            else:
-                                wait_hint = "resets in under a minute"
-                    elif is_daily:
-                        wait_hint = "resets tomorrow"
-                    else:
-                        wait_hint = "resets shortly"
-
-                    # v3.14.28 — concise version. Previously the body was
-                    # 3+ sentences (~140 chars) which overflowed the toast
-                    # and was hard to read in a flash. New version: one
-                    # sentence, two pieces of info — what happened + what
-                    # to do. Heading still names the provider + reset time.
-                    other_providers = [
-                        p for p in ("Cerebras", "OpenAI")
-                        if p != provider_name
-                    ]
-                    fallback_hint = (
-                        f"Add a {other_providers[0]} key for fallback."
-                        if other_providers else
-                        "Add a fallback key in Settings."
-                    )
-
-                    heading = f"{provider_name} limit hit · {wait_hint}"
-                    body = (
-                        f"Pasted raw — {fallback_hint}"
-                    )
-
-                elif reason.startswith("TIMEOUT|"):
-                    # The clean-up ran out of time (the styler's own budget,
-                    # or the watchdog's backstop). Nothing is wrong with the
-                    # connection, so don't say there is.
-                    heading = "Pasted without the clean-up"
-                    body = ("The clean-up took too long, so your words went in "
-                            "as you said them.")
-
-                elif "CONNECTION" in reason or "timeout" in reason.lower():
-                    heading = "Connection failed"
-                    body = (
-                        "Pasted raw text — couldn't reach the styling provider. "
-                        "Check your internet or VPN, then try again."
-                    )
-
-                elif reason.startswith("AUTH:") or "auth" in reason.lower() and "401" in reason:
-                    heading = "Auth blocked"
-                    body = (
-                        "Pasted raw text — provider blocked the request "
-                        "(likely a VPN, firewall, or expired key). "
-                        "Try another provider key in Settings → API Keys, or toggle VPN off."
-                    )
-
-                elif "No styling providers configured" in reason:
-                    heading = "No styling provider"
-                    body = (
-                        "Pasted raw text — no API key is set up yet. "
-                        "Add a free Groq key (about 30 cleanups a day) in Settings → API Keys to enable styling."
-                    )
-
-                else:
-                    # Truly unknown error. Still give the user something
-                    # actionable rather than telling them to read the log.
-                    heading = "Styling skipped"
-                    body = (
-                        "Pasted raw text — your styling provider returned an unexpected error. "
-                        "Try adding a fallback key in Settings → API Keys "
-                        "(Groq, Cerebras, or OpenAI) so we can route around it next time."
-                    )
-
+                heading, body = cleanup_skipped_message(reason)
                 _log_to_file(f"[pipeline] styling fell back to basic_clean: {reason}")
                 try:
                     self.overlay.show_toast(style="warn", heading=heading, body=body)
@@ -4016,34 +3878,11 @@ class WafflerPipeline:
                 if _outcome == _pw.NOT_SENT:
                     pass    # _handle_failed_transcription has said so
                 elif "RATE_LIMIT" in error_msg or "429" in error_msg:
-                    # v3.14.42 — extract concrete wait time and provider from the
-                    # error format the styler raises: "RATE_LIMIT|<limit>|<wait>|<details>".
-                    # Old message hardcoded "Groq API limit hit" even when the actual
-                    # culprit was Cerebras or OpenAI — misleading the user about which
-                    # provider to wait on or top up.
-                    wait_label = ""
-                    if "RATE_LIMIT|" in error_msg:
-                        try:
-                            parts = error_msg.split("RATE_LIMIT|", 1)[1].split("|")
-                            # Field 1 is the limit type (e.g. "tokens per day (TPD)",
-                            # "cooldown", "Cerebras"); field 2 is the wait time
-                            # ("16m12s", "45s", "3s"). Show the wait if it parses.
-                            if len(parts) >= 2 and parts[1].strip():
-                                wait_label = parts[1].strip().rstrip(".")
-                        except Exception:
-                            pass
-                    body = (
-                        f"Try again in {wait_label}. (Add another provider key in "
-                        f"Settings → API Keys for instant fallback.)"
-                        if wait_label
-                        else "Wait a moment and try again. (Add another provider key in "
-                        "Settings → API Keys for instant fallback.)"
-                    )
-                    self.overlay.show_toast(
-                        style="warn",
-                        heading="Rate limit reached",
-                        body=body,
-                    )
+                    # The provider named in "RATE_LIMIT|<limit>|<wait>|<details>"
+                    # and its wait, in plain words: "Groq says you've reached
+                    # your limit for now. Try again in about 17 minutes."
+                    heading, body = limit_reached_message(error_msg)
+                    self.overlay.show_toast(style="warn", heading=heading, body=body)
                 elif "CONNECTION" in error_msg or "Connection error" in error_msg or "timeout" in error_msg.lower():
                     self.overlay.show_toast(
                         style="warn",
