@@ -27,6 +27,14 @@ messages and keycaps can be seen, hotkey and error messages say plainly what
 happened, Settings shows what Waffler really uses, the Usage panel no longer
 reads like a bill, and a Journal search with no matches says so.
 
+And a dictation can no longer sit on "processing" for ever, or be lost. After
+you let go of the hotkey the pill now stays up and shows it is working, with
+the seconds counting and an X to cancel (Esc works too). If the wait passes
+8 seconds it asks whether to keep waiting, and every step has a deadline, so
+each dictation ends in a tick or a plain message. A recording that could not
+be turned into text becomes a "Not sent" card in the Journal with Try again,
+and Waffler sends it by itself once your provider answers again.
+
 ### Fixed
 - **Every launch sent the user's IP address to Google, for fonts that never
   loaded.** Since 3.14.20, `ui/style.css` pulled Inter and Source Serif 4 with
@@ -285,6 +293,84 @@ reads like a bill, and a Journal search with no matches says so.
   headless Chrome with 3,290 entries, typing "invoice" rebuilt the list once
   instead of 7 times, the slowest key took 14 ms instead of 539 ms, and the
   word cost 99 ms of work instead of 1,061 ms.
+- **A dictation could sit on "processing" for ever, with nothing to show it
+  was working and no way to stop it.** Letting go of the hotkey hid the pill
+  at once, and the "Transcribing" label was then drawn on the hidden pill.
+  Nothing limited the wait as a whole: one speech request could run for
+  240 seconds, a fallback and a retry could chain three of them, and the
+  longest wait seen from release to paste was 103 seconds. Esc only worked
+  while recording. A paste keystroke or a clipboard that never returned held
+  the dictation, and the History save after it, for good.
+- **Fix:** one watchdog now looks after every dictation from release to the
+  end (`src/pipeline_watchdog.py`):
+  - The pill stays on screen in a working look: the cells ripple slowly, the
+    seconds count on the waffle, and one X in the middle cancels. It ends
+    with a short tick, or quietly when a message is showing. Windows and Mac
+    draw the same thing.
+  - Stopping the recording, speech to text, the clean-up, the copy and the
+    paste each run with a deadline, and an error on any of them becomes a
+    plain message instead of a stuck thread. Speech to text as a whole gets
+    45 seconds for an ordinary dictation (more for long recordings, up to
+    5.5 minutes for a 12-minute one), then the recording is kept as Not
+    sent. A clean-up that does not finish is pasted as you said it. A paste
+    that does not finish leaves the text on the clipboard and in the Journal
+    and says "Press Ctrl+V to paste it" (Cmd+V on a Mac).
+  - After 8 seconds (or 0.4 times the recording's length, if longer) the
+    pill asks: "Keep waiting", "Send later" or "Cancel" while it waits for
+    speech to text, and "Paste as is", "Keep waiting" or "Cancel" while it
+    waits for the clean-up. This replaces the "Taking longer than usual"
+    message, which offered nothing to do.
+  - Esc and the pill's X cancel the dictation being processed, on Windows
+    and on a Mac, until the paste starts. Esc still reaches the app in
+    front, as it always has.
+  - If something outside those steps stops making progress, the watchdog
+    gives up on the dictation, keeps the recording as Not sent if no words
+    exist yet, frees the pill and the window, and never pastes later into
+    whatever you are doing by then.
+  - The window's status pill counts too ("Cleaning up · 4 s") and ends with
+    Done, Cancelled, Not sent or "Something went wrong", then Ready. The tray
+    tooltip (Windows) and menu bar tooltip (Mac) say when Waffler is
+    recording or working; while working the Windows tray icon gets an amber
+    dot and the Mac menu bar icon dims.
+- **Letting go of the hotkey could wait on the window before processing
+  started.** The release told the window "processing" first, and on a Mac
+  that call waits for the window with no time limit, so a window that did
+  not answer stopped the dictation outright, with the pill frozen. Every
+  update to the window now goes through one queue that one thread sends,
+  and a dictation never waits for it. On Windows the audit measured about
+  0.44 seconds between release and the start of processing, most of it this
+  call; that has not been measured again in the installed app yet.
+- **Recordings that were not sent could not be sent again.** When speech to
+  text failed, the recording was saved and a card said it was "saved so you
+  can retry", but nothing in the app could reach the file (one user had five
+  waiting since June). **Fix:** it is now a "Not sent" card in the Journal
+  that says what happened in plain words, with Try again, Show the file and
+  Delete (which asks first). Try again sends the saved recording with your
+  own keys, puts the words into the card and keeps its place in the
+  Journal; nothing is pasted. Waffler also sends waiting recordings by
+  itself: right after a dictation goes through, and every 30 seconds while
+  any wait, for recordings from the last day, at most three times each,
+  stopping at the first one your provider still refuses. It only ever sends
+  recordings a Journal card names, never any other file in that folder.
+  Settings (Data) shows how many are waiting, with "Send now".
+- **Pressing the hotkey again while a dictation was still being cleaned up
+  threw away its finished words.** An early return treated the newer
+  recording like a cancel. The older dictation now goes to the Journal (it
+  is not pasted, because the newer one owns the window and the clipboard,
+  and it no longer writes the clipboard either), and it no longer resets
+  the newer recording's "Recording" label.
+- **Two recordings that failed in the same second shared one file name**,
+  so the second overwrote the first. Names are now unique.
+- **A Not sent card added about 20 words to the word counts**: its note was
+  counted as if you had said it. It now adds none.
+- **"Something went wrong" said your text had been copied when there was
+  no text.** It now says "That dictation didn't go through. Please try
+  again." unless your words really are on the clipboard.
+- **A clean-up that ran out of time was reported as "Connection failed".**
+  It now says "Pasted without the clean-up: the clean-up took too long, so
+  your words went in as you said them."
+- **The "We couldn't hear you" message closed whatever message came after
+  it.** Its 4-second clean-up now closes only itself.
 
 ### Changed
 - **Error messages are plain sentences instead of raw error text.** Checking
@@ -571,7 +657,45 @@ reads like a bill, and a Journal search with no matches says so.
   the Mac permission cards are side by side (the step scrolls 909 px in
   its 714 px box, down from 1,540 px), and a refused hotkey shows the
   sentence with no green flash on either screen.
-- Suite: 778 passed, 2 skipped (one key-table check per platform runs only
+- `tests/test_processing_watchdog.py` (35 checks, no network or keys) runs
+  the real `_process` from `app.py` with stand-ins for the recorder, the
+  providers, the clipboard, the overlay and the window, with the limits
+  shrunk so a "30-second" hang takes a second. A provider that hangs gets
+  the offer at the threshold, and Esc, the pill's X and the offer's Cancel
+  each end the dictation with nothing pasted or kept. At the deadline the
+  recording becomes a Not sent card; "Send later", "Keep waiting" and
+  "Paste as is" do what they say. A paste that never returns lets the
+  dictation finish with the words saved and a "Not pasted" message. An
+  exception in speech to text, in the clean-up and in the pipeline itself
+  each ends in a plain message and frees the pill. A hang outside any step
+  is given up on and never pastes later. A newer recording keeps the older
+  one's words and its own pill. Window updates never block, even when the
+  window never answers. Esc cancels during processing on Windows (the real
+  keyboard hook procedure) and on a Mac, and is left alone otherwise.
+- `tests/test_unsent_recordings.py` (27 checks) runs the SR3 promise end to
+  end: with the provider down the recording is saved and its card shows;
+  with it back, Try again turns the card into a normal entry at the same
+  time and removes the file, and nothing is pasted. It also checks the
+  automatic sending (after a dictation works; stops at the first refusal;
+  three tries; only the last day; never during a dictation), that a WAV no
+  card names is never sent, that names pointing outside `unsent/` are
+  refused, that two failures in one second keep both files, the card's
+  sentences in Node, and the Settings count.
+- `tests/test_working_pill.py` (12 checks) drives the real Windows overlay
+  (Tk) through the working look, the tick, a message that stays up, and the
+  offer's buttons, checks that the Mac overlay handles the same commands
+  and draws the same ripple and time, and checks the controller's
+  commands. `tests/test_tray_state.py` (4 checks) builds the Windows
+  "working" icon from the real `icon.ico`.
+- In the audit harness the new states were captured on Windows and Mac
+  sizes (the window's pill while working and at each ending, Not sent
+  cards, Try again in flight, failing and working, Delete's question, the
+  Settings count, and the overlay's working pill, tick and new messages)
+  with no page errors. The Windows overlay images come from the real
+  drawing code; the Mac ones from a canvas port of it. Nothing here has run
+  on a real Mac yet: the Mac overlay, Esc on a Mac and the menu bar
+  dimming need a check there.
+- Suite: 856 passed, 2 skipped (one key-table check per platform runs only
   on that platform). A full run leaves the real `app.log` byte for byte
   unchanged.
 
