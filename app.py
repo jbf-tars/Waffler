@@ -21,6 +21,7 @@ for _var in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS",
 
 import io
 import json
+import queue
 import time
 import threading
 import tempfile
@@ -118,6 +119,9 @@ from audio_devices import (
 from app_detection import get_active_app
 from log_util import transcript_for_log
 from atomic_json import write_json_atomic
+import pipeline_watchdog as _pw
+import unsent as _unsent
+import tray_state as _tray_state
 from user_messages import (
     DOWNLOAD_PAGE,
     UPDATE_DOWNLOAD_FAILED,
@@ -543,8 +547,22 @@ class Api:
             return {"ok": False, "error": UPDATE_INSTALL_FAILED, "download_page": DOWNLOAD_PAGE}
 
     def get_history(self) -> list:
-        """Return transcript history (newest first)."""
+        """Return transcript history (newest first).
+
+        Not sent entries get their live state: the recording's id, whether
+        its file is still there, and whether Waffler will still send it by
+        itself (entries older than a day, or out of tries, will not)."""
         items = load_history()
+        unsent_dir = DATA_DIR / _unsent.UNSENT_DIRNAME
+        for i, item in enumerate(items):
+            if isinstance(item, dict) and item.get("failed"):
+                item = dict(item)
+                uid = _unsent.entry_id(item)
+                if uid and _unsent.resolve_file(unsent_dir, uid) is None:
+                    uid = ""        # the file has gone; the card can only be deleted
+                item["unsent_id"] = uid
+                item["will_retry"] = bool(uid) and _unsent.will_auto_retry(item)
+                items[i] = item
         # Return newest first
         return list(reversed(items))
 
@@ -577,13 +595,15 @@ class Api:
             h for h in history
             if str(h.get("timestamp", "")).startswith(today_str)
         ]
+        # A Not sent entry holds a note, not the user's words, so it adds no
+        # words (its note used to add about 20 to the counts each time).
         today_words = sum(
             len((h.get("styled") or h.get("text") or "").split())
-            for h in today_items
+            for h in today_items if not h.get("failed")
         )
         total_words = sum(
             len((h.get("styled") or h.get("text") or "").split())
-            for h in history
+            for h in history if not h.get("failed")
         )
 
         # ── Stack streak ────────────────────────────────────────────
@@ -1194,6 +1214,94 @@ class Api:
             lines.append(text)
             lines.append("")
         return {"ok": True, "content": "\n".join(lines), "count": len(history)}
+
+    # ── Recordings that were not sent (Journal "Not sent" cards) ─────────
+
+    def retry_unsent(self, unsent_id: str) -> dict:
+        """Try again: send a saved recording to speech to text, with the
+        user's own keys. The words go into its Journal card; nothing is
+        pasted. Returns {"ok", "item", "reason"} (see WafflerPipeline.resend_unsent)."""
+        if not _pipeline:
+            return {"ok": False, "reason": "not_ready"}
+        try:
+            return _pipeline.resend_unsent(str(unsent_id or ""), auto=False)
+        except Exception as e:
+            _log_to_file(f"[unsent] Try again failed ({type(e).__name__}: {e})")
+            return {"ok": False, "reason": "error"}
+
+    def retry_all_unsent(self) -> dict:
+        """Settings' "Send now": try every waiting recording once."""
+        if not _pipeline:
+            return {"ok": False, "reason": "not_ready", "sent": 0, "total": 0}
+        waiting = _unsent.pending(load_history(), DATA_DIR / _unsent.UNSENT_DIRNAME)
+        sent = 0
+        for uid, _entry, _path in waiting:
+            r = _pipeline.resend_unsent(uid, auto=False)
+            if r.get("ok"):
+                sent += 1
+            elif r.get("reason") in (_unsent.REASON_OFFLINE, _unsent.REASON_BLOCKED,
+                                     _unsent.REASON_TIMEOUT, _unsent.REASON_RATE_LIMITED):
+                break   # still unreachable: no point trying the rest now
+        return {"ok": True, "sent": sent, "total": len(waiting)}
+
+    def delete_unsent(self, unsent_id: str, timestamp: str = "") -> dict:
+        """Delete a Not sent recording and its Journal card.
+
+        A card whose recording could not be saved, or whose file has gone,
+        has no id: then only its Journal entry is removed, found by its
+        time, and only if it is a Not sent entry."""
+        if unsent_id:
+            if _pipeline:
+                return _pipeline.delete_unsent(str(unsent_id))
+            return {"ok": False, "reason": "not_ready"}
+        unsent_dir = DATA_DIR / _unsent.UNSENT_DIRNAME
+        try:
+            with _history_lock:
+                history = load_history()
+                for i in range(len(history) - 1, -1, -1):
+                    h = history[i]
+                    if (isinstance(h, dict) and h.get("failed")
+                            and str(h.get("timestamp", "")) == str(timestamp or "")
+                            and _unsent.resolve_file(unsent_dir, _unsent.entry_id(h)) is None):
+                        del history[i]
+                        save_history(history)
+                        return {"ok": True}
+        except Exception as e:
+            _log_to_file(f"[unsent] could not remove the entry: {e}")
+            return {"ok": False, "reason": "error"}
+        return {"ok": False, "reason": "not_found"}
+
+    def reveal_unsent(self, unsent_id: str) -> dict:
+        """Show the file: open its folder with the recording selected."""
+        path = _unsent.resolve_file(DATA_DIR / _unsent.UNSENT_DIRNAME, str(unsent_id or ""))
+        if path is None:
+            return {"ok": False, "reason": "missing"}
+        import subprocess
+        try:
+            if _platform.system() == "Windows":
+                # One string: explorer parses /select,"<path>" itself, and a
+                # Windows path cannot contain a double quote.
+                subprocess.Popen(f'explorer /select,"{path}"')
+            elif _platform.system() == "Darwin":
+                subprocess.Popen(["open", "-R", str(path)])
+            else:
+                subprocess.Popen(["xdg-open", str(path.parent)])
+            return {"ok": True}
+        except Exception as e:
+            _log_to_file(f"[unsent] could not show the file: {e}")
+            return {"ok": False, "reason": "error"}
+
+    def get_unsent_summary(self) -> dict:
+        """How many recordings are waiting to be sent (Settings, Data)."""
+        try:
+            waiting = _unsent.pending(load_history(), DATA_DIR / _unsent.UNSENT_DIRNAME)
+        except Exception:
+            waiting = []
+        return {
+            "count": len(waiting),
+            "automatic": sum(1 for _u, e, _p in waiting if _unsent.will_auto_retry(e)),
+            "provider": _pipeline._speech_provider_name() if _pipeline else "",
+        }
 
     def clear_history(self) -> dict:
         """Wipe all saved transcriptions."""
@@ -2512,14 +2620,67 @@ def set_window(w):
     _window = w
 
 
-def notify_js_status(status: str):
-    """Tell the JS frontend about recording status (safely escaped)."""
-    if _window:
+# ── Python to page notifications ─────────────────────────────────────
+# evaluate_js waits for the page to answer. pywebview's Cocoa backend waits on
+# a semaphore with no timeout, and on Windows each call took about 0.44 s on
+# the hot path (and caused COM re-entrancy crashes from background threads).
+# notify_js_status("processing") ran in the release handler BEFORE the
+# processing thread was started, so a slow page delayed every dictation and a
+# page that never answered stopped it altogether, with the pill frozen.
+#
+# Now every notification goes onto one queue that one thread drains. The
+# dictation never waits for the page; if the page stops answering, updates
+# queue up to a limit and are then dropped, and the dictation carries on.
+_JS_QUEUE_MAX = 200
+_js_queue = queue.Queue(maxsize=_JS_QUEUE_MAX)
+_js_thread = None
+_js_thread_lock = threading.Lock()
+_js_dropped = [0]
+
+
+def _js_drain():
+    while True:
+        script = _js_queue.get()
+        w = _window
+        if not w:
+            continue
         try:
-            status_json = json.dumps(status)
-            _window.evaluate_js(f"window.waffler_status && window.waffler_status({status_json})")
+            w.evaluate_js(script)
         except Exception:
             pass
+
+
+def _post_js(script: str) -> bool:
+    """Queue a script for the page. Never blocks. False when dropped."""
+    global _js_thread
+    if not _window:
+        return False
+    try:
+        _js_queue.put_nowait(script)
+    except queue.Full:
+        _js_dropped[0] += 1
+        if _js_dropped[0] in (1, 100, 1000):
+            _log_to_file(f"[js] the window is not answering; {_js_dropped[0]} "
+                         f"update(s) dropped so dictation is not held up")
+        return False
+    with _js_thread_lock:
+        if _js_thread is None or not _js_thread.is_alive():
+            _js_thread = threading.Thread(target=_js_drain, daemon=True, name="JsNotify")
+            _js_thread.start()
+    return True
+
+
+def notify_js_status(status: str):
+    """Tell the JS frontend about recording status (safely escaped).
+    Queued, never blocking (see _post_js)."""
+    _post_js(f"window.waffler_status && window.waffler_status({json.dumps(status)})")
+
+
+def notify_js_item_updated(unsent_id: str, item: dict):
+    """A Not sent entry changed: a retry failed again, or it was sent and is
+    now a normal entry. The page swaps the card in place."""
+    _post_js("window.waffler_item_updated && window.waffler_item_updated("
+             f"{json.dumps(unsent_id)}, {json.dumps(item)})")
 
 
 def notify_js_window_visible(visible: bool):
@@ -2544,15 +2705,67 @@ def notify_js_window_visible(visible: bool):
 
 
 def notify_js_new_item(item: dict):
-    """Push a new transcript item to the JS frontend."""
-    if _window:
-        try:
-            item_json = json.dumps(item)
-            _window.evaluate_js(
-                f"window.waffler_refresh && window.waffler_refresh({item_json})"
-            )
-        except Exception as e:
-            print(f"[js] notify error: {e}")
+    """Push a new transcript item to the JS frontend. Queued, never blocking."""
+    _post_js(f"window.waffler_refresh && window.waffler_refresh({json.dumps(item)})")
+
+
+# ── Tray / menu bar state ─────────────────────────────────────────────
+_tray_state_now = _tray_state.IDLE
+_tray_working_ico = None     # Path of the generated "working" icon, once made
+
+
+def _tray_working_icon_path():
+    """The Windows tray icon with an amber dot, made once from icon.ico."""
+    global _tray_working_ico
+    if _tray_working_ico is not None:
+        return _tray_working_ico or None
+    try:
+        src = PROJECT_ROOT / "icon.ico"
+        if not src.exists() and hasattr(sys, "_MEIPASS"):
+            src = Path(sys._MEIPASS) / "icon.ico"
+        if not src.exists():
+            src = Path(sys.executable).parent / "_internal" / "icon.ico"
+        _tray_working_ico = _tray_state.make_working_icon(src, DATA_DIR / "tray-working.ico")
+    except Exception as e:
+        _log_to_file(f"[tray] working icon not made ({type(e).__name__}: {e})")
+        _tray_working_ico = ""
+    return _tray_working_ico or None
+
+
+def _set_tray_state(state: str):
+    """Mirror the dictation in the tray (Windows) or menu bar (Mac) icon:
+    the tooltip names the state; while working the Windows icon gets an
+    amber dot and the Mac icon dims. Never raises, never blocks for long."""
+    global _tray_state_now
+    if state == _tray_state_now:
+        return
+    _tray_state_now = state
+    icon = _tray_icon
+    if icon is None:
+        return
+    tip = _tray_state.tip_for(state)
+    try:
+        if _platform.system() == "Windows":
+            icon.title = tip
+            want = _tray_working_icon_path() if _tray_state.shows_working_icon(state) else None
+            current = getattr(icon, "_waffler_ico_override", None)
+            if want != current:
+                icon._waffler_ico_override = want
+                icon.icon = icon.icon      # reloads through the patched loader
+        elif _platform.system() == "Darwin":
+            from PyObjCTools import AppHelper
+
+            def _apply():
+                try:
+                    button = icon.button()
+                    if button is not None:
+                        button.setToolTip_(tip)
+                        button.setAppearsDisabled_(_tray_state.shows_working_icon(state))
+                except Exception as e:
+                    _log_to_file(f"[tray] menu bar state not shown: {e}")
+            AppHelper.callAfter(_apply)
+    except Exception as e:
+        _log_to_file(f"[tray] state not shown ({type(e).__name__}: {e})")
 
 
 # ── Pipeline ──────────────────────────────────────────────────────────
@@ -2674,6 +2887,27 @@ class WafflerPipeline:
         self._current_press_id = 0  # id of the in-flight recording, set on press
         self._processing_lock = threading.Lock()
 
+        # One watchdog over every dictation's processing (src/pipeline_watchdog.py):
+        # the working pill, the "still working" offer, deadlines, cancel.
+        self._watchdog = _pw.PipelineWatchdog(
+            on_begin=self._ui_begin,
+            on_working=self._ui_working,
+            on_offer=self._ui_offer,
+            on_withdraw_offer=self._ui_withdraw_offer,
+            on_finished=self._ui_finished,
+            on_stuck=self._ui_stuck,
+            is_current=self._run_is_current,
+            log=_log_to_file,
+        )
+
+        # Recordings that were not sent (src/unsent.py). One resend at a
+        # time; the drain thread sends them again when the provider answers.
+        self._unsent_lock = threading.Lock()
+        self._drain_lock = threading.Lock()
+        self._unsent_waiting = self._count_unsent()
+        threading.Thread(target=self._unsent_drain_loop, daemon=True,
+                         name="UnsentDrain").start()
+
     def set_device(self, device_index: int):
         """Update the audio device used for future recordings.
 
@@ -2710,6 +2944,18 @@ class WafflerPipeline:
             if hasattr(self, 'hotkey_listener') and self.hotkey_listener:
                 if hasattr(self.hotkey_listener, 'reset_state'):
                     self.hotkey_listener.reset_state()
+            return
+        # Not recording: Esc or the working pill's X cancels the dictation
+        # that is being processed. Its wait ends at once (the watchdog run
+        # wakes it) and nothing is pasted. Once the paste has started it is
+        # too late, and the words are kept.
+        watchdog = getattr(self, "_watchdog", None)
+        run = watchdog.current_run() if watchdog is not None else None
+        if run is not None:
+            if run.decide(_pw.CANCEL):
+                _log_to_file(f"Dictation {run.generation} cancelled by user during {run.stage}")
+            else:
+                _log_to_file(f"Cancel during {run.stage} ignored: too late, keeping the words")
 
     def _on_overlay_stop(self):
         """User clicked ■ on overlay — stop & process."""
@@ -2721,9 +2967,9 @@ class WafflerPipeline:
                     self.hotkey_listener.reset_state()
 
     def _on_overlay_cancel_request(self):
-        """User clicked X on overlay — directly cancel without confirmation."""
-        if not self.is_recording:
-            return
+        """User clicked X on overlay: directly cancel without confirmation.
+        While recording it discards the recording; on the working pill it
+        cancels the dictation being processed."""
         # Skip toast confirmation - directly cancel
         self._on_overlay_cancel()
 
@@ -2736,6 +2982,17 @@ class WafflerPipeline:
         elif action == "dismiss":
             # User wants to keep recording — just hide toast
             self.overlay.hide_toast()
+        elif action in (_pw.KEEP_WAITING, _pw.PASTE_RAW, _pw.SEND_LATER, "cancel_processing"):
+            # An answer to the "still working" offer (_ui_offer). The toast
+            # has already closed itself and the working pill is back.
+            run = self._watchdog.current_run()
+            if run is None:
+                return
+            choice = _pw.CANCEL if action == "cancel_processing" else action
+            if not run.decide(choice):
+                _log_to_file(f"Offer answer '{action}' came too late ({run.stage})")
+        elif action == "open_journal":
+            self._show_journal()
         elif action == "select_mic":
             # v3.14.35 — bring Waffler to front and open Settings, where
             # the in-app mic picker lives. Previously this called
@@ -2796,6 +3053,7 @@ class WafflerPipeline:
         self._recording_start_time = time.time()
         self.audio.start()
         notify_js_status("listening")
+        _set_tray_state(_tray_state.RECORDING)
         try:
             self.overlay.show()
         except Exception as e:
@@ -2817,18 +3075,37 @@ class WafflerPipeline:
             current_id = self._current_press_id
         _log_to_file("Recording stopped, processing")
         self._is_paused = False
-        notify_js_status("processing")
-        # Start processing FIRST. hide() writes to the overlay child's stdin,
-        # and if that child is alive but has stopped reading, the pipe fills and
-        # the write blocks indefinitely. Doing it before this line meant a
-        # wedged overlay stopped the audio ever being snapshotted, losing a
-        # recording the user had already finished speaking. Nothing about
-        # keeping the user's words should depend on the UI being responsive.
-        threading.Thread(target=lambda: self._process(current_id), daemon=True).start()
+        # Start processing FIRST. Overlay writes go to the overlay child's
+        # stdin, and if that child is alive but has stopped reading, the pipe
+        # fills and the write blocks. Touching the overlay before this line
+        # meant a wedged overlay stopped the audio ever being snapshotted,
+        # losing a recording the user had already finished speaking. Nothing
+        # about keeping the user's words should depend on the UI being
+        # responsive.
+        #
+        # The pill is no longer hidden here: _process's watchdog run turns it
+        # into the working pill (elapsed time and an X) straight away, and
+        # ends it with a tick or a message. Hiding it here, then drawing the
+        # progress on the hidden pill, is why nothing showed that Waffler was
+        # working. It is only hidden if processing cannot start at all.
         try:
-            self.overlay.hide()
-        except Exception as e:
-            print(f"[overlay] hide failed: {e}")
+            threading.Thread(target=lambda: self._process(current_id), daemon=True,
+                             name=f"Process-{current_id}").start()
+        except RuntimeError as e:
+            # "can't start new thread": the process is out of threads. Keep
+            # the recording as Not sent rather than lose it.
+            _log_to_file(f"Could not start processing the recording: {e}")
+            try:
+                self.overlay.hide()
+            except Exception as e2:
+                print(f"[overlay] hide failed: {e2}")
+            try:
+                _audio = self.audio.stop()
+                if _audio:
+                    self._handle_failed_transcription(_audio, "error")
+            except Exception as e3:
+                _log_to_file(f"Could not keep the recording either: {e3}")
+            notify_js_status("error")
 
     def toggle_pause(self):
         """Toggle pause state during recording."""
@@ -2919,12 +3196,24 @@ class WafflerPipeline:
             # cleanup if the user never dismisses and that timer fails.
             import time as _t
             _t.sleep(4)
-            self.overlay.hide_toast()
+            # Only this style, so a newer message or offer is left alone.
+            self.overlay.hide_toast(style="error")
         except Exception as e:
             _log_to_file(f"[overlay] no-audio toast failed: {e}")
 
     def _process(self, processing_id: int):
-        """Process audio: transcribe, style, copy to clipboard, paste."""
+        """Process audio: transcribe, style, copy to clipboard, paste.
+
+        Every blocking step runs through this dictation's watchdog run
+        (src/pipeline_watchdog.py): a hung provider, a hung paste or an
+        exception on a worker thread ends in a tick or a plain message, never
+        in a pill that sits on "Processing". Esc and the working pill's X can
+        stop it at any point before the paste."""
+
+        # One watchdog run per dictation. It shows the working pill at once
+        # and is ended in the finally below with how the dictation ended.
+        run = self._watchdog.begin(processing_id)
+        _outcome = _pw.NOTHING
 
         # These two were previously one predicate, which is what discarded
         # finished work: pressing the hotkey again while the previous dictation
@@ -2949,13 +3238,10 @@ class WafflerPipeline:
         def _is_cancelled():
             """Abort-early predicate for the stages BEFORE a result exists.
             Up to that point there is nothing worth preserving, so either
-            condition should stop the work."""
-            return _is_superseded() or _is_cancelled_explicitly()
+            condition should stop the work. A run the watchdog gave up on is
+            finished too: its recording has been kept as Not sent."""
+            return _is_superseded() or _is_cancelled_explicitly() or run.abandoned
 
-        # Tracks whether _process reached its success "done" status; the
-        # finally below resets the UI to idle on every OTHER exit so it can't
-        # get stuck showing "recording"/"processing".
-        _finalized = False
         # Snapshot the paste target NOW. self._prev_window is overwritten by
         # the next press, so reading it later could send this dictation's paste
         # into the window the user opened for the following one.
@@ -2963,16 +3249,22 @@ class WafflerPipeline:
         # Set once the styled text is on the clipboard. After that point the
         # error handler must not "salvage" the raw transcript over it.
         _clipboard_written = False
+        transcript = None  # for the error handler, whatever fails first
         try:
             # Calculate recording duration for error suppression
             import time
             recording_duration = time.time() - self._recording_start_time if self._recording_start_time else 0
             _log_to_file(f"Recording duration: {recording_duration:.2f}s")
 
-            # Early abort if already cancelled
+            # Early abort if already cancelled. (Every exit from here on hands
+            # its outcome to the watchdog in the finally below, which sets the
+            # window's status and ends the pill, but only while this dictation
+            # still owns them. The old per-exit notify_js_status("idle") calls
+            # also fired for a superseded dictation and reset the NEXT
+            # recording's "Recording" label.)
             if _is_cancelled():
                 _log_to_file(f"Processing {processing_id} aborted: cancelled before start")
-                notify_js_status("idle")
+                _outcome = _pw.CANCELLED if _is_cancelled_explicitly() else _pw.NOTHING
                 return
 
             # v3.14.36 — silently discard very short taps (< 0.5 s).
@@ -2994,7 +3286,21 @@ class WafflerPipeline:
             # press-to-release time, so the check moves up here.
             transcript = None  # init for error handler
             _log_to_file("[pipeline] stopping audio capture...")
-            audio_bytes = self.audio.stop()
+            # Bounded: stop() waits on the recorder's stream lock, which a
+            # stream rebuild on a dead device could hold indefinitely.
+            _stopped = run.call(self.audio.stop, stage=_pw.PREPARING,
+                                deadline=_pw.PREPARE_DEADLINE_S)
+            if _stopped.status == _pw.CANCEL:
+                _log_to_file(f"Processing {processing_id} cancelled while stopping the recording")
+                _outcome = _pw.CANCELLED
+                return
+            if not _stopped.ok:
+                raise RuntimeError(
+                    f"stopping the recording did not finish ({_stopped.status}"
+                    f"{': ' + repr(_stopped.error) if _stopped.error else ''})")
+            audio_bytes = _stopped.value
+            run.audio_bytes = audio_bytes or None
+            run.set_audio_seconds(len(audio_bytes or b"") / 32000.0)
 
             # Accidental-tap guard. This used to discard ANY press under 500 ms
             # on press duration alone, before looking at the audio at all, so a
@@ -3013,7 +3319,6 @@ class WafflerPipeline:
                         f"Short press ({recording_duration:.2f}s) with "
                         f"{_tap_speech:.2f}s of speech — discarding as accidental tap"
                     )
-                    notify_js_status("idle")
                     return
                 _log_to_file(
                     f"Short press ({recording_duration:.2f}s) but {_tap_speech:.2f}s "
@@ -3046,7 +3351,6 @@ class WafflerPipeline:
                 # Only show error toast if recording was held for > 1 second
                 if recording_duration >= 1.0:
                     threading.Thread(target=self._show_no_audio_toast, daemon=True).start()
-                notify_js_status("idle")
                 return
 
             # Check if audio is effectively silent.
@@ -3103,7 +3407,6 @@ class WafflerPipeline:
                             threading.Thread(target=self._show_no_audio_toast, daemon=True).start()
                     else:
                         _log_to_file("Suppressing error toast (quick tap)")
-                    notify_js_status("idle")
                     return
             except Exception:
                 pass  # If numpy check fails, continue with transcription
@@ -3173,62 +3476,46 @@ class WafflerPipeline:
             # Check cancellation before expensive transcription
             if _is_cancelled():
                 _log_to_file(f"Processing {processing_id} aborted: cancelled before transcription")
-                notify_js_status("idle")
+                _outcome = _pw.CANCELLED if _is_cancelled_explicitly() else _pw.NOTHING
                 return
 
-            # Show "Transcribing…" progress on the overlay so the user sees
-            # the app is working. Run a ticker thread that bumps the elapsed
-            # seconds counter every 500ms while transcription runs.
-            #
-            # v3.14.28 — also fires a one-shot "taking longer than usual"
-            # toast once transcription crosses 10 seconds. Most dictations
-            # complete in well under 2s; 10s means something is wrong
-            # upstream (provider throttling, slow network, free tier
-            # congestion). The toast nudges the user toward adding a
-            # fallback key without blaming Waffler. Fires exactly once.
-            _stage_start = time.time()
-            _stage_stop = threading.Event()
-            _slow_toast_fired = [False]  # list-wrapped so closure can mutate
-
-            def _ticker_transcribe():
-                while not _stage_stop.is_set():
-                    elapsed = time.time() - _stage_start
-                    try:
-                        self.overlay.set_progress("Transcribing", elapsed)
-                    except Exception:
-                        pass
-                    if elapsed >= 10 and not _slow_toast_fired[0]:
-                        _slow_toast_fired[0] = True
-                        try:
-                            self.overlay.show_toast(
-                                style="warn",
-                                heading="Taking longer than usual",
-                                body="Provider may be slow. Add a fallback key in Settings for reliability.",
-                            )
-                        except Exception:
-                            pass
-                    _stage_stop.wait(0.5)
-            threading.Thread(target=_ticker_transcribe, daemon=True, name="ProgressTranscribe").start()
-
-            # Transcribe
+            # Transcribe. Bounded by the watchdog run: the pill shows the
+            # elapsed time, the "still working" offer comes after
+            # max(8 s, 0.4 x the recording), and speech to text as a whole
+            # has one deadline (pipeline_watchdog.transcribe_deadline_s). A
+            # single request used to be able to run for 240 s, a fallback and
+            # a retry could chain three, and nothing could stop it.
             _t0 = time.time()
-            try:
-                transcript = self.transcriber.transcribe_sync(audio_bytes)
-            except Exception as _te:
-                # No transcription engine could turn the audio into text. The
-                # usual cause is a VPN exit IP that Groq blocks at the network
-                # layer (HTTP 403) with no OpenAI/local fallback wired up — so
-                # speech-to-text itself fails and there is no "raw text" to
-                # paste. Rather than silently dropping the recording, preserve
-                # the audio, journal it, and tell the user. Automatic
-                # transcription fallback over a VPN is tracked in ROADMAP.md.
-                _stage_stop.set()
-                _log_to_file(f"[pipeline] transcription FAILED, preserving audio: {_te}")
-                self._handle_failed_transcription(audio_bytes, str(_te))
-                notify_js_status("idle")
+            _asr = run.call(self._transcribe_with_provenance, audio_bytes,
+                            stage=_pw.TRANSCRIBING,
+                            deadline=_pw.transcribe_deadline_s(run.audio_seconds))
+            if _asr.status == _pw.CANCEL:
+                _log_to_file(f"Processing {processing_id} cancelled during transcription")
+                _outcome = _pw.CANCELLED
                 return
+            if not _asr.ok:
+                # No transcription engine could turn the audio into text: a
+                # failure (often a VPN exit IP that Groq blocks), the
+                # deadline, or the user chose "Send later". The recording is
+                # kept as a Not sent card in the Journal, and sent again when
+                # the provider answers (src/unsent.py).
+                if _asr.status == _pw.SEND_LATER:
+                    _why = _unsent.REASON_LATER
+                elif _asr.status == _pw.DEADLINE:
+                    _why = (f"deadline: no answer in "
+                            f"{_pw.transcribe_deadline_s(run.audio_seconds):.0f}s")
+                else:
+                    _why = str(_asr.error)
+                _log_to_file(f"[pipeline] transcription not finished ({_asr.status}), "
+                             f"keeping the recording: {_why[:160]}")
+                run.enter(_pw.SAVING)
+                if not run.abandoned:
+                    self._handle_failed_transcription(audio_bytes, _why)
+                    run.saved_as_unsent = True
+                _outcome = _pw.NOT_SENT
+                return
+            transcript, _asr_info = _asr.value
             _t_transcribe = (time.time() - _t0) * 1000
-            _stage_stop.set()
             _log_to_file(f"[pipeline] transcription: {_t_transcribe:.0f}ms")
             if not transcript:
                 _log_to_file("Empty transcription result")
@@ -3238,8 +3525,8 @@ class WafflerPipeline:
                     threading.Thread(target=self._show_no_audio_toast, daemon=True).start()
                 else:
                     _log_to_file("Suppressing error toast (quick tap)")
-                notify_js_status("idle")
                 return
+            run.transcript = transcript
 
             # Apply vocabulary fuzzy matching corrections
             from transcribe_whisper import load_vocab, apply_vocab_corrections
@@ -3252,7 +3539,7 @@ class WafflerPipeline:
             # Record Whisper usage - calculate from audio bytes (works for all backends)
             # Audio is 16kHz, 16-bit mono = 32000 bytes/second
             whisper_duration = len(audio_bytes) / 32000.0
-            whisper_provider = self.transcriber._backend
+            whisper_provider = _asr_info.get("backend") or self.transcriber._backend
             if whisper_provider in ("mlx", "faster"):
                 whisper_provider = "local"
             elif whisper_provider == "api":
@@ -3260,41 +3547,32 @@ class WafflerPipeline:
             if whisper_duration > 0:
                 record_usage_safely("whisper", duration_seconds=whisper_duration,
                                     provider=whisper_provider)
-            # Show "Styling…" progress — this is the slow stage on long
-            # dictations (15-25s on full gpt-4.1 for 400+ word inputs).
-            _style_start = time.time()
-            _style_stop = threading.Event()
-            _slow_style_toast_fired = [False]
-            def _ticker_style():
-                while not _style_stop.is_set():
-                    elapsed = time.time() - _style_start
-                    try:
-                        self.overlay.set_progress("Styling", elapsed)
-                    except Exception:
-                        pass
-                    # v3.14.28 — same slow-operation guard for styling.
-                    # Threshold is 15s here (vs 10 for transcription) because
-                    # styling legitimately takes 15-25s on full gpt-4.1 for
-                    # 400+ word inputs. 15s is a "this is slow even for
-                    # styling" threshold.
-                    if elapsed >= 15 and not _slow_style_toast_fired[0]:
-                        _slow_style_toast_fired[0] = True
-                        try:
-                            self.overlay.show_toast(
-                                style="warn",
-                                heading="Taking longer than usual",
-                                body="Provider may be slow. Add a fallback key in Settings for reliability.",
-                            )
-                        except Exception:
-                            pass
-                    _style_stop.wait(0.5)
-            threading.Thread(target=_ticker_style, daemon=True, name="ProgressStyle").start()
 
-            # Style
+            # Style. The styler stops itself at 30 s; the watchdog run is the
+            # backstop, and lets the user choose "Paste as is" once the wait
+            # passes the offer threshold. Any failure here pastes the words
+            # as they were said rather than failing the dictation.
             _t1 = time.time()
-            styled, gpt_usage = self.styler.style(transcript)
+            _sty = run.call(self.styler.style, transcript, stage=_pw.STYLING,
+                            deadline=_pw.STYLE_DEADLINE_S)
+            if _sty.status == _pw.CANCEL:
+                _log_to_file(f"Processing {processing_id} cancelled during styling")
+                _outcome = _pw.CANCELLED
+                return
+            if _sty.ok:
+                styled, gpt_usage = _sty.value
+            else:
+                styled = self._unstyled(transcript)
+                gpt_usage = {"input_tokens": 0, "output_tokens": 0,
+                             "api_used": False, "provider": "basic_clean"}
+                if _sty.status == _pw.DEADLINE:
+                    gpt_usage["fallback_reason"] = (
+                        f"TIMEOUT|clean-up took longer than {_pw.STYLE_DEADLINE_S:.0f}s - pasted raw")
+                elif _sty.status == "error":
+                    gpt_usage["fallback_reason"] = f"{type(_sty.error).__name__}: {_sty.error}"
+                _log_to_file(f"[pipeline] styling not used ({_sty.status}); "
+                             f"pasting the words as said")
             _t_style = (time.time() - _t1) * 1000
-            _style_stop.set()
             _log_to_file(f"[pipeline] styling ({gpt_usage.get('provider', 'local')}): {_t_style:.0f}ms")
             if not styled:
                 styled = transcript
@@ -3408,6 +3686,14 @@ class WafflerPipeline:
                         f"Pasted raw — {fallback_hint}"
                     )
 
+                elif reason.startswith("TIMEOUT|"):
+                    # The clean-up ran out of time (the styler's own budget,
+                    # or the watchdog's backstop). Nothing is wrong with the
+                    # connection, so don't say there is.
+                    heading = "Pasted without the clean-up"
+                    body = ("The clean-up took too long, so your words went in "
+                            "as you said them.")
+
                 elif "CONNECTION" in reason or "timeout" in reason.lower():
                     heading = "Connection failed"
                     body = (
@@ -3458,44 +3744,66 @@ class WafflerPipeline:
             # Apply snippets (text expansion)
             styled = self._apply_snippets(styled)
 
-            # CRITICAL: Check cancellation before copying to clipboard
-            if _is_cancelled():
-                _log_to_file(f"Processing {processing_id} aborted: cancelled before clipboard")
-                notify_js_status("idle")
-                return
-
-            # Copy to clipboard. The result was previously discarded, so a
-            # failed write still went on to "paste" — replacing the user's
-            # selection with whatever unrelated text happened to be on the
-            # clipboard already, and reporting success. The transcript is still
-            # saved to history below either way, so the words are never lost.
-            _t2 = time.time()
-            _copied = self.clipboard.copy(styled)
-            _clipboard_written = bool(_copied)
-            if not _copied:
-                _log_to_file("Clipboard write FAILED — skipping paste so stale "
-                             "clipboard contents cannot overwrite the selection")
-                try:
-                    threading.Thread(target=lambda: self.overlay.show_toast(
-                        style="warn", heading="Couldn't copy to clipboard",
-                        body="Your text is saved in History. Copy it from there.",
-                    ), daemon=True).start()
-                except Exception:
-                    pass
-
             # One decision, taken once, for both remaining side effects.
             # Pasting is about the present (whose window and clipboard is
             # this?); keeping is about the past (did the user get words out of
             # it?). Deciding them together under the lock also closes the gap
             # where a cancel landing between two separate checks let the paste
             # through anyway.
+            #
+            # This used to come after an early "if _is_cancelled(): return"
+            # that also fired for a SUPERSEDED dictation, so pressing the
+            # hotkey again while one was still being cleaned up threw its
+            # finished words away, the very loss src/pipeline_policy.py was
+            # written to stop. Only an explicit cancel discards now. It also
+            # comes before the copy: a superseded dictation must not write
+            # the clipboard either, because the newer one owns it. A run the
+            # watchdog gave up on is treated like a superseded one.
             from src.pipeline_policy import decide as _decide
             with self._processing_lock:
-                _superseded = processing_id != self._processing_id
-                _cancelled = (not _superseded) and self._processing_cancelled.is_set()
+                _superseded = processing_id != self._processing_id or run.abandoned
+                _cancelled = ((not _superseded) and self._processing_cancelled.is_set()) \
+                    or run.cancelled
             _policy = _decide(superseded=_superseded, cancelled=_cancelled)
 
+            if not _policy["save_history"]:
+                _log_to_file(f"Processing {processing_id} discarded: cancelled by the user")
+                _outcome = _pw.CANCELLED
+                return
+
+            # Copy to clipboard, then paste. Both are bounded by the watchdog
+            # run: a clipboard that stays locked or a paste keystroke that
+            # never returns used to hold the dictation (and the History save
+            # after it) for good. The result of the copy was also once
+            # discarded, so a failed write still went on to "paste",
+            # replacing the user's selection with whatever unrelated text
+            # was on the clipboard already. The transcript is saved to
+            # History below either way, so the words are never lost.
+            _t2 = time.time()
             _t_paste = 0.0
+            _copied = False
+            if _policy["paste"]:
+                _copy = run.call(self.clipboard.copy, styled, stage=_pw.PASTING,
+                                 deadline=_pw.PASTE_DEADLINE_S)
+                _copied = bool(_copy.ok and _copy.value)
+                _clipboard_written = _copied
+                if not _copied:
+                    _log_to_file(f"Clipboard write FAILED ({_copy.status}): skipping paste "
+                                 f"so stale clipboard contents cannot overwrite the selection")
+                    try:
+                        threading.Thread(target=lambda: self.overlay.show_toast(
+                            style="warn", heading="Couldn't copy to the clipboard",
+                            body="Your text is saved in the Journal. Copy it from there.",
+                        ), daemon=True).start()
+                    except Exception:
+                        pass
+            elif _policy["reason"] != "ok":
+                _log_to_file(
+                    f"Processing {processing_id} not pasted ({_policy['reason']})"
+                    + ("; transcript still saved to History"
+                       if _policy["save_history"] else "")
+                )
+
             if _policy["paste"] and _copied:
                 stored = {}
                 _sf = DATA_DIR / "settings.json"
@@ -3507,21 +3815,26 @@ class WafflerPipeline:
                 if stored.get("auto_paste", True):
                     # _target_window, not self._prev_window: the latter now
                     # belongs to whatever the user pressed most recently.
-                    self.clipboard.auto_paste(_target_window)
+                    _paste = run.call(self.clipboard.auto_paste, _target_window,
+                                      stage=_pw.PASTING, deadline=_pw.PASTE_DEADLINE_S)
+                    if not _paste.ok:
+                        _log_to_file(f"[pipeline] paste did not finish ({_paste.status}"
+                                     f"{': ' + repr(_paste.error) if _paste.error else ''}); "
+                                     f"the text is on the clipboard and in History")
+                        _paste_key = "Cmd+V" if _platform.system() == "Darwin" else "Ctrl+V"
+                        # Shown before the pill ends, so the pill skips its
+                        # tick: this one needs the user to act.
+                        try:
+                            self.overlay.show_toast(
+                                style="warn", heading="Not pasted",
+                                body=f"Your text is on the clipboard and in the Journal. "
+                                     f"Press {_paste_key} to paste it.",
+                            )
+                        except Exception:
+                            pass
                 _t_paste = (time.time() - _t2) * 1000
                 _log_to_file(f"[pipeline] clipboard+paste: {_t_paste:.0f}ms")
                 _log_to_file(f"[pipeline] TOTAL: {_t_transcribe + _t_style + _t_paste:.0f}ms")
-            elif _policy["reason"] != "ok":
-                _log_to_file(
-                    f"Processing {processing_id} not pasted ({_policy['reason']})"
-                    + (" — transcript still saved to History"
-                       if _policy["save_history"] else "")
-                )
-
-            if not _policy["save_history"]:
-                _log_to_file(f"Processing {processing_id} discarded: cancelled by the user")
-                notify_js_status("idle")
-                return
 
             # Save to history.
             #
@@ -3537,6 +3850,13 @@ class WafflerPipeline:
             # "text" is also filtered, but by an older filter whose exact
             # behaviour is not recorded — they must not be presented as
             # recovered originals.
+            #
+            # The provenance comes from _asr_info, a snapshot taken on the
+            # transcription's own thread the moment it returned. Reading the
+            # transcriber's attributes here instead could pick up a later
+            # dictation's values, now that a request given up on can finish in
+            # the background.
+            run.enter(_pw.SAVING)
             item = {
                 "timestamp": datetime.now().isoformat(timespec="seconds"),
                 "text": transcript,
@@ -3545,8 +3865,8 @@ class WafflerPipeline:
                 "text_is": "asr_filtered",
             }
             try:
-                _asr_raw = getattr(self.transcriber, "last_asr_response", "") or ""
-                if getattr(self.transcriber, "last_asr_filtered", False) and _asr_raw != transcript:
+                _asr_raw = _asr_info.get("last_asr_response", "") or ""
+                if _asr_info.get("last_asr_filtered", False) and _asr_raw != transcript:
                     item["asr_text"] = _asr_raw
                     _log_to_file(
                         f"[pipeline] ASR filter changed the transcript "
@@ -3598,15 +3918,15 @@ class WafflerPipeline:
             try:
                 from src.quality import assess as _assess
                 _q = _assess(
-                    speech_seconds=getattr(self.transcriber, "last_speech_seconds", 0.0),
+                    speech_seconds=_asr_info.get("last_speech_seconds", 0.0),
                     transcript_words=len((transcript or "").split()),
                     styled_words=len((styled or "").split()),
-                    asr_filtered=getattr(self.transcriber, "last_asr_filtered", False),
+                    asr_filtered=_asr_info.get("last_asr_filtered", False),
                     styling_provider=(gpt_usage or {}).get("provider", ""),
                     styled_text=styled or "",
-                    retry_fired=getattr(self.transcriber, "last_retry_fired", False),
+                    retry_fired=_asr_info.get("last_retry_fired", False),
                     deadline_fired="TIMEOUT" in str((gpt_usage or {}).get("fallback_reason", "")),
-                    retry_rejected=getattr(self.transcriber, "last_retry_rejected", False),
+                    retry_rejected=_asr_info.get("last_retry_rejected", False),
                 )
                 if _q["level"] != "ok":
                     item["quality"] = _q
@@ -3627,14 +3947,13 @@ class WafflerPipeline:
                             "timestamp": item["timestamp"],
                             "level": _q["level"],
                             "flags": _q["flags"],
-                            "speech_s": round(float(getattr(
-                                self.transcriber, "last_speech_seconds", 0.0)), 1),
+                            "speech_s": round(float(
+                                _asr_info.get("last_speech_seconds", 0.0) or 0.0), 1),
                             "transcript_words": len((transcript or "").split()),
                             "styled_words": len((styled or "").split()),
                             "words_per_speech_second": _q["words_per_speech_second"],
                             "styling_provider": (gpt_usage or {}).get("provider", ""),
-                            "asr_provider": getattr(
-                                self.transcriber, "_last_cloud_provider", ""),
+                            "asr_provider": _asr_info.get("_last_cloud_provider", "") or "",
                         }) + "\n")
                 except Exception as _e:
                     _log_to_file(f"[quality] log write failed: {_e}")
@@ -3652,8 +3971,9 @@ class WafflerPipeline:
                 except Exception:
                     pass
 
-            # Notify JS
-            notify_js_status("done")
+            # Notify JS. The "done" status itself (and the pill's tick) comes
+            # from the watchdog in the finally below, only while this
+            # dictation still owns the pill.
             if _saved:
                 notify_js_new_item(item)
 
@@ -3665,20 +3985,37 @@ class WafflerPipeline:
             _log_to_file(f"Done: {len(styled.split())} words, {len(styled)} chars")
             if _transcripts_loggable():
                 _log_to_file(f"Styled text: {styled}")
-            _finalized = True
+            _outcome = _pw.DONE
+
+            # A dictation just went through, so the speech service answers:
+            # send any recordings that are waiting (src/unsent.py).
+            self._drain_unsent_soon("a dictation just went through")
 
         except Exception as e:
             error_msg = str(e)
             _log_to_file(f"Pipeline error: {error_msg}")
             import traceback
             traceback.print_exc()
+            _outcome = _pw.ERROR
+
+            # Nothing was turned into text yet, but the recording exists:
+            # keep it as Not sent rather than lose it.
+            if not transcript and run.audio_bytes and not run.saved_as_unsent:
+                try:
+                    self._handle_failed_transcription(run.audio_bytes, error_msg)
+                    run.saved_as_unsent = True
+                    _outcome = _pw.NOT_SENT
+                except Exception as _e:
+                    _log_to_file(f"[pipeline] could not keep the recording: {_e}")
 
             # Show user-visible error toast with specific message
             try:
                 # Only genuine mic-level errors get the `error` style with
                 # the Select-mic button. Everything else uses `warn` (single
                 # Dismiss) so the action matches the problem.
-                if "RATE_LIMIT" in error_msg or "429" in error_msg:
+                if _outcome == _pw.NOT_SENT:
+                    pass    # _handle_failed_transcription has said so
+                elif "RATE_LIMIT" in error_msg or "429" in error_msg:
                     # v3.14.42 — extract concrete wait time and provider from the
                     # error format the styler raises: "RATE_LIMIT|<limit>|<wait>|<details>".
                     # Old message hardcoded "Groq API limit hit" even when the actual
@@ -3740,46 +4077,213 @@ class WafflerPipeline:
                         except Exception:
                             pass
                 else:
+                    # Still try to salvage: paste the raw transcript, unless
+                    # the styled text is already on the clipboard. The toast
+                    # used to say the text was copied even when there was no
+                    # text at all.
+                    _salvaged = False
+                    if transcript and not _clipboard_written:
+                        try:
+                            _salvaged = bool(self.clipboard.copy(transcript))
+                        except Exception:
+                            pass
                     self.overlay.show_toast(
                         style="warn",
                         heading="Something went wrong",
-                        body="Your text was copied to clipboard. Check logs for details.",
+                        body=("Your words are on the clipboard and in the Journal."
+                              if (_salvaged or _clipboard_written) else
+                              "That dictation didn't go through. Please try again."),
                     )
-                    # Still try to salvage: paste the raw transcript, unless
-                    # the styled text is already on the clipboard.
-                    if transcript and not _clipboard_written:
-                        try:
-                            self.clipboard.copy(transcript)
-                        except Exception:
-                            pass
             except Exception:
                 pass
-
-            notify_js_status("idle")
         finally:
-            # Belt-and-braces: if _process exits any way other than the success
-            # "done" path, return the UI to idle — so no future early-return can
-            # leave it stuck showing "recording"/"processing".
-            if not _finalized:
-                try:
-                    notify_js_status("idle")
-                except Exception:
-                    pass
+            # Every exit, early return or exception, ends this dictation's
+            # watchdog run exactly once. That sets the window's status, ends
+            # the working pill (with a tick when it worked) and the tray
+            # icon, so nothing can be left showing "processing". If the
+            # watchdog already gave up on this run, this does nothing.
+            try:
+                self._watchdog.end(run, _outcome)
+            except Exception as _e:
+                _log_to_file(f"[pipeline] could not end the dictation cleanly: {_e}")
+
+    # ── Steps the watchdog runs on worker threads ────────────────────────
+
+    def _transcribe_with_provenance(self, audio_bytes: bytes):
+        """transcribe_sync, plus a snapshot of what it recorded about itself,
+        taken on the same thread the moment it returns. A request the
+        watchdog gave up on can finish later in the background and overwrite
+        the transcriber's attributes; the snapshot keeps each dictation's
+        provenance and quality signals its own."""
+        t = self.transcriber
+        text = t.transcribe_sync(audio_bytes)
+        info = {name: getattr(t, name, default) for name, default in (
+            ("last_asr_response", ""), ("last_asr_filtered", False),
+            ("last_speech_seconds", 0.0), ("last_retry_fired", False),
+            ("last_retry_rejected", False), ("_last_cloud_provider", ""),
+            ("_backend", ""),
+        )}
+        info["backend"] = info.pop("_backend")
+        return text, info
+
+    def _unstyled(self, transcript: str) -> str:
+        """The words as said, with only the regex tidy-up the styler falls
+        back to itself. Used for "Paste as is" and when the clean-up fails."""
+        try:
+            return self.styler._format_email_layout(self.styler._basic_clean(transcript))
+        except Exception:
+            return transcript
+
+    def _speech_provider_name(self) -> str:
+        """The speech-to-text provider a dictation goes to first, by name."""
+        t = getattr(self, "transcriber", None)
+        if t is None:
+            return ""
+        for prov in (getattr(t, "_cloud_order", None) or ["groq", "openai"]):
+            if prov == "groq" and getattr(t, "_groq_client", None) is not None:
+                return "Groq"
+            if prov == "openai" and getattr(t, "client", None) is not None:
+                return "OpenAI"
+        return ""
+
+    def _show_journal(self):
+        """Bring the window forward on the Journal (a toast's "Show in
+        Journal" button)."""
+        global _window_hidden
+        if _window is None:
+            return
+        try:
+            _window_hidden = False
+            _window.show()
+            if hasattr(_window, "restore"):
+                _window.restore()
+        except Exception as e:
+            _log_to_file(f"[open_journal] window restore failed: {e}")
+        notify_js_window_visible(True)
+        _post_js("if (typeof showPage === 'function') showPage('home');")
+
+    # ── What the user sees while a dictation is processed ─────────────────
+    # Callbacks for the PipelineWatchdog made in __init__. They run on the
+    # dictation's thread (begin, finished) or the watchdog's (the rest).
+
+    def _run_is_current(self, run) -> bool:
+        """The pill and the window's status belong to ``run`` until a newer
+        recording starts."""
+        with self._processing_lock:
+            return run.generation == self._processing_id and not self.is_recording
+
+    def _set_listener_processing(self, active: bool):
+        listener = getattr(self, "hotkey_listener", None)
+        if listener is not None and hasattr(listener, "set_processing"):
+            try:
+                listener.set_processing(active)
+            except Exception as e:
+                _log_to_file(f"[hotkey] set_processing failed: {e}")
+
+    def _ui_begin(self, run):
+        if not self._run_is_current(run):
+            return
+        self._set_listener_processing(True)     # Esc now cancels this dictation
+        notify_js_status("processing")
+        _set_tray_state(_tray_state.WORKING)
+        try:
+            # The recording pill turns into the working pill: it stays on
+            # screen with the elapsed time and one X, instead of vanishing.
+            self.overlay.show_working(0.0, reliable=True)
+        except Exception as e:
+            _log_to_file(f"[overlay] working pill not shown: {e}")
+
+    def _ui_working(self, run, seconds):
+        self.overlay.show_working(seconds)
+
+    def _ui_offer(self, run, stage):
+        """The wait passed max(8 s, 0.4 x audio): say so, and offer choices."""
+        provider = self._speech_provider_name() or "The speech service"
+        if stage == _pw.TRANSCRIBING:
+            heading = "Still working on it"
+            body = (f"{provider} is slow to answer. Your recording is safe: "
+                    f"keep waiting, or let Waffler send it later.")
+            buttons = [
+                {"label": "Keep waiting", "action": _pw.KEEP_WAITING, "kind": "primary"},
+                {"label": "Send later", "action": _pw.SEND_LATER, "kind": "secondary"},
+                {"label": "Cancel", "action": "cancel_processing", "kind": "danger"},
+            ]
+        elif stage == _pw.STYLING:
+            heading = "Still cleaning up"
+            body = ("The clean-up is slow. You can paste your words as you "
+                    "said them instead.")
+            buttons = [
+                {"label": "Paste as is", "action": _pw.PASTE_RAW, "kind": "primary"},
+                {"label": "Keep waiting", "action": _pw.KEEP_WAITING, "kind": "secondary"},
+                {"label": "Cancel", "action": "cancel_processing", "kind": "danger"},
+            ]
+        else:
+            return
+        self.overlay.show_toast(style="info", heading=heading, body=body, buttons=buttons)
+
+    def _ui_withdraw_offer(self, run):
+        if self._run_is_current(run):
+            # Only an "info" toast: a message that replaced the offer stays.
+            self.overlay.hide_toast(style="info")
+
+    def _ui_finished(self, run, outcome):
+        """End of a dictation, exactly once: a tick, or back to Ready."""
+        if not self._run_is_current(run):
+            return   # a newer recording owns the pill and the status now
+        self._set_listener_processing(False)
+        try:
+            self.overlay.end_working("done" if outcome == _pw.DONE else "quiet")
+        except Exception as e:
+            _log_to_file(f"[overlay] working pill not ended: {e}")
+        if outcome == _pw.DONE:
+            notify_js_status("done")
+        elif outcome == _pw.CANCELLED:
+            notify_js_status("cancelled")
+        elif outcome == _pw.NOT_SENT:
+            notify_js_status("not_sent")
+        elif outcome in (_pw.ERROR, _pw.STUCK):
+            notify_js_status("error")
+        else:
+            notify_js_status("idle")
+        _set_tray_state(_tray_state.NOT_SENT if outcome == _pw.NOT_SENT
+                        else _tray_state.IDLE)
+
+    def _ui_stuck(self, run):
+        """The watchdog gave up on a dictation that stopped making progress
+        outside any bounded step. Keep what exists of the user's words."""
+        saved = False
+        if run.audio_bytes and not run.transcript and not run.saved_as_unsent:
+            run.saved_as_unsent = True
+            saved = bool(self._handle_failed_transcription(
+                run.audio_bytes, _unsent.REASON_STUCK, toast=False))
+        if not self._run_is_current(run):
+            return
+        heading, body = _unsent.toast_text(_unsent.REASON_STUCK, saved=True)
+        if not saved:
+            body = ("Waffler stopped waiting. If your words come through, "
+                    "they'll be in the Journal.")
+        try:
+            self.overlay.show_toast(style="warn", heading=heading, body=body)
+        except Exception:
+            pass
+
+    # ── Recordings that were not sent (src/unsent.py) ─────────────────────
 
     def _save_unsent_recording(self, audio_bytes: bytes):
         """Persist the raw WAV of a recording we couldn't transcribe to
-        ``~/.waffler-hosted/unsent/`` so it is never lost. ``audio_bytes`` is
+        ``unsent/`` in the data folder so it is never lost. ``audio_bytes`` is
         already a complete WAV (44-byte header + PCM), so it is written
-        verbatim. Returns the Path, or None on failure."""
+        verbatim. Returns the Path, or None on failure. Names are unique:
+        two failures in the same second used to share one file name, and the
+        second overwrote the first."""
         try:
-            unsent_dir = DATA_DIR / "unsent"
+            unsent_dir = DATA_DIR / _unsent.UNSENT_DIRNAME
             unsent_dir.mkdir(parents=True, exist_ok=True)
-            stamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
-            wav_path = unsent_dir / f"recording-{stamp}.wav"
-            with open(wav_path, "wb") as f:
+            wav_path = _unsent.new_unsent_path(unsent_dir)
+            with open(wav_path, "xb") as f:
                 f.write(audio_bytes)
             _log_to_file(
-                f"[pipeline] saved unsent recording: {wav_path} "
+                f"[pipeline] saved unsent recording: {wav_path.name} "
                 f"({len(audio_bytes)} bytes)"
             )
             return wav_path
@@ -3787,54 +4291,40 @@ class WafflerPipeline:
             _log_to_file(f"[pipeline] failed to save unsent recording: {e}")
             return None
 
-    def _handle_failed_transcription(self, audio_bytes: bytes, reason: str):
-        """Transcription produced no text at all (typically a VPN exit-IP
-        block on Groq with no fallback engine). We can't conjure words from
-        nothing — but we can make sure the user never loses the recording:
-        save the audio, drop a journal entry pointing at it, and show an
-        honest toast. Proper automatic fallback is tracked in ROADMAP.md."""
+    def _handle_failed_transcription(self, audio_bytes: bytes, reason: str,
+                                     toast: bool = True) -> str:
+        """Speech to text produced no text (no connection, a VPN block, a
+        limit, the watchdog's deadline, or the user chose "Send later").
+
+        The recording is saved and a "Not sent" card goes into the Journal
+        with Try again, Show the file and Delete (ui/app.js). Waffler also
+        sends it again by itself once the provider answers (_drain_unsent).
+        Returns the recording's unsent id, or "" when it could not be saved.
+        """
         wav_path = self._save_unsent_recording(audio_bytes)
+        kind = _unsent.classify_reason(reason)
+        provider = self._speech_provider_name()
+        uid = wav_path.name if wav_path else ""
 
-        lower = reason.lower()
-        is_block = (
-            "403" in reason or "401" in reason
-            or "access denied" in lower or "unauthorized" in lower
-            or "permission" in lower
-        )
-
-        if is_block:
-            note = (
-                "Transcription blocked — your VPN server's exit IP is on Groq's "
-                "block list. Switch to a different VPN server/location (or turn "
-                "the VPN off), then re-record. Your audio was saved below."
-            )
-            toast_body = (
-                "Your VPN server's IP is blocked by Groq. Try a different VPN "
-                "server (or turn it off) and re-record — your audio's saved to History."
-            )
-        else:
-            note = (
-                "Transcription failed, so no text could be produced. Your "
-                "audio was saved so you can retry."
-            )
-            toast_body = (
-                "Couldn't transcribe that one. The recording was saved to your "
-                "journal so nothing is lost — please try again."
-            )
-
-        # Journal entry — shows in History so the recording is visible, and the
-        # saved WAV path rides along on the item for future recovery tooling.
+        # Journal entry. The raw error stays in "error" for the logs; the
+        # card shows a plain sentence built from not_sent_reason.
         try:
             item = {
                 "timestamp": datetime.now().isoformat(timespec="seconds"),
                 "text": "",
-                "styled": f"⚠️ {note}",
+                "styled": _unsent.STYLED_NOTE if uid else _unsent.STYLED_NOTE_NO_FILE,
                 "word_count": 0,
                 "failed": True,
-                "error": reason[:200],
+                "error": str(reason)[:200],
                 "audio_path": str(wav_path) if wav_path else "",
+                "unsent_id": uid,
+                "not_sent_reason": kind,
+                "provider_name": provider,
             }
+            item["will_retry"] = bool(uid) and _unsent.will_auto_retry(item)
             append_history(item)
+            if uid:
+                self._unsent_waiting += 1
             try:
                 notify_js_new_item(item)
             except Exception:
@@ -3842,14 +4332,212 @@ class WafflerPipeline:
         except Exception as e:
             _log_to_file(f"[pipeline] failed to journal failed transcription: {e}")
 
+        if toast:
+            heading, body = _unsent.toast_text(kind, provider, saved=bool(uid))
+            buttons = None
+            if uid:
+                buttons = [
+                    {"label": "Show in Journal", "action": "open_journal", "kind": "primary"},
+                    {"label": "Dismiss", "action": "dismiss", "kind": "secondary"},
+                ]
+            try:
+                self.overlay.show_toast(style="warn", heading=heading, body=body,
+                                        buttons=buttons)
+            except Exception:
+                pass
+        return uid
+
+    def _count_unsent(self) -> int:
         try:
-            self.overlay.show_toast(
-                style="warn",
-                heading="Recording saved — not transcribed",
-                body=toast_body,
-            )
+            return len(_unsent.pending(load_history(), DATA_DIR / _unsent.UNSENT_DIRNAME))
         except Exception:
-            pass
+            return 0
+
+    def _replace_unsent_entry(self, unsent_id: str, new_entry) -> bool:
+        """Swap the Not sent entry for ``unsent_id`` with ``new_entry`` (or
+        remove it when ``new_entry`` is None). True when saved."""
+        try:
+            with _history_lock:
+                history = load_history()
+                idx, _entry = _unsent.find_entry(history, unsent_id)
+                if idx < 0:
+                    return False
+                if new_entry is None:
+                    del history[idx]
+                else:
+                    history[idx] = new_entry
+                save_history(history)
+            return True
+        except Exception as e:
+            _log_to_file(f"[unsent] Journal not updated ({type(e).__name__}: {e})")
+            return False
+
+    def resend_unsent(self, unsent_id: str, auto: bool = False) -> dict:
+        """Send a saved recording again: speech to text, clean-up, and the
+        words into its Journal card. Nothing is pasted.
+
+        Returns {"ok": True, "item": ...} once the card holds the words, or
+        {"ok": False, "reason": ..., "item": ...}. Bounded like a dictation,
+        so a provider that still does not answer cannot hang it.
+        """
+        with self._unsent_lock:
+            try:
+                history = load_history()
+            except Exception:
+                history = []
+            _idx, entry = _unsent.find_entry(history, unsent_id)
+            if entry is None:
+                return {"ok": False, "reason": "not_found"}
+            path = _unsent.resolve_file(DATA_DIR / _unsent.UNSENT_DIRNAME, unsent_id)
+            if path is None:
+                return {"ok": False, "reason": "missing", "item": entry}
+            try:
+                audio_bytes = path.read_bytes()
+            except Exception as e:
+                _log_to_file(f"[unsent] could not read {unsent_id}: {e}")
+                return {"ok": False, "reason": "missing", "item": entry}
+
+            _log_to_file(f"[unsent] sending {unsent_id} again "
+                         f"({'automatic' if auto else 'Try again'})")
+            run = _pw.DictationRun(f"resend:{unsent_id}")
+            run.set_audio_seconds(len(audio_bytes) / 32000.0)
+            asr = run.call(self._transcribe_with_provenance, audio_bytes,
+                           stage=_pw.TRANSCRIBING,
+                           deadline=_pw.transcribe_deadline_s(run.audio_seconds))
+            transcript = asr.value[0] if asr.ok else ""
+            if not asr.ok or not transcript:
+                if asr.ok:
+                    kind = _unsent.REASON_EMPTY   # it went through, but nothing was heard
+                elif asr.status == _pw.DEADLINE:
+                    kind = _unsent.REASON_TIMEOUT
+                else:
+                    kind = _unsent.classify_reason(str(asr.error))
+                _log_to_file(f"[unsent] {unsent_id} still not sent ({asr.status}, {kind})")
+                updated = _unsent.with_attempt(entry, auto=auto, reason=kind)
+                if kind == _unsent.REASON_EMPTY:
+                    updated["will_retry"] = False
+                if self._replace_unsent_entry(unsent_id, updated):
+                    notify_js_item_updated(unsent_id, updated)
+                return {"ok": False, "reason": kind, "item": updated}
+
+            try:
+                from transcribe_whisper import load_vocab, apply_vocab_corrections
+                vocab = load_vocab()
+                if vocab:
+                    transcript, _c = apply_vocab_corrections(transcript, vocab)
+            except Exception as e:
+                _log_to_file(f"[unsent] vocabulary step skipped: {e}")
+            provider = asr.value[1].get("backend") or ""
+            provider = {"api": "openai", "mlx": "local", "faster": "local"}.get(provider, provider)
+            record_usage_safely("whisper", duration_seconds=len(audio_bytes) / 32000.0,
+                                provider=provider or "groq")
+
+            sty = run.call(self.styler.style, transcript, stage=_pw.STYLING,
+                           deadline=_pw.STYLE_DEADLINE_S)
+            if sty.ok and sty.value and sty.value[0]:
+                styled, usage = sty.value
+                if usage.get("api_used"):
+                    record_usage_safely("gpt", input_tokens=usage.get("input_tokens", 0),
+                                        output_tokens=usage.get("output_tokens", 0),
+                                        provider=usage.get("provider", "openai"))
+            else:
+                styled = self._unstyled(transcript)
+            styled = self._apply_snippets(styled)
+
+            new_item = _unsent.resolved(entry, transcript=transcript, styled=styled)
+            if not self._replace_unsent_entry(unsent_id, new_item):
+                return {"ok": False, "reason": "not_saved", "item": entry}
+            try:
+                path.unlink()
+            except Exception as e:
+                _log_to_file(f"[unsent] sent, but {unsent_id} could not be removed: {e}")
+            self._unsent_waiting = max(0, self._unsent_waiting - 1)
+            _log_to_file(f"[unsent] {unsent_id} sent: {len(styled.split())} words")
+            notify_js_item_updated(unsent_id, new_item)
+            if self._unsent_waiting == 0 and _tray_state_now == _tray_state.NOT_SENT:
+                _set_tray_state(_tray_state.IDLE)
+            return {"ok": True, "item": new_item}
+
+    def delete_unsent(self, unsent_id: str) -> dict:
+        """Delete a Not sent recording and its Journal card."""
+        # A resend holds this lock for as long as the provider takes; the
+        # card should not freeze behind it, so say it is busy instead.
+        if not self._unsent_lock.acquire(timeout=2.0):
+            return {"ok": False, "reason": "busy"}
+        try:
+            if not _unsent.is_valid_id(unsent_id):
+                return {"ok": False, "reason": "not_found"}
+            path = _unsent.resolve_file(DATA_DIR / _unsent.UNSENT_DIRNAME, unsent_id)
+            removed = self._replace_unsent_entry(unsent_id, None)
+            if path is not None:
+                try:
+                    path.unlink()
+                except Exception as e:
+                    _log_to_file(f"[unsent] could not delete {unsent_id}: {e}")
+                    return {"ok": False, "reason": "locked"}
+            if removed or path is not None:
+                self._unsent_waiting = self._count_unsent()
+                _log_to_file(f"[unsent] {unsent_id} deleted by the user")
+                return {"ok": True}
+            return {"ok": False, "reason": "not_found"}
+        finally:
+            self._unsent_lock.release()
+
+    def _drain_unsent(self, why: str, ignore_backoff: bool = False):
+        """Send waiting recordings again, oldest first, within the limits in
+        src/unsent.py. Stops at the first one the provider still refuses, so
+        a service that is down is not hammered. Never runs while a dictation
+        is recording or being processed."""
+        if not self._drain_lock.acquire(blocking=False):
+            return
+        try:
+            try:
+                history = load_history()
+            except Exception:
+                return
+            waiting = _unsent.pending(history, DATA_DIR / _unsent.UNSENT_DIRNAME)
+            self._unsent_waiting = len(waiting)
+            due = [uid for uid, entry, _p in waiting
+                   if _unsent.auto_retry_due(entry, ignore_backoff=ignore_backoff)]
+            if not due:
+                return
+            _log_to_file(f"[unsent] {len(due)} recording(s) to send again ({why})")
+            for uid in due:
+                if self.is_recording or self._watchdog.active():
+                    _log_to_file("[unsent] a dictation started; sending the rest later")
+                    return
+                result = self.resend_unsent(uid, auto=True)
+                if not result.get("ok") and result.get("reason") in (
+                        _unsent.REASON_OFFLINE, _unsent.REASON_BLOCKED,
+                        _unsent.REASON_TIMEOUT, _unsent.REASON_RATE_LIMITED):
+                    return
+        except Exception as e:
+            _log_to_file(f"[unsent] drain failed ({type(e).__name__}: {e})")
+        finally:
+            self._drain_lock.release()
+
+    def _drain_unsent_soon(self, why: str):
+        """Start a drain in the background, if anything is waiting. The
+        provider just answered, so the usual wait between tries is skipped
+        (the limit on tries still applies)."""
+        if self._unsent_waiting <= 0:
+            return
+        threading.Thread(target=self._drain_unsent, args=(why,),
+                         kwargs={"ignore_backoff": True}, daemon=True,
+                         name="UnsentDrainNow").start()
+
+    def _unsent_drain_loop(self):
+        """Every 30 s, while recordings are waiting, try the ones that are
+        due. History is only read when the count says something waits."""
+        time.sleep(20)
+        while True:
+            try:
+                if self._unsent_waiting > 0 and not self.is_recording \
+                        and not self._watchdog.active():
+                    self._drain_unsent("the regular check")
+            except Exception as e:
+                _log_to_file(f"[unsent] check failed: {e}")
+            time.sleep(30)
 
     def _apply_snippets(self, text: str) -> str:
         """Replace snippet trigger phrases with their expansions."""
@@ -4116,16 +4804,24 @@ def _create_windows_tray_icon():
         def _patched_assert_icon_handle(self):
             if self._icon_handle:
                 return
+            # _set_tray_state swaps in the "working" icon (an amber dot) while
+            # a dictation is processed, and back again afterwards.
+            path = getattr(self, "_waffler_ico_override", None) or ico_str
             self._icon_handle = pw32.LoadImage(
-                None, ico_str, pw32.IMAGE_ICON, 0, 0,
+                None, str(path), pw32.IMAGE_ICON, 0, 0,
                 pw32.LR_DEFAULTSIZE | pw32.LR_LOADFROMFILE)
-            _log_to_file(f"Tray HICON loaded direct from .ico: handle={self._icon_handle}")
+            if not getattr(self, "_waffler_icon_logged", False):
+                self._waffler_icon_logged = True
+                _log_to_file(f"Tray HICON loaded direct from .ico: handle={self._icon_handle}")
 
         _tray_icon._assert_icon_handle = types.MethodType(
             _patched_assert_icon_handle, _tray_icon)
 
         _tray_icon.run_detached()
         _log_to_file("System tray icon created (patched pipeline)")
+        # Make the "working" icon now, off the dictation's path.
+        threading.Thread(target=_tray_working_icon_path, daemon=True,
+                         name="TrayWorkingIcon").start()
 
     except Exception as e:
         _log_to_file(f"Tray icon error: {e}")
