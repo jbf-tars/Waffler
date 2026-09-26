@@ -38,6 +38,8 @@ class RecordingOverlay:
         show()                - make overlay visible
         hide()                - hide overlay (subprocess kept alive)
         update_level(float)   - push RMS level 0.0-1.0 for VU animation
+        show_working(secs)    - after release: working look, elapsed, X
+        end_working(result)   - "done" (short tick) or "quiet" (just hide)
         show_toast(...)       - show a floating toast popup above the pill
         hide_toast()          - dismiss the toast popup
         stop()                - terminate subprocess
@@ -167,6 +169,35 @@ class RecordingOverlay:
         if self._is_alive():
             self._send({"type": "state", "value": state})
 
+    def show_working(self, elapsed_seconds: float = 0.0, reliable: bool = False):
+        """Keep the pill on screen after release in its working look.
+
+        The pill used to be hidden the moment the hotkey was released, so
+        nothing showed that a dictation was being processed. Now it stays,
+        with a slow syrup ripple, the elapsed time and an X that cancels.
+        Sent about once a second by the pipeline watchdog; a stalled overlay
+        never holds the watchdog up, because the update is dropped when the
+        write lock is busy (``reliable`` waits briefly instead, for the first
+        frame). A dead overlay is not restarted here: the dictation carries
+        on without the pill.
+        """
+        if not self._is_alive():
+            return False
+        self._visible = True
+        return self._send({"type": "working",
+                           "elapsed_seconds": max(0.0, float(elapsed_seconds))},
+                          best_effort=not reliable)
+
+    def end_working(self, result: str = "quiet"):
+        """End the working look. ``result`` "done" shows a short tick first
+        (skipped while a toast is up); "quiet" just hides the pill. Toasts
+        are left alone either way, so an error message that is already
+        showing stays readable."""
+        self._visible = False
+        if self._is_alive():
+            self._send({"type": "working_end",
+                        "result": "done" if result == "done" else "quiet"})
+
     def set_progress(self, label: str, elapsed_seconds: float = 0.0):
         """
         Show a progress label + elapsed time on the pill overlay.
@@ -182,10 +213,14 @@ class RecordingOverlay:
                 "elapsed_seconds": float(elapsed_seconds),
             })
 
-    def show_toast(self, style: str, heading: str, body: str):
+    def show_toast(self, style: str, heading: str, body: str, buttons=None):
         """
         Show a floating toast popup above the pill overlay.
-        style: "cancel" | "error" | "warn"
+        style: "cancel" | "error" | "warn" | "info"
+        buttons: optional list of {"label", "action", "kind"} (kind is
+            "primary", "secondary" or "danger"), up to three. Without it
+            each style keeps its usual buttons. "info" toasts stay until
+            answered or withdrawn with hide_toast(style="info").
         """
         self._log(f"[overlay.py] show_toast: style={style}, heading='{heading}'")
         # Auto-restart if the subprocess died since the last interaction —
@@ -202,18 +237,30 @@ class RecordingOverlay:
             # anchor point; prior show() state is lost when the subprocess dies.
             if self._visible:
                 self._send({"type": "show"})
-        self._send({
+        cmd = {
             "type": "show_toast",
             "style": style,
             "heading": heading,
             "body": body,
-        })
+        }
+        if buttons:
+            cmd["buttons"] = [
+                {"label": str(b.get("label", "")), "action": str(b.get("action", "")),
+                 "kind": str(b.get("kind", "secondary"))}
+                for b in list(buttons)[:3]
+            ]
+        self._send(cmd)
         self._log("[overlay.py] show_toast command SENT successfully")
 
-    def hide_toast(self):
-        """Dismiss the toast popup."""
+    def hide_toast(self, style: str = None):
+        """Dismiss the toast popup. With ``style``, only a toast of that
+        style is dismissed, so withdrawing the "still working" offer can
+        never take down a message that replaced it."""
         if self._is_alive():
-            self._send({"type": "hide_toast"})
+            cmd = {"type": "hide_toast"}
+            if style:
+                cmd["style"] = style
+            self._send(cmd)
 
     def stop(self):
         """Terminate the overlay subprocess."""

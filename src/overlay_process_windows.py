@@ -8,14 +8,23 @@ Receives JSON commands from stdin; emits JSON events on stdout.
 Commands:  {"type": "show"}
            {"type": "hide"}
            {"type": "level", "value": 0.0-1.0}
-           {"type": "show_toast", "style": "cancel"|"error", "heading": "...", "body": "..."}
-           {"type": "hide_toast"}
+           {"type": "working", "elapsed_seconds": 3.0}
+                 after release: the pill stays, cells ripple, the elapsed
+                 time shows and one X cancels
+           {"type": "working_end", "result": "done"|"quiet"}
+                 "done" shows a short tick, then hides; "quiet" just hides.
+                 Neither touches a toast.
+           {"type": "show_toast", "style": "cancel"|"error"|"warn"|"info",
+            "heading": "...", "body": "...",
+            "buttons": [{"label", "action", "kind"}, ...]}   (buttons optional)
+           {"type": "hide_toast", "style": "info"}   (style optional: only
+                 a toast of that style is hidden)
            {"type": "quit"}
 
 Events:    {"event": "cancel_request"}
            {"event": "stop"}
            {"event": "ready"}
-           {"event": "toast_action", "action": "confirm"|"dismiss"|"select_mic"|"troubleshoot"}
+           {"event": "toast_action", "action": "confirm"|"dismiss"|"select_mic"|...}
 
 All imports are Python stdlib or tkinter (built into CPython on Windows).
 """
@@ -80,10 +89,27 @@ BTN_STOP_CX   = WIN_W // 2 + 16               # Right button
 BTN_STOP_CY   = BTN_ROW_Y
 BTN_HIT_R2    = (BTN_R + 4) ** 2              # Squared hit radius
 
+# While working (after release) the stop button has nothing to stop, so the
+# X sits alone in the middle of the button row.
+BTN_WORK_CX   = WIN_W // 2
+
+# Badges drawn on the waffle: the elapsed time while working, a tick when done
+BADGE_FILL    = '#1A1208'
+BADGE_RING    = '#C8A256'
+BADGE_TEXT    = '#F0E0C0'
+DONE_TICK_MS  = 900        # how long the tick shows before the pill goes
+
 # Toast constants
 TOAST_W     = 380
 TOAST_H     = 210  # tall enough for 3-line body text
 TOAST_PAD   = 12           # gap above waffle
+
+# Custom toast buttons, by kind (same colours as the fixed ones below)
+TOAST_BTN_KINDS = {
+    'primary':   ('#C8A256', '#D4A843', '#2A1F0E'),
+    'secondary': ('#3D2E14', '#5A4520', '#A89070'),
+    'danger':    ('#3D1818', '#D94040', '#D94040'),
+}
 
 # ── Global state ───────────────────────────────────────────────────────
 _cmd_queue: queue.Queue = queue.Queue()
@@ -100,9 +126,34 @@ _toast_style    = None
 _progress_text_item = None   # Canvas text item id, or None
 _progress_bg_item   = None   # Pill-shaped background item id, or None
 
+# What the pill is showing: "recording" (VU cells, X and stop), "working"
+# (after release: ripple, elapsed time, X) or "done" (the short tick).
+_mode: str = "recording"
+_work_elapsed: int = 0
+_done_after_id = None        # Tk after() id of the tick's hide, or None
+
 # Screen position (set during init, reused for toast positioning)
 _waffle_x = 0
 _waffle_y = 0
+
+
+def elapsed_text(seconds) -> str:
+    """The pill's elapsed time: 7s under a minute, then 1:05. Same as
+    pipeline_watchdog.elapsed_label, which this process does not import."""
+    s = max(0, int(seconds))
+    return f"{s}s" if s < 60 else f"{s // 60}:{s % 60:02d}"
+
+
+def working_targets(t: float) -> list:
+    """Cell fill levels for the working look at time ``t``: a slow ripple
+    running diagonally across the waffle, so the pill reads as busy, not
+    listening."""
+    out = []
+    for row in range(GRID_ROWS):
+        for col in range(GRID_COLS):
+            wave = 0.5 + 0.5 * math.sin(t * 3.2 - (row + col) * 0.9)
+            out.append(0.18 + 0.62 * wave)
+    return out
 
 
 # ── IPC helpers ────────────────────────────────────────────────────────
@@ -182,23 +233,34 @@ def _draw_waffle():
                         fill=SYRUP_SHEEN, width=1
                     )
 
-    # 4. Cancel button (X) — dark filled circle with red X
+    if _mode == "done":
+        # The tick replaces the buttons: there is nothing left to stop.
+        _draw_tick_badge()
+        return
+
+    # 4. Cancel button (X): dark filled circle with red X. While working it
+    # sits alone in the middle: cancel is the only thing left to do.
+    x_cx = BTN_WORK_CX if _mode == "working" else BTN_CANCEL_CX
     _canvas.create_oval(
-        BTN_CANCEL_CX - BTN_R, BTN_CANCEL_CY - BTN_R,
-        BTN_CANCEL_CX + BTN_R, BTN_CANCEL_CY + BTN_R,
+        x_cx - BTN_R, BTN_CANCEL_CY - BTN_R,
+        x_cx + BTN_R, BTN_CANCEL_CY + BTN_R,
         fill=BTN_FILL, outline=BTN_RING, width=2
     )
     off = 4
     _canvas.create_line(
-        BTN_CANCEL_CX - off, BTN_CANCEL_CY - off,
-        BTN_CANCEL_CX + off, BTN_CANCEL_CY + off,
+        x_cx - off, BTN_CANCEL_CY - off,
+        x_cx + off, BTN_CANCEL_CY + off,
         fill=CANCEL_X_CLR, width=2, capstyle=tk.ROUND
     )
     _canvas.create_line(
-        BTN_CANCEL_CX + off, BTN_CANCEL_CY - off,
-        BTN_CANCEL_CX - off, BTN_CANCEL_CY + off,
+        x_cx + off, BTN_CANCEL_CY - off,
+        x_cx - off, BTN_CANCEL_CY + off,
         fill=CANCEL_X_CLR, width=2, capstyle=tk.ROUND
     )
+
+    if _mode == "working":
+        _draw_elapsed_badge()
+        return
 
     # 5. Stop button (■) — dark filled circle with white square
     _canvas.create_oval(
@@ -214,6 +276,31 @@ def _draw_waffle():
     )
 
 
+def _draw_elapsed_badge():
+    """The elapsed time on a small dark badge in the middle of the waffle."""
+    if _work_elapsed < 1:
+        return
+    cx, cy = WAFFLE_W // 2, WAFFLE_H // 2
+    text = _canvas.create_text(cx, cy, text=elapsed_text(_work_elapsed),
+                               fill=BADGE_TEXT, font=('Segoe UI', 9, 'bold'))
+    bbox = _canvas.bbox(text)
+    if bbox:
+        x0, y0, x1, y1 = bbox
+        bg = _rounded_rect(_canvas, x0 - 6, y0 - 1, x1 + 6, y1 + 1, 7,
+                           fill=BADGE_FILL, outline=BADGE_RING, width=1)
+        _canvas.tag_lower(bg, text)
+
+
+def _draw_tick_badge():
+    """A tick on a round dark badge: the dictation went through."""
+    cx, cy, r = WAFFLE_W // 2, WAFFLE_H // 2, 15
+    _canvas.create_oval(cx - r, cy - r, cx + r, cy + r,
+                        fill=BADGE_FILL, outline=BADGE_RING, width=2)
+    _canvas.create_line(cx - 7, cy + 1, cx - 2, cy + 6, cx + 8, cy - 6,
+                        fill=BADGE_TEXT, width=3, capstyle=tk.ROUND,
+                        joinstyle=tk.ROUND)
+
+
 # ── Toast popup ────────────────────────────────────────────────────────
 
 def _rounded_rect(canvas, x1, y1, x2, y2, r, **kwargs):
@@ -221,8 +308,7 @@ def _rounded_rect(canvas, x1, y1, x2, y2, r, **kwargs):
     # Clamp radius so it doesn't exceed half the width or height
     r = min(r, (x2 - x1) // 2, (y2 - y1) // 2)
     if r < 1:
-        canvas.create_rectangle(x1, y1, x2, y2, **kwargs)
-        return
+        return canvas.create_rectangle(x1, y1, x2, y2, **kwargs)
     pts = [
         x1 + r, y1,       # top edge start
         x1 + r, y1,       # anchor
@@ -245,7 +331,7 @@ def _rounded_rect(canvas, x1, y1, x2, y2, r, **kwargs):
         x1, y1 + r,       # anchor
         x1, y1,           # corner
     ]
-    canvas.create_polygon(pts, smooth=True, **kwargs)
+    return canvas.create_polygon(pts, smooth=True, **kwargs)
 
 
 def _draw_sad_waffle(canvas, cx, cy, style='error'):
@@ -280,6 +366,10 @@ def _draw_sad_waffle(canvas, cx, cy, style='error'):
             # Shadow bottom-right edge
             canvas.create_line(px, py + cell, px + cell, py + cell, fill=shadow, width=1)
             canvas.create_line(px + cell, py, px + cell, py + cell, fill=shadow, width=1)
+
+    if style == 'info':
+        # "Still working" is not bad news: a plain waffle, no sad face.
+        return
 
     # Sad face drawn in dark syrup colour
     face = '#5C2E0E'
@@ -326,8 +416,13 @@ def _draw_sad_waffle(canvas, cx, cy, style='error'):
 _TOAST_AUTO_HIDE_MS = {"warn": 9000, "error": 9000}
 
 
-def _show_toast(style: str, heading: str, body: str):
-    """Show a warm Waffler-branded toast above the waffle."""
+def _show_toast(style: str, heading: str, body: str, buttons=None):
+    """Show a warm Waffler-branded toast above the waffle.
+
+    ``buttons`` (optional) replaces the style's usual buttons: a list of up
+    to three {"label", "action", "kind"} dicts, kind being "primary",
+    "secondary" or "danger".
+    """
     global _toast_win, _toast_style
     _hide_toast()
     _toast_style = style
@@ -380,7 +475,18 @@ def _show_toast(style: str, heading: str, body: str):
     btn_h = 28
     btn_y = th - btn_h - 12
     btn_gap = 14
-    if style == 'cancel':
+    custom = [b for b in (buttons or []) if isinstance(b, dict) and b.get('label')][:3]
+    if custom:
+        gap = 10
+        btn_w = min(118, (tw - 40 - gap * (len(custom) - 1)) // len(custom))
+        sx = (tw - (btn_w * len(custom) + gap * (len(custom) - 1))) // 2
+        for i, b in enumerate(custom):
+            fill, outline, text_clr = TOAST_BTN_KINDS.get(
+                b.get('kind'), TOAST_BTN_KINDS['secondary'])
+            _draw_toast_btn(c, sx + i * (btn_w + gap), btn_y, btn_w, btn_h,
+                            fill, outline, str(b['label']), text_clr,
+                            str(b.get('action') or 'dismiss'))
+    elif style == 'cancel':
         btn1_w, btn2_w = 100, 110
         total = btn1_w + btn_gap + btn2_w
         sx = (tw - total) // 2
@@ -388,7 +494,7 @@ def _show_toast(style: str, heading: str, body: str):
                         '#3D1818', '#D94040', 'Discard', '#D94040', 'confirm')
         _draw_toast_btn(c, sx + btn1_w + btn_gap, btn_y, btn2_w, btn_h,
                         '#C8A256', '#D4A843', 'Keep going', '#2A1F0E', 'dismiss')
-    elif style == 'warn':
+    elif style in ('warn', 'info'):
         btn_w = 110
         _draw_toast_btn(c, (tw - btn_w) // 2, btn_y, btn_w, btn_h,
                         '#3D2E14', '#5A4520', 'Dismiss', '#A89070', 'dismiss')
@@ -439,7 +545,7 @@ def _show_toast(style: str, heading: str, body: str):
 
 def _draw_toast_btn(canvas, x, y, w, h, fill, outline, text, text_color, action):
     """Draw a clickable pill-shaped button on the toast canvas."""
-    tag = f'btn_{action}'
+    tag = f'btn_{action}_{x}'
     _rounded_rect(canvas, x, y, x + w, y + h, h // 2,
                          fill=fill, outline=outline, width=1, tags=tag)
     canvas.create_text(x + w // 2, y + h // 2, text=text, fill=text_color,
@@ -447,9 +553,13 @@ def _draw_toast_btn(canvas, x, y, w, h, fill, outline, text, text_color, action)
     canvas.tag_bind(tag, '<Button-1>', lambda e: _on_toast_action(action))
 
 
-def _hide_toast():
-    """Destroy the toast popup if visible."""
+def _hide_toast(style=None):
+    """Destroy the toast popup if visible. With ``style``, only a toast of
+    that style goes (the pipeline withdraws its "still working" offer this
+    way without touching a message that has replaced it)."""
     global _toast_win, _toast_style
+    if style and _toast_style != style:
+        return
     if _toast_win:
         try:
             _toast_win.destroy()
@@ -538,13 +648,82 @@ def _on_toast_action(action: str):
 
 # ── Command handler (runs on main/tkinter thread via _animation_loop) ──
 
+def _cancel_done_timer():
+    global _done_after_id
+    if _done_after_id is not None and _root:
+        try:
+            _root.after_cancel(_done_after_id)
+        except Exception:
+            pass
+    _done_after_id = None
+
+
+def _reset_cells(level: float = 0.0):
+    for i in range(NUM_CELLS):
+        _bars[i] = level
+        _targets[i] = level
+
+
+def _finish_done():
+    """The tick has shown long enough: hide the pill."""
+    global _visible, _mode, _done_after_id
+    _done_after_id = None
+    if _mode != "done":
+        return
+    _mode = "recording"
+    _visible = False
+    _reset_cells()
+    if _root:
+        _root.withdraw()
+
+
+def _enter_working(elapsed_seconds: float):
+    global _visible, _mode, _work_elapsed
+    first = _mode != "working"
+    _work_elapsed = int(max(0.0, elapsed_seconds))
+    if first:
+        _cancel_done_timer()
+        _mode = "working"
+        _clear_progress()
+    _visible = True
+    if _root:
+        _draw_waffle()
+        # A toast (the "still working" offer, or a message) hides the pill
+        # while it is up; _hide_toast brings the pill back afterwards.
+        if first and _toast_win is None:
+            _root.deiconify()
+            _root.lift()
+            _root.attributes('-topmost', True)
+
+
+def _end_working(result: str):
+    """Leave the working look: a short tick, or straight back to hidden.
+    Never touches a toast, so a message that is already up stays readable."""
+    global _visible, _mode, _done_after_id
+    _cancel_done_timer()
+    if result == "done" and _toast_win is None and _visible and _root:
+        _mode = "done"
+        _reset_cells(1.0)       # a full waffle behind the tick
+        _draw_waffle()
+        _done_after_id = _root.after(DONE_TICK_MS, _finish_done)
+        return
+    _mode = "recording"
+    _visible = False
+    _reset_cells()
+    if _root:
+        _root.withdraw()
+
+
 def _handle_cmd(cmd: dict):
-    global _visible
+    global _visible, _mode
 
     ctype = cmd.get("type")
 
     if ctype == "show":
         _visible = True
+        _cancel_done_timer()
+        _mode = "recording"
+        _reset_cells()
         _hide_toast()
         _clear_progress()        # fresh recording — drop any leftover progress text
         if _root:
@@ -555,12 +734,22 @@ def _handle_cmd(cmd: dict):
 
     elif ctype == "hide":
         _visible = False
+        _cancel_done_timer()
+        _mode = "recording"
         _hide_toast()
         _clear_progress()
         if _root:
             _root.withdraw()
 
+    elif ctype == "working":
+        _enter_working(float(cmd.get("elapsed_seconds", 0.0)))
+
+    elif ctype == "working_end":
+        _end_working(str(cmd.get("result", "quiet")))
+
     elif ctype == "level":
+        if _mode != "recording":
+            return               # a late VU frame after release: ignore it
         _clear_progress()        # active recording — VU bars resume, no status text
         raw_level = max(0.0, min(1.0, float(cmd.get("value", 0.0))))
         level = raw_level ** 0.4   # Power-curve: expand low volumes for responsiveness
@@ -596,10 +785,11 @@ def _handle_cmd(cmd: dict):
             style=cmd.get("style", "error"),
             heading=cmd.get("heading", ""),
             body=cmd.get("body", ""),
+            buttons=cmd.get("buttons"),
         )
 
     elif ctype == "hide_toast":
-        _hide_toast()
+        _hide_toast(cmd.get("style"))
 
     elif ctype == "progress":
         _show_progress(cmd.get("label", ""), float(cmd.get("elapsed_seconds", 0.0)))
@@ -624,6 +814,9 @@ def _animation_loop():
                 _handle_cmd(cmd)
         except queue.Empty:
             pass
+
+        if _mode == "working" and _visible:
+            _targets[:] = working_targets(time.time())
 
         # Smooth bar interpolation
         changed = False
@@ -651,6 +844,13 @@ def _animation_loop():
 
 def _on_click(event):
     x, y = event.x, event.y
+    if _mode == "done":
+        return
+    if _mode == "working":
+        # The one button while working: cancel the dictation being processed.
+        if (x - BTN_WORK_CX) ** 2 + (y - BTN_CANCEL_CY) ** 2 <= BTN_HIT_R2:
+            emit("cancel_request")
+        return
     # Cancel button — bottom-left circle
     if (x - BTN_CANCEL_CX) ** 2 + (y - BTN_CANCEL_CY) ** 2 <= BTN_HIT_R2:
         emit("cancel_request")

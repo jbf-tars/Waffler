@@ -8,14 +8,25 @@ Receives JSON commands from stdin; emits JSON events on stdout.
 Commands:  {"type": "show"}
            {"type": "hide"}
            {"type": "level", "value": 0.0-1.0}
-           {"type": "show_toast", "style": "cancel"|"error", "heading": "...", "body": "..."}
-           {"type": "hide_toast"}
+           {"type": "working", "elapsed_seconds": 3.0}
+                 after release: the pill stays, cells ripple, the elapsed
+                 time shows and one X cancels
+           {"type": "working_end", "result": "done"|"quiet"}
+                 "done" shows a short tick, then hides; "quiet" just hides.
+                 Neither touches a toast.
+           {"type": "show_toast", "style": "cancel"|"error"|"warn"|"info",
+            "heading": "...", "body": "...",
+            "buttons": [{"label", "action", "kind"}, ...]}   (buttons optional)
+           {"type": "hide_toast", "style": "info"}   (style optional: only
+                 a toast of that style is hidden)
            {"type": "quit"}
 
 Events:    {"event": "cancel_request"}
            {"event": "stop"}
            {"event": "ready"}
-           {"event": "toast_action", "action": "confirm"|"dismiss"|"select_mic"|"troubleshoot"}
+           {"event": "toast_action", "action": "confirm"|"dismiss"|"select_mic"|...}
+
+Kept in step with overlay_process_windows.py: same commands, same looks.
 """
 
 import sys
@@ -368,10 +379,28 @@ BTN_STOP_CX   = WIN_W // 2 + 16               # Right button
 BTN_STOP_CY   = BTN_ROW_Y
 BTN_HIT_R2    = (BTN_R + 4) ** 2              # Squared hit radius
 
+# While working (after release) the stop button has nothing to stop, so the
+# X sits alone in the middle of the button row.
+BTN_WORK_CX   = WIN_W // 2
+
+# Badges drawn on the waffle: the elapsed time while working, a tick when done
+BADGE_FILL    = '#1A1208'
+BADGE_RING    = '#C8A256'
+BADGE_TEXT    = '#F0E0C0'
+DONE_TICK_S   = 0.9        # how long the tick shows before the pill goes
+
 # Toast constants
 TOAST_W     = 380
 TOAST_H     = 210  # tall enough for 3-line body text
 TOAST_PAD   = 12           # gap above waffle
+
+# Custom toast buttons, by kind: (fill, outline, text). Same colours as the
+# fixed buttons, and as overlay_process_windows.TOAST_BTN_KINDS.
+TOAST_BTN_KINDS = {
+    'primary':   ('#C8A256', '#D4A843', '#2A1F0E'),
+    'secondary': ('#3D2E14', '#5A4520', '#A89070'),
+    'danger':    ('#3D1818', '#D94040', '#D94040'),
+}
 
 # ── Global state ───────────────────────────────────────────────────────
 _cmd_queue: queue.Queue = queue.Queue()
@@ -393,9 +422,34 @@ _space_observer = None  # NSObject — strong ref so it isn't GC'd; see main()
 # so this is just the string to render (or "" for none).
 _progress_text: str = ""
 
+# What the pill is showing: "recording" (VU cells, X and stop), "working"
+# (after release: ripple, elapsed time, X) or "done" (the short tick).
+_mode: str = "recording"
+_work_elapsed: int = 0
+_done_gen: int = 0           # bumps on every tick, so a stale timer is ignored
+
 # Screen position (set during init, reused for toast positioning)
 _waffle_x = 0.0
 _waffle_y = 0.0
+
+
+def elapsed_text(seconds) -> str:
+    """The pill's elapsed time: 7s under a minute, then 1:05. Same as
+    pipeline_watchdog.elapsed_label, which this process does not import."""
+    s = max(0, int(seconds))
+    return f"{s}s" if s < 60 else f"{s // 60}:{s % 60:02d}"
+
+
+def working_targets(t: float) -> list:
+    """Cell fill levels for the working look at time ``t``: a slow ripple
+    running diagonally across the waffle, so the pill reads as busy, not
+    listening. Same as overlay_process_windows.working_targets."""
+    out = []
+    for row in range(GRID_ROWS):
+        for col in range(GRID_COLS):
+            wave = 0.5 + 0.5 * math.sin(t * 3.2 - (row + col) * 0.9)
+            out.append(0.18 + 0.62 * wave)
+    return out
 
 
 # ── IPC helpers ────────────────────────────────────────────────────────
@@ -543,9 +597,20 @@ class WaffleView(NSView):
                         sheen.setLineWidth_(1)
                         sheen.stroke()
 
-        # 5. Cancel button (X) — dark filled circle with red X
-        self._draw_button(BTN_CANCEL_CX, BTN_CANCEL_CY, BTN_R)
-        self._draw_x(BTN_CANCEL_CX, BTN_CANCEL_CY, 4)
+        if _mode == "done":
+            # The tick replaces the buttons: there is nothing left to stop.
+            self._draw_tick_badge()
+            return
+
+        # 5. Cancel button (X): dark filled circle with red X. While working
+        # it sits alone in the middle: cancel is the only thing left to do.
+        x_cx = BTN_WORK_CX if _mode == "working" else BTN_CANCEL_CX
+        self._draw_button(x_cx, BTN_CANCEL_CY, BTN_R)
+        self._draw_x(x_cx, BTN_CANCEL_CY, 4)
+
+        if _mode == "working":
+            self._draw_elapsed_badge()
+            return
 
         # 6. Stop button (■) — dark filled circle with white square
         self._draw_button(BTN_STOP_CX, BTN_STOP_CY, BTN_R)
@@ -597,6 +662,49 @@ class WaffleView(NSView):
         text_rect = NSMakeRect(cx - bg_w / 2.0, cy - text_size.height / 2.0,
                                bg_w, text_size.height)
         attr_str.drawInRect_(text_rect)
+
+    def _draw_elapsed_badge(self):
+        """The elapsed time on a small dark badge in the middle of the
+        waffle (overlay_process_windows._draw_elapsed_badge)."""
+        if _work_elapsed < 1:
+            return
+        para_style = NSMutableParagraphStyle.alloc().init()
+        para_style.setAlignment_(NSCenterTextAlignment)
+        attrs = {
+            NSFontAttributeName: NSFont.boldSystemFontOfSize_(10),
+            NSForegroundColorAttributeName: hex_to_ns_color(BADGE_TEXT),
+            NSParagraphStyleAttributeName: para_style,
+        }
+        attr_str = NSAttributedString.alloc().initWithString_attributes_(
+            elapsed_text(_work_elapsed), attrs)
+        size = attr_str.size()
+        cx, cy = WAFFLE_W / 2.0, WAFFLE_H / 2.0
+        bg_w, bg_h = size.width + 12, size.height + 2
+        self._draw_rounded_rect(cx - bg_w / 2.0, cy - bg_h / 2.0, bg_w, bg_h, 7,
+                                fill=BADGE_FILL, outline=BADGE_RING, width=1)
+        attr_str.drawInRect_(NSMakeRect(cx - bg_w / 2.0, cy - size.height / 2.0,
+                                        bg_w, size.height))
+
+    def _draw_tick_badge(self):
+        """A tick on a round dark badge: the dictation went through."""
+        cx, cy, r = WAFFLE_W / 2.0, WAFFLE_H / 2.0, 15
+        circle = NSBezierPath.bezierPathWithOvalInRect_(
+            NSMakeRect(cx - r, cy - r, r * 2, r * 2))
+        hex_to_ns_color(BADGE_FILL).set()
+        circle.fill()
+        hex_to_ns_color(BADGE_RING).set()
+        circle.setLineWidth_(2)
+        circle.stroke()
+        tick = NSBezierPath.bezierPath()
+        tick.setLineWidth_(3)
+        tick.setLineCapStyle_(NSRoundLineCapStyle)
+        tick.setLineJoinStyle_(1)  # NSLineJoinStyleRound
+        # Flipped view: y grows downwards, as in the Windows canvas.
+        tick.moveToPoint_(NSMakePoint(cx - 7, cy + 1))
+        tick.lineToPoint_(NSMakePoint(cx - 2, cy + 6))
+        tick.lineToPoint_(NSMakePoint(cx + 8, cy - 6))
+        hex_to_ns_color(BADGE_TEXT).set()
+        tick.stroke()
 
     def _draw_rounded_rect(self, x, y, w, h, r, fill=None, outline=None, width=1):
         """Draw a rounded rectangle."""
@@ -666,6 +774,14 @@ class WaffleView(NSView):
         # View:   Y=0 at top, Y=WIN_H at bottom
         y = WIN_H - y_window  # Flip Y coordinate
 
+        if _mode == "done":
+            return
+        if _mode == "working":
+            # The one button while working: cancel the dictation.
+            if (x - BTN_WORK_CX) ** 2 + (y - BTN_CANCEL_CY) ** 2 <= BTN_HIT_R2:
+                emit("cancel_request")
+            return
+
         # Cancel button — bottom-left circle (shows confirmation dialog like Windows)
         cancel_dist2 = (x - BTN_CANCEL_CX) ** 2 + (y - BTN_CANCEL_CY) ** 2
         stop_dist2 = (x - BTN_STOP_CX) ** 2 + (y - BTN_STOP_CY) ** 2
@@ -688,6 +804,9 @@ class WaffleView(NSView):
                 _dispatch_cmd(cmd)
         except queue.Empty:
             pass
+
+        if _mode == "working" and _visible:
+            self._targets = working_targets(time.time())
 
         # Smooth bar interpolation
         changed = False
@@ -734,6 +853,13 @@ class WaffleView(NSView):
     def setTargets_(self, targets):
         self._targets = list(targets)
 
+    @objc.python_method
+    def reset_cells(self, level):
+        """Set every cell (shown and target) to ``level`` at once. A plain
+        Python method, not an Objective-C selector."""
+        self._bars = [float(level)] * NUM_CELLS
+        self._targets = [float(level)] * NUM_CELLS
+
 
 # ── Toast View (Error/Warning Popups) ─────────────────────────────────
 
@@ -747,6 +873,8 @@ class ToastView(NSView):
             self._heading = heading
             self._body = body
             self._button_zones = []
+            # Optional custom buttons, set by _show_toast after init.
+            self._buttons = None
         return self
 
     def isOpaque(self):
@@ -860,7 +988,19 @@ class ToastView(NSView):
         # Colours kept in lockstep with overlay_process_windows.py — if you
         # change one, change the other. Users get the same waffle-gold theme
         # on both platforms.
-        if self._style == 'cancel':
+        custom = [b for b in (self._buttons or [])
+                  if isinstance(b, dict) and b.get('label')][:3]
+        if custom:
+            gap = 10
+            btn_w = min(118, (w - 40 - gap * (len(custom) - 1)) // len(custom))
+            sx = (w - (btn_w * len(custom) + gap * (len(custom) - 1))) // 2
+            for i, b in enumerate(custom):
+                fill, outline, text_clr = TOAST_BTN_KINDS.get(
+                    b.get('kind'), TOAST_BTN_KINDS['secondary'])
+                self._draw_toast_button(sx + i * (btn_w + gap), btn_y, btn_w, btn_h,
+                                        fill, outline, str(b['label']), text_clr,
+                                        str(b.get('action') or 'dismiss'))
+        elif self._style == 'cancel':
             btn1_w, btn2_w = 110, 120
             btn_gap = 14
             total = btn1_w + btn_gap + btn2_w
@@ -869,7 +1009,7 @@ class ToastView(NSView):
                                    '#3D1818', '#D94040', 'Discard', '#D94040', 'confirm')
             self._draw_toast_button(sx + btn1_w + btn_gap, btn_y, btn2_w, btn_h,
                                    '#C8A256', '#D4A843', 'Keep going', '#2A1F0E', 'dismiss')
-        elif self._style == 'warn':
+        elif self._style in ('warn', 'info'):
             btn_w = 120
             self._draw_toast_button((w - btn_w) // 2, btn_y, btn_w, btn_h,
                                    '#3D2E14', '#5A4520', 'Dismiss', '#A89070', 'dismiss')
@@ -999,6 +1139,10 @@ class ToastView(NSView):
                 right.setLineWidth_(1)
                 right.stroke()
 
+        if style == 'info':
+            # "Still working" is not bad news: a plain waffle, no sad face.
+            return
+
         # ── Sad face ── (mirrors overlay_process_windows.py exactly)
         face_clr = hex_to_ns_color('#5C2E0E')  # dark syrup
         face_clr.set()
@@ -1087,14 +1231,71 @@ def _show_progress(label: str, elapsed_seconds: float = 0.0):
 
 # ── Command dispatcher (runs on main thread via timer) ────────────────
 
+def _reset_cells(level: float = 0.0):
+    for i in range(NUM_CELLS):
+        _targets[i] = level
+    if _g_view is not None:
+        _g_view.reset_cells(level)
+
+
+def _enter_working(elapsed_seconds: float):
+    """Keep the pill up after release in its working look (see the Windows
+    twin in overlay_process_windows._enter_working)."""
+    global _visible, _mode, _work_elapsed, _done_gen
+    first = _mode != "working"
+    _work_elapsed = int(max(0.0, elapsed_seconds))
+    if first:
+        _done_gen += 1           # cancels a pending tick
+        _mode = "working"
+        _clear_progress()
+    _visible = True
+    if _g_view is not None:
+        _g_view.setNeedsDisplay_(True)
+    # A toast (the "still working" offer, or a message) hides the pill while
+    # it is up; _hide_toast brings the pill back afterwards.
+    if first and _toast_win is None and _g_window is not None:
+        _reassert_overlay_window()
+
+
+def _end_working(result: str):
+    """Leave the working look: a short tick, or straight back to hidden.
+    Never touches a toast, so a message that is already up stays readable."""
+    global _visible, _mode, _done_gen
+    _done_gen += 1
+    if result == "done" and _toast_win is None and _visible and _g_window is not None:
+        _mode = "done"
+        _reset_cells(1.0)        # a full waffle behind the tick
+        if _g_view is not None:
+            _g_view.setNeedsDisplay_(True)
+        gen = _done_gen
+
+        def _expire():
+            try:
+                _cmd_queue.put({"type": "_done_expire", "gen": gen})
+            except Exception:
+                pass
+        timer = threading.Timer(DONE_TICK_S, _expire)
+        timer.daemon = True
+        timer.start()
+        return
+    _mode = "recording"
+    _visible = False
+    _reset_cells(0.0)
+    if _g_window is not None:
+        _g_window.orderOut_(None)
+
+
 def _dispatch_cmd(cmd):
-    global _g_window, _g_view, _visible
+    global _g_window, _g_view, _visible, _mode, _done_gen
     ctype = cmd.get("type")
 
     if ctype == "show":
         global _show_gen
         _show_gen = int(cmd.get("gen", _show_gen + 1))
         _visible = True
+        _done_gen += 1
+        _mode = "recording"
+        _reset_cells(0.0)
         _dbg("show.enter",
              gen=_show_gen,
              thread=threading.current_thread().name,
@@ -1167,12 +1368,31 @@ def _dispatch_cmd(cmd):
 
     elif ctype == "hide":
         _visible = False
+        _done_gen += 1
+        _mode = "recording"
         _hide_toast()
         _clear_progress()
         if _g_window:
             _g_window.orderOut_(None)
 
+    elif ctype == "working":
+        _enter_working(float(cmd.get("elapsed_seconds", 0.0)))
+
+    elif ctype == "working_end":
+        _end_working(str(cmd.get("result", "quiet")))
+
+    elif ctype == "_done_expire":
+        # The tick has shown long enough. Ignored if anything happened since.
+        if _mode == "done" and int(cmd.get("gen", -1)) == _done_gen:
+            _mode = "recording"
+            _visible = False
+            _reset_cells(0.0)
+            if _g_window is not None:
+                _g_window.orderOut_(None)
+
     elif ctype == "level":
+        if _mode != "recording":
+            return               # a late VU frame after release: ignore it
         _clear_progress()        # active recording — VU bars resume, no status text
         raw_level = max(0.0, min(1.0, float(cmd.get("value", 0.0))))
         level = raw_level ** 0.4   # Power-curve: expand low volumes for responsiveness
@@ -1208,10 +1428,11 @@ def _dispatch_cmd(cmd):
             style=cmd.get("style", "error"),
             heading=cmd.get("heading", ""),
             body=cmd.get("body", ""),
+            buttons=cmd.get("buttons"),
         )
 
     elif ctype == "hide_toast":
-        _hide_toast()
+        _hide_toast(cmd.get("style"))
 
     elif ctype == "progress":
         _show_progress(cmd.get("label", ""), float(cmd.get("elapsed_seconds", 0.0)))
@@ -1231,8 +1452,13 @@ _TOAST_AUTO_HIDE_SECS = {
 }
 
 
-def _show_toast(style: str, heading: str, body: str):
-    """Show a warm Waffler-branded toast above the waffle."""
+def _show_toast(style: str, heading: str, body: str, buttons=None):
+    """Show a warm Waffler-branded toast above the waffle.
+
+    ``buttons`` (optional) replaces the style's usual buttons: a list of up
+    to three {"label", "action", "kind"} dicts, kind being "primary",
+    "secondary" or "danger".
+    """
     global _toast_win, _toast_style, _toast_auto_hide_timer
     try:
         _hide_toast()
@@ -1273,6 +1499,7 @@ def _show_toast(style: str, heading: str, body: str):
         toast_view = ToastView.alloc().initWithFrame_style_heading_body_(
             NSMakeRect(0, 0, TOAST_W, TOAST_H), style, heading, body
         )
+        toast_view._buttons = list(buttons) if buttons else None
         _toast_win.setContentView_(toast_view)
         _toast_win.makeKeyAndOrderFront_(None)
         _toast_win.orderFrontRegardless()  # FORCE window to front!
@@ -1299,9 +1526,13 @@ def _show_toast(style: str, heading: str, body: str):
         traceback.print_exc(file=sys.stderr)
 
 
-def _hide_toast():
-    """Destroy the toast popup if visible."""
+def _hide_toast(style=None):
+    """Destroy the toast popup if visible. With ``style``, only a toast of
+    that style goes (the pipeline withdraws its "still working" offer this
+    way without touching a message that has replaced it)."""
     global _toast_win, _toast_style, _toast_auto_hide_timer
+    if style and _toast_style != style:
+        return
     if _toast_auto_hide_timer is not None:
         try:
             # threading.Timer (created in _show_toast) cancels via .cancel();
