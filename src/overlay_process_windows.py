@@ -415,6 +415,63 @@ def _draw_sad_waffle(canvas, cx, cy, style='error'):
 # until the user answers — everything else disappears on its own.
 _TOAST_AUTO_HIDE_MS = {"warn": 9000, "error": 9000}
 
+# ── Clicks that never take the focus ───────────────────────────────────
+# A click on a normal window makes it the active one. So clicking the
+# pill's ■ or a toast's "Keep waiting" / "Paste as is" made this overlay
+# process the foreground app, and the Ctrl+V that followed went to the
+# overlay instead of the app the user was typing in. The main process's
+# SetForegroundWindow could not take the focus back either: Windows only
+# lets the process that received the last input (the overlay, which got the
+# click) move the foreground. WS_EX_NOACTIVATE makes a window take clicks
+# without becoming active, which is how on-screen keyboards work.
+GWL_EXSTYLE = -20
+WS_EX_NOACTIVATE = 0x08000000
+GA_ROOT = 2
+_user32 = None
+
+
+def _win32():
+    """user32 with its own function prototypes (not the shared windll ones)."""
+    global _user32
+    if _user32 is None:
+        import ctypes
+        from ctypes import wintypes
+        dll = ctypes.WinDLL("user32")
+        long_ptr = ctypes.c_ssize_t
+        get = getattr(dll, "GetWindowLongPtrW", None) or dll.GetWindowLongW
+        put = getattr(dll, "SetWindowLongPtrW", None) or dll.SetWindowLongW
+        get.argtypes, get.restype = [wintypes.HWND, ctypes.c_int], long_ptr
+        put.argtypes, put.restype = [wintypes.HWND, ctypes.c_int, long_ptr], long_ptr
+        dll.GetAncestor.argtypes, dll.GetAncestor.restype = [wintypes.HWND, wintypes.UINT], wintypes.HWND
+        _user32 = (get, put, dll.GetAncestor)
+    return _user32
+
+
+def _top_hwnd(win):
+    """The top-level Windows handle behind a Tk toplevel (Tk wraps it)."""
+    get, put, ancestor = _win32()
+    return ancestor(win.winfo_id(), GA_ROOT)
+
+
+def _no_activate(win) -> bool:
+    """Make ``win`` take clicks without taking the focus. Idempotent, and
+    called after every show: Tk only builds the real window when it is first
+    shown. True once the style is set."""
+    if win is None or not sys.platform.startswith("win"):
+        return False
+    try:
+        win.update_idletasks()
+        hwnd = _top_hwnd(win)
+        if not hwnd:
+            return False
+        get, put, _ancestor = _win32()
+        style = get(hwnd, GWL_EXSTYLE)
+        if not style & WS_EX_NOACTIVATE:
+            put(hwnd, GWL_EXSTYLE, style | WS_EX_NOACTIVATE)
+        return bool(get(hwnd, GWL_EXSTYLE) & WS_EX_NOACTIVATE)
+    except Exception:
+        return False
+
 
 def _show_toast(style: str, heading: str, body: str, buttons=None):
     """Show a warm Waffler-branded toast above the waffle.
@@ -517,6 +574,9 @@ def _show_toast(style: str, heading: str, body: str, buttons=None):
         _toast_win.lift()
     except Exception:
         pass
+    # Its buttons ("Keep waiting", "Paste as is") come just before a paste:
+    # clicking them must leave the user's app in front.
+    _no_activate(_toast_win)
 
     def _reassert_topmost():
         if _toast_win is None:
@@ -526,6 +586,7 @@ def _show_toast(style: str, heading: str, body: str, buttons=None):
             _toast_win.lift()
         except Exception:
             pass
+        _no_activate(_toast_win)
 
     # Re-assert topmost at 100/400/1200ms — covers the typical window
     # in which Windows can demote the toast behind a refocusing app.
@@ -573,6 +634,7 @@ def _hide_toast(style=None):
             _root.deiconify()
         except Exception:
             pass
+        _no_activate(_root)
 
 
 def _clear_progress():
@@ -694,6 +756,7 @@ def _enter_working(elapsed_seconds: float):
             _root.deiconify()
             _root.lift()
             _root.attributes('-topmost', True)
+            _no_activate(_root)
 
 
 def _end_working(result: str):
@@ -731,6 +794,8 @@ def _handle_cmd(cmd: dict):
             _root.deiconify()
             _root.lift()
             _root.attributes('-topmost', True)
+            # Its ■ is followed by a paste: a click must not take the focus.
+            _no_activate(_root)
 
     elif ctype == "hide":
         _visible = False

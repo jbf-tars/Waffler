@@ -260,3 +260,63 @@ def test_windows_offer_toast_shows_its_own_buttons(tk_overlay):
     labels = [c.itemcget(i, "text") for i in c.find_all() if c.type(i) == "text"]
     assert labels[-3:] == ["Keep waiting", "Send later", "Cancel"]
     assert "Select mic" not in labels
+
+
+# ── A click on the pill or a toast never takes the focus (review of Round A) ──
+# The offer's "Keep waiting" and "Paste as is" (and the pill's ■) are followed
+# by a paste into the app the user was typing in. A click on an ordinary
+# window made the overlay process the active app, so that Cmd+V / Ctrl+V went
+# to the overlay: the pill showed its tick and the words were only on the
+# clipboard and in the Journal.
+
+def _ex_style_has_no_activate(ow, win):
+    get, _put, _ancestor = ow._win32()
+    return bool(get(ow._top_hwnd(win), ow.GWL_EXSTYLE) & ow.WS_EX_NOACTIVATE)
+
+
+def test_windows_pill_and_toast_take_clicks_without_taking_the_focus(tk_overlay):
+    ow, root, canvas, emitted = tk_overlay
+    ow._handle_cmd({"type": "show"})
+    assert _ex_style_has_no_activate(ow, root)
+    ow._handle_cmd({"type": "working", "elapsed_seconds": 9})
+    ow._show_toast("info", "Still working on it", "Slow.", buttons=[
+        {"label": "Keep waiting", "action": "keep_waiting", "kind": "primary"}])
+    toast = ow._toast_win
+    assert _ex_style_has_no_activate(ow, toast)
+    # Tk's own show and stay-on-top calls keep the style.
+    toast.attributes('-topmost', True)
+    toast.update()
+    assert _ex_style_has_no_activate(ow, toast)
+    # The click still reaches the button.
+    c = toast.winfo_children()[0]
+    tag = next(t for i in c.find_all() for t in c.gettags(i) if t.startswith("btn_keep_waiting"))
+    x0, y0, x1, y1 = c.bbox(tag)
+    c.event_generate("<Motion>", x=(x0 + x1) // 2, y=(y0 + y1) // 2)
+    c.event_generate("<Button-1>", x=(x0 + x1) // 2, y=(y0 + y1) // 2)
+    assert "toast_action" in emitted
+    assert ow._toast_win is None, "the toast closes itself on a click"
+    assert _ex_style_has_no_activate(ow, root), "the pill that comes back keeps it too"
+
+
+def test_mac_pill_and_toast_are_non_activating_panels():
+    """The Mac overlay cannot be imported here (PyObjC), so by source."""
+    src = MAC.read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    panel = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "OverlayPanel")
+    assert [ast.unparse(b) for b in panel.bases] == ["NSPanel"]
+    key = next(n for n in panel.body if isinstance(n, ast.FunctionDef)
+               and n.name == "canBecomeKeyWindow")
+    assert ast.unparse(key.body[-1]) == "return False", "it must never take the keyboard"
+    make = next(n for n in tree.body if isinstance(n, ast.FunctionDef)
+                and n.name == "_new_overlay_window")
+    made = ast.unparse(make)
+    assert "OverlayPanel.alloc()" in made and "_NONACTIVATING_PANEL" in made
+    assert "setHidesOnDeactivate_(False)" in made
+    assert "NSWindowStyleMaskNonactivatingPanel" in src
+    # Both the pill and every toast are made that way, and the toast is
+    # never made key.
+    code = "\n".join(line.split("#", 1)[0] for line in src.splitlines())
+    assert "_g_window = _new_overlay_window(" in code
+    assert "_toast_win = _new_overlay_window(" in code
+    assert code.count("ClickableWindow.alloc()") == 1, "only as the fallback"
+    assert "makeKeyAndOrderFront_" not in code

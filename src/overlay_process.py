@@ -43,6 +43,7 @@ import AppKit
 from AppKit import (
     NSApplication,
     NSWindow,
+    NSPanel,
     NSView,
     NSColor,
     NSBezierPath,
@@ -322,11 +323,55 @@ NSWindowStyleMaskBorderless = 0
 # ── Custom Window Class ───────────────────────────────────────────────
 
 class ClickableWindow(NSWindow):
-    """Window that accepts mouse clicks even when not key."""
+    """Window that accepts mouse clicks even when not key. Only used if the
+    panel below cannot be made (see _new_overlay_window)."""
     def canBecomeKeyWindow(self):
         return True
     def canBecomeMainWindow(self):
         return False
+
+
+class OverlayPanel(NSPanel):
+    """The pill's and the toasts' window: it takes clicks without taking the
+    focus.
+
+    A click on an ordinary NSWindow makes its app the active one. So clicking
+    the pill's ■, or a toast's "Keep waiting" / "Paste as is", made this
+    overlay process the frontmost app, and the Cmd+V the pipeline posts next
+    went to the overlay instead of the app the user was typing in (the words
+    stayed on the clipboard and in the Journal while the pill showed its
+    tick). A non-activating panel that never becomes key is what floating
+    palettes use: the click reaches the view (acceptsFirstMouse_) and the
+    user's app keeps the keyboard."""
+    def canBecomeKeyWindow(self):
+        return False
+    def canBecomeMainWindow(self):
+        return False
+
+
+# NSWindowStyleMaskNonactivatingPanel (1 << 7). It only takes effect when
+# the panel is created with it, not when set later.
+_NONACTIVATING_PANEL = getattr(AppKit, "NSWindowStyleMaskNonactivatingPanel", 1 << 7)
+
+
+def _new_overlay_window(rect):
+    """A borderless window for the pill or a toast that never takes the
+    focus. Falls back to the old ClickableWindow if the panel cannot be
+    made, so the overlay still shows."""
+    try:
+        win = OverlayPanel.alloc().initWithContentRect_styleMask_backing_defer_(
+            rect, NSWindowStyleMaskBorderless | _NONACTIVATING_PANEL,
+            NSBackingStoreBuffered, False)
+        # A panel hides whenever its app deactivates, by default. This app
+        # never activates now, but the pill must never vanish if it does.
+        win.setHidesOnDeactivate_(False)
+        win.setBecomesKeyOnlyIfNeeded_(True)
+        return win
+    except Exception as e:
+        print(f"[overlay_mac] non-activating panel failed ({e}); using a window",
+              file=sys.stderr, flush=True)
+        return ClickableWindow.alloc().initWithContentRect_styleMask_backing_defer_(
+            rect, NSWindowStyleMaskBorderless, NSBackingStoreBuffered, False)
 
 
 # ── Constants ──────────────────────────────────────────────────────────
@@ -1477,12 +1522,9 @@ def _show_toast(style: str, heading: str, body: str, buttons=None):
         print(f"[overlay_mac] _show_toast: style={style}, pos=({tx},{ty})", file=sys.stderr, flush=True)
 
         # Create toast window
-        _toast_win = ClickableWindow.alloc().initWithContentRect_styleMask_backing_defer_(
-            NSMakeRect(tx, ty, TOAST_W, TOAST_H),
-            NSWindowStyleMaskBorderless,
-            NSBackingStoreBuffered,
-            False
-        )
+        # A non-activating panel: its buttons ("Keep waiting", "Paste as
+        # is") come just before a paste, which must reach the user's app.
+        _toast_win = _new_overlay_window(NSMakeRect(tx, ty, TOAST_W, TOAST_H))
         # Match the pill's level/behavior so toasts also appear over
         # full-screen apps (+1 keeps the toast above the pill).
         _toast_win.setLevel_(NSStatusWindowLevel + 1)
@@ -1501,7 +1543,8 @@ def _show_toast(style: str, heading: str, body: str, buttons=None):
         )
         toast_view._buttons = list(buttons) if buttons else None
         _toast_win.setContentView_(toast_view)
-        _toast_win.makeKeyAndOrderFront_(None)
+        # Not makeKeyAndOrderFront_: the toast must never take the keyboard
+        # from the app the user is typing in.
         _toast_win.orderFrontRegardless()  # FORCE window to front!
         _toast_win.display()  # FORCE immediate render!
         toast_view.setNeedsDisplay_(True)  # TRIGGER view to draw!
@@ -1608,12 +1651,9 @@ def main():
     _waffle_x, _waffle_y = _compute_overlay_position(verbose=True)
 
     # Create NSWindow (borderless)
-    _g_window = ClickableWindow.alloc().initWithContentRect_styleMask_backing_defer_(
-        NSMakeRect(_waffle_x, _waffle_y, WIN_W, WIN_H),
-        NSWindowStyleMaskBorderless,
-        NSBackingStoreBuffered,
-        False,
-    )
+    # A non-activating panel, so a click on ■ or X leaves the user's app in
+    # front (the paste after ■ goes there).
+    _g_window = _new_overlay_window(NSMakeRect(_waffle_x, _waffle_y, WIN_W, WIN_H))
     # NSStatusWindowLevel (25) sits above another app's full-screen window;
     # NSFloatingWindowLevel (3) is below it, which is why the overlay went
     # missing whenever the active app was in macOS full-screen mode.
