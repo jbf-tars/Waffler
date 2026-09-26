@@ -455,3 +455,7 @@
 .notice-acts:empty { display: none; }
 .notice-body + .notice-acts { margin-top: 0; align-self: center; }
 .notice .rbtn { margin: -2px -2px 0 0; }
+/* A title with no detail line sits level with its icon and buttons. */
+.notice:not(:has(.notice-desc)) { align-items: center; }
+.notice:not(:has(.notice-desc)) .notice-body { padding-top: 0; }
+.notice:not(:has(.notice-desc)) .rbtn { margin-top: 0; }
