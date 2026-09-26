@@ -31,6 +31,7 @@ sys.path.insert(0, str(ROOT))
 import atomic_json  # noqa: E402
 import cleanup_pause  # noqa: E402
 import pipeline_watchdog as pw  # noqa: E402
+import privacy_data  # noqa: E402
 import recent_audio  # noqa: E402
 import tray_state  # noqa: E402
 import unsent  # noqa: E402
@@ -52,7 +53,8 @@ PIPELINE_METHODS = (
     "_collect_late_words", "_late_words_arrived", "_keep_late_recording",
 )
 MODULE_DEFS = ("ensure_data_dir", "load_history", "save_history", "append_history",
-               "append_history_safely", "_MIN_TAP_SPEECH_S")
+               "append_history_safely", "_MIN_TAP_SPEECH_S",
+               "_history_retention_day", "_history_keep_days", "_retain_history")
 
 
 def _module_defs(ns):
@@ -285,7 +287,7 @@ def make_pipeline(data_dir: Path, *, transcriber=None, styler=None, clipboard=No
         _platform=types.SimpleNamespace(system=lambda: "Windows"),
         cleanup_skipped_message=user_messages.cleanup_skipped_message,
         limit_reached_message=user_messages.limit_reached_message,
-        _recent_audio=recent_audio, _cleanup_pause=cleanup_pause,
+        _recent_audio=recent_audio, _cleanup_pause=cleanup_pause, _privacy=privacy_data,
         _set_cleanup_pause=page.pauses.append,
     )
     from transcribe_whisper import _speech_seconds

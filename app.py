@@ -125,6 +125,7 @@ import tray_state as _tray_state
 import first_run as _first_run
 import journal_data as _journal
 import recent_audio as _recent_audio
+import privacy_data as _privacy
 import cleanup_pause as _cleanup_pause
 import mac_permissions as _mac_perms
 from login_item import LoginItem, HIDDEN_FLAG as _HIDDEN_FLAG
@@ -295,11 +296,43 @@ def save_history(history: list):
 _history_cache = _journal.HistoryCache(HISTORY_FILE, load_history)
 
 
+# History retention (Settings, Privacy and data; src/privacy_data.py). Keep
+# everything unless the user chose 30, 90 or 365 days. Applied at start-up,
+# when the choice changes, and once a day on the next dictation.
+_history_retention_day = None
+
+
+def _history_keep_days() -> int:
+    """The chosen retention from settings.json; 0 (keep all) if unreadable."""
+    try:
+        sf = DATA_DIR / "settings.json"
+        stored = json.loads(sf.read_text(encoding="utf-8-sig")) if sf.exists() else {}
+    except Exception:
+        return 0
+    return _privacy.history_keep_days(stored if isinstance(stored, dict) else {})
+
+
+def _retain_history(history: list, force: bool = False) -> list:
+    """History without the dictations older than the chosen retention.
+    Runs once a day unless forced. Call with _history_lock held."""
+    global _history_retention_day
+    today = datetime.now().date()
+    if not force and _history_retention_day == today:
+        return history
+    _history_retention_day = today
+    days = _history_keep_days()
+    kept, removed = _privacy.prune_history(history, days)
+    if removed:
+        _log_to_file(f"[history] {removed} dictation(s) older than {days} days removed "
+                     f"(Settings, Privacy and data)")
+    return kept
+
+
 def append_history(item: dict):
     """Atomically append one entry to history.json. Use this instead of a bare
     load→append→save so concurrent writers don't clobber each other."""
     with _history_lock:
-        history = load_history()
+        history = _retain_history(load_history())
         history.append(item)
         save_history(history)
 
@@ -1190,6 +1223,22 @@ class Api:
                 break   # still unreachable: no point trying the rest now
         return {"ok": True, "sent": sent, "total": len(waiting)}
 
+    def delete_all_unsent(self) -> dict:
+        """Settings' "Delete" next to Try again: every recording waiting to
+        be sent goes, with its Journal card. The ones cancelled with Esc
+        are not counted as waiting, so they stay (each card has Delete)."""
+        if not _pipeline:
+            return {"ok": False, "reason": "not_ready", "deleted": 0, "total": 0}
+        waiting = _unsent.pending(load_history(), DATA_DIR / _unsent.UNSENT_DIRNAME,
+                                  include_cancelled=False)
+        deleted = 0
+        for uid, _entry, _path in waiting:
+            if _pipeline.delete_unsent(uid).get("ok"):
+                deleted += 1
+        if _pipeline._unsent_waiting == 0 and _tray_state_now == _tray_state.NOT_SENT:
+            _set_tray_state(_tray_state.IDLE)
+        return {"ok": deleted == len(waiting), "deleted": deleted, "total": len(waiting)}
+
     def delete_unsent(self, unsent_id: str, timestamp: str = "") -> dict:
         """Delete a Not sent recording and its Journal card.
 
@@ -1282,6 +1331,72 @@ class Api:
         except Exception as e:
             _log_to_file(f"[recent audio] delete failed: {e}")
             return {"ok": False, "error": "Couldn't delete them. Try again."}
+
+    def get_history_retention(self) -> dict:
+        """How long the Journal keeps dictations: 0 keeps everything."""
+        return {"keep_days": _privacy.history_keep_days(self._load_settings_file()),
+                "choices": list(_privacy.HISTORY_CHOICES)}
+
+    def preview_history_retention(self, days) -> dict:
+        """How many dictations a shorter retention would delete now, so the
+        window can ask before it does."""
+        try:
+            days = int(days)
+        except (TypeError, ValueError):
+            days = 0
+        try:
+            return {"would_delete": _privacy.count_older(load_history(), days)}
+        except Exception:
+            return {"would_delete": 0}
+
+    def set_history_retention(self, days) -> dict:
+        """Save the retention and apply it at once."""
+        try:
+            days = int(days)
+        except (TypeError, ValueError):
+            days = -1
+        if days not in _privacy.HISTORY_CHOICES:
+            return {"ok": False, "error": "Couldn't change that setting. Try again."}
+        try:
+            stored = self._load_settings_file()
+            stored[_privacy.HISTORY_SETTING] = days
+            self._save_settings_file(stored)
+            with _history_lock:
+                history = load_history()
+                kept = _retain_history(history, force=True)
+                if len(kept) != len(history):
+                    save_history(kept)
+            return {"ok": True, "keep_days": days, "deleted": len(history) - len(kept)}
+        except Exception as e:
+            _log_to_file(f"[history] could not change retention: {e}")
+            return {"ok": False, "error": "Couldn't change that setting. Try again."}
+
+    def delete_my_data(self) -> dict:
+        """Delete all my data: history, usage, recent recordings, recordings
+        not sent and the logs (src/privacy_data.py). Keys, the words list
+        and settings stay; deleting keys too is factory_reset, which the
+        window asks about separately. Waffler keeps running."""
+        lock = getattr(_pipeline, "_unsent_lock", None) if _pipeline else None
+        if lock is not None and not lock.acquire(timeout=2.0):
+            return {"ok": False, "error": "Waffler is sending a recording. Try again in a moment."}
+        try:
+            with _history_lock:
+                result = _privacy.delete_my_data(DATA_DIR)
+            if _pipeline:
+                _pipeline._unsent_waiting = 0
+            if _tray_state_now == _tray_state.NOT_SENT:
+                _set_tray_state(_tray_state.IDLE)
+            if not result["ok"]:
+                _log_to_file(f"[privacy] delete all my data: could not delete {result['failed']}")
+                return {"ok": False, "error": "Some of it couldn't be deleted. Close anything "
+                                              "using Waffler's files and try again."}
+            return {"ok": True}
+        except Exception as e:
+            _log_to_file(f"[privacy] delete all my data failed: {type(e).__name__}: {e}")
+            return {"ok": False, "error": "Couldn't delete your data. Try again."}
+        finally:
+            if lock is not None:
+                lock.release()
 
     def get_cleanup_pause(self) -> dict:
         """The clean-up pause the Journal shows at the top, or None."""
@@ -5343,6 +5458,27 @@ def main():
         )
         _signal_focus()
         sys.exit(0)
+
+    # 3.15 (plan SR9): once, remove the transcript lines that versions before
+    # the redaction wrote to app.log, then start a new log when it is over
+    # 5 MB; and apply the chosen history retention. Before anything else
+    # writes to the log; the result is logged as counts only.
+    try:
+        _tidy = _privacy.tidy_logs_at_start(DATA_DIR, DATA_DIR / "settings.json")
+        if _tidy.get("scrubbed"):
+            _log_to_file(f"[privacy] removed {_tidy['scrubbed']} old transcript line(s) from app.log")
+        if _tidy.get("rotated"):
+            _log_to_file("[privacy] app.log was over 5 MB: the old one is app.log.1")
+    except Exception as _e:
+        _log_to_file(f"[privacy] log tidy failed: {type(_e).__name__}")
+    try:
+        with _history_lock:
+            _h = load_history()
+            _kept = _retain_history(_h, force=True)
+            if len(_kept) != len(_h):
+                save_history(_kept)
+    except Exception as _e:
+        _log_to_file(f"[history] retention at start-up failed: {type(_e).__name__}")
 
     # v3.14.30 — stamp the running version into the banner so every
     # "is this the right build?" question becomes a 1-second grep
