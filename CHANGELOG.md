@@ -4,7 +4,7 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [3.14.100] - 2026-09-25
+## [3.14.100] - 2026-09-26
 
 Two things the app claimed that were not true, and a dictation fix. Its
 window fonts now ship inside the app, so opening Waffler no longer contacts
