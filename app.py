@@ -123,6 +123,9 @@ import pipeline_watchdog as _pw
 import unsent as _unsent
 import tray_state as _tray_state
 import first_run as _first_run
+import journal_data as _journal
+import recent_audio as _recent_audio
+import cleanup_pause as _cleanup_pause
 import mac_permissions as _mac_perms
 from login_item import LoginItem, HIDDEN_FLAG as _HIDDEN_FLAG
 from user_messages import (
@@ -284,6 +287,12 @@ def save_history(history: list):
     retried while another handle briefly locks the file (Windows)."""
     ensure_data_dir()
     write_json_atomic(HISTORY_FILE, history)
+
+
+# The parsed history and its counts, kept until history.json changes
+# (src/journal_data.py). The window asks for pages and counts often; it
+# used to read and rescan the whole file every time.
+_history_cache = _journal.HistoryCache(HISTORY_FILE, load_history)
 
 
 def append_history(item: dict):
@@ -551,15 +560,20 @@ class Api:
             _log_to_file(f"[update] install failed: {e}")
             return {"ok": False, "error": UPDATE_INSTALL_FAILED, "download_page": DOWNLOAD_PAGE}
 
-    def get_history(self) -> list:
-        """Return transcript history (newest first).
+    def get_history(self, limit=None, offset=0, query="") -> list:
+        """Journal entries, newest first: all of them, or one page.
+
+        ``limit`` and ``offset`` page through them (the window draws about
+        50 at a time and asks for more as you scroll); ``query`` keeps only
+        entries whose clean text or transcript contains it.
 
         Not sent entries get their live state: the recording's id, whether
         its file is still there, and whether Waffler will still send it by
         itself (entries older than a day, or out of tries, will not)."""
-        items = load_history()
+        items = _journal.page(_history_cache.items(), limit, offset, query)
         unsent_dir = DATA_DIR / _unsent.UNSENT_DIRNAME
-        for i, item in enumerate(items):
+        out = []
+        for item in items:
             if isinstance(item, dict) and item.get("failed"):
                 item = dict(item)
                 uid = _unsent.entry_id(item)
@@ -567,9 +581,8 @@ class Api:
                     uid = ""        # the file has gone; the card can only be deleted
                 item["unsent_id"] = uid
                 item["will_retry"] = bool(uid) and _unsent.will_auto_retry(item)
-                items[i] = item
-        # Return newest first
-        return list(reversed(items))
+            out.append(item)
+        return out
 
     def copy_item(self, text: str):
         """Copy text to clipboard."""
@@ -584,63 +597,15 @@ class Api:
             return False
 
     def get_stats(self) -> dict:
-        """Return word-count stats plus the user's daily "stack streak".
+        """The Journal's counts and the day streak (src/journal_data.py):
+        today, this week, this month and all time, in words and dictations,
+        and ``entries`` (every entry, Not sent ones included).
 
-        Streak rules (v3.14.16+):
-          * Counts consecutive calendar days, ending today, that have at
-            least one history entry.
-          * If today has no entries yet, the streak is preserved as long
-            as yesterday has one — so a 12-day streak doesn't snap to 0
-            at midnight before the user has a chance to record. The
-            streak only breaks once a full day passes without any entry.
-        """
-        history = load_history()
-        today_str = date.today().isoformat()
-        today_items = [
-            h for h in history
-            if str(h.get("timestamp", "")).startswith(today_str)
-        ]
-        # A Not sent entry holds a note, not the user's words, so it adds no
-        # words (its note used to add about 20 to the counts each time).
-        today_words = sum(
-            len((h.get("styled") or h.get("text") or "").split())
-            for h in today_items if not h.get("failed")
-        )
-        total_words = sum(
-            len((h.get("styled") or h.get("text") or "").split())
-            for h in history if not h.get("failed")
-        )
-
-        # ── Stack streak ────────────────────────────────────────────
-        from datetime import timedelta as _td
-        days_with_entries = set()
-        for h in history:
-            ts = str(h.get("timestamp", ""))
-            if len(ts) >= 10:
-                try:
-                    # Parse the YYYY-MM-DD prefix directly; cheaper than
-                    # full ISO parsing and tolerant of trailing chars.
-                    y, m, d = ts[:10].split("-")
-                    days_with_entries.add(date(int(y), int(m), int(d)))
-                except Exception:
-                    pass
-
-        today = date.today()
-        # Anchor: today if there's an entry today, else yesterday. This
-        # gives the user a one-day grace period to keep the streak alive
-        # until they dictate something new.
-        cursor = today if today in days_with_entries else (today - _td(days=1))
-        streak = 0
-        while cursor in days_with_entries:
-            streak += 1
-            cursor -= _td(days=1)
-
-        return {
-            "today_words": today_words,
-            "today_count": len(today_items),
-            "total_words": total_words,
-            "streak_days": streak,
-        }
+        Worked out once per change to history.json, not on every call.
+        Streak: consecutive days, ending today, with at least one entry; if
+        today has none yet, yesterday anchors it, so a streak doesn't snap
+        to 0 at midnight before the first dictation of the day."""
+        return _history_cache.stats(date.today())
 
     # ── Mode / Prompt API ─────────────────────────────────────────────
 
@@ -1284,6 +1249,46 @@ class Api:
             "automatic": sum(1 for _u, e, _p in waiting if _unsent.will_auto_retry(e)),
             "provider": _pipeline._speech_provider_name() if _pipeline else "",
         }
+
+    # ── Privacy and data (3.15) ──────────────────────────────────────────
+
+    def get_recent_audio(self) -> dict:
+        """Recent recordings (src/recent_audio.py): whether Waffler keeps
+        the last few, how many are kept now, and the limit."""
+        try:
+            return _recent_audio.summary(DATA_DIR, self._load_settings_file())
+        except Exception as e:
+            _log_to_file(f"[recent audio] summary failed: {e}")
+            return {"enabled": True, "count": 0, "keep": _recent_audio.KEEP}
+
+    def set_recent_audio(self, on) -> dict:
+        """Switch keeping recent recordings on or off. Off stops new ones
+        being kept; delete_recent_audio removes the ones already there."""
+        try:
+            stored = self._load_settings_file()
+            stored[_recent_audio.SETTING] = bool(on)
+            self._save_settings_file(stored)
+            return {"ok": True, **_recent_audio.summary(DATA_DIR, stored)}
+        except Exception as e:
+            _log_to_file(f"[recent audio] could not save the switch: {e}")
+            return {"ok": False, "error": "Couldn't change that setting. Try again."}
+
+    def delete_recent_audio(self) -> dict:
+        """Delete now: every kept recording goes."""
+        try:
+            n = _recent_audio.delete_all(DATA_DIR)
+            _log_to_file(f"[recent audio] deleted {n} recording(s) on request")
+            return {"ok": True, "deleted": n, **_recent_audio.summary(DATA_DIR, self._load_settings_file())}
+        except Exception as e:
+            _log_to_file(f"[recent audio] delete failed: {e}")
+            return {"ok": False, "error": "Couldn't delete them. Try again."}
+
+    def get_cleanup_pause(self) -> dict:
+        """The clean-up pause the Journal shows at the top, or None."""
+        try:
+            return _cleanup_pause.view(_cleanup_pause_now, datetime.now())
+        except Exception:
+            return None
 
     def clear_history(self) -> dict:
         """Wipe all saved transcriptions."""
@@ -2871,6 +2876,21 @@ def notify_js_new_item(item: dict):
     _post_js(f"window.waffler_refresh && window.waffler_refresh({json.dumps(item)})")
 
 
+# Clean-up paused by a provider's limit (src/cleanup_pause.py): the Journal
+# says so at the top until it ends. Kept in memory only; a restart forgets it,
+# as the styler forgets its own cooldown.
+_cleanup_pause_now = None
+
+
+def _set_cleanup_pause(pause):
+    """Remember a clean-up pause and tell the window (never blocks)."""
+    global _cleanup_pause_now
+    _cleanup_pause_now = pause
+    view = _cleanup_pause.view(pause, datetime.now()) if pause else None
+    _post_js("window.waffler_cleanup_paused && window.waffler_cleanup_paused("
+             f"{json.dumps(view)})")
+
+
 # ── Tray / menu bar state ─────────────────────────────────────────────
 _tray_state_now = _tray_state.IDLE
 _tray_working_ico = None     # Path of the generated "working" icon, once made
@@ -3554,16 +3574,18 @@ class WafflerPipeline:
             # words) was guesswork again. Date-stamped names + mtime pruning
             # fix v3.14.78's rotation bug (HHMMSS-only names sorted wrongly
             # across days and deleted the newest files).
+            # 3.15: said in Settings, Privacy and data, with a switch to stop
+            # keeping them (keep_recent_audio) and "Delete now" (src/recent_audio.py).
             try:
                 if audio_bytes:
-                    _dbg_dir = DATA_DIR / "debug_audio"
-                    _dbg_dir.mkdir(parents=True, exist_ok=True)
-                    _stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-                    (_dbg_dir / f"rec-{_stamp}.wav").write_bytes(audio_bytes)
-                    _old = sorted(_dbg_dir.glob("rec-*.wav"),
-                                  key=lambda p: p.stat().st_mtime)[:-10]
-                    for _p in _old:
-                        _p.unlink(missing_ok=True)
+                    _stored = {}
+                    _sf = DATA_DIR / "settings.json"
+                    try:
+                        if _sf.exists():
+                            _stored = json.loads(_sf.read_text(encoding="utf-8-sig"))
+                    except Exception:
+                        pass
+                    _recent_audio.keep(DATA_DIR, audio_bytes, _stored)
             except Exception as _e:
                 _log_to_file(f"[pipeline] debug-audio save failed: {_e}")
             if not audio_bytes:
@@ -3813,9 +3835,17 @@ class WafflerPipeline:
             # sentence for a block, no connection, running out of time or no
             # key. The styler's raw reason stays in the log. Not after Esc:
             # that dictation gets its own message below.
+            _as_said = ""
             if gpt_usage.get("fallback_reason") and not run.cancel_keeps:
                 reason = gpt_usage["fallback_reason"]
                 heading, body = cleanup_skipped_message(reason)
+                try:
+                    _pause = _cleanup_pause.from_reason(reason, datetime.now())
+                    if _pause:
+                        _as_said = _cleanup_pause.LIMIT_TAG
+                        _set_cleanup_pause(_pause)
+                except Exception as _e:
+                    _log_to_file(f"[pipeline] clean-up pause note failed: {_e}")
                 _log_to_file(f"[pipeline] styling fell back to basic_clean: {reason}")
                 try:
                     self.overlay.show_toast(style="warn", heading=heading, body=body)
@@ -3961,6 +3991,9 @@ class WafflerPipeline:
                 "word_count": len(styled.split()),
                 "text_is": "asr_filtered",
             }
+            if _as_said:
+                # The Journal tags it "As said: limit reached".
+                item["as_said"] = _as_said
             try:
                 _asr_raw = _asr_info.get("last_asr_response", "") or ""
                 if _asr_info.get("last_asr_filtered", False) and _asr_raw != transcript:
