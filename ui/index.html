@@ -308,13 +308,30 @@
         <!-- Privacy and data -->
         <section class="s-sec" id="secPrivacy" data-sec="privacy" hidden>
           <h1 class="ptitle">Privacy and data</h1>
-          <p class="pdesc">Your history, recordings and keys stay on this computer. Your voice goes only to the providers you set up.</p>
+          <!-- Owner decision D5: the microphone stream stays open and the
+               half-second before the keys go down is part of each recording
+               (src/audio.py _PREROLL_MS). Said as it is. -->
+          <p class="pdesc" id="privIntro">Your history, recordings and keys stay on this computer. The microphone stays ready so your first word isn't clipped: what you say while you hold the keys, and the half-second before, goes only to the providers you set up.</p>
 
           <div class="glabel"><span class="eyebrow">Kept on this computer</span></div>
           <div class="group"><div class="panel">
-            <div class="row">
+            <!-- History retention (src/privacy_data.py): keep everything
+                 unless the user picks 30, 90 or 365 days. A shorter choice
+                 that would delete dictations asks first, in the panel. -->
+            <div class="row" id="historyRow">
               <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-history"/></svg></span>
-              <div class="row-main"><div class="row-t">History</div><div class="row-d" id="privHistoryDesc">Your dictations, searchable in your Journal.</div></div>
+              <div class="row-main"><div class="row-t"><label for="historyKeep">History</label></div><div class="row-d" id="privHistoryDesc">Your dictations, searchable in your Journal.</div></div>
+              <select id="historyKeep" class="select" onchange="onHistoryKeepChange(this)">
+                <option value="0">Keep forever</option>
+                <option value="365">Keep for a year</option>
+                <option value="90">Keep for 90 days</option>
+                <option value="30">Keep for 30 days</option>
+              </select>
+            </div>
+            <div class="row row-confirm" id="historyKeepConfirm" hidden>
+              <div class="row-main"><div class="row-t" id="historyKeepConfirmTitle">Delete older dictations?</div><div class="row-d">They go from your Journal now, and this can't be undone.</div></div>
+              <button type="button" class="btn btn-sec btn-sm" id="historyKeepNo" onclick="cancelHistoryKeep()">Keep them</button>
+              <button type="button" class="btn btn-danger btn-sm" onclick="confirmHistoryKeep()">Delete them</button>
             </div>
             <!-- Owner decision D9: the last 10 recordings are kept, said
                  here, with a switch and "Delete now" (src/recent_audio.py). -->
@@ -326,11 +343,18 @@
             </div>
             <!-- Recordings that were not turned into text (Journal "Not sent"
                  cards). Waffler sends them by itself when the speech service
-                 answers; this is the count, and a way to send them now. -->
+                 answers; this is the count, Try again for all of them, and
+                 Delete, which asks first. -->
             <div class="row" id="unsentRow">
               <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-wifi-off"/></svg></span>
               <div class="row-main"><div class="row-t">Not sent yet</div><div class="row-d" id="unsentSummary">Nothing waiting. Every recording has been sent.</div></div>
-              <button type="button" class="btn btn-sec btn-sm" id="unsentSendNow" onclick="sendUnsentNow(this)" hidden><svg class="ic" aria-hidden="true"><use href="#i-retry"/></svg>Send now</button>
+              <button type="button" class="btn btn-sec btn-sm" id="unsentDelete" onclick="askDeleteUnsent(true)" hidden>Delete</button>
+              <button type="button" class="btn btn-sec btn-sm" id="unsentSendNow" onclick="sendUnsentNow(this)" hidden><svg class="ic" aria-hidden="true"><use href="#i-retry"/></svg><span>Try again</span></button>
+            </div>
+            <div class="row row-confirm" id="unsentDeleteConfirm" hidden>
+              <div class="row-main"><div class="row-t" id="unsentDeleteTitle">Delete the recordings waiting to be sent?</div><div class="row-d">What you said in them is lost, and this can't be undone.</div></div>
+              <button type="button" class="btn btn-sec btn-sm" id="unsentDeleteNo" onclick="askDeleteUnsent(false)">Keep them</button>
+              <button type="button" class="btn btn-danger btn-sm" onclick="deleteAllUnsent(this)">Delete them</button>
             </div>
           </div></div>
 
@@ -345,14 +369,22 @@
 
           <div class="glabel"><span class="eyebrow">Start over</span></div>
           <div class="group"><div class="panel">
+            <!-- Delete all my data (src/privacy_data.py) keeps the keys, words
+                 and settings; deleting those too is the full reset, which
+                 asks again on its own. -->
             <div class="row" id="resetRow">
               <span class="itile is-err"><svg class="ic" aria-hidden="true"><use href="#i-trash"/></svg></span>
-              <div class="row-main"><div class="row-t">Delete all my data</div><div class="row-d">History, recordings, logs, keys and settings. Setup starts again.</div></div>
+              <div class="row-main"><div class="row-t">Delete all my data</div><div class="row-d">History, usage, recordings and logs. Your keys, words and settings stay.</div></div>
               <button type="button" class="btn btn-danger btn-sm" id="resetAsk" onclick="askFactoryReset(true)">Delete…</button>
             </div>
             <div class="row reset-confirm" id="resetConfirm" hidden>
-              <div class="row-main"><div class="row-t">Delete everything? This can't be undone.</div><div class="row-d">Waffler closes, and setup starts the next time you open it.</div></div>
+              <div class="row-main"><div class="row-t">Delete your history, usage, recordings and logs?</div><div class="row-d">This can't be undone. Waffler keeps running with your keys and words. <a class="link" href="#" id="resetKeysAsk" onclick="askFactoryResetKeys(true); return false;">Delete my keys and settings too</a></div></div>
               <button type="button" class="btn btn-sec btn-sm" id="resetNo" onclick="askFactoryReset(false)">Keep it</button>
+              <button type="button" class="btn btn-danger btn-sm" id="resetYes" onclick="deleteMyData(this)">Delete my data</button>
+            </div>
+            <div class="row reset-confirm" id="resetKeysConfirm" hidden>
+              <div class="row-main"><div class="row-t">Delete everything, your keys too?</div><div class="row-d">This can't be undone. Your keys, words and settings go as well. Waffler closes, and setup starts the next time you open it.</div></div>
+              <button type="button" class="btn btn-sec btn-sm" id="resetKeysNo" onclick="askFactoryResetKeys(false)">Keep my keys</button>
               <button type="button" class="btn btn-danger btn-sm" onclick="factoryReset()">Delete everything</button>
             </div>
           </div></div>

@@ -645,8 +645,14 @@ body[data-theme="dark"] .j-first { box-shadow: inset 0 0 0 0.5px rgba(232, 200, 
 
 /* Privacy and data */
 #recentAudioRow .btn { margin-right: 4px; }
+#unsentRow .btn + .btn { margin-left: -6px; }
+/* A question asked in the panel before something is deleted. */
+.row-confirm { background: var(--danger-tint); }
+.row-confirm:not([hidden]) + .row::before { display: none; }
+.row-confirm .row-t { color: var(--text); }
 .reset-confirm { background: var(--danger-tint); border-radius: 0 0 15px 15px; }
 .reset-confirm .row-t { color: var(--text); }
+#historyKeep { width: 176px; flex: none; }
 
 /* About */
 .about-head { display: flex; align-items: center; gap: 18px; }

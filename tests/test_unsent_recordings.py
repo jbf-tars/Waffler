@@ -395,8 +395,8 @@ def test_a_card_whose_recording_is_gone_can_only_be_deleted():
 def test_settings_shows_the_count():
     assert js("L.unsentSummary({count: 0})")["canSend"] is False
     two = js("L.unsentSummary({count: 2, provider: 'Groq'})")
-    assert two == {"label": "2 recordings are waiting to be sent. Waffler sends them when Groq "
-                            "answers, or you can send them now.", "canSend": True}
+    assert two["label"] == "2 recordings are waiting to be sent. Waffler sends them when Groq answers."
+    assert two["canSend"] is True and two["count"] == 2
     assert js("L.unsentSummary({count: 1, provider: 'Groq'})")["label"].startswith("1 recording is")
 
 

@@ -585,13 +585,48 @@ async function downloadLogs(btn) {
 
 // Settings, Privacy and data: Delete all my data. It asks first, in the
 // panel (it used to be a native confirm() box listing bullet points).
+// "Delete my data" keeps the keys, words and settings and Waffler keeps
+// running (src/privacy_data.py). Deleting the keys too is the full reset,
+// asked about separately.
 function askFactoryReset(ask) {
   const row = document.getElementById('resetRow');
   const confirmRow = document.getElementById('resetConfirm');
   if (!row || !confirmRow) return;
   confirmRow.hidden = !ask;
+  const keys = document.getElementById('resetKeysConfirm');
+  if (keys) keys.hidden = true;
   document.getElementById('resetAsk').hidden = !!ask;
   if (ask) document.getElementById('resetNo').focus();
+}
+
+function askFactoryResetKeys(ask) {
+  const confirmRow = document.getElementById('resetConfirm');
+  const keys = document.getElementById('resetKeysConfirm');
+  if (!confirmRow || !keys) return;
+  keys.hidden = !ask;
+  confirmRow.hidden = !!ask;
+  document.getElementById(ask ? 'resetKeysNo' : 'resetNo').focus();
+}
+
+async function deleteMyData(btn) {
+  if (!window.pywebview || !window.pywebview.api) return;
+  if (btn) btn.disabled = true;
+  try {
+    const r = await pywebview.api.delete_my_data();
+    if (r && r.ok) {
+      askFactoryReset(false);
+      showToast('Deleted your history, usage, recordings and logs.', 'success', 5000);
+      await refreshAll();
+      await loadSettings();
+    } else {
+      showToast((r && r.error) || "Couldn't delete your data. Try again.", 'error', 6000);
+    }
+  } catch (e) {
+    console.error('deleteMyData error:', e);
+    showToast("Couldn't delete your data. Try again.", 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 async function factoryReset() {
@@ -2730,6 +2765,7 @@ loadSettings = async function() {
   await loadAppVersion();
   await loadUnsentSummary();
   await loadRecentAudio();
+  await loadHistoryKeep();
   await loadStartAtLogin();
   await loadSettingsFnWarning();
 };
@@ -2784,13 +2820,46 @@ async function loadSettingsFnWarning() {
 async function loadUnsentSummary() {
   const desc = document.getElementById('unsentSummary');
   const btn = document.getElementById('unsentSendNow');
+  const del = document.getElementById('unsentDelete');
   if (!desc || !window.pywebview || !window.pywebview.api || !pywebview.api.get_unsent_summary) return;
   try {
     const v = WL.unsentSummary(await pywebview.api.get_unsent_summary());
     desc.textContent = v.label;
     if (btn) btn.hidden = !v.canSend;
+    if (del) del.hidden = !v.canSend;
+    const title = document.getElementById('unsentDeleteTitle');
+    if (title && v.confirm) title.textContent = v.confirm;
+    if (!v.canSend) askDeleteUnsent(false);
   } catch (e) {
     console.warn('get_unsent_summary failed:', e);
+  }
+}
+
+// Delete, next to Try again: asks first, in the panel.
+function askDeleteUnsent(ask) {
+  const row = document.getElementById('unsentDeleteConfirm');
+  if (!row) return;
+  row.hidden = !ask;
+  if (ask) document.getElementById('unsentDeleteNo').focus();
+}
+
+async function deleteAllUnsent(btn) {
+  if (btn) btn.disabled = true;
+  try {
+    const r = await pywebview.api.delete_all_unsent();
+    const n = (r && r.deleted) || 0;
+    if (r && r.ok) {
+      showToast(n === 1 ? '1 recording deleted.' : `${WL.formatCount(n)} recordings deleted.`, 'success');
+    } else {
+      showToast(n ? `${n} of ${r.total} deleted. Try again in a moment.` : "Couldn't delete them. Try again in a moment.", 'error');
+    }
+    await refreshAll();
+  } catch (e) {
+    showToast("Couldn't delete them. Try again in a moment.", 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+    askDeleteUnsent(false);
+    await loadUnsentSummary();
   }
 }
 
@@ -2807,7 +2876,7 @@ async function sendUnsentNow(btn) {
   } catch (e) {
     showToast("Couldn't send them. Try again in a moment.", 'error');
   } finally {
-    if (btn) { btn.disabled = false; btn.lastChild.textContent = 'Send now'; }
+    if (btn) { btn.disabled = false; btn.lastChild.textContent = 'Try again'; }
     await loadUnsentSummary();
   }
 }
@@ -2871,6 +2940,72 @@ async function deleteRecentAudio(btn) {
     showToast("Couldn't delete them. Try again.", 'error');
   }
   if (btn) btn.disabled = false;
+}
+
+// ── History retention (Settings, Privacy and data) ───────────────────────
+// Keep forever (the default), a year, 90 or 30 days. A choice that would
+// delete dictations says how many and asks first.
+let _historyKeep = 0;
+let _historyKeepPending = null;
+
+async function loadHistoryKeep() {
+  const sel = document.getElementById('historyKeep');
+  if (!sel || !window.pywebview || !pywebview.api.get_history_retention) return;
+  try {
+    const r = await pywebview.api.get_history_retention();
+    _historyKeep = Number(r && r.keep_days) || 0;
+    sel.value = String(_historyKeep);
+  } catch (_) {}
+  _showHistoryKeepConfirm(null);
+}
+
+function _showHistoryKeepConfirm(days, count) {
+  const row = document.getElementById('historyKeepConfirm');
+  if (!row) return;
+  _historyKeepPending = days;
+  row.hidden = days == null;
+  if (days != null) {
+    document.getElementById('historyKeepConfirmTitle').textContent = WL.historyKeepConfirm(days, count);
+    document.getElementById('historyKeepNo').focus();
+  }
+}
+
+async function onHistoryKeepChange(sel) {
+  const days = Number(sel.value) || 0;
+  let count = 0;
+  try { count = Number((await pywebview.api.preview_history_retention(days)).would_delete) || 0; } catch (_) {}
+  if (count > 0) { _showHistoryKeepConfirm(days, count); return; }
+  _showHistoryKeepConfirm(null);
+  await _applyHistoryKeep(days);
+}
+
+function cancelHistoryKeep() {
+  const sel = document.getElementById('historyKeep');
+  if (sel) sel.value = String(_historyKeep);
+  _showHistoryKeepConfirm(null);
+}
+
+async function confirmHistoryKeep() {
+  const days = _historyKeepPending;
+  _showHistoryKeepConfirm(null);
+  if (days != null) await _applyHistoryKeep(days);
+}
+
+async function _applyHistoryKeep(days) {
+  const sel = document.getElementById('historyKeep');
+  try {
+    const r = await pywebview.api.set_history_retention(days);
+    if (r && r.ok) {
+      _historyKeep = Number(r.keep_days) || 0;
+      showToast(WL.historyKeepDone(_historyKeep, r.deleted), 'success', 4500);
+      if (r.deleted) { await refreshAll(); await loadRecentAudio(); }
+    } else {
+      showToast((r && r.error) || "Couldn't change that setting. Try again.", 'error');
+    }
+  } catch (e) {
+    showToast("Couldn't change that setting. Try again.", 'error');
+  }
+  if (sel) sel.value = String(_historyKeep);
 }
 
 // ── Usage (Settings) ──────────────────────────────────────────────────────

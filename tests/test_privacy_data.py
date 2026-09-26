@@ -252,3 +252,55 @@ def test_start_up_tidies_the_log_before_the_banner_and_applies_retention():
     # Counts only: never the removed text.
     line = main[tidy:main.index("_retain_history(_h, force=True)")]
     assert "_tidy['scrubbed']" in line and "lines" not in line.replace("line(s)", "")
+
+
+def test_the_window_can_reach_every_privacy_action():
+    app = _app()
+    for name in ("get_history_retention", "preview_history_retention", "set_history_retention",
+                 "delete_my_data", "delete_all_unsent", "factory_reset",
+                 "get_recent_audio", "set_recent_audio", "delete_recent_audio"):
+        assert re.search(rf"\n    def {name}\(self", app), name
+    ui = (ROOT / "ui" / "app.js").read_text(encoding="utf-8")
+    for call in ("get_history_retention()", "preview_history_retention(", "set_history_retention(",
+                 "delete_my_data()", "delete_all_unsent()", "factory_reset()"):
+        assert call in ui, call
+    html = (ROOT / "ui" / "index.html").read_text(encoding="utf-8")
+    for el in ('id="historyKeep"', 'id="unsentDelete"', 'id="unsentSendNow"', 'id="resetConfirm"',
+               'id="resetKeysConfirm"', 'id="privIntro"'):
+        assert el in html, el
+
+
+def test_the_microphone_is_described_honestly():
+    """Owner decision D5: the stream stays open and the half-second before
+    the key press is part of each recording (src/audio.py _PREROLL_MS)."""
+    audio = (ROOT / "src" / "audio.py").read_text(encoding="utf-8")
+    assert re.search(r"^_PREROLL_MS = 500$", audio, re.M)
+    html = (ROOT / "ui" / "index.html").read_text(encoding="utf-8")
+    assert html.count("the half-second before") >= 2       # General and Privacy and data
+    policy = (ROOT / "docs" / "CODE_SIGNING_POLICY.md").read_text(encoding="utf-8")
+    assert "captured only while you hold" not in policy
+    assert "half-second before" in policy
+
+
+# ── the window's words (ui/logic.js) ─────────────────────────────────────────
+
+from test_ui_logic import js, needs_node  # noqa: E402
+
+
+@needs_node
+def test_the_retention_question_and_answer_read_plainly():
+    assert js("L.HISTORY_KEEP") == [0, 365, 90, 30]
+    assert js("L.historyKeepConfirm(30, 2623)") == "Delete 2,623 dictations older than 30 days?"
+    assert js("L.historyKeepConfirm(365, 1)") == "Delete 1 dictation older than a year?"
+    assert js("L.historyKeepDone(0, 0)") == "Waffler keeps every dictation."
+    assert js("L.historyKeepDone(90, 0)") == "Waffler keeps your dictations for 90 days."
+    assert js("L.historyKeepDone(30, 12)") == "12 older dictations deleted. Waffler keeps your dictations for 30 days."
+
+
+@needs_node
+def test_the_waiting_recordings_can_be_deleted_after_asking():
+    none = js("L.unsentSummary({count: 0})")
+    assert none["canSend"] is False and none["confirm"] == ""
+    two = js("L.unsentSummary({count: 2, provider: 'Groq'})")
+    assert two["confirm"] == "Delete the 2 recordings waiting to be sent?"
+    assert js("L.unsentSummary({count: 1})")["confirm"] == "Delete the recording waiting to be sent?"

@@ -135,13 +135,41 @@
   // Settings, Data: how many recordings are waiting.
   function unsentSummary(s) {
     const n = (s && s.count) || 0;
-    if (!n) return { label: 'Nothing waiting. Every recording has been sent.', canSend: false };
+    if (!n) return { label: 'Nothing waiting. Every recording has been sent.', canSend: false, count: 0,
+                     confirm: '' };
     const p = (s && s.provider) || 'your speech service';
     return {
-      label: `${n === 1 ? '1 recording is' : `${n} recordings are`} waiting to be sent. `
-        + `Waffler sends ${n === 1 ? 'it' : 'them'} when ${p} answers, or you can send ${n === 1 ? 'it' : 'them'} now.`,
+      label: `${n === 1 ? '1 recording is' : `${formatCount(n)} recordings are`} waiting to be sent. `
+        + `Waffler sends ${n === 1 ? 'it' : 'them'} when ${p} answers.`,
       canSend: true,
+      count: n,
+      confirm: n === 1 ? 'Delete the recording waiting to be sent?'
+        : `Delete the ${formatCount(n)} recordings waiting to be sent?`,
     };
+  }
+
+  // ── History retention (Settings, Privacy and data) ─────────────────────
+  // src/privacy_data.py HISTORY_CHOICES: 0 keeps everything.
+  const HISTORY_KEEP = [0, 365, 90, 30];
+
+  function historyKeepLabel(days) {
+    const d = Number(days) || 0;
+    if (d === 365) return 'a year';
+    return d ? `${d} days` : '';
+  }
+
+  // What the panel asks before a shorter choice deletes dictations.
+  function historyKeepConfirm(days, count) {
+    const n = Number(count) || 0;
+    return `Delete ${n === 1 ? '1 dictation' : `${formatCount(n)} dictations`} older than ${historyKeepLabel(days)}?`;
+  }
+
+  // The toast after a choice is saved.
+  function historyKeepDone(days, deleted) {
+    const n = Number(deleted) || 0;
+    const keep = Number(days) ? `Waffler keeps your dictations for ${historyKeepLabel(days)}.` : 'Waffler keeps every dictation.';
+    if (!n) return keep;
+    return `${n === 1 ? '1 older dictation' : `${formatCount(n)} older dictations`} deleted. ${keep}`;
   }
 
   // ── Hotkeys ───────────────────────────────────────────────────────────
@@ -673,6 +701,7 @@
     keyInputView, serviceRows, saidDiff, setupSteps,
     STATUS_VIEWS, STATUS_CLASSES, DONE_RESET_MS, statusView, statusResetMs, workingLabel, workingTime, recordingTime,
     notSentId, notSentView, retryFailedMessage, unsentSummary,
+    HISTORY_KEEP, historyKeepLabel, historyKeepConfirm, historyKeepDone,
     defaultHotkey, keyName, orderKeys, hotkeyName, keycaps, pressOrderHint, hotkeyPresets,
     DOWNLOAD_PAGE, UPDATE_TEXT, splitMessage, updateCheckView, updateFailureView,
     DEFAULT_PROVIDER_ORDER, PROVIDER_NAMES, providerHasKey, normalizeProviderOrder,
