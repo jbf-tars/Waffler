@@ -29,11 +29,13 @@ reads like a bill, and a Journal search with no matches says so.
 
 And a dictation can no longer sit on "processing" for ever, or be lost. After
 you let go of the hotkey the pill now stays up and shows it is working, with
-the seconds counting and an X to cancel (Esc works too). If the wait passes
-8 seconds it asks whether to keep waiting, and every step has a deadline, so
-each dictation ends in a tick or a plain message. A recording that could not
-be turned into text becomes a "Not sent" card in the Journal with Try again,
-and Waffler sends it by itself once your provider answers again.
+the seconds counting and an X to cancel. If the wait passes 8 seconds it asks
+whether to keep waiting (Esc then stops the wait and keeps the recording),
+and every step has a deadline, so each dictation ends in a tick or a plain
+message. A recording that could not be turned into text becomes a "Not sent"
+card in the Journal with Try again, and Waffler sends it by itself once your
+provider answers again. A request Waffler stopped waiting for is not paid for
+twice: if it answers late, its words go into the card.
 
 ### Fixed
 - **Every launch sent the user's IP address to Google, for fonts that never
@@ -267,7 +269,10 @@ and Waffler sends it by itself once your provider answers again.
   measured again yet.
 - **The setup wizard could strand people, and hid its own messages.**
   - Every message shown during setup sat behind the wizard, so none was
-    ever seen. Messages now show above it, and above the hotkey dialog.
+    ever seen. Messages now show above it, and above the hotkey dialog, at
+    the top centre, clear of its Back, Next and Finish Setup buttons (bottom
+    right, where messages sit elsewhere, the one after Send in Try it covered
+    Finish Setup, and the first click only closed it).
   - The Windows logo, the "Win" label and the Mac's fn globe were drawn in
     near-black on the black keycaps, and the Hotkey and Try-it steps then
     replaced each keycap with plain dark text, so the keys looked blank.
@@ -315,14 +320,25 @@ and Waffler sends it by itself once your provider answers again.
     sent. A clean-up that does not finish is pasted as you said it. A paste
     that does not finish leaves the text on the clipboard and in the Journal
     and says "Press Ctrl+V to paste it" (Cmd+V on a Mac).
+  - Stopping the recording gets 15 seconds, and the recorder can take longer
+    while it rebuilds a device after a microphone change. The pill then says
+    "Your mic was slow to stop" and the dictation ends, and the recording is
+    kept as Not sent once it comes through, and sent from there, instead of
+    being lost. One with no speech in it is not kept.
   - After 8 seconds (or 0.4 times the recording's length, if longer) the
     pill asks: "Keep waiting", "Send later" or "Cancel" while it waits for
     speech to text, and "Paste as is", "Keep waiting" or "Cancel" while it
     waits for the clean-up. This replaces the "Taking longer than usual"
     message, which offered nothing to do.
-  - Esc and the pill's X cancel the dictation being processed, on Windows
-    and on a Mac, until the paste starts. Esc still reaches the app in
-    front, as it always has.
+  - The pill's X and the offer's Cancel cancel the dictation being
+    processed, on Windows and on a Mac, until the paste starts. Esc stops
+    the wait only while that offer is on screen, and keeps what exists: the
+    recording becomes a Not sent card marked cancelled, which only Try again
+    sends, or during the clean-up the words go to the Journal as you said
+    them. Nothing is pasted either way. Esc also reaches the app in front,
+    as it always has, so straight after letting go it is left to that app: a
+    reflex Esc (closing the emoji picker a Mac's Fn key can open, the Start
+    menu, an autocomplete list) never touches the dictation.
   - If something outside those steps stops making progress, the watchdog
     gives up on the dictation, keeps the recording as Not sent if no words
     exist yet, frees the pill and the window, and never pastes later into
@@ -352,7 +368,15 @@ and Waffler sends it by itself once your provider answers again.
   any wait, for recordings from the last day, at most three times each,
   stopping at the first one your provider still refuses. It only ever sends
   recordings a Journal card names, never any other file in that folder.
-  Settings (Data) shows how many are waiting, with "Send now".
+  Settings (Data) shows how many are waiting, with "Send now". A speech
+  request Waffler stopped waiting for (after "Send later" or the deadline)
+  keeps running and is usually billed, so its answer is not thrown away: the
+  words go into the card, and while it runs nothing sends that recording
+  again (Try again waits for its answer instead), so no recording is paid
+  for twice. If that request fails the card is sent again as usual, and if
+  it heard nothing the card says so and is not retried. A late answer that
+  arrives during a dictation goes in as you said it rather than compete for
+  the clean-up.
 - **Pressing the hotkey again while a dictation was still being cleaned up
   threw away its finished words.** An early return treated the newer
   recording like a cancel. The older dictation now goes to the Journal (it
@@ -368,7 +392,19 @@ and Waffler sends it by itself once your provider answers again.
   again." unless your words really are on the clipboard.
 - **A clean-up that ran out of time was reported as "Connection failed".**
   It now says "Pasted without the clean-up: the clean-up took too long, so
-  your words went in as you said them."
+  your words went in as you said them." whether the clean-up ran out of its
+  own 30-second budget or reached Waffler's backstop deadline.
+- **Clicking the pill's stop button could send the paste to the wrong
+  place.** A click on the pill made Waffler's overlay the active app, so the
+  Ctrl+V (Cmd+V on a Mac) that followed went to the overlay instead of the
+  app you were typing in, and the words were only on the clipboard and in
+  the Journal. On Windows the app could not take the focus back, because
+  Windows only lets the process that got the click move it. The offer's
+  "Keep waiting" and "Paste as is" come just before a paste too. The pill
+  and its messages now take clicks without taking the focus: on Windows they
+  are marked not to activate, and on a Mac they are non-activating panels
+  that never take the keyboard. Found by reading the code; clicking through
+  it on a real Windows PC and a real Mac is still to do.
 - **The "We couldn't hear you" message closed whatever message came after
   it.** Its 4-second clean-up now closes only itself.
 
@@ -390,9 +426,24 @@ and Waffler sends it by itself once your provider answers again.
   release with no installer for this computer is flagged so the app can open
   its page instead. The underlying error still goes to the log. The
   sentences live in one place, `src/user_messages.py`;
-  `tests/test_plain_error_messages.py` (34 checks) runs the key checks, the
+  `tests/test_plain_error_messages.py` (53 checks) runs the key checks, the
   update check and the download with the providers' own error types and no
   network.
+- **The pill's messages after a limit or a failed clean-up are plain too.**
+  They said "Groq limit hit · resets in about 16 minutes" over "Pasted raw",
+  followed by "Add a Cerebras key for fallback" (Cerebras is the optional
+  third choice), "Rate limit reached" with "Add another provider key in
+  Settings → API Keys for instant fallback", and "Auth blocked" with "provider
+  blocked the request... Try another provider key". Now a limit reads
+  "Clean-up paused for about 17 minutes: Groq says you've reached your limit
+  for now. Your words were pasted as you said them." (the time is Groq's own
+  wait, rounded up). The others say "Pasted without the clean-up" and why in
+  one sentence: Groq refused the connection, which usually means a VPN is on
+  or the key has stopped working; Waffler couldn't reach Groq; the clean-up
+  took too long; or no key is set up for it yet. A limit that stops a
+  dictation says "Limit reached: Groq says you've reached your limit for now.
+  Try again in about 17 minutes." None of them sends you off to add a
+  second provider's key. The "Mic reset" message lost its dash as well.
 - **Saving a hotkey now says plainly whether it worked.** Settings offered
   the Mac hotkeys (Fn, Command + Shift, Option + Shift) on Windows too, and
   the setup wizard offered Ctrl + Alt + Space, which Windows never accepted.
@@ -638,7 +689,7 @@ and Waffler sends it by itself once your provider answers again.
   as CI already did. `tests/test_data_dir_isolation.py` (11 checks) fails if
   any module builds the folder itself again. A full run with the home folder
   pointed at an empty folder leaves it empty.
-- `tests/test_ui_logic.py` (60 checks, no network or keys) runs the window's
+- `tests/test_ui_logic.py` (61 checks, no network or keys) runs the window's
   pure logic, `ui/logic.js`, in Node: the status labels, the hotkeys each
   platform is offered (every one passes `src/hotkey_rules.py` on its own
   platform), the update messages (the same sentences as
@@ -646,7 +697,8 @@ and Waffler sends it by itself once your provider answers again.
   cleaned the same way), the "In use" and About lines, the Usage figures,
   the search delay and the no-matches state. It also runs `app.py`'s
   `get_settings()` against the real speech and clean-up classes built with
-  made-up keys. Without Node the Node checks are skipped and the source
+  made-up keys. It also checks that a message over the setup wizard goes to
+  the top centre. Without Node the Node checks are skipped and the source
   checks still run. `tests/test_idle_motion.py` (9 checks) reads the
   stylesheet, `app.js` and `app.py` for the idle-animation rules.
 - In the audit harness (the real `ui/` in headless Chrome with a stand-in
@@ -656,13 +708,18 @@ and Waffler sends it by itself once your provider answers again.
   element where it appears, the keycap labels are 14.7:1 against the key,
   the Mac permission cards are side by side (the step scrolls 909 px in
   its 714 px box, down from 1,540 px), and a refused hotkey shows the
-  sentence with no green flash on either screen.
-- `tests/test_processing_watchdog.py` (35 checks, no network or keys) runs
+  sentence with no green flash on either screen. After Send in Try it, and
+  after a Custom hotkey is saved, the message now covers none of Back, Next
+  or Finish Setup at the Windows and Mac sizes and their minimum sizes (it
+  covered 96% of Finish Setup on Windows and 98% on a Mac), the point in the
+  middle of Finish Setup is the button, and one click on it finishes setup.
+  Outside the wizard messages still sit bottom right.
+- `tests/test_processing_watchdog.py` (47 checks, no network or keys) runs
   the real `_process` from `app.py` with stand-ins for the recorder, the
   providers, the clipboard, the overlay and the window, with the limits
   shrunk so a "30-second" hang takes a second. A provider that hangs gets
-  the offer at the threshold, and Esc, the pill's X and the offer's Cancel
-  each end the dictation with nothing pasted or kept. At the deadline the
+  the offer at the threshold, and the pill's X and the offer's Cancel each
+  end the dictation with nothing pasted or kept. At the deadline the
   recording becomes a Not sent card; "Send later", "Keep waiting" and
   "Paste as is" do what they say. A paste that never returns lets the
   dictation finish with the words saved and a "Not pasted" message. An
@@ -670,9 +727,18 @@ and Waffler sends it by itself once your provider answers again.
   each ends in a plain message and frees the pill. A hang outside any step
   is given up on and never pastes later. A newer recording keeps the older
   one's words and its own pill. Window updates never block, even when the
-  window never answers. Esc cancels during processing on Windows (the real
-  keyboard hook procedure) and on a Mac, and is left alone otherwise.
-- `tests/test_unsent_recordings.py` (27 checks) runs the SR3 promise end to
+  window never answers. Esc straight after letting go is left to the app in
+  front and the dictation is pasted as usual; Esc while the offer is up ends
+  the wait with nothing pasted and the recording kept as a cancelled card
+  (not counted as waiting, not sent by itself), whose words arrive when the
+  request it stopped waiting for answers; during the clean-up it keeps the
+  words unpasted; after "Keep waiting" it is left alone again; and a click
+  on Cancel wins over Esc. The listeners pass Esc on while the offer is
+  armed, on Windows (the real keyboard hook procedure) and on a Mac. A
+  recording whose stop takes longer than its limit ends the dictation at
+  once, and is then kept and sent when stop() returns; one with no speech in
+  it is not kept. A step given up on still hands over its late result.
+- `tests/test_unsent_recordings.py` (38 checks) runs the SR3 promise end to
   end: with the provider down the recording is saved and its card shows;
   with it back, Try again turns the card into a normal entry at the same
   time and removes the file, and nothing is pasted. It also checks the
@@ -680,22 +746,36 @@ and Waffler sends it by itself once your provider answers again.
   three tries; only the last day; never during a dictation), that a WAV no
   card names is never sent, that names pointing outside `unsent/` are
   refused, that two failures in one second keep both files, the card's
-  sentences in Node, and the Settings count.
-- `tests/test_working_pill.py` (12 checks) drives the real Windows overlay
+  sentences in Node, and the Settings count. A speech request that outlives
+  the deadline (or "Send later") fills the card when it answers, with the
+  recording sent once in all: the automatic sending leaves it alone while it
+  runs, Try again waits for it, a resend that runs out of time is kept the
+  same way, a late failure leaves the card to be sent again, a late answer
+  with no words stops the retries, one that arrives during a dictation goes
+  in as said, and a card deleted meanwhile stays deleted.
+- `tests/test_working_pill.py` (14 checks) drives the real Windows overlay
   (Tk) through the working look, the tick, a message that stays up, and the
   offer's buttons, checks that the Mac overlay handles the same commands
   and draws the same ripple and time, and checks the controller's
-  commands. `tests/test_tray_state.py` (4 checks) builds the Windows
+  commands. The Windows pill and its messages keep their "do not activate"
+  style through Tk's own show and stay-on-top calls, and a click on the
+  offer's button still reaches it; the Mac pill and messages are built as
+  non-activating panels that cannot take the keyboard (read from the
+  source, since PyObjC does not load here). `tests/test_tray_state.py` (4 checks) builds the Windows
   "working" icon from the real `icon.ico`.
 - In the audit harness the new states were captured on Windows and Mac
   sizes (the window's pill while working and at each ending, Not sent
   cards, Try again in flight, failing and working, Delete's question, the
   Settings count, and the overlay's working pill, tick and new messages)
   with no page errors. The Windows overlay images come from the real
-  drawing code; the Mac ones from a canvas port of it. Nothing here has run
-  on a real Mac yet: the Mac overlay, Esc on a Mac and the menu bar
-  dimming need a check there.
-- Suite: 856 passed, 2 skipped (one key-table check per platform runs only
+  drawing code; the Mac ones from a canvas port of it. The new plain
+  messages (a limit, a skipped clean-up, Cancelled, a slow stop) were drawn
+  with the real Windows overlay code, and each heading fits on one line.
+  Nothing here has run on a real Mac yet: the Mac overlay (now a
+  non-activating panel), Esc on a Mac and the menu bar dimming need a check
+  there, and a click on "Keep waiting" or "Paste as is" followed by the paste
+  needs trying on both platforms.
+- Suite: 901 passed, 2 skipped (one key-table check per platform runs only
   on that platform). A full run leaves the real `app.log` byte for byte
   unchanged.
 
