@@ -645,6 +645,18 @@ html, body {
 .toast.success { border-color: var(--green); }
 .toast.error   { border-color: var(--red); }
 
+/* Over the setup wizard: top centre, clear of its Back, Next and Finish
+   Setup buttons at the bottom (bottom right it covered Finish Setup, and the
+   first click only closed the message). */
+.toast.over-wizard {
+  top: 20px;
+  bottom: auto;
+  right: auto;
+  left: 50%;
+  transform: translate(-50%, -6px);
+}
+.toast.over-wizard.visible { transform: translate(-50%, 0); }
+
 /* ── Audio Device Selector ─────────────────────────────────────────── */
 .device-selector {
   padding: 10px 0 0 0;

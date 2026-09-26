@@ -114,6 +114,25 @@ def test_toasts_and_the_hotkey_dialog_sit_above_the_wizard():
     assert shown and "pointer-events: auto" in shown[0]
 
 
+def test_a_message_over_the_wizard_sits_clear_of_its_buttons():
+    """Bottom right, "Sent! That's how dictation works in any app." covered
+    96% of Finish Setup, so the first click only closed the message (and
+    "Hotkey is now Ctrl + Shift" covered Next). Over the wizard a message now
+    goes to the top centre, away from Back, Next and Finish Setup."""
+    app = code_only(read("app.js"))
+    show = app[app.index("function showToast("):]
+    show = show[:show.index("\n}")]
+    assert "_wizardVisible()" in show and "over-wizard" in show
+    rule = [body for sel, body in _css_rules() if sel == ".toast.over-wizard"]
+    assert rule, "no placement for a message over the wizard"
+    assert re.search(r"top:\s*\d+px", rule[0]) and "bottom: auto" in rule[0]
+    assert "left: 50%" in rule[0] and "right: auto" in rule[0]
+    shown = [body for sel, body in _css_rules() if sel == ".toast.over-wizard.visible"]
+    assert shown and "translate(-50%, 0)" in shown[0]
+    # The wizard's buttons sit at the bottom of the window.
+    assert '<nav class="wiz-nav">' in read("index.html")
+
+
 def test_a_disabled_finish_button_looks_disabled():
     rule = [body for sel, body in _css_rules() if sel == ".wiz-btn-next.finish:disabled"]
     assert rule, "Finish Setup had no disabled style, so it looked like the main action"

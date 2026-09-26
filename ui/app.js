@@ -1177,7 +1177,11 @@ let _toastTimeoutMs = 2500;
 function showToast(msg, type, ms) {
   clearTimeout(toastTimer);
   $toast.textContent = msg;
-  $toast.className = `toast visible ${type || ''}`;
+  // Over the setup wizard a message goes to the top centre: bottom right it
+  // sat on the wizard's Next and Finish Setup buttons, so the first click
+  // only closed the message (and hovering there kept it up).
+  const overWizard = typeof _wizardVisible === 'function' && _wizardVisible();
+  $toast.className = `toast visible ${type || ''}${overWizard ? ' over-wizard' : ''}`;
   _toastTimeoutMs = (typeof ms === 'number' && ms > 0) ? ms : 2500;
   toastTimer = setTimeout(dismissToast, _toastTimeoutMs);
 
