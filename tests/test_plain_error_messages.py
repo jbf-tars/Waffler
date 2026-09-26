@@ -29,6 +29,7 @@ import groq  # noqa: E402
 import openai  # noqa: E402
 
 import user_messages as um  # noqa: E402
+import first_run  # noqa: E402
 
 _REQ = httpx.Request("POST", "https://api.groq.com/openai/v1/models")
 
@@ -122,6 +123,7 @@ def _api_method(name):
         "UPDATE_DOWNLOAD_FAILED": um.UPDATE_DOWNLOAD_FAILED,
         "UPDATE_INSTALL_FAILED": um.UPDATE_INSTALL_FAILED,
         "DOWNLOAD_PAGE": um.DOWNLOAD_PAGE,
+        "_first_run": first_run,
     }
     exec(compile(ast.Module([fn], []), "<app.py>", "exec"), ns)
     return ns[name], logged
@@ -151,8 +153,36 @@ def test_validate_groq_key_returns_the_setup_copy(monkeypatch, exc, key):
     monkeypatch.setitem(sys.modules, "groq", _fake_groq(exc))
     api = types.SimpleNamespace(_update_env_var=lambda k, v: pytest.fail("saved a bad key"))
     result = fn(api, "gsk_" + "x" * 20)
-    assert result == {"ok": False, "error": GROQ_COPY[key]}
+    # "kind" lets setup retry a busy moment by itself (3.15).
+    kind = {"offline": "offline", "401": "unauthorized", "403": "forbidden", "429": "rate_limited"}[key]
+    assert result == {"ok": False, "error": GROQ_COPY[key], "kind": kind}
     assert logged and "[keys] Groq key check failed" in logged[0]
+
+
+def test_a_good_groq_key_says_what_it_can_do(monkeypatch):
+    """Setup shows a line per job ("Speech to text", "Clean-up") from the
+    same model list the check already fetches, and saves the key."""
+    fn, _ = _api_method("validate_groq_key")
+
+    class _Models:
+        def list(self):
+            return types.SimpleNamespace(data=[types.SimpleNamespace(id="whisper-large-v3"),
+                                               types.SimpleNamespace(id="openai/gpt-oss-120b")])
+
+    class Groq:
+        def __init__(self, **kw):
+            self.models = _Models()
+
+    monkeypatch.setitem(sys.modules, "groq", types.SimpleNamespace(Groq=Groq))
+    monkeypatch.delenv("GROQ_STYLE_MODEL", raising=False)
+    monkeypatch.setenv("GROQ_API_KEY", "")
+    saved = []
+    api = types.SimpleNamespace(_update_env_var=lambda k, v: saved.append((k, v)))
+    key = "gsk_" + "y" * 20
+    result = fn(api, key)
+    assert result["ok"] is True and saved == [("GROQ_API_KEY", key)]
+    assert [(s["name"], s["model"], s["status"]) for s in result["services"]] == [
+        ("Speech to text", "whisper-large-v3", "ok"), ("Clean-up", "gpt-oss-120b", "ok")]
 
 
 def _fake_openai(exc):

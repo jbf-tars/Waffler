@@ -122,6 +122,9 @@ from atomic_json import write_json_atomic
 import pipeline_watchdog as _pw
 import unsent as _unsent
 import tray_state as _tray_state
+import first_run as _first_run
+import mac_permissions as _mac_perms
+from login_item import LoginItem, HIDDEN_FLAG as _HIDDEN_FLAG
 from user_messages import (
     DOWNLOAD_PAGE,
     UPDATE_DOWNLOAD_FAILED,
@@ -1321,13 +1324,131 @@ class Api:
         groq_key = os.getenv("GROQ_API_KEY", "").strip()
         has_any_key = bool(openai_key or groq_key)
         setup_done = _is_setup_complete()
+        needs_setup = not setup_done or not has_any_key
+        # Where setup was left, so a Mac "Quit & Reopen" after a permission
+        # carries on from the same screen. Only while setup is still needed.
+        resume = ""
+        if needs_setup:
+            try:
+                resume = str(self._load_settings_file().get("setup_step") or "")
+            except Exception:
+                resume = ""
         return {
-            "needs_setup": not setup_done or not has_any_key,
+            "needs_setup": needs_setup,
             "has_key": has_any_key,
             "has_openai_key": bool(openai_key),
             "has_groq_key": bool(groq_key),
             "setup_complete": setup_done,
+            "resume_step": resume,
         }
+
+    # ── First-run setup (3.15) ──────────────────────────────────────────
+
+    _SETUP_STEPS = ("connect", "permissions", "try", "anywhere")
+
+    def save_setup_step(self, step: str) -> dict:
+        """Remember the setup screen on show (see get_onboarding_status)."""
+        if step not in self._SETUP_STEPS:
+            return {"ok": False}
+        try:
+            stored = self._load_settings_file()
+            if stored.get("setup_step") != step:
+                stored["setup_step"] = step
+                self._save_settings_file(stored)
+            return {"ok": True}
+        except Exception as e:
+            _log_to_file(f"[setup] step not saved: {e}")
+            return {"ok": False}
+
+    def get_start_at_login(self) -> dict:
+        """{"supported", "enabled", "reason"}, read from the operating system
+        (src/login_item.py), never from a remembered copy."""
+        try:
+            return LoginItem().status()
+        except Exception as e:
+            _log_to_file(f"[login item] status failed: {e}")
+            return {"supported": False, "enabled": False,
+                    "reason": "Couldn't check whether Waffler starts at sign-in."}
+
+    def set_start_at_login(self, on) -> dict:
+        """Switch starting at sign-in on or off. Returns {"ok", "enabled"} and,
+        when it couldn't, an "error" sentence."""
+        try:
+            result = LoginItem().set(bool(on))
+        except Exception as e:
+            _log_to_file(f"[login item] set failed: {e}")
+            result = {"ok": False, "enabled": False,
+                      "error": "Couldn't change starting at sign-in. Try again."}
+        _log_to_file(f"[login item] start at sign-in {'on' if on else 'off'}: "
+                     f"ok={result.get('ok')} enabled={result.get('enabled')}")
+        return result
+
+    def start_dictation_for_setup(self) -> dict:
+        """Start the real hotkey before setup's last screen sends the user to
+        Notepad or TextEdit to try it. The practice listener stops first, so
+        only one listener ever watches the keys."""
+        try:
+            self.wizard_stop_hotkey_test()
+        except Exception:
+            pass
+        if _pipeline is not None:
+            return {"ok": True}
+        threading.Thread(target=_initialize_pipeline, daemon=True,
+                         name="PipelineInitSetup").start()
+        return {"ok": True}
+
+    def open_practice_editor(self) -> dict:
+        """Open Notepad (Windows) or TextEdit (Mac), an empty page to dictate
+        into, with the real hotkey already listening."""
+        self.start_dictation_for_setup()
+        import subprocess
+        try:
+            if _platform.system() == "Darwin":
+                subprocess.Popen(["/usr/bin/open", "-a", "TextEdit"])
+            elif _platform.system() == "Windows":
+                subprocess.Popen(["notepad.exe"])
+            else:
+                return {"ok": False, "error": "There's no practice editor on this computer."}
+            return {"ok": True}
+        except Exception as e:
+            _log_to_file(f"[setup] practice editor did not open: {e}")
+            name = "TextEdit" if _platform.system() == "Darwin" else "Notepad"
+            return {"ok": False, "error": f"Couldn't open {name}. Open any app you type in instead."}
+
+    def request_permission(self, name: str) -> dict:
+        """Setup's Allow buttons (Mac): show macOS's own prompt for one
+        permission (src/mac_permissions.py). A second press after a refusal
+        opens that permission's pane, because macOS won't ask twice."""
+        asked = getattr(self, "_perm_asked", None)
+        if asked is None:
+            asked = self._perm_asked = set()
+        again = name in asked
+        asked.add(name)
+        if name == "microphone":
+            result = _mac_perms.request_microphone()
+        elif name == "input_monitoring":
+            result = _mac_perms.request_input_monitoring(already_asked=again)
+        elif name == "accessibility":
+            result = _mac_perms.request_accessibility(already_asked=again)
+        else:
+            return {"ok": False}
+        _log_to_file(f"[permissions] asked for {name}: {result}")
+        return result
+
+    def get_fn_key_conflict(self) -> dict:
+        """Mac: whether holding Fn (the hotkey) also opens the emoji picker or
+        another job. Read only; Waffler never changes the setting."""
+        if _platform.system() != "Darwin":
+            return {"conflict": False, "title": "", "detail": ""}
+        try:
+            keys = self.get_hotkey_config().get("keys") or ["fn"]
+            return _mac_perms.fn_conflict(_mac_perms.read_fn_usage(), keys)
+        except Exception as e:
+            _log_to_file(f"[fn key] check failed: {e}")
+            return {"conflict": False, "title": "", "detail": ""}
+
+    def open_keyboard_settings(self) -> dict:
+        return _mac_perms.open_pane("keyboard")
 
     # Key shapes we will lift from the clipboard. Deliberately strict: this
     # reads the user's clipboard, so it must be incapable of returning anything
@@ -1398,16 +1519,25 @@ class Api:
         try:
             import groq
             client = groq.Groq(api_key=api_key)
-            client.models.list()
+            models = client.models.list()
             # Key is valid — persist it
             self._update_env_var("GROQ_API_KEY", api_key)
             os.environ["GROQ_API_KEY"] = api_key
-            return {"ok": True, "message": "Groq key is valid"}
+            # The same answer lists the models this key can use, so setup
+            # can say "Speech to text: working" and "Clean-up: working"
+            # (src/first_run.py) rather than only "the key is valid".
+            try:
+                services = _first_run.groq_services(_first_run.model_ids(models))
+            except Exception:
+                services = []
+            return {"ok": True, "message": "Groq key is valid", "services": services}
         except ImportError:
             return {"ok": False, "error": "Groq SDK not installed"}
         except Exception as e:
             _log_to_file(f"[keys] Groq key check failed: {type(e).__name__}: {str(e)[:160]}")
-            return {"ok": False, "error": key_check_error("Groq", e)}
+            # "kind" lets setup try again by itself after a busy moment.
+            return {"ok": False, "error": key_check_error("Groq", e),
+                    "kind": classify_request_error(e)}
 
     def validate_cerebras_key(self, api_key: str) -> dict:
         """Validate a Cerebras API key by doing a minimal chat-completions
@@ -1521,6 +1651,12 @@ class Api:
             if data_dir.exists():
                 shutil.rmtree(data_dir)
                 _log_to_file("[factory reset] Data directory cleared via UI")
+            # Back to a first launch: nothing starts Waffler at sign-in until
+            # setup switches it on again.
+            try:
+                LoginItem().disable()
+            except Exception:
+                pass
 
             # Delay window destruction to avoid crash
             # (can't destroy window while inside API callback - JS bridge is still active)
@@ -1672,14 +1808,20 @@ class Api:
         # Use direct checks instead of PermissionsManager (more reliable)
         accessibility = self.check_accessibility_permission()
         input_monitoring = self.check_input_monitoring_permission()
+        # The microphone is asked for in setup too (3.15). It used to be
+        # reported as never granted, so the first practice recording was the
+        # moment macOS asked, mid-hold, and it came back silent.
+        mic_status = _mac_perms.microphone_status()
+        mic = mic_status in ("granted", "not_applicable")
 
         result = {
             "ok": True,
             "platform": "Darwin" if sys.platform == "darwin" else sys.platform,
             "accessibility_granted": accessibility,
             "input_monitoring_granted": input_monitoring,
-            "mic_granted": False,  # Not checked in wizard
-            "all_granted": accessibility and input_monitoring,
+            "mic_granted": mic,
+            "mic_status": mic_status,
+            "all_granted": accessibility and input_monitoring and mic,
         }
 
         return result
@@ -1798,16 +1940,52 @@ class Api:
             return {"ok": False, "error": str(e)}
 
     def wizard_start_hotkey_test(self, device_index) -> dict:
-        """Start temporary hotkey listener for wizard Step 4."""
-        global _wizard_recorder, _wizard_hotkey, _wizard_transcriber
+        """Start setup's practice: its own hotkey listener, recorder,
+        transcriber and styler, so holding the hotkey on the "Hold ... and
+        talk" screen runs a full dictation (transcription and clean-up) into
+        the screen instead of into another app."""
+        global _wizard_recorder, _wizard_hotkey, _wizard_transcriber, _wizard_styler
         global _wizard_recording, _wizard_result, _wizard_overlay
         try:
-            device_index = int(device_index)
+            # The real hotkey is already listening (setup's last screen was
+            # reached and then left with Back): two listeners would both
+            # record, so the practice doesn't start.
+            if _pipeline is not None:
+                return {"ok": False, "error": "Waffler is already listening. Hold the hotkey in "
+                                              "any app to try it there."}
+            # Starting again (after a hotkey change) replaces the old
+            # listener rather than adding a second one.
+            if _wizard_hotkey is not None or _wizard_recorder is not None:
+                self.wizard_stop_hotkey_test()
+
+            # Keys come first: without one there is nothing to try.
+            openai_key = os.getenv("OPENAI_API_KEY", "")
+            groq_key = os.getenv("GROQ_API_KEY", "")
+            if not openai_key and not groq_key:
+                # Keys are the step before this one (step 2 of 3 on Windows,
+                # 3 of 4 on a Mac); this used to say "Complete Step 1".
+                return {"ok": False, "error": "No API key found. Go back a step and add your key."}
+
+            # A Mac that refused the microphone opens a stream that only
+            # ever delivers silence. Say so before the user tries.
+            if _mac_perms.microphone_status() in ("denied", "restricted"):
+                return {"ok": False, "mic": "denied",
+                        "error": "Waffler isn't allowed to use the microphone. Allow it in "
+                                 "System Settings, then come back."}
+
+            try:
+                device_index = int(device_index) if device_index is not None else None
+            except (TypeError, ValueError):
+                device_index = None
+            if device_index is None:
+                device_index = get_selected_device_index()
             _wizard_result = None
             _wizard_recording = False
 
-            # Create temporary audio recorder
-            _wizard_recorder = AudioRecorder(sample_rate=16000, channels=1)
+            # The practice recorder uses the microphone picked on screen; it
+            # used to ignore it and always record from the default one.
+            _wizard_recorder = AudioRecorder(sample_rate=16000, channels=1,
+                                             device_index=device_index)
 
             # Create overlay for wizard Step 4 visual feedback.
             # Previously skipped due to threading-crash concerns, but the
@@ -1824,17 +2002,22 @@ class Api:
                 _log_to_file(f"Wizard overlay init failed (recording still works): {_e}")
                 _wizard_overlay = None
 
-            # Create temporary transcriber using already-validated keys
-            openai_key = os.getenv("OPENAI_API_KEY", "")
-            groq_key = os.getenv("GROQ_API_KEY", "")
-            if not openai_key and not groq_key:
-                # Keys are the step before this one (step 2 of 3 on Windows,
-                # 3 of 4 on a Mac); this used to say "Complete Step 1".
-                return {"ok": False, "error": "No API key found. Go back a step and add your key."}
-
             _wizard_transcriber = WhisperTranscriber(
                 api_key=openai_key, groq_api_key=groq_key,
             )
+            # The same clean-up every dictation gets (setup used to stop at
+            # the transcription, so it never showed what Waffler does).
+            try:
+                _wizard_styler = OpenAIStyler(
+                    api_key=openai_key,
+                    max_tokens=1024,
+                    prompt_style=getattr(_config, "prompt_style", "normal") or "normal",
+                    groq_api_key=groq_key,
+                    cerebras_api_key=os.getenv("CEREBRAS_API_KEY", ""),
+                )
+            except Exception as _e:
+                _log_to_file(f"Wizard styler init failed (words shown as said): {_e}")
+                _wizard_styler = None
 
             # Create temporary hotkey listener
             stored = self._load_settings_file()
@@ -1849,9 +2032,12 @@ class Api:
                     target=_wizard_hotkey.start, daemon=True, name="WizardHotkeyThread"
                 ).start()
             else:
+                # The saved keys, so a hotkey picked on this screen is the one
+                # the practice listens for.
                 _wizard_hotkey = SmartHotkeyListener(
                     on_press=_wizard_on_press,
                     on_release=_wizard_on_release,
+                    keys=keys,
                 )
                 # Start directly - pynput creates its own thread internally
                 # Running in background thread causes macOS dispatch queue crashes
@@ -1880,7 +2066,7 @@ class Api:
         is bounded by an internal 2s watchdog so a wedged audio device
         can't block the wizard close.
         """
-        global _wizard_hotkey, _wizard_recorder, _wizard_transcriber
+        global _wizard_hotkey, _wizard_recorder, _wizard_transcriber, _wizard_styler
         global _wizard_recording, _wizard_overlay
         try:
             if _wizard_hotkey:
@@ -1906,6 +2092,7 @@ class Api:
                 _wizard_overlay = None
             _wizard_recorder = None
             _wizard_transcriber = None
+            _wizard_styler = None
             _log_to_file("Wizard hotkey test stopped (recorder drained)")
             return {"ok": True}
         except Exception as e:
@@ -1928,6 +2115,13 @@ class Api:
         """
         try:
             _mark_setup_complete()
+            # Setup is over: nothing to resume next time.
+            try:
+                stored = self._load_settings_file()
+                if stored.pop("setup_step", None) is not None:
+                    self._save_settings_file(stored)
+            except Exception:
+                pass
             threading.Thread(
                 target=_initialize_pipeline,
                 daemon=True,
@@ -2275,6 +2469,7 @@ _wizard_recorder      = None   # temporary AudioRecorder for wizard
 _wizard_hotkey        = None   # temporary hotkey listener for wizard (Step 4)
 _wizard_step2_monitor = None   # temporary hotkey monitor for Step 2 detection
 _wizard_transcriber   = None   # temporary WhisperTranscriber for wizard
+_wizard_styler        = None   # temporary OpenAIStyler for the practice clean-up
 _wizard_overlay       = None   # temporary overlay for wizard
 _wizard_recording     = False  # is wizard currently recording?
 _wizard_result        = None   # transcription result
@@ -2340,8 +2535,8 @@ def _wizard_on_press():
             _wizard_overlay.show()
         except Exception as e:
             _log_to_file(f"Wizard overlay show error: {e}")
-        # Start VU level feed in background
-        threading.Thread(target=_wizard_level_loop, daemon=True, name="WizLevelLoop").start()
+    # Level feed for the overlay and setup's meter.
+    threading.Thread(target=_wizard_level_loop, daemon=True, name="WizLevelLoop").start()
     if _window:
         try:
             _window.evaluate_js("window.wizOnRecordingStart && window.wizOnRecordingStart()")
@@ -2351,12 +2546,20 @@ def _wizard_on_press():
 
 def _wizard_level_loop():
     """Feed live audio level to the wizard overlay at ~30fps while recording."""
-    while _wizard_recording and _wizard_recorder and _wizard_overlay:
+    tick = 0
+    while _wizard_recording and _wizard_recorder:
         lvl = _wizard_recorder.get_level()
-        try:
-            _wizard_overlay.update_level(lvl)
-        except Exception:
-            pass
+        if _wizard_overlay:
+            try:
+                _wizard_overlay.update_level(lvl)
+            except Exception:
+                pass
+        # Setup's own meter (the waffle by the microphone name) gets the
+        # same level, a few times a second, so a dead mic shows before the
+        # keys come up.
+        if tick % 3 == 0:
+            _push_wizard_js("wizOnLevel", round(float(lvl or 0), 3))
+        tick += 1
         time.sleep(0.033)
 
 
@@ -2417,7 +2620,14 @@ def _wizard_on_release():
             _push_wizard_silent()
             return
 
-        transcript = _wizard_transcriber.transcribe_sync(audio_bytes) if _wizard_transcriber else ""
+        try:
+            transcript = _wizard_transcriber.transcribe_sync(audio_bytes) if _wizard_transcriber else ""
+        except Exception as e:
+            _log_to_file(f"Wizard transcription error: {type(e).__name__}: {str(e)[:160]}")
+            provider = "Groq" if os.getenv("GROQ_API_KEY") else "OpenAI"
+            _push_wizard_error(key_check_error(provider, e))
+            return
+        transcript = (transcript or "").strip()
         _wizard_result = transcript or "(Empty transcription)"
         # Length only unless logging.log_transcripts is on. app.log ships inside
         # the "Download Logs" bundle, so speech stays out of it by default.
@@ -2425,11 +2635,63 @@ def _wizard_on_release():
             f"Wizard transcription: "
             f"{transcript_for_log(_wizard_result, allowed=_transcripts_loggable())}"
         )
-        _push_wizard_result(_wizard_result)
+        if not transcript:
+            _push_wizard_silent()
+            return
+        _wizard_finish_practice(transcript, len(audio_bytes) / 32000.0)
     except Exception as e:
-        _wizard_result = f"(Error: {e})"
-        _log_to_file(f"Wizard transcription error: {e}")
-        _push_wizard_result(_wizard_result)
+        _wizard_result = None
+        _log_to_file(f"Wizard practice error: {type(e).__name__}: {e}")
+        _push_wizard_error("Something went wrong with that one. Hold the keys and try again.")
+
+
+def _wizard_finish_practice(transcript: str, audio_seconds: float):
+    """The rest of setup's practice dictation: the clean-up every dictation
+    gets, "You said" next to "Waffler wrote" on screen, and the result saved
+    as the first Journal entry (src/first_run.py). Nothing is pasted: the
+    user is looking at Waffler's own window."""
+    _push_wizard_js("wizOnCleaning", transcript)
+    styler = _wizard_styler
+
+    def _style(text):
+        if styler is None:
+            raise RuntimeError("no styling providers configured")
+        return styler.style(text)
+
+    def _plain(text):
+        try:
+            return styler._format_email_layout(styler._basic_clean(text)) if styler else text
+        except Exception:
+            return text
+
+    result = _first_run.finish_practice(transcript, _style, _plain)
+    usage = result["usage"]
+    provider = "groq" if os.getenv("GROQ_API_KEY") else "openai"
+    record_usage_safely("whisper", duration_seconds=audio_seconds, provider=provider)
+    if usage.get("api_used"):
+        record_usage_safely("gpt", input_tokens=usage.get("input_tokens", 0),
+                            output_tokens=usage.get("output_tokens", 0),
+                            provider=usage.get("provider", "openai"))
+    saved = append_history_safely(_first_run.journal_entry(result["said"], result["wrote"]))
+    _log_to_file(f"Wizard practice finished: cleaned={result['cleaned']} "
+                 f"provider={usage.get('provider', 'none')} saved={saved}")
+    _push_wizard_js("wizOnPracticeResult", {
+        "said": result["said"], "wrote": result["wrote"],
+        "cleaned": result["cleaned"], "note": result["note"], "saved": saved,
+    })
+
+
+def _push_wizard_js(fn: str, payload):
+    """Call window.<fn>(payload) in the setup page, if it is there."""
+    if _window:
+        try:
+            _window.evaluate_js(f"window.{fn} && window.{fn}({json.dumps(payload)})")
+        except Exception:
+            pass
+
+
+def _push_wizard_error(message: str):
+    _push_wizard_js("wizOnPracticeError", message)
 
 
 def _push_wizard_silent():
@@ -2437,16 +2699,6 @@ def _push_wizard_silent():
     if _window:
         try:
             _window.evaluate_js("window.wizOnSilentRecording && window.wizOnSilentRecording()")
-        except Exception:
-            pass
-
-
-def _push_wizard_result(text: str):
-    """Push wizard transcription result to JS."""
-    if _window:
-        try:
-            result_json = json.dumps(text)
-            _window.evaluate_js(f"window.wizOnTranscriptionResult && window.wizOnTranscriptionResult({result_json})")
         except Exception:
             pass
 
@@ -4852,6 +5104,10 @@ def _perform_factory_reset():
                 import shutil
                 shutil.rmtree(data_dir)
                 _log_to_file("[factory reset] Data directory cleared")
+            try:
+                LoginItem().disable()
+            except Exception:
+                pass
 
             # Show success message
             rumps.alert(
@@ -5013,7 +5269,7 @@ def _disable_input_source_shortcut():
 
 
 def main():
-    global _config, _window_ref
+    global _config, _window_ref, _window_hidden
 
     # Load config (reads .env from project root via dotenv)
     os.chdir(PROJECT_ROOT)  # so config.yaml and .env are found
@@ -5215,6 +5471,23 @@ def main():
         _log_to_file(f"[theme] window background fell back to cream: {_e}")
         _window_bg = "#FDFCFC"
 
+    # Started at sign-in (src/login_item.py passes --hidden): wait in the
+    # tray or menu bar with the hotkey ready instead of opening the window
+    # on every login. Only once setup is done; before that the window is
+    # where setup happens.
+    start_hidden = (_HIDDEN_FLAG in sys.argv and config.has_api_key
+                    and _is_setup_complete())
+    if start_hidden:
+        _window_hidden = True
+        _log_to_file("Started at sign-in: window stays hidden until opened")
+    # An update can install to a new folder; keep an existing start-at-sign-in
+    # entry pointing at this copy. Never switches it on by itself.
+    try:
+        if LoginItem().refresh():
+            _log_to_file("[login item] start at sign-in now points at this copy")
+    except Exception as _e:
+        _log_to_file(f"[login item] refresh skipped: {_e}")
+
     window = webview.create_window(
         title="Waffler",
         url=str(html_path),
@@ -5226,6 +5499,7 @@ def main():
         js_api=api,
         frameless=False,
         easy_drag=False,
+        hidden=start_hidden,
     )
 
     set_window(window)
