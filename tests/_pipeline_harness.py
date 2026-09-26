@@ -46,7 +46,7 @@ PIPELINE_METHODS = (
     "_ui_offer", "_ui_withdraw_offer", "_ui_finished", "_ui_stuck",
     "_save_unsent_recording", "_handle_failed_transcription", "_count_unsent",
     "_replace_unsent_entry", "resend_unsent", "delete_unsent", "_drain_unsent",
-    "_drain_unsent_soon", "_fill_unsent_card", "_in_flight",
+    "_drain_unsent_soon", "_on_hotkey_cancel", "_fill_unsent_card", "_in_flight",
     "_collect_late_words", "_late_words_arrived", "_keep_late_recording",
 )
 MODULE_DEFS = ("ensure_data_dir", "load_history", "save_history", "append_history",

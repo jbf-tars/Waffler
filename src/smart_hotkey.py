@@ -72,8 +72,9 @@ class SmartHotkeyListener:
         self._hotkey_held = False   # Hotkey currently down
         self._sticky = False        # Locked-on (toggle) mode active
         self._recording = False     # Are we recording right now?
-        # True while a finished recording is being turned into text. Esc then
-        # cancels that dictation too (set_processing, called by the pipeline).
+        # True while the pipeline's "still working" offer is on screen for a
+        # dictation being processed. Esc then stops that wait too
+        # (set_processing, called by the pipeline).
         self._processing = False
 
         # v3.14.30 diagnostic: each listener gets an id so the log says
@@ -216,10 +217,12 @@ class SmartHotkeyListener:
         """
         if not self._recording:
             if self._processing:
-                # The recording is finished but still being turned into
-                # text: Esc cancels that dictation. Esc still reaches the
-                # app in front, as it always has.
-                _diag_log(f"[HOTKEY/{self._id}] Esc → CANCEL the dictation being processed")
+                # The pipeline arms this only while its "still working" offer
+                # is on screen: Esc then stops the wait and the recording is
+                # kept in the Journal. Straight after letting go Esc is left
+                # alone (it closes the emoji picker Fn can open, for one).
+                # Esc still reaches the app in front, as it always has.
+                _diag_log(f"[HOTKEY/{self._id}] Esc → stop waiting for the dictation being processed")
                 self._fire_cancel()
             return  # No-op outside recording so Esc still works in dialogs/vim
         _diag_log(
@@ -280,8 +283,9 @@ class SmartHotkeyListener:
     # ── State management ──────────────────────────────────────────────
 
     def set_processing(self, processing: bool):
-        """The pipeline calls this while a dictation is being processed, so
-        Esc can cancel it (WindowsHotkeyListener.set_processing, same)."""
+        """The pipeline calls this while its "still working" offer is on
+        screen, so Esc can stop that wait (WindowsHotkeyListener.set_processing,
+        same). The rest of the time Esc belongs to the app in front."""
         self._processing = bool(processing)
 
     def reset_state(self):

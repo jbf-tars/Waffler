@@ -18,7 +18,8 @@ first:
 
   * the step finishes, or raises (an exception becomes a result, never a
     crash in a thread nobody watches);
-  * the user decides: Cancel (Esc or the pill's X), "Send later" while
+  * the user decides: Cancel (the pill's X or the offer's Cancel; Esc while
+    the offer is on screen, which keeps what exists), "Send later" while
     speech to text is slow, or "Paste as is" while the clean-up is slow;
   * the step's deadline passes.
 
@@ -219,6 +220,13 @@ class DictationRun:
         self.offered = False
         self.offer_dismissed = False
         self.withdraw_pending = False
+        # The stage whose offer the UI actually put on screen (on_offer shows
+        # nothing for some stages). Esc only acts while it is up.
+        self._offer_visible_stage = None
+        # A cancel that keeps what exists (Esc: it also reaches the app in
+        # front, so it may not have been meant for Waffler). A click on the
+        # pill's X or the offer's Cancel keeps nothing, and wins.
+        self.cancel_keeps = False
         self.outcome = None
         # Set when the watchdog gave up on this run. The pipeline must then
         # not paste, whatever it produces later.
@@ -273,6 +281,7 @@ class DictationRun:
                 self.stage_deadline = self.stage_limit(stage)
                 self.offered = False
                 self.offer_dismissed = False
+                self._offer_visible_stage = None
                 # A choice made for the previous stage does not carry over,
                 # except Cancel, which is remembered in _cancelled.
                 self._decision = None
@@ -280,9 +289,30 @@ class DictationRun:
     def choices(self):
         return STAGE_CHOICES.get(self.stage, ())
 
-    def decide(self, choice: str) -> bool:
+    def offer_shown(self):
+        """The UI has put this stage's offer on screen."""
+        with self._lock:
+            if self.offered and self.outcome is None:
+                self._offer_visible_stage = self.stage
+
+    def close_offer(self):
+        """The offer has gone from the screen (one of its buttons was
+        clicked, and the toast closes itself)."""
+        with self._lock:
+            self.offer_dismissed = True
+
+    def offer_on_screen(self) -> bool:
+        """True while this stage's offer is showing and unanswered."""
+        with self._lock:
+            return (self.outcome is None and self.offered and not self.offer_dismissed
+                    and self._offer_visible_stage == self.stage)
+
+    def decide(self, choice: str, keep: bool = False) -> bool:
         """Record the user's choice. Returns False when the current stage
-        does not take it (for example Cancel while pasting)."""
+        does not take it (for example Cancel while pasting).
+
+        ``keep`` (Cancel only) asks the pipeline to keep what exists instead
+        of throwing it away; a later Cancel without it overrides it."""
         with self._lock:
             if choice == KEEP_WAITING:
                 self.offer_dismissed = True
@@ -292,6 +322,7 @@ class DictationRun:
             if choice not in STAGE_CHOICES.get(self.stage, ()):
                 return False
             if choice == CANCEL:
+                self.cancel_keeps = bool(keep) and (self.cancel_keeps or not self._cancelled)
                 self._cancelled = True
             self._decision = choice
         self._wake.set()

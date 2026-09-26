@@ -93,6 +93,7 @@
       rate_limited: `${P} said you'd reached your limit for now. ${kept}`,
       later: `You chose to send this later. ${kept}`,
       stuck: `Waffler stopped waiting for this one. ${kept}`,
+      cancelled: `You pressed Esc while this was being turned into text, so nothing was pasted. ${kept}`,
       empty: "This recording was sent again, but no words could be heard in it.",
       error: `This wasn't turned into text. ${kept}`,
     }[reason] || `This wasn't turned into text. ${kept}`;

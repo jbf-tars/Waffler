@@ -22,6 +22,9 @@ This module holds the rules; app.py does the sending. The rules:
   * A request Waffler stopped waiting for is still answered, and billed, by
     the provider. While it runs nothing sends that recording again, and the
     words it brings back go into the card (app.py _collect_late_words).
+  * A recording cancelled with Esc during processing is kept, because Esc
+    also reaches the app in front, but it is not waiting to be sent: only
+    Try again sends it.
 """
 
 import re
@@ -52,6 +55,11 @@ REASON_STUCK = "stuck"
 REASON_ERROR = "error"
 # Sent again and it went through, but no words could be heard in it.
 REASON_EMPTY = "empty"
+# Esc was pressed while it was being turned into text. Esc also reaches the
+# app in front, so it may not have been meant for Waffler: the recording is
+# kept, but only Try again sends it (and a request already on its way can
+# still fill the card).
+REASON_CANCELLED = "cancelled"
 
 
 def classify_reason(error_text: str) -> str:
@@ -62,6 +70,8 @@ def classify_reason(error_text: str) -> str:
         return REASON_LATER
     if lower == REASON_STUCK:
         return REASON_STUCK
+    if lower == REASON_CANCELLED:
+        return REASON_CANCELLED
     if "deadline" in lower or "took too long" in lower:
         return REASON_TIMEOUT
     if ("403" in text or "401" in text or "access denied" in lower
@@ -86,6 +96,9 @@ def toast_text(reason: str, provider: str = "", saved: bool = True):
         return ("Not sent", "This one wasn't turned into text, and the recording "
                             "couldn't be saved. Please say it again.")
     kept = "Your recording is saved in the Journal"
+    if reason == REASON_CANCELLED:
+        return ("Cancelled", "Nothing was pasted. Your recording is in the Journal "
+                             "if you want it after all.")
     if reason == REASON_LATER:
         return ("Saved for later", f"Waffler will send it when {p} answers. "
                                    f"It's in the Journal.")
@@ -160,18 +173,27 @@ def find_entry(history: list, unsent_id: str):
     return -1, None
 
 
-def pending(history: list, unsent_dir: Path) -> list:
+def pending(history: list, unsent_dir: Path, *, include_cancelled: bool = True) -> list:
     """Every Not sent entry whose recording is still on disk, oldest first,
-    as (unsent_id, entry, path)."""
+    as (unsent_id, entry, path). ``include_cancelled=False`` leaves out the
+    ones cancelled with Esc: they are kept, but not waiting to be sent."""
     out = []
     for entry in history:
         uid = entry_id(entry)
         if not uid:
             continue
+        if not include_cancelled and not is_waiting(entry):
+            continue
         path = resolve_file(unsent_dir, uid)
         if path is not None:
             out.append((uid, entry, path))
     return out
+
+
+def is_waiting(entry: dict) -> bool:
+    """True when Waffler means to send this recording: every Not sent
+    recording except one cancelled with Esc, which waits for Try again."""
+    return entry.get("not_sent_reason") != REASON_CANCELLED
 
 
 def _parse(ts):
@@ -192,8 +214,8 @@ def auto_retry_due(entry: dict, now: datetime = None, ignore_backoff: bool = Fal
     made = _parse(entry.get("timestamp"))
     if made is None or now - made > AUTO_MAX_AGE:
         return False
-    if entry.get("not_sent_reason") == REASON_EMPTY:
-        return False       # it was sent; nothing could be heard in it
+    if entry.get("not_sent_reason") in (REASON_EMPTY, REASON_CANCELLED):
+        return False       # nothing could be heard in it, or it was cancelled
     attempts = int(entry.get("auto_attempts") or 0)
     if attempts >= AUTO_MAX_ATTEMPTS:
         return False
@@ -210,7 +232,7 @@ def will_auto_retry(entry: dict, now: datetime = None) -> bool:
     made = _parse(entry.get("timestamp"))
     if made is None or now - made > AUTO_MAX_AGE:
         return False
-    if entry.get("not_sent_reason") == REASON_EMPTY:
+    if entry.get("not_sent_reason") in (REASON_EMPTY, REASON_CANCELLED):
         return False
     return int(entry.get("auto_attempts") or 0) < AUTO_MAX_ATTEMPTS
 

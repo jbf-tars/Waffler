@@ -138,6 +138,21 @@ def test_a_choice_also_hands_over_the_step_and_an_answer_has_none():
     assert run.call(lambda: 1 / 0, stage=pw.STYLING, deadline=1).late is None
 
 
+def test_a_click_on_cancel_wins_over_esc():
+    """Esc keeps what exists (it also reaches the app in front); the pill's X
+    and the offer's Cancel are clicks on Waffler and keep nothing, in either
+    order."""
+    run = pw.DictationRun(1)
+    run.enter(pw.TRANSCRIBING)
+    assert run.decide(pw.CANCEL, keep=True) and run.cancelled and run.cancel_keeps
+    assert run.decide(pw.CANCEL) and run.cancelled and not run.cancel_keeps
+    run = pw.DictationRun(2)
+    run.enter(pw.TRANSCRIBING)
+    run.decide(pw.CANCEL)
+    run.decide(pw.CANCEL, keep=True)
+    assert run.cancelled and not run.cancel_keeps
+
+
 # ── the watchdog's tick (fake clock) ─────────────────────────────────────────
 
 class Clock:
@@ -246,6 +261,38 @@ def test_an_older_dictation_never_touches_the_pill_of_a_newer_recording():
     assert seen["working"] == [] and seen["offer"] == []
 
 
+def test_the_offer_counts_as_on_screen_only_once_shown_and_until_answered():
+    """Esc acts only while the offer is really showing: not before the
+    threshold, not for a stage whose offer the UI does not draw, not after
+    "Keep waiting" or a click on one of its buttons, not in the next stage."""
+    clock = Clock()
+    wd, seen = _watchdog(clock)
+    run = wd.begin(1)
+    run.enter(pw.PREPARING)
+    clock.t += 9
+    wd.tick()
+    assert run.offered and not run.offer_on_screen(), "nothing was drawn for this stage"
+    run.enter(pw.TRANSCRIBING)
+    assert not run.offer_on_screen()
+    clock.t += 9
+    wd.tick()
+    assert seen["offer"][-1] == pw.TRANSCRIBING and not run.offer_on_screen()
+    run.offer_shown()
+    assert run.offer_on_screen()
+    run.decide(pw.KEEP_WAITING)
+    assert not run.offer_on_screen()
+    run.enter(pw.STYLING)
+    clock.t += 9
+    wd.tick()
+    run.offer_shown()
+    assert run.offer_on_screen()
+    run.close_offer()                  # one of its buttons was clicked
+    assert not run.offer_on_screen()
+    wd.end(run, pw.DONE)
+    run.offer_shown()
+    assert not run.offer_on_screen()
+
+
 def test_the_watchdog_thread_stops_when_nothing_is_processing():
     wd = pw.PipelineWatchdog(tick_s=0.02)
     run = wd.begin(1)
@@ -278,21 +325,24 @@ def test_a_provider_that_hangs_gets_the_offer_then_cancel_stops_it_without_pasti
     t0 = time.monotonic()
     worker = run_process(p)
 
-    # Straight away: the pill stays up in its working look, the window says
-    # it is working, and Esc is armed.
+    # Straight away: the pill stays up in its working look and the window
+    # says it is working. Esc is not armed yet: straight after letting go it
+    # belongs to the app in front (the review of Round A).
     assert wait_for(lambda: "show_working" in p.overlay.names(), timeout=1)
     assert p.page.statuses[:1] == ["processing"]
-    assert p.hotkey_listener.processing[:1] == [True]
+    assert p.hotkey_listener.processing == []
     assert "hide" not in p.overlay.names()
 
-    # At the threshold (shrunk to 0.4 s), the choices.
+    # At the threshold (shrunk to 0.4 s), the choices, and Esc is armed.
     assert wait_for(lambda: p.overlay.toasts(), timeout=2)
     offer = p.overlay.toasts()[0]
     assert offer["style"] == "info" and offer["heading"] == "Still working on it"
     assert [b["label"] for b in offer["buttons"]] == ["Keep waiting", "Send later", "Cancel"]
     assert time.monotonic() - t0 >= pw.OFFER_MIN_S * 0.9
+    assert wait_for(lambda: p.hotkey_listener.processing[:1] == [True], timeout=1)
 
-    # Esc (the hotkey listener calls _on_overlay_cancel while processing).
+    # The pill's X: a click on Waffler itself, so it keeps nothing. (Esc
+    # keeps the recording: see the tests further down.)
     p._on_overlay_cancel()
     worker.join(2)
     hang.release.set()
@@ -609,6 +659,114 @@ def test_mac_esc_cancels_while_processing_and_not_otherwise():
     set_processing(False)
     esc()
     assert cancels == [1]
+
+
+# ── Esc during processing, through the pipeline (review of Round A) ──────────
+# Esc also reaches the app in front, so a reflex Esc straight after letting go
+# (closing the emoji picker a Mac's Fn key opens, the Start menu, an
+# autocomplete list) used to throw the dictation away with nothing kept. Now
+# Esc acts only while the offer is on screen, and keeps what exists.
+
+def test_esc_straight_after_letting_go_is_left_to_the_app_in_front(tmp_path, limits):
+    hang = Hang(30)
+    p = make_pipeline(tmp_path, transcriber=FakeTranscriber(hang=hang))
+    worker = run_process(p)
+    assert wait_for(lambda: hang.entered.is_set(), timeout=2)
+    assert p.overlay.toasts() == [], "the offer is not up yet"
+    p._on_hotkey_cancel()                      # Esc, as the listener passes it on
+    hang.release.set()
+    worker.join(3)
+    assert not worker.is_alive()
+    assert p.clipboard.pastes == ["Ok so ship it on monday."]
+    assert p.page.statuses[-1] == "done"
+    assert any("left to the app in front" in line for line in p.logged)
+
+
+def test_esc_while_the_offer_is_up_stops_the_wait_and_keeps_the_recording(tmp_path, limits):
+    hang = Hang(30)
+    p = make_pipeline(tmp_path, transcriber=FakeTranscriber(hang=hang))
+    worker = run_process(p)
+    assert wait_for(lambda: p.overlay.toasts(), timeout=2)
+    assert wait_for(lambda: p.hotkey_listener.processing[-1:] == [True], timeout=1)
+    p._on_hotkey_cancel()
+    worker.join(2)
+    assert not worker.is_alive(), "Esc did not end the wait"
+    assert p.clipboard.copies == [] and p.clipboard.pastes == []
+    [entry] = history(p)
+    assert entry["failed"] and entry["not_sent_reason"] == "cancelled"
+    assert entry["will_retry"] is False
+    assert (tmp_path / "unsent" / entry["unsent_id"]).is_file()
+    toast = p.overlay.toasts()[-1]
+    assert toast["heading"] == "Cancelled" and "Journal" in toast["body"]
+    assert p.page.statuses[-1] == "cancelled"
+    assert p.hotkey_listener.processing[-1] is False
+    # Kept, but not waiting to be sent: not counted, and not sent by itself.
+    assert p._count_unsent() == 0 and p._unsent_waiting == 0
+    calls = p.transcriber.calls
+    p._drain_unsent("test", ignore_backoff=True)
+    assert p.transcriber.calls == calls
+    # The request it stopped waiting for still answers, and it has been
+    # paid for: the words go into the card, and nothing is pasted.
+    hang.release.set()
+    assert wait_for(lambda: "failed" not in history(p)[0], timeout=5)
+    assert history(p)[0]["text"] == "ok so ship it on monday"
+    assert p.transcriber.calls == calls and p.clipboard.pastes == []
+
+
+def test_esc_during_the_clean_up_offer_keeps_the_words_and_pastes_nothing(tmp_path, limits):
+    hang = Hang(30)
+    p = make_pipeline(tmp_path, styler=FakeStyler(hang=hang))
+    worker = run_process(p)
+    assert wait_for(lambda: any(t["heading"] == "Still cleaning up"
+                                for t in p.overlay.toasts()), timeout=3)
+    assert wait_for(lambda: p.hotkey_listener.processing[-1:] == [True], timeout=1)
+    p._on_hotkey_cancel()
+    worker.join(2)
+    hang.release.set()
+    assert not worker.is_alive()
+    assert p.clipboard.copies == [] and p.clipboard.pastes == []
+    [entry] = history(p)
+    assert entry["text"] == "ok so ship it on monday" and not entry.get("failed")
+    assert p.page.statuses[-1] == "cancelled"
+    assert p.overlay.toasts()[-1]["heading"] == "Cancelled"
+    assert ("end_working", ("quiet",), {}) in p.overlay.calls
+
+
+def test_after_keep_waiting_esc_belongs_to_the_app_in_front_again(tmp_path, limits):
+    hang = Hang(30)
+    p = make_pipeline(tmp_path, transcriber=FakeTranscriber(hang=hang))
+    worker = run_process(p)
+    assert wait_for(lambda: p.overlay.toasts(), timeout=2)
+    p._on_toast_action(pw.KEEP_WAITING)
+    assert p.hotkey_listener.processing[-1] is False
+    p._on_hotkey_cancel()
+    time.sleep(0.3)
+    assert worker.is_alive(), "Esc after Keep waiting stopped the dictation"
+    hang.release.set()
+    worker.join(3)
+    assert p.clipboard.pastes == ["Ok so ship it on monday."]
+
+
+def test_esc_while_recording_still_discards_the_recording(tmp_path, limits):
+    p = make_pipeline(tmp_path)
+    p.is_recording = True
+    p._on_hotkey_cancel()
+    assert p.is_recording is False and p._processing_cancelled.is_set()
+    assert "hide" in p.overlay.names()
+    assert history(p) == []
+
+
+def test_both_listeners_pass_esc_to_the_entry_point_that_keeps_the_recording():
+    src = (ROOT / "app.py").read_text(encoding="utf-8")
+    assert src.count("on_cancel=self._on_hotkey_cancel") == 2
+    assert src.count("on_cancel=_pipeline._on_hotkey_cancel") == 2, "after a hotkey change too"
+    assert "on_cancel=self._on_overlay_cancel," in src      # the overlay's X
+    tree = ast.parse(src)
+    klass = next(n for n in tree.body if isinstance(n, ast.ClassDef)
+                 and n.name == "WafflerPipeline")
+    begin = next(n for n in klass.body if isinstance(n, ast.FunctionDef) and n.name == "_ui_begin")
+    assert "_set_listener_processing(True)" not in ast.unparse(begin), \
+        "Esc must not be armed straight after letting go"
 
 
 # ── A recording that is slow to stop (review of Round A) ─────────────────────

@@ -545,3 +545,28 @@ def test_a_resend_given_up_on_is_kept_too(tmp_path, monkeypatch):
     hang.release.set()
     assert wait_for(lambda: "failed" not in history(p)[0], timeout=5)
     assert p.transcriber.calls == calls
+
+
+# ── cancelled with Esc ───────────────────────────────────────────────────────
+
+def test_a_recording_cancelled_with_esc_waits_for_try_again():
+    now = datetime.now()
+    entry = {"failed": True, "timestamp": now.isoformat(timespec="seconds"),
+             "not_sent_reason": "cancelled"}
+    assert unsent.classify_reason("cancelled") == "cancelled"
+    assert unsent.will_auto_retry(entry, now) is False
+    assert unsent.auto_retry_due(entry, now, ignore_backoff=True) is False
+    assert unsent.is_waiting(entry) is False
+    heading, body = unsent.toast_text("cancelled", "Groq")
+    assert heading == "Cancelled" and "Journal" in body and "pasted" in body
+    # A Try again that fails makes it an ordinary Not sent recording.
+    tried = unsent.with_attempt(entry, auto=False, reason="offline", now=now)
+    assert unsent.is_waiting(tried) and unsent.will_auto_retry(tried, now)
+
+
+@pytest.mark.skipif(NODE is None, reason="needs Node.js to run ui/logic.js")
+def test_the_cancelled_card_says_esc_and_offers_try_again():
+    v = js("L.notSentView({failed: true, unsent_id: 'recording-2026-09-26T10-04-31.wav', "
+           "not_sent_reason: 'cancelled', will_retry: false, provider_name: 'Groq'})")
+    assert "Esc" in v["text"] and "nothing was pasted" in v["text"]
+    assert v["canRetry"] is True and v["next"] == "Press Try again to send it."

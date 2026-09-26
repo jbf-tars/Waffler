@@ -1235,7 +1235,8 @@ class Api:
         """Settings' "Send now": try every waiting recording once."""
         if not _pipeline:
             return {"ok": False, "reason": "not_ready", "sent": 0, "total": 0}
-        waiting = _unsent.pending(load_history(), DATA_DIR / _unsent.UNSENT_DIRNAME)
+        waiting = _unsent.pending(load_history(), DATA_DIR / _unsent.UNSENT_DIRNAME,
+                                  include_cancelled=False)
         sent = 0
         for uid, _entry, _path in waiting:
             r = _pipeline.resend_unsent(uid, auto=False)
@@ -1296,7 +1297,8 @@ class Api:
     def get_unsent_summary(self) -> dict:
         """How many recordings are waiting to be sent (Settings, Data)."""
         try:
-            waiting = _unsent.pending(load_history(), DATA_DIR / _unsent.UNSENT_DIRNAME)
+            waiting = _unsent.pending(load_history(), DATA_DIR / _unsent.UNSENT_DIRNAME,
+                                      include_cancelled=False)
         except Exception:
             waiting = []
         return {
@@ -1701,7 +1703,7 @@ class Api:
                         _pipeline.hotkey_listener = WindowsHotkeyListener(
                             on_press=_pipeline.on_hotkey_press,
                             on_release=_pipeline.on_hotkey_release,
-                            on_cancel=_pipeline._on_overlay_cancel,  # v3.14.37 — Esc cancels
+                            on_cancel=_pipeline._on_hotkey_cancel,   # Esc (see its docstring)
                             keys=keys,
                         )
                     elif _platform.system() == "Darwin":
@@ -1709,7 +1711,7 @@ class Api:
                         _pipeline.hotkey_listener = SmartHotkeyListener(
                             on_press=_pipeline.on_hotkey_press,
                             on_release=_pipeline.on_hotkey_release,
-                            on_cancel=_pipeline._on_overlay_cancel,  # v3.14.37 — Esc cancels
+                            on_cancel=_pipeline._on_hotkey_cancel,   # Esc (see its docstring)
                             keys=keys,
                         )
                     _log_to_file("New hotkey listener starting...")
@@ -2951,10 +2953,11 @@ class WafflerPipeline:
                 if hasattr(self.hotkey_listener, 'reset_state'):
                     self.hotkey_listener.reset_state()
             return
-        # Not recording: Esc or the working pill's X cancels the dictation
-        # that is being processed. Its wait ends at once (the watchdog run
-        # wakes it) and nothing is pasted. Once the paste has started it is
-        # too late, and the words are kept.
+        # Not recording: the working pill's X cancels the dictation that is
+        # being processed. Its wait ends at once (the watchdog run wakes it)
+        # and nothing is pasted or kept. Once the paste has started it is too
+        # late, and the words are kept. (Esc goes to _on_hotkey_cancel, which
+        # keeps the recording.)
         watchdog = getattr(self, "_watchdog", None)
         run = watchdog.current_run() if watchdog is not None else None
         if run is not None:
@@ -2962,6 +2965,37 @@ class WafflerPipeline:
                 _log_to_file(f"Dictation {run.generation} cancelled by user during {run.stage}")
             else:
                 _log_to_file(f"Cancel during {run.stage} ignored: too late, keeping the words")
+
+    def _on_hotkey_cancel(self):
+        """Esc, from the hotkey listener.
+
+        While recording it discards the recording, as it always has. While a
+        dictation is being processed it acts only once the "still working"
+        offer is on screen, and even then it keeps the recording (or the
+        words) in the Journal and pastes nothing. Esc also reaches the app
+        in front, so a reflex Esc straight after letting go (closing the
+        emoji picker a Mac's Fn key opens, the Start menu, an autocomplete
+        list) used to throw the dictation away without a trace. The pill's
+        X and the offer's Cancel are clicks on Waffler itself: they still
+        discard."""
+        with self._processing_lock:
+            recording = self.is_recording
+        if recording:
+            self._on_overlay_cancel()
+            return
+        watchdog = getattr(self, "_watchdog", None)
+        run = watchdog.current_run() if watchdog is not None else None
+        if run is None:
+            return
+        if not run.offer_on_screen():
+            _log_to_file(f"Esc during {run.stage} left to the app in front "
+                         f"(no offer on screen)")
+            return
+        if run.decide(_pw.CANCEL, keep=True):
+            _log_to_file(f"Dictation {run.generation} stopped with Esc during {run.stage}; "
+                         f"nothing pasted, the recording is kept")
+        else:
+            _log_to_file(f"Esc during {run.stage} ignored: too late, keeping the words")
 
     def _on_overlay_stop(self):
         """User clicked ■ on overlay — stop & process."""
@@ -2990,13 +3024,16 @@ class WafflerPipeline:
             self.overlay.hide_toast()
         elif action in (_pw.KEEP_WAITING, _pw.PASTE_RAW, _pw.SEND_LATER, "cancel_processing"):
             # An answer to the "still working" offer (_ui_offer). The toast
-            # has already closed itself and the working pill is back.
+            # has already closed itself and the working pill is back, so Esc
+            # goes back to the app in front.
+            self._set_listener_processing(False)
             run = self._watchdog.current_run()
             if run is None:
                 return
             choice = _pw.CANCEL if action == "cancel_processing" else action
             if not run.decide(choice):
                 _log_to_file(f"Offer answer '{action}' came too late ({run.stage})")
+            run.close_offer()
         elif action == "open_journal":
             self._show_journal()
         elif action == "select_mic":
@@ -3213,8 +3250,9 @@ class WafflerPipeline:
         Every blocking step runs through this dictation's watchdog run
         (src/pipeline_watchdog.py): a hung provider, a hung paste or an
         exception on a worker thread ends in a tick or a plain message, never
-        in a pill that sits on "Processing". Esc and the working pill's X can
-        stop it at any point before the paste."""
+        in a pill that sits on "Processing". The working pill's X can stop it
+        at any point before the paste; Esc can while the "still working"
+        offer is on screen, and then the recording or words are kept."""
 
         # One watchdog run per dictation. It shows the working pill at once
         # and is ended in the finally below with how the dictation ended.
@@ -3235,7 +3273,7 @@ class WafflerPipeline:
                 return processing_id != self._processing_id
 
         def _is_cancelled_explicitly():
-            """The user cancelled THIS generation (Esc / overlay cancel)."""
+            """The user cancelled THIS generation (the overlay's X or Cancel)."""
             with self._processing_lock:
                 if processing_id != self._processing_id:
                     return False
@@ -3514,17 +3552,20 @@ class WafflerPipeline:
             _asr = run.call(self._transcribe_with_provenance, audio_bytes,
                             stage=_pw.TRANSCRIBING,
                             deadline=_pw.transcribe_deadline_s(run.audio_seconds))
-            if _asr.status == _pw.CANCEL:
+            if _asr.status == _pw.CANCEL and not run.cancel_keeps:
                 _log_to_file(f"Processing {processing_id} cancelled during transcription")
                 _outcome = _pw.CANCELLED
                 return
             if not _asr.ok:
                 # No transcription engine could turn the audio into text: a
                 # failure (often a VPN exit IP that Groq blocks), the
-                # deadline, or the user chose "Send later". The recording is
-                # kept as a Not sent card in the Journal, and sent again when
-                # the provider answers (src/unsent.py).
-                if _asr.status == _pw.SEND_LATER:
+                # deadline, the user chose "Send later", or Esc while the
+                # offer was up. The recording is kept as a Not sent card in
+                # the Journal, and sent again when the provider answers
+                # (src/unsent.py); one cancelled with Esc waits for Try again.
+                if _asr.status == _pw.CANCEL:
+                    _why = _unsent.REASON_CANCELLED
+                elif _asr.status == _pw.SEND_LATER:
                     _why = _unsent.REASON_LATER
                 elif _asr.status == _pw.DEADLINE:
                     _why = (f"deadline: no answer in "
@@ -3541,7 +3582,7 @@ class WafflerPipeline:
                     # be billed: its answer goes into the card, and nothing
                     # sends this recording again while it runs.
                     self._collect_late_words(_uid, _asr.late, run.audio_seconds)
-                _outcome = _pw.NOT_SENT
+                _outcome = _pw.CANCELLED if _asr.status == _pw.CANCEL else _pw.NOT_SENT
                 return
             transcript, _asr_info = _asr.value
             _t_transcribe = (time.time() - _t0) * 1000
@@ -3584,13 +3625,15 @@ class WafflerPipeline:
             _t1 = time.time()
             _sty = run.call(self.styler.style, transcript, stage=_pw.STYLING,
                             deadline=_pw.STYLE_DEADLINE_S)
-            if _sty.status == _pw.CANCEL:
+            if _sty.status == _pw.CANCEL and not run.cancel_keeps:
                 _log_to_file(f"Processing {processing_id} cancelled during styling")
                 _outcome = _pw.CANCELLED
                 return
             if _sty.ok:
                 styled, gpt_usage = _sty.value
             else:
+                # Includes Esc while the offer was up: the words exist, so
+                # they are kept (as said) and saved below, but not pasted.
                 styled = self._unstyled(transcript)
                 gpt_usage = {"input_tokens": 0, "output_tokens": 0,
                              "api_used": False, "provider": "basic_clean"}
@@ -3610,8 +3653,9 @@ class WafflerPipeline:
             # plain words (src/user_messages.py cleanup_skipped_message):
             # "Clean-up paused for about 17 minutes" after a limit, and a
             # sentence for a block, no connection, running out of time or no
-            # key. The styler's raw reason stays in the log.
-            if gpt_usage.get("fallback_reason"):
+            # key. The styler's raw reason stays in the log. Not after Esc:
+            # that dictation gets its own message below.
+            if gpt_usage.get("fallback_reason") and not run.cancel_keeps:
                 reason = gpt_usage["fallback_reason"]
                 heading, body = cleanup_skipped_message(reason)
                 _log_to_file(f"[pipeline] styling fell back to basic_clean: {reason}")
@@ -3652,6 +3696,13 @@ class WafflerPipeline:
                 _superseded = processing_id != self._processing_id or run.abandoned
                 _cancelled = ((not _superseded) and self._processing_cancelled.is_set()) \
                     or run.cancelled
+            # Esc while the offer was up is treated like a superseded one too:
+            # the words are kept in the Journal and nothing is pasted, because
+            # Esc also reaches the app in front and may not have been meant
+            # for Waffler. A click on the X or Cancel still discards.
+            _esc_kept = run.cancelled and run.cancel_keeps
+            if _esc_kept:
+                _superseded, _cancelled = True, False
             _policy = _decide(superseded=_superseded, cancelled=_cancelled)
 
             if not _policy["save_history"]:
@@ -3848,7 +3899,23 @@ class WafflerPipeline:
             except Exception as _e:
                 _log_to_file(f"[quality] assessment failed: {_e}")
             _saved = append_history_safely(item)
-            if not _saved:
+            if _esc_kept:
+                # Said only while this dictation still owns the pill.
+                if self._run_is_current(run):
+                    try:
+                        self.overlay.show_toast(
+                            style="warn", heading="Cancelled",
+                            body=("Nothing was pasted. Your words are in the Journal if "
+                                  "you want them after all." if _saved else
+                                  "Nothing was pasted, and Waffler couldn't save your "
+                                  "words to the Journal."),
+                            buttons=([{"label": "Show in Journal", "action": "open_journal",
+                                       "kind": "primary"},
+                                      {"label": "Dismiss", "action": "dismiss",
+                                       "kind": "secondary"}] if _saved else None))
+                    except Exception:
+                        pass
+            elif not _saved:
                 # The words were pasted (or are on the clipboard); only the
                 # History copy is missing. Say so, and leave the clipboard.
                 try:
@@ -3873,7 +3940,7 @@ class WafflerPipeline:
             _log_to_file(f"Done: {len(styled.split())} words, {len(styled)} chars")
             if _transcripts_loggable():
                 _log_to_file(f"Styled text: {styled}")
-            _outcome = _pw.DONE
+            _outcome = _pw.CANCELLED if _esc_kept else _pw.DONE
 
             # A dictation just went through, so the speech service answers:
             # send any recordings that are waiting (src/unsent.py).
@@ -4038,6 +4105,9 @@ class WafflerPipeline:
             return run.generation == self._processing_id and not self.is_recording
 
     def _set_listener_processing(self, active: bool):
+        """Arm Esc for the dictation being processed (the listener passes it
+        to _on_hotkey_cancel). Armed only while the "still working" offer is
+        on screen; the rest of the time Esc belongs to the app in front."""
         listener = getattr(self, "hotkey_listener", None)
         if listener is not None and hasattr(listener, "set_processing"):
             try:
@@ -4048,7 +4118,8 @@ class WafflerPipeline:
     def _ui_begin(self, run):
         if not self._run_is_current(run):
             return
-        self._set_listener_processing(True)     # Esc now cancels this dictation
+        # Esc is not armed here: straight after letting go it is far more
+        # likely meant for the app in front. _ui_offer arms it.
         notify_js_status("processing")
         _set_tray_state(_tray_state.WORKING)
         try:
@@ -4085,9 +4156,13 @@ class WafflerPipeline:
         else:
             return
         self.overlay.show_toast(style="info", heading=heading, body=body, buttons=buttons)
+        # While the offer is up, Esc stops the wait (keeping the recording).
+        run.offer_shown()
+        self._set_listener_processing(True)
 
     def _ui_withdraw_offer(self, run):
         if self._run_is_current(run):
+            self._set_listener_processing(False)
             # Only an "info" toast: a message that replaced the offer stays.
             self.overlay.hide_toast(style="info")
 
@@ -4188,7 +4263,7 @@ class WafflerPipeline:
             }
             item["will_retry"] = bool(uid) and _unsent.will_auto_retry(item)
             append_history(item)
-            if uid:
+            if uid and _unsent.is_waiting(item):
                 self._unsent_waiting += 1
             try:
                 notify_js_new_item(item)
@@ -4214,7 +4289,8 @@ class WafflerPipeline:
 
     def _count_unsent(self) -> int:
         try:
-            return len(_unsent.pending(load_history(), DATA_DIR / _unsent.UNSENT_DIRNAME))
+            return len(_unsent.pending(load_history(), DATA_DIR / _unsent.UNSENT_DIRNAME,
+                                       include_cancelled=False))
         except Exception:
             return 0
 
@@ -4483,7 +4559,8 @@ class WafflerPipeline:
                 history = load_history()
             except Exception:
                 return
-            waiting = _unsent.pending(history, DATA_DIR / _unsent.UNSENT_DIRNAME)
+            waiting = _unsent.pending(history, DATA_DIR / _unsent.UNSENT_DIRNAME,
+                                      include_cancelled=False)
             self._unsent_waiting = len(waiting)
             # One still on its way (a request Waffler stopped waiting for) is
             # left to that request: sending it again would pay for it twice.
@@ -4565,7 +4642,7 @@ class WafflerPipeline:
                 self.hotkey_listener = WindowsHotkeyListener(
                     on_press=self.on_hotkey_press,
                     on_release=self.on_hotkey_release,
-                    on_cancel=self._on_overlay_cancel,  # v3.14.37 — Esc cancels
+                    on_cancel=self._on_hotkey_cancel,   # Esc (see its docstring)
                     keys=keys,
                 )
             else:
@@ -4573,7 +4650,7 @@ class WafflerPipeline:
                 self.hotkey_listener = SmartHotkeyListener(
                     on_press=self.on_hotkey_press,
                     on_release=self.on_hotkey_release,
-                    on_cancel=self._on_overlay_cancel,  # v3.14.37 — Esc cancels
+                    on_cancel=self._on_hotkey_cancel,   # Esc (see its docstring)
                     keys=keys,
                 )
             _log_to_file("Calling hotkey.start()...")
