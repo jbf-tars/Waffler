@@ -239,24 +239,25 @@ html, body {
 .api-key-status.ok  { color: var(--green); }
 .api-key-status.err { color: var(--red); }
 
+/* Older Settings buttons: drawn as components.css .btn-sec (32 px). */
 .settings-btn {
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 7px 14px;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  padding: 0 13px;
+  background: var(--btn-sec-bg);
+  border: 0;
+  border-radius: var(--r-pill);
+  box-shadow: var(--shadow-btn);
+  color: var(--text);
+  font: var(--t-body);
+  font-size: 13px;
   cursor: pointer;
-  font-family: var(--font);
-  transition: background-color 0.15s, border-color 0.15s, color 0.15s, box-shadow 0.15s, opacity 0.15s;
   white-space: nowrap;
+  transition: background-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
 }
-.settings-btn:hover {
-  background: var(--accent-glow);
-  border-color: var(--accent);
-  color: var(--accent-text);
-}
+.settings-btn:hover:not(:disabled) { background: var(--btn-sec-hover); }
 
 .settings-select {
   background: var(--bg-surface);
@@ -408,22 +409,18 @@ html, body {
 }
 
 .vocab-add-btn {
-  background: var(--accent);
-  border: none;
-  border-radius: var(--radius-sm);
-  padding: 10px 20px;
-  font-size: 14px;
-  font-weight: 600;
-  color: #fff;
+  height: 40px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: var(--btn-pri-bg);
+  color: var(--btn-pri-fg);
+  font: var(--t-body);
   cursor: pointer;
-  font-family: var(--font);
-  transition: background-color 0.15s, border-color 0.15s, color 0.15s, box-shadow 0.15s, opacity 0.15s;
   white-space: nowrap;
+  transition: background-color var(--dur-fast) var(--ease);
 }
-
-.vocab-add-btn:hover {
-  background: var(--accent-dim);
-}
+.vocab-add-btn:hover { background: var(--btn-pri-hover); }
 
 .vocab-list {
   display: flex;
@@ -740,25 +737,26 @@ html, body {
 .hotkey-modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--scrim);
   display: flex;
   align-items: center;
   justify-content: center;
   /* Above the setup wizard (9999), which can open the hotkey dialog. */
   z-index: 10001;
 }
+/* The one dialog: a white card on a light scrim (the restart dialog matches). */
 .hotkey-modal {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 28px 36px;
+  background: var(--card);
+  color: var(--text);
+  border-radius: var(--r-card);
+  padding: 28px 32px 24px;
   text-align: center;
   max-width: 380px;
   width: 90%;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+  box-shadow: var(--shadow-pop);
 }
-.hotkey-modal-icon { font-size: 28px; margin-bottom: 10px; }
-.hotkey-modal-title { color: var(--text-primary); font-size: 18px; font-weight: 600; margin-bottom: 6px; }
+.hotkey-modal-icon { display: flex; justify-content: center; margin-bottom: 10px; color: var(--text); }
+.hotkey-modal-title { color: var(--text); font: var(--t-heading); margin-bottom: 6px; }
 .hotkey-modal-subtitle { color: var(--text-secondary); font-size: 13px; margin-bottom: 20px; }
 .hotkey-capture-box {
   background: var(--bg-hover);
@@ -781,72 +779,27 @@ html, body {
 }
 .hotkey-modal-buttons { display: flex; gap: 10px; justify-content: center; }
 .hotkey-btn {
-  border: none;
-  border-radius: var(--radius-sm);
-  padding: 8px 20px;
+  height: 32px;
+  padding: 0 13px;
+  background: var(--btn-sec-bg);
+  border: 0;
+  border-radius: var(--r-pill);
+  box-shadow: var(--shadow-btn);
+  color: var(--text);
+  font: var(--t-body);
   font-size: 13px;
   cursor: pointer;
+  white-space: nowrap;
+  transition: background-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
 }
-.hotkey-btn.secondary { background: var(--border); color: var(--text-secondary); }
-.hotkey-btn.secondary:hover { background: var(--bg-hover); }
-.hotkey-btn.primary { background: var(--accent); color: var(--bg-base); font-weight: 600; }
-.hotkey-btn.primary:hover { background: var(--accent-dim); }
-.settings-btn.accent { background: var(--accent); color: var(--bg-base); font-weight: 600; }
-.settings-btn.accent:hover { background: var(--accent-dim); }
+.hotkey-btn:hover { background: var(--btn-sec-hover); }
+.hotkey-btn.primary,
+.settings-btn.accent { background: var(--btn-pri-bg); color: var(--btn-pri-fg); box-shadow: none; }
+.hotkey-btn.primary:hover,
+.settings-btn.accent:hover:not(:disabled) { background: var(--btn-pri-hover); }
 
-.pill-button {
-    padding: 12px 32px;
-    background: rgba(255, 255, 255, 0.05);
-    border: 2px solid rgba(255, 255, 255, 0.1);
-    border-radius: 24px;
-    color: rgba(255, 255, 255, 0.6);
-    font-size: 15px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease, box-shadow 0.3s ease, opacity 0.3s ease;
-}
-
-.pill-button:hover {
-    background: rgba(255, 255, 255, 0.08);
-    border-color: rgba(255, 255, 255, 0.15);
-}
-
-.pill-button.active {
-    background: linear-gradient(135deg, #d4a373 0%, #c4935f 100%);
-    border: 2px solid rgba(212, 163, 115, 0.5);
-    box-shadow: 0 4px 12px rgba(212, 163, 115, 0.3);
-    color: white;
-}
-
-/* Update Banner */
-.update-banner {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 12px;
-    margin: 8px 12px;
-    background: rgba(212, 168, 67, 0.15);
-    border: 1px solid rgba(212, 168, 67, 0.3);
-    border-radius: 8px;
-    font-size: 12px;
-    color: #D4A843;
-}
-.update-banner button {
-    padding: 4px 10px;
-    border-radius: 6px;
-    border: none;
-    font-size: 11px;
-    cursor: pointer;
-    background: #D4A843;
-    color: #1a1a1a;
-    font-weight: 600;
-}
-.update-banner button.dismiss {
-    background: transparent;
-    color: #888;
-    padding: 4px;
-    margin-left: auto;
-}
+/* Update notices: components.css .notice, placed at the top of the Journal. */
+.update-banner { margin: 12px var(--gutter) 0; }
 
 /* ════════════════════════════════════════════════════════════════════
  * BRANDED WIZARD REDESIGN (v3.14.2+)
@@ -2476,9 +2429,7 @@ html, body {
 .restart-modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(26, 22, 18, 0.45);
-  backdrop-filter: blur(3px);
-  -webkit-backdrop-filter: blur(3px);
+  background: var(--scrim);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2497,14 +2448,12 @@ html, body {
   100% { opacity: 0; }
 }
 .restart-modal-card {
-  background: linear-gradient(180deg, #FFFDF5 0%, #FFF2D2 100%);
-  border: 1px solid rgba(200, 162, 86, 0.4);
-  border-radius: 18px;
+  background: var(--card);
+  color: var(--text);
+  border-radius: var(--r-card);
   padding: 32px 28px 24px;
   width: min(420px, calc(100vw - 40px));
-  box-shadow:
-    0 24px 48px rgba(26, 22, 18, 0.35),
-    0 6px 18px rgba(26, 22, 18, 0.18);
+  box-shadow: var(--shadow-pop);
   text-align: center;
   animation: restart-modal-card-in 0.28s cubic-bezier(0.22, 1, 0.36, 1);
 }
@@ -2520,28 +2469,20 @@ html, body {
   100% { opacity: 0; transform: scale(0.96) translateY(4px); }
 }
 .restart-modal-icon {
-  font-size: 36px;
-  line-height: 1;
+  display: flex;
+  justify-content: center;
   margin-bottom: 12px;
-  animation: restart-modal-spin 1.6s linear infinite;
-  display: inline-block;
-}
-@keyframes restart-modal-spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  color: var(--text);
 }
 .restart-modal-title {
-  margin: 0 0 10px;
-  font-size: 20px;
-  font-weight: 800;
-  color: #1A1612;
-  letter-spacing: -0.01em;
+  margin: 0 0 8px;
+  font: var(--t-heading);
+  color: var(--text);
 }
 .restart-modal-body {
   margin: 0 0 22px;
-  font-size: 14px;
-  line-height: 1.5;
-  color: #4a3a1a;
+  font: var(--t-body);
+  color: var(--muted);
 }
 .restart-modal-actions {
   display: flex;
@@ -2550,43 +2491,19 @@ html, body {
 }
 .restart-modal-btn-primary,
 .restart-modal-btn-secondary {
-  font-family: inherit;
-  font-size: 14px;
-  font-weight: 700;
-  border-radius: 10px;
-  padding: 10px 20px;
+  height: 36px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: var(--r-pill);
+  font: var(--t-body);
   cursor: pointer;
-  transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease, opacity 0.18s ease;
-  border: none;
+  transition: background-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
 }
-.restart-modal-btn-primary {
-  background: #1A1612;
-  color: #FFFCF2;
-  min-width: 140px;
-}
-.restart-modal-btn-primary:hover {
-  background: #0F0B07;
-  box-shadow: 0 4px 14px rgba(26, 22, 18, 0.3);
-}
-.restart-modal-btn-primary:focus-visible {
-  outline: 2px solid #C8A256;
-  outline-offset: 2px;
-}
-.restart-modal-btn-primary:disabled {
-  background: #6B6560;
-  cursor: wait;
-  transform: none;
-  box-shadow: none;
-}
-.restart-modal-btn-secondary {
-  background: transparent;
-  color: #6B6560;
-  border: 1px solid rgba(107, 101, 96, 0.3);
-}
-.restart-modal-btn-secondary:hover {
-  background: rgba(26, 22, 18, 0.06);
-  color: #1A1612;
-}
+.restart-modal-btn-primary { background: var(--btn-pri-bg); color: var(--btn-pri-fg); min-width: 140px; }
+.restart-modal-btn-primary:hover { background: var(--btn-pri-hover); }
+.restart-modal-btn-primary:disabled { background: var(--surface-2); color: var(--muted); cursor: wait; }
+.restart-modal-btn-secondary { background: var(--btn-sec-bg); color: var(--text); box-shadow: var(--shadow-btn); }
+.restart-modal-btn-secondary:hover { background: var(--btn-sec-hover); }
 
 /* ── "TRY SAYING" label: bigger CTA-style chip (v3.14.25) ── */
 .wiz-suggest-label {
@@ -2604,12 +2521,6 @@ html, body {
   margin-bottom: 12px !important;
   box-shadow: 0 2px 8px rgba(200, 162, 86, 0.25);
   border: 1px solid rgba(200, 162, 86, 0.4);
-}
-.wiz-suggest-label::before {
-  content: "🗣️";
-  font-size: 16px;
-  display: inline-block;
-  filter: saturate(1.2);
 }
 .wiz-suggest-text {
   font-weight: 500 !important;
