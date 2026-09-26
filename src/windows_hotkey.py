@@ -187,6 +187,9 @@ class WindowsHotkeyListener:
         self._key_states = {k: False for k in self._keys}
         self._suppress_vks = set()  # VK codes to suppress on key-up
         self._busy = False  # True while processing transcription
+        # True while a finished recording is being turned into text. Esc then
+        # cancels that dictation too, not only a recording in progress.
+        self._processing = False
 
         # Must prevent garbage collection of the callback
         self._hook_proc = HOOKPROC(self._ll_keyboard_proc)
@@ -232,6 +235,15 @@ class WindowsHotkeyListener:
         """Call with True while transcription is processing, False when done."""
         self._busy = busy
         _log(f"Busy = {busy}")
+
+    def set_processing(self, processing: bool):
+        """The pipeline calls this while a dictation is being processed, so
+        Esc can cancel it. Outside recording and processing Esc is left
+        alone for dialogs, editors and everything else."""
+        self._processing = bool(processing)
+
+    def _esc_cancels(self) -> bool:
+        return self._state != _State.IDLE or self._processing
 
     # ── Low-level keyboard hook procedure ─────────────────────────────
 
@@ -286,13 +298,17 @@ class WindowsHotkeyListener:
                     self._enter_sticky()
 
             # ── Esc → cancel an active recording (v3.14.37) ──
-            # Only fires when actively recording; outside that, Esc passes
-            # through normally so dialogs / vim / file pickers still work.
-            elif vk == VK_ESCAPE and is_down and self._state != _State.IDLE:
-                _log(f"Esc → CANCEL recording (was {self._state.value})")
-                self._state = _State.IDLE
+            # Fires while recording, and while a finished recording is being
+            # processed; outside those, Esc only passes through so dialogs,
+            # vim and file pickers still work. It always passes through.
+            elif vk == VK_ESCAPE and is_down and self._esc_cancels():
+                if self._state != _State.IDLE:
+                    _log(f"Esc → CANCEL recording (was {self._state.value})")
+                    self._state = _State.IDLE
+                    self._clear_key_states()  # clean slate, no stale modifiers
+                else:
+                    _log("Esc → CANCEL the dictation being processed")
                 self._fire_cancel()
-                self._clear_key_states()  # clean slate, no stale modifiers
 
         return user32.CallNextHookEx(self._hook, nCode, wParam, lParam)
 
@@ -418,10 +434,14 @@ class WindowsHotkeyListener:
                 esc = _key_down(VK_ESCAPE)
 
                 # v3.14.37 — Esc cancels any active recording. Same as the
-                # hook path: discards audio, no transcription, no paste.
-                if esc and self._state != _State.IDLE:
-                    _log(f"[poll] Esc → CANCEL recording (was {self._state.value})")
-                    self._state = _State.IDLE
+                # hook path: discards audio, no transcription, no paste. Also
+                # cancels a dictation that is still being processed.
+                if esc and self._esc_cancels():
+                    if self._state != _State.IDLE:
+                        _log(f"[poll] Esc → CANCEL recording (was {self._state.value})")
+                        self._state = _State.IDLE
+                    else:
+                        _log("[poll] Esc → CANCEL the dictation being processed")
                     self._fire_cancel()
                     time.sleep(0.3)  # debounce so a held Esc doesn't re-fire
                     continue

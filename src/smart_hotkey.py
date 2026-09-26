@@ -72,6 +72,9 @@ class SmartHotkeyListener:
         self._hotkey_held = False   # Hotkey currently down
         self._sticky = False        # Locked-on (toggle) mode active
         self._recording = False     # Are we recording right now?
+        # True while a finished recording is being turned into text. Esc then
+        # cancels that dictation too (set_processing, called by the pipeline).
+        self._processing = False
 
         # v3.14.30 diagnostic: each listener gets an id so the log says
         # "L01 fired press" / "L02 fired press" — instantly answers the
@@ -212,6 +215,12 @@ class SmartHotkeyListener:
         X on the overlay.
         """
         if not self._recording:
+            if self._processing:
+                # The recording is finished but still being turned into
+                # text: Esc cancels that dictation. Esc still reaches the
+                # app in front, as it always has.
+                _diag_log(f"[HOTKEY/{self._id}] Esc → CANCEL the dictation being processed")
+                self._fire_cancel()
             return  # No-op outside recording so Esc still works in dialogs/vim
         _diag_log(
             f"[HOTKEY/{self._id}] Esc → CANCEL recording "
@@ -269,6 +278,11 @@ class SmartHotkeyListener:
         threading.Thread(target=_send_escapes, daemon=True).start()
 
     # ── State management ──────────────────────────────────────────────
+
+    def set_processing(self, processing: bool):
+        """The pipeline calls this while a dictation is being processed, so
+        Esc can cancel it (WindowsHotkeyListener.set_processing, same)."""
+        self._processing = bool(processing)
 
     def reset_state(self):
         """Reset internal state — called when recording is stopped externally
