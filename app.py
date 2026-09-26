@@ -5213,7 +5213,7 @@ def main():
             _theme, os_prefers_dark() if _theme == "auto" else None)
     except Exception as _e:
         _log_to_file(f"[theme] window background fell back to cream: {_e}")
-        _window_bg = "#FBF7EB"
+        _window_bg = "#FDFCFC"
 
     window = webview.create_window(
         title="Waffler",

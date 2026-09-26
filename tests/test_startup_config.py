@@ -23,7 +23,8 @@ sys.path.insert(0, str(ROOT / "src"))
 
 import theme  # noqa: E402
 
-CSS = (ROOT / "ui" / "style.css").read_text(encoding="utf-8")
+# The theme colours live in ui/tokens.css since 3.15.
+CSS = (ROOT / "ui" / "tokens.css").read_text(encoding="utf-8")
 APP_TREE = ast.parse((ROOT / "app.py").read_text(encoding="utf-8"))
 
 
@@ -35,23 +36,23 @@ def _css_block(selector_start):
 
 
 @pytest.mark.parametrize("name, selector", [
-    ("cream", 'body[data-theme="cream"],'),
+    ("cream", ":root,\nbody {"),
     ("dark", 'body[data-theme="dark"] {'),
 ])
 def test_window_colours_match_the_stylesheet(name, selector):
     block = _css_block(selector)
-    bg = re.search(r"--bg-base:\s*(#[0-9A-Fa-f]{6})", block).group(1)
+    bg = re.search(r"--bg:\s*(#[0-9A-Fa-f]{6})", block).group(1)
     assert theme.BACKGROUNDS[name].lower() == bg.lower()
 
 
 @pytest.mark.parametrize("stored, os_dark, expected", [
-    ("cream", True, "#FBF7EB"),
-    ("dark", False, "#0d0d0f"),
-    ("auto", False, "#FBF7EB"),
-    ("auto", True, "#0d0d0f"),
-    ("auto", None, "#FBF7EB"),
-    (None, None, "#FBF7EB"),
-    ("purple", True, "#FBF7EB"),
+    ("cream", True, "#FDFCFC"),
+    ("dark", False, "#0C0A09"),
+    ("auto", False, "#FDFCFC"),
+    ("auto", True, "#0C0A09"),
+    ("auto", None, "#FDFCFC"),
+    (None, None, "#FDFCFC"),
+    ("purple", True, "#FDFCFC"),
 ])
 def test_window_background_follows_the_theme(stored, os_dark, expected):
     assert theme.window_background(stored, os_dark) == expected
@@ -99,10 +100,14 @@ def test_set_theme_refuses_an_unknown_theme():
 # ── System theme ─────────────────────────────────────────────────────────────
 
 def test_system_theme_has_a_light_branch():
-    cream_selectors = CSS[CSS.index("/* Cream theme variables"):CSS.index("--bg-base:     #FBF7EB")]
-    assert 'body[data-theme="auto"]' in cream_selectors
-    # The dark branch still comes later, so it wins on a dark OS.
-    assert CSS.index('body[data-theme="auto"]') < CSS.index("@media (prefers-color-scheme: dark)")
+    # The light values apply to every body, System included, so a light OS
+    # never falls through to night colours.
+    light = _css_block(":root,\nbody {")
+    assert re.search(r"--bg:\s*#FDFCFC", light)
+    # System's night values only apply inside the dark-OS media query.
+    media = CSS.index("@media (prefers-color-scheme: dark)")
+    assert CSS.index('body[data-theme="auto"]') > media
+    assert CSS.count('body[data-theme="auto"]') == 1
 
 
 def test_the_ui_resolves_system_to_cream_or_dark():

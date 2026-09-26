@@ -351,7 +351,7 @@ def test_an_update_with_an_installer_downloads_it():
 def test_a_failed_download_is_one_sentence_and_the_download_page():
     v = js(f"L.updateFailureView({{error: {json.dumps(um.UPDATE_DOWNLOAD_FAILED)}, "
            f"error_detail: 'curl: (28) Operation timed out', download_page: {json.dumps(um.DOWNLOAD_PAGE)}}})")
-    assert v == {"icon": "⚠️", "title": "The update didn't download",
+    assert v == {"icon": "alert", "title": "The update didn't download",
                  "subtitle": "Try again, or get it from the download page.", "browserUrl": um.DOWNLOAD_PAGE}
     # A bridge failure with no answer at all still gets the plain sentence.
     v = js("L.updateFailureView(null, L.UPDATE_TEXT.installFailed)")
@@ -552,7 +552,8 @@ def test_usage_shows_counts_and_a_labelled_estimate():
 
 def _usage_section():
     html = read("index.html")
-    start = html.index('<div class="settings-section-title">📊 Usage</div>')
+    # The section title carries an icon (icons.js) before the word.
+    start = html.index('Usage</div>', html.index('<!-- Usage Section -->'))
     return html[start:html.index('<div class="settings-section-title">', start + 10)]
 
 
