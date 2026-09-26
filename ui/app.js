@@ -61,13 +61,30 @@ function setAppTheme(theme) {
   refreshThemePicker();
 }
 
-// Settings, General: Light / Dark / System.
+// Settings, General: Light / Dark / System. A radio group: one Tab stop
+// (the chosen theme), and the arrow keys move and choose, as radios do.
 function refreshThemePicker() {
   const cur = _themePref || 'cream';
   document.querySelectorAll('#themeSeg button').forEach((el) => {
-    el.setAttribute('aria-checked', String(el.getAttribute('data-theme') === cur));
+    const on = el.getAttribute('data-theme') === cur;
+    el.setAttribute('aria-checked', String(on));
+    el.tabIndex = on ? 0 : -1;
   });
 }
+
+document.addEventListener('DOMContentLoaded', () => {
+  const seg = document.getElementById('themeSeg');
+  if (!seg) return;
+  seg.addEventListener('keydown', (e) => {
+    const radios = [...seg.querySelectorAll('button[role="radio"]')];
+    const i = radios.indexOf(document.activeElement);
+    const to = WL.radioMove(i, radios.length, e.key);
+    if (to < 0) return;
+    e.preventDefault();
+    radios[to].focus();
+    setAppTheme(radios[to].getAttribute('data-theme'));
+  });
+});
 
 // ── State ──────────────────────────────────────────────────────────────
 // The Journal loads a page at a time (get_history limit/offset), newest
@@ -320,15 +337,70 @@ let _updatePollTimer = null;
 let _downloadedPath = null;
 let _lastUpdateInfo = null;
 
+// ── Dialogs: focus goes in, stays in, and comes back ─────────────────────
+// A dialog (.modal-overlay) takes focus when it opens, Tab and Shift+Tab
+// wrap inside it, and closing it puts focus back on what opened it. They
+// all declare aria-modal, and used to leave focus on the button behind.
+const _modalOpeners = {};
+
+function _focusables(root) {
+  return [...root.querySelectorAll('button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])')]
+    .filter((el) => !el.disabled && el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden');
+}
+
+function _openModalOverlay() {
+  const open = [...document.querySelectorAll('.modal-overlay')]
+    .filter((el) => el.isConnected && getComputedStyle(el).display !== 'none');
+  return open[open.length - 1] || null;
+}
+
+function modalOpened(overlay) {
+  if (!overlay) return;
+  if (!overlay.contains(document.activeElement)) _modalOpeners[overlay.id] = document.activeElement;
+  (overlay.querySelector('[role="dialog"]') || overlay).focus();
+}
+
+function modalClosed(overlay) {
+  if (!overlay) return;
+  const back = _modalOpeners[overlay.id];
+  delete _modalOpeners[overlay.id];
+  const active = document.activeElement;
+  const lost = !active || active === document.body || overlay.contains(active);
+  if (lost && back && back.isConnected && back.getClientRects().length && !back.disabled) back.focus();
+}
+
+document.addEventListener('keydown', (e) => {
+  // Setup fills the window and is a dialog too: Tab goes round inside it.
+  const wizard = document.getElementById('wizardOverlay');
+  const overlay = _openModalOverlay() || (wizard && wizard.style.display !== 'none' ? wizard : null);
+  if (!overlay) return;
+  if (e.key === 'Escape' && overlay.id === 'updateModal') { e.preventDefault(); closeUpdateModal(); return; }
+  if (e.key !== 'Tab') return;
+  const items = _focusables(overlay);
+  if (!items.length) { e.preventDefault(); return; }
+  const first = items[0];
+  const last = items[items.length - 1];
+  const inside = overlay.contains(document.activeElement);
+  if (e.shiftKey && (!inside || document.activeElement === first || !items.includes(document.activeElement))) {
+    e.preventDefault(); last.focus();
+  } else if (!e.shiftKey && (!inside || document.activeElement === last)) {
+    e.preventDefault(); first.focus();
+  }
+}, true);
+
 function showUpdateModal() {
   const m = document.getElementById('updateModal');
-  if (m) m.style.display = 'flex';
+  if (!m) return;
+  const wasOpen = m.style.display !== 'none';
+  m.style.display = 'flex';
+  if (!wasOpen) modalOpened(m);
 }
 function closeUpdateModal(ev) {
   if (ev && ev.target && ev.target.id !== 'updateModal') return;
   const m = document.getElementById('updateModal');
   if (m) m.style.display = 'none';
   stopProgressPolling();
+  modalClosed(m);
 }
 function setUpdateModal({ icon, title, subtitle, showProgress, primaryLabel, primaryHandler, cancelLabel, browserUrl, browserLabel }) {
   // icon is a name from icons.js ('circle-up', 'download', 'alert'...).
@@ -741,16 +813,28 @@ function openHotkeyCapture() {
   const presets = document.getElementById('hotkeyPresetRow');
   if (presets) presets.hidden = typeof _wizardVisible === 'function' && _wizardVisible();
   renderSettingsHotkeyPresets();
-  document.getElementById("hotkeyModal").style.display = "flex";
+  _announceCaptured('');
+  const modal = document.getElementById("hotkeyModal");
+  modal.style.display = "flex";
+  modalOpened(modal);
   document.addEventListener("keydown", _onCaptureKeyDown);
   document.addEventListener("keyup", _onCaptureKeyUp);
 }
 
 function closeHotkeyCapture() {
-  document.getElementById("hotkeyModal").style.display = "none";
+  const modal = document.getElementById("hotkeyModal");
+  modal.style.display = "none";
   document.removeEventListener("keydown", _onCaptureKeyDown);
   document.removeEventListener("keyup", _onCaptureKeyUp);
   _capturedKeys.clear();
+  modalClosed(modal);
+}
+
+// Screen readers hear the keys once they are let go ("Ctrl + Shift"), not
+// every key on the way down.
+function _announceCaptured(text) {
+  const live = document.getElementById('hotkeyCaptureLive');
+  if (live) live.textContent = text;
 }
 
 function _onCaptureKeyDown(e) {
@@ -772,12 +856,16 @@ function _onCaptureKeyUp(e) {
   e.stopPropagation();
   const id = jsKeyToId(e);
   if (id) _capturedKeys.delete(id);
+  if (!_capturedKeys.size && _lastCapturedKeys.length && id) {
+    _announceCaptured(WL.hotkeyName(_lastCapturedKeys, isMacPlatform));
+  }
 }
 
 function resetHotkeyDefault() {
   _lastCapturedKeys = WL.defaultHotkey(isMacPlatform);
   _capturedKeys.clear();
   _showCaptured(_lastCapturedKeys);
+  _announceCaptured(WL.hotkeyName(_lastCapturedKeys, isMacPlatform));
   document.getElementById("hotkeyError").style.display = "none";
 }
 
@@ -837,6 +925,8 @@ async function renderFeed() {
   history = page;
   _histDone = page.length < PAGE_SIZE;
   drawFeed();
+  const said = document.getElementById('searchStatus');
+  if (said) said.textContent = WL.searchAnnouncement(query, page.length, _histDone);
 }
 
 // Draw `history` from scratch: first run, a search with no matches, or the
@@ -908,7 +998,10 @@ function _dayRow(key) {
   const row = document.createElement('div');
   row.className = 'j-date-divider';
   row.dataset.day = key;
-  row.innerHTML = `<span class="j-date-month">${escHtml(d.day)}</span><span class="j-date-line"></span><span class="j-date-day">${escHtml(d.date)}</span>`;
+  // A heading per day, so a screen reader can jump between days.
+  row.setAttribute('role', 'heading');
+  row.setAttribute('aria-level', '2');
+  row.innerHTML = `<span class="j-date-month">${escHtml(d.day)}</span><span class="j-date-line" aria-hidden="true"></span><span class="j-date-day">${escHtml(d.date)}</span>`;
   return row;
 }
 
@@ -960,9 +1053,12 @@ async function copyItem(text, btnEl) {
     }
     btnEl.classList.add('copied', 'is-done');
     btnEl.innerHTML = WI.icon('check') + '<span>Copied</span>';
+    const label = btnEl.getAttribute('aria-label');
+    if (label) btnEl.setAttribute('aria-label', 'Copied');
     setTimeout(() => {
       btnEl.classList.remove('copied', 'is-done');
       btnEl.innerHTML = WI.icon('copy') + '<span>Copy</span>';
+      if (label) btnEl.setAttribute('aria-label', label);
     }, 2500);
   } catch (e) {
     showToast("Couldn't copy that. Try again.", 'error');
@@ -1240,6 +1336,8 @@ window.waffler_item_updated = function(unsentId, item) {
   if (_currentPage === 'settings') loadUnsentSummary();
 };
 
+let _cardSeq = 0;   // ids for each card's text (the toggle's aria-controls)
+
 function makeCard(item, isNew) {
   if (item && item.failed) return makeNotSentCard(item, isNew);
   const div = document.createElement('article');
@@ -1251,18 +1349,20 @@ function makeCard(item, isNew) {
   const words       = (displayText.split(/\s+/).filter(Boolean)).length;
   const q           = WL.qualityView(item);
 
+  const when = formatTime(item.timestamp);
+  const textId = `jt${++_cardSeq}`;
   div.innerHTML = `
     <div class="card-meta">
-      <span class="card-time">${escHtml(formatTime(item.timestamp))}</span>
+      <span class="card-time">${escHtml(when)}</span>
       ${qualityBadge(item)}
       <span class="card-sp"></span>
       <span class="card-words">${WL.formatCount(words)} ${words === 1 ? 'word' : 'words'}</span>
     </div>
-    <div class="card-text styled">${escHtml(displayText)}</div>
+    <div class="card-text styled" id="${textId}">${escHtml(displayText)}</div>
     ${q.reasons.length ? `<p class="card-reason">${escHtml(q.reasons.join(' '))}</p>` : ''}
     <div class="card-actions">
-      <button type="button" class="btn btn-sec btn-sm btn-copy">${WI.icon('copy')}<span>Copy</span></button>
-      ${hasStyled ? '<button type="button" class="text-toggle">Show transcript</button>' : ''}
+      <button type="button" class="btn btn-sec btn-sm btn-copy" aria-label="${escHtml(when ? `Copy the dictation from ${when}` : 'Copy')}">${WI.icon('copy')}<span>Copy</span></button>
+      ${hasStyled ? `<button type="button" class="text-toggle" aria-controls="${textId}">Show transcript</button>` : ''}
     </div>
   `;
 
@@ -1516,10 +1616,22 @@ async function deleteVocabWord(word) {
   const i = _vocabWords.indexOf(word);
   if (i < 0) return;
   const next = _vocabWords.slice(0, i).concat(_vocabWords.slice(i + 1));
+  // Where the removed chip was among the chips on screen (A to Z).
+  const btns = [...document.querySelectorAll('#vocabList .wchip .rbtn')];
+  const at = btns.findIndex((b) => b.getAttribute('data-word') === word);
+  const hadFocus = btns.includes(document.activeElement);
   try {
     await pywebview.api.set_vocab(next);
     _vocabWords = next;
     renderVocab();
+    // Focus went with the chip; put it on the next word's remove button,
+    // the previous one, or the box when the list is empty.
+    if (hadFocus || document.activeElement === document.body) {
+      const left = [...document.querySelectorAll('#vocabList .wchip .rbtn')];
+      const to = WL.focusAfterRemove(at, left.length);
+      const target = to >= 0 ? left[to] : document.getElementById('vocabInput');
+      if (target) target.focus();
+    }
     showToast(`Removed "${word}".`, 'success');
   } catch(e) {
     console.warn('deleteVocabWord error:', e);
@@ -1551,7 +1663,8 @@ function showPage(page) {
     const tab = document.getElementById(id);
     if (!tab) return;
     tab.classList.toggle('active', page === p);
-    tab.setAttribute('aria-selected', String(page === p));
+    if (page === p) tab.setAttribute('aria-current', 'page');
+    else tab.removeAttribute('aria-current');
   });
 
   const sp = document.getElementById('settingsPanel');
@@ -1583,6 +1696,9 @@ function showSettingsSection(sec) {
   });
   const scroll = document.getElementById('settingsScroll');
   if (scroll) scroll.scrollTop = 0;
+  // In a very narrow window the whole panel scrolls (style.css, 560 px).
+  const panel = document.getElementById('settingsPanel');
+  if (panel && panel.scrollTop) panel.scrollTop = 0;
   if (sec !== 'keys') closeKeyEditor();
 }
 
@@ -1744,7 +1860,7 @@ function showRestartBanner(reason) {
   overlay.id = 'restartRequiredModal';
   overlay.className = 'modal-overlay restart-modal-overlay';
   overlay.innerHTML = `
-    <div class="modal restart-modal-card" role="dialog" aria-modal="true" aria-labelledby="restartModalTitle">
+    <div class="modal restart-modal-card" role="dialog" aria-modal="true" aria-labelledby="restartModalTitle" tabindex="-1">
       <span class="itile">${WI.icon('refresh')}</span>
       <h2 class="modal-title" id="restartModalTitle">Restart Waffler to use it</h2>
       <p class="modal-sub">${escHtml(reason || 'Your change needs a fresh start to take effect.')}</p>
@@ -1756,10 +1872,11 @@ function showRestartBanner(reason) {
     </div>
   `;
   document.body.appendChild(overlay);
+  modalOpened(overlay);
 
   const dismiss = () => {
     overlay.classList.add('restart-modal-closing');
-    setTimeout(() => overlay.remove(), 180);
+    setTimeout(() => { overlay.remove(); modalClosed(overlay); }, 180);
     document.removeEventListener('keydown', onKey);
   };
 
@@ -1968,6 +2085,9 @@ function showWizard(status) {
   if (settings) settings.style.display = 'none';
   const vocab = document.getElementById('vocabularyPanel');
   if (vocab) vocab.style.display = 'none';
+  // Setup covers the top bar: keep it out of Tab and out of screen readers
+  // until setup closes.
+  _setTopbarInert(true);
   document.body.dataset.platform = isMacPlatform ? 'mac' : 'win';
   if (window.WafflerIcons) WafflerIcons.mount(document);
   wizRenderHotkey();
@@ -1997,15 +2117,103 @@ function hideWizard() {
     overlay.style.display = 'none';
     overlay.classList.remove('hiding');
     _wizardShown = false;
+    _setTopbarInert(false);
     showPage('home');
+    // Focus would otherwise fall to the page itself: start at the Journal.
+    const title = document.getElementById('journalTitle');
+    if (title) title.focus();
     refreshAll();
     loadAudioDevices();
   }, 400);
 }
 
+function _setTopbarInert(on) {
+  const bar = document.getElementById('topbar');
+  if (!bar) return;
+  bar.inert = !!on;
+  if (on) bar.setAttribute('aria-hidden', 'true');
+  else bar.removeAttribute('aria-hidden');
+}
+
 function _wizardVisible() {
   const o = document.getElementById('wizardOverlay');
   return !!o && o.style.display !== 'none';
+}
+
+// ── Setup: where focus goes ───────────────────────────────────────────────
+// A new step puts focus on its title, so a screen reader reads it. When a
+// state change hides the focused control (Get my free Groq key, the key box
+// once the key works, an Allow that became "Allowed") or disables it, focus
+// moves to the first control the new state shows, or else to the title.
+// Focus that is still on something visible is left alone, so typing a key
+// is never interrupted.
+function _wizVisibleTitle(sec) {
+  if (!sec) return null;
+  return [...sec.querySelectorAll('.ob-title')].find((h) => !h.hidden && h.getClientRects().length) || null;
+}
+
+function _wizFocusLost() {
+  const overlay = document.getElementById('wizardOverlay');
+  const a = document.activeElement;
+  if (!a || a === document.body || !overlay || !overlay.contains(a)) return true;
+  return !!a.disabled || !a.getClientRects().length || !!a.closest('[hidden]');
+}
+
+function _wizFocus(el) {
+  if (!el) return;
+  try { el.focus({ preventScroll: false }); } catch (_) { el.focus(); }
+}
+
+// The Try step says what is happening, for screen readers: progress in a
+// status region, and silence, an error or no microphone as an alert. The
+// words are the ones on screen (the callouts), so there is one copy.
+const _WIZ_TRY_PROBLEMS = ['silent', 'error', 'nomic'];
+const _WIZ_TRY_PROGRESS = { rec: "Recording. Let go when you're done.", clean: 'Tidying it up.' };
+
+function _wizSay(id, text) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  // Emptied first, so the same sentence twice is still read twice.
+  el.textContent = '';
+  if (text) setTimeout(() => { el.textContent = text; }, 60);
+}
+
+function _wizAnnounceTry(sec, state) {
+  const words = (sel) => {
+    const el = sec.querySelector(sel);
+    return el ? (el.innerText || el.textContent).replace(/\s+/g, ' ').trim() : '';
+  };
+  if (_WIZ_TRY_PROBLEMS.includes(state)) {
+    _wizSay('obTryLive', '');
+    _wizSay('obTryAlert', words(`.ob-callout[data-when="${state}"]`));
+    return;
+  }
+  _wizSay('obTryAlert', '');
+  if (state === 'done') {
+    const wrote = words('#obWrote');
+    _wizSay('obTryLive', words('.ob-callout[data-when="done"]') + (wrote ? ` Waffler wrote: ${wrote}` : ''));
+    return;
+  }
+  _wizSay('obTryLive', _WIZ_TRY_PROGRESS[state] || '');
+}
+
+function _wizLabelDialog(sec) {
+  const h = _wizVisibleTitle(sec);
+  const overlay = document.getElementById('wizardOverlay');
+  if (h && h.id && overlay) overlay.setAttribute('aria-labelledby', h.id);
+}
+
+function _wizRehomeFocus(sec, state) {
+  if (!_wizardVisible() || !sec || !_wizFocusLost()) return;
+  // Another dialog (the hotkey one) is open over setup: leave it be.
+  if (typeof _openModalOverlay === 'function' && _openModalOverlay()) return;
+  const shown = [...sec.querySelectorAll('[data-when]')]
+    .filter((el) => el.dataset.when.split(' ').includes(state));
+  for (const el of shown) {
+    const f = _focusables(el);
+    if (f.length) { _wizFocus(f[0]); return; }
+  }
+  _wizFocus(_wizVisibleTitle(sec));
 }
 
 function _wizSection(step) {
@@ -2016,11 +2224,17 @@ function _wizSection(step) {
 function wizSetState(step, state) {
   const sec = _wizSection(step);
   if (!sec) return;
+  const changed = sec.dataset.state !== state;
   sec.dataset.state = state;
   sec.querySelectorAll('[data-when]').forEach((el) => {
     el.hidden = !el.dataset.when.split(' ').includes(state);
   });
-  if (step === _wizardStep) wizUpdateNextButton();
+  if (step === _wizardStep) {
+    wizUpdateNextButton();
+    _wizLabelDialog(sec);
+    if (step === 'try' && (changed || _WIZ_TRY_PROBLEMS.includes(state))) _wizAnnounceTry(sec, state);
+    _wizRehomeFocus(sec, state);
+  }
 }
 
 function wizRenderStepper() {
@@ -2031,7 +2245,7 @@ function wizRenderStepper() {
     const cls = i < cur ? 'is-done' : i === cur ? 'is-on' : '';
     const n = i < cur ? '<svg class="ic" aria-hidden="true"><use href="#i-check"/></svg>' : String(i + 1);
     const sep = i ? '<li class="ob-ssep" aria-hidden="true"></li>' : '';
-    return `${sep}<li class="${cls}"${i === cur ? ' aria-current="step"' : ''}><span class="ob-sn">${n}</span>${WIZ_LABELS[s]}</li>`;
+    return `${sep}<li class="${cls}"${i === cur ? ' aria-current="step"' : ''}><span class="ob-sn">${n}</span><span class="ob-slabel">${WIZ_LABELS[s]}</span></li>`;
   }).join('');
 }
 
@@ -2058,6 +2272,9 @@ function wizShowStep(step) {
   if (sec) wizSetState(step, sec.dataset.state);
   wizRenderStepper();
   wizUpdateNextButton();
+  // A new step: its title takes focus (Continue may now be disabled, and
+  // the button that moved here may be hidden).
+  if (step !== prev && _wizardVisible()) _wizFocus(_wizVisibleTitle(sec));
   try { pywebview.api.save_setup_step(step); } catch (_) {}
 
   if (step === 'connect') wizInitConnect();
@@ -2196,24 +2413,35 @@ function wizInitConnect() {
     const v = WL.keyInputView(inp.value);
     if (v.kind === 'ok') wizValidateGroqKey(inp.value.trim(), false);
   }, 600);
+  // A key that isn't one yet ("too short") is only pointed out once typing
+  // pauses, not on every character.
+  const complainNow = () => {
+    const v = WL.keyInputView(inp.value);
+    if (v.kind === 'ok' || v.kind === 'empty') return;
+    wizSetState('connect', 'error');
+    wizKeyMessage('alert', v.message, '');
+    inp.setAttribute('aria-invalid', 'true');
+  };
+  const complain = WL.debounce(complainNow, 600);
   inp.addEventListener('input', () => {
     _wizKeyOk = false;
     inp.removeAttribute('aria-invalid');
     const v = WL.keyInputView(inp.value);
-    if (v.kind === 'empty') { wizKeyWaiting(); check.cancel(); return; }
+    if (v.kind === 'empty') { wizKeyWaiting(); check.cancel(); complain.cancel(); return; }
     if (v.kind !== 'ok') {
-      wizSetState('connect', 'error');
-      wizKeyMessage('alert', v.message, '');
-      inp.setAttribute('aria-invalid', 'true');
       check.cancel();
+      complain();
       return;
     }
+    complain.cancel();
     check();
   });
   inp.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter') return;
     check.cancel();
+    complain.cancel();
     if (WL.keyInputView(inp.value).kind === 'ok') wizValidateGroqKey(inp.value.trim(), false);
+    else complainNow();
   });
 }
 
@@ -2233,11 +2461,18 @@ function wizPasteInstead() {
 
 function wizKeyWaiting() {
   wizSetState('connect', 'waiting');
+  _wizKeyStateHtml('ob-keystate', '<span class="ob-pulse" aria-hidden="true"></span><span>Waiting for your key. Waffler picks it up when you come back.</span>');
+}
+
+// #obKeyState is a live region: it is only rewritten when the message
+// changes, so a screen reader hears each message once (it used to be
+// rewritten on every keystroke).
+function _wizKeyStateHtml(cls, html) {
   const box = document.getElementById('obKeyState');
-  if (box) {
-    box.className = 'ob-keystate';
-    box.innerHTML = '<span class="ob-pulse" aria-hidden="true"></span><span>Waiting for your key. Waffler picks it up when you come back.</span>';
-  }
+  if (!box || (box.dataset.msg === html && box.className === cls)) return;
+  box.className = cls;
+  box.innerHTML = html;
+  box.dataset.msg = html;
 }
 
 // A line in the key box: an icon tile, a sentence, and a second line.
@@ -2247,9 +2482,9 @@ function wizKeyMessage(icon, title, detail) {
   const tile = icon === 'loader'
     ? '<span class="ob-pulse" aria-hidden="true"></span>'
     : `<span class="itile ${icon === 'alert' ? 'is-err' : 'is-ok'}"><svg class="ic" aria-hidden="true"><use href="#i-${icon}"/></svg></span>`;
-  box.className = 'ob-keystate' + (icon === 'alert' ? ' is-err' : '');
-  box.innerHTML = `${tile}<span><b class="ob-keystate-t">${escHtml(title)}</b>`
-    + (detail ? `<span class="ob-keystate-d">${escHtml(detail)}</span>` : '') + '</span>';
+  _wizKeyStateHtml('ob-keystate' + (icon === 'alert' ? ' is-err' : ''),
+    `${tile}<span><b class="ob-keystate-t">${escHtml(title)}</b>`
+    + (detail ? `<span class="ob-keystate-d">${escHtml(detail)}</span>` : '') + '</span>');
 }
 
 async function wizValidateGroqKey(key, fromClipboard) {
@@ -2335,17 +2570,41 @@ function _wizPermsAll() {
   return !isMacPlatform || (_wizPerms.microphone && _wizPerms.input_monitoring && _wizPerms.accessibility);
 }
 
+// Each Allow is named for what it allows, for screen readers and voice
+// control ("Allow" three times said nothing).
+const _WIZ_PERM_NAMES = { microphone: 'microphone', input_monitoring: 'keyboard monitoring', accessibility: 'typing for you' };
+let _wizPermsShown = null;
+
 function wizRenderPermissions() {
   const order = ['microphone', 'input_monitoring', 'accessibility'];
   const next = order.find((p) => !_wizPerms[p]);
+  const newlyAllowed = _wizPermsShown ? order.filter((p) => _wizPerms[p] && !_wizPermsShown[p]) : [];
+  let redrawn = false;
   order.forEach((p) => {
     const row = document.getElementById(_WIZ_PERM_ROWS[p]);
     const ctl = row && row.querySelector('.ob-perm-ctl');
     if (!ctl) return;
+    // Redraw only what changed, so a focused Allow isn't replaced every second.
+    const want = _wizPerms[p] ? 'ok' : (p === next ? 'next' : 'later');
+    if (ctl.dataset.view === want) return;
+    ctl.dataset.view = want;
+    redrawn = true;
     ctl.innerHTML = _wizPerms[p]
       ? '<span class="chip chip-ok"><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg>Allowed</span>'
-      : `<button class="btn btn-sm ${p === next ? 'btn-pri' : 'btn-sec'}" onclick="wizAllow('${p}')">Allow</button>`;
+      : `<button class="btn btn-sm ${p === next ? 'btn-pri' : 'btn-sec'}" aria-label="Allow ${_WIZ_PERM_NAMES[p]}" onclick="wizAllow('${p}')">Allow</button>`;
   });
+  _wizPermsShown = Object.assign({}, _wizPerms);
+  const live = document.getElementById('obPermLive');
+  if (live && newlyAllowed.length) {
+    const said = newlyAllowed.map((p) => _WIZ_PERM_NAMES[p]).join(' and ');
+    live.textContent = said.charAt(0).toUpperCase() + said.slice(1) + ' allowed.';
+  }
+  // The Allow that had focus became "Allowed": move on to the next Allow.
+  if (redrawn && _wizardStep === 'permissions' && _wizardVisible() && _wizFocusLost()) {
+    const sec = _wizSection('permissions');
+    const btn = next && document.querySelector(`#${_WIZ_PERM_ROWS[next]} .ob-perm-ctl button`);
+    _wizFocus(btn || _wizVisibleTitle(sec));
+  }
   // The picture shows the macOS dialog the next Allow brings up.
   const a = _WIZ_PERM_ALERTS[next || 'accessibility'];
   const put = (id, t) => { const el = document.getElementById(id); if (el) el.textContent = t; };

@@ -24,11 +24,12 @@
       <span class="brand-word">Waffler</span>
     </div>
 
-    <!-- showPage() marks the open page (.active and aria-selected). -->
-    <nav class="seg topbar-nav" role="tablist" aria-label="Pages">
-      <button type="button" role="tab" id="navHome" class="active" aria-selected="true" onclick="showPage('home')">Journal</button>
-      <button type="button" role="tab" id="navVocab" aria-selected="false" onclick="showPage('vocabulary')">Vocabulary</button>
-      <button type="button" role="tab" id="navSettings" aria-selected="false" onclick="showPage('settings')">Settings</button>
+    <!-- showPage() marks the open page (.active and aria-current="page").
+         Plain buttons, not tabs: each opens a page. -->
+    <nav class="seg topbar-nav" aria-label="Pages">
+      <button type="button" id="navHome" class="active" aria-current="page" onclick="showPage('home')">Journal</button>
+      <button type="button" id="navVocab" onclick="showPage('vocabulary')">Vocabulary</button>
+      <button type="button" id="navSettings" onclick="showPage('settings')">Settings</button>
     </nav>
 
     <!-- Status pill. window.waffler_status() sets its state class and label
@@ -49,6 +50,7 @@
        at the top without redrawing the rest. -->
   <main class="journal" id="mainArea">
     <div class="j-col">
+      <h1 class="sr-only" id="journalTitle" tabindex="-1">Journal</h1>
       <!-- Notices: an update, a failed update, clean-up paused by a limit. -->
       <div class="j-notices" id="journalNotices"></div>
 
@@ -73,8 +75,9 @@
           </div>
           <label class="j-search-wrap">
             <svg class="ic j-search-icon" aria-hidden="true"><use href="#i-search"/></svg>
-            <input type="search" id="searchInput" class="j-search-input" placeholder="Search" aria-label="Search the Journal" autocomplete="off" spellcheck="false" oninput="onSearchInput(this.value)">
+            <input type="search" id="searchInput" class="j-search-input" placeholder="Search" aria-label="Search the Journal" aria-describedby="searchStatus" autocomplete="off" spellcheck="false" oninput="onSearchInput(this.value)">
           </label>
+          <span class="sr-only" id="searchStatus" role="status" aria-live="polite"></span>
         </div>
       </div>
 
@@ -139,9 +142,9 @@
               <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-sun"/></svg></span>
               <div class="row-main"><div class="row-t">Theme</div><div class="row-d" id="themeDesc">Light, dark, or match Windows.</div></div>
               <div class="seg seg-sm" id="themeSeg" role="radiogroup" aria-label="Theme">
-                <button type="button" role="radio" data-theme="cream" aria-checked="false" onclick="setAppTheme('cream')">Light</button>
-                <button type="button" role="radio" data-theme="dark" aria-checked="false" onclick="setAppTheme('dark')">Dark</button>
-                <button type="button" role="radio" data-theme="auto" aria-checked="false" onclick="setAppTheme('auto')">System</button>
+                <button type="button" role="radio" data-theme="cream" aria-checked="false" tabindex="0" onclick="setAppTheme('cream')">Light</button>
+                <button type="button" role="radio" data-theme="dark" aria-checked="false" tabindex="-1" onclick="setAppTheme('dark')">Dark</button>
+                <button type="button" role="radio" data-theme="auto" aria-checked="false" tabindex="-1" onclick="setAppTheme('auto')">System</button>
               </div>
             </div>
           </div></div>
@@ -447,7 +450,7 @@
 
 <!-- Update dialog: one modal (VR10). Later is a quiet link. -->
 <div class="modal-overlay" id="updateModal" style="display:none" onclick="closeUpdateModal(event)">
-  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="updateModalTitle" onclick="event.stopPropagation()">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="updateModalTitle" tabindex="-1" onclick="event.stopPropagation()">
     <span class="itile" id="updateModalIcon"><svg class="ic" aria-hidden="true"><use href="#i-circle-up"/></svg></span>
     <h2 class="modal-title" id="updateModalTitle">Checking for updates…</h2>
     <p class="modal-sub" id="updateModalSubtitle">Asking GitHub for the latest version.</p>
@@ -470,14 +473,15 @@
      setup's "Pick another key"). Settings also offers this computer's own
      presets (logic.js hotkeyPresets): Windows and Mac have different keys. -->
 <div class="modal-overlay hotkey-modal-overlay" id="hotkeyModal" style="display:none" onclick="closeHotkeyCapture()">
-  <div class="modal hotkey-modal" role="dialog" aria-modal="true" aria-labelledby="hotkeyModalTitle" onclick="event.stopPropagation()">
+  <div class="modal hotkey-modal" role="dialog" aria-modal="true" aria-labelledby="hotkeyModalTitle" tabindex="-1" onclick="event.stopPropagation()">
     <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-keyboard"/></svg></span>
     <h2 class="modal-title" id="hotkeyModalTitle">Hold your new keys</h2>
     <p class="modal-sub">Hold the combination you want, then let go. Esc cancels.</p>
     <div class="hk-capture" id="hotkeyCaptureBox">
       <span class="keys hk-capture-keys" id="hotkeyCaptureKeys"></span>
     </div>
-    <p class="modal-error" id="hotkeyError" style="display:none"></p>
+    <p class="sr-only" id="hotkeyCaptureLive" role="status" aria-live="polite"></p>
+    <p class="modal-error" id="hotkeyError" role="alert" style="display:none"></p>
     <div class="hk-presets" id="hotkeyPresetRow">
       <span class="small">Or pick one:</span>
       <span class="hk-preset-list" id="settingsHotkeyPresets"></span>
@@ -497,7 +501,7 @@
      (wizShowStep) shows one .ob-step at a time and sets data-state on it;
      elements with data-when="..." show only in those states. It follows the
      chosen theme like the rest of the window. -->
-<div class="wizard-overlay ob" id="wizardOverlay" style="display:none">
+<div class="wizard-overlay ob" id="wizardOverlay" role="dialog" aria-modal="true" aria-labelledby="obTitleConnect" style="display:none">
   <header class="ob-head">
     <div class="ob-brand">
       <span class="ob-mark" data-waffle="logo" data-size="26"></span>
@@ -511,8 +515,8 @@
     <!-- ── Connect your free Groq account ─────────────────────────────── -->
     <section class="ob-step" id="obStepConnect" data-step="connect" data-state="start" style="display:none">
       <div class="ob-left">
-        <h1 class="ob-title" data-when="start waiting checking error">Connect your free Groq account</h1>
-        <h1 class="ob-title" data-when="connected">Groq is connected</h1>
+        <h1 class="ob-title" id="obTitleConnect" tabindex="-1" data-when="start waiting checking error">Connect your free Groq account</h1>
+        <h1 class="ob-title" id="obTitleConnected" tabindex="-1" data-when="connected">Groq is connected</h1>
 
         <p class="ob-lede" data-when="start">Waffler uses Groq, a free AI service, to turn your voice into tidy text. It's your own account, so your words go from this computer to Groq and nowhere else.</p>
         <p class="ob-lede" data-when="waiting checking error">Groq opened in your browser. Follow these, then come back to this window.</p>
@@ -544,7 +548,7 @@
           <div class="dots-h ob-keysep"></div>
           <label class="ob-small ob-pastelabel" for="wizGroqKeyInput">Or paste it here</label>
           <div class="ob-keyrow">
-            <input type="password" id="wizGroqKeyInput" class="input input-mono" placeholder="gsk_…" autocomplete="off" spellcheck="false">
+            <input type="password" id="wizGroqKeyInput" class="input input-mono" placeholder="gsk_…" autocomplete="off" spellcheck="false" aria-describedby="obKeyState">
             <button class="btn btn-sec ob-paste" type="button" onclick="wizPasteKey()"><svg class="ic" aria-hidden="true"><use href="#i-clipboard"/></svg>Paste</button>
           </div>
         </div>
@@ -605,23 +609,24 @@
     <!-- ── Mac: Let Waffler listen and type for you ───────────────────── -->
     <section class="ob-step" id="obStepPermissions" data-step="permissions" data-state="asking" style="display:none">
       <div class="ob-left">
-        <h1 class="ob-title">Let Waffler listen and type for you</h1>
+        <h1 class="ob-title" id="obTitlePermissions" tabindex="-1">Let Waffler listen and type for you</h1>
         <p class="ob-lede">Your Mac asks once for each. Allow all three and setup carries on by itself.</p>
+        <p class="sr-only" id="obPermLive" role="status" aria-live="polite"></p>
         <div class="group ob-perms"><div class="panel">
           <div class="row ob-perm" id="obPermMic">
             <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-mic"/></svg></span>
             <div class="row-main"><div class="row-t">Microphone</div><div class="row-d">So it hears you while you hold <span class="ob-hk-name">Fn</span>.</div></div>
-            <span class="ob-perm-ctl"><button class="btn btn-sm btn-pri" onclick="wizAllow('microphone')">Allow</button></span>
+            <span class="ob-perm-ctl"><button class="btn btn-sm btn-pri" aria-label="Allow microphone" onclick="wizAllow('microphone')">Allow</button></span>
           </div>
           <div class="row ob-perm" id="obPermKeys">
             <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-keyboard"/></svg></span>
             <div class="row-main"><div class="row-t">Keyboard</div><div class="row-d">To spot <span class="ob-hk-name">Fn</span>. It never records your typing.</div></div>
-            <span class="ob-perm-ctl"><button class="btn btn-sm btn-sec" onclick="wizAllow('input_monitoring')">Allow</button></span>
+            <span class="ob-perm-ctl"><button class="btn btn-sm btn-sec" aria-label="Allow keyboard monitoring" onclick="wizAllow('input_monitoring')">Allow</button></span>
           </div>
           <div class="row ob-perm" id="obPermTyping">
             <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-text-cursor"/></svg></span>
             <div class="row-main"><div class="row-t">Typing for you</div><div class="row-d">To paste into the app you're using.</div></div>
-            <span class="ob-perm-ctl"><button class="btn btn-sm btn-sec" onclick="wizAllow('accessibility')">Allow</button></span>
+            <span class="ob-perm-ctl"><button class="btn btn-sm btn-sec" aria-label="Allow typing for you" onclick="wizAllow('accessibility')">Allow</button></span>
           </div>
         </div></div>
         <p class="ob-small ob-after">Your Mac may ask you to quit and reopen Waffler. That's normal. Setup carries on from here.</p>
@@ -646,8 +651,10 @@
     <!-- ── Hold <hotkey> and talk ─────────────────────────────────────── -->
     <section class="ob-step" id="obStepTry" data-step="try" data-state="wait" style="display:none">
       <div class="ob-left">
-        <h1 class="ob-title">Hold <span class="ob-hk-name" id="obTryTitleKey">Win + Ctrl</span> and talk</h1>
+        <h1 class="ob-title" id="obTitleTry" tabindex="-1">Hold <span class="ob-hk-name" id="obTryTitleKey">Win + Ctrl</span> and talk</h1>
         <p class="ob-lede">Say it however it comes out, then let go.</p>
+        <p class="sr-only" id="obTryLive" role="status" aria-live="polite"></p>
+        <p class="sr-only" id="obTryAlert" role="alert"></p>
         <div class="panel ob-suggest">
           <div class="eyebrow">Try saying</div>
           <p class="ob-suggest-t">“Send it to John, sorry, James, by Wednesday at three.”</p>
@@ -730,7 +737,7 @@
     <!-- ── Now use it anywhere ─────────────────────────────────────────── -->
     <section class="ob-step" id="obStepAnywhere" data-step="anywhere" data-state="ready" style="display:none">
       <div class="ob-left">
-        <h1 class="ob-title">Now use it anywhere</h1>
+        <h1 class="ob-title" id="obTitleAnywhere" tabindex="-1">Now use it anywhere</h1>
         <p class="ob-lede">Click into any text box, in email, WhatsApp, Word or anywhere else, then hold <span class="keys" id="obAnyKeys"></span> and talk.</p>
         <button class="btn btn-sec btn-lg ob-editor-btn" id="obEditorBtn" onclick="wizOpenEditor()"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg><span id="obEditorLabel">Open Notepad and try it</span></button>
         <p class="ob-small ob-editor-err" id="obEditorErr" role="alert" hidden></p>

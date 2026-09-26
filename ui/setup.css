@@ -444,6 +444,14 @@ body[data-theme="dark"] .ob-tape { box-shadow: inset 0 0 0 0.5px rgba(232, 200, 
   .ob-stepper .ob-ssep { width: 12px; }
   .ob-head, .ob-foot { padding: 0 24px 0 28px; }
 }
+/* Very narrow (200% zoom): the stepper keeps every number but only the
+   current step's name. */
+@media (max-width: 560px) {
+  .ob-stepper li:not(.is-on) .ob-slabel {
+    position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden;
+    clip: rect(0 0 0 0); white-space: nowrap;
+  }
+}
 @media (max-height: 680px) {
   .ob-left { padding-top: 16px; }
   .ob-art, .ob-desk { min-height: 440px; }

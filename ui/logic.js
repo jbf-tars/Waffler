@@ -602,6 +602,36 @@
     return { kind: 'list' };
   }
 
+  // What a screen reader hears when a search's first page arrives. Only the
+  // first page (up to pageSize) is loaded, so a full page says "at least".
+  function searchAnnouncement(query, count, done) {
+    const q = String(query || '').trim();
+    if (!q) return '';
+    const n = Number(count) || 0;
+    if (!n) return 'No entries match.';
+    if (!done) return `At least ${formatCount(n)} entries match.`;
+    return n === 1 ? '1 entry matches.' : `${formatCount(n)} entries match.`;
+  }
+
+  // Arrow keys in a radio group (the theme picker): the index to move to,
+  // wrapping at the ends, or -1 when the key isn't one of them.
+  function radioMove(index, count, key) {
+    if (!count || index < 0) return -1;
+    if (key === 'ArrowRight' || key === 'ArrowDown') return (index + 1) % count;
+    if (key === 'ArrowLeft' || key === 'ArrowUp') return (index - 1 + count) % count;
+    if (key === 'Home') return 0;
+    if (key === 'End') return count - 1;
+    return -1;
+  }
+
+  // After removing the item at `index`, which of the `left` items keeps
+  // focus: the next one (now at the same index), else the previous one, or
+  // -1 when none are left.
+  function focusAfterRemove(index, left) {
+    if (!left || index < 0) return -1;
+    return Math.min(index, left - 1);
+  }
+
   // ── First-run setup (3.15) ────────────────────────────────────────────
 
   // What the key box says about what was typed or pasted, before asking
@@ -708,6 +738,6 @@
     providerOrderRows, activeProviders, backendsLine, aboutLine,
     USAGE_NOTE, formatCount, usageView, usageProviderRows, usesView, keyRows,
     qualityView, dayKey, dayLabel, statNumber,
-    SEARCH_DEBOUNCE_MS, debounce, feedView,
+    SEARCH_DEBOUNCE_MS, debounce, feedView, searchAnnouncement, radioMove, focusAfterRemove,
   };
 });

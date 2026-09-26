@@ -167,6 +167,34 @@ website and setup, in light and Dark.
   "Waffler 3.15.1 is ready to download", and the download shows "42% · 36.7
   of 87.3 MB".
 
+### Keyboard, screen readers and zoom
+
+- **Setup is one dialog.** The Journal, Vocabulary and Settings buttons
+  behind it are no longer reachable with Tab, and Tab goes round inside
+  setup. Each new step puts focus on its title, and when a button you used
+  disappears (Get my free Groq key, an Allow on a Mac, the key box once the
+  key works) focus moves to what comes next instead of being lost. After
+  Done, focus starts at the Journal.
+- **Setup says what is happening.** Recording, tidying up, the result, and
+  silence, an error or a microphone that isn't allowed are read out. The key
+  check reads each message once instead of on every keystroke, and "That key
+  looks too short" waits until you stop typing. The three Mac Allow buttons
+  say what each one allows.
+- **Dialogs.** The hotkey, update and restart dialogs take focus when they
+  open, keep Tab inside, and give focus back when they close. Esc closes the
+  update dialog. The hotkey dialog reads out the keys once you let go, and
+  its error.
+- **The Journal** has a heading for each day, each Copy button says which
+  dictation it copies, and a search says how many entries match.
+- Removing a word in Vocabulary keeps focus on the next word.
+- The page buttons at the top are plain buttons marked as the current page,
+  and the Theme choice is one Tab stop you change with the arrow keys.
+- Fields, dropdowns, switches and the chosen tab or section have edges you
+  can see (at least 3:1 against what is around them) in Light and Dark.
+- At 200% zoom in the smallest window, nothing is cut off: the top bar and
+  Settings menu wrap, a setting's control moves under its text, and a
+  dialog taller than the window scrolls.
+
 ### Privacy and data
 
 - **Choose how long your history is kept.** Settings, Privacy and data has

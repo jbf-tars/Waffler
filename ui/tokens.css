@@ -127,7 +127,12 @@ body {
   --card:        #FFFFFF;              /* entries, panels, inputs */
   --line:        rgba(12, 10, 9, 0.07);   /* hairlines (top bar, dividers) */
   --ring:        rgba(12, 10, 9, 0.075);  /* card outlines, drawn as inset shadows */
-  --ring-strong: #D7D2CC;              /* input and segmented outlines */
+  --ring-strong: #D7D2CC;              /* icon tiles, keycap edges (decoration) */
+  /* Edges people must see to find or read a control (WCAG 1.4.11, 3:1):
+     field and select outlines, an off switch, the chosen segment.
+     #8A8279 is 3.8:1 on --card, 3.4:1 on --surface, 3.1:1 on --surface-2. */
+  --ring-ctl:    #8A8279;
+  --tog-on-ring: #B07A22;              /* an on switch's edge: 3.7:1 on --card */
   --dots:        rgba(12, 10, 9, 0.18);   /* dotted separators, link underlines */
 
   /* text */
@@ -185,6 +190,8 @@ body[data-theme="dark"] {
   --line:        rgba(253, 252, 252, 0.08);
   --ring:        rgba(253, 252, 252, 0.09);
   --ring-strong: #44403B;
+  --ring-ctl:    #78706A;              /* 3.6:1 on --card, 3.8:1 on --surface */
+  --tog-on-ring: #D9A441;
   --dots:        rgba(253, 252, 252, 0.18);
   --text:   #FDFCFC;
   --text-2: #CEC6BB;
@@ -223,6 +230,8 @@ body[data-theme="dark"] {
     --line:        rgba(253, 252, 252, 0.08);
     --ring:        rgba(253, 252, 252, 0.09);
     --ring-strong: #44403B;
+    --ring-ctl:    #78706A;
+    --tog-on-ring: #D9A441;
     --dots:        rgba(253, 252, 252, 0.18);
     --text:   #FDFCFC;
     --text-2: #CEC6BB;

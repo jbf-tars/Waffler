@@ -126,7 +126,7 @@
   border-radius: var(--r-input);
   background: var(--card);
   color: var(--text);
-  box-shadow: inset 0 0 0 1px var(--ring-strong);
+  box-shadow: inset 0 0 0 1px var(--ring-ctl);
   font: var(--t-body);
   outline: none;
   transition: box-shadow var(--dur-fast) var(--ease);
@@ -171,9 +171,9 @@
   margin: 0;
   border-radius: var(--r-pill);
   background: var(--surface-2);
-  box-shadow: inset 0 0 0 0.5px var(--ring);
+  box-shadow: inset 0 0 0 1px var(--ring-ctl);
   cursor: pointer;
-  transition: background-color var(--dur-fast) var(--ease);
+  transition: background-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
 }
 .tog::after {
   content: "";
@@ -184,18 +184,22 @@
   height: 17px;
   border-radius: 50%;
   background: #FFFFFF;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  /* The knob's edge, so off reads as a knob in a track, not a blank pill. */
+  box-shadow: 0 0 0 1px var(--ring-ctl), 0 1px 2px rgba(0, 0, 0, 0.25);
   transition: transform var(--dur-ui) var(--ease);
 }
 .tog:checked,
-.tog[aria-checked="true"] { background: var(--honey); }
+.tog[aria-checked="true"] { background: var(--honey); box-shadow: inset 0 0 0 1px var(--tog-on-ring); }
+.tog:checked::after,
+.tog[aria-checked="true"]::after { box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25); }
 .tog:checked::after,
 .tog[aria-checked="true"]::after { transform: translateX(15px); }
 .tog:disabled { opacity: 0.5; cursor: default; }
 
 /* ── Segmented tabs ────────────────────────────────────────────────────────
    The site's .seg: the top bar's nav, the theme picker, provider tabs. The
-   chosen button has aria-selected="true" (or .active). */
+   chosen button has aria-current="page", aria-checked="true" or .active,
+   and a 3:1 edge as well as the lighter fill. */
 .seg {
   display: inline-flex;
   gap: 2px;
@@ -224,10 +228,12 @@
 .seg > button:hover { color: var(--text); }
 .seg > button[aria-selected="true"],
 .seg > button[aria-checked="true"],
+.seg > button[aria-current="page"],
 .seg > button.active {
   background: var(--card);
   color: var(--text);
-  box-shadow: var(--shadow-btn);
+  font-weight: 500;
+  box-shadow: inset 0 0 0 1px var(--ring-ctl), var(--shadow-btn);
 }
 
 /* ── Cards and rows ────────────────────────────────────────────────────── */
@@ -288,6 +294,21 @@
 .itile.is-ok   { background: var(--ok-tint); color: var(--ok); box-shadow: none; }
 
 /* ── Type helpers ──────────────────────────────────────────────────────── */
+/* Read by screen readers, not shown: headings and live messages. */
+.sr-only {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+/* Headings and dialogs that take focus from the code (tabindex="-1") show
+   no ring; they are never reached with Tab. */
+[tabindex="-1"]:focus { outline: none; }
 .eyebrow { font: var(--t-label); letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
 .mono { font-family: var(--f-mono); letter-spacing: 0; }
 .serif-date { font: var(--t-accent); color: var(--muted); letter-spacing: 0; }
