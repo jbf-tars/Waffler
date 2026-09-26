@@ -162,6 +162,28 @@ website and setup, in light and Dark.
   "Waffler 3.15.1 is ready to download", and the download shows "42% · 36.7
   of 87.3 MB".
 
+### Privacy and data
+
+- **Choose how long your history is kept.** Settings, Privacy and data has
+  Keep forever (still the default), for a year, 90 days or 30 days. If a
+  shorter choice would delete dictations, it says how many and asks first.
+  Recordings waiting to be sent are never removed by it.
+- **Recordings not sent** show their count with Try again and Delete, which
+  asks first.
+- **Delete all my data** deletes your history, usage, recent recordings,
+  recordings not sent and the logs, and Waffler keeps running with your
+  keys, words and settings. To delete the keys and settings as well, there
+  is a separate link with its own question; that closes Waffler and setup
+  starts again, as the old reset did.
+- **Old transcripts removed from the log.** Versions from before transcripts
+  were kept out of app.log wrote the start of each dictation there. The
+  first time 3.15 starts it removes those lines, once, and leaves the rest
+  of the log as it was. A log over 5 MB is then started afresh, keeping the
+  previous one as app.log.1.
+- The microphone line is now at the top of Privacy and data too, and the
+  code-signing policy no longer says audio is captured only while you hold
+  the hotkey: the half-second before is part of each recording.
+
 ## [3.14.100] - 2026-09-26
 
 Two things the app claimed that were not true, and a dictation fix. Its
