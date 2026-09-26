@@ -1,11 +1,11 @@
 /* Waffler: the screens.
 
    Colours, fonts, sizes and the light and night themes are in tokens.css;
-   buttons, keycaps, the status pill and the other shared parts are in
-   components.css. This file lays out each screen from those. The Journal,
-   Settings, Vocabulary, the setup wizard and the dialogs still use some
-   older names (--bg-base, --text-secondary...), which tokens.css maps onto
-   the new tokens until each screen is rebuilt. */
+   buttons, keycaps, the status pill, rows and the other shared parts are in
+   components.css. This file lays out each screen from those: the top bar,
+   the Journal, Vocabulary, Settings, the dialogs and the toast. First-run
+   setup is in setup.css. Nothing here sets a colour of its own: every
+   colour is a token, so the night theme follows by itself. */
 
 *, *::before, *::after {
   box-sizing: border-box;
@@ -19,965 +19,30 @@ html, body {
   user-select: none;
 }
 
-/* ── Layout ─────────────────────────────────────────────────── */
+[hidden] { display: none !important; }
+
+/* ── Layout ─────────────────────────────────────────────────────────── */
 .app {
   display: flex;
-  flex-direction: column;       /* v3.14.18 — top-nav on top, panels below */
+  flex-direction: column;
   height: 100vh;
   overflow: hidden;
 }
+.app > .topbar { flex-shrink: 0; }
 
-/* ── Toast ─────────────────────────────────────────────────── */
-.toast {
-  position: fixed;
-  bottom: 24px;
-  right: 24px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: 12px 16px;
-  font-size: 13px;
-  color: var(--text-primary);
-  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
-  /* Above the setup wizard (9999) and the dialogs (10001): at 200 every
-     message shown during setup was hidden behind the wizard. */
-  z-index: 10002;
-  opacity: 0;
-  transform: translateY(6px);
-  transition: opacity 0.2s, transform 0.2s;
-  pointer-events: none;
-  max-width: 260px;
-}
-
-.toast.visible {
-  opacity: 1;
-  transform: translateY(0);
-  /* A shown toast takes the pointer, so hovering keeps it and a click
-     dismisses it, as app.js intends; hidden, it lets clicks through. */
-  pointer-events: auto;
-}
-
-.toast.success { border-color: var(--green); }
-.toast.error   { border-color: var(--red); }
-
-/* Over the setup wizard: top centre, clear of its Back, Next and Finish
-   Setup buttons at the bottom (bottom right it covered Finish Setup, and the
-   first click only closed the message). */
-.toast.over-wizard {
-  top: 20px;
-  bottom: auto;
-  right: auto;
-  left: 50%;
-  transform: translate(-50%, -6px);
-}
-.toast.over-wizard.visible { transform: translate(-50%, 0); }
-
-.vocab-input {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 6px 8px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  color: var(--text-primary);
-  font-size: 11px;
-  font-family: inherit;
-  outline: none;
-  resize: vertical;
-  transition: border-color 0.15s;
-  line-height: 1.5;
-}
-.vocab-input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-glow); }
-.vocab-input::placeholder { color: var(--text-muted); opacity: 0.5; }
-
-/* ── Settings Panel ──────────────────────────────────────────── */
-.settings-panel {
-  flex: 1;
-  overflow-y: auto;
-  padding: 28px 32px 40px;
-  scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
-  display: none;           /* shown via JS */
-  flex-direction: column;
-  background: var(--bg-base);
-  height: 100vh;
-  max-height: 100vh;
-  z-index: 100;
-  position: relative;
-}
-
-.settings-header {
-  margin-bottom: 28px;
-}
-
-.settings-header h1 {
-  font-size: 26px;
-  font-weight: 700;
-  letter-spacing: -0.5px;
-  color: var(--text-primary);
-  line-height: 1.2;
-}
-
-.settings-header .subtitle {
-  font-size: 13px;
-  color: var(--text-muted);
-  margin-top: 4px;
-}
-
-.settings-section {
-  background: var(--bg-card);
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius-lg);
-  padding: 20px;
-  margin-bottom: 16px;
-}
-
-.settings-section-title {
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.7px;
-  color: var(--text-muted);
-  margin-bottom: 16px;
-}
-
-.settings-row {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 20px;
-  padding: 12px 0;
-  border-top: 1px solid var(--border-soft);
-}
-
-.settings-row:first-of-type {
-  border-top: none;
-  padding-top: 0;
-}
-
-.settings-row-info {
-  flex: 1;
-  min-width: 0;
-}
-
-.settings-row-label {
-  font-size: 13.5px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin-bottom: 3px;
-}
-
-.settings-row-desc {
-  font-size: 11.5px;
-  color: var(--text-muted);
-  line-height: 1.5;
-}
-
-.settings-row-desc code {
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 1px 5px;
-  font-size: 10.5px;
-  font-family: "SF Mono", Menlo, monospace;
-  color: var(--accent-text);
-}
-
-.settings-row-control {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.settings-row-control.stacked {
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 8px;
-}
-
-.settings-input {
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 7px 10px;
-  font-size: 12.5px;
-  color: var(--text-primary);
-  font-family: "SF Mono", Menlo, monospace;
-  outline: none;
-  width: 220px;
-  transition: border-color 0.15s;
-}
-.settings-input:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-glow);
-}
-.settings-input::placeholder { color: var(--text-muted); }
-
-.settings-select {
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 7px 10px;
-  font-size: 12.5px;
-  color: var(--text);
-  outline: none;
-  width: 200px;
-  cursor: pointer;
-  transition: border-color 0.15s;
-}
-.settings-select:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-glow);
-}
-
-.api-key-status {
-  font-size: 11px;
-  color: var(--text-muted);
-  min-height: 14px;
-}
-.api-key-status.ok  { color: var(--green); }
-.api-key-status.err { color: var(--red); }
-
-/* Older Settings buttons: drawn as components.css .btn-sec (32 px). */
-.settings-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 32px;
-  padding: 0 13px;
-  background: var(--btn-sec-bg);
-  border: 0;
-  border-radius: var(--r-pill);
-  box-shadow: var(--shadow-btn);
-  color: var(--text);
-  font: var(--t-body);
-  font-size: 13px;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
-}
-.settings-btn:hover:not(:disabled) { background: var(--btn-sec-hover); }
-
-.settings-select {
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 7px 28px 7px 10px;
-  font-size: 12.5px;
-  color: var(--text-primary);
-  font-family: var(--font);
-  outline: none;
-  appearance: none;
-  -webkit-appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none'%3E%3Cpath d='M2 4l4 4 4-4' stroke='%23888' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 8px center;
-  cursor: pointer;
-  transition: border-color 0.15s;
-  min-width: 160px;
-}
-.settings-select:hover  { border-color: var(--accent); }
-.settings-select:focus  { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-glow); }
-.settings-select option { background: var(--bg-card); color: var(--text-primary); }
-
-/* ── Toggle Switch ─────────────────────────────────────────── */
-.toggle-switch {
-  position: relative;
-  display: inline-block;
-  width: 38px;
-  height: 22px;
-  flex-shrink: 0;
-}
-
-.toggle-switch input {
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-
-.toggle-slider {
-  position: absolute;
-  cursor: pointer;
-  inset: 0;
-  background: var(--border);
-  border-radius: 22px;
-  transition: background 0.2s;
-}
-
-.toggle-slider::before {
-  content: "";
-  position: absolute;
-  height: 16px;
-  width: 16px;
-  left: 3px;
-  bottom: 3px;
-  background: white;
-  border-radius: 50%;
-  transition: transform 0.2s;
-}
-
-.toggle-switch input:checked + .toggle-slider {
-  background: var(--accent);
-}
-
-.toggle-switch input:checked + .toggle-slider::before {
-  transform: translateX(16px);
-}
-
-.toggle-label {
-  font-size: 11.5px;
-  color: var(--text-muted);
-  min-width: 20px;
-}
-
-/* ── Usage Stats ─────────────────────────────────────────────────── */
-.usage-stats-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 10px;
-  margin-bottom: 8px;
-}
-
-.usage-stat-card {
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 12px 10px;
-  text-align: center;
-}
-
-.usage-stat-label {
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--text-muted);
-  margin-bottom: 6px;
-}
-
-.usage-stat-value {
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--accent-text);
-  letter-spacing: -0.3px;
-}
-
-.settings-header-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-}
-
-/* ── Vocabulary Panel ─────────────────────────────────────────── */
+/* The three pages fill the space under the top bar and scroll on their own. */
+.journal,
 .vocabulary-panel {
-  flex: 1;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
-  padding: 28px 32px 40px;
   scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
-  display: none;
-  flex-direction: column;
-  background: var(--bg-base);
-  height: 100vh;
-  max-height: 100vh;
-  z-index: 100;
-  position: relative;
-}
-
-.vocab-header {
-  margin-bottom: 24px;
-}
-
-.vocab-header h1 {
-  font-size: 26px;
-  font-weight: 700;
-  letter-spacing: -0.5px;
-  color: var(--text-primary);
-  line-height: 1.2;
-}
-
-.vocab-header .subtitle {
-  font-size: 13px;
-  color: var(--text-muted);
-  margin-top: 4px;
-}
-
-.vocab-add-row {
-  display: flex;
-  gap: 10px;
-}
-
-.vocab-add-btn {
-  height: 40px;
-  padding: 0 18px;
-  border: 0;
-  border-radius: var(--r-pill);
-  background: var(--btn-pri-bg);
-  color: var(--btn-pri-fg);
-  font: var(--t-body);
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background-color var(--dur-fast) var(--ease);
-}
-.vocab-add-btn:hover { background: var(--btn-pri-hover); }
-
-.vocab-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.vocab-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 48px 20px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius-lg);
-  text-align: center;
-}
-
-.vocab-empty-icon {
-  font-size: 36px;
-  opacity: 0.4;
-  margin-bottom: 12px;
-}
-
-.vocab-empty-label {
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text-muted);
-  margin-bottom: 4px;
-}
-
-.vocab-empty-sub {
-  font-size: 12px;
-  color: var(--text-muted);
-  opacity: 0.75;
-  max-width: 420px;
-  line-height: 1.5;
-}
-
-.vocab-empty-examples {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px 24px;
-  margin-top: 20px;
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-.vocab-empty-example {
-  white-space: nowrap;
-}
-
-.vocab-empty-tip {
-  margin-top: 20px;
-  font-size: 11px;
-  color: var(--text-muted);
-  opacity: 0.55;
-  max-width: 420px;
-  line-height: 1.5;
-}
-
-.vocab-word-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: var(--bg-card);
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius-md);
-  padding: 10px 14px;
-  transition: border-color 0.15s;
-}
-
-.vocab-word-row:hover {
-  border-color: var(--border);
-}
-
-.vocab-word-text {
-  font-size: 14px;
-  color: var(--text-primary);
-  word-break: break-word;
-}
-
-.vocab-word-delete {
-  background: transparent;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  padding: 4px 8px;
-  font-size: 14px;
-  border-radius: 4px;
-  transition: background-color 0.15s, border-color 0.15s, color 0.15s, box-shadow 0.15s, opacity 0.15s;
-  flex-shrink: 0;
-}
-
-.vocab-word-delete:hover {
-  background: rgba(239, 68, 68, 0.12);
-  color: var(--red);
-}
-
-/* Panel visibility classes */
-.settings-panel.visible,
-.vocabulary-panel.visible {
-  display: flex !important;
-}
-
-/* Main area visibility */
-.main.visible {
-  display: flex !important;
-}
-
-/* Vocabulary Page */
-.vocab-header {
-  margin-bottom: 20px;
-}
-.vocab-header h1 {
-  font-size: 24px;
-  font-weight: 700;
-  margin-bottom: 4px;
-}
-.vocab-add-row {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 16px;
-}
-.vocab-input {
-  flex: 1;
-  padding: 10px 14px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--bg-card);
-  color: var(--text-primary);
-  font-size: 14px;
-}
-.vocab-input:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-.vocab-add-btn {
-  padding: 10px 16px;
-  border-radius: 8px;
-  border: none;
-  background: var(--accent);
-  color: white;
-  font-weight: 600;
-  cursor: pointer;
-}
-.vocab-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.vocab-word-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 10px 14px;
-  background: var(--bg-card);
-  border-radius: 8px;
-  border: 1px solid var(--border);
-}
-.vocab-word-text {
-  font-size: 14px;
-}
-.vocab-word-delete {
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-size: 16px;
-  opacity: 0.5;
-}
-.vocab-word-delete:hover {
-  opacity: 1;
-}
-
-/* Transcript Feed Scroll */
-#transcriptFeed {
-  flex: 1;
-  overflow-y: auto;
-  padding: 0 32px 20px;
-  scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
-}
-
-/* ── Setup ─────────────────────────────────────────────────────────
-   The frame of first-run setup: a layer over the whole window. Its
-   screens are in setup.css. */
-.wizard-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 9999;
+  scrollbar-color: var(--ring-strong) transparent;
   background: var(--bg);
   color: var(--text);
-  display: flex;
 }
-
-/* Wizard fade-out */
-.wizard-overlay.hiding {
-  animation: wizardFadeOut 0.4s ease forwards;
-}
-
-@keyframes wizardFadeOut {
-  to { opacity: 0; transform: scale(0.98); }
-}
-
-/* ── Hotkey Capture Modal ─────────────────────────────────────── */
-.hotkey-modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: var(--scrim);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  /* Above the setup wizard (9999), which can open the hotkey dialog. */
-  z-index: 10001;
-}
-/* The one dialog: a white card on a light scrim (the restart dialog matches). */
-.hotkey-modal {
-  background: var(--card);
-  color: var(--text);
-  border-radius: var(--r-card);
-  padding: 28px 32px 24px;
-  text-align: center;
-  max-width: 380px;
-  width: 90%;
-  box-shadow: var(--shadow-pop);
-}
-.hotkey-modal-icon { display: flex; justify-content: center; margin-bottom: 10px; color: var(--text); }
-.hotkey-modal-title { color: var(--text); font: var(--t-heading); margin-bottom: 6px; }
-.hotkey-modal-subtitle { color: var(--text-secondary); font-size: 13px; margin-bottom: 20px; }
-.hotkey-capture-box {
-  background: var(--bg-hover);
-  border: 2px solid var(--accent);
-  border-radius: var(--radius-md);
-  padding: 16px 24px;
-  margin-bottom: 18px;
-}
-.hotkey-capture-keys {
-  color: var(--accent);
-  font-size: 22px;
-  font-weight: 700;
-  letter-spacing: 1px;
-}
-.hotkey-capture-hint { color: var(--text-muted); font-size: 11px; margin-top: 4px; }
-.hotkey-modal-error {
-  color: var(--red);
-  font-size: 12px;
-  margin-bottom: 12px;
-}
-.hotkey-modal-buttons { display: flex; gap: 10px; justify-content: center; }
-.hotkey-btn {
-  height: 32px;
-  padding: 0 13px;
-  background: var(--btn-sec-bg);
-  border: 0;
-  border-radius: var(--r-pill);
-  box-shadow: var(--shadow-btn);
-  color: var(--text);
-  font: var(--t-body);
-  font-size: 13px;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
-}
-.hotkey-btn:hover { background: var(--btn-sec-hover); }
-.hotkey-btn.primary,
-.settings-btn.accent { background: var(--btn-pri-bg); color: var(--btn-pri-fg); box-shadow: none; }
-.hotkey-btn.primary:hover,
-.settings-btn.accent:hover:not(:disabled) { background: var(--btn-pri-hover); }
-
-/* Update notices: components.css .notice, placed at the top of the Journal. */
-.update-banner { margin: 12px var(--gutter) 0; }
-
-/* ── Settings → Appearance: theme picker card ── */
-.theme-picker {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
-  margin-top: 10px;
-}
-.theme-option {
-  background: var(--bg-card);
-  border: 1.5px solid var(--border-soft);
-  border-radius: 12px;
-  padding: 12px;
-  cursor: pointer;
-  text-align: left;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  font-family: inherit;
-  transition: background-color 0.2s, border-color 0.2s, color 0.2s, box-shadow 0.2s, opacity 0.2s;
-}
-.theme-option:hover { border-color: var(--border); }
-.theme-option.active {
-  border-color: var(--accent);
-  box-shadow: 0 4px 14px rgba(200, 162, 86, 0.12);
-}
-.theme-swatch {
-  height: 44px;
-  border-radius: 7px;
-  border: 1px solid var(--border-soft);
-}
-.theme-swatch-cream { background: linear-gradient(135deg, #FBF7EB 50%, #C8A256 50%); }
-.theme-swatch-dark  { background: linear-gradient(135deg, #0d0d0f 50%, #C8A256 50%); }
-.theme-swatch-auto  { background: linear-gradient(135deg, #FBF7EB 50%, #0d0d0f 50%); }
-.theme-option-name { color: var(--text-primary); font-weight: 700; font-size: 13px; }
-.theme-option-meta { color: var(--text-secondary); font-size: 11.5px; }
-
-/* ── Usage section: per-provider breakdown (v3.14.7) ──────────────── */
-.usage-stats-grid-time {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
-}
-.usage-stats-grid-activity {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 8px;
-}
-@media (max-width: 720px) {
-  .usage-stats-grid-time { grid-template-columns: repeat(2, 1fr); }
-}
-.usage-stat-card-secondary {
-  background: rgba(200, 162, 86, 0.06);
-}
-/* "Estimated cost" heading and the line saying what the figures are. */
-.usage-estimate { margin: 16px 0 10px; }
-.usage-estimate .usage-provider-title { margin-bottom: 4px; }
-.usage-estimate .usage-provider-hint { text-transform: none; letter-spacing: 0; }
-.usage-estimate-note {
-  font-size: 12px;
-  line-height: 1.45;
-  color: var(--text-secondary);
-}
-.usage-stat-value-sm {
-  font-size: 18px;
-}
-
-.usage-provider-block {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 14px 16px;
-}
-.usage-provider-title {
-  font-weight: 700;
-  font-size: 13px;
-  color: var(--text-primary);
-  margin-bottom: 10px;
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-}
-.usage-provider-hint {
-  font-weight: 500;
-  font-size: 11px;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-.usage-provider-rows {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.usage-provider-row {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.usage-provider-row-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 13px;
-  flex-wrap: wrap;
-}
-.usage-provider-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-.usage-provider-name {
-  font-weight: 700;
-  color: var(--text-primary);
-}
-.usage-provider-desc {
-  color: var(--text-muted);
-  font-size: 11px;
-  font-family: "SF Mono", Menlo, monospace;
-}
-.usage-provider-est {
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-muted);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 1px 6px;
-  cursor: help;
-}
-.usage-provider-cost {
-  margin-left: auto;
-  font-weight: 700;
-  color: var(--accent-text);
-  font-family: "SF Mono", Menlo, monospace;
-}
-.usage-provider-count {
-  color: var(--text-muted);
-  font-size: 11px;
-}
-.usage-provider-bar {
-  width: 100%;
-  height: 4px;
-  background: rgba(44, 37, 32, 0.08);
-  border-radius: 2px;
-  overflow: hidden;
-}
-.usage-provider-bar-fill {
-  height: 100%;
-  border-radius: 2px;
-  transition: width 0.4s cubic-bezier(0.22, 0.61, 0.36, 1);
-}
-.usage-provider-empty {
-  text-align: center;
-  color: var(--text-muted);
-  font-size: 13px;
-  padding: 12px 8px;
-  font-style: italic;
-}
-
-/* ── Restart-required modal (v3.14.30) ──
-   Centered popup that appears after any settings change that requires
-   a fresh process to take effect (most commonly API key saves). Was a
-   top-of-page banner in v3.14.28-29; users reported missing it. A
-   centered card with a soft backdrop is more obviously a thing to
-   respond to. Click backdrop or press Esc to dismiss; Enter triggers
-   the primary action. */
-.restart-modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: var(--scrim);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 9000;
-  animation: restart-modal-overlay-in 0.2s ease-out;
-}
-.restart-modal-overlay.restart-modal-closing {
-  animation: restart-modal-overlay-out 0.18s ease-in forwards;
-}
-@keyframes restart-modal-overlay-in {
-  0% { opacity: 0; }
-  100% { opacity: 1; }
-}
-@keyframes restart-modal-overlay-out {
-  0% { opacity: 1; }
-  100% { opacity: 0; }
-}
-.restart-modal-card {
-  background: var(--card);
-  color: var(--text);
-  border-radius: var(--r-card);
-  padding: 32px 28px 24px;
-  width: min(420px, calc(100vw - 40px));
-  box-shadow: var(--shadow-pop);
-  text-align: center;
-  animation: restart-modal-card-in 0.28s cubic-bezier(0.22, 1, 0.36, 1);
-}
-.restart-modal-overlay.restart-modal-closing .restart-modal-card {
-  animation: restart-modal-card-out 0.18s ease-in forwards;
-}
-@keyframes restart-modal-card-in {
-  0%   { opacity: 0; transform: scale(0.92) translateY(8px); }
-  100% { opacity: 1; transform: scale(1) translateY(0); }
-}
-@keyframes restart-modal-card-out {
-  0%   { opacity: 1; transform: scale(1) translateY(0); }
-  100% { opacity: 0; transform: scale(0.96) translateY(4px); }
-}
-.restart-modal-icon {
-  display: flex;
-  justify-content: center;
-  margin-bottom: 12px;
-  color: var(--text);
-}
-.restart-modal-title {
-  margin: 0 0 8px;
-  font: var(--t-heading);
-  color: var(--text);
-}
-.restart-modal-body {
-  margin: 0 0 22px;
-  font: var(--t-body);
-  color: var(--muted);
-}
-.restart-modal-actions {
-  display: flex;
-  gap: 10px;
-  justify-content: center;
-}
-.restart-modal-btn-primary,
-.restart-modal-btn-secondary {
-  height: 36px;
-  padding: 0 16px;
-  border: 0;
-  border-radius: var(--r-pill);
-  font: var(--t-body);
-  cursor: pointer;
-  transition: background-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
-}
-.restart-modal-btn-primary { background: var(--btn-pri-bg); color: var(--btn-pri-fg); min-width: 140px; }
-.restart-modal-btn-primary:hover { background: var(--btn-pri-hover); }
-.restart-modal-btn-primary:disabled { background: var(--surface-2); color: var(--muted); cursor: wait; }
-.restart-modal-btn-secondary { background: var(--btn-sec-bg); color: var(--text); box-shadow: var(--shadow-btn); }
-.restart-modal-btn-secondary:hover { background: var(--btn-sec-hover); }
-
-/* ════════════════════════════════════════════════════════════════════
- * JOURNAL LAYOUT (v3.14.16)
- *
- * Replaces the sidebar+main split with a top-nav journal page. The
- * existing transcript card classes (.transcript-card, .card-time, etc.)
- * are kept but restyled inside `.j-page` so the renderer in app.js
- * doesn't need to change. Theme-aware via the existing CSS vars.
- * ════════════════════════════════════════════════════════════════════ */
-
-.journal {
-  display: flex;
-  flex-direction: column;
-  /* Fill the remaining height below the persistent top-nav. Was 100vh
-     in v3.14.16-17 when the top-nav was nested INSIDE this container;
-     the nav now lives outside as a sibling, so we just take whatever
-     vertical space is left. min-height:0 lets nested scrollers work. */
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  background: var(--bg-base);
-  color: var(--text-primary);
-}
-
-/* The top bar also needs to NOT shrink, and Settings/Vocabulary
-   panels need to fill remaining height like .journal does. We override
-   their original `height:100vh; max-height:100vh` (which made sense when
-   they were the only flex-row child but causes them to overflow now
-   that a top-nav is above them in a flex-column .app). */
-.app > .topbar { flex-shrink: 0; }
-.app > .settings-panel,
-.app > .vocabulary-panel {
-  flex: 1 1 auto;
-  min-height: 0;
-  height: auto !important;
-  max-height: none !important;
-  overflow-y: auto;
-}
+.journal { display: flex; flex-direction: column; }
+.vocabulary-panel { display: none; flex-direction: column; }
 
 /* ── Top bar ──────────────────────────────────────────────────────────
    The waffle and wordmark on the left, the pages in the middle (centred on
@@ -1009,18 +74,74 @@ html, body {
 }
 .topbar > .status { margin-left: auto; }
 
+/* ── Page titles (Vocabulary and Settings) ──────────────────────────── */
+.ptitle {
+  font: var(--t-title);
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+.pdesc {
+  margin-top: 6px;
+  max-width: 560px;
+  font: 400 14px/21px var(--f-ui);
+  color: var(--muted);
+}
+.glabel { display: flex; align-items: center; gap: 8px; margin: 22px 4px 8px; }
+.small { font: var(--t-desc); color: var(--muted); }
+.s-first { margin-top: 22px; }
+.s-error { margin-top: 8px; font: var(--t-desc); color: var(--danger); }
+.s-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 14px;
+  font: var(--t-desc);
+  color: var(--muted);
+}
+.s-foot .ic { color: var(--muted); }
+
+/* ════════════════════════════════════════════════════════════════════
+ * JOURNAL
+ * One 880 px column: notices, the stat strip, then the entries grouped by
+ * day. The cards line up with the day rows. Nothing lifts on hover; a new
+ * entry fades in once.
+ * ════════════════════════════════════════════════════════════════════ */
+.j-col {
+  width: min(var(--column), calc(100% - 2 * var(--gutter)));
+  margin: 0 auto;
+  padding: 20px 0 40px;
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.j-notices { display: flex; flex-direction: column; gap: 10px; }
+.j-notices:not(:empty) { margin-bottom: 14px; }
+.j-notices .notice { align-items: center; }
+.j-notices .notice-body + .notice-acts { margin-left: 4px; }
+
 /* ── Stat strip ───────────────────────────────────────────────────── */
 .j-strip {
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 14px 28px;
-  background: var(--surface);
-  border-bottom: 1px solid var(--line);
+  padding: 6px 6px 6px 8px;
   flex-shrink: 0;
 }
-.j-stat-group { display: flex; align-items: center; gap: 22px; }
-.j-stat { display: flex; flex-direction: column; }
+.j-stat {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: 6px 22px 6px 14px;
+}
+.j-stat + .j-stat::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 1px;
+  background: var(--line);
+}
 /* Figures in Geist, the display face. */
 .j-stat-num {
   font: var(--t-stat);
@@ -1028,22 +149,17 @@ html, body {
   color: var(--text);
   font-variant-numeric: tabular-nums;
 }
-.j-stat-lbl {
-  font: var(--t-desc);
-  color: var(--muted);
-  text-transform: lowercase;
-}
-.j-stat-divider {
-  width: 1px; height: 28px;
-  background: var(--line);
-}
+.j-stat-lbl { font: 400 12.5px/17px var(--f-ui); color: var(--muted); }
 
 .j-right-group {
   margin-left: auto;
-  display: flex; align-items: center; gap: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 
-/* Stack-streak chip */
+/* Days in a row: the waffle and "3-day streak". */
 .j-streak {
   display: inline-flex;
   align-items: center;
@@ -1053,39 +169,25 @@ html, body {
   background: var(--card);
   border-radius: var(--r-pill);
   box-shadow: var(--shadow-btn);
+  white-space: nowrap;
 }
-.j-stack-svg {
-  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.1));
-  /* One wobble when the Journal opens, not forever: an endless animation
-     with a drop-shadow kept the window redrawing while idle. */
-  animation: j-stack-wobble 5s ease-in-out 1;
-  transform-origin: center bottom;
-}
-@keyframes j-stack-wobble {
-  0%, 92%, 100% { transform: translateY(0) rotate(0deg); }
-  94% { transform: translateY(-1px) rotate(-2deg); }
-  96% { transform: translateY(0) rotate(1.5deg); }
-  98% { transform: translateY(0) rotate(-1deg); }
-}
-.j-streak-text {
-  font: var(--t-desc);
-  color: var(--text);
-}
-.j-streak-text strong {
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
-}
-/* Hide streak chip entirely when streak is 0 (avoid "0 stack streak" eyesore) */
+/* The streak's waffle. It used to be a stack of pancakes that wobbled
+   forever; it stays still now. */
+.j-stack-svg { display: inline-flex; width: 20px; height: 20px; }
+.j-streak-text { font: var(--t-desc); color: var(--text); }
+/* Hidden at 0, so the first day doesn't say "0-day streak". */
 .j-streak.j-streak-empty { display: none; }
 
 /* Search */
 .j-search-wrap {
   position: relative;
-  display: inline-flex; align-items: center;
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
 }
 .j-search-icon {
   position: absolute;
-  left: 13px;
+  left: 14px;
   width: 15px;
   height: 15px;
   color: var(--muted);
@@ -1093,8 +195,9 @@ html, body {
 }
 .j-search-input {
   height: 36px;
-  width: 220px;
-  padding: 0 14px 0 36px;
+  width: 250px;
+  max-width: 100%;
+  padding: 0 14px 0 37px;
   border: 0;
   border-radius: var(--r-pill);
   background: var(--card);
@@ -1106,82 +209,27 @@ html, body {
   transition: box-shadow var(--dur-fast) var(--ease);
 }
 .j-search-input::placeholder { color: var(--muted); opacity: 1; }
+.j-search-input::-webkit-search-cancel-button { cursor: pointer; }
 .j-search-input:focus { box-shadow: inset 0 0 0 1.5px var(--focus), 0 0 0 3px rgba(122, 87, 23, 0.12); }
 
-/* ── Page ─────────────────────────────────────────────────────────── */
-.j-page {
-  /* Fill the available window width so the entries line up flush with
-     the top-nav + stat-strip above (which already stretch edge-to-edge).
-     v3.14.17 fix: previously had max-width: 760px which made the cards
-     look orphaned in a wider window.
-
-     We DO cap the body-text reading width inside each card via
-     `.j-page .card-text` further down so long paragraphs don't run
-     across an ultrawide monitor. */
-  padding: 28px 28px 48px;
-  width: 100%;
-  flex: 1 1 auto;
-}
-
+/* ── Day rows and entries ─────────────────────────────────────────── */
+.j-feed { display: flex; flex-direction: column; }
 .j-date-divider {
   display: flex;
   align-items: center;
-  gap: 14px;
-  margin-bottom: 22px;
+  gap: 12px;
+  margin: 22px 2px 12px;
 }
-.j-date-month {
-  font: 500 14px/20px var(--f-ui);
-  color: var(--text);
-}
+.j-date-month { font: 500 14px/20px var(--f-ui); color: var(--text); }
 /* A dotted rule, as on the site. */
 .j-date-line {
   flex: 1;
   height: 2px;
   background: radial-gradient(circle, var(--dots) 0 1px, transparent 1.2px) 0 0 / 6px 2px repeat-x;
 }
-.j-date-day {
-  font: var(--t-accent);
-  font-size: 14px;
-  color: var(--muted);
-}
+.j-date-day { font: italic 400 14px/20px var(--f-serif); color: var(--muted); }
 
-/* Empty state */
-.j-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 60px 20px;
-  text-align: center;
-}
-/* The real waffle (icons.js), or a line icon for a search with no match. */
-.j-empty-icon {
-  display: grid;
-  place-items: center;
-  margin-bottom: 14px;
-  color: var(--muted);
-}
-.j-empty-icon .waffle { filter: drop-shadow(0 6px 10px rgba(78, 50, 23, 0.18)); }
-.j-no-match .j-clear-search { margin-top: 16px; }
-.j-empty-label {
-  font: var(--t-heading);
-  letter-spacing: -0.01em;
-  color: var(--text);
-  margin-bottom: 6px;
-}
-.j-empty-sub {
-  font: var(--t-desc);
-  color: var(--muted);
-  max-width: 320px;
-}
-
-/* ── Transcript card → Journal entry ──
-   app.js makeCard() and makeNotSentCard() output <div class="transcript-card">
-   with card-meta / card-time / card-words / card-text / card-actions. One set
-   of rules for both themes, on the tokens: white card, serif italic time,
-   entry text in Inter 16/26 (owner decision D2), the shared buttons. Nothing
-   lifts on hover; a new entry fades in once. */
-.j-page .transcript-card {
+.transcript-card {
   background: var(--card);
   border-radius: var(--r-card-sm);
   box-shadow: var(--shadow-bubble);
@@ -1189,98 +237,73 @@ html, body {
   margin-bottom: 10px;
   cursor: default;
 }
-.j-page .transcript-card.new {
-  animation: j-entry-in var(--dur-enter) var(--ease-out);
-}
+.transcript-card.new { animation: j-entry-in var(--dur-enter) var(--ease-out); }
 @keyframes j-entry-in {
   from { opacity: 0; }
   to { opacity: 1; }
 }
-
-.j-page .card-meta {
+.card-meta {
   display: flex;
-  justify-content: space-between;
   align-items: center;
   gap: 8px;
   margin-bottom: 6px;
 }
-.j-page .card-time {
-  font: var(--t-accent);
-  font-size: 13.5px;
-  color: var(--muted);
-}
-.j-page .card-words {
-  display: inline-flex;
-  align-items: center;
-  font: var(--t-desc);
-  color: var(--muted);
-}
+.card-time { font: italic 400 13.5px/18px var(--f-serif); color: var(--muted); }
+.card-sp { flex: 1; }
+.card-words { font: 400 12.5px/18px var(--f-ui); color: var(--muted); white-space: nowrap; }
+.card-meta .chip { margin-left: 4px; }
 
-.j-page .card-text {
+.card-text {
   font: var(--t-body-lg);
   letter-spacing: 0;
   color: var(--text);
-  margin: 0;
   white-space: pre-wrap;
   word-wrap: break-word;
   user-select: text;
   cursor: text;
-  /* A comfortable reading width, even in a wide window. */
+  /* A comfortable reading width. */
   max-width: 66ch;
 }
-.j-page .card-text.raw { color: var(--text-2); }
+.card-text.raw { color: var(--text-2); }
+.card-reason { margin-top: 6px; font: var(--t-desc); color: var(--muted); max-width: 75ch; }
 
-.j-page .card-actions {
+.card-actions {
   display: flex;
   align-items: center;
   gap: 10px;
   margin-top: 10px;
 }
 /* "Show transcript" / "Show clean": a quiet link. */
-.j-page .text-toggle {
+.text-toggle {
+  border: 0;
+  background: none;
+  padding: 2px 0;
   font: var(--t-desc);
   color: var(--text-2);
   text-decoration: underline;
   text-decoration-color: var(--dots);
   text-underline-offset: 3px;
   cursor: pointer;
-  padding: 2px 0;
   transition: text-decoration-color var(--dur-fast) var(--ease);
 }
-.j-page .text-toggle:hover { text-decoration-color: currentColor; }
+.text-toggle:hover { text-decoration-color: currentColor; }
 
 /* ── Not sent cards ──
-   A recording that was not turned into text: a plain sentence, what
-   happens next, and Try again / Show the file / Delete (app.js
-   makeNotSentCard). Honey, not red: the recording is safe. */
-.j-page .transcript-card.not-sent-card { box-shadow: var(--shadow-bubble), inset 3px 0 0 var(--honey); }
-.j-page .ns-badge {
-  display: inline-flex;
-  align-items: center;
-  height: 22px;
-  padding: 0 9px;
-  border-radius: var(--r-pill);
-  background: var(--honey-tint);
-  color: var(--text);
-  font: 500 12px/16px var(--f-ui);
-}
-.j-page .ns-text {
-  font: var(--t-body);
-  color: var(--text);
-  margin: 0 0 4px 0;
-  max-width: 75ch;
-}
-.j-page .ns-next {
-  font: var(--t-desc);
-  color: var(--muted);
-  margin: 0 0 4px 0;
-  max-width: 75ch;
-}
-.j-page .ns-status { font: var(--t-desc); color: var(--danger); margin: 0 0 4px 0; max-width: 75ch; }
-.j-page .ns-actions[hidden],
-.j-page .ns-confirm[hidden] { display: none; }
-.j-page .ns-delete { color: var(--danger); }
-.j-page .ns-confirm {
+   A recording that was not turned into text: its own card, with an icon,
+   a plain sentence, what happens next, and Try again / Show the file /
+   Delete (app.js makeNotSentCard). Honey, not red: the recording is safe. */
+.not-sent-card { padding: 16px 20px; }
+.ns-wrap { display: flex; gap: 14px; align-items: flex-start; }
+.ns-main { flex: 1; min-width: 0; }
+.ns-main .card-meta { margin-bottom: 2px; }
+.ns-title { font: 500 14px/20px var(--f-ui); color: var(--text); }
+.ns-text { font: 400 14px/21px var(--f-ui); color: var(--text-2); max-width: 75ch; }
+.ns-next { margin-top: 2px; font: var(--t-desc); color: var(--muted); max-width: 75ch; }
+.ns-status { margin-top: 4px; font: var(--t-desc); color: var(--danger); max-width: 75ch; }
+.ns-actions .btn-quiet,
+.ns-confirm .btn-quiet { font-size: 13px; }
+.ns-delete { color: var(--danger); }
+.ns-confirm {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -1290,125 +313,484 @@ html, body {
   color: var(--text);
 }
 
-/* Narrow screens */
-@media (max-width: 720px) {
-  .j-strip { padding: 12px 16px; flex-wrap: wrap; }
-  .j-page { padding: 20px 16px 40px; }
-  .j-search-input { width: 140px; }
-  .j-stat-group { gap: 14px; }
-  .j-stat-num { font-size: 18px; }
-}
-
-/* Settings → Hotkey: why a hotkey couldn't be saved. */
-.settings-hotkey-error {
-  color: var(--red);
-  font-size: 12.5px;
-  margin-top: 4px;
-  max-width: 340px;
-}
-
-/* ── Provider fallback order (Settings → Provider Order) ──────────────── */
-.provider-order-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.provider-order-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-}
-.po-rank {
-  flex-shrink: 0;
-  width: 22px;
-  height: 22px;
+/* ── First run: the empty Journal teaches the gesture ─────────────── */
+.j-first {
+  position: relative;
+  flex: 1 0 auto;
+  min-height: 460px;
+  margin-top: 2px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 50%;
-  background: var(--accent, #C8A256);
-  color: #1A1612;
-  font-size: 12px;
-  font-weight: 800;
+  padding: 30px;
+  border-radius: var(--r-card-lg);
+  overflow: hidden;
+  isolation: isolate;
+  box-shadow: inset 0 0 0 0.5px rgba(122, 87, 23, 0.18);
 }
-.po-name {
+/* The site's gold-as-light picture behind the card, never behind loose text. */
+.j-first-art {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: radial-gradient(70% 70% at 50% 50%, rgba(253, 250, 242, 0.70), rgba(253, 250, 242, 0.18) 78%),
+              url("img/stage-lattice-1200.webp") 50% 55% / cover, #F1E2BC;
+}
+/* Night: the site's dark syrup picture. */
+body[data-theme="dark"] .j-first-art {
+  background: radial-gradient(70% 70% at 50% 45%, rgba(12, 10, 9, 0.05), rgba(12, 10, 9, 0.45) 85%),
+              url("img/field-syrup-dark-1200.webp") 50% 55% / cover, #1C1917;
+}
+body[data-theme="dark"] .j-first { box-shadow: inset 0 0 0 0.5px rgba(232, 200, 108, 0.18); }
+.j-first-card {
+  width: min(470px, 100%);
+  padding: 30px 34px 28px;
+  border-radius: var(--r-card-lg);
+  background: var(--card);
+  box-shadow: var(--shadow-window);
+  text-align: center;
+}
+.j-first-waffle {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 20px;
+  filter: drop-shadow(0 10px 16px rgba(78, 50, 23, 0.24));
+}
+.j-first-title { font: 390 26px/32px var(--f-display); letter-spacing: -0.02em; color: var(--text); }
+.j-first-text { margin-top: 10px; font: 400 15px/23px var(--f-ui); color: var(--text-2); }
+.j-first-text .keys { vertical-align: 0.1em; }
+.j-first-acts {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 22px;
+}
+.j-first-acts .link { font-size: 14px; }
+.j-first-err { margin-top: 12px; font: var(--t-desc); color: var(--danger); }
+
+/* A search with no matches. */
+.j-no-match {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 64px 20px;
+}
+.j-no-match .itile { margin-bottom: 14px; color: var(--muted); }
+.j-nm-title { font: var(--t-heading); letter-spacing: -0.01em; color: var(--text); }
+.j-nm-text { margin-top: 4px; font: var(--t-desc); color: var(--muted); max-width: 340px; }
+.j-clear-search { margin-top: 16px; }
+
+.j-more { display: flex; justify-content: center; padding: 6px 0 4px; }
+
+/* Quality flags: a honey chip, and the reason in words under the text. */
+.q-badge { cursor: default; }
+
+/* ════════════════════════════════════════════════════════════════════
+ * VOCABULARY
+ * ════════════════════════════════════════════════════════════════════ */
+.v-col {
+  width: min(720px, calc(100% - 2 * var(--gutter)));
+  margin: 0 auto;
+  padding: 30px 0 40px;
+}
+.vocab-add-row { display: flex; gap: 8px; margin-top: 20px; }
+.vocab-field {
   flex: 1;
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 13.5px;
-  font-weight: 600;
-  color: var(--text-primary);
+  height: 40px;
+  padding: 0 12px;
+  border-radius: var(--r-input);
+  background: var(--card);
+  box-shadow: inset 0 0 0 1px var(--ring-strong);
+  color: var(--muted);
+  cursor: text;
+  transition: box-shadow var(--dur-fast) var(--ease);
 }
-.po-tag {
-  font-size: 10.5px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: #8a6d2f;
-  background: rgba(200, 162, 86, 0.18);
-  border: 1px solid rgba(200, 162, 86, 0.4);
-  border-radius: 5px;
-  padding: 1px 6px;
+.vocab-field:focus-within { box-shadow: inset 0 0 0 1.5px var(--focus), 0 0 0 3px rgba(122, 87, 23, 0.12); }
+.vocab-input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font: var(--t-body);
+  user-select: text;
 }
-.po-note {
-  font-size: 11.5px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  opacity: 0.8;
+.vocab-input::placeholder { color: var(--muted); opacity: 1; }
+.vocab-add-btn { height: 40px; padding: 0 18px; }
+.vocab-list { margin-top: 18px; }
+
+.v-panel { padding: 16px 18px 18px; }
+.v-head { display: flex; align-items: center; margin-bottom: 14px; }
+.v-head .small { margin-left: auto; }
+.v-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.wchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 6px 0 13px;
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  box-shadow: inset 0 0 0 0.5px var(--ring);
+  font: 500 14px/20px var(--f-ui);
+  color: var(--text);
+  user-select: text;
 }
-.po-controls {
-  flex-shrink: 0;
+.wchip .rbtn { width: 24px; height: 24px; color: var(--text-2); }
+.wchip .rbtn .ic { width: 13px; height: 13px; }
+.wchip .rbtn:hover { background: var(--danger-tint); color: var(--danger); }
+
+.v-how { padding: 16px 18px; }
+.v-first { padding: 22px 24px 20px; }
+.v-first-top { display: flex; gap: 16px; align-items: flex-start; }
+.v-first-top > div:first-child { flex: 1; }
+.v-first-title { font: 390 21px/28px var(--f-display); letter-spacing: -0.01em; color: var(--text); }
+.v-first-text { margin-top: 6px; max-width: 440px; font: 400 14px/21px var(--f-ui); color: var(--muted); }
+.vtable { margin-top: 18px; }
+.vrow {
+  position: relative;
+  display: grid;
+  grid-template-columns: 150px 32px 1fr;
+  align-items: center;
+  min-height: 40px;
+}
+.vrow + .vrow::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 2px;
+  background: radial-gradient(circle, var(--dots) 0 1px, transparent 1.2px) 0 0 / 6px 2px repeat-x;
+}
+.vrow.vh { min-height: 26px; }
+.vrow .ic { color: var(--muted); }
+.heard { font: 400 15px/22px var(--f-ui); color: var(--muted); }
+.pasted { font: 500 15px/22px var(--f-ui); color: var(--text); }
+.v-foot { margin-top: 14px; font: 400 11.5px/16px var(--f-mono); color: var(--muted); letter-spacing: 0; }
+.v-how .small { margin-top: 12px; }
+
+/* ════════════════════════════════════════════════════════════════════
+ * SETTINGS
+ * A side nav of six sections; one is shown at a time.
+ * ════════════════════════════════════════════════════════════════════ */
+.settings-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: none;
+  grid-template-columns: 224px minmax(0, 1fr);
+  background: var(--bg);
+  color: var(--text);
+}
+.snav {
   display: flex;
-  gap: 4px;
+  flex-direction: column;
+  gap: 2px;
+  padding: 22px 14px 18px;
+  border-right: 1px solid var(--line);
+  overflow-y: auto;
 }
-.po-btn {
-  width: 28px;
-  height: 28px;
+.snav-item {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  height: 36px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--r-tile);
+  background: transparent;
+  color: var(--text-2);
+  font: var(--t-body);
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+.snav-item:hover { color: var(--text); background: var(--surface); }
+.snav-item[aria-current="true"] {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: inset 0 0 0 0.5px var(--ring);
+}
+.snav-ver {
+  margin-top: auto;
+  padding: 0 12px;
+  font: 400 11.5px/16px var(--f-mono);
+  color: var(--muted);
+  letter-spacing: 0;
+}
+.scontent {
+  min-width: 0;
+  overflow-y: auto;
+  padding: 26px 40px 40px 44px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ring-strong) transparent;
+}
+.scol { max-width: 640px; }
+
+.row-tight { min-height: 52px; }
+.seg-sm { height: 34px; }
+.seg-sm > button { height: 28px; padding: 0 13px; font-size: 13px; }
+.row .select { flex: none; width: 220px; max-width: 42%; text-overflow: ellipsis; }
+
+/* Keys and providers: one row per provider, in the order Waffler tries them. */
+.provider-order-item { min-height: 72px; gap: 12px; }
+.po-rank {
+  width: 14px;
+  flex: none;
+  font: 400 12px/1 var(--f-mono);
+  color: var(--muted);
+  text-align: center;
+}
+.po-key { min-width: 120px; text-align: right; }
+.po-masked { font: 400 12px/18px var(--f-mono); color: var(--text); letter-spacing: 0; }
+.po-status {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  font: 400 12.5px/18px var(--f-ui);
+  color: var(--text-2);
+}
+.po-status .dot-saved { background: var(--faint); }
+.po-btn-key { min-width: 76px; }
+.po-controls { display: flex; flex-direction: column; margin-left: -2px; }
+.po-controls .rbtn { width: 26px; height: 20px; border-radius: 6px; }
+.po-controls .rbtn .ic { width: 14px; height: 14px; }
+/* A provider with no key: quieter, because Waffler skips it. The arrows
+   stay usable so the order can be set before the key is added. */
+.provider-order-item.po-nokey { color: var(--text-2); }
+.provider-order-item.po-nokey .row-t { color: var(--text-2); }
+.provider-order-item.po-nokey .po-rank { color: var(--faint); }
+
+.key-editor { padding: 2px 16px 16px 42px; }
+.key-editor-row { display: flex; align-items: center; gap: 8px; }
+.key-editor .input { height: 36px; flex: 1; }
+.key-help { margin-top: 8px; font: var(--t-desc); color: var(--muted); }
+.key-help .link { color: var(--text-2); }
+
+/* Hotkey */
+.hk-hero {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 22px 22px 22px 26px;
+  background: radial-gradient(120% 140% at 0% 0%, var(--honey-wash), var(--card) 60%);
+}
+.hk-caps { gap: 10px; }
+.hk-caps .plus { font-size: 16px; }
+.kc-xl {
+  height: 60px;
+  min-width: 64px;
+  padding: 0 20px;
+  border-radius: 14px;
+  font-size: 19px;
+}
+.kc-xl .ic { width: 20px; height: 20px; }
+.hk-name { flex: 1; min-width: 0; }
+.hk-name-t { font: 500 15px/20px var(--f-ui); color: var(--text); }
+.hk-key { width: 58px; display: flex; justify-content: center; flex: none; }
+.settings-fn-warn { margin-top: 12px; }
+
+/* Usage */
+.utiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.utile {
+  display: flex;
+  flex-direction: column;
+  padding: 12px 14px 13px;
+  border-radius: 14px;
+  background: var(--card);
+  box-shadow: 0 0 0 0.5px var(--ring);
+}
+.utile b {
+  margin-top: 6px;
+  font: 390 26px/30px var(--f-display);
+  letter-spacing: -0.015em;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.utile .u1, .utile .u2 { font: 400 12.5px/17px var(--f-ui); color: var(--muted); }
+.utile .u2 { color: var(--text-2); }
+.usage-cost { padding: 18px 20px 20px; }
+.usage-figs { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px 28px; }
+.usage-big { font: 390 28px/32px var(--f-display); letter-spacing: -0.015em; color: var(--text); font-variant-numeric: tabular-nums; }
+.usage-mid { font: 390 20px/28px var(--f-display); color: var(--text); font-variant-numeric: tabular-nums; }
+.usage-note { margin-top: 12px; max-width: 540px; }
+.usage-sep { margin: 16px 0 14px; }
+.usage-provider-rows { display: flex; flex-direction: column; gap: 14px; }
+.usage-provider-head { display: flex; align-items: baseline; gap: 8px; }
+.usage-provider-name { font: 500 14px/20px var(--f-ui); color: var(--text); }
+.usage-provider-count { font: var(--t-desc); color: var(--muted); }
+/* A provider that publishes no per-token price: its cost is an estimate. */
+.usage-provider-est {
+  font: 500 10.5px/16px var(--f-mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  cursor: help;
+}
+.usage-provider-cost { margin-left: auto; font: 400 13px/18px var(--f-mono); color: var(--text); letter-spacing: 0; }
+.usage-track { margin-top: 8px; height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
+.usage-track i { display: block; height: 100%; border-radius: 3px; background: var(--faint); }
+.usage-track i.is-top { background: var(--honey); }
+.usage-provider-empty { font: var(--t-desc); color: var(--muted); }
+
+/* Privacy and data */
+#recentAudioRow .btn { margin-right: 4px; }
+.reset-confirm { background: var(--danger-tint); border-radius: 0 0 15px 15px; }
+.reset-confirm .row-t { color: var(--text); }
+
+/* About */
+.about-head { display: flex; align-items: center; gap: 18px; }
+.about-mark { display: inline-flex; width: 56px; height: 56px; filter: drop-shadow(0 6px 10px rgba(78, 50, 23, 0.18)); }
+.about-id { flex: 1; min-width: 0; }
+.about-ver { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 2px; }
+.about-ver .chip { height: 20px; }
+.about-model { font-size: 12.5px; color: var(--text); text-align: right; }
+.about-links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+
+/* ════════════════════════════════════════════════════════════════════
+ * DIALOGS
+ * One modal: white, radius 20, an icon tile, a Geist title, one ink
+ * primary, secondary pills, and "Later" as a quiet link.
+ * ════════════════════════════════════════════════════════════════════ */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-elevated, var(--bg-surface));
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  color: var(--text-secondary);
-  cursor: pointer;
-  font-size: 11px;
-  transition: background-color 0.15s, border-color 0.15s, color 0.15s, box-shadow 0.15s, opacity 0.15s;
+  padding: 24px;
+  background: var(--scrim);
+  -webkit-backdrop-filter: blur(3px) saturate(0.9);
+  backdrop-filter: blur(3px) saturate(0.9);
+  z-index: 9000;
+  animation: modal-in var(--dur-fast) var(--ease-out);
 }
-.po-btn:hover:not(:disabled) {
-  color: var(--text-primary);
-  border-color: var(--accent, #C8A256);
+/* The hotkey dialog can open over setup (9999), so it sits above it. */
+.hotkey-modal-overlay { z-index: 10001; }
+.modal {
+  width: min(440px, 100%);
+  padding: 24px;
+  border-radius: var(--r-card);
+  background: var(--card);
+  color: var(--text);
+  box-shadow: var(--shadow-pop);
+  text-align: left;
 }
-.po-btn:disabled {
-  opacity: 0.3;
-  cursor: not-allowed;
-}
-/* A provider with no key: greyed out, because Waffler skips it. The arrows
-   stay usable so the order can be set before the key is added. */
-.provider-order-item.po-nokey {
-  background: transparent;
-  border-style: dashed;
-}
-.provider-order-item.po-nokey .po-rank {
-  background: var(--border);
-  color: var(--text-secondary);
-}
-.provider-order-item.po-nokey .po-name { color: var(--text-secondary); }
-.provider-order-item.po-nokey .po-tag { opacity: 0.55; }
+.modal-title { margin: 16px 0 6px; font: 390 21px/28px var(--f-display); letter-spacing: -0.01em; color: var(--text); }
+.modal-sub { font: 400 14px/21px var(--f-ui); color: var(--muted); }
+.modal-error { margin-top: 10px; font: var(--t-desc); color: var(--danger); }
+.modal-acts { display: flex; align-items: center; gap: 8px; margin-top: 22px; }
+.modal-sp { flex: 1; }
+.modal-progress { margin-top: 18px; }
+.modal-track { height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
+.modal-fill { width: 0; height: 100%; border-radius: 3px; background: var(--honey); transition: width 0.15s linear; }
+.modal-progress-t { margin-top: 8px; font: var(--t-mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.restart-modal-overlay.restart-modal-closing { animation: modal-out 0.18s var(--ease) forwards; }
+@keyframes modal-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes modal-out { from { opacity: 1; } to { opacity: 0; } }
 
-/* Quality badge - shown only on recordings the pipeline flagged. Deliberately
-   low-contrast: it is information, not an alarm, and most recordings show
-   nothing here at all. */
-/* Shape and colours come from the chip it is (components.css .chip,
-   .chip-warn, .chip-err). */
-.q-badge {
-  margin-left: 8px;
-  cursor: help;
+/* The hotkey dialog: the keys you are holding, and this computer's presets. */
+.hk-capture {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 104px;
+  margin-top: 18px;
+  padding: 22px;
+  border-radius: var(--r-card-sm);
+  background: var(--surface);
+  box-shadow: inset 0 0 0 0.5px var(--ring);
+}
+.hk-capture-keys { gap: 10px; }
+.hk-capture-keys .plus { font-size: 16px; }
+.hk-presets { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.hk-preset-list { display: inline-flex; flex-wrap: wrap; gap: 8px; }
+.hk-preset-list .btn { height: 30px; padding: 0 10px; }
+.hk-preset-list .btn[aria-pressed="true"] { box-shadow: inset 0 0 0 1.5px var(--text); }
+
+/* ── Toast ─────────────────────────────────────────────────────────────
+   An ink pill at the bottom centre, with an icon; no emoji, one sentence. */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 22px;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  max-width: min(560px, calc(100vw - 48px));
+  min-height: 38px;
+  padding: 9px 16px 9px 13px;
+  border-radius: 19px;
+  background: var(--text);
+  color: var(--bg);
+  font: 400 13.5px/18px var(--f-ui);
+  box-shadow: 0 10px 24px -10px rgba(12, 10, 9, 0.5);
+  /* Above the setup wizard (9999) and the dialogs (10001): at 200 every
+     message shown during setup was hidden behind the wizard. */
+  z-index: 10002;
+  opacity: 0;
+  transform: translate(-50%, 6px);
+  transition: opacity 0.2s var(--ease), transform 0.2s var(--ease);
+  pointer-events: none;
+}
+.toast .ic { width: 15px; height: 15px; flex: none; }
+.toast.error .ic { color: var(--on-ink-err); }
+.toast.success .ic { color: var(--on-ink-ok); }
+
+.toast.visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
+  /* A shown toast takes the pointer, so hovering keeps it and a click
+     dismisses it, as app.js intends; hidden, it lets clicks through. */
+  pointer-events: auto;
+}
+
+/* Over the setup wizard: top centre, clear of its Back, Next and Finish
+   buttons at the bottom (bottom right it covered Finish Setup, and the
+   first click only closed the message). */
+.toast.over-wizard {
+  top: 20px;
+  bottom: auto;
+  right: auto;
+  left: 50%;
+  transform: translate(-50%, -6px);
+}
+.toast.over-wizard.visible { transform: translate(-50%, 0); }
+
+/* ── Setup ─────────────────────────────────────────────────────────
+   The frame of first-run setup: a layer over the whole window. Its
+   screens are in setup.css. */
+.wizard-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: var(--bg);
+  color: var(--text);
+  display: flex;
+}
+.wizard-overlay.hiding { animation: wizardFadeOut 0.4s ease forwards; }
+@keyframes wizardFadeOut {
+  to { opacity: 0; }
+}
+
+/* ── Narrow windows (the smallest is 884 x 601) ───────────────────── */
+@media (max-width: 960px) {
+  .j-search-input { width: 200px; }
+  .j-stat { padding-right: 16px; }
+  .settings-panel { grid-template-columns: 200px minmax(0, 1fr); }
+  .scontent { padding: 24px 28px 36px 30px; }
 }
 
 /* ── Motion ────────────────────────────────────────────────────────────
@@ -1422,8 +804,7 @@ html.waffler-hidden *::after {
 }
 
 /* One rule for people who ask their computer for less motion: every
-   animation and transition finishes at once. The macOS walkthrough and the
-   story cards are then shown at their final, readable frame. */
+   animation and transition finishes at once. */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;

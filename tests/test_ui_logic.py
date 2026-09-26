@@ -313,7 +313,8 @@ def _body(app, head):
 def test_saving_a_hotkey_checks_the_answer_before_saying_it_worked():
     app = code_only(read("app.js"))
     settings = _body(app, "async function changeSettingsHotkey(keys)")
-    assert settings.index("if (!result || !result.ok)") < settings.index("'#4CAF50'")
+    assert settings.index("if (!result || !result.ok)") < settings.index("_onHotkeySaved(result)") \
+        < settings.index("showToast(`Hotkey is now")
     assert "_showSettingsHotkeyError(msg)" in settings
     wizard = _body(app, "async function selectHotkeyPreset(keys)")
     assert wizard.index("if (!result || !result.ok)") < wizard.index("_onHotkeySaved(result)")
@@ -450,9 +451,28 @@ def test_providers_without_a_key_are_marked_in_the_order_list():
     assert [r["hasKey"] for r in js("L.providerOrderRows(null, null)")] == [False, False, False]
 
 
+@needs_node
+def test_each_provider_row_says_its_role_its_key_and_its_state():
+    """3.15: keys and the order are one list (logic.js keyRows, built on
+    providerOrderRows). Groq is recommended; OpenAI and Cerebras optional."""
+    rows = js("L.keyRows(['groq','openai','cerebras'], {groq_key_set: true, groq_key_masked: 'gsk_4f9a…7Qe2', "
+              "api_key_set: true, api_key_masked: 'sk-proj-…0jUe', cerebras_key_set: false, "
+              "transcription_backend: 'groq', styling_backend: 'groq'})")
+    assert [(r["id"], r["chip"], r["status"], r["button"], r["masked"]) for r in rows] == [
+        ("groq", "Recommended", "In use", "Replace", "gsk_4f9a…7Qe2"),
+        ("openai", "Optional", "Saved", "Replace", "sk-proj-…0jUe"),
+        ("cerebras", "Optional", "Not set", "Add key", "")]
+    assert rows[0]["desc"].endswith("Free for roughly 30 cleaned dictations a day.")
+    assert "Prepaid" in rows[1]["desc"] and rows[2]["desc"] == "Clean-up only. No speech to text."
+    # The order is the user's, and nothing claims a key before settings load.
+    assert [r["id"] for r in js("L.keyRows(['cerebras','groq'], null)")] == ["cerebras", "groq", "openai"]
+    assert {r["status"] for r in js("L.keyRows(null, null)")} == {"Not set"}
+
+
 def test_the_order_list_greys_out_providers_with_no_key():
     app = code_only(read("app.js"))
-    assert "WL.providerOrderRows(_providerOrder, _lastSettings)" in app
+    assert "WL.keyRows(_providerOrder, _lastSettings)" in app
+    assert "providerOrderRows(order, settings)" in code_only(read("logic.js"))
     assert "po-nokey" in app
     assert re.search(r"\.provider-order-item\.po-nokey\s*\{", code_only(read("style.css")))
 
@@ -491,10 +511,12 @@ def test_the_about_line_names_the_models_in_use():
 
 def test_settings_lists_groq_then_openai_then_cerebras():
     html = read("index.html")
-    groq, openai, cerebras = (html.index(f'<div class="settings-row-label">{n} API Key</div>')
-                              for n in ("Groq", "OpenAI", "Cerebras"))
+    groq, openai, cerebras = (html.index(f'id="{n}KeyEditor"') for n in ("groq", "api", "cerebras"))
     assert groq < openai < cerebras
-    assert 'id="cerebrasKeyDesc">Optional.' in html
+    # OpenAI and Cerebras say they are optional where their key goes in.
+    for n in ("api", "cerebras"):
+        editor = html[html.index(f'id="{n}KeyEditor"'):]
+        assert '<p class="key-help">Optional.' in editor[:editor.index("</p>") + 4]
 
 
 def test_the_header_and_settings_carry_no_stale_labels():
@@ -587,15 +609,15 @@ def test_usage_shows_counts_and_a_labelled_estimate():
 
 def _usage_section():
     html = read("index.html")
-    # The section title carries an icon (icons.js) before the word.
-    start = html.index('Usage</div>', html.index('<!-- Usage Section -->'))
-    return html[start:html.index('<div class="settings-section-title">', start + 10)]
+    start = html.index('<section class="s-sec" id="secUsage"')
+    return html[start:html.index('</section>', start)]
 
 
 def test_usage_puts_the_counts_before_the_money():
     usage = _usage_section()
-    assert usage.index(">Dictations<") < usage.index(">Words<") < usage.index("Estimated cost") \
-        < usage.index('id="usageTodayCost"')
+    assert usage.index('id="usageTodayCount"') < usage.index('id="usageAllWords"') \
+        < usage.index("Estimated cost") < usage.index('id="usageTotalCost"') < usage.index('id="usageTodayCost"')
+    assert ">dictations<" in usage and "all time, estimated" in usage
     assert USAGE_NOTE in usage
     # decisions.md: the panel is never presented as what you spent.
     for word in ("spent", "spend", ">Transcriptions<", ">Avg Cost<"):
@@ -664,9 +686,100 @@ def test_search_input_is_debounced_and_clear_search_exists():
     body = body[:body.index("\n}\n") + 3]
     assert "_renderFeedSoon()" in body and "renderFeed()" not in body
     assert "WL.debounce(() => renderFeed(), WL.SEARCH_DEBOUNCE_MS)" in app
-    assert "WL.feedView(history.length, _searchText, filtered.length)" in app
+    # A search asks the backend for its first page (get_history's query).
+    assert "WL.feedView(_histTotal, _searchText, history.length)" in app
+    assert "get_history(PAGE_SIZE, 0, query)" in app
     assert "function clearSearch()" in app
     html = read("index.html")
     no_match = html[html.index('id="noMatchState"'):]
     no_match = no_match[:no_match.index("</button>")]
     assert 'onclick="clearSearch()"' in no_match and ">Clear search" in no_match
+
+
+# ── 3.15 screens: Journal, Settings and Usage helpers ────────────────────────
+
+@needs_node
+def test_quality_flags_are_a_chip_and_plain_sentences():
+    v = js("L.qualityView({quality: {level: 'check', flags: ['truncated_midsentence']}})")
+    assert v == {"chip": "Worth a look", "level": "check", "asSaid": "",
+                 "reasons": ["Ends mid-sentence, so some of what you said may be missing."]}
+    assert js("L.qualityView({quality: {level: 'low', flags: ['low_word_rate']}})")["chip"] == "Check this one"
+    # A clean dictation shows nothing.
+    assert js("L.qualityView({})") == {"chip": "", "level": "", "reasons": [], "asSaid": ""}
+    # A limit: the entry is tagged, and the clean-up flag isn't said twice.
+    v = js("L.qualityView({as_said: 'limit', quality: {level: 'low', flags: ['styling_fallback']}})")
+    assert v == {"chip": "", "level": "", "reasons": [], "asSaid": "As said: limit reached"}
+    # Every flag the pipeline can set has a sentence, with no dash or jargon.
+    reasons = js("['low_word_rate','styled_dropped_words','styling_fallback','truncated_midsentence',"
+                 "'unterminated_ending','asr_filter_edited','retry_used','retry_rejected','styling_deadline']"
+                 ".map((f) => L.qualityView({quality: {level: 'check', flags: [f]}}).reasons[0])")
+    assert all(reasons) and not any(" - " in r or "\u2014" in r or "cleanup" in r for r in reasons)
+
+
+@needs_node
+def test_day_rows_and_stat_numbers():
+    assert js("L.dayKey('2026-09-25T16:31:02')") == "2026-09-25"
+    assert js("L.dayLabel('2026-09-25', new Date(2026, 8, 25))") == {"day": "Friday", "date": "25 September"}
+    assert js("L.dayLabel('2025-12-31', new Date(2026, 8, 25))") == {"day": "Wednesday", "date": "31 December 2025"}
+    assert js("[L.statNumber(967), L.statNumber(31920), L.statNumber(110457), L.statNumber(null)]") == \
+        ["967", "31,920", "110k", "0"]
+
+
+@needs_node
+def test_usage_counts_each_period_from_the_journal():
+    v = js("L.usageView({}, {today_count: 1, today_words: 12, week_count: 96, week_words: 2310, "
+           "month_count: 312, month_words: 7540, total_count: 1284, total_words: 31920})")
+    assert [(p["label"], p["count"], p["countLabel"], p["words"]) for p in v["periods"]] == [
+        ("Today", "1", "dictation", "12 words"), ("This week", "96", "dictations", "2,310 words"),
+        ("This month", "312", "dictations", "7,540 words"), ("All time", "1,284", "dictations", "31,920 words")]
+
+
+@needs_node
+def test_one_honey_bar_and_estimates_marked():
+    rows = js("L.usageProviderRows({openai: {cost_usd: 0.15, count: 94, estimated_count: 0}, "
+              "groq: {cost_usd: 1.9, count: 1190, estimated_count: 0}, cerebras: {cost_usd: 0.004, count: 3, estimated_count: 3}})")
+    assert [(r["name"], r["calls"], r["cost"], r["top"], r["estimate"]) for r in rows] == [
+        ("Groq", "1,190 calls", "$1.90", True, False), ("OpenAI", "94 calls", "$0.15", False, False),
+        ("Cerebras", "3 calls", "~$0.0040", False, True)]
+    assert js("L.usageProviderRows(null)") == []
+
+
+@needs_node
+def test_about_names_what_each_job_uses():
+    assert js("L.usesView({transcription_backend: 'groq', styling_backend: 'groq'})") == \
+        {"speech": "Whisper large v3 on Groq", "cleanup": "gpt-oss-120b on Groq"}
+    assert js("L.usesView({transcription_backend: 'mlx', styling_backend: 'openai'})") == \
+        {"speech": "Whisper, on this Mac", "cleanup": "gpt-4.1-mini on OpenAI"}
+    assert js("L.usesView(null)") == {"speech": "No key yet", "cleanup": "No key yet"}
+
+
+def test_the_journal_starts_once_and_adds_new_entries_without_redrawing():
+    """SR4: each start asked for the whole history five times, and every
+    dictation rebuilt every card. Now one start-up, pages of 50, older ones
+    on scroll, and a new entry added at the top."""
+    app = code_only(read("app.js"))
+    assert app.count("addEventListener('pywebviewready', boot)") == 1
+    assert "addEventListener('pywebviewready', checkOnboarding)" not in app
+    assert "if (_booted || !window.pywebview || !window.pywebview.api) return;" in app
+    assert "const PAGE_SIZE = 50;" in app
+    assert "get_history(PAGE_SIZE, history.length, _searchText)" in app
+    assert "new IntersectionObserver(" in app
+    refresh = app[app.index("window.waffler_refresh"):]
+    refresh = refresh[:refresh.index("\n};")]
+    assert "_prependCard(newItem)" in refresh and "renderFeed()" not in refresh
+
+
+def test_settings_has_six_sections_and_privacy_says_what_is_kept():
+    html = read("index.html")
+    for sec in ("general", "keys", "hotkey", "usage", "privacy", "about"):
+        assert f'data-sec="{sec}" onclick="showSettingsSection(\'{sec}\')"' in html, sec
+    privacy = html[html.index('id="secPrivacy"'):]
+    privacy = privacy[:privacy.index("</section>")]
+    for part in ('id="recentAudioToggle"', 'onclick="deleteRecentAudio(this)"', 'id="unsentRow"',
+                 'onclick="downloadLogs(this)"', 'onclick="factoryReset()"'):
+        assert part in privacy, part
+    app = code_only(read("app.js"))
+    for call in ("get_recent_audio()", "set_recent_audio(", "delete_recent_audio()", "get_cleanup_pause()"):
+        assert call in app, call
+    # Delete all my data asks first, in the page (not a native confirm()).
+    assert "confirm(" not in app

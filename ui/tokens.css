@@ -152,6 +152,8 @@ body {
   --danger:      #B42318;
   --danger-tint: #FBEAE7;
   --rec:         #D94040;              /* the recording dot, never text */
+  --on-ink-ok:   #8BC78E;              /* icons on the ink toast */
+  --on-ink-err:  #F29B8F;
 
   /* controls */
   --btn-pri-bg:    #0C0A09;
@@ -196,6 +198,8 @@ body[data-theme="dark"] {
   --ok-tint:     rgba(139, 199, 142, 0.13);
   --danger:      #F29B8F;
   --danger-tint: rgba(242, 155, 143, 0.13);
+  --on-ink-ok:   #28702B;              /* the toast is light on night */
+  --on-ink-err:  #B42318;
   --btn-pri-bg:    #FDFCFC;
   --btn-pri-fg:    #0C0A09;
   --btn-pri-hover: #EBE8E4;
@@ -232,6 +236,8 @@ body[data-theme="dark"] {
     --ok-tint:     rgba(139, 199, 142, 0.13);
     --danger:      #F29B8F;
     --danger-tint: rgba(242, 155, 143, 0.13);
+    --on-ink-ok:   #28702B;
+    --on-ink-err:  #B42318;
     --btn-pri-bg:    #FDFCFC;
     --btn-pri-fg:    #0C0A09;
     --btn-pri-hover: #EBE8E4;

@@ -1,4 +1,5 @@
-/* Waffler — Frontend Logic */
+/* Waffler: the window's code (top bar, Journal, Vocabulary, Settings,
+   dialogs; first-run setup is further down). */
 
 // Pure helpers (labels, presets, formatting) live in logic.js, which
 // index.html loads first, so the tests can run them without a page.
@@ -6,14 +7,14 @@ const WL = window.WafflerLogic;
 // Line icons and the waffle (icons.js, loaded before this file).
 const WI = window.WafflerIcons;
 
-// ── Theme (v3.14.3+) ──────────────────────────────────────────────────
+// ── Theme ─────────────────────────────────────────────────────────────
 // Apply the saved theme as early as possible so the page doesn't flash
-// in the wrong colours. Default for new installs is "cream".
+// in the wrong colours. Settings calls them Light, Dark and System; they
+// are saved as "cream", "dark" and "auto" (settings.json and the window's
+// background colour use the same names). Default for new installs: light.
 //
-// "auto" (Settings: System) is resolved here to "cream" or "dark" from the
-// OS setting, and followed live. It used to be set on <body> as-is, and the
-// stylesheet only had a dark branch for it, so on a light OS "System" showed
-// the dark colours. Resolving it means every cream- and dark-specific rule
+// "auto" (System) is resolved here to "cream" or "dark" from the OS
+// setting, and followed live, so every light- and night-specific rule
 // applies to System too. The choice itself is kept in data-theme-pref.
 const THEME_CHOICES = ['cream', 'dark', 'auto'];
 const _darkQuery = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
@@ -60,17 +61,25 @@ function setAppTheme(theme) {
   refreshThemePicker();
 }
 
-// Mark the current theme button as active when settings opens
+// Settings, General: Light / Dark / System.
 function refreshThemePicker() {
   const cur = _themePref || 'cream';
-  document.querySelectorAll('.theme-option').forEach((el) => {
-    el.classList.toggle('active', el.getAttribute('data-theme') === cur);
+  document.querySelectorAll('#themeSeg button').forEach((el) => {
+    el.setAttribute('aria-checked', String(el.getAttribute('data-theme') === cur));
   });
 }
 
 // ── State ──────────────────────────────────────────────────────────────
+// The Journal loads a page at a time (get_history limit/offset), newest
+// first: `history` is what has been loaded for the current search.
+const PAGE_SIZE = 50;
 let history = [];
-let stats = { today_words: 0, today_count: 0, total_words: 0 };
+let _histTotal = 0;          // entries in the whole Journal (get_stats entries)
+let _histDone = false;       // every matching entry has been loaded
+let _histLoading = false;
+let _histSeq = 0;            // the newest request; older answers are dropped
+let _feedDays = { first: '', last: '' };   // the day rows at the top and bottom
+let stats = { today_words: 0, today_count: 0, total_words: 0, streak_days: 0, entries: 0 };
 let toastTimer = null;
 
 // ── Hotkey capture state ──────────────────────────────────────────
@@ -109,10 +118,12 @@ function hotkeyDisplayStr(keys) {
 }
 
 // ── DOM refs ────────────────────────────────────────────────────────────
-const $feedScroll    = document.getElementById('feedScroll');
+const $main          = document.getElementById('mainArea');
 const $feed          = document.getElementById('transcriptFeed');
 const $empty         = document.getElementById('emptyState');
-const $feedCount     = document.getElementById('feedCount');
+const $noMatch       = document.getElementById('noMatchState');
+const $strip         = document.getElementById('statStrip');
+const $feedMore      = document.getElementById('feedMore');
 const $statusInd     = document.getElementById('statusIndicator');
 const $statusText    = document.getElementById('statusText');
 const $statusTime    = document.getElementById('statusTime');
@@ -121,7 +132,6 @@ const $toast         = document.getElementById('toast');
 const $statWords     = document.getElementById('statWords');
 const $statCount     = document.getElementById('statCount');
 const $statTotal     = document.getElementById('statTotal');
-const $dateLabel     = document.getElementById('dateLabel');
 
 // ── Pause animations while the window can't be seen ───────────────────
 // Idle, the window used about 11% of a core, almost all of it the WebView2
@@ -147,62 +157,60 @@ function _prefersReducedMotion() {
   return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
 }
 
-// ── Init ─────────────────────────────────────────────────────────────
-window.addEventListener('pywebviewready', () => {
-  checkOnboarding();  // Check if wizard needed or show main app
-  refreshAll();
+// ── Start-up ──────────────────────────────────────────────────────────
+// Once: whether setup is needed, then the Journal (one page and the
+// counts), the hotkey, the microphones, the clean-up pause, and an update
+// check a few seconds later. It used to run from three places, so each
+// start asked for the whole history five times.
+let _booted = false;
+
+function boot() {
+  if (_booted || !window.pywebview || !window.pywebview.api) return;
+  _booted = true;
+  checkOnboarding();
   loadHotkeyConfig();
-  updateDateLabel();
+  loadAudioDevices();
+  loadCleanupPause();
   // Check for updates after a short delay (don't block startup)
   setTimeout(checkForUpdates, 3000);
-});
+}
+window.addEventListener('pywebviewready', boot);
 
-// Fallback: also try on DOMContentLoaded in case pywebview event fires early
 document.addEventListener('DOMContentLoaded', () => {
-  updateDateLabel();
-  updateHotkeyHint();
+  renderHotkeyCaps(_currentHotkeyKeys);
   renderSettingsHotkeyPresets();
+  _watchFeedEnd();
+  document.getElementById('emptyEditorLabel').textContent =
+    isMacPlatform ? 'Open TextEdit and try it' : 'Open Notepad and try it';
+  document.getElementById('themeDesc').textContent =
+    `Light, dark, or match ${isMacPlatform ? 'your Mac' : 'Windows'}.`;
 
   // Prevent Mac error sound when space is pressed in the app
   // (Space monitor observes at OS level, but we need to handle it in UI to avoid "bonk" sound)
   document.addEventListener('keydown', (e) => {
     if (e.key === ' ' || e.code === 'Space') {
-      // Only prevent default if NOT in an input field (allow typing in text fields)
+      // Only prevent default if NOT in an input field or on a button
       const target = e.target;
-      if (target.tagName !== 'INPUT' && target.tagName !== 'TEXTAREA' && !target.isContentEditable) {
+      if (target.tagName !== 'INPUT' && target.tagName !== 'TEXTAREA' && target.tagName !== 'BUTTON'
+          && target.tagName !== 'SELECT' && !target.isContentEditable) {
         e.preventDefault();
       }
     }
   });
 
-  setTimeout(() => {
-    checkOnboarding();  // Fallback check if pywebviewready hasn't fired
-    refreshAll();
-  }, 300);
+  // In case the bridge was there before this listener (pywebview can
+  // announce itself early).
+  setTimeout(boot, 300);
 });
 
-function updateDateLabel() {
-  const now = new Date();
-  // The Journal layout uses two spans inside #dateLabel — month is the
-  // weekday name, day is the date. Fall back to plain textContent if
-  // the spans aren't present (e.g. older HTML).
-  const monthEl = $dateLabel ? $dateLabel.querySelector('.j-date-month') : null;
-  const dayEl   = $dateLabel ? $dateLabel.querySelector('.j-date-day')   : null;
-  if (monthEl && dayEl) {
-    monthEl.textContent = now.toLocaleDateString('en-GB', { weekday: 'long' });
-    dayEl.textContent   = now.toLocaleDateString('en-GB', { day: 'numeric', month: 'long' });
-  } else if ($dateLabel) {
-    const opts = { weekday: 'long', month: 'long', day: 'numeric' };
-    $dateLabel.textContent = now.toLocaleDateString('en-GB', opts);
-  }
-}
-
 // A notice card (components.css .notice): an icon tile, a title, a line of
-// detail, actions and a close button. Used for the update notices.
-function makeNotice({ icon, tone, title, desc, actions }) {
+// detail, actions and a close button. Used for the update notices and the
+// clean-up pause, at the top of the Journal.
+function makeNotice({ icon, tone, title, desc, actions, id }) {
   const box = document.createElement('div');
   box.className = 'notice update-banner' + (tone === 'honey' || tone === 'warn' ? ' notice-honey' : '');
   box.setAttribute('role', 'status');
+  if (id) box.id = id;
   const tile = document.createElement('span');
   tile.className = 'itile' + (tone === 'warn' ? ' is-warn' : '');
   tile.innerHTML = WI.icon(icon || 'info');
@@ -234,30 +242,31 @@ function makeNotice({ icon, tone, title, desc, actions }) {
   return box;
 }
 
+function _journalNotices() {
+  return document.getElementById('journalNotices');
+}
+
 async function checkForUpdates() {
   try {
     if (!window.pywebview || !window.pywebview.api) return;
     const r = await pywebview.api.check_for_updates();
+    _noteUpdateChecked(r);
+    const host = _journalNotices();
+    if (!host) return;
     // A previous update that silently did nothing used to leave no trace at
-    // all — the app just restarted on the old version. Say so plainly.
+    // all: the app just restarted on the old version. Say so plainly.
     if (r.last_update_failed && r.last_update_failed.message) {
-      const host0 = document.querySelector('.journal');
-      if (host0) {
-        const m = WL.splitMessage(r.last_update_failed.message);
-        const warn = makeNotice({ icon: 'alert', tone: 'warn', title: m.title, desc: m.subtitle });
-        host0.prepend(warn);
-      }
+      const m = WL.splitMessage(r.last_update_failed.message);
+      host.prepend(makeNotice({ icon: 'alert', tone: 'warn', title: m.title, desc: m.subtitle }));
     }
     if (r.update_available) {
       // The update notice goes at the top of the Journal, the first thing
       // you see. Download opens the same in-app download-and-install dialog
-      // as Settings, About (v3.14.34), which falls back to the download page.
-      const host = document.querySelector('.journal');
-      if (!host) return;
+      // as Settings, About, which falls back to the download page.
       const download = document.createElement('button');
       download.className = 'btn btn-pri btn-sm';
       download.textContent = 'Download';
-      const banner = makeNotice({ icon: 'circle-up', tone: 'honey', title: `Update v${r.latest_version} available`, actions: [download] });
+      const banner = makeNotice({ icon: 'circle-up', tone: 'honey', title: `Waffler ${r.latest_version} is ready to download`, actions: [download] });
       download.addEventListener('click', () => {
         openUpdateModalFromCheck(r);
         banner.remove();
@@ -269,7 +278,44 @@ async function checkForUpdates() {
   }
 }
 
-// ── Manual update flow (Settings → About → Check for Update) ──────────
+// ── Clean-up paused by a provider's limit ─────────────────────────────
+// While every clean-up provider is at its limit, dictation carries on and
+// pastes the words as they were said. The Journal says so at the top until
+// it ends (src/cleanup_pause.py), with a way to add a backup key.
+let _pauseTimer = null;
+
+window.waffler_cleanup_paused = function(view) { showCleanupPause(view); };
+
+async function loadCleanupPause() {
+  try {
+    if (!pywebview.api.get_cleanup_pause) return;
+    showCleanupPause(await pywebview.api.get_cleanup_pause());
+  } catch (_) {}
+}
+
+function showCleanupPause(view) {
+  const old = document.getElementById('cleanupPause');
+  if (old) old.remove();
+  clearTimeout(_pauseTimer);
+  const host = _journalNotices();
+  if (!view || !host) return;
+  const actions = [];
+  const s = _lastSettings || {};
+  const keys = ['groq_key_set', 'api_key_set', 'cerebras_key_set'].filter((k) => s[k]).length;
+  if (!_lastSettings || keys < 2) {
+    const add = document.createElement('button');
+    add.className = 'btn btn-sec btn-sm';
+    add.textContent = 'Add a backup key';
+    add.addEventListener('click', () => { showPage('settings'); showSettingsSection('keys'); });
+    actions.push(add);
+  }
+  host.appendChild(makeNotice({ id: 'cleanupPause', icon: 'clock', tone: 'warn', title: view.title, desc: view.detail, actions }));
+  if (view.seconds_left > 0) {
+    _pauseTimer = setTimeout(() => showCleanupPause(null), Math.min(view.seconds_left, 86400) * 1000);
+  }
+}
+
+// ── Updates (Settings, About: Check for updates) ──────────────────────
 let _updatePollTimer = null;
 let _downloadedPath = null;
 let _lastUpdateInfo = null;
@@ -286,7 +332,9 @@ function closeUpdateModal(ev) {
 }
 function setUpdateModal({ icon, title, subtitle, showProgress, primaryLabel, primaryHandler, cancelLabel, browserUrl, browserLabel }) {
   // icon is a name from icons.js ('circle-up', 'download', 'alert'...).
-  document.getElementById('updateModalIcon').innerHTML = WI.icon(icon || 'circle-up', 'ic-lg');
+  const tile = document.getElementById('updateModalIcon');
+  tile.innerHTML = WI.icon(icon || 'circle-up');
+  tile.className = 'itile' + (icon === 'alert' ? ' is-warn' : icon === 'check-circle' ? ' is-ok' : '');
   document.getElementById('updateModalTitle').textContent = title || '';
   document.getElementById('updateModalSubtitle').textContent = subtitle || '';
   document.getElementById('updateProgressWrap').style.display = showProgress ? 'block' : 'none';
@@ -307,12 +355,15 @@ function setUpdateModal({ icon, title, subtitle, showProgress, primaryLabel, pri
     browserBtn.style.display = 'none';
     browserBtn.onclick = null;
   }
-  document.getElementById('updateCancelBtn').textContent = cancelLabel || 'Close';
+  // "Later" and "Close" are quiet links; "Cancel" stops a download.
+  const cancel = document.getElementById('updateCancelBtn');
+  cancel.textContent = cancelLabel || 'Close';
+  cancel.className = 'btn ' + (cancelLabel === 'Cancel' ? 'btn-sec' : 'btn-quiet');
 }
 
 async function checkForUpdatesManual() {
   showUpdateModal();
-  setUpdateModal({ icon: 'refresh', title: 'Checking for updates…', subtitle: 'Contacting GitHub…' });
+  setUpdateModal({ icon: 'refresh', title: 'Checking for updates…', subtitle: 'Asking GitHub for the latest version.' });
   let r;
   try {
     r = await pywebview.api.check_for_updates();
@@ -320,19 +371,32 @@ async function checkForUpdatesManual() {
     console.warn('check_for_updates failed:', e);
     r = { error: WL.UPDATE_TEXT.checkFailed };
   }
+  _noteUpdateChecked(r);
   if (r && r.update_available) { openUpdateModalFromCheck(r); return; }
   // The backend's sentence as it is ("Couldn't check for updates. Try
   // again later."), never "GitHub API returned HTTP 403".
   setUpdateModal(WL.updateCheckView(r));
 }
 
+// Settings, About: "Up to date" or "3.15.1 available", after a check.
+function _noteUpdateChecked(r) {
+  const chip = document.getElementById('aboutUpdateChip');
+  if (!chip || !r || r.error) return;
+  if (r.update_available) {
+    chip.className = 'chip chip-warn';
+    chip.textContent = `${r.latest_version} available`;
+  } else {
+    chip.className = 'chip chip-ok';
+    chip.innerHTML = WI.icon('check') + 'Up to date';
+  }
+  chip.hidden = false;
+}
+
 function openUpdateModalFromCheck(r) {
   showUpdateModal();
   _lastUpdateInfo = r;
 
-  // v3.14.3+: Mac in-app downloads now work properly via /usr/bin/curl
-  // (no more PyInstaller-bundled-requests SSL hang). Both platforms get
-  // the same "Download & Install" experience: stream the installer
+  // Both platforms get the same "Download & Install": stream the installer
   // in-app, show a progress bar, run the platform installer, relaunch.
   // A release with no installer for this computer opens its page instead.
   const v = WL.updateCheckView(r);
@@ -351,8 +415,8 @@ async function startDownloadFlow(url) {
   // website's download page: the friendly place to get the installer.
   setUpdateModal({
     icon: 'download',
-    title: 'Downloading update…',
-    subtitle: 'Please keep Waffler open.',
+    title: 'Downloading the update…',
+    subtitle: 'Keep Waffler open until it finishes.',
     showProgress: true,
     browserUrl: WL.DOWNLOAD_PAGE,
     cancelLabel: 'Cancel',
@@ -390,7 +454,7 @@ async function pollUpdateProgress() {
       const mb = (p.bytes_downloaded / 1048576).toFixed(1);
       const totalMb = (p.total_bytes / 1048576).toFixed(1);
       document.getElementById('updateProgressBar').style.width = pct + '%';
-      document.getElementById('updateProgressText').textContent = `${pct}% — ${mb} / ${totalMb} MB`;
+      document.getElementById('updateProgressText').textContent = `${pct}% · ${mb} of ${totalMb} MB`;
     } else {
       document.getElementById('updateProgressText').textContent = 'Starting…';
     }
@@ -400,8 +464,8 @@ async function pollUpdateProgress() {
       setUpdateModal({
         icon: 'check-circle',
         title: 'Ready to install',
-        subtitle: 'Waffler will close, install the update, and relaunch.',
-        primaryLabel: 'Install Now',
+        subtitle: 'Waffler will close, install the update and open again.',
+        primaryLabel: 'Install now',
         primaryHandler: () => installDownloadedUpdate(),
         cancelLabel: 'Later',
       });
@@ -413,7 +477,7 @@ async function pollUpdateProgress() {
 
 async function installDownloadedUpdate() {
   if (!_downloadedPath) return;
-  setUpdateModal({ icon: 'settings', title: 'Installing…', subtitle: 'Waffler is closing to apply the update.' });
+  setUpdateModal({ icon: 'settings', title: 'Installing…', subtitle: 'Waffler is closing to install the update.' });
   let r;
   try {
     r = await pywebview.api.install_update_and_restart(_downloadedPath);
@@ -426,33 +490,37 @@ async function installDownloadedUpdate() {
   if (r && r.ok === false) setUpdateModal(WL.updateFailureView(r, WL.UPDATE_TEXT.installFailed));
 }
 
-function updateHotkeyHint() {
-  // Always reflect the user's actual configured hotkey (Mac users can
-  // pick Cmd+Shift / Option+Shift via the wizard or Settings, not just
-  // Fn). Previous version hardcoded 'Fn' on Mac, so customised users
-  // saw 'Press Fn to start recording' on the home page no matter what
-  // they'd actually configured.
-  //
-  // We still set a platform-appropriate default IMMEDIATELY so the
-  // badges aren't blank during the async API round-trip to fetch the
-  // saved config — loadHotkeyConfig() overwrites them once it returns.
-  renderHotkeyCaps(_currentHotkeyKeys);
-  const emptyHint = document.getElementById('emptyHint');
-  if (emptyHint) emptyHint.innerHTML = `Hold <strong>${escHtml(hotkeyDisplayStr(_currentHotkeyKeys))}</strong> to record`;
-  loadHotkeyConfig();
+// ── The hotkey, wherever it is shown ──────────────────────────────────
+// The saved hotkey drawn as keycaps: in the top bar's pill, the empty
+// Journal and Settings, Hotkey. A platform default shows until
+// loadHotkeyConfig() has the saved one.
+function _capsHtml(keys, cls) {
+  return WL.keycaps(keys, isMacPlatform)
+    .map((c) => `<kbd class="kc${cls ? ' ' + cls : ''}">${escHtml(c.label)}</kbd>`)
+    .join('<span class="plus" aria-hidden="true">+</span>');
 }
 
-// The top bar's keycaps: the saved hotkey, one key per cap ("Win" + "Ctrl").
 // The pill keeps one width whatever it says; if the keycaps don't fit beside
 // "Ready", it takes its wider size, decided here when the hotkey changes and
 // never during a dictation.
 function renderHotkeyCaps(keys) {
-  if (!$hotkeyCaps) return;
-  $hotkeyCaps.innerHTML = WL.keycaps(keys, isMacPlatform)
-    .map((c) => `<kbd class="kc">${escHtml(c.label)}</kbd>`)
-    .join('<span class="plus" aria-hidden="true">+</span>');
-  $hotkeyCaps.setAttribute('aria-label', 'Hotkey: ' + hotkeyDisplayStr(keys));
-  _fitStatusPill();
+  const name = hotkeyDisplayStr(keys);
+  if ($hotkeyCaps) {
+    $hotkeyCaps.innerHTML = _capsHtml(keys);
+    $hotkeyCaps.setAttribute('aria-label', 'Hotkey: ' + name);
+    _fitStatusPill();
+  }
+  const empty = document.getElementById('emptyKeys');
+  if (empty) empty.innerHTML = _capsHtml(keys);
+  const big = document.getElementById('settingsHotkeyCaps');
+  if (big) big.innerHTML = _capsHtml(keys, 'kc-xl');
+  const badge = document.getElementById('settingsHotkeyBadge');
+  if (badge) badge.textContent = name;
+  const note = document.getElementById('settingsHotkeyNote');
+  if (note) {
+    const isDefault = name === WL.hotkeyName(WL.defaultHotkey(isMacPlatform), isMacPlatform);
+    note.textContent = isDefault ? `The default on ${isMacPlatform ? 'a Mac' : 'Windows'}.` : 'Your own choice.';
+  }
 }
 
 function _fitStatusPill() {
@@ -462,20 +530,13 @@ function _fitStatusPill() {
   if ($statusText.scrollWidth > $statusText.clientWidth + 1) $statusInd.classList.add('is-wide');
 }
 
-// ── Permissions (Step 1) ─────────────────────────────────────────────
+// ── Permissions (Mac) ────────────────────────────────────────────────
 
 async function openAccessibilitySettings() {
-  if (!window.pywebview || !window.pywebview.api) {
-    showToast("App not ready yet", "error");
-    return;
-  }
-
+  if (!window.pywebview || !window.pywebview.api) return;
   try {
     const result = await pywebview.api.open_accessibility_settings();
-    if (result.ok) {
-      showToast("Opening System Settings...", "success");
-      // Permission status is managed manually by the user — no auto-recheck.
-    } else {
+    if (!result.ok) {
       console.warn('open settings failed:', result.error);
       showToast("Couldn't open System Settings. Open it from the Apple menu instead.", "error");
     }
@@ -486,17 +547,10 @@ async function openAccessibilitySettings() {
 }
 
 async function openInputMonitoringSettings() {
-  if (!window.pywebview || !window.pywebview.api) {
-    showToast("App not ready yet", "error");
-    return;
-  }
-
+  if (!window.pywebview || !window.pywebview.api) return;
   try {
     const result = await pywebview.api.open_input_monitoring_settings();
-    if (result.ok) {
-      showToast("Opening System Settings...", "success");
-      // Permission status is managed manually by the user — no auto-recheck.
-    } else {
+    if (!result.ok) {
       console.warn('open settings failed:', result.error);
       showToast("Couldn't open System Settings. Open it from the Apple menu instead.", "error");
     }
@@ -506,26 +560,17 @@ async function openInputMonitoringSettings() {
   }
 }
 
+// Settings, Privacy and data: Logs. The bundle (no keys, no transcripts)
+// is saved as a zip on the Desktop and shown in its folder. The toast used
+// to print the whole path, which wrapped over several lines.
 async function downloadLogs(btn) {
-  if (!window.pywebview || !window.pywebview.api) {
-    showToast("App not ready yet", "error");
-    return;
-  }
-
-  // Disable + show progress on the button so the user knows we're working.
-  let originalText = null;
-  if (btn) {
-    originalText = btn.textContent;
-    btn.disabled = true;
-    btn.style.opacity = "0.6";
-    btn.style.cursor = "wait";
-    btn.textContent = "Bundling…";
-  }
-
+  if (!window.pywebview || !window.pywebview.api) return;
+  if (btn) btn.disabled = true;
   try {
     const result = await pywebview.api.download_logs();
     if (result && result.ok) {
-      showToast(`Logs saved to ${result.path}`, "success", 6000);
+      const onDesktop = /[\\/]Desktop[\\/]/.test(String(result.path || ''));
+      showToast(onDesktop ? 'Logs saved to your Desktop.' : 'Logs saved in your home folder.', 'success', 5000);
     } else {
       console.warn('download_logs failed:', result && result.error);
       showToast("Couldn't save the logs. Try again.", "error", 6000);
@@ -534,50 +579,35 @@ async function downloadLogs(btn) {
     console.error("downloadLogs error:", e);
     showToast("Couldn't save the logs. Try again.", "error");
   } finally {
-    if (btn) {
-      btn.disabled = false;
-      btn.style.opacity = "";
-      btn.style.cursor = "";
-      btn.textContent = originalText || "Download Logs";
-    }
+    if (btn) btn.disabled = false;
   }
 }
 
+// Settings, Privacy and data: Delete all my data. It asks first, in the
+// panel (it used to be a native confirm() box listing bullet points).
+function askFactoryReset(ask) {
+  const row = document.getElementById('resetRow');
+  const confirmRow = document.getElementById('resetConfirm');
+  if (!row || !confirmRow) return;
+  confirmRow.hidden = !ask;
+  document.getElementById('resetAsk').hidden = !!ask;
+  if (ask) document.getElementById('resetNo').focus();
+}
+
 async function factoryReset() {
-  if (!window.pywebview || !window.pywebview.api) {
-    showToast("App not ready yet", "error");
-    return;
-  }
-
-  // Show confirmation dialog
-  const confirmed = confirm(
-    "Factory Reset\n\n" +
-    "This will delete ALL Waffler data including:\n\n" +
-    "• Recording history\n" +
-    "• Configuration settings\n" +
-    "• Usage statistics\n" +
-    "• Logs\n\n" +
-    "The app will quit and restart from setup on next launch.\n\n" +
-    "This cannot be undone.\n\n" +
-    "Are you sure?"
-  );
-
-  if (!confirmed) {
-    return;
-  }
-
+  if (!window.pywebview || !window.pywebview.api) return;
   try {
     const result = await pywebview.api.factory_reset();
     if (result.ok) {
-      showToast("Resetting all data...", "success");
+      showToast("Deleting your data. Waffler is closing.", "success");
       // App will quit automatically
     } else {
       console.warn('factory_reset failed:', result.error);
-      showToast("Couldn't reset Waffler. Try again.", "error");
+      showToast("Couldn't delete your data. Try again.", "error");
     }
   } catch (e) {
     console.error("factoryReset error:", e);
-    showToast("Couldn't reset Waffler. Try again.", "error");
+    showToast("Couldn't delete your data. Try again.", "error");
   }
 }
 
@@ -589,31 +619,33 @@ async function loadHotkeyConfig() {
     const config = await window.pywebview.api.get_hotkey_config();
     if (config.ok) {
       _currentHotkeyKeys = config.keys;
-      const display = config.display;
-      const settingsBadge = document.getElementById("settingsHotkeyBadge");
-      if (settingsBadge) settingsBadge.textContent = display;
       renderHotkeyCaps(config.keys);
-      const emptyHint = document.getElementById("emptyHint");
-      if (emptyHint) emptyHint.innerHTML = `Hold <strong>${escHtml(display)}</strong> to record`;
+      renderSettingsHotkeyPresets();
     }
   } catch (e) {
     console.error("loadHotkeyConfig error:", e);
   }
 }
 
-// Settings offers this platform's hotkeys only (logic.js hotkeyPresets).
-// It used to show the Mac keys on Windows too; the backend refused them,
-// the screen never checked, and the badge flashed green anyway.
+// The hotkey dialog offers this platform's hotkeys only (logic.js
+// hotkeyPresets). It used to show the Mac keys on Windows too; the backend
+// refused them, the screen never checked, and the badge flashed green anyway.
+// "Custom" is the dialog itself, so it isn't listed there.
 function renderSettingsHotkeyPresets() {
   const host = document.getElementById('settingsHotkeyPresets');
   if (!host) return;
   host.textContent = '';
+  const cur = WL.hotkeyName(_currentHotkeyKeys, isMacPlatform);
   WL.hotkeyPresets(isMacPlatform).forEach((p) => {
+    if (p.custom) return;
     const b = document.createElement('button');
-    b.className = 'settings-btn';
-    b.textContent = p.label;
+    b.type = 'button';
+    b.className = 'btn btn-sec btn-sm';
+    b.innerHTML = `<span class="keys">${_capsHtml(p.keys)}</span>`;
     b.title = p.hint;
-    b.addEventListener('click', () => (p.custom ? openHotkeyCapture() : changeSettingsHotkey(p.keys)));
+    b.setAttribute('aria-label', p.label);
+    b.setAttribute('aria-pressed', String(p.label === cur));
+    b.addEventListener('click', () => changeSettingsHotkey(p.keys));
     host.appendChild(b);
   });
 }
@@ -638,8 +670,8 @@ async function _onHotkeySaved(result) {
   await loadHotkeyConfig();
 }
 
+// A preset in the hotkey dialog: saved at once, and the dialog closes.
 async function changeSettingsHotkey(keys) {
-  const settingsBadge = document.getElementById("settingsHotkeyBadge");
   let result;
   try {
     result = await window.pywebview.api.save_hotkey_config(keys);
@@ -650,24 +682,30 @@ async function changeSettingsHotkey(keys) {
   if (!result || !result.ok) {
     const msg = (result && result.error) || "Couldn't change the hotkey. Try again.";
     _showSettingsHotkeyError(msg);
-    showToast(msg, 'error', 6000);
+    const errEl = document.getElementById("hotkeyError");
+    if (errEl) { errEl.textContent = msg; errEl.style.display = "block"; }
     return;
   }
   _showSettingsHotkeyError('');
+  closeHotkeyCapture();
   await _onHotkeySaved(result);
   showToast(`Hotkey is now ${result.display || WL.hotkeyName(result.keys, isMacPlatform)}`, 'success');
-  // Brief green on the badge, only when the save really worked.
-  if (settingsBadge) {
-    settingsBadge.style.color = '#4CAF50';
-    setTimeout(() => { settingsBadge.style.color = '#C8A256'; }, 1000);
-  }
+}
+
+function _showCaptured(keys) {
+  const el = document.getElementById("hotkeyCaptureKeys");
+  if (el) el.innerHTML = keys.length ? _capsHtml(keys, 'kc-xl') : '';
 }
 
 function openHotkeyCapture() {
   _capturedKeys.clear();
   _lastCapturedKeys = [..._currentHotkeyKeys];
-  document.getElementById("hotkeyCaptureKeys").textContent = hotkeyDisplayStr(_lastCapturedKeys);
+  _showCaptured(_lastCapturedKeys);
   document.getElementById("hotkeyError").style.display = "none";
+  // Setup has its own list of choices ("Pick another key").
+  const presets = document.getElementById('hotkeyPresetRow');
+  if (presets) presets.hidden = typeof _wizardVisible === 'function' && _wizardVisible();
+  renderSettingsHotkeyPresets();
   document.getElementById("hotkeyModal").style.display = "flex";
   document.addEventListener("keydown", _onCaptureKeyDown);
   document.addEventListener("keyup", _onCaptureKeyUp);
@@ -681,13 +719,16 @@ function closeHotkeyCapture() {
 }
 
 function _onCaptureKeyDown(e) {
+  if (e.key === 'Escape') { e.preventDefault(); closeHotkeyCapture(); return; }
+  // Tab and Enter still reach the dialog's buttons.
+  if (e.key === 'Tab' || (e.key === 'Enter' && !_capturedKeys.size)) return;
   e.preventDefault();
   e.stopPropagation();
   const id = jsKeyToId(e);
   if (!id) return;
   _capturedKeys.add(id);
   _lastCapturedKeys = [..._capturedKeys];
-  document.getElementById("hotkeyCaptureKeys").textContent = hotkeyDisplayStr(_lastCapturedKeys);
+  _showCaptured(_lastCapturedKeys);
   document.getElementById("hotkeyError").style.display = "none";
 }
 
@@ -699,9 +740,9 @@ function _onCaptureKeyUp(e) {
 }
 
 function resetHotkeyDefault() {
-  _lastCapturedKeys = isMacPlatform ? ["fn"] : ["win", "ctrl"];
+  _lastCapturedKeys = WL.defaultHotkey(isMacPlatform);
   _capturedKeys.clear();
-  document.getElementById("hotkeyCaptureKeys").textContent = isMacPlatform ? "Fn" : "Win + Ctrl";
+  _showCaptured(_lastCapturedKeys);
   document.getElementById("hotkeyError").style.display = "none";
 }
 
@@ -709,7 +750,7 @@ async function saveHotkeyCapture() {
   const keys = _lastCapturedKeys;
   const errEl = document.getElementById("hotkeyError");
   const fail = (msg) => { errEl.textContent = msg; errEl.style.display = "block"; };
-  if (!keys.length) { fail("Hold the keys you want, then press Save."); return; }
+  if (!keys.length) { fail("Hold the keys you want, then click Save."); return; }
   // The backend decides (src/hotkey_rules.py) and says why in one sentence.
   let result;
   try {
@@ -728,21 +769,150 @@ async function saveHotkeyCapture() {
   showToast(`Hotkey is now ${result.display || WL.hotkeyName(result.keys, isMacPlatform)}`, 'success');
 }
 
-// ── API Calls ─────────────────────────────────────────────────────────
+// ── Journal: loading ─────────────────────────────────────────────────
+// The newest page and the counts. Older pages load as you scroll.
 async function refreshAll() {
   try {
     if (window.pywebview && window.pywebview.api) {
-      const [h, s] = await Promise.all([
-        window.pywebview.api.get_history(),
-        window.pywebview.api.get_stats()
-      ]);
-      history = h || [];
-      stats   = s || stats;
-      renderFeed();
+      const s = await window.pywebview.api.get_stats();
+      stats = s || stats;
       renderStats();
+      await renderFeed();
     }
   } catch (e) {
     console.warn('API not ready yet:', e);
+  }
+}
+
+// The first page for the current search, drawn from scratch. Searching
+// asks the backend (get_history's query), so a search covers the whole
+// Journal, not just what has been drawn.
+async function renderFeed() {
+  const seq = ++_histSeq;
+  const query = _searchText;
+  _histLoading = true;
+  let page = [];
+  try {
+    page = (await window.pywebview.api.get_history(PAGE_SIZE, 0, query)) || [];
+  } catch (e) {
+    console.warn('get_history failed:', e);
+  }
+  if (seq !== _histSeq) return;          // a newer search took over
+  _histLoading = false;
+  history = page;
+  _histDone = page.length < PAGE_SIZE;
+  drawFeed();
+}
+
+// Draw `history` from scratch: first run, a search with no matches, or the
+// entries grouped by day (logic.js feedView). A search with no matches used
+// to show "Your journal is empty."
+function drawFeed() {
+  _histTotal = Math.max(Number(stats.entries) || 0, history.length);
+  const view = WL.feedView(_histTotal, _searchText, history.length);
+  $empty.hidden = view.kind !== 'empty';
+  if ($strip) $strip.hidden = view.kind === 'empty';
+  $noMatch.hidden = view.kind !== 'no_match';
+  if (view.kind === 'no_match') {
+    const label = document.getElementById('noMatchLabel');
+    if (label && view.label) label.textContent = view.label;
+  }
+  $feed.textContent = '';
+  _feedDays = { first: '', last: '' };
+  if (view.kind === 'list') _appendCards(history);
+  _updateMore();
+  _updateSearchPlaceholder();
+}
+
+function _updateSearchPlaceholder() {
+  const searchEl = document.getElementById('searchInput');
+  if (!searchEl) return;
+  const total = Number(stats.entries) || 0;
+  searchEl.placeholder = total ? `Search ${WL.formatCount(total)} ${total === 1 ? 'entry' : 'entries'}` : 'Search';
+}
+
+function _updateMore() {
+  if (!$feedMore) return;
+  $feedMore.hidden = _histDone || !history.length;
+  const btn = document.getElementById('feedMoreBtn');
+  if (btn) { btn.disabled = _histLoading; btn.textContent = _histLoading ? 'Loading…' : 'Show older entries'; }
+}
+
+// The next page, added below what is there (nothing is redrawn).
+async function loadMoreEntries() {
+  if (_histLoading || _histDone || !window.pywebview || !window.pywebview.api) return;
+  const seq = _histSeq;
+  _histLoading = true;
+  _updateMore();
+  let page = [];
+  try {
+    page = (await window.pywebview.api.get_history(PAGE_SIZE, history.length, _searchText)) || [];
+  } catch (e) {
+    console.warn('get_history failed:', e);
+  }
+  _histLoading = false;
+  if (seq !== _histSeq) return;
+  history.push(...page);
+  _histDone = page.length < PAGE_SIZE;
+  _appendCards(page);
+  _updateMore();
+}
+
+// Older entries load when the end of the list comes near.
+function _watchFeedEnd() {
+  if (!$feedMore || !('IntersectionObserver' in window)) return;
+  const io = new IntersectionObserver((entries) => {
+    if (entries.some((e) => e.isIntersecting)) loadMoreEntries();
+  }, { root: $main, rootMargin: '0px 0px 800px 0px' });
+  io.observe($feedMore);
+}
+
+// ── Journal: drawing ─────────────────────────────────────────────────
+function _dayRow(key) {
+  const d = WL.dayLabel(key, new Date());
+  const row = document.createElement('div');
+  row.className = 'j-date-divider';
+  row.dataset.day = key;
+  row.innerHTML = `<span class="j-date-month">${escHtml(d.day)}</span><span class="j-date-line"></span><span class="j-date-day">${escHtml(d.date)}</span>`;
+  return row;
+}
+
+// Cards at the bottom, each under its day's row.
+function _appendCards(items) {
+  const frag = document.createDocumentFragment();
+  items.forEach((item) => {
+    const key = WL.dayKey(item.timestamp);
+    if (key !== _feedDays.last || !_feedDays.first) {
+      frag.appendChild(_dayRow(key));
+      _feedDays.last = key;
+      if (!_feedDays.first) _feedDays.first = key;
+    }
+    frag.appendChild(makeCard(item, false));
+  });
+  $feed.appendChild(frag);
+}
+
+// One new card at the top, under today's row (made if it isn't there).
+function _prependCard(item) {
+  const key = WL.dayKey(item.timestamp);
+  const card = makeCard(item, true);
+  const firstRow = $feed.querySelector('.j-date-divider');
+  if (firstRow && firstRow.dataset.day === key) {
+    firstRow.after(card);
+  } else {
+    $feed.prepend(_dayRow(key), card);
+    _feedDays.first = key;
+    if (!_feedDays.last) _feedDays.last = key;
+  }
+}
+
+// A card goes; so does its day's row if it was the last card that day.
+function _removeCard(el) {
+  const prev = el.previousElementSibling;
+  const next = el.nextElementSibling;
+  el.remove();
+  if (prev && prev.classList.contains('j-date-divider') && (!next || next.classList.contains('j-date-divider'))) {
+    prev.remove();
   }
 }
 
@@ -760,29 +930,37 @@ async function copyItem(text, btnEl) {
       btnEl.innerHTML = WI.icon('copy') + '<span>Copy</span>';
     }, 2500);
   } catch (e) {
-    showToast('Failed to copy', 'error');
+    showToast("Couldn't copy that. Try again.", 'error');
   }
 }
 
+async function _refreshStats() {
+  try {
+    stats = (await window.pywebview.api.get_stats()) || stats;
+    renderStats();
+    _updateSearchPlaceholder();
+  } catch (_) {}
+}
+
 // ── Called by Python after each transcription ─────────────────────────
+// The new entry is added at the top; nothing else is redrawn (every card
+// used to be rebuilt, about half a second at 3,300 entries).
 window.waffler_refresh = function(newItem) {
-  if (newItem) {
+  if (!newItem) { refreshAll(); return; }
+  const first = !history.length && !(Number(stats.entries) > 0);
+  stats.entries = (Number(stats.entries) || 0) + 1;
+  // During a search, it joins the list only if it matches.
+  const shown = !_searchQuery ||
+    ((newItem.styled || '') + ' ' + (newItem.text || '')).toLowerCase().includes(_searchQuery);
+  if (shown) {
     history.unshift(newItem);
+    if (first || !$noMatch.hidden) drawFeed();
+    else _prependCard(newItem);
   }
-  if (window.pywebview && window.pywebview.api) {
-    Promise.all([
-      window.pywebview.api.get_stats()
-    ]).then(([s]) => {
-      stats = s || stats;
-      renderStats();
-    });
-  }
-  renderFeed(newItem ? newItem.timestamp : null);
-  if (newItem) {
-    // A Not sent card is not a finished transcription.
-    if (newItem.failed) showToast('Not sent. The recording is saved in the Journal.', 'error');
-    else showToast('Transcription complete', 'success');
-  }
+  if (window.pywebview && window.pywebview.api) _refreshStats();
+  // A Not sent card is not a finished transcription.
+  if (newItem.failed) showToast('Not sent. The recording is saved in the Journal.', 'error');
+  else showToast('Added to your Journal.', 'success');
 };
 
 // ── Called by Python for status updates ──────────────────────────────
@@ -854,129 +1032,74 @@ window.waffler_status = function(status) {
 
 // ── Render ─────────────────────────────────────────────────────────────
 function renderStats() {
-  $statWords.textContent = fmt(stats.today_words);
-  $statCount.textContent = fmt(stats.today_count);
-  $statTotal.textContent = fmt(stats.total_words);
+  $statWords.textContent = WL.statNumber(stats.today_words);
+  $statCount.textContent = WL.statNumber(stats.today_count);
+  $statTotal.textContent = WL.statNumber(stats.total_words);
 
-  // Stack streak — hide the chip entirely when the streak is 0 so we
-  // don't show a "0 stack streak" eyesore on the first day of use.
+  // Days in a row: hidden at 0, so the first day doesn't say "0-day streak".
   const streakChip = document.getElementById('streakChip');
   const streakNum  = document.getElementById('streakNum');
   if (streakChip && streakNum) {
     const days = (stats.streak_days || 0);
-    streakNum.textContent = String(days);
+    streakNum.textContent = WL.formatCount(days);
     streakChip.classList.toggle('j-streak-empty', days <= 0);
   }
 }
 
-function fmt(n) {
-  if (n >= 1000) return (n / 1000).toFixed(1) + 'k';
-  return String(n);
-}
-
-function renderFeed(newTimestamp) {
-  // Filter by search query if present
-  const filtered = _searchQuery
-    ? history.filter(item => {
-        const haystack = ((item.styled || '') + ' ' + (item.text || '')).toLowerCase();
-        return haystack.includes(_searchQuery);
-      })
-    : history;
-
-  // First run, a search with no matches, or the list (logic.js feedView).
-  // A search with no matches used to show "Your journal is empty."
-  const view = WL.feedView(history.length, _searchText, filtered.length);
-  $empty.style.display = view.kind === 'empty' ? 'flex' : 'none';
-  const $noMatch = document.getElementById('noMatchState');
-  if ($noMatch) $noMatch.style.display = view.kind === 'no_match' ? 'flex' : 'none';
-  if (view.kind !== 'list') {
-    const label = document.getElementById('noMatchLabel');
-    if (label && view.label) label.textContent = view.label;
-    $feed.innerHTML = '';
-    $feedCount.textContent = history.length
-      ? `0 of ${history.length} (filtered)`
-      : '0 entries';
-    return;
-  }
-
-  $feedCount.textContent = _searchQuery
-    ? `${filtered.length} of ${history.length}`
-    : `${filtered.length} ${filtered.length === 1 ? 'entry' : 'entries'}`;
-
-  // Also drive the journal search placeholder so the count is always
-  // visible without needing a separate badge.
-  const searchEl = document.getElementById('searchInput');
-  if (searchEl && searchEl.classList.contains('j-search-input')) {
-    const total = history.length;
-    searchEl.placeholder = total
-      ? `Search ${total} ${total === 1 ? 'entry' : 'entries'}…`
-      : 'Search…';
-  }
-
-  $feed.innerHTML = '';
-  filtered.forEach((item, idx) => {
-    const card = makeCard(item, item.timestamp === newTimestamp && idx === 0);
-    $feed.appendChild(card);
-  });
-}
-
-// Quality badge. The pipeline attaches item.quality only when a recording
-// looks suspect, so a clean dictation shows nothing at all - if ordinary
-// recordings lit up, the badge would become noise and get ignored.
-// It reports; it never blocks or alters the text.
+// Quality chip, and the reason in words under the text. The pipeline
+// attaches item.quality only when a recording looks suspect, so a clean
+// dictation shows nothing: if ordinary recordings lit up, the chip would
+// become noise and get ignored. It reports; it never blocks or alters the
+// text. A dictation cleaned up without the clean-up because of a limit is
+// tagged "As said: limit reached".
 function qualityBadge(item) {
-  const q = item && item.quality;
-  if (!q || !q.level || q.level === 'ok') return '';
-  const labels = {
-    low_word_rate:        'far fewer words than the audio length suggests',
-    styled_dropped_words: 'cleanup removed an unusual amount of text',
-    styling_fallback:     'cleanup did not run - this is the raw transcript',
-    truncated_midsentence:'ends mid-sentence - speech may be missing',
-    unterminated_ending:  'ends without punctuation',
-    asr_filter_edited:    'the transcript filter altered the result',
-    retry_used:           'the first provider returned too little; it was retried',
-    retry_rejected:       'looks incomplete, and the retry disagreed with it too much to trust',
-    styling_deadline:     'cleanup ran out of time; raw text was kept',
-  };
-  const why = (q.flags || []).map(f => labels[f] || f).join('; ');
-  const low = q.level === 'low';
-  const cls = low ? 'q-low chip-err' : 'q-check chip-warn';
-  const mark = low ? WI.icon('alert') + 'Check this one' : WI.icon('eye') + 'Worth a look';
-  return ` <span class="q-badge chip ${cls}" title="${escHtml(why)}">${mark}</span>`;
+  const q = WL.qualityView(item);
+  let html = '';
+  if (q.asSaid) html += `<span class="chip chip-warn">${escHtml(q.asSaid)}</span>`;
+  if (q.chip) {
+    const mark = q.level === 'low' ? WI.icon('alert') : WI.icon('eye');
+    html += `<span class="q-badge chip ${q.level === 'low' ? 'q-low chip-err' : 'q-check chip-warn'}">${mark}${escHtml(q.chip)}</span>`;
+  }
+  return html;
 }
 
 // ── Not sent cards ──────────────────────────────────────────────────────
-// A recording that was not turned into text. The card used to show the raw
-// note and a Copy button for text that did not exist, although it promised
-// the audio was "saved so you can retry": nothing in the app could reach it.
-// Now: a plain sentence (logic.js notSentView), Try again, Show the file and
-// Delete. Messages from the last try are kept per recording, because a
-// card is rebuilt when its entry changes.
+// A recording that was not turned into text: its own card with a plain
+// sentence (logic.js notSentView), Try again, Show the file and Delete. It
+// used to be a normal card whose Copy button copied the error. Messages
+// from the last try are kept per recording, because a card is rebuilt when
+// its entry changes.
 const _unsentMessages = {};
 
 function makeNotSentCard(item, isNew) {
   const v = WL.notSentView(item);
-  const div = document.createElement('div');
+  const div = document.createElement('article');
   div.className = 'transcript-card not-sent-card' + (isNew ? ' new' : '');
   if (v.id) div.dataset.unsentId = v.id;
   const msg = v.id ? (_unsentMessages[v.id] || '') : '';
   div.innerHTML = `
-    <div class="card-meta">
-      <div class="card-time">${escHtml(formatTime(item.timestamp))}</div>
-      <div class="ns-badge">${escHtml(v.badge)}</div>
-    </div>
-    <p class="ns-text">${escHtml(v.text)}</p>
-    ${v.next ? `<p class="ns-next">${escHtml(v.next)}</p>` : ''}
-    <p class="ns-status" role="status" aria-live="polite"${msg ? '' : ' hidden'}>${escHtml(msg)}</p>
-    <div class="card-actions ns-actions">
-      ${v.canRetry ? '<button class="btn btn-sec btn-sm btn-copy ns-retry">Try again</button>' : ''}
-      ${v.canReveal ? '<button class="btn btn-quiet btn-sm ns-reveal">Show the file</button>' : ''}
-      ${v.canDelete ? '<button class="btn btn-quiet btn-sm ns-delete">Delete</button>' : ''}
-    </div>
-    <div class="ns-confirm" hidden>
-      <span>Delete this recording? This can't be undone.</span>
-      <button class="btn btn-danger btn-sm ns-confirm-yes">Delete</button>
-      <button class="btn btn-sec btn-sm btn-copy ns-confirm-no">Keep it</button>
+    <div class="ns-wrap">
+      <span class="itile is-warn">${WI.icon('wifi-off')}</span>
+      <div class="ns-main">
+        <div class="card-meta">
+          <span class="ns-title">${v.canRetry ? 'Not sent yet' : escHtml(v.badge)}</span>
+          <span class="card-sp"></span>
+          <span class="card-time">${escHtml(formatTime(item.timestamp))}</span>
+        </div>
+        <p class="ns-text">${escHtml(v.text)}</p>
+        ${v.next ? `<p class="ns-next">${escHtml(v.next)}</p>` : ''}
+        <p class="ns-status" role="status" aria-live="polite"${msg ? '' : ' hidden'}>${escHtml(msg)}</p>
+        <div class="card-actions ns-actions">
+          ${v.canRetry ? `<button type="button" class="btn btn-sec btn-sm ns-retry">${WI.icon('retry')}<span>Try again</span></button>` : ''}
+          ${v.canReveal ? '<button type="button" class="btn btn-quiet btn-sm ns-reveal">Show the file</button>' : ''}
+          ${v.canDelete ? '<button type="button" class="btn btn-quiet btn-sm ns-delete">Delete</button>' : ''}
+        </div>
+        <div class="ns-confirm" hidden>
+          <span>Delete this recording? This can't be undone.</span>
+          <button type="button" class="btn btn-danger btn-sm ns-confirm-yes">Delete</button>
+          <button type="button" class="btn btn-sec btn-sm ns-confirm-no">Keep it</button>
+        </div>
+      </div>
     </div>
   `;
   const say = (text) => {
@@ -990,7 +1113,7 @@ function makeNotSentCard(item, isNew) {
     retry.addEventListener('click', async () => {
       const a = api(); if (!a || !a.retry_unsent) return;
       div.querySelectorAll('button').forEach((b) => { b.disabled = true; });
-      retry.textContent = 'Sending…';
+      retry.innerHTML = WI.icon('retry') + '<span>Sending…</span>';
       say('');
       try {
         const r = await a.retry_unsent(v.id);
@@ -1008,7 +1131,7 @@ function makeNotSentCard(item, isNew) {
         say(WL.retryFailedMessage(''));
       }
       div.querySelectorAll('button').forEach((b) => { b.disabled = false; });
-      retry.textContent = 'Try again';
+      retry.innerHTML = WI.icon('retry') + '<span>Try again</span>';
     });
   }
   const reveal = div.querySelector('.ns-reveal');
@@ -1047,8 +1170,8 @@ function makeNotSentCard(item, isNew) {
         const i = history.indexOf(item);
         if (i >= 0) history.splice(i, 1);
         if (v.id) delete _unsentMessages[v.id];
-        div.remove();
-        $feedCount.textContent = `${history.length} ${history.length === 1 ? 'entry' : 'entries'}`;
+        _removeCard(div);
+        _refreshStats().then(() => { if (!history.length) drawFeed(); });
       } else {
         confirmRow.hidden = true;
         div.querySelector('.ns-actions').hidden = false;
@@ -1067,12 +1190,10 @@ function _applyItemUpdate(unsentId, item) {
   history[i] = item;
   const el = $feed.querySelector(`[data-unsent-id="${unsentId}"]`);
   if (el) el.replaceWith(makeCard(item, !item.failed));
-  else renderFeed();
+  else drawFeed();
   if (!item.failed) {
     showToast('Sent. The words are in the Journal.', 'success');
-    if (window.pywebview && window.pywebview.api) {
-      window.pywebview.api.get_stats().then((s) => { stats = s || stats; renderStats(); }).catch(() => {});
-    }
+    if (window.pywebview && window.pywebview.api) _refreshStats();
   }
   return true;
 }
@@ -1086,43 +1207,40 @@ window.waffler_item_updated = function(unsentId, item) {
 
 function makeCard(item, isNew) {
   if (item && item.failed) return makeNotSentCard(item, isNew);
-  const div = document.createElement('div');
+  const div = document.createElement('article');
   div.className = 'transcript-card' + (isNew ? ' new' : '');
 
   const displayText = item.styled || item.text || '';
   const rawText     = item.text  || '';
   const hasStyled   = item.styled && item.styled !== item.text;
   const words       = (displayText.split(/\s+/).filter(Boolean)).length;
-  const timeStr     = formatTime(item.timestamp);
+  const q           = WL.qualityView(item);
 
   div.innerHTML = `
     <div class="card-meta">
-      <div class="card-time">${escHtml(timeStr)}</div>
-      <div class="card-words">${words} words${qualityBadge(item)}</div>
+      <span class="card-time">${escHtml(formatTime(item.timestamp))}</span>
+      ${qualityBadge(item)}
+      <span class="card-sp"></span>
+      <span class="card-words">${WL.formatCount(words)} ${words === 1 ? 'word' : 'words'}</span>
     </div>
-    <div class="card-text styled" id="text-${escHtml(String(item.timestamp))}">${escHtml(displayText)}</div>
+    <div class="card-text styled">${escHtml(displayText)}</div>
+    ${q.reasons.length ? `<p class="card-reason">${escHtml(q.reasons.join(' '))}</p>` : ''}
     <div class="card-actions">
-      <button class="btn btn-sec btn-sm btn-copy" data-text="${escHtml(displayText)}">${WI.icon('copy')}<span>Copy</span></button>
-      ${hasStyled ? `<span class="text-toggle" data-timestamp="${escHtml(String(item.timestamp))}" data-raw="${escHtml(rawText)}" data-styled="${escHtml(displayText)}">Show transcript</span>` : ''}
+      <button type="button" class="btn btn-sec btn-sm btn-copy">${WI.icon('copy')}<span>Copy</span></button>
+      ${hasStyled ? '<button type="button" class="text-toggle">Show transcript</button>' : ''}
     </div>
   `;
 
-  // Attach event listeners to the buttons
-  const copyBtn = div.querySelector('.btn-copy');
-  if (copyBtn) {
-    copyBtn.addEventListener('click', function() {
-      const text = this.getAttribute('data-text');
-      copyItem(text, this);
-    });
-  }
+  const textEl = div.querySelector('.card-text');
+  div.querySelector('.btn-copy').addEventListener('click', function() {
+    // Copies what is shown: the clean text, or the transcript when shown.
+    copyItem(textEl.classList.contains('raw') ? rawText : displayText, this);
+  });
 
   const toggleBtn = div.querySelector('.text-toggle');
-  if (toggleBtn && hasStyled) {
+  if (toggleBtn) {
     toggleBtn.addEventListener('click', function() {
-      const ts = this.getAttribute('data-timestamp');
-      const rawText = this.getAttribute('data-raw');
-      const styledText = this.getAttribute('data-styled');
-      toggleRawHandler(this, ts, rawText, styledText);
+      toggleRawHandler(this, textEl, rawText, displayText);
     });
   }
 
@@ -1133,8 +1251,7 @@ function makeCard(item, isNew) {
   return div;
 }
 
-function toggleRawHandler(toggleEl, ts, rawText, styledText) {
-  const textEl = document.getElementById(`text-${ts}`);
+function toggleRawHandler(toggleEl, textEl, rawText, styledText) {
   const showingStyled = textEl.classList.contains('styled');
   if (showingStyled) {
     textEl.textContent = rawText;
@@ -1165,26 +1282,27 @@ function formatTime(ts) {
   const isToday = d.toDateString() === now.toDateString();
   const timeStr = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
   if (isToday) return `Today, ${timeStr}`;
+  const y = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+  if (d.toDateString() === y.toDateString()) return `Yesterday, ${timeStr}`;
   return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) + ', ' + timeStr;
 }
 
 // ── Toast ───────────────────────────────────────────────────────────────
-// v3.14.28 — hover-to-keep. The toast still auto-dismisses on a timer,
-// but if the user is hovering over it the timer pauses. This way a
-// slow reader (or someone reaching for the mouse to click an action
-// inside the toast) doesn't get robbed of the message half-way through.
+// An ink pill at the bottom centre, with an icon and one sentence. The
+// timer pauses while the pointer is over it, and a click dismisses it.
 let _toastHoverBound = false;
 let _toastTimeoutMs = 2500;
+const _TOAST_ICONS = { success: 'check', error: 'alert-circle', info: 'info' };
 
 function showToast(msg, type, ms) {
   clearTimeout(toastTimer);
-  $toast.textContent = msg;
-  // Over the setup wizard a message goes to the top centre: bottom right it
+  $toast.innerHTML = WI.icon(_TOAST_ICONS[type] || 'info') + `<span>${escHtml(msg)}</span>`;
+  // Over the setup wizard a message goes to the top centre: at the bottom it
   // sat on the wizard's Next and Finish Setup buttons, so the first click
   // only closed the message (and hovering there kept it up).
   const overWizard = typeof _wizardVisible === 'function' && _wizardVisible();
   $toast.className = `toast visible ${type || ''}${overWizard ? ' over-wizard' : ''}`;
-  _toastTimeoutMs = (typeof ms === 'number' && ms > 0) ? ms : 2500;
+  _toastTimeoutMs = (typeof ms === 'number' && ms > 0) ? ms : (type === 'error' ? 5000 : 2500);
   toastTimer = setTimeout(dismissToast, _toastTimeoutMs);
 
   // Bind hover behaviour once; same listener is reused for every toast.
@@ -1195,12 +1313,10 @@ function showToast(msg, type, ms) {
     });
     $toast.addEventListener('mouseleave', () => {
       // Resume the dismiss timer when the cursor leaves. Use a shorter
-      // window than the initial — the user has already read it.
+      // window than the initial: the user has already read it.
       clearTimeout(toastTimer);
       toastTimer = setTimeout(dismissToast, 1200);
     });
-    // Clicking the toast dismisses it immediately (in case the user
-    // wants to keep going without waiting for the timer).
     $toast.addEventListener('click', dismissToast);
   }
 }
@@ -1210,31 +1326,26 @@ function dismissToast() {
   $toast.classList.remove('visible');
 }
 
-// ── Audio Device Selector ─────────────────────────────────────────────
+// ── Microphone (Settings, General) ────────────────────────────────────
 
 async function loadAudioDevices() {
   try {
     const devices = await pywebview.api.get_audio_devices();
     const current = await pywebview.api.get_selected_device();
-
-    // Fill the microphone lists (the top bar keeps one, not shown yet).
-    const selectors = ['deviceSelect', 'micSelect'].map(id => document.getElementById(id)).filter(Boolean);
-    if (!selectors.length) return;
-
-    selectors.forEach(sel => {
-      sel.innerHTML = '';
-      if (!devices || devices.length === 0) {
-        sel.innerHTML = '<option value="">No devices found</option>';
-        return;
-      }
-      devices.forEach(d => {
-        const opt = document.createElement('option');
-        opt.value = d.index;
-        opt.textContent = d.name + (d.is_default ? ' (default)' : '');
-        if (current && current.index === d.index) opt.selected = true;
-        else if (current && current.index === null && d.is_default) opt.selected = true;
-        sel.appendChild(opt);
-      });
+    const sel = document.getElementById('micSelect');
+    if (!sel) return;
+    sel.innerHTML = '';
+    if (!devices || devices.length === 0) {
+      sel.innerHTML = '<option value="">No microphone found</option>';
+      return;
+    }
+    devices.forEach(d => {
+      const opt = document.createElement('option');
+      opt.value = d.index;
+      opt.textContent = d.name + (d.is_default ? ' (default)' : '');
+      if (current && current.index === d.index) opt.selected = true;
+      else if (current && current.index === null && d.is_default) opt.selected = true;
+      sel.appendChild(opt);
     });
   } catch(e) {
     console.warn('loadAudioDevices error:', e);
@@ -1246,9 +1357,6 @@ async function onMicChange(indexStr) {
   try {
     const result = await pywebview.api.set_audio_device(idx);
     if (result && result.ok) {
-      // Keep settings page dropdown in sync
-      const devSel = document.getElementById('deviceSelect');
-      if (devSel) devSel.value = idx;
       showToast(`Microphone: ${result.name}`, 'success');
     }
   } catch(e) {
@@ -1256,142 +1364,147 @@ async function onMicChange(indexStr) {
   }
 }
 
-// The top bar's "Normal" mode menu is gone: Normal was its only real
-// choice, so it took space and did nothing. The backend keeps its mode
-// calls (get_current_mode, set_mode) for when more modes exist.
-
-// ── Custom Vocabulary ─────────────────────────────────────────────────
-
-// v3.14.23 — legacy loadVocab() / onVocabSave() removed.
-// They were leftovers from an older vocabulary UI where #vocabInput
-// was a multi-line <textarea> the user could edit directly. The current
-// UI is a single-line "Add word" input + a separate list with delete
-// buttons, all driven by loadVocabPage() / addVocabWord() / deleteVocabWord().
-// The old loadVocab() ran on pywebviewready and dumped every existing
-// vocab word joined by '\n' into #vocabInput — so the "Add word" box
-// showed up pre-filled with "WafflerAshkanGroqMLXkubernetes..." (all
-// the words concatenated, because newlines collapse in a text input).
-// Removing it leaves the input clean on every app load.
-
-// ── Vocabulary Page ───────────────────────────────────────────────────
+// ── Vocabulary ─────────────────────────────────────────────────────────
+// Words as chips in one panel, A to Z. With none yet, the page explains
+// what it's for with the website's checked examples (decisions.md,
+// "Vocabulary examples"): speech to text writes the usual spelling, and
+// the Vocabulary puts it right.
 let _vocabWords = [];
+
+const VOCAB_EXAMPLES = [
+  ['Isabel', 'Isobel'], ['Caitlin', 'Caitlyn'], ['Sinead', 'Sinéad'], ['Hayley', 'Hailey'], ['club card', 'Clubcard'],
+];
+
+function _vocabRows(pairs) {
+  return pairs.map(([heard, pasted]) => `<div class="vrow"><span class="heard">${escHtml(heard)}</span>${WI.icon('arrow')}<span class="pasted">${escHtml(pasted)}</span></div>`).join('');
+}
+
+function _vocabError(msg) {
+  const el = document.getElementById('vocabError');
+  if (el) { el.textContent = msg || ''; el.hidden = !msg; }
+}
 
 async function loadVocabPage() {
   const listEl = document.getElementById('vocabList');
-  const emptyEl = document.getElementById('vocabEmpty');
-  const countEl = document.getElementById('vocabCount');
   const inputEl = document.getElementById('vocabInput');
-
   if (!listEl) return;
 
-  // v3.14.24 — belt-and-suspenders: explicitly wipe the "Add word" input
-  // every time we render the vocab page. The legacy loadVocab() (removed
-  // in v3.14.23) used to dump every word joined by \n into this field on
-  // startup; some users on older builds still saw the pre-filled string
-  // after upgrading because WebView's form-restoration cached the value.
-  // Setting `.value = ''` here is unconditional, cheap, and means the
-  // box is guaranteed empty whenever the user lands on the page.
+  // Always start empty: an old build once filled this box with every word
+  // joined together, and WebView's form restore could bring that back.
   if (inputEl) inputEl.value = '';
+  _vocabError('');
 
   try {
-    _vocabWords = await pywebview.api.get_vocab() || [];
-    
-    // Update count
-    if (countEl) countEl.textContent = _vocabWords.length;
-    
-    // Clear current list
-    listEl.innerHTML = '';
-    
-    if (_vocabWords.length === 0) {
-      listEl.innerHTML = `
-        <div class="vocab-empty" id="vocabEmpty">
-          <div class="vocab-empty-icon">${WI.icon('book', 'ic-lg')}</div>
-          <div class="vocab-empty-label">No words added yet</div>
-          <div class="vocab-empty-sub">
-            Add tricky words once — names, acronyms, jargon — and Waffler will spell them right every time.
-          </div>
-          <div class="vocab-empty-examples">
-            <span class="vocab-empty-example"><strong>Siobhan</strong> &nbsp;<span style="opacity:.55">(catches "Shavon")</span></span>
-            <span class="vocab-empty-example"><strong>JSON</strong> &nbsp;<span style="opacity:.55">(catches "Jason")</span></span>
-            <span class="vocab-empty-example"><strong>Postgres</strong> &nbsp;<span style="opacity:.55">(catches "post grass")</span></span>
-            <span class="vocab-empty-example"><strong>macOS</strong> &nbsp;<span style="opacity:.55">(catches "Mac OS")</span></span>
-          </div>
-          <div class="vocab-empty-tip">
-            One word or short phrase per entry. No special syntax — just type it the way you want it written.
-          </div>
-        </div>
-      `;
-      return;
-    }
-    
-    // Render words
-    _vocabWords.forEach((word, idx) => {
-      const row = document.createElement('div');
-      row.className = 'vocab-word-row';
-      row.innerHTML = `
-        <span class="vocab-word-text">${escHtml(word)}</span>
-        <button class="vocab-word-delete rbtn" onclick="deleteVocabWord(${idx})" title="Delete" aria-label="Delete ${escHtml(word)}">${WI.icon('trash')}</button>
-      `;
-      listEl.appendChild(row);
-    });
-    
-  } catch(e) {
+    _vocabWords = (await pywebview.api.get_vocab()) || [];
+  } catch (e) {
     console.warn('loadVocabPage error:', e);
   }
+  renderVocab();
+}
+
+function renderVocab() {
+  const listEl = document.getElementById('vocabList');
+  const inputEl = document.getElementById('vocabInput');
+  if (!listEl) return;
+  if (inputEl) inputEl.placeholder = _vocabWords.length ? 'Add a name or word' : 'Add a name or word, like Sinéad';
+
+  if (!_vocabWords.length) {
+    listEl.innerHTML = `
+      <div class="group"><div class="panel v-first">
+        <div class="v-first-top">
+          <div>
+            <h2 class="v-first-title">Teach it the names it gets wrong</h2>
+            <p class="v-first-text">Speech to text guesses how names are spelled. Add yours once and Waffler spells them your way from then on.</p>
+          </div>
+          <span data-waffle="logo" data-size="44"></span>
+        </div>
+        <div class="vtable">
+          <div class="vrow vh"><span class="eyebrow">Heard</span><span></span><span class="eyebrow">Pasted, once it's in your list</span></div>
+          ${_vocabRows(VOCAB_EXAMPLES)}
+        </div>
+        <p class="v-foot">Examples, checked with Waffler's own speech step on a recorded voice.</p>
+      </div></div>`;
+    if (window.WafflerIcons) WafflerIcons.mount(listEl);
+    return;
+  }
+
+  const sorted = _vocabWords.slice().sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }));
+  const n = sorted.length;
+  listEl.innerHTML = `
+    <div class="group"><div class="panel v-panel">
+      <div class="v-head"><span class="eyebrow">${WL.formatCount(n)} ${n === 1 ? 'word' : 'words'}</span><span class="small">A to Z</span></div>
+      <div class="v-chips">${sorted.map((w) => `<span class="wchip">${escHtml(w)}<button type="button" class="rbtn" data-word="${escHtml(w)}" aria-label="Remove ${escHtml(w)}" title="Remove">${WI.icon('x')}</button></span>`).join('')}</div>
+    </div></div>
+    <div class="glabel"><span class="eyebrow">How it works</span></div>
+    <div class="group"><div class="panel v-how">
+      <div class="vtable" style="margin-top:0">
+        <div class="vrow vh"><span class="eyebrow">Heard</span><span></span><span class="eyebrow">Pasted</span></div>
+        ${_vocabRows([['Sinead', 'Sinéad']])}
+      </div>
+      <p class="small">When speech to text writes a word that sounds like one of yours, Waffler swaps in your spelling before pasting. It matches loosely, so a phrase spelled close to one of your words can change too.</p>
+    </div></div>`;
+  listEl.querySelectorAll('.wchip .rbtn').forEach((b) => {
+    b.addEventListener('click', () => deleteVocabWord(b.getAttribute('data-word')));
+  });
 }
 
 async function addVocabWord() {
   const inputEl = document.getElementById('vocabInput');
   if (!inputEl) return;
-  
+
   const word = inputEl.value.trim();
   if (!word) {
-    showToast('Enter a word first', 'error');
+    _vocabError('Type a name or word first.');
+    inputEl.focus();
     return;
   }
-  
-  if (_vocabWords.includes(word)) {
-    showToast('Word already exists', 'error');
+  if (_vocabWords.some((w) => w.toLowerCase() === word.toLowerCase())) {
+    _vocabError(`"${word}" is already in your list.`);
     return;
   }
-  
-  _vocabWords.push(word);
-  
+  _vocabError('');
+  const next = _vocabWords.concat([word]);
   try {
-    await pywebview.api.set_vocab(_vocabWords);
+    await pywebview.api.set_vocab(next);
+    _vocabWords = next;
     inputEl.value = '';
-    await loadVocabPage();
-    showToast(`Added "${word}"`, 'success');
+    renderVocab();
+    showToast(`Added "${word}".`, 'success');
   } catch(e) {
     console.warn('addVocabWord error:', e);
-    showToast('Failed to add word', 'error');
+    showToast("Couldn't add that word. Try again.", 'error');
   }
+  inputEl.focus();
 }
 
-async function deleteVocabWord(idx) {
-  if (idx < 0 || idx >= _vocabWords.length) return;
-  
-  const word = _vocabWords[idx];
-  _vocabWords.splice(idx, 1);
-  
+async function deleteVocabWord(word) {
+  const i = _vocabWords.indexOf(word);
+  if (i < 0) return;
+  const next = _vocabWords.slice(0, i).concat(_vocabWords.slice(i + 1));
   try {
-    await pywebview.api.set_vocab(_vocabWords);
-    await loadVocabPage();
-    showToast(`Removed "${word}"`, 'success');
+    await pywebview.api.set_vocab(next);
+    _vocabWords = next;
+    renderVocab();
+    showToast(`Removed "${word}".`, 'success');
   } catch(e) {
     console.warn('deleteVocabWord error:', e);
-    showToast('Failed to delete word', 'error');
+    showToast("Couldn't remove that word. Try again.", 'error');
   }
 }
 
-// Load devices once pywebview is ready.
-// Vocab list is loaded lazily by loadVocabPage() when the user
-// navigates to the Vocabulary tab — no longer pre-loaded on startup
-// (which was the cause of the "Add word" box being pre-filled with
-// every existing word jammed together).
-window.addEventListener('pywebviewready', () => {
-  loadAudioDevices();
-});
+// The empty Journal's "Open Notepad and try it" (TextEdit on a Mac).
+async function openPracticeEditor(btn) {
+  const err = document.getElementById('emptyEditorErr');
+  if (err) err.hidden = true;
+  if (btn) btn.disabled = true;
+  try {
+    const r = await pywebview.api.open_practice_editor();
+    if (r && !r.ok && err) { err.textContent = r.error || "Couldn't open it. Open any app you type in instead."; err.hidden = false; }
+  } catch (e) {
+    if (err) { err.textContent = "Couldn't open it. Open any app you type in instead."; err.hidden = false; }
+  }
+  if (btn) btn.disabled = false;
+}
 
 // ── Page Navigation ──────────────────────────────────────────────────────
 let _currentPage = 'home';
@@ -1399,7 +1512,6 @@ let _currentPage = 'home';
 function showPage(page) {
   _currentPage = page;
 
-  // Update nav
   [['navHome', 'home'], ['navVocab', 'vocabulary'], ['navSettings', 'settings']].forEach(([id, p]) => {
     const tab = document.getElementById(id);
     if (!tab) return;
@@ -1407,22 +1519,14 @@ function showPage(page) {
     tab.setAttribute('aria-selected', String(page === p));
   });
 
-  // Toggle panels - use direct style manipulation
-  const mainArea = document.getElementById('mainArea');
   const sp = document.getElementById('settingsPanel');
   const vp = document.getElementById('vocabularyPanel');
-
-  // Hide all panels first
-  if (mainArea) mainArea.style.display = 'none';
-  if (sp) sp.style.display = 'none';
-  if (vp) vp.style.display = 'none';
-
-  // Show the selected panel
-  if (page === 'home' && mainArea) mainArea.style.display = 'flex';
-  if (page === 'settings' && sp) sp.style.display = 'flex';
-  if (page === 'vocabulary' && vp) vp.style.display = 'flex';
+  if ($main) $main.style.display = page === 'home' ? 'flex' : 'none';
+  if (sp) sp.style.display = page === 'settings' ? 'grid' : 'none';
+  if (vp) vp.style.display = page === 'vocabulary' ? 'flex' : 'none';
 
   if (page === 'settings') {
+    showSettingsSection(_settingsSection);
     loadSettings();
     refreshThemePicker();
   } else if (page === 'vocabulary') {
@@ -1430,44 +1534,100 @@ function showPage(page) {
   }
 }
 
-// ── Provider fallback order ──────────────────────────────────────────────
-// Reorderable list of cleanup/transcription providers. The user sets the
-// order; Waffler tries them top-to-bottom. Persisted + applied live via
-// save_settings({provider_order}). Cerebras is tagged "cleanup only" because
-// it has no speech-to-text endpoint (it's skipped for the transcription step).
+// Settings' side nav: one section at a time.
+const SETTINGS_SECTIONS = ['general', 'keys', 'hotkey', 'usage', 'privacy', 'about'];
+let _settingsSection = 'general';
+
+function showSettingsSection(sec) {
+  if (!SETTINGS_SECTIONS.includes(sec)) sec = 'general';
+  _settingsSection = sec;
+  document.querySelectorAll('#settingsPanel .s-sec').forEach((el) => { el.hidden = el.dataset.sec !== sec; });
+  document.querySelectorAll('#settingsPanel .snav-item').forEach((el) => {
+    if (el.dataset.sec === sec) el.setAttribute('aria-current', 'true');
+    else el.removeAttribute('aria-current');
+  });
+  const scroll = document.getElementById('settingsScroll');
+  if (scroll) scroll.scrollTop = 0;
+  if (sec !== 'keys') closeKeyEditor();
+}
+
+// Settings, General: Run setup again. Keys and history stay; setup opens at
+// "Groq is connected" and carries on from there.
+function runSetupAgain() {
+  showWizard({ has_key: true, resume_step: '' });
+}
+
+// ── Keys and providers ────────────────────────────────────────────────
+// The keys and the order are one list (they were two sections). The rows
+// are drawn in the order Waffler tries them (logic.js keyRows); the order
+// is saved with save_settings({provider_order}) and applies on the next
+// dictation. A provider without a key is quieter: Waffler skips it.
 // The starting order is the engine's own (logic.js DEFAULT_PROVIDER_ORDER).
 let _providerOrder = WL.DEFAULT_PROVIDER_ORDER.slice();
 // The last get_settings() answer: which keys are set, and what is in use.
 let _lastSettings = null;
+let _openKeyEditor = '';
 
-const _PROVIDER_META = {
-  groq:     { label: 'Groq',     tag: 'recommended',  note: 'Speech + cleanup · free tier' },
-  openai:   { label: 'OpenAI',   tag: 'backup',       note: 'Speech + cleanup · pay as you go' },
-  cerebras: { label: 'Cerebras', tag: 'cleanup only', note: 'No speech-to-text' },
+const _KEY_EDITORS = { groq: 'groqKeyEditor', openai: 'apiKeyEditor', cerebras: 'cerebrasKeyEditor' };
+const _KEY_PAGES = {
+  groq: 'https://console.groq.com/keys',
+  openai: 'https://platform.openai.com/api-keys',
+  cerebras: 'https://cloud.cerebras.ai/platform/api-keys',
 };
+
+function openKeyPage(provider) {
+  try { pywebview.api.open_url(_KEY_PAGES[provider] || _KEY_PAGES.groq); } catch (_) {}
+}
 
 function renderProviderOrder() {
   const host = document.getElementById('providerOrderList');
   if (!host) return;
-  const rows = WL.providerOrderRows(_providerOrder, _lastSettings);
-  host.innerHTML = rows.map((r, i) => {
-    const p = r.id;
-    const m = _PROVIDER_META[p] || { label: p, tag: '', note: '' };
-    const tag = m.tag ? `<span class="po-tag">${m.tag}</span>` : '';
-    const up = i === 0 ? 'disabled' : '';
-    const down = i === rows.length - 1 ? 'disabled' : '';
-    // No key: greyed out, because Waffler skips it. It can still be moved.
-    const note = r.hasKey ? m.note : 'No key yet, so Waffler skips it';
-    return `
-      <div class="provider-order-item${r.hasKey ? '' : ' po-nokey'}">
+  // Park the key editors before the rows are redrawn.
+  const park = document.querySelector('.key-editors');
+  Object.values(_KEY_EDITORS).forEach((id) => { const el = document.getElementById(id); if (el && park) park.appendChild(el); });
+  const rows = WL.keyRows(_providerOrder, _lastSettings);
+  host.innerHTML = rows.map((r, i) => `
+      <div class="row provider-order-item${r.hasKey ? '' : ' po-nokey'}" data-provider="${r.id}">
         <span class="po-rank">${r.rank}</span>
-        <span class="po-name">${m.label} ${tag}<span class="po-note">${note}</span></span>
+        <div class="row-main">
+          <div class="row-t">${escHtml(r.name)} <span class="chip ${r.chipCls}">${escHtml(r.chip)}</span></div>
+          <div class="row-d">${escHtml(r.desc)}</div>
+        </div>
+        <div class="po-key">
+          ${r.masked ? `<div class="po-masked">${escHtml(r.masked)}</div>` : ''}
+          <div class="po-status">${r.statusCls ? `<i class="dot ${r.statusCls}"></i>` : ''}${escHtml(r.status)}</div>
+        </div>
+        <button type="button" class="btn btn-sec btn-sm po-btn-key" onclick="openKeyEditor('${r.id}')">${escHtml(r.button)}</button>
         <span class="po-controls">
-          <button class="po-btn" ${up} onclick="moveProvider('${p}', -1)" title="Move up">&#9650;</button>
-          <button class="po-btn" ${down} onclick="moveProvider('${p}', 1)" title="Move down">&#9660;</button>
+          <button type="button" class="rbtn" ${i === 0 ? 'disabled' : ''} onclick="moveProvider('${r.id}', -1)" aria-label="Try ${escHtml(r.name)} earlier">${WI.icon('chevron-up')}</button>
+          <button type="button" class="rbtn" ${i === rows.length - 1 ? 'disabled' : ''} onclick="moveProvider('${r.id}', 1)" aria-label="Try ${escHtml(r.name)} later">${WI.icon('chevron-down')}</button>
         </span>
-      </div>`;
-  }).join('');
+      </div>`).join('');
+  if (_openKeyEditor) openKeyEditor(_openKeyEditor, true);
+}
+
+// Replace or Add key: that provider's box opens under its row.
+function openKeyEditor(provider, keep) {
+  const ed = document.getElementById(_KEY_EDITORS[provider]);
+  const row = document.querySelector(`#providerOrderList [data-provider="${provider}"]`);
+  if (!ed || !row) return;
+  if (_openKeyEditor === provider && !keep) { closeKeyEditor(); return; }
+  if (_openKeyEditor && _openKeyEditor !== provider) closeKeyEditor();
+  row.after(ed);
+  _openKeyEditor = provider;
+  const input = ed.querySelector('input');
+  if (input && !keep) { input.value = ''; input.focus(); }
+}
+
+function closeKeyEditor() {
+  const park = document.querySelector('.key-editors');
+  Object.values(_KEY_EDITORS).forEach((id) => {
+    const el = document.getElementById(id);
+    if (el && park && el.parentElement !== park) park.appendChild(el);
+    const input = el && el.querySelector('input');
+    if (input) input.value = '';
+  });
+  _openKeyEditor = '';
 }
 
 async function moveProvider(name, delta) {
@@ -1480,22 +1640,38 @@ async function moveProvider(name, delta) {
   try {
     const r = await pywebview.api.save_settings({ provider_order: _providerOrder });
     if (r && r.ok) {
-      showToast('Provider order: ' + _providerOrder.map(p => (_PROVIDER_META[p] || {label:p}).label).join(' → '), 'success');
+      showToast('Waffler now tries ' + _providerOrder.map((p) => WL.PROVIDER_NAMES[p] || p).join(', then ') + '.', 'success');
       // The new order applies at once, so "Speech to text / Clean-up" may change.
       try { _lastSettings = await pywebview.api.get_settings(); } catch (_) {}
+      renderProviderOrder();
       _renderBackendInfo();
     } else {
-      showToast('Could not save provider order', 'error');
+      showToast("Couldn't save the order. Try again.", 'error');
     }
   } catch (e) {
-    showToast('Could not save provider order', 'error');
+    showToast("Couldn't save the order. Try again.", 'error');
   }
 }
 
 // ── Settings Load ────────────────────────────────────────────────────────
+// "Speech to text: Groq · Clean-up: Groq": what each stage uses first.
 function _renderBackendInfo() {
   const backendInfo = document.getElementById('backendInfo');
   if (backendInfo) backendInfo.textContent = WL.backendsLine(_lastSettings);
+  const a = WL.activeProviders(_lastSettings);
+  const tile = document.getElementById('backendTile');
+  const title = document.getElementById('backendTitle');
+  const ok = !!(a.speech && a.cleanup);
+  if (tile) {
+    tile.className = 'itile ' + (ok ? 'is-ok' : 'is-warn');
+    tile.innerHTML = WI.icon(ok ? 'check' : 'alert');
+  }
+  if (title) title.textContent = ok ? 'Speech to text and clean-up' : 'Add a key to turn this on';
+  const uses = WL.usesView(_lastSettings);
+  const sp = document.getElementById('aboutSpeech');
+  const cl = document.getElementById('aboutCleanup');
+  if (sp) sp.textContent = uses.speech;
+  if (cl) cl.textContent = uses.cleanup;
 }
 
 async function loadSettings() {
@@ -1503,64 +1679,11 @@ async function loadSettings() {
     const s = await pywebview.api.get_settings();
     _lastSettings = s;
 
-    // Keys are listed Groq, OpenAI, then Cerebras (optional), as in setup.
-    // Cerebras key (optional, cleanup only)
-    const cerebrasInput = document.getElementById('cerebrasKeyInput');
-    const cerebrasDesc = document.getElementById('cerebrasKeyDesc');
-    if (cerebrasInput) {
-      cerebrasInput.placeholder = s.cerebras_key_set ? s.cerebras_key_masked : 'csk-…';
-    }
-    if (cerebrasDesc) {
-      cerebrasDesc.textContent = s.cerebras_key_set
-        ? ('Active: ' + s.cerebras_key_masked)
-        : 'Optional. Clean-up only, no speech to text. cloud.cerebras.ai/platform/api-keys';
-    }
-
-    // Groq key
-    const groqInput = document.getElementById('groqKeyInput');
-    const groqDesc = document.getElementById('groqKeyDesc');
-    if (groqInput) {
-      groqInput.placeholder = s.groq_key_set ? s.groq_key_masked : 'gsk_…';
-    }
-    if (groqDesc) {
-      groqDesc.textContent = s.groq_key_set
-        ? ('Active: ' + s.groq_key_masked)
-        : 'Recommended. Very fast, with a free plan. console.groq.com';
-    }
-
-    // OpenAI key
-    const apiInput = document.getElementById('apiKeyInput');
-    const apiStatus = document.getElementById('apiKeyStatus');
-    if (apiInput) {
-      apiInput.placeholder = s.api_key_set ? s.api_key_masked : 'sk-…';
-    }
-    if (apiStatus) {
-      if (s.api_key_set) {
-        apiStatus.textContent = 'Key set: ' + s.api_key_masked;
-        apiStatus.className = 'api-key-status ok';
-      } else {
-        apiStatus.textContent = 'No API key set';
-        apiStatus.className = 'api-key-status err';
-      }
-    }
-
-    // "Speech to text: Groq · Clean-up: Groq": what each stage uses first.
-    _renderBackendInfo();
-
-    // Provider fallback order (reorderable list). Providers without a key
-    // are greyed out, so the list shows what Waffler will really try.
+    // Keys and the order, as one list. Providers without a key are shown
+    // as such, so the list says what Waffler will really try.
     _providerOrder = WL.normalizeProviderOrder(s.provider_order);
     renderProviderOrder();
-
-    // Local Whisper
-    const lwToggle = document.getElementById('localWhisperToggle');
-    const lwLabel  = document.getElementById('localWhisperLabel');
-    if (lwToggle) lwToggle.checked = s.local_whisper;
-    if (lwLabel)  lwLabel.textContent = s.local_whisper ? (s.local_whisper_active ? 'On (active)' : 'On (restart required)') : 'Off';
-
-    // Language
-    const langSel = document.getElementById('languageSelect');
-    if (langSel) langSel.value = s.language || 'en';
+    _renderBackendInfo();
 
     // Dialect / Spelling
     const dialectSel = document.getElementById('dialectSelect');
@@ -1568,40 +1691,32 @@ async function loadSettings() {
 
     // Auto-paste
     const apToggle = document.getElementById('autoPasteToggle');
-    const apLabel  = document.getElementById('autoPasteLabel');
     if (apToggle) apToggle.checked = s.auto_paste !== false;
-    if (apLabel)  apLabel.textContent = (s.auto_paste !== false) ? 'On' : 'Off';
-
   } catch(e) {
     console.warn('loadSettings error:', e);
   }
 }
 
-// ── Settings Save ────────────────────────────────────────────────────────
-// v3.14.30 — after any API-key save, show a centered modal popup (was a
-// top-of-page banner in v3.14.28-29). User reported the top banner was
-// easy to miss; a centered modal with a soft backdrop is more obviously
-// "you need to do something here". Escape dismisses; Enter triggers
-// restart. The "Restart now" button is autofocused so the keyboard path
-// is one tap.
-
+// ── Restart dialog ───────────────────────────────────────────────────────
+// After a key is saved the app needs a fresh start to use it. The one
+// modal: Restart now is the primary; Later is a quiet link. Esc
+// dismisses; Enter restarts.
 function showRestartBanner(reason) {
-  // Tear down any prior modal so we don't stack them.
   const prior = document.getElementById('restartRequiredModal');
   if (prior) prior.remove();
 
   const overlay = document.createElement('div');
   overlay.id = 'restartRequiredModal';
-  overlay.className = 'restart-modal-overlay';
+  overlay.className = 'modal-overlay restart-modal-overlay';
   overlay.innerHTML = `
-    <div class="restart-modal-card" role="dialog" aria-modal="true"
-         aria-labelledby="restartModalTitle">
-      <div class="restart-modal-icon">${WI.icon('refresh', 'ic-lg')}</div>
-      <h2 class="restart-modal-title" id="restartModalTitle">Restart required</h2>
-      <p class="restart-modal-body">${reason || 'Your changes need a fresh app start to take effect.'}</p>
-      <div class="restart-modal-actions">
-        <button class="restart-modal-btn-secondary" id="restartModalLater">Later</button>
-        <button class="restart-modal-btn-primary" id="restartModalNow">Restart now</button>
+    <div class="modal restart-modal-card" role="dialog" aria-modal="true" aria-labelledby="restartModalTitle">
+      <span class="itile">${WI.icon('refresh')}</span>
+      <h2 class="modal-title" id="restartModalTitle">Restart Waffler to use it</h2>
+      <p class="modal-sub">${escHtml(reason || 'Your change needs a fresh start to take effect.')}</p>
+      <div class="modal-acts">
+        <button type="button" class="btn btn-quiet" id="restartModalLater">Later</button>
+        <span class="modal-sp"></span>
+        <button type="button" class="btn btn-pri" id="restartModalNow">Restart now</button>
       </div>
     </div>
   `;
@@ -1623,11 +1738,11 @@ function showRestartBanner(reason) {
       if (window.pywebview?.api?.restart_app) {
         await pywebview.api.restart_app();
       } else {
-        showToast('Restart Waffler manually to apply changes', 'info');
+        showToast('Quit and reopen Waffler to use it.', 'info');
         dismiss();
       }
     } catch (_e) {
-      showToast('Couldn\'t auto-restart — please quit and reopen Waffler', 'error');
+      showToast("Couldn't restart. Quit and reopen Waffler.", 'error');
       dismiss();
     }
   };
@@ -1645,28 +1760,35 @@ function showRestartBanner(reason) {
   });
   document.addEventListener('keydown', onKey);
 
-  // Focus the primary CTA after the entry animation settles so keyboard
-  // users can hit Enter immediately.
   requestAnimationFrame(() => {
     const btn = document.getElementById('restartModalNow');
     if (btn) btn.focus();
   });
 }
 
+function _keyError(inp, msg) {
+  if (inp) { inp.setAttribute('aria-invalid', 'true'); inp.focus(); }
+  showToast(msg, 'error', 5000);
+}
+
+async function _afterKeySaved(inp, name) {
+  if (inp) { inp.value = ''; inp.removeAttribute('aria-invalid'); }
+  closeKeyEditor();
+  showToast(`${name} key saved.`, 'success');
+  showRestartBanner(`Waffler starts using the new ${name} key after a restart.`);
+  await loadSettings();
+}
+
 async function saveGroqKey() {
   const inp = document.getElementById('groqKeyInput');
   if (!inp) return;
   const val = inp.value.trim();
-  if (!val) { showToast('Enter a Groq API key first', 'error'); return; }
-  if (!val.startsWith('gsk_')) { showToast("That isn't a Groq key. Groq keys start with gsk_", 'error'); return; }
+  if (!val) { _keyError(inp, 'Paste your Groq key first.'); return; }
+  if (!val.startsWith('gsk_')) { _keyError(inp, "That isn't a Groq key. Groq keys start with gsk_."); return; }
   try {
     const r = await pywebview.api.save_settings({ groq_key: val });
-    if (r.ok) {
-      inp.value = '';
-      showToast('Groq key saved', 'success');
-      showRestartBanner('Restart Waffler to start using the new Groq key.');
-      await loadSettings();
-    } else {
+    if (r.ok) await _afterKeySaved(inp, 'Groq');
+    else {
       console.warn('save_settings failed:', r.error);
       showToast("Couldn't save the key. Try again.", 'error');
     }
@@ -1679,19 +1801,13 @@ async function saveCerebrasKey() {
   const inp = document.getElementById('cerebrasKeyInput');
   if (!inp) return;
   const val = inp.value.trim();
-  if (!val) { showToast('Enter a Cerebras API key first', 'error'); return; }
-  if (!val.startsWith('csk-')) { showToast("That isn't a Cerebras key. Cerebras keys start with csk-", 'error'); return; }
+  if (!val) { _keyError(inp, 'Paste your Cerebras key first.'); return; }
+  if (!val.startsWith('csk-')) { _keyError(inp, "That isn't a Cerebras key. Cerebras keys start with csk-."); return; }
   try {
     // validate_cerebras_key persists on success.
     const r = await pywebview.api.validate_cerebras_key(val);
-    if (r.ok) {
-      inp.value = '';
-      showToast(r.message || 'Cerebras key saved', 'success');
-      showRestartBanner('Restart Waffler to start using the new Cerebras key.');
-      await loadSettings();
-    } else {
-      showToast(r.error || "Couldn't check that key with Cerebras. Try again in a moment.", 'error', 6000);
-    }
+    if (r.ok) await _afterKeySaved(inp, 'Cerebras');
+    else showToast(r.error || "Couldn't check that key with Cerebras. Try again in a moment.", 'error', 6000);
   } catch(e) {
     showToast("Couldn't save the key. Try again.", 'error');
   }
@@ -1699,22 +1815,14 @@ async function saveCerebrasKey() {
 
 async function saveApiKey() {
   const inp = document.getElementById('apiKeyInput');
-  const statusEl = document.getElementById('apiKeyStatus');
   if (!inp) return;
   const val = inp.value.trim();
-  if (!val) { showToast('Enter an API key first', 'error'); return; }
-  if (!val.startsWith('sk-')) { showToast("That isn't an OpenAI key. OpenAI keys start with sk-", 'error'); return; }
+  if (!val) { _keyError(inp, 'Paste your OpenAI key first.'); return; }
+  if (!val.startsWith('sk-')) { _keyError(inp, "That isn't an OpenAI key. OpenAI keys start with sk-."); return; }
   try {
     const r = await pywebview.api.save_settings({ api_key: val });
-    if (r.ok) {
-      inp.value = '';
-      if (statusEl) {
-        statusEl.textContent = 'Key saved and active';
-        statusEl.className = 'api-key-status ok';
-      }
-      showToast('OpenAI key saved', 'success');
-      showRestartBanner('Restart Waffler to start using the new OpenAI key.');
-    } else {
+    if (r.ok) await _afterKeySaved(inp, 'OpenAI');
+    else {
       console.warn('save_settings failed:', r.error);
       showToast("Couldn't save the key. Try again.", 'error');
     }
@@ -1727,20 +1835,20 @@ async function saveSetting(key, value) {
   try {
     const r = await pywebview.api.save_settings({ [key]: value });
     if (r.ok) {
-      // Update toggle labels
       if (key === 'auto_paste') {
-        const lbl = document.getElementById('autoPasteLabel');
-        if (lbl) lbl.textContent = value ? 'On' : 'Off';
-        showToast('Auto-paste ' + (value ? 'enabled' : 'disabled'), 'success');
+        showToast(value ? 'Waffler pastes when you let go.' : 'Waffler puts the text on the clipboard. Paste it yourself.', 'success', 3500);
       } else if (key === 'language') {
-        showToast('Language saved', 'success');
+        showToast('Language saved.', 'success');
       } else if (key === 'dialect') {
-        const labels = {'auto': 'Auto', 'en-GB': 'British English', 'en-US': 'American English'};
-        showToast('Spelling: ' + (labels[value] || value), 'success');
+        const labels = { 'auto': 'Spelling matches how you speak.', 'en-GB': 'Spelling: British English.', 'en-US': 'Spelling: American English.' };
+        showToast(labels[value] || 'Spelling saved.', 'success');
       }
+    } else {
+      showToast("Couldn't save that. Try again.", 'error');
     }
   } catch(e) {
     console.warn('saveSetting error:', e);
+    showToast("Couldn't save that. Try again.", 'error');
   }
 }
 
@@ -1748,8 +1856,8 @@ async function saveSetting(key, value) {
 let _searchQuery = '';
 let _searchText = '';  // as typed, for "No entries match "…""
 
-// The feed is rebuilt once typing pauses (logic.js SEARCH_DEBOUNCE_MS), not
-// on every keystroke: each rebuild took 340 to 713 ms with 3,300 entries.
+// The search runs once typing pauses (logic.js SEARCH_DEBOUNCE_MS), not on
+// every keystroke, and asks the backend for the first page of matches.
 const _renderFeedSoon = WL.debounce(() => renderFeed(), WL.SEARCH_DEBOUNCE_MS);
 
 function onSearchInput(q) {
@@ -1812,8 +1920,6 @@ async function checkOnboarding() {
     console.warn('checkOnboarding error:', e);
   }
 }
-
-window.addEventListener('pywebviewready', checkOnboarding);
 
 function showWizard(status) {
   const overlay = document.getElementById('wizardOverlay');
@@ -2615,18 +2721,20 @@ async function wizCompleteSetup() {
   wizUpdateNextButton();
 }
 
-// Opening Settings also loads Usage, the version and the Not sent count.
+// Opening Settings also loads Usage, the version, Privacy and data, start
+// at sign-in and the Fn key note.
 const _origLoadSettings = loadSettings;
 loadSettings = async function() {
   await _origLoadSettings();
   await loadUsageStats();
   await loadAppVersion();
   await loadUnsentSummary();
+  await loadRecentAudio();
   await loadStartAtLogin();
   await loadSettingsFnWarning();
 };
 
-// ── Start at sign-in (Settings, Preferences) ─────────────────────────────
+// ── Start at sign-in (Settings, General) ─────────────────────────────────
 // The switch shows what the operating system has, read each time Settings
 // opens: the user can also remove it in Task Manager or Login Items.
 async function loadStartAtLogin() {
@@ -2672,7 +2780,7 @@ async function loadSettingsFnWarning() {
   } catch (_) { box.hidden = true; }
 }
 
-// ── Recordings not sent (Settings, Data) ─────────────────────────────────
+// ── Recordings not sent (Settings, Privacy and data) ─────────────────────
 async function loadUnsentSummary() {
   const desc = document.getElementById('unsentSummary');
   const btn = document.getElementById('unsentSendNow');
@@ -2680,102 +2788,136 @@ async function loadUnsentSummary() {
   try {
     const v = WL.unsentSummary(await pywebview.api.get_unsent_summary());
     desc.textContent = v.label;
-    if (btn) btn.style.display = v.canSend ? '' : 'none';
+    if (btn) btn.hidden = !v.canSend;
   } catch (e) {
     console.warn('get_unsent_summary failed:', e);
   }
 }
 
 async function sendUnsentNow(btn) {
-  if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+  if (btn) { btn.disabled = true; btn.lastChild.textContent = 'Sending…'; }
   try {
     const r = await pywebview.api.retry_all_unsent();
     if (r && r.total) {
       showToast(r.sent === r.total
         ? (r.total === 1 ? 'Sent. The words are in the Journal.' : `All ${r.total} sent. The words are in the Journal.`)
-        : `${r.sent} of ${r.total} sent. The rest will be tried again later.`,
+        : `${r.sent} of ${r.total} sent. Waffler tries the rest again later.`,
         r.sent ? 'success' : 'error');
     }
   } catch (e) {
     showToast("Couldn't send them. Try again in a moment.", 'error');
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = 'Send now'; }
+    if (btn) { btn.disabled = false; btn.lastChild.textContent = 'Send now'; }
     await loadUnsentSummary();
   }
 }
 
-// ── Usage Stats ───────────────────────────────────────────────────────────
-// Provider display metadata — gold dot per provider for the breakdown rows.
-const PROVIDER_META = {
-  // Model names shown in the Usage panel. These are labels only, but a
-  // stale one is a lie about what you are being billed for: both Groq and
-  // Cerebras were still advertised as models that had been retired.
-  groq:     { name: 'Groq',     accent: '#f55036', desc: 'gpt-oss-120b' },
-  cerebras: { name: 'Cerebras', accent: '#C8A256', desc: 'gpt-oss-120b' },
-  openai:   { name: 'OpenAI',   accent: '#10a37f', desc: 'gpt-4.1-mini' },
-  local:    { name: 'Local',    accent: '#6B6560', desc: 'On-device' },
-  unknown:  { name: 'Unknown',  accent: '#A09890', desc: '' },
-};
-
-function _fmtUsd(n, digits = 2) {
-  return '$' + (Number(n) || 0).toFixed(digits);
+// ── Recent recordings (Settings, Privacy and data; owner decision D9) ────
+// Waffler keeps the audio of the last 10 dictations on this computer, to
+// help look into a problem. Said here, with a switch and "Delete now".
+function _renderRecentAudio(s) {
+  if (!s) return;
+  const tog = document.getElementById('recentAudioToggle');
+  const desc = document.getElementById('recentAudioDesc');
+  const del = document.getElementById('recentAudioDelete');
+  if (tog) tog.checked = !!s.enabled;
+  const n = Number(s.count) || 0;
+  const now = n ? ` ${n === 1 ? '1 is' : `${n} are`} kept now.` : ' None are kept now.';
+  if (desc) {
+    desc.textContent = (s.enabled
+      ? `The audio of your last ${s.keep || 10} dictations, kept to help look into a problem. It never leaves this computer.`
+      : 'Off: new recordings are not kept.') + now;
+  }
+  if (del) del.disabled = !n;
 }
 
+async function loadRecentAudio() {
+  if (!window.pywebview || !pywebview.api.get_recent_audio) return;
+  try { _renderRecentAudio(await pywebview.api.get_recent_audio()); } catch (_) {}
+  // History: how many dictations the Journal holds.
+  const h = document.getElementById('privHistoryDesc');
+  const n = Number(stats.total_count) || 0;
+  if (h) h.textContent = `${WL.formatCount(n)} ${n === 1 ? 'dictation' : 'dictations'}, searchable in your Journal.`;
+}
+
+async function setRecentAudio(on) {
+  const tog = document.getElementById('recentAudioToggle');
+  try {
+    const r = await pywebview.api.set_recent_audio(!!on);
+    if (r && r.ok) {
+      _renderRecentAudio(r);
+      showToast(on ? 'Waffler keeps your last 10 recordings.' : 'Waffler stops keeping recordings. Delete now removes the ones kept.', 'success', 4000);
+    } else {
+      if (tog) tog.checked = !on;
+      showToast((r && r.error) || "Couldn't change that setting. Try again.", 'error');
+    }
+  } catch (e) {
+    if (tog) tog.checked = !on;
+    showToast("Couldn't change that setting. Try again.", 'error');
+  }
+}
+
+async function deleteRecentAudio(btn) {
+  if (btn) btn.disabled = true;
+  try {
+    const r = await pywebview.api.delete_recent_audio();
+    if (r && r.ok) {
+      _renderRecentAudio(r);
+      showToast(r.deleted === 1 ? '1 recording deleted.' : `${WL.formatCount(r.deleted)} recordings deleted.`, 'success');
+      return;
+    }
+    showToast((r && r.error) || "Couldn't delete them. Try again.", 'error');
+  } catch (e) {
+    showToast("Couldn't delete them. Try again.", 'error');
+  }
+  if (btn) btn.disabled = false;
+}
+
+// ── Usage (Settings) ──────────────────────────────────────────────────────
+// Counts first, from the Journal; then what it would have cost at each
+// provider's published paid rates, labelled as an estimate. Waffler can't
+// see anyone's bill, and Groq's free plan is free.
 async function loadUsageStats() {
   try {
-    const stats = await pywebview.api.get_usage_stats();
-    // Words come from the Journal, as in the stats strip.
+    const usage = await pywebview.api.get_usage_stats();
+    // Counts come from the Journal, as in the stats strip.
     let words = null;
     try { words = await pywebview.api.get_stats(); } catch (_) {}
-    const v = WL.usageView(stats, words);
+    if (words) stats = words;
+    const v = WL.usageView(usage, words);
     const put = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
 
-    // Counts first, then the cost estimate at published paid rates, which
-    // is labelled as such: Waffler can't see anyone's bill or plan.
-    put('usageTranscriptions', v.dictations);
-    put('usageWords', v.words);
+    const ids = { today: 'Today', week: 'Week', month: 'Month', all: 'All' };
+    v.periods.forEach((p) => {
+      put(`usage${ids[p.id]}Count`, p.count);
+      put(`usage${ids[p.id]}Words`, p.words);
+      const tile = document.getElementById(`usage${ids[p.id]}Count`);
+      if (tile && tile.nextElementSibling) tile.nextElementSibling.textContent = p.countLabel;
+    });
     put('usageEstimateNote', v.note);
-    put('usageAvgCost', `${v.costs.perDictation} a dictation`);
+    put('usageAvgCost', (usage && usage.transcription_count) ? `About ${v.costs.perDictation} a dictation.` : '');
     put('usageTodayCost', v.costs.today);
     put('usageWeekCost', v.costs.week);
     put('usageMonthCost', v.costs.month);
     put('usageTotalCost', v.costs.total);
 
-    // Per-provider breakdown
+    // One bar per provider. A provider priced at an unpublished rate
+    // (Cerebras publishes no per-token price) is labelled, so its figure
+    // is not read as exact (estimated_count).
     const rows = document.getElementById('usageProviderRows');
     if (rows) {
-      const byProv = stats.by_provider || {};
-      // The engine's order (groq, openai, cerebras), then anything else.
-      const order = WL.DEFAULT_PROVIDER_ORDER;
-      const sorted = order.filter((p) => byProv[p])
-        .concat(Object.keys(byProv).filter((p) => !order.includes(p)));
-
-      if (!sorted.length) {
-        rows.innerHTML = '<div class="usage-provider-empty">No usage yet. Make your first dictation to see the breakdown.</div>';
-      } else {
-        const totalAll = sorted.reduce((s, p) => s + (byProv[p].cost_usd || 0), 0) || 1;
-        rows.innerHTML = sorted.map((p) => {
-          const b = byProv[p];
-          const meta = PROVIDER_META[p] || PROVIDER_META.unknown;
-          const pct = ((b.cost_usd / totalAll) * 100).toFixed(1);
-          // Calls priced at an unpublished rate (Cerebras publishes no
-          // per-token price) are labelled, so the figure is not read as exact.
-          const est = (b.estimated_count || 0) > 0;
-          return `
-            <div class="usage-provider-row">
-              <div class="usage-provider-row-head">
-                <span class="usage-provider-dot" style="background:${meta.accent}"></span>
-                <span class="usage-provider-name">${meta.name}</span>
-                ${meta.desc ? `<span class="usage-provider-desc">${meta.desc}</span>` : ''}
-                ${est ? `<span class="usage-provider-est" title="Estimated cost: this provider does not publish a per-token price.">estimate</span>` : ''}
-                <span class="usage-provider-cost">${est ? '~' : ''}${_fmtUsd(b.cost_usd, 4)}</span>
-                <span class="usage-provider-count">${b.count} call${b.count === 1 ? '' : 's'}</span>
-              </div>
-              <div class="usage-provider-bar"><div class="usage-provider-bar-fill" style="width:${pct}%;background:${meta.accent}"></div></div>
-            </div>
-          `;
-        }).join('');
-      }
+      const list = WL.usageProviderRows((usage && usage.by_provider) || {});
+      rows.innerHTML = list.length ? list.map((r) => `
+        <div class="usage-provider-row">
+          <div class="usage-provider-head">
+            <span class="usage-provider-name">${escHtml(r.name)}</span>
+            <span class="usage-provider-count">${escHtml(r.calls)}</span>
+            ${r.estimate ? '<span class="usage-provider-est" title="This provider publishes no per-token price, so its cost is an estimate.">estimate</span>' : ''}
+            <span class="usage-provider-cost">${escHtml(r.cost)}</span>
+          </div>
+          <div class="usage-track"><i class="${r.top ? 'is-top' : ''}" style="width:${r.pct}%"></i></div>
+        </div>`).join('')
+        : '<div class="usage-provider-empty">No usage yet. Make your first dictation to see it here.</div>';
     }
   } catch(e) {
     console.warn('loadUsageStats error:', e);
@@ -2786,11 +2928,22 @@ async function loadAppVersion() {
   try {
     const ver = await pywebview.api.get_app_version();
     const el = document.getElementById('aboutVersion');
-    // The models in use ("Powered by Whisper large v3 and gpt-oss-120b").
-    if (el) el.textContent = WL.aboutLine(ver, _lastSettings);
+    if (el) el.textContent = `Version ${ver}`;
+    const nav = document.getElementById('snavVersion');
+    if (nav) nav.textContent = `Waffler ${ver}`;
+    // The models in use, as a tooltip on the version too.
+    if (el) el.title = WL.aboutLine(ver, _lastSettings);
   } catch(e) {
     console.warn('loadAppVersion error:', e);
   }
 }
 
-
+// Settings, About: the project's pages on GitHub.
+const _ABOUT_LINKS = {
+  source: 'https://github.com/jbf-tars/Waffler',
+  issues: 'https://github.com/jbf-tars/Waffler/issues',
+  releases: 'https://github.com/jbf-tars/Waffler/releases',
+};
+function openAboutLink(which) {
+  try { pywebview.api.open_url(_ABOUT_LINKS[which] || _ABOUT_LINKS.source); } catch (_) {}
+}

@@ -223,6 +223,7 @@
 .seg > button .ic { width: 15px; height: 15px; }
 .seg > button:hover { color: var(--text); }
 .seg > button[aria-selected="true"],
+.seg > button[aria-checked="true"],
 .seg > button.active {
   background: var(--card);
   color: var(--text);

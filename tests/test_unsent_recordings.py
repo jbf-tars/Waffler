@@ -380,7 +380,7 @@ def test_an_older_card_is_read_from_its_raw_error_and_offers_try_again():
            " audio_path: 'C:/Users/x/.waffler-hosted/unsent/recording-2026-06-05T09-12-44.wav'})")
     assert v["id"] == "recording-2026-06-05T09-12-44.wav"
     assert v["text"].startswith("Your speech service refused the connection")
-    assert v["next"] == "Press Try again to send it."
+    assert v["next"] == "Click Try again to send it now."
     assert "403" not in v["text"]
 
 
@@ -583,4 +583,4 @@ def test_the_cancelled_card_says_esc_and_offers_try_again():
     v = js("L.notSentView({failed: true, unsent_id: 'recording-2026-09-26T10-04-31.wav', "
            "not_sent_reason: 'cancelled', will_retry: false, provider_name: 'Groq'})")
     assert "Esc" in v["text"] and "nothing was pasted" in v["text"]
-    assert v["canRetry"] is True and v["next"] == "Press Try again to send it."
+    assert v["canRetry"] is True and v["next"] == "Click Try again to send it now."

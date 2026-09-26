@@ -17,7 +17,7 @@
 
   <!-- Top bar: the waffle and wordmark, the three pages, and the status
        pill. It sits outside the pages, so it is on screen whichever page is
-       open (v3.14.18: inside the Journal, it vanished with it). -->
+       open. -->
   <header class="topbar" id="topbar">
     <div class="brand">
       <span class="brand-mark" data-waffle="logo" data-size="24"></span>
@@ -41,407 +41,420 @@
       <span class="status-t" id="statusTime" aria-hidden="true"></span>
       <span class="keys status-keys" id="hotkeyHint"></span>
     </div>
-
-    <!-- The microphone list app.js keeps filled. Not shown yet: Settings
-         will give it a place. -->
-    <select id="micSelect" hidden aria-label="Microphone" onchange="onMicChange(this.value)"></select>
   </header>
 
-  <!-- Home page (journal) -->
+  <!-- ── Journal ───────────────────────────────────────────────────────
+       One 880 px column. app.js draws the newest 50 entries, grouped by day,
+       and more as you scroll (get_history pages); a new dictation is added
+       at the top without redrawing the rest. -->
   <main class="journal" id="mainArea">
+    <div class="j-col">
+      <!-- Notices: an update, a failed update, clean-up paused by a limit. -->
+      <div class="j-notices" id="journalNotices"></div>
 
-    <!-- Stat strip with stack-streak chip on the right -->
-    <div class="j-strip">
-      <div class="j-stat-group">
+      <div class="group j-strip" id="statStrip">
         <div class="j-stat">
           <span class="j-stat-num" id="statWords">0</span>
           <span class="j-stat-lbl">words today</span>
         </div>
-        <div class="j-stat-divider"></div>
         <div class="j-stat">
           <span class="j-stat-num" id="statCount">0</span>
-          <span class="j-stat-lbl">entries today</span>
+          <span class="j-stat-lbl">dictations today</span>
         </div>
-        <div class="j-stat-divider"></div>
         <div class="j-stat">
           <span class="j-stat-num" id="statTotal">0</span>
-          <span class="j-stat-lbl">all-time</span>
+          <span class="j-stat-lbl">words all time</span>
+        </div>
+        <div class="j-right-group">
+          <!-- Days in a row with a dictation; hidden at 0. -->
+          <div class="j-streak j-streak-empty" id="streakChip" title="Days in a row with at least one dictation">
+            <span class="j-stack-svg" data-waffle="logo" data-size="20"></span>
+            <span class="j-streak-text"><span id="streakNum">0</span>-day streak</span>
+          </div>
+          <label class="j-search-wrap">
+            <svg class="ic j-search-icon" aria-hidden="true"><use href="#i-search"/></svg>
+            <input type="search" id="searchInput" class="j-search-input" placeholder="Search" aria-label="Search the Journal" autocomplete="off" spellcheck="false" oninput="onSearchInput(this.value)">
+          </label>
         </div>
       </div>
 
-      <div class="j-right-group">
-        <!-- Stacked-waffles streak chip -->
-        <div class="j-streak" id="streakChip" title="Daily stack streak">
-          <svg viewBox="0 0 32 26" width="26" height="22" class="j-stack-svg" aria-hidden="true">
-            <ellipse cx="16" cy="22" rx="13" ry="3" fill="#8B6914" opacity="0.9"/>
-            <ellipse cx="16" cy="20" rx="13" ry="3" fill="#C8A256" stroke="#8a6a26" stroke-width="0.5"/>
-            <line x1="6" y1="20" x2="26" y2="20" stroke="#8a6a26" stroke-width="0.4" opacity="0.5"/>
-            <ellipse cx="16" cy="15" rx="13" ry="3" fill="#8B6914" opacity="0.9"/>
-            <ellipse cx="16" cy="13" rx="13" ry="3" fill="#D4B06A" stroke="#8a6a26" stroke-width="0.5"/>
-            <line x1="6" y1="13" x2="26" y2="13" stroke="#8a6a26" stroke-width="0.4" opacity="0.5"/>
-            <ellipse cx="16" cy="8" rx="13" ry="3" fill="#8B6914" opacity="0.9"/>
-            <ellipse cx="16" cy="6" rx="13" ry="3" fill="#E6B864" stroke="#8a6a26" stroke-width="0.5"/>
-            <line x1="6" y1="6" x2="26" y2="6" stroke="#8a6a26" stroke-width="0.4" opacity="0.5"/>
-            <path d="M12 4 q4 -2 8 0 q-1 2 -4 2 q-3 0 -4 -2 z" fill="#8B6914"/>
-          </svg>
-          <span class="j-streak-text"><strong id="streakNum">0</strong> stack streak</span>
+      <!-- First run: how to make the first entry. The strip above is hidden. -->
+      <section class="j-first" id="emptyState" hidden>
+        <div class="j-first-art" aria-hidden="true"></div>
+        <div class="j-first-card">
+          <div class="j-first-waffle" data-waffle="logo" data-size="76"></div>
+          <h2 class="j-first-title">Your first dictation goes here</h2>
+          <p class="j-first-text">Click into any text box, hold <span class="keys" id="emptyKeys"></span> and talk. When you let go, the text is pasted there and kept here.</p>
+          <div class="j-first-acts">
+            <button type="button" class="btn btn-pri" onclick="openPracticeEditor(this)"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg><span id="emptyEditorLabel">Open Notepad and try it</span></button>
+            <a class="link" href="#" onclick="showPage('vocabulary'); return false;">Teach it your words</a>
+          </div>
+          <p class="j-first-err" id="emptyEditorErr" role="alert" hidden></p>
         </div>
+      </section>
 
-        <!-- Search input — keeps existing id/handler -->
-        <div class="j-search-wrap">
-          <svg class="ic j-search-icon" aria-hidden="true"><use href="#i-search"/></svg>
-          <input type="text" id="searchInput" class="j-search-input" placeholder="Search 0 entries…" oninput="onSearchInput(this.value)">
-        </div>
-        <div class="j-feed-count" id="feedCount" hidden>0 entries</div>
+      <!-- A search with no matches (it used to say "Your journal is empty."). -->
+      <section class="j-no-match" id="noMatchState" hidden>
+        <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-search"/></svg></span>
+        <div class="j-nm-title" id="noMatchLabel">No entries match</div>
+        <p class="j-nm-text">Try other words, or clear the search to see every entry.</p>
+        <button type="button" class="btn btn-sec btn-sm j-clear-search" onclick="clearSearch()">Clear search</button>
+      </section>
+
+      <div id="transcriptFeed" class="j-feed" role="feed" aria-label="Journal entries" aria-busy="false"></div>
+
+      <!-- Older entries load as this comes into view; the button is there
+           for keyboards and in case the window can't tell. -->
+      <div class="j-more" id="feedMore" hidden>
+        <button type="button" class="btn btn-sec btn-sm" id="feedMoreBtn" onclick="loadMoreEntries()">Show older entries</button>
       </div>
-    </div>
-
-    <!-- Journal page (entries) -->
-    <div class="j-page">
-      <div class="j-date-divider" id="dateLabel">
-        <span class="j-date-month">Today</span>
-        <span class="j-date-line"></span>
-        <span class="j-date-day"></span>
-      </div>
-
-      <div class="j-empty" id="emptyState">
-        <div class="j-empty-icon" data-waffle="logo" data-size="48"></div>
-        <div class="j-empty-label">Your journal is empty.</div>
-        <div class="j-empty-sub" id="emptyHint">Hold your hotkey and speak. The first entry will appear here.</div>
-      </div>
-
-      <!-- A search with no matches. It used to show "Your journal is
-           empty." above, as if the history had gone. -->
-      <div class="j-empty j-no-match" id="noMatchState" style="display:none">
-        <div class="j-empty-icon"><svg class="ic ic-lg" aria-hidden="true"><use href="#i-search"/></svg></div>
-        <div class="j-empty-label" id="noMatchLabel">No entries match</div>
-        <div class="j-empty-sub">Try other words, or clear the search to see every entry.</div>
-        <button class="settings-btn j-clear-search" onclick="clearSearch()">Clear search</button>
-      </div>
-
-      <div id="transcriptFeed"></div>
     </div>
   </main>
 
-  <!-- Settings Panel -->
+  <!-- ── Settings ──────────────────────────────────────────────────────
+       Six short sections with a side nav; each fits one screen. Only the
+       chosen one is shown (showSettingsSection). -->
   <div class="settings-panel" id="settingsPanel" style="display:none">
-    <div class="settings-header">
-      <div class="settings-header-row">
-        <div>
-          <h1>Settings</h1>
-          <div class="subtitle">Configure Waffler to your preferences.</div>
-        </div>
-      </div>
-    </div>
-    
-    <div class="settings-body">
-      <!-- Appearance Section (v3.14.3+) -->
-      <div class="settings-section">
-        <div class="settings-section-title"><svg class="ic" aria-hidden="true"><use href="#i-palette"/></svg> Appearance</div>
-        <p style="color:var(--text-secondary);font-size:13px;margin-bottom:10px">
-          Match the wizard's branded look, or stick with the original dark theme.
-        </p>
-        <div class="theme-picker">
-          <button class="theme-option" data-theme="cream" onclick="setAppTheme('cream')">
-            <div class="theme-swatch theme-swatch-cream"></div>
-            <span class="theme-option-name">Cream</span>
-            <span class="theme-option-meta">Matches wizard &amp; site</span>
-          </button>
-          <button class="theme-option" data-theme="dark" onclick="setAppTheme('dark')">
-            <div class="theme-swatch theme-swatch-dark"></div>
-            <span class="theme-option-name">Dark</span>
-            <span class="theme-option-meta">Original look</span>
-          </button>
-          <button class="theme-option" data-theme="auto" onclick="setAppTheme('auto')">
-            <div class="theme-swatch theme-swatch-auto"></div>
-            <span class="theme-option-name">System</span>
-            <span class="theme-option-meta">Follows macOS / Windows</span>
-          </button>
-        </div>
-      </div>
+    <nav class="snav" aria-label="Settings sections">
+      <button type="button" class="snav-item" data-sec="general" onclick="showSettingsSection('general')"><svg class="ic" aria-hidden="true"><use href="#i-sliders"/></svg>General</button>
+      <button type="button" class="snav-item" data-sec="keys" onclick="showSettingsSection('keys')"><svg class="ic" aria-hidden="true"><use href="#i-key"/></svg>Keys and providers</button>
+      <button type="button" class="snav-item" data-sec="hotkey" onclick="showSettingsSection('hotkey')"><svg class="ic" aria-hidden="true"><use href="#i-keyboard"/></svg>Hotkey</button>
+      <button type="button" class="snav-item" data-sec="usage" onclick="showSettingsSection('usage')"><svg class="ic" aria-hidden="true"><use href="#i-chart"/></svg>Usage</button>
+      <button type="button" class="snav-item" data-sec="privacy" onclick="showSettingsSection('privacy')"><svg class="ic" aria-hidden="true"><use href="#i-shield"/></svg>Privacy and data</button>
+      <button type="button" class="snav-item" data-sec="about" onclick="showSettingsSection('about')"><svg class="ic" aria-hidden="true"><use href="#i-info"/></svg>About</button>
+      <span class="snav-ver" id="snavVersion">Waffler</span>
+    </nav>
 
-      <!-- API Section -->
-      <div class="settings-section">
-        <div class="settings-section-title"><svg class="ic" aria-hidden="true"><use href="#i-key"/></svg> API Keys</div>
-        <div class="settings-row-desc" style="margin-bottom:8px;font-size:12px;opacity:0.75;">
-          Add any one or more. The order Waffler tries them in is set in <strong>Provider Order</strong> below.
-        </div>
-        <!-- Groq, OpenAI, then Cerebras (optional): the recommended key
-             first, as in setup. Cerebras used to be listed first. -->
-        <div class="settings-row">
-          <div class="settings-row-info">
-            <div class="settings-row-label">Groq API Key</div>
-            <div class="settings-row-desc" id="groqKeyDesc">Recommended. Very fast, with a free plan. console.groq.com</div>
-          </div>
-          <div class="settings-row-control stacked">
-            <input type="password" id="groqKeyInput" class="settings-input" placeholder="gsk_…">
-            <button class="settings-btn" onclick="saveGroqKey()">Save</button>
-          </div>
-        </div>
-        <div class="settings-row">
-          <div class="settings-row-info">
-            <div class="settings-row-label">OpenAI API Key</div>
-            <div class="settings-row-desc">Optional. A backup if Groq is busy. platform.openai.com</div>
-          </div>
-          <div class="settings-row-control stacked">
-            <input type="password" id="apiKeyInput" class="settings-input" placeholder="sk-…">
-            <button class="settings-btn" onclick="saveApiKey()">Save</button>
-          </div>
-        </div>
-        <div class="settings-row">
-          <div class="settings-row-info">
-            <div class="settings-row-label">Cerebras API Key</div>
-            <div class="settings-row-desc" id="cerebrasKeyDesc">Optional. Clean-up only, no speech to text. cloud.cerebras.ai/platform/api-keys</div>
-          </div>
-          <div class="settings-row-control stacked">
-            <input type="password" id="cerebrasKeyInput" class="settings-input" placeholder="csk-…">
-            <button class="settings-btn" onclick="saveCerebrasKey()">Save</button>
-          </div>
-        </div>
-        <div class="settings-row">
-          <div class="settings-row-info">
-            <div class="settings-row-label">In use</div>
-            <div class="settings-row-desc" id="backendInfo">Loading...</div>
-          </div>
-        </div>
-      </div>
+    <div class="scontent" id="settingsScroll">
+      <div class="scol">
 
-      <!-- Provider Order Section -->
-      <div class="settings-section">
-        <div class="settings-section-title"><svg class="ic" aria-hidden="true"><use href="#i-arrow-up-down"/></svg> Provider Order</div>
-        <div class="settings-row-desc" style="margin-bottom:10px;font-size:12px;opacity:0.75;">
-          Waffler tries these top-to-bottom and uses the first that responds. Put your fastest (or paid) provider first to avoid free-tier slowdowns. Takes effect on your next recording — no restart needed.
-        </div>
-        <div id="providerOrderList" class="provider-order-list"></div>
-      </div>
+        <!-- General -->
+        <section class="s-sec" id="secGeneral" data-sec="general">
+          <h1 class="ptitle">General</h1>
+          <p class="pdesc">How Waffler looks, listens and starts.</p>
 
-      <!-- Hotkey Section -->
-      <div class="settings-section">
-        <div class="settings-section-title"><svg class="ic" aria-hidden="true"><use href="#i-keyboard"/></svg> Hotkey</div>
-        <div class="settings-row">
-          <div class="settings-row-info">
-            <div class="settings-row-label">Recording Hotkey</div>
-            <div class="settings-row-desc">Current: <span id="settingsHotkeyBadge" class="settings-hotkey-badge">Loading...</span></div>
-            <div class="settings-row-desc settings-hotkey-error" id="settingsHotkeyError" role="alert" hidden></div>
-          </div>
-          <!-- Filled by app.js with this platform's choices (logic.js
-               hotkeyPresets): Windows and Mac have different keys. -->
-          <div class="settings-row-control" id="settingsHotkeyPresets" style="gap:10px;"></div>
-        </div>
-        <!-- Mac: Fn also has a job of its own (emoji picker, input source
-             or dictation). Said here and in setup; never changed. -->
-        <div class="notice notice-honey settings-fn-warn" id="settingsFnWarn" hidden>
-          <span class="itile is-warn"><svg class="ic" aria-hidden="true"><use href="#i-globe"/></svg></span>
-          <div class="notice-body">
-            <div class="notice-title" id="settingsFnWarnTitle"></div>
-            <div class="notice-desc" id="settingsFnWarnDetail"></div>
-          </div>
-          <div class="notice-acts"><button class="btn btn-sec btn-sm" onclick="wizOpenKeyboardSettings()">Open Keyboard settings</button></div>
-        </div>
-        <div class="settings-row">
-          <div class="settings-row-info">
-            <div class="settings-row-label"></div>
-            <div class="settings-row-desc settings-tip"><svg class="ic" aria-hidden="true"><use href="#i-lightbulb"/></svg> Press Space while holding your hotkey to keep recording hands-free</div>
-          </div>
-        </div>
-      </div>
+          <div class="glabel"><span class="eyebrow">Appearance</span></div>
+          <div class="group"><div class="panel">
+            <div class="row">
+              <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-sun"/></svg></span>
+              <div class="row-main"><div class="row-t">Theme</div><div class="row-d" id="themeDesc">Light, dark, or match Windows.</div></div>
+              <div class="seg seg-sm" id="themeSeg" role="radiogroup" aria-label="Theme">
+                <button type="button" role="radio" data-theme="cream" aria-checked="false" onclick="setAppTheme('cream')">Light</button>
+                <button type="button" role="radio" data-theme="dark" aria-checked="false" onclick="setAppTheme('dark')">Dark</button>
+                <button type="button" role="radio" data-theme="auto" aria-checked="false" onclick="setAppTheme('auto')">System</button>
+              </div>
+            </div>
+          </div></div>
 
-      <!-- Preferences Section -->
-      <div class="settings-section">
-        <div class="settings-section-title"><svg class="ic" aria-hidden="true"><use href="#i-sliders"/></svg> Preferences</div>
-        <div class="settings-row">
-          <div class="settings-row-info">
-            <div class="settings-row-label">Spelling</div>
-            <div class="settings-row-desc">Choose your English spelling style</div>
-          </div>
-          <div class="settings-row-control">
-            <select id="dialectSelect" onchange="saveSetting('dialect', this.value)" class="settings-select">
-              <option value="auto">Auto (match speaker)</option>
-              <option value="en-GB">British English</option>
-              <option value="en-US">American English</option>
-            </select>
-          </div>
-        </div>
-        <!-- Start at sign-in (3.15): read from the operating system each
-             time Settings opens (app.py get_start_at_login). -->
-        <div class="settings-row" id="startAtLoginRow">
-          <div class="settings-row-info">
-            <div class="settings-row-label">Start Waffler when I turn on my computer</div>
-            <div class="settings-row-desc" id="startAtLoginDesc">So the hotkey works after a restart. Waffler waits in the tray or menu bar.</div>
-          </div>
-          <div class="settings-row-control">
-            <input type="checkbox" class="tog" role="switch" id="startAtLoginToggle" aria-label="Start Waffler when I turn on my computer" onchange="setStartAtLogin(this.checked)">
-          </div>
-        </div>
-        <div class="settings-row">
-          <div class="settings-row-info">
-            <div class="settings-row-label">Auto-paste</div>
-            <div class="settings-row-desc">Automatically paste transcription into the active app</div>
-          </div>
-          <div class="settings-row-control">
-            <label class="toggle-switch">
-              <input type="checkbox" id="autoPasteToggle" onchange="saveSetting('auto_paste', this.checked)">
-              <span class="toggle-slider"></span>
-            </label>
-            <span class="toggle-label" id="autoPasteLabel">On</span>
-          </div>
-        </div>
-      </div>
+          <div class="glabel"><span class="eyebrow">Dictation</span></div>
+          <div class="group"><div class="panel">
+            <div class="row">
+              <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-book"/></svg></span>
+              <div class="row-main"><div class="row-t"><label for="dialectSelect">Spelling</label></div><div class="row-d">British or American, or match how you speak.</div></div>
+              <select id="dialectSelect" class="select" onchange="saveSetting('dialect', this.value)">
+                <option value="auto">Match how I speak</option>
+                <option value="en-GB">British English</option>
+                <option value="en-US">American English</option>
+              </select>
+            </div>
+            <div class="row">
+              <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-clipboard"/></svg></span>
+              <div class="row-main"><div class="row-t"><label for="autoPasteToggle">Paste when I let go</label></div><div class="row-d">Puts the text where you were typing. Off, it's only copied.</div></div>
+              <input type="checkbox" class="tog" role="switch" id="autoPasteToggle" onchange="saveSetting('auto_paste', this.checked)">
+            </div>
+            <!-- The microphone is kept ready so the first word isn't clipped:
+                 audio from half a second before the keys go down is part of
+                 each recording (src/audio.py _PREROLL_MS; owner decision D5). -->
+            <div class="row">
+              <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-mic"/></svg></span>
+              <div class="row-main"><div class="row-t"><label for="micSelect">Microphone</label></div><div class="row-d">Waffler uses what you say while you hold the keys, and the half-second before, so your first word isn't clipped.</div></div>
+              <select id="micSelect" class="select" onchange="onMicChange(this.value)"></select>
+            </div>
+          </div></div>
 
-      <!-- Usage Section -->
-      <div class="settings-section">
-        <div class="settings-section-title"><svg class="ic" aria-hidden="true"><use href="#i-chart"/></svg> Usage</div>
+          <div class="glabel"><span class="eyebrow">Startup</span></div>
+          <div class="group"><div class="panel">
+            <!-- Start at sign-in: read from the operating system each time
+                 Settings opens (app.py get_start_at_login). -->
+            <div class="row" id="startAtLoginRow">
+              <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-power"/></svg></span>
+              <div class="row-main"><div class="row-t"><label for="startAtLoginToggle">Start Waffler when I turn on my computer</label></div><div class="row-d" id="startAtLoginDesc">So the hotkey works after a restart.</div></div>
+              <input type="checkbox" class="tog" role="switch" id="startAtLoginToggle" aria-label="Start Waffler when I turn on my computer" onchange="setStartAtLogin(this.checked)">
+            </div>
+            <div class="row">
+              <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-retry"/></svg></span>
+              <div class="row-main"><div class="row-t">Run setup again</div><div class="row-d">Your keys and history stay as they are.</div></div>
+              <button type="button" class="btn btn-sec btn-sm" onclick="runSetupAgain()">Run setup</button>
+            </div>
+          </div></div>
+        </section>
 
-        <!-- Counts first: what you did. The money below is an estimate at
-             paid rates; it used to come first and read like a bill, though
-             Waffler can't see anyone's bill and Groq's free plan is free. -->
-        <div class="usage-stats-grid usage-stats-grid-activity">
-          <div class="usage-stat-card">
-            <div class="usage-stat-label">Dictations</div>
-            <div class="usage-stat-value" id="usageTranscriptions">0</div>
-          </div>
-          <div class="usage-stat-card">
-            <div class="usage-stat-label">Words</div>
-            <div class="usage-stat-value" id="usageWords">0</div>
-          </div>
-        </div>
+        <!-- Keys and providers: the keys and the order in one list. app.js
+             draws the rows (logic.js keyRows) in the order Waffler tries
+             them; each key's editor below moves under its row when opened. -->
+        <section class="s-sec" id="secKeys" data-sec="keys" hidden>
+          <h1 class="ptitle">Keys and providers</h1>
+          <p class="pdesc">Waffler tries these in order and uses the first that answers. Changes to the order apply to your next dictation.</p>
 
-        <!-- Estimated cost at each provider's published paid rates -->
-        <div class="usage-estimate">
-          <div class="usage-provider-title">Estimated cost <span class="usage-provider-hint" id="usageAvgCost">$0.000 a dictation</span></div>
-          <div class="usage-estimate-note" id="usageEstimateNote">Estimated at each provider's published paid rates. Waffler can't see your bill.</div>
-        </div>
-        <div class="usage-stats-grid usage-stats-grid-time">
-          <div class="usage-stat-card usage-stat-card-secondary">
-            <div class="usage-stat-label">Today</div>
-            <div class="usage-stat-value usage-stat-value-sm" id="usageTodayCost">$0.00</div>
-          </div>
-          <div class="usage-stat-card usage-stat-card-secondary">
-            <div class="usage-stat-label">This Week</div>
-            <div class="usage-stat-value usage-stat-value-sm" id="usageWeekCost">$0.00</div>
-          </div>
-          <div class="usage-stat-card usage-stat-card-secondary">
-            <div class="usage-stat-label">This Month</div>
-            <div class="usage-stat-value usage-stat-value-sm" id="usageMonthCost">$0.00</div>
-          </div>
-          <div class="usage-stat-card usage-stat-card-secondary">
-            <div class="usage-stat-label">All Time</div>
-            <div class="usage-stat-value usage-stat-value-sm" id="usageTotalCost">$0.00</div>
-          </div>
-        </div>
+          <div class="group s-first"><div class="panel provider-order-list" id="providerOrderList"></div></div>
 
-        <!-- Per-provider breakdown -->
-        <div class="usage-provider-block" style="margin-top:14px">
-          <div class="usage-provider-title">By provider <span class="usage-provider-hint">estimated, all time</span></div>
-          <div class="usage-provider-rows" id="usageProviderRows">
-            <div class="usage-provider-empty">No usage yet. Make your first dictation to see the breakdown.</div>
+          <!-- Groq, OpenAI, then Cerebras (optional). -->
+          <div class="key-editors" hidden>
+            <div class="key-editor" id="groqKeyEditor" data-provider="groq">
+              <div class="key-editor-row">
+                <input type="password" id="groqKeyInput" class="input input-mono" placeholder="gsk_…" autocomplete="off" spellcheck="false" aria-label="Groq key">
+                <button type="button" class="btn btn-pri btn-sm" onclick="saveGroqKey()">Save</button>
+                <button type="button" class="btn btn-quiet btn-sm" onclick="closeKeyEditor()">Cancel</button>
+              </div>
+              <p class="key-help">Make one at <a class="link" href="#" onclick="openKeyPage('groq'); return false;">console.groq.com/keys</a>. Groq keys start with gsk_.</p>
+            </div>
+            <div class="key-editor" id="apiKeyEditor" data-provider="openai">
+              <div class="key-editor-row">
+                <input type="password" id="apiKeyInput" class="input input-mono" placeholder="sk-…" autocomplete="off" spellcheck="false" aria-label="OpenAI key">
+                <button type="button" class="btn btn-pri btn-sm" onclick="saveApiKey()">Save</button>
+                <button type="button" class="btn btn-quiet btn-sm" onclick="closeKeyEditor()">Cancel</button>
+              </div>
+              <p class="key-help">Optional. Make one at <a class="link" href="#" onclick="openKeyPage('openai'); return false;">platform.openai.com/api-keys</a>. OpenAI keys start with sk-.</p>
+            </div>
+            <div class="key-editor" id="cerebrasKeyEditor" data-provider="cerebras">
+              <div class="key-editor-row">
+                <input type="password" id="cerebrasKeyInput" class="input input-mono" placeholder="csk-…" autocomplete="off" spellcheck="false" aria-label="Cerebras key">
+                <button type="button" class="btn btn-pri btn-sm" onclick="saveCerebrasKey()">Save</button>
+                <button type="button" class="btn btn-quiet btn-sm" onclick="closeKeyEditor()">Cancel</button>
+              </div>
+              <p class="key-help">Optional. Make one at <a class="link" href="#" onclick="openKeyPage('cerebras'); return false;">cloud.cerebras.ai/platform/api-keys</a>. Cerebras keys start with csk-.</p>
+            </div>
           </div>
-        </div>
-      </div>
 
-      <!-- About -->
-      <div class="settings-section">
-        <div class="settings-section-title"><svg class="ic" aria-hidden="true"><use href="#i-info"/></svg> About</div>
-        <div class="settings-row">
-          <div class="settings-row-info">
-            <div class="settings-row-label">Waffler</div>
-            <div class="settings-row-desc" id="aboutVersion">Loading...</div>
-          </div>
-          <div class="settings-row-control">
-            <button class="settings-btn" id="checkUpdateBtn" onclick="checkForUpdatesManual()">Check for Update</button>
-          </div>
-        </div>
-      </div>
+          <div class="glabel"><span class="eyebrow">In use now</span></div>
+          <div class="group"><div class="panel">
+            <div class="row">
+              <span class="itile is-ok" id="backendTile"><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg></span>
+              <div class="row-main"><div class="row-t" id="backendTitle">Speech to text and clean-up</div><div class="row-d" id="backendInfo">Loading…</div></div>
+            </div>
+          </div></div>
+          <p class="s-foot">New to keys? <a class="link" href="#" onclick="openKeyPage('groq'); return false;">Get a free Groq key</a><svg class="ic ic-sm" aria-hidden="true"><use href="#i-external"/></svg></p>
+        </section>
 
-      <!-- Data Management -->
-      <div class="settings-section">
-        <div class="settings-section-title"><svg class="ic" aria-hidden="true"><use href="#i-database"/></svg> Data</div>
-        <!-- Recordings that were not turned into text (Journal "Not sent"
-             cards). Waffler sends them by itself when the speech service
-             answers; this is the count, and a way to send them now. -->
-        <div class="settings-row" id="unsentRow">
-          <div class="settings-row-info">
-            <div class="settings-row-label">Recordings not sent</div>
-            <div class="settings-row-desc" id="unsentSummary">Nothing waiting. Every recording has been sent.</div>
+        <!-- Hotkey -->
+        <section class="s-sec" id="secHotkey" data-sec="hotkey" hidden>
+          <h1 class="ptitle">Hotkey</h1>
+          <p class="pdesc">Hold it to talk. Let go and the text is pasted.</p>
+
+          <div class="group s-first"><div class="panel hk-hero">
+            <span class="keys hk-caps" id="settingsHotkeyCaps"></span>
+            <div class="hk-name">
+              <div class="hk-name-t" id="settingsHotkeyBadge">Win + Ctrl</div>
+              <div class="row-d" id="settingsHotkeyNote">The default on Windows.</div>
+            </div>
+            <button type="button" class="btn btn-sec" onclick="openHotkeyCapture()">Change…</button>
+          </div></div>
+          <p class="s-error" id="settingsHotkeyError" role="alert" hidden></p>
+
+          <!-- Mac: Fn also has a job of its own (emoji picker, input source
+               or dictation). Said here and in setup; never changed. -->
+          <div class="notice notice-honey settings-fn-warn" id="settingsFnWarn" hidden>
+            <span class="itile is-warn"><svg class="ic" aria-hidden="true"><use href="#i-globe"/></svg></span>
+            <div class="notice-body">
+              <div class="notice-title" id="settingsFnWarnTitle"></div>
+              <div class="notice-desc" id="settingsFnWarnDetail"></div>
+            </div>
+            <div class="notice-acts"><button type="button" class="btn btn-sec btn-sm" onclick="wizOpenKeyboardSettings()">Open Keyboard settings</button></div>
           </div>
-          <div class="settings-row-control">
-            <button class="settings-btn" id="unsentSendNow" onclick="sendUnsentNow(this)" style="display:none">Send now</button>
+
+          <div class="glabel"><span class="eyebrow">While you're recording</span></div>
+          <div class="group"><div class="panel">
+            <div class="row">
+              <span class="hk-key"><kbd class="kc kc-md">Space</kbd></span>
+              <div class="row-main"><div class="row-t">Keep going hands-free</div><div class="row-d">Tap Space while you hold the keys, then let go. Tap the keys again to finish.</div></div>
+            </div>
+            <div class="row">
+              <span class="hk-key"><kbd class="kc kc-md">Esc</kbd></span>
+              <div class="row-main"><div class="row-t">Cancel</div><div class="row-d">Stops recording. Nothing is pasted.</div></div>
+            </div>
+          </div></div>
+        </section>
+
+        <!-- Usage: counts first, from the Journal; then the money, labelled
+             an estimate at published paid rates. Waffler can't see anyone's
+             bill, and Groq's free plan is free. -->
+        <section class="s-sec" id="secUsage" data-sec="usage" hidden>
+          <h1 class="ptitle">Usage</h1>
+          <p class="pdesc">Counted on this computer, from your own history.</p>
+
+          <div class="group s-first"><div class="utiles" id="usageTiles">
+            <div class="utile"><span class="eyebrow">Today</span><b id="usageTodayCount">0</b><span class="u1">dictations</span><span class="u2" id="usageTodayWords">0 words</span></div>
+            <div class="utile"><span class="eyebrow">This week</span><b id="usageWeekCount">0</b><span class="u1">dictations</span><span class="u2" id="usageWeekWords">0 words</span></div>
+            <div class="utile"><span class="eyebrow">This month</span><b id="usageMonthCount">0</b><span class="u1">dictations</span><span class="u2" id="usageMonthWords">0 words</span></div>
+            <div class="utile"><span class="eyebrow">All time</span><b id="usageAllCount">0</b><span class="u1">dictations</span><span class="u2" id="usageAllWords">0 words</span></div>
+          </div></div>
+
+          <div class="glabel"><span class="eyebrow">Estimated cost</span></div>
+          <div class="group"><div class="panel usage-cost">
+            <div class="usage-figs">
+              <div><div class="usage-big" id="usageTotalCost">$0.00</div><div class="small">all time, estimated</div></div>
+              <div><div class="usage-mid" id="usageMonthCost">$0.00</div><div class="small">this month</div></div>
+              <div><div class="usage-mid" id="usageWeekCost">$0.00</div><div class="small">this week</div></div>
+              <div><div class="usage-mid" id="usageTodayCost">$0.00</div><div class="small">today</div></div>
+            </div>
+            <p class="small usage-note"><span id="usageEstimateNote">Estimated at each provider's published paid rates. Waffler can't see your bill.</span> On Groq's free plan dictations cost nothing, within its daily and per-minute limits. <span id="usageAvgCost"></span></p>
+            <div class="dots-h usage-sep"></div>
+            <div class="usage-provider-rows" id="usageProviderRows">
+              <div class="usage-provider-empty">No usage yet. Make your first dictation to see it here.</div>
+            </div>
+          </div></div>
+        </section>
+
+        <!-- Privacy and data -->
+        <section class="s-sec" id="secPrivacy" data-sec="privacy" hidden>
+          <h1 class="ptitle">Privacy and data</h1>
+          <p class="pdesc">Your history, recordings and keys stay on this computer. Your voice goes only to the providers you set up.</p>
+
+          <div class="glabel"><span class="eyebrow">Kept on this computer</span></div>
+          <div class="group"><div class="panel">
+            <div class="row">
+              <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-history"/></svg></span>
+              <div class="row-main"><div class="row-t">History</div><div class="row-d" id="privHistoryDesc">Your dictations, searchable in your Journal.</div></div>
+            </div>
+            <!-- Owner decision D9: the last 10 recordings are kept, said
+                 here, with a switch and "Delete now" (src/recent_audio.py). -->
+            <div class="row" id="recentAudioRow">
+              <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-audio-lines"/></svg></span>
+              <div class="row-main"><div class="row-t"><label for="recentAudioToggle">Recent recordings</label></div><div class="row-d" id="recentAudioDesc">The audio of your last 10 dictations, kept to help look into a problem. It never leaves this computer.</div></div>
+              <button type="button" class="btn btn-sec btn-sm" id="recentAudioDelete" onclick="deleteRecentAudio(this)">Delete now</button>
+              <input type="checkbox" class="tog" role="switch" id="recentAudioToggle" checked onchange="setRecentAudio(this.checked)">
+            </div>
+            <!-- Recordings that were not turned into text (Journal "Not sent"
+                 cards). Waffler sends them by itself when the speech service
+                 answers; this is the count, and a way to send them now. -->
+            <div class="row" id="unsentRow">
+              <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-wifi-off"/></svg></span>
+              <div class="row-main"><div class="row-t">Not sent yet</div><div class="row-d" id="unsentSummary">Nothing waiting. Every recording has been sent.</div></div>
+              <button type="button" class="btn btn-sec btn-sm" id="unsentSendNow" onclick="sendUnsentNow(this)" hidden><svg class="ic" aria-hidden="true"><use href="#i-retry"/></svg>Send now</button>
+            </div>
+          </div></div>
+
+          <div class="glabel"><span class="eyebrow">Help</span></div>
+          <div class="group"><div class="panel">
+            <div class="row">
+              <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg></span>
+              <div class="row-main"><div class="row-t">Logs</div><div class="row-d">Saved as a zip on your Desktop, with no keys and no transcripts. Handy for a bug report.</div></div>
+              <button type="button" class="btn btn-sec btn-sm" id="logsBtn" onclick="downloadLogs(this)"><svg class="ic" aria-hidden="true"><use href="#i-folder"/></svg><span>Show in folder</span></button>
+            </div>
+          </div></div>
+
+          <div class="glabel"><span class="eyebrow">Start over</span></div>
+          <div class="group"><div class="panel">
+            <div class="row" id="resetRow">
+              <span class="itile is-err"><svg class="ic" aria-hidden="true"><use href="#i-trash"/></svg></span>
+              <div class="row-main"><div class="row-t">Delete all my data</div><div class="row-d">History, recordings, logs, keys and settings. Setup starts again.</div></div>
+              <button type="button" class="btn btn-danger btn-sm" id="resetAsk" onclick="askFactoryReset(true)">Delete…</button>
+            </div>
+            <div class="row reset-confirm" id="resetConfirm" hidden>
+              <div class="row-main"><div class="row-t">Delete everything? This can't be undone.</div><div class="row-d">Waffler closes, and setup starts the next time you open it.</div></div>
+              <button type="button" class="btn btn-sec btn-sm" id="resetNo" onclick="askFactoryReset(false)">Keep it</button>
+              <button type="button" class="btn btn-danger btn-sm" onclick="factoryReset()">Delete everything</button>
+            </div>
+          </div></div>
+        </section>
+
+        <!-- About -->
+        <section class="s-sec" id="secAbout" data-sec="about" hidden>
+          <div class="about-head">
+            <span class="about-mark" data-waffle="logo" data-size="56"></span>
+            <div class="about-id">
+              <h1 class="ptitle">Waffler</h1>
+              <p class="small about-ver"><span id="aboutVersion">Version</span><span class="chip" id="aboutUpdateChip" hidden></span></p>
+            </div>
+            <button type="button" class="btn btn-sec" id="checkUpdateBtn" onclick="checkForUpdatesManual()"><svg class="ic" aria-hidden="true"><use href="#i-refresh"/></svg>Check for updates</button>
           </div>
-        </div>
-        <div class="settings-row">
-          <div class="settings-row-info">
-            <div class="settings-row-label">Download Logs</div>
-            <div class="settings-row-desc">Save a diagnostic bundle to your Desktop (no API keys, no transcripts) so you can send it to support when something breaks</div>
+
+          <div class="glabel"><span class="eyebrow">What Waffler uses</span></div>
+          <div class="group"><div class="panel">
+            <div class="row row-tight">
+              <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-mic"/></svg></span>
+              <div class="row-main"><div class="row-t">Speech to text</div></div>
+              <span class="mono about-model" id="aboutSpeech">No key yet</span>
+            </div>
+            <div class="row row-tight">
+              <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-sliders"/></svg></span>
+              <div class="row-main"><div class="row-t">Clean-up</div></div>
+              <span class="mono about-model" id="aboutCleanup">No key yet</span>
+            </div>
+          </div></div>
+
+          <div class="about-links">
+            <button type="button" class="btn btn-sec btn-sm" onclick="openAboutLink('source')"><svg class="ic" aria-hidden="true"><use href="#i-github"/></svg>Open source on GitHub</button>
+            <button type="button" class="btn btn-sec btn-sm" onclick="openAboutLink('issues')"><svg class="ic" aria-hidden="true"><use href="#i-bug"/></svg>Report a problem</button>
+            <button type="button" class="btn btn-sec btn-sm" onclick="openAboutLink('releases')"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg>Release notes</button>
           </div>
-          <div class="settings-row-control">
-            <button class="btn btn-sec btn-sm" onclick="downloadLogs(this)">Download Logs</button>
-          </div>
-        </div>
-        <div class="settings-row">
-          <div class="settings-row-info">
-            <div class="settings-row-label">Factory Reset</div>
-            <div class="settings-row-desc">Clear all data and start fresh from setup</div>
-          </div>
-          <div class="settings-row-control">
-            <button class="btn btn-danger btn-sm" onclick="factoryReset()">Reset All Data</button>
-          </div>
-        </div>
+        </section>
+
       </div>
     </div>
   </div>
 
-  <!-- Vocabulary Panel -->
+  <!-- ── Vocabulary ────────────────────────────────────────────────────── -->
   <div class="vocabulary-panel" id="vocabularyPanel" style="display:none">
-    <div class="vocab-header">
-      <h1>Vocabulary</h1>
-      <div class="subtitle">Custom words for better transcription.</div>
+    <div class="v-col">
+      <h1 class="ptitle">Vocabulary</h1>
+      <p class="pdesc">Names and words Waffler should spell your way. Add each one once.</p>
+      <form class="vocab-add-row" onsubmit="addVocabWord(); return false;">
+        <label class="vocab-field">
+          <svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg>
+          <input type="text" id="vocabInput" class="vocab-input" placeholder="Add a name or word" aria-label="Add a name or word" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" value="">
+        </label>
+        <button type="submit" class="btn btn-pri vocab-add-btn">Add</button>
+      </form>
+      <p class="s-error" id="vocabError" role="alert" hidden></p>
+      <div id="vocabList" class="vocab-list"></div>
     </div>
-    <div class="vocab-add-row">
-      <input type="text" id="vocabInput" class="vocab-input" placeholder="Add word or phrase..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" value="">
-      <button class="vocab-add-btn" onclick="addVocabWord()">+ Add</button>
-    </div>
-    <div id="vocabList" class="vocab-list"></div>
   </div>
 
 </div>
 
-<!-- Update Modal -->
-<div class="hotkey-modal-overlay" id="updateModal" style="display:none" onclick="closeUpdateModal(event)">
-  <div class="hotkey-modal" onclick="event.stopPropagation()" style="max-width:440px">
-    <div class="hotkey-modal-icon" id="updateModalIcon"><svg class="ic" aria-hidden="true"><use href="#i-circle-up"/></svg></div>
-    <div class="hotkey-modal-title" id="updateModalTitle">Checking for updates…</div>
-    <div class="hotkey-modal-subtitle" id="updateModalSubtitle">Contacting GitHub…</div>
+<!-- Update dialog: one modal (VR10). Later is a quiet link. -->
+<div class="modal-overlay" id="updateModal" style="display:none" onclick="closeUpdateModal(event)">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="updateModalTitle" onclick="event.stopPropagation()">
+    <span class="itile" id="updateModalIcon"><svg class="ic" aria-hidden="true"><use href="#i-circle-up"/></svg></span>
+    <h2 class="modal-title" id="updateModalTitle">Checking for updates…</h2>
+    <p class="modal-sub" id="updateModalSubtitle">Asking GitHub for the latest version.</p>
 
-    <div id="updateProgressWrap" style="display:none; margin: 16px 0 4px;">
-      <div style="background: rgba(255,255,255,0.08); border-radius: 6px; height: 8px; overflow: hidden;">
-        <div id="updateProgressBar" style="background: var(--accent, #6c63ff); height: 100%; width: 0%; transition: width .15s linear;"></div>
-      </div>
-      <div id="updateProgressText" style="font-size: 12px; opacity: 0.7; margin-top: 8px; text-align: center;">0%</div>
+    <div class="modal-progress" id="updateProgressWrap" style="display:none">
+      <div class="modal-track"><div class="modal-fill" id="updateProgressBar"></div></div>
+      <div class="modal-progress-t" id="updateProgressText">0%</div>
     </div>
 
-    <div id="updateModalActions" style="display:flex; gap:8px; justify-content:center; margin-top:20px;">
-      <button class="settings-btn" id="updateCancelBtn" onclick="closeUpdateModal()">Close</button>
-      <button class="settings-btn" id="updateBrowserBtn" style="display:none;">Open download page</button>
-      <button class="settings-btn accent" id="updatePrimaryBtn" style="display:none"></button>
+    <div class="modal-acts" id="updateModalActions">
+      <button type="button" class="btn btn-quiet" id="updateCancelBtn" onclick="closeUpdateModal()">Close</button>
+      <span class="modal-sp"></span>
+      <button type="button" class="btn btn-sec" id="updateBrowserBtn" style="display:none;">Open download page</button>
+      <button type="button" class="btn btn-pri" id="updatePrimaryBtn" style="display:none"></button>
     </div>
   </div>
 </div>
 
-<!-- Hotkey Capture Modal -->
-<div class="hotkey-modal-overlay" id="hotkeyModal" style="display:none" onclick="closeHotkeyCapture()">
-  <div class="hotkey-modal" onclick="event.stopPropagation()">
-    <div class="hotkey-modal-icon"><svg class="ic" aria-hidden="true"><use href="#i-keyboard"/></svg></div>
-    <div class="hotkey-modal-title">Change Hotkey</div>
-    <div class="hotkey-modal-subtitle">Press your new key combination...</div>
-    <div class="hotkey-capture-box" id="hotkeyCaptureBox">
-      <div class="hotkey-capture-keys" id="hotkeyCaptureKeys">Win + Ctrl</div>
-      <div class="hotkey-capture-hint">Hold your desired keys together</div>
+<!-- Hotkey dialog: hold the keys you want (Settings, Hotkey, Change…; and
+     setup's "Pick another key"). Settings also offers this computer's own
+     presets (logic.js hotkeyPresets): Windows and Mac have different keys. -->
+<div class="modal-overlay hotkey-modal-overlay" id="hotkeyModal" style="display:none" onclick="closeHotkeyCapture()">
+  <div class="modal hotkey-modal" role="dialog" aria-modal="true" aria-labelledby="hotkeyModalTitle" onclick="event.stopPropagation()">
+    <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-keyboard"/></svg></span>
+    <h2 class="modal-title" id="hotkeyModalTitle">Hold your new keys</h2>
+    <p class="modal-sub">Hold the combination you want, then let go. Esc cancels.</p>
+    <div class="hk-capture" id="hotkeyCaptureBox">
+      <span class="keys hk-capture-keys" id="hotkeyCaptureKeys"></span>
     </div>
-    <div class="hotkey-modal-error" id="hotkeyError" style="display:none"></div>
-    <div class="hotkey-modal-buttons">
-      <button class="hotkey-btn secondary" onclick="closeHotkeyCapture()">Cancel</button>
-      <button class="hotkey-btn secondary" onclick="resetHotkeyDefault()">Reset Default</button>
-      <button class="hotkey-btn primary" onclick="saveHotkeyCapture()">Save</button>
+    <p class="modal-error" id="hotkeyError" style="display:none"></p>
+    <div class="hk-presets" id="hotkeyPresetRow">
+      <span class="small">Or pick one:</span>
+      <span class="hk-preset-list" id="settingsHotkeyPresets"></span>
+    </div>
+    <div class="modal-acts">
+      <button type="button" class="btn btn-quiet" onclick="resetHotkeyDefault()">Use the default</button>
+      <span class="modal-sp"></span>
+      <button type="button" class="btn btn-sec" onclick="closeHotkeyCapture()">Cancel</button>
+      <button type="button" class="btn btn-pri" onclick="saveHotkeyCapture()">Save</button>
     </div>
   </div>
 </div>
@@ -741,8 +754,8 @@
 </div>
 
 <!-- Toast -->
-
-<div class="toast" id="toast"></div>
+<!-- An ink pill at the bottom centre (top centre over setup). -->
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script src="logic.js"></script>
 <script src="icons.js"></script>

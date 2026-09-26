@@ -113,7 +113,7 @@
       return { id: '', badge: 'Not sent', text: "This wasn't turned into text, and the recording couldn't be saved.",
         next: '', canRetry: false, canReveal: false, canDelete: true };
     }
-    let next = 'Press Try again to send it.';
+    let next = 'Click Try again to send it now.';
     if (reason === 'empty') next = '';
     else if (item.will_retry === true) next = `Waffler will send it by itself when ${p} answers.`;
     return { id, badge: 'Not sent', text, next, canRetry: reason !== 'empty', canReveal: true, canDelete: true };
@@ -386,13 +386,29 @@
     return String(v).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   }
 
+  // Settings, Usage (3.15): counts first, from the Journal (get_stats), per
+  // period; then the estimated money (get_usage_stats).
+  const USAGE_PERIODS = [
+    { id: 'today', label: 'Today', count: 'today_count', words: 'today_words' },
+    { id: 'week', label: 'This week', count: 'week_count', words: 'week_words' },
+    { id: 'month', label: 'This month', count: 'month_count', words: 'month_words' },
+    { id: 'all', label: 'All time', count: 'total_count', words: 'total_words' },
+  ];
+
   function usageView(usage, stats) {
     usage = usage || {};
     stats = stats || {};
     const money = (n, digits) => '$' + (Number(n) || 0).toFixed(digits);
+    const plural = (n, one, many) => `${formatCount(n)} ${Math.round(Number(n) || 0) === 1 ? one : many}`;
     return {
       dictations: formatCount(usage.transcription_count),
       words: formatCount(stats.total_words),
+      periods: USAGE_PERIODS.map((p) => ({
+        id: p.id, label: p.label,
+        count: formatCount(stats[p.count]),
+        countLabel: Math.round(Number(stats[p.count]) || 0) === 1 ? 'dictation' : 'dictations',
+        words: plural(stats[p.words], 'word', 'words'),
+      })),
       costs: {
         today: money(usage.today_cost_usd, 2),
         week: money(usage.week_cost_usd, 2),
@@ -402,6 +418,130 @@
       },
       note: USAGE_NOTE,
     };
+  }
+
+  // One bar per provider in Usage: the estimated cost of its calls, the
+  // biggest in honey and the rest neutral. A provider whose rate isn't
+  // published (Cerebras) is marked as an estimate.
+  function usageProviderRows(byProvider) {
+    const by = byProvider || {};
+    const order = DEFAULT_PROVIDER_ORDER.filter((p) => by[p])
+      .concat(Object.keys(by).filter((p) => !DEFAULT_PROVIDER_ORDER.includes(p)));
+    const costs = order.map((p) => Number(by[p].cost_usd) || 0);
+    const top = Math.max(0, ...costs);
+    const sum = costs.reduce((a, b) => a + b, 0);
+    return order.map((p, i) => {
+      const b = by[p];
+      const n = Math.round(Number(b.count) || 0);
+      const estimate = (Number(b.estimated_count) || 0) > 0;
+      return {
+        id: p,
+        name: PROVIDER_NAMES[p] || (p === 'local' ? 'On this computer' : p.charAt(0).toUpperCase() + p.slice(1)),
+        calls: `${formatCount(n)} ${n === 1 ? 'call' : 'calls'}`,
+        cost: `${estimate ? '~' : ''}$${costs[i].toFixed(costs[i] > 0 && costs[i] < 0.01 ? 4 : 2)}`,
+        estimate,
+        pct: sum > 0 ? Math.max(costs[i] > 0 ? 1 : 0, Math.round((costs[i] / sum) * 100)) : 0,
+        top: top > 0 && costs[i] === top && costs.indexOf(top) === i,
+      };
+    });
+  }
+
+  // ── Settings, About: what Waffler uses right now ─────────────────────
+  // "Whisper large v3 on Groq", "gpt-oss-120b on Groq". Nothing known yet
+  // (no key, or still starting): "No key yet".
+  function usesView(s) {
+    const a = activeProviders(s);
+    const speech = a.speech
+      ? (a.speech === 'mlx' || a.speech === 'faster'
+        ? `${SPEECH_MODEL[a.speech]}, ${SPEECH_BY[a.speech]}`
+        : `${SPEECH_MODEL[a.speech]} on ${SPEECH_BY[a.speech]}`)
+      : 'No key yet';
+    const cleanup = a.cleanup ? `${CLEANUP_MODEL[a.cleanup]} on ${PROVIDER_NAMES[a.cleanup]}` : 'No key yet';
+    return { speech, cleanup };
+  }
+
+  // ── Settings, Keys and providers ──────────────────────────────────────
+  // One row per provider, in the order Waffler tries them. Groq is the
+  // recommended one; OpenAI and Cerebras are optional. The billing words
+  // are the ones checked for setup (Groq's free plan allows about 30
+  // cleaned dictations a day; OpenAI's API is prepaid).
+  const PROVIDER_INFO = {
+    groq: { chip: 'Recommended', chipCls: 'chip-honey', desc: 'Speech to text and clean-up. Free for roughly 30 cleaned dictations a day.' },
+    openai: { chip: 'Optional', chipCls: '', desc: 'Speech to text and clean-up. Prepaid: you buy credit first.' },
+    cerebras: { chip: 'Optional', chipCls: '', desc: 'Clean-up only. No speech to text.' },
+  };
+  const MASK_FLAGS = { groq: 'groq_key_masked', openai: 'api_key_masked', cerebras: 'cerebras_key_masked' };
+
+  function keyRows(order, settings) {
+    const a = activeProviders(settings);
+    const inUse = new Set([a.speech === 'api' ? 'openai' : a.speech, a.cleanup].filter(Boolean));
+    return providerOrderRows(order, settings).map((r) => {
+      const info = PROVIDER_INFO[r.id];
+      const status = !r.hasKey ? 'Not set' : (inUse.has(r.id) ? 'In use' : 'Saved');
+      return Object.assign({}, r, info, {
+        masked: r.hasKey ? String((settings || {})[MASK_FLAGS[r.id]] || '') : '',
+        status, statusCls: status === 'In use' ? 'dot-ok' : (status === 'Saved' ? 'dot-saved' : ''),
+        button: r.hasKey ? 'Replace' : 'Add key',
+      });
+    });
+  }
+
+  // ── Journal cards ─────────────────────────────────────────────────────
+  // The pipeline attaches item.quality only when a recording looks suspect,
+  // so a clean dictation shows nothing. The chip says how sure, and the
+  // reasons are plain sentences under the text (they used to hide in a
+  // tooltip, in fragments like "cleanup did not run - this is the raw
+  // transcript").
+  const QUALITY_REASONS = {
+    low_word_rate: "There are far fewer words than the recording's length suggests, so some may be missing.",
+    styled_dropped_words: 'The clean-up took out more than usual. Show transcript to see everything you said.',
+    styling_fallback: "The clean-up didn't run, so these are your words as you said them.",
+    truncated_midsentence: 'Ends mid-sentence, so some of what you said may be missing.',
+    unterminated_ending: 'Ends without a full stop, so the last words may be missing.',
+    asr_filter_edited: "Waffler's transcript filter changed a few words.",
+    retry_used: 'The first answer was too short, so Waffler asked again.',
+    retry_rejected: 'This looks incomplete, and asking again gave a different answer, so check it.',
+    styling_deadline: 'The clean-up ran out of time, so these are your words as you said them.',
+  };
+
+  function qualityView(item) {
+    const q = item && item.quality;
+    const limited = !!(item && item.as_said === 'limit');
+    const out = { chip: '', level: '', reasons: [], asSaid: limited ? 'As said: limit reached' : '' };
+    if (!q || !q.level || q.level === 'ok') return out;
+    const flags = (q.flags || []).filter((f) => !(limited && (f === 'styling_fallback')));
+    out.reasons = flags.map((f) => QUALITY_REASONS[f]).filter(Boolean);
+    if (!flags.length) return out;
+    out.level = q.level === 'low' ? 'low' : 'check';
+    out.chip = q.level === 'low' ? 'Check this one' : 'Worth a look';
+    return out;
+  }
+
+  // The Journal's day rows: "Friday" on the left, "25 September" on the
+  // right (with the year when it isn't this year). Keys are "YYYY-MM-DD".
+  const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August',
+    'September', 'October', 'November', 'December'];
+
+  function dayKey(ts) {
+    const m = String(ts || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+    return m ? m[0] : '';
+  }
+
+  function dayLabel(key, today) {
+    const m = String(key || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return { day: 'Earlier', date: '' };
+    const d = new Date(+m[1], +m[2] - 1, +m[3]);
+    const now = today || new Date();
+    const year = d.getFullYear() === now.getFullYear() ? '' : ` ${d.getFullYear()}`;
+    return { day: WEEKDAYS[d.getDay()], date: `${d.getDate()} ${MONTHS[d.getMonth()]}${year}` };
+  }
+
+  // Numbers in the stat strip: "31,920", and "110k" past 100,000 so the
+  // strip keeps its width.
+  function statNumber(n) {
+    const v = Math.max(0, Math.round(Number(n) || 0));
+    return v >= 100000 ? `${Math.round(v / 1000)}k` : formatCount(v);
   }
 
   // ── Journal search ────────────────────────────────────────────────────
@@ -537,7 +677,8 @@
     DOWNLOAD_PAGE, UPDATE_TEXT, splitMessage, updateCheckView, updateFailureView,
     DEFAULT_PROVIDER_ORDER, PROVIDER_NAMES, providerHasKey, normalizeProviderOrder,
     providerOrderRows, activeProviders, backendsLine, aboutLine,
-    USAGE_NOTE, formatCount, usageView,
+    USAGE_NOTE, formatCount, usageView, usageProviderRows, usesView, keyRows,
+    qualityView, dayKey, dayLabel, statNumber,
     SEARCH_DEBOUNCE_MS, debounce, feedView,
   };
 });
