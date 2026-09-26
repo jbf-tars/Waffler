@@ -14,15 +14,18 @@ network, no keys, no real clipboard, no overlay process.
 """
 import ast
 import ctypes
+import io
 import sys
 import threading
 import time
 import types
+import wave
 
 import pytest
 
-from _pipeline_harness import (ROOT, FakeClipboard, FakeStyler, FakeTranscriber, Hang,
-                               fast_limits, history, make_pipeline, run_process, wait_for)
+from _pipeline_harness import (ROOT, FakeAudio, FakeClipboard, FakeStyler, FakeTranscriber,
+                               Hang, fast_limits, history, make_pipeline, run_process,
+                               speech_wav, wait_for)
 import pipeline_watchdog as pw
 
 
@@ -100,6 +103,39 @@ def test_each_stage_takes_only_its_own_choices():
     run.enter(pw.PASTING)
     assert run.decide(pw.CANCEL) is False          # too late: keep the words
     assert run.cancelled is False
+
+
+def test_a_step_given_up_on_still_hands_over_its_result():
+    """A speech request answered after the deadline has been billed: its
+    result must reach whoever can use it, not vanish."""
+    run = pw.DictationRun(1)
+    hang = Hang(30)
+    r = run.call(lambda: (hang.wait(), "the words")[1], stage=pw.TRANSCRIBING, deadline=0.2)
+    assert r.status == pw.DEADLINE and r.late is not None and not r.late.done
+    got = []
+    r.late.when_done(lambda value, error: got.append((value, error, threading.get_ident())))
+    hang.release.set()
+    assert wait_for(lambda: got, timeout=2)
+    assert got[0][:2] == ("the words", None)
+    assert r.late.done and r.late.value == "the words"
+    # Asked after it has finished, the answer still comes, and never on the
+    # caller's own thread (a slow callback must not hold up a dictation).
+    later = []
+    r.late.when_done(lambda value, error: later.append(threading.get_ident()))
+    assert wait_for(lambda: later, timeout=2)
+    assert later[0] != threading.get_ident()
+
+
+def test_a_choice_also_hands_over_the_step_and_an_answer_has_none():
+    run = pw.DictationRun(1)
+    hang = Hang(30)
+    threading.Timer(0.1, lambda: run.decide(pw.SEND_LATER)).start()
+    r = run.call(hang.wait, stage=pw.TRANSCRIBING, deadline=30)
+    hang.release.set()
+    assert r.status == pw.SEND_LATER and r.late is not None
+    assert r.late.wait(2)
+    assert run.call(lambda: 1, stage=pw.STYLING, deadline=1).late is None
+    assert run.call(lambda: 1 / 0, stage=pw.STYLING, deadline=1).late is None
 
 
 # ── the watchdog's tick (fake clock) ─────────────────────────────────────────
@@ -573,3 +609,47 @@ def test_mac_esc_cancels_while_processing_and_not_otherwise():
     set_processing(False)
     esc()
     assert cancels == [1]
+
+
+# ── A recording that is slow to stop (review of Round A) ─────────────────────
+
+def test_a_slow_stop_keeps_the_finished_recording_and_sends_it(tmp_path, monkeypatch):
+    fast_limits(monkeypatch, PREPARE_DEADLINE_S=0.4)
+    hang = Hang(30)
+    p = make_pipeline(tmp_path)
+    p.audio = FakeAudio(speech_wav(3.0), hang=hang)
+    worker = run_process(p)
+    worker.join(3)
+    assert not worker.is_alive(), "the dictation must not wait for stop() for ever"
+    assert p.overlay.toasts()[-1]["heading"] == "Your mic was slow to stop"
+    assert p.page.statuses[-1] == "error"
+    assert history(p) == [] and p.transcriber.calls == 0
+    # stop() returns: the recording is kept, then sent, and nothing is pasted.
+    hang.release.set()
+    assert wait_for(lambda: history(p) and "failed" not in history(p)[0], timeout=5)
+    [entry] = history(p)
+    assert entry["text"] == "ok so ship it on monday"
+    assert p.clipboard.copies == [] and p.clipboard.pastes == []
+    assert list((tmp_path / "unsent").glob("*.wav")) == []
+
+
+def test_a_slow_stop_with_no_speech_in_it_is_not_kept(tmp_path, monkeypatch):
+    fast_limits(monkeypatch, PREPARE_DEADLINE_S=0.4)
+    hang = Hang(30)
+    p = make_pipeline(tmp_path)
+    p.audio = FakeAudio(_silent_wav(3.0), hang=hang)
+    worker = run_process(p)
+    worker.join(3)
+    hang.release.set()
+    assert wait_for(lambda: any("no speech in it" in line for line in p.logged), timeout=3)
+    assert history(p) == [] and not (tmp_path / "unsent").exists()
+
+
+def _silent_wav(seconds):
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(16000)
+        w.writeframes(bytes(int(seconds * 16000) * 2))
+    return buf.getvalue()

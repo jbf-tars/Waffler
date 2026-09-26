@@ -15,12 +15,14 @@ import ast
 import json
 import shutil
 import subprocess
+import threading
+import time
 from datetime import datetime, timedelta
 
 import pytest
 
-from _pipeline_harness import (ROOT, fast_limits, history, make_pipeline, run_process,
-                               speech_wav, wait_for)
+from _pipeline_harness import (ROOT, FakeTranscriber, Hang, fast_limits, history,
+                               make_pipeline, run_process, speech_wav, wait_for)
 import unsent
 
 NODE = shutil.which("node")
@@ -228,11 +230,20 @@ def test_retries_use_the_same_transcriber_the_dictation_used():
     """No other client is built: the user's keys, and only theirs."""
     tree = ast.parse((ROOT / "app.py").read_text(encoding="utf-8"))
     klass = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "WafflerPipeline")
-    resend = next(n for n in klass.body if isinstance(n, ast.FunctionDef) and n.name == "resend_unsent")
-    src = ast.unparse(resend)
-    assert "self._transcribe_with_provenance" in src and "self.styler.style" in src
-    for forbidden in ("OpenAI(", "Groq(", "WhisperTranscriber(", "requests.", "auto_paste", "clipboard"):
-        assert forbidden not in src, forbidden
+
+    def method(name):
+        return ast.unparse(next(n for n in klass.body
+                                if isinstance(n, ast.FunctionDef) and n.name == name))
+
+    resend, fill = method("resend_unsent"), method("_fill_unsent_card")
+    assert "self._transcribe_with_provenance" in resend and "self._fill_unsent_card" in resend
+    assert "self.styler.style" in fill
+    # Every path that sends a recording or fills its card: the resend, the
+    # card, and a late answer to a request Waffler stopped waiting for.
+    for src in (resend, fill, method("_late_words_arrived"), method("_collect_late_words")):
+        for forbidden in ("OpenAI(", "Groq(", "WhisperTranscriber(", "requests.", "auto_paste",
+                          "clipboard"):
+            assert forbidden not in src, forbidden
 
 
 # ── the rules (src/unsent.py) ────────────────────────────────────────────────
@@ -401,3 +412,136 @@ def test_the_journal_card_and_settings_are_wired_up():
     refresh = app[app.index("window.waffler_refresh"):]
     refresh = refresh[:refresh.index("\n};")]
     assert "newItem.failed" in refresh
+
+
+# ── Answers that arrive after Waffler stopped waiting (review of Round A) ────
+# The request given up on at the deadline, or after "Send later", runs on
+# until its own timeout (60 s or more) and is billed if it succeeds. Its words
+# were thrown away and the automatic resend then sent (and billed) the same
+# audio again, up to three times plus Try again and Send now.
+
+def _given_up(tmp_path, monkeypatch, text="ok so ship it on monday"):
+    """A dictation whose speech request outlives the deadline."""
+    fast_limits(monkeypatch)                     # 1.5 s deadline
+    hang = Hang(30)
+    p = make_pipeline(tmp_path, transcriber=FakeTranscriber(text=text, hang=hang))
+    worker = run_process(p)
+    worker.join(5)
+    assert not worker.is_alive()
+    [entry] = history(p)
+    assert entry["failed"] and entry["not_sent_reason"] == "timeout"
+    assert p.transcriber.calls == 1
+    return p, hang, entry["unsent_id"]
+
+
+def test_a_request_given_up_on_fills_the_card_when_it_answers(tmp_path, monkeypatch):
+    p, hang, uid = _given_up(tmp_path, monkeypatch)
+    hang.release.set()
+    assert wait_for(lambda: "failed" not in history(p)[0], timeout=5)
+    [item] = history(p)
+    assert item["text"] == "ok so ship it on monday"
+    assert item["styled"] == "Ok so ship it on monday." and item["sent_later_at"]
+    assert not (tmp_path / "unsent" / uid).exists()
+    assert p.page.updates[-1] == (uid, item)
+    assert p.transcriber.calls == 1, "the recording was sent twice"
+    assert p.clipboard.pastes == []
+    assert wait_for(lambda: p._in_flight(uid) is None and not p._unsent_in_flight, timeout=2)
+
+
+def test_nothing_sends_it_again_while_that_request_runs(tmp_path, monkeypatch):
+    p, hang, uid = _given_up(tmp_path, monkeypatch)
+    for _ in range(3):
+        p._drain_unsent("test", ignore_backoff=True)
+    assert p.transcriber.calls == 1
+    assert p.resend_unsent(uid, auto=True)["reason"] == "in_flight"
+    assert p.transcriber.calls == 1
+    hang.release.set()
+    assert wait_for(lambda: "failed" not in history(p)[0], timeout=5)
+
+
+def test_try_again_waits_for_that_request_instead_of_paying_twice(tmp_path, monkeypatch):
+    p, hang, uid = _given_up(tmp_path, monkeypatch)
+    result = {}
+    t = threading.Thread(target=lambda: result.update(p.resend_unsent(uid)), daemon=True)
+    t.start()
+    time.sleep(0.3)
+    assert t.is_alive(), "Try again should wait for the request already on its way"
+    hang.release.set()
+    t.join(5)
+    assert result["ok"] is True
+    assert result["item"]["text"] == "ok so ship it on monday"
+    assert p.transcriber.calls == 1
+    assert "failed" not in history(p)[0]
+
+
+def test_send_later_keeps_the_request_and_its_answer_fills_the_card(tmp_path, monkeypatch):
+    fast_limits(monkeypatch, TRANSCRIBE_DEADLINE_MIN_S=5.0, TRANSCRIBE_DEADLINE_BASE_S=5.0,
+                TRANSCRIBE_DEADLINE_MAX_S=5.0)
+    hang = Hang(30)
+    p = make_pipeline(tmp_path, transcriber=FakeTranscriber(hang=hang))
+    worker = run_process(p)
+    assert wait_for(lambda: p.overlay.toasts(), timeout=3)
+    p._on_toast_action("send_later")
+    worker.join(3)
+    assert history(p)[0]["not_sent_reason"] == "later"
+    hang.release.set()
+    assert wait_for(lambda: "failed" not in history(p)[0], timeout=5)
+    assert p.transcriber.calls == 1 and p.clipboard.pastes == []
+
+
+def test_a_late_request_that_fails_leaves_the_card_for_the_next_try(tmp_path, monkeypatch):
+    p, hang, uid = _given_up(tmp_path, monkeypatch)
+    p.transcriber.error = ConnectionError("Connection error.")
+    hang.release.set()
+    assert wait_for(lambda: not p._unsent_in_flight, timeout=5)
+    assert history(p)[0]["failed"] and history(p)[0]["unsent_id"] == uid
+    p.transcriber.error = None
+    p._drain_unsent("test", ignore_backoff=True)
+    assert p.transcriber.calls == 2
+    assert "failed" not in history(p)[0]
+
+
+def test_a_late_answer_with_no_words_stops_the_retries(tmp_path, monkeypatch):
+    p, hang, uid = _given_up(tmp_path, monkeypatch, text="")
+    hang.release.set()
+    assert wait_for(lambda: history(p)[0].get("not_sent_reason") == "empty", timeout=5)
+    assert history(p)[0]["will_retry"] is False
+    p._drain_unsent("test", ignore_backoff=True)
+    assert p.transcriber.calls == 1
+
+
+def test_a_late_answer_during_a_dictation_goes_in_as_said(tmp_path, monkeypatch):
+    """It never competes with a dictation for the clean-up."""
+    p, hang, uid = _given_up(tmp_path, monkeypatch)
+    styled_before = p.styler.calls
+    run = p._watchdog.begin(99)                 # a dictation being processed
+    hang.release.set()
+    assert wait_for(lambda: "failed" not in history(p)[0], timeout=5)
+    p._watchdog.end(run, "done")
+    assert history(p)[0]["styled"] == "ok so ship it on monday"
+    assert p.styler.calls == styled_before
+
+
+def test_a_card_deleted_while_its_request_runs_stays_deleted(tmp_path, monkeypatch):
+    p, hang, uid = _given_up(tmp_path, monkeypatch)
+    assert p.delete_unsent(uid)["ok"] is True
+    hang.release.set()
+    assert wait_for(lambda: not p._unsent_in_flight, timeout=5)
+    assert history(p) == []
+
+
+def test_a_resend_given_up_on_is_kept_too(tmp_path, monkeypatch):
+    """A resend that hits its own deadline repeated the pattern."""
+    fast_limits(monkeypatch)
+    p = make_pipeline(tmp_path)
+    uid = _fail_one(p)["unsent_id"]
+    hang = Hang(30)
+    p.transcriber.hang = hang
+    r = p.resend_unsent(uid, auto=True)
+    assert r["ok"] is False and r["reason"] == "timeout"
+    assert p._in_flight(uid) is not None
+    p._drain_unsent("test", ignore_backoff=True)
+    calls = p.transcriber.calls
+    hang.release.set()
+    assert wait_for(lambda: "failed" not in history(p)[0], timeout=5)
+    assert p.transcriber.calls == calls

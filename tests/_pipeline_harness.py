@@ -46,7 +46,8 @@ PIPELINE_METHODS = (
     "_ui_offer", "_ui_withdraw_offer", "_ui_finished", "_ui_stuck",
     "_save_unsent_recording", "_handle_failed_transcription", "_count_unsent",
     "_replace_unsent_entry", "resend_unsent", "delete_unsent", "_drain_unsent",
-    "_drain_unsent_soon",
+    "_drain_unsent_soon", "_fill_unsent_card", "_in_flight",
+    "_collect_late_words", "_late_words_arrived", "_keep_late_recording",
 )
 MODULE_DEFS = ("ensure_data_dir", "load_history", "save_history", "append_history",
                "append_history_safely", "_MIN_TAP_SPEECH_S")
@@ -105,12 +106,18 @@ class Hang:
 
 
 class FakeAudio:
-    def __init__(self, wav: bytes):
+    """``hang`` makes stop() wait like a recorder whose lock is held while a
+    device is rebuilt."""
+
+    def __init__(self, wav: bytes, hang=None):
         self.wav = wav
+        self.hang = hang
         self.stops = 0
 
     def stop(self):
         self.stops += 1
+        if self.hang is not None:
+            self.hang.wait()
         return self.wav
 
     def force_rebuild(self):
@@ -299,6 +306,8 @@ def make_pipeline(data_dir: Path, *, transcriber=None, styler=None, clipboard=No
     p._unsent_lock = threading.Lock()
     p._drain_lock = threading.Lock()
     p._unsent_waiting = 0
+    p._unsent_in_flight = {}
+    p._in_flight_lock = threading.Lock()
     p._watchdog = pw.PipelineWatchdog(
         on_begin=p._ui_begin, on_working=p._ui_working, on_offer=p._ui_offer,
         on_withdraw_offer=p._ui_withdraw_offer, on_finished=p._ui_finished,

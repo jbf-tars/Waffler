@@ -2906,6 +2906,10 @@ class WafflerPipeline:
         # time; the drain thread sends them again when the provider answers.
         self._unsent_lock = threading.Lock()
         self._drain_lock = threading.Lock()
+        # Speech requests Waffler stopped waiting for that are still running,
+        # by unsent id (see _collect_late_words).
+        self._unsent_in_flight = {}
+        self._in_flight_lock = threading.Lock()
         self._unsent_waiting = self._count_unsent()
         threading.Thread(target=self._unsent_drain_loop, daemon=True,
                          name="UnsentDrain").start()
@@ -3296,6 +3300,24 @@ class WafflerPipeline:
                 _log_to_file(f"Processing {processing_id} cancelled while stopping the recording")
                 _outcome = _pw.CANCELLED
                 return
+            if _stopped.status == _pw.DEADLINE and _stopped.late is not None:
+                # The recording is finished; only stop() is still waiting for
+                # the recorder (a device being rebuilt can hold its lock).
+                # Before the deadline existed the dictation waited for it and
+                # went through, so its bytes are not thrown away now: when
+                # stop() returns they are kept as Not sent and sent from there.
+                _log_to_file(f"[pipeline] stopping the recording took over "
+                             f"{_pw.PREPARE_DEADLINE_S:.0f}s; it will be kept if it finishes")
+                _stopped.late.when_done(self._keep_late_recording)
+                try:
+                    self.overlay.show_toast(
+                        style="warn", heading="Your mic was slow to stop",
+                        body="Nothing was pasted. If the recording comes through, "
+                             "Waffler keeps it in the Journal and sends it from there.")
+                except Exception:
+                    pass
+                _outcome = _pw.ERROR
+                return
             if not _stopped.ok:
                 raise RuntimeError(
                     f"stopping the recording did not finish ({_stopped.status}"
@@ -3513,8 +3535,12 @@ class WafflerPipeline:
                              f"keeping the recording: {_why[:160]}")
                 run.enter(_pw.SAVING)
                 if not run.abandoned:
-                    self._handle_failed_transcription(audio_bytes, _why)
+                    _uid = self._handle_failed_transcription(audio_bytes, _why)
                     run.saved_as_unsent = True
+                    # The request itself is still running and will probably
+                    # be billed: its answer goes into the card, and nothing
+                    # sends this recording again while it runs.
+                    self._collect_late_words(_uid, _asr.late, run.audio_seconds)
                 _outcome = _pw.NOT_SENT
                 return
             transcript, _asr_info = _asr.value
@@ -4218,6 +4244,11 @@ class WafflerPipeline:
         Returns {"ok": True, "item": ...} once the card holds the words, or
         {"ok": False, "reason": ..., "item": ...}. Bounded like a dictation,
         so a provider that still does not answer cannot hang it.
+
+        While a request Waffler stopped waiting for is still running for this
+        recording, Try again waits for that answer instead of sending the
+        recording (and paying for it) a second time, and the automatic
+        sending leaves it alone.
         """
         with self._unsent_lock:
             try:
@@ -4230,6 +4261,9 @@ class WafflerPipeline:
             path = _unsent.resolve_file(DATA_DIR / _unsent.UNSENT_DIRNAME, unsent_id)
             if path is None:
                 return {"ok": False, "reason": "missing", "item": entry}
+            late = self._in_flight(unsent_id)
+            if late is not None and auto:
+                return {"ok": False, "reason": "in_flight", "item": entry}
             try:
                 audio_bytes = path.read_bytes()
             except Exception as e:
@@ -4240,10 +4274,22 @@ class WafflerPipeline:
                          f"({'automatic' if auto else 'Try again'})")
             run = _pw.DictationRun(f"resend:{unsent_id}")
             run.set_audio_seconds(len(audio_bytes) / 32000.0)
-            asr = run.call(self._transcribe_with_provenance, audio_bytes,
-                           stage=_pw.TRANSCRIBING,
-                           deadline=_pw.transcribe_deadline_s(run.audio_seconds))
-            transcript = asr.value[0] if asr.ok else ""
+            deadline = _pw.transcribe_deadline_s(run.audio_seconds)
+            asr = None
+            if late is not None:
+                _log_to_file(f"[unsent] {unsent_id}: an earlier request is still running; "
+                             f"waiting for its answer instead of sending it again")
+                if not late.wait(deadline):
+                    asr = _pw.CallResult(_pw.DEADLINE)
+                elif late.error is None:
+                    asr = _pw.CallResult("ok", value=late.value)
+                # That request failed: send the recording again below.
+            if asr is None:
+                asr = run.call(self._transcribe_with_provenance, audio_bytes,
+                               stage=_pw.TRANSCRIBING, deadline=deadline)
+                if not asr.ok:
+                    self._collect_late_words(unsent_id, asr.late, run.audio_seconds)
+            transcript = asr.value[0] if asr.ok and asr.value else ""
             if not asr.ok or not transcript:
                 if asr.ok:
                     kind = _unsent.REASON_EMPTY   # it went through, but nothing was heard
@@ -4258,19 +4304,30 @@ class WafflerPipeline:
                 if self._replace_unsent_entry(unsent_id, updated):
                     notify_js_item_updated(unsent_id, updated)
                 return {"ok": False, "reason": kind, "item": updated}
+            return self._fill_unsent_card(unsent_id, entry, path, asr.value,
+                                          run.audio_seconds)
 
-            try:
-                from transcribe_whisper import load_vocab, apply_vocab_corrections
-                vocab = load_vocab()
-                if vocab:
-                    transcript, _c = apply_vocab_corrections(transcript, vocab)
-            except Exception as e:
-                _log_to_file(f"[unsent] vocabulary step skipped: {e}")
-            provider = asr.value[1].get("backend") or ""
-            provider = {"api": "openai", "mlx": "local", "faster": "local"}.get(provider, provider)
-            record_usage_safely("whisper", duration_seconds=len(audio_bytes) / 32000.0,
-                                provider=provider or "groq")
+    def _fill_unsent_card(self, unsent_id: str, entry: dict, path, asr_value,
+                          audio_seconds: float, style: bool = True) -> dict:
+        """Speech to text answered for a Not sent recording: tidy the words,
+        put them into its card (a normal Journal entry from then on) and
+        remove the file. Call with _unsent_lock held."""
+        transcript, info = asr_value
+        try:
+            from transcribe_whisper import load_vocab, apply_vocab_corrections
+            vocab = load_vocab()
+            if vocab:
+                transcript, _c = apply_vocab_corrections(transcript, vocab)
+        except Exception as e:
+            _log_to_file(f"[unsent] vocabulary step skipped: {e}")
+        provider = (info or {}).get("backend") or ""
+        provider = {"api": "openai", "mlx": "local", "faster": "local"}.get(provider, provider)
+        record_usage_safely("whisper", duration_seconds=audio_seconds,
+                            provider=provider or "groq")
 
+        styled = ""
+        if style:
+            run = _pw.DictationRun(f"fill:{unsent_id}")
             sty = run.call(self.styler.style, transcript, stage=_pw.STYLING,
                            deadline=_pw.STYLE_DEADLINE_S)
             if sty.ok and sty.value and sty.value[0]:
@@ -4279,23 +4336,115 @@ class WafflerPipeline:
                     record_usage_safely("gpt", input_tokens=usage.get("input_tokens", 0),
                                         output_tokens=usage.get("output_tokens", 0),
                                         provider=usage.get("provider", "openai"))
-            else:
-                styled = self._unstyled(transcript)
-            styled = self._apply_snippets(styled)
+        if not styled:
+            styled = self._unstyled(transcript)
+        styled = self._apply_snippets(styled)
 
-            new_item = _unsent.resolved(entry, transcript=transcript, styled=styled)
-            if not self._replace_unsent_entry(unsent_id, new_item):
-                return {"ok": False, "reason": "not_saved", "item": entry}
+        new_item = _unsent.resolved(entry, transcript=transcript, styled=styled)
+        if not self._replace_unsent_entry(unsent_id, new_item):
+            return {"ok": False, "reason": "not_saved", "item": entry}
+        if path is not None:
             try:
                 path.unlink()
             except Exception as e:
                 _log_to_file(f"[unsent] sent, but {unsent_id} could not be removed: {e}")
-            self._unsent_waiting = max(0, self._unsent_waiting - 1)
-            _log_to_file(f"[unsent] {unsent_id} sent: {len(styled.split())} words")
-            notify_js_item_updated(unsent_id, new_item)
-            if self._unsent_waiting == 0 and _tray_state_now == _tray_state.NOT_SENT:
-                _set_tray_state(_tray_state.IDLE)
-            return {"ok": True, "item": new_item}
+        self._unsent_waiting = self._count_unsent()
+        _log_to_file(f"[unsent] {unsent_id} sent: {len(styled.split())} words")
+        notify_js_item_updated(unsent_id, new_item)
+        if self._unsent_waiting == 0 and _tray_state_now == _tray_state.NOT_SENT:
+            _set_tray_state(_tray_state.IDLE)
+        return {"ok": True, "item": new_item}
+
+    # ── Answers that arrive after Waffler stopped waiting ─────────────────
+    # DictationRun.call stops waiting at a deadline or a choice, but the step
+    # runs on until its own timeout (at least 60 s for a speech request, past
+    # the 45 s deadline). A speech request answered then has been billed, and
+    # its words used to be thrown away while the automatic resend sent (and
+    # billed) the same audio again.
+
+    def _in_flight(self, unsent_id: str):
+        """The request still running for this recording, or None."""
+        with self._in_flight_lock:
+            late = self._unsent_in_flight.get(unsent_id)
+        return late if late is not None and not late.done else None
+
+    def _collect_late_words(self, unsent_id: str, late, audio_seconds: float):
+        """Keep a speech request Waffler stopped waiting for. While it runs
+        nothing sends this recording again, and the words it brings back go
+        into the recording's Not sent card."""
+        if not unsent_id or late is None:
+            return
+        with self._in_flight_lock:
+            self._unsent_in_flight[unsent_id] = late
+        late.when_done(lambda value, error: self._late_words_arrived(
+            unsent_id, late, value, error, audio_seconds))
+
+    def _late_words_arrived(self, unsent_id: str, late, value, error,
+                            audio_seconds: float):
+        """The request finished after Waffler had stopped waiting for it."""
+        try:
+            if error is not None:
+                _log_to_file(f"[unsent] the late request for {unsent_id} failed too "
+                             f"({type(error).__name__}); the card stays")
+                return
+            with self._unsent_lock:
+                try:
+                    history = load_history()
+                except Exception:
+                    history = []
+                _idx, entry = _unsent.find_entry(history, unsent_id)
+                if entry is None:
+                    _log_to_file(f"[unsent] words for {unsent_id} arrived after its card "
+                                 f"was sent or deleted")
+                    return
+                transcript = value[0] if value else ""
+                if not transcript:
+                    # It was heard, and nothing was said: don't pay to send it again.
+                    updated = _unsent.with_attempt(entry, auto=False,
+                                                   reason=_unsent.REASON_EMPTY)
+                    updated["will_retry"] = False
+                    if self._replace_unsent_entry(unsent_id, updated):
+                        notify_js_item_updated(unsent_id, updated)
+                    self._unsent_waiting = self._count_unsent()
+                    _log_to_file(f"[unsent] the late request for {unsent_id} heard no words")
+                    return
+                path = _unsent.resolve_file(DATA_DIR / _unsent.UNSENT_DIRNAME, unsent_id)
+                # The clean-up never competes with a dictation for the styler:
+                # while one is running, the words go in as said.
+                busy = self.is_recording or bool(self._watchdog.active())
+                result = self._fill_unsent_card(unsent_id, entry, path, value,
+                                                audio_seconds, style=not busy)
+                if result.get("ok"):
+                    _log_to_file(f"[unsent] {unsent_id}: the late answer filled its card")
+        except Exception as e:
+            _log_to_file(f"[unsent] late answer for {unsent_id} not used "
+                         f"({type(e).__name__}: {e})")
+        finally:
+            with self._in_flight_lock:
+                if self._unsent_in_flight.get(unsent_id) is late:
+                    del self._unsent_in_flight[unsent_id]
+
+    def _keep_late_recording(self, value, error):
+        """stop() returned after the dictation stopped waiting for it (see
+        _process): keep the finished recording as Not sent, and send it."""
+        if error is not None or not value:
+            why = f" ({type(error).__name__})" if error is not None else ""
+            _log_to_file(f"[pipeline] the slow stop ended without a recording{why}")
+            return
+        try:
+            speech = _speech_seconds(value)
+        except Exception:
+            speech = _MIN_TAP_SPEECH_S     # can't tell: keep it rather than lose it
+        if speech < _MIN_TAP_SPEECH_S:
+            _log_to_file("[pipeline] the slow stop's recording has no speech in it; not kept")
+            return
+        uid = self._handle_failed_transcription(value, _unsent.REASON_STUCK, toast=False)
+        if not uid:
+            return
+        _log_to_file(f"[pipeline] the slow stop's recording is kept as {uid}")
+        if not self.is_recording and not self._watchdog.active():
+            _set_tray_state(_tray_state.NOT_SENT)
+        self._drain_unsent_soon("a recording that was slow to stop was kept")
 
     def delete_unsent(self, unsent_id: str) -> dict:
         """Delete a Not sent recording and its Journal card."""
@@ -4336,8 +4485,11 @@ class WafflerPipeline:
                 return
             waiting = _unsent.pending(history, DATA_DIR / _unsent.UNSENT_DIRNAME)
             self._unsent_waiting = len(waiting)
+            # One still on its way (a request Waffler stopped waiting for) is
+            # left to that request: sending it again would pay for it twice.
             due = [uid for uid, entry, _p in waiting
-                   if _unsent.auto_retry_due(entry, ignore_backoff=ignore_backoff)]
+                   if _unsent.auto_retry_due(entry, ignore_backoff=ignore_backoff)
+                   and self._in_flight(uid) is None]
             if not due:
                 return
             _log_to_file(f"[unsent] {len(due)} recording(s) to send again ({why})")

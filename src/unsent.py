@@ -19,6 +19,9 @@ This module holds the rules; app.py does the sending. The rules:
     most three automatic attempts each, spaced out, and never while a
     dictation is recording or being processed. Try again on the card always
     works.
+  * A request Waffler stopped waiting for is still answered, and billed, by
+    the provider. While it runs nothing sends that recording again, and the
+    words it brings back go into the card (app.py _collect_late_words).
 """
 
 import re

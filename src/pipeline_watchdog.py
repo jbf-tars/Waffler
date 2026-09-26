@@ -23,7 +23,11 @@ first:
   * the step's deadline passes.
 
 A step that is given up on keeps running on its daemon thread until its own
-network timeout, and its result is thrown away. Nothing waits for it.
+network timeout. Nothing waits for it, but its result is not lost: the
+``CallResult`` carries a ``LateResult`` for it, and the pipeline hands the
+late answer to whoever can still use it (a speech request the provider will
+bill anyway fills the recording's Not sent card; a recording that was slow to
+stop is kept as Not sent).
 
 ``PipelineWatchdog`` ticks every quarter second while a dictation is being
 processed. It keeps the pill's elapsed time moving, offers the choices once
@@ -124,20 +128,73 @@ def elapsed_label(seconds: float) -> str:
     return f"{s}s" if s < 60 else f"{s // 60}:{s % 60:02d}"
 
 
+def _run_callback(fn, value, error):
+    try:
+        fn(value, error)
+    except Exception:
+        pass    # the callback logs its own trouble; never kill the thread over it
+
+
+class LateResult:
+    """A step ``DictationRun.call`` stopped waiting for, still running.
+
+    The step goes on until its own timeout, and a speech request that is
+    answered late has usually been billed. Its result used to be thrown away,
+    so the recording was then sent (and billed) again. ``when_done`` hands
+    the result to whoever can still use it.
+    """
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._event = threading.Event()
+        self._callbacks = []
+        self.value = None
+        self.error = None
+
+    @property
+    def done(self) -> bool:
+        return self._event.is_set()
+
+    def wait(self, timeout=None) -> bool:
+        """Wait up to ``timeout`` seconds; True once the step has finished."""
+        return self._event.wait(timeout)
+
+    def _settle(self, value, error):
+        """Record the step's result. Returns the callbacks still to run."""
+        with self._lock:
+            self.value, self.error = value, error
+            self._event.set()
+            callbacks, self._callbacks = self._callbacks, []
+        return callbacks
+
+    def when_done(self, fn):
+        """Call ``fn(value, error)`` once the step finishes: on the step's
+        own thread, or on a new one if it has finished already. Never on
+        the caller's thread, so a slow ``fn`` cannot hold up a dictation."""
+        with self._lock:
+            if not self._event.is_set():
+                self._callbacks.append(fn)
+                return
+        threading.Thread(target=_run_callback, args=(fn, self.value, self.error),
+                         daemon=True, name="LateResult").start()
+
+
 class CallResult:
     """What ``DictationRun.call`` came back with.
 
     ``status`` is "ok" (``value`` holds the step's return value), "error"
     (``error`` holds the exception), ``DEADLINE``, or the user's choice:
-    ``CANCEL``, ``SEND_LATER`` or ``PASTE_RAW``.
+    ``CANCEL``, ``SEND_LATER`` or ``PASTE_RAW``. When the wait ended before
+    the step did, ``late`` is the step still running (a ``LateResult``).
     """
 
-    __slots__ = ("status", "value", "error")
+    __slots__ = ("status", "value", "error", "late")
 
-    def __init__(self, status, value=None, error=None):
+    def __init__(self, status, value=None, error=None, late=None):
         self.status = status
         self.value = value
         self.error = error
+        self.late = late
 
     @property
     def ok(self) -> bool:
@@ -258,17 +315,21 @@ class DictationRun:
         if self._cancelled and CANCEL in allowed:
             return CallResult(CANCEL)
 
-        box = {}
-        done = threading.Event()
+        late = LateResult()
 
         def _work():
+            value = error = None
             try:
-                box["value"] = fn(*args, **kwargs)
+                value = fn(*args, **kwargs)
             except BaseException as e:  # noqa: BLE001 - handed to the caller
-                box["error"] = e
+                error = e
             finally:
-                done.set()
+                callbacks = late._settle(value, error)
                 self._wake.set()
+                # Only a step the wait gave up on has callbacks: the pipeline
+                # asked for its late result.
+                for cb in callbacks:
+                    _run_callback(cb, value, error)
 
         threading.Thread(target=_work, daemon=True,
                          name=f"Dictation{self.generation}-{stage}").start()
@@ -277,19 +338,19 @@ class DictationRun:
             # Clear before checking, so a wake-up between the checks and the
             # wait below is never lost.
             self._wake.clear()
-            if done.is_set():
-                if "error" in box:
-                    return CallResult("error", error=box["error"])
-                return CallResult("ok", value=box.get("value"))
+            if late.done:
+                if late.error is not None:
+                    return CallResult("error", error=late.error)
+                return CallResult("ok", value=late.value)
             with self._lock:
                 choice = self._decision
                 if choice is not None and choice in allowed:
                     if choice != CANCEL:
                         self._decision = None
-                    return CallResult(choice)
+                    return CallResult(choice, late=late)
             remaining = deadline - (self._clock() - t0)
             if remaining <= 0:
-                return CallResult(DEADLINE)
+                return CallResult(DEADLINE, late=late)
             self._wake.wait(min(0.25, remaining))
 
 
