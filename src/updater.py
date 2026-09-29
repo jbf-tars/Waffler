@@ -42,6 +42,17 @@ except ImportError:  # imported as src.updater
 # and the UI sits at 0% forever (the symptom users actually report).
 _STALL_TIMEOUT_S = 45
 
+# How the Windows update batch is started. CREATE_NO_WINDOW gives cmd.exe a
+# hidden console that every command in the batch (taskkill, tasklist, find,
+# ping) shares. Do NOT add DETACHED_PROCESS: Windows ignores CREATE_NO_WINDOW
+# when it is set, cmd then has no console at all, and each of those commands
+# opens its own visible terminal window during the update (seen in the
+# 3.14.99 -> 3.14.100 update). CREATE_NEW_PROCESS_GROUP keeps the batch
+# running after Waffler exits.
+_CREATE_NEW_PROCESS_GROUP = 0x00000200
+_CREATE_NO_WINDOW = 0x08000000
+UPDATE_BATCH_FLAGS = _CREATE_NEW_PROCESS_GROUP | _CREATE_NO_WINDOW
+
 # A real-browser UA — GitHub's release-assets CDN sometimes throttles or
 # 403s unidentified python-requests clients on signed-redirect URLs.
 _USER_AGENT = "Waffler-Updater/1.0 (+https://github.com/jbf-tars/waffler)"
@@ -712,13 +723,10 @@ def _install_windows(exe_path: Path) -> None:
     bat_path = Path(tempfile.gettempdir()) / f"waffler_update_{os.getpid()}.bat"
     bat_path.write_text(bat, encoding="utf-8")
 
-    DETACHED_PROCESS = 0x00000008
-    CREATE_NEW_PROCESS_GROUP = 0x00000200
-    CREATE_NO_WINDOW = 0x08000000
     subprocess.Popen(
         ["cmd", "/c", str(bat_path)],
         close_fds=True,
-        creationflags=DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW,
+        creationflags=UPDATE_BATCH_FLAGS,
     )
     # Exit promptly so the batch's kill_loop finds nothing to wait on and the
     # installer runs against fully-unlocked files.

@@ -217,6 +217,15 @@ website and setup, in light and Dark.
   code-signing policy no longer says audio is captured only while you hold
   the hotkey: the half-second before is part of each recording.
 
+### Fixed
+- **Updating on Windows no longer opens a stream of terminal windows.** The
+  update helper was started with two Windows flags, "detached" and "no
+  window", and Windows ignores "no window" when both are set. The helper then
+  had no console, so each small command it runs while waiting for Waffler to
+  close (taskkill, tasklist, find, ping) opened its own visible window. It
+  now runs in one hidden console. Updates from 3.14.100 and earlier still use
+  the old helper, so this last update may show the windows once more.
+
 ## [3.14.100] - 2026-09-26
 
 Two things the app claimed that were not true, and a dictation fix. Its
