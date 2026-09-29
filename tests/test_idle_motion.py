@@ -90,9 +90,12 @@ def test_one_reduced_motion_rule_covers_every_element():
     for decl in ("animation-duration: 0.01ms !important", "animation-iteration-count: 1 !important",
                  "transition-duration: 0.01ms !important"):
         assert decl in body
-    # The macOS walkthrough is drawn by its animation; without one it would
-    # be blank, so the final frame is set by hand.
-    assert ".vb-phase-list" in block and ".vb-cursor" in block
+    # 3.15 setup draws every picture still (the animated macOS walkthrough
+    # that needed a hand-set final frame is gone), so reduced motion can't
+    # leave a blank screen there.
+    setup_css = (ROOT / "ui" / "setup.css").read_text(encoding="utf-8")
+    assert "@keyframes" not in setup_css and "animation:" not in setup_css
+    assert "vb-phase-list" not in (ROOT / "ui" / "index.html").read_text(encoding="utf-8")
 
 
 def test_the_page_tracks_its_own_visibility_and_listens_to_app_py():
@@ -101,12 +104,17 @@ def test_the_page_tracks_its_own_visibility_and_listens_to_app_py():
     assert "classList.toggle('waffler-hidden'" in APP_JS
 
 
-def test_the_try_it_waffle_stops_when_it_is_off_screen():
+def test_the_try_it_timer_stops_when_it_is_off_screen():
+    """Setup's only moving part is the recording clock on "Hold ... and
+    talk". It stops when setup closes and when that step is left, so it
+    never keeps ticking behind the Journal (the old explainer waffle did)."""
     hide = APP_JS[APP_JS.index("function hideWizard()"):]
-    assert "wizStopExplainerWaffle()" in hide[:hide.index("\n}")]
+    assert "wizStopRecTimer()" in hide[:hide.index("\n}")]
     show = APP_JS[APP_JS.index("function wizShowStep("):]
     show = show[:show.index("\nfunction ")]
-    assert "else wizStopExplainerWaffle();" in show
+    assert "if (prev === 'try' && step !== 'try') wizStopPractice();" in show
+    stop = APP_JS[APP_JS.index("function wizStopPractice()"):]
+    assert "wizStopRecTimer();" in stop[:stop.index("\n}")]
 
 
 # ── app.py tells the page about hide, minimise and restore ───────────────────

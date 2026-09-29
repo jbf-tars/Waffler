@@ -45,12 +45,24 @@
     return Object.prototype.hasOwnProperty.call(STATUS_RESET_MS, cls) ? STATUS_RESET_MS[cls] : 0;
   }
 
-  // While processing, the pill counts: "Cleaning up · 4 s". Nothing under a
-  // second, so a quick dictation never flickers a number.
-  function workingLabel(label, seconds) {
+  // While processing, the pill counts the seconds beside its label: "4 s",
+  // then "1 min 4 s". Nothing under a second, so a quick dictation never
+  // flickers a number. workingLabel is the whole line, for the tooltip.
+  function workingTime(seconds) {
     const s = Math.max(0, Math.floor(Number(seconds) || 0));
-    if (s < 1) return label;
-    return s < 60 ? `${label} · ${s} s` : `${label} · ${Math.floor(s / 60)} min ${s % 60} s`;
+    if (s < 1) return '';
+    return s < 60 ? `${s} s` : `${Math.floor(s / 60)} min ${s % 60} s`;
+  }
+
+  function workingLabel(label, seconds) {
+    const t = workingTime(seconds);
+    return t ? `${label} · ${t}` : label;
+  }
+
+  // While recording, the pill shows how long you've been talking: "0:04".
+  function recordingTime(seconds) {
+    const s = Math.max(0, Math.floor(Number(seconds) || 0));
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
   }
 
   // ── Not sent recordings (Journal cards) ────────────────────────────────
@@ -101,7 +113,7 @@
       return { id: '', badge: 'Not sent', text: "This wasn't turned into text, and the recording couldn't be saved.",
         next: '', canRetry: false, canReveal: false, canDelete: true };
     }
-    let next = 'Press Try again to send it.';
+    let next = 'Click Try again to send it now.';
     if (reason === 'empty') next = '';
     else if (item.will_retry === true) next = `Waffler will send it by itself when ${p} answers.`;
     return { id, badge: 'Not sent', text, next, canRetry: reason !== 'empty', canReveal: true, canDelete: true };
@@ -123,13 +135,41 @@
   // Settings, Data: how many recordings are waiting.
   function unsentSummary(s) {
     const n = (s && s.count) || 0;
-    if (!n) return { label: 'Nothing waiting. Every recording has been sent.', canSend: false };
+    if (!n) return { label: 'Nothing waiting. Every recording has been sent.', canSend: false, count: 0,
+                     confirm: '' };
     const p = (s && s.provider) || 'your speech service';
     return {
-      label: `${n === 1 ? '1 recording is' : `${n} recordings are`} waiting to be sent. `
-        + `Waffler sends ${n === 1 ? 'it' : 'them'} when ${p} answers, or you can send ${n === 1 ? 'it' : 'them'} now.`,
+      label: `${n === 1 ? '1 recording is' : `${formatCount(n)} recordings are`} waiting to be sent. `
+        + `Waffler sends ${n === 1 ? 'it' : 'them'} when ${p} answers.`,
       canSend: true,
+      count: n,
+      confirm: n === 1 ? 'Delete the recording waiting to be sent?'
+        : `Delete the ${formatCount(n)} recordings waiting to be sent?`,
     };
+  }
+
+  // ── History retention (Settings, Privacy and data) ─────────────────────
+  // src/privacy_data.py HISTORY_CHOICES: 0 keeps everything.
+  const HISTORY_KEEP = [0, 365, 90, 30];
+
+  function historyKeepLabel(days) {
+    const d = Number(days) || 0;
+    if (d === 365) return 'a year';
+    return d ? `${d} days` : '';
+  }
+
+  // What the panel asks before a shorter choice deletes dictations.
+  function historyKeepConfirm(days, count) {
+    const n = Number(count) || 0;
+    return `Delete ${n === 1 ? '1 dictation' : `${formatCount(n)} dictations`} older than ${historyKeepLabel(days)}?`;
+  }
+
+  // The toast after a choice is saved.
+  function historyKeepDone(days, deleted) {
+    const n = Number(deleted) || 0;
+    const keep = Number(days) ? `Waffler keeps your dictations for ${historyKeepLabel(days)}.` : 'Waffler keeps every dictation.';
+    if (!n) return keep;
+    return `${n === 1 ? '1 older dictation' : `${formatCount(n)} older dictations`} deleted. ${keep}`;
   }
 
   // ── Hotkeys ───────────────────────────────────────────────────────────
@@ -250,7 +290,7 @@
       // than trying to download (which used to fail as an "untrusted URL").
       if (r.no_installer || !r.download_url) {
         return {
-          kind: 'no_installer', icon: '⬆️', title,
+          kind: 'no_installer', icon: 'circle-up', title,
           subtitle: r.no_installer_message || UPDATE_TEXT.noInstaller,
           primary: r.release_url
             ? { label: 'Open release page', url: r.release_url }
@@ -259,7 +299,7 @@
         };
       }
       return {
-        kind: 'available', icon: '⬆️', title,
+        kind: 'available', icon: 'circle-up', title,
         subtitle: `You're on v${r.current_version}. Download and install now?`,
         primary: { label: 'Download & Install', download: r.download_url },
         browserUrl: DOWNLOAD_PAGE, cancelLabel: 'Later',
@@ -268,10 +308,10 @@
     if (r.error) {
       const m = splitMessage(r.error);
       const on = r.current_version ? ` You're on v${r.current_version}.` : '';
-      return { kind: 'error', icon: '⚠️', title: m.title, subtitle: (m.subtitle + on).trim() };
+      return { kind: 'error', icon: 'alert', title: m.title, subtitle: (m.subtitle + on).trim() };
     }
     const latest = r.latest_version ? ` (latest: v${r.latest_version})` : '';
-    return { kind: 'up_to_date', icon: '✓', title: "You're up to date",
+    return { kind: 'up_to_date', icon: 'check-circle', title: "You're up to date",
              subtitle: `Running Waffler v${r.current_version || '?'}${latest}.` };
   }
 
@@ -279,7 +319,7 @@
   // download page.
   function updateFailureView(r, fallback) {
     const m = splitMessage((r && r.error) || fallback || UPDATE_TEXT.downloadFailed);
-    return { icon: '⚠️', title: m.title, subtitle: m.subtitle,
+    return { icon: 'alert', title: m.title, subtitle: m.subtitle,
              browserUrl: (r && r.download_page) || DOWNLOAD_PAGE };
   }
 
@@ -374,13 +414,29 @@
     return String(v).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   }
 
+  // Settings, Usage (3.15): counts first, from the Journal (get_stats), per
+  // period; then the estimated money (get_usage_stats).
+  const USAGE_PERIODS = [
+    { id: 'today', label: 'Today', count: 'today_count', words: 'today_words' },
+    { id: 'week', label: 'This week', count: 'week_count', words: 'week_words' },
+    { id: 'month', label: 'This month', count: 'month_count', words: 'month_words' },
+    { id: 'all', label: 'All time', count: 'total_count', words: 'total_words' },
+  ];
+
   function usageView(usage, stats) {
     usage = usage || {};
     stats = stats || {};
     const money = (n, digits) => '$' + (Number(n) || 0).toFixed(digits);
+    const plural = (n, one, many) => `${formatCount(n)} ${Math.round(Number(n) || 0) === 1 ? one : many}`;
     return {
       dictations: formatCount(usage.transcription_count),
       words: formatCount(stats.total_words),
+      periods: USAGE_PERIODS.map((p) => ({
+        id: p.id, label: p.label,
+        count: formatCount(stats[p.count]),
+        countLabel: Math.round(Number(stats[p.count]) || 0) === 1 ? 'dictation' : 'dictations',
+        words: plural(stats[p.words], 'word', 'words'),
+      })),
       costs: {
         today: money(usage.today_cost_usd, 2),
         week: money(usage.week_cost_usd, 2),
@@ -390,6 +446,130 @@
       },
       note: USAGE_NOTE,
     };
+  }
+
+  // One bar per provider in Usage: the estimated cost of its calls, the
+  // biggest in honey and the rest neutral. A provider whose rate isn't
+  // published (Cerebras) is marked as an estimate.
+  function usageProviderRows(byProvider) {
+    const by = byProvider || {};
+    const order = DEFAULT_PROVIDER_ORDER.filter((p) => by[p])
+      .concat(Object.keys(by).filter((p) => !DEFAULT_PROVIDER_ORDER.includes(p)));
+    const costs = order.map((p) => Number(by[p].cost_usd) || 0);
+    const top = Math.max(0, ...costs);
+    const sum = costs.reduce((a, b) => a + b, 0);
+    return order.map((p, i) => {
+      const b = by[p];
+      const n = Math.round(Number(b.count) || 0);
+      const estimate = (Number(b.estimated_count) || 0) > 0;
+      return {
+        id: p,
+        name: PROVIDER_NAMES[p] || (p === 'local' ? 'On this computer' : p.charAt(0).toUpperCase() + p.slice(1)),
+        calls: `${formatCount(n)} ${n === 1 ? 'call' : 'calls'}`,
+        cost: `${estimate ? '~' : ''}$${costs[i].toFixed(costs[i] > 0 && costs[i] < 0.01 ? 4 : 2)}`,
+        estimate,
+        pct: sum > 0 ? Math.max(costs[i] > 0 ? 1 : 0, Math.round((costs[i] / sum) * 100)) : 0,
+        top: top > 0 && costs[i] === top && costs.indexOf(top) === i,
+      };
+    });
+  }
+
+  // ── Settings, About: what Waffler uses right now ─────────────────────
+  // "Whisper large v3 on Groq", "gpt-oss-120b on Groq". Nothing known yet
+  // (no key, or still starting): "No key yet".
+  function usesView(s) {
+    const a = activeProviders(s);
+    const speech = a.speech
+      ? (a.speech === 'mlx' || a.speech === 'faster'
+        ? `${SPEECH_MODEL[a.speech]}, ${SPEECH_BY[a.speech]}`
+        : `${SPEECH_MODEL[a.speech]} on ${SPEECH_BY[a.speech]}`)
+      : 'No key yet';
+    const cleanup = a.cleanup ? `${CLEANUP_MODEL[a.cleanup]} on ${PROVIDER_NAMES[a.cleanup]}` : 'No key yet';
+    return { speech, cleanup };
+  }
+
+  // ── Settings, Keys and providers ──────────────────────────────────────
+  // One row per provider, in the order Waffler tries them. Groq is the
+  // recommended one; OpenAI and Cerebras are optional. The billing words
+  // are the ones checked for setup (Groq's free plan allows about 30
+  // cleaned dictations a day; OpenAI's API is prepaid).
+  const PROVIDER_INFO = {
+    groq: { chip: 'Recommended', chipCls: 'chip-honey', desc: 'Speech to text and clean-up. Free for roughly 30 cleaned dictations a day.' },
+    openai: { chip: 'Optional', chipCls: '', desc: 'Speech to text and clean-up. Prepaid: you buy credit first.' },
+    cerebras: { chip: 'Optional', chipCls: '', desc: 'Clean-up only. No speech to text.' },
+  };
+  const MASK_FLAGS = { groq: 'groq_key_masked', openai: 'api_key_masked', cerebras: 'cerebras_key_masked' };
+
+  function keyRows(order, settings) {
+    const a = activeProviders(settings);
+    const inUse = new Set([a.speech === 'api' ? 'openai' : a.speech, a.cleanup].filter(Boolean));
+    return providerOrderRows(order, settings).map((r) => {
+      const info = PROVIDER_INFO[r.id];
+      const status = !r.hasKey ? 'Not set' : (inUse.has(r.id) ? 'In use' : 'Saved');
+      return Object.assign({}, r, info, {
+        masked: r.hasKey ? String((settings || {})[MASK_FLAGS[r.id]] || '') : '',
+        status, statusCls: status === 'In use' ? 'dot-ok' : (status === 'Saved' ? 'dot-saved' : ''),
+        button: r.hasKey ? 'Replace' : 'Add key',
+      });
+    });
+  }
+
+  // ── Journal cards ─────────────────────────────────────────────────────
+  // The pipeline attaches item.quality only when a recording looks suspect,
+  // so a clean dictation shows nothing. The chip says how sure, and the
+  // reasons are plain sentences under the text (they used to hide in a
+  // tooltip, in fragments like "cleanup did not run - this is the raw
+  // transcript").
+  const QUALITY_REASONS = {
+    low_word_rate: "There are far fewer words than the recording's length suggests, so some may be missing.",
+    styled_dropped_words: 'The clean-up took out more than usual. Show transcript to see everything you said.',
+    styling_fallback: "The clean-up didn't run, so these are your words as you said them.",
+    truncated_midsentence: 'Ends mid-sentence, so some of what you said may be missing.',
+    unterminated_ending: 'Ends without a full stop, so the last words may be missing.',
+    asr_filter_edited: "Waffler's transcript filter changed a few words.",
+    retry_used: 'The first answer was too short, so Waffler asked again.',
+    retry_rejected: 'This looks incomplete, and asking again gave a different answer, so check it.',
+    styling_deadline: 'The clean-up ran out of time, so these are your words as you said them.',
+  };
+
+  function qualityView(item) {
+    const q = item && item.quality;
+    const limited = !!(item && item.as_said === 'limit');
+    const out = { chip: '', level: '', reasons: [], asSaid: limited ? 'As said: limit reached' : '' };
+    if (!q || !q.level || q.level === 'ok') return out;
+    const flags = (q.flags || []).filter((f) => !(limited && (f === 'styling_fallback')));
+    out.reasons = flags.map((f) => QUALITY_REASONS[f]).filter(Boolean);
+    if (!flags.length) return out;
+    out.level = q.level === 'low' ? 'low' : 'check';
+    out.chip = q.level === 'low' ? 'Check this one' : 'Worth a look';
+    return out;
+  }
+
+  // The Journal's day rows: "Friday" on the left, "25 September" on the
+  // right (with the year when it isn't this year). Keys are "YYYY-MM-DD".
+  const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August',
+    'September', 'October', 'November', 'December'];
+
+  function dayKey(ts) {
+    const m = String(ts || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+    return m ? m[0] : '';
+  }
+
+  function dayLabel(key, today) {
+    const m = String(key || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return { day: 'Earlier', date: '' };
+    const d = new Date(+m[1], +m[2] - 1, +m[3]);
+    const now = today || new Date();
+    const year = d.getFullYear() === now.getFullYear() ? '' : ` ${d.getFullYear()}`;
+    return { day: WEEKDAYS[d.getDay()], date: `${d.getDate()} ${MONTHS[d.getMonth()]}${year}` };
+  }
+
+  // Numbers in the stat strip: "31,920", and "110k" past 100,000 so the
+  // strip keeps its width.
+  function statNumber(n) {
+    const v = Math.max(0, Math.round(Number(n) || 0));
+    return v >= 100000 ? `${Math.round(v / 1000)}k` : formatCount(v);
   }
 
   // ── Journal search ────────────────────────────────────────────────────
@@ -422,14 +602,142 @@
     return { kind: 'list' };
   }
 
+  // What a screen reader hears when a search's first page arrives. Only the
+  // first page (up to pageSize) is loaded, so a full page says "at least".
+  function searchAnnouncement(query, count, done) {
+    const q = String(query || '').trim();
+    if (!q) return '';
+    const n = Number(count) || 0;
+    if (!n) return 'No entries match.';
+    if (!done) return `At least ${formatCount(n)} entries match.`;
+    return n === 1 ? '1 entry matches.' : `${formatCount(n)} entries match.`;
+  }
+
+  // Arrow keys in a radio group (the theme picker): the index to move to,
+  // wrapping at the ends, or -1 when the key isn't one of them.
+  function radioMove(index, count, key) {
+    if (!count || index < 0) return -1;
+    if (key === 'ArrowRight' || key === 'ArrowDown') return (index + 1) % count;
+    if (key === 'ArrowLeft' || key === 'ArrowUp') return (index - 1 + count) % count;
+    if (key === 'Home') return 0;
+    if (key === 'End') return count - 1;
+    return -1;
+  }
+
+  // After removing the item at `index`, which of the `left` items keeps
+  // focus: the next one (now at the same index), else the previous one, or
+  // -1 when none are left.
+  function focusAfterRemove(index, left) {
+    if (!left || index < 0) return -1;
+    return Math.min(index, left - 1);
+  }
+
+  // ── First-run setup (3.15) ────────────────────────────────────────────
+
+  // What the key box says about what was typed or pasted, before asking
+  // Groq. Setup only takes a Groq key; OpenAI and Cerebras are added later
+  // in Settings, so their keys are named rather than called wrong.
+  function keyInputView(value) {
+    const v = String(value || '').trim();
+    if (!v) return { kind: 'empty', message: '' };
+    if (v.startsWith('gsk_')) {
+      return v.length >= 20 ? { kind: 'ok', message: '' }
+        : { kind: 'short', message: 'That key looks too short. Click Copy in Groq and try again.' };
+    }
+    if (v.startsWith('csk-')) return { kind: 'cerebras', message: "That's a Cerebras key. Setup needs a free Groq key. You can add Cerebras later in Settings." };
+    if (v.startsWith('sk-')) return { kind: 'openai', message: "That's an OpenAI key. Setup needs a free Groq key. You can add OpenAI later in Settings." };
+    return { kind: 'bad', message: "That doesn't look like a Groq key. Groq keys start with gsk_." };
+  }
+
+  // One row per job a new Groq key has to do (app.py validate_groq_key,
+  // src/first_run.py groq_services).
+  const SERVICE_CHIPS = {
+    ok: { chip: 'Ready', cls: 'chip-ok', icon: 'check', tile: 'is-ok' },
+    missing: { chip: 'Not listed', cls: 'chip-warn', icon: 'alert', tile: 'is-warn' },
+    unchecked: { chip: 'Key saved', cls: '', icon: 'check', tile: 'is-ok' },
+  };
+  function serviceRows(services) {
+    const list = Array.isArray(services) && services.length ? services
+      : [{ name: 'Speech to text', provider: 'Groq', model: '', status: 'unchecked' },
+         { name: 'Clean-up', provider: 'Groq', model: '', status: 'unchecked' }];
+    return list.map((s) => {
+      const v = SERVICE_CHIPS[s.status] || SERVICE_CHIPS.unchecked;
+      const where = [s.provider || 'Groq', s.model].filter(Boolean).join(' · ');
+      return {
+        title: s.name, chip: v.chip, chipCls: v.cls, icon: v.icon, tile: v.tile,
+        desc: s.status === 'missing' ? `${where}. Groq didn't list this model for your key.` : where,
+      };
+    });
+  }
+
+  // "You said", with the words the clean-up left out struck through, as on
+  // the website: "Send it to [John, sorry,] James, by Wednesday at three."
+  // A word-level longest common subsequence of the two texts, ignoring case
+  // and punctuation. When the clean-up rewrote more than half the words,
+  // striking most of the sentence would say nothing useful, so nothing is
+  // struck. Returns [{text, cut}] pieces that join back to `said` exactly.
+  function saidDiff(said, wrote) {
+    const text = String(said || '');
+    const tokens = text.match(/\S+\s*/g) || [];
+    const lead = text.slice(0, text.length - tokens.join('').length);
+    const norm = (t) => t.toLowerCase().replace(/[^\p{L}\p{N}']/gu, '');
+    const a = tokens.map(norm);
+    const b = (String(wrote || '').match(/\S+/g) || []).map(norm).filter(Boolean);
+    const n = a.length, m = b.length;
+    const L = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+    for (let i = n - 1; i >= 0; i--) {
+      for (let j = m - 1; j >= 0; j--) {
+        L[i][j] = a[i] && a[i] === b[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+      }
+    }
+    const cut = new Array(n).fill(false);
+    let i = 0, j = 0;
+    while (i < n) {
+      if (!a[i]) { i++; continue; }                       // punctuation on its own stays
+      if (j < m && a[i] === b[j]) { i++; j++; continue; }
+      if (j < m && L[i][j + 1] > L[i + 1][j]) { j++; continue; }
+      cut[i] = true; i++;
+    }
+    const words = a.filter(Boolean).length;
+    const cutWords = cut.filter(Boolean).length;
+    if (!cutWords || cutWords * 2 > words) return text ? [{ text, cut: false }] : [];
+    const out = lead ? [{ text: lead, cut: false }] : [];
+    tokens.forEach((t, k) => {
+      if (cut[k]) {
+        const body = t.replace(/\s+$/, ''), space = t.slice(body.length);
+        const last = out[out.length - 1];
+        // Join a run of cut words, keeping the spaces between them inside.
+        if (last && last.cut && last.pendingSpace !== undefined) { last.text += last.pendingSpace + body; last.pendingSpace = space; }
+        else out.push({ text: body, cut: true, pendingSpace: space });
+      } else {
+        const last = out[out.length - 1];
+        const pre = last && last.cut ? last.pendingSpace : '';
+        if (last && last.cut) delete last.pendingSpace;
+        if (last && !last.cut) last.text += pre + t;
+        else out.push({ text: pre + t, cut: false });
+      }
+    });
+    const last = out[out.length - 1];
+    if (last && last.cut) { const s = last.pendingSpace; delete last.pendingSpace; if (s) out.push({ text: s, cut: false }); }
+    return out;
+  }
+
+  // The steps of setup, in order. The Mac adds its permissions screen.
+  function setupSteps(isMac) {
+    return isMac ? ['connect', 'permissions', 'try', 'anywhere'] : ['connect', 'try', 'anywhere'];
+  }
+
   return {
-    STATUS_VIEWS, STATUS_CLASSES, DONE_RESET_MS, statusView, statusResetMs, workingLabel,
+    keyInputView, serviceRows, saidDiff, setupSteps,
+    STATUS_VIEWS, STATUS_CLASSES, DONE_RESET_MS, statusView, statusResetMs, workingLabel, workingTime, recordingTime,
     notSentId, notSentView, retryFailedMessage, unsentSummary,
+    HISTORY_KEEP, historyKeepLabel, historyKeepConfirm, historyKeepDone,
     defaultHotkey, keyName, orderKeys, hotkeyName, keycaps, pressOrderHint, hotkeyPresets,
     DOWNLOAD_PAGE, UPDATE_TEXT, splitMessage, updateCheckView, updateFailureView,
     DEFAULT_PROVIDER_ORDER, PROVIDER_NAMES, providerHasKey, normalizeProviderOrder,
     providerOrderRows, activeProviders, backendsLine, aboutLine,
-    USAGE_NOTE, formatCount, usageView,
-    SEARCH_DEBOUNCE_MS, debounce, feedView,
+    USAGE_NOTE, formatCount, usageView, usageProviderRows, usesView, keyRows,
+    qualityView, dayKey, dayLabel, statNumber,
+    SEARCH_DEBOUNCE_MS, debounce, feedView, searchAnnouncement, radioMove, focusAfterRemove,
   };
 });

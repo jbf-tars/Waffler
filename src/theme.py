@@ -1,7 +1,7 @@
 """The window's background colour, chosen to match the UI theme.
 
 pywebview paints the native window before the page loads. It was always
-created with the dark theme's background (#0d0d0f), so with the default Cream
+created with the old dark theme's background, so with the default Cream
 theme every launch flashed dark before the page appeared. The UI keeps its
 theme in the web view's localStorage, which Python cannot read before the
 window exists, so the UI also saves it to settings.json (Api.set_theme) and
@@ -19,10 +19,11 @@ from typing import Optional
 THEMES = ("cream", "dark", "auto")
 DEFAULT_THEME = "cream"
 
-# Must equal --bg-base for each theme in ui/style.css (a test checks this).
+# Must equal --bg for each theme in ui/tokens.css (a test checks this).
+# 3.15: the website's eggshell and warm night.
 BACKGROUNDS = {
-    "cream": "#FBF7EB",
-    "dark": "#0d0d0f",
+    "cream": "#FDFCFC",
+    "dark": "#0C0A09",
 }
 
 

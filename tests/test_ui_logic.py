@@ -100,6 +100,12 @@ def _css_rules():
             for m in re.finditer(r"([^{}@;]+)\{([^{}]*)\}", css)]
 
 
+def _css_rules_of(name):
+    css = code_only(read(name))
+    return [(" ".join(m.group(1).split()), m.group(2))
+            for m in re.finditer(r"([^{}@;]+)\{([^{}]*)\}", css)]
+
+
 def _z(selector):
     zs = [int(m.group(1)) for sel, body in _css_rules() if sel == selector
           for m in [re.search(r"z-index:\s*(\d+)", body)] if m]
@@ -130,33 +136,57 @@ def test_a_message_over_the_wizard_sits_clear_of_its_buttons():
     shown = [body for sel, body in _css_rules() if sel == ".toast.over-wizard.visible"]
     assert shown and "translate(-50%, 0)" in shown[0]
     # The wizard's buttons sit at the bottom of the window.
-    assert '<nav class="wiz-nav">' in read("index.html")
+    assert '<nav class="wiz-nav ob-foot">' in read("index.html")
+    foot = [body for sel, body in _css_rules_of("setup.css") if sel == ".ob-foot"]
+    assert foot and "height: 76px" in foot[0]
 
 
-def test_a_disabled_finish_button_looks_disabled():
-    rule = [body for sel, body in _css_rules() if sel == ".wiz-btn-next.finish:disabled"]
-    assert rule, "Finish Setup had no disabled style, so it looked like the main action"
-    assert "background: #E8E4DC" in rule[0] and "cursor: not-allowed" in rule[0]
-
-
-def test_the_last_step_offers_skip_for_now():
+def test_a_disabled_continue_button_looks_disabled():
+    """Continue (and Done) is the shared .btn-pri; while it can't be used it
+    takes the shared disabled look, so it never looks like the main action."""
     html = read("index.html")
-    assert re.search(r'<button class="wiz-btn-skip" id="wizBtnSkip" onclick="wizSkipTryIt\(\)" hidden>Skip for now</button>', html)
+    assert re.search(r'<button class="btn btn-pri btn-lg ob-next" id="wizBtnNext" onclick="wizNext\(\)" disabled>', html)
+    rule = [body for sel, body in _css_rules_of("components.css") if sel.startswith(".btn:disabled")]
+    assert rule, "no disabled style for buttons"
+    assert "background: var(--surface-2)" in rule[0] and "color: var(--muted)" in rule[0]
+    assert "box-shadow: none" in rule[0]
+    # wizNext refuses while it is disabled, even if the click gets through.
+    app = code_only(read("app.js"))
+    nxt = app[app.index("async function wizNext()"):]
+    assert "if (btn && btn.disabled) return;" in nxt[:nxt.index("\n}")]
+
+
+def test_try_it_always_offers_skip_for_now():
+    """A microphone problem never strands anyone: "Skip for now" is there on
+    the practice until one dictation works, and goes on to the last step
+    (Notepad or TextEdit, start at sign-in), not straight out of setup."""
+    html = read("index.html")
+    assert re.search(r'<button class="btn btn-quiet ob-skip" id="wizBtnSkip" onclick="wizSkipTryIt\(\)" hidden>Skip for now</button>', html)
     app = code_only(read("app.js"))
     skip = app[app.index("async function wizSkipTryIt()"):]
-    assert "await wizCompleteSetup();" in skip[:skip.index("\n}")]
-    assert "skip.hidden = !(_wizardStep === 4 && !_wizardMicTested);" in app
+    assert "wizShowStep('anywhere');" in skip[:skip.index("\n}")]
+    assert "skip.hidden = !(step === 'try' && !_wizardMicTested);" in app
+    # Continue unlocks after one practice dictation.
+    assert "if (step === 'try') enabled = _wizardMicTested;" in app
 
 
 def test_steps_are_shown_without_an_inline_display():
+    """An inline display:block once overrode a step's grid and stacked it two
+    screens tall. The shown step gets no inline display, so setup.css's
+    two-column grid applies, and every step has one."""
     app = code_only(read("app.js"))
     show = app[app.index("function wizShowStep("):]
     show = show[:show.index("\nfunction ")]
-    assert "'block'" not in show, "an inline display:block overrode the Mac permissions grid"
+    assert "'block'" not in show, "an inline display:block overrode the step's grid"
     assert "con.style.removeProperty('display')" in show
-    assert "wizResetHotkeyPill();" in show
-    assert '<div class="wiz-perm-card" id="wizPermInputMon">' in read("index.html")
-    assert '.wiz-step-content:not([style*="none"])' in read("style.css")
+    grid = [body for sel, body in _css_rules_of("setup.css") if sel == ".ob-step"]
+    assert grid and "display: grid" in grid[0]
+    html = read("index.html")
+    for step in ("connect", "permissions", "try", "anywhere"):
+        assert re.search(rf'<section class="ob-step" id="\w+" data-step="{step}"', html), step
+    # A step's parts show by state (data-when), so a hidden part can't leak.
+    assert "el.hidden = !el.dataset.when.split(' ').includes(state);" in app
+    assert ".ob [hidden] { display: none !important; }" in read("setup.css")
 
 
 def test_keycaps_are_never_overwritten_with_plain_text():
@@ -164,14 +194,19 @@ def test_keycaps_are_never_overwritten_with_plain_text():
     # wizLoadHotkeyInfo and wizInitTryItStep set the keycap's textContent to
     # the display name, wiping its light label and icon.
     assert not re.search(r"getElementById\('wizTryHotkeyBadge'\)[^;]*;\s*if \(\w+\) \w+\.textContent", app)
-    for fn in ("async function wizLoadHotkeyInfo()", "async function wizInitTryItStep()"):
-        body = app[app.index(fn):]
-        body = body[:body.index("\n}")]
-        assert "textContent = info.hotkey" not in body
-        assert "wizRefreshHotkey()" in body
+    body = app[app.index("async function wizInitTryItStep()"):]
+    body = body[:body.index("\n}")]
+    assert "textContent = info.hotkey" not in body
+    assert "wizRefreshHotkey()" in body
+    # The big key is drawn from the saved keys: an icon, then each label
+    # escaped, never one display string written over the icon.
+    render = app[app.index("function wizRenderHotkey("):]
+    render = render[:render.index("\n}")]
+    assert "hold.innerHTML = caps.map(" in render and "escHtml(c.label)" in render
+    assert "hold.textContent" not in render
     # Keycap icons draw in the label colour, not a hard-coded near-black.
     assert 'fill="#1A1A1A"' not in app and 'stroke="#1A1A1A"' not in app
-    assert "wiz-keycap-label {" in read("style.css")
+    assert "holdkey {" in read("components.css") and "color: #FDFCFC;" in read("components.css")
 
 
 def test_try_it_without_a_key_points_at_the_right_step():
@@ -278,7 +313,8 @@ def _body(app, head):
 def test_saving_a_hotkey_checks_the_answer_before_saying_it_worked():
     app = code_only(read("app.js"))
     settings = _body(app, "async function changeSettingsHotkey(keys)")
-    assert settings.index("if (!result || !result.ok)") < settings.index("'#4CAF50'")
+    assert settings.index("if (!result || !result.ok)") < settings.index("_onHotkeySaved(result)") \
+        < settings.index("showToast(`Hotkey is now")
     assert "_showSettingsHotkeyError(msg)" in settings
     wizard = _body(app, "async function selectHotkeyPreset(keys)")
     assert wizard.index("if (!result || !result.ok)") < wizard.index("_onHotkeySaved(result)")
@@ -351,7 +387,7 @@ def test_an_update_with_an_installer_downloads_it():
 def test_a_failed_download_is_one_sentence_and_the_download_page():
     v = js(f"L.updateFailureView({{error: {json.dumps(um.UPDATE_DOWNLOAD_FAILED)}, "
            f"error_detail: 'curl: (28) Operation timed out', download_page: {json.dumps(um.DOWNLOAD_PAGE)}}})")
-    assert v == {"icon": "⚠️", "title": "The update didn't download",
+    assert v == {"icon": "alert", "title": "The update didn't download",
                  "subtitle": "Try again, or get it from the download page.", "browserUrl": um.DOWNLOAD_PAGE}
     # A bridge failure with no answer at all still gets the plain sentence.
     v = js("L.updateFailureView(null, L.UPDATE_TEXT.installFailed)")
@@ -415,9 +451,28 @@ def test_providers_without_a_key_are_marked_in_the_order_list():
     assert [r["hasKey"] for r in js("L.providerOrderRows(null, null)")] == [False, False, False]
 
 
+@needs_node
+def test_each_provider_row_says_its_role_its_key_and_its_state():
+    """3.15: keys and the order are one list (logic.js keyRows, built on
+    providerOrderRows). Groq is recommended; OpenAI and Cerebras optional."""
+    rows = js("L.keyRows(['groq','openai','cerebras'], {groq_key_set: true, groq_key_masked: 'gsk_4f9a…7Qe2', "
+              "api_key_set: true, api_key_masked: 'sk-proj-…0jUe', cerebras_key_set: false, "
+              "transcription_backend: 'groq', styling_backend: 'groq'})")
+    assert [(r["id"], r["chip"], r["status"], r["button"], r["masked"]) for r in rows] == [
+        ("groq", "Recommended", "In use", "Replace", "gsk_4f9a…7Qe2"),
+        ("openai", "Optional", "Saved", "Replace", "sk-proj-…0jUe"),
+        ("cerebras", "Optional", "Not set", "Add key", "")]
+    assert rows[0]["desc"].endswith("Free for roughly 30 cleaned dictations a day.")
+    assert "Prepaid" in rows[1]["desc"] and rows[2]["desc"] == "Clean-up only. No speech to text."
+    # The order is the user's, and nothing claims a key before settings load.
+    assert [r["id"] for r in js("L.keyRows(['cerebras','groq'], null)")] == ["cerebras", "groq", "openai"]
+    assert {r["status"] for r in js("L.keyRows(null, null)")} == {"Not set"}
+
+
 def test_the_order_list_greys_out_providers_with_no_key():
     app = code_only(read("app.js"))
-    assert "WL.providerOrderRows(_providerOrder, _lastSettings)" in app
+    assert "WL.keyRows(_providerOrder, _lastSettings)" in app
+    assert "providerOrderRows(order, settings)" in code_only(read("logic.js"))
     assert "po-nokey" in app
     assert re.search(r"\.provider-order-item\.po-nokey\s*\{", code_only(read("style.css")))
 
@@ -456,10 +511,12 @@ def test_the_about_line_names_the_models_in_use():
 
 def test_settings_lists_groq_then_openai_then_cerebras():
     html = read("index.html")
-    groq, openai, cerebras = (html.index(f'<div class="settings-row-label">{n} API Key</div>')
-                              for n in ("Groq", "OpenAI", "Cerebras"))
+    groq, openai, cerebras = (html.index(f'id="{n}KeyEditor"') for n in ("groq", "api", "cerebras"))
     assert groq < openai < cerebras
-    assert 'id="cerebrasKeyDesc">Optional.' in html
+    # OpenAI and Cerebras say they are optional where their key goes in.
+    for n in ("api", "cerebras"):
+        editor = html[html.index(f'id="{n}KeyEditor"'):]
+        assert '<p class="key-help">Optional.' in editor[:editor.index("</p>") + 4]
 
 
 def test_the_header_and_settings_carry_no_stale_labels():
@@ -552,14 +609,15 @@ def test_usage_shows_counts_and_a_labelled_estimate():
 
 def _usage_section():
     html = read("index.html")
-    start = html.index('<div class="settings-section-title">📊 Usage</div>')
-    return html[start:html.index('<div class="settings-section-title">', start + 10)]
+    start = html.index('<section class="s-sec" id="secUsage"')
+    return html[start:html.index('</section>', start)]
 
 
 def test_usage_puts_the_counts_before_the_money():
     usage = _usage_section()
-    assert usage.index(">Dictations<") < usage.index(">Words<") < usage.index("Estimated cost") \
-        < usage.index('id="usageTodayCost"')
+    assert usage.index('id="usageTodayCount"') < usage.index('id="usageAllWords"') \
+        < usage.index("Estimated cost") < usage.index('id="usageTotalCost"') < usage.index('id="usageTodayCost"')
+    assert ">dictations<" in usage and "all time, estimated" in usage
     assert USAGE_NOTE in usage
     # decisions.md: the panel is never presented as what you spent.
     for word in ("spent", "spend", ">Transcriptions<", ">Avg Cost<"):
@@ -628,9 +686,100 @@ def test_search_input_is_debounced_and_clear_search_exists():
     body = body[:body.index("\n}\n") + 3]
     assert "_renderFeedSoon()" in body and "renderFeed()" not in body
     assert "WL.debounce(() => renderFeed(), WL.SEARCH_DEBOUNCE_MS)" in app
-    assert "WL.feedView(history.length, _searchText, filtered.length)" in app
+    # A search asks the backend for its first page (get_history's query).
+    assert "WL.feedView(_histTotal, _searchText, history.length)" in app
+    assert "get_history(PAGE_SIZE, 0, query)" in app
     assert "function clearSearch()" in app
     html = read("index.html")
     no_match = html[html.index('id="noMatchState"'):]
     no_match = no_match[:no_match.index("</button>")]
     assert 'onclick="clearSearch()"' in no_match and ">Clear search" in no_match
+
+
+# ── 3.15 screens: Journal, Settings and Usage helpers ────────────────────────
+
+@needs_node
+def test_quality_flags_are_a_chip_and_plain_sentences():
+    v = js("L.qualityView({quality: {level: 'check', flags: ['truncated_midsentence']}})")
+    assert v == {"chip": "Worth a look", "level": "check", "asSaid": "",
+                 "reasons": ["Ends mid-sentence, so some of what you said may be missing."]}
+    assert js("L.qualityView({quality: {level: 'low', flags: ['low_word_rate']}})")["chip"] == "Check this one"
+    # A clean dictation shows nothing.
+    assert js("L.qualityView({})") == {"chip": "", "level": "", "reasons": [], "asSaid": ""}
+    # A limit: the entry is tagged, and the clean-up flag isn't said twice.
+    v = js("L.qualityView({as_said: 'limit', quality: {level: 'low', flags: ['styling_fallback']}})")
+    assert v == {"chip": "", "level": "", "reasons": [], "asSaid": "As said: limit reached"}
+    # Every flag the pipeline can set has a sentence, with no dash or jargon.
+    reasons = js("['low_word_rate','styled_dropped_words','styling_fallback','truncated_midsentence',"
+                 "'unterminated_ending','asr_filter_edited','retry_used','retry_rejected','styling_deadline']"
+                 ".map((f) => L.qualityView({quality: {level: 'check', flags: [f]}}).reasons[0])")
+    assert all(reasons) and not any(" - " in r or "\u2014" in r or "cleanup" in r for r in reasons)
+
+
+@needs_node
+def test_day_rows_and_stat_numbers():
+    assert js("L.dayKey('2026-09-25T16:31:02')") == "2026-09-25"
+    assert js("L.dayLabel('2026-09-25', new Date(2026, 8, 25))") == {"day": "Friday", "date": "25 September"}
+    assert js("L.dayLabel('2025-12-31', new Date(2026, 8, 25))") == {"day": "Wednesday", "date": "31 December 2025"}
+    assert js("[L.statNumber(967), L.statNumber(31920), L.statNumber(110457), L.statNumber(null)]") == \
+        ["967", "31,920", "110k", "0"]
+
+
+@needs_node
+def test_usage_counts_each_period_from_the_journal():
+    v = js("L.usageView({}, {today_count: 1, today_words: 12, week_count: 96, week_words: 2310, "
+           "month_count: 312, month_words: 7540, total_count: 1284, total_words: 31920})")
+    assert [(p["label"], p["count"], p["countLabel"], p["words"]) for p in v["periods"]] == [
+        ("Today", "1", "dictation", "12 words"), ("This week", "96", "dictations", "2,310 words"),
+        ("This month", "312", "dictations", "7,540 words"), ("All time", "1,284", "dictations", "31,920 words")]
+
+
+@needs_node
+def test_one_honey_bar_and_estimates_marked():
+    rows = js("L.usageProviderRows({openai: {cost_usd: 0.15, count: 94, estimated_count: 0}, "
+              "groq: {cost_usd: 1.9, count: 1190, estimated_count: 0}, cerebras: {cost_usd: 0.004, count: 3, estimated_count: 3}})")
+    assert [(r["name"], r["calls"], r["cost"], r["top"], r["estimate"]) for r in rows] == [
+        ("Groq", "1,190 calls", "$1.90", True, False), ("OpenAI", "94 calls", "$0.15", False, False),
+        ("Cerebras", "3 calls", "~$0.0040", False, True)]
+    assert js("L.usageProviderRows(null)") == []
+
+
+@needs_node
+def test_about_names_what_each_job_uses():
+    assert js("L.usesView({transcription_backend: 'groq', styling_backend: 'groq'})") == \
+        {"speech": "Whisper large v3 on Groq", "cleanup": "gpt-oss-120b on Groq"}
+    assert js("L.usesView({transcription_backend: 'mlx', styling_backend: 'openai'})") == \
+        {"speech": "Whisper, on this Mac", "cleanup": "gpt-4.1-mini on OpenAI"}
+    assert js("L.usesView(null)") == {"speech": "No key yet", "cleanup": "No key yet"}
+
+
+def test_the_journal_starts_once_and_adds_new_entries_without_redrawing():
+    """SR4: each start asked for the whole history five times, and every
+    dictation rebuilt every card. Now one start-up, pages of 50, older ones
+    on scroll, and a new entry added at the top."""
+    app = code_only(read("app.js"))
+    assert app.count("addEventListener('pywebviewready', boot)") == 1
+    assert "addEventListener('pywebviewready', checkOnboarding)" not in app
+    assert "if (_booted || !window.pywebview || !window.pywebview.api) return;" in app
+    assert "const PAGE_SIZE = 50;" in app
+    assert "get_history(PAGE_SIZE, history.length, _searchText)" in app
+    assert "new IntersectionObserver(" in app
+    refresh = app[app.index("window.waffler_refresh"):]
+    refresh = refresh[:refresh.index("\n};")]
+    assert "_prependCard(newItem)" in refresh and "renderFeed()" not in refresh
+
+
+def test_settings_has_six_sections_and_privacy_says_what_is_kept():
+    html = read("index.html")
+    for sec in ("general", "keys", "hotkey", "usage", "privacy", "about"):
+        assert f'data-sec="{sec}" onclick="showSettingsSection(\'{sec}\')"' in html, sec
+    privacy = html[html.index('id="secPrivacy"'):]
+    privacy = privacy[:privacy.index("</section>")]
+    for part in ('id="recentAudioToggle"', 'onclick="deleteRecentAudio(this)"', 'id="unsentRow"',
+                 'onclick="downloadLogs(this)"', 'onclick="factoryReset()"'):
+        assert part in privacy, part
+    app = code_only(read("app.js"))
+    for call in ("get_recent_audio()", "set_recent_audio(", "delete_recent_audio()", "get_cleanup_pause()"):
+        assert call in app, call
+    # Delete all my data asks first, in the page (not a native confirm()).
+    assert "confirm(" not in app

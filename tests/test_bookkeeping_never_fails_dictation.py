@@ -29,6 +29,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 import atomic_json  # noqa: E402
+import privacy_data  # noqa: E402
 
 _TREE = ast.parse((ROOT / "app.py").read_text(encoding="utf-8"))
 
@@ -115,7 +116,8 @@ def test_other_os_errors_are_not_retried(tmp_path, monkeypatch):
 _BOOK = _app_defs("MODEL_RATES", "_rate_for", "_usage_cost", "ensure_data_dir",
                   "load_usage", "save_usage", "record_usage", "record_usage_safely",
                   "load_history", "save_history", "append_history",
-                  "append_history_safely")
+                  "append_history_safely", "_history_retention_day",
+                  "_history_keep_days", "_retain_history")
 
 
 @pytest.fixture
@@ -128,7 +130,7 @@ def book(tmp_path, monkeypatch):
             p, d, sleep=lambda s: None),
         DATA_DIR=tmp_path, HISTORY_FILE=tmp_path / "history.json",
         USAGE_FILE=tmp_path / "usage.json", _history_lock=threading.Lock(),
-        _log_to_file=logged.append,
+        _log_to_file=logged.append, _privacy=privacy_data,
     )
     _BOOK["logged"] = logged
     return _BOOK
