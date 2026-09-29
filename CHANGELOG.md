@@ -225,6 +225,12 @@ website and setup, in light and Dark.
   close (taskkill, tasklist, find, ping) opened its own visible window. It
   now runs in one hidden console. Updates from 3.14.100 and earlier still use
   the old helper, so this last update may show the windows once more.
+- **An update on Windows could stall for ever and leave Waffler closed.** The
+  helper waited for Waffler to close by piping `tasklist` into `find`, and
+  that pipe could hang indefinitely (it did on the 3.14.99 to 3.14.100
+  update), so the installer never ran. It now uses taskkill's own "no such
+  process" result, with no pipe, and gives up waiting after about 30 tries.
+  A test runs the real helper end to end against a stand-in program.
 
 ## [3.14.100] - 2026-09-26
 

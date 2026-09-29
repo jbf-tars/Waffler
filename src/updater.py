@@ -648,6 +648,45 @@ def install_and_restart(installer_path: str) -> None:
         raise RuntimeError(f"Unsupported platform: {sys.platform}")
 
 
+def update_batch_text(exe_path, waffler_exe, log_path, result_path,
+                      image: str = "Waffler.exe", max_kill_tries: int = 30) -> str:
+    """The Windows update batch: close every Waffler, install, relaunch.
+
+    The wait-for-Waffler-to-close loop uses taskkill's own exit code (128 =
+    no such process) instead of piping tasklist into find. In the 3.14.99 to
+    3.14.100 update that pipe hung forever on ``find``, so the installer never
+    ran and Waffler was left closed. The loop is also capped, so a process
+    that cannot be killed can no longer stall the update for ever.
+    """
+    return (
+        "@echo off\r\n"
+        "REM Give the parent a moment to exit on its own.\r\n"
+        "ping -n 2 127.0.0.1 >NUL\r\n"
+        "REM Force-kill EVERY Waffler.exe (main + overlay subprocess) so no\r\n"
+        "REM _internal\\ file is locked when the installer overwrites it.\r\n"
+        "set TRIES=0\r\n"
+        ":kill_loop\r\n"
+        f"taskkill /F /IM {image} >NUL 2>&1\r\n"
+        "REM 128 means no such process is left.\r\n"
+        "if errorlevel 128 goto killed\r\n"
+        "set /a TRIES+=1\r\n"
+        f"if %TRIES% GEQ {max_kill_tries} goto killed\r\n"
+        "ping -n 2 127.0.0.1 >NUL\r\n"
+        "goto kill_loop\r\n"
+        ":killed\r\n"
+        "REM Settle so the OS releases all file handles.\r\n"
+        "ping -n 4 127.0.0.1 >NUL\r\n"
+        "REM No UI, auto-dismiss any prompt, log for diagnosis.\r\n"
+        f'"{exe_path}" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /LOG="{log_path}"\r\n'
+        "set RC=%ERRORLEVEL%\r\n"
+        f'> "{result_path}" echo %RC%\r\n'
+        "ping -n 2 127.0.0.1 >NUL\r\n"
+        "REM Launch the freshly installed Waffler exactly once.\r\n"
+        f'start "" "{waffler_exe}"\r\n'
+        'del "%~f0"\r\n'
+    )
+
+
 def _install_windows(exe_path: Path) -> None:
     """Install the update and relaunch Waffler.
 
@@ -692,34 +731,7 @@ def _install_windows(exe_path: Path) -> None:
     log_path = Path(tempfile.gettempdir()) / "waffler_install.log"
     result_path = _pending_dir() / PENDING_RESULT_NAME
 
-    bat = (
-        "@echo off\r\n"
-        "REM Give the parent a moment to exit on its own.\r\n"
-        "ping -n 2 127.0.0.1 >NUL\r\n"
-        "REM Force-kill EVERY Waffler.exe (main + overlay subprocess) so no\r\n"
-        "REM _internal\\ file is locked when the installer overwrites it. The\r\n"
-        "REM overlay child kept the DLLs locked, which is why updates silently\r\n"
-        "REM did nothing before v3.14.73.\r\n"
-        ":kill_loop\r\n"
-        "taskkill /F /IM Waffler.exe >NUL 2>&1\r\n"
-        'tasklist /FI "IMAGENAME eq Waffler.exe" /NH 2>NUL | find /I "Waffler.exe" >NUL\r\n'
-        "if not errorlevel 1 (\r\n"
-        "  ping -n 2 127.0.0.1 >NUL\r\n"
-        "  goto kill_loop\r\n"
-        ")\r\n"
-        "REM Settle so the OS releases all file handles.\r\n"
-        "ping -n 4 127.0.0.1 >NUL\r\n"
-        "REM No UI, auto-dismiss any prompt, log for diagnosis.\r\n"
-        f'"{exe_path}" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /LOG="{log_path}"\r\n'
-        "REM Capture the installer exit code. It used to be discarded and the\r\n"
-        "REM batch relaunched regardless, so a failed install was silent.\r\n"
-        "set RC=%ERRORLEVEL%\r\n"
-        f'> "{result_path}" echo %RC%\r\n'
-        "ping -n 2 127.0.0.1 >NUL\r\n"
-        "REM Launch the freshly installed Waffler exactly once.\r\n"
-        f'start "" "{waffler_exe}"\r\n'
-        'del "%~f0"\r\n'
-    )
+    bat = update_batch_text(exe_path, waffler_exe, log_path, result_path)
     bat_path = Path(tempfile.gettempdir()) / f"waffler_update_{os.getpid()}.bat"
     bat_path.write_text(bat, encoding="utf-8")
 
