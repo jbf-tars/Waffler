@@ -35,6 +35,11 @@ from pathlib import Path, PurePosixPath
 APP_NAME = "Waffler"
 HIDDEN_FLAG = "--hidden"
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+# Turning Waffler off in Task Manager's Startup apps (or Settings, Apps,
+# Startup) does not delete the Run value: Windows records the choice here,
+# as a binary value named like the Run value whose first byte is odd (03)
+# when it is off and even (02) when it is on. Missing means on.
+APPROVED_KEY = r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run"
 LAUNCH_AGENT_LABEL = "com.waffler.app.login"
 
 
@@ -147,6 +152,29 @@ class LoginItem:
         except FileNotFoundError:
             pass
 
+    def _win_turned_off_in_windows(self) -> bool:
+        """True when the user turned Waffler off in Task Manager's Startup
+        apps: Windows then skips the Run value without deleting it."""
+        reg = self._reg()
+        try:
+            with reg.OpenKey(reg.HKEY_CURRENT_USER, APPROVED_KEY, 0, reg.KEY_READ) as k:
+                value, _type = reg.QueryValueEx(k, APP_NAME)
+        except OSError:
+            return False
+        if isinstance(value, (bytes, bytearray)) and value:
+            return bool(value[0] & 1)
+        return False
+
+    def _win_clear_turned_off(self):
+        """Forget a Task Manager "Disabled", so switching on in Waffler
+        really starts it at sign-in. A missing value counts as on."""
+        reg = self._reg()
+        try:
+            with reg.OpenKey(reg.HKEY_CURRENT_USER, APPROVED_KEY, 0, reg.KEY_SET_VALUE) as k:
+                reg.DeleteValue(k, APP_NAME)
+        except FileNotFoundError:
+            pass
+
     # ── macOS ───────────────────────────────────────────────────────────
     def agent_path(self) -> Path:
         base = self._agents_dir or (Path.home() / "Library" / "LaunchAgents")
@@ -176,7 +204,8 @@ class LoginItem:
     def is_enabled(self) -> bool:
         if _is_windows(self.platform):
             try:
-                return self._win_read() is not None
+                return (self._win_read() is not None
+                        and not self._win_turned_off_in_windows())
             except Exception:
                 return False
         if _is_mac(self.platform):
@@ -194,6 +223,7 @@ class LoginItem:
         try:
             if _is_windows(self.platform):
                 self._win_write(self.command_line())
+                self._win_clear_turned_off()
             else:
                 p = self.agent_path()
                 p.parent.mkdir(parents=True, exist_ok=True)
@@ -210,6 +240,7 @@ class LoginItem:
         try:
             if _is_windows(self.platform):
                 self._win_delete()
+                self._win_clear_turned_off()
             elif _is_mac(self.platform):
                 p = self.agent_path()
                 if p.exists():

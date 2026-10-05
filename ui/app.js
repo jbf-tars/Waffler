@@ -3068,7 +3068,8 @@ loadSettings = async function() {
 
 // ── Start at sign-in (Settings, General) ─────────────────────────────────
 // The switch shows what the operating system has, read each time Settings
-// opens: the user can also remove it in Task Manager or Login Items.
+// opens: the user can also turn it off in Task Manager or Login Items,
+// and the switch then shows Off (src/login_item.py reads Windows' record).
 async function loadStartAtLogin() {
   const tog = document.getElementById('startAtLoginToggle');
   const desc = document.getElementById('startAtLoginDesc');

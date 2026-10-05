@@ -283,6 +283,11 @@ website and setup, in light and Dark.
   each other, and saving settings retries a brief lock on the file instead
   of failing with "Access is denied". Usage records are written under a
   lock too, so a dictation and a Try again cannot drop each other's row.
+- **Start at sign-in tells the truth after Task Manager.** Turning Waffler
+  off in Task Manager's Startup apps leaves Waffler's entry in place and
+  records "Disabled" elsewhere, so Settings still showed On while Windows
+  would not start it. The switch now reads that record too, and switching it
+  on in Waffler clears it. Uninstalling removes it.
 - **Updating on Windows works when your user name has an accent.** The
   update helper had the installer's path written into it, and Windows read
   that text in an old code page, so a name like Seán or Zoë garbled it:

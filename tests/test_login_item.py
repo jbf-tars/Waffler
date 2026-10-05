@@ -14,7 +14,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from login_item import (  # noqa: E402
-    APP_NAME, HIDDEN_FLAG, LAUNCH_AGENT_LABEL, RUN_KEY, LoginItem,
+    APP_NAME, APPROVED_KEY, HIDDEN_FLAG, LAUNCH_AGENT_LABEL, RUN_KEY, LoginItem,
     mac_bundle_path, mac_running_from_download,
 )
 
@@ -126,6 +126,60 @@ def test_refresh_follows_an_install_that_moved_but_never_switches_it_on():
     assert win(reg).refresh() is True
     assert reg.run_values()[APP_NAME] == f'"{WIN_EXE}" {HIDDEN_FLAG}'
     assert win(reg).refresh() is False          # already current
+
+
+# ── Windows: turned off in Task Manager's Startup apps ───────────────────────
+# Task Manager leaves the Run value and records the choice under
+# StartupApproved\Run: first byte 03 (odd) off, 02 (even) on, missing on.
+
+def _approved(reg, first_byte):
+    reg.keys.setdefault((reg.HKEY_CURRENT_USER, APPROVED_KEY), {})[APP_NAME] = (
+        bytes([first_byte]) + bytes(11))
+
+
+def test_off_in_task_manager_shows_off_though_the_run_value_is_still_there():
+    reg = FakeWinreg()
+    item = win(reg)
+    item.set(True)
+    _approved(reg, 0x03)
+    assert APP_NAME in reg.run_values()
+    assert item.status()["enabled"] is False
+    _approved(reg, 0x02)
+    assert item.status()["enabled"] is True
+
+
+def test_switching_on_in_waffler_clears_the_task_manager_off():
+    reg = FakeWinreg()
+    item = win(reg)
+    item.set(True)
+    _approved(reg, 0x03)
+    assert item.set(True) == {"ok": True, "enabled": True}
+    assert APP_NAME not in reg.keys[(reg.HKEY_CURRENT_USER, APPROVED_KEY)]
+
+
+def test_refresh_does_not_switch_back_on_what_task_manager_turned_off():
+    reg = FakeWinreg()
+    win(reg, exe=r"C:\Old\Waffler.exe").set(True)
+    _approved(reg, 0x03)
+    assert win(reg).refresh() is False
+    assert reg.keys[(reg.HKEY_CURRENT_USER, APPROVED_KEY)][APP_NAME][0] == 0x03
+
+
+def test_switching_off_tidies_both_values_and_leaves_other_apps():
+    reg = FakeWinreg()
+    item = win(reg)
+    item.set(True)
+    _approved(reg, 0x02)
+    reg.keys[(reg.HKEY_CURRENT_USER, APPROVED_KEY)]["OneDrive"] = bytes([2]) + bytes(11)
+    assert item.set(False) == {"ok": True, "enabled": False}
+    assert reg.keys[(reg.HKEY_CURRENT_USER, APPROVED_KEY)] == {"OneDrive": bytes([2]) + bytes(11)}
+
+
+def test_the_uninstaller_removes_the_task_manager_record_too():
+    iss = (Path(__file__).resolve().parent.parent / "installer" / "windows" / "Waffler.iss").read_text(encoding="utf-8")
+    lines = [l for l in iss.splitlines() if l.startswith("Root: HKCU") and "StartupApproved\\Run" in l]
+    assert lines and 'ValueName: "Waffler"' in lines[0] and "uninsdeletevalue" in lines[0]
+    assert "ValueType: none" in lines[0]
 
 
 # ── macOS ────────────────────────────────────────────────────────────────────

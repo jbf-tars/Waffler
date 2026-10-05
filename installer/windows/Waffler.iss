@@ -51,6 +51,8 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 ; Settings), which writes this value itself; the installer never creates it
 ; (ValueType: none), so there is one switch, not two. Uninstalling removes it.
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueName: "Waffler"; ValueType: none; Flags: uninsdeletevalue
+; Windows' record of an "Off" chosen in Task Manager's Startup apps.
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run"; ValueName: "Waffler"; ValueType: none; Flags: uninsdeletevalue
 
 [InstallDelete]
 ; Wipe the previous _internal before the new one is copied. [Files] below uses
