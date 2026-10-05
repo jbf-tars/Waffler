@@ -618,12 +618,6 @@ def install_and_restart(installer_path: str) -> None:
     if not path.exists():
         raise FileNotFoundError(f"Installer not found: {installer_path}")
 
-    # Record WHICH version this should produce so the next start can tell
-    # whether the install actually applied (see check_pending_update).
-    _m = re.search(r"(\d+\.\d+\.\d+)", path.name)
-    if _m:
-        record_pending_update(_m.group(1))
-
     # ── Authenticity gate: FAIL CLOSED ───────────────────────────────────
     # Require the bytes we are about to execute to match, exactly, the SHA-256
     # GitHub published for this release asset. The digest is resolved here in
@@ -640,6 +634,14 @@ def install_and_restart(installer_path: str) -> None:
             _log(f"digest re-fetch failed: {e}")
     _verify_artifact_digest(path, expected)
 
+    # Record WHICH version this should produce so the next start can tell
+    # whether the install actually applied (see check_pending_update). Only
+    # now: a download that failed the check above never runs, and the next
+    # start must not then report "Update to vX did NOT apply".
+    _m = re.search(r"(\d+\.\d+\.\d+)", path.name)
+    if _m:
+        record_pending_update(_m.group(1))
+
     if sys.platform.startswith("win"):
         _install_windows(path)
     elif sys.platform == "darwin":
@@ -648,9 +650,35 @@ def install_and_restart(installer_path: str) -> None:
         raise RuntimeError(f"Unsupported platform: {sys.platform}")
 
 
-def update_batch_text(exe_path, waffler_exe, log_path, result_path,
-                      image: str = "Waffler.exe", max_kill_tries: int = 30) -> str:
+# The paths the update batch uses, passed in its environment. cmd.exe reads
+# a batch file in the console's OEM code page, so a path written into the
+# file as UTF-8 was garbled as soon as it held a letter outside ASCII (the
+# Windows user name is in %TEMP% and in the install folder: Seán, Zoë):
+# Waffler was closed, the installer never ran and nothing relaunched. A "%"
+# in a path was expanded too. The environment is Unicode, and a variable's
+# value is not expanded again, so the paths reach the installer exactly.
+BATCH_ENV_INSTALLER = "WAFFLER_INSTALLER"
+BATCH_ENV_EXE = "WAFFLER_EXE"
+BATCH_ENV_LOG = "WAFFLER_LOG"
+BATCH_ENV_RESULT = "WAFFLER_RESULT"
+
+
+def update_batch_env(exe_path, waffler_exe, log_path, result_path) -> dict:
+    """The variables update_batch_text reads: installer, Waffler, log, result."""
+    return {
+        BATCH_ENV_INSTALLER: str(exe_path),
+        BATCH_ENV_EXE: str(waffler_exe),
+        BATCH_ENV_LOG: str(log_path),
+        BATCH_ENV_RESULT: str(result_path),
+    }
+
+
+def update_batch_text(image: str = "Waffler.exe", max_kill_tries: int = 30) -> str:
     """The Windows update batch: close every Waffler, install, relaunch.
+
+    Plain ASCII: every path comes from the environment (update_batch_env),
+    never from the file's text, so the code page cmd.exe reads it in does
+    not matter.
 
     The wait-for-Waffler-to-close loop uses taskkill's own exit code (128 =
     no such process) instead of piping tasklist into find. In the 3.14.99 to
@@ -677,12 +705,13 @@ def update_batch_text(exe_path, waffler_exe, log_path, result_path,
         "REM Settle so the OS releases all file handles.\r\n"
         "ping -n 4 127.0.0.1 >NUL\r\n"
         "REM No UI, auto-dismiss any prompt, log for diagnosis.\r\n"
-        f'"{exe_path}" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /LOG="{log_path}"\r\n'
+        f'"%{BATCH_ENV_INSTALLER}%" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART '
+        f'/LOG="%{BATCH_ENV_LOG}%"\r\n'
         "set RC=%ERRORLEVEL%\r\n"
-        f'> "{result_path}" echo %RC%\r\n'
+        f'> "%{BATCH_ENV_RESULT}%" echo %RC%\r\n'
         "ping -n 2 127.0.0.1 >NUL\r\n"
         "REM Launch the freshly installed Waffler exactly once.\r\n"
-        f'start "" "{waffler_exe}"\r\n'
+        f'start "" "%{BATCH_ENV_EXE}%"\r\n'
         'del "%~f0"\r\n'
     )
 
@@ -731,14 +760,17 @@ def _install_windows(exe_path: Path) -> None:
     log_path = Path(tempfile.gettempdir()) / "waffler_install.log"
     result_path = _pending_dir() / PENDING_RESULT_NAME
 
-    bat = update_batch_text(exe_path, waffler_exe, log_path, result_path)
+    bat = update_batch_text()
     bat_path = Path(tempfile.gettempdir()) / f"waffler_update_{os.getpid()}.bat"
-    bat_path.write_text(bat, encoding="utf-8")
+    bat_path.write_text(bat, encoding="ascii")
+    env = dict(os.environ)
+    env.update(update_batch_env(exe_path, waffler_exe, log_path, result_path))
 
     subprocess.Popen(
         ["cmd", "/c", str(bat_path)],
         close_fds=True,
         creationflags=UPDATE_BATCH_FLAGS,
+        env=env,
     )
     # Exit promptly so the batch's kill_loop finds nothing to wait on and the
     # installer runs against fully-unlocked files.

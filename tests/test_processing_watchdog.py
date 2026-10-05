@@ -532,7 +532,7 @@ def test_a_journal_that_cannot_be_saved_after_an_error_is_not_claimed(tmp_path, 
 
 def test_a_vocabulary_that_raises_does_not_cost_the_dictation(tmp_path, limits, monkeypatch):
     import transcribe_whisper
-    monkeypatch.setattr(transcribe_whisper, "load_vocab", lambda: ["Pat\h", 5])
+    monkeypatch.setattr(transcribe_whisper, "load_vocab", lambda: ["Pat\\h", 5])
     monkeypatch.setattr(transcribe_whisper, "apply_vocab_changes",
                         lambda text, vocab: (_ for _ in ()).throw(AttributeError("int")))
     p = make_pipeline(tmp_path)

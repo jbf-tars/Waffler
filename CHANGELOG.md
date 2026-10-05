@@ -283,6 +283,15 @@ website and setup, in light and Dark.
   each other, and saving settings retries a brief lock on the file instead
   of failing with "Access is denied". Usage records are written under a
   lock too, so a dictation and a Try again cannot drop each other's row.
+- **Updating on Windows works when your user name has an accent.** The
+  update helper had the installer's path written into it, and Windows read
+  that text in an old code page, so a name like Seán or Zoë garbled it:
+  Waffler closed, the installer never ran and nothing reopened. The paths
+  now reach the helper in a way that keeps every letter (and a % sign).
+  Updates from 3.14.100 and earlier still use the old helper.
+- A download that fails Waffler's safety check is no longer reported at the
+  next start as an update that "did NOT apply": nothing is recorded until
+  the download has passed the check.
 - **Updating on Windows no longer opens a stream of terminal windows.** The
   update helper was started with two Windows flags, "detached" and "no
   window", and Windows ignores "no window" when both are set. The helper then

@@ -37,12 +37,13 @@ def test_batch_closes_the_app_installs_records_and_exits(tmp_path):
     relaunch = os.path.join(SYS32, "rundll32.exe")
     result = tmp_path / "result.txt"
     bat = tmp_path / "update.bat"
-    bat.write_text(updater.update_batch_text(installer, relaunch, tmp_path / "install.log",
-                                             result, image=image), encoding="utf-8")
+    bat.write_text(updater.update_batch_text(image=image), encoding="ascii")
+    env = dict(os.environ)
+    env.update(updater.update_batch_env(installer, relaunch, tmp_path / "install.log", result))
 
     t0 = time.monotonic()
     proc = subprocess.Popen(["cmd", "/c", str(bat)], close_fds=True,
-                            creationflags=updater.UPDATE_BATCH_FLAGS)
+                            creationflags=updater.UPDATE_BATCH_FLAGS, env=env)
     try:
         proc.wait(timeout=60)
     finally:
@@ -62,6 +63,6 @@ def test_batch_closes_the_app_installs_records_and_exits(tmp_path):
 def test_batch_gives_up_waiting_instead_of_hanging(tmp_path):
     # A name taskkill cannot find ends the loop at once (exit code 128);
     # the cap is exercised by asserting it is present in the text.
-    text = updater.update_batch_text("a.exe", "b.exe", "c.log", "d.txt", max_kill_tries=7)
+    text = updater.update_batch_text(max_kill_tries=7)
     assert "if %TRIES% GEQ 7 goto killed" in text
     assert "|" not in text, "no pipes: a pipe to find hung the 3.14.100 update"
