@@ -236,6 +236,11 @@ website and setup, in light and Dark.
   never matched before; "james farrely" now becomes James Farrelly. Entries
   with hyphens or apostrophes (Jean-Luc, O'Brien) work too, and accented
   letters no longer split a word in two.
+- **Entries with digits or symbols work.** "GPT-4o", "M365", "C++",
+  "COVID-19" and "Node.js" in your list did nothing before. They are now
+  matched whole, in any capitals, so "gpt 4o" becomes GPT-4o and "covid 19"
+  becomes COVID-19. Their letters alone are never changed: "the gpt model"
+  stays as said.
 - "kobi qc" becomes COBieQC again: a two-letter part that is not an everyday
   word (an initialism like "qc") may now be joined to the word before it.
 - **See what changed.** Each Journal entry the Vocabulary changed now says

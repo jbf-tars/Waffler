@@ -353,9 +353,9 @@ _FAMILY_MIN_STEM = 4
 _WORD_RE = re.compile(r"[^\W\d_]+")
 # An entry the corrector can match: words of letters joined by spaces,
 # hyphens or apostrophes ("Sinéad", "James Farrelly", "Jean-Luc",
-# "O'Brien"). Entries with digits or symbols ("GPT-4", "C++") are still sent
-# to the speech step as hints but are not matched here: their letters alone
-# would turn every "gpt" into "GPT-4".
+# "O'Brien"). Entries with digits or symbols ("GPT-4", "C++") are not
+# matched here, as their letters alone would turn every "gpt" into "GPT-4";
+# _symbol_entries matches them whole instead.
 _ENTRY_RE = re.compile(r"[^\W\d_]+(?:[\s'’\-]+[^\W\d_]+)*")
 _PHRASE_SEP = r"[\s'’\-]+"
 
@@ -605,21 +605,33 @@ def apply_vocab_changes(transcribed: str, vocab: list[str]) -> tuple[str, list[t
         return transcribed, []
 
     corrections = fuzzy_match_word(transcribed, vocab)
-    if not corrections:
+    symbols = _symbol_entries(vocab)
+    if not corrections and not symbols:
         return transcribed, []
 
     target = {}
     for misheard, correct in corrections:
         target.setdefault(tuple(misheard.split()), correct)
     keys = sorted(target, key=lambda k: (-len(k), -sum(map(len, k))))
-    alternation = "|".join(_PHRASE_SEP.join(re.escape(w) for w in k) for k in keys)
-    pattern = re.compile(r"(?<![^\W\d_])(?:" + alternation + r")(?![^\W\d_])", re.IGNORECASE)
+    parts = []
+    # Entries with digits or symbols first, so "gpt-4o" is taken whole
+    # before any letters-only correction could claim its "gpt".
+    for n, (sym_pattern, _entry) in enumerate(symbols):
+        parts.append(rf"(?<![^\W_])(?P<s{n}>{sym_pattern})(?![^\W_])")
+    if keys:
+        alternation = "|".join(_PHRASE_SEP.join(re.escape(w) for w in k) for k in keys)
+        parts.append(r"(?<![^\W\d_])(?P<w>" + alternation + r")(?![^\W\d_])")
+    pattern = re.compile("|".join(parts), re.IGNORECASE)
 
     changes: list[tuple[str, str]] = []
 
     def repl(m):
         heard = m.group(0)
-        correct = target.get(tuple(_WORD_RE.findall(heard.lower())))
+        group = m.lastgroup or ""
+        if group.startswith("s"):
+            correct = symbols[int(group[1:])][1]
+        else:
+            correct = target.get(tuple(_WORD_RE.findall(heard.lower())))
         if correct is None or heard == correct:
             return heard
         if (heard, correct) not in changes:
@@ -627,6 +639,71 @@ def apply_vocab_changes(transcribed: str, vocab: list[str]) -> tuple[str, list[t
         return correct
 
     return pattern.sub(repl, transcribed), changes
+
+
+# Separators heard in place of one written in an entry with digits or symbols
+# ("GPT-4o" heard as "gpt 4o", "COVID-19" as "covid19", "Node.js" as "node js").
+_SYMBOL_GAP_CHARS = frozenset(" -.")
+_SYMBOL_RUN_RE = re.compile(r"([^\W\d_]+)|(\d+)|(\s+)|(.)", re.S)
+
+
+def _symbol_pattern(entry: str):
+    """A regular expression for an entry with digits or symbols, or None.
+
+    Its letters and digits must be heard in order, in any capitals. Where
+    the entry has a space, hyphen or full stop between them, any one of
+    those, or nothing, may be heard instead; where letters and digits touch
+    ("M365", "GPT4"), only nothing or a hyphen, so "a 1" never becomes A1.
+    Any other symbol (C++, C#, AT&T) must be heard as written.
+    """
+    runs = []                     # ("alnum", text) | ("gap", text) | ("sym", char)
+    for letters, digits, space, other in _SYMBOL_RUN_RE.findall(entry):
+        if letters or digits:
+            runs.append(("alnum", letters or digits))
+        elif space or other in _SYMBOL_GAP_CHARS:
+            if runs and runs[-1][0] == "gap":
+                runs[-1] = ("gap", runs[-1][1] + (space or other))
+            else:
+                runs.append(("gap", space or other))
+        else:
+            runs.append(("sym", other))
+    if not any(kind == "alnum" and re.search(r"[^\W\d_]", text) for kind, text in runs):
+        return None               # nothing to correct in "365" or "++"
+    out = []
+    for i, (kind, text) in enumerate(runs):
+        prev_alnum = i > 0 and runs[i - 1][0] == "alnum"
+        next_alnum = i + 1 < len(runs) and runs[i + 1][0] == "alnum"
+        if kind == "alnum":
+            if prev_alnum:
+                out.append("-?")  # letters and digits touching in the entry
+            out.append(re.escape(text))
+        elif kind == "gap":
+            if prev_alnum and next_alnum:
+                out.append(r"[\s\-.]?")
+            elif text.strip():
+                out.append(re.escape(text.strip()))   # a leading or trailing ".": ".NET"
+        else:
+            out.append(re.escape(text))
+    return "".join(out)
+
+
+def _symbol_entries(vocab):
+    """(pattern, entry) for each entry with digits or symbols, longest first.
+
+    These are not letters-only words, so _ENTRY_RE leaves them out of the
+    fuzzy passes; they are matched whole instead ("gpt-4o" -> GPT-4o)."""
+    out = []
+    for entry in vocab[:VOCAB_MAX_ENTRIES] if isinstance(vocab, list) else []:
+        if not isinstance(entry, str):
+            continue
+        entry = " ".join(entry.split())
+        if not entry or len(entry) > VOCAB_MAX_ENTRY_LEN or _ENTRY_RE.fullmatch(entry):
+            continue
+        pattern = _symbol_pattern(entry)
+        if pattern:
+            out.append((pattern, entry))
+    out.sort(key=lambda pe: -len(pe[1]))
+    return out
 
 
 def apply_vocab_corrections(transcribed: str, vocab: list[str]) -> tuple[str, list[str]]:
