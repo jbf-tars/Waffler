@@ -52,7 +52,8 @@ PIPELINE_METHODS = (
     "_drain_unsent_soon", "_on_hotkey_cancel", "_fill_unsent_card", "_in_flight",
     "_collect_late_words", "_late_words_arrived", "_keep_late_recording",
 )
-MODULE_DEFS = ("ensure_data_dir", "load_history", "save_history", "append_history",
+MODULE_DEFS = ("ensure_data_dir", "load_history", "_load_history_for_update",
+               "save_history", "append_history",
                "append_history_safely", "_MIN_TAP_SPEECH_S",
                "_history_retention_day", "_history_keep_days", "_retain_history")
 
@@ -273,6 +274,7 @@ def make_pipeline(data_dir: Path, *, transcriber=None, styler=None, clipboard=No
         DATA_DIR=data_dir, HISTORY_FILE=data_dir / "history.json",
         _history_lock=threading.Lock(),
         write_json_atomic=lambda p, d: atomic_json.write_json_atomic(p, d, sleep=lambda s: None),
+        read_json_for_update=atomic_json.read_json_for_update,
         _log_to_file=logged.append,
         notify_js_status=page.statuses.append,
         notify_js_new_item=page.items.append,

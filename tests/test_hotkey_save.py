@@ -22,6 +22,9 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT / "tests"))
+
+from _settings_fake import settings_api  # noqa: E402
 
 import hotkey_rules as hr  # noqa: E402
 
@@ -133,7 +136,7 @@ def test_mac_rules_are_unchanged():
 _TREE = ast.parse((ROOT / "app.py").read_text(encoding="utf-8"))
 
 
-def _save_method(monkeypatch, system):
+def _save_method(monkeypatch, system, tmp_path):
     klass = next(n for n in _TREE.body if isinstance(n, ast.ClassDef) and n.name == "Api")
     fn = next(n for n in klass.body if isinstance(n, ast.FunctionDef)
               and n.name == "save_hotkey_config")
@@ -146,37 +149,35 @@ def _save_method(monkeypatch, system):
     monkeypatch.setitem(sys.modules, "mac_hotkey_monitor", types.SimpleNamespace(
         KEY_TO_KEYCODE={k: 0 for k in MAC_KEYS - MAC_MODS},
         MODIFIER_FLAGS={k: 0 for k in MAC_MODS}))
-    saved = {}
-    api = types.SimpleNamespace(_load_settings_file=lambda: {"language": "en"},
-                                _save_settings_file=saved.update)
-    return ns["save_hotkey_config"], api, saved
+    api = settings_api(tmp_path, {"language": "en"})
+    return ns["save_hotkey_config"], api, api.saved
 
 
 @pytest.mark.parametrize("keys", [["win", "ctrl"], ["ctrl", "shift"], '["ctrl", "win"]'])
-def test_save_on_windows_saves_and_returns_the_keys(monkeypatch, keys):
-    save, api, saved = _save_method(monkeypatch, "Windows")
+def test_save_on_windows_saves_and_returns_the_keys(monkeypatch, keys, tmp_path):
+    save, api, saved = _save_method(monkeypatch, "Windows", tmp_path)
     r = save(api, keys)
     assert r["ok"] is True
     assert saved["hotkey_keys"] == r["keys"]
     assert r["display"] in ("Win + Ctrl", "Ctrl + Shift")
 
 
-def test_save_on_windows_refuses_a_mac_preset_without_saving(monkeypatch):
-    save, api, saved = _save_method(monkeypatch, "Windows")
+def test_save_on_windows_refuses_a_mac_preset_without_saving(monkeypatch, tmp_path):
+    save, api, saved = _save_method(monkeypatch, "Windows", tmp_path)
     r = save(api, ["fn"])
     assert r["ok"] is False and "Mac key" in r["error"]
     assert saved == {}
 
 
-def test_save_on_a_mac_uses_words_not_symbols(monkeypatch):
-    save, api, saved = _save_method(monkeypatch, "Darwin")
+def test_save_on_a_mac_uses_words_not_symbols(monkeypatch, tmp_path):
+    save, api, saved = _save_method(monkeypatch, "Darwin", tmp_path)
     r = save(api, ["cmd", "shift"])
     assert r == {"ok": True, "keys": ["cmd", "shift"], "display": "Command + Shift"}
     assert saved["hotkey_keys"] == ["cmd", "shift"]
 
 
-def test_a_failed_save_is_a_sentence(monkeypatch):
-    save, api, _ = _save_method(monkeypatch, "Windows")
+def test_a_failed_save_is_a_sentence(monkeypatch, tmp_path):
+    save, api, _ = _save_method(monkeypatch, "Windows", tmp_path)
     api._save_settings_file = lambda d: (_ for _ in ()).throw(PermissionError("denied"))
     r = save(api, ["win", "ctrl"])
     assert r == {"ok": False, "error": "Couldn't save the hotkey. Please try again."}

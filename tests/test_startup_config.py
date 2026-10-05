@@ -82,12 +82,13 @@ def _set_theme_ns():
     return ns["set_theme"]
 
 
-def test_set_theme_saves_a_known_theme():
-    saved = {}
-    api = types.SimpleNamespace(_load_settings_file=lambda: {"language": "en"},
-                                _save_settings_file=saved.update)
+def test_set_theme_saves_a_known_theme(tmp_path):
+    from _settings_fake import settings_api
+    api = settings_api(tmp_path, {"language": "en"})
     assert _set_theme_ns()(api, "auto") == {"ok": True}
-    assert saved == {"language": "en", "theme": "auto"}
+    assert api.data == {"language": "en", "theme": "auto"}
+    assert api.saves == 1
+    assert _set_theme_ns()(api, "auto") == {"ok": True} and api.saves == 1   # no rewrite
 
 
 def test_set_theme_refuses_an_unknown_theme():

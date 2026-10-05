@@ -155,9 +155,10 @@ class _Store:
         self.saves += 1
 
 
-def test_the_setup_step_is_remembered_and_only_known_steps_are(monkeypatch):
+def test_the_setup_step_is_remembered_and_only_known_steps_are(monkeypatch, tmp_path):
+    from _settings_fake import settings_api
     save = _api_method("save_setup_step")
-    store = _Store()
+    store = settings_api(tmp_path, _SETUP_STEPS=_Store._SETUP_STEPS)
     assert save(store, "permissions") == {"ok": True}
     assert store.data["setup_step"] == "permissions"
     assert save(store, "permissions") == {"ok": True} and store.saves == 1   # no rewrite

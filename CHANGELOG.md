@@ -264,6 +264,20 @@ website and setup, in light and Dark.
   Light over your choice. Dark and System went back to Light at every
   start. The page now takes the theme from Waffler's settings, and saves
   only when you choose one.
+- **A file Waffler cannot read is no longer written over.** If the Journal's
+  file (history.json) could not be read, the next dictation replaced the
+  whole Journal with that one entry. Usage records and settings had the
+  same flaw: one failed read of settings.json cost your hotkey, provider
+  order, private mode and spelling. A file that cannot be read is now kept
+  beside the new one as (name).unreadable-(date).json, and one that another
+  program has locked is left alone (the dictation is still pasted). A byte
+  order mark at the start of history.json or usage.json no longer counts as
+  unreadable. Delete all my data removes the kept copies of the Journal and
+  usage too.
+- Settings are changed under one lock, so two changes at once cannot undo
+  each other, and saving settings retries a brief lock on the file instead
+  of failing with "Access is denied". Usage records are written under a
+  lock too, so a dictation and a Try again cannot drop each other's row.
 - **Updating on Windows no longer opens a stream of terminal windows.** The
   update helper was started with two Windows flags, "detached" and "no
   window", and Windows ignores "no window" when both are set. The helper then

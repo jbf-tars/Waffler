@@ -162,7 +162,10 @@ def _record(provider, dur):
     """Run the real record_usage with storage stubbed out; return the entry."""
     from datetime import datetime
     saved = []
-    _P.update(datetime=datetime, load_usage=lambda: [],
+    import threading
+    _P.update(datetime=datetime, USAGE_FILE=None, ensure_data_dir=lambda: None,
+              _usage_lock=threading.Lock(), _log_to_file=lambda m: None,
+              read_json_for_update=lambda path, expect: ([], None),
               save_usage=lambda rows: saved.extend(rows))
     entry = _P["record_usage"]("whisper", duration_seconds=dur, provider=provider)
     assert saved == [entry]

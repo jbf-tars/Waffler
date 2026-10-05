@@ -92,7 +92,9 @@ def count_older(history: list, keep_days: int, now: datetime | None = None) -> i
 # config.json, setup_complete.json and vocab.json are not here: they stay.
 DATA_FILES = ("history.json", "usage.json", "quality.jsonl",
               "app.log", "app.log.1", "crash.log", "hotkey.log")
-DATA_GLOBS = ("usage.backup-*.json",)
+# The *.unreadable-* copies are a history.json or usage.json that could not
+# be read, kept aside instead of being written over (src/atomic_json.py).
+DATA_GLOBS = ("usage.backup-*.json", "history.unreadable-*.json", "usage.unreadable-*.json")
 DATA_FOLDERS = ("debug_audio", "unsent")
 
 

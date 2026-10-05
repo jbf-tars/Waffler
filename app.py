@@ -26,6 +26,8 @@ import time
 import threading
 import tempfile
 import atexit
+import copy
+import contextlib
 import pyperclip
 import faulthandler
 from pathlib import Path
@@ -118,7 +120,7 @@ from audio_devices import (
 )
 from app_detection import get_active_app
 from log_util import transcript_for_log
-from atomic_json import write_json_atomic
+from atomic_json import write_json_atomic, read_json_for_update
 import pipeline_watchdog as _pw
 import unsent as _unsent
 import tray_state as _tray_state
@@ -162,6 +164,12 @@ USAGE_FILE = DATA_DIR / "usage.json"
 # not — two threads (a processing thread + clear_history from the JS bridge,
 # or two overlapping recordings) could otherwise interleave and lose entries.
 _history_lock = threading.Lock()
+# The same for usage.json: a dictation and a Try again (or a superseded
+# dictation still finishing) can record usage at the same moment.
+_usage_lock = threading.Lock()
+# And for settings.json, which bridge calls on separate threads read,
+# change and save (see Api._editing_settings).
+_settings_lock = threading.RLock()
 
 # ── Pricing ────────────────────────────────────────────────────────────────
 # Rates are keyed by the MODEL actually called, not merely by provider. The old
@@ -272,15 +280,33 @@ def ensure_data_dir():
 
 
 def load_history() -> list:
+    """history.json for reading (the Journal, counts, exports). [] when it
+    is missing or cannot be read. Never use this before a save_history: use
+    _load_history_for_update, which will not let a failed read empty it."""
     ensure_data_dir()
     if not HISTORY_FILE.exists():
         return []
     try:
-        with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+        with open(HISTORY_FILE, "r", encoding="utf-8-sig") as f:
             data = json.load(f)
             return data if isinstance(data, list) else []
     except Exception:
         return []
+
+
+def _load_history_for_update() -> list:
+    """history.json before it is rewritten. Call with _history_lock held.
+
+    A file that cannot be parsed is kept as history.unreadable-<time>.json
+    instead of being replaced by one new entry. One that cannot be opened
+    (locked by antivirus, backup or sync software) raises, so nothing is
+    written; on the dictation path append_history_safely then returns False
+    and the words are still pasted."""
+    ensure_data_dir()
+    history, kept = read_json_for_update(HISTORY_FILE, list)
+    if kept is not None:
+        _log_to_file(f"[history] history.json could not be read; kept as {kept.name}")
+    return history
 
 
 def save_history(history: list):
@@ -332,7 +358,7 @@ def append_history(item: dict):
     """Atomically append one entry to history.json. Use this instead of a bare
     load→append→save so concurrent writers don't clobber each other."""
     with _history_lock:
-        history = _retain_history(load_history())
+        history = _retain_history(_load_history_for_update())
         history.append(item)
         save_history(history)
 
@@ -344,7 +370,7 @@ def load_usage() -> list:
     if not USAGE_FILE.exists():
         return []
     try:
-        with open(USAGE_FILE, "r", encoding="utf-8") as f:
+        with open(USAGE_FILE, "r", encoding="utf-8-sig") as f:
             data = json.load(f)
             return data if isinstance(data, list) else []
     except Exception:
@@ -382,9 +408,13 @@ def record_usage(entry_type: str, duration_seconds: float = None,
     if duration_seconds is not None:
         entry["duration_seconds"] = round(duration_seconds, 3)
 
-    usage = load_usage()
-    usage.append(entry)
-    save_usage(usage)
+    with _usage_lock:
+        ensure_data_dir()
+        usage, kept = read_json_for_update(USAGE_FILE, list)
+        if kept is not None:
+            _log_to_file(f"[usage] usage.json could not be read; kept as {kept.name}")
+        usage.append(entry)
+        save_usage(usage)
     return entry
 
 
@@ -677,9 +707,8 @@ class Api:
             # Persist the choice — without this, the setting reverts to
             # whatever config.prompt_style is on next launch.
             try:
-                stored = self._load_settings_file()
-                stored["prompt_style"] = mode_id
-                self._save_settings_file(stored)
+                with self._editing_settings() as stored:
+                    stored["prompt_style"] = mode_id
             except Exception as e:
                 _log_to_file(f"set_mode: persist failed (in-memory change still applied): {e}")
             return {"ok": True, "mode": mode_id}
@@ -812,33 +841,47 @@ class Api:
         return DATA_DIR / "settings.json"
 
     def _load_settings_file(self) -> dict:
+        """settings.json for reading. {} when missing or unreadable. Never
+        use this before a save: use _editing_settings."""
         try:
             sf = self._settings_file()
             if sf.exists():
-                return json.loads(sf.read_text(encoding="utf-8-sig"))
+                data = json.loads(sf.read_text(encoding="utf-8-sig"))
+                return data if isinstance(data, dict) else {}
         except Exception:
             pass
         return {}
 
     def _save_settings_file(self, data: dict):
-        """Save settings file with atomic write"""
+        """Write settings.json atomically. The replace is retried while
+        another handle briefly locks the file (it is read during every
+        dictation): a bare os.replace failed with "Access is denied"."""
         sf = self._settings_file()
         sf.parent.mkdir(parents=True, exist_ok=True)
-        tmp_fd, tmp_path = tempfile.mkstemp(
-            dir=sf.parent,
-            suffix='.tmp',
-            text=True
-        )
-        try:
-            with os.fdopen(tmp_fd, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2)
-            os.replace(tmp_path, sf)  # Atomic on POSIX
-        except Exception as e:
-            try:
-                os.unlink(tmp_path)
-            except:
-                pass
-            raise e
+        write_json_atomic(sf, data)
+
+    @contextlib.contextmanager
+    def _editing_settings(self):
+        """Change settings.json: ``with self._editing_settings() as stored:``.
+
+        The read, the change and the save happen under one lock, so two
+        bridge calls cannot drop each other's change. A settings.json that
+        cannot be parsed is kept as settings.unreadable-<time>.json rather
+        than replaced by one setting; one that cannot be opened (locked)
+        raises before anything is written, where the old code read {} and
+        saved just the new setting over the hotkey, provider order, private
+        mode and spelling. Saved only when something changed, and not at
+        all if the block raises."""
+        with _settings_lock:
+            sf = self._settings_file()
+            sf.parent.mkdir(parents=True, exist_ok=True)
+            stored, kept = read_json_for_update(sf, dict)
+            if kept is not None:
+                _log_to_file(f"[settings] settings.json could not be read; kept as {kept.name}")
+            before = copy.deepcopy(stored)
+            yield stored
+            if stored != before or kept is not None:
+                self._save_settings_file(stored)
 
     def get_theme(self) -> dict:
         """The saved theme, which the page applies when it is ready. The
@@ -861,10 +904,8 @@ class Api:
             theme = str(theme or "").strip().lower()
             if theme not in THEMES:
                 return {"ok": False, "error": "Unknown theme."}
-            stored = self._load_settings_file()
-            if stored.get("theme") != theme:
+            with self._editing_settings() as stored:
                 stored["theme"] = theme
-                self._save_settings_file(stored)
             return {"ok": True}
         except Exception as e:
             _log_to_file(f"[theme] could not save theme: {e}")
@@ -952,70 +993,68 @@ class Api:
     def save_settings(self, settings: dict) -> dict:
         """Save settings — updates .env and/or settings.json, applies live where possible."""
         try:
-            stored = self._load_settings_file()
             notes  = []
+            with self._editing_settings() as stored:
+                # ── OpenAI API key ────────────────────────────────────────────────
+                new_key = (settings.get("api_key") or "").strip()
+                if new_key and not new_key.startswith("sk-…"):
+                    self._update_env_var("OPENAI_API_KEY", new_key)
+                    os.environ["OPENAI_API_KEY"] = new_key
+                    from openai import OpenAI as _OAI
+                    if _pipeline:
+                        _pipeline.transcriber.api_key = new_key
+                        _pipeline.transcriber.client  = _OAI(api_key=new_key)
+                        _pipeline.styler.api_key      = new_key
+                        _pipeline.styler.client       = _OAI(api_key=new_key)
+                    notes.append("OpenAI API key updated")
 
-            # ── OpenAI API key ────────────────────────────────────────────────
-            new_key = (settings.get("api_key") or "").strip()
-            if new_key and not new_key.startswith("sk-…"):
-                self._update_env_var("OPENAI_API_KEY", new_key)
-                os.environ["OPENAI_API_KEY"] = new_key
-                from openai import OpenAI as _OAI
-                if _pipeline:
-                    _pipeline.transcriber.api_key = new_key
-                    _pipeline.transcriber.client  = _OAI(api_key=new_key)
-                    _pipeline.styler.api_key      = new_key
-                    _pipeline.styler.client       = _OAI(api_key=new_key)
-                notes.append("OpenAI API key updated")
+                # ── Groq API key ─────────────────────────────────────────────────
+                new_groq = (settings.get("groq_key") or "").strip()
+                if new_groq and not new_groq.startswith("gsk_…"):
+                    self._update_env_var("GROQ_API_KEY", new_groq)
+                    os.environ["GROQ_API_KEY"] = new_groq
+                    notes.append("Groq API key updated — restart for speed boost")
 
-            # ── Groq API key ─────────────────────────────────────────────────
-            new_groq = (settings.get("groq_key") or "").strip()
-            if new_groq and not new_groq.startswith("gsk_…"):
-                self._update_env_var("GROQ_API_KEY", new_groq)
-                os.environ["GROQ_API_KEY"] = new_groq
-                notes.append("Groq API key updated — restart for speed boost")
+                # ── Local Whisper toggle ─────────────────────────────────────────
+                if "local_whisper" in settings:
+                    val = "1" if settings["local_whisper"] else "0"
+                    self._update_env_var("LOCAL_WHISPER", val)
+                    os.environ["LOCAL_WHISPER"] = val
+                    notes.append("Restart app for Whisper mode change")
 
-            # ── Local Whisper toggle ─────────────────────────────────────────
-            if "local_whisper" in settings:
-                val = "1" if settings["local_whisper"] else "0"
-                self._update_env_var("LOCAL_WHISPER", val)
-                os.environ["LOCAL_WHISPER"] = val
-                notes.append("Restart app for Whisper mode change")
+                # ── Language ─────────────────────────────────────────────────────
+                if "language" in settings:
+                    stored["language"] = settings["language"]
+                    notes.append(f"Language: {settings['language']}")
 
-            # ── Language ─────────────────────────────────────────────────────
-            if "language" in settings:
-                stored["language"] = settings["language"]
-                notes.append(f"Language: {settings['language']}")
+                # ── Dialect / Spelling ───────────────────────────────────────────
+                if "dialect" in settings:
+                    stored["dialect"] = settings["dialect"]
+                    notes.append(f"Spelling: {settings['dialect']}")
 
-            # ── Dialect / Spelling ───────────────────────────────────────────
-            if "dialect" in settings:
-                stored["dialect"] = settings["dialect"]
-                notes.append(f"Spelling: {settings['dialect']}")
+                # ── Auto-paste ───────────────────────────────────────────────────
+                if "auto_paste" in settings:
+                    stored["auto_paste"] = bool(settings["auto_paste"])
+                    notes.append(f"Auto-paste: {'on' if settings['auto_paste'] else 'off'}")
 
-            # ── Auto-paste ───────────────────────────────────────────────────
-            if "auto_paste" in settings:
-                stored["auto_paste"] = bool(settings["auto_paste"])
-                notes.append(f"Auto-paste: {'on' if settings['auto_paste'] else 'off'}")
+                # ── Provider fallback order ──────────────────────────────────────
+                # A list like ["cerebras","groq","openai"]. Persisted AND applied
+                # live to the running pipeline so reordering takes effect on the
+                # very next dictation — no restart needed.
+                if "provider_order" in settings and isinstance(settings["provider_order"], list):
+                    from style_openai import _normalize_provider_order
+                    order = _normalize_provider_order(settings["provider_order"])
+                    stored["provider_order"] = order
+                    if _pipeline:
+                        try:
+                            _pipeline.styler._provider_order = order
+                            _pipeline.transcriber._cloud_order = [
+                                p for p in order if p in ("groq", "openai")
+                            ]
+                        except Exception as _e:
+                            _log_to_file(f"provider_order live-apply failed: {_e}")
+                    notes.append(f"Provider order: {' → '.join(order)}")
 
-            # ── Provider fallback order ──────────────────────────────────────
-            # A list like ["cerebras","groq","openai"]. Persisted AND applied
-            # live to the running pipeline so reordering takes effect on the
-            # very next dictation — no restart needed.
-            if "provider_order" in settings and isinstance(settings["provider_order"], list):
-                from style_openai import _normalize_provider_order
-                order = _normalize_provider_order(settings["provider_order"])
-                stored["provider_order"] = order
-                if _pipeline:
-                    try:
-                        _pipeline.styler._provider_order = order
-                        _pipeline.transcriber._cloud_order = [
-                            p for p in order if p in ("groq", "openai")
-                        ]
-                    except Exception as _e:
-                        _log_to_file(f"provider_order live-apply failed: {_e}")
-                notes.append(f"Provider order: {' → '.join(order)}")
-
-            self._save_settings_file(stored)
             return {"ok": True, "notes": notes}
         except Exception as e:
             return {"ok": False, "error": str(e)}
@@ -1264,7 +1303,7 @@ class Api:
         unsent_dir = DATA_DIR / _unsent.UNSENT_DIRNAME
         try:
             with _history_lock:
-                history = load_history()
+                history = _load_history_for_update()
                 for i in range(len(history) - 1, -1, -1):
                     h = history[i]
                     if (isinstance(h, dict) and h.get("failed")
@@ -1326,9 +1365,8 @@ class Api:
         """Switch keeping recent recordings on or off. Off stops new ones
         being kept; delete_recent_audio removes the ones already there."""
         try:
-            stored = self._load_settings_file()
-            stored[_recent_audio.SETTING] = bool(on)
-            self._save_settings_file(stored)
+            with self._editing_settings() as stored:
+                stored[_recent_audio.SETTING] = bool(on)
             return {"ok": True, **_recent_audio.summary(DATA_DIR, stored)}
         except Exception as e:
             _log_to_file(f"[recent audio] could not save the switch: {e}")
@@ -1370,11 +1408,10 @@ class Api:
         if days not in _privacy.HISTORY_CHOICES:
             return {"ok": False, "error": "Couldn't change that setting. Try again."}
         try:
-            stored = self._load_settings_file()
-            stored[_privacy.HISTORY_SETTING] = days
-            self._save_settings_file(stored)
+            with self._editing_settings() as stored:
+                stored[_privacy.HISTORY_SETTING] = days
             with _history_lock:
-                history = load_history()
+                history = _load_history_for_update()
                 kept = _retain_history(history, force=True)
                 if len(kept) != len(history):
                     save_history(kept)
@@ -1483,10 +1520,8 @@ class Api:
         if step not in self._SETUP_STEPS:
             return {"ok": False}
         try:
-            stored = self._load_settings_file()
-            if stored.get("setup_step") != step:
+            with self._editing_settings() as stored:
                 stored["setup_step"] = step
-                self._save_settings_file(stored)
             return {"ok": True}
         except Exception as e:
             _log_to_file(f"[setup] step not saved: {e}")
@@ -1895,9 +1930,8 @@ class Api:
             keys = verdict["keys"]
 
             # Save to settings.json
-            stored = self._load_settings_file()
-            stored["hotkey_keys"] = keys
-            self._save_settings_file(stored)
+            with self._editing_settings() as stored:
+                stored["hotkey_keys"] = keys
             _log_to_file(f"Hotkey config saved: {keys}")
 
             # Restart listener if pipeline is running
@@ -2249,9 +2283,8 @@ class Api:
             _mark_setup_complete()
             # Setup is over: nothing to resume next time.
             try:
-                stored = self._load_settings_file()
-                if stored.pop("setup_step", None) is not None:
-                    self._save_settings_file(stored)
+                with self._editing_settings() as stored:
+                    stored.pop("setup_step", None)
             except Exception:
                 pass
             threading.Thread(
@@ -4658,7 +4691,7 @@ class WafflerPipeline:
         remove it when ``new_entry`` is None). True when saved."""
         try:
             with _history_lock:
-                history = load_history()
+                history = _load_history_for_update()
                 idx, _entry = _unsent.find_entry(history, unsent_id)
                 if idx < 0:
                     return False
@@ -5553,7 +5586,7 @@ def main():
         _log_to_file(f"[privacy] log tidy failed: {type(_e).__name__}")
     try:
         with _history_lock:
-            _h = load_history()
+            _h = _load_history_for_update()
             _kept = _retain_history(_h, force=True)
             if len(_kept) != len(_h):
                 save_history(_kept)
