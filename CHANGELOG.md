@@ -299,6 +299,10 @@ website and setup, in light and Dark.
   Waffler closed, the installer never ran and nothing reopened. The paths
   now reach the helper in a way that keeps every letter (and a % sign).
   Updates from 3.14.100 and earlier still use the old helper.
+- **Restart to update waits for your dictation.** It closed Waffler at once,
+  so a dictation being recorded or cleaned up, or a Not sent recording
+  being sent, was lost. It now says "Finishing your dictation first" and
+  restarts as soon as that is done (Later stops it).
 - A download that fails Waffler's safety check is no longer reported at the
   next start as an update that "did NOT apply": nothing is recorded until
   the download has passed the check.

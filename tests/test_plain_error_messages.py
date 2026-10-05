@@ -94,7 +94,7 @@ _JARGON = ("HTTPSConnectionPool", "HTTP 403", "fallback", "provider key", "untru
 def _all_messages():
     msgs = [m.format(p="Groq") for m in um._KEY_MESSAGES.values()]
     msgs += [um.UPDATE_CHECK_FAILED, um.UPDATE_CHECK_OFFLINE, um.UPDATE_NO_INSTALLER,
-             um.UPDATE_DOWNLOAD_FAILED, um.UPDATE_INSTALL_FAILED]
+             um.UPDATE_DOWNLOAD_FAILED, um.UPDATE_INSTALL_FAILED, um.UPDATE_WAITING]
     return msgs
 
 

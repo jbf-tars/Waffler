@@ -421,6 +421,7 @@ function closeUpdateModal(ev) {
   const m = document.getElementById('updateModal');
   if (m) m.style.display = 'none';
   stopProgressPolling();
+  if (_installRetryTimer) { clearTimeout(_installRetryTimer); _installRetryTimer = null; }
   modalClosed(m);
 }
 function setUpdateModal({ icon, title, subtitle, showProgress, primaryLabel, primaryHandler, cancelLabel, browserUrl, browserLabel }) {
@@ -568,8 +569,13 @@ async function pollUpdateProgress() {
   }
 }
 
+// While a dictation is recorded or cleaned up, Python says "busy" instead
+// of restarting (that would lose it); the install is tried again shortly.
+let _installRetryTimer = null;
+
 async function installDownloadedUpdate() {
   if (!_downloadedPath) return;
+  if (_installRetryTimer) { clearTimeout(_installRetryTimer); _installRetryTimer = null; }
   setUpdateModal({ icon: 'settings', title: 'Installing…', subtitle: 'Waffler is closing to install the update.' });
   let r;
   try {
@@ -577,6 +583,18 @@ async function installDownloadedUpdate() {
   } catch(e) {
     console.warn('install_update_and_restart failed:', e);
     r = { ok: false };
+  }
+  if (r && r.ok === false && r.busy) {
+    const m = WL.splitMessage(r.error || '');
+    setUpdateModal({ icon: 'settings', title: m.title, subtitle: m.subtitle, cancelLabel: 'Later' });
+    _installRetryTimer = setTimeout(() => {
+      _installRetryTimer = null;
+      const modal = document.getElementById('updateModal');
+      // Closing the dialog ("Later") stops the waiting.
+      if (!modal || modal.style.display === 'none') return;
+      installDownloadedUpdate();
+    }, WL.INSTALL_RETRY_MS);
+    return;
   }
   // Success usually never answers (Waffler quits); a refusal used to be
   // ignored and left "Installing…" on screen.

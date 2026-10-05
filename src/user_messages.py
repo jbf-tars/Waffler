@@ -95,6 +95,10 @@ UPDATE_DOWNLOAD_FAILED = ("The update didn't download. Try again, or get it from
                           "download page.")
 UPDATE_INSTALL_FAILED = ("The update couldn't be installed. Get it from the download "
                          "page instead.")
+# Restart to update waits while a dictation is recorded, cleaned up or a Not
+# sent recording is being sent; the window tries again by itself.
+UPDATE_WAITING = ("Finishing your dictation first. Waffler will restart to "
+                  "update as soon as it's done.")
 
 
 def update_check_error(exc=None) -> str:

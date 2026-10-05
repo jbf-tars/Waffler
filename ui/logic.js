@@ -265,6 +265,10 @@
   // screen shows them as they are and never adds exception text. These
   // fallbacks are the same sentences, for when the call itself fails.
   const DOWNLOAD_PAGE = 'https://wafflerai.com/download/';
+  // How long "Restart to update" waits before trying again while a
+  // dictation finishes (app.py answers busy rather than lose it).
+  const INSTALL_RETRY_MS = 1500;
+
   const UPDATE_TEXT = {
     checkFailed: "Couldn't check for updates. Try again later.",
     noInstaller: 'This update has no installer for this computer yet. Try again later, or see the release page.',
@@ -788,7 +792,7 @@
     notSentId, notSentView, retryFailedMessage, unsentSummary,
     HISTORY_KEEP, historyKeepLabel, historyKeepConfirm, historyKeepDone,
     defaultHotkey, keyName, orderKeys, hotkeyName, keycaps, pressOrderHint, hotkeyPresets,
-    DOWNLOAD_PAGE, UPDATE_TEXT, splitMessage, updateCheckView, updateFailureView,
+    DOWNLOAD_PAGE, UPDATE_TEXT, INSTALL_RETRY_MS, splitMessage, updateCheckView, updateFailureView,
     DEFAULT_PROVIDER_ORDER, PROVIDER_NAMES, providerHasKey, normalizeProviderOrder,
     providerOrderRows, activeProviders, backendsLine, aboutLine,
     USAGE_NOTE, formatCount, usageView, usageProviderRows, usesView, keyRows,

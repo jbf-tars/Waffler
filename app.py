@@ -136,6 +136,7 @@ from user_messages import (
     UPDATE_DOWNLOAD_FAILED,
     UPDATE_INSTALL_FAILED,
     UPDATE_NO_INSTALLER,
+    UPDATE_WAITING,
     classify_request_error,
     cleanup_skipped_message,
     key_check_error,
@@ -446,6 +447,27 @@ def _words_kept_message(on_clipboard: bool, in_journal: bool) -> str:
     return "That dictation didn't go through. Please try again."
 
 
+def _update_would_interrupt(pipeline) -> str:
+    """What a restart to update would cut off, or "" when nothing would:
+    a recording, a dictation still being processed, or a Not sent
+    recording being sent."""
+    if pipeline is None:
+        return ""
+    try:
+        if getattr(pipeline, "is_recording", False):
+            return "recording"
+        watchdog = getattr(pipeline, "_watchdog", None)
+        if watchdog is not None and watchdog.active():
+            return "a dictation is being processed"
+        for name in ("_drain_lock", "_unsent_lock"):
+            lock = getattr(pipeline, name, None)
+            if lock is not None and lock.locked():
+                return "a recording is being sent"
+    except Exception:
+        return ""
+    return ""
+
+
 def append_history_safely(item: dict) -> bool:
     """append_history for the dictation path: True when saved. Logs a
     failure and returns False instead of raising."""
@@ -628,6 +650,13 @@ class Api:
             if not recorded or os.path.abspath(installer_path) != os.path.abspath(recorded):
                 _log_to_file("[update] refused install of unrecognised path")
                 return {"ok": False, "error": UPDATE_INSTALL_FAILED, "download_page": DOWNLOAD_PAGE}
+            # Restarting exits at once (and the Windows helper force-closes
+            # Waffler), so a dictation being recorded or cleaned up, or a
+            # Not sent recording being sent, would be lost. Wait for it.
+            busy = _update_would_interrupt(_pipeline)
+            if busy:
+                _log_to_file(f"[update] install waits: {busy}")
+                return {"ok": False, "busy": True, "error": UPDATE_WAITING}
             updater.install_and_restart(installer_path)
             return {"ok": True}  # usually unreachable — process exits
         except Exception as e:
