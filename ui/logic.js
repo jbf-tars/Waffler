@@ -545,6 +545,47 @@
     return out;
   }
 
+  // What the Vocabulary changed in a dictation: history.json's
+  // "vocab_changes", [[heard, used], ...], saved since 3.15. Shown under the
+  // Journal card, so a change Waffler made is never invisible.
+  const VOCAB_MAX_ENTRY_LEN = 60;   // transcribe_whisper.VOCAB_MAX_ENTRY_LEN
+
+  function vocabChanges(item) {
+    const list = item && Array.isArray(item.vocab_changes) ? item.vocab_changes : [];
+    return list
+      .filter((p) => Array.isArray(p) && typeof p[0] === 'string' && typeof p[1] === 'string' && p[0] && p[1])
+      .map(([heard, used]) => ({ heard, used }));
+  }
+
+  function vocabChangesLine(item) {
+    const parts = vocabChanges(item).map((c) => `${c.heard} to ${c.used}`);
+    if (!parts.length) return '';
+    const joined = parts.length === 1 ? parts[0]
+      : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
+    return `Your Vocabulary changed ${joined}.`;
+  }
+
+  // Typing a word into the Vocabulary box and pressing Add. Spaces are
+  // trimmed and runs of them made one (as the app saves it). The same word
+  // in other capitals is a respelling of the entry, not a second entry:
+  // typing "COBie" with "Cobie" listed changes it to "COBie" (before 3.15
+  // that was refused as a duplicate, and the only way to change an entry
+  // was to remove it and add it again). Returns {action, word, existing,
+  // next}: action is 'empty', 'too_long', 'same' (already listed exactly),
+  // 'respell' or 'add'.
+  function vocabAdd(words, input, maxLen) {
+    const list = Array.isArray(words) ? words : [];
+    const word = String(input == null ? '' : input).split(/\s+/).filter(Boolean).join(' ');
+    if (!word) return { action: 'empty', word: '' };
+    if (maxLen && word.length > maxLen) return { action: 'too_long', word };
+    const i = list.findIndex((w) => w.toLowerCase() === word.toLowerCase());
+    if (i < 0) return { action: 'add', word, next: list.concat([word]) };
+    if (list[i] === word) return { action: 'same', word, existing: list[i] };
+    const next = list.slice();
+    next[i] = word;
+    return { action: 'respell', word, existing: list[i], next };
+  }
+
   // The Journal's day rows: "Friday" on the left, "25 September" on the
   // right (with the year when it isn't this year). Keys are "YYYY-MM-DD".
   const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -737,7 +778,7 @@
     DEFAULT_PROVIDER_ORDER, PROVIDER_NAMES, providerHasKey, normalizeProviderOrder,
     providerOrderRows, activeProviders, backendsLine, aboutLine,
     USAGE_NOTE, formatCount, usageView, usageProviderRows, usesView, keyRows,
-    qualityView, dayKey, dayLabel, statNumber,
+    qualityView, dayKey, dayLabel, statNumber, vocabChanges, vocabChangesLine, vocabAdd, VOCAB_MAX_ENTRY_LEN,
     SEARCH_DEBOUNCE_MS, debounce, feedView, searchAnnouncement, radioMove, focusAfterRemove,
   };
 });

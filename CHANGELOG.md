@@ -217,6 +217,40 @@ website and setup, in light and Dark.
   code-signing policy no longer says audio is captured only while you hold
   the hotkey: the half-second before is part of each recording.
 
+### Vocabulary
+
+- **Your words no longer rewrite ordinary words.** With Waffler in the list,
+  "I'll waffle on" was pasted as "I'll Waffler on" (16 times in one user's
+  log, 8 of them on 3.14.100), and with Morta in it, "mortar" became Morta.
+  "Phillips" became Phillip, "Matthews" Mathew, "linked" LinkedIn and
+  "posters" Postgres. A word is now left alone when it is everyday English
+  (with or without an ending like -s, -ed or -ing), or when it is one of your
+  words with letters added or taken off the start or end ("waffle",
+  "waffled", "mortar", "Phillips", "BIM" for XBim), and that includes its
+  capitals: with "Will" in your list, "will" stays "will". Real mishearings
+  still change: Ashkahn and ashcan to Ashkan, Malek to Malak, Woffler to
+  Waffler, Isabel to Isobel, Sinead to Sinéad, club card to Clubcard.
+- When a word is close to two of your words, the closer one wins, not the
+  one listed first: "cobiec" becomes COBieQC, not COBie.
+- **Names of more than one word work.** "James Farrelly" in your list was
+  never matched before; "james farrely" now becomes James Farrelly. Entries
+  with hyphens or apostrophes (Jean-Luc, O'Brien) work too, and accented
+  letters no longer split a word in two.
+- "kobi qc" becomes COBieQC again: a two-letter part that is not an everyday
+  word (an initialism like "qc") may now be joined to the word before it.
+- **See what changed.** Each Journal entry the Vocabulary changed now says
+  so under the text, for example "Your Vocabulary changed Malek to Malak."
+  The log no longer reports a word that was already spelt your way as a
+  correction.
+- Typing a word that is already in your list in different capitals changes
+  its spelling ("Cobie" to "COBie") instead of being turned away as a
+  duplicate.
+- The list is saved safely: as UTF-8, through a temporary file, tidied of
+  blank and repeated entries, and with a limit of 500 entries of up to 60
+  characters each. If saving fails the page says so; before, it still said
+  "Added". A vocab.json that cannot be read is kept as
+  vocab.unreadable-(date).json rather than replaced by your next word.
+
 ### Fixed
 - **Updating on Windows no longer opens a stream of terminal windows.** The
   update helper was started with two Windows flags, "detached" and "no

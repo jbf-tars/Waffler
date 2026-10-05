@@ -767,15 +767,16 @@ class Api:
         return load_vocab()
 
     def set_vocab(self, words: list) -> dict:
-        """Save the user's custom vocabulary list."""
-        import json
-        from transcribe_whisper import VOCAB_FILE
-        try:
-            VOCAB_FILE.parent.mkdir(parents=True, exist_ok=True)
-            VOCAB_FILE.write_text(json.dumps(words, indent=2), encoding="utf-8")
-            return {"ok": True, "count": len(words)}
-        except Exception as e:
-            return {"ok": False, "error": str(e)}
+        """Save the user's custom vocabulary list (vocab.json, UTF-8, written
+        atomically). The list is tidied first (transcribe_whisper.clean_vocab)
+        and checked against the limits; the saved list comes back as
+        ``words`` so the page shows exactly what was kept. The next
+        dictation reads it, so no restart is needed."""
+        from transcribe_whisper import save_vocab
+        result = save_vocab(words)
+        if result.get("log"):
+            _log_to_file(f"[vocab] {result.pop('log')}")
+        return result
 
     def demo_overlay_show(self) -> dict:
         """Show overlay with mic feedback for wizard demo (Step 4)."""
@@ -3918,13 +3919,17 @@ class WafflerPipeline:
                 return
             run.transcript = transcript
 
-            # Apply vocabulary fuzzy matching corrections
-            from transcribe_whisper import load_vocab, apply_vocab_corrections
+            # Apply vocabulary fuzzy matching corrections. What changed is
+            # kept with the Journal entry ("vocab_changes") so the card can
+            # show it; before 3.15 it was only in app.log.
+            from transcribe_whisper import load_vocab, apply_vocab_changes
+            _vocab_changes = []
             vocab = load_vocab()
             if vocab:
-                transcript, corrections = apply_vocab_corrections(transcript, vocab)
-                if corrections:
-                    _log_to_file(f"Vocabulary corrections applied: {', '.join(corrections)}")
+                transcript, _vocab_changes = apply_vocab_changes(transcript, vocab)
+                if _vocab_changes:
+                    _log_to_file("Vocabulary corrections applied: " + ", ".join(
+                        f"'{h}' → '{u}'" for h, u in _vocab_changes))
 
             # Record Whisper usage - calculate from audio bytes (works for all backends)
             # Audio is 16kHz, 16-bit mono = 32000 bytes/second
@@ -4134,6 +4139,9 @@ class WafflerPipeline:
             if _as_said:
                 # The Journal tags it "As said: limit reached".
                 item["as_said"] = _as_said
+            if _vocab_changes:
+                # The Journal shows "Vocabulary: Malek → Malak" under the card.
+                item["vocab_changes"] = [[h, u] for h, u in _vocab_changes]
             try:
                 _asr_raw = _asr_info.get("last_asr_response", "") or ""
                 if _asr_info.get("last_asr_filtered", False) and _asr_raw != transcript:
@@ -4720,11 +4728,12 @@ class WafflerPipeline:
         put them into its card (a normal Journal entry from then on) and
         remove the file. Call with _unsent_lock held."""
         transcript, info = asr_value
+        vocab_changes = []
         try:
-            from transcribe_whisper import load_vocab, apply_vocab_corrections
+            from transcribe_whisper import load_vocab, apply_vocab_changes
             vocab = load_vocab()
             if vocab:
-                transcript, _c = apply_vocab_corrections(transcript, vocab)
+                transcript, vocab_changes = apply_vocab_changes(transcript, vocab)
         except Exception as e:
             _log_to_file(f"[unsent] vocabulary step skipped: {e}")
         provider = (info or {}).get("backend") or ""
@@ -4748,6 +4757,8 @@ class WafflerPipeline:
         styled = self._apply_snippets(styled)
 
         new_item = _unsent.resolved(entry, transcript=transcript, styled=styled)
+        if vocab_changes:
+            new_item["vocab_changes"] = [[h, u] for h, u in vocab_changes]
         if not self._replace_unsent_entry(unsent_id, new_item):
             return {"ok": False, "reason": "not_saved", "item": entry}
         if path is not None:

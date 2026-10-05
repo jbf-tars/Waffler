@@ -1360,6 +1360,7 @@ function makeCard(item, isNew) {
     </div>
     <div class="card-text styled" id="${textId}">${escHtml(displayText)}</div>
     ${q.reasons.length ? `<p class="card-reason">${escHtml(q.reasons.join(' '))}</p>` : ''}
+    ${WL.vocabChangesLine(item) ? `<p class="card-reason card-vocab">${escHtml(WL.vocabChangesLine(item))}</p>` : ''}
     <div class="card-actions">
       <button type="button" class="btn btn-sec btn-sm btn-copy" aria-label="${escHtml(when ? `Copy the dictation from ${when}` : 'Copy')}">${WI.icon('copy')}<span>Copy</span></button>
       ${hasStyled ? `<button type="button" class="text-toggle" aria-controls="${textId}">Show transcript</button>` : ''}
@@ -1576,7 +1577,7 @@ function renderVocab() {
         <div class="vrow vh"><span class="eyebrow">Heard</span><span></span><span class="eyebrow">Pasted</span></div>
         ${_vocabRows([['Sinead', 'Sinéad']])}
       </div>
-      <p class="small">When speech to text writes a word that sounds like one of yours, Waffler swaps in your spelling before pasting. It matches loosely, so a phrase spelled close to one of your words can change too.</p>
+      <p class="small">When speech to text writes a word that sounds like one of yours, Waffler swaps in your spelling before pasting. Everyday words are left as you said them, and the Journal notes each word it changed.</p>
     </div></div>`;
   listEl.querySelectorAll('.wchip .rbtn').forEach((b) => {
     b.addEventListener('click', () => deleteVocabWord(b.getAttribute('data-word')));
@@ -1587,24 +1588,35 @@ async function addVocabWord() {
   const inputEl = document.getElementById('vocabInput');
   if (!inputEl) return;
 
-  const word = inputEl.value.trim();
-  if (!word) {
+  const r = WL.vocabAdd(_vocabWords, inputEl.value, WL.VOCAB_MAX_ENTRY_LEN);
+  if (r.action === 'empty') {
     _vocabError('Type a name or word first.');
     inputEl.focus();
     return;
   }
-  if (_vocabWords.some((w) => w.toLowerCase() === word.toLowerCase())) {
-    _vocabError(`"${word}" is already in your list.`);
+  if (r.action === 'too_long') {
+    _vocabError(`Keep each entry to ${WL.VOCAB_MAX_ENTRY_LEN} characters or fewer: a name, a word or a short phrase.`);
+    inputEl.focus();
+    return;
+  }
+  if (r.action === 'same') {
+    _vocabError(`"${r.word}" is already in your list.`);
     return;
   }
   _vocabError('');
-  const next = _vocabWords.concat([word]);
   try {
-    await pywebview.api.set_vocab(next);
-    _vocabWords = next;
+    // set_vocab answers {ok, words} or {ok: false, error}; before 3.15 a
+    // failed save still said "Added".
+    const res = await pywebview.api.set_vocab(r.next);
+    if (!res || !res.ok) {
+      _vocabError((res && res.error) || "Couldn't save your list. Try again.");
+      inputEl.focus();
+      return;
+    }
+    _vocabWords = Array.isArray(res.words) ? res.words : r.next;
     inputEl.value = '';
     renderVocab();
-    showToast(`Added "${word}".`, 'success');
+    showToast(r.action === 'respell' ? `Changed "${r.existing}" to "${r.word}".` : `Added "${r.word}".`, 'success');
   } catch(e) {
     console.warn('addVocabWord error:', e);
     showToast("Couldn't add that word. Try again.", 'error');
@@ -1621,8 +1633,12 @@ async function deleteVocabWord(word) {
   const at = btns.findIndex((b) => b.getAttribute('data-word') === word);
   const hadFocus = btns.includes(document.activeElement);
   try {
-    await pywebview.api.set_vocab(next);
-    _vocabWords = next;
+    const res = await pywebview.api.set_vocab(next);
+    if (!res || !res.ok) {
+      showToast((res && res.error) || "Couldn't remove that word. Try again.", 'error');
+      return;
+    }
+    _vocabWords = Array.isArray(res.words) ? res.words : next;
     renderVocab();
     // Focus went with the chip; put it on the next word's remove button,
     // the previous one, or the box when the list is empty.
