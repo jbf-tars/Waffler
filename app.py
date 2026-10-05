@@ -435,6 +435,17 @@ def record_usage_safely(*args, **kwargs):
         return None
 
 
+def _words_kept_message(on_clipboard: bool, in_journal: bool) -> str:
+    """The error toast's sentence, from where the words really are."""
+    if on_clipboard and in_journal:
+        return "Your words are on the clipboard and in the Journal."
+    if on_clipboard:
+        return "Your words are on the clipboard."
+    if in_journal:
+        return "Your words are in the Journal."
+    return "That dictation didn't go through. Please try again."
+
+
 def append_history_safely(item: dict) -> bool:
     """append_history for the dictation path: True when saved. Logs a
     failure and returns False instead of raising."""
@@ -3666,6 +3677,8 @@ class WafflerPipeline:
         # error handler must not "salvage" the raw transcript over it.
         _clipboard_written = False
         transcript = None  # for the error handler, whatever fails first
+        styled = None
+        _history_written = False   # this dictation is in the Journal
         try:
             # Calculate recording duration for error suppression
             import time
@@ -3975,14 +3988,22 @@ class WafflerPipeline:
             # Apply vocabulary fuzzy matching corrections. What changed is
             # kept with the Journal entry ("vocab_changes") so the card can
             # show it; before 3.15 it was only in app.log.
-            from transcribe_whisper import load_vocab, apply_vocab_changes
+            # Never fatal: a Vocabulary that cannot be applied must not cost
+            # the words (as Try again already did).
             _vocab_changes = []
-            vocab = load_vocab()
-            if vocab:
-                transcript, _vocab_changes = apply_vocab_changes(transcript, vocab)
-                if _vocab_changes:
-                    _log_to_file("Vocabulary corrections applied: " + ", ".join(
-                        f"'{h}' → '{u}'" for h, u in _vocab_changes))
+            try:
+                from transcribe_whisper import load_vocab, apply_vocab_changes
+                vocab = load_vocab()
+                if vocab:
+                    _fixed, _vocab_changes = apply_vocab_changes(transcript, vocab)
+                    transcript = _fixed
+                    run.transcript = transcript
+                    if _vocab_changes:
+                        _log_to_file("Vocabulary corrections applied: " + ", ".join(
+                            f"'{h}' → '{u}'" for h, u in _vocab_changes))
+            except Exception as e:
+                _vocab_changes = []
+                _log_to_file(f"Vocabulary step skipped ({type(e).__name__}: {e})")
 
             # Record Whisper usage - calculate from audio bytes (works for all backends)
             # Audio is 16kHz, 16-bit mono = 32000 bytes/second
@@ -4291,6 +4312,7 @@ class WafflerPipeline:
             except Exception as _e:
                 _log_to_file(f"[quality] assessment failed: {_e}")
             _saved = append_history_safely(item)
+            _history_written = _saved
             if _esc_kept:
                 # Said only while this dictation still owns the pill.
                 if self._run_is_current(run):
@@ -4355,6 +4377,25 @@ class WafflerPipeline:
                 except Exception as _e:
                     _log_to_file(f"[pipeline] could not keep the recording: {_e}")
 
+            # The words exist but something after speech to text failed:
+            # put them in the Journal, so they are not lost with the error.
+            _journal_saved = _history_written
+            if transcript and not _history_written and not run.saved_as_unsent:
+                _words = styled or transcript
+                _entry = {
+                    "timestamp": datetime.now().isoformat(timespec="seconds"),
+                    "text": transcript,
+                    "styled": _words,
+                    "word_count": len(_words.split()),
+                }
+                _journal_saved = append_history_safely(_entry)
+                if _journal_saved:
+                    _log_to_file("[pipeline] the words were kept in the Journal after the error")
+                    try:
+                        notify_js_new_item(_entry)
+                    except Exception:
+                        pass
+
             # Show user-visible error toast with specific message
             try:
                 # Only genuine mic-level errors get the `error` style with
@@ -4414,9 +4455,8 @@ class WafflerPipeline:
                     self.overlay.show_toast(
                         style="warn",
                         heading="Something went wrong",
-                        body=("Your words are on the clipboard and in the Journal."
-                              if (_salvaged or _clipboard_written) else
-                              "That dictation didn't go through. Please try again."),
+                        body=_words_kept_message(_salvaged or _clipboard_written,
+                                                 _journal_saved),
                     )
             except Exception:
                 pass

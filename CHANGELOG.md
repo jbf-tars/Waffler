@@ -274,6 +274,11 @@ website and setup, in light and Dark.
   order mark at the start of history.json or usage.json no longer counts as
   unreadable. Delete all my data removes the kept copies of the Journal and
   usage too.
+- **Words are no longer lost when something fails after speech to text.**
+  The error said "Your words are on the clipboard and in the Journal", but
+  they were never saved to the Journal. They are now, and the message says
+  only where the words really are. A Vocabulary that cannot be applied is
+  skipped instead of failing the dictation, as Try again already did.
 - Settings are changed under one lock, so two changes at once cannot undo
   each other, and saving settings retries a brief lock on the file instead
   of failing with "Access is denied". Usage records are written under a

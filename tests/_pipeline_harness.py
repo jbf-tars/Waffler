@@ -54,7 +54,7 @@ PIPELINE_METHODS = (
 )
 MODULE_DEFS = ("ensure_data_dir", "load_history", "_load_history_for_update",
                "save_history", "append_history",
-               "append_history_safely", "_MIN_TAP_SPEECH_S",
+               "append_history_safely", "_words_kept_message", "_MIN_TAP_SPEECH_S",
                "_history_retention_day", "_history_keep_days", "_retain_history")
 
 
