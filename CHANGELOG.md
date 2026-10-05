@@ -303,6 +303,9 @@ website and setup, in light and Dark.
   so a dictation being recorded or cleaned up, or a Not sent recording
   being sent, was lost. It now says "Finishing your dictation first" and
   restarts as soon as that is done (Later stops it).
+- On a Mac, an update replaces the Waffler you are running, wherever it is
+  (for example ~/Applications). It always wrote to /Applications before,
+  which added a second copy or failed without admin rights.
 - A download that fails Waffler's safety check is no longer reported at the
   next start as an update that "did NOT apply": nothing is recorded until
   the download has passed the check.

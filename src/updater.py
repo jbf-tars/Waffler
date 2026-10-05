@@ -36,6 +36,10 @@ try:
 except ImportError:  # imported as src.updater
     from src.user_messages import DOWNLOAD_PAGE as _DOWNLOAD_PAGE
     from src.user_messages import UPDATE_DOWNLOAD_FAILED as _DOWNLOAD_FAILED_MESSAGE
+try:
+    from login_item import mac_bundle_path, mac_running_from_download
+except ImportError:  # imported as src.updater
+    from src.login_item import mac_bundle_path, mac_running_from_download
 
 # No-progress stall threshold: the download worker fails out if no bytes
 # arrive for this many seconds. Without this the request can wedge silently
@@ -860,6 +864,21 @@ def _hdiutil_detach(target: str, attempts: int = 2) -> bool:
     return False
 
 
+def mac_install_target(executable: str) -> Path:
+    """The Waffler.app an update replaces: the one that is running.
+
+    The updater always wrote /Applications/Waffler.app. Run from anywhere
+    else (~/Applications, or a renamed copy), an update added a second copy
+    and opened that one, or failed for a user who cannot write to
+    /Applications. Only a copy still running from the disk image (or from
+    macOS's quarantine copy) installs to /Applications, as a first install.
+    """
+    bundle = mac_bundle_path(executable)
+    if bundle is not None and not mac_running_from_download(bundle):
+        return Path(str(bundle))
+    return Path("/Applications") / "Waffler.app"
+
+
 def _install_macos(dmg_path: Path) -> None:
     """Mount the DMG, verify+swap the app atomically, then relaunch.
 
@@ -871,7 +890,7 @@ def _install_macos(dmg_path: Path) -> None:
          confirm it EXISTS before touching the installed copy.
       2. Verify the in-DMG app's code signature (codesign + spctl). Abort on
          failure.
-      3. Stage: copy the new app to a temp dir *inside* /Applications, then
+      3. Stage: copy the new app to a temp dir beside the installed app, then
          re-verify the staged copy's signature.
       4. Atomic swap: move the old app aside, move the staged app into place;
          on any error, restore the old app. Only then remove the old copy.
@@ -882,8 +901,10 @@ def _install_macos(dmg_path: Path) -> None:
     its own os._exit), then cleans up the DMG and leftover staging.
     """
     pid = os.getpid()
-    apps_dir = Path("/Applications")
-    installed = apps_dir / "Waffler.app"
+    installed = mac_install_target(sys.executable)
+    # Staged and kept beside it: the same folder, so the swap is a rename.
+    apps_dir = installed.parent
+    _log(f"installing to {installed}")
 
     mount_point = ""
     dev_entry = ""
@@ -924,12 +945,12 @@ def _install_macos(dmg_path: Path) -> None:
         # (1) Verify the in-DMG app's signature. Fail closed.
         _verify_macos_app_signature(app_in_dmg)
 
-        # (2) Stage a copy inside /Applications (same filesystem → fast,
+        # (2) Stage a copy beside the installed app (same filesystem → fast,
         # atomic rename later). Clean any stale staging first.
         _cleanup_paths()
         shutil.copytree(app_in_dmg, staged, symlinks=True)
         if not staged.exists():
-            raise RuntimeError("failed to stage new app into /Applications")
+            raise RuntimeError(f"failed to stage new app into {apps_dir}")
 
         # (3) Re-verify the staged copy actually on disk before swapping.
         _verify_macos_app_signature(staged)
