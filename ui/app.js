@@ -182,7 +182,12 @@ function _setWindowHidden(hidden) {
   document.documentElement.classList.toggle('waffler-hidden', !!hidden);
 }
 document.addEventListener('visibilitychange', () => _setWindowHidden(document.hidden));
-window.waffler_window_visible = function(visible) { _setWindowHidden(!visible); };
+window.waffler_window_visible = function(visible) {
+  _setWindowHidden(!visible);
+  // Back from the tray or a minimise during setup: look for a copied key,
+  // as on focus (WebView2 may not report focus for a title bar click).
+  if (visible && _wizClipOnFocus) _wizClipOnFocus();
+};
 ['focus', 'pointerdown', 'keydown'].forEach((type) => {
   window.addEventListener(type, () => _setWindowHidden(false), true);
 });
@@ -2434,13 +2439,22 @@ function startWizClipboardWatch() {
   if (!(window.pywebview && pywebview.api && pywebview.api.peek_clipboard_key)) return;
   _wizClipOnFocus = () => { _wizCheckClipboardOnce(false); };
   window.addEventListener('focus', _wizClipOnFocus);
+  // Coming back to the window does not always fire focus in WebView2 (a
+  // click on the title bar or the taskbar), so the page becoming visible
+  // counts too. Both are events, never a timer, and the check is debounced.
+  document.addEventListener('visibilitychange', _wizClipOnVisible);
   _wizCheckClipboardOnce(false);
+}
+
+function _wizClipOnVisible() {
+  if (document.visibilityState === 'visible' && _wizClipOnFocus) _wizClipOnFocus();
 }
 
 function stopWizClipboardWatch() {
   if (_wizClipTimer) { clearInterval(_wizClipTimer); _wizClipTimer = null; }
   if (_wizClipOnFocus) {
     window.removeEventListener('focus', _wizClipOnFocus);
+    document.removeEventListener('visibilitychange', _wizClipOnVisible);
     _wizClipOnFocus = null;
   }
 }

@@ -71,3 +71,19 @@ def test_only_one_python_side_clipboard_reader_exists():
         "a new clipboard reader appeared in app.py - every read is part of "
         "the credential-access surface and needs justifying"
     )
+
+
+def test_returning_to_the_window_also_counts_and_is_removed_again():
+    """WebView2 may not fire focus when the user comes back by the title
+    bar or the taskbar, so the page becoming visible, and Python's
+    "window visible again" (tray, restore), also look once."""
+    src = _source()
+    start = src.index("function startWizClipboardWatch")
+    watch = src[start:src.index("\n}\n", start)]
+    assert "addEventListener('visibilitychange', _wizClipOnVisible)" in watch
+    stop = src[src.index("function stopWizClipboardWatch"):]
+    stop = stop[:stop.index("\n}\n")]
+    assert "removeEventListener('visibilitychange', _wizClipOnVisible)" in stop
+    vis = src[src.index("window.waffler_window_visible = function"):]
+    vis = vis[:vis.index("\n};")]
+    assert "if (visible && _wizClipOnFocus) _wizClipOnFocus();" in vis

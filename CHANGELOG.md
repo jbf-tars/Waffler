@@ -299,6 +299,9 @@ website and setup, in light and Dark.
   Waffler closed, the installer never ran and nothing reopened. The paths
   now reach the helper in a way that keeps every letter (and a % sign).
   Updates from 3.14.100 and earlier still use the old helper.
+- Setup also looks for your copied Groq key when the window comes back from
+  the taskbar, the tray or a minimise, not only when it gets focus, which
+  the window does not always report.
 - **Restart to update waits for your dictation.** It closed Waffler at once,
   so a dictation being recorded or cleaned up, or a Not sent recording
   being sent, was lost. It now says "Finishing your dictation first" and
