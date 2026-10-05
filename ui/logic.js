@@ -763,13 +763,27 @@
     return out;
   }
 
+  // The theme at start-up. settings.json (Python) is the record: the
+  // window runs in private mode, so localStorage is empty after every
+  // restart and its 'cream' default must never be written over the saved
+  // choice. Returns what to show now ('apply') and what to save ('save').
+  // A choice only this page holds (from an older build) is saved once.
+  const THEMES = ['cream', 'dark', 'auto'];
+  function startupTheme(saved, local) {
+    const s = THEMES.includes(saved) ? saved : null;
+    const l = THEMES.includes(local) ? local : null;
+    if (s) return { apply: s, save: null };
+    if (l && l !== 'cream') return { apply: l, save: l };
+    return { apply: null, save: null };
+  }
+
   // The steps of setup, in order. The Mac adds its permissions screen.
   function setupSteps(isMac) {
     return isMac ? ['connect', 'permissions', 'try', 'anywhere'] : ['connect', 'try', 'anywhere'];
   }
 
   return {
-    keyInputView, serviceRows, saidDiff, setupSteps,
+    keyInputView, serviceRows, saidDiff, setupSteps, startupTheme,
     STATUS_VIEWS, STATUS_CLASSES, DONE_RESET_MS, statusView, statusResetMs, workingLabel, workingTime, recordingTime,
     notSentId, notSentView, retryFailedMessage, unsentSummary,
     HISTORY_KEEP, historyKeepLabel, historyKeepConfirm, historyKeepDone,

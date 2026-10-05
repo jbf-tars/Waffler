@@ -840,11 +840,22 @@ class Api:
                 pass
             raise e
 
+    def get_theme(self) -> dict:
+        """The saved theme, which the page applies when it is ready. The
+        page's own localStorage is wiped at every restart (the window runs
+        in private mode), so settings.json is the record. "" when none."""
+        try:
+            from theme import THEMES
+            theme = str(self._load_settings_file().get("theme") or "").strip().lower()
+            return {"theme": theme if theme in THEMES else ""}
+        except Exception:
+            return {"theme": ""}
+
     def set_theme(self, theme: str) -> dict:
         """Remember the UI theme ('cream', 'dark' or 'auto') in settings.json,
         so the next launch can paint the window in the right colour before the
-        page loads (see src/theme.py). The UI's own copy stays in
-        localStorage."""
+        page loads (see src/theme.py). Called only when the user picks a
+        theme, never at start-up (see get_theme)."""
         try:
             from theme import THEMES
             theme = str(theme or "").strip().lower()

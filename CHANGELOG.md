@@ -259,6 +259,11 @@ website and setup, in light and Dark.
   missing Waffler builds one from its logo. If the tray icon still cannot
   be shown, the close button quits Waffler and a start at sign-in opens the
   window, so Waffler is never left running out of sight.
+- **Your theme survives a restart.** The window starts with its browser
+  storage empty every time, so the page fell back to Light and then saved
+  Light over your choice. Dark and System went back to Light at every
+  start. The page now takes the theme from Waffler's settings, and saves
+  only when you choose one.
 - **Updating on Windows no longer opens a stream of terminal windows.** The
   update helper was started with two Windows flags, "detached" and "no
   window", and Windows ignores "no window" when both are set. The helper then

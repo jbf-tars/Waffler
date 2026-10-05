@@ -50,8 +50,29 @@ function _syncThemeToApp(pref) {
     if (_darkQuery.addEventListener) _darkQuery.addEventListener('change', follow);
     else if (_darkQuery.addListener) _darkQuery.addListener(follow);
   }
-  window.addEventListener('pywebviewready', () => _syncThemeToApp(_themePref));
+  window.addEventListener('pywebviewready', _loadSavedTheme);
 })();
+
+// The saved theme comes from settings.json: localStorage does not survive a
+// restart (the window runs in private mode), so it is only a first guess.
+// Nothing is saved here unless this page holds a choice Python lacks.
+async function _loadSavedTheme() {
+  let saved = null, local = null;
+  try { local = localStorage.getItem('waffler_theme'); } catch (_) {}
+  try {
+    const api = window.pywebview && window.pywebview.api;
+    if (!api || !api.get_theme) return;
+    const r = await api.get_theme();
+    saved = r && r.theme;
+  } catch (_) { return; }
+  const d = WL.startupTheme(saved, local);
+  if (d.apply && d.apply !== _themePref) {
+    _applyTheme(d.apply);
+    try { localStorage.setItem('waffler_theme', d.apply); } catch (_) {}
+    refreshThemePicker();
+  }
+  if (d.save) _syncThemeToApp(d.save);
+}
 
 function setAppTheme(theme) {
   if (!THEME_CHOICES.includes(theme)) return;
