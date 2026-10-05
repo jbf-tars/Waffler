@@ -252,6 +252,13 @@ website and setup, in light and Dark.
   vocab.unreadable-(date).json rather than replaced by your next word.
 
 ### Fixed
+- **The Windows tray icon is back.** Installed builds since 3.14.84 left
+  icon.ico out, so the tray icon was never made. Closing the window still
+  hid it, and a start at sign-in began hidden, so the only way to end
+  Waffler was Task Manager. The icon is bundled again, and if it is ever
+  missing Waffler builds one from its logo. If the tray icon still cannot
+  be shown, the close button quits Waffler and a start at sign-in opens the
+  window, so Waffler is never left running out of sight.
 - **Updating on Windows no longer opens a stream of terminal windows.** The
   update helper was started with two Windows flags, "detached" and "no
   window", and Windows ignores "no window" when both are set. The helper then

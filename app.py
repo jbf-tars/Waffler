@@ -3037,17 +3037,26 @@ _tray_state_now = _tray_state.IDLE
 _tray_working_ico = None     # Path of the generated "working" icon, once made
 
 
+def _app_icon_path():
+    """icon.ico for the tray and the title bar (dev or installed), or one
+    built from ui/logo-icon.png when the build left icon.ico out."""
+    candidates = [PROJECT_ROOT / "icon.ico"]
+    if hasattr(sys, "_MEIPASS"):
+        candidates.append(Path(sys._MEIPASS) / "icon.ico")
+    candidates.append(Path(sys.executable).parent / "_internal" / "icon.ico")
+    return _tray_state.find_app_icon(candidates, PROJECT_ROOT / "ui" / "logo-icon.png",
+                                     DATA_DIR / "app-icon.ico")
+
+
 def _tray_working_icon_path():
     """The Windows tray icon with an amber dot, made once from icon.ico."""
     global _tray_working_ico
     if _tray_working_ico is not None:
         return _tray_working_ico or None
     try:
-        src = PROJECT_ROOT / "icon.ico"
-        if not src.exists() and hasattr(sys, "_MEIPASS"):
-            src = Path(sys._MEIPASS) / "icon.ico"
-        if not src.exists():
-            src = Path(sys.executable).parent / "_internal" / "icon.ico"
+        src = _app_icon_path()
+        if src is None:
+            raise FileNotFoundError("no app icon")
         _tray_working_ico = _tray_state.make_working_icon(src, DATA_DIR / "tray-working.ico")
     except Exception as e:
         _log_to_file(f"[tray] working icon not made ({type(e).__name__}: {e})")
@@ -5042,9 +5051,10 @@ def _create_tray_icon():
     Mac: rumps menu-bar icon (top-right, next to Wi-Fi/battery).
     """
     if _platform.system() == "Darwin":
-        _create_mac_menubar_icon()
-    elif _platform.system() == "Windows":
-        _create_windows_tray_icon()
+        return bool(_create_mac_menubar_icon())
+    if _platform.system() == "Windows":
+        return bool(_create_windows_tray_icon())
+    return False
 
 
 def _create_mac_menubar_icon():
@@ -5186,6 +5196,10 @@ def _create_windows_tray_icon():
     We monkeypatch _assert_icon_handle to load the HICON directly from
     icon.ico via Win32 LoadImageW, which is the same proven approach
     that works for the window title bar icon.
+
+    Returns True when the icon is up. main() only lets the close button
+    hide the window, and a sign-in start begin hidden, when it is: without
+    a tray icon a hidden window could only be ended in Task Manager.
     """
     global _tray_icon
     try:
@@ -5194,19 +5208,23 @@ def _create_windows_tray_icon():
         from PIL import Image
         import types
 
-        # Resolve icon.ico path (dev or frozen)
-        _ico_path = PROJECT_ROOT / "icon.ico"
-        if not _ico_path.exists() and hasattr(sys, '_MEIPASS'):
-            _ico_path = Path(sys._MEIPASS) / "icon.ico"
-        if not _ico_path.exists():
-            _ico_path = Path(sys.executable).parent / "_internal" / "icon.ico"
-
-        if not _ico_path.exists():
-            _log_to_file(f"icon.ico not found for tray icon")
-            return
+        _ico_path = _app_icon_path()
+        if _ico_path is None:
+            _log_to_file("icon.ico not found for tray icon")
+            return False
 
         _log_to_file(f"Tray icon: using {_ico_path}")
         ico_str = str(_ico_path)
+        probe = pw32.LoadImage(None, ico_str, pw32.IMAGE_ICON, 0, 0,
+                               pw32.LR_DEFAULTSIZE | pw32.LR_LOADFROMFILE)
+        if not probe:
+            _log_to_file(f"Tray icon: Windows could not load {_ico_path.name}")
+            return False
+        try:
+            import ctypes
+            ctypes.windll.user32.DestroyIcon(probe)
+        except Exception:
+            pass
 
         # We still need a PIL Image for pystray's constructor (it stores it),
         # but we'll bypass its ICO serialization when creating the HICON.
@@ -5242,9 +5260,12 @@ def _create_windows_tray_icon():
         # Make the "working" icon now, off the dictation's path.
         threading.Thread(target=_tray_working_icon_path, daemon=True,
                          name="TrayWorkingIcon").start()
+        return True
 
     except Exception as e:
         _log_to_file(f"Tray icon error: {e}")
+        _tray_icon = None
+        return False
 
 
 def _tray_show_window(icon=None, item=None):
@@ -5692,8 +5713,19 @@ def main():
     # tray or menu bar with the hotkey ready instead of opening the window
     # on every login. Only once setup is done; before that the window is
     # where setup happens.
+    # The Windows tray icon is made first (it does not need the window), so
+    # a start at sign-in only stays hidden, and closing the window only hides
+    # it, when the icon to bring it back is really there. Before 3.15 the
+    # installer left icon.ico out, the tray never came up, and a hidden
+    # Waffler could only be ended in Task Manager.
+    _windows_tray_up = False
+    if _platform.system() == "Windows":
+        _windows_tray_up = _create_windows_tray_icon()
+        if not _windows_tray_up:
+            _log_to_file("No tray icon: the close button quits and the window opens at sign-in")
+    can_hide = _windows_tray_up or _platform.system() == "Darwin"
     start_hidden = (_HIDDEN_FLAG in sys.argv and config.has_api_key
-                    and _is_setup_complete())
+                    and _is_setup_complete() and can_hide)
     if start_hidden:
         _window_hidden = True
         _hidden_start_until = time.monotonic() + _HIDDEN_START_GRACE_S
@@ -5752,9 +5784,8 @@ def main():
             # Let a Dock-icon click reopen the window too, not just the
             # menu-bar 'Show Waffler' item.
             _install_mac_reopen_handler()
-    elif _platform.system() == "Windows":
+    elif _platform.system() == "Windows" and _windows_tray_up:
         window.events.closing += _on_window_closing
-        threading.Thread(target=_create_tray_icon, daemon=True).start()
 
     def _on_shown():
         """Set the window icon after pywebview has created the native window."""
@@ -5765,14 +5796,9 @@ def main():
             from ctypes import wintypes
             user32 = ctypes.windll.user32
 
-            # Resolve icon.ico path (dev or frozen)
-            ico_path = PROJECT_ROOT / "icon.ico"
-            if not ico_path.exists():
-                ico_path = Path(sys.executable).parent / "_internal" / "icon.ico"
-            if not ico_path.exists() and hasattr(sys, '_MEIPASS'):
-                ico_path = Path(sys._MEIPASS) / "icon.ico"
-            if not ico_path.exists():
-                _log_to_file(f"icon.ico not found for window icon")
+            ico_path = _app_icon_path()
+            if ico_path is None:
+                _log_to_file("icon.ico not found for window icon")
                 return
 
             ico_str = str(ico_path)

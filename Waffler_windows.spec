@@ -20,6 +20,9 @@ a = Analysis(
         ('prompts', 'prompts'),
         ('src', 'src'),
         ('config.yaml', '.'),
+        # The tray and title bar icon. Left out from 3.14.84 to 3.14.100, so
+        # installed builds had no tray icon (tests/test_tray_icon_bundled.py).
+        ('icon.ico', '.'),
     ],
     hiddenimports=[
         # ── Audio ──
