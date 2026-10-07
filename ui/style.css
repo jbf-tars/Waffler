@@ -550,7 +550,8 @@ html, body {
 
 /* The column on the right. */
 .vk { margin: 0 0 10px; font: 500 11.5px/1 var(--f-ui); color: var(--muted); }
-.vtry { border-radius: 11px; background: var(--card); box-shadow: 0 0 0 1px var(--ring), 0 1px 2px rgba(12, 10, 9, 0.04); overflow: hidden; }
+/* The edge is the 3:1 control edge: the text box has no other. */
+.vtry { border-radius: 11px; background: var(--card); box-shadow: 0 0 0 1px var(--ring-ctl), 0 1px 2px rgba(12, 10, 9, 0.04); overflow: hidden; }
 .vtry-in {
   display: block;
   width: 100%;

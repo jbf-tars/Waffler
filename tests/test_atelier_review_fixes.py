@@ -231,3 +231,8 @@ def test_privacy_buttons_are_tied_to_their_rows():
     assert 'id="logsBtn" aria-describedby="logsTitle"' in html and 'id="logsTitle"' in html
     assert 'id="resetAsk" aria-describedby="resetTitle"' in html and 'id="resetTitle"' in html
     assert 'id="unsentDelete" aria-describedby="unsentTitle"' in html
+
+
+def test_try_a_sentence_has_a_control_edge_you_can_see():
+    # --ring was about 1.2:1; --ring-ctl is the 3:1 edge every other field has.
+    assert "0 0 0 1px var(--ring-ctl)" in rule(read("style.css"), ".vtry")
