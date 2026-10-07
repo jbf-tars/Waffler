@@ -806,6 +806,8 @@ function renderHotkeyPresetCards() {
   const cur = WL.hotkeyName(_currentHotkeyKeys, isMacPlatform);
   const presets = WL.hotkeyPresets(isMacPlatform);
   const isPreset = presets.some((p) => !p.custom && p.label === cur);
+  // Redrawn after a change: the focus stays on the same preset.
+  const had = [...host.children].indexOf(document.activeElement);
   host.textContent = '';
   presets.forEach((p) => {
     const on = p.custom ? !isPreset : p.label === cur;
@@ -814,6 +816,9 @@ function renderHotkeyPresetCards() {
     b.className = 'preset' + (on ? ' on' : '');
     b.setAttribute('role', 'radio');
     b.setAttribute('aria-checked', String(on));
+    // A radio group is one Tab stop, the chosen preset; the arrows move.
+    b.tabIndex = on ? 0 : -1;
+    if (p.custom) b.dataset.custom = '1';
     const top = p.custom
       ? (on ? `<span class="keys">${_capsHtml(_currentHotkeyKeys)}</span>` : '<span class="preset-cus">Custom…</span>')
       : `<span class="keys">${_capsHtml(p.keys)}</span>`;
@@ -823,7 +828,26 @@ function renderHotkeyPresetCards() {
     b.addEventListener('click', () => (p.custom ? openHotkeyCapture() : (on ? null : changeSettingsHotkey(p.keys))));
     host.appendChild(b);
   });
+  if (had >= 0 && host.children[had]) host.children[had].focus();
 }
+
+// The arrow keys, Home and End move round the presets and choose the one
+// they land on, as in the theme picker. Custom opens a dialog, so landing
+// on it only moves the focus; Space or Enter opens it.
+document.addEventListener('DOMContentLoaded', () => {
+  const host = document.getElementById('hotkeyPresetCards');
+  if (!host) return;
+  host.addEventListener('keydown', (e) => {
+    const radios = [...host.querySelectorAll('button[role="radio"]')];
+    const i = radios.indexOf(document.activeElement);
+    const to = WL.radioMove(i, radios.length, e.key);
+    if (to < 0) return;
+    e.preventDefault();
+    radios.forEach((r, n) => { r.tabIndex = n === to ? 0 : -1; });
+    radios[to].focus();
+    if (!radios[to].dataset.custom && radios[to].getAttribute('aria-checked') !== 'true') radios[to].click();
+  });
+});
 
 // Settings, Hotkey: holding the hotkey here is heard by Waffler's own
 // listener, which turns the status to Recording (waffler_status). The keys
@@ -2292,7 +2316,7 @@ function renderProviderOrder() {
           <div class="row-d">${escHtml(r.desc)}</div>
         </div>
         ${r.masked ? `<span class="mkey">${escHtml(r.masked)}</span>` : ''}
-        <button type="button" class="btn btn-sec btn-sm po-btn-key" onclick="openKeyEditor('${r.id}')">${r.hasKey ? '' : WI.icon('plus', 'ic-sm')}${escHtml(r.button)}</button>
+        <button type="button" class="btn btn-sec btn-sm po-btn-key" data-provider="${r.id}" aria-label="${escHtml(_keyButtonName(r))}" aria-controls="${_KEY_EDITORS[r.id]}" aria-expanded="${_openKeyEditor === r.id}" onclick="openKeyEditor('${r.id}')">${r.hasKey ? '' : WI.icon('plus', 'ic-sm')}${escHtml(r.button)}</button>
       </div>`;
   }).join('');
   host.querySelectorAll('.grip').forEach((g) => {
@@ -2351,6 +2375,39 @@ async function _onGripUp() {
   await saveProviderOrder(order);
 }
 
+// "Replace the Groq key", "Add an OpenAI key": each row's button says
+// whose key it is (three buttons all called "Replace" told a screen reader
+// nothing).
+function _keyButtonName(r) {
+  if (r.hasKey) return `Replace the ${r.name} key`;
+  return `Add ${/^[AEIOU]/.test(r.name) ? 'an' : 'a'} ${r.name} key`;
+}
+
+function _keyButton(provider) {
+  return document.querySelector(`#providerOrderList .po-btn-key[data-provider="${provider}"]`);
+}
+
+function _syncKeyButtons() {
+  document.querySelectorAll('#providerOrderList .po-btn-key').forEach((b) => {
+    b.setAttribute('aria-expanded', String(b.dataset.provider === _openKeyEditor));
+  });
+}
+
+// Esc in an open key box closes it and goes back to its button, as Cancel
+// does.
+document.addEventListener('DOMContentLoaded', () => {
+  Object.values(_KEY_EDITORS).forEach((id) => {
+    const ed = document.getElementById(id);
+    if (!ed) return;
+    ed.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      e.stopPropagation();
+      closeKeyEditor(true);
+    });
+  });
+});
+
 // Replace or Add key: that provider's box opens under its row.
 function openKeyEditor(provider, keep) {
   const ed = document.getElementById(_KEY_EDITORS[provider]);
@@ -2360,11 +2417,14 @@ function openKeyEditor(provider, keep) {
   if (_openKeyEditor && _openKeyEditor !== provider) closeKeyEditor();
   row.after(ed);
   _openKeyEditor = provider;
+  _syncKeyButtons();
   const input = ed.querySelector('input');
   if (input && !keep) { input.value = ''; input.focus(); }
 }
 
-function closeKeyEditor() {
+// refocus: Esc or Cancel, so the focus goes back to the row's button.
+function closeKeyEditor(refocus) {
+  const was = _openKeyEditor;
   const park = document.querySelector('.key-editors');
   Object.values(_KEY_EDITORS).forEach((id) => {
     const el = document.getElementById(id);
@@ -2373,6 +2433,8 @@ function closeKeyEditor() {
     if (input) input.value = '';
   });
   _openKeyEditor = '';
+  _syncKeyButtons();
+  if (refocus === true && was) { const b = _keyButton(was); if (b) b.focus(); }
 }
 
 async function moveProvider(name, delta) {

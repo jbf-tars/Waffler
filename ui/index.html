@@ -247,7 +247,7 @@
               <div class="key-editor-row">
                 <input type="password" id="groqKeyInput" class="input input-mono" placeholder="gsk_…" autocomplete="off" spellcheck="false" aria-label="Groq key">
                 <button type="button" class="btn btn-pri btn-sm" onclick="saveGroqKey()">Save</button>
-                <button type="button" class="btn btn-quiet btn-sm" onclick="closeKeyEditor()">Cancel</button>
+                <button type="button" class="btn btn-quiet btn-sm" onclick="closeKeyEditor(true)">Cancel</button>
               </div>
               <p class="key-help">Make one at <a class="link" href="#" onclick="openKeyPage('groq'); return false;">console.groq.com/keys</a>. Groq keys start with gsk_.</p>
             </div>
@@ -255,7 +255,7 @@
               <div class="key-editor-row">
                 <input type="password" id="apiKeyInput" class="input input-mono" placeholder="sk-…" autocomplete="off" spellcheck="false" aria-label="OpenAI key">
                 <button type="button" class="btn btn-pri btn-sm" onclick="saveApiKey()">Save</button>
-                <button type="button" class="btn btn-quiet btn-sm" onclick="closeKeyEditor()">Cancel</button>
+                <button type="button" class="btn btn-quiet btn-sm" onclick="closeKeyEditor(true)">Cancel</button>
               </div>
               <p class="key-help">Optional. Make one at <a class="link" href="#" onclick="openKeyPage('openai'); return false;">platform.openai.com/api-keys</a>. OpenAI keys start with sk-.</p>
             </div>
@@ -263,7 +263,7 @@
               <div class="key-editor-row">
                 <input type="password" id="cerebrasKeyInput" class="input input-mono" placeholder="csk-…" autocomplete="off" spellcheck="false" aria-label="Cerebras key">
                 <button type="button" class="btn btn-pri btn-sm" onclick="saveCerebrasKey()">Test and save</button>
-                <button type="button" class="btn btn-quiet btn-sm" onclick="closeKeyEditor()">Cancel</button>
+                <button type="button" class="btn btn-quiet btn-sm" onclick="closeKeyEditor(true)">Cancel</button>
               </div>
               <p class="key-help">Optional. Make one at <a class="link" href="#" onclick="openKeyPage('cerebras'); return false;">cloud.cerebras.ai/platform/api-keys</a>. Cerebras keys start with csk-, and Waffler checks it with Cerebras before saving.</p>
             </div>
@@ -425,7 +425,7 @@
             <div class="row" id="unsentRow">
               <span class="chk" id="unsentIcon" aria-hidden="true"><svg class="ic"><use href="#i-check"/></svg></span>
               <div class="row-main"><div class="row-t" id="unsentTitle">Nothing waiting to be sent</div><div class="row-d" id="unsentSummary">Every recording has been turned into text.</div></div>
-              <button type="button" class="btn btn-sec btn-sm" id="unsentDelete" onclick="askDeleteUnsent(true)" hidden>Delete</button>
+              <button type="button" class="btn btn-sec btn-sm" id="unsentDelete" aria-describedby="unsentTitle" onclick="askDeleteUnsent(true)" hidden>Delete</button>
               <button type="button" class="btn btn-sec btn-sm" id="unsentSendNow" onclick="sendUnsentNow(this)" hidden><svg class="ic" aria-hidden="true"><use href="#i-retry"/></svg><span>Try again</span></button>
             </div>
             <div class="row row-confirm" id="unsentDeleteConfirm" hidden>
@@ -438,8 +438,8 @@
           <h2 class="sh2">Help</h2>
           <div class="sheet">
             <div class="row">
-              <div class="row-main"><div class="row-t">Logs</div><div class="row-d">A zip on your Desktop with no keys and no transcripts. Handy for a bug report.</div></div>
-              <button type="button" class="btn btn-sec btn-sm" id="logsBtn" onclick="downloadLogs(this)"><svg class="ic" aria-hidden="true"><use href="#i-folder"/></svg><span>Show in folder</span></button>
+              <div class="row-main"><div class="row-t" id="logsTitle">Logs</div><div class="row-d">A zip on your Desktop with no keys and no transcripts. Handy for a bug report.</div></div>
+              <button type="button" class="btn btn-sec btn-sm" id="logsBtn" aria-describedby="logsTitle" onclick="downloadLogs(this)"><svg class="ic" aria-hidden="true"><use href="#i-folder"/></svg><span>Show in folder</span></button>
             </div>
           </div>
 
@@ -449,8 +449,8 @@
                  and settings; deleting those too is the full reset, which
                  asks again on its own. -->
             <div class="row" id="resetRow">
-              <div class="row-main"><div class="row-t">Delete all my data</div><div class="row-d">History, usage, recordings and logs. Your keys, words and settings stay.</div></div>
-              <button type="button" class="btn btn-danger-solid btn-sm" id="resetAsk" onclick="askFactoryReset(true)">Delete…</button>
+              <div class="row-main"><div class="row-t" id="resetTitle">Delete all my data</div><div class="row-d">History, usage, recordings and logs. Your keys, words and settings stay.</div></div>
+              <button type="button" class="btn btn-danger-solid btn-sm" id="resetAsk" aria-describedby="resetTitle" onclick="askFactoryReset(true)">Delete…</button>
             </div>
             <div class="row reset-confirm" id="resetConfirm" hidden>
               <div class="row-main"><div class="row-t">Delete your history, usage, recordings and logs?</div><div class="row-d">This can't be undone. Waffler keeps running with your keys and words. <a class="link" href="#" id="resetKeysAsk" onclick="askFactoryResetKeys(true); return false;">Delete my keys and settings too</a></div></div>

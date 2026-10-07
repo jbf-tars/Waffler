@@ -188,3 +188,46 @@ def test_the_update_dialog_speaks_plainly():
     v = js("L.updateCheckView({update_available: false, latest_version: '3.15.0', current_version: '3.15.1'})")
     assert v["subtitle"] == "You have Waffler 3.15.1. The newest release is 3.15.0."
     assert " & " not in read("logic.js").split("function updateCheckView(")[1].split("\n  }\n")[0]
+
+
+# ── Keyboard and screen readers ──────────────────────────────────────────────
+
+def test_the_hotkey_presets_are_one_tab_stop_with_arrow_keys():
+    app = read("app.js")
+    cards = func(app, "renderHotkeyPresetCards")
+    assert "b.tabIndex = on ? 0 : -1;" in cards
+    assert "host.children[had].focus()" in cards
+    keys = app[app.index("document.getElementById('hotkeyPresetCards');\n  if (!host) return;\n  host.addEventListener('keydown'"):]
+    keys = keys[:keys.index("\n});\n")]
+    assert "WL.radioMove(i, radios.length, e.key)" in keys
+    # Landing on Custom only moves the focus: it opens a dialog.
+    assert "!radios[to].dataset.custom" in keys
+
+
+@needs_node
+def test_radio_move_wraps_and_has_home_and_end():
+    assert js("[L.radioMove(0, 3, 'ArrowRight'), L.radioMove(2, 3, 'ArrowDown'), L.radioMove(0, 3, 'ArrowUp'), "
+              "L.radioMove(1, 3, 'Home'), L.radioMove(0, 3, 'End'), L.radioMove(0, 3, 'a')]") == [1, 0, 2, 0, 2, -1]
+
+
+def test_each_key_button_names_its_provider_and_says_if_its_box_is_open():
+    app = read("app.js")
+    row = func(app, "renderProviderOrder")
+    assert 'aria-label="${escHtml(_keyButtonName(r))}"' in row
+    assert 'aria-expanded="${_openKeyEditor === r.id}"' in row and "aria-controls=" in row
+    name = func(app, "_keyButtonName")
+    assert "Replace the ${r.name} key" in name and "Add ${" in name
+    assert "_syncKeyButtons();" in func(app, "openKeyEditor")
+    close = func(app, "closeKeyEditor")
+    assert "_syncKeyButtons();" in close and "b.focus()" in close
+    # Esc in the box closes it and goes back to the button.
+    assert "if (e.key !== 'Escape') return;" in app and "closeKeyEditor(true);" in app
+    html = read("index.html")
+    assert html.count('onclick="closeKeyEditor(true)">Cancel</button>') == 3
+
+
+def test_privacy_buttons_are_tied_to_their_rows():
+    html = read("index.html")
+    assert 'id="logsBtn" aria-describedby="logsTitle"' in html and 'id="logsTitle"' in html
+    assert 'id="resetAsk" aria-describedby="resetTitle"' in html and 'id="resetTitle"' in html
+    assert 'id="unsentDelete" aria-describedby="unsentTitle"' in html
