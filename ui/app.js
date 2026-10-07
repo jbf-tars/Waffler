@@ -225,8 +225,7 @@ document.addEventListener('DOMContentLoaded', () => {
   _watchFeedEnd();
   document.getElementById('emptyEditorLabel').textContent =
     isMacPlatform ? 'Open TextEdit and try it' : 'Open Notepad and try it';
-  document.getElementById('themeDesc').textContent =
-    `Light, dark, or match ${isMacPlatform ? 'your Mac' : 'Windows'}.`;
+  document.getElementById('themeDesc').textContent = `follows ${isMacPlatform ? 'macOS' : 'Windows'}`;
 
   // Prevent Mac error sound when space is pressed in the app
   // (Space monitor observes at OS level, but we need to handle it in UI to avoid "bonk" sound)
@@ -482,13 +481,15 @@ function _noteUpdateChecked(r) {
   const chip = document.getElementById('aboutUpdateChip');
   if (!chip || !r || r.error) return;
   if (r.update_available) {
-    chip.className = 'chip chip-warn';
-    chip.textContent = `${r.latest_version} available`;
+    chip.className = 'pill honey';
+    chip.innerHTML = `<i></i>${escHtml(r.latest_version)} available`;
   } else {
-    chip.className = 'chip chip-ok';
-    chip.innerHTML = WI.icon('check') + 'Up to date';
+    chip.className = 'pill ok';
+    chip.innerHTML = '<i></i>Up to date';
   }
   chip.hidden = false;
+  const again = document.getElementById('checkUpdateBtn');
+  if (again) again.textContent = 'Check again';
 }
 
 function openUpdateModalFromCheck(r) {
@@ -612,7 +613,7 @@ async function installDownloadedUpdate() {
 // loadHotkeyConfig() has the saved one.
 function _capsHtml(keys, cls) {
   return WL.keycaps(keys, isMacPlatform)
-    .map((c) => `<kbd class="kc${cls ? ' ' + cls : ''}">${escHtml(c.label)}</kbd>`)
+    .map((c) => `<kbd class="kc${cls ? ' ' + cls : ''}">${c.icon === 'globe' ? WI.icon('globe') : ''}${escHtml(c.label)}</kbd>`)
     .join('<span class="plus" aria-hidden="true">+</span>');
 }
 
@@ -629,14 +630,13 @@ function renderHotkeyCaps(keys) {
   const empty = document.getElementById('emptyKeys');
   if (empty) empty.innerHTML = _capsHtml(keys);
   const big = document.getElementById('settingsHotkeyCaps');
-  if (big) big.innerHTML = _capsHtml(keys, 'kc-xl');
-  const badge = document.getElementById('settingsHotkeyBadge');
-  if (badge) badge.textContent = name;
-  const note = document.getElementById('settingsHotkeyNote');
-  if (note) {
-    const isDefault = name === WL.hotkeyName(WL.defaultHotkey(isMacPlatform), isMacPlatform);
-    note.textContent = isDefault ? `The default on ${isMacPlatform ? 'a Mac' : 'Windows'}.` : 'Your own choice.';
+  if (big) {
+    big.innerHTML = _capsHtml(keys, 'kc-xl');
+    big.setAttribute('aria-label', 'Your hotkey: ' + name);
   }
+  const emptyKeys = document.getElementById('usageEmptyKeys');
+  if (emptyKeys) emptyKeys.textContent = name;
+  _renderHotkeyTest();
 }
 
 function _fitStatusPill() {
@@ -783,6 +783,7 @@ async function loadHotkeyConfig() {
 // refused them, the screen never checked, and the badge flashed green anyway.
 // "Custom" is the dialog itself, so it isn't listed there.
 function renderSettingsHotkeyPresets() {
+  renderHotkeyPresetCards();
   const host = document.getElementById('settingsHotkeyPresets');
   if (!host) return;
   host.textContent = '';
@@ -799,6 +800,56 @@ function renderSettingsHotkeyPresets() {
     b.addEventListener('click', () => changeSettingsHotkey(p.keys));
     host.appendChild(b);
   });
+}
+
+// Settings, Hotkey: this computer's presets as cards, the current one
+// chosen. Windows' "Custom…" opens the dialog that records any keys; while
+// a hotkey of your own is in use, that card is chosen and shows it.
+function renderHotkeyPresetCards() {
+  const host = document.getElementById('hotkeyPresetCards');
+  if (!host) return;
+  const cur = WL.hotkeyName(_currentHotkeyKeys, isMacPlatform);
+  const presets = WL.hotkeyPresets(isMacPlatform);
+  const isPreset = presets.some((p) => !p.custom && p.label === cur);
+  host.textContent = '';
+  presets.forEach((p) => {
+    const on = p.custom ? !isPreset : p.label === cur;
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'preset' + (on ? ' on' : '');
+    b.setAttribute('role', 'radio');
+    b.setAttribute('aria-checked', String(on));
+    const top = p.custom
+      ? (on ? `<span class="keys">${_capsHtml(_currentHotkeyKeys)}</span>` : '<span class="preset-cus">Custom…</span>')
+      : `<span class="keys">${_capsHtml(p.keys)}</span>`;
+    const hint = p.custom && on ? 'Your own keys. Choose to change them.' : p.hint.replace(' · ', ', ');
+    b.innerHTML = `<span class="preset-top">${top}<span class="preset-r" aria-hidden="true"></span></span><span class="preset-h">${escHtml(hint)}</span>`;
+    b.setAttribute('aria-label', `${p.custom ? (on ? cur + ', your own keys' : 'Custom') : p.label}. ${hint}`);
+    b.addEventListener('click', () => (p.custom ? openHotkeyCapture() : (on ? null : changeSettingsHotkey(p.keys))));
+    host.appendChild(b);
+  });
+}
+
+// Settings, Hotkey: holding the hotkey here is heard by Waffler's own
+// listener, which turns the status to Recording (waffler_status). The keys
+// light while held, and the line says it worked. A real dictation starts,
+// as it would anywhere; with nothing to paste into it goes to the Journal.
+let _hotkeyHeard = false;
+let _hotkeyHeld = false;
+
+function _renderHotkeyTest() {
+  const text = document.getElementById('hkTestText');
+  const box = document.getElementById('hkTest');
+  if (text) text.textContent = WL.hotkeyTestLine(_hotkeyHeard, _currentHotkeyKeys, isMacPlatform);
+  if (box) box.classList.toggle('is-heard', _hotkeyHeard);
+  document.querySelectorAll('#settingsHotkeyCaps .kc').forEach((k) => k.classList.toggle('held', _hotkeyHeld));
+}
+
+function _hotkeyTestStatus(cls) {
+  const held = cls === 'listening' || cls === 'paused';
+  if (held && !_hotkeyHeld && _currentPage === 'settings' && _settingsSection === 'hotkey') _hotkeyHeard = true;
+  _hotkeyHeld = held;
+  _renderHotkeyTest();
 }
 
 function _showSettingsHotkeyError(msg) {
@@ -1172,6 +1223,7 @@ window.waffler_status = function(status) {
   _statusTimer = null;
   const view = WL.statusView(status);
   _showStatus(view);
+  _hotkeyTestStatus(view.cls);
   if (view.cls === 'listening') {
     // A new recording starts the clock; coming back from a pause carries on.
     if (!_recordingStarted) _recordingStarted = Date.now();
@@ -1740,6 +1792,7 @@ function showPage(page) {
   } else if (page === 'vocabulary') {
     loadVocabPage();
   }
+  _syncMicMeter();
 }
 
 // Settings' side nav: one section at a time.
@@ -1760,6 +1813,78 @@ function showSettingsSection(sec) {
   const panel = document.getElementById('settingsPanel');
   if (panel && panel.scrollTop) panel.scrollTop = 0;
   if (sec !== 'keys') closeKeyEditor();
+  // The hotkey test starts fresh each time Hotkey is opened.
+  if (sec === 'hotkey') { _hotkeyHeard = false; _renderHotkeyTest(); }
+  _syncMicMeter();
+}
+
+// ── The microphone meter (Settings, General) ─────────────────────────────
+// While General is on screen (and the window is), the level of the stream
+// the dictations use, a few times a second (app.py get_mic_level). Nothing
+// is recorded. Hidden when there is no stream yet; a microphone picked a
+// moment ago is used from the next dictation, and the meter says so rather
+// than show the old one's level.
+const MIC_METER_MS = 120;
+let _micTimer = null;
+let _micBusy = false;
+
+function _micMeterWanted() {
+  return _currentPage === 'settings' && _settingsSection === 'general' && !_windowHidden()
+    && !!(window.pywebview && window.pywebview.api && window.pywebview.api.get_mic_level);
+}
+
+function _syncMicMeter() {
+  const want = _micMeterWanted();
+  if (want && !_micTimer) {
+    _micTimer = setInterval(_tickMicMeter, MIC_METER_MS);
+    _tickMicMeter();
+  } else if (!want && _micTimer) {
+    clearInterval(_micTimer);
+    _micTimer = null;
+  }
+}
+
+function renderMicMeter(r) {
+  const box = document.getElementById('micLevel');
+  const meter = document.getElementById('micMeter');
+  const label = document.getElementById('micLevelLabel');
+  if (!box || !meter) return;
+  const live = !!(r && r.live);
+  box.hidden = !live;
+  if (!live) return;
+  const current = r.current !== false;
+  box.classList.toggle('is-pending', !current);
+  if (label) label.textContent = current ? 'Say something' : 'Used from your next dictation';
+  const cells = WL.micMeter(current ? r.level : 0);
+  if (meter.children.length !== cells.length) meter.innerHTML = '<i></i>'.repeat(cells.length);
+  cells.forEach((c, i) => { meter.children[i].className = c; });
+}
+
+async function _tickMicMeter() {
+  if (_micBusy) return;
+  if (!_micMeterWanted()) { _syncMicMeter(); return; }
+  _micBusy = true;
+  try { renderMicMeter(await pywebview.api.get_mic_level()); } catch (_) { renderMicMeter(null); }
+  _micBusy = false;
+}
+
+// The meter stops while the window is hidden and starts again when it is back.
+document.addEventListener('visibilitychange', _syncMicMeter);
+['focus', 'pointerdown', 'keydown'].forEach((type) => window.addEventListener(type, _syncMicMeter, true));
+(function () {
+  const shown = window.waffler_window_visible;
+  window.waffler_window_visible = function(visible) { shown(visible); _syncMicMeter(); };
+})();
+
+// Settings, General: a few words in the chosen spelling.
+function renderSpellingSpecimen(dialect) {
+  const el = document.getElementById('spellingSpecimen');
+  if (!el) return;
+  const v = WL.spellingSpecimen(dialect);
+  el.classList.toggle('specimen', !!v);
+  el.innerHTML = v
+    ? v.words.map((w) => `<span>${escHtml(w)}</span>`).join('') + `<s>${escHtml(v.not)}</s>`
+    : 'British or American, whichever you speak.';
 }
 
 // Settings, General: Run setup again. Keys and history stay; setup opens at
@@ -1797,24 +1922,75 @@ function renderProviderOrder() {
   const park = document.querySelector('.key-editors');
   Object.values(_KEY_EDITORS).forEach((id) => { const el = document.getElementById(id); if (el && park) park.appendChild(el); });
   const rows = WL.keyRows(_providerOrder, _lastSettings);
-  host.innerHTML = rows.map((r, i) => `
-      <div class="row provider-order-item${r.hasKey ? '' : ' po-nokey'}" data-provider="${r.id}">
-        <span class="po-rank">${r.rank}</span>
+  host.innerHTML = rows.map((r) => {
+    const p = WL.providerPill(r);
+    return `
+      <div class="row prov provider-order-item${r.hasKey ? '' : ' po-nokey'}" data-provider="${r.id}">
+        <button type="button" class="grip" data-provider="${r.id}" aria-label="Move ${escHtml(r.name)}, number ${r.rank} of ${rows.length}. Use the up and down arrow keys."></button>
+        <span class="po-rank" aria-hidden="true">${r.rank}</span>
+        <span class="pmark pmark-${r.id}" aria-hidden="true">${escHtml(WL.PROVIDER_MARKS[r.id] || '')}</span>
         <div class="row-main">
-          <div class="row-t">${escHtml(r.name)} <span class="chip ${r.chipCls}">${escHtml(r.chip)}</span></div>
+          <div class="row-t">${escHtml(r.name)}<span class="pill ${p.pillCls}"><i></i>${escHtml(p.pill)}</span></div>
           <div class="row-d">${escHtml(r.desc)}</div>
         </div>
-        <div class="po-key">
-          ${r.masked ? `<div class="po-masked">${escHtml(r.masked)}</div>` : ''}
-          <div class="po-status">${r.statusCls ? `<i class="dot ${r.statusCls}"></i>` : ''}${escHtml(r.status)}</div>
-        </div>
-        <button type="button" class="btn btn-sec btn-sm po-btn-key" onclick="openKeyEditor('${r.id}')">${escHtml(r.button)}</button>
-        <span class="po-controls">
-          <button type="button" class="rbtn" ${i === 0 ? 'disabled' : ''} onclick="moveProvider('${r.id}', -1)" aria-label="Try ${escHtml(r.name)} earlier">${WI.icon('chevron-up')}</button>
-          <button type="button" class="rbtn" ${i === rows.length - 1 ? 'disabled' : ''} onclick="moveProvider('${r.id}', 1)" aria-label="Try ${escHtml(r.name)} later">${WI.icon('chevron-down')}</button>
-        </span>
-      </div>`).join('');
+        ${r.masked ? `<span class="mkey">${escHtml(r.masked)}</span>` : ''}
+        <button type="button" class="btn btn-sec btn-sm po-btn-key" onclick="openKeyEditor('${r.id}')">${r.hasKey ? '' : WI.icon('plus', 'ic-sm')}${escHtml(r.button)}</button>
+      </div>`;
+  }).join('');
+  host.querySelectorAll('.grip').forEach((g) => {
+    g.addEventListener('keydown', _onGripKey);
+    g.addEventListener('pointerdown', _onGripDown);
+  });
   if (_openKeyEditor) openKeyEditor(_openKeyEditor, true);
+}
+
+// The handle and the arrow keys: one place up or down, saved at once.
+async function _onGripKey(e) {
+  const id = e.currentTarget.dataset.provider;
+  const delta = e.key === 'ArrowUp' ? -1 : (e.key === 'ArrowDown' ? 1 : 0);
+  if (!delta) return;
+  e.preventDefault();
+  await moveProvider(id, delta);
+  const g = document.querySelector(`#providerOrderList .grip[data-provider="${id}"]`);
+  if (g) g.focus();
+}
+
+// Dragging a row by its handle: the rows reorder under the pointer, and
+// the new order is saved when it is let go.
+let _drag = null;
+function _onGripDown(e) {
+  if (e.button !== 0) return;
+  const row = e.currentTarget.closest('.prov');
+  const host = document.getElementById('providerOrderList');
+  if (!row || !host) return;
+  e.preventDefault();
+  closeKeyEditor();
+  _drag = { row, host, start: _providerOrder.slice() };
+  row.classList.add('is-dragging');
+  // On the window, not captured by the handle: moving the row in the page
+  // would drop a pointer capture.
+  window.addEventListener('pointermove', _onGripMove);
+  window.addEventListener('pointerup', _onGripUp);
+  window.addEventListener('pointercancel', _onGripUp);
+}
+function _onGripMove(e) {
+  if (!_drag) return;
+  const others = [..._drag.host.querySelectorAll('.prov')].filter((r) => r !== _drag.row);
+  const before = others.find((r) => { const b = r.getBoundingClientRect(); return e.clientY < b.top + b.height / 2; });
+  if (before) { if (before !== _drag.row.nextElementSibling) _drag.host.insertBefore(_drag.row, before); }
+  else if (_drag.row !== _drag.host.lastElementChild) _drag.host.appendChild(_drag.row);
+}
+async function _onGripUp() {
+  window.removeEventListener('pointermove', _onGripMove);
+  window.removeEventListener('pointerup', _onGripUp);
+  window.removeEventListener('pointercancel', _onGripUp);
+  if (!_drag) return;
+  const d = _drag;
+  _drag = null;
+  d.row.classList.remove('is-dragging');
+  const order = [...d.host.querySelectorAll('.prov')].map((r) => r.dataset.provider);
+  if (order.join() === d.start.join()) return;
+  await saveProviderOrder(order);
 }
 
 // Replace or Add key: that provider's box opens under its row.
@@ -1846,43 +2022,68 @@ async function moveProvider(name, delta) {
   if (i < 0) return;
   const j = i + delta;
   if (j < 0 || j >= _providerOrder.length) return;
-  [_providerOrder[i], _providerOrder[j]] = [_providerOrder[j], _providerOrder[i]];
+  const order = _providerOrder.slice();
+  [order[i], order[j]] = [order[j], order[i]];
+  await saveProviderOrder(order);
+}
+
+async function saveProviderOrder(order) {
+  const before = _providerOrder.slice();
+  _providerOrder = WL.normalizeProviderOrder(order);
   renderProviderOrder();
+  const said = 'Waffler now tries ' + _providerOrder.map((p) => WL.PROVIDER_NAMES[p] || p).join(', then ') + '.';
   try {
     const r = await pywebview.api.save_settings({ provider_order: _providerOrder });
     if (r && r.ok) {
-      showToast('Waffler now tries ' + _providerOrder.map((p) => WL.PROVIDER_NAMES[p] || p).join(', then ') + '.', 'success');
-      // The new order applies at once, so "Speech to text / Clean-up" may change.
+      showToast(said, 'success');
+      const live = document.getElementById('providerOrderLive');
+      if (live) live.textContent = said;
+      // The new order applies at once, so what is in use may change.
       try { _lastSettings = await pywebview.api.get_settings(); } catch (_) {}
       renderProviderOrder();
       _renderBackendInfo();
-    } else {
-      showToast("Couldn't save the order. Try again.", 'error');
+      return;
     }
-  } catch (e) {
-    showToast("Couldn't save the order. Try again.", 'error');
-  }
+  } catch (_) {}
+  _providerOrder = before;
+  renderProviderOrder();
+  showToast("Couldn't save the order. Try again.", 'error');
 }
 
 // ── Settings Load ────────────────────────────────────────────────────────
 // "Speech to text: Groq · Clean-up: Groq": what each stage uses first.
 function _renderBackendInfo() {
-  const backendInfo = document.getElementById('backendInfo');
-  if (backendInfo) backendInfo.textContent = WL.backendsLine(_lastSettings);
-  const a = WL.activeProviders(_lastSettings);
-  const tile = document.getElementById('backendTile');
-  const title = document.getElementById('backendTitle');
-  const ok = !!(a.speech && a.cleanup);
-  if (tile) {
-    tile.className = 'itile ' + (ok ? 'is-ok' : 'is-warn');
-    tile.innerHTML = WI.icon(ok ? 'check' : 'alert');
+  // Keys and providers: You, Speech to text, Clean-up, Out.
+  const flow = document.getElementById('keysFlow');
+  if (flow) {
+    const f = WL.flowView(_lastSettings);
+    const node = (k, v) => `<div class="fnode"><span class="fk">${k}</span><span class="fv">${v}</span></div>`;
+    const stage = (x) => (x ? `${escHtml(x.by)} <small>${escHtml(x.model)}</small>` : '<small>Add a key</small>');
+    flow.innerHTML = [
+      node('You', `${WI.icon('mic')}Hold and talk`),
+      node('Speech to text', stage(f.speech)),
+      node('Clean-up', stage(f.cleanup)),
+      node('Out', `${WI.icon('text-cursor')}${f.out}`),
+    ].join('<span class="fline" aria-hidden="true"></span>');
+    flow.setAttribute('aria-label', WL.backendsLine(_lastSettings));
   }
-  if (title) title.textContent = ok ? 'Speech to text and clean-up' : 'Add a key to turn this on';
+  // Privacy and data: where your voice goes, if anywhere.
+  const to = document.getElementById('privTo');
+  const link = document.getElementById('privLink');
+  if (to) {
+    const p = WL.privacyFlow(_lastSettings);
+    to.hidden = !p;
+    if (link) link.hidden = !p;
+    to.innerHTML = p ? `<span class="pmark pmark-${p.id}">${escHtml(p.mark)}</span><span class="pv-to-n">${escHtml(p.name)}</span><span class="pv-to-w">${escHtml(p.what)}</span>` : '';
+  }
+  // About: what each job uses right now.
   const uses = WL.usesView(_lastSettings);
   const sp = document.getElementById('aboutSpeech');
   const cl = document.getElementById('aboutCleanup');
   if (sp) sp.textContent = uses.speech;
   if (cl) cl.textContent = uses.cleanup;
+  const line = document.getElementById('aboutUses');
+  if (line) line.hidden = uses.speech === 'No key yet' && uses.cleanup === 'No key yet';
 }
 
 async function loadSettings() {
@@ -1899,6 +2100,7 @@ async function loadSettings() {
     // Dialect / Spelling
     const dialectSel = document.getElementById('dialectSelect');
     if (dialectSel) dialectSel.value = s.dialect || 'auto';
+    renderSpellingSpecimen(s.dialect || 'auto');
 
     // Auto-paste
     const apToggle = document.getElementById('autoPasteToggle');
@@ -3154,10 +3356,17 @@ async function loadUnsentSummary() {
   try {
     const v = WL.unsentSummary(await pywebview.api.get_unsent_summary());
     desc.textContent = v.label;
+    const title = document.getElementById('unsentTitle');
+    if (title) title.textContent = v.canSend ? 'Waiting to be sent' : 'Nothing waiting to be sent';
+    const icon = document.getElementById('unsentIcon');
+    if (icon) {
+      icon.classList.toggle('is-wait', v.canSend);
+      icon.innerHTML = WI.icon(v.canSend ? 'wifi-off' : 'check');
+    }
     if (btn) btn.hidden = !v.canSend;
     if (del) del.hidden = !v.canSend;
-    const title = document.getElementById('unsentDeleteTitle');
-    if (title && v.confirm) title.textContent = v.confirm;
+    const confirmTitle = document.getElementById('unsentDeleteTitle');
+    if (confirmTitle && v.confirm) confirmTitle.textContent = v.confirm;
     if (!v.canSend) askDeleteUnsent(false);
   } catch (e) {
     console.warn('get_unsent_summary failed:', e);
@@ -3223,10 +3432,10 @@ function _renderRecentAudio(s) {
   const now = n ? ` ${n === 1 ? '1 is' : `${n} are`} kept now.` : ' None are kept now.';
   if (desc) {
     desc.textContent = (s.enabled
-      ? `The audio of your last ${s.keep || 10} dictations, kept to help look into a problem. It never leaves this computer.`
+      ? `The audio of your last ${s.keep || 10} dictations, to help look into a problem.`
       : 'Off: new recordings are not kept.') + now;
   }
-  if (del) del.disabled = !n;
+  if (del) { del.disabled = !n; del.hidden = !n; }
 }
 
 async function loadRecentAudio() {
@@ -3344,19 +3553,40 @@ async function _applyHistoryKeep(days) {
 async function loadUsageStats() {
   try {
     const usage = await pywebview.api.get_usage_stats();
-    // Counts come from the Journal, as in the stats strip.
+    // Counts and the chart come from the Journal, as in the stats strip.
     let words = null;
     try { words = await pywebview.api.get_stats(); } catch (_) {}
     if (words) stats = words;
-    const v = WL.usageView(usage, words);
+    const st = words || stats || {};
+    const v = WL.usageView(usage, st);
     const put = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
 
+    // Nothing dictated yet: one card that says how to start.
+    const none = !(Number(st.total_count) > 0);
+    const hero = document.getElementById('usageHero');
+    const empty = document.getElementById('usageEmpty');
+    const detail = document.getElementById('usageDetail');
+    if (hero) hero.hidden = none;
+    if (empty) empty.hidden = !none;
+    if (detail) detail.hidden = none;
+
+    put('usageBigWords', WL.formatCount(st.total_words));
+    const f = WL.usageFacts(st);
+    put('usageFactCount', f.dictations);
+    put('usageFactCountLabel', f.dictationsLabel);
+    put('usageFactPer', f.perDictation);
+    _renderUsageChart(st);
+
     const ids = { today: 'Today', week: 'Week', month: 'Month', all: 'All' };
+    const wordKeys = { today: 'today_words', week: 'week_words', month: 'month_words', all: 'total_words' };
     v.periods.forEach((p) => {
+      const n = Math.round(Number(st[wordKeys[p.id]]) || 0);
+      put(`usage${ids[p.id]}Words`, WL.formatCount(n));
       put(`usage${ids[p.id]}Count`, p.count);
-      put(`usage${ids[p.id]}Words`, p.words);
-      const tile = document.getElementById(`usage${ids[p.id]}Count`);
-      if (tile && tile.nextElementSibling) tile.nextElementSibling.textContent = p.countLabel;
+      const count = document.getElementById(`usage${ids[p.id]}Count`);
+      if (count && count.nextElementSibling) count.nextElementSibling.textContent = p.countLabel;
+      const label = count && count.parentElement.querySelector('.u-wl');
+      if (label) label.textContent = n === 1 ? 'word' : 'words';
     });
     put('usageEstimateNote', v.note);
     put('usageAvgCost', (usage && usage.transcription_count) ? `About ${v.costs.perDictation} a dictation.` : '');
@@ -3364,22 +3594,20 @@ async function loadUsageStats() {
     put('usageWeekCost', v.costs.week);
     put('usageMonthCost', v.costs.month);
     put('usageTotalCost', v.costs.total);
+    const free = document.getElementById('usageFreeNote');
+    if (free) free.hidden = !(usage && usage.by_provider && usage.by_provider.groq);
 
     // One bar per provider. A provider priced at an unpublished rate
-    // (Cerebras publishes no per-token price) is labelled, so its figure
-    // is not read as exact (estimated_count).
+    // (Cerebras publishes no per-token price) shows "~" before its cost,
+    // so its figure is not read as exact (estimated_count).
     const rows = document.getElementById('usageProviderRows');
     if (rows) {
       const list = WL.usageProviderRows((usage && usage.by_provider) || {});
       rows.innerHTML = list.length ? list.map((r) => `
-        <div class="usage-provider-row">
-          <div class="usage-provider-head">
-            <span class="usage-provider-name">${escHtml(r.name)}</span>
-            <span class="usage-provider-count">${escHtml(r.calls)}</span>
-            ${r.estimate ? '<span class="usage-provider-est" title="This provider publishes no per-token price, so its cost is an estimate.">estimate</span>' : ''}
-            <span class="usage-provider-cost">${escHtml(r.cost)}</span>
-          </div>
-          <div class="usage-track"><i class="${r.top ? 'is-top' : ''}" style="width:${r.pct}%"></i></div>
+        <div class="pbar" title="${escHtml(r.calls)}${r.estimate ? '. This provider publishes no per-token price, so its cost is an estimate.' : ''}">
+          <span class="pbar-n">${escHtml(r.name)}</span>
+          <span class="pbar-tr"><i class="${r.top ? 'is-top' : ''}" style="width:${r.pct}%"></i></span>
+          <span class="pbar-c">${r.estimate ? '<span class="usage-provider-est">estimate</span>' : ''}${escHtml(r.cost)}</span>
         </div>`).join('')
         : '<div class="usage-provider-empty">No usage yet. Make your first dictation to see it here.</div>';
     }
@@ -3388,13 +3616,37 @@ async function loadUsageStats() {
   }
 }
 
+// The last 30 days as bars (journal_data.py daily_words), with guide lines
+// at round numbers. Each bar says its day and words to a pointer.
+function _renderUsageChart(st) {
+  const host = document.getElementById('usageChart');
+  if (!host) return;
+  const c = WL.usageChart(st.daily_words, st.daily_start);
+  const start = document.getElementById('usageChartStart');
+  if (start) start.textContent = c.start;
+  host.innerHTML = c.grid.map((g) => `<span class="grid" style="bottom:${g.pos}%"></span><span class="glab" style="bottom:${g.pos}%">${escHtml(g.label)}</span>`).join('')
+    + `<span class="bars">${c.bars.map((b) => `<i class="${b.cls}" style="height:${b.h}%" title="${escHtml(b.label)}"></i>`).join('')}</span>`;
+  const total = c.bars.reduce((n, b) => n + b.words, 0);
+  host.setAttribute('aria-label', `Words a day, the last 30 days: ${WL.formatCount(total)} words in all. ${c.bars.length ? c.bars[c.bars.length - 1].label : ''}`);
+}
+
 async function loadAppVersion() {
   try {
     const ver = await pywebview.api.get_app_version();
     const el = document.getElementById('aboutVersion');
     if (el) el.textContent = `Version ${ver}`;
     const nav = document.getElementById('snavVersion');
-    if (nav) nav.textContent = `Waffler ${ver}`;
+    if (nav) nav.textContent = `Version ${ver}`;
+    // About: what is new in this version.
+    const news = WL.whatsNew(ver);
+    const box = document.getElementById('aboutNew');
+    if (box) box.hidden = !news;
+    if (news) {
+      const t = document.getElementById('aboutNewTitle');
+      if (t) t.textContent = news.title;
+      const list = document.getElementById('aboutNewList');
+      if (list) list.innerHTML = news.items.map((x, i) => `<li><b aria-hidden="true">${i + 1}</b>${escHtml(x)}</li>`).join('');
+    }
     // The models in use, as a tooltip on the version too.
     if (el) el.title = WL.aboutLine(ver, _lastSettings);
   } catch(e) {

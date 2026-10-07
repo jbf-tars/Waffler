@@ -115,18 +115,30 @@
   </main>
 
   <!-- ── Settings ──────────────────────────────────────────────────────
-       Six short sections with a side nav; each fits one screen. Only the
-       chosen one is shown (showSettingsSection). -->
+       The Atelier design (3.15): a cream rail with the six sections, and
+       one section at a time beside it (showSettingsSection). Every figure
+       on these pages comes from this computer: the counts and the chart
+       from the Journal, the costs from usage.json, the meter from the
+       microphone stream the dictations use. -->
   <div class="settings-panel" id="settingsPanel" style="display:none">
-    <nav class="snav" aria-label="Settings sections">
-      <button type="button" class="snav-item" data-sec="general" onclick="showSettingsSection('general')"><svg class="ic" aria-hidden="true"><use href="#i-sliders"/></svg>General</button>
-      <button type="button" class="snav-item" data-sec="keys" onclick="showSettingsSection('keys')"><svg class="ic" aria-hidden="true"><use href="#i-key"/></svg>Keys and providers</button>
-      <button type="button" class="snav-item" data-sec="hotkey" onclick="showSettingsSection('hotkey')"><svg class="ic" aria-hidden="true"><use href="#i-keyboard"/></svg>Hotkey</button>
-      <button type="button" class="snav-item" data-sec="usage" onclick="showSettingsSection('usage')"><svg class="ic" aria-hidden="true"><use href="#i-chart"/></svg>Usage</button>
-      <button type="button" class="snav-item" data-sec="privacy" onclick="showSettingsSection('privacy')"><svg class="ic" aria-hidden="true"><use href="#i-shield"/></svg>Privacy and data</button>
-      <button type="button" class="snav-item" data-sec="about" onclick="showSettingsSection('about')"><svg class="ic" aria-hidden="true"><use href="#i-info"/></svg>About</button>
-      <span class="snav-ver" id="snavVersion">Waffler</span>
-    </nav>
+    <aside class="snav">
+      <div class="snav-head">
+        <div class="snav-title" aria-hidden="true">Settings</div>
+        <div class="snav-sub"><b id="snavVersion">Waffler</b><br>Free and open source</div>
+      </div>
+      <nav class="snav-list" aria-label="Settings sections">
+        <button type="button" class="snav-item" data-sec="general" onclick="showSettingsSection('general')">General</button>
+        <button type="button" class="snav-item" data-sec="keys" onclick="showSettingsSection('keys')">Keys and providers</button>
+        <button type="button" class="snav-item" data-sec="hotkey" onclick="showSettingsSection('hotkey')">Hotkey</button>
+        <button type="button" class="snav-item" data-sec="usage" onclick="showSettingsSection('usage')">Usage</button>
+        <button type="button" class="snav-item" data-sec="privacy" onclick="showSettingsSection('privacy')">Privacy and data</button>
+        <button type="button" class="snav-item" data-sec="about" onclick="showSettingsSection('about')">About</button>
+      </nav>
+      <div class="snav-colophon">
+        <span class="snav-mark" data-waffle="logo" data-size="26"></span>
+        <div><div class="snav-colo-t">Made by one person</div><div class="snav-colo-s">MIT licence, no account</div></div>
+      </div>
+    </aside>
 
     <div class="scontent" id="settingsScroll">
       <div class="scol">
@@ -136,70 +148,78 @@
           <h1 class="ptitle">General</h1>
           <p class="pdesc">How Waffler looks, listens and starts.</p>
 
-          <div class="glabel"><span class="eyebrow">Appearance</span></div>
-          <div class="group"><div class="panel">
-            <div class="row">
-              <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-sun"/></svg></span>
-              <div class="row-main"><div class="row-t">Theme</div><div class="row-d" id="themeDesc">Light, dark, or match Windows.</div></div>
-              <div class="seg seg-sm" id="themeSeg" role="radiogroup" aria-label="Theme">
-                <button type="button" role="radio" data-theme="cream" aria-checked="false" tabindex="0" onclick="setAppTheme('cream')">Light</button>
-                <button type="button" role="radio" data-theme="dark" aria-checked="false" tabindex="-1" onclick="setAppTheme('dark')">Dark</button>
-                <button type="button" role="radio" data-theme="auto" aria-checked="false" tabindex="-1" onclick="setAppTheme('auto')">System</button>
-              </div>
-            </div>
-          </div></div>
+          <!-- Light / Dark / System: a radio group of small windows. One Tab
+               stop (the chosen theme); the arrow keys move and choose. -->
+          <div class="themes" id="themeSeg" role="radiogroup" aria-label="Theme">
+            <button type="button" class="tp" role="radio" data-theme="cream" aria-checked="false" tabindex="0" onclick="setAppTheme('cream')">
+              <span class="tp-win" aria-hidden="true"><span class="mini mini-l"><span class="mini-bar"><i></i><b></b><u></u></span><span class="mini-pg"><span class="mini-h"></span><span class="mini-c"><i class="w80"></i><i class="w55"></i></span><span class="mini-c"><i class="w68"></i></span></span></span></span>
+              <span class="tp-lbl"><span class="tp-r" aria-hidden="true"></span>Light</span>
+            </button>
+            <button type="button" class="tp" role="radio" data-theme="dark" aria-checked="false" tabindex="-1" onclick="setAppTheme('dark')">
+              <span class="tp-win" aria-hidden="true"><span class="mini mini-d"><span class="mini-bar"><i></i><b></b><u></u></span><span class="mini-pg"><span class="mini-h"></span><span class="mini-c"><i class="w80"></i><i class="w55"></i></span><span class="mini-c"><i class="w68"></i></span></span></span></span>
+              <span class="tp-lbl"><span class="tp-r" aria-hidden="true"></span>Dark</span>
+            </button>
+            <button type="button" class="tp" role="radio" data-theme="auto" aria-checked="false" tabindex="-1" onclick="setAppTheme('auto')">
+              <span class="tp-win" aria-hidden="true"><span class="mini mini-l"><span class="mini-bar"><i></i><b></b><u></u></span><span class="mini-pg"><span class="mini-h"></span><span class="mini-c"><i class="w80"></i><i class="w55"></i></span><span class="mini-c"><i class="w68"></i></span></span></span><span class="mini mini-d mini-split"><span class="mini-bar"><i></i><b></b><u></u></span><span class="mini-pg"><span class="mini-h"></span><span class="mini-c"><i class="w80"></i><i class="w55"></i></span><span class="mini-c"><i class="w68"></i></span></span></span></span>
+              <span class="tp-lbl"><span class="tp-r" aria-hidden="true"></span>System<span class="tp-s" id="themeDesc">follows Windows</span></span>
+            </button>
+          </div>
 
-          <div class="glabel"><span class="eyebrow">Dictation</span></div>
-          <div class="group"><div class="panel">
+          <h2 class="sh2">Dictation</h2>
+          <div class="sheet">
             <div class="row">
-              <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-book"/></svg></span>
-              <div class="row-main"><div class="row-t"><label for="dialectSelect">Spelling</label></div><div class="row-d">British or American, or match how you speak.</div></div>
-              <select id="dialectSelect" class="select" onchange="saveSetting('dialect', this.value)">
+              <div class="row-main"><div class="row-t"><label for="dialectSelect">Spelling</label></div><div class="row-d specimen" id="spellingSpecimen">British or American, whichever you speak.</div></div>
+              <select id="dialectSelect" class="select" onchange="saveSetting('dialect', this.value); renderSpellingSpecimen(this.value)">
                 <option value="auto">Match how I speak</option>
                 <option value="en-GB">British English</option>
                 <option value="en-US">American English</option>
               </select>
             </div>
             <div class="row">
-              <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-clipboard"/></svg></span>
               <div class="row-main"><div class="row-t"><label for="autoPasteToggle">Paste when I let go</label></div><div class="row-d">Puts the text where you were typing. Off, it's only copied.</div></div>
               <input type="checkbox" class="tog" role="switch" id="autoPasteToggle" onchange="saveSetting('auto_paste', this.checked)">
             </div>
             <!-- The microphone is kept ready so the first word isn't clipped:
                  audio from half a second before the keys go down is part of
-                 each recording (src/audio.py _PREROLL_MS; owner decision D5). -->
-            <div class="row">
-              <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-mic"/></svg></span>
-              <div class="row-main"><div class="row-t"><label for="micSelect">Microphone</label></div><div class="row-d">Waffler uses what you say while you hold the keys, and the half-second before, so your first word isn't clipped.</div></div>
-              <select id="micSelect" class="select" onchange="onMicChange(this.value)"></select>
+                 each recording (src/audio.py _PREROLL_MS; owner decision D5).
+                 The meter reads that same stream (app.py get_mic_level). -->
+            <div class="row row-mic">
+              <div class="row-main"><div class="row-t"><label for="micSelect">Microphone</label></div><div class="row-d">Includes the half-second before you press, so your first word isn't clipped.</div></div>
+              <div class="row-ctl-col">
+                <select id="micSelect" class="select" onchange="onMicChange(this.value)"></select>
+                <div class="mic-level" id="micLevel" hidden><span id="micLevelLabel">Say something</span><span class="meter" id="micMeter" aria-hidden="true"></span></div>
+              </div>
             </div>
-          </div></div>
+          </div>
 
-          <div class="glabel"><span class="eyebrow">Startup</span></div>
-          <div class="group"><div class="panel">
+          <h2 class="sh2">Startup</h2>
+          <div class="sheet">
             <!-- Start at sign-in: read from the operating system each time
                  Settings opens (app.py get_start_at_login). -->
             <div class="row" id="startAtLoginRow">
-              <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-power"/></svg></span>
               <div class="row-main"><div class="row-t"><label for="startAtLoginToggle">Start Waffler when I turn on my computer</label></div><div class="row-d" id="startAtLoginDesc">So the hotkey works after a restart.</div></div>
               <input type="checkbox" class="tog" role="switch" id="startAtLoginToggle" aria-label="Start Waffler when I turn on my computer" onchange="setStartAtLogin(this.checked)">
             </div>
             <div class="row">
-              <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-retry"/></svg></span>
               <div class="row-main"><div class="row-t">Run setup again</div><div class="row-d">Your keys and history stay as they are.</div></div>
               <button type="button" class="btn btn-sec btn-sm" onclick="runSetupAgain()">Run setup</button>
             </div>
-          </div></div>
+          </div>
         </section>
 
-        <!-- Keys and providers: the keys and the order in one list. app.js
-             draws the rows (logic.js keyRows) in the order Waffler tries
-             them; each key's editor below moves under its row when opened. -->
+        <!-- Keys and providers: what a dictation goes through, then the
+             keys in the order Waffler tries them (logic.js keyRows). Drag a
+             row by its handle, or focus the handle and use the arrow keys;
+             each key's editor opens under its row. -->
         <section class="s-sec" id="secKeys" data-sec="keys" hidden>
           <h1 class="ptitle">Keys and providers</h1>
-          <p class="pdesc">Waffler tries these in order and uses the first that answers. Changes to the order apply to your next dictation.</p>
+          <p class="pdesc">Waffler tries these in order and uses the first that answers. Drag to change the order; it applies to your next dictation.</p>
 
-          <div class="group s-first"><div class="panel provider-order-list" id="providerOrderList"></div></div>
+          <div class="stage stage-plain flow" id="keysFlow" role="img" aria-label="Speech to text and clean-up"></div>
+
+          <h2 class="sh2">In order<span class="aside">first that answers wins</span></h2>
+          <div class="sheet provider-order-list" id="providerOrderList"></div>
+          <p class="sr-only" id="providerOrderLive" role="status" aria-live="polite"></p>
 
           <!-- Groq, OpenAI, then Cerebras (optional). -->
           <div class="key-editors" hidden>
@@ -222,36 +242,29 @@
             <div class="key-editor" id="cerebrasKeyEditor" data-provider="cerebras">
               <div class="key-editor-row">
                 <input type="password" id="cerebrasKeyInput" class="input input-mono" placeholder="csk-…" autocomplete="off" spellcheck="false" aria-label="Cerebras key">
-                <button type="button" class="btn btn-pri btn-sm" onclick="saveCerebrasKey()">Save</button>
+                <button type="button" class="btn btn-pri btn-sm" onclick="saveCerebrasKey()">Test and save</button>
                 <button type="button" class="btn btn-quiet btn-sm" onclick="closeKeyEditor()">Cancel</button>
               </div>
-              <p class="key-help">Optional. Make one at <a class="link" href="#" onclick="openKeyPage('cerebras'); return false;">cloud.cerebras.ai/platform/api-keys</a>. Cerebras keys start with csk-.</p>
+              <p class="key-help">Optional. Make one at <a class="link" href="#" onclick="openKeyPage('cerebras'); return false;">cloud.cerebras.ai/platform/api-keys</a>. Cerebras keys start with csk-, and Waffler checks it with Cerebras before saving.</p>
             </div>
           </div>
 
-          <div class="glabel"><span class="eyebrow">In use now</span></div>
-          <div class="group"><div class="panel">
-            <div class="row">
-              <span class="itile is-ok" id="backendTile"><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg></span>
-              <div class="row-main"><div class="row-t" id="backendTitle">Speech to text and clean-up</div><div class="row-d" id="backendInfo">Loading…</div></div>
-            </div>
-          </div></div>
           <p class="s-foot">New to keys? <a class="link" href="#" onclick="openKeyPage('groq'); return false;">Get a free Groq key</a><svg class="ic ic-sm" aria-hidden="true"><use href="#i-external"/></svg></p>
         </section>
 
-        <!-- Hotkey -->
+        <!-- Hotkey: the keys, big. Holding them here is the test: the app's
+             own listener hears them (the status turns to Recording) and the
+             keys light up. -->
         <section class="s-sec" id="secHotkey" data-sec="hotkey" hidden>
           <h1 class="ptitle">Hotkey</h1>
           <p class="pdesc">Hold it to talk. Let go and the text is pasted.</p>
 
-          <div class="group s-first"><div class="panel hk-hero">
-            <span class="keys hk-caps" id="settingsHotkeyCaps"></span>
-            <div class="hk-name">
-              <div class="hk-name-t" id="settingsHotkeyBadge">Win + Ctrl</div>
-              <div class="row-d" id="settingsHotkeyNote">The default on Windows.</div>
-            </div>
-            <button type="button" class="btn btn-sec" onclick="openHotkeyCapture()">Change…</button>
-          </div></div>
+          <div class="stage hk-stage" id="hkStage">
+            <span class="hk-corner-l" aria-hidden="true">Your hotkey</span>
+            <button type="button" class="btn btn-sec btn-sm hk-corner" onclick="openHotkeyCapture()">Change…</button>
+            <span class="keys hk-caps" id="settingsHotkeyCaps" role="img"></span>
+            <p class="hk-said" id="hkTest" role="status" aria-live="polite"><span class="hk-ok" aria-hidden="true"><svg class="ic"><use href="#i-check"/></svg></span><span id="hkTestText">Hold it now to test it.</span></p>
+          </div>
           <p class="s-error" id="settingsHotkeyError" role="alert" hidden></p>
 
           <!-- Mac: Fn also has a job of its own (emoji picker, input source
@@ -265,64 +278,107 @@
             <div class="notice-acts"><button type="button" class="btn btn-sec btn-sm" onclick="wizOpenKeyboardSettings()">Open Keyboard settings</button></div>
           </div>
 
-          <div class="glabel"><span class="eyebrow">While you're recording</span></div>
-          <div class="group"><div class="panel">
+          <h2 class="sh2">Presets</h2>
+          <div class="presets" id="hotkeyPresetCards" role="radiogroup" aria-label="Hotkey presets"></div>
+
+          <h2 class="sh2">While you're recording</h2>
+          <div class="sheet twocol">
             <div class="row">
-              <span class="hk-key"><kbd class="kc kc-md">Space</kbd></span>
+              <kbd class="kc kc-md">Space</kbd>
               <div class="row-main"><div class="row-t">Keep going hands-free</div><div class="row-d">Tap Space while you hold the keys, then let go. Tap the keys again to finish.</div></div>
             </div>
             <div class="row">
-              <span class="hk-key"><kbd class="kc kc-md">Esc</kbd></span>
+              <kbd class="kc kc-md">Esc</kbd>
               <div class="row-main"><div class="row-t">Cancel</div><div class="row-d">Stops recording. Nothing is pasted.</div></div>
             </div>
-          </div></div>
+          </div>
         </section>
 
-        <!-- Usage: counts first, from the Journal; then the money, labelled
-             an estimate at published paid rates. Waffler can't see anyone's
-             bill, and Groq's free plan is free. -->
+        <!-- Usage: the words first, from the Journal, with the last 30
+             days as bars; then the money, labelled an estimate at published
+             paid rates. Waffler can't see anyone's bill, and Groq's free
+             plan is free. -->
         <section class="s-sec" id="secUsage" data-sec="usage" hidden>
           <h1 class="ptitle">Usage</h1>
           <p class="pdesc">Counted on this computer, from your own history.</p>
 
-          <div class="group s-first"><div class="utiles" id="usageTiles">
-            <div class="utile"><span class="eyebrow">Today</span><b id="usageTodayCount">0</b><span class="u1">dictations</span><span class="u2" id="usageTodayWords">0 words</span></div>
-            <div class="utile"><span class="eyebrow">This week</span><b id="usageWeekCount">0</b><span class="u1">dictations</span><span class="u2" id="usageWeekWords">0 words</span></div>
-            <div class="utile"><span class="eyebrow">This month</span><b id="usageMonthCount">0</b><span class="u1">dictations</span><span class="u2" id="usageMonthWords">0 words</span></div>
-            <div class="utile"><span class="eyebrow">All time</span><b id="usageAllCount">0</b><span class="u1">dictations</span><span class="u2" id="usageAllWords">0 words</span></div>
-          </div></div>
+          <div class="stage stage-plain u-hero" id="usageHero">
+            <div class="u-top">
+              <div><div class="u-big" id="usageBigWords">0</div><div class="u-big-l">words dictated, all time</div></div>
+              <div class="u-facts">
+                <div class="u-fact"><b id="usageFactCount">0</b><span id="usageFactCountLabel">dictations</span></div>
+                <div class="u-fact"><b id="usageFactPer">0</b><span>words a dictation</span></div>
+              </div>
+            </div>
+            <div class="chart" id="usageChart" role="img" aria-label="Words a day, the last 30 days"></div>
+            <div class="chart-x"><span id="usageChartStart"></span><span>Last 30 days, words a day</span><span>Today</span></div>
+          </div>
+          <div class="stage u-empty" id="usageEmpty" hidden>
+            <span class="u-empty-mark" data-waffle="empty" data-size="64"></span>
+            <div class="u-empty-t">Nothing counted yet</div>
+            <p class="u-empty-d">Hold <span id="usageEmptyKeys">Win + Ctrl</span> in any text box and talk. Your words and a 30-day chart appear here.</p>
+          </div>
 
-          <div class="glabel"><span class="eyebrow">Estimated cost</span></div>
-          <div class="group"><div class="panel usage-cost">
-            <div class="usage-figs">
-              <div><div class="usage-big" id="usageTotalCost">$0.00</div><div class="small">all time, estimated</div></div>
-              <div><div class="usage-mid" id="usageMonthCost">$0.00</div><div class="small">this month</div></div>
-              <div><div class="usage-mid" id="usageWeekCost">$0.00</div><div class="small">this week</div></div>
-              <div><div class="usage-mid" id="usageTodayCost">$0.00</div><div class="small">today</div></div>
+          <div id="usageDetail">
+            <h2 class="sh2">By period</h2>
+            <div class="sheet ledger" id="usageTiles">
+              <div><div class="k">Today</div><div class="v" id="usageTodayWords">0</div><div class="s"><span class="u-wl">words</span>, <span id="usageTodayCount">0</span> <span class="u1">dictations</span></div></div>
+              <div><div class="k">This week</div><div class="v" id="usageWeekWords">0</div><div class="s"><span class="u-wl">words</span>, <span id="usageWeekCount">0</span> <span class="u1">dictations</span></div></div>
+              <div><div class="k">This month</div><div class="v" id="usageMonthWords">0</div><div class="s"><span class="u-wl">words</span>, <span id="usageMonthCount">0</span> <span class="u1">dictations</span></div></div>
+              <div><div class="k">All time</div><div class="v" id="usageAllWords">0</div><div class="s"><span class="u-wl">words</span>, <span id="usageAllCount">0</span> <span class="u1">dictations</span></div></div>
             </div>
-            <p class="small usage-note"><span id="usageEstimateNote">Estimated at each provider's published paid rates. Waffler can't see your bill.</span> On Groq's free plan dictations cost nothing, within its daily and per-minute limits. <span id="usageAvgCost"></span></p>
-            <div class="dots-h usage-sep"></div>
-            <div class="usage-provider-rows" id="usageProviderRows">
-              <div class="usage-provider-empty">No usage yet. Make your first dictation to see it here.</div>
+
+            <h2 class="sh2">Estimated cost<span class="aside">an estimate</span></h2>
+            <div class="sheet cost">
+              <div class="cost-main">
+                <div class="cost-v"><span id="usageTotalCost">$0.00</span> <small>all time, estimated</small></div>
+                <div class="cost-periods">Month <b id="usageMonthCost">$0.00</b>, week <b id="usageWeekCost">$0.00</b>, today <b id="usageTodayCost">$0.00</b></div>
+                <div class="cost-free" id="usageFreeNote" hidden><svg class="ic ic-sm" aria-hidden="true"><use href="#i-check-circle"/></svg>Groq's free plan costs nothing, within its limits</div>
+              </div>
+              <div class="cost-side">
+                <div class="usage-provider-rows" id="usageProviderRows">
+                  <div class="usage-provider-empty">No usage yet. Make your first dictation to see it here.</div>
+                </div>
+                <p class="cost-note"><span id="usageEstimateNote">Estimated at each provider's published paid rates. Waffler can't see your bill.</span> <span id="usageAvgCost"></span></p>
+              </div>
             </div>
-          </div></div>
+          </div>
         </section>
 
         <!-- Privacy and data -->
         <section class="s-sec" id="secPrivacy" data-sec="privacy" hidden>
           <h1 class="ptitle">Privacy and data</h1>
+
           <!-- Owner decision D5: the microphone stream stays open and the
                half-second before the keys go down is part of each recording
-               (src/audio.py _PREROLL_MS). Said as it is. -->
-          <p class="pdesc" id="privIntro">Your history, recordings and keys stay on this computer. The microphone stays ready so your first word isn't clipped: what you say while you hold the keys, and the half-second before, goes only to the providers you set up.</p>
+               (src/audio.py _PREROLL_MS). Said as it is. The provider on the
+               right is the one in use (logic.js privacyFlow). -->
+          <div class="stage stage-plain pv-hero">
+            <div>
+              <div class="pv-head">Everything stays on <em>this computer.</em></div>
+              <p class="pv-sub" id="privIntro">Except what you say while you hold the keys, and the half-second before. That goes straight to the providers you set up, on your own key.</p>
+            </div>
+            <div class="pv-diag" aria-hidden="true">
+              <div class="pv-pc">
+                <div class="pv-pt"><svg class="ic ic-sm"><use href="#i-monitor"/></svg>This computer</div>
+                <ul>
+                  <li><svg class="ic"><use href="#i-lock"/></svg>Journal</li>
+                  <li><svg class="ic"><use href="#i-lock"/></svg>Recordings</li>
+                  <li><svg class="ic"><use href="#i-lock"/></svg>Keys</li>
+                  <li><svg class="ic"><use href="#i-lock"/></svg>Logs</li>
+                </ul>
+              </div>
+              <span class="pv-link" id="privLink" hidden></span>
+              <div class="pv-to" id="privTo" hidden></div>
+            </div>
+          </div>
 
-          <div class="glabel"><span class="eyebrow">Kept on this computer</span></div>
-          <div class="group"><div class="panel">
+          <h2 class="sh2">Kept on this computer</h2>
+          <div class="sheet">
             <!-- History retention (src/privacy_data.py): keep everything
                  unless the user picks 30, 90 or 365 days. A shorter choice
-                 that would delete dictations asks first, in the panel. -->
+                 that would delete dictations asks first, in the sheet. -->
             <div class="row" id="historyRow">
-              <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-history"/></svg></span>
               <div class="row-main"><div class="row-t"><label for="historyKeep">History</label></div><div class="row-d" id="privHistoryDesc">Your dictations, searchable in your Journal.</div></div>
               <select id="historyKeep" class="select" onchange="onHistoryKeepChange(this)">
                 <option value="0">Keep forever</option>
@@ -337,11 +393,9 @@
               <button type="button" class="btn btn-danger btn-sm" onclick="confirmHistoryKeep()">Delete them</button>
             </div>
             <!-- Owner decision D9: the last 10 recordings are kept, said
-                 here, with a switch and "Delete now" (src/recent_audio.py). -->
+                 here, with a switch and "Delete them now" (src/recent_audio.py). -->
             <div class="row" id="recentAudioRow">
-              <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-audio-lines"/></svg></span>
-              <div class="row-main"><div class="row-t"><label for="recentAudioToggle">Recent recordings</label></div><div class="row-d" id="recentAudioDesc">The audio of your last 10 dictations, kept to help look into a problem. It never leaves this computer.</div></div>
-              <button type="button" class="btn btn-sec btn-sm" id="recentAudioDelete" onclick="deleteRecentAudio(this)">Delete now</button>
+              <div class="row-main"><div class="row-t"><label for="recentAudioToggle">Recent recordings</label></div><div class="row-d"><span id="recentAudioDesc">The audio of your last 10 dictations, to help look into a problem.</span> <button type="button" class="link-btn" id="recentAudioDelete" onclick="deleteRecentAudio(this)">Delete them now</button></div></div>
               <input type="checkbox" class="tog" role="switch" id="recentAudioToggle" checked onchange="setRecentAudio(this.checked)">
             </div>
             <!-- Recordings that were not turned into text (Journal "Not sent"
@@ -349,8 +403,8 @@
                  answers; this is the count, Try again for all of them, and
                  Delete, which asks first. -->
             <div class="row" id="unsentRow">
-              <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-wifi-off"/></svg></span>
-              <div class="row-main"><div class="row-t">Not sent yet</div><div class="row-d" id="unsentSummary">Nothing waiting. Every recording has been sent.</div></div>
+              <span class="chk" id="unsentIcon" aria-hidden="true"><svg class="ic"><use href="#i-check"/></svg></span>
+              <div class="row-main"><div class="row-t" id="unsentTitle">Nothing waiting to be sent</div><div class="row-d" id="unsentSummary">Every recording has been turned into text.</div></div>
               <button type="button" class="btn btn-sec btn-sm" id="unsentDelete" onclick="askDeleteUnsent(true)" hidden>Delete</button>
               <button type="button" class="btn btn-sec btn-sm" id="unsentSendNow" onclick="sendUnsentNow(this)" hidden><svg class="ic" aria-hidden="true"><use href="#i-retry"/></svg><span>Try again</span></button>
             </div>
@@ -359,70 +413,71 @@
               <button type="button" class="btn btn-sec btn-sm" id="unsentDeleteNo" onclick="askDeleteUnsent(false)">Keep them</button>
               <button type="button" class="btn btn-danger btn-sm" onclick="deleteAllUnsent(this)">Delete them</button>
             </div>
-          </div></div>
+          </div>
 
-          <div class="glabel"><span class="eyebrow">Help</span></div>
-          <div class="group"><div class="panel">
+          <h2 class="sh2">Help</h2>
+          <div class="sheet">
             <div class="row">
-              <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg></span>
-              <div class="row-main"><div class="row-t">Logs</div><div class="row-d">Saved as a zip on your Desktop, with no keys and no transcripts. Handy for a bug report.</div></div>
+              <div class="row-main"><div class="row-t">Logs</div><div class="row-d">A zip on your Desktop with no keys and no transcripts. Handy for a bug report.</div></div>
               <button type="button" class="btn btn-sec btn-sm" id="logsBtn" onclick="downloadLogs(this)"><svg class="ic" aria-hidden="true"><use href="#i-folder"/></svg><span>Show in folder</span></button>
             </div>
-          </div></div>
+          </div>
 
-          <div class="glabel"><span class="eyebrow">Start over</span></div>
-          <div class="group"><div class="panel">
+          <h2 class="sh2">Start over</h2>
+          <div class="sheet">
             <!-- Delete all my data (src/privacy_data.py) keeps the keys, words
                  and settings; deleting those too is the full reset, which
                  asks again on its own. -->
             <div class="row" id="resetRow">
-              <span class="itile is-err"><svg class="ic" aria-hidden="true"><use href="#i-trash"/></svg></span>
               <div class="row-main"><div class="row-t">Delete all my data</div><div class="row-d">History, usage, recordings and logs. Your keys, words and settings stay.</div></div>
-              <button type="button" class="btn btn-danger btn-sm" id="resetAsk" onclick="askFactoryReset(true)">Delete…</button>
+              <button type="button" class="btn btn-danger-solid btn-sm" id="resetAsk" onclick="askFactoryReset(true)">Delete…</button>
             </div>
             <div class="row reset-confirm" id="resetConfirm" hidden>
               <div class="row-main"><div class="row-t">Delete your history, usage, recordings and logs?</div><div class="row-d">This can't be undone. Waffler keeps running with your keys and words. <a class="link" href="#" id="resetKeysAsk" onclick="askFactoryResetKeys(true); return false;">Delete my keys and settings too</a></div></div>
               <button type="button" class="btn btn-sec btn-sm" id="resetNo" onclick="askFactoryReset(false)">Keep it</button>
-              <button type="button" class="btn btn-danger btn-sm" id="resetYes" onclick="deleteMyData(this)">Delete my data</button>
+              <button type="button" class="btn btn-danger-solid btn-sm" id="resetYes" onclick="deleteMyData(this)">Delete my data</button>
             </div>
             <div class="row reset-confirm" id="resetKeysConfirm" hidden>
               <div class="row-main"><div class="row-t">Delete everything, your keys too?</div><div class="row-d">This can't be undone. Your keys, words and settings go as well. Waffler closes, and setup starts the next time you open it.</div></div>
               <button type="button" class="btn btn-sec btn-sm" id="resetKeysNo" onclick="askFactoryResetKeys(false)">Keep my keys</button>
-              <button type="button" class="btn btn-danger btn-sm" onclick="factoryReset()">Delete everything</button>
+              <button type="button" class="btn btn-danger-solid btn-sm" onclick="factoryReset()">Delete everything</button>
             </div>
-          </div></div>
+          </div>
         </section>
 
-        <!-- About -->
+        <!-- About: the colophon. What Waffler is, its licence and source,
+             who makes it, what is new (logic.js whatsNew, each line in
+             CHANGELOG.md) and what it uses right now. -->
         <section class="s-sec" id="secAbout" data-sec="about" hidden>
-          <div class="about-head">
-            <span class="about-mark" data-waffle="logo" data-size="56"></span>
-            <div class="about-id">
-              <h1 class="ptitle">Waffler</h1>
-              <p class="small about-ver"><span id="aboutVersion">Version</span><span class="chip" id="aboutUpdateChip" hidden></span></p>
+          <div class="stage ab-hero">
+            <span class="ab-mark" data-waffle="logo" data-size="72"></span>
+            <div>
+              <h1 class="ab-name">Waffler</h1>
+              <p class="ab-tag">Hold a key, talk, let go.</p>
+              <p class="ab-ver"><span id="aboutVersion">Version</span><span class="pill" id="aboutUpdateChip" hidden></span><button type="button" class="link-btn" id="checkUpdateBtn" onclick="checkForUpdatesManual()">Check for updates</button></p>
             </div>
-            <button type="button" class="btn btn-sec" id="checkUpdateBtn" onclick="checkForUpdatesManual()"><svg class="ic" aria-hidden="true"><use href="#i-refresh"/></svg>Check for updates</button>
           </div>
 
-          <div class="glabel"><span class="eyebrow">What Waffler uses</span></div>
-          <div class="group"><div class="panel">
-            <div class="row row-tight">
-              <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-mic"/></svg></span>
-              <div class="row-main"><div class="row-t">Speech to text</div></div>
-              <span class="mono about-model" id="aboutSpeech">No key yet</span>
-            </div>
-            <div class="row row-tight">
-              <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-sliders"/></svg></span>
-              <div class="row-main"><div class="row-t">Clean-up</div></div>
-              <span class="mono about-model" id="aboutCleanup">No key yet</span>
-            </div>
-          </div></div>
+          <p class="ab-statement">A free, open-source dictation app for Mac and Windows. No account, no subscription and no Waffler server: your voice goes from this computer to the provider you set up, on your own key, and comes back as tidy text.</p>
 
-          <div class="about-links">
-            <button type="button" class="btn btn-sec btn-sm" onclick="openAboutLink('source')"><svg class="ic" aria-hidden="true"><use href="#i-github"/></svg>Open source on GitHub</button>
+          <div class="sheet facts">
+            <div><div class="k">Licence</div><div class="v">MIT, free for ever</div></div>
+            <div><div class="k">Source</div><div class="v">jbf-tars/Waffler on GitHub</div></div>
+            <div><div class="k">Made by</div><div class="v">One person, in the open</div></div>
+          </div>
+
+          <div id="aboutNew" hidden>
+            <h2 class="sh2" id="aboutNewTitle">New in this version</h2>
+            <ol class="sheet ab-new" id="aboutNewList"></ol>
+          </div>
+
+          <div class="ab-acts">
+            <button type="button" class="btn btn-sec btn-sm" onclick="openAboutLink('source')"><svg class="ic" aria-hidden="true"><use href="#i-github"/></svg>Source on GitHub</button>
             <button type="button" class="btn btn-sec btn-sm" onclick="openAboutLink('issues')"><svg class="ic" aria-hidden="true"><use href="#i-bug"/></svg>Report a problem</button>
-            <button type="button" class="btn btn-sec btn-sm" onclick="openAboutLink('releases')"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg>Release notes</button>
+            <button type="button" class="btn btn-sec btn-sm" onclick="openAboutLink('releases')"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg>All release notes</button>
           </div>
+
+          <p class="ab-credits"><span id="aboutUses">Speech by <span id="aboutSpeech">No key yet</span> and clean-up by <span id="aboutCleanup">No key yet</span>. </span>Set in Inter, Geist and Source Serif 4. Icons by Lucide.</p>
         </section>
 
       </div>

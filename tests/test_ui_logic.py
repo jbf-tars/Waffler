@@ -916,3 +916,26 @@ def test_whats_new_is_in_the_changelog():
                    "Choose how long your history is kept"):
         assert needle in section, needle
     assert js("L.whatsNew('3.14.100')") is None and js("L.whatsNew(null)") is None
+
+
+def test_settings_pages_are_wired_to_real_data():
+    """The Atelier Settings: every figure comes from the app. The meter polls
+    get_mic_level only while General is on screen, the hotkey test is the
+    app's own status, the chart is journal_data's daily_words, and the
+    provider order can be changed by drag or by the arrow keys."""
+    app = code_only(read("app.js"))
+    meter = app[app.index("function _micMeterWanted"):app.index("async function _tickMicMeter")]
+    assert "_currentPage === 'settings'" in meter and "_settingsSection === 'general'" in meter
+    assert "!_windowHidden()" in meter and "clearInterval(_micTimer)" in meter
+    assert "get_mic_level()" in app and "WL.micMeter(" in app
+    status = app[app.index("window.waffler_status = function"):]
+    assert "_hotkeyTestStatus(view.cls)" in status[:status.index("\n};")]
+    assert "WL.usageChart(st.daily_words, st.daily_start)" in app
+    assert "_onGripKey" in app and "'ArrowUp'" in app and "saveProviderOrder(order)" in app
+    html = read("index.html")
+    settings = html[html.index('id="settingsPanel"'):html.index("── Vocabulary")]
+    # The mock-ups' NEW badges are notes for the owner, not part of the app.
+    assert "newtag" not in settings and ">New<" not in settings
+    for part in ('id="themeSeg" role="radiogroup"', 'id="micMeter"', 'id="keysFlow"', 'id="hkTest"',
+                 'id="hotkeyPresetCards"', 'id="usageChart"', 'id="privTo"', 'id="aboutNewList"'):
+        assert part in settings, part

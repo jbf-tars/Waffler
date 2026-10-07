@@ -135,7 +135,7 @@
   // Settings, Data: how many recordings are waiting.
   function unsentSummary(s) {
     const n = (s && s.count) || 0;
-    if (!n) return { label: 'Nothing waiting. Every recording has been sent.', canSend: false, count: 0,
+    if (!n) return { label: 'Every recording has been turned into text.', canSend: false, count: 0,
                      confirm: '' };
     const p = (s && s.provider) || 'your speech service';
     return {

@@ -332,6 +332,7 @@
   letter-spacing: 0;
   white-space: nowrap;
 }
+.kc .ic { width: 12px; height: 12px; }
 .kc-md { height: 26px; min-width: 26px; padding: 0 9px; border-radius: 7px; font-size: 12px; }
 .kc.is-down {
   transform: translateY(1px);
