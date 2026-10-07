@@ -91,206 +91,181 @@ html, body {
 
 /* ════════════════════════════════════════════════════════════════════
  * JOURNAL
- * One 880 px column: notices, the stat strip, then the entries grouped by
- * day. The cards line up with the day rows. Nothing lifts on hover; a new
- * entry fades in once.
+ * The Atelier design (3.15): the entries as a timeline on the left, a
+ * margin on the right with today, this week, the streak and any notice.
+ * Nothing lifts on hover; a new entry fades in once.
  * ════════════════════════════════════════════════════════════════════ */
+.jr { flex: 1 0 auto; display: grid; grid-template-columns: minmax(0, 1fr) 248px; }
+.jr.is-first { grid-template-columns: minmax(0, 1fr); }
 .j-col {
-  width: min(var(--column), calc(100% - 2 * var(--gutter)));
-  margin: 0 auto;
-  padding: 20px 0 40px;
-  flex: 1 0 auto;
-  display: flex;
-  flex-direction: column;
-}
-
-.j-notices { display: flex; flex-direction: column; gap: 10px; }
-.j-notices:not(:empty) { margin-bottom: 14px; }
-.j-notices .notice { align-items: center; }
-.j-notices .notice-body + .notice-acts { margin-left: 4px; }
-
-/* ── Stat strip ───────────────────────────────────────────────────── */
-.j-strip {
-  display: flex;
-  align-items: center;
-  padding: 6px 6px 6px 8px;
-  flex-shrink: 0;
-}
-.j-stat {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  padding: 6px 22px 6px 14px;
-}
-.j-stat + .j-stat::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 10px;
-  bottom: 10px;
-  width: 1px;
-  background: var(--line);
-}
-/* Figures in Geist, the display face. */
-.j-stat-num {
-  font: var(--t-stat);
-  letter-spacing: -0.01em;
-  color: var(--text);
-  font-variant-numeric: tabular-nums;
-}
-.j-stat-lbl { font: 400 12.5px/17px var(--f-ui); color: var(--muted); }
-
-.j-right-group {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 8px;
   min-width: 0;
+  padding: 26px 34px 40px 40px;
+  display: flex;
+  flex-direction: column;
 }
+.jr.is-first .j-col { width: min(var(--column), calc(100% - 2 * var(--gutter))); margin: 0 auto; padding: 20px 0 40px; }
 
-/* Days in a row: the waffle and "3-day streak". */
-.j-streak {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  height: 36px;
-  padding: 0 14px 0 9px;
-  background: var(--card);
-  border-radius: var(--r-pill);
-  box-shadow: var(--shadow-btn);
-  white-space: nowrap;
+/* The title and the search. */
+.jhead { display: flex; align-items: flex-end; gap: 16px; }
+.jtitle {
+  font: 400 32px/1 var(--f-serif);
+  font-variation-settings: "opsz" 60;
+  letter-spacing: -0.015em;
+  color: var(--text);
 }
-/* The streak's waffle. It used to be a stack of pancakes that wobbled
-   forever; it stays still now. */
-.j-stack-svg { display: inline-flex; width: 20px; height: 20px; }
-.j-streak-text { font: var(--t-desc); color: var(--text); }
-/* Hidden at 0, so the first day doesn't say "0-day streak". */
-.j-streak.j-streak-empty { display: none; }
-
-/* Search */
 .j-search-wrap {
   position: relative;
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  min-width: 0;
+  margin-left: auto;
 }
 .j-search-icon {
   position: absolute;
-  left: 14px;
+  left: 12px;
   width: 15px;
   height: 15px;
   color: var(--muted);
   pointer-events: none;
 }
 .j-search-input {
-  height: 36px;
-  width: 250px;
-  max-width: 100%;
-  padding: 0 14px 0 37px;
+  width: 260px;
+  height: 34px;
+  padding: 0 12px 0 34px;
   border: 0;
-  border-radius: var(--r-pill);
+  border-radius: var(--r-input);
   background: var(--card);
-  color: var(--text);
   box-shadow: inset 0 0 0 1px var(--ring-ctl);
-  font: var(--t-desc);
+  color: var(--text);
+  font: 400 13.5px/1 var(--f-ui);
   outline: none;
   user-select: text;
   transition: box-shadow var(--dur-fast) var(--ease);
 }
 .j-search-input::placeholder { color: var(--muted); opacity: 1; }
-.j-search-input::-webkit-search-cancel-button { cursor: pointer; }
 .j-search-input:focus { box-shadow: inset 0 0 0 1.5px var(--focus), 0 0 0 3px rgba(122, 87, 23, 0.12); }
+
+/* While you dictate. */
+.j-live {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  margin-top: 18px;
+  padding: 12px 14px 12px 0;
+  border-radius: 12px;
+  background: var(--honey-wash);
+  box-shadow: inset 0 0 0 1px rgba(196, 138, 46, 0.4);
+}
+.j-live-mark { display: flex; justify-content: center; padding-left: 12px; }
+.j-live-t { font: italic 400 15px/1.45 var(--f-serif); color: var(--text-2); }
+.j-live-r { display: flex; align-items: center; gap: 10px; font: 400 12px/1 var(--f-ui); color: var(--muted); white-space: nowrap; }
+.j-live-r .kc { margin-right: 4px; }
+.j-live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--rec); box-shadow: 0 0 0 4px rgba(217, 64, 64, 0.18); }
+.j-live[data-state="processing"] .j-live-dot { background: var(--honey); box-shadow: 0 0 0 4px rgba(217, 164, 65, 0.22); }
+.j-live[data-state="paused"] .j-live-dot { background: var(--muted); box-shadow: none; }
+.j-live-time { font: 500 13px/1 var(--f-ui); color: var(--text); font-variant-numeric: tabular-nums; }
 
 /* ── Day rows and entries ─────────────────────────────────────────── */
 .j-feed { display: flex; flex-direction: column; }
 .j-date-divider {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  margin: 22px 2px 12px;
+  align-items: baseline;
+  gap: 10px;
+  margin: 22px 0 4px;
 }
-.j-date-month { font: 500 14px/20px var(--f-ui); color: var(--text); }
-/* A dotted rule, as on the site. */
-.j-date-line {
-  flex: 1;
-  height: 2px;
-  background: radial-gradient(circle, var(--dots) 0 1px, transparent 1.2px) 0 0 / 6px 2px repeat-x;
-}
-.j-date-day { font: italic 400 14px/20px var(--f-serif); color: var(--muted); }
+.j-date-month { font: 500 13px/1 var(--f-ui); color: var(--text); }
+.j-date-day { font: italic 400 13px/1 var(--f-serif); color: var(--muted); }
+.j-date-line { flex: 1; height: 1px; background: var(--line); transform: translateY(-3px); }
 
-.transcript-card {
-  background: var(--card);
-  border-radius: var(--r-card-sm);
-  box-shadow: var(--shadow-bubble);
-  padding: 15px 20px 14px;
-  margin-bottom: 10px;
+/* An entry: the time and its words on the left, the text, then the actions
+   (shown on hover and on focus). */
+.transcript-card.j-ent {
+  position: relative;
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr) auto;
+  gap: 14px;
+  padding: 12px 12px 12px 0;
+  border-radius: 10px;
   cursor: default;
 }
+.j-ent + .j-ent::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 90px;
+  right: 12px;
+  height: 1px;
+  background: var(--line);
+}
+.j-ent:hover, .j-ent:focus-within, .j-ent.is-raw {
+  background: var(--card);
+  box-shadow: 0 0 0 1px var(--ring), 0 1px 2px rgba(12, 10, 9, 0.04);
+}
+.j-ent:hover::before, .j-ent:hover + .j-ent::before,
+.j-ent:focus-within::before, .j-ent:focus-within + .j-ent::before,
+.j-ent.is-raw::before, .j-ent.is-raw + .j-ent::before { display: none; }
 .transcript-card.new { animation: j-entry-in var(--dur-enter) var(--ease-out); }
 @keyframes j-entry-in {
   from { opacity: 0; }
   to { opacity: 1; }
 }
-.card-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
-}
-.card-time { font: italic 400 13.5px/18px var(--f-serif); color: var(--muted); }
-.card-sp { flex: 1; }
-.card-words { font: 400 12.5px/18px var(--f-ui); color: var(--muted); white-space: nowrap; }
-.card-meta .chip { margin-left: 4px; }
-
+.j-g { padding-left: 12px; }
+.j-t { font: 500 12.5px/1.6 var(--f-ui); color: var(--text-2); font-variant-numeric: tabular-nums; }
+.j-w { font: 400 11px/1.4 var(--f-ui); color: var(--muted); white-space: nowrap; }
+.j-body { min-width: 0; }
+.j-said-k { margin-bottom: 4px; font: 500 11px/1 var(--f-ui); color: var(--accent-ink); }
 .card-text {
-  font: var(--t-body-lg);
+  font: 400 14.5px/1.6 var(--f-ui);
   letter-spacing: 0;
   color: var(--text);
   white-space: pre-wrap;
   word-wrap: break-word;
   user-select: text;
   cursor: text;
-  /* A comfortable reading width. */
-  max-width: 66ch;
+  max-width: 62ch;
 }
-.card-text.raw { color: var(--text-2); }
-.card-reason { margin-top: 6px; font: var(--t-desc); color: var(--muted); max-width: 75ch; }
-
-.card-actions {
+.card-text.styled { white-space: normal; }
+.card-text.styled p { white-space: pre-line; }
+.card-text.styled p + p { margin-top: 8px; }
+.card-text.raw { color: var(--text-2); font-family: var(--f-serif); font-style: italic; font-size: 15px; }
+.word-hl { background: linear-gradient(transparent 62%, rgba(217, 164, 65, 0.38) 62%); }
+.j-meta {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-top: 10px;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin-top: 6px;
+  font: 400 12.5px/1.45 var(--f-ui);
+  color: var(--muted);
+  max-width: 75ch;
 }
-/* "Show transcript" / "Show clean": a quiet link. */
-.text-toggle {
-  border: 0;
-  background: none;
-  padding: 2px 0;
-  font: var(--t-desc);
-  color: var(--text-2);
-  text-decoration: underline;
-  text-decoration-color: var(--dots);
-  text-underline-offset: 3px;
-  cursor: pointer;
-  transition: text-decoration-color var(--dur-fast) var(--ease);
-}
-.text-toggle:hover { text-decoration-color: currentColor; }
+.j-meta b { font-weight: 500; color: var(--text-2); }
+.j-meta > .ic { width: 14px; height: 14px; flex: none; }
+.j-vd { width: 6px; height: 6px; flex: none; border-radius: 2px; background: var(--honey); }
+.j-meta .chip { height: 22px; }
+.j-acts { display: flex; align-items: flex-start; gap: 4px; opacity: 0; transition: opacity var(--dur-fast) var(--ease); }
+.j-ent:hover .j-acts, .j-ent:focus-within .j-acts, .j-ent.is-raw .j-acts { opacity: 1; }
+.j-acts .btn-sm { height: 28px; padding: 0 10px; font-size: 12.5px; border-radius: 7px; }
+.j-acts .btn-sm .ic { width: 13px; height: 13px; }
+.j-acts .rbtn { width: 28px; height: 28px; border-radius: 7px; color: var(--text-2); }
+.j-acts .rbtn .ic { width: 15px; height: 15px; }
+.j-acts .rbtn:hover, .j-acts .rbtn[aria-pressed="true"] { background: var(--surface-2); color: var(--text); }
+.j-acts .btn-copy.copied { opacity: 1; }
+.j-ent .btn-copy.copied, .j-ent:has(.copied) .j-acts { opacity: 1; }
 
-/* ── Not sent cards ──
-   A recording that was not turned into text: its own card, with an icon,
-   a plain sentence, what happens next, and Try again / Show the file /
-   Delete (app.js makeNotSentCard). Honey, not red: the recording is safe. */
-.not-sent-card { padding: 16px 20px; }
-.ns-wrap { display: flex; gap: 14px; align-items: flex-start; }
-.ns-main { flex: 1; min-width: 0; }
-.ns-main .card-meta { margin-bottom: 2px; }
-.ns-title { font: 500 14px/20px var(--f-ui); color: var(--text); }
-.ns-text { font: 400 14px/21px var(--f-ui); color: var(--text-2); max-width: 75ch; }
-.ns-next { margin-top: 2px; font: var(--t-desc); color: var(--muted); max-width: 75ch; }
+/* ── Not sent ──
+   A recording that was not turned into text: what happened, and Try again
+   / Show the file / Delete (app.js makeNotSentCard), always shown. Honey,
+   not red: the recording is safe. */
+.not-sent-card .j-acts { opacity: 1; }
+.ns-main { min-width: 0; }
+.ns-title { font: italic 400 15px/1.5 var(--f-serif); color: var(--text-2); }
+.j-meta.ns-text { flex-wrap: nowrap; align-items: flex-start; max-width: 62ch; }
+.j-meta.ns-text > .ic { margin-top: 2px; }
+.j-meta.ns-text > span { flex: 1 1 0; min-width: 0; }
 .ns-status { margin-top: 4px; font: var(--t-desc); color: var(--danger); max-width: 75ch; }
 .ns-actions .btn-quiet,
-.ns-confirm .btn-quiet { font-size: 13px; }
+.ns-confirm .btn-quiet { font-size: 12.5px; }
 .ns-delete { color: var(--danger); }
 .ns-confirm {
   display: flex;
@@ -300,6 +275,67 @@ html, body {
   margin-top: 10px;
   font: var(--t-desc);
   color: var(--text);
+}
+
+/* ── The margin ───────────────────────────────────────────────────── */
+.j-rail {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  min-height: calc(100vh - var(--bar-h));
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 26px 22px 22px;
+  border-left: 1px solid var(--line);
+}
+.j-mk { margin: 0 0 9px; font: 500 11.5px/1 var(--f-ui); color: var(--muted); }
+.j-big { font: 400 34px/1 var(--f-serif); font-variation-settings: "opsz" 60; letter-spacing: -0.02em; color: var(--text); font-variant-numeric: tabular-nums; }
+.j-msub { margin-top: 5px; font: 400 12.5px/1.35 var(--f-ui); color: var(--muted); }
+.j-spark { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; align-items: end; height: 54px; }
+.j-spark i { display: block; min-height: 3px; border-radius: 3px; background: var(--honey); opacity: 0.5; }
+.j-spark i.is-zero { background: var(--surface-2); opacity: 1; }
+.j-spark i.is-today { background: var(--text); opacity: 1; }
+.j-spark-x { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; margin-top: 6px; font: 400 10.5px/1 var(--f-ui); color: var(--muted); text-align: center; }
+.j-streak { display: flex; align-items: center; gap: 10px; padding: 18px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); font: 400 13px/1.3 var(--f-ui); color: var(--text); }
+.j-streak b { font-weight: 500; }
+.j-streak .j-msub { margin-top: 2px; }
+.j-stack-svg { display: inline-flex; flex: none; }
+.j-notices { display: flex; flex-direction: column; gap: 10px; }
+.j-notices:empty { display: none; }
+.j-rail .notice { flex-wrap: wrap; gap: 4px 8px; padding: 13px 14px; border-radius: 10px; background: var(--card); box-shadow: 0 0 0 1px var(--ring), 0 1px 2px rgba(12, 10, 9, 0.04); }
+.j-rail .notice-honey { background: var(--honey-wash); box-shadow: inset 0 0 0 1px rgba(196, 138, 46, 0.4); }
+.j-rail .notice .itile { width: auto; height: auto; background: none; box-shadow: none; color: var(--text); }
+.j-rail .notice .itile .ic { width: 15px; height: 15px; }
+.j-rail .notice-body { flex: 1 1 0; min-width: 0; }
+.j-rail .notice-title { font: 500 13px/1.35 var(--f-ui); }
+.j-rail .notice-desc { font: 400 12.5px/1.45 var(--f-ui); color: var(--muted); }
+.j-rail .notice-body + .notice-acts { flex: 1 0 100%; margin: 6px 0 0; align-self: auto; }
+.j-rail .notice .dismiss { position: absolute; top: 8px; right: 8px; }
+.j-rail .notice { position: relative; padding-right: 34px; }
+.j-teach { margin-top: auto; font: 400 12.5px/1.5 var(--f-ui); color: var(--muted); }
+.j-teach .link { color: var(--text); }
+
+/* Narrower windows: the margin becomes a row above the entries. */
+@media (max-width: 900px) {
+  .jr { grid-template-columns: minmax(0, 1fr); }
+  .j-rail {
+    order: -1;
+    position: static;
+    min-height: 0;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 16px 28px;
+    padding: 18px 24px;
+    border-left: 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .j-week { width: 200px; }
+  .j-streak { border: 0; padding: 0; align-self: center; }
+  .j-notices { flex: 1 1 100%; }
+  .j-teach { display: none; }
+  .j-col { padding: 22px 24px 36px; }
 }
 
 /* ── First run: the empty Journal teaches the gesture ─────────────── */
@@ -380,18 +416,38 @@ body[data-theme="dark"] .j-first { box-shadow: inset 0 0 0 0.5px rgba(232, 200, 
 /* ════════════════════════════════════════════════════════════════════
  * VOCABULARY
  * ════════════════════════════════════════════════════════════════════ */
-.v-col {
-  width: min(720px, calc(100% - 2 * var(--gutter)));
-  margin: 0 auto;
-  padding: 30px 0 40px;
+/* The Atelier design (3.15): the words as a table on the left, Try a
+   sentence and the newest corrections in a column on the right. */
+.vp { flex: 1 0 auto; display: grid; grid-template-columns: minmax(0, 1fr) 300px; min-height: 100%; }
+.vmain { min-width: 0; padding: 28px 30px 40px 40px; }
+.vside {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  padding: 28px 22px 24px;
+  border-left: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  align-self: start;
+  min-height: calc(100vh - var(--bar-h));
 }
-.vocab-add-row { display: flex; gap: 8px; margin-top: 20px; }
+.vhead { display: flex; align-items: flex-end; gap: 16px; }
+.vocabulary-panel .ptitle {
+  font: 400 32px/1 var(--f-serif);
+  font-variation-settings: "opsz" 60;
+  letter-spacing: -0.015em;
+}
+.vsum { margin-left: auto; font: 400 12.5px/1.3 var(--f-ui); color: var(--muted); text-align: right; }
+.vsum b { font-weight: 500; color: var(--text); }
+.vocabulary-panel .pdesc { margin-top: 10px; max-width: none; font: 400 14px/1.5 var(--f-ui); }
+.vadd { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; margin-top: 18px; }
 .vocab-field {
   flex: 1;
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 40px;
+  height: 38px;
+  min-width: 0;
   padding: 0 12px;
   border-radius: var(--r-input);
   background: var(--card);
@@ -401,6 +457,7 @@ body[data-theme="dark"] .j-first { box-shadow: inset 0 0 0 0.5px rgba(232, 200, 
   transition: box-shadow var(--dur-fast) var(--ease);
 }
 .vocab-field:focus-within { box-shadow: inset 0 0 0 1.5px var(--focus), 0 0 0 3px rgba(122, 87, 23, 0.12); }
+.vocab-field .ic { width: 15px; height: 15px; flex: none; }
 .vocab-input {
   flex: 1;
   min-width: 0;
@@ -409,35 +466,131 @@ body[data-theme="dark"] .j-first { box-shadow: inset 0 0 0 0.5px rgba(232, 200, 
   outline: none;
   background: transparent;
   color: var(--text);
-  font: var(--t-body);
+  font: 400 14px/1 var(--f-ui);
   user-select: text;
 }
 .vocab-input::placeholder { color: var(--muted); opacity: 1; }
-.vocab-add-btn { height: 40px; padding: 0 18px; }
-.vocab-list { margin-top: 18px; }
+.vocab-add-btn { height: 38px; padding: 0 18px; border-radius: 8px; }
+.vocab-list { margin-top: 16px; }
+.v-undo { display: flex; align-items: baseline; gap: 6px; margin-top: 10px; font: 400 13px/1.4 var(--f-ui); color: var(--text-2); }
 
-.v-panel { padding: 16px 18px 18px; }
-.v-head { display: flex; align-items: center; margin-bottom: 14px; }
-.v-head .small { margin-left: auto; }
-.v-chips { display: flex; flex-wrap: wrap; gap: 8px; }
-.wchip {
-  display: inline-flex;
+/* The table. Rows are a grid; the change and remove buttons show on hover
+   and when they have focus. */
+.vt-h, .vt-r {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1.35fr) 118px 96px 60px;
+  gap: 12px;
   align-items: center;
-  gap: 6px;
-  height: 34px;
-  padding: 0 6px 0 13px;
-  border-radius: var(--r-pill);
+  padding: 0 10px 0 14px;
+}
+.vt-h { height: 30px; font: 500 11.5px/1 var(--f-ui); color: var(--muted); border-bottom: 1px solid var(--line); }
+.vt-r { min-height: 42px; border-bottom: 1px solid var(--line); }
+.vt-r.new { animation: j-entry-in var(--dur-enter) var(--ease-out); }
+.vt-w { font: 500 14px/1.3 var(--f-ui); color: var(--text); overflow-wrap: anywhere; user-select: text; }
+.vt-sl { display: flex; flex-wrap: wrap; gap: 5px; min-width: 0; padding: 6px 0; }
+.vt-chip {
+  padding: 4px 7px;
+  border-radius: 5px;
   background: var(--surface);
-  box-shadow: inset 0 0 0 0.5px var(--ring);
-  font: 500 14px/20px var(--f-ui);
-  color: var(--text);
+  font: italic 400 13px/1 var(--f-serif);
+  color: var(--text-2);
+  white-space: nowrap;
   user-select: text;
 }
-.wchip .rbtn { width: 24px; height: 24px; color: var(--text-2); }
-.wchip .rbtn .ic { width: 13px; height: 13px; }
-.wchip .rbtn:hover { background: var(--danger-tint); color: var(--danger); }
+.vt-none { font: 400 12px/1 var(--f-ui); color: var(--muted); }
+.vt-u { display: flex; align-items: center; gap: 8px; font: 500 12.5px/1 var(--f-ui); font-variant-numeric: tabular-nums; color: var(--text); }
+.vt-n { width: 30px; flex: none; }
+.vt-b { flex: 1; height: 4px; border-radius: 4px; background: var(--surface-2); overflow: hidden; }
+.vt-b i { display: block; height: 100%; border-radius: 4px; background: var(--honey); }
+.vt-l { font: italic 400 13px/1.2 var(--f-serif); color: var(--muted); }
+.vt-x { display: flex; justify-content: flex-end; gap: 2px; opacity: 0; transition: opacity var(--dur-fast) var(--ease); }
+.vt-x .rbtn { width: 26px; height: 26px; color: var(--text-2); }
+.vt-x .rbtn .ic { width: 14px; height: 14px; }
+.vt-x .vt-del:hover { background: var(--danger-tint); color: var(--danger); }
+.vt-r:hover, .vt-r:focus-within {
+  background: var(--card);
+  border-radius: 8px;
+  border-bottom-color: transparent;
+  box-shadow: 0 0 0 1px var(--ring), 0 1px 2px rgba(12, 10, 9, 0.04);
+}
+.vt-r:hover .vt-x, .vt-r:focus-within .vt-x { opacity: 1; }
+/* Replace PostHog with POSTHOG?, and a word's "sounds like" being changed. */
+.vt-r.vt-ask, .vt-r.vt-edit {
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 10px 12px 10px 14px;
+  margin: 2px 0;
+  border-radius: 8px;
+  border-bottom-color: transparent;
+  background: var(--honey-wash);
+  box-shadow: inset 0 0 0 1px rgba(196, 138, 46, 0.4);
+}
+.vt-r.vt-edit { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1.35fr) 118px 96px 60px; padding: 8px 10px 8px 14px; }
+.vt-edit .vt-ed { grid-column: 2 / 4; }
+.vt-edit .vt-acts { grid-column: 4 / 6; }
+.vt-q { font: 400 13px/1.4 var(--f-ui); color: var(--text); }
+.vt-q b { font-weight: 600; }
+.vt-q span { display: block; margin-top: 2px; font-size: 12px; color: var(--muted); }
+.vt-acts { display: flex; gap: 6px; justify-content: flex-end; }
+.vt-ed-in { height: 30px; width: 100%; font: 400 13px/1 var(--f-ui); }
+.vocabulary-panel .btn-sm { height: 28px; padding: 0 11px; font-size: 12.5px; border-radius: 7px; }
 
-.v-how { padding: 16px 18px; }
+/* The column on the right. */
+.vk { margin: 0 0 10px; font: 500 11.5px/1 var(--f-ui); color: var(--muted); }
+.vtry { border-radius: 11px; background: var(--card); box-shadow: 0 0 0 1px var(--ring), 0 1px 2px rgba(12, 10, 9, 0.04); overflow: hidden; }
+.vtry-in {
+  display: block;
+  width: 100%;
+  min-height: 64px;
+  padding: 12px 13px;
+  border: 0;
+  border-bottom: 1px dashed var(--dots);
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: var(--text-2);
+  font: 400 13.5px/1.5 var(--f-ui);
+  user-select: text;
+}
+.vtry-in::placeholder { color: var(--muted); opacity: 1; }
+.vtry-in:focus-visible { box-shadow: inset 0 0 0 1.5px var(--focus); }
+.vtry-out { padding: 12px 13px 14px; background: var(--stage); }
+.vtry-k { display: block; margin-bottom: 6px; font: 500 10.5px/1 var(--f-ui); color: var(--accent-ink); }
+.vtry-t { display: block; font: 400 15px/1.5 var(--f-serif); color: var(--text); overflow-wrap: anywhere; user-select: text; }
+.vtry-out.is-empty .vtry-t { font: italic 400 13.5px/1.5 var(--f-serif); color: var(--muted); }
+.vtry-same { margin-left: 8px; font: 400 11.5px/1 var(--f-ui); color: var(--muted); }
+mark.hl {
+  background: linear-gradient(transparent 60%, rgba(217, 164, 65, 0.45) 60%);
+  color: inherit;
+  font-weight: 500;
+}
+.vrc { list-style: none; margin: 0; padding: 0; }
+.vrc li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: baseline; padding: 8px 0; border-bottom: 1px solid var(--line); font: 400 13px/1.35 var(--f-ui); color: var(--text); }
+.vrc li:first-child { padding-top: 0; }
+.vrc-h { font: italic 400 13.5px/1.35 var(--f-serif); color: var(--muted); }
+.vrc-a { margin: 0 6px; color: var(--faint); }
+.vrc-t { font: 400 11.5px/1 var(--f-ui); color: var(--muted); font-variant-numeric: tabular-nums; }
+.vrc li.vrc-none { display: block; border: 0; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+.vhow { margin-top: auto; font: 400 12px/1.5 var(--f-ui); color: var(--muted); }
+.vside.is-empty .vhow { margin-top: 0; }
+
+/* Narrower windows: the column goes under the table, then the boxes stack. */
+@media (max-width: 900px) {
+  .vp { grid-template-columns: minmax(0, 1fr); }
+  .vside { position: static; min-height: 0; border-left: 0; border-top: 1px solid var(--line); padding: 22px 24px 28px; }
+  .vmain { padding: 24px 24px 28px; }
+}
+@media (max-width: 640px) {
+  .vadd { grid-template-columns: 1fr; }
+  .vt-h { display: none; }
+  .vt-r { grid-template-columns: minmax(0, 1fr) auto; row-gap: 4px; padding: 8px 10px 8px 12px; }
+  .vt-sl { grid-column: 1 / -1; grid-row: 2; padding: 0; }
+  .vt-u { grid-column: 1; grid-row: 3; }
+  .vt-l { grid-column: 2; grid-row: 3; }
+  .vt-x { grid-column: 2; grid-row: 1; opacity: 1; }
+  .vt-r.vt-edit { grid-template-columns: 1fr; }
+  .vt-edit .vt-ed, .vt-edit .vt-acts { grid-column: 1; }
+}
+
 .v-first { padding: 22px 24px 20px; }
 .v-first-top { display: flex; gap: 16px; align-items: flex-start; }
 .v-first-top > div:first-child { flex: 1; }
@@ -465,7 +618,6 @@ body[data-theme="dark"] .j-first { box-shadow: inset 0 0 0 0.5px rgba(232, 200, 
 .heard { font: 400 15px/22px var(--f-ui); color: var(--muted); }
 .pasted { font: 500 15px/22px var(--f-ui); color: var(--text); }
 .v-foot { margin-top: 14px; font: 400 11.5px/16px var(--f-mono); color: var(--muted); letter-spacing: 0; }
-.v-how .small { margin-top: 12px; }
 
 /* ════════════════════════════════════════════════════════════════════
  * SETTINGS (the Atelier design, 3.15)
@@ -1085,8 +1237,7 @@ body[data-theme="dark"] .kc-xl.held {
 
 /* ── Narrow windows (the smallest is 884 x 601) ───────────────────── */
 @media (max-width: 960px) {
-  .j-search-input { width: 200px; }
-  .j-stat { padding-right: 16px; }
+  .j-search-input { width: 220px; }
   .settings-panel { grid-template-columns: 200px minmax(0, 1fr); }
   .scol { padding: 26px 28px 36px 30px; }
   .flow { padding: 14px 12px; }
@@ -1130,9 +1281,14 @@ body[data-theme="dark"] .kc-xl.held {
   .row > .row-main ~ * { margin-left: 50px; max-width: calc(100% - 50px); }
   .row:has(> .tog) > .row-main ~ .tog { margin-left: 0; }
   .row .select { width: auto; max-width: calc(100% - 50px); }
-  .j-strip { flex-wrap: wrap; row-gap: 12px; }
-  .j-right-group { margin-left: 0; flex: 1 1 100%; }
-  .j-search-wrap { flex: 1; }
+  .jhead { flex-wrap: wrap; row-gap: 12px; }
+  .j-search-wrap { flex: 1 1 100%; margin-left: 0; }
+  .j-col { padding: 18px 14px 28px; }
+  .transcript-card.j-ent, .j-live { grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 12px; }
+  .j-g { display: flex; gap: 8px; padding-left: 0; }
+  .j-ent + .j-ent::before { left: 12px; }
+  .j-acts { opacity: 1; }
+  .j-live-mark { display: none; }
   .j-search-input { width: 100%; }
 }
 

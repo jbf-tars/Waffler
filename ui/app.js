@@ -169,7 +169,7 @@ const $hotkeyCaps    = document.getElementById('hotkeyHint');
 const $toast         = document.getElementById('toast');
 const $statWords     = document.getElementById('statWords');
 const $statCount     = document.getElementById('statCount');
-const $statTotal     = document.getElementById('statTotal');
+const $rail          = document.getElementById('journalRail');
 
 // ── Pause animations while the window can't be seen ───────────────────
 // Idle, the window used about 11% of a core, almost all of it the WebView2
@@ -302,13 +302,19 @@ async function checkForUpdates() {
       host.prepend(makeNotice({ icon: 'alert', tone: 'warn', title: m.title, desc: m.subtitle }));
     }
     if (r.update_available) {
-      // The update notice goes at the top of the Journal, the first thing
-      // you see. Download opens the same in-app download-and-install dialog
-      // as Settings, About, which falls back to the download page.
+      // The update notice goes in the Journal's margin. Update opens the
+      // same in-app download-and-install dialog as Settings, About, which
+      // falls back to the download page; What's new opens the release.
       const download = document.createElement('button');
       download.className = 'btn btn-pri btn-sm';
-      download.textContent = 'Download';
-      const banner = makeNotice({ icon: 'circle-up', tone: 'honey', title: `Waffler ${r.latest_version} is ready to download`, actions: [download] });
+      download.textContent = 'Update';
+      const notes = document.createElement('button');
+      notes.className = 'btn btn-quiet btn-sm';
+      notes.textContent = "What's new";
+      notes.addEventListener('click', () => {
+        try { pywebview.api.open_url(r.release_url || _ABOUT_LINKS.releases); } catch (_) {}
+      });
+      const banner = makeNotice({ icon: 'circle-up', tone: 'plain', title: `Waffler ${r.latest_version} is ready`, actions: [download, notes] });
       download.addEventListener('click', () => {
         openUpdateModalFromCheck(r);
         banner.remove();
@@ -1032,6 +1038,10 @@ function drawFeed() {
   const view = WL.feedView(_histTotal, _searchText, history.length);
   $empty.hidden = view.kind !== 'empty';
   if ($strip) $strip.hidden = view.kind === 'empty';
+  // First run: the margin has nothing to count yet.
+  if ($rail) $rail.hidden = view.kind === 'empty';
+  const layout = document.getElementById('journalLayout');
+  if (layout) layout.classList.toggle('is-first', view.kind === 'empty');
   $noMatch.hidden = view.kind !== 'no_match';
   if (view.kind === 'no_match') {
     const label = document.getElementById('noMatchLabel');
@@ -1089,14 +1099,14 @@ function _watchFeedEnd() {
 
 // ── Journal: drawing ─────────────────────────────────────────────────
 function _dayRow(key) {
-  const d = WL.dayLabel(key, new Date());
+  const d = WL.dayHeading(key, new Date());
   const row = document.createElement('div');
   row.className = 'j-date-divider';
   row.dataset.day = key;
   // A heading per day, so a screen reader can jump between days.
   row.setAttribute('role', 'heading');
   row.setAttribute('aria-level', '2');
-  row.innerHTML = `<span class="j-date-month">${escHtml(d.day)}</span><span class="j-date-line" aria-hidden="true"></span><span class="j-date-day">${escHtml(d.date)}</span>`;
+  row.innerHTML = `<span class="j-date-month">${escHtml(d.label)}</span><span class="j-date-day">${escHtml(d.date)}</span><span class="j-date-line" aria-hidden="true"></span>`;
   return row;
 }
 
@@ -1229,15 +1239,21 @@ window.waffler_status = function(status) {
     if (!_recordingStarted) _recordingStarted = Date.now();
     else if (_recordingPausedAt) _recordingStarted += Date.now() - _recordingPausedAt;
     _recordingPausedAt = 0;
-    const tick = () => { if ($statusTime) $statusTime.textContent = WL.recordingTime(_recordingSeconds()); };
+    const tick = () => {
+      const t = WL.recordingTime(_recordingSeconds());
+      if ($statusTime) $statusTime.textContent = t;
+      _journalLive('listening', t);
+    };
     tick();
     _statusTimer = setInterval(tick, 1000);
   } else if (view.cls === 'paused') {
     if (_recordingStarted && !_recordingPausedAt) _recordingPausedAt = Date.now();
     if ($statusTime) $statusTime.textContent = WL.recordingTime(_recordingSeconds());
+    _journalLive('paused', WL.recordingTime(_recordingSeconds()));
   } else {
     _recordingStarted = 0;
     _recordingPausedAt = 0;
+    _journalLive(view.cls, '');
   }
   if (view.cls === 'processing') {
     const started = Date.now();
@@ -1245,6 +1261,7 @@ window.waffler_status = function(status) {
       const secs = (Date.now() - started) / 1000;
       if ($statusTime) $statusTime.textContent = WL.workingTime(secs);
       $statusInd.title = WL.workingLabel(view.label, secs);
+      _journalLive('processing', WL.workingTime(secs));
     }, 1000);
   }
   // Done, Cancelled, Not sent and the error show for a moment, then Ready.
@@ -1257,19 +1274,56 @@ window.waffler_status = function(status) {
   }
 };
 
+// The Journal's own line while you dictate: Recording, the time, and Esc
+// cancels (as it does while recording; app.py _on_hotkey_cancel). The
+// words arrive as a new entry when the dictation is done.
+const _LIVE_TEXT = {
+  listening: 'Recording. The words arrive here when you finish.',
+  paused: 'Paused.',
+  processing: 'Turning it into text.',
+};
+function _journalLive(cls, time) {
+  const box = document.getElementById('journalLive');
+  if (!box) return;
+  const text = _LIVE_TEXT[cls];
+  box.hidden = !text;
+  if (!text) return;
+  box.dataset.state = cls;
+  const t = document.getElementById('journalLiveText');
+  const tm = document.getElementById('journalLiveTime');
+  const esc = document.getElementById('journalLiveEsc');
+  if (t) t.textContent = text;
+  if (tm) tm.textContent = time || '';
+  if (esc) esc.hidden = cls === 'processing';
+}
+
 // ── Render ─────────────────────────────────────────────────────────────
 function renderStats() {
-  $statWords.textContent = WL.statNumber(stats.today_words);
-  $statCount.textContent = WL.statNumber(stats.today_count);
-  $statTotal.textContent = WL.statNumber(stats.total_words);
+  $statWords.textContent = WL.formatCount(stats.today_words);
+  $statCount.textContent = WL.formatCount(stats.today_count);
+  const countLabel = document.getElementById('statCountLabel');
+  if (countLabel) countLabel.textContent = Number(stats.today_count) === 1 ? 'dictation' : 'dictations';
 
-  // Days in a row: hidden at 0, so the first day doesn't say "0-day streak".
+  // This week: the last seven days of the same counts (get_stats
+  // daily_words), today in ink.
+  const week = document.getElementById('journalWeek');
+  const days = document.getElementById('journalWeekDays');
+  if (week && days) {
+    const bars = WL.weekBars(stats.daily_words, stats.daily_start);
+    week.innerHTML = bars.map((b) => `<i class="${b.today ? 'is-today' : ''}${b.words ? '' : ' is-zero'}" style="height:${b.height}%" title="${WL.formatCount(b.words)} words"></i>`).join('');
+    days.innerHTML = bars.map((b) => `<span>${escHtml(b.initial)}</span>`).join('');
+    week.setAttribute('aria-label', 'Words a day, the last seven days: ' + bars.map((b) => WL.formatCount(b.words)).join(', '));
+  }
+
+  // Days in a row: hidden at 0, so the first day doesn't say "0 days".
   const streakChip = document.getElementById('streakChip');
-  const streakNum  = document.getElementById('streakNum');
-  if (streakChip && streakNum) {
-    const days = (stats.streak_days || 0);
-    streakNum.textContent = WL.formatCount(days);
-    streakChip.classList.toggle('j-streak-empty', days <= 0);
+  const v = WL.streakView(stats.streak_days, stats.longest_streak_days);
+  if (streakChip) {
+    streakChip.hidden = !v.title;
+    const t = document.getElementById('streakTitle');
+    const sub = document.getElementById('streakSub');
+    if (t) t.textContent = v.title;
+    if (sub) { sub.textContent = v.sub; sub.hidden = !v.sub; }
   }
 }
 
@@ -1301,32 +1355,25 @@ const _unsentMessages = {};
 function makeNotSentCard(item, isNew) {
   const v = WL.notSentView(item);
   const div = document.createElement('article');
-  div.className = 'transcript-card not-sent-card' + (isNew ? ' new' : '');
+  div.className = 'transcript-card j-ent not-sent-card' + (isNew ? ' new' : '');
   if (v.id) div.dataset.unsentId = v.id;
   const msg = v.id ? (_unsentMessages[v.id] || '') : '';
   div.innerHTML = `
-    <div class="ns-wrap">
-      <span class="itile is-warn">${WI.icon('wifi-off')}</span>
-      <div class="ns-main">
-        <div class="card-meta">
-          <span class="ns-title">${v.canRetry ? 'Not sent yet' : escHtml(v.badge)}</span>
-          <span class="card-sp"></span>
-          <span class="card-time">${escHtml(formatTime(item.timestamp))}</span>
-        </div>
-        <p class="ns-text">${escHtml(v.text)}</p>
-        ${v.next ? `<p class="ns-next">${escHtml(v.next)}</p>` : ''}
-        <p class="ns-status" role="status" aria-live="polite"${msg ? '' : ' hidden'}>${escHtml(msg)}</p>
-        <div class="card-actions ns-actions">
-          ${v.canRetry ? `<button type="button" class="btn btn-sec btn-sm ns-retry">${WI.icon('retry')}<span>Try again</span></button>` : ''}
-          ${v.canReveal ? '<button type="button" class="btn btn-quiet btn-sm ns-reveal">Show the file</button>' : ''}
-          ${v.canDelete ? '<button type="button" class="btn btn-quiet btn-sm ns-delete">Delete</button>' : ''}
-        </div>
-        <div class="ns-confirm" hidden>
-          <span>Delete this recording? This can't be undone.</span>
-          <button type="button" class="btn btn-danger btn-sm ns-confirm-yes">Delete</button>
-          <button type="button" class="btn btn-sec btn-sm ns-confirm-no">Keep it</button>
-        </div>
+    <div class="j-g"><div class="j-t">${escHtml(_clock(item.timestamp))}</div><div class="j-w">Not sent</div></div>
+    <div class="ns-main">
+      <p class="ns-title">${v.canRetry ? "A recording that hasn't been turned into text yet." : escHtml(v.text)}</p>
+      ${v.canRetry ? `<p class="j-meta ns-text">${WI.icon('wifi-off')}<span>${escHtml(v.text)}${v.next ? ' ' + escHtml(v.next) : ''}</span></p>` : ''}
+      <p class="ns-status" role="status" aria-live="polite"${msg ? '' : ' hidden'}>${escHtml(msg)}</p>
+      <div class="ns-confirm" hidden>
+        <span>Delete this recording? This can't be undone.</span>
+        <button type="button" class="btn btn-danger btn-sm ns-confirm-yes">Delete</button>
+        <button type="button" class="btn btn-sec btn-sm ns-confirm-no">Keep it</button>
       </div>
+    </div>
+    <div class="j-acts card-actions ns-actions">
+      ${v.canRetry ? `<button type="button" class="btn btn-sec btn-sm ns-retry">${WI.icon('retry')}<span>Try again</span></button>` : ''}
+      ${v.canReveal ? '<button type="button" class="btn btn-quiet btn-sm ns-reveal">Show the file</button>' : ''}
+      ${v.canDelete ? '<button type="button" class="btn btn-quiet btn-sm ns-delete">Delete</button>' : ''}
     </div>
   `;
   const say = (text) => {
@@ -1437,29 +1484,34 @@ let _cardSeq = 0;   // ids for each card's text (the toggle's aria-controls)
 function makeCard(item, isNew) {
   if (item && item.failed) return makeNotSentCard(item, isNew);
   const div = document.createElement('article');
-  div.className = 'transcript-card' + (isNew ? ' new' : '');
+  div.className = 'transcript-card j-ent' + (isNew ? ' new' : '');
 
   const displayText = item.styled || item.text || '';
   const rawText     = WL.originalText(item);
   const hasStyled   = WL.hasOriginal(item);
   const words       = (displayText.split(/\s+/).filter(Boolean)).length;
   const q           = WL.qualityView(item);
+  const changes     = WL.vocabChanges(item);
 
   const when = formatTime(item.timestamp);
   const textId = `jt${++_cardSeq}`;
+  // What the Vocabulary changed: "Vocabulary changed post hog to PostHog".
+  const vocabLine = changes.length
+    ? `<p class="j-meta card-vocab" aria-label="${escHtml(WL.vocabChangesLine(item))}"><span class="j-vd" aria-hidden="true"></span><span aria-hidden="true">Vocabulary changed ${changes.map((c, i) => `${i ? (i === changes.length - 1 ? ' and ' : ', ') : ''}<b>${escHtml(c.heard)}</b> to <b>${escHtml(c.used)}</b>`).join('')}</span></p>`
+    : '';
+  const qualityLine = (q.chip || q.asSaid || q.reasons.length)
+    ? `<p class="j-meta card-reason">${qualityBadge(item)}<span>${escHtml(q.reasons.join(' '))}</span></p>`
+    : '';
   div.innerHTML = `
-    <div class="card-meta">
-      <span class="card-time">${escHtml(when)}</span>
-      ${qualityBadge(item)}
-      <span class="card-sp"></span>
-      <span class="card-words">${WL.formatCount(words)} ${words === 1 ? 'word' : 'words'}</span>
+    <div class="j-g"><div class="j-t">${escHtml(_clock(item.timestamp))}</div><div class="j-w">${WL.formatCount(words)} ${words === 1 ? 'word' : 'words'}</div></div>
+    <div class="j-body">
+      <div class="j-said-k" hidden>What you said</div>
+      <div class="card-text styled" id="${textId}">${_markedHtml(displayText, changes)}</div>
+      ${vocabLine}${qualityLine}
     </div>
-    <div class="card-text styled" id="${textId}">${escHtml(displayText)}</div>
-    ${q.reasons.length ? `<p class="card-reason">${escHtml(q.reasons.join(' '))}</p>` : ''}
-    ${WL.vocabChangesLine(item) ? `<p class="card-reason card-vocab">${escHtml(WL.vocabChangesLine(item))}</p>` : ''}
-    <div class="card-actions">
+    <div class="j-acts card-actions">
       <button type="button" class="btn btn-sec btn-sm btn-copy" aria-label="${escHtml(when ? `Copy the dictation from ${when}` : 'Copy')}">${WI.icon('copy')}<span>Copy</span></button>
-      ${hasStyled ? `<button type="button" class="text-toggle" aria-controls="${textId}">Show what you said</button>` : ''}
+      ${hasStyled ? `<button type="button" class="rbtn text-toggle" aria-controls="${textId}" aria-pressed="false" aria-label="Show what you said" title="Show what you said">${WI.icon('file-text')}</button>` : ''}
     </div>
   `;
 
@@ -1473,6 +1525,11 @@ function makeCard(item, isNew) {
   if (toggleBtn) {
     toggleBtn.addEventListener('click', function() {
       toggleRawHandler(this, textEl, rawText, displayText);
+      const showing = textEl.classList.contains('raw');
+      const k = div.querySelector('.j-said-k');
+      if (k) k.hidden = !showing;
+      div.classList.toggle('is-raw', showing);
+      if (!showing) textEl.innerHTML = _markedHtml(displayText, changes);
     });
   }
 
@@ -1483,16 +1540,37 @@ function makeCard(item, isNew) {
   return div;
 }
 
+// The clean text in its paragraphs, with the words the Vocabulary put in
+// marked.
+function _markedHtml(text, changes) {
+  const used = (changes || []).map((c) => c.used);
+  return String(text || '').split(/\n\s*\n/).map((para) => {
+    const segs = WL.markWords(para, used);
+    return `<p>${segs.map((sg) => (sg.mark ? `<span class="word-hl">${escHtml(sg.text)}</span>` : escHtml(sg.text))).join('')}</p>`;
+  }).join('');
+}
+
+// "21:31": the day is in the heading above.
+function _clock(ts) {
+  const d = new Date(ts);
+  if (!ts || isNaN(d.getTime())) return '';
+  return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+}
+
 function toggleRawHandler(toggleEl, textEl, rawText, styledText) {
   const showingStyled = textEl.classList.contains('styled');
   if (showingStyled) {
     textEl.textContent = rawText;
     textEl.classList.replace('styled', 'raw');
-    toggleEl.textContent = 'Show clean';
+    toggleEl.setAttribute('aria-pressed', 'true');
+    toggleEl.setAttribute('aria-label', 'Show clean');
+    toggleEl.title = 'Show clean';
   } else {
     textEl.textContent = styledText;
     textEl.classList.replace('raw', 'styled');
-    toggleEl.textContent = 'Show what you said';
+    toggleEl.setAttribute('aria-pressed', 'false');
+    toggleEl.setAttribute('aria-label', 'Show what you said');
+    toggleEl.title = 'Show what you said';
   }
 }
 
@@ -1597,11 +1675,21 @@ async function onMicChange(indexStr) {
 }
 
 // ── Vocabulary ─────────────────────────────────────────────────────────
-// Words as chips in one panel, A to Z. With none yet, the page explains
-// what it's for with the website's checked examples (decisions.md,
-// "Vocabulary examples"): speech to text writes the usual spelling, and
-// the Vocabulary puts it right.
+// The Atelier design (3.15): a table of the words, busiest first, each with
+// what it sounds like (optional; the matcher uses it instead of guessing),
+// how many dictations it corrected and when it last did. The counts are the
+// corrections recorded with each Journal entry (get_vocab_book), so they
+// are real or zero. Beside it, Try a sentence runs the same step a
+// dictation runs (try_vocab), and the newest corrections. Every change saves
+// the words and their spellings together (set_vocab), and a respelling or a
+// removal can be undone. With none yet, the page explains what it's for
+// with the website's checked examples (decisions.md, "Vocabulary
+// examples").
 let _vocabWords = [];
+let _vocabBook = { entries: [], total: 0, recent: [] };
+let _vocabAsk = null;      // { existing, word, sounds }: Replace PostHog with POSTHOG?
+let _vocabEditing = '';    // the word whose "sounds like" is open for editing
+let _vocabUndoTimer = null;
 
 const VOCAB_EXAMPLES = [
   ['Isabel', 'Isobel'], ['Caitlin', 'Caitlyn'], ['Sinead', 'Sinéad'], ['Hayley', 'Hailey'], ['club card', 'Clubcard'],
@@ -1616,6 +1704,48 @@ function _vocabError(msg) {
   if (el) { el.textContent = msg || ''; el.hidden = !msg; }
 }
 
+// The words and spellings as set_vocab takes them.
+function _vocabPayload(entries) {
+  const sounds = {};
+  entries.forEach((e) => { if (e.sounds_like && e.sounds_like.length) sounds[e.word] = e.sounds_like.slice(); });
+  return { words: entries.map((e) => e.word), sounds };
+}
+
+// After a save: the saved words, with the counts they already had (a
+// respelt word keeps its own: the Journal records it in any capitals).
+function _vocabTakeSaved(res, entries) {
+  const before = {};
+  (_vocabBook.entries || []).concat(entries || []).forEach((e) => { before[e.word.toLowerCase()] = e; });
+  const sounds = (res && res.sounds_like) || {};
+  _vocabBook.entries = res.words.map((w) => {
+    const old = before[w.toLowerCase()] || {};
+    return { word: w, sounds_like: sounds[w] || [], count: old.count || 0, last: old.last || '' };
+  });
+  _vocabBook.total = _vocabBook.entries.reduce((n, e) => n + (Number(e.count) || 0), 0);
+  _vocabWords = res.words.slice();
+}
+
+function _vocabShowUndo(text, undo) {
+  const box = document.getElementById('vocabUndo');
+  const label = document.getElementById('vocabUndoText');
+  const btn = document.getElementById('vocabUndoBtn');
+  if (!box || !label || !btn) return;
+  clearTimeout(_vocabUndoTimer);
+  label.textContent = text;
+  box.hidden = false;
+  btn.onclick = async () => {
+    box.hidden = true;
+    await undo();
+  };
+  _vocabUndoTimer = setTimeout(() => { box.hidden = true; }, 10000);
+}
+
+function _vocabHideUndo() {
+  const box = document.getElementById('vocabUndo');
+  if (box) box.hidden = true;
+  clearTimeout(_vocabUndoTimer);
+}
+
 async function loadVocabPage() {
   const listEl = document.getElementById('vocabList');
   const inputEl = document.getElementById('vocabInput');
@@ -1624,23 +1754,51 @@ async function loadVocabPage() {
   // Always start empty: an old build once filled this box with every word
   // joined together, and WebView's form restore could bring that back.
   if (inputEl) inputEl.value = '';
+  const soundsEl = document.getElementById('vocabSoundsInput');
+  if (soundsEl) soundsEl.value = '';
   _vocabError('');
+  _vocabAsk = null;
+  _vocabEditing = '';
 
   try {
-    _vocabWords = (await pywebview.api.get_vocab()) || [];
+    const book = pywebview.api.get_vocab_book ? await pywebview.api.get_vocab_book() : null;
+    if (book && book.ok) {
+      _vocabBook = { entries: book.entries || [], total: book.total || 0, recent: book.recent || [] };
+    } else {
+      const words = (await pywebview.api.get_vocab()) || [];
+      _vocabBook = { entries: words.map((w) => ({ word: w, sounds_like: [], count: 0, last: '' })), total: 0, recent: [] };
+    }
+    _vocabWords = _vocabBook.entries.map((e) => e.word);
   } catch (e) {
     console.warn('loadVocabPage error:', e);
   }
   renderVocab();
+  _vocabRunTry();
 }
 
 function renderVocab() {
   const listEl = document.getElementById('vocabList');
   const inputEl = document.getElementById('vocabInput');
   if (!listEl) return;
-  if (inputEl) inputEl.placeholder = _vocabWords.length ? 'Add a name or word' : 'Add a name or word, like Sinéad';
+  const entries = _vocabBook.entries || [];
+  if (inputEl) inputEl.placeholder = entries.length ? 'Word, as it should be written' : 'Word, as it should be written, like Sinéad';
 
-  if (!_vocabWords.length) {
+  const sum = WL.vocabSummary(entries.length, _vocabBook.total);
+  const sumEl = document.getElementById('vocabSummary');
+  if (sumEl) {
+    sumEl.innerHTML = entries.length
+      ? `<b>${escHtml(sum.words)}</b>${sum.corrections ? ` &middot; <b>${escHtml(sum.corrections)}</b> ${escHtml(sum.correctionsLabel)}` : ''}`
+      : '';
+  }
+  const side = document.getElementById('vocabSide');
+  const tryBox = document.getElementById('vocabTryBox');
+  const recentBox = document.getElementById('vocabRecentBox');
+  if (tryBox) tryBox.hidden = !entries.length;
+  if (recentBox) recentBox.hidden = !entries.length;
+  if (side) side.classList.toggle('is-empty', !entries.length);
+  _renderVocabRecent();
+
+  if (!entries.length) {
     listEl.innerHTML = `
       <div class="group"><div class="panel v-first">
         <div class="v-first-top">
@@ -1660,28 +1818,192 @@ function renderVocab() {
     return;
   }
 
-  const sorted = _vocabWords.slice().sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }));
-  const n = sorted.length;
-  listEl.innerHTML = `
-    <div class="group"><div class="panel v-panel">
-      <div class="v-head"><span class="eyebrow">${WL.formatCount(n)} ${n === 1 ? 'word' : 'words'}</span><span class="small">A to Z</span></div>
-      <div class="v-chips">${sorted.map((w) => `<span class="wchip">${escHtml(w)}<button type="button" class="rbtn" data-word="${escHtml(w)}" aria-label="Remove ${escHtml(w)}" title="Remove">${WI.icon('x')}</button></span>`).join('')}</div>
-    </div></div>
-    <div class="glabel"><span class="eyebrow">How it works</span></div>
-    <div class="group"><div class="panel v-how">
-      <div class="vtable" style="margin-top:0">
-        <div class="vrow vh"><span class="eyebrow">Heard</span><span></span><span class="eyebrow">Pasted</span></div>
-        ${_vocabRows([['Sinead', 'Sinéad']])}
-      </div>
-      <p class="small">When speech to text writes a word that sounds like one of yours, Waffler swaps in your spelling before pasting. Everyday words are left as you said them, and the Journal notes each word it changed.</p>
-    </div></div>`;
-  listEl.querySelectorAll('.wchip .rbtn').forEach((b) => {
+  const rows = WL.vocabRows(entries, new Date());
+  const head = `<div class="vt-h" role="row"><span role="columnheader">Word</span><span role="columnheader">Sounds like</span><span role="columnheader">Corrections</span><span role="columnheader">Last used</span><span role="columnheader"><span class="sr-only">Change or remove</span></span></div>`;
+  const body = rows.map((r) => {
+    const w = escHtml(r.word);
+    if (_vocabAsk && _vocabAsk.existing === r.word) {
+      const kept = r.count
+        ? `Its ${WL.formatCount(r.count)} ${r.count === 1 ? 'correction stays' : 'corrections stay'} with it.`
+        : (r.sounds.length ? 'What it sounds like stays with it.' : '');
+      return `<div class="vt-r vt-ask" role="row"><div class="vt-q" role="cell">Replace <b>${w}</b> with <b>${escHtml(_vocabAsk.word)}</b>?<span>It's already in your list in other capitals.${kept ? ' ' + escHtml(kept) : ''}</span></div>
+        <div class="vt-acts" role="cell"><button type="button" class="btn btn-sec btn-sm" data-act="keep">Keep ${w}</button><button type="button" class="btn btn-pri btn-sm" data-act="replace">Replace</button></div></div>`;
+    }
+    if (_vocabEditing === r.word) {
+      return `<form class="vt-r vt-edit" role="row" data-word="${w}"><span class="vt-w" role="cell">${w}</span>
+        <span class="vt-ed" role="cell"><input type="text" class="input vt-ed-in" value="${escHtml(r.sounds.join(', '))}" placeholder="What speech to text writes, like ${escHtml(r.word.toLowerCase())}" aria-label="What ${w} sounds like, separated by commas" autocomplete="off" spellcheck="false"></span>
+        <span class="vt-acts" role="cell"><button type="button" class="btn btn-quiet btn-sm" data-act="cancel">Cancel</button><button type="submit" class="btn btn-pri btn-sm">Save</button></span></form>`;
+    }
+    const sl = r.sounds.length
+      ? r.sounds.map((s) => `<span class="vt-chip">${escHtml(s)}</span>`).join('')
+      : '<span class="vt-none">Matched loosely</span>';
+    return `<div class="vt-r" role="row" data-word="${w}">
+      <span class="vt-w" role="cell">${w}</span>
+      <span class="vt-sl" role="cell">${sl}</span>
+      <span class="vt-u" role="cell"><span class="vt-n">${WL.formatCount(r.count)}</span><span class="vt-b" aria-hidden="true"><i style="width:${r.bar}%"></i></span></span>
+      <span class="vt-l" role="cell">${escHtml(r.last)}</span>
+      <span class="vt-x" role="cell"><button type="button" class="rbtn vt-edit-btn" data-word="${w}" aria-label="Change what ${w} sounds like" title="Change what it sounds like">${WI.icon('pencil')}</button><button type="button" class="rbtn vt-del" data-word="${w}" aria-label="Remove ${w}" title="Remove">${WI.icon('x')}</button></span>
+    </div>`;
+  }).join('');
+  listEl.innerHTML = `<div class="vt" role="table" aria-label="Your words">${head}${body}</div>`;
+
+  listEl.querySelectorAll('.vt-del').forEach((b) => {
     b.addEventListener('click', () => deleteVocabWord(b.getAttribute('data-word')));
+  });
+  listEl.querySelectorAll('.vt-edit-btn').forEach((b) => {
+    b.addEventListener('click', () => openVocabSounds(b.getAttribute('data-word')));
+  });
+  const ask = listEl.querySelector('.vt-ask');
+  if (ask) {
+    ask.querySelector('[data-act="keep"]').addEventListener('click', () => {
+      _vocabAsk = null;
+      renderVocab();
+      const i = document.getElementById('vocabInput');
+      if (i) { i.focus(); i.select(); }
+    });
+    ask.querySelector('[data-act="replace"]').addEventListener('click', () => respellVocabWord());
+  }
+  const edit = listEl.querySelector('.vt-edit');
+  if (edit) {
+    const inp = edit.querySelector('.vt-ed-in');
+    edit.addEventListener('submit', (e) => { e.preventDefault(); saveVocabSounds(edit.getAttribute('data-word'), inp.value); });
+    edit.querySelector('[data-act="cancel"]').addEventListener('click', () => closeVocabSounds());
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); closeVocabSounds(); } });
+  }
+}
+
+function _renderVocabRecent() {
+  const ul = document.getElementById('vocabRecent');
+  if (!ul) return;
+  const recent = _vocabBook.recent || [];
+  if (!recent.length) {
+    ul.innerHTML = '<li class="vrc-none">Nothing yet. When your Vocabulary changes a word in a dictation, it shows here.</li>';
+    return;
+  }
+  const now = new Date();
+  ul.innerHTML = recent.map((r) => `<li><span><span class="vrc-h">${escHtml(r.heard)}</span><span class="vrc-a" aria-label="to">&rarr;</span>${escHtml(r.used)}</span><span class="vrc-t">${escHtml(WL.vocabRecentWhen(r.timestamp, now))}</span></li>`).join('');
+}
+
+// ── Try a sentence ──
+let _vocabTrySeq = 0;
+const _vocabTrySoon = WL.debounce(() => _vocabRunTry(), 200);
+function onVocabTryInput() { _vocabTrySoon(); }
+
+async function _vocabRunTry() {
+  const inp = document.getElementById('vocabTryInput');
+  const out = document.getElementById('vocabTryText');
+  const box = document.getElementById('vocabTryOut');
+  if (!inp || !out || !box) return;
+  const text = inp.value;
+  const seq = ++_vocabTrySeq;
+  if (!text.trim()) {
+    box.classList.add('is-empty');
+    out.textContent = 'Your spelling shows here.';
+    return;
+  }
+  let r = null;
+  try { r = pywebview.api.try_vocab ? await pywebview.api.try_vocab(text) : null; } catch (_) {}
+  if (seq !== _vocabTrySeq) return;
+  box.classList.remove('is-empty');
+  if (!r || !r.ok) {
+    out.textContent = "Couldn't try that just now.";
+    return;
+  }
+  const segs = WL.markSegments(r.text, r.marks);
+  out.innerHTML = segs.map((s) => (s.mark ? `<mark class="hl">${escHtml(s.text)}</mark>` : escHtml(s.text))).join('');
+  if (!r.changes || !r.changes.length) out.insertAdjacentHTML('beforeend', '<span class="vtry-same">No changes.</span>');
+}
+
+// ── "Sounds like" for a word already listed ──
+function openVocabSounds(word) {
+  _vocabAsk = null;
+  _vocabEditing = word;
+  _vocabError('');
+  renderVocab();
+  const inp = document.querySelector('#vocabList .vt-ed-in');
+  if (inp) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
+}
+
+function closeVocabSounds() {
+  const word = _vocabEditing;
+  _vocabEditing = '';
+  renderVocab();
+  const b = [...document.querySelectorAll('#vocabList .vt-edit-btn')].find((x) => x.getAttribute('data-word') === word);
+  if (b) b.focus();
+}
+
+async function saveVocabSounds(word, input) {
+  const entries = _vocabBook.entries.map((e) => Object.assign({}, e));
+  const entry = entries.find((e) => e.word === word);
+  if (!entry) return;
+  const spellings = WL.vocabSoundsParse(input);
+  const check = WL.vocabSoundsCheck(entries, word, spellings, WL.VOCAB_MAX_ENTRY_LEN);
+  if (!check.ok) { _vocabError(check.error); return; }
+  const before = entry.sounds_like.slice();
+  entry.sounds_like = spellings;
+  const ok = await _vocabSave(entries);
+  if (!ok) return;
+  _vocabError('');
+  _vocabEditing = '';
+  renderVocab();
+  _vocabRunTry();
+  const b = [...document.querySelectorAll('#vocabList .vt-edit-btn')].find((x) => x.getAttribute('data-word') === word);
+  if (b) b.focus();
+  if (before.join('|') !== spellings.join('|')) {
+    _vocabShowUndo(spellings.length ? `${word} now matches ${spellings.join(', ')}.` : `${word} is matched loosely again.`, async () => {
+      const back = _vocabBook.entries.map((e) => Object.assign({}, e, e.word === word ? { sounds_like: before } : {}));
+      if (await _vocabSave(back)) { renderVocab(); _vocabRunTry(); }
+    });
+  }
+}
+
+// One save of the whole list with its spellings. False (with the reason on
+// the page) when it didn't save.
+async function _vocabSave(entries) {
+  const p = _vocabPayload(entries);
+  try {
+    const res = await pywebview.api.set_vocab(p.words, p.sounds);
+    if (!res || !res.ok) {
+      _vocabError((res && res.error) || "Couldn't save your list. Try again.");
+      return false;
+    }
+    _vocabTakeSaved(res, entries);
+    return true;
+  } catch (e) {
+    console.warn('set_vocab error:', e);
+    _vocabError("Couldn't save your list. Try again.");
+    return false;
+  }
+}
+
+// Replace PostHog with POSTHOG: the confirmed respelling. Its counts and
+// spellings stay with it (the Journal records the word in any capitals).
+async function respellVocabWord() {
+  const ask = _vocabAsk;
+  if (!ask) return;
+  const entries = _vocabBook.entries.map((e) => Object.assign({}, e));
+  const i = entries.findIndex((e) => e.word === ask.existing);
+  if (i < 0) { _vocabAsk = null; renderVocab(); return; }
+  entries[i].word = ask.word;
+  if (ask.sounds.length) entries[i].sounds_like = entries[i].sounds_like.concat(ask.sounds);
+  const before = _vocabBook.entries.map((e) => Object.assign({}, e));
+  _vocabAsk = null;
+  if (!(await _vocabSave(entries))) { renderVocab(); return; }
+  const inputEl = document.getElementById('vocabInput');
+  const soundsEl = document.getElementById('vocabSoundsInput');
+  if (inputEl) inputEl.value = '';
+  if (soundsEl) soundsEl.value = '';
+  renderVocab();
+  _vocabRunTry();
+  if (inputEl) inputEl.focus();
+  _vocabShowUndo(`Changed ${ask.existing} to ${ask.word}.`, async () => {
+    if (await _vocabSave(before)) { renderVocab(); _vocabRunTry(); }
   });
 }
 
 async function addVocabWord() {
   const inputEl = document.getElementById('vocabInput');
+  const soundsEl = document.getElementById('vocabSoundsInput');
   if (!inputEl) return;
 
   const r = WL.vocabAdd(_vocabWords, inputEl.value, WL.VOCAB_MAX_ENTRY_LEN);
@@ -1695,24 +2017,53 @@ async function addVocabWord() {
     inputEl.focus();
     return;
   }
-  if (r.action === 'same') {
+  const entries = _vocabBook.entries.map((e) => Object.assign({}, e, { sounds_like: (e.sounds_like || []).slice() }));
+  const target = r.action === 'add' ? r.word : r.existing;
+  const current = (entries.find((e) => e.word === target) || { sounds_like: [] }).sounds_like;
+  const fresh = WL.vocabSoundsParse(soundsEl ? soundsEl.value : '')
+    .filter((s) => !current.some((c) => c.toLowerCase() === s.toLowerCase()));
+  const check = WL.vocabSoundsCheck(entries, r.word, current.concat(fresh), WL.VOCAB_MAX_ENTRY_LEN);
+  if (!check.ok) {
+    _vocabError(check.error);
+    if (soundsEl) soundsEl.focus();
+    return;
+  }
+  if (r.action === 'same' && !fresh.length) {
     _vocabError(`"${r.word}" is already in your list.`);
     return;
   }
+  if (r.action === 'respell') {
+    // The same word in other capitals: ask before changing it.
+    _vocabError('');
+    _vocabEditing = '';
+    _vocabAsk = { existing: r.existing, word: r.word, sounds: fresh };
+    renderVocab();
+    const keep = document.querySelector('#vocabList .vt-ask [data-act="keep"]');
+    if (keep) { keep.scrollIntoView({ block: 'nearest' }); keep.focus(); }
+    return;
+  }
   _vocabError('');
+  _vocabAsk = null;
+  if (r.action === 'add') entries.push({ word: r.word, sounds_like: fresh, count: 0, last: '' });
+  else entries.find((e) => e.word === r.existing).sounds_like = current.concat(fresh);
+  const p = _vocabPayload(entries);
   try {
-    // set_vocab answers {ok, words} or {ok: false, error}; before 3.15 a
-    // failed save still said "Added".
-    const res = await pywebview.api.set_vocab(r.next);
+    // set_vocab answers {ok, words, sounds_like} or {ok: false, error};
+    // before 3.15 a failed save still said "Added".
+    const res = await pywebview.api.set_vocab(p.words, p.sounds);
     if (!res || !res.ok) {
       _vocabError((res && res.error) || "Couldn't save your list. Try again.");
       inputEl.focus();
       return;
     }
-    _vocabWords = Array.isArray(res.words) ? res.words : r.next;
+    _vocabTakeSaved({ words: Array.isArray(res.words) ? res.words : p.words, sounds_like: res.sounds_like || p.sounds }, entries);
     inputEl.value = '';
+    if (soundsEl) soundsEl.value = '';
     renderVocab();
-    showToast(r.action === 'respell' ? `Changed "${r.existing}" to "${r.word}".` : `Added "${r.word}".`, 'success');
+    _vocabRunTry();
+    const row = [...document.querySelectorAll('#vocabList .vt-r')].find((x) => x.getAttribute('data-word') === r.word);
+    if (row) { row.classList.add('new'); row.scrollIntoView({ block: 'nearest' }); }
+    showToast(r.action === 'same' ? `${r.word} now also matches ${fresh.join(', ')}.` : `Added "${r.word}".`, 'success');
   } catch(e) {
     console.warn('addVocabWord error:', e);
     showToast("Couldn't add that word. Try again.", 'error');
@@ -1723,28 +2074,36 @@ async function addVocabWord() {
 async function deleteVocabWord(word) {
   const i = _vocabWords.indexOf(word);
   if (i < 0) return;
-  const next = _vocabWords.slice(0, i).concat(_vocabWords.slice(i + 1));
-  // Where the removed chip was among the chips on screen (A to Z).
-  const btns = [...document.querySelectorAll('#vocabList .wchip .rbtn')];
+  const before = _vocabBook.entries.map((e) => Object.assign({}, e));
+  const entries = before.filter((e) => e.word !== word);
+  const next = entries.map((e) => e.word);
+  // Where the removed row was among the rows on screen.
+  const btns = [...document.querySelectorAll('#vocabList .vt-del')];
   const at = btns.findIndex((b) => b.getAttribute('data-word') === word);
   const hadFocus = btns.includes(document.activeElement);
   try {
-    const res = await pywebview.api.set_vocab(next);
+    const p = _vocabPayload(entries);
+    const res = await pywebview.api.set_vocab(next, p.sounds);
     if (!res || !res.ok) {
       showToast((res && res.error) || "Couldn't remove that word. Try again.", 'error');
       return;
     }
-    _vocabWords = Array.isArray(res.words) ? res.words : next;
+    _vocabTakeSaved({ words: Array.isArray(res.words) ? res.words : next, sounds_like: res.sounds_like || p.sounds }, entries);
+    if (_vocabEditing === word) _vocabEditing = '';
     renderVocab();
-    // Focus went with the chip; put it on the next word's remove button,
+    _vocabRunTry();
+    // Focus went with the row; put it on the next word's remove button,
     // the previous one, or the box when the list is empty.
     if (hadFocus || document.activeElement === document.body) {
-      const left = [...document.querySelectorAll('#vocabList .wchip .rbtn')];
+      const left = [...document.querySelectorAll('#vocabList .vt-del')];
       const to = WL.focusAfterRemove(at, left.length);
       const target = to >= 0 ? left[to] : document.getElementById('vocabInput');
       if (target) target.focus();
     }
-    showToast(`Removed "${word}".`, 'success');
+    // Undo puts it back where it was, with what it sounded like.
+    _vocabShowUndo(`Removed ${word}.`, async () => {
+      if (await _vocabSave(before)) { renderVocab(); _vocabRunTry(); }
+    });
   } catch(e) {
     console.warn('deleteVocabWord error:', e);
     showToast("Couldn't remove that word. Try again.", 'error');
@@ -2506,9 +2865,13 @@ function wizRenderStepper() {
   host.innerHTML = WIZ_STEPS.map((s, i) => {
     const cls = i < cur ? 'is-done' : i === cur ? 'is-on' : '';
     const n = i < cur ? '<svg class="ic" aria-hidden="true"><use href="#i-check"/></svg>' : String(i + 1);
-    const sep = i ? '<li class="ob-ssep" aria-hidden="true"></li>' : '';
-    return `${sep}<li class="${cls}"${i === cur ? ' aria-current="step"' : ''}><span class="ob-sn">${n}</span><span class="ob-slabel">${WIZ_LABELS[s]}</span></li>`;
+    return `<li class="${cls}"${i === cur ? ' aria-current="step"' : ''}><span class="ob-sn">${n}</span><span class="ob-slabel">${WIZ_LABELS[s]}</span></li>`;
   }).join('');
+  // "Step one of three" (four on a Mac), above Connect's title.
+  const kick = document.getElementById('obKick');
+  const words = ['one', 'two', 'three', 'four', 'five'];
+  if (kick) kick.textContent = `Step one of ${words[WIZ_STEPS.length - 1] || WIZ_STEPS.length}`;
+  wizRenderHotkey();
 }
 
 function wizShowStep(step) {
@@ -3097,6 +3460,9 @@ function wizRenderHotkey(keys) {
   }
   const any = document.getElementById('obAnyKeys');
   if (any) any.innerHTML = caps.map((c) => `<kbd class="kc kc-md">${escHtml(c.label)}</kbd>`).join('<span class="plus">+</span>');
+  // Connect's example: the keys this computer will use.
+  const ex = document.getElementById('obExampleKeys');
+  if (ex) ex.innerHTML = _capsHtml(_currentHotkeyKeys, 'kc-md');
 }
 
 // The live level, drawn as the waffle's 4 x 4 cells: rows fill from the

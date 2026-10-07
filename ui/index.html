@@ -45,72 +45,85 @@
   </header>
 
   <!-- ── Journal ───────────────────────────────────────────────────────
-       One 880 px column. app.js draws the newest 50 entries, grouped by day,
-       and more as you scroll (get_history pages); a new dictation is added
-       at the top without redrawing the rest. -->
+       The Atelier design (3.15): the entries as a timeline (time and words
+       on the left, the text, then what the Vocabulary changed or what is
+       worth a look), with today's numbers, the week, the streak and any
+       notice in a margin on the right. app.js draws the newest 50 entries,
+       grouped by day, and more as you scroll (get_history pages); a new
+       dictation is added at the top without redrawing the rest. -->
   <main class="journal" id="mainArea">
-    <div class="j-col">
-      <h1 class="sr-only" id="journalTitle" tabindex="-1">Journal</h1>
-      <!-- Notices: an update, a failed update, clean-up paused by a limit. -->
-      <div class="j-notices" id="journalNotices"></div>
-
-      <div class="group j-strip" id="statStrip">
-        <div class="j-stat">
-          <span class="j-stat-num" id="statWords">0</span>
-          <span class="j-stat-lbl">words today</span>
-        </div>
-        <div class="j-stat">
-          <span class="j-stat-num" id="statCount">0</span>
-          <span class="j-stat-lbl">dictations today</span>
-        </div>
-        <div class="j-stat">
-          <span class="j-stat-num" id="statTotal">0</span>
-          <span class="j-stat-lbl">words all time</span>
-        </div>
-        <div class="j-right-group">
-          <!-- Days in a row with a dictation; hidden at 0. -->
-          <div class="j-streak j-streak-empty" id="streakChip" title="Days in a row with at least one dictation">
-            <span class="j-stack-svg" data-waffle="logo" data-size="20"></span>
-            <span class="j-streak-text"><span id="streakNum">0</span>-day streak</span>
-          </div>
+    <div class="jr" id="journalLayout">
+      <div class="j-col">
+        <h1 class="sr-only" id="journalTitle" tabindex="-1">Journal</h1>
+        <div class="jhead" id="statStrip">
+          <div class="jtitle" aria-hidden="true">Journal</div>
           <label class="j-search-wrap">
             <svg class="ic j-search-icon" aria-hidden="true"><use href="#i-search"/></svg>
             <input type="search" id="searchInput" class="j-search-input" placeholder="Search" aria-label="Search the Journal" aria-describedby="searchStatus" autocomplete="off" spellcheck="false" oninput="onSearchInput(this.value)">
           </label>
           <span class="sr-only" id="searchStatus" role="status" aria-live="polite"></span>
         </div>
-      </div>
 
-      <!-- First run: how to make the first entry. The strip above is hidden. -->
-      <section class="j-first" id="emptyState" hidden>
-        <div class="j-first-art" aria-hidden="true"></div>
-        <div class="j-first-card">
-          <div class="j-first-waffle" data-waffle="logo" data-size="76"></div>
-          <h2 class="j-first-title">Your first dictation goes here</h2>
-          <p class="j-first-text">Click into any text box, hold <span class="keys" id="emptyKeys"></span> and talk. When you let go, the text is pasted there and kept here.</p>
-          <div class="j-first-acts">
-            <button type="button" class="btn btn-pri" onclick="openPracticeEditor(this)"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg><span id="emptyEditorLabel">Open Notepad and try it</span></button>
-            <a class="link" href="#" onclick="showPage('vocabulary'); return false;">Teach it your words</a>
-          </div>
-          <p class="j-first-err" id="emptyEditorErr" role="alert" hidden></p>
+        <!-- While you dictate: Listening, the time, and Esc cancels. The
+             words themselves arrive when you let go. -->
+        <div class="j-live" id="journalLive" hidden>
+          <span class="j-live-mark" data-waffle="logo" data-size="30"></span>
+          <div class="j-live-t" id="journalLiveText">Listening</div>
+          <div class="j-live-r"><span class="j-live-dot" aria-hidden="true"></span><span class="j-live-time" id="journalLiveTime">0:00</span><span id="journalLiveEsc"><kbd class="kc">Esc</kbd> cancels</span></div>
         </div>
-      </section>
 
-      <!-- A search with no matches (it used to say "Your journal is empty."). -->
-      <section class="j-no-match" id="noMatchState" hidden>
-        <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-search"/></svg></span>
-        <div class="j-nm-title" id="noMatchLabel">No entries match</div>
-        <p class="j-nm-text">Try other words, or clear the search to see every entry.</p>
-        <button type="button" class="btn btn-sec btn-sm j-clear-search" onclick="clearSearch()">Clear search</button>
-      </section>
+        <!-- First run: how to make the first entry. The margin is hidden. -->
+        <section class="j-first" id="emptyState" hidden>
+          <div class="j-first-art" aria-hidden="true"></div>
+          <div class="j-first-card">
+            <div class="j-first-waffle" data-waffle="logo" data-size="76"></div>
+            <h2 class="j-first-title">Your first dictation goes here</h2>
+            <p class="j-first-text">Click into any text box, hold <span class="keys" id="emptyKeys"></span> and talk. When you let go, the text is pasted there and kept here.</p>
+            <div class="j-first-acts">
+              <button type="button" class="btn btn-pri" onclick="openPracticeEditor(this)"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg><span id="emptyEditorLabel">Open Notepad and try it</span></button>
+              <a class="link" href="#" onclick="showPage('vocabulary'); return false;">Teach it your words</a>
+            </div>
+            <p class="j-first-err" id="emptyEditorErr" role="alert" hidden></p>
+          </div>
+        </section>
 
-      <div id="transcriptFeed" class="j-feed" role="feed" aria-label="Journal entries" aria-busy="false"></div>
+        <!-- A search with no matches (it used to say "Your journal is empty."). -->
+        <section class="j-no-match" id="noMatchState" hidden>
+          <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-search"/></svg></span>
+          <div class="j-nm-title" id="noMatchLabel">No entries match</div>
+          <p class="j-nm-text">Try other words, or clear the search to see every entry.</p>
+          <button type="button" class="btn btn-sec btn-sm j-clear-search" onclick="clearSearch()">Clear search</button>
+        </section>
 
-      <!-- Older entries load as this comes into view; the button is there
-           for keyboards and in case the window can't tell. -->
-      <div class="j-more" id="feedMore" hidden>
-        <button type="button" class="btn btn-sec btn-sm" id="feedMoreBtn" onclick="loadMoreEntries()">Show older entries</button>
+        <div id="transcriptFeed" class="j-feed" role="feed" aria-label="Journal entries" aria-busy="false"></div>
+
+        <!-- Older entries load as this comes into view; the button is there
+             for keyboards and in case the window can't tell. -->
+        <div class="j-more" id="feedMore" hidden>
+          <button type="button" class="btn btn-sec btn-sm" id="feedMoreBtn" onclick="loadMoreEntries()">Show older entries</button>
+        </div>
       </div>
+
+      <!-- The margin: today, this week (get_stats daily_words), the streak,
+           notices (an update, a failed update, clean-up paused by a limit). -->
+      <aside class="j-rail" id="journalRail" aria-label="Today and this week">
+        <div class="j-today">
+          <h2 class="j-mk">Today</h2>
+          <div class="j-big" id="statWords">0</div>
+          <div class="j-msub">words in <span id="statCount">0</span> <span id="statCountLabel">dictations</span></div>
+        </div>
+        <div class="j-week">
+          <h2 class="j-mk">This week</h2>
+          <div class="j-spark" id="journalWeek" role="img" aria-label="Words a day, the last seven days"></div>
+          <div class="j-spark-x" id="journalWeekDays" aria-hidden="true"></div>
+        </div>
+        <div class="j-streak" id="streakChip" hidden>
+          <span class="j-stack-svg" data-waffle="logo" data-size="28"></span>
+          <div><b id="streakTitle"></b><div class="j-msub" id="streakSub"></div></div>
+        </div>
+        <div class="j-notices" id="journalNotices"></div>
+        <p class="j-teach">Names coming out wrong? <a class="link" href="#" onclick="showPage('vocabulary'); return false;">Teach it your words</a></p>
+      </aside>
     </div>
   </main>
 
@@ -484,20 +497,49 @@
     </div>
   </div>
 
-  <!-- ── Vocabulary ────────────────────────────────────────────────────── -->
+  <!-- ── Vocabulary ──────────────────────────────────────────────────────
+       The Atelier design (3.15): the words as a table, each with what it
+       sounds like (optional), how many dictations it corrected and when it
+       last did, from the corrections recorded in the Journal
+       (get_vocab_book). Beside it, Try a sentence (try_vocab, the step a
+       dictation runs) and the newest corrections. -->
   <div class="vocabulary-panel" id="vocabularyPanel" style="display:none">
-    <div class="v-col">
-      <h1 class="ptitle">Vocabulary</h1>
-      <p class="pdesc">Names and words Waffler should spell your way. Add each one once.</p>
-      <form class="vocab-add-row" onsubmit="addVocabWord(); return false;">
-        <label class="vocab-field">
-          <svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg>
-          <input type="text" id="vocabInput" class="vocab-input" placeholder="Add a name or word" aria-label="Add a name or word" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" value="">
-        </label>
-        <button type="submit" class="btn btn-pri vocab-add-btn">Add</button>
-      </form>
-      <p class="s-error" id="vocabError" role="alert" hidden></p>
-      <div id="vocabList" class="vocab-list"></div>
+    <div class="vp">
+      <section class="vmain" aria-labelledby="vocabTitle">
+        <div class="vhead">
+          <h1 class="ptitle" id="vocabTitle">Vocabulary</h1>
+          <p class="vsum" id="vocabSummary"></p>
+        </div>
+        <p class="pdesc">Names and words Waffler should spell your way. Say what it hears, if you know, and it stops guessing.</p>
+        <form class="vadd" onsubmit="addVocabWord(); return false;">
+          <label class="vocab-field">
+            <svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg>
+            <input type="text" id="vocabInput" class="vocab-input" placeholder="Word, as it should be written" aria-label="Word, as it should be written" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" value="">
+          </label>
+          <label class="vocab-field vocab-field-sl">
+            <input type="text" id="vocabSoundsInput" class="vocab-input" placeholder="It sounds like (optional)" aria-label="What speech to text writes for it, optional" aria-describedby="vocabSoundsHint" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" value="">
+          </label>
+          <button type="submit" class="btn btn-pri vocab-add-btn">Add</button>
+        </form>
+        <p class="sr-only" id="vocabSoundsHint">What speech to text writes instead of the word. Separate more than one with commas.</p>
+        <p class="s-error" id="vocabError" role="alert" hidden></p>
+        <p class="v-undo" id="vocabUndo" role="status" aria-live="polite" hidden><span id="vocabUndoText"></span> <button type="button" class="link-btn" id="vocabUndoBtn">Undo</button></p>
+        <div id="vocabList" class="vocab-list"></div>
+      </section>
+      <aside class="vside" id="vocabSide" aria-label="Try your Vocabulary">
+        <div class="vside-try" id="vocabTryBox">
+          <h2 class="vk"><label for="vocabTryInput">Try a sentence</label></h2>
+          <div class="vtry">
+            <textarea id="vocabTryInput" class="vtry-in" rows="2" placeholder="Type what speech to text might write" spellcheck="false" oninput="onVocabTryInput()"></textarea>
+            <div class="vtry-out" id="vocabTryOut" aria-live="polite"><span class="vtry-k">Your Vocabulary makes it</span><span class="vtry-t" id="vocabTryText"></span></div>
+          </div>
+        </div>
+        <div class="vside-recent" id="vocabRecentBox">
+          <h2 class="vk">Recently corrected</h2>
+          <ul class="vrc" id="vocabRecent"></ul>
+        </div>
+        <p class="vhow">Waffler fixes these after speech to text and before the clean-up. Without a "sounds like", it matches loosely, so close spellings change too. Give more than one with commas.</p>
+      </aside>
     </div>
   </div>
 
@@ -561,6 +603,7 @@
     <div class="ob-brand">
       <span class="ob-mark" data-waffle="logo" data-size="26"></span>
       <span class="ob-word">Waffler</span>
+      <span class="ob-tag">Free and open source</span>
     </div>
     <ol class="ob-stepper" id="obStepper" aria-label="Setup steps"></ol>
   </header>
@@ -570,17 +613,20 @@
     <!-- ── Connect your free Groq account ─────────────────────────────── -->
     <section class="ob-step" id="obStepConnect" data-step="connect" data-state="start" style="display:none">
       <div class="ob-left">
-        <h1 class="ob-title" id="obTitleConnect" tabindex="-1" data-when="start waiting checking error">Connect your free Groq account</h1>
+        <p class="ob-kick" id="obKick" data-when="start">Step one</p>
+        <h1 class="ob-title" id="obTitleConnect" tabindex="-1" data-when="start waiting checking error">Connect your free <em>Groq</em> account</h1>
         <h1 class="ob-title" id="obTitleConnected" tabindex="-1" data-when="connected">Groq is connected</h1>
 
-        <p class="ob-lede" data-when="start">Waffler uses Groq, a free AI service, to turn your voice into tidy text. It's your own account, so your words go from this computer to Groq and nowhere else.</p>
+        <p class="ob-lede" data-when="start">Groq, a free AI service, turns your voice into tidy text. It's your own account, so your words go from this computer to Groq and nowhere else.</p>
         <p class="ob-lede" data-when="waiting checking error">Groq opened in your browser. Follow these, then come back to this window.</p>
         <p class="ob-lede" data-when="connected">Waffler checked your key with Groq. You won't need it again: it stays on this computer.</p>
 
         <div data-when="start">
-          <button class="btn btn-pri btn-lg ob-cta" id="obGetKey" onclick="wizOpenGroq()">Get my free Groq key<svg class="ic" aria-hidden="true"><use href="#i-external"/></svg></button>
-          <p class="ob-small ob-under-cta">Free for roughly 30 cleaned dictations a day.</p>
-          <div class="eyebrow ob-then">Then, in Groq</div>
+          <div class="ob-ctarow">
+            <button class="btn btn-pri btn-lg ob-cta" id="obGetKey" onclick="wizOpenGroq()">Get my free Groq key<svg class="ic" aria-hidden="true"><use href="#i-external"/></svg></button>
+            <p class="ob-small ob-under-cta">Free for roughly 30 cleaned dictations a day.</p>
+          </div>
+          <div class="ob-then">Then, in Groq</div>
         </div>
 
         <ol class="ob-checklist" data-when="start waiting checking error">
@@ -590,7 +636,7 @@
           <li><span class="ob-n">4</span><span>Click <b>Copy</b>, then come back here</span></li>
         </ol>
 
-        <div class="ob-callout" data-when="start">
+        <div class="ob-tip" data-when="start">
           <svg class="ic" aria-hidden="true"><use href="#i-info"/></svg>
           <span>Groq shows the key once. Click Copy before you close that box.</span>
         </div>
@@ -616,14 +662,20 @@
       </div>
 
       <div class="ob-stage">
-        <!-- A real result, as the reason to bother (examples.ts "email"). -->
-        <div class="ob-art ob-art-honey" data-when="start">
+        <!-- A real result, as the reason to bother (examples.ts "email"), on
+             the squared paper of the Atelier design. -->
+        <div class="ob-art ob-paper" data-when="start">
           <div class="ob-art-in ob-example">
-            <span class="ob-example-waffle" data-waffle="logo" data-size="84"></span>
-            <div class="ob-tape"><div class="ob-pl">What you said</div><div class="ob-tx">Hi, Sam. <del>Um, so, yeah,</del> for the review, can we do Thursday at two? I'll bring the<del>, uh,</del> updated numbers. Cheers, James.</div></div>
-            <div class="ob-wrote"><div class="ob-pl">Waffler wrote</div><div class="ob-tx"><p>Hi Sam,</p><p>For the review, can we do Thursday at two? I'll bring the updated numbers.</p><p>Cheers,<br>James</p></div></div>
+            <div class="ob-hold">
+              <span class="ob-pill" aria-hidden="true"><span data-waffle="logo" data-size="40"></span><span class="ob-pill-bt"><i class="x"></i><i class="s"></i></span></span>
+              <div><div class="ob-pl">You hold</div><span class="ob-hold-keys"><span class="keys" id="obExampleKeys"></span><span class="ob-hs">and talk</span></span></div>
+            </div>
+            <div class="ob-rule" aria-hidden="true"></div>
+            <div class="ob-said"><div class="ob-pl">What you said</div><div class="ob-tx">Hi, Sam. <del>Um, so, yeah,</del> for the review, can we do Thursday at two? I'll bring the <del>uh,</del> updated numbers. Cheers, James.</div></div>
+            <div class="ob-join"><span data-waffle="logo" data-size="18"></span><span>Waffler wrote</span></div>
+            <div class="ob-letter"><p>Hi Sam,</p><p>For the review, can we do Thursday at two? I'll bring the updated numbers.</p><p>Cheers,<br>James</p></div>
           </div>
-          <div class="ob-footnote">A real result from Waffler. Example voice.</div>
+          <div class="ob-footnote">A real result from Waffler, with an example voice.</div>
         </div>
 
         <!-- Where the key is, in the browser (a plain replica). -->
