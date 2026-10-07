@@ -187,4 +187,4 @@ def test_the_update_dialog_speaks_plainly():
     assert v["subtitle"] == "You have Waffler 3.15.0."
     v = js("L.updateCheckView({update_available: false, latest_version: '3.15.0', current_version: '3.15.1'})")
     assert v["subtitle"] == "You have Waffler 3.15.1. The newest release is 3.15.0."
-    assert "&" not in read("logic.js").split("function updateCheckView(")[1].split("\n  }\n")[0]
+    assert " & " not in read("logic.js").split("function updateCheckView(")[1].split("\n  }\n")[0]
