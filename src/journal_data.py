@@ -10,7 +10,8 @@ grew with every day of use. Now:
 - ``page`` returns one page of entries, newest first, optionally only
   those matching a search, so the window draws about 50 cards at a time.
 - ``compute_stats`` is the one place the counts are worked out: today, this
-  week, this month, all time, and the day streak.
+  week, this month, all time, the day streak, and the words of each of the
+  last 30 days (Settings, Usage draws them as a chart).
 
 Nothing here touches the network or the window.
 """
@@ -41,6 +42,10 @@ def _words(item: dict) -> int:
     return len((item.get("styled") or item.get("text") or "").split())
 
 
+# Settings, Usage: the chart's days, ending today.
+CHART_DAYS = 30
+
+
 def compute_stats(history: list, today: date) -> dict:
     """Counts for the Journal strip and Settings, Usage.
 
@@ -51,14 +56,21 @@ def compute_stats(history: list, today: date) -> dict:
     Streak: consecutive days, ending today, with at least one entry. If
     today has none yet, yesterday anchors it, so a streak doesn't snap to
     0 at midnight before the first dictation of the day.
+
+    ``daily_words``: the words of each of the last ``CHART_DAYS`` days,
+    oldest first, ending today; ``daily_start`` is the first of those days
+    ("2026-08-27"). Not sent entries add none, as everywhere else.
     """
     week_start = today - timedelta(days=today.weekday())
+    chart_start = today - timedelta(days=CHART_DAYS - 1)
+    daily = [0] * CHART_DAYS
     out = {
         "today_words": 0, "today_count": 0,
         "week_words": 0, "week_count": 0,
         "month_words": 0, "month_count": 0,
         "total_words": 0, "total_count": 0,
         "entries": 0, "streak_days": 0,
+        "daily_start": chart_start.isoformat(), "daily_words": daily,
     }
     days = set()
     for h in history:
@@ -83,6 +95,8 @@ def compute_stats(history: list, today: date) -> dict:
         if not failed and d.year == today.year and d.month == today.month:
             out["month_words"] += w
             out["month_count"] += 1
+        if chart_start <= d <= today:
+            daily[(d - chart_start).days] += w
     cursor = today if today in days else today - timedelta(days=1)
     while cursor in days:
         out["streak_days"] += 1
@@ -172,4 +186,6 @@ class HistoryCache:
             if self._stats is None or self._stats_key != key:
                 self._stats = compute_stats(items, today)
                 self._stats_key = key
-            return dict(self._stats)
+            out = dict(self._stats)
+            out["daily_words"] = list(out["daily_words"])
+            return out

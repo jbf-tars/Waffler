@@ -129,3 +129,30 @@ def test_the_cache_reads_the_file_once_until_it_changes(tmp_path):
 def test_the_cache_is_empty_without_a_file(tmp_path):
     cache = jd.HistoryCache(tmp_path / "missing.json", lambda: [{"never": "read"}])
     assert cache.items() == [] and cache.stats(TODAY)["entries"] == 0
+
+
+def test_the_usage_chart_has_the_words_of_each_of_the_last_30_days():
+    """Settings, Usage draws these as bars: oldest first, ending today, from
+    the same entries as the counts (Not sent ones add nothing)."""
+    s = jd.compute_stats(HISTORY, TODAY)
+    daily = s["daily_words"]
+    assert len(daily) == jd.CHART_DAYS == 30
+    assert s["daily_start"] == "2026-08-27"
+    assert daily[-1] == s["today_words"] == 3 + 4
+    assert daily[-2] == 2                     # "Yesterday, cleaned."
+    assert daily[-5] == 2 and daily[-6] == 2  # Monday 21st, Sunday 20th
+    assert daily[3] == 4                      # 30 August
+    assert sum(daily) == s["total_words"]     # everything here is in the window
+    # Older than 30 days: in the totals, not on the chart.
+    old = jd.compute_stats([e("2026-08-26T10:00:00", "too old")] + HISTORY, TODAY)
+    assert sum(old["daily_words"]) == sum(daily) and old["total_words"] == s["total_words"] + 2
+    assert jd.compute_stats([], TODAY)["daily_words"] == [0] * 30
+
+
+def test_the_cached_chart_cannot_be_changed_by_a_caller(tmp_path):
+    p = tmp_path / "history.json"
+    p.write_text(json.dumps(HISTORY), encoding="utf-8")
+    cache = jd.HistoryCache(p, lambda: json.loads(p.read_text(encoding="utf-8")))
+    first = cache.stats(TODAY)
+    first["daily_words"][-1] = 999
+    assert cache.stats(TODAY)["daily_words"][-1] == 7
