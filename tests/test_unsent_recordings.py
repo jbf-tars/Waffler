@@ -23,6 +23,8 @@ import pytest
 
 from _pipeline_harness import (ROOT, FakeTranscriber, Hang, fast_limits, history,
                                make_pipeline, run_process, speech_wav, wait_for)
+import journal_data
+import types
 import unsent
 
 NODE = shutil.which("node")
@@ -327,23 +329,33 @@ def test_the_journal_gets_each_cards_live_state(tmp_path):
          "unsent_id": "recording-2026-09-26T10-00-00.wav"},
         {"timestamp": now, "text": "hello", "styled": "Hello."},
     ]
-    ns = {"load_history": lambda: [dict(i) for i in items], "DATA_DIR": tmp_path, "_unsent": unsent}
+    # The window reads history through the cache (src/journal_data.py).
+    cached = [dict(i) for i in items]
+    ns = {"_history_cache": types.SimpleNamespace(items=lambda: cached),
+          "_journal": journal_data, "DATA_DIR": tmp_path, "_unsent": unsent}
     exec(compile(ast.Module([fn], []), "<app.py>", "exec"), ns)
     out = ns["get_history"](None)
     assert [o["timestamp"] for o in out] == [now, now, "2026-06-05T09:12:44"]
     assert out[0] == items[2]
     assert out[1]["unsent_id"] == "recording-2026-09-26T10-00-00.wav" and out[1]["will_retry"] is True
     assert out[2]["unsent_id"] == "" and out[2]["will_retry"] is False
+    # The live state goes on copies: the cached entries are left as they were.
+    assert cached == items
+    # A page carries the live state too.
+    assert [o["timestamp"] for o in ns["get_history"](None, 1, 1)] == [now]
+    assert ns["get_history"](None, 1, 1)[0]["will_retry"] is True
 
 
 def test_a_not_sent_note_adds_no_words_to_the_counts(tmp_path):
     fn = _lift_api("get_stats")
     from datetime import date
     today = date.today().isoformat()
-    ns = {"load_history": lambda: [
+    entries = [
         {"timestamp": f"{today}T09:00:00", "styled": "one two three"},
         {"timestamp": f"{today}T09:01:00", "styled": unsent.STYLED_NOTE, "failed": True},
-    ], "date": date}
+    ]
+    ns = {"_history_cache": types.SimpleNamespace(stats=lambda d: journal_data.compute_stats(entries, d)),
+          "date": date}
     exec(compile(ast.Module([fn], []), "<app.py>", "exec"), ns)
     stats = ns["get_stats"](None)
     assert stats["today_words"] == 3 and stats["total_words"] == 3
@@ -368,7 +380,7 @@ def test_an_older_card_is_read_from_its_raw_error_and_offers_try_again():
            " audio_path: 'C:/Users/x/.waffler-hosted/unsent/recording-2026-06-05T09-12-44.wav'})")
     assert v["id"] == "recording-2026-06-05T09-12-44.wav"
     assert v["text"].startswith("Your speech service refused the connection")
-    assert v["next"] == "Press Try again to send it."
+    assert v["next"] == "Click Try again to send it now."
     assert "403" not in v["text"]
 
 
@@ -383,8 +395,8 @@ def test_a_card_whose_recording_is_gone_can_only_be_deleted():
 def test_settings_shows_the_count():
     assert js("L.unsentSummary({count: 0})")["canSend"] is False
     two = js("L.unsentSummary({count: 2, provider: 'Groq'})")
-    assert two == {"label": "2 recordings are waiting to be sent. Waffler sends them when Groq "
-                            "answers, or you can send them now.", "canSend": True}
+    assert two["label"] == "2 recordings are waiting to be sent. Waffler sends them when Groq answers."
+    assert two["canSend"] is True and two["count"] == 2
     assert js("L.unsentSummary({count: 1, provider: 'Groq'})")["label"].startswith("1 recording is")
 
 
@@ -571,4 +583,4 @@ def test_the_cancelled_card_says_esc_and_offers_try_again():
     v = js("L.notSentView({failed: true, unsent_id: 'recording-2026-09-26T10-04-31.wav', "
            "not_sent_reason: 'cancelled', will_retry: false, provider_name: 'Groq'})")
     assert "Esc" in v["text"] and "nothing was pasted" in v["text"]
-    assert v["canRetry"] is True and v["next"] == "Press Try again to send it."
+    assert v["canRetry"] is True and v["next"] == "Click Try again to send it now."

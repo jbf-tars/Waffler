@@ -54,25 +54,33 @@ def test_html_loads_no_remote_scripts_styles_or_images():
         assert not remote, f"ui/{name} loads remote resources on start-up: {remote}"
 
 
+# Since 3.15 the @font-face rules live in tokens.css (colours, type, sizes).
+FONT_CSS = "tokens.css"
+
+
 def test_every_bundled_font_referenced_by_the_css_exists():
-    css = _read("style.css")
+    css = _read(FONT_CSS)
     refs = re.findall(r"url\(\s*['\"]?(fonts/[^'\")]+)['\"]?\s*\)", css)
-    assert refs, "style.css should load the bundled fonts from ui/fonts/"
+    assert refs, "tokens.css should load the bundled fonts from ui/fonts/"
     for ref in refs:
-        assert os.path.isfile(os.path.join(UI, ref)), f"style.css references missing file ui/{ref}"
+        assert os.path.isfile(os.path.join(UI, ref)), f"tokens.css references missing file ui/{ref}"
+    # Every stylesheet's font files must exist, not just tokens.css's.
+    for name in _ui_files(".css"):
+        for ref in re.findall(r"url\(\s*['\"]?(fonts/[^'\")]+)['\"]?\s*\)", _read(os.path.basename(name))):
+            assert os.path.isfile(os.path.join(UI, ref)), f"{name} references missing file ui/{ref}"
 
 
 def test_the_intended_families_are_declared_locally():
-    css = _read("style.css")
+    css = _read(FONT_CSS)
     faces = re.findall(r"@font-face\s*\{([^}]*)\}", css)
     families = {re.search(r"font-family:\s*['\"]([^'\"]+)", f).group(1) for f in faces}
-    assert {"Inter", "Source Serif 4"} <= families
+    assert {"Inter", "Source Serif 4", "Geist", "Geist Mono"} <= families
     italic = [f for f in faces if "Source Serif 4" in f and re.search(r"font-style:\s*italic", f)]
     assert italic, "Source Serif 4 italic is used by the Journal dates and timestamps; it must be bundled"
 
 
 def test_font_licences_ship_with_the_fonts():
-    for licence in ("OFL-Inter.txt", "OFL-SourceSerif4.txt"):
+    for licence in ("OFL-Inter.txt", "OFL-SourceSerif4.txt", "OFL-Geist.txt", "OFL-GeistMono.txt"):
         path = os.path.join(FONTS, licence)
         assert os.path.isfile(path), f"missing {licence}"
         with open(path, "r", encoding="utf-8") as fh:

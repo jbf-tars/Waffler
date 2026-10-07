@@ -53,3 +53,39 @@ def write_json_atomic(path, data, *, indent: int = 2, sleep=time.sleep) -> None:
         except OSError:
             pass
         raise
+
+
+def read_json_for_update(path, expect=list, *, stamp=None):
+    """Read a JSON file that is about to be rewritten. Returns ``(value, kept)``.
+
+    * Missing: ``(expect(), None)``.
+    * It can be opened but is not JSON of type ``expect`` (cut short,
+      hand-edited, an encoding Waffler did not write): it is moved aside as
+      ``<name>.unreadable-<time><suffix>`` and ``(expect(), kept_path)`` is
+      returned, so the rewrite cannot replace the old contents with one new
+      entry. The Journal had exactly that flaw: an unreadable history.json
+      loaded as [] and the next dictation saved [that dictation].
+    * It cannot be opened or read (another program has it locked): the
+      ``OSError`` is raised. The caller must not write.
+
+    A UTF-8 byte order mark is accepted (utf-8-sig), as every reader does.
+    """
+    path = Path(path)
+    try:
+        raw = path.read_bytes()
+    except FileNotFoundError:
+        return expect(), None
+    try:
+        value = json.loads(raw.decode("utf-8-sig"))
+        if isinstance(value, expect):
+            return value, None
+    except (UnicodeDecodeError, ValueError):
+        pass
+    when = stamp or time.strftime("%Y%m%d-%H%M%S")
+    kept = path.with_name(f"{path.stem}.unreadable-{when}{path.suffix}")
+    n = 1
+    while kept.exists():
+        n += 1
+        kept = path.with_name(f"{path.stem}.unreadable-{when}-{n}{path.suffix}")
+    replace_with_retry(path, kept)
+    return expect(), kept

@@ -44,8 +44,10 @@ signing.
 Waffler is a dictation tool, so it necessarily handles your speech, your
 keyboard and your clipboard. Specifically:
 
-- **Microphone.** Audio is captured only while you hold the push-to-talk
-  hotkey. It is sent to the speech-to-text provider you configured (Groq or
+- **Microphone.** The microphone stays ready while Waffler runs, so your
+  first word isn't clipped. Each recording is what you say while you hold
+  the push-to-talk hotkey, plus the half-second before you pressed it. It is
+  sent to the speech-to-text provider you configured (Groq or
   OpenAI) to be transcribed, and to the cleanup provider to be tidied into
   readable text. It is not sent anywhere else.
 - **Keyboard.** A global low-level keyboard hook
@@ -60,7 +62,9 @@ keyboard and your clipboard. Specifically:
 - **On your machine.** Your API keys, settings, dictation history and the most
   recent recordings are stored under `~/.waffler-hosted/` on your own computer.
   Recordings are kept only to diagnose transcription faults, are capped at the
-  last 10, and can be deleted at any time. None of this is uploaded.
+  last 10, and can be switched off or deleted at any time in Settings,
+  Privacy and data, which can also delete your history, usage and logs.
+  None of this is uploaded.
 - **No telemetry.** Waffler has no analytics and no usage reporting.
 
 ## Uninstallation

@@ -52,6 +52,18 @@ _PREROLL_MS = 500
 # hotkey, so the final syllable / word isn't clipped.
 _POSTROLL_MS = 150
 
+# Settings' microphone meter: a stream that has delivered nothing for this
+# long is not shown as live.
+_LEVEL_STALE_S = 0.5
+
+
+def rms_level(chunk) -> float:
+    """A chunk of int16 samples as a level from 0 to 1: the RMS over 800,
+    the scale the recording overlay has always used."""
+    rms = float(np.sqrt(np.mean(np.asarray(chunk).astype(np.float32) ** 2)))
+    return min(1.0, rms / 800.0)
+
+
 # HAL drain window. After ``stream.stop()`` returns, give CoreAudio's I/O
 # thread this long to settle before we ``close()`` the stream and drop the
 # Python reference. Empirically 100ms is more than enough — a single HAL
@@ -186,6 +198,10 @@ class AudioRecorder:
                                                # the lock for start/stop.
         self._last_rms: float = 0.0
         self._callback_active = False
+        # Settings' microphone meter (input_level): when the stream last
+        # delivered audio, and which microphone choice it was opened with.
+        self._last_chunk_at = 0.0
+        self._stream_choice = device_index
         # Recording ownership. is_recording and _buffer are shared, so with
         # overlapping presses one dictation could damage another: an old stop()
         # sleeping through its post-roll would wake to find a NEW recording in
@@ -232,6 +248,7 @@ class AudioRecorder:
         try:
             chunk = indata.copy()
             self._preroll.append(chunk)
+            self._last_chunk_at = time.monotonic()
 
             # Test and append under the SAME lock stop() uses, so an admitted
             # callback either makes it into the returned WAV or is dropped. It
@@ -256,6 +273,30 @@ class AudioRecorder:
 
     def get_level(self) -> float:
         return self._last_rms
+
+    def input_level(self) -> dict:
+        """The microphone's level right now, recording or not: Settings,
+        General shows it as a meter by the microphone's name.
+
+        Read from the newest chunk the always-open stream put in the
+        pre-roll, on the same scale as get_level(). Nothing is kept or sent.
+        ``live`` is False when no stream is running or it has delivered
+        nothing for half a second. ``current`` is False when Settings picked
+        another microphone since the stream opened: set_device() applies it
+        on the next dictation, so this level is still the old microphone's.
+        """
+        stream = self._stream
+        live = bool(stream is not None and getattr(stream, "active", False)
+                    and self._callback_active
+                    and time.monotonic() - self._last_chunk_at < _LEVEL_STALE_S)
+        level = 0.0
+        if live:
+            try:
+                level = rms_level(self._preroll[-1])
+            except IndexError:
+                live = False
+        return {"live": live, "level": round(level, 3),
+                "current": self._stream_choice == self._device_index}
 
     def get_is_paused(self) -> bool:
         return self.is_paused
@@ -328,6 +369,7 @@ class AudioRecorder:
             # A2DP). Resolved AFTER the PortAudio reinit above so it sees the
             # current device list. None ⇒ PortAudio default (the normal case).
             _input_device = _resolve_input_device(self._device_index)
+            self._stream_choice = self._device_index
             self._stream = sd.InputStream(
                 samplerate=self.sample_rate,
                 channels=self.channels,

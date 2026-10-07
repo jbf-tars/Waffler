@@ -7,6 +7,7 @@ Priority order:
   4. OpenAI Whisper API (always available) → 2-5s, needs internet
 """
 
+import functools
 import os
 import sys
 import time
@@ -74,15 +75,217 @@ VOCAB_FILE    = _data_dir() / "vocab.json"
 SETTINGS_FILE = _data_dir() / "settings.json"
 
 
+# Limits on the Vocabulary list. Each dictation compares every word heard
+# with every entry, so the list is capped where that stays well under the
+# time a dictation takes. Measured with 500 entries on a 300-word dictation:
+# about 0.13 s of everyday words, 0.36 s if every word were unusual.
+# An entry is a name, a word or a short phrase, never a paragraph.
+VOCAB_MAX_ENTRIES = 500
+VOCAB_MAX_ENTRY_LEN = 60
+
+
+def clean_vocab(words) -> list[str]:
+    """The Vocabulary list as the app uses it: strings only, spaces trimmed
+    and runs of spaces made one, empty entries dropped, and an entry that
+    differs from an earlier one only in case or spacing dropped (the first
+    spelling wins). Anything that is not a list gives an empty list."""
+    if not isinstance(words, list):
+        return []
+    out, seen = [], set()
+    for w in words:
+        if not isinstance(w, str):
+            continue
+        w = " ".join(w.split())
+        if not w or w.casefold() in seen:
+            continue
+        seen.add(w.casefold())
+        out.append(w)
+    return out
+
+
 def load_vocab() -> list[str]:
-    """Load user's custom vocabulary words."""
+    """Load the user's custom vocabulary words (see clean_vocab). Read on
+    every dictation, so a change in the Vocabulary page applies to the next
+    dictation without a restart."""
     try:
         if VOCAB_FILE.exists():
             import json
-            return json.loads(VOCAB_FILE.read_text(encoding="utf-8-sig"))
+            return clean_vocab(json.loads(VOCAB_FILE.read_text(encoding="utf-8-sig")))
     except Exception:
         pass
     return []
+
+
+def save_vocab(words, sounds_like=None) -> dict:
+    """Save the Vocabulary list to vocab.json: tidied (clean_vocab), checked
+    against the limits, written as UTF-8 through a temporary file so a crash
+    mid-write cannot leave half a list.
+
+    A vocab.json that cannot be read (hand-edited, or cut short) loads as an
+    empty list, and the next save would have replaced it with just the new
+    word. It is now kept beside it as vocab.unreadable-<time>.json first.
+
+    ``sounds_like`` ({entry: [spellings]}) replaces the saved spellings
+    (vocab_sounds.json, see clean_sounds_like); None keeps them for the
+    entries still listed.
+
+    Returns {"ok": True, "count", "words"} ("sounds_like" too, the saved
+    spellings, when they were given) or {"ok": False, "error"} with a
+    sentence for the page; "log" carries a line for app.log when there is
+    one."""
+    import json
+    if not isinstance(words, list):
+        return {"ok": False, "error": "That list couldn't be read."}
+    cleaned = clean_vocab(words)
+    if any(len(w) > VOCAB_MAX_ENTRY_LEN for w in cleaned):
+        return {"ok": False, "error": f"Keep each entry to {VOCAB_MAX_ENTRY_LEN} characters "
+                                      "or fewer: a name, a word or a short phrase."}
+    if len(cleaned) > VOCAB_MAX_ENTRIES:
+        return {"ok": False, "error": f"Your list is full ({VOCAB_MAX_ENTRIES} words). "
+                                      "Remove one you no longer need first."}
+    sounds_error = check_sounds_like(sounds_like)
+    if sounds_error:
+        return {"ok": False, "error": sounds_error}
+    log = ""
+    try:
+        VOCAB_FILE.parent.mkdir(parents=True, exist_ok=True)
+        if VOCAB_FILE.exists():
+            try:
+                readable = isinstance(
+                    json.loads(VOCAB_FILE.read_text(encoding="utf-8-sig")), list)
+            except Exception:
+                readable = False
+            if not readable:
+                kept = VOCAB_FILE.with_name(
+                    f"vocab.unreadable-{time.strftime('%Y%m%d-%H%M%S')}.json")
+                os.replace(VOCAB_FILE, kept)
+                log = f"vocab.json could not be read; kept as {kept.name}"
+        try:
+            from atomic_json import write_json_atomic
+        except ImportError:  # imported as src.transcribe_whisper
+            from src.atomic_json import write_json_atomic
+        write_json_atomic(VOCAB_FILE, cleaned)
+    except Exception as e:
+        return {"ok": False, "error": "Couldn't save your list. Try again.",
+                "log": f"save failed: {type(e).__name__}: {e}"}
+    out = {"ok": True, "count": len(cleaned), "words": cleaned}
+    sounds = _save_sounds_like(sounds_like, cleaned)
+    if sounds.get("log"):
+        log = (log + "; " if log else "") + sounds["log"]
+    if sounds_like is not None:
+        out["sounds_like"] = sounds["sounds_like"]
+    if log:
+        out["log"] = log
+    return out
+
+
+# ── "Sounds like" (3.15) ─────────────────────────────────────────────────────
+# What speech to text writes for an entry, when the user knows it: "grok"
+# for Groq, "waffle her" for Waffler. Kept beside vocab.json, so vocab.json
+# stays the plain list of words older versions read, as
+# {"Groq": ["grok", "grock"]}. An entry with spellings is matched by them
+# and its own spelling only: the loose matching (fuzzy_match_word) is for
+# entries without any, so naming what it hears stops the guessing.
+VOCAB_SOUNDS_FILE = _data_dir() / "vocab_sounds.json"
+VOCAB_MAX_SOUNDS = 8
+
+
+def clean_sounds_like(raw, words) -> dict:
+    """The spellings as the app uses them, for the entries in ``words``.
+
+    Keys are the entries as written in ``words`` (a key in other capitals
+    is the same entry, so a respelt entry keeps its spellings), in list
+    order. Each spelling: a string, spaces trimmed and runs made one, at
+    most VOCAB_MAX_ENTRY_LEN characters, with a letter or digit in it. A
+    spelling is dropped when it is the entry itself or another entry (any
+    capitals), or already given for an earlier entry; at most
+    VOCAB_MAX_SOUNDS for each entry. Entries without any are left out."""
+    if not isinstance(raw, dict):
+        return {}
+    words = clean_vocab(words)
+    entries = {w.casefold() for w in words}
+    by_key = {}
+    for k, v in raw.items():
+        if isinstance(k, str):
+            by_key.setdefault(" ".join(k.split()).casefold(), v)
+    out, taken = {}, set()
+    for w in words:
+        spellings = by_key.get(w.casefold())
+        if not isinstance(spellings, list):
+            continue
+        kept = []
+        for s in spellings:
+            if not isinstance(s, str):
+                continue
+            s = " ".join(s.split())
+            f = s.casefold()
+            if (not s or len(s) > VOCAB_MAX_ENTRY_LEN or not re.search(r"[^\W_]", s)
+                    or f in entries or f in taken):
+                continue
+            taken.add(f)
+            kept.append(s)
+            if len(kept) >= VOCAB_MAX_SOUNDS:
+                break
+        if kept:
+            out[w] = kept
+    return out
+
+
+def load_sounds_like(words=None) -> dict:
+    """The saved spellings (vocab_sounds.json), for ``words`` (the saved
+    list when None). An unreadable or missing file is no spellings. Read on
+    every dictation, like the list itself."""
+    try:
+        if VOCAB_SOUNDS_FILE.exists():
+            import json
+            raw = json.loads(VOCAB_SOUNDS_FILE.read_text(encoding="utf-8-sig"))
+            return clean_sounds_like(raw, load_vocab() if words is None else words)
+    except Exception:
+        pass
+    return {}
+
+
+def check_sounds_like(sounds_like) -> str:
+    """A sentence for the page when the spellings break a limit, else ""."""
+    if sounds_like is None:
+        return ""
+    if not isinstance(sounds_like, dict):
+        return "Those spellings couldn't be read."
+    for v in sounds_like.values():
+        if not isinstance(v, list):
+            return "Those spellings couldn't be read."
+        if len(v) > VOCAB_MAX_SOUNDS:
+            return f"Up to {VOCAB_MAX_SOUNDS} spellings for each word."
+        if any(isinstance(s, str) and len(" ".join(s.split())) > VOCAB_MAX_ENTRY_LEN for s in v):
+            return (f"Keep each spelling to {VOCAB_MAX_ENTRY_LEN} characters or fewer.")
+    return ""
+
+
+def _save_sounds_like(sounds_like, words) -> dict:
+    """Write the spellings for the saved ``words``. None keeps the saved
+    spellings of the entries still listed (an entry respelt in other
+    capitals keeps its own); a removed entry's go with it."""
+    import json
+    if sounds_like is None:
+        try:
+            raw = (json.loads(VOCAB_SOUNDS_FILE.read_text(encoding="utf-8-sig"))
+                   if VOCAB_SOUNDS_FILE.exists() else {})
+        except Exception:
+            raw = {}
+    else:
+        raw = sounds_like
+    cleaned = clean_sounds_like(raw, words)
+    try:
+        try:
+            from atomic_json import write_json_atomic
+        except ImportError:  # imported as src.transcribe_whisper
+            from src.atomic_json import write_json_atomic
+        if cleaned or VOCAB_SOUNDS_FILE.exists():
+            write_json_atomic(VOCAB_SOUNDS_FILE, cleaned)
+        return {"sounds_like": cleaned}
+    except Exception as e:
+        return {"sounds_like": load_sounds_like(words),
+                "log": f"spellings not saved: {type(e).__name__}: {e}"}
 
 
 def load_settings() -> dict:
@@ -168,7 +371,10 @@ _MIN_FUZZY_VOCAB_LEN = 5
 #   * a join that spells v exactly is always taken ("club card");
 #   * otherwise a word under 3 letters rules the pair out: two-letter words
 #     are almost all glue ("an", "is", "on", "me") and caused most of the
-#     damage ("add an", "is hotel", "month on", "me thank");
+#     damage ("add an", "is hotel", "month on", "me thank"). Since 3.15 a
+#     two-letter word that is not everyday English (an initialism such as
+#     "qc") may join a word of 3+ letters, which brings back "kobi qc" ->
+#     COBieQC; the rules below still apply to it;
 #   * so does a join more than one letter longer or shorter than v: a split
 #     name keeps its length ("said Dan" is not "Aidan");
 #   * when both words are everyday English (common_words.py), the pair is
@@ -218,7 +424,10 @@ def _bigram_join_matches(a: str, b: str, vword: str, similarity: float,
     glued = a + b
     if glued == vword:
         return True
-    if min(len(a), len(b)) < _BIGRAM_MIN_WORD_LEN:
+    short_word = min(a, b, key=len)
+    if len(short_word) < _BIGRAM_MIN_WORD_LEN and (
+            len(short_word) < 2 or short_word in _BIGRAM_COMMON
+            or max(len(a), len(b)) < _BIGRAM_MIN_WORD_LEN):
         return False
     # A split name keeps the name's length, give or take a letter ("nashcan"
     # 7 for "Ashkan" 6). "said dan" (7) for "Aidan" (5) is two words, not one.
@@ -234,64 +443,236 @@ def _bigram_join_matches(a: str, b: str, vword: str, similarity: float,
             and _levenshtein_distance(skel_glued, skel_vword) <= 1)
 
 
+# ── One word for one vocabulary entry (pass 1) ──────────────────────────────
+# Pass 1 compared each word heard with each entry and took the first within
+# an edit or two of it. On one user's real dictations (225 "Vocabulary
+# corrections applied" lines, checked 2026-10-05) that rewrote ordinary words:
+# "waffle" (16 times) and "waffled" became Waffler ("I'll waffle on" pasted
+# as "I'll Waffler on"), "mortar" (15) became Morta and "BIM" (9) became XBim;
+# and in testing "Phillips" became Phillip, "Matthews" Mathew and "linked"
+# LinkedIn. None of those is a mishearing: each is a real word, or the entry
+# with letters added to or taken off one end. The rule now, for a word w
+# heard and an entry v:
+#   * an everyday English word (common_words.py), or one made from one with
+#     a common ending ("posters", "hailed"), is never changed, not even its
+#     capitals: with "Will" in the list, "will" stays "will";
+#   * w spelt as v apart from accents is taken, at any length ("Sinead" ->
+#     Sinéad, "zoe" -> Zoë), and so is w spelt as v apart from doubled
+#     letters ("postgress" -> Postgres, "Matthew" -> Mathew);
+#   * w that is v with letters added at or taken off its start or end
+#     ("waffle" for Waffler, "mortar" for Morta, "Phillips" for Phillip,
+#     "bim" for XBim, "linked" for LinkedIn), or that shares v's first four
+#     letters and differs only in an English ending ("waffled" for Waffler:
+#     -d against -r), is left alone;
+#   * otherwise the similarity bar applies as before, and the entry closest
+#     to w wins ("cobiec" -> COBieQC, not COBie, whichever is listed first).
+_ENGLISH_ENDINGS = frozenset(["", "s", "es", "d", "ed", "r", "er", "rs", "ers",
+                              "ing", "ings", "y", "ly"])
+_FAMILY_MIN_STEM = 4
+
+# A word, as the corrector sees one: a run of letters in any alphabet.
+# "[a-zA-Z]+" (before 3.15) split "Sinéad" into "sin" and "ad".
+_WORD_RE = re.compile(r"[^\W\d_]+")
+# An entry the corrector can match: words of letters joined by spaces,
+# hyphens or apostrophes ("Sinéad", "James Farrelly", "Jean-Luc",
+# "O'Brien"). Entries with digits or symbols ("GPT-4", "C++") are not
+# matched here, as their letters alone would turn every "gpt" into "GPT-4";
+# _symbol_entries matches them whole instead.
+_ENTRY_RE = re.compile(r"[^\W\d_]+(?:[\s'’\-]+[^\W\d_]+)*")
+_PHRASE_SEP = r"[\s'’\-]+"
+
+
+@functools.lru_cache(maxsize=8192)
+def _fold_accents(text: str) -> str:
+    import unicodedata
+    return "".join(ch for ch in unicodedata.normalize("NFKD", text.lower())
+                   if not unicodedata.combining(ch))
+
+
+@functools.lru_cache(maxsize=8192)
+def _collapse_doubles(text: str) -> str:
+    return re.sub(r"(.)\1+", r"\1", text)
+
+
+def _is_word_family(word: str, vword: str) -> bool:
+    """Is ``word`` the entry ``vword`` with letters added or taken off at one
+    end, or the same stem with a different English ending? Such a word is
+    a real word in its own right ("waffle", "mortar", "linked"), not a
+    mishearing of the entry. See the rule above."""
+    a = _collapse_doubles(_fold_accents(word))
+    b = _collapse_doubles(_fold_accents(vword))
+    if a == b:
+        return False
+    short, long_ = sorted((a, b), key=len)
+    if long_.startswith(short) or long_.endswith(short):
+        return True
+    p = len(os.path.commonprefix([a, b]))
+    return (p >= _FAMILY_MIN_STEM
+            and a[p:] in _ENGLISH_ENDINGS and b[p:] in _ENGLISH_ENDINGS)
+
+
+# Endings that make another everyday word from one: "posters" is "post" +
+# "ers", "hailed" is "hail" + "ed". common_words.py lists the frequent forms
+# only, and "posters" was rewritten to Postgres.
+_EVERYDAY_ENDINGS = ("ings", "ing", "ers", "er", "ies", "es", "ed", "ly", "s", "d")
+
+
+def _is_everyday(word: str) -> bool:
+    """An everyday English word, or one made from one with a common ending
+    ("posters", "aiding", "hailed", "parties"). Lower-case input."""
+    if word in _BIGRAM_COMMON:
+        return True
+    for end in _EVERYDAY_ENDINGS:
+        if len(word) - len(end) >= 3 and word.endswith(end):
+            stem = word[:-len(end)]
+            if (stem in _BIGRAM_COMMON or stem + "e" in _BIGRAM_COMMON
+                    or (end == "ies" and stem + "y" in _BIGRAM_COMMON)
+                    or (len(stem) >= 4 and stem[-1] == stem[-2] and stem[:-1] in _BIGRAM_COMMON)):
+                return True
+    return False
+
+
+def _levenshtein_within(a: str, b: str, limit: int) -> int:
+    """Levenshtein distance of ``a`` and ``b`` if it is at most ``limit``,
+    else ``limit + 1``. Stops as soon as every path is over the limit, so a
+    long Vocabulary list costs little per word heard."""
+    if abs(len(a) - len(b)) > limit:
+        return limit + 1
+    previous = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        current = [i]
+        for j, cb in enumerate(b, 1):
+            current.append(min(previous[j] + 1, current[j - 1] + 1,
+                               previous[j - 1] + (ca != cb)))
+        if min(current) > limit:
+            return limit + 1
+        previous = current
+    return min(previous[-1], limit + 1)
+
+
+def _single_word_score(word: str, vword: str, threshold: float):
+    """How well the lower-case word ``word`` matches the lower-case entry
+    ``vword`` if it may be replaced by it, else None. The caller has already
+    refused everyday words and handled an exact match."""
+    if _fold_accents(word) == _fold_accents(vword):
+        return 1.0
+    if len(word) < 3 or len(vword) < _MIN_FUZZY_VOCAB_LEN:
+        return None
+    if _collapse_doubles(_fold_accents(word)) == _collapse_doubles(_fold_accents(vword)):
+        return 1.0
+    max_len = max(len(word), len(vword))
+    # The edit distance is at least the difference in length: skip entries
+    # that cannot reach the bar before paying for the full comparison.
+    if abs(len(word) - len(vword)) > (1 - threshold) * max_len:
+        return None
+    if _is_word_family(word, vword):
+        return None
+    limit = int((1 - threshold) * max_len + 1e-9)
+    distance = _levenshtein_within(word, vword, limit)
+    if distance > limit:
+        return None
+    similarity = 1 - distance / max_len
+    return similarity if similarity >= threshold else None
+
+
+def _matchable_entries(vocab):
+    """(lower-case words, entry) for each entry the corrector can match."""
+    out = []
+    for entry in vocab[:VOCAB_MAX_ENTRIES]:
+        if not isinstance(entry, str):
+            continue
+        entry = " ".join(entry.split())
+        if not entry or len(entry) > VOCAB_MAX_ENTRY_LEN or not _ENTRY_RE.fullmatch(entry):
+            continue
+        out.append((tuple(_WORD_RE.findall(entry.lower())), entry))
+    return out
+
+
 def fuzzy_match_word(transcribed: str, vocab: list[str], threshold: float = 0.75) -> list[tuple[str, str]]:
     """
     Find vocabulary words that are similar to transcribed words.
-    Returns list of (transcribed_phrase, vocab_word) pairs to substitute.
+    Returns list of (transcribed_phrase, vocab_word) pairs to substitute,
+    the phrase in lower case with its words joined by single spaces.
 
-    Two passes:
-      1. Single-token fuzzy match (Levenshtein-similarity ≥ threshold),
-         refused for protected everyday words and for vocab entries shorter
-         than ``_MIN_FUZZY_VOCAB_LEN``.
-      2. **Bigram collapse** match — when Whisper splits a compound name into
+    Three passes:
+      0. Entries of two or more words ("James Farrelly"): the same number
+         of words heard in a row, each spelt as the entry's word or passing
+         the single-word rule, and at least one spelt exactly. Before 3.15
+         these entries were never matched at all.
+      1. Single words (rule above ``_ENGLISH_ENDINGS``).
+      2. **Bigram collapse** match: when Whisper splits a compound name into
          two words ("Ashkan" → "Nash can", "Ashcan", "Ash can"), pass 1
          can't find it. We glue every adjacent bigram together
          ("nashcan", "ashcan") and fuzzy-match that against single-word
-         vocab entries. This is the fix for the real-world "Nash can" →
-         "Ashkan" miss seen in transcript history.
+         vocab entries (rule above ``_bigram_join_matches``).
+    An everyday English word is never changed by passes 0 and 1, so an
+    entry that is itself an everyday word ("Will", "IT") never rewrites it.
     """
     if not vocab:
         return []
 
-    vocab_lower = {w.lower(): w for w in vocab}
-    transcribed_lower = transcribed.lower()
-    words = re.findall(r"[a-zA-Z]+", transcribed_lower)
+    entries = _matchable_entries(vocab)
+    if not entries:
+        return []
+    words = _WORD_RE.findall(transcribed.lower())
 
-    corrections = []
-    vocab_words = list(vocab_lower.keys())
+    corrections: list[tuple[str, str]] = []
+    seen_phrases: set[str] = set()
+    used: set[int] = set()          # positions already corrected or claimed
 
-    # Track which input tokens we've matched so we don't double-correct
-    # (e.g., bigram pass shouldn't fire on tokens already matched as unigrams).
-    matched_tokens: set[str] = set()
+    def emit(phrase: str, entry: str, positions) -> None:
+        used.update(positions)
+        if phrase not in seen_phrases:
+            seen_phrases.add(phrase)
+            corrections.append((phrase, entry))
 
-    # Pass 1 — single-word fuzzy match.
-    for word in words:
-        if word in vocab_lower:
-            # Exact (case-insensitive) match. If the user spelled it in
-            # canonical form already, no correction needed. If the case
-            # differs (e.g. transcribed "cobie" but vocab has "COBie"),
-            # emit a correction so the canonical form replaces it.
-            canonical = vocab_lower[word]
-            matched_tokens.add(word)
-            if word != canonical:
-                corrections.append((word, canonical))
-            continue
-        # An everyday word is what the speaker said, not a near-miss of a
-        # name. Checked before the loop so no vocab entry can claim it.
-        if word in _VOCAB_PROTECTED_WORDS:
-            continue
-        for vword in vocab_words:
-            if len(word) < 3 or len(vword) < _MIN_FUZZY_VOCAB_LEN:
+    # Pass 0: entries of several words, longest first.
+    phrases = sorted((e for e in entries if len(e[0]) > 1), key=lambda e: -len(e[0]))
+    for etoks, entry in phrases:
+        n = len(etoks)
+        for i in range(len(words) - n + 1):
+            span = range(i, i + n)
+            if any(j in used for j in span):
                 continue
-            max_len = max(len(word), len(vword))
-            if max_len == 0:
+            window = words[i:i + n]
+            if all(_is_everyday(t) for t in window):
+                continue        # "the office" stays as said, even for "The Office"
+            if not any(t == e for t, e in zip(window, etoks)):
                 continue
-            distance = _levenshtein_distance(word, vword)
-            similarity = 1 - (distance / max_len)
-            if similarity >= threshold:
-                corrections.append((word, vocab_lower[vword]))
-                matched_tokens.add(word)
-                break
+            if all(t == e or (not _is_everyday(t)
+                              and _single_word_score(t, e, threshold) is not None)
+                   for t, e in zip(window, etoks)):
+                emit(" ".join(window), entry, span)
+
+    singles = [(etoks[0], entry) for etoks, entry in entries if len(etoks) == 1]
+    exact = {}
+    for vword, entry in singles:
+        exact.setdefault(vword, entry)
+
+    # Pass 1: single words.
+    for i, word in enumerate(words):
+        if i in used:
+            continue
+        if _is_everyday(word):
+            # An everyday word is what the speaker said, not a near-miss of
+            # a name; and its capitals are left alone too ("will", not
+            # "Will"). Claimed, so pass 2 does not join it either.
+            if word in exact:
+                used.add(i)
+            continue
+        if word in exact:
+            # Exact (case-insensitive) match: the entry's spelling and
+            # capitals ("cobie" -> COBie). apply_vocab_corrections only
+            # reports it when the text actually changes.
+            emit(word, exact[word], (i,))
+            continue
+        best, best_score = None, None
+        for vword, entry in singles:
+            score = _single_word_score(word, vword, threshold)
+            if score is not None and (best_score is None or score > best_score):
+                best, best_score = entry, score
+        if best is not None:
+            emit(word, best, (i,))
 
     # Pass 2 — bigram collapse against single-word vocab entries.
     # We only target vocab terms that are themselves single words (no spaces),
@@ -300,15 +681,20 @@ def fuzzy_match_word(transcribed: str, vocab: list[str], threshold: float = 0.75
     # own it also admitted ordinary pairs ("add an" -> Aidan), so every
     # candidate must also pass _bigram_join_matches (rule above it).
     bigram_threshold = max(0.65, threshold - 0.05)
-    single_vocab_words = [v for v in vocab_words if " " not in v and len(v) >= 4]
+    single_vocab_words = [(v, e) for v, e in singles if len(v) >= 4]
     for i in range(len(words) - 1):
-        a, b = words[i], words[i + 1]
-        if a in matched_tokens or b in matched_tokens:
+        if i in used or i + 1 in used:
             continue
+        a, b = words[i], words[i + 1]
         glued = a + b
-        for vword in single_vocab_words:
+        for vword, entry in single_vocab_words:
             max_len = max(len(glued), len(vword))
             if max_len < 4:
+                continue
+            # _bigram_join_matches takes only an exact join or one within a
+            # letter of the entry's length: skip the rest before paying for
+            # the edit distance (most of the time on a long list).
+            if glued != vword and abs(len(glued) - len(vword)) > 1:
                 continue
             distance = _levenshtein_distance(glued, vword)
             similarity = 1 - (distance / max_len)
@@ -316,44 +702,285 @@ def fuzzy_match_word(transcribed: str, vocab: list[str], threshold: float = 0.75
                     a, b, vword, similarity, bigram_threshold, threshold):
                 # Substitute the literal "a b" two-word sequence (with the
                 # space) so apply_vocab_corrections can replace it as a phrase.
-                corrections.append((f"{a} {b}", vocab_lower[vword]))
-                matched_tokens.add(a)
-                matched_tokens.add(b)
+                emit(f"{a} {b}", entry, (i, i + 1))
                 break
 
     return corrections
 
 
-def apply_vocab_corrections(transcribed: str, vocab: list[str]) -> tuple[str, list[str]]:
+def apply_vocab_changes(transcribed: str, vocab: list[str],
+                        sounds_like=None) -> tuple[str, list[tuple[str, str]]]:
+    """Apply vocabulary corrections to transcribed text.
+
+    Returns (corrected_text, changes), where each change is (heard, used):
+    the words as they stood in the text and the entry that replaced them,
+    once per distinct change and only where the text actually changed. A
+    transcript that already reads "Morta" is no longer reported as
+    "'morta' → 'Morta'": before 3.15 every exact match was logged as a
+    correction, so the log could not tell a fix from no change.
+
+    One pass over the text: a replacement is never matched again by a later
+    correction. A multi-word mishearing may be written with spaces, hyphens
+    or an apostrophe between its words: Whisper wrote "post-grass" for
+    spoken "Postgres" when tested on real audio.
+
+    ``sounds_like`` ({entry: [spellings]}, see clean_sounds_like): an entry
+    with spellings is matched by them and by its own spelling, never
+    loosely. They are taken first; the loose matching runs on the text
+    between them.
+    """
+    text, changes, _spans = apply_vocab_marked(transcribed, vocab, sounds_like)
+    return text, changes
+
+
+def apply_vocab_marked(transcribed: str, vocab: list[str], sounds_like=None):
+    """apply_vocab_changes, plus where each replacement is in the result:
+    (text, changes, spans), spans being (start, end) in the returned text.
+    Vocabulary's "Try a sentence" marks the words it changed with them."""
+    if not vocab or not transcribed:
+        return transcribed, [], []
+    rules = _sounds_rules(vocab, sounds_like)
+    if not rules:
+        return _apply_loose(transcribed, vocab)
+    ruled = {entry.casefold() for _p, entry, _own in rules}
+    loose = [e for e in vocab if isinstance(e, str)
+             and " ".join(e.split()).casefold() not in ruled]
+    pattern = re.compile("|".join(
+        rf"(?<![^\W_])(?P<r{n}>{p})(?![^\W_])" for n, (p, _e, _own) in enumerate(rules)),
+        re.IGNORECASE)
+    out, changes, spans = [], [], []
+    length = 0
+
+    def add_loose(segment):
+        nonlocal length
+        fixed, ch, sp = _apply_loose(segment, loose)
+        spans.extend((a + length, b + length) for a, b in sp)
+        for c in ch:
+            if c not in changes:
+                changes.append(c)
+        out.append(fixed)
+        length += len(fixed)
+
+    pos = 0
+    for m in pattern.finditer(transcribed):
+        add_loose(transcribed[pos:m.start()])
+        heard = m.group(0)
+        _p, entry, own = rules[int(m.lastgroup[1:])]
+        if (own and heard.casefold() != entry.casefold()
+                and not any(c == entry for _h, c in fuzzy_match_word(heard, [entry]))):
+            # The entry's own spelling without its accents or with a letter
+            # doubled ("Siobhan", "cobbie") is fixed only where the loose
+            # matching would fix it, so "anna" never becomes Ana.
+            add_loose(heard)
+        elif heard != entry:
+            if (heard, entry) not in changes:
+                changes.append((heard, entry))
+            spans.append((length, length + len(entry)))
+            out.append(entry)
+            length += len(entry)
+        else:
+            out.append(heard)
+            length += len(heard)
+        pos = m.end()
+    add_loose(transcribed[pos:])
+    return "".join(out), changes, spans
+
+
+# Between the words of a spelling, what may be heard: a space, hyphen or
+# apostrophe, or nothing ("post hog" also takes "posthog" and "post-hog").
+_SOUNDS_SEP = r"[\s'’\-]*"
+
+
+def _own_letters(token: str) -> str:
+    """A letters-only word of an entry as a pattern that also takes it
+    without its accents and with any letter doubled or single ("Siobhán"
+    takes "Siobhan", "COBie" takes "cobbie"), as the loose matching does
+    with _fold_accents and _collapse_doubles. apply_vocab_marked then
+    keeps a match only where fuzzy_match_word agrees."""
+    out = []
+    for ch in token:
+        base = _fold_accents(ch)
+        if base and base != ch.lower():
+            out.append(f"(?:{re.escape(ch)}|{re.escape(base)})+")
+        else:
+            out.append(re.escape(ch) + "+")
+    return "".join(out)
+
+
+# A spelling with anything but letters, digits, spaces, hyphens and
+# apostrophes (".net", "C#") is matched with its symbols as written, never
+# as its letters alone: ".net" used to rewrite every "net".
+_SOUNDS_SYMBOL_RE = re.compile(r"[^\w\s'’\-]|_")
+
+
+def _sounds_rules(vocab, sounds_like):
+    """(pattern, entry, own) for every spelling of the entries that have
+    some, and for each such entry's own spelling (so "posthog" still
+    becomes PostHog, and "Siobhan" Siobhán), longest first. ``own`` marks
+    a letters-only entry's own spelling, which is checked against the loose
+    matching (an entry with digits or symbols is matched whole, as
+    _symbol_entries does). An own spelling made only of everyday words
+    is left out, as everywhere else ("will" stays "will" with Will
+    listed)."""
+    if not sounds_like or not isinstance(vocab, list):
+        return []
+    words = clean_vocab(vocab[:VOCAB_MAX_ENTRIES])
+    sounds = clean_sounds_like(sounds_like, words)
+    rules = []
+    for entry, spellings in sounds.items():
+        if len(entry) > VOCAB_MAX_ENTRY_LEN:
+            continue
+        for s in spellings:
+            if _SOUNDS_SYMBOL_RE.search(s):
+                pat = _symbol_pattern(s)
+                if not pat:
+                    continue
+            else:
+                tokens = re.findall(r"[^\W_]+", s)
+                pat = _SOUNDS_SEP.join(re.escape(t) for t in tokens)
+            rules.append((pat, entry, False, len(s)))
+        letters = bool(_ENTRY_RE.fullmatch(entry))
+        if letters:
+            tokens = re.split(r"[\s'’\-]+", entry)
+            if all(_is_everyday(t.lower()) for t in tokens):
+                continue
+            own = _PHRASE_SEP.join(_own_letters(t) for t in tokens)
+        else:
+            own = _symbol_pattern(entry)
+            if not own:
+                continue
+        rules.append((own, entry, letters, len(entry)))
+    rules.sort(key=lambda r: -r[3])
+    return [(p, e, own) for p, e, own, _n in rules]
+
+
+def _apply_loose(transcribed: str, vocab: list[str]):
+    """The matching for entries without spellings: fuzzy_match_word and
+    the entries with digits or symbols. (text, changes, spans)."""
+    if not vocab or not transcribed:
+        return transcribed, [], []
+
+    corrections = fuzzy_match_word(transcribed, vocab)
+    symbols = _symbol_entries(vocab)
+    if not corrections and not symbols:
+        return transcribed, [], []
+
+    target = {}
+    for misheard, correct in corrections:
+        target.setdefault(tuple(misheard.split()), correct)
+    keys = sorted(target, key=lambda k: (-len(k), -sum(map(len, k))))
+    parts = []
+    # Entries with digits or symbols first, so "gpt-4o" is taken whole
+    # before any letters-only correction could claim its "gpt".
+    for n, (sym_pattern, _entry) in enumerate(symbols):
+        parts.append(rf"(?<![^\W_])(?P<s{n}>{sym_pattern})(?![^\W_])")
+    if keys:
+        alternation = "|".join(_PHRASE_SEP.join(re.escape(w) for w in k) for k in keys)
+        parts.append(r"(?<![^\W\d_])(?P<w>" + alternation + r")(?![^\W\d_])")
+    pattern = re.compile("|".join(parts), re.IGNORECASE)
+
+    changes: list[tuple[str, str]] = []
+    spans: list[tuple[int, int]] = []
+    out = []
+    length = pos = 0
+    for m in pattern.finditer(transcribed):
+        piece = transcribed[pos:m.start()]
+        out.append(piece)
+        length += len(piece)
+        pos = m.end()
+        heard = m.group(0)
+        group = m.lastgroup or ""
+        if group.startswith("s"):
+            correct = symbols[int(group[1:])][1]
+        else:
+            correct = target.get(tuple(_WORD_RE.findall(heard.lower())))
+        if correct is None or heard == correct:
+            out.append(heard)
+            length += len(heard)
+            continue
+        if (heard, correct) not in changes:
+            changes.append((heard, correct))
+        spans.append((length, length + len(correct)))
+        out.append(correct)
+        length += len(correct)
+    out.append(transcribed[pos:])
+    return "".join(out), changes, spans
+
+
+# Separators heard in place of one written in an entry with digits or symbols
+# ("GPT-4o" heard as "gpt 4o", "COVID-19" as "covid19", "Node.js" as "node js").
+_SYMBOL_GAP_CHARS = frozenset(" -.")
+_SYMBOL_RUN_RE = re.compile(r"([^\W\d_]+)|(\d+)|(\s+)|(.)", re.S)
+
+
+def _symbol_pattern(entry: str):
+    """A regular expression for an entry with digits or symbols, or None.
+
+    Its letters and digits must be heard in order, in any capitals. Where
+    the entry has a space, hyphen or full stop between them, any one of
+    those, or nothing, may be heard instead; where letters and digits touch
+    ("M365", "GPT4"), only nothing or a hyphen, so "a 1" never becomes A1.
+    Any other symbol (C++, C#, AT&T) must be heard as written.
+    """
+    runs = []                     # ("alnum", text) | ("gap", text) | ("sym", char)
+    for letters, digits, space, other in _SYMBOL_RUN_RE.findall(entry):
+        if letters or digits:
+            runs.append(("alnum", letters or digits))
+        elif space or other in _SYMBOL_GAP_CHARS:
+            if runs and runs[-1][0] == "gap":
+                runs[-1] = ("gap", runs[-1][1] + (space or other))
+            else:
+                runs.append(("gap", space or other))
+        else:
+            runs.append(("sym", other))
+    if not any(kind == "alnum" and re.search(r"[^\W\d_]", text) for kind, text in runs):
+        return None               # nothing to correct in "365" or "++"
+    out = []
+    for i, (kind, text) in enumerate(runs):
+        prev_alnum = i > 0 and runs[i - 1][0] == "alnum"
+        next_alnum = i + 1 < len(runs) and runs[i + 1][0] == "alnum"
+        if kind == "alnum":
+            if prev_alnum:
+                out.append("-?")  # letters and digits touching in the entry
+            out.append(re.escape(text))
+        elif kind == "gap":
+            if prev_alnum and next_alnum:
+                out.append(r"[\s\-.]?")
+            elif text.strip():
+                out.append(re.escape(text.strip()))   # a leading or trailing ".": ".NET"
+        else:
+            out.append(re.escape(text))
+    return "".join(out)
+
+
+def _symbol_entries(vocab):
+    """(pattern, entry) for each entry with digits or symbols, longest first.
+
+    These are not letters-only words, so _ENTRY_RE leaves them out of the
+    fuzzy passes; they are matched whole instead ("gpt-4o" -> GPT-4o)."""
+    out = []
+    for entry in vocab[:VOCAB_MAX_ENTRIES] if isinstance(vocab, list) else []:
+        if not isinstance(entry, str):
+            continue
+        entry = " ".join(entry.split())
+        if not entry or len(entry) > VOCAB_MAX_ENTRY_LEN or _ENTRY_RE.fullmatch(entry):
+            continue
+        pattern = _symbol_pattern(entry)
+        if pattern:
+            out.append((pattern, entry))
+    out.sort(key=lambda pe: -len(pe[1]))
+    return out
+
+
+def apply_vocab_corrections(transcribed: str, vocab: list[str],
+                            sounds_like=None) -> tuple[str, list[str]]:
     """
     Apply vocabulary corrections to transcribed text.
-    Returns tuple of (corrected_text, list_of_corrections).
+    Returns tuple of (corrected_text, list_of_corrections), each correction
+    written "'heard' → 'used'" for the log. See apply_vocab_changes.
     """
-    if not vocab:
-        return transcribed, []
-    
-    corrections = fuzzy_match_word(transcribed, vocab)
-    
-    if not corrections:
-        return transcribed, []
-    
-    corrected = transcribed
-    applied = []
-    
-    for misheard, correct in corrections:
-        # A multi-word mishearing can reach us hyphenated: Whisper wrote
-        # "post-grass" for spoken "Postgres" when tested on real audio.
-        # fuzzy_match_word tokenises on letters, so it finds ("post grass",
-        # "Postgres") either way, but a pattern built from the space-joined
-        # phrase never matched the hyphenated text, so the correction was
-        # found and then silently not applied. Accept either separator.
-        words = misheard.split()
-        pattern = r'\b' + r'[\s\-]+'.join(re.escape(w) for w in words) + r'\b'
-        if re.search(pattern, corrected, re.IGNORECASE):
-            corrected = re.sub(pattern, correct, corrected, flags=re.IGNORECASE)
-            applied.append(f"'{misheard}' → '{correct}'")
-    
-    return corrected, applied
+    corrected, changes = apply_vocab_changes(transcribed, vocab, sounds_like)
+    return corrected, [f"'{heard}' → '{used}'" for heard, used in changes]
 
 
 # Whisper's most common silence-hallucinations. When the audio is empty or

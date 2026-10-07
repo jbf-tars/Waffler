@@ -26,6 +26,8 @@ import time
 import threading
 import tempfile
 import atexit
+import copy
+import contextlib
 import pyperclip
 import faulthandler
 from pathlib import Path
@@ -118,15 +120,23 @@ from audio_devices import (
 )
 from app_detection import get_active_app
 from log_util import transcript_for_log
-from atomic_json import write_json_atomic
+from atomic_json import write_json_atomic, read_json_for_update
 import pipeline_watchdog as _pw
 import unsent as _unsent
 import tray_state as _tray_state
+import first_run as _first_run
+import journal_data as _journal
+import recent_audio as _recent_audio
+import privacy_data as _privacy
+import cleanup_pause as _cleanup_pause
+import mac_permissions as _mac_perms
+from login_item import LoginItem, HIDDEN_FLAG as _HIDDEN_FLAG
 from user_messages import (
     DOWNLOAD_PAGE,
     UPDATE_DOWNLOAD_FAILED,
     UPDATE_INSTALL_FAILED,
     UPDATE_NO_INSTALLER,
+    UPDATE_WAITING,
     classify_request_error,
     cleanup_skipped_message,
     key_check_error,
@@ -155,6 +165,12 @@ USAGE_FILE = DATA_DIR / "usage.json"
 # not — two threads (a processing thread + clear_history from the JS bridge,
 # or two overlapping recordings) could otherwise interleave and lose entries.
 _history_lock = threading.Lock()
+# The same for usage.json: a dictation and a Try again (or a superseded
+# dictation still finishing) can record usage at the same moment.
+_usage_lock = threading.Lock()
+# And for settings.json, which bridge calls on separate threads read,
+# change and save (see Api._editing_settings).
+_settings_lock = threading.RLock()
 
 # ── Pricing ────────────────────────────────────────────────────────────────
 # Rates are keyed by the MODEL actually called, not merely by provider. The old
@@ -265,15 +281,33 @@ def ensure_data_dir():
 
 
 def load_history() -> list:
+    """history.json for reading (the Journal, counts, exports). [] when it
+    is missing or cannot be read. Never use this before a save_history: use
+    _load_history_for_update, which will not let a failed read empty it."""
     ensure_data_dir()
     if not HISTORY_FILE.exists():
         return []
     try:
-        with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+        with open(HISTORY_FILE, "r", encoding="utf-8-sig") as f:
             data = json.load(f)
             return data if isinstance(data, list) else []
     except Exception:
         return []
+
+
+def _load_history_for_update() -> list:
+    """history.json before it is rewritten. Call with _history_lock held.
+
+    A file that cannot be parsed is kept as history.unreadable-<time>.json
+    instead of being replaced by one new entry. One that cannot be opened
+    (locked by antivirus, backup or sync software) raises, so nothing is
+    written; on the dictation path append_history_safely then returns False
+    and the words are still pasted."""
+    ensure_data_dir()
+    history, kept = read_json_for_update(HISTORY_FILE, list)
+    if kept is not None:
+        _log_to_file(f"[history] history.json could not be read; kept as {kept.name}")
+    return history
 
 
 def save_history(history: list):
@@ -283,11 +317,52 @@ def save_history(history: list):
     write_json_atomic(HISTORY_FILE, history)
 
 
+# The parsed history and its counts, kept until history.json changes
+# (src/journal_data.py). The window asks for pages and counts often; it
+# used to read and rescan the whole file every time.
+_history_cache = _journal.HistoryCache(HISTORY_FILE, load_history)
+
+# Vocabulary, Try a sentence: the longest text it takes.
+TRY_VOCAB_MAX_CHARS = 2000
+
+
+# History retention (Settings, Privacy and data; src/privacy_data.py). Keep
+# everything unless the user chose 30, 90 or 365 days. Applied at start-up,
+# when the choice changes, and once a day on the next dictation.
+_history_retention_day = None
+
+
+def _history_keep_days() -> int:
+    """The chosen retention from settings.json; 0 (keep all) if unreadable."""
+    try:
+        sf = DATA_DIR / "settings.json"
+        stored = json.loads(sf.read_text(encoding="utf-8-sig")) if sf.exists() else {}
+    except Exception:
+        return 0
+    return _privacy.history_keep_days(stored if isinstance(stored, dict) else {})
+
+
+def _retain_history(history: list, force: bool = False) -> list:
+    """History without the dictations older than the chosen retention.
+    Runs once a day unless forced. Call with _history_lock held."""
+    global _history_retention_day
+    today = datetime.now().date()
+    if not force and _history_retention_day == today:
+        return history
+    _history_retention_day = today
+    days = _history_keep_days()
+    kept, removed = _privacy.prune_history(history, days)
+    if removed:
+        _log_to_file(f"[history] {removed} dictation(s) older than {days} days removed "
+                     f"(Settings, Privacy and data)")
+    return kept
+
+
 def append_history(item: dict):
     """Atomically append one entry to history.json. Use this instead of a bare
     load→append→save so concurrent writers don't clobber each other."""
     with _history_lock:
-        history = load_history()
+        history = _retain_history(_load_history_for_update())
         history.append(item)
         save_history(history)
 
@@ -299,7 +374,7 @@ def load_usage() -> list:
     if not USAGE_FILE.exists():
         return []
     try:
-        with open(USAGE_FILE, "r", encoding="utf-8") as f:
+        with open(USAGE_FILE, "r", encoding="utf-8-sig") as f:
             data = json.load(f)
             return data if isinstance(data, list) else []
     except Exception:
@@ -337,9 +412,13 @@ def record_usage(entry_type: str, duration_seconds: float = None,
     if duration_seconds is not None:
         entry["duration_seconds"] = round(duration_seconds, 3)
 
-    usage = load_usage()
-    usage.append(entry)
-    save_usage(usage)
+    with _usage_lock:
+        ensure_data_dir()
+        usage, kept = read_json_for_update(USAGE_FILE, list)
+        if kept is not None:
+            _log_to_file(f"[usage] usage.json could not be read; kept as {kept.name}")
+        usage.append(entry)
+        save_usage(usage)
     return entry
 
 
@@ -358,6 +437,38 @@ def record_usage_safely(*args, **kwargs):
     except Exception as e:
         _log_to_file(f"[usage] not recorded ({type(e).__name__}: {e})")
         return None
+
+
+def _words_kept_message(on_clipboard: bool, in_journal: bool) -> str:
+    """The error toast's sentence, from where the words really are."""
+    if on_clipboard and in_journal:
+        return "Your words are on the clipboard and in the Journal."
+    if on_clipboard:
+        return "Your words are on the clipboard."
+    if in_journal:
+        return "Your words are in the Journal."
+    return "That dictation didn't go through. Please try again."
+
+
+def _update_would_interrupt(pipeline) -> str:
+    """What a restart to update would cut off, or "" when nothing would:
+    a recording, a dictation still being processed, or a Not sent
+    recording being sent."""
+    if pipeline is None:
+        return ""
+    try:
+        if getattr(pipeline, "is_recording", False):
+            return "recording"
+        watchdog = getattr(pipeline, "_watchdog", None)
+        if watchdog is not None and watchdog.active():
+            return "a dictation is being processed"
+        for name in ("_drain_lock", "_unsent_lock"):
+            lock = getattr(pipeline, name, None)
+            if lock is not None and lock.locked():
+                return "a recording is being sent"
+    except Exception:
+        return ""
+    return ""
 
 
 def append_history_safely(item: dict) -> bool:
@@ -542,21 +653,33 @@ class Api:
             if not recorded or os.path.abspath(installer_path) != os.path.abspath(recorded):
                 _log_to_file("[update] refused install of unrecognised path")
                 return {"ok": False, "error": UPDATE_INSTALL_FAILED, "download_page": DOWNLOAD_PAGE}
+            # Restarting exits at once (and the Windows helper force-closes
+            # Waffler), so a dictation being recorded or cleaned up, or a
+            # Not sent recording being sent, would be lost. Wait for it.
+            busy = _update_would_interrupt(_pipeline)
+            if busy:
+                _log_to_file(f"[update] install waits: {busy}")
+                return {"ok": False, "busy": True, "error": UPDATE_WAITING}
             updater.install_and_restart(installer_path)
             return {"ok": True}  # usually unreachable — process exits
         except Exception as e:
             _log_to_file(f"[update] install failed: {e}")
             return {"ok": False, "error": UPDATE_INSTALL_FAILED, "download_page": DOWNLOAD_PAGE}
 
-    def get_history(self) -> list:
-        """Return transcript history (newest first).
+    def get_history(self, limit=None, offset=0, query="") -> list:
+        """Journal entries, newest first: all of them, or one page.
+
+        ``limit`` and ``offset`` page through them (the window draws about
+        50 at a time and asks for more as you scroll); ``query`` keeps only
+        entries whose clean text or transcript contains it.
 
         Not sent entries get their live state: the recording's id, whether
         its file is still there, and whether Waffler will still send it by
         itself (entries older than a day, or out of tries, will not)."""
-        items = load_history()
+        items = _journal.page(_history_cache.items(), limit, offset, query)
         unsent_dir = DATA_DIR / _unsent.UNSENT_DIRNAME
-        for i, item in enumerate(items):
+        out = []
+        for item in items:
             if isinstance(item, dict) and item.get("failed"):
                 item = dict(item)
                 uid = _unsent.entry_id(item)
@@ -564,9 +687,8 @@ class Api:
                     uid = ""        # the file has gone; the card can only be deleted
                 item["unsent_id"] = uid
                 item["will_retry"] = bool(uid) and _unsent.will_auto_retry(item)
-                items[i] = item
-        # Return newest first
-        return list(reversed(items))
+            out.append(item)
+        return out
 
     def copy_item(self, text: str):
         """Copy text to clipboard."""
@@ -581,63 +703,15 @@ class Api:
             return False
 
     def get_stats(self) -> dict:
-        """Return word-count stats plus the user's daily "stack streak".
+        """The Journal's counts and the day streak (src/journal_data.py):
+        today, this week, this month and all time, in words and dictations,
+        and ``entries`` (every entry, Not sent ones included).
 
-        Streak rules (v3.14.16+):
-          * Counts consecutive calendar days, ending today, that have at
-            least one history entry.
-          * If today has no entries yet, the streak is preserved as long
-            as yesterday has one — so a 12-day streak doesn't snap to 0
-            at midnight before the user has a chance to record. The
-            streak only breaks once a full day passes without any entry.
-        """
-        history = load_history()
-        today_str = date.today().isoformat()
-        today_items = [
-            h for h in history
-            if str(h.get("timestamp", "")).startswith(today_str)
-        ]
-        # A Not sent entry holds a note, not the user's words, so it adds no
-        # words (its note used to add about 20 to the counts each time).
-        today_words = sum(
-            len((h.get("styled") or h.get("text") or "").split())
-            for h in today_items if not h.get("failed")
-        )
-        total_words = sum(
-            len((h.get("styled") or h.get("text") or "").split())
-            for h in history if not h.get("failed")
-        )
-
-        # ── Stack streak ────────────────────────────────────────────
-        from datetime import timedelta as _td
-        days_with_entries = set()
-        for h in history:
-            ts = str(h.get("timestamp", ""))
-            if len(ts) >= 10:
-                try:
-                    # Parse the YYYY-MM-DD prefix directly; cheaper than
-                    # full ISO parsing and tolerant of trailing chars.
-                    y, m, d = ts[:10].split("-")
-                    days_with_entries.add(date(int(y), int(m), int(d)))
-                except Exception:
-                    pass
-
-        today = date.today()
-        # Anchor: today if there's an entry today, else yesterday. This
-        # gives the user a one-day grace period to keep the streak alive
-        # until they dictate something new.
-        cursor = today if today in days_with_entries else (today - _td(days=1))
-        streak = 0
-        while cursor in days_with_entries:
-            streak += 1
-            cursor -= _td(days=1)
-
-        return {
-            "today_words": today_words,
-            "today_count": len(today_items),
-            "total_words": total_words,
-            "streak_days": streak,
-        }
+        Worked out once per change to history.json, not on every call.
+        Streak: consecutive days, ending today, with at least one entry; if
+        today has none yet, yesterday anchors it, so a streak doesn't snap
+        to 0 at midnight before the first dictation of the day."""
+        return _history_cache.stats(date.today())
 
     # ── Mode / Prompt API ─────────────────────────────────────────────
 
@@ -676,9 +750,8 @@ class Api:
             # Persist the choice — without this, the setting reverts to
             # whatever config.prompt_style is on next launch.
             try:
-                stored = self._load_settings_file()
-                stored["prompt_style"] = mode_id
-                self._save_settings_file(stored)
+                with self._editing_settings() as stored:
+                    stored["prompt_style"] = mode_id
             except Exception as e:
                 _log_to_file(f"set_mode: persist failed (in-memory change still applied): {e}")
             return {"ok": True, "mode": mode_id}
@@ -760,46 +833,84 @@ class Api:
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
+    def get_mic_level(self) -> dict:
+        """Settings, General: the microphone's level now, for the meter by
+        its name. From the always-open stream the dictations use (it keeps
+        the half-second before each press), so it shows what Waffler hears;
+        nothing is recorded or sent. ``live`` False: no stream yet (Waffler
+        is starting, or has no key). ``current`` False: a newly picked
+        microphone that Waffler switches to on the next dictation."""
+        try:
+            audio = getattr(_pipeline, "audio", None) if _pipeline else None
+            if audio is None:
+                return {"ok": True, "live": False, "level": 0.0, "current": True}
+            return dict(audio.input_level(), ok=True)
+        except Exception as e:
+            _log_to_file(f"get_mic_level failed: {e}")
+            return {"ok": False, "live": False, "level": 0.0, "current": True}
+
     def get_vocab(self) -> list:
         """Return the user's custom vocabulary list."""
         from transcribe_whisper import load_vocab
         return load_vocab()
 
-    def set_vocab(self, words: list) -> dict:
-        """Save the user's custom vocabulary list."""
-        import json
-        from transcribe_whisper import VOCAB_FILE
+    def set_vocab(self, words: list, sounds_like=None) -> dict:
+        """Save the user's custom vocabulary list (vocab.json, UTF-8, written
+        atomically). The list is tidied first (transcribe_whisper.clean_vocab)
+        and checked against the limits; the saved list comes back as
+        ``words`` so the page shows exactly what was kept. The next
+        dictation reads it, so no restart is needed.
+
+        ``sounds_like`` ({word: [spellings]}, 3.15) replaces what each word
+        sounds like (vocab_sounds.json); left out, the saved spellings stay
+        with the words still listed. The saved spellings come back as
+        ``sounds_like``."""
+        from transcribe_whisper import save_vocab, load_sounds_like
+        result = save_vocab(words) if sounds_like is None else save_vocab(words, sounds_like)
+        if result.get("log"):
+            _log_to_file(f"[vocab] {result.pop('log')}")
+        if result.get("ok") and "sounds_like" not in result:
+            result["sounds_like"] = load_sounds_like(result.get("words") or [])
+        return result
+
+    def get_vocab_book(self) -> dict:
+        """The Vocabulary page: each word with what it sounds like, how many
+        dictations it corrected and when it last did, from the corrections
+        recorded in the Journal (src/journal_data.py vocab_usage), and the
+        newest corrections. ``total`` is the sum of the words' counts."""
         try:
-            VOCAB_FILE.parent.mkdir(parents=True, exist_ok=True)
-            VOCAB_FILE.write_text(json.dumps(words, indent=2), encoding="utf-8")
-            return {"ok": True, "count": len(words)}
+            from transcribe_whisper import load_vocab, load_sounds_like
+            words = load_vocab()
+            sounds = load_sounds_like(words)
+            usage = _history_cache.vocab_usage()
+            rows, total = [], 0
+            for w in words:
+                u = usage["by_entry"].get(w.casefold(), {})
+                n = int(u.get("count") or 0)
+                total += n
+                rows.append({"word": w, "sounds_like": sounds.get(w, []),
+                             "count": n, "last": u.get("last") or ""})
+            return {"ok": True, "entries": rows, "total": total,
+                    "recent": usage["recent"]}
         except Exception as e:
-            return {"ok": False, "error": str(e)}
+            _log_to_file(f"[vocab] get_vocab_book failed: {type(e).__name__}: {e}")
+            return {"ok": False, "entries": [], "total": 0, "recent": []}
 
-    def focus_window(self) -> dict:
-        """Bring the Waffler window to the foreground."""
+    def try_vocab(self, text: str) -> dict:
+        """Vocabulary, Try a sentence: what the saved Vocabulary makes of
+        ``text``, as a dictation would (the step before the clean-up). The
+        text stays here: nothing is sent or kept. ``marks`` are the
+        (start, end) of each word it changed."""
+        from transcribe_whisper import load_vocab, load_sounds_like, apply_vocab_marked
+        text = str(text or "")[:TRY_VOCAB_MAX_CHARS]
         try:
-            import platform
-            import webview
-
-            if platform.system() == "Darwin":
-                # macOS - activate the application using NSApp
-                try:
-                    from AppKit import NSApp, NSApplicationActivateIgnoringOtherApps
-                    NSApp.activateIgnoringOtherApps_(NSApplicationActivateIgnoringOtherApps)
-                except ImportError:
-                    # Fallback if AppKit not available
-                    pass
-
-            # Also try webview's method
-            windows = webview.windows
-            if windows:
-                windows[0].on_top = True
-                windows[0].on_top = False
-
-            return {"ok": True}
+            words = load_vocab()
+            out, changes, spans = apply_vocab_marked(text, words, load_sounds_like(words))
+            return {"ok": True, "text": out, "changes": [[h, u] for h, u in changes],
+                    "marks": [[a, b] for a, b in spans]}
         except Exception as e:
-            return {"ok": False, "error": str(e)}
+            _log_to_file(f"[vocab] try_vocab failed: {type(e).__name__}: {e}")
+            return {"ok": False, "text": text, "changes": [], "marks": []}
 
     def demo_overlay_show(self) -> dict:
         """Show overlay with mic feedback for wizard demo (Step 4)."""
@@ -835,48 +946,71 @@ class Api:
         return DATA_DIR / "settings.json"
 
     def _load_settings_file(self) -> dict:
+        """settings.json for reading. {} when missing or unreadable. Never
+        use this before a save: use _editing_settings."""
         try:
             sf = self._settings_file()
             if sf.exists():
-                return json.loads(sf.read_text(encoding="utf-8-sig"))
+                data = json.loads(sf.read_text(encoding="utf-8-sig"))
+                return data if isinstance(data, dict) else {}
         except Exception:
             pass
         return {}
 
     def _save_settings_file(self, data: dict):
-        """Save settings file with atomic write"""
+        """Write settings.json atomically. The replace is retried while
+        another handle briefly locks the file (it is read during every
+        dictation): a bare os.replace failed with "Access is denied"."""
         sf = self._settings_file()
         sf.parent.mkdir(parents=True, exist_ok=True)
-        tmp_fd, tmp_path = tempfile.mkstemp(
-            dir=sf.parent,
-            suffix='.tmp',
-            text=True
-        )
+        write_json_atomic(sf, data)
+
+    @contextlib.contextmanager
+    def _editing_settings(self):
+        """Change settings.json: ``with self._editing_settings() as stored:``.
+
+        The read, the change and the save happen under one lock, so two
+        bridge calls cannot drop each other's change. A settings.json that
+        cannot be parsed is kept as settings.unreadable-<time>.json rather
+        than replaced by one setting; one that cannot be opened (locked)
+        raises before anything is written, where the old code read {} and
+        saved just the new setting over the hotkey, provider order, private
+        mode and spelling. Saved only when something changed, and not at
+        all if the block raises."""
+        with _settings_lock:
+            sf = self._settings_file()
+            sf.parent.mkdir(parents=True, exist_ok=True)
+            stored, kept = read_json_for_update(sf, dict)
+            if kept is not None:
+                _log_to_file(f"[settings] settings.json could not be read; kept as {kept.name}")
+            before = copy.deepcopy(stored)
+            yield stored
+            if stored != before or kept is not None:
+                self._save_settings_file(stored)
+
+    def get_theme(self) -> dict:
+        """The saved theme, which the page applies when it is ready. The
+        page's own localStorage is wiped at every restart (the window runs
+        in private mode), so settings.json is the record. "" when none."""
         try:
-            with os.fdopen(tmp_fd, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2)
-            os.replace(tmp_path, sf)  # Atomic on POSIX
-        except Exception as e:
-            try:
-                os.unlink(tmp_path)
-            except:
-                pass
-            raise e
+            from theme import THEMES
+            theme = str(self._load_settings_file().get("theme") or "").strip().lower()
+            return {"theme": theme if theme in THEMES else ""}
+        except Exception:
+            return {"theme": ""}
 
     def set_theme(self, theme: str) -> dict:
         """Remember the UI theme ('cream', 'dark' or 'auto') in settings.json,
         so the next launch can paint the window in the right colour before the
-        page loads (see src/theme.py). The UI's own copy stays in
-        localStorage."""
+        page loads (see src/theme.py). Called only when the user picks a
+        theme, never at start-up (see get_theme)."""
         try:
             from theme import THEMES
             theme = str(theme or "").strip().lower()
             if theme not in THEMES:
                 return {"ok": False, "error": "Unknown theme."}
-            stored = self._load_settings_file()
-            if stored.get("theme") != theme:
+            with self._editing_settings() as stored:
                 stored["theme"] = theme
-                self._save_settings_file(stored)
             return {"ok": True}
         except Exception as e:
             _log_to_file(f"[theme] could not save theme: {e}")
@@ -964,70 +1098,68 @@ class Api:
     def save_settings(self, settings: dict) -> dict:
         """Save settings — updates .env and/or settings.json, applies live where possible."""
         try:
-            stored = self._load_settings_file()
             notes  = []
+            with self._editing_settings() as stored:
+                # ── OpenAI API key ────────────────────────────────────────────────
+                new_key = (settings.get("api_key") or "").strip()
+                if new_key and not new_key.startswith("sk-…"):
+                    self._update_env_var("OPENAI_API_KEY", new_key)
+                    os.environ["OPENAI_API_KEY"] = new_key
+                    from openai import OpenAI as _OAI
+                    if _pipeline:
+                        _pipeline.transcriber.api_key = new_key
+                        _pipeline.transcriber.client  = _OAI(api_key=new_key)
+                        _pipeline.styler.api_key      = new_key
+                        _pipeline.styler.client       = _OAI(api_key=new_key)
+                    notes.append("OpenAI API key updated")
 
-            # ── OpenAI API key ────────────────────────────────────────────────
-            new_key = (settings.get("api_key") or "").strip()
-            if new_key and not new_key.startswith("sk-…"):
-                self._update_env_var("OPENAI_API_KEY", new_key)
-                os.environ["OPENAI_API_KEY"] = new_key
-                from openai import OpenAI as _OAI
-                if _pipeline:
-                    _pipeline.transcriber.api_key = new_key
-                    _pipeline.transcriber.client  = _OAI(api_key=new_key)
-                    _pipeline.styler.api_key      = new_key
-                    _pipeline.styler.client       = _OAI(api_key=new_key)
-                notes.append("OpenAI API key updated")
+                # ── Groq API key ─────────────────────────────────────────────────
+                new_groq = (settings.get("groq_key") or "").strip()
+                if new_groq and not new_groq.startswith("gsk_…"):
+                    self._update_env_var("GROQ_API_KEY", new_groq)
+                    os.environ["GROQ_API_KEY"] = new_groq
+                    notes.append("Groq API key updated — restart for speed boost")
 
-            # ── Groq API key ─────────────────────────────────────────────────
-            new_groq = (settings.get("groq_key") or "").strip()
-            if new_groq and not new_groq.startswith("gsk_…"):
-                self._update_env_var("GROQ_API_KEY", new_groq)
-                os.environ["GROQ_API_KEY"] = new_groq
-                notes.append("Groq API key updated — restart for speed boost")
+                # ── Local Whisper toggle ─────────────────────────────────────────
+                if "local_whisper" in settings:
+                    val = "1" if settings["local_whisper"] else "0"
+                    self._update_env_var("LOCAL_WHISPER", val)
+                    os.environ["LOCAL_WHISPER"] = val
+                    notes.append("Restart app for Whisper mode change")
 
-            # ── Local Whisper toggle ─────────────────────────────────────────
-            if "local_whisper" in settings:
-                val = "1" if settings["local_whisper"] else "0"
-                self._update_env_var("LOCAL_WHISPER", val)
-                os.environ["LOCAL_WHISPER"] = val
-                notes.append("Restart app for Whisper mode change")
+                # ── Language ─────────────────────────────────────────────────────
+                if "language" in settings:
+                    stored["language"] = settings["language"]
+                    notes.append(f"Language: {settings['language']}")
 
-            # ── Language ─────────────────────────────────────────────────────
-            if "language" in settings:
-                stored["language"] = settings["language"]
-                notes.append(f"Language: {settings['language']}")
+                # ── Dialect / Spelling ───────────────────────────────────────────
+                if "dialect" in settings:
+                    stored["dialect"] = settings["dialect"]
+                    notes.append(f"Spelling: {settings['dialect']}")
 
-            # ── Dialect / Spelling ───────────────────────────────────────────
-            if "dialect" in settings:
-                stored["dialect"] = settings["dialect"]
-                notes.append(f"Spelling: {settings['dialect']}")
+                # ── Auto-paste ───────────────────────────────────────────────────
+                if "auto_paste" in settings:
+                    stored["auto_paste"] = bool(settings["auto_paste"])
+                    notes.append(f"Auto-paste: {'on' if settings['auto_paste'] else 'off'}")
 
-            # ── Auto-paste ───────────────────────────────────────────────────
-            if "auto_paste" in settings:
-                stored["auto_paste"] = bool(settings["auto_paste"])
-                notes.append(f"Auto-paste: {'on' if settings['auto_paste'] else 'off'}")
+                # ── Provider fallback order ──────────────────────────────────────
+                # A list like ["cerebras","groq","openai"]. Persisted AND applied
+                # live to the running pipeline so reordering takes effect on the
+                # very next dictation — no restart needed.
+                if "provider_order" in settings and isinstance(settings["provider_order"], list):
+                    from style_openai import _normalize_provider_order
+                    order = _normalize_provider_order(settings["provider_order"])
+                    stored["provider_order"] = order
+                    if _pipeline:
+                        try:
+                            _pipeline.styler._provider_order = order
+                            _pipeline.transcriber._cloud_order = [
+                                p for p in order if p in ("groq", "openai")
+                            ]
+                        except Exception as _e:
+                            _log_to_file(f"provider_order live-apply failed: {_e}")
+                    notes.append(f"Provider order: {' → '.join(order)}")
 
-            # ── Provider fallback order ──────────────────────────────────────
-            # A list like ["cerebras","groq","openai"]. Persisted AND applied
-            # live to the running pipeline so reordering takes effect on the
-            # very next dictation — no restart needed.
-            if "provider_order" in settings and isinstance(settings["provider_order"], list):
-                from style_openai import _normalize_provider_order
-                order = _normalize_provider_order(settings["provider_order"])
-                stored["provider_order"] = order
-                if _pipeline:
-                    try:
-                        _pipeline.styler._provider_order = order
-                        _pipeline.transcriber._cloud_order = [
-                            p for p in order if p in ("groq", "openai")
-                        ]
-                    except Exception as _e:
-                        _log_to_file(f"provider_order live-apply failed: {_e}")
-                notes.append(f"Provider order: {' → '.join(order)}")
-
-            self._save_settings_file(stored)
             return {"ok": True, "notes": notes}
         except Exception as e:
             return {"ok": False, "error": str(e)}
@@ -1042,7 +1174,8 @@ class Api:
         Includes:
           - app.log, crash.log              (runtime + Python crash dumps)
           - settings.json, config.json,
-            setup_complete.json, vocab.json (config / state — no PII)
+            setup_complete.json, vocab.json,
+            vocab_sounds.json               (config / state — no PII)
           - macOS DiagnosticReports/*.ips   (last 5 system crash dumps)
           - sysinfo.txt                     (synthesised: version, OS,
                                              hotkey, audio device, VPN)
@@ -1092,7 +1225,7 @@ class Api:
 
                 # 2) Config snapshots (no PII, no keys).
                 for name in ("settings.json", "config.json",
-                             "setup_complete.json", "vocab.json"):
+                             "setup_complete.json", "vocab.json", "vocab_sounds.json"):
                     src_path = DATA_DIR / name
                     if src_path.exists():
                         try:
@@ -1247,6 +1380,22 @@ class Api:
                 break   # still unreachable: no point trying the rest now
         return {"ok": True, "sent": sent, "total": len(waiting)}
 
+    def delete_all_unsent(self) -> dict:
+        """Settings' "Delete" next to Try again: every recording waiting to
+        be sent goes, with its Journal card. The ones cancelled with Esc
+        are not counted as waiting, so they stay (each card has Delete)."""
+        if not _pipeline:
+            return {"ok": False, "reason": "not_ready", "deleted": 0, "total": 0}
+        waiting = _unsent.pending(load_history(), DATA_DIR / _unsent.UNSENT_DIRNAME,
+                                  include_cancelled=False)
+        deleted = 0
+        for uid, _entry, _path in waiting:
+            if _pipeline.delete_unsent(uid).get("ok"):
+                deleted += 1
+        if _pipeline._unsent_waiting == 0 and _tray_state_now == _tray_state.NOT_SENT:
+            _set_tray_state(_tray_state.IDLE)
+        return {"ok": deleted == len(waiting), "deleted": deleted, "total": len(waiting)}
+
     def delete_unsent(self, unsent_id: str, timestamp: str = "") -> dict:
         """Delete a Not sent recording and its Journal card.
 
@@ -1260,7 +1409,7 @@ class Api:
         unsent_dir = DATA_DIR / _unsent.UNSENT_DIRNAME
         try:
             with _history_lock:
-                history = load_history()
+                history = _load_history_for_update()
                 for i in range(len(history) - 1, -1, -1):
                     h = history[i]
                     if (isinstance(h, dict) and h.get("failed")
@@ -1307,6 +1456,110 @@ class Api:
             "provider": _pipeline._speech_provider_name() if _pipeline else "",
         }
 
+    # ── Privacy and data (3.15) ──────────────────────────────────────────
+
+    def get_recent_audio(self) -> dict:
+        """Recent recordings (src/recent_audio.py): whether Waffler keeps
+        the last few, how many are kept now, and the limit."""
+        try:
+            return _recent_audio.summary(DATA_DIR, self._load_settings_file())
+        except Exception as e:
+            _log_to_file(f"[recent audio] summary failed: {e}")
+            return {"enabled": True, "count": 0, "keep": _recent_audio.KEEP}
+
+    def set_recent_audio(self, on) -> dict:
+        """Switch keeping recent recordings on or off. Off stops new ones
+        being kept; delete_recent_audio removes the ones already there."""
+        try:
+            with self._editing_settings() as stored:
+                stored[_recent_audio.SETTING] = bool(on)
+            return {"ok": True, **_recent_audio.summary(DATA_DIR, stored)}
+        except Exception as e:
+            _log_to_file(f"[recent audio] could not save the switch: {e}")
+            return {"ok": False, "error": "Couldn't change that setting. Try again."}
+
+    def delete_recent_audio(self) -> dict:
+        """Delete now: every kept recording goes."""
+        try:
+            n = _recent_audio.delete_all(DATA_DIR)
+            _log_to_file(f"[recent audio] deleted {n} recording(s) on request")
+            return {"ok": True, "deleted": n, **_recent_audio.summary(DATA_DIR, self._load_settings_file())}
+        except Exception as e:
+            _log_to_file(f"[recent audio] delete failed: {e}")
+            return {"ok": False, "error": "Couldn't delete them. Try again."}
+
+    def get_history_retention(self) -> dict:
+        """How long the Journal keeps dictations: 0 keeps everything."""
+        return {"keep_days": _privacy.history_keep_days(self._load_settings_file()),
+                "choices": list(_privacy.HISTORY_CHOICES)}
+
+    def preview_history_retention(self, days) -> dict:
+        """How many dictations a shorter retention would delete now, so the
+        window can ask before it does."""
+        try:
+            days = int(days)
+        except (TypeError, ValueError):
+            days = 0
+        try:
+            return {"would_delete": _privacy.count_older(load_history(), days)}
+        except Exception:
+            return {"would_delete": 0}
+
+    def set_history_retention(self, days) -> dict:
+        """Save the retention and apply it at once."""
+        try:
+            days = int(days)
+        except (TypeError, ValueError):
+            days = -1
+        if days not in _privacy.HISTORY_CHOICES:
+            return {"ok": False, "error": "Couldn't change that setting. Try again."}
+        try:
+            with self._editing_settings() as stored:
+                stored[_privacy.HISTORY_SETTING] = days
+            with _history_lock:
+                history = _load_history_for_update()
+                kept = _retain_history(history, force=True)
+                if len(kept) != len(history):
+                    save_history(kept)
+            return {"ok": True, "keep_days": days, "deleted": len(history) - len(kept)}
+        except Exception as e:
+            _log_to_file(f"[history] could not change retention: {e}")
+            return {"ok": False, "error": "Couldn't change that setting. Try again."}
+
+    def delete_my_data(self) -> dict:
+        """Delete all my data: history, usage, recent recordings, recordings
+        not sent and the logs (src/privacy_data.py). Keys, the words list
+        and settings stay; deleting keys too is factory_reset, which the
+        window asks about separately. Waffler keeps running."""
+        lock = getattr(_pipeline, "_unsent_lock", None) if _pipeline else None
+        if lock is not None and not lock.acquire(timeout=2.0):
+            return {"ok": False, "error": "Waffler is sending a recording. Try again in a moment."}
+        try:
+            with _history_lock:
+                result = _privacy.delete_my_data(DATA_DIR)
+            if _pipeline:
+                _pipeline._unsent_waiting = 0
+            if _tray_state_now == _tray_state.NOT_SENT:
+                _set_tray_state(_tray_state.IDLE)
+            if not result["ok"]:
+                _log_to_file(f"[privacy] delete all my data: could not delete {result['failed']}")
+                return {"ok": False, "error": "Some of it couldn't be deleted. Close anything "
+                                              "using Waffler's files and try again."}
+            return {"ok": True}
+        except Exception as e:
+            _log_to_file(f"[privacy] delete all my data failed: {type(e).__name__}: {e}")
+            return {"ok": False, "error": "Couldn't delete your data. Try again."}
+        finally:
+            if lock is not None:
+                lock.release()
+
+    def get_cleanup_pause(self) -> dict:
+        """The clean-up pause the Journal shows at the top, or None."""
+        try:
+            return _cleanup_pause.view(_cleanup_pause_now, datetime.now())
+        except Exception:
+            return None
+
     def clear_history(self) -> dict:
         """Wipe all saved transcriptions."""
         try:
@@ -1346,13 +1599,129 @@ class Api:
         groq_key = os.getenv("GROQ_API_KEY", "").strip()
         has_any_key = bool(openai_key or groq_key)
         setup_done = _is_setup_complete()
+        needs_setup = not setup_done or not has_any_key
+        # Where setup was left, so a Mac "Quit & Reopen" after a permission
+        # carries on from the same screen. Only while setup is still needed.
+        resume = ""
+        if needs_setup:
+            try:
+                resume = str(self._load_settings_file().get("setup_step") or "")
+            except Exception:
+                resume = ""
         return {
-            "needs_setup": not setup_done or not has_any_key,
+            "needs_setup": needs_setup,
             "has_key": has_any_key,
             "has_openai_key": bool(openai_key),
             "has_groq_key": bool(groq_key),
             "setup_complete": setup_done,
+            "resume_step": resume,
         }
+
+    # ── First-run setup (3.15) ──────────────────────────────────────────
+
+    _SETUP_STEPS = ("connect", "permissions", "try", "anywhere")
+
+    def save_setup_step(self, step: str) -> dict:
+        """Remember the setup screen on show (see get_onboarding_status)."""
+        if step not in self._SETUP_STEPS:
+            return {"ok": False}
+        try:
+            with self._editing_settings() as stored:
+                stored["setup_step"] = step
+            return {"ok": True}
+        except Exception as e:
+            _log_to_file(f"[setup] step not saved: {e}")
+            return {"ok": False}
+
+    def get_start_at_login(self) -> dict:
+        """{"supported", "enabled", "reason"}, read from the operating system
+        (src/login_item.py), never from a remembered copy."""
+        try:
+            return LoginItem().status()
+        except Exception as e:
+            _log_to_file(f"[login item] status failed: {e}")
+            return {"supported": False, "enabled": False,
+                    "reason": "Couldn't check whether Waffler starts at sign-in."}
+
+    def set_start_at_login(self, on) -> dict:
+        """Switch starting at sign-in on or off. Returns {"ok", "enabled"} and,
+        when it couldn't, an "error" sentence."""
+        try:
+            result = LoginItem().set(bool(on))
+        except Exception as e:
+            _log_to_file(f"[login item] set failed: {e}")
+            result = {"ok": False, "enabled": False,
+                      "error": "Couldn't change starting at sign-in. Try again."}
+        _log_to_file(f"[login item] start at sign-in {'on' if on else 'off'}: "
+                     f"ok={result.get('ok')} enabled={result.get('enabled')}")
+        return result
+
+    def start_dictation_for_setup(self) -> dict:
+        """Start the real hotkey before setup's last screen sends the user to
+        Notepad or TextEdit to try it. The practice listener stops first, so
+        only one listener ever watches the keys."""
+        try:
+            self.wizard_stop_hotkey_test()
+        except Exception:
+            pass
+        if _pipeline_running_or_starting():
+            return {"ok": True}
+        threading.Thread(target=_initialize_pipeline, daemon=True,
+                         name="PipelineInitSetup").start()
+        return {"ok": True}
+
+    def open_practice_editor(self) -> dict:
+        """Open Notepad (Windows) or TextEdit (Mac), an empty page to dictate
+        into, with the real hotkey already listening."""
+        self.start_dictation_for_setup()
+        import subprocess
+        try:
+            if _platform.system() == "Darwin":
+                subprocess.Popen(["/usr/bin/open", "-a", "TextEdit"])
+            elif _platform.system() == "Windows":
+                subprocess.Popen(["notepad.exe"])
+            else:
+                return {"ok": False, "error": "There's no practice editor on this computer."}
+            return {"ok": True}
+        except Exception as e:
+            _log_to_file(f"[setup] practice editor did not open: {e}")
+            name = "TextEdit" if _platform.system() == "Darwin" else "Notepad"
+            return {"ok": False, "error": f"Couldn't open {name}. Open any app you type in instead."}
+
+    def request_permission(self, name: str) -> dict:
+        """Setup's Allow buttons (Mac): show macOS's own prompt for one
+        permission (src/mac_permissions.py). A second press after a refusal
+        opens that permission's pane, because macOS won't ask twice."""
+        asked = getattr(self, "_perm_asked", None)
+        if asked is None:
+            asked = self._perm_asked = set()
+        again = name in asked
+        asked.add(name)
+        if name == "microphone":
+            result = _mac_perms.request_microphone()
+        elif name == "input_monitoring":
+            result = _mac_perms.request_input_monitoring(already_asked=again)
+        elif name == "accessibility":
+            result = _mac_perms.request_accessibility(already_asked=again)
+        else:
+            return {"ok": False}
+        _log_to_file(f"[permissions] asked for {name}: {result}")
+        return result
+
+    def get_fn_key_conflict(self) -> dict:
+        """Mac: whether holding Fn (the hotkey) also opens the emoji picker or
+        another job. Read only; Waffler never changes the setting."""
+        if _platform.system() != "Darwin":
+            return {"conflict": False, "title": "", "detail": ""}
+        try:
+            keys = self.get_hotkey_config().get("keys") or ["fn"]
+            return _mac_perms.fn_conflict(_mac_perms.read_fn_usage(), keys)
+        except Exception as e:
+            _log_to_file(f"[fn key] check failed: {e}")
+            return {"conflict": False, "title": "", "detail": ""}
+
+    def open_keyboard_settings(self) -> dict:
+        return _mac_perms.open_pane("keyboard")
 
     # Key shapes we will lift from the clipboard. Deliberately strict: this
     # reads the user's clipboard, so it must be incapable of returning anything
@@ -1423,16 +1792,25 @@ class Api:
         try:
             import groq
             client = groq.Groq(api_key=api_key)
-            client.models.list()
+            models = client.models.list()
             # Key is valid — persist it
             self._update_env_var("GROQ_API_KEY", api_key)
             os.environ["GROQ_API_KEY"] = api_key
-            return {"ok": True, "message": "Groq key is valid"}
+            # The same answer lists the models this key can use, so setup
+            # can say "Speech to text: working" and "Clean-up: working"
+            # (src/first_run.py) rather than only "the key is valid".
+            try:
+                services = _first_run.groq_services(_first_run.model_ids(models))
+            except Exception:
+                services = []
+            return {"ok": True, "message": "Groq key is valid", "services": services}
         except ImportError:
             return {"ok": False, "error": "Groq SDK not installed"}
         except Exception as e:
             _log_to_file(f"[keys] Groq key check failed: {type(e).__name__}: {str(e)[:160]}")
-            return {"ok": False, "error": key_check_error("Groq", e)}
+            # "kind" lets setup try again by itself after a busy moment.
+            return {"ok": False, "error": key_check_error("Groq", e),
+                    "kind": classify_request_error(e)}
 
     def validate_cerebras_key(self, api_key: str) -> dict:
         """Validate a Cerebras API key by doing a minimal chat-completions
@@ -1504,40 +1882,6 @@ class Api:
             ),
         }
 
-    def request_permissions(self) -> dict:
-        """Request macOS permissions by attempting to create event tap. This triggers system prompts."""
-        import platform as plat
-        if plat.system() != "Darwin":
-            return {"ok": True, "message": "Permissions not needed on this platform"}
-
-        try:
-            # Import the Fn key monitor which will attempt to create CGEventTap
-            # This triggers the Input Monitoring permission prompt
-            from fn_key_cgevent import FnKeyMonitor
-
-            def dummy_callback():
-                pass
-
-            # Try to create the monitor - this will request permissions
-            monitor = FnKeyMonitor(on_fn_press=dummy_callback, on_fn_release=dummy_callback)
-            monitor.start()
-
-            # Give it a moment to start
-            time.sleep(0.5)
-
-            # Stop it
-            monitor.stop()
-
-            return {
-                "ok": True,
-                "message": "Permission request triggered. Please grant Input Monitoring and Accessibility permissions in System Settings."
-            }
-        except Exception as e:
-            return {
-                "ok": False,
-                "error": f"Failed to request permissions: {str(e)}"
-            }
-
     def open_accessibility_settings(self) -> dict:
         """Open System Settings to the Accessibility permission panel."""
         import platform as plat
@@ -1580,6 +1924,12 @@ class Api:
             if data_dir.exists():
                 shutil.rmtree(data_dir)
                 _log_to_file("[factory reset] Data directory cleared via UI")
+            # Back to a first launch: nothing starts Waffler at sign-in until
+            # setup switches it on again.
+            try:
+                LoginItem().disable()
+            except Exception:
+                pass
 
             # Delay window destruction to avoid crash
             # (can't destroy window while inside API callback - JS bridge is still active)
@@ -1686,9 +2036,8 @@ class Api:
             keys = verdict["keys"]
 
             # Save to settings.json
-            stored = self._load_settings_file()
-            stored["hotkey_keys"] = keys
-            self._save_settings_file(stored)
+            with self._editing_settings() as stored:
+                stored["hotkey_keys"] = keys
             _log_to_file(f"Hotkey config saved: {keys}")
 
             # Restart listener if pipeline is running
@@ -1731,14 +2080,20 @@ class Api:
         # Use direct checks instead of PermissionsManager (more reliable)
         accessibility = self.check_accessibility_permission()
         input_monitoring = self.check_input_monitoring_permission()
+        # The microphone is asked for in setup too (3.15). It used to be
+        # reported as never granted, so the first practice recording was the
+        # moment macOS asked, mid-hold, and it came back silent.
+        mic_status = _mac_perms.microphone_status()
+        mic = mic_status in ("granted", "not_applicable")
 
         result = {
             "ok": True,
             "platform": "Darwin" if sys.platform == "darwin" else sys.platform,
             "accessibility_granted": accessibility,
             "input_monitoring_granted": input_monitoring,
-            "mic_granted": False,  # Not checked in wizard
-            "all_granted": accessibility and input_monitoring,
+            "mic_granted": mic,
+            "mic_status": mic_status,
+            "all_granted": accessibility and input_monitoring and mic,
         }
 
         return result
@@ -1805,34 +2160,6 @@ class Api:
             # Fail silently - users can still use "Open System Settings" buttons
             return {"ok": True, "platform": "darwin", "triggered": False, "error": str(e)}
 
-    def test_microphone(self, device_index, duration=2.0) -> dict:
-        """Record a short clip and return the audio level."""
-        try:
-            import sounddevice as sd
-            import numpy as np
-            device_index = int(device_index)
-            duration = min(float(duration), 5.0)
-            recording = sd.rec(
-                int(16000 * duration),
-                samplerate=16000,
-                channels=1,
-                dtype='int16',
-                device=device_index,
-            )
-            sd.wait()
-            rms = float(np.sqrt(np.mean(recording.astype(np.float32) ** 2)))
-            peak = float(np.max(np.abs(recording)))
-            has_audio = rms > 100
-            return {
-                "ok": True,
-                "rms": round(rms, 1),
-                "peak": round(peak, 1),
-                "has_audio": has_audio,
-                "message": "Audio detected" if has_audio else "No audio detected — check your microphone",
-            }
-        except Exception as e:
-            return {"ok": False, "error": str(e)}
-
     # ── Wizard Hotkey Test API ─────────────────────────────────────────────
 
     def wizard_init_step2(self) -> dict:
@@ -1885,16 +2212,52 @@ class Api:
             return {"ok": False, "error": str(e)}
 
     def wizard_start_hotkey_test(self, device_index) -> dict:
-        """Start temporary hotkey listener for wizard Step 4."""
-        global _wizard_recorder, _wizard_hotkey, _wizard_transcriber
+        """Start setup's practice: its own hotkey listener, recorder,
+        transcriber and styler, so holding the hotkey on the "Hold ... and
+        talk" screen runs a full dictation (transcription and clean-up) into
+        the screen instead of into another app."""
+        global _wizard_recorder, _wizard_hotkey, _wizard_transcriber, _wizard_styler
         global _wizard_recording, _wizard_result, _wizard_overlay
         try:
-            device_index = int(device_index)
+            # The real hotkey is already listening (setup's last screen was
+            # reached and then left with Back): two listeners would both
+            # record, so the practice doesn't start.
+            if _pipeline_running_or_starting():
+                return {"ok": False, "error": "Waffler is already listening. Hold the hotkey in "
+                                              "any app to try it there."}
+            # Starting again (after a hotkey change) replaces the old
+            # listener rather than adding a second one.
+            if _wizard_hotkey is not None or _wizard_recorder is not None:
+                self.wizard_stop_hotkey_test()
+
+            # Keys come first: without one there is nothing to try.
+            openai_key = os.getenv("OPENAI_API_KEY", "")
+            groq_key = os.getenv("GROQ_API_KEY", "")
+            if not openai_key and not groq_key:
+                # Keys are the step before this one (step 2 of 3 on Windows,
+                # 3 of 4 on a Mac); this used to say "Complete Step 1".
+                return {"ok": False, "error": "No API key found. Go back a step and add your key."}
+
+            # A Mac that refused the microphone opens a stream that only
+            # ever delivers silence. Say so before the user tries.
+            if _mac_perms.microphone_status() in ("denied", "restricted"):
+                return {"ok": False, "mic": "denied",
+                        "error": "Waffler isn't allowed to use the microphone. Allow it in "
+                                 "System Settings, then come back."}
+
+            try:
+                device_index = int(device_index) if device_index is not None else None
+            except (TypeError, ValueError):
+                device_index = None
+            if device_index is None:
+                device_index = get_selected_device_index()
             _wizard_result = None
             _wizard_recording = False
 
-            # Create temporary audio recorder
-            _wizard_recorder = AudioRecorder(sample_rate=16000, channels=1)
+            # The practice recorder uses the microphone picked on screen; it
+            # used to ignore it and always record from the default one.
+            _wizard_recorder = AudioRecorder(sample_rate=16000, channels=1,
+                                             device_index=device_index)
 
             # Create overlay for wizard Step 4 visual feedback.
             # Previously skipped due to threading-crash concerns, but the
@@ -1911,17 +2274,22 @@ class Api:
                 _log_to_file(f"Wizard overlay init failed (recording still works): {_e}")
                 _wizard_overlay = None
 
-            # Create temporary transcriber using already-validated keys
-            openai_key = os.getenv("OPENAI_API_KEY", "")
-            groq_key = os.getenv("GROQ_API_KEY", "")
-            if not openai_key and not groq_key:
-                # Keys are the step before this one (step 2 of 3 on Windows,
-                # 3 of 4 on a Mac); this used to say "Complete Step 1".
-                return {"ok": False, "error": "No API key found. Go back a step and add your key."}
-
             _wizard_transcriber = WhisperTranscriber(
                 api_key=openai_key, groq_api_key=groq_key,
             )
+            # The same clean-up every dictation gets (setup used to stop at
+            # the transcription, so it never showed what Waffler does).
+            try:
+                _wizard_styler = OpenAIStyler(
+                    api_key=openai_key,
+                    max_tokens=1024,
+                    prompt_style=getattr(_config, "prompt_style", "normal") or "normal",
+                    groq_api_key=groq_key,
+                    cerebras_api_key=os.getenv("CEREBRAS_API_KEY", ""),
+                )
+            except Exception as _e:
+                _log_to_file(f"Wizard styler init failed (words shown as said): {_e}")
+                _wizard_styler = None
 
             # Create temporary hotkey listener
             stored = self._load_settings_file()
@@ -1936,9 +2304,12 @@ class Api:
                     target=_wizard_hotkey.start, daemon=True, name="WizardHotkeyThread"
                 ).start()
             else:
+                # The saved keys, so a hotkey picked on this screen is the one
+                # the practice listens for.
                 _wizard_hotkey = SmartHotkeyListener(
                     on_press=_wizard_on_press,
                     on_release=_wizard_on_release,
+                    keys=keys,
                 )
                 # Start directly - pynput creates its own thread internally
                 # Running in background thread causes macOS dispatch queue crashes
@@ -1967,7 +2338,7 @@ class Api:
         is bounded by an internal 2s watchdog so a wedged audio device
         can't block the wizard close.
         """
-        global _wizard_hotkey, _wizard_recorder, _wizard_transcriber
+        global _wizard_hotkey, _wizard_recorder, _wizard_transcriber, _wizard_styler
         global _wizard_recording, _wizard_overlay
         try:
             if _wizard_hotkey:
@@ -1993,17 +2364,11 @@ class Api:
                 _wizard_overlay = None
             _wizard_recorder = None
             _wizard_transcriber = None
+            _wizard_styler = None
             _log_to_file("Wizard hotkey test stopped (recorder drained)")
             return {"ok": True}
         except Exception as e:
             return {"ok": False, "error": str(e)}
-
-    def wizard_get_recording_state(self) -> dict:
-        """Poll the wizard recording state and result."""
-        return {
-            "recording": _wizard_recording,
-            "result": _wizard_result,
-        }
 
     def complete_setup(self) -> dict:
         """Called when the setup wizard finishes. Initializes the pipeline
@@ -2022,6 +2387,12 @@ class Api:
         """
         try:
             _mark_setup_complete()
+            # Setup is over: nothing to resume next time.
+            try:
+                with self._editing_settings() as stored:
+                    stored.pop("setup_step", None)
+            except Exception:
+                pass
             threading.Thread(
                 target=_initialize_pipeline,
                 daemon=True,
@@ -2361,6 +2732,12 @@ class Api:
 _window   = None
 _api      = None
 _pipeline = None   # set after WafflerPipeline is created
+# Setup's last screen and its Done button can both start the pipeline, and
+# WafflerPipeline takes a second or more to build. The lock and flag make the
+# second call a no-op while the first is still building, so only one hotkey
+# listener ever starts (two would paste, bill and log every dictation twice).
+_pipeline_init_lock = threading.Lock()
+_pipeline_initialising = False
 _config   = None   # set in main()
 _device_monitor = None   # v3.14.47 — default-input-device watcher (audio_device_monitor.AudioDeviceMonitor)
 
@@ -2369,6 +2746,7 @@ _wizard_recorder      = None   # temporary AudioRecorder for wizard
 _wizard_hotkey        = None   # temporary hotkey listener for wizard (Step 4)
 _wizard_step2_monitor = None   # temporary hotkey monitor for Step 2 detection
 _wizard_transcriber   = None   # temporary WhisperTranscriber for wizard
+_wizard_styler        = None   # temporary OpenAIStyler for the practice clean-up
 _wizard_overlay       = None   # temporary overlay for wizard
 _wizard_recording     = False  # is wizard currently recording?
 _wizard_result        = None   # transcription result
@@ -2434,8 +2812,8 @@ def _wizard_on_press():
             _wizard_overlay.show()
         except Exception as e:
             _log_to_file(f"Wizard overlay show error: {e}")
-        # Start VU level feed in background
-        threading.Thread(target=_wizard_level_loop, daemon=True, name="WizLevelLoop").start()
+    # Level feed for the overlay and setup's meter.
+    threading.Thread(target=_wizard_level_loop, daemon=True, name="WizLevelLoop").start()
     if _window:
         try:
             _window.evaluate_js("window.wizOnRecordingStart && window.wizOnRecordingStart()")
@@ -2445,12 +2823,20 @@ def _wizard_on_press():
 
 def _wizard_level_loop():
     """Feed live audio level to the wizard overlay at ~30fps while recording."""
-    while _wizard_recording and _wizard_recorder and _wizard_overlay:
+    tick = 0
+    while _wizard_recording and _wizard_recorder:
         lvl = _wizard_recorder.get_level()
-        try:
-            _wizard_overlay.update_level(lvl)
-        except Exception:
-            pass
+        if _wizard_overlay:
+            try:
+                _wizard_overlay.update_level(lvl)
+            except Exception:
+                pass
+        # Setup's own meter (the waffle by the microphone name) gets the
+        # same level, a few times a second, so a dead mic shows before the
+        # keys come up.
+        if tick % 3 == 0:
+            _push_wizard_js("wizOnLevel", round(float(lvl or 0), 3))
+        tick += 1
         time.sleep(0.033)
 
 
@@ -2511,7 +2897,14 @@ def _wizard_on_release():
             _push_wizard_silent()
             return
 
-        transcript = _wizard_transcriber.transcribe_sync(audio_bytes) if _wizard_transcriber else ""
+        try:
+            transcript = _wizard_transcriber.transcribe_sync(audio_bytes) if _wizard_transcriber else ""
+        except Exception as e:
+            _log_to_file(f"Wizard transcription error: {type(e).__name__}: {str(e)[:160]}")
+            provider = "Groq" if os.getenv("GROQ_API_KEY") else "OpenAI"
+            _push_wizard_error(key_check_error(provider, e))
+            return
+        transcript = (transcript or "").strip()
         _wizard_result = transcript or "(Empty transcription)"
         # Length only unless logging.log_transcripts is on. app.log ships inside
         # the "Download Logs" bundle, so speech stays out of it by default.
@@ -2519,11 +2912,63 @@ def _wizard_on_release():
             f"Wizard transcription: "
             f"{transcript_for_log(_wizard_result, allowed=_transcripts_loggable())}"
         )
-        _push_wizard_result(_wizard_result)
+        if not transcript:
+            _push_wizard_silent()
+            return
+        _wizard_finish_practice(transcript, len(audio_bytes) / 32000.0)
     except Exception as e:
-        _wizard_result = f"(Error: {e})"
-        _log_to_file(f"Wizard transcription error: {e}")
-        _push_wizard_result(_wizard_result)
+        _wizard_result = None
+        _log_to_file(f"Wizard practice error: {type(e).__name__}: {e}")
+        _push_wizard_error("Something went wrong with that one. Hold the keys and try again.")
+
+
+def _wizard_finish_practice(transcript: str, audio_seconds: float):
+    """The rest of setup's practice dictation: the clean-up every dictation
+    gets, "You said" next to "Waffler wrote" on screen, and the result saved
+    as the first Journal entry (src/first_run.py). Nothing is pasted: the
+    user is looking at Waffler's own window."""
+    _push_wizard_js("wizOnCleaning", transcript)
+    styler = _wizard_styler
+
+    def _style(text):
+        if styler is None:
+            raise RuntimeError("no styling providers configured")
+        return styler.style(text)
+
+    def _plain(text):
+        try:
+            return styler._format_email_layout(styler._basic_clean(text)) if styler else text
+        except Exception:
+            return text
+
+    result = _first_run.finish_practice(transcript, _style, _plain)
+    usage = result["usage"]
+    provider = "groq" if os.getenv("GROQ_API_KEY") else "openai"
+    record_usage_safely("whisper", duration_seconds=audio_seconds, provider=provider)
+    if usage.get("api_used"):
+        record_usage_safely("gpt", input_tokens=usage.get("input_tokens", 0),
+                            output_tokens=usage.get("output_tokens", 0),
+                            provider=usage.get("provider", "openai"))
+    saved = append_history_safely(_first_run.journal_entry(result["said"], result["wrote"]))
+    _log_to_file(f"Wizard practice finished: cleaned={result['cleaned']} "
+                 f"provider={usage.get('provider', 'none')} saved={saved}")
+    _push_wizard_js("wizOnPracticeResult", {
+        "said": result["said"], "wrote": result["wrote"],
+        "cleaned": result["cleaned"], "note": result["note"], "saved": saved,
+    })
+
+
+def _push_wizard_js(fn: str, payload):
+    """Call window.<fn>(payload) in the setup page, if it is there."""
+    if _window:
+        try:
+            _window.evaluate_js(f"window.{fn} && window.{fn}({json.dumps(payload)})")
+        except Exception:
+            pass
+
+
+def _push_wizard_error(message: str):
+    _push_wizard_js("wizOnPracticeError", message)
 
 
 def _push_wizard_silent():
@@ -2535,22 +2980,31 @@ def _push_wizard_silent():
             pass
 
 
-def _push_wizard_result(text: str):
-    """Push wizard transcription result to JS."""
-    if _window:
-        try:
-            result_json = json.dumps(text)
-            _window.evaluate_js(f"window.wizOnTranscriptionResult && window.wizOnTranscriptionResult({result_json})")
-        except Exception:
-            pass
+def _pipeline_running_or_starting() -> bool:
+    """True once the real pipeline exists or is being built, so nothing
+    starts a second hotkey listener alongside it."""
+    return _pipeline is not None or _pipeline_initialising
 
 
 def _initialize_pipeline():
-    """Create pipeline and start hotkey after setup is complete."""
+    """Create pipeline and start hotkey after setup is complete. Safe to call
+    from several threads at once: only the first call builds the pipeline."""
+    global _pipeline_initialising
+    with _pipeline_init_lock:
+        if _pipeline is not None or _pipeline_initialising:
+            _log_to_file("Pipeline already initialized or starting, skipping")
+            return
+        _pipeline_initialising = True
+    try:
+        _build_pipeline()
+    finally:
+        with _pipeline_init_lock:
+            _pipeline_initialising = False
+
+
+def _build_pipeline():
+    """The body of _initialize_pipeline; only ever runs under its guard."""
     global _pipeline
-    if _pipeline:
-        _log_to_file("Pipeline already initialized, skipping")
-        return
 
     _config.reload_env()
 
@@ -2713,9 +3167,35 @@ def notify_js_new_item(item: dict):
     _post_js(f"window.waffler_refresh && window.waffler_refresh({json.dumps(item)})")
 
 
+# Clean-up paused by a provider's limit (src/cleanup_pause.py): the Journal
+# says so at the top until it ends. Kept in memory only; a restart forgets it,
+# as the styler forgets its own cooldown.
+_cleanup_pause_now = None
+
+
+def _set_cleanup_pause(pause):
+    """Remember a clean-up pause and tell the window (never blocks)."""
+    global _cleanup_pause_now
+    _cleanup_pause_now = pause
+    view = _cleanup_pause.view(pause, datetime.now()) if pause else None
+    _post_js("window.waffler_cleanup_paused && window.waffler_cleanup_paused("
+             f"{json.dumps(view)})")
+
+
 # ── Tray / menu bar state ─────────────────────────────────────────────
 _tray_state_now = _tray_state.IDLE
 _tray_working_ico = None     # Path of the generated "working" icon, once made
+
+
+def _app_icon_path():
+    """icon.ico for the tray and the title bar (dev or installed), or one
+    built from ui/logo-icon.png when the build left icon.ico out."""
+    candidates = [PROJECT_ROOT / "icon.ico"]
+    if hasattr(sys, "_MEIPASS"):
+        candidates.append(Path(sys._MEIPASS) / "icon.ico")
+    candidates.append(Path(sys.executable).parent / "_internal" / "icon.ico")
+    return _tray_state.find_app_icon(candidates, PROJECT_ROOT / "ui" / "logo-icon.png",
+                                     DATA_DIR / "app-icon.ico")
 
 
 def _tray_working_icon_path():
@@ -2724,11 +3204,9 @@ def _tray_working_icon_path():
     if _tray_working_ico is not None:
         return _tray_working_ico or None
     try:
-        src = PROJECT_ROOT / "icon.ico"
-        if not src.exists() and hasattr(sys, "_MEIPASS"):
-            src = Path(sys._MEIPASS) / "icon.ico"
-        if not src.exists():
-            src = Path(sys.executable).parent / "_internal" / "icon.ico"
+        src = _app_icon_path()
+        if src is None:
+            raise FileNotFoundError("no app icon")
         _tray_working_ico = _tray_state.make_working_icon(src, DATA_DIR / "tray-working.ico")
     except Exception as e:
         _log_to_file(f"[tray] working icon not made ({type(e).__name__}: {e})")
@@ -3294,6 +3772,8 @@ class WafflerPipeline:
         # error handler must not "salvage" the raw transcript over it.
         _clipboard_written = False
         transcript = None  # for the error handler, whatever fails first
+        styled = None
+        _history_written = False   # this dictation is in the Journal
         try:
             # Calculate recording duration for error suppression
             import time
@@ -3396,16 +3876,18 @@ class WafflerPipeline:
             # words) was guesswork again. Date-stamped names + mtime pruning
             # fix v3.14.78's rotation bug (HHMMSS-only names sorted wrongly
             # across days and deleted the newest files).
+            # 3.15: said in Settings, Privacy and data, with a switch to stop
+            # keeping them (keep_recent_audio) and "Delete now" (src/recent_audio.py).
             try:
                 if audio_bytes:
-                    _dbg_dir = DATA_DIR / "debug_audio"
-                    _dbg_dir.mkdir(parents=True, exist_ok=True)
-                    _stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-                    (_dbg_dir / f"rec-{_stamp}.wav").write_bytes(audio_bytes)
-                    _old = sorted(_dbg_dir.glob("rec-*.wav"),
-                                  key=lambda p: p.stat().st_mtime)[:-10]
-                    for _p in _old:
-                        _p.unlink(missing_ok=True)
+                    _stored = {}
+                    _sf = DATA_DIR / "settings.json"
+                    try:
+                        if _sf.exists():
+                            _stored = json.loads(_sf.read_text(encoding="utf-8-sig"))
+                    except Exception:
+                        pass
+                    _recent_audio.keep(DATA_DIR, audio_bytes, _stored)
             except Exception as _e:
                 _log_to_file(f"[pipeline] debug-audio save failed: {_e}")
             if not audio_bytes:
@@ -3598,13 +4080,29 @@ class WafflerPipeline:
                 return
             run.transcript = transcript
 
-            # Apply vocabulary fuzzy matching corrections
-            from transcribe_whisper import load_vocab, apply_vocab_corrections
-            vocab = load_vocab()
-            if vocab:
-                transcript, corrections = apply_vocab_corrections(transcript, vocab)
-                if corrections:
-                    _log_to_file(f"Vocabulary corrections applied: {', '.join(corrections)}")
+            # Apply vocabulary fuzzy matching corrections. What changed is
+            # kept with the Journal entry ("vocab_changes") so the card can
+            # show it; before 3.15 it was only in app.log.
+            # Never fatal: a Vocabulary that cannot be applied must not cost
+            # the words (as Try again already did).
+            _vocab_changes = []
+            try:
+                from transcribe_whisper import load_vocab, load_sounds_like, apply_vocab_changes
+                vocab = load_vocab()
+                if vocab:
+                    # With no "sounds like" saved, the same call as before 3.15.
+                    _sounds = load_sounds_like(vocab)
+                    _fixed, _vocab_changes = (
+                        apply_vocab_changes(transcript, vocab, _sounds) if _sounds
+                        else apply_vocab_changes(transcript, vocab))
+                    transcript = _fixed
+                    run.transcript = transcript
+                    if _vocab_changes:
+                        _log_to_file("Vocabulary corrections applied: " + ", ".join(
+                            f"'{h}' → '{u}'" for h, u in _vocab_changes))
+            except Exception as e:
+                _vocab_changes = []
+                _log_to_file(f"Vocabulary step skipped ({type(e).__name__}: {e})")
 
             # Record Whisper usage - calculate from audio bytes (works for all backends)
             # Audio is 16kHz, 16-bit mono = 32000 bytes/second
@@ -3655,9 +4153,17 @@ class WafflerPipeline:
             # sentence for a block, no connection, running out of time or no
             # key. The styler's raw reason stays in the log. Not after Esc:
             # that dictation gets its own message below.
+            _as_said = ""
             if gpt_usage.get("fallback_reason") and not run.cancel_keeps:
                 reason = gpt_usage["fallback_reason"]
                 heading, body = cleanup_skipped_message(reason)
+                try:
+                    _pause = _cleanup_pause.from_reason(reason, datetime.now())
+                    if _pause:
+                        _as_said = _cleanup_pause.LIMIT_TAG
+                        _set_cleanup_pause(_pause)
+                except Exception as _e:
+                    _log_to_file(f"[pipeline] clean-up pause note failed: {_e}")
                 _log_to_file(f"[pipeline] styling fell back to basic_clean: {reason}")
                 try:
                     self.overlay.show_toast(style="warn", heading=heading, body=body)
@@ -3803,6 +4309,12 @@ class WafflerPipeline:
                 "word_count": len(styled.split()),
                 "text_is": "asr_filtered",
             }
+            if _as_said:
+                # The Journal tags it "As said: limit reached".
+                item["as_said"] = _as_said
+            if _vocab_changes:
+                # The Journal shows "Vocabulary: Malek → Malak" under the card.
+                item["vocab_changes"] = [[h, u] for h, u in _vocab_changes]
             try:
                 _asr_raw = _asr_info.get("last_asr_response", "") or ""
                 if _asr_info.get("last_asr_filtered", False) and _asr_raw != transcript:
@@ -3899,6 +4411,7 @@ class WafflerPipeline:
             except Exception as _e:
                 _log_to_file(f"[quality] assessment failed: {_e}")
             _saved = append_history_safely(item)
+            _history_written = _saved
             if _esc_kept:
                 # Said only while this dictation still owns the pill.
                 if self._run_is_current(run):
@@ -3963,6 +4476,25 @@ class WafflerPipeline:
                 except Exception as _e:
                     _log_to_file(f"[pipeline] could not keep the recording: {_e}")
 
+            # The words exist but something after speech to text failed:
+            # put them in the Journal, so they are not lost with the error.
+            _journal_saved = _history_written
+            if transcript and not _history_written and not run.saved_as_unsent:
+                _words = styled or transcript
+                _entry = {
+                    "timestamp": datetime.now().isoformat(timespec="seconds"),
+                    "text": transcript,
+                    "styled": _words,
+                    "word_count": len(_words.split()),
+                }
+                _journal_saved = append_history_safely(_entry)
+                if _journal_saved:
+                    _log_to_file("[pipeline] the words were kept in the Journal after the error")
+                    try:
+                        notify_js_new_item(_entry)
+                    except Exception:
+                        pass
+
             # Show user-visible error toast with specific message
             try:
                 # Only genuine mic-level errors get the `error` style with
@@ -4022,9 +4554,8 @@ class WafflerPipeline:
                     self.overlay.show_toast(
                         style="warn",
                         heading="Something went wrong",
-                        body=("Your words are on the clipboard and in the Journal."
-                              if (_salvaged or _clipboard_written) else
-                              "That dictation didn't go through. Please try again."),
+                        body=_words_kept_message(_salvaged or _clipboard_written,
+                                                 _journal_saved),
                     )
             except Exception:
                 pass
@@ -4299,7 +4830,7 @@ class WafflerPipeline:
         remove it when ``new_entry`` is None). True when saved."""
         try:
             with _history_lock:
-                history = load_history()
+                history = _load_history_for_update()
                 idx, _entry = _unsent.find_entry(history, unsent_id)
                 if idx < 0:
                     return False
@@ -4389,11 +4920,15 @@ class WafflerPipeline:
         put them into its card (a normal Journal entry from then on) and
         remove the file. Call with _unsent_lock held."""
         transcript, info = asr_value
+        vocab_changes = []
         try:
-            from transcribe_whisper import load_vocab, apply_vocab_corrections
+            from transcribe_whisper import load_vocab, load_sounds_like, apply_vocab_changes
             vocab = load_vocab()
             if vocab:
-                transcript, _c = apply_vocab_corrections(transcript, vocab)
+                sounds = load_sounds_like(vocab)
+                transcript, vocab_changes = (
+                    apply_vocab_changes(transcript, vocab, sounds) if sounds
+                    else apply_vocab_changes(transcript, vocab))
         except Exception as e:
             _log_to_file(f"[unsent] vocabulary step skipped: {e}")
         provider = (info or {}).get("backend") or ""
@@ -4417,6 +4952,8 @@ class WafflerPipeline:
         styled = self._apply_snippets(styled)
 
         new_item = _unsent.resolved(entry, transcript=transcript, styled=styled)
+        if vocab_changes:
+            new_item["vocab_changes"] = [[h, u] for h, u in vocab_changes]
         if not self._replace_unsent_entry(unsent_id, new_item):
             return {"ok": False, "reason": "not_saved", "item": entry}
         if path is not None:
@@ -4682,6 +5219,16 @@ _mac_menubar_menu = None
 # so PyObjC doesn't GC it, same pattern as the menu-bar refs above).
 _window_hidden = False
 _mac_reopen_observer = None
+# A start at sign-in (--hidden) keeps the window hidden. macOS can still
+# activate the app while it launches, which the Dock-reopen handler would
+# read as a Dock click; activations before this monotonic time are ignored.
+_HIDDEN_START_GRACE_S = 5.0
+_hidden_start_until = 0.0
+
+
+def _reopen_should_show(window_hidden: bool, now: float, hidden_start_until: float) -> bool:
+    """Whether an app activation should bring the hidden window back."""
+    return bool(window_hidden) and now >= hidden_start_until
 
 
 def _create_tray_icon():
@@ -4690,9 +5237,10 @@ def _create_tray_icon():
     Mac: rumps menu-bar icon (top-right, next to Wi-Fi/battery).
     """
     if _platform.system() == "Darwin":
-        _create_mac_menubar_icon()
-    elif _platform.system() == "Windows":
-        _create_windows_tray_icon()
+        return bool(_create_mac_menubar_icon())
+    if _platform.system() == "Windows":
+        return bool(_create_windows_tray_icon())
+    return False
 
 
 def _create_mac_menubar_icon():
@@ -4834,6 +5382,10 @@ def _create_windows_tray_icon():
     We monkeypatch _assert_icon_handle to load the HICON directly from
     icon.ico via Win32 LoadImageW, which is the same proven approach
     that works for the window title bar icon.
+
+    Returns True when the icon is up. main() only lets the close button
+    hide the window, and a sign-in start begin hidden, when it is: without
+    a tray icon a hidden window could only be ended in Task Manager.
     """
     global _tray_icon
     try:
@@ -4842,19 +5394,23 @@ def _create_windows_tray_icon():
         from PIL import Image
         import types
 
-        # Resolve icon.ico path (dev or frozen)
-        _ico_path = PROJECT_ROOT / "icon.ico"
-        if not _ico_path.exists() and hasattr(sys, '_MEIPASS'):
-            _ico_path = Path(sys._MEIPASS) / "icon.ico"
-        if not _ico_path.exists():
-            _ico_path = Path(sys.executable).parent / "_internal" / "icon.ico"
-
-        if not _ico_path.exists():
-            _log_to_file(f"icon.ico not found for tray icon")
-            return
+        _ico_path = _app_icon_path()
+        if _ico_path is None:
+            _log_to_file("icon.ico not found for tray icon")
+            return False
 
         _log_to_file(f"Tray icon: using {_ico_path}")
         ico_str = str(_ico_path)
+        probe = pw32.LoadImage(None, ico_str, pw32.IMAGE_ICON, 0, 0,
+                               pw32.LR_DEFAULTSIZE | pw32.LR_LOADFROMFILE)
+        if not probe:
+            _log_to_file(f"Tray icon: Windows could not load {_ico_path.name}")
+            return False
+        try:
+            import ctypes
+            ctypes.windll.user32.DestroyIcon(probe)
+        except Exception:
+            pass
 
         # We still need a PIL Image for pystray's constructor (it stores it),
         # but we'll bypass its ICO serialization when creating the HICON.
@@ -4890,9 +5446,12 @@ def _create_windows_tray_icon():
         # Make the "working" icon now, off the dictation's path.
         threading.Thread(target=_tray_working_icon_path, daemon=True,
                          name="TrayWorkingIcon").start()
+        return True
 
     except Exception as e:
         _log_to_file(f"Tray icon error: {e}")
+        _tray_icon = None
+        return False
 
 
 def _tray_show_window(icon=None, item=None):
@@ -4946,6 +5505,10 @@ def _perform_factory_reset():
                 import shutil
                 shutil.rmtree(data_dir)
                 _log_to_file("[factory reset] Data directory cleared")
+            try:
+                LoginItem().disable()
+            except Exception:
+                pass
 
             # Show success message
             rumps.alert(
@@ -5042,9 +5605,11 @@ def _install_mac_reopen_handler():
 
         class _WafflerReopenObserver(NSObject):
             def appBecameActive_(self, _notification):  # noqa: N802 — Cocoa selector
-                if _window_hidden:
+                if _reopen_should_show(_window_hidden, time.monotonic(), _hidden_start_until):
                     _log_to_file("[reopen] Dock activation with hidden window — showing")
                     _tray_show_window()
+                elif _window_hidden:
+                    _log_to_file("[reopen] activation while starting hidden at sign-in, ignored")
 
         obs = _WafflerReopenObserver.alloc().init()
         NSNotificationCenter.defaultCenter().addObserver_selector_name_object_(
@@ -5107,7 +5672,7 @@ def _disable_input_source_shortcut():
 
 
 def main():
-    global _config, _window_ref
+    global _config, _window_ref, _window_hidden, _hidden_start_until
 
     # Load config (reads .env from project root via dotenv)
     os.chdir(PROJECT_ROOT)  # so config.yaml and .env are found
@@ -5148,6 +5713,27 @@ def main():
         )
         _signal_focus()
         sys.exit(0)
+
+    # 3.15 (plan SR9): once, remove the transcript lines that versions before
+    # the redaction wrote to app.log, then start a new log when it is over
+    # 5 MB; and apply the chosen history retention. Before anything else
+    # writes to the log; the result is logged as counts only.
+    try:
+        _tidy = _privacy.tidy_logs_at_start(DATA_DIR, DATA_DIR / "settings.json")
+        if _tidy.get("scrubbed"):
+            _log_to_file(f"[privacy] removed {_tidy['scrubbed']} old transcript line(s) from app.log")
+        if _tidy.get("rotated"):
+            _log_to_file("[privacy] app.log was over 5 MB: the old one is app.log.1")
+    except Exception as _e:
+        _log_to_file(f"[privacy] log tidy failed: {type(_e).__name__}")
+    try:
+        with _history_lock:
+            _h = _load_history_for_update()
+            _kept = _retain_history(_h, force=True)
+            if len(_kept) != len(_h):
+                save_history(_kept)
+    except Exception as _e:
+        _log_to_file(f"[history] retention at start-up failed: {type(_e).__name__}")
 
     # v3.14.30 — stamp the running version into the banner so every
     # "is this the right build?" question becomes a 1-second grep
@@ -5307,7 +5893,36 @@ def main():
             _theme, os_prefers_dark() if _theme == "auto" else None)
     except Exception as _e:
         _log_to_file(f"[theme] window background fell back to cream: {_e}")
-        _window_bg = "#FBF7EB"
+        _window_bg = "#FDFCFC"
+
+    # Started at sign-in (src/login_item.py passes --hidden): wait in the
+    # tray or menu bar with the hotkey ready instead of opening the window
+    # on every login. Only once setup is done; before that the window is
+    # where setup happens.
+    # The Windows tray icon is made first (it does not need the window), so
+    # a start at sign-in only stays hidden, and closing the window only hides
+    # it, when the icon to bring it back is really there. Before 3.15 the
+    # installer left icon.ico out, the tray never came up, and a hidden
+    # Waffler could only be ended in Task Manager.
+    _windows_tray_up = False
+    if _platform.system() == "Windows":
+        _windows_tray_up = _create_windows_tray_icon()
+        if not _windows_tray_up:
+            _log_to_file("No tray icon: the close button quits and the window opens at sign-in")
+    can_hide = _windows_tray_up or _platform.system() == "Darwin"
+    start_hidden = (_HIDDEN_FLAG in sys.argv and config.has_api_key
+                    and _is_setup_complete() and can_hide)
+    if start_hidden:
+        _window_hidden = True
+        _hidden_start_until = time.monotonic() + _HIDDEN_START_GRACE_S
+        _log_to_file("Started at sign-in: window stays hidden until opened")
+    # An update can install to a new folder; keep an existing start-at-sign-in
+    # entry pointing at this copy. Never switches it on by itself.
+    try:
+        if LoginItem().refresh():
+            _log_to_file("[login item] start at sign-in now points at this copy")
+    except Exception as _e:
+        _log_to_file(f"[login item] refresh skipped: {_e}")
 
     window = webview.create_window(
         title="Waffler",
@@ -5320,6 +5935,7 @@ def main():
         js_api=api,
         frameless=False,
         easy_drag=False,
+        hidden=start_hidden,
     )
 
     set_window(window)
@@ -5354,9 +5970,8 @@ def main():
             # Let a Dock-icon click reopen the window too, not just the
             # menu-bar 'Show Waffler' item.
             _install_mac_reopen_handler()
-    elif _platform.system() == "Windows":
+    elif _platform.system() == "Windows" and _windows_tray_up:
         window.events.closing += _on_window_closing
-        threading.Thread(target=_create_tray_icon, daemon=True).start()
 
     def _on_shown():
         """Set the window icon after pywebview has created the native window."""
@@ -5367,14 +5982,9 @@ def main():
             from ctypes import wintypes
             user32 = ctypes.windll.user32
 
-            # Resolve icon.ico path (dev or frozen)
-            ico_path = PROJECT_ROOT / "icon.ico"
-            if not ico_path.exists():
-                ico_path = Path(sys.executable).parent / "_internal" / "icon.ico"
-            if not ico_path.exists() and hasattr(sys, '_MEIPASS'):
-                ico_path = Path(sys._MEIPASS) / "icon.ico"
-            if not ico_path.exists():
-                _log_to_file(f"icon.ico not found for window icon")
+            ico_path = _app_icon_path()
+            if ico_path is None:
+                _log_to_file("icon.ico not found for window icon")
                 return
 
             ico_str = str(ico_path)

@@ -36,11 +36,26 @@ try:
 except ImportError:  # imported as src.updater
     from src.user_messages import DOWNLOAD_PAGE as _DOWNLOAD_PAGE
     from src.user_messages import UPDATE_DOWNLOAD_FAILED as _DOWNLOAD_FAILED_MESSAGE
+try:
+    from login_item import mac_bundle_path, mac_running_from_download
+except ImportError:  # imported as src.updater
+    from src.login_item import mac_bundle_path, mac_running_from_download
 
 # No-progress stall threshold: the download worker fails out if no bytes
 # arrive for this many seconds. Without this the request can wedge silently
 # and the UI sits at 0% forever (the symptom users actually report).
 _STALL_TIMEOUT_S = 45
+
+# How the Windows update batch is started. CREATE_NO_WINDOW gives cmd.exe a
+# hidden console that every command in the batch (taskkill, tasklist, find,
+# ping) shares. Do NOT add DETACHED_PROCESS: Windows ignores CREATE_NO_WINDOW
+# when it is set, cmd then has no console at all, and each of those commands
+# opens its own visible terminal window during the update (seen in the
+# 3.14.99 -> 3.14.100 update). CREATE_NEW_PROCESS_GROUP keeps the batch
+# running after Waffler exits.
+_CREATE_NEW_PROCESS_GROUP = 0x00000200
+_CREATE_NO_WINDOW = 0x08000000
+UPDATE_BATCH_FLAGS = _CREATE_NEW_PROCESS_GROUP | _CREATE_NO_WINDOW
 
 # A real-browser UA — GitHub's release-assets CDN sometimes throttles or
 # 403s unidentified python-requests clients on signed-redirect URLs.
@@ -607,12 +622,6 @@ def install_and_restart(installer_path: str) -> None:
     if not path.exists():
         raise FileNotFoundError(f"Installer not found: {installer_path}")
 
-    # Record WHICH version this should produce so the next start can tell
-    # whether the install actually applied (see check_pending_update).
-    _m = re.search(r"(\d+\.\d+\.\d+)", path.name)
-    if _m:
-        record_pending_update(_m.group(1))
-
     # ── Authenticity gate: FAIL CLOSED ───────────────────────────────────
     # Require the bytes we are about to execute to match, exactly, the SHA-256
     # GitHub published for this release asset. The digest is resolved here in
@@ -629,12 +638,86 @@ def install_and_restart(installer_path: str) -> None:
             _log(f"digest re-fetch failed: {e}")
     _verify_artifact_digest(path, expected)
 
+    # Record WHICH version this should produce so the next start can tell
+    # whether the install actually applied (see check_pending_update). Only
+    # now: a download that failed the check above never runs, and the next
+    # start must not then report "Update to vX did NOT apply".
+    _m = re.search(r"(\d+\.\d+\.\d+)", path.name)
+    if _m:
+        record_pending_update(_m.group(1))
+
     if sys.platform.startswith("win"):
         _install_windows(path)
     elif sys.platform == "darwin":
         _install_macos(path)
     else:
         raise RuntimeError(f"Unsupported platform: {sys.platform}")
+
+
+# The paths the update batch uses, passed in its environment. cmd.exe reads
+# a batch file in the console's OEM code page, so a path written into the
+# file as UTF-8 was garbled as soon as it held a letter outside ASCII (the
+# Windows user name is in %TEMP% and in the install folder: Seán, Zoë):
+# Waffler was closed, the installer never ran and nothing relaunched. A "%"
+# in a path was expanded too. The environment is Unicode, and a variable's
+# value is not expanded again, so the paths reach the installer exactly.
+BATCH_ENV_INSTALLER = "WAFFLER_INSTALLER"
+BATCH_ENV_EXE = "WAFFLER_EXE"
+BATCH_ENV_LOG = "WAFFLER_LOG"
+BATCH_ENV_RESULT = "WAFFLER_RESULT"
+
+
+def update_batch_env(exe_path, waffler_exe, log_path, result_path) -> dict:
+    """The variables update_batch_text reads: installer, Waffler, log, result."""
+    return {
+        BATCH_ENV_INSTALLER: str(exe_path),
+        BATCH_ENV_EXE: str(waffler_exe),
+        BATCH_ENV_LOG: str(log_path),
+        BATCH_ENV_RESULT: str(result_path),
+    }
+
+
+def update_batch_text(image: str = "Waffler.exe", max_kill_tries: int = 30) -> str:
+    """The Windows update batch: close every Waffler, install, relaunch.
+
+    Plain ASCII: every path comes from the environment (update_batch_env),
+    never from the file's text, so the code page cmd.exe reads it in does
+    not matter.
+
+    The wait-for-Waffler-to-close loop uses taskkill's own exit code (128 =
+    no such process) instead of piping tasklist into find. In the 3.14.99 to
+    3.14.100 update that pipe hung forever on ``find``, so the installer never
+    ran and Waffler was left closed. The loop is also capped, so a process
+    that cannot be killed can no longer stall the update for ever.
+    """
+    return (
+        "@echo off\r\n"
+        "REM Give the parent a moment to exit on its own.\r\n"
+        "ping -n 2 127.0.0.1 >NUL\r\n"
+        "REM Force-kill EVERY Waffler.exe (main + overlay subprocess) so no\r\n"
+        "REM _internal\\ file is locked when the installer overwrites it.\r\n"
+        "set TRIES=0\r\n"
+        ":kill_loop\r\n"
+        f"taskkill /F /IM {image} >NUL 2>&1\r\n"
+        "REM 128 means no such process is left.\r\n"
+        "if errorlevel 128 goto killed\r\n"
+        "set /a TRIES+=1\r\n"
+        f"if %TRIES% GEQ {max_kill_tries} goto killed\r\n"
+        "ping -n 2 127.0.0.1 >NUL\r\n"
+        "goto kill_loop\r\n"
+        ":killed\r\n"
+        "REM Settle so the OS releases all file handles.\r\n"
+        "ping -n 4 127.0.0.1 >NUL\r\n"
+        "REM No UI, auto-dismiss any prompt, log for diagnosis.\r\n"
+        f'"%{BATCH_ENV_INSTALLER}%" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART '
+        f'/LOG="%{BATCH_ENV_LOG}%"\r\n'
+        "set RC=%ERRORLEVEL%\r\n"
+        f'> "%{BATCH_ENV_RESULT}%" echo %RC%\r\n'
+        "ping -n 2 127.0.0.1 >NUL\r\n"
+        "REM Launch the freshly installed Waffler exactly once.\r\n"
+        f'start "" "%{BATCH_ENV_EXE}%"\r\n'
+        'del "%~f0"\r\n'
+    )
 
 
 def _install_windows(exe_path: Path) -> None:
@@ -681,44 +764,17 @@ def _install_windows(exe_path: Path) -> None:
     log_path = Path(tempfile.gettempdir()) / "waffler_install.log"
     result_path = _pending_dir() / PENDING_RESULT_NAME
 
-    bat = (
-        "@echo off\r\n"
-        "REM Give the parent a moment to exit on its own.\r\n"
-        "ping -n 2 127.0.0.1 >NUL\r\n"
-        "REM Force-kill EVERY Waffler.exe (main + overlay subprocess) so no\r\n"
-        "REM _internal\\ file is locked when the installer overwrites it. The\r\n"
-        "REM overlay child kept the DLLs locked, which is why updates silently\r\n"
-        "REM did nothing before v3.14.73.\r\n"
-        ":kill_loop\r\n"
-        "taskkill /F /IM Waffler.exe >NUL 2>&1\r\n"
-        'tasklist /FI "IMAGENAME eq Waffler.exe" /NH 2>NUL | find /I "Waffler.exe" >NUL\r\n'
-        "if not errorlevel 1 (\r\n"
-        "  ping -n 2 127.0.0.1 >NUL\r\n"
-        "  goto kill_loop\r\n"
-        ")\r\n"
-        "REM Settle so the OS releases all file handles.\r\n"
-        "ping -n 4 127.0.0.1 >NUL\r\n"
-        "REM No UI, auto-dismiss any prompt, log for diagnosis.\r\n"
-        f'"{exe_path}" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /LOG="{log_path}"\r\n'
-        "REM Capture the installer exit code. It used to be discarded and the\r\n"
-        "REM batch relaunched regardless, so a failed install was silent.\r\n"
-        "set RC=%ERRORLEVEL%\r\n"
-        f'> "{result_path}" echo %RC%\r\n'
-        "ping -n 2 127.0.0.1 >NUL\r\n"
-        "REM Launch the freshly installed Waffler exactly once.\r\n"
-        f'start "" "{waffler_exe}"\r\n'
-        'del "%~f0"\r\n'
-    )
+    bat = update_batch_text()
     bat_path = Path(tempfile.gettempdir()) / f"waffler_update_{os.getpid()}.bat"
-    bat_path.write_text(bat, encoding="utf-8")
+    bat_path.write_text(bat, encoding="ascii")
+    env = dict(os.environ)
+    env.update(update_batch_env(exe_path, waffler_exe, log_path, result_path))
 
-    DETACHED_PROCESS = 0x00000008
-    CREATE_NEW_PROCESS_GROUP = 0x00000200
-    CREATE_NO_WINDOW = 0x08000000
     subprocess.Popen(
         ["cmd", "/c", str(bat_path)],
         close_fds=True,
-        creationflags=DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW,
+        creationflags=UPDATE_BATCH_FLAGS,
+        env=env,
     )
     # Exit promptly so the batch's kill_loop finds nothing to wait on and the
     # installer runs against fully-unlocked files.
@@ -808,6 +864,21 @@ def _hdiutil_detach(target: str, attempts: int = 2) -> bool:
     return False
 
 
+def mac_install_target(executable: str) -> Path:
+    """The Waffler.app an update replaces: the one that is running.
+
+    The updater always wrote /Applications/Waffler.app. Run from anywhere
+    else (~/Applications, or a renamed copy), an update added a second copy
+    and opened that one, or failed for a user who cannot write to
+    /Applications. Only a copy still running from the disk image (or from
+    macOS's quarantine copy) installs to /Applications, as a first install.
+    """
+    bundle = mac_bundle_path(executable)
+    if bundle is not None and not mac_running_from_download(bundle):
+        return Path(str(bundle))
+    return Path("/Applications") / "Waffler.app"
+
+
 def _install_macos(dmg_path: Path) -> None:
     """Mount the DMG, verify+swap the app atomically, then relaunch.
 
@@ -819,7 +890,7 @@ def _install_macos(dmg_path: Path) -> None:
          confirm it EXISTS before touching the installed copy.
       2. Verify the in-DMG app's code signature (codesign + spctl). Abort on
          failure.
-      3. Stage: copy the new app to a temp dir *inside* /Applications, then
+      3. Stage: copy the new app to a temp dir beside the installed app, then
          re-verify the staged copy's signature.
       4. Atomic swap: move the old app aside, move the staged app into place;
          on any error, restore the old app. Only then remove the old copy.
@@ -830,8 +901,10 @@ def _install_macos(dmg_path: Path) -> None:
     its own os._exit), then cleans up the DMG and leftover staging.
     """
     pid = os.getpid()
-    apps_dir = Path("/Applications")
-    installed = apps_dir / "Waffler.app"
+    installed = mac_install_target(sys.executable)
+    # Staged and kept beside it: the same folder, so the swap is a rename.
+    apps_dir = installed.parent
+    _log(f"installing to {installed}")
 
     mount_point = ""
     dev_entry = ""
@@ -872,12 +945,12 @@ def _install_macos(dmg_path: Path) -> None:
         # (1) Verify the in-DMG app's signature. Fail closed.
         _verify_macos_app_signature(app_in_dmg)
 
-        # (2) Stage a copy inside /Applications (same filesystem → fast,
+        # (2) Stage a copy beside the installed app (same filesystem → fast,
         # atomic rename later). Clean any stale staging first.
         _cleanup_paths()
         shutil.copytree(app_in_dmg, staged, symlinks=True)
         if not staged.exists():
-            raise RuntimeError("failed to stage new app into /Applications")
+            raise RuntimeError(f"failed to stage new app into {apps_dir}")
 
         # (3) Re-verify the staged copy actually on disk before swapping.
         _verify_macos_app_signature(staged)

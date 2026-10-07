@@ -511,7 +511,39 @@ def test_an_exception_in_the_pipeline_itself_ends_in_a_plain_message(tmp_path, l
     assert toast["heading"] == "Something went wrong"
     assert toast["body"] == "Your words are on the clipboard and in the Journal."
     assert p.clipboard.copies == ["ok so ship it on monday"]      # salvaged
+    # ...and the toast's "in the Journal" is true: before 3.15 it was not.
+    [entry] = history(p)
+    assert entry["text"] == "ok so ship it on monday" and not entry.get("failed")
+    assert p.page.items and p.page.items[-1]["text"] == "ok so ship it on monday"
     assert p.hotkey_listener.processing[-1] is False
+
+
+def test_a_journal_that_cannot_be_saved_after_an_error_is_not_claimed(tmp_path, limits):
+    p = make_pipeline(tmp_path)
+    p._apply_snippets = lambda text: (_ for _ in ()).throw(ValueError("bad snippet"))
+    p.ns["append_history_safely"] = lambda item: False
+    worker = run_process(p)
+    worker.join(3)
+    assert not worker.is_alive()
+    toast = p.overlay.toasts()[-1]
+    assert toast["body"] == "Your words are on the clipboard."
+    assert p.clipboard.copies == ["ok so ship it on monday"]
+
+
+def test_a_vocabulary_that_raises_does_not_cost_the_dictation(tmp_path, limits, monkeypatch):
+    import transcribe_whisper
+    monkeypatch.setattr(transcribe_whisper, "load_vocab", lambda: ["Pat\\h", 5])
+    monkeypatch.setattr(transcribe_whisper, "apply_vocab_changes",
+                        lambda text, vocab: (_ for _ in ()).throw(AttributeError("int")))
+    p = make_pipeline(tmp_path)
+    worker = run_process(p)
+    worker.join(3)
+    assert not worker.is_alive()
+    assert p.clipboard.pastes == ["Ok so ship it on monday."]
+    [entry] = history(p)
+    assert entry["text"] == "ok so ship it on monday" and "vocab_changes" not in entry
+    assert p.page.statuses[-1] == "done"
+    assert any("Vocabulary step skipped (AttributeError" in m for m in p.logged)
 
 
 def test_something_hanging_outside_a_bounded_step_is_given_up_on(tmp_path, monkeypatch):

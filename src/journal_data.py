@@ -1,0 +1,268 @@
+"""The Journal's numbers and pages, worked out once per change to history.json.
+
+The window used to ask for the whole history (and rescan it for the
+counts) on every dictation, every search keystroke and every Settings
+visit: at 3,290 entries that was about half a second each time, and it
+grew with every day of use. Now:
+
+- ``HistoryCache`` keeps the parsed file and its counts until the file
+  changes (its size or modified time), so repeated calls cost nothing.
+- ``page`` returns one page of entries, newest first, optionally only
+  those matching a search, so the window draws about 50 cards at a time.
+- ``compute_stats`` is the one place the counts are worked out: today, this
+  week, this month, all time, the day streak (and the longest one), and the
+  words of each of the last 30 days (Settings, Usage draws them as a chart;
+  the Journal draws the last seven).
+- ``vocab_usage`` counts what the Vocabulary corrected, from the
+  corrections recorded with each entry.
+
+Nothing here touches the network or the window.
+"""
+
+from __future__ import annotations
+
+import os
+import threading
+from datetime import date, timedelta
+
+
+def _day(ts) -> date | None:
+    """The calendar day of a history timestamp ("2026-09-25T16:31:02")."""
+    s = str(ts or "")
+    if len(s) < 10:
+        return None
+    try:
+        y, m, d = s[:10].split("-")
+        return date(int(y), int(m), int(d))
+    except Exception:
+        return None
+
+
+def _words(item: dict) -> int:
+    # A Not sent entry holds a note, not the user's words: it adds none.
+    if item.get("failed"):
+        return 0
+    return len((item.get("styled") or item.get("text") or "").split())
+
+
+# Settings, Usage: the chart's days, ending today.
+CHART_DAYS = 30
+
+
+def compute_stats(history: list, today: date) -> dict:
+    """Counts for the Journal strip and Settings, Usage.
+
+    ``today_count`` counts every entry made today, as it always has; the
+    week and month counts leave out Not sent entries, which are not
+    dictations yet. The week starts on Monday.
+
+    Streak: consecutive days, ending today, with at least one entry. If
+    today has none yet, yesterday anchors it, so a streak doesn't snap to
+    0 at midnight before the first dictation of the day.
+
+    ``daily_words``: the words of each of the last ``CHART_DAYS`` days,
+    oldest first, ending today; ``daily_start`` is the first of those days
+    ("2026-08-27"). Not sent entries add none, as everywhere else.
+    """
+    week_start = today - timedelta(days=today.weekday())
+    chart_start = today - timedelta(days=CHART_DAYS - 1)
+    daily = [0] * CHART_DAYS
+    out = {
+        "today_words": 0, "today_count": 0,
+        "week_words": 0, "week_count": 0,
+        "month_words": 0, "month_count": 0,
+        "total_words": 0, "total_count": 0,
+        "entries": 0, "streak_days": 0,
+        "daily_start": chart_start.isoformat(), "daily_words": daily,
+    }
+    days = set()
+    for h in history:
+        if not isinstance(h, dict):
+            continue
+        out["entries"] += 1
+        d = _day(h.get("timestamp"))
+        w = _words(h)
+        failed = bool(h.get("failed"))
+        out["total_words"] += w
+        if not failed:
+            out["total_count"] += 1
+        if d is None:
+            continue
+        days.add(d)
+        if d == today:
+            out["today_words"] += w
+            out["today_count"] += 1
+        if not failed and week_start <= d <= today:
+            out["week_words"] += w
+            out["week_count"] += 1
+        if not failed and d.year == today.year and d.month == today.month:
+            out["month_words"] += w
+            out["month_count"] += 1
+        if chart_start <= d <= today:
+            daily[(d - chart_start).days] += w
+    cursor = today if today in days else today - timedelta(days=1)
+    while cursor in days:
+        out["streak_days"] += 1
+        cursor -= timedelta(days=1)
+    out["longest_streak_days"] = longest_run(days)
+    return out
+
+
+def longest_run(days) -> int:
+    """The most consecutive days in ``days`` (the Journal's "Your longest
+    yet" beside the streak)."""
+    best = 0
+    for d in days:
+        if d - timedelta(days=1) in days:
+            continue                    # not the first day of a run
+        n = 1
+        while d + timedelta(days=n) in days:
+            n += 1
+        best = max(best, n)
+    return best
+
+
+# Vocabulary: the corrections recorded with each Journal entry
+# ("vocab_changes", [[heard, used], ...], saved since 3.15).
+RECENT_CORRECTIONS = 6
+
+
+def vocab_usage(history: list, recent: int = RECENT_CORRECTIONS) -> dict:
+    """What the Vocabulary has done, from the Journal.
+
+    ``by_entry``: for each word used (case-folded, so a respelt entry keeps
+    its count), ``count``, the dictations in which it corrected something,
+    and ``last``, the newest of their timestamps. ``recent``: the newest
+    corrections, newest first, as {heard, used, timestamp}. Only what is in
+    the Journal counts: deleting history takes its corrections with it.
+    """
+    by_entry: dict = {}
+    latest = []
+    for h in history:
+        if not isinstance(h, dict) or h.get("failed"):
+            continue
+        changes = h.get("vocab_changes")
+        if not isinstance(changes, list):
+            continue
+        ts = str(h.get("timestamp") or "")
+        seen = set()
+        for c in changes:
+            if not (isinstance(c, (list, tuple)) and len(c) == 2
+                    and isinstance(c[0], str) and isinstance(c[1], str)
+                    and c[0] and c[1]):
+                continue
+            latest.append((ts, c[0], c[1]))
+            key = c[1].casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            row = by_entry.setdefault(key, {"count": 0, "last": ""})
+            row["count"] += 1
+            if ts > row["last"]:
+                row["last"] = ts
+    # history.json is oldest first; a stable sort keeps a dictation's own
+    # order for corrections made at the same time.
+    latest.sort(key=lambda t: t[0], reverse=True)
+    return {"by_entry": by_entry,
+            "recent": [{"heard": hd, "used": u, "timestamp": ts}
+                       for ts, hd, u in latest[:max(0, int(recent))]]}
+
+
+def matches(item: dict, query: str) -> bool:
+    """The Journal search: the clean text and the transcript, any case."""
+    q = str(query or "").strip().lower()
+    if not q:
+        return True
+    hay = ((item.get("styled") or "") + " " + (item.get("text") or "")).lower()
+    return q in hay
+
+
+def page(history: list, limit=None, offset=0, query: str = "") -> list:
+    """Entries newest first (history.json is oldest first).
+
+    ``limit`` None means all of them. ``offset`` counts from the newest
+    matching entry. With a ``query``, only matching entries are counted.
+    """
+    try:
+        offset = max(0, int(offset or 0))
+    except (TypeError, ValueError):
+        offset = 0
+    try:
+        limit = None if limit is None else max(0, int(limit))
+    except (TypeError, ValueError):
+        limit = None
+    out = []
+    skipped = 0
+    for item in reversed(history):
+        if not isinstance(item, dict) or not matches(item, query):
+            continue
+        if skipped < offset:
+            skipped += 1
+            continue
+        if limit is not None and len(out) >= limit:
+            break
+        out.append(item)
+    return out
+
+
+class HistoryCache:
+    """history.json parsed once, and its stats, until the file changes.
+
+    ``load`` is the function that reads the file (app.py load_history).
+    The cache is keyed on the file's size and modified time, so a write
+    from anywhere (a dictation, Try again, Delete) is picked up on the next
+    call. Callers get the cached list itself: they must not change it.
+    """
+
+    def __init__(self, path, load):
+        self._path = path
+        self._load = load
+        self._lock = threading.Lock()
+        self._sig = None
+        self._items: list = []
+        self._stats_key = None
+        self._stats: dict | None = None
+        self._vocab_key = None
+        self._vocab: dict | None = None
+        self.loads = 0      # how many times the file was read (for tests)
+
+    def _signature(self):
+        try:
+            st = os.stat(self._path)
+            # history.json is replaced whole on every write (write_json_atomic),
+            # so the file's identity changes too, not only its time.
+            return (st.st_size, st.st_mtime_ns, st.st_ino)
+        except OSError:
+            return None
+
+    def items(self) -> list:
+        with self._lock:
+            sig = self._signature()
+            if sig is None or sig != self._sig:
+                self._items = self._load() if sig is not None else []
+                self._sig = sig
+                self._stats_key = None
+                self.loads += 1
+            return self._items
+
+    def stats(self, today: date) -> dict:
+        items = self.items()
+        with self._lock:
+            key = (self._sig, today)
+            if self._stats is None or self._stats_key != key:
+                self._stats = compute_stats(items, today)
+                self._stats_key = key
+            out = dict(self._stats)
+            out["daily_words"] = list(out["daily_words"])
+            return out
+
+    def vocab_usage(self) -> dict:
+        """vocab_usage of the cached history, worked out once per change.
+        The caller gets its own copy."""
+        items = self.items()
+        with self._lock:
+            if self._vocab is None or self._vocab_key != self._sig:
+                self._vocab = vocab_usage(items)
+                self._vocab_key = self._sig
+            return {"by_entry": {k: dict(v) for k, v in self._vocab["by_entry"].items()},
+                    "recent": [dict(r) for r in self._vocab["recent"]]}

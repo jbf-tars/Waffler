@@ -29,7 +29,10 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT))
 
 import atomic_json  # noqa: E402
+import cleanup_pause  # noqa: E402
 import pipeline_watchdog as pw  # noqa: E402
+import privacy_data  # noqa: E402
+import recent_audio  # noqa: E402
 import tray_state  # noqa: E402
 import unsent  # noqa: E402
 import user_messages  # noqa: E402
@@ -49,8 +52,10 @@ PIPELINE_METHODS = (
     "_drain_unsent_soon", "_on_hotkey_cancel", "_fill_unsent_card", "_in_flight",
     "_collect_late_words", "_late_words_arrived", "_keep_late_recording",
 )
-MODULE_DEFS = ("ensure_data_dir", "load_history", "save_history", "append_history",
-               "append_history_safely", "_MIN_TAP_SPEECH_S")
+MODULE_DEFS = ("ensure_data_dir", "load_history", "_load_history_for_update",
+               "save_history", "append_history",
+               "append_history_safely", "_words_kept_message", "_MIN_TAP_SPEECH_S",
+               "_history_retention_day", "_history_keep_days", "_retain_history")
 
 
 def _module_defs(ns):
@@ -156,9 +161,10 @@ class FakeTranscriber:
 
 
 class FakeStyler:
-    def __init__(self, hang=None, error=None):
+    def __init__(self, hang=None, error=None, fallback_reason=None):
         self.hang = hang
         self.error = error
+        self.fallback_reason = fallback_reason
         self.calls = 0
 
     def style(self, transcript):
@@ -167,6 +173,10 @@ class FakeStyler:
             self.hang.wait()
         if self.error is not None:
             raise self.error
+        if self.fallback_reason:
+            # Every clean-up provider failed: the words as said, and why.
+            return transcript, {"input_tokens": 0, "output_tokens": 0, "api_used": False,
+                                "provider": "basic_clean", "fallback_reason": self.fallback_reason}
         styled = transcript[:1].upper() + transcript[1:] + "."
         return styled, {"input_tokens": 10, "output_tokens": 8, "api_used": True,
                         "provider": "groq"}
@@ -243,6 +253,7 @@ class Page:
         self.items = []
         self.updates = []
         self.scripts = []
+        self.pauses = []
 
 
 # ── the pipeline ───────────────────────────────────────────────────────────
@@ -263,6 +274,7 @@ def make_pipeline(data_dir: Path, *, transcriber=None, styler=None, clipboard=No
         DATA_DIR=data_dir, HISTORY_FILE=data_dir / "history.json",
         _history_lock=threading.Lock(),
         write_json_atomic=lambda p, d: atomic_json.write_json_atomic(p, d, sleep=lambda s: None),
+        read_json_for_update=atomic_json.read_json_for_update,
         _log_to_file=logged.append,
         notify_js_status=page.statuses.append,
         notify_js_new_item=page.items.append,
@@ -277,6 +289,8 @@ def make_pipeline(data_dir: Path, *, transcriber=None, styler=None, clipboard=No
         _platform=types.SimpleNamespace(system=lambda: "Windows"),
         cleanup_skipped_message=user_messages.cleanup_skipped_message,
         limit_reached_message=user_messages.limit_reached_message,
+        _recent_audio=recent_audio, _cleanup_pause=cleanup_pause, _privacy=privacy_data,
+        _set_cleanup_pause=page.pauses.append,
     )
     from transcribe_whisper import _speech_seconds
     ns["_speech_seconds"] = _speech_seconds
