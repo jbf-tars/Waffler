@@ -322,6 +322,9 @@ def save_history(history: list):
 # used to read and rescan the whole file every time.
 _history_cache = _journal.HistoryCache(HISTORY_FILE, load_history)
 
+# Vocabulary, Try a sentence: the longest text it takes.
+TRY_VOCAB_MAX_CHARS = 2000
+
 
 # History retention (Settings, Privacy and data; src/privacy_data.py). Keep
 # everything unless the user chose 30, 90 or 365 days. Applied at start-up,
@@ -851,17 +854,63 @@ class Api:
         from transcribe_whisper import load_vocab
         return load_vocab()
 
-    def set_vocab(self, words: list) -> dict:
+    def set_vocab(self, words: list, sounds_like=None) -> dict:
         """Save the user's custom vocabulary list (vocab.json, UTF-8, written
         atomically). The list is tidied first (transcribe_whisper.clean_vocab)
         and checked against the limits; the saved list comes back as
         ``words`` so the page shows exactly what was kept. The next
-        dictation reads it, so no restart is needed."""
-        from transcribe_whisper import save_vocab
-        result = save_vocab(words)
+        dictation reads it, so no restart is needed.
+
+        ``sounds_like`` ({word: [spellings]}, 3.15) replaces what each word
+        sounds like (vocab_sounds.json); left out, the saved spellings stay
+        with the words still listed. The saved spellings come back as
+        ``sounds_like``."""
+        from transcribe_whisper import save_vocab, load_sounds_like
+        result = save_vocab(words) if sounds_like is None else save_vocab(words, sounds_like)
         if result.get("log"):
             _log_to_file(f"[vocab] {result.pop('log')}")
+        if result.get("ok") and "sounds_like" not in result:
+            result["sounds_like"] = load_sounds_like(result.get("words") or [])
         return result
+
+    def get_vocab_book(self) -> dict:
+        """The Vocabulary page: each word with what it sounds like, how many
+        dictations it corrected and when it last did, from the corrections
+        recorded in the Journal (src/journal_data.py vocab_usage), and the
+        newest corrections. ``total`` is the sum of the words' counts."""
+        try:
+            from transcribe_whisper import load_vocab, load_sounds_like
+            words = load_vocab()
+            sounds = load_sounds_like(words)
+            usage = _history_cache.vocab_usage()
+            rows, total = [], 0
+            for w in words:
+                u = usage["by_entry"].get(w.casefold(), {})
+                n = int(u.get("count") or 0)
+                total += n
+                rows.append({"word": w, "sounds_like": sounds.get(w, []),
+                             "count": n, "last": u.get("last") or ""})
+            return {"ok": True, "entries": rows, "total": total,
+                    "recent": usage["recent"]}
+        except Exception as e:
+            _log_to_file(f"[vocab] get_vocab_book failed: {type(e).__name__}: {e}")
+            return {"ok": False, "entries": [], "total": 0, "recent": []}
+
+    def try_vocab(self, text: str) -> dict:
+        """Vocabulary, Try a sentence: what the saved Vocabulary makes of
+        ``text``, as a dictation would (the step before the clean-up). The
+        text stays here: nothing is sent or kept. ``marks`` are the
+        (start, end) of each word it changed."""
+        from transcribe_whisper import load_vocab, load_sounds_like, apply_vocab_marked
+        text = str(text or "")[:TRY_VOCAB_MAX_CHARS]
+        try:
+            words = load_vocab()
+            out, changes, spans = apply_vocab_marked(text, words, load_sounds_like(words))
+            return {"ok": True, "text": out, "changes": [[h, u] for h, u in changes],
+                    "marks": [[a, b] for a, b in spans]}
+        except Exception as e:
+            _log_to_file(f"[vocab] try_vocab failed: {type(e).__name__}: {e}")
+            return {"ok": False, "text": text, "changes": [], "marks": []}
 
     def demo_overlay_show(self) -> dict:
         """Show overlay with mic feedback for wizard demo (Step 4)."""
@@ -1125,7 +1174,8 @@ class Api:
         Includes:
           - app.log, crash.log              (runtime + Python crash dumps)
           - settings.json, config.json,
-            setup_complete.json, vocab.json (config / state — no PII)
+            setup_complete.json, vocab.json,
+            vocab_sounds.json               (config / state — no PII)
           - macOS DiagnosticReports/*.ips   (last 5 system crash dumps)
           - sysinfo.txt                     (synthesised: version, OS,
                                              hotkey, audio device, VPN)
@@ -1175,7 +1225,7 @@ class Api:
 
                 # 2) Config snapshots (no PII, no keys).
                 for name in ("settings.json", "config.json",
-                             "setup_complete.json", "vocab.json"):
+                             "setup_complete.json", "vocab.json", "vocab_sounds.json"):
                     src_path = DATA_DIR / name
                     if src_path.exists():
                         try:
@@ -4037,10 +4087,14 @@ class WafflerPipeline:
             # the words (as Try again already did).
             _vocab_changes = []
             try:
-                from transcribe_whisper import load_vocab, apply_vocab_changes
+                from transcribe_whisper import load_vocab, load_sounds_like, apply_vocab_changes
                 vocab = load_vocab()
                 if vocab:
-                    _fixed, _vocab_changes = apply_vocab_changes(transcript, vocab)
+                    # With no "sounds like" saved, the same call as before 3.15.
+                    _sounds = load_sounds_like(vocab)
+                    _fixed, _vocab_changes = (
+                        apply_vocab_changes(transcript, vocab, _sounds) if _sounds
+                        else apply_vocab_changes(transcript, vocab))
                     transcript = _fixed
                     run.transcript = transcript
                     if _vocab_changes:
@@ -4868,10 +4922,13 @@ class WafflerPipeline:
         transcript, info = asr_value
         vocab_changes = []
         try:
-            from transcribe_whisper import load_vocab, apply_vocab_changes
+            from transcribe_whisper import load_vocab, load_sounds_like, apply_vocab_changes
             vocab = load_vocab()
             if vocab:
-                transcript, vocab_changes = apply_vocab_changes(transcript, vocab)
+                sounds = load_sounds_like(vocab)
+                transcript, vocab_changes = (
+                    apply_vocab_changes(transcript, vocab, sounds) if sounds
+                    else apply_vocab_changes(transcript, vocab))
         except Exception as e:
             _log_to_file(f"[unsent] vocabulary step skipped: {e}")
         provider = (info or {}).get("backend") or ""

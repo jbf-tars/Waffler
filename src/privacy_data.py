@@ -89,7 +89,8 @@ def count_older(history: list, keep_days: int, now: datetime | None = None) -> i
 # ── Delete all my data ───────────────────────────────────────────────────────
 
 # Files and folders in the data folder. Keys (.env), settings.json,
-# config.json, setup_complete.json and vocab.json are not here: they stay.
+# config.json, setup_complete.json, vocab.json and vocab_sounds.json are not
+# here: they stay.
 DATA_FILES = ("history.json", "usage.json", "quality.jsonl",
               "app.log", "app.log.1", "crash.log", "hotkey.log")
 # The *.unreadable-* copies are a history.json or usage.json that could not

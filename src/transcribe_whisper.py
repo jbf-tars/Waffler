@@ -116,7 +116,7 @@ def load_vocab() -> list[str]:
     return []
 
 
-def save_vocab(words) -> dict:
+def save_vocab(words, sounds_like=None) -> dict:
     """Save the Vocabulary list to vocab.json: tidied (clean_vocab), checked
     against the limits, written as UTF-8 through a temporary file so a crash
     mid-write cannot leave half a list.
@@ -125,7 +125,12 @@ def save_vocab(words) -> dict:
     empty list, and the next save would have replaced it with just the new
     word. It is now kept beside it as vocab.unreadable-<time>.json first.
 
-    Returns {"ok": True, "count", "words"} or {"ok": False, "error"} with a
+    ``sounds_like`` ({entry: [spellings]}) replaces the saved spellings
+    (vocab_sounds.json, see clean_sounds_like); None keeps them for the
+    entries still listed.
+
+    Returns {"ok": True, "count", "words"} ("sounds_like" too, the saved
+    spellings, when they were given) or {"ok": False, "error"} with a
     sentence for the page; "log" carries a line for app.log when there is
     one."""
     import json
@@ -138,6 +143,9 @@ def save_vocab(words) -> dict:
     if len(cleaned) > VOCAB_MAX_ENTRIES:
         return {"ok": False, "error": f"Your list is full ({VOCAB_MAX_ENTRIES} words). "
                                       "Remove one you no longer need first."}
+    sounds_error = check_sounds_like(sounds_like)
+    if sounds_error:
+        return {"ok": False, "error": sounds_error}
     log = ""
     try:
         VOCAB_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -161,9 +169,123 @@ def save_vocab(words) -> dict:
         return {"ok": False, "error": "Couldn't save your list. Try again.",
                 "log": f"save failed: {type(e).__name__}: {e}"}
     out = {"ok": True, "count": len(cleaned), "words": cleaned}
+    sounds = _save_sounds_like(sounds_like, cleaned)
+    if sounds.get("log"):
+        log = (log + "; " if log else "") + sounds["log"]
+    if sounds_like is not None:
+        out["sounds_like"] = sounds["sounds_like"]
     if log:
         out["log"] = log
     return out
+
+
+# ── "Sounds like" (3.15) ─────────────────────────────────────────────────────
+# What speech to text writes for an entry, when the user knows it: "grok"
+# for Groq, "waffle her" for Waffler. Kept beside vocab.json, so vocab.json
+# stays the plain list of words older versions read, as
+# {"Groq": ["grok", "grock"]}. An entry with spellings is matched by them
+# and its own spelling only: the loose matching (fuzzy_match_word) is for
+# entries without any, so naming what it hears stops the guessing.
+VOCAB_SOUNDS_FILE = _data_dir() / "vocab_sounds.json"
+VOCAB_MAX_SOUNDS = 8
+
+
+def clean_sounds_like(raw, words) -> dict:
+    """The spellings as the app uses them, for the entries in ``words``.
+
+    Keys are the entries as written in ``words`` (a key in other capitals
+    is the same entry, so a respelt entry keeps its spellings), in list
+    order. Each spelling: a string, spaces trimmed and runs made one, at
+    most VOCAB_MAX_ENTRY_LEN characters, with a letter or digit in it. A
+    spelling is dropped when it is the entry itself or another entry (any
+    capitals), or already given for an earlier entry; at most
+    VOCAB_MAX_SOUNDS for each entry. Entries without any are left out."""
+    if not isinstance(raw, dict):
+        return {}
+    words = clean_vocab(words)
+    entries = {w.casefold() for w in words}
+    by_key = {}
+    for k, v in raw.items():
+        if isinstance(k, str):
+            by_key.setdefault(" ".join(k.split()).casefold(), v)
+    out, taken = {}, set()
+    for w in words:
+        spellings = by_key.get(w.casefold())
+        if not isinstance(spellings, list):
+            continue
+        kept = []
+        for s in spellings:
+            if not isinstance(s, str):
+                continue
+            s = " ".join(s.split())
+            f = s.casefold()
+            if (not s or len(s) > VOCAB_MAX_ENTRY_LEN or not re.search(r"[^\W_]", s)
+                    or f in entries or f in taken):
+                continue
+            taken.add(f)
+            kept.append(s)
+            if len(kept) >= VOCAB_MAX_SOUNDS:
+                break
+        if kept:
+            out[w] = kept
+    return out
+
+
+def load_sounds_like(words=None) -> dict:
+    """The saved spellings (vocab_sounds.json), for ``words`` (the saved
+    list when None). An unreadable or missing file is no spellings. Read on
+    every dictation, like the list itself."""
+    try:
+        if VOCAB_SOUNDS_FILE.exists():
+            import json
+            raw = json.loads(VOCAB_SOUNDS_FILE.read_text(encoding="utf-8-sig"))
+            return clean_sounds_like(raw, load_vocab() if words is None else words)
+    except Exception:
+        pass
+    return {}
+
+
+def check_sounds_like(sounds_like) -> str:
+    """A sentence for the page when the spellings break a limit, else ""."""
+    if sounds_like is None:
+        return ""
+    if not isinstance(sounds_like, dict):
+        return "Those spellings couldn't be read."
+    for v in sounds_like.values():
+        if not isinstance(v, list):
+            return "Those spellings couldn't be read."
+        if len(v) > VOCAB_MAX_SOUNDS:
+            return f"Up to {VOCAB_MAX_SOUNDS} spellings for each word."
+        if any(isinstance(s, str) and len(" ".join(s.split())) > VOCAB_MAX_ENTRY_LEN for s in v):
+            return (f"Keep each spelling to {VOCAB_MAX_ENTRY_LEN} characters or fewer.")
+    return ""
+
+
+def _save_sounds_like(sounds_like, words) -> dict:
+    """Write the spellings for the saved ``words``. None keeps the saved
+    spellings of the entries still listed (an entry respelt in other
+    capitals keeps its own); a removed entry's go with it."""
+    import json
+    if sounds_like is None:
+        try:
+            raw = (json.loads(VOCAB_SOUNDS_FILE.read_text(encoding="utf-8-sig"))
+                   if VOCAB_SOUNDS_FILE.exists() else {})
+        except Exception:
+            raw = {}
+    else:
+        raw = sounds_like
+    cleaned = clean_sounds_like(raw, words)
+    try:
+        try:
+            from atomic_json import write_json_atomic
+        except ImportError:  # imported as src.transcribe_whisper
+            from src.atomic_json import write_json_atomic
+        if cleaned or VOCAB_SOUNDS_FILE.exists():
+            write_json_atomic(VOCAB_SOUNDS_FILE, cleaned)
+        return {"sounds_like": cleaned}
+    except Exception as e:
+        return {"sounds_like": load_sounds_like(words),
+                "log": f"spellings not saved: {type(e).__name__}: {e}"}
 
 
 def load_settings() -> dict:
@@ -586,7 +708,8 @@ def fuzzy_match_word(transcribed: str, vocab: list[str], threshold: float = 0.75
     return corrections
 
 
-def apply_vocab_changes(transcribed: str, vocab: list[str]) -> tuple[str, list[tuple[str, str]]]:
+def apply_vocab_changes(transcribed: str, vocab: list[str],
+                        sounds_like=None) -> tuple[str, list[tuple[str, str]]]:
     """Apply vocabulary corrections to transcribed text.
 
     Returns (corrected_text, changes), where each change is (heard, used):
@@ -600,14 +723,108 @@ def apply_vocab_changes(transcribed: str, vocab: list[str]) -> tuple[str, list[t
     correction. A multi-word mishearing may be written with spaces, hyphens
     or an apostrophe between its words: Whisper wrote "post-grass" for
     spoken "Postgres" when tested on real audio.
+
+    ``sounds_like`` ({entry: [spellings]}, see clean_sounds_like): an entry
+    with spellings is matched by them and by its own spelling, never
+    loosely. They are taken first; the loose matching runs on the text
+    between them.
     """
+    text, changes, _spans = apply_vocab_marked(transcribed, vocab, sounds_like)
+    return text, changes
+
+
+def apply_vocab_marked(transcribed: str, vocab: list[str], sounds_like=None):
+    """apply_vocab_changes, plus where each replacement is in the result:
+    (text, changes, spans), spans being (start, end) in the returned text.
+    Vocabulary's "Try a sentence" marks the words it changed with them."""
     if not vocab or not transcribed:
-        return transcribed, []
+        return transcribed, [], []
+    rules = _sounds_rules(vocab, sounds_like)
+    if not rules:
+        return _apply_loose(transcribed, vocab)
+    ruled = {entry.casefold() for _p, entry in rules}
+    loose = [e for e in vocab if isinstance(e, str)
+             and " ".join(e.split()).casefold() not in ruled]
+    pattern = re.compile("|".join(
+        rf"(?<![^\W_])(?P<r{n}>{p})(?![^\W_])" for n, (p, _e) in enumerate(rules)),
+        re.IGNORECASE)
+    out, changes, spans = [], [], []
+    length = 0
+
+    def add_loose(segment):
+        nonlocal length
+        fixed, ch, sp = _apply_loose(segment, loose)
+        spans.extend((a + length, b + length) for a, b in sp)
+        for c in ch:
+            if c not in changes:
+                changes.append(c)
+        out.append(fixed)
+        length += len(fixed)
+
+    pos = 0
+    for m in pattern.finditer(transcribed):
+        add_loose(transcribed[pos:m.start()])
+        heard = m.group(0)
+        entry = rules[int(m.lastgroup[1:])][1]
+        if heard != entry:
+            if (heard, entry) not in changes:
+                changes.append((heard, entry))
+            spans.append((length, length + len(entry)))
+            out.append(entry)
+            length += len(entry)
+        else:
+            out.append(heard)
+            length += len(heard)
+        pos = m.end()
+    add_loose(transcribed[pos:])
+    return "".join(out), changes, spans
+
+
+# Between the words of a spelling, what may be heard: a space, hyphen or
+# apostrophe, or nothing ("post hog" also takes "posthog" and "post-hog").
+_SOUNDS_SEP = r"[\s'’\-]*"
+
+
+def _sounds_rules(vocab, sounds_like):
+    """(pattern, entry) for every spelling of the entries that have some,
+    and for each such entry's own spelling (so "posthog" still becomes
+    PostHog), longest first. An own spelling made only of everyday words is
+    left out, as everywhere else ("will" stays "will" with Will listed)."""
+    if not sounds_like or not isinstance(vocab, list):
+        return []
+    words = clean_vocab(vocab[:VOCAB_MAX_ENTRIES])
+    sounds = clean_sounds_like(sounds_like, words)
+    rules = []
+    for entry, spellings in sounds.items():
+        if len(entry) > VOCAB_MAX_ENTRY_LEN:
+            continue
+        for s in spellings:
+            tokens = re.findall(r"[^\W_]+", s)
+            rules.append((_SOUNDS_SEP.join(re.escape(t) for t in tokens), entry, len(s)))
+        if _ENTRY_RE.fullmatch(entry):
+            tokens = re.split(r"[\s'’\-]+", entry)
+            if all(_is_everyday(t.lower()) for t in tokens):
+                continue
+            own = _PHRASE_SEP.join(re.escape(t) for t in tokens)
+        else:
+            own = _symbol_pattern(entry)
+            if not own:
+                continue
+        rules.append((own, entry, len(entry)))
+    rules.sort(key=lambda r: -r[2])
+    return [(p, e) for p, e, _n in rules]
+
+
+def _apply_loose(transcribed: str, vocab: list[str]):
+    """The matching for entries without spellings: fuzzy_match_word and
+    the entries with digits or symbols. (text, changes, spans)."""
+    if not vocab or not transcribed:
+        return transcribed, [], []
 
     corrections = fuzzy_match_word(transcribed, vocab)
     symbols = _symbol_entries(vocab)
     if not corrections and not symbols:
-        return transcribed, []
+        return transcribed, [], []
 
     target = {}
     for misheard, correct in corrections:
@@ -624,8 +841,14 @@ def apply_vocab_changes(transcribed: str, vocab: list[str]) -> tuple[str, list[t
     pattern = re.compile("|".join(parts), re.IGNORECASE)
 
     changes: list[tuple[str, str]] = []
-
-    def repl(m):
+    spans: list[tuple[int, int]] = []
+    out = []
+    length = pos = 0
+    for m in pattern.finditer(transcribed):
+        piece = transcribed[pos:m.start()]
+        out.append(piece)
+        length += len(piece)
+        pos = m.end()
         heard = m.group(0)
         group = m.lastgroup or ""
         if group.startswith("s"):
@@ -633,12 +856,16 @@ def apply_vocab_changes(transcribed: str, vocab: list[str]) -> tuple[str, list[t
         else:
             correct = target.get(tuple(_WORD_RE.findall(heard.lower())))
         if correct is None or heard == correct:
-            return heard
+            out.append(heard)
+            length += len(heard)
+            continue
         if (heard, correct) not in changes:
             changes.append((heard, correct))
-        return correct
-
-    return pattern.sub(repl, transcribed), changes
+        spans.append((length, length + len(correct)))
+        out.append(correct)
+        length += len(correct)
+    out.append(transcribed[pos:])
+    return "".join(out), changes, spans
 
 
 # Separators heard in place of one written in an entry with digits or symbols
@@ -706,13 +933,14 @@ def _symbol_entries(vocab):
     return out
 
 
-def apply_vocab_corrections(transcribed: str, vocab: list[str]) -> tuple[str, list[str]]:
+def apply_vocab_corrections(transcribed: str, vocab: list[str],
+                            sounds_like=None) -> tuple[str, list[str]]:
     """
     Apply vocabulary corrections to transcribed text.
     Returns tuple of (corrected_text, list_of_corrections), each correction
     written "'heard' → 'used'" for the log. See apply_vocab_changes.
     """
-    corrected, changes = apply_vocab_changes(transcribed, vocab)
+    corrected, changes = apply_vocab_changes(transcribed, vocab, sounds_like)
     return corrected, [f"'{heard}' → '{used}'" for heard, used in changes]
 
 

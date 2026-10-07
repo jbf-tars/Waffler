@@ -10,8 +10,11 @@ grew with every day of use. Now:
 - ``page`` returns one page of entries, newest first, optionally only
   those matching a search, so the window draws about 50 cards at a time.
 - ``compute_stats`` is the one place the counts are worked out: today, this
-  week, this month, all time, the day streak, and the words of each of the
-  last 30 days (Settings, Usage draws them as a chart).
+  week, this month, all time, the day streak (and the longest one), and the
+  words of each of the last 30 days (Settings, Usage draws them as a chart;
+  the Journal draws the last seven).
+- ``vocab_usage`` counts what the Vocabulary corrected, from the
+  corrections recorded with each entry.
 
 Nothing here touches the network or the window.
 """
@@ -101,7 +104,68 @@ def compute_stats(history: list, today: date) -> dict:
     while cursor in days:
         out["streak_days"] += 1
         cursor -= timedelta(days=1)
+    out["longest_streak_days"] = longest_run(days)
     return out
+
+
+def longest_run(days) -> int:
+    """The most consecutive days in ``days`` (the Journal's "Your longest
+    yet" beside the streak)."""
+    best = 0
+    for d in days:
+        if d - timedelta(days=1) in days:
+            continue                    # not the first day of a run
+        n = 1
+        while d + timedelta(days=n) in days:
+            n += 1
+        best = max(best, n)
+    return best
+
+
+# Vocabulary: the corrections recorded with each Journal entry
+# ("vocab_changes", [[heard, used], ...], saved since 3.15).
+RECENT_CORRECTIONS = 6
+
+
+def vocab_usage(history: list, recent: int = RECENT_CORRECTIONS) -> dict:
+    """What the Vocabulary has done, from the Journal.
+
+    ``by_entry``: for each word used (case-folded, so a respelt entry keeps
+    its count), ``count``, the dictations in which it corrected something,
+    and ``last``, the newest of their timestamps. ``recent``: the newest
+    corrections, newest first, as {heard, used, timestamp}. Only what is in
+    the Journal counts: deleting history takes its corrections with it.
+    """
+    by_entry: dict = {}
+    latest = []
+    for h in history:
+        if not isinstance(h, dict) or h.get("failed"):
+            continue
+        changes = h.get("vocab_changes")
+        if not isinstance(changes, list):
+            continue
+        ts = str(h.get("timestamp") or "")
+        seen = set()
+        for c in changes:
+            if not (isinstance(c, (list, tuple)) and len(c) == 2
+                    and isinstance(c[0], str) and isinstance(c[1], str)
+                    and c[0] and c[1]):
+                continue
+            latest.append((ts, c[0], c[1]))
+            key = c[1].casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            row = by_entry.setdefault(key, {"count": 0, "last": ""})
+            row["count"] += 1
+            if ts > row["last"]:
+                row["last"] = ts
+    # history.json is oldest first; a stable sort keeps a dictation's own
+    # order for corrections made at the same time.
+    latest.sort(key=lambda t: t[0], reverse=True)
+    return {"by_entry": by_entry,
+            "recent": [{"heard": hd, "used": u, "timestamp": ts}
+                       for ts, hd, u in latest[:max(0, int(recent))]]}
 
 
 def matches(item: dict, query: str) -> bool:
@@ -158,6 +222,8 @@ class HistoryCache:
         self._items: list = []
         self._stats_key = None
         self._stats: dict | None = None
+        self._vocab_key = None
+        self._vocab: dict | None = None
         self.loads = 0      # how many times the file was read (for tests)
 
     def _signature(self):
@@ -189,3 +255,14 @@ class HistoryCache:
             out = dict(self._stats)
             out["daily_words"] = list(out["daily_words"])
             return out
+
+    def vocab_usage(self) -> dict:
+        """vocab_usage of the cached history, worked out once per change.
+        The caller gets its own copy."""
+        items = self.items()
+        with self._lock:
+            if self._vocab is None or self._vocab_key != self._sig:
+                self._vocab = vocab_usage(items)
+                self._vocab_key = self._sig
+            return {"by_entry": {k: dict(v) for k, v in self._vocab["by_entry"].items()},
+                    "recent": [dict(r) for r in self._vocab["recent"]]}
