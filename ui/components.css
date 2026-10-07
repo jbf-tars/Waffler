@@ -388,29 +388,21 @@
 .dot-honey { background: var(--honey); }
 .dot-err { background: var(--danger); }
 
-/* ── Status pill ───────────────────────────────────────────────────────────
-   The top bar's pill. It keeps one width in every state, so the bar never
-   shifts during a dictation: 196 px, or .is-wide when the hotkey's keycaps
-   need more room (app.js decides that when the hotkey changes, not per
-   dictation). app.js sets one state class: idle, listening, paused,
-   processing, done, cancelled, not-sent or error. */
+/* ── Status ────────────────────────────────────────────────────────────────
+   The top bar's status (Atelier): no pill, just a dot, the word and, at
+   Ready, a thin rule and the hotkey's keycaps. app.js sets one state class:
+   idle, listening, paused, processing, done, cancelled, not-sent or error.
+   Ready is green, recording red, working honey, a failure red text colour. */
 .status {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
   flex: none;
-  width: 196px;
   height: 34px;
-  padding: 0 5px 0 13px;
-  border-radius: var(--r-pill);
-  background: var(--card);
-  color: var(--text);
-  box-shadow: var(--shadow-btn);
-  font: var(--t-desc);
+  color: var(--text-2);
+  font: 450 13px/1 var(--f-ui);
   white-space: nowrap;
-  overflow: hidden;
 }
-.status.is-wide { width: 244px; }
 .status-dot {
   width: 7px;
   height: 7px;
@@ -418,28 +410,32 @@
   border-radius: 50%;
   background: var(--faint);
 }
-.status-lbl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.status-lbl { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .status-t {
-  margin-right: 8px;
-  font: 400 12px/1 var(--f-mono);
   color: var(--muted);
+  font: 450 13px/1 var(--f-ui);
   font-variant-numeric: tabular-nums;
-  letter-spacing: 0;
 }
 .status-t:empty { display: none; }
+.status-sep { width: 1px; height: 16px; flex: none; background: var(--ring-strong); }
 /* The keys show only at Ready: how to start. */
 .status-keys { flex: none; }
-.status:not(.idle) .status-keys { display: none; }
+.status:not(.idle) .status-keys,
+.status:not(.idle) .status-sep { display: none; }
 .status.idle .status-t { display: none; }
-.status:not(.idle) { padding-right: 13px; }
-.status:not(.idle) .status-t { margin-right: 0; }
+/* On the Journal the live strip shows the seconds in large; the bar does
+   not repeat them. */
+body[data-page="home"] .status.listening .status-t,
+body[data-page="home"] .status.paused .status-t,
+body[data-page="home"] .status.processing .status-t { display: none; }
 
+.status.idle .status-dot,
+.status.done .status-dot { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-tint); }
 .status.listening .status-dot,
 .status.recording .status-dot { background: var(--rec); }
 .status.paused .status-dot,
 .status.processing .status-dot,
 .status.not-sent .status-dot { background: var(--honey); }
-.status.done .status-dot { background: var(--ok); }
 .status.error .status-dot { background: var(--danger); }
 /* The one thing that moves: a soft ring round the dot while recording. */
 .status.listening .status-dot,

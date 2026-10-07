@@ -623,15 +623,13 @@ function _capsHtml(keys, cls) {
     .join('<span class="plus" aria-hidden="true">+</span>');
 }
 
-// The pill keeps one width whatever it says; if the keycaps don't fit beside
-// "Ready", it takes its wider size, decided here when the hotkey changes and
-// never during a dictation.
+// The hotkey as keycaps: in the top bar's status at Ready, on the empty
+// Journal and in Settings' Hotkey section.
 function renderHotkeyCaps(keys) {
   const name = hotkeyDisplayStr(keys);
   if ($hotkeyCaps) {
     $hotkeyCaps.innerHTML = _capsHtml(keys);
     $hotkeyCaps.setAttribute('aria-label', 'Hotkey: ' + name);
-    _fitStatusPill();
   }
   const empty = document.getElementById('emptyKeys');
   if (empty) empty.innerHTML = _capsHtml(keys);
@@ -643,13 +641,6 @@ function renderHotkeyCaps(keys) {
   const emptyKeys = document.getElementById('usageEmptyKeys');
   if (emptyKeys) emptyKeys.textContent = name;
   _renderHotkeyTest();
-}
-
-function _fitStatusPill() {
-  if (!$statusInd || !$statusText || !$statusInd.classList.contains('idle')) return;
-  $statusInd.classList.remove('is-wide');
-  // At its normal width, "Ready" is cut short when the keycaps need more room.
-  if ($statusText.scrollWidth > $statusText.clientWidth + 1) $statusInd.classList.add('is-wide');
 }
 
 // ── Permissions (Mac) ────────────────────────────────────────────────
@@ -2129,6 +2120,9 @@ let _currentPage = 'home';
 
 function showPage(page) {
   _currentPage = page;
+  // CSS reads it: on the Journal the live strip shows the seconds, so the
+  // top bar does not repeat them.
+  document.body.dataset.page = page;
 
   [['navHome', 'home'], ['navVocab', 'vocabulary'], ['navSettings', 'settings']].forEach(([id, p]) => {
     const tab = document.getElementById(id);

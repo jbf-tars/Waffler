@@ -45,9 +45,10 @@ html, body {
 .vocabulary-panel { display: none; flex-direction: column; }
 
 /* ── Top bar ──────────────────────────────────────────────────────────
-   The waffle and wordmark on the left, the pages in the middle (centred on
-   the window, not on the space left over), the status pill on the right.
-   The pill and nav are components.css .status and .seg. */
+   A running head (Atelier): the waffle and wordmark on the left, the pages
+   as plain words in the middle (centred on the window, not on the space
+   left over) with a 2 px rule under the open one, and the status loose on
+   the right. The status is components.css .status. */
 .topbar {
   position: relative;
   z-index: 5;
@@ -55,23 +56,52 @@ html, body {
   align-items: center;
   flex-shrink: 0;
   height: var(--bar-h);
-  padding: 0 16px 0 22px;
+  padding: 0 18px 0 20px;
   background: var(--bg);
   border-bottom: 1px solid var(--line);
 }
 .brand { display: inline-flex; align-items: center; gap: 9px; }
 .brand-mark { display: inline-flex; width: 24px; height: 24px; }
 .brand-word {
-  font: 450 19px/1 var(--f-display);
-  letter-spacing: -0.02em;
+  font: 500 17px/1 var(--f-display);
+  letter-spacing: -0.01em;
   color: var(--text);
 }
 .topbar-nav {
   position: absolute;
   left: 50%;
-  top: 12px;
+  top: 0;
+  bottom: -1px;
   transform: translateX(-50%);
+  display: flex;
+  gap: 26px;
 }
+.topbar-nav > button {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 0 2px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: 450 14px/1 var(--f-ui);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color var(--dur-fast) var(--ease);
+}
+.topbar-nav > button:hover { color: var(--text); }
+.topbar-nav > button[aria-current="page"] { color: var(--text); font-weight: 500; }
+.topbar-nav > button[aria-current="page"]::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--text);
+}
+.topbar-nav > button:focus-visible { outline-offset: -4px; }
 .topbar > .status { margin-left: auto; }
 
 /* ── Page titles (Vocabulary and Settings) ──────────────────────────── */
@@ -1251,10 +1281,11 @@ body[data-theme="dark"] .kc-xl.held {
    the section, and a row's control drops under its text. */
 @media (max-width: 560px) {
   .topbar { flex-wrap: wrap; height: auto; row-gap: 8px; padding: 10px 12px; }
-  .topbar-nav { position: static; transform: none; order: 3; flex: 1 0 100%; }
-  .topbar-nav > button { flex: 1; justify-content: center; padding: 0 8px; }
-  .status { width: auto; min-width: 0; }
-  .status.idle .status-keys { display: none; }
+  .topbar-nav { position: static; transform: none; order: 3; flex: 1 0 100%; height: 36px; margin-bottom: -10px; justify-content: center; }
+  .topbar-nav > button { padding: 0 8px; }
+  .status { min-width: 0; }
+  .status.idle .status-keys,
+  .status.idle .status-sep { display: none; }
   /* The menu scrolls away with the section, so the little height there is
      goes to the settings themselves. */
   .settings-panel { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto; align-content: start; overflow-y: auto; }

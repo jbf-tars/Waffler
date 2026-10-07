@@ -12,11 +12,11 @@
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="setup.css">
 </head>
-<body>
+<body data-page="home">
 <div class="app">
 
-  <!-- Top bar: the waffle and wordmark, the three pages, and the status
-       pill. It sits outside the pages, so it is on screen whichever page is
+  <!-- Top bar: the waffle and wordmark, the three pages, and the
+       status. It sits outside the pages, so it is on screen whichever page is
        open. -->
   <header class="topbar" id="topbar">
     <div class="brand">
@@ -26,20 +26,23 @@
 
     <!-- showPage() marks the open page (.active and aria-current="page").
          Plain buttons, not tabs: each opens a page. -->
-    <nav class="seg topbar-nav" aria-label="Pages">
+    <nav class="topbar-nav" aria-label="Pages">
       <button type="button" id="navHome" class="active" aria-current="page" onclick="showPage('home')">Journal</button>
       <button type="button" id="navVocab" onclick="showPage('vocabulary')">Vocabulary</button>
       <button type="button" id="navSettings" onclick="showPage('settings')">Settings</button>
     </nav>
 
-    <!-- Status pill. window.waffler_status() sets its state class and label
-         (logic.js: Ready, Recording, Cleaning up...). At Ready it shows the
-         hotkey as keycaps; while recording or cleaning up, the seconds. It
-         has one width in every state, so the bar never shifts. -->
+    <!-- Status. window.waffler_status() sets its state class and label
+         (logic.js: Ready, Recording, Cleaning up...). At Ready it shows a
+         green dot and, past a thin rule, the hotkey as keycaps; while
+         recording or cleaning up, the seconds. It sits loose on the bar,
+         not in a pill, and is right-aligned, so a change of width never
+         moves the pages. -->
     <div class="status idle" id="statusIndicator" role="status">
       <span class="status-dot" aria-hidden="true"></span>
       <span class="status-lbl" id="statusText">Ready</span>
       <span class="status-t" id="statusTime" aria-hidden="true"></span>
+      <span class="status-sep" aria-hidden="true"></span>
       <span class="keys status-keys" id="hotkeyHint"></span>
     </div>
   </header>

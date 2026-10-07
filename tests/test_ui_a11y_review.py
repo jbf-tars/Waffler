@@ -158,7 +158,7 @@ def test_a_dialog_taller_than_the_window_scrolls():
 
 def test_the_pages_are_buttons_marked_current_not_half_a_tab_pattern():
     html = read("index.html")
-    top = html[html.index('<nav class="seg topbar-nav"'):html.index("</nav>")]
+    top = html[html.index('<nav class="topbar-nav"'):html.index("</nav>")]
     assert 'role="tab' not in top and 'aria-selected' not in top
     assert 'id="navHome" class="active" aria-current="page"' in top
     app = read("app.js")

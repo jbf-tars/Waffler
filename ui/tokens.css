@@ -295,7 +295,7 @@ body[data-theme="dark"] {
   --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 20px; --s6: 24px; --s8: 32px; --s10: 40px; --s12: 48px;
   --gutter: 24px;     /* the window's side gutter */
   --column: 880px;    /* the reading column for the Journal and Settings */
-  --bar-h: 60px;      /* the top bar */
+  --bar-h: 52px;      /* the top bar, a running head */
 
   /* radii: seven, as on the site */
   --r-pill: 9999px; --r-input: 8px; --r-tile: 10px; --r-media: 12px;
