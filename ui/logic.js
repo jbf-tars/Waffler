@@ -940,7 +940,204 @@
     return WHATS_NEW[key] ? { title: `New in ${key}`, items: WHATS_NEW[key].slice() } : null;
   }
 
+  // ── Vocabulary (3.15, Atelier) ────────────────────────────────────────
+  // The page lists each word with what it sounds like, how many dictations
+  // it corrected and when it last did (get_vocab_book, from the corrections
+  // recorded in the Journal), busiest first.
+  const VOCAB_MAX_SOUNDS = 8;      // transcribe_whisper.VOCAB_MAX_SOUNDS
+  const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const DAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  function _localDate(ts) {
+    const m = String(ts || '').match(/^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}))?/);
+    if (!m) return null;
+    return new Date(+m[1], +m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0));
+  }
+  function _daysBetween(a, b) {
+    const da = new Date(a.getFullYear(), a.getMonth(), a.getDate());
+    const db = new Date(b.getFullYear(), b.getMonth(), b.getDate());
+    return Math.round((db - da) / 86400000);
+  }
+
+  // "Last used": today, yesterday, 3 days ago, last week, 2 weeks ago, in
+  // September (with the year when it isn't this year), or not yet.
+  function vocabLastUsed(ts, now) {
+    const d = _localDate(ts);
+    if (!d) return 'not yet';
+    const today = now || new Date();
+    const n = _daysBetween(d, today);
+    if (n <= 0) return 'today';
+    if (n === 1) return 'yesterday';
+    if (n < 7) return `${n} days ago`;
+    if (n < 14) return 'last week';
+    if (n < 28) return `${Math.floor(n / 7)} weeks ago`;
+    const year = d.getFullYear() === today.getFullYear() ? '' : ` ${d.getFullYear()}`;
+    return `in ${MONTHS[d.getMonth()]}${year}`;
+  }
+
+  // Recently corrected: 21:13 today, Sun this week, 28 Sep before that.
+  function vocabRecentWhen(ts, now) {
+    const d = _localDate(ts);
+    if (!d) return '';
+    const n = _daysBetween(d, now || new Date());
+    const pad = (x) => String(x).padStart(2, '0');
+    if (n <= 0) return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    if (n < 7) return DAYS_SHORT[d.getDay()];
+    return `${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}`;
+  }
+
+  // "grok, grock" typed in the "sounds like" box: one spelling between
+  // commas, spaces tidied as the app saves them, repeats dropped.
+  function vocabSoundsParse(input) {
+    const out = [];
+    String(input == null ? '' : input).split(/[,;\n]/).forEach((s) => {
+      const v = s.split(/\s+/).filter(Boolean).join(' ');
+      if (v && !out.some((o) => o.toLowerCase() === v.toLowerCase())) out.push(v);
+    });
+    return out;
+  }
+
+  // Can ``word`` have these spellings? ``entries`` is the page's list
+  // ({word, sounds_like}). The rules are the app's (clean_sounds_like), said
+  // in words: the app would quietly drop these.
+  function vocabSoundsCheck(entries, word, spellings, maxLen) {
+    const list = Array.isArray(entries) ? entries : [];
+    const w = String(word || '').toLowerCase();
+    const limit = maxLen || VOCAB_MAX_ENTRY_LEN;
+    if (spellings.length > VOCAB_MAX_SOUNDS) return { ok: false, error: `Up to ${VOCAB_MAX_SOUNDS} spellings for each word.` };
+    for (const s of spellings) {
+      const f = s.toLowerCase();
+      if (s.length > limit) return { ok: false, error: `Keep each spelling to ${limit} characters or fewer.` };
+      if (!/[\p{L}\p{N}]/u.test(s)) return { ok: false, error: `"${s}" has no letters in it.` };
+      if (f === w) return { ok: false, error: `"${s}" is how ${word} is written already. Type what speech to text writes instead.` };
+      const other = list.find((e) => e.word.toLowerCase() === f);
+      if (other) return { ok: false, error: `${other.word} is in your list as a word of its own, so it can't also be how ${word} sounds.` };
+      const owner = list.find((e) => e.word.toLowerCase() !== w && (e.sounds_like || []).some((x) => x.toLowerCase() === f));
+      if (owner) return { ok: false, error: `"${s}" already sounds like ${owner.word}.` };
+    }
+    return { ok: true, error: '' };
+  }
+
+  // The table: busiest first, then A to Z; each bar against the busiest.
+  function vocabRows(entries, now) {
+    const list = (Array.isArray(entries) ? entries : []).filter((e) => e && typeof e.word === 'string');
+    const max = list.reduce((m, e) => Math.max(m, Number(e.count) || 0), 0);
+    return list.slice()
+      .sort((a, b) => (Number(b.count) || 0) - (Number(a.count) || 0)
+        || a.word.localeCompare(b.word, 'en', { sensitivity: 'base' }))
+      .map((e) => {
+        const count = Math.max(0, Number(e.count) || 0);
+        return {
+          word: e.word,
+          sounds: Array.isArray(e.sounds_like) ? e.sounds_like.slice() : [],
+          count,
+          bar: max ? Math.round((count / max) * 100) : 0,
+          last: vocabLastUsed(e.last, now),
+        };
+      });
+  }
+
+  // "11 words · 181 corrections in your Journal"
+  function vocabSummary(words, total) {
+    const w = Math.max(0, Number(words) || 0);
+    const t = Math.max(0, Number(total) || 0);
+    return {
+      words: `${formatCount(w)} ${w === 1 ? 'word' : 'words'}`,
+      corrections: t ? `${formatCount(t)}` : '',
+      correctionsLabel: t ? `${t === 1 ? 'correction' : 'corrections'} in your Journal` : '',
+    };
+  }
+
+  // Text cut at [[start, end], ...] (try_vocab's marks): [{text, mark}].
+  function markSegments(text, marks) {
+    const s = String(text || '');
+    const out = [];
+    let pos = 0;
+    (Array.isArray(marks) ? marks : [])
+      .filter((m) => Array.isArray(m) && m[0] >= 0 && m[1] > m[0] && m[1] <= s.length)
+      .sort((a, b) => a[0] - b[0])
+      .forEach(([a, b]) => {
+        if (a < pos) return;
+        if (a > pos) out.push({ text: s.slice(pos, a), mark: false });
+        out.push({ text: s.slice(a, b), mark: true });
+        pos = b;
+      });
+    if (pos < s.length || !out.length) out.push({ text: s.slice(pos), mark: false });
+    return out;
+  }
+
+  // The Journal marks the words the Vocabulary put in: each whole-word
+  // occurrence of an entry it used, as written.
+  function markWords(text, words) {
+    const s = String(text || '');
+    const ws = [...new Set((Array.isArray(words) ? words : []).filter((w) => typeof w === 'string' && w.trim()))]
+      .sort((a, b) => b.length - a.length);
+    if (!ws.length) return markSegments(s, []);
+    const esc = (w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // No look-behind: older Mac web views (before Safari 16.4) lack it.
+    const re = new RegExp(`(?:${ws.map(esc).join('|')})`, 'gu');
+    const wordChar = /[\p{L}\p{N}]/u;
+    const marks = [];
+    let m;
+    while ((m = re.exec(s))) {
+      const a = m.index, b = a + m[0].length;
+      if (!m[0].length) { re.lastIndex++; continue; }
+      if ((a > 0 && wordChar.test(s[a - 1])) || (b < s.length && wordChar.test(s[b]))) {
+        re.lastIndex = a + 1;
+        continue;
+      }
+      marks.push([a, b]);
+    }
+    return markSegments(s, marks);
+  }
+
+  // ── Journal (3.15, Atelier) ───────────────────────────────────────────
+  // A day's heading: "Today  Monday 5 October", "Friday  2 October".
+  function dayHeading(key, today) {
+    const d = _localDate(key);
+    if (!d) return { label: 'Earlier', date: '' };
+    const now = today || new Date();
+    const n = _daysBetween(d, now);
+    const base = dayLabel(key, now);
+    if (n === 0) return { label: 'Today', date: `${base.day} ${base.date}` };
+    if (n === 1) return { label: 'Yesterday', date: `${base.day} ${base.date}` };
+    return { label: base.day, date: base.date };
+  }
+
+  // This week, beside the Journal: the last seven days of get_stats'
+  // daily_words, ending today, with each day's initial.
+  function weekBars(dailyWords, dailyStart) {
+    const list = Array.isArray(dailyWords) ? dailyWords : [];
+    const start = _localDate(dailyStart);
+    const last = list.slice(-7);
+    while (last.length < 7) last.unshift(0);
+    const max = Math.max(0, ...last.map((v) => Number(v) || 0));
+    return last.map((v, i) => {
+      const words = Math.max(0, Number(v) || 0);
+      let initial = '';
+      if (start && list.length) {
+        const d = new Date(start);
+        d.setDate(d.getDate() + list.length - 7 + i);
+        initial = WEEKDAYS[d.getDay()].charAt(0);
+      }
+      return { words, height: max ? Math.max(4, Math.round((words / max) * 100)) : 4, initial, today: i === 6 };
+    });
+  }
+
+  // "12 days in a row", and whether it is the longest yet.
+  function streakView(streak, longest) {
+    const n = Math.max(0, Number(streak) || 0);
+    const best = Math.max(n, Number(longest) || 0);
+    if (!n) return { title: '', sub: '' };
+    const title = `${formatCount(n)} ${n === 1 ? 'day' : 'days'} in a row`;
+    if (n >= 2 && n >= best) return { title, sub: 'Your longest yet' };
+    if (best > n) return { title, sub: `Your longest: ${formatCount(best)} days` };
+    return { title, sub: '' };
+  }
+
   return {
+    vocabLastUsed, vocabRecentWhen, vocabSoundsParse, vocabSoundsCheck, vocabRows, vocabSummary,
+    VOCAB_MAX_SOUNDS, markSegments, markWords, dayHeading, weekBars, streakView,
     keyInputView, serviceRows, saidDiff, setupSteps, startupTheme,
     STATUS_VIEWS, STATUS_CLASSES, DONE_RESET_MS, statusView, statusResetMs, workingLabel, workingTime, recordingTime,
     notSentId, notSentView, retryFailedMessage, unsentSummary,
