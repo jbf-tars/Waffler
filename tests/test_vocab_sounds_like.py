@@ -149,6 +149,28 @@ def test_without_spellings_nothing_changes_from_before():
         assert tw.apply_vocab_changes(t, WORDS, None) == tw.apply_vocab_changes(t, WORDS)
 
 
+def test_its_own_spelling_without_accents_or_with_a_letter_doubled_is_still_fixed():
+    # Whisper writes "Siobhan" and "Sinead" without the accent. Giving the
+    # word a spelling used to stop that being fixed.
+    for sounds in (SOUNDS, None):
+        assert tw.apply_vocab_changes("siobhan rang", WORDS, sounds) ==             ("Siobhán rang", [("siobhan", "Siobhán")])
+        assert tw.apply_vocab_changes("the cobbie file", WORDS, sounds)[0] == "the COBie file"
+    s = {"Sinéad": ["shinade"]}
+    assert tw.apply_vocab_changes("ask Sinead", ["Sinéad"], s) == ("ask Sinéad", [("Sinead", "Sinéad")])
+    # Only where the loose matching agrees: "anna" is not Ana.
+    assert tw.apply_vocab_changes("anna came", ["Ana"], {"Ana": ["ahna"]}) ==         tw.apply_vocab_changes("anna came", ["Ana"]) == ("anna came", [])
+
+
+def test_a_spelling_with_symbols_must_be_heard_with_them():
+    # ".net" used to become the bare word "net", and "C#" the letter "c".
+    s = {"dotnet": [".net"]}
+    assert tw.apply_vocab_changes("the net is down", ["dotnet"], s) == ("the net is down", [])
+    assert tw.apply_vocab_changes("use .net here", ["dotnet"], s) == ("use dotnet here", [(".net", "dotnet")])
+    s = {"CSharp": ["C#"]}
+    assert tw.apply_vocab_changes("a b c", ["CSharp"], s) == ("a b c", [])
+    assert tw.apply_vocab_changes("learn C# now", ["CSharp"], s)[0] == "learn CSharp now"
+
+
 def test_the_marks_are_where_the_changed_words_are():
     text, _changes, spans = tw.apply_vocab_marked(
         "send the cobby file to shavon, try tailscail", WORDS, SOUNDS)

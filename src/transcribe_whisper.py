@@ -742,11 +742,11 @@ def apply_vocab_marked(transcribed: str, vocab: list[str], sounds_like=None):
     rules = _sounds_rules(vocab, sounds_like)
     if not rules:
         return _apply_loose(transcribed, vocab)
-    ruled = {entry.casefold() for _p, entry in rules}
+    ruled = {entry.casefold() for _p, entry, _own in rules}
     loose = [e for e in vocab if isinstance(e, str)
              and " ".join(e.split()).casefold() not in ruled]
     pattern = re.compile("|".join(
-        rf"(?<![^\W_])(?P<r{n}>{p})(?![^\W_])" for n, (p, _e) in enumerate(rules)),
+        rf"(?<![^\W_])(?P<r{n}>{p})(?![^\W_])" for n, (p, _e, _own) in enumerate(rules)),
         re.IGNORECASE)
     out, changes, spans = [], [], []
     length = 0
@@ -765,8 +765,14 @@ def apply_vocab_marked(transcribed: str, vocab: list[str], sounds_like=None):
     for m in pattern.finditer(transcribed):
         add_loose(transcribed[pos:m.start()])
         heard = m.group(0)
-        entry = rules[int(m.lastgroup[1:])][1]
-        if heard != entry:
+        _p, entry, own = rules[int(m.lastgroup[1:])]
+        if (own and heard.casefold() != entry.casefold()
+                and not any(c == entry for _h, c in fuzzy_match_word(heard, [entry]))):
+            # The entry's own spelling without its accents or with a letter
+            # doubled ("Siobhan", "cobbie") is fixed only where the loose
+            # matching would fix it, so "anna" never becomes Ana.
+            add_loose(heard)
+        elif heard != entry:
             if (heard, entry) not in changes:
                 changes.append((heard, entry))
             spans.append((length, length + len(entry)))
@@ -785,11 +791,37 @@ def apply_vocab_marked(transcribed: str, vocab: list[str], sounds_like=None):
 _SOUNDS_SEP = r"[\s'’\-]*"
 
 
+def _own_letters(token: str) -> str:
+    """A letters-only word of an entry as a pattern that also takes it
+    without its accents and with any letter doubled or single ("Siobhán"
+    takes "Siobhan", "COBie" takes "cobbie"), as the loose matching does
+    with _fold_accents and _collapse_doubles. apply_vocab_marked then
+    keeps a match only where fuzzy_match_word agrees."""
+    out = []
+    for ch in token:
+        base = _fold_accents(ch)
+        if base and base != ch.lower():
+            out.append(f"(?:{re.escape(ch)}|{re.escape(base)})+")
+        else:
+            out.append(re.escape(ch) + "+")
+    return "".join(out)
+
+
+# A spelling with anything but letters, digits, spaces, hyphens and
+# apostrophes (".net", "C#") is matched with its symbols as written, never
+# as its letters alone: ".net" used to rewrite every "net".
+_SOUNDS_SYMBOL_RE = re.compile(r"[^\w\s'’\-]|_")
+
+
 def _sounds_rules(vocab, sounds_like):
-    """(pattern, entry) for every spelling of the entries that have some,
-    and for each such entry's own spelling (so "posthog" still becomes
-    PostHog), longest first. An own spelling made only of everyday words is
-    left out, as everywhere else ("will" stays "will" with Will listed)."""
+    """(pattern, entry, own) for every spelling of the entries that have
+    some, and for each such entry's own spelling (so "posthog" still
+    becomes PostHog, and "Siobhan" Siobhán), longest first. ``own`` marks
+    a letters-only entry's own spelling, which is checked against the loose
+    matching (an entry with digits or symbols is matched whole, as
+    _symbol_entries does). An own spelling made only of everyday words
+    is left out, as everywhere else ("will" stays "will" with Will
+    listed)."""
     if not sounds_like or not isinstance(vocab, list):
         return []
     words = clean_vocab(vocab[:VOCAB_MAX_ENTRIES])
@@ -799,20 +831,27 @@ def _sounds_rules(vocab, sounds_like):
         if len(entry) > VOCAB_MAX_ENTRY_LEN:
             continue
         for s in spellings:
-            tokens = re.findall(r"[^\W_]+", s)
-            rules.append((_SOUNDS_SEP.join(re.escape(t) for t in tokens), entry, len(s)))
-        if _ENTRY_RE.fullmatch(entry):
+            if _SOUNDS_SYMBOL_RE.search(s):
+                pat = _symbol_pattern(s)
+                if not pat:
+                    continue
+            else:
+                tokens = re.findall(r"[^\W_]+", s)
+                pat = _SOUNDS_SEP.join(re.escape(t) for t in tokens)
+            rules.append((pat, entry, False, len(s)))
+        letters = bool(_ENTRY_RE.fullmatch(entry))
+        if letters:
             tokens = re.split(r"[\s'’\-]+", entry)
             if all(_is_everyday(t.lower()) for t in tokens):
                 continue
-            own = _PHRASE_SEP.join(re.escape(t) for t in tokens)
+            own = _PHRASE_SEP.join(_own_letters(t) for t in tokens)
         else:
             own = _symbol_pattern(entry)
             if not own:
                 continue
-        rules.append((own, entry, len(entry)))
-    rules.sort(key=lambda r: -r[2])
-    return [(p, e) for p, e, _n in rules]
+        rules.append((own, entry, letters, len(entry)))
+    rules.sort(key=lambda r: -r[3])
+    return [(p, e, own) for p, e, own, _n in rules]
 
 
 def _apply_loose(transcribed: str, vocab: list[str]):

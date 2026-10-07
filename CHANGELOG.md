@@ -290,10 +290,13 @@ website and setup, in light and Dark.
   text writes for it ("grok" and "grock" for Groq, "waffle her" for
   Waffler), typed beside it when you add it or changed later with the
   pencil, separated by commas. A word with spellings is changed only when
-  one of them, or the word itself in other capitals, is heard: no more
-  guessing, so a near miss like "tailscail" is left alone once Tailscale
-  has a spelling. They work even when they are everyday words, because you
-  said so, and "post hog" also catches "posthog" and "post-hog". Words
+  one of them, or the word itself, is heard (in other capitals, without
+  its accents, or with a letter doubled, so "Siobhan" still becomes
+  Siobhán): no more guessing, so a near miss like "tailscail" is left alone
+  once Tailscale has a spelling. They work even when they are everyday
+  words, because you said so, and "post hog" also catches "posthog" and
+  "post-hog". A spelling with symbols must be heard with them: ".net" never
+  catches a plain "net", nor "C#" a lone "c". Words
   without any match loosely as before. Up to 8 spellings a word, kept in
   vocab_sounds.json beside vocab.json, which stays the plain list older
   versions read. The page says why a spelling can't be saved (it is
