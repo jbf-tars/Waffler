@@ -91,6 +91,13 @@ Waffler up never see it.
   LaunchAgents folder. A factory reset removes it too. It isn't offered while
   a Mac runs Waffler from the downloaded disk image.
 - Setup follows the chosen theme; it used to stay cream in Dark.
+- **Connect, in the Atelier design.** "Step one of three" (four on a Mac)
+  over a serif title, Get my free Groq key with the free allowance beside
+  it, Groq's four steps on a thread, and the tip as a line, not a box. The
+  example on the right is on squared paper: the keys you will hold (your
+  own), what you said with the filler struck through, and the letter
+  Waffler wrote. The steps across the top are numbered in serif italics,
+  and the header says Waffler is free and open source.
 - Clicking Done while "Open Notepad and try it" was still starting Waffler
   could start it twice, so each dictation would paste, cost and appear in
   the Journal twice. Waffler now starts once however it is asked.
@@ -104,13 +111,20 @@ Waffler up never see it.
 The Journal, Vocabulary and Settings are rebuilt on the same parts as the
 website and setup, in light and Dark.
 
-- **Journal.** One 880 px column: your numbers in a cream card (words
-  today, dictations today, words all time, your streak of days and search),
-  then your entries under a row for each day. Entry text is larger (Inter
-  16/26) and the time is in serif italic. Copy is a proper button and
-  "Copied" shows a tick; Show transcript is a quiet link. A flagged entry
-  shows a chip ("Worth a look" or "Check this one") and says why in a
-  sentence under the text; it used to hide the reason in a tooltip.
+- **Journal.** A timeline: each entry's time and word count on the left,
+  the text beside it in paragraphs, and Copy and Show what you said on the
+  right when you point at it or tab to it. The words your Vocabulary put in
+  are underlined in honey, with "Vocabulary changed post hog to PostHog"
+  under the text. A flagged entry shows a chip ("Worth a look" or "Check
+  this one") and says why in a sentence under the text; it used to hide the
+  reason in a tooltip. A recording not sent yet says so in a line, with Try
+  again and Delete. Beside the entries, a margin shows today's words and
+  dictations, this week as seven bars (from the same counts as Settings,
+  Usage), your days in a row and whether that is your longest yet, any
+  notice (an update with Update and What's new, clean-up paused, a failed
+  update), and a link to teach it your words. While you record, a line at
+  the top says so, with the time and that Esc cancels. In a narrow window
+  the margin moves above the entries.
 - **It stays quick with a long history.** The Journal draws the newest 50
   entries and more as you scroll, adds a new dictation at the top instead of
   rebuilding every card, and searches the whole history without drawing it.
@@ -124,14 +138,16 @@ website and setup, in light and Dark.
   and a link to your Vocabulary. The empty numbers are hidden. A search
   with no matches says so and offers to clear it.
 - **Clean-up paused.** When every clean-up provider has reached its limit,
-  the Journal says "Clean-up is paused until 14:32" at the top, with Add a
-  backup key, until it ends. Dictation keeps working and those entries are
+  the Journal says "Clean-up is paused until 14:32" in its margin, with Add
+  a backup key, until it ends. Dictation keeps working and those entries are
   tagged "As said: limit reached".
-- **Vocabulary.** A bigger box and an ink Add button; your words are chips,
-  A to Z, each with its own remove button. With no words yet, the page
-  explains what it's for with the website's checked examples: Isabel to
-  Isobel, Caitlin to Caitlyn, Sinead to Sinéad, Hayley to Hailey, and club
-  card to Clubcard.
+- **Vocabulary.** Your words as a table, busiest first: each word, what it
+  sounds like, how many dictations it corrected (with a bar) and when it
+  last did ("today", "last week", "not yet"), all counted from the
+  corrections recorded in your Journal. Beside it, Try a sentence and your
+  most recent corrections. With no words yet, the page explains what it's
+  for with the website's checked examples: Isabel to Isobel, Caitlin to
+  Caitlyn, Sinead to Sinéad, Hayley to Hailey, and club card to Clubcard.
 - **Settings** is six short sections with a menu down the side: General,
   Keys and providers, Hotkey, Usage, Privacy and data, and About. It used to
   be one long page of eight cards. The menu also shows your version, and
@@ -266,9 +282,30 @@ website and setup, in light and Dark.
   so under the text, for example "Your Vocabulary changed Malek to Malak."
   The log no longer reports a word that was already spelt your way as a
   correction.
-- Typing a word that is already in your list in different capitals changes
-  its spelling ("Cobie" to "COBie") instead of being turned away as a
-  duplicate.
+- Typing a word that is already in your list in different capitals offers
+  to change its spelling ("Replace Cobie with COBie?") instead of turning
+  it away as a duplicate. Its corrections and what it sounds like stay with
+  it, and Undo puts it back. Removing a word can be undone the same way.
+- **Say what it sounds like.** Each word can have the spellings speech to
+  text writes for it ("grok" and "grock" for Groq, "waffle her" for
+  Waffler), typed beside it when you add it or changed later with the
+  pencil, separated by commas. A word with spellings is changed only when
+  one of them, or the word itself in other capitals, is heard: no more
+  guessing, so a near miss like "tailscail" is left alone once Tailscale
+  has a spelling. They work even when they are everyday words, because you
+  said so, and "post hog" also catches "posthog" and "post-hog". Words
+  without any match loosely as before. Up to 8 spellings a word, kept in
+  vocab_sounds.json beside vocab.json, which stays the plain list older
+  versions read. The page says why a spelling can't be saved (it is
+  another of your words, or another word's spelling).
+- **Try a sentence.** Type what speech to text might write and see what
+  your Vocabulary makes of it, with the changed words marked. It runs the
+  same step a dictation runs, on this computer; nothing is sent or kept.
+- **How often each word helps.** The Vocabulary page counts, for each word,
+  the dictations in your Journal it corrected and when it last did, and
+  lists the newest corrections ("invisa line to Invisalign, 21:13"). Only
+  what is in the Journal counts: deleting history takes its corrections
+  with it.
 - The list is saved safely: as UTF-8, through a temporary file, tidied of
   blank and repeated entries, and with a limit of 500 entries of up to 60
   characters each. If saving fails the page says so; before, it still said
