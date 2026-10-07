@@ -830,6 +830,22 @@ class Api:
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
+    def get_mic_level(self) -> dict:
+        """Settings, General: the microphone's level now, for the meter by
+        its name. From the always-open stream the dictations use (it keeps
+        the half-second before each press), so it shows what Waffler hears;
+        nothing is recorded or sent. ``live`` False: no stream yet (Waffler
+        is starting, or has no key). ``current`` False: a newly picked
+        microphone that Waffler switches to on the next dictation."""
+        try:
+            audio = getattr(_pipeline, "audio", None) if _pipeline else None
+            if audio is None:
+                return {"ok": True, "live": False, "level": 0.0, "current": True}
+            return dict(audio.input_level(), ok=True)
+        except Exception as e:
+            _log_to_file(f"get_mic_level failed: {e}")
+            return {"ok": False, "live": False, "level": 0.0, "current": True}
+
     def get_vocab(self) -> list:
         """Return the user's custom vocabulary list."""
         from transcribe_whisper import load_vocab
