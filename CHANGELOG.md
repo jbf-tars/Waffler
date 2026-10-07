@@ -4,7 +4,7 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [3.15.0] - Unreleased
+## [3.15.0] - 2026-10-07
 
 Waffler's window now looks like the website. This release rebuilds it in
 stages; this first part lays the foundation that every screen is built on.
