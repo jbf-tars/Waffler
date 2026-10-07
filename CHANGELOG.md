@@ -112,7 +112,7 @@ Waffler up never see it.
 - **The empty Journal** shows today's heading and a row where your first
   dictation will appear, with the margin's real numbers beside it, in
   place of the photograph and the card.
-- Buttons have the Atelier's square corners, not pills; dialogs have a
+- Buttons have the Atelier's 8 px corners, not pills; dialogs have a
   serif title and a light veil without blur, and the update dialog says
   "Waffler 3.15.2 is ready" and "Download and install".
 - Clicking Done while "Open Notepad and try it" was still starting Waffler
