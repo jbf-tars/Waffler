@@ -515,6 +515,13 @@ body[data-theme="dark"] .ob-tape { box-shadow: inset 0 0 0 0.5px rgba(232, 200, 
 /* Very narrow (200% zoom): the stepper keeps every number but only the
    current step's name. */
 @media (max-width: 560px) {
+  .ob-step,
+  .ob-step[data-step="try"],
+  .ob-step[data-step="anywhere"] { grid-template-columns: minmax(0, 1fr); gap: 16px; padding: 0 16px 16px; }
+  .ob-head, .ob-foot { padding: 0 16px; }
+  .ob-ctarow { flex-wrap: wrap; }
+  .ob-paper .ob-example { padding: 22px 18px 44px; }
+  .ob-hold { flex-wrap: wrap; }
   .ob-stepper li:not(.is-on) .ob-slabel {
     position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden;
     clip: rect(0 0 0 0); white-space: nowrap;
