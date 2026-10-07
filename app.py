@@ -5714,6 +5714,21 @@ def main():
         _signal_focus()
         sys.exit(0)
 
+    # 3.15.1: once, keep the vocabulary fixes this person relied on that
+    # 3.15's stricter matcher stopped making (e.g. Whisper's "waffle" for
+    # Waffler). Reads app.log before the tidy below may rotate it.
+    _vr_flag = DATA_DIR / "vocab_corrections_restored"
+    if not _vr_flag.exists():
+        try:
+            from transcribe_whisper import restore_lost_corrections
+            _added = restore_lost_corrections([DATA_DIR / "app.log", DATA_DIR / "app.log.1"])
+            if _added:
+                _log_to_file("[vocab] kept earlier fixes as 'sounds like' spellings: " + ", ".join(
+                    f"{e} ({', '.join(v)})" for e, v in _added.items()))
+            _vr_flag.write_text("3.15.1\n", encoding="utf-8")
+        except Exception as _e:
+            _log_to_file(f"[vocab] restoring earlier fixes failed: {type(_e).__name__}")
+
     # 3.15 (plan SR9): once, remove the transcript lines that versions before
     # the redaction wrote to app.log, then start a new log when it is over
     # 5 MB; and apply the chosen history retention. Before anything else

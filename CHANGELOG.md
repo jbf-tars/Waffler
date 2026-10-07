@@ -4,6 +4,32 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.15.1] - 2026-10-07
+
+Dictation had been getting words wrong and dropping parts of longer
+dictations on quiet microphones, and 3.15 stopped three vocabulary fixes the
+maker relied on. Both are fixed.
+
+### Fixed
+- **Quiet microphones lost words.** Some microphones (and Windows "voice
+  clarity" processing) hand Waffler speech at around -40 to -55 dBFS, where
+  clear dictation sits near -20, and Whisper skips quiet stretches. Waffler
+  now measures the level of the spoken parts only (pauses do not count) and
+  lifts a quiet recording towards a normal speech level before sending it:
+  by at most 30 dB, never turning a loud recording down, leaving silence
+  alone, and rounding off the odd click or knock with a soft limiter so it
+  never clips. On the maker's last recordings this lifted speech by 14 to
+  30 dB. The audio is still sent only to your provider and never stored
+  differently.
+- **3.15 stopped some vocabulary fixes people relied on.** The stricter
+  matcher in 3.15 no longer turns ordinary words into vocabulary entries,
+  which also stopped genuine fixes where Whisper writes an ordinary word for
+  your word (for the maker, "waffle" for Waffler 16 times, "mortar" for
+  Morta 15 times, "bim" for XBim 9 times). On first start, 3.15.1 reads
+  your app.log once and saves any fix it used to make at least three times,
+  and no longer makes, as a "sounds like" spelling of that entry, so it is
+  fixed again. You can see and remove them in Vocabulary.
+
 ## [3.15.0] - 2026-10-07
 
 Waffler's window now looks like the website. This release rebuilds it in

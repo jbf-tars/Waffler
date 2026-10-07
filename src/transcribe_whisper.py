@@ -708,6 +708,59 @@ def fuzzy_match_word(transcribed: str, vocab: list[str], threshold: float = 0.75
     return corrections
 
 
+def restore_lost_corrections(log_paths, min_count: int = 3) -> dict:
+    """Once, after 3.15: keep the vocabulary fixes this person really relied on.
+
+    3.15 stopped the matcher turning ordinary words into vocabulary entries,
+    which also stopped fixes people depended on: for the maker, Whisper's
+    "waffle" for Waffler (16 times), "mortar" for Morta (15) and "bim" for
+    XBim (9). Reads the "Vocabulary corrections applied" lines in app.log
+    (and the rotated app.log.1), and for every correction made at least
+    ``min_count`` times that the current matcher no longer makes, saves the
+    heard word as a "sounds like" spelling of that entry, so it is fixed
+    again. Returns {entry: [spellings added]}. Never raises.
+    """
+    import re as _re
+    from pathlib import Path
+    try:
+        vocab = load_vocab()
+        if not vocab:
+            return {}
+        sounds = load_sounds_like(vocab)
+        counts = {}
+        for p in log_paths:
+            try:
+                text = Path(p).read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            for line in text.splitlines():
+                if "Vocabulary corrections applied:" not in line:
+                    continue
+                for heard, used in _re.findall(r"'([^']+)' → '([^']+)'", line):
+                    counts[(heard, used)] = counts.get((heard, used), 0) + 1
+        entries = {w: w for w in vocab}
+        added = {}
+        for (heard, used), n in sorted(counts.items(), key=lambda kv: -kv[1]):
+            if n < min_count or used not in entries or heard.casefold() == used.casefold():
+                continue
+            if len(heard.split()) > 3 or any(heard.casefold() == s.casefold()
+                                             for ss in sounds.values() for s in ss):
+                continue
+            fixed, _ = apply_vocab_changes(f"we talked about {heard} today", vocab, sounds or None)
+            if used in fixed:
+                continue   # still corrected: nothing lost
+            sounds.setdefault(used, []).append(heard)
+            added.setdefault(used, []).append(heard)
+        if added:
+            result = save_vocab(vocab, sounds)
+            if not result.get("ok"):
+                return {}
+        return added
+    except Exception as e:
+        _wlog(f"[vocab] restoring earlier corrections skipped ({type(e).__name__}: {e})")
+        return {}
+
+
 def apply_vocab_changes(transcribed: str, vocab: list[str],
                         sounds_like=None) -> tuple[str, list[tuple[str, str]]]:
     """Apply vocabulary corrections to transcribed text.
@@ -1118,6 +1171,74 @@ def _is_vocab_echo(text: str, vocab: list) -> bool:
         return True
 
     return False
+
+
+SPEECH_TARGET_DBFS = -20.0   # typical level of clear, close-mic speech
+SPEECH_MAX_GAIN_DB = 30.0    # never lift a recording by more than this
+SPEECH_PEAK_CEILING = 0.89   # about -1 dBFS: the boost never clips
+
+
+def boost_quiet_speech(audio_bytes: bytes):
+    """Lift a quiet recording to a normal speech level before Whisper.
+
+    Some microphones (and Windows "voice clarity" processing) hand Waffler
+    speech around -40 to -47 dBFS, where clear dictation sits near -20. On
+    those levels Whisper drops quiet stretches of speech. This measures the
+    level of the voiced 30 ms frames only (so pauses do not drag it down),
+    raises the whole recording towards SPEECH_TARGET_DBFS by at most
+    SPEECH_MAX_GAIN_DB, sized so the loudest speech reaches about
+    SPEECH_PEAK_CEILING; the rare samples above it (clicks, knocks) are
+    rounded off by a soft limiter, so it never hard-clips. Loud recordings are never turned down, silence is left alone, and
+    anything that is not 16-bit PCM WAV is passed through unchanged.
+    """
+    import io
+    import wave
+    try:
+        import numpy as np
+        with wave.open(io.BytesIO(audio_bytes), "rb") as r:
+            params = r.getparams()
+            if params.sampwidth != 2:
+                return audio_bytes
+            a = np.frombuffer(r.readframes(params.nframes), dtype=np.int16).astype(np.float32) / 32768.0
+        if a.size == 0:
+            return audio_bytes
+        peak = float(np.abs(a).max())
+        if peak <= 0.0:
+            return audio_bytes
+        frame = max(1, int(params.framerate * params.nchannels * 0.03))
+        n = a.size // frame
+        if n == 0:
+            return audio_bytes
+        rms = np.sqrt((a[: n * frame].reshape(n, frame) ** 2).mean(axis=1))
+        floor = float(np.percentile(rms, 10))
+        voiced = rms[rms > max(floor * 4.0, 10 ** (-70 / 20))]
+        if voiced.size == 0:
+            return audio_bytes
+        level = float(np.median(voiced))
+        gain = 10 ** ((SPEECH_TARGET_DBFS - 20 * np.log10(level)) / 20)
+        # Size the boost by the loudest speech, not by a stray click or knock:
+        # the top 0.1% of samples may exceed the ceiling, and those are
+        # rounded off by a soft limiter rather than allowed to clip.
+        loud = max(float(np.percentile(np.abs(a), 99.9)), 1e-6)
+        gain = min(gain, 10 ** (SPEECH_MAX_GAIN_DB / 20), SPEECH_PEAK_CEILING / loud)
+        if gain <= 1.05:
+            return audio_bytes
+        out = a * gain
+        over = np.abs(out) > SPEECH_PEAK_CEILING
+        if over.any():
+            head = 1.0 - SPEECH_PEAK_CEILING
+            x = np.abs(out[over]) - SPEECH_PEAK_CEILING
+            out[over] = np.sign(out[over]) * (SPEECH_PEAK_CEILING + head * np.tanh(x / head))
+        b = io.BytesIO()
+        with wave.open(b, "wb") as w:
+            w.setparams(params)
+            w.writeframes((out * 32767.0).astype(np.int16).tobytes())
+        _wlog(f"[whisper] quiet recording: speech at {20 * np.log10(level):.0f} dBFS, "
+              f"boosted by {20 * np.log10(gain):.1f} dB")
+        return b.getvalue()
+    except Exception as e:
+        _wlog(f"[whisper] volume boost skipped ({type(e).__name__}: {e})")
+        return audio_bytes
 
 
 def _pad_audio_with_silence(audio_bytes: bytes, padding_ms: int = 300) -> bytes:
@@ -1982,6 +2103,7 @@ class WhisperTranscriber:
         # unsafe. The recording is then known to be suspect AND unrecovered,
         # which is worth telling the user about.
         self.last_retry_rejected = False
+        audio_bytes = boost_quiet_speech(audio_bytes)
         audio_bytes = _pad_audio_with_silence(audio_bytes)
 
         # Long-recording fix: split clips over ~30 s into <= 25-30 s chunks on
