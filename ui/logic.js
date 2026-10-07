@@ -526,7 +526,7 @@
   // transcript").
   const QUALITY_REASONS = {
     low_word_rate: "There are far fewer words than the recording's length suggests, so some may be missing.",
-    styled_dropped_words: 'The clean-up took out more than usual. Show transcript to see everything you said.',
+    styled_dropped_words: 'The clean-up took out more than usual. Show what you said to see every word.',
     styling_fallback: "The clean-up didn't run, so these are your words as you said them.",
     truncated_midsentence: 'Ends mid-sentence, so some of what you said may be missing.',
     unterminated_ending: 'Ends without a full stop, so the last words may be missing.',
@@ -567,6 +567,23 @@
     const joined = parts.length === 1 ? parts[0]
       : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
     return `Your Vocabulary changed ${joined}.`;
+  }
+
+  // The words to show behind "Show what you said" on a Journal card. Since
+  // 3.14.97 an entry keeps Whisper's own words in asr_text and a filtered
+  // copy in text; earlier entries have only text. Comparing the clean text
+  // with the filtered copy hid the button on nearly half of recent entries
+  // (they matched) although what was said differed, and the button showed
+  // the filtered copy, not the speaker's words.
+  function originalText(item) {
+    if (!item) return '';
+    const asr = (item.asr_text || '').trim();
+    return asr || (item.text || '').trim();
+  }
+  function hasOriginal(item) {
+    const shown = ((item && (item.styled || item.text)) || '').trim();
+    const orig = originalText(item);
+    return !!orig && orig !== shown;
   }
 
   // Typing a word into the Vocabulary box and pressing Add. Spaces are
@@ -796,7 +813,7 @@
     DEFAULT_PROVIDER_ORDER, PROVIDER_NAMES, providerHasKey, normalizeProviderOrder,
     providerOrderRows, activeProviders, backendsLine, aboutLine,
     USAGE_NOTE, formatCount, usageView, usageProviderRows, usesView, keyRows,
-    qualityView, dayKey, dayLabel, statNumber, vocabChanges, vocabChangesLine, vocabAdd, VOCAB_MAX_ENTRY_LEN,
+    qualityView, dayKey, dayLabel, statNumber, vocabChanges, vocabChangesLine, originalText, hasOriginal, vocabAdd, VOCAB_MAX_ENTRY_LEN,
     SEARCH_DEBOUNCE_MS, debounce, feedView, searchAnnouncement, radioMove, focusAfterRemove,
   };
 });

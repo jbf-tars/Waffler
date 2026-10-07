@@ -783,3 +783,36 @@ def test_settings_has_six_sections_and_privacy_says_what_is_kept():
         assert call in app, call
     # Delete all my data asks first, in the page (not a native confirm()).
     assert "confirm(" not in app
+
+
+# ── "Show what you said" on Journal cards ────────────────────────────────────
+# Since 3.14.97 an entry keeps Whisper's words in asr_text and a filtered copy
+# in text. The button compared the clean text with the filtered copy, so it
+# was hidden on nearly half of recent entries although what was said differed.
+
+@needs_node
+def test_original_is_what_whisper_heard_when_kept():
+    item = {"asr_text": "Um, so send it to John, sorry, James.", "text": "Send it to James.",
+            "styled": "Send it to James.", "text_is": "asr_filtered"}
+    assert js(f"L.originalText({json.dumps(item)})") == item["asr_text"]
+    assert js(f"L.hasOriginal({json.dumps(item)})") is True
+
+
+@needs_node
+def test_older_entries_fall_back_to_text():
+    item = {"text": "um hi sam", "styled": "Hi Sam,"}
+    assert js(f"L.originalText({json.dumps(item)})") == "um hi sam"
+    assert js(f"L.hasOriginal({json.dumps(item)})") is True
+
+
+@needs_node
+def test_no_button_when_nothing_differs():
+    assert js("L.hasOriginal({asr_text: 'Thanks.', text: 'Thanks.', styled: 'Thanks.'})") is False
+    assert js("L.hasOriginal({text: 'Thanks.'})") is False
+    assert js("L.hasOriginal(null)") is False
+
+
+def test_cards_use_the_helpers():
+    src = code_only(read("app.js"))
+    assert "WL.originalText(item)" in src and "WL.hasOriginal(item)" in src
+    assert "item.styled !== item.text" not in src

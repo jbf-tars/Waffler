@@ -257,6 +257,13 @@ website and setup, in light and Dark.
   vocab.unreadable-(date).json rather than replaced by your next word.
 
 ### Fixed
+- **"Show transcript" was missing on nearly half of Journal entries, and
+  showed the wrong words when it did appear.** Since 3.14.97 an entry keeps
+  Whisper's own words separately from a lightly filtered copy, but the
+  button compared the clean text with the filtered copy: in the last 60 of
+  the maker's dictations they matched 27 times, so the button was hidden,
+  although what was said differed every time. It now compares with, and
+  shows, what Whisper heard, and is called "Show what you said".
 - **The Windows tray icon is back.** Installed builds since 3.14.84 left
   icon.ico out, so the tray icon was never made. Closing the window still
   hid it, and a start at sign-in began hidden, so the only way to end

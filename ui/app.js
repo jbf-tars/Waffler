@@ -1388,8 +1388,8 @@ function makeCard(item, isNew) {
   div.className = 'transcript-card' + (isNew ? ' new' : '');
 
   const displayText = item.styled || item.text || '';
-  const rawText     = item.text  || '';
-  const hasStyled   = item.styled && item.styled !== item.text;
+  const rawText     = WL.originalText(item);
+  const hasStyled   = WL.hasOriginal(item);
   const words       = (displayText.split(/\s+/).filter(Boolean)).length;
   const q           = WL.qualityView(item);
 
@@ -1407,7 +1407,7 @@ function makeCard(item, isNew) {
     ${WL.vocabChangesLine(item) ? `<p class="card-reason card-vocab">${escHtml(WL.vocabChangesLine(item))}</p>` : ''}
     <div class="card-actions">
       <button type="button" class="btn btn-sec btn-sm btn-copy" aria-label="${escHtml(when ? `Copy the dictation from ${when}` : 'Copy')}">${WI.icon('copy')}<span>Copy</span></button>
-      ${hasStyled ? `<button type="button" class="text-toggle" aria-controls="${textId}">Show transcript</button>` : ''}
+      ${hasStyled ? `<button type="button" class="text-toggle" aria-controls="${textId}">Show what you said</button>` : ''}
     </div>
   `;
 
@@ -1440,7 +1440,7 @@ function toggleRawHandler(toggleEl, textEl, rawText, styledText) {
   } else {
     textEl.textContent = styledText;
     textEl.classList.replace('raw', 'styled');
-    toggleEl.textContent = 'Show transcript';
+    toggleEl.textContent = 'Show what you said';
   }
 }
 
