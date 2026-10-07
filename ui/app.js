@@ -160,7 +160,6 @@ const $main          = document.getElementById('mainArea');
 const $feed          = document.getElementById('transcriptFeed');
 const $empty         = document.getElementById('emptyState');
 const $noMatch       = document.getElementById('noMatchState');
-const $strip         = document.getElementById('statStrip');
 const $feedMore      = document.getElementById('feedMore');
 const $statusInd     = document.getElementById('statusIndicator');
 const $statusText    = document.getElementById('statusText');
@@ -169,7 +168,6 @@ const $hotkeyCaps    = document.getElementById('hotkeyHint');
 const $toast         = document.getElementById('toast');
 const $statWords     = document.getElementById('statWords');
 const $statCount     = document.getElementById('statCount');
-const $rail          = document.getElementById('journalRail');
 
 // ── Pause animations while the window can't be seen ───────────────────
 // Idle, the window used about 11% of a core, almost all of it the WebView2
@@ -1028,11 +1026,20 @@ function drawFeed() {
   _histTotal = Math.max(Number(stats.entries) || 0, history.length);
   const view = WL.feedView(_histTotal, _searchText, history.length);
   $empty.hidden = view.kind !== 'empty';
-  if ($strip) $strip.hidden = view.kind === 'empty';
-  // First run: the margin has nothing to count yet.
-  if ($rail) $rail.hidden = view.kind === 'empty';
+  // First run: the title stays, the search has nothing to search, and the
+  // first entry's row is under today's heading. The margin stays too, with
+  // today's real numbers.
+  const search = document.querySelector('#statStrip .j-search-wrap');
+  if (search) search.hidden = view.kind === 'empty';
+  // The first-entry row has its own Teach it your words link.
   const layout = document.getElementById('journalLayout');
   if (layout) layout.classList.toggle('is-first', view.kind === 'empty');
+  if (view.kind === 'empty') {
+    const day = document.getElementById('emptyDay');
+    const now = new Date();
+    const key = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    if (day) day.textContent = WL.dayHeading(key, now).date;
+  }
   $noMatch.hidden = view.kind !== 'no_match';
   if (view.kind === 'no_match') {
     const label = document.getElementById('noMatchLabel');

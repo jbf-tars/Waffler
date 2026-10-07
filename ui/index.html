@@ -75,18 +75,22 @@
           <div class="j-live-r"><span class="j-live-dot" aria-hidden="true"></span><span class="j-live-time" id="journalLiveTime">0:00</span><span id="journalLiveEsc"><kbd class="kc">Esc</kbd> cancels</span></div>
         </div>
 
-        <!-- First run: how to make the first entry. The margin is hidden. -->
-        <section class="j-first" id="emptyState" hidden>
-          <div class="j-first-art" aria-hidden="true"></div>
-          <div class="j-first-card">
-            <div class="j-first-waffle" data-waffle="logo" data-size="76"></div>
-            <h2 class="j-first-title">Your first dictation goes here</h2>
-            <p class="j-first-text">Click into any text box, hold <span class="keys" id="emptyKeys"></span> and talk. When you let go, the text is pasted there and kept here.</p>
-            <div class="j-first-acts">
-              <button type="button" class="btn btn-pri" onclick="openPracticeEditor(this)"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg><span id="emptyEditorLabel">Open Notepad and try it</span></button>
-              <a class="link" href="#" onclick="showPage('vocabulary'); return false;">Teach it your words</a>
+        <!-- First run: how to make the first entry, laid out as the first
+             entry of today, where it will appear. The margin shows today's
+             real numbers (nothing yet) and the link to the Vocabulary. -->
+        <section class="j-first" id="emptyState" aria-labelledby="emptyTitle" hidden>
+          <div class="j-date-divider" aria-hidden="true"><span class="j-date-month">Today</span><span class="j-date-day" id="emptyDay"></span><span class="j-date-line"></span></div>
+          <div class="j-first-ent">
+            <div class="j-first-g" aria-hidden="true"><span class="j-first-waffle" data-waffle="logo" data-size="30"></span></div>
+            <div class="j-first-body">
+              <h2 class="j-first-title" id="emptyTitle">Your first dictation goes here.</h2>
+              <p class="j-first-text">Click into any text box, hold <span class="keys" id="emptyKeys"></span> and talk. When you let go, the text is pasted there and kept here, with the time and how many words.</p>
+              <div class="j-first-acts">
+                <button type="button" class="btn btn-pri btn-sm" onclick="openPracticeEditor(this)"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg><span id="emptyEditorLabel">Open Notepad and try it</span></button>
+                <a class="link" href="#" onclick="showPage('vocabulary'); return false;">Teach it your words</a>
+              </div>
+              <p class="j-first-err" id="emptyEditorErr" role="alert" hidden></p>
             </div>
-            <p class="j-first-err" id="emptyEditorErr" role="alert" hidden></p>
           </div>
         </section>
 

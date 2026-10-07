@@ -72,3 +72,21 @@ def test_the_bar_does_not_repeat_the_seconds_the_journal_strip_shows():
     assert 'body[data-page="home"] .status.listening .status-t' in comp
     assert "document.body.dataset.page = page;" in func(read("app.js"), "showPage")
     assert '<body data-page="home">' in read("index.html")
+
+
+# ── The empty Journal ────────────────────────────────────────────────────────
+
+def test_the_empty_journal_is_the_first_entry_of_today_not_a_picture():
+    html = read("index.html")
+    first = html[html.index('id="emptyState"'):html.index('<!-- A search with no matches')]
+    assert 'class="j-date-divider"' in first and 'id="emptyDay"' in first
+    assert 'class="j-first-ent"' in first and 'id="emptyKeys"' in first
+    assert "j-first-art" not in first
+    css = read("style.css")
+    assert "stage-lattice" not in css and "field-syrup-dark" not in css
+    assert "var(--f-serif)" in rule(css, ".j-first-title")
+    draw = func(read("app.js"), "drawFeed")
+    # The serif title and the margin stay; only the search goes.
+    assert "$rail" not in draw and "$strip" not in draw
+    assert "search.hidden = view.kind === 'empty';" in draw
+    assert "WL.dayHeading(key, now).date" in draw
