@@ -139,3 +139,22 @@ def test_setup_labels_are_sentence_case_not_mono_capitals():
 def test_the_microphone_select_is_drawn_like_the_other_fields():
     sel = rule(read("setup.css"), ".ob-micselect")
     assert "appearance: none;" in sel and "var(--ring-ctl)" in sel
+
+
+# ── The Journal margin ───────────────────────────────────────────────────────
+
+def test_the_margin_is_never_taller_than_the_window():
+    css = read("style.css")
+    rail = rule(css, ".j-rail")
+    assert "position: sticky;" in rail
+    assert "max-height: calc(100vh - var(--bar-h));" in rail and "overflow-y: auto;" in rail
+    narrow = css[css.index("@media (max-width: 900px) {"):]
+    narrow = narrow[:narrow.index("\n}\n")]
+    assert "max-height: none;" in narrow
+
+
+def test_a_margin_notice_uses_the_full_width_under_its_icon():
+    css = read("style.css")
+    assert "position: absolute;" in rule(css, ".j-rail .notice .itile")
+    assert "text-indent: 23px;" in rule(css, ".j-rail .notice-title")
+    assert "padding-right: 34px" not in rule(css, ".j-rail .notice")

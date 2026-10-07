@@ -316,6 +316,12 @@ html, body {
   top: 0;
   align-self: start;
   min-height: calc(100vh - var(--bar-h));
+  /* Never taller than the window: with notices it scrolls on its own, so
+     its foot stays in reach while the entries scroll. */
+  max-height: calc(100vh - var(--bar-h));
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ring-strong) transparent;
   display: flex;
   flex-direction: column;
   gap: 20px;
@@ -338,14 +344,16 @@ html, body {
 .j-notices:empty { display: none; }
 .j-rail .notice { flex-wrap: wrap; gap: 4px 8px; padding: 13px 14px; border-radius: 10px; background: var(--card); box-shadow: 0 0 0 1px var(--ring), 0 1px 2px rgba(12, 10, 9, 0.04); }
 .j-rail .notice-honey { background: var(--honey-wash); box-shadow: inset 0 0 0 1px rgba(196, 138, 46, 0.4); }
-.j-rail .notice .itile { width: auto; height: auto; background: none; box-shadow: none; color: var(--text); }
+/* The icon sits in the title's first line and the words run the full
+   width under it (a side column left a 9-line sliver in a 248 px margin). */
+.j-rail .notice .itile { position: absolute; left: 14px; top: 14px; width: auto; height: auto; background: none; box-shadow: none; color: var(--text); }
 .j-rail .notice .itile .ic { width: 15px; height: 15px; }
 .j-rail .notice-body { flex: 1 1 0; min-width: 0; }
-.j-rail .notice-title { font: 500 13px/1.35 var(--f-ui); }
+.j-rail .notice-title { padding-right: 20px; text-indent: 23px; font: 500 13px/1.35 var(--f-ui); }
 .j-rail .notice-desc { font: 400 12.5px/1.45 var(--f-ui); color: var(--muted); }
 .j-rail .notice-body + .notice-acts { flex: 1 0 100%; margin: 6px 0 0; align-self: auto; }
 .j-rail .notice .dismiss { position: absolute; top: 8px; right: 8px; }
-.j-rail .notice { position: relative; padding-right: 34px; }
+.j-rail .notice { position: relative; }
 .j-teach { margin-top: auto; font: 400 12.5px/1.5 var(--f-ui); color: var(--muted); }
 .j-teach .link { color: var(--text); }
 
@@ -356,6 +364,8 @@ html, body {
     order: -1;
     position: static;
     min-height: 0;
+    max-height: none;
+    overflow: visible;
     flex-direction: row;
     flex-wrap: wrap;
     align-items: flex-start;
