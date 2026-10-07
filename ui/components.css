@@ -42,8 +42,9 @@
   height: 36px;
   padding: 0 15px;
   border: 0;
-  border-radius: var(--r-pill);
+  border-radius: 8px;
   font: var(--t-body);
+  font-weight: 500;
   white-space: nowrap;
   cursor: pointer;
   text-decoration: none;
@@ -54,9 +55,9 @@
 }
 .btn .ic { width: 15px; height: 15px; }
 .btn:active:not(:disabled) { transform: scale(0.98); }
-.btn-sm { height: 32px; padding: 0 13px; font-size: 13px; }
+.btn-sm { height: 32px; padding: 0 13px; font-size: 13px; border-radius: 7px; }
 .btn-md { height: 36px; padding: 0 15px; }
-.btn-lg { height: 44px; padding: 0 20px; font-size: 15px; }
+.btn-lg { height: 44px; padding: 0 20px; font-size: 15px; border-radius: 10px; }
 
 .btn-pri { background: var(--btn-pri-bg); color: var(--btn-pri-fg); }
 .btn-pri:hover:not(:disabled) { background: var(--btn-pri-hover); }

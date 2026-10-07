@@ -500,7 +500,7 @@ function openUpdateModalFromCheck(r) {
   showUpdateModal();
   _lastUpdateInfo = r;
 
-  // Both platforms get the same "Download & Install": stream the installer
+  // Both platforms get the same "Download and install": stream the installer
   // in-app, show a progress bar, run the platform installer, relaunch.
   // A release with no installer for this computer opens its page instead.
   const v = WL.updateCheckView(r);

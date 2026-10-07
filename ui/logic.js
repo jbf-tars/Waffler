@@ -289,7 +289,7 @@
   function updateCheckView(r) {
     r = r || {};
     if (r.update_available) {
-      const title = `Waffler v${r.latest_version} is available`;
+      const title = `Waffler ${r.latest_version} is ready`;
       // No installer for this computer in the release: open its page rather
       // than trying to download (which used to fail as an "untrusted URL").
       if (r.no_installer || !r.download_url) {
@@ -304,19 +304,19 @@
       }
       return {
         kind: 'available', icon: 'circle-up', title,
-        subtitle: `You're on v${r.current_version}. Download and install now?`,
-        primary: { label: 'Download & Install', download: r.download_url },
+        subtitle: `You have ${r.current_version}. Download it and install it now?`,
+        primary: { label: 'Download and install', download: r.download_url },
         browserUrl: DOWNLOAD_PAGE, cancelLabel: 'Later',
       };
     }
     if (r.error) {
       const m = splitMessage(r.error);
-      const on = r.current_version ? ` You're on v${r.current_version}.` : '';
+      const on = r.current_version ? ` You have ${r.current_version}.` : '';
       return { kind: 'error', icon: 'alert', title: m.title, subtitle: (m.subtitle + on).trim() };
     }
-    const latest = r.latest_version ? ` (latest: v${r.latest_version})` : '';
+    const latest = r.latest_version && r.latest_version !== r.current_version ? ` The newest release is ${r.latest_version}.` : '';
     return { kind: 'up_to_date', icon: 'check-circle', title: "You're up to date",
-             subtitle: `Running Waffler v${r.current_version || '?'}${latest}.` };
+             subtitle: (r.current_version ? `You have Waffler ${r.current_version}.${latest}` : latest.trim()) };
   }
 
   // A failed download or install: the backend's sentence, and a way to the

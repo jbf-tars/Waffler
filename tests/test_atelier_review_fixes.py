@@ -158,3 +158,33 @@ def test_a_margin_notice_uses_the_full_width_under_its_icon():
     assert "position: absolute;" in rule(css, ".j-rail .notice .itile")
     assert "text-indent: 23px;" in rule(css, ".j-rail .notice-title")
     assert "padding-right: 34px" not in rule(css, ".j-rail .notice")
+
+
+# ── Dialogs and buttons ──────────────────────────────────────────────────────
+
+def test_buttons_have_the_atelier_corners_not_pills():
+    comp = read("components.css")
+    assert "border-radius: 8px;" in rule(comp, ".btn")
+    assert "border-radius: 7px;" in rule(comp, ".btn-sm")
+    assert "border-radius: 10px;" in rule(comp, ".btn-lg")
+
+
+def test_dialogs_have_a_light_veil_and_a_serif_title():
+    css = read("style.css")
+    overlay = rule(css, ".modal-overlay")
+    assert "backdrop-filter" not in overlay
+    assert "var(--f-serif)" in rule(css, ".modal-title")
+    assert "border-radius: 14px;" in rule(css, ".modal")
+
+
+@needs_node
+def test_the_update_dialog_speaks_plainly():
+    v = js("L.updateCheckView({update_available: true, latest_version: '3.15.2', current_version: '3.15.0', download_url: 'https://x/y.exe'})")
+    assert v["title"] == "Waffler 3.15.2 is ready"
+    assert v["subtitle"] == "You have 3.15.0. Download it and install it now?"
+    assert v["primary"]["label"] == "Download and install"
+    v = js("L.updateCheckView({update_available: false, latest_version: '3.15.0', current_version: '3.15.0'})")
+    assert v["subtitle"] == "You have Waffler 3.15.0."
+    v = js("L.updateCheckView({update_available: false, latest_version: '3.15.0', current_version: '3.15.1'})")
+    assert v["subtitle"] == "You have Waffler 3.15.1. The newest release is 3.15.0."
+    assert "&" not in read("logic.js").split("function updateCheckView(")[1].split("\n  }\n")[0]
