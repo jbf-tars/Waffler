@@ -134,24 +134,43 @@ website and setup, in light and Dark.
   card to Clubcard.
 - **Settings** is six short sections with a menu down the side: General,
   Keys and providers, Hotkey, Usage, Privacy and data, and About. It used to
-  be one long page of eight cards.
-  - General: Light, Dark or System; spelling; paste when you let go; the
-    microphone (the list was hidden before); start at sign-in; and Run setup
-    again, which keeps your keys and history.
-  - Keys and providers: your keys and the order Waffler tries them in are
-    one list. Groq is marked Recommended; OpenAI and Cerebras are Optional.
-    Each shows its key (masked), whether it's in use, Replace or Add key,
-    and arrows to change the order.
-  - Hotkey: your keys as big keycaps and a Change button, which opens a
-    dialog where you hold the new keys or pick one of this computer's own
-    choices. Space and Esc are explained underneath.
-  - Usage: dictations and words for today, this week, this month and all
-    time first, then the estimated cost at each provider's published rates,
-    as before.
-  - Privacy and data: what is kept on this computer, logs, and Delete all my
-    data, which now asks in the page instead of a system dialog.
-  - About: your version, Check for updates, which model does each job, and
-    links to the source, issues and release notes.
+  be one long page of eight cards. The menu also shows your version, and
+  underneath it, that Waffler is made by one person, MIT licensed, with no
+  account. Each section has a serif title and plain sheets of settings.
+  - General: Light, Dark or System as three small windows to pick from;
+    spelling, with a few words in the spelling you chose (colour, organise,
+    travelled); paste when you let go; the microphone (the list was hidden
+    before) with a live level meter beside it, read from the microphone
+    Waffler already keeps ready, so you can see it hears you before you
+    dictate. A microphone you have just picked is used from your next
+    dictation, and the meter says so rather than show the old one's level.
+    Then start at sign-in, and Run setup again, which keeps your keys and
+    history.
+  - Keys and providers: what a dictation goes through (you, speech to text,
+    clean-up, pasted or copied), with the provider and model doing each
+    job. Then your keys in the order Waffler tries them: each says In use,
+    Standby or No key, shows its key (masked), and has Replace or Add key.
+    Drag a provider by its handle to change the order, or focus the handle
+    and use the up and down arrow keys.
+  - Hotkey: your keys as big keycaps. Hold them on this page to test them:
+    the keys light up and it says "Heard Win + Ctrl. That's working." This
+    is Waffler's own listener hearing them, so it is a real test (and a
+    real dictation, kept in the Journal). The presets are cards, Custom
+    opens the dialog where you hold your own keys, and Space and Esc are
+    explained underneath.
+  - Usage: words dictated, dictations and words a dictation, a chart of
+    the words of each of the last 30 days, then today, this week, this
+    month and all time. The estimated cost at each provider's published
+    rates is smaller, below, marked an estimate.
+  - Privacy and data: what stays on this computer and what goes to which
+    provider (the one in use), history, recent recordings, anything waiting
+    to be sent, logs, and Delete all my data, which asks in the page
+    instead of a system dialog.
+  - About: Waffler, its version and Check for updates; what it is (free,
+    open source, no account, no subscription, no Waffler server); the MIT
+    licence, the source on GitHub, and who makes it; what is new in this
+    version; links to the source, issues and release notes; and which model
+    does each job.
 - **Recent recordings are now said out loud.** Waffler has kept the audio of
   your last 10 dictations on this computer, to help look into problems like
   missing words. Settings, Privacy and data now says so, with a switch to
