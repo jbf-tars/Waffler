@@ -31,7 +31,7 @@ from transcribe_whisper import apply_vocab_changes  # noqa: E402
     ("node js app", ["Node.js"], "Node.js app"),
     ("the .net app", [".NET"], "the .NET app"),
     ("at&t bill", ["AT&T"], "AT&T bill"),
-    ("use gpt-4o-mini", ["GPT-4o", "GPT-4o-mini"], "use GPT-4o-mini"),   # the longer entry wins
+    ("use gpt-4o-mini", ["GPT-4o", "GPT-4o-mini"], "use GPT-4o-mini"),   # the longer entry wins  # doc-drift-ok (a vocabulary example, not the styler model)
     ("ask cobie about gpt-4o", ["COBie", "GPT-4o"], "ask COBie about GPT-4o"),
 ])
 def test_entries_with_digits_or_symbols_are_corrected(heard, vocab, want):
