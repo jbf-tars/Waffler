@@ -172,6 +172,9 @@ body {
   --scrim: rgba(12, 10, 9, 0.20);
   --stage:       #F7F1E6;              /* the warm band behind a page's main thing (Settings) */
   --stage-line:  rgba(122, 87, 23, 0.065);
+  /* Squared paper (setup): a grid you can see at 1x and 2x on --stage. */
+  --stage-grid:  rgba(122, 87, 23, 0.10);
+  --stage-edge:  rgba(122, 87, 23, 0.18);
   --danger-solid:       #B42318;       /* the solid Delete button: white on it, 6.5:1 */
   --danger-solid-hover: #8F1C13;
 
@@ -222,6 +225,8 @@ body[data-theme="dark"] {
   --scrim: rgba(0, 0, 0, 0.5);
   --stage:       #1A1611;
   --stage-line:  rgba(232, 200, 108, 0.05);
+  --stage-grid:  rgba(232, 200, 108, 0.085);
+  --stage-edge:  rgba(232, 200, 108, 0.14);
   --danger-solid:       #C8372B;
   --danger-solid-hover: #A82D23;
   --shadow-btn:    0 0 0 0.5px rgba(255, 255, 255, 0.10), 0 1px 2px rgba(0, 0, 0, 0.5);
@@ -266,6 +271,8 @@ body[data-theme="dark"] {
     --scrim: rgba(0, 0, 0, 0.5);
     --stage:       #1A1611;
     --stage-line:  rgba(232, 200, 108, 0.05);
+    --stage-grid:  rgba(232, 200, 108, 0.085);
+    --stage-edge:  rgba(232, 200, 108, 0.14);
     --danger-solid:       #C8372B;
     --danger-solid-hover: #A82D23;
     --shadow-btn:    0 0 0 0.5px rgba(255, 255, 255, 0.10), 0 1px 2px rgba(0, 0, 0, 0.5);

@@ -8,8 +8,8 @@
  * step fits on one screen; below the minimum size (884 x 601) the step
  * scrolls rather than overlapping.
  *
- * The pictures on the right use the website's own art (ui/img, bundled, no
- * network), with the site's dark syrup art in the Dark theme.
+ * The pictures on the right sit on squared paper, the warm stage of the
+ * Atelier design, in every step and both themes (no photographs).
  */
 
 /* Anything marked hidden stays hidden, whatever its class sets. */
@@ -201,22 +201,25 @@
 /* ── Try it ────────────────────────────────────────────────────────────── */
 .ob-suggest { margin-top: 20px; padding: 15px 16px 16px; }
 .ob-suggest-t { margin: 8px 0 0; font: 400 17px/26px var(--f-ui); letter-spacing: 0; color: var(--text); }
-.ob-microw { margin-top: 10px; padding: 7px 10px 7px 14px; display: flex; align-items: center; gap: 10px; }
+.ob-microw { margin-top: 10px; padding: 8px 12px 8px 14px; display: flex; align-items: center; gap: 10px; }
 .ob-micicon { color: var(--muted); }
 .ob-micselect {
   flex: 1;
   min-width: 0;
-  height: 30px;
-  padding: 0 6px;
+  height: 32px;
+  padding: 0 32px 0 10px;
   border: 0;
-  border-radius: 6px;
-  background: transparent;
+  border-radius: 7px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--card) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238A8279' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 11px center;
+  box-shadow: inset 0 0 0 1px var(--ring-ctl);
   color: var(--text);
-  font: var(--t-desc);
+  font: 400 13.5px/1 var(--f-ui);
   cursor: pointer;
   text-overflow: ellipsis;
 }
-.ob-micselect:hover { background: var(--surface); }
+.ob-micselect:hover { background-color: var(--surface); }
 .ob-meter { display: flex; flex: none; }
 .ob-extra { margin-top: 16px; }
 .ob-note { margin-top: 10px; }
@@ -239,27 +242,22 @@
 .ob-loginrow .row-t, .ob-loginrow .row-d { display: block; }
 
 /* ── The pictures ──────────────────────────────────────────────────────── */
+/* Squared paper: the warm stage with a 22 px grid. --stage-grid is strong
+   enough to see at 1x and 2x, faint enough to stay behind the example. */
 .ob-art {
   position: relative;
   height: 100%;
   min-height: 520px;
-  border-radius: 24px;
+  border-radius: 16px;
   overflow: hidden;
   isolation: isolate;
-  background: #F1E2BC center 55% / cover no-repeat;
-  box-shadow: inset 0 0 0 0.5px rgba(122, 87, 23, 0.18);
-  color: #0C0A09;
+  background-color: var(--stage);
+  background-image: linear-gradient(var(--stage-grid) 1px, transparent 1px), linear-gradient(90deg, var(--stage-grid) 1px, transparent 1px);
+  background-size: 22px 22px;
+  background-position: -1px -1px;
+  box-shadow: inset 0 0 0 1px var(--stage-edge);
+  color: var(--text);
 }
-.ob-art::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  background: radial-gradient(70% 70% at 50% 50%, rgba(253, 250, 242, 0.70), rgba(253, 250, 242, 0.18) 78%);
-}
-.ob-art-honey { background-image: url("img/mesh-honey-1200.webp"); }
-.ob-art-cream { background-image: url("img/mesh-cream-1200.webp"); }
-.ob-art-lattice { background-color: #F3E6C6; background-image: url("img/stage-lattice-1200.webp"); }
 .ob-art-in { position: relative; z-index: 1; height: 100%; }
 .ob-center { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 28px 34px 40px; }
 .ob-footnote {
@@ -269,10 +267,10 @@
   bottom: 14px;
   z-index: 2;
   text-align: center;
-  font: 400 11.5px/16px var(--f-mono);
-  color: #5A4A2E;
+  font: 400 11.5px/16px var(--f-ui);
+  color: var(--muted);
 }
-.ob-art-cap { margin: 16px 0 0; max-width: 360px; text-align: center; font: 400 13px/19px var(--f-ui); color: #44403B; }
+.ob-art-cap { margin: 16px 0 0; max-width: 360px; text-align: center; font: 400 13px/19px var(--f-ui); color: var(--text-2); }
 
 .ob-chip {
   display: inline-flex;
@@ -281,10 +279,10 @@
   height: 26px;
   padding: 0 11px;
   border-radius: var(--r-pill);
-  background: rgba(255, 255, 255, 0.92);
-  box-shadow: var(--shadow-btn);
-  font: 500 11.5px/1 var(--f-mono);
-  color: #0C0A09;
+  background: var(--card);
+  box-shadow: 0 0 0 1px var(--ring), 0 1px 2px rgba(12, 10, 9, 0.04);
+  font: 500 12px/1 var(--f-ui);
+  color: var(--text);
   white-space: nowrap;
 }
 .ob-chip .ic { width: 14px; height: 14px; }
@@ -296,25 +294,28 @@
   height: 32px;
   padding: 0 14px 0 10px;
   border-radius: var(--r-pill);
-  background: #FFFFFF;
-  box-shadow: 0 0 1px rgba(0, 0, 0, 0.4), 0 4px 4px rgba(0, 0, 0, 0.04);
+  background: var(--card);
+  box-shadow: 0 0 0 1px var(--ring), 0 1px 2px rgba(12, 10, 9, 0.04);
   font: 400 13px/18px var(--f-ui);
-  color: #0C0A09;
+  color: var(--text);
 }
-.ob-go .ic { stroke: #2F7D32; stroke-width: 2; }
+.ob-go .ic { stroke: var(--ok); stroke-width: 2; }
 .ob-hl { box-shadow: 0 0 0 3px rgba(217, 164, 65, 0.6), 0 0 0 7px rgba(217, 164, 65, 0.18) !important; }
 
-/* What you said / Waffler wrote (the site's cards) */
-.ob-pl { font: var(--t-label); letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 7px; }
-.ob-tape { border-radius: 12px; padding: 13px 16px 15px; background: var(--tape); color: #F3E9D6; }
-.ob-tape .ob-pl { color: #E8C86C; }
-.ob-tape .ob-tx { font: 400 15px/22px var(--f-ui); color: #F3E9D6; }
-.ob-tape del { color: #B9A98E; text-decoration: line-through; text-decoration-color: rgba(232, 200, 108, 0.75); text-decoration-thickness: 1.5px; }
-.ob-wrote { border-radius: 12px; padding: 13px 16px 15px; background: #FFFFFF; color: #0C0A09; box-shadow: var(--shadow-bubble); }
-.ob-wrote .ob-pl { color: #7A5717; }
-.ob-wrote .ob-tx { font: var(--t-body-lg); white-space: pre-line; }
+/* What you said / Waffler wrote: as on Connect's paper. What you said in
+   serif italic with the dropped words struck through in honey; what
+   Waffler wrote on a sheet. Labels in sentence case, not mono capitals. */
+.ob-pl { margin-bottom: 8px; font: 500 11.5px/1 var(--f-ui); letter-spacing: 0; text-transform: none; color: var(--muted); }
+.ob-tape { padding: 2px 2px 4px; color: var(--muted); }
+.ob-tape .ob-tx { font: italic 400 15.5px/1.6 var(--f-serif); color: var(--muted); }
+.ob-tape del { color: var(--faint); text-decoration: line-through; text-decoration-color: var(--honey-deep); text-decoration-thickness: 1.5px; }
+.ob-wrote { border-radius: 12px; padding: 16px 20px 18px; background: var(--card); color: var(--text); box-shadow: 0 0 0 1px var(--ring), 0 22px 40px -24px rgba(78, 50, 23, 0.35); }
+.ob-wrote .ob-pl { color: var(--accent-ink); }
+.ob-wrote .ob-tx { font: 400 17px/1.55 var(--f-serif); white-space: pre-line; color: var(--text); }
 .ob-wrote .ob-tx p { margin: 0; }
 .ob-wrote .ob-tx p + p { margin-top: 10px; }
+/* Setup's small headings ("Try saying", "Choose your hotkey"). */
+.ob .eyebrow { font: 500 11.5px/1 var(--f-ui); letter-spacing: 0; text-transform: none; color: var(--muted); }
 
 .ob-example { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 26px 40px 48px; }
 .ob-example .ob-tape, .ob-example .ob-wrote { width: 100%; }
@@ -345,17 +346,17 @@
 
 /* Connected: this computer, no Waffler server, Groq */
 .ob-flow { width: 340px; display: flex; flex-direction: column; align-items: center; }
-.ob-fcard { width: 100%; display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: 16px; background: #FFFFFF; box-shadow: var(--shadow-window); color: #0C0A09; }
+.ob-fcard { width: 100%; display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: 12px; background: var(--card); box-shadow: 0 0 0 1px var(--ring), 0 22px 40px -24px rgba(78, 50, 23, 0.35); color: var(--text); }
 .ob-fcard b { display: block; font: 500 14px/20px var(--f-ui); }
 .ob-fcard .itile { width: 34px; height: 34px; }
-.ob-fd { display: block; font: 400 12.5px/18px var(--f-ui); color: #57514A; }
-.ob-kchip { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; height: 24px; padding: 0 9px; border-radius: var(--r-pill); background: #F5F3F1; font: 400 11.5px/1 var(--f-mono); color: #44403B; }
+.ob-fd { display: block; font: 400 12.5px/18px var(--f-ui); color: var(--muted); }
+.ob-kchip { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; height: 24px; padding: 0 9px; border-radius: var(--r-pill); background: var(--surface); font: 400 11.5px/1 var(--f-mono); color: var(--text-2); }
 .ob-flink { position: relative; height: 104px; width: 100%; display: flex; align-items: center; justify-content: center; }
-.ob-flink::before { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; border-left: 1.5px dashed rgba(90, 74, 46, 0.45); }
-.ob-flab, .ob-flab2 { position: absolute; white-space: nowrap; font: 400 11.5px/16px var(--f-mono); color: #5A4A2E; }
+.ob-flink::before { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; border-left: 1.5px dashed var(--honey-deep); opacity: 0.6; }
+.ob-flab, .ob-flab2 { position: absolute; white-space: nowrap; font: italic 400 13px/16px var(--f-serif); color: var(--muted); }
 .ob-flab { right: calc(50% + 14px); top: 10px; text-align: right; }
 .ob-flab2 { left: calc(50% + 14px); bottom: 10px; }
-.ob-nows { position: relative; height: 28px; padding: 0 12px; border-radius: 8px; border: 1px dashed rgba(90, 74, 46, 0.5); background: rgba(253, 252, 252, 0.85); display: grid; place-items: center; font: 400 12.5px/1 var(--f-ui); color: #44403B; }
+.ob-nows { position: relative; height: 28px; padding: 0 12px; border-radius: 8px; border: 1px dashed var(--honey-deep); background: var(--card); display: grid; place-items: center; font: 400 12.5px/1 var(--f-ui); color: var(--text-2); }
 .ob-flow + .ob-go { margin-top: 26px; }
 
 /* Mac: what macOS shows next */
@@ -378,26 +379,25 @@
 .ob-step[data-state="rec"] .ob-try,
 .ob-step[data-state="silent"] .ob-try { justify-content: center; gap: 40px; }
 .ob-keyblock { display: flex; flex-direction: column; align-items: center; }
-.ob-holdcap { margin-top: 12px; display: inline-flex; padding: 3px 9px; border-radius: var(--r-pill); background: rgba(253, 252, 252, 0.8); font: 400 12px/16px var(--f-mono); color: #44403B; }
+.ob-holdcap { margin-top: 12px; display: inline-flex; font: italic 400 14px/18px var(--f-serif); color: var(--muted); }
 #obHoldKey { display: inline-flex; align-items: center; justify-content: center; gap: 10px; }
 #obHoldKey .ic { width: 20px; height: 20px; }
 .ob-try-mid { display: flex; flex-direction: column; align-items: center; gap: 12px; }
 .ob-ghost { opacity: 0.5; filter: saturate(0.7); }
-.ob-ghostcap { font: 400 12px/16px var(--f-mono); color: #5A4A2E; }
+.ob-ghostcap { font: italic 400 13.5px/18px var(--f-serif); color: var(--muted); }
 .ob-bigwaffle { filter: drop-shadow(0 10px 16px rgba(78, 50, 23, 0.24)); }
 .ob-recchip i { width: 7px; height: 7px; border-radius: 50%; background: var(--rec); }
 .ob-recchip-honey i { background: var(--honey); }
-.ob-recchip-off i { background: #A59F97; }
+.ob-recchip-off i { background: var(--faint); }
 .ob-pair { width: 100%; display: grid; gap: 10px; }
 .ob-pair > .ob-recchip, .ob-pair > .ob-go { justify-self: center; }
-.ob-said-ph { border-radius: 12px; padding: 13px 16px 15px; background: rgba(42, 31, 14, 0.10); box-shadow: inset 0 0 0 1px rgba(42, 31, 14, 0.14); font: 400 14px/22px var(--f-ui); color: #5A4A2E; }
-.ob-wrote-ph { border-radius: 12px; padding: 13px 16px 15px; background: rgba(255, 255, 255, 0.55); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.8); font: 400 14px/22px var(--f-ui); color: #5A4A2E; }
-.ob-said-ph .ob-pl { color: #5A4A2E; }
-.ob-wrote-ph .ob-pl { color: #7A5717; }
+.ob-said-ph { padding: 2px 2px 4px; font: italic 400 15px/1.6 var(--f-serif); color: var(--muted); }
+.ob-wrote-ph { border-radius: 12px; padding: 16px 20px 18px; background: var(--card); box-shadow: inset 0 0 0 1px var(--ring); font: italic 400 15px/1.6 var(--f-serif); color: var(--muted); }
+.ob-wrote-ph .ob-pl { color: var(--accent-ink); }
+.ob-said-ph .ob-pl, .ob-wrote-ph .ob-pl { font-style: normal; }
 .ob-skel { display: grid; gap: 8px; padding: 5px 0 3px; }
-.ob-skel i { height: 9px; width: 78%; border-radius: 5px; background: #EBE8E4; }
+.ob-skel i { height: 9px; width: 78%; border-radius: 5px; background: var(--surface-2); }
 .ob-skel i + i { width: 46%; }
-.ob-tape .ob-skel i { background: rgba(243, 233, 214, 0.22); }
 
 /* Use it anywhere: Notepad or TextEdit, and where Waffler waits */
 .ob-desk { min-height: 520px; }
@@ -432,20 +432,9 @@ body[data-platform="mac"] .ob-desk-win { display: none; }
 .ob-dots-mac i:nth-child(3) { background: #28C840; }
 .ob-te-body { height: 300px; padding: 16px 18px; font: 400 15px/24px var(--f-ui); color: #111111; overflow: hidden; }
 
-/* Connect's example on squared paper (the Atelier design): you hold the
-   keys, what you said, and the letter Waffler wrote. */
-.ob-art.ob-paper {
-  background-color: var(--stage);
-  background-image: linear-gradient(var(--stage-line) 1px, transparent 1px), linear-gradient(90deg, var(--stage-line) 1px, transparent 1px);
-  background-size: 22px 22px;
-  background-position: -1px -1px;
-  box-shadow: inset 0 0 0 1px var(--stage-line);
-  border-radius: 16px;
-  color: var(--text);
-}
-.ob-art.ob-paper::before { display: none; }
+/* Connect's example (the Atelier design): you hold the keys, what you
+   said, and the letter Waffler wrote. The paper is .ob-art's. */
 .ob-paper .ob-example { display: flex; flex-direction: column; justify-content: center; align-items: stretch; gap: 0; padding: 28px 38px 44px; }
-.ob-paper .ob-pl { font: 500 11px/1 var(--f-ui); letter-spacing: 0; text-transform: none; color: var(--muted); margin-bottom: 9px; }
 .ob-hold { display: flex; align-items: center; gap: 16px; }
 .ob-pill {
   display: flex;
@@ -478,29 +467,10 @@ body[data-platform="mac"] .ob-desk-win { display: none; }
 }
 .ob-letter p { margin: 0; font: 400 17px/1.55 var(--f-serif); color: var(--text); }
 .ob-letter p + p { margin-top: 10px; }
-.ob-paper .ob-footnote { font: 400 11.5px/16px var(--f-ui); color: var(--muted); }
 
 /* ── Dark theme ────────────────────────────────────────────────────────── */
-body[data-theme="dark"] .ob-art { background-color: #1C1917; background-image: url("img/field-syrup-dark-1200.webp"); box-shadow: inset 0 0 0 0.5px rgba(232, 200, 108, 0.18); }
-body[data-theme="dark"] .ob-art::before { background: radial-gradient(70% 70% at 50% 45%, rgba(12, 10, 9, 0.05), rgba(12, 10, 9, 0.45) 85%); }
-body[data-theme="dark"] .ob-art.ob-paper {
-  background-color: var(--stage);
-  background-image: linear-gradient(var(--stage-line) 1px, transparent 1px), linear-gradient(90deg, var(--stage-line) 1px, transparent 1px);
-  box-shadow: inset 0 0 0 1px rgba(232, 200, 108, 0.12);
-}
-body[data-theme="dark"] .ob-paper .ob-footnote { color: var(--muted); }
-body[data-theme="dark"] .ob-holdcap { background: rgba(28, 25, 23, 0.85); color: #CEC6BB; }
-body[data-theme="dark"] .ob-footnote,
-body[data-theme="dark"] .ob-ghostcap,
-body[data-theme="dark"] .ob-art-cap,
-body[data-theme="dark"] .ob-flab,
-body[data-theme="dark"] .ob-flab2 { color: #CEC6BB; }
-body[data-theme="dark"] .ob-said-ph,
-body[data-theme="dark"] .ob-said-ph .ob-pl { background: rgba(253, 252, 252, 0.06); color: #CEC6BB; box-shadow: inset 0 0 0 1px rgba(253, 252, 252, 0.10); }
-body[data-theme="dark"] .ob-wrote-ph { background: rgba(253, 252, 252, 0.10); color: #CEC6BB; box-shadow: inset 0 0 0 1px rgba(253, 252, 252, 0.14); }
-body[data-theme="dark"] .ob-wrote-ph .ob-pl { color: #E8C86C; }
-body[data-theme="dark"] .ob-said-ph .ob-pl { background: none; box-shadow: none; }
-body[data-theme="dark"] .ob-tape { box-shadow: inset 0 0 0 0.5px rgba(232, 200, 108, 0.25); }
+/* The paper, chips, sheets and labels take the theme from tokens.css; only
+   the replicas of other apps (Notepad, TextEdit, Groq's page) stay light. */
 
 /* ── Small windows: stack the picture under the step ───────────────────── */
 @media (max-width: 1000px) {

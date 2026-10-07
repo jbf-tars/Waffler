@@ -90,3 +90,52 @@ def test_the_empty_journal_is_the_first_entry_of_today_not_a_picture():
     assert "$rail" not in draw and "$strip" not in draw
     assert "search.hidden = view.kind === 'empty';" in draw
     assert "WL.dayHeading(key, now).date" in draw
+
+
+# ── What you said (the old View original) ───────────────────────────────────
+
+def test_what_you_said_is_a_labelled_button_with_one_name():
+    app = read("app.js")
+    card = func(app, "makeCard")
+    assert 'class="btn btn-quiet btn-sm text-toggle"' in card
+    assert "<span>What you said</span>" in card
+    toggle = func(app, "toggleRawHandler")
+    # Only aria-pressed changes; the name stays "What you said".
+    assert "aria-label" not in toggle and ".title" not in toggle
+    assert "toggleEl.setAttribute('aria-pressed', 'true');" in toggle
+    assert "toggleEl.setAttribute('aria-pressed', 'false');" in toggle
+    assert "'Show clean'" not in app
+
+
+def test_the_changelog_no_longer_claims_what_was_said_always_differed():
+    log = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    assert "differed every time" not in log
+    assert "31 entries with the button and 29 without" in log
+
+
+# ── Setup: every step on squared paper ───────────────────────────────────────
+
+def test_every_setup_picture_is_on_squared_paper_you_can_see():
+    css = read("setup.css")
+    art = rule(css, ".ob-art")
+    assert "var(--stage-grid)" in art and "background-color: var(--stage);" in art
+    assert ".webp" not in css, "no photographs behind setup"
+    tokens = read("tokens.css")
+    m = re.search(r"--stage-grid:\s+rgba\(122, 87, 23, ([0-9.]+)\);", tokens)
+    # --stage-line (0.065) could not be seen at 1x or 2x on the cream stage.
+    assert m and float(m.group(1)) >= 0.1
+    assert tokens.count("--stage-grid:") == 3, "light, dark, and dark for System"
+
+
+def test_setup_labels_are_sentence_case_not_mono_capitals():
+    css = read("setup.css")
+    for sel in (".ob-pl", ".ob .eyebrow"):
+        r = rule(css, sel)
+        assert "text-transform: none;" in r and "var(--f-ui)" in r, sel
+    for sel in (".ob-chip", ".ob-footnote", ".ob-holdcap", ".ob-ghostcap", ".ob-flab, .ob-flab2"):
+        assert "var(--f-mono)" not in rule(css, sel), sel
+
+
+def test_the_microphone_select_is_drawn_like_the_other_fields():
+    sel = rule(read("setup.css"), ".ob-micselect")
+    assert "appearance: none;" in sel and "var(--ring-ctl)" in sel
