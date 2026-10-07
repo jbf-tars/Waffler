@@ -471,6 +471,11 @@ body[data-platform="mac"] .ob-desk-win { display: none; }
 /* ── Dark theme ────────────────────────────────────────────────────────── */
 /* The paper, chips, sheets and labels take the theme from tokens.css; only
    the replicas of other apps (Notepad, TextEdit, Groq's page) stay light. */
+/* On night paper the sheets' warm brown shadow turns to mud: a plain dark
+   one instead. */
+body[data-theme="dark"] .ob-art .ob-wrote,
+body[data-theme="dark"] .ob-art .ob-letter,
+body[data-theme="dark"] .ob-art .ob-fcard { box-shadow: 0 0 0 1px var(--ring), 0 18px 36px -20px rgba(0, 0, 0, 0.6); }
 
 /* ── Small windows: stack the picture under the step ───────────────────── */
 @media (max-width: 1000px) {
