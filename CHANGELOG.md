@@ -98,6 +98,23 @@ Waffler up never see it.
   own), what you said with the filler struck through, and the letter
   Waffler wrote. The steps across the top are numbered in serif italics,
   and the header says Waffler is free and open source.
+- **The rest of setup, on the same paper.** Try it and Use it anywhere
+  (and a Mac's Permissions) sit on squared paper too, in place of the
+  blurred photographs. Labels are in sentence case ("Try saying", "What
+  you said") rather than small mono capitals, what you said is in serif
+  italics with the dropped words struck through, Waffler's version is on a
+  sheet, and the microphone is a drawn field rather than the system's own
+  list.
+- **The top bar is a running head.** The three pages are plain words with
+  a rule under the open one, Ready has a green dot with the hotkey past a
+  thin rule, and the bar is 52 px, 8 px shorter. While you dictate on the
+  Journal, the seconds show once, in the Journal's strip.
+- **The empty Journal** shows today's heading and a row where your first
+  dictation will appear, with the margin's real numbers beside it, in
+  place of the photograph and the card.
+- Buttons have the Atelier's square corners, not pills; dialogs have a
+  serif title and a light veil without blur, and the update dialog says
+  "Waffler 3.15.2 is ready" and "Download and install".
 - Clicking Done while "Open Notepad and try it" was still starting Waffler
   could start it twice, so each dictation would paste, cost and appear in
   the Journal twice. Waffler now starts once however it is asked.
