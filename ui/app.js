@@ -1509,7 +1509,7 @@ function makeCard(item, isNew) {
     </div>
     <div class="j-acts card-actions">
       <button type="button" class="btn btn-sec btn-sm btn-copy" aria-label="${escHtml(when ? `Copy the dictation from ${when}` : 'Copy')}">${WI.icon('copy')}<span>Copy</span></button>
-      ${hasStyled ? `<button type="button" class="rbtn text-toggle" aria-controls="${textId}" aria-pressed="false" aria-label="Show what you said" title="Show what you said">${WI.icon('file-text')}</button>` : ''}
+      ${hasStyled ? `<button type="button" class="btn btn-quiet btn-sm text-toggle" aria-controls="${textId}" aria-pressed="false">${WI.icon('file-text')}<span>What you said</span></button>` : ''}
     </div>
   `;
 
@@ -1555,20 +1555,18 @@ function _clock(ts) {
   return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 }
 
+// One name, "What you said", and aria-pressed says whether it is shown (a
+// name that changed with the state was read as "Show clean, pressed").
 function toggleRawHandler(toggleEl, textEl, rawText, styledText) {
   const showingStyled = textEl.classList.contains('styled');
   if (showingStyled) {
     textEl.textContent = rawText;
     textEl.classList.replace('styled', 'raw');
     toggleEl.setAttribute('aria-pressed', 'true');
-    toggleEl.setAttribute('aria-label', 'Show clean');
-    toggleEl.title = 'Show clean';
   } else {
     textEl.textContent = styledText;
     textEl.classList.replace('raw', 'styled');
     toggleEl.setAttribute('aria-pressed', 'false');
-    toggleEl.setAttribute('aria-label', 'Show what you said');
-    toggleEl.title = 'Show what you said';
   }
 }
 
