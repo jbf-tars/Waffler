@@ -816,3 +816,103 @@ def test_cards_use_the_helpers():
     src = code_only(read("app.js"))
     assert "WL.originalText(item)" in src and "WL.hasOriginal(item)" in src
     assert "item.styled !== item.text" not in src
+
+
+# ── Settings, the Atelier design (3.15) ──────────────────────────────────────
+
+@needs_node
+def test_the_spelling_row_shows_words_in_the_chosen_spelling():
+    assert js("L.spellingSpecimen('en-GB')") == {"words": ["colour", "organise", "travelled"], "not": "not color"}
+    assert js("L.spellingSpecimen('en-US')") == {"words": ["color", "organize", "traveled"], "not": "not colour"}
+    assert js("L.spellingSpecimen('auto')") is None
+
+
+@needs_node
+def test_the_microphone_meter_follows_the_level():
+    assert js("L.micMeter(0)") == [""] * 16
+    assert js("L.micMeter(1)") == ["f"] * 16
+    assert js("L.micMeter('nonsense')") == [""] * 16
+    # The overlay's curve: a quarter of full scale lights more than a quarter.
+    quarter = js("L.micMeter(0.25)")
+    lit = quarter.count("f")
+    assert 8 <= lit <= 10 and quarter[:lit] == ["f"] * lit and quarter[lit + 1:] == [""] * (15 - lit)
+    assert js("L.micMeter(0.5, 4)") == ["f", "f", "f", ""]
+
+
+@needs_node
+def test_the_usage_chart_draws_the_real_days():
+    daily = [0] * 22 + [610, 1240, 0, 420, 1630, 2210, 1105, 980]
+    v = js(f"L.usageChart({daily}, '2026-09-08')")
+    assert v["empty"] is False and len(v["bars"]) == 30
+    assert v["start"] == "8 September"
+    assert [g["label"] for g in v["grid"]] == ["1,000", "2,000"]
+    tallest = max(v["bars"], key=lambda b: b["h"])
+    assert tallest["words"] == 2210 and 90 < tallest["h"] < 100
+    assert [b["cls"] for b in v["bars"]][-8:] == ["old"] + ["wk"] * 6 + ["today"]
+    assert v["bars"][-1]["label"] == "Today: 980 words"
+    assert v["bars"][0]["label"] == "8 September: 0 words" and v["bars"][0]["h"] == 0
+    assert v["bars"][-6]["label"] == "2 October: 0 words"
+    # A day with a few words still shows as a sliver.
+    assert js("L.usageChart([1, 5000], '2026-10-06')")["bars"][0]["h"] == 2
+    assert js("L.usageChart([0, 0], '2026-10-06')")["empty"] is True
+    assert js("L.usageChart(null, '')") == {"empty": True, "bars": [], "grid": [], "start": ""}
+    assert [g["value"] for g in js("L.usageChart([7], '2026-10-07')")["grid"]] == [2, 4, 6]
+
+
+@needs_node
+def test_the_usage_figures_come_from_the_journal_counts():
+    assert js("L.usageFacts({total_count: 2316, total_words: 49035})") == \
+        {"dictations": "2,316", "dictationsLabel": "dictations", "perDictation": "21"}
+    assert js("L.usageFacts(null)") == {"dictations": "0", "dictationsLabel": "dictations", "perDictation": "0"}
+    assert js("L.usageFacts({total_count: 1, total_words: 9})")["dictationsLabel"] == "dictation"
+
+
+@needs_node
+def test_the_keys_page_draws_what_a_dictation_goes_through():
+    s = {"transcription_backend": "groq", "styling_backend": "groq", "auto_paste": True}
+    assert js(f"L.flowView({json.dumps(s)})") == {
+        "speech": {"by": "Groq", "model": "Whisper large v3"},
+        "cleanup": {"by": "Groq", "model": "gpt-oss-120b"}, "out": "Pasted"}
+    s = {"transcription_backend": "api", "styling_backend": "cerebras", "auto_paste": False}
+    assert js(f"L.flowView({json.dumps(s)})") == {
+        "speech": {"by": "OpenAI", "model": "gpt-4o-mini-transcribe"},
+        "cleanup": {"by": "Cerebras", "model": "gpt-oss-120b"}, "out": "Copied"}
+    assert js("L.flowView(null)") == {"speech": None, "cleanup": None, "out": "Pasted"}
+
+
+@needs_node
+def test_each_provider_says_in_use_standby_or_no_key():
+    rows = js("L.keyRows(['groq','openai','cerebras'], {groq_key_set: true, api_key_set: true, "
+              "transcription_backend: 'groq', styling_backend: 'groq'}).map(L.providerPill)")
+    assert rows == [{"pill": "In use", "pillCls": "ok"}, {"pill": "Standby", "pillCls": ""},
+                    {"pill": "No key", "pillCls": ""}]
+
+
+@needs_node
+def test_privacy_names_where_your_voice_really_goes():
+    assert js("L.privacyFlow({transcription_backend: 'groq', styling_backend: 'groq'})") == \
+        {"id": "groq", "name": "Groq", "mark": "g", "what": "your voice, while you hold"}
+    assert js("L.privacyFlow({transcription_backend: 'api', styling_backend: 'openai'})")["name"] == "OpenAI"
+    # Speech to text on this computer: only the words go, for the clean-up.
+    assert js("L.privacyFlow({transcription_backend: 'faster', styling_backend: 'cerebras'})") == \
+        {"id": "cerebras", "name": "Cerebras", "mark": "C", "what": "your words, for the clean-up"}
+    assert js("L.privacyFlow({transcription_backend: 'none', styling_backend: 'none'})") is None
+
+
+@needs_node
+def test_the_hotkey_test_line():
+    assert js("L.hotkeyTestLine(false, ['win','ctrl'], false)") == "Hold it now to test it."
+    assert js("L.hotkeyTestLine(true, ['ctrl','win'], false)") == "Heard Win + Ctrl. That's working."
+    assert js("L.hotkeyTestLine(true, ['fn'], true)") == "Heard Fn. That's working."
+
+
+@needs_node
+def test_whats_new_is_in_the_changelog():
+    v = js("L.whatsNew('3.15.0')")
+    assert v["title"] == "New in 3.15" and len(v["items"]) == 3
+    log = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    section = log[log.index("## [3.15.0]"):log.index("## [3.14.100]")]
+    for needle in ("looks like the website", "three steps on Windows and four on a Mac",
+                   "Choose how long your history is kept"):
+        assert needle in section, needle
+    assert js("L.whatsNew('3.14.100')") is None and js("L.whatsNew(null)") is None

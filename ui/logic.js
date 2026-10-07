@@ -803,6 +803,143 @@
     return isMac ? ['connect', 'permissions', 'try', 'anywhere'] : ['connect', 'try', 'anywhere'];
   }
 
+  // ══ Settings (3.15, the Atelier design) ════════════════════════════════
+
+  // General: a few words in the chosen spelling, under "Spelling".
+  const SPELLING_SPECIMEN = {
+    'en-GB': { words: ['colour', 'organise', 'travelled'], not: 'not color' },
+    'en-US': { words: ['color', 'organize', 'traveled'], not: 'not colour' },
+  };
+  function spellingSpecimen(dialect) {
+    const s = SPELLING_SPECIMEN[dialect];
+    return s ? { words: s.words.slice(), not: s.not } : null;
+  }
+
+  // General: the microphone meter, a strip of cells like the recording
+  // overlay's waffle. The level (0 to 1, app.py get_mic_level) goes through
+  // the overlay's own curve (level ** 0.4) so quiet speech still moves it.
+  // Returns one entry per cell: 'f' lit, 'p' part lit, '' dark.
+  const METER_CELLS = 16;
+  function micMeter(level, cells) {
+    const n = cells || METER_CELLS;
+    const v = Math.pow(Math.min(1, Math.max(0, Number(level) || 0)), 0.4) * n;
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const fill = v - i;
+      out.push(fill >= 0.75 ? 'f' : (fill >= 0.25 ? 'p' : ''));
+    }
+    return out;
+  }
+
+  // Usage: the last 30 days' words (journal_data.py daily_words, oldest
+  // first, ending today) as bars. Guide lines at a round step (1, 2 or 5
+  // times a power of ten) about half the busiest day, and the top a little
+  // above the busiest bar. The last 7 days are stronger; today is ink.
+  function _niceFloor(x) {
+    if (!(x > 0)) return 1;
+    const p = Math.pow(10, Math.floor(Math.log10(x)));
+    const m = x / p;
+    return (m >= 5 ? 5 : (m >= 2 ? 2 : 1)) * p;
+  }
+  function _isoDay(iso, plus) {
+    const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return null;
+    return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3] + (plus || 0)));
+  }
+  function _dayMonth(d) {
+    return d ? `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}` : '';
+  }
+  function usageChart(daily, startIso) {
+    const days = Array.isArray(daily) ? daily.map((n) => Math.max(0, Math.round(Number(n) || 0))) : [];
+    const max = Math.max(0, ...days);
+    const step = Math.max(1, _niceFloor(max / 2));
+    const grid = [];
+    for (let g = step; g <= max; g += step) grid.push({ value: g, label: formatCount(g) });
+    const top = max ? max * 1.08 : 1;
+    const bars = days.map((n, i) => {
+      const left = days.length - 1 - i;
+      const d = _isoDay(startIso, i);
+      return {
+        words: n,
+        h: n ? Math.max(2, Math.round((n / top) * 1000) / 10) : 0,
+        cls: left === 0 ? 'today' : (left < 7 ? 'wk' : 'old'),
+        label: `${left === 0 ? 'Today' : _dayMonth(d)}: ${formatCount(n)} ${n === 1 ? 'word' : 'words'}`,
+      };
+    });
+    return {
+      empty: max === 0,
+      bars,
+      grid: grid.map((g) => Object.assign(g, { pos: Math.round((g.value / top) * 1000) / 10 })),
+      start: _dayMonth(_isoDay(startIso)),
+    };
+  }
+
+  // Usage: the figures beside the big total.
+  function usageFacts(stats) {
+    stats = stats || {};
+    const count = Math.round(Number(stats.total_count) || 0);
+    const words = Math.round(Number(stats.total_words) || 0);
+    return {
+      dictations: formatCount(count),
+      dictationsLabel: count === 1 ? 'dictation' : 'dictations',
+      perDictation: count ? formatCount(words / count) : '0',
+    };
+  }
+
+  // Keys and providers: what a dictation goes through, left to right.
+  const SPEECH_NODE = { groq: 'Groq', api: 'OpenAI', mlx: 'This Mac', faster: 'This computer' };
+  function flowView(s) {
+    const a = activeProviders(s);
+    return {
+      speech: a.speech ? { by: SPEECH_NODE[a.speech], model: SPEECH_MODEL[a.speech] } : null,
+      cleanup: a.cleanup ? { by: PROVIDER_NAMES[a.cleanup], model: CLEANUP_MODEL[a.cleanup] } : null,
+      out: s && s.auto_paste === false ? 'Copied' : 'Pasted',
+    };
+  }
+
+  // Keys and providers: each row's state. "Standby" is a saved key that
+  // Waffler tries when the one before it doesn't answer.
+  const PROVIDER_MARKS = { groq: 'g', openai: 'O', cerebras: 'C' };
+  function providerPill(row) {
+    if (!row || !row.hasKey) return { pill: 'No key', pillCls: '' };
+    return row.status === 'In use' ? { pill: 'In use', pillCls: 'ok' } : { pill: 'Standby', pillCls: '' };
+  }
+
+  // Privacy and data: where your voice goes. Speech to text on a provider
+  // gets the audio; speech to text on this computer sends only the words,
+  // for the clean-up. No key yet: nothing goes anywhere.
+  function privacyFlow(s) {
+    const a = activeProviders(s);
+    if (a.speech === 'groq' || a.speech === 'api') {
+      const id = a.speech === 'api' ? 'openai' : 'groq';
+      return { id, name: PROVIDER_NAMES[id], mark: PROVIDER_MARKS[id], what: 'your voice, while you hold' };
+    }
+    if (a.cleanup) {
+      return { id: a.cleanup, name: PROVIDER_NAMES[a.cleanup], mark: PROVIDER_MARKS[a.cleanup], what: 'your words, for the clean-up' };
+    }
+    return null;
+  }
+
+  // Hotkey: holding the real hotkey on this page is heard by the app's own
+  // listener (the status turns to Recording), which is the test.
+  function hotkeyTestLine(heard, keys, isMac) {
+    return heard ? `Heard ${hotkeyName(keys, isMac)}. That's working.` : 'Hold it now to test it.';
+  }
+
+  // About: what is new in this version (each line is in CHANGELOG.md).
+  const WHATS_NEW = {
+    '3.15': [
+      'A new look, matching wafflerai.com, in light and dark.',
+      'Setup in three steps, four on a Mac, with a real try-it.',
+      'Choose how long your history is kept, and delete it any time.',
+    ],
+  };
+  function whatsNew(version) {
+    const m = String(version || '').match(/^(\d+)\.(\d+)/);
+    const key = m ? `${m[1]}.${m[2]}` : '';
+    return WHATS_NEW[key] ? { title: `New in ${key}`, items: WHATS_NEW[key].slice() } : null;
+  }
+
   return {
     keyInputView, serviceRows, saidDiff, setupSteps, startupTheme,
     STATUS_VIEWS, STATUS_CLASSES, DONE_RESET_MS, statusView, statusResetMs, workingLabel, workingTime, recordingTime,
@@ -815,5 +952,7 @@
     USAGE_NOTE, formatCount, usageView, usageProviderRows, usesView, keyRows,
     qualityView, dayKey, dayLabel, statNumber, vocabChanges, vocabChangesLine, originalText, hasOriginal, vocabAdd, VOCAB_MAX_ENTRY_LEN,
     SEARCH_DEBOUNCE_MS, debounce, feedView, searchAnnouncement, radioMove, focusAfterRemove,
+    spellingSpecimen, METER_CELLS, micMeter, usageChart, usageFacts, flowView, PROVIDER_MARKS, providerPill,
+    privacyFlow, hotkeyTestLine, whatsNew,
   };
 });
