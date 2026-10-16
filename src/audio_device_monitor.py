@@ -68,7 +68,7 @@ from typing import Callable, Optional
 
 try:
     import sounddevice as sd
-    _HAS_SD = True
+    _HAS_SD = sd is not None        # the monitor only asks whether PortAudio is there; audio.py reads it
 except ImportError:
     _HAS_SD = False
 
