@@ -135,6 +135,32 @@ def promote(ranking: Iterable[dict], entry: dict) -> List[Dict[str, str]]:
     return ([new] + rest)[:MAX_ENTRIES]
 
 
+def name_at_index(index, pa_devices: Iterable[md.Device]) -> Optional[str]:
+    """The name of the input at PortAudio's ``index`` in the list made just
+    now, or None. An index means a microphone only for as long as PortAudio's
+    list is the one it came from: it is renumbered each time PortAudio starts
+    again, so a name is what to keep."""
+    if isinstance(index, bool) or not isinstance(index, int):
+        return None
+    for dev in pa_devices or ():
+        if dev.index == index:
+            return dev.name
+    return None
+
+
+def with_pick_first(stored, name) -> dict:
+    """``stored`` (settings) with the microphone ``name`` first in the ranking:
+    for the setup practice, which records from the microphone picked on screen
+    and finds it again by name each time a stream is made. A name that is not
+    a microphone leaves the settings as they are."""
+    base = dict(stored) if isinstance(stored, dict) else {}
+    entry = clean_entry({"name": name})
+    if entry is None:
+        return base
+    base[SETTING] = promote(ranking_of(base), entry)
+    return base
+
+
 def without(ranking: Iterable[dict], name: str) -> List[Dict[str, str]]:
     return [e for e in canonical(ranking) if not md.same_name(e["name"], name)]
 

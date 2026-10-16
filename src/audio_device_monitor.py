@@ -82,6 +82,7 @@ class AudioDeviceMonitor:
     """Background poll for default-input-device changes."""
 
     POLL_INTERVAL_S = 2.0
+    QUERY_WAIT_S = 0.5          # the most a PortAudio query waits for a stream being made
 
     def __init__(
         self,
@@ -127,8 +128,22 @@ class AudioDeviceMonitor:
 
     def _current_default_name(self) -> Optional[str]:
         try:
-            default = sd.query_devices(kind="input")
-            return default.get("name") if isinstance(default, dict) else None
+            # Under the stream lock, like every other query of PortAudio: a
+            # stream being made starts PortAudio again, and a query in the
+            # middle of that is a query of a library being torn down. "Not now"
+            # (None) when the lock cannot be had in time; the next poll tries.
+            try:
+                from audio import snapshot_devices
+            except ImportError:  # imported as src.audio_device_monitor
+                from src.audio import snapshot_devices
+            snap = snapshot_devices(timeout=self.QUERY_WAIT_S)
+            if not snap:
+                return None
+            infos, _hostapis, default_index, _primary = snap
+            if default_index is None or not (0 <= default_index < len(infos)):
+                return None
+            name = infos[default_index].get("name")
+            return name if isinstance(name, str) and name else None
         except Exception:
             # No default input device available right now (e.g. all
             # mics unplugged). Return None — we'll keep polling until
@@ -178,7 +193,10 @@ class AudioDeviceMonitor:
                 self._on_change(old or "", name)
             except Exception as e:
                 self._log(f"[audio-monitor] on_change failed: {e}")
-        if devices and self.on_devices is not None:
+        # An empty list is "none are plugged in" only where the system itself
+        # answered (CoreAudio, "live"); PortAudio says [] when it cannot say.
+        # Without this the last microphone leaving was never reported.
+        if (devices or (devices is not None and self._source == "live")) and self.on_devices is not None:
             try:
                 self.on_devices(devices)
             except Exception as e:

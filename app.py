@@ -2340,6 +2340,14 @@ class Api:
         """Wipe all saved transcriptions."""
         try:
             with _history_lock:
+                # The Undo shelf holds the entries (and recordings) deleted in
+                # the last few seconds, and a token that would put one back
+                # into the Journal just emptied. "Delete all my data" clears it
+                # too (src/privacy_data.py).
+                try:
+                    _history_ops.SHELF.clear()
+                except Exception:       # noqa: BLE001 - clearing the shelf never stops the Journal being cleared
+                    pass
                 save_history([])
             if _pipeline:
                 _pipeline.forget_last_result()
@@ -3274,10 +3282,22 @@ class Api:
             # used to ignore it and always record from the default one. Left
             # alone, it chooses as dictations do (the ranking, else the
             # system's microphone), not by a saved index.
+            # The microphone picked on screen is kept by NAME, not by its
+            # PortAudio index: the list is renumbered each time a stream is made
+            # (PortAudio is started again), so an index pinned now could be a
+            # different microphone by the time the practice records.
+            _picked = None
+            if device_index is not None:
+                try:
+                    import mic_devices as _md_pick
+                    _picked = _mic_ranking.name_at_index(device_index, _md_pick.pa_inputs())
+                except Exception as _e:
+                    _log_to_file(f"Wizard microphone pick not read: {type(_e).__name__}")
             _wizard_recorder = AudioRecorder(
-                sample_rate=16000, channels=1, device_index=device_index,
+                sample_rate=16000, channels=1, device_index=None,
                 device_resolver=_mic_ranking.open_resolver(
-                    _read_settings_now, read_legacy=get_selected_device_index))
+                    lambda: _mic_ranking.with_pick_first(_read_settings_now(), _picked),
+                    read_legacy=get_selected_device_index))
 
             # Create overlay for wizard Step 4 visual feedback.
             # Previously skipped due to threading-crash concerns, but the

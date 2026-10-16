@@ -412,7 +412,9 @@ class AudioRecorder:
             span = cue_mask_range(len(chunk), self.sample_rate, end, a, b)
             if span is not None:
                 chunk[span[0]:span[1]] = 0
-        if not live:
+        if not live and self._deaf is windows:
+            # Only when nothing was added since: deafen_for() runs on another
+            # thread, and a cue armed while this chunk was read must stay armed.
             self._deaf = ()
         return chunk
 
@@ -564,13 +566,20 @@ class AudioRecorder:
             # Force PortAudio to re-read the OS-level default input device.
             # Safe to call inside the lock — by definition there's no live
             # stream right now (this function exists to create one).
+            # Two separate steps. After one failed start (coreaudiod restarting
+            # after a wake) every later stop raises "not initialised"; with
+            # both in one try the start was then never tried again and the
+            # microphone stayed dead until a restart of the app.
             try:
                 sd._terminate()
+            except Exception as e:
+                print(f"[audio] PortAudio stop failed before stream create: {e}")
+            try:
                 sd._initialize()
             except Exception as e:
-                # Reinit failure (extremely rare — would mean PortAudio is
-                # in a corrupted state). Fall through to InputStream
-                # creation against the cached default and hope it works.
+                # Reinit failure (coreaudiod restarting, or PortAudio in a bad
+                # state). Fall through to InputStream creation against what
+                # there is; the next stream tries the restart again.
                 print(f"[audio] PortAudio reinit failed before stream create: {e}")
             # ``self._callback_active`` is set true BEFORE start() so the
             # very first callback that fires isn't dropped.
@@ -578,10 +587,14 @@ class AudioRecorder:
             # Avoid the AirPods mic when it's the default input (keeps music in
             # A2DP). Resolved AFTER the PortAudio reinit above so it sees the
             # current device list. None ⇒ PortAudio default (the normal case).
+            _pref_before = self._pref_version
             _input_device = self._open_device()
             self._zero_since, self._gated = None, False       # a new stream is a new device to judge
             self._stream_choice = self._device_index
-            self._stream_pref_version = self._pref_version
+            # The version seen BEFORE the choice was made: a preference saved
+            # while the resolver ran is then newer than this stream, and the
+            # next start() opens it again.
+            self._stream_pref_version = _pref_before
             _opened_name = self._device_name(_input_device)
             self._armed = None
             self._stream = sd.InputStream(
