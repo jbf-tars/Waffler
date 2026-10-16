@@ -71,11 +71,20 @@ keyboard and your clipboard. Specifically:
   reads a password field, and it never stores, logs or sends that text.
 - **On your machine.** Your API keys, settings, dictation history and the most
   recent recordings are stored under `~/.waffler-hosted/` on your own computer.
-  Recordings are kept only to diagnose transcription faults, are capped at the
-  last 10, and can be switched off or deleted at any time in Settings,
-  Privacy and data, which can also delete your history, usage and logs. A small
-  file, `notifications.json`, remembers which tips Waffler has shown or you
-  have hidden (counts and times, no text). None of this is uploaded.
+  Recordings are kept to diagnose transcription faults, to redo a take from
+  the Journal and to bring back a dictation that a crash cut short; they are
+  capped at the last 10, and can be switched off or deleted at any time in Settings,
+  Privacy and data, which can also delete your history, usage and logs. Each
+  history entry notes, besides the words, the app you were in, the language,
+  how long the recording was and which services handled it. You can delete any
+  single entry (its recording goes with it) and export your history as a file
+  on your Desktop in Settings, Privacy and data; that file is your own copy and
+  is not removed by "Delete all my data". Small files remember which tips
+  Waffler has shown or you have hidden (`notifications.json`: counts and times,
+  no text), what each call cost (`usage.jsonl`: amounts and times, never what
+  was said) and which recording was being turned into text, so a take that a
+  crash cut short can come back (`inflight.json`: a file name and a time, gone
+  when the dictation ends). None of this is uploaded.
 - **No telemetry.** Waffler has no analytics and no usage reporting.
 
 ## Uninstallation

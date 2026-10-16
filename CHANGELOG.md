@@ -93,6 +93,48 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   twice or hidden it. What it has shown is kept in `notifications.json`
   (counts and times, no text). Privacy and data says so, Delete all my data
   clears it, and it is never in the logs zip.
+- **Delete one entry, and undo it.** Every Journal entry has a small trash
+  button (keyboard and screen reader friendly). It removes the entry and the
+  recording kept with it straight away, and in the entry's place the Journal
+  says "Entry deleted. Undo" for ten seconds: Undo puts it back where it was,
+  recording included. Until now the only ways to remove a dictation were
+  deleting everything or setting a retention. What was removed is held only in
+  memory for those seconds (never written anywhere), and Delete all my data
+  empties it. "Paste last" no longer brings back an entry you deleted.
+- **Redo this take.** An entry whose recording is still among the last ten
+  kept has a "Redo this take" button: it sends that recording through speech
+  to text and the clean-up again (useful after you add a word to Vocabulary,
+  or when a limit made the first try come out "as said") and puts the new
+  words in the same place, with an Undo line above them for ten seconds.
+  Like Try again it pastes nothing. If it cannot connect, is blocked, runs out
+  of time or hears nothing, the entry is left exactly as it was and the card
+  says so. The button goes once the recording has rotated out; the "last 10"
+  promise is unchanged.
+- **Export history.** Settings, Privacy and data, "Export history" saves
+  your Journal on your Desktop as JSON (every field), CSV (time, app,
+  language, words, text, for Numbers or Excel; a cell that starts with `=`,
+  `+`, `-` or `@` is made safe so a spreadsheet shows it as text instead of
+  running it) or plain text (dated paragraphs), and shows the file in its
+  folder. The JSON leaves out the raw error and the recording's path on this
+  computer, and no export ever holds a key. It is your own copy: Delete all my
+  data does not chase it, and the row says so.
+- **A take Waffler was stopped in the middle of comes back.** If Waffler
+  crashed, lost power or was force quit between the end of your recording and
+  its words reaching the Journal, the recording used to sit in the folder with
+  no sign of it. Waffler now writes a small mark (`inflight.json`: a file name
+  and a time, no words) when a take is kept and removes it when the dictation
+  ends however it ends. A mark that survives to the next start brings the take
+  back as a "Not sent" card saying Waffler was closed before it was turned into
+  text, with Try again. Nothing is sent on its own at start-up. Needs recent
+  recordings on (the default); a damaged mark is ignored.
+- **Entries know more.** New Journal entries carry an id and, where known,
+  how long the recording was, how much of it was speech, the language, which
+  service heard it and which tidied it, what became of the paste (pasted, not
+  confirmed, failed, copied, or not pasted), the app you were in, and the
+  recording kept for it. Older entries are untouched and everything treats the
+  new fields as optional. Privacy and data now says each entry notes the app,
+  language and services. The Journal pages by id as well as by count, so
+  scrolling stays right if entries are added or deleted while you read.
 
 ### Changed
 - **After a paste, your own clipboard is back (Mac).** This is the new
@@ -111,6 +153,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   as you said them until Waffler is updated or you add another key. Anyone
   who wants a second model can name one with `GROQ_STYLE_FALLBACK_MODEL`
   (off by default); Waffler moves to it when the first is retired.
+- **The usage record rewrote itself twice per dictation.** Settings, Usage was
+  kept in `usage.json`, a list that was read, added to and written back whole
+  each time, twice a dictation, before the paste: about 60 ms at 3,300
+  dictations and about 370 ms at 20,000, growing every day. It is now
+  `usage.jsonl`, one line added per call, so the cost is the same at any size
+  (measured at 20,000 dictations). Your old `usage.json` is moved in once, in
+  the background, safe to stop at any point and never counted twice; it is kept
+  beside it as `usage.backup-<time>.json` (Delete all my data removes both). The usage figures, per-provider costs and
+  `scripts/recost_usage.py` work as before.
+- **Two takes ending in the same second shared one recording.** Recent
+  recordings were named by the second, so the second take overwrote the first.
+  Each now has its own file, which matters now that an entry points at its
+  recording.
 - **OpenAI first in your provider order stopped the clean-up.** If OpenAI
   came first and failed, your words were pasted without the clean-up and
   Groq and Cerebras were never tried. Waffler now carries on down your list.
