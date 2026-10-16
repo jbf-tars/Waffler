@@ -431,8 +431,12 @@ def test_an_old_entry_with_no_id_is_found_by_its_time_and_words(env):
 
 
 @pytest.mark.parametrize("bad, reason, error", [
-    ("", "empty", um.EDIT_EMPTY), ("  \n ", "empty", um.EDIT_EMPTY), (None, "empty", um.EDIT_EMPTY),
-    ("x" * (history_edit.MAX_EDIT_CHARS + 1), "too_long", um.EDIT_TOO_LONG),
+    pytest.param("", "empty", um.EDIT_EMPTY, id="empty"),
+    pytest.param("  \n ", "empty", um.EDIT_EMPTY, id="blank"),
+    pytest.param(None, "empty", um.EDIT_EMPTY, id="none"),
+    # An explicit id: pytest would otherwise name the test after the 60,001 characters, and on
+    # Windows the environment variable that carries the test name cannot exceed 32,767.
+    pytest.param("x" * (history_edit.MAX_EDIT_CHARS + 1), "too_long", um.EDIT_TOO_LONG, id="too_long"),
 ])
 def test_text_that_cannot_be_kept_is_refused_in_plain_words_and_nothing_is_written(env, bad, reason, error):
     write_history(env, [entry(id=1)])

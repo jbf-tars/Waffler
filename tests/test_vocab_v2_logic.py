@@ -249,7 +249,8 @@ def test_a_toast_after_an_export_says_where_and_how_many():
 
 @needs_node
 @pytest.mark.parametrize("raw", [b"", b"abc", "word,sounds_like\r\nSinéad,shinade\r\n".encode("utf-8-sig"),
-                                 "word\tsounds\n".encode("utf-16"), bytes(range(256)) * 300])
+                                 "word\tsounds\n".encode("utf-16"), bytes(range(256)) * 300],
+                         ids=["empty", "abc", "utf8-bom", "utf16", "all-byte-values-x300"])
 def test_bytes_become_the_base64_the_app_decodes(raw):
     got = js(f"L.bytesToBase64(new Uint8Array({json.dumps(list(raw))}))")
     assert base64.b64decode(got) == raw

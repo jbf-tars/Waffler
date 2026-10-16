@@ -174,7 +174,12 @@ class AudioDeviceMonitor:
         except Exception as e:
             self._log(f"[audio-monitor] device list not read: {type(e).__name__}")
         default = _md.default_of(devices) if devices else None
-        name = default.name if default is not None else self._current_default_name()
+        # A list given to the monitor (a test's) is the whole truth: ask the machine's
+        # own default input only when the monitor is reading the machine's list itself.
+        if default is not None:
+            name = default.name
+        else:
+            name = None if self._reader is not None else self._current_default_name()
         if not self._baselined:
             self._baselined = True
             self._last_default_name = name

@@ -84,3 +84,22 @@ def _fresh_history_state():
         if mod is not None:
             mod.SHELF.clear()
     yield
+
+
+# A test's id is also the value of an environment variable (PYTEST_CURRENT_TEST), and on
+# Windows that cannot exceed 32,767 characters: a parametrized 60,000-character string
+# made CI fail there with "the environment variable is longer than 32767 characters".
+# Give such a case an explicit id (pytest.param(..., id="too_long")). Failing at collection
+# means every machine finds it, not only the Windows runner.
+_MAX_TEST_ID_CHARS = 20_000
+
+
+def pytest_collection_modifyitems(items):
+    too_long = [f"{len(i.nodeid)} chars: {i.nodeid[:110]}..." for i in items
+                if len(i.nodeid) > _MAX_TEST_ID_CHARS]
+    if too_long:
+        import pytest
+        raise pytest.UsageError(
+            "These tests have names over %d characters, which Windows cannot carry in an "
+            "environment variable. Give each case an explicit id:\n  %s"
+            % (_MAX_TEST_ID_CHARS, "\n  ".join(too_long)))

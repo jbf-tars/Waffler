@@ -98,3 +98,16 @@ def test_without_a_live_list_portaudios_is_used(monkeypatch):
     m = adm.AudioDeviceMonitor(on_change=lambda *a: None, log_fn=lambda *_: None, on_devices=seen.append)
     m._tick()
     assert m._source == "portaudio" and len(seen) == 1
+
+
+def test_a_monitor_given_its_list_never_asks_the_machine_for_its_default(monkeypatch):
+    """On a CI runner the machine's real default input is not the test's. A poll that
+    cannot say (None) or says nothing ([]) must not fall back to the real one."""
+    m, changes, seen, _ = mon([[BUILTIN, YETI], None, [], [BUILTIN, YETI]])
+
+    def real_query():
+        raise AssertionError("asked the machine for its real default input")
+    monkeypatch.setattr(m, "_current_default_name", real_query)
+    for _ in range(4):
+        m._tick()
+    assert changes == []
