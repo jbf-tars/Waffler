@@ -938,14 +938,28 @@ function _showCaptured(keys) {
   if (el) el.innerHTML = keys.length ? _capsHtml(keys, 'kc-xl') : '';
 }
 
-function openHotkeyCapture() {
+// The dialog sets the dictation hotkey, or (from Settings, Transforms) the
+// Transform shortcut: `_captureTarget` says which, and what it offers follows.
+let _captureTarget = 'dictation';
+
+function openHotkeyCapture(target) {
+  _captureTarget = target === 'transform' ? 'transform' : 'dictation';
+  const forTransform = _captureTarget === 'transform';
   _capturedKeys.clear();
-  _lastCapturedKeys = [..._currentHotkeyKeys];
+  _lastCapturedKeys = forTransform ? WL.transformView(_lastSettings, isMacPlatform).hotkey.slice() : [..._currentHotkeyKeys];
   _showCaptured(_lastCapturedKeys);
   document.getElementById("hotkeyError").style.display = "none";
+  const text = WL.hotkeyDialogText(_captureTarget);
+  const title = document.getElementById('hotkeyModalTitle');
+  const sub = document.getElementById('hotkeyModalSub');
+  if (title) title.textContent = text.title;
+  if (sub) sub.textContent = text.sub;
+  // The Transform shortcut has no default and no presets to pick from.
+  const reset = document.getElementById('hotkeyResetBtn');
+  if (reset) reset.hidden = forTransform;
   // Setup has its own list of choices ("Pick another key").
   const presets = document.getElementById('hotkeyPresetRow');
-  if (presets) presets.hidden = typeof _wizardVisible === 'function' && _wizardVisible();
+  if (presets) presets.hidden = forTransform || (typeof _wizardVisible === 'function' && _wizardVisible());
   renderSettingsHotkeyPresets();
   _announceCaptured('');
   const modal = document.getElementById("hotkeyModal");
@@ -961,6 +975,7 @@ function closeHotkeyCapture() {
   document.removeEventListener("keydown", _onCaptureKeyDown);
   document.removeEventListener("keyup", _onCaptureKeyUp);
   _capturedKeys.clear();
+  _captureTarget = 'dictation';
   modalClosed(modal);
 }
 
@@ -1008,6 +1023,7 @@ async function saveHotkeyCapture() {
   const errEl = document.getElementById("hotkeyError");
   const fail = (msg) => { errEl.textContent = msg; errEl.style.display = "block"; };
   if (!keys.length) { fail("Hold the keys you want, then click Save."); return; }
+  if (_captureTarget === 'transform') { await saveTransformHotkey(keys, fail); return; }
   // The backend decides (src/hotkey_rules.py) and says why in one sentence.
   let result;
   try {
@@ -1205,9 +1221,10 @@ async function copyItem(text, btnEl) {
     btnEl.innerHTML = WI.icon('check') + '<span>Copied</span>';
     const label = btnEl.getAttribute('aria-label');
     if (label) btnEl.setAttribute('aria-label', 'Copied');
+    const idle = btnEl.dataset.idle || 'Copy';
     setTimeout(() => {
       btnEl.classList.remove('copied', 'is-done');
-      btnEl.innerHTML = WI.icon('copy') + '<span>Copy</span>';
+      btnEl.innerHTML = WI.icon('copy') + `<span>${escHtml(idle)}</span>`;
       if (label) btnEl.setAttribute('aria-label', label);
     }, 2500);
   } catch (e) {
@@ -1235,7 +1252,9 @@ window.waffler_refresh = function(newItem) {
   stats.entries = (Number(stats.entries) || 0) + 1;
   // During a search, it joins the list only if it matches.
   const shown = !_searchQuery ||
-    ((newItem.styled || '') + ' ' + (newItem.text || '')).toLowerCase().includes(_searchQuery);
+    (newItem.kind === 'transform'
+      ? ((newItem.after || '') + ' ' + (newItem.before || ''))
+      : ((newItem.styled || '') + ' ' + (newItem.text || ''))).toLowerCase().includes(_searchQuery);
   if (shown) {
     history.unshift(newItem);
     if (first || !$noMatch.hidden) drawFeed();
@@ -1243,9 +1262,10 @@ window.waffler_refresh = function(newItem) {
   }
   _trimRedo();
   if (window.pywebview && window.pywebview.api) _refreshStats();
-  // A Not sent card is not a finished transcription.
+  // A Not sent card is not a finished transcription. A rewrite has said what
+  // it did on the overlay already (with its own "Show in Journal").
   if (newItem.failed) showToast('Not sent. The recording is saved in the Journal.', 'error');
-  else showToast('Added to your Journal.', 'success');
+  else if (newItem.kind !== 'transform') showToast('Added to your Journal.', 'success');
 };
 
 // ── Called by Python for status updates ──────────────────────────────
@@ -1532,6 +1552,7 @@ let _cardSeq = 0;   // ids for each card's text (the toggle's aria-controls)
 
 function makeCard(item, isNew) {
   if (item && item.failed) return makeNotSentCard(item, isNew);
+  if (item && item.kind === 'transform') return makeTransformCard(item, isNew);
   const div = document.createElement('article');
   div.className = 'transcript-card j-ent' + (isNew ? ' new' : '');
 
@@ -1600,6 +1621,70 @@ function makeCard(item, isNew) {
 
   return div;
 }
+
+// ── Journal: a rewrite (Settings, Transforms) ────────────────────────────
+// What was selected and what replaced it, the changes marked in both (words
+// taken out struck through, words put in highlighted), and Copy for either
+// text. It has a card of its own because it is not a dictation: no word
+// count, no "What you said", nothing to redo. The app's own Undo took the
+// rewrite back from the document; this is the record of both.
+function makeTransformCard(item, isNew) {
+  const v = WL.transformEntryView(item);
+  const div = document.createElement('article');
+  div.className = 'transcript-card j-ent tx-card' + (isNew ? ' new' : '');
+  if (v.id) div.dataset.id = String(v.id);
+  const when = formatTime(item.timestamp);
+  const piece = (p, tag) => (p.cut ? `<${tag}>${escHtml(p.text)}</${tag}>` : escHtml(p.text));
+  const paragraphs = (pieces, tag) => `<p>${pieces.map((p) => piece(p, tag)).join('')}</p>`;
+  const kid = `txk${++_cardSeq}`;
+  const aria = (what) => escHtml(when ? `${what} of the ${v.name} rewrite from ${when}` : `${what} of the ${v.name} rewrite`);
+  div.innerHTML = `
+    <div class="j-g"><div class="j-t">${escHtml(_clock(item.timestamp))}</div><div class="j-w">${escHtml(v.words)}</div></div>
+    <div class="j-body">
+      <p class="j-meta tx-head"><span class="chip chip-honey">${WI.icon('pencil')}${escHtml(v.name)}</span><span>${escHtml(v.changesLabel)}</span></p>
+      <div class="tx-pane">
+        <div class="j-said-k" id="${kid}b">Before</div>
+        <div class="card-text styled tx-text tx-before" role="group" aria-labelledby="${kid}b">${paragraphs(v.beforePieces, 'del')}</div>
+      </div>
+      <div class="tx-pane">
+        <div class="j-said-k" id="${kid}a">After</div>
+        <div class="card-text styled tx-text tx-after" role="group" aria-labelledby="${kid}a">${paragraphs(v.afterPieces, 'ins')}</div>
+      </div>
+      ${v.status ? `<p class="j-meta tx-status">${escHtml(v.status)}</p>` : ''}
+      <p class="j-status" role="status" aria-live="polite" hidden></p>
+    </div>
+    <div class="j-acts card-actions">
+      <button type="button" class="btn btn-sec btn-sm tx-copy-after" data-idle="Copy result" aria-label="${aria('Copy the result')}">${WI.icon('copy')}<span>Copy result</span></button>
+      <button type="button" class="btn btn-quiet btn-sm tx-copy-before" data-idle="Copy original" aria-label="${aria('Copy the original')}">${WI.icon('copy')}<span>Copy original</span></button>
+      <button type="button" class="rbtn rbtn-sm card-del" aria-label="${escHtml(when ? `Delete the rewrite from ${when}` : 'Delete this rewrite')}" title="Delete">${WI.icon('trash')}</button>
+    </div>
+  `;
+  div.querySelector('.tx-copy-after').addEventListener('click', function() { copyItem(v.after, this); });
+  div.querySelector('.tx-copy-before').addEventListener('click', function() { copyItem(v.before, this); });
+  div.querySelector('.card-del').addEventListener('click', () => deleteEntry(item, div));
+  if (isNew) setTimeout(() => div.classList.remove('new'), 3000);
+  return div;
+}
+
+// "Show in Journal" on a rewrite's message (app.py _on_toast_action): the
+// Journal opens, scrolled to that entry and marked for a moment. An entry
+// further down than the page has loaded is found by drawing the list again.
+window.waffler_show_transform = async function(id) {
+  showPage('home');
+  const find = () => $feed.querySelector(`.tx-card[data-id="${Number(id)}"]`);
+  let card = find();
+  if (!card) {
+    if (_searchText) { _searchText = ''; _searchQuery = ''; const box = document.getElementById('searchInput'); if (box) box.value = ''; }
+    await renderFeed();
+    card = find();
+  }
+  if (!card) return;
+  card.scrollIntoView({ block: 'center' });
+  card.classList.add('new');
+  setTimeout(() => card.classList.remove('new'), 3000);
+  const first = card.querySelector('button');
+  if (first) first.focus({ preventScroll: true });
+};
 
 // A new dictation keeps its recording and pushes the oldest kept one out, so
 // "Redo this take" goes from the entry that has just lost its recording.
@@ -2602,7 +2687,7 @@ function showPage(page) {
 }
 
 // Settings' side nav: one section at a time.
-const SETTINGS_SECTIONS = ['general', 'style', 'keys', 'hotkey', 'usage', 'privacy', 'about'];
+const SETTINGS_SECTIONS = ['general', 'style', 'transforms', 'keys', 'hotkey', 'usage', 'privacy', 'about'];
 let _settingsSection = 'general';
 
 function showSettingsSection(sec) {
@@ -3003,6 +3088,7 @@ async function loadSettings() {
     if (reads) reads.hidden = !isMacPlatform;
     renderFeedbackRows();
     renderStyleSection();
+    renderTransformsSection();
   } catch(e) {
     console.warn('loadSettings error:', e);
   }
@@ -3138,6 +3224,355 @@ async function setSignatureEnabled(on) {
   } else {
     const tog = document.getElementById('signatureToggle');
     if (tog) tog.checked = !on;
+  }
+}
+
+// ── Settings, Transforms (beta) ──────────────────────────────────────────
+// Select text, press a shortcut, and it is rewritten where it is
+// (src/transforms.py). Everything here saves at once through save_settings
+// and is drawn from the last get_settings() answer; the app checks every
+// value again and says why in one sentence when it refuses one (shown under
+// the sheet). Switching it on or off, the shortcut and the menu bar item
+// apply at once, with no restart. The shortcut is chosen in the same dialog
+// as the dictation hotkey.
+let _txEditing = -1;       // the index of the transform being changed, or -1
+let _outlineTimer = null;
+
+const _txView = () => WL.transformView(_lastSettings, isMacPlatform);
+
+function _txError(msg, id) {
+  const el = document.getElementById(id || 'transformsError');
+  if (!el) return;
+  el.textContent = msg || '';
+  el.hidden = !msg;
+}
+
+// Save part of the Transforms settings. True when saved; when refused, the
+// app's sentence is shown and the controls go back to what is saved.
+async function saveTransforms(part, errorId) {
+  _txError('', errorId);
+  let r = null;
+  try {
+    r = await pywebview.api.save_settings({ transforms: part });
+  } catch (e) {
+    console.warn('save transforms error:', e);
+  }
+  if (!r || !r.ok) {
+    _txError((r && r.error) || "Couldn't save that. Try again.", errorId);
+    renderTransformsSection();
+    return false;
+  }
+  await refreshTransformSettings();
+  return true;
+}
+
+async function refreshTransformSettings() {
+  try {
+    _lastSettings = (await pywebview.api.get_settings()) || _lastSettings;
+  } catch (e) {
+    console.warn('get_settings error:', e);
+  }
+  renderTransformsSection();
+}
+
+function renderTransformsSection() {
+  const v = _txView();
+  const byId = (id) => document.getElementById(id);
+  const tog = byId('transformsToggle');
+  if (tog) tog.checked = v.enabled;
+  const off = byId('transformsOffNote');
+  if (off) off.hidden = v.enabled;
+
+  // The shortcut.
+  const caps = byId('transformsCaps');
+  if (caps) {
+    caps.hidden = !v.hotkey.length;
+    caps.innerHTML = v.hotkey.length ? _capsHtml(v.hotkey) : '';
+    caps.setAttribute('aria-label', v.hotkey.length ? `Transform shortcut: ${v.hotkeyShown}` : '');
+  }
+  const desc = byId('transformsShortcutDesc');
+  if (desc) desc.textContent = WL.transformShortcutLine(v);
+  const remove = byId('transformsRemove');
+  if (remove) remove.hidden = !v.hotkey.length;
+
+  // Which transform the shortcut runs.
+  const run = byId('transformsRun');
+  if (run) {
+    run.innerHTML = v.choices.map((c) => `<option value="${escHtml(c.value)}">${escHtml(c.label)}</option>`).join('');
+    run.value = v.defaultId;
+  }
+
+  // Polish: the rules, and the person's own.
+  v.rules.forEach((r) => {
+    const box = byId(`polishRule-${r.key}`);
+    if (box) box.checked = r.on;
+  });
+  renderOwnRules(v);
+
+  // Prompt Engineer: the outline.
+  const outline = byId('peOutline');
+  if (outline && document.activeElement !== outline) outline.value = v.outline;
+  const reset = byId('peReset');
+  if (reset) reset.disabled = v.outlineIsDefault;
+  renderOutlineCount();
+
+  renderCustomTransforms(v);
+}
+
+function renderOwnRules(v) {
+  const list = document.getElementById('polishOwnRules');
+  if (list) {
+    list.hidden = !v.ownRules.length;
+    list.innerHTML = v.ownRules.map((r, i) => `
+      <div class="row tx-own" role="listitem">
+        <div class="row-main"><div class="row-t">${escHtml(r)}</div></div>
+        <button type="button" class="rbtn" data-i="${i}" aria-label="Remove the rule ${escHtml(r)}" title="Remove">${WI.icon('x')}</button>
+      </div>`).join('');
+    list.querySelectorAll('button[data-i]').forEach((b) => {
+      b.addEventListener('click', () => removePolishRule(Number(b.getAttribute('data-i'))));
+    });
+  }
+  const form = document.getElementById('polishRuleForm');
+  if (form) form.hidden = !v.canAddRule;
+  const title = document.getElementById('polishOwnTitle');
+  if (title) title.hidden = !v.ownRules.length && !v.canAddRule;
+}
+
+function renderCustomTransforms(v) {
+  const list = document.getElementById('transformsList');
+  const count = document.getElementById('transformsCount');
+  if (count) count.textContent = v.custom.length ? `${v.custom.length} of ${WL.TRANSFORM_LIMITS.custom}` : '';
+  const form = document.getElementById('transformsForm');
+  if (form) form.hidden = !v.canAddCustom;
+  const full = document.getElementById('transformsFull');
+  if (full) full.hidden = v.canAddCustom;
+  if (!list) return;
+  list.hidden = !v.custom.length;
+  list.innerHTML = v.custom.map((c, i) => {
+    const n = escHtml(c.name);
+    if (_txEditing === i) {
+      return `<form class="row tx-edit" role="listitem" data-i="${i}">
+        <div class="row-main">
+          <input type="text" class="input tx-ed-n" value="${n}" aria-label="Name" maxlength="40" autocomplete="off" spellcheck="false">
+          <textarea class="input tx-prompt tx-ed-p" rows="3" aria-label="What it should do" autocomplete="off" spellcheck="false">${escHtml(c.prompt)}</textarea>
+          <p class="s-error tx-ed-err" role="alert" hidden></p>
+          <div class="tx-new-foot"><button type="button" class="btn btn-quiet btn-sm" data-act="cancel">Cancel</button><button type="submit" class="btn btn-pri btn-sm">Save</button></div>
+        </div>
+      </form>`;
+    }
+    const preview = c.prompt.length > 150 ? `${c.prompt.slice(0, 150).trimEnd()}…` : c.prompt;
+    return `<div class="row tx-row" role="listitem" data-i="${i}">
+      <div class="row-main"><div class="row-t">${n}</div><div class="row-d">${escHtml(preview)}</div></div>
+      <button type="button" class="btn btn-quiet btn-sm tx-edit-btn" data-i="${i}" aria-label="Edit ${n}">Edit</button>
+      <button type="button" class="btn btn-quiet btn-sm tx-del" data-i="${i}" aria-label="Delete ${n}">Delete</button>
+    </div>`;
+  }).join('');
+  list.querySelectorAll('.tx-edit-btn').forEach((b) => b.addEventListener('click', () => openTransformEdit(Number(b.getAttribute('data-i')))));
+  list.querySelectorAll('.tx-del').forEach((b) => b.addEventListener('click', () => deleteTransform(Number(b.getAttribute('data-i')))));
+  const edit = list.querySelector('.tx-edit');
+  if (edit) {
+    const i = Number(edit.getAttribute('data-i'));
+    const name = edit.querySelector('.tx-ed-n');
+    const prompt = edit.querySelector('.tx-ed-p');
+    edit.addEventListener('submit', (e) => { e.preventDefault(); saveTransformEdit(i, name.value, prompt.value, edit); });
+    edit.querySelector('[data-act="cancel"]').addEventListener('click', () => closeTransformEdit());
+    [name, prompt].forEach((el) => el.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); closeTransformEdit(); }
+    }));
+  }
+}
+
+async function setTransformsEnabled(on) {
+  const ok = await saveTransforms({ enabled: !!on });
+  if (ok) showToast(WL.transformSaved('enabled', !!on), 'success', 3500);
+}
+
+async function onTransformRunChange(sel) {
+  const label = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].text : '';
+  const ok = await saveTransforms({ default: sel.value });
+  if (ok) showToast(WL.transformSaved('default', label), 'success', 3500);
+}
+
+async function saveTransformHotkey(keys, fail) {
+  let result;
+  try {
+    result = await window.pywebview.api.save_transform_hotkey(JSON.stringify(keys));
+  } catch (e) {
+    console.error('saveTransformHotkey error:', e);
+    result = { ok: false, error: "Couldn't save the shortcut. Try again." };
+  }
+  if (!result || !result.ok) { fail((result && result.error) || "Couldn't save the shortcut. Try again."); return; }
+  closeHotkeyCapture();
+  _txError('');
+  await refreshTransformSettings();
+  showToast(WL.transformSaved('hotkey', result.display), 'success', 3500);
+}
+
+async function clearTransformHotkey() {
+  let result = null;
+  try { result = await window.pywebview.api.save_transform_hotkey('[]'); } catch (e) { result = null; }
+  if (!result || !result.ok) { _txError((result && result.error) || "Couldn't remove the shortcut. Try again."); return; }
+  _txError('');
+  await refreshTransformSettings();
+  showToast(WL.transformSaved('hotkey', ''), 'success', 3500);
+  const change = document.getElementById('transformsChange');
+  if (change) change.focus();
+}
+
+// Polish: a rule switched on or off, and rules of the person's own.
+async function setPolishRule(key, on) {
+  await saveTransforms({ polish: { rules: { [key]: !!on } } });
+}
+
+async function addPolishRule() {
+  const input = document.getElementById('polishRuleInput');
+  if (!input) return;
+  const v = _txView();
+  const check = WL.transformRuleCheck(v.ownRules, input.value);
+  if (!check.ok) { _txError(check.error, 'polishRuleError'); input.focus(); return; }
+  _txError('', 'polishRuleError');
+  if (await saveTransforms({ polish: { custom_rules: v.ownRules.concat([check.rule]) } }, 'polishRuleError')) {
+    input.value = '';
+    const again = document.getElementById('polishRuleInput');
+    if (again) again.focus();
+  }
+}
+
+async function removePolishRule(i) {
+  const v = _txView();
+  const gone = v.ownRules[i];
+  if (gone === undefined) return;
+  const ok = await saveTransforms({ polish: { custom_rules: v.ownRules.filter((_r, n) => n !== i) } }, 'polishRuleError');
+  if (ok) {
+    const left = [...document.querySelectorAll('#polishOwnRules button[data-i]')];
+    const to = WL.focusAfterRemove(i, left.length);
+    const target = to >= 0 ? left[to] : document.getElementById('polishRuleInput');
+    if (target) target.focus();
+  }
+}
+
+// Prompt Engineer's outline: saved a moment after typing stops, never when
+// too long. Reset puts back the built-in one.
+function renderOutlineCount(saved) {
+  const box = document.getElementById('peOutline');
+  const counter = document.getElementById('peCounter');
+  const hint = document.getElementById('peHint');
+  if (!box) return;
+  const o = WL.transformOutlineView(box.value);
+  if (counter) { counter.textContent = o.counter; counter.classList.toggle('is-over', o.over); }
+  box.setAttribute('aria-invalid', o.over ? 'true' : 'false');
+  if (hint) hint.textContent = o.over ? 'Shorten it to save it.' : (saved ? 'Saved.' : '');
+}
+
+function onOutlineInput() {
+  renderOutlineCount();
+  clearTimeout(_outlineTimer);
+  _outlineTimer = setTimeout(commitOutline, 800);
+}
+
+async function commitOutline() {
+  clearTimeout(_outlineTimer);
+  const box = document.getElementById('peOutline');
+  if (!box) return;
+  const v = _txView();
+  const o = WL.transformOutlineView(box.value);
+  if (o.over || o.text === v.outline.trim()) return;
+  if (await saveTransforms({ prompt_engineer: { skeleton: o.text } })) renderOutlineCount(true);
+}
+
+async function resetOutline() {
+  clearTimeout(_outlineTimer);
+  const v = _txView();
+  const box = document.getElementById('peOutline');
+  if (await saveTransforms({ prompt_engineer: { skeleton: '' } })) {
+    if (box) box.value = v.outlineDefault;
+    renderOutlineCount(true);
+    showToast(WL.transformSaved('outline'), 'success', 3500);
+  }
+}
+
+// Your transforms: add, change, delete (up to five).
+function onTransformPromptInput() {
+  const box = document.getElementById('transformPrompt');
+  const counter = document.getElementById('transformsFormCount');
+  if (!box || !counter) return;
+  const n = Array.from(box.value.trim()).length;
+  counter.textContent = n >= WL.TRANSFORM_LIMITS.prompt * 0.8
+    ? `${WL.formatCount(n)} of ${WL.formatCount(WL.TRANSFORM_LIMITS.prompt)}` : '';
+}
+
+async function addTransform() {
+  const name = document.getElementById('transformName');
+  const prompt = document.getElementById('transformPrompt');
+  if (!name || !prompt) return;
+  const v = _txView();
+  const check = WL.transformCheck(v.custom, name.value, prompt.value, -1);
+  if (!check.ok) {
+    _txError(check.error, 'transformFormError');
+    (check.field === 'prompt' ? prompt : name).focus();
+    return;
+  }
+  _txError('', 'transformFormError');
+  const next = v.custom.map((c) => ({ id: c.id, name: c.name, prompt: c.prompt })).concat([{ name: check.name, prompt: check.prompt }]);
+  if (await saveTransforms({ custom: next }, 'transformFormError')) {
+    name.value = '';
+    prompt.value = '';
+    onTransformPromptInput();
+    showToast(WL.transformSaved('added', check.name), 'success', 3500);
+    name.focus();
+  }
+}
+
+function openTransformEdit(i) {
+  _txEditing = i;
+  _txError('', 'transformFormError');
+  renderCustomTransforms(_txView());
+  const box = document.querySelector('#transformsList .tx-ed-n');
+  if (box) { box.focus(); box.select(); }
+}
+
+function closeTransformEdit() {
+  const i = _txEditing;
+  _txEditing = -1;
+  renderCustomTransforms(_txView());
+  const b = document.querySelector(`#transformsList .tx-edit-btn[data-i="${i}"]`);
+  if (b) b.focus();
+}
+
+async function saveTransformEdit(i, name, prompt, form) {
+  const v = _txView();
+  const check = WL.transformCheck(v.custom, name, prompt, i);
+  const err = form && form.querySelector('.tx-ed-err');
+  if (!check.ok) {
+    if (err) { err.textContent = check.error; err.hidden = false; }
+    const box = form && form.querySelector(check.field === 'prompt' ? '.tx-ed-p' : '.tx-ed-n');
+    if (box) box.focus();
+    return;
+  }
+  const next = v.custom.map((c, n) => (n === i ? { id: c.id, name: check.name, prompt: check.prompt }
+    : { id: c.id, name: c.name, prompt: c.prompt }));
+  _txEditing = -1;
+  if (await saveTransforms({ custom: next }, 'transformFormError')) {
+    const b = document.querySelector(`#transformsList .tx-edit-btn[data-i="${i}"]`);
+    if (b) b.focus();
+  } else {
+    _txEditing = i;
+    renderCustomTransforms(_txView());
+  }
+}
+
+async function deleteTransform(i) {
+  const v = _txView();
+  const gone = v.custom[i];
+  if (!gone) return;
+  _txEditing = -1;
+  const next = v.custom.filter((_c, n) => n !== i).map((c) => ({ id: c.id, name: c.name, prompt: c.prompt }));
+  if (await saveTransforms({ custom: next }, 'transformFormError')) {
+    showToast(WL.transformSaved('removed', gone.name), 'success', 3500);
+    const left = [...document.querySelectorAll('#transformsList .tx-del')];
+    const to = WL.focusAfterRemove(i, left.length);
+    const target = to >= 0 ? left[to] : document.getElementById('transformName');
+    if (target) target.focus();
   }
 }
 

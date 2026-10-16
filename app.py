@@ -143,6 +143,9 @@ import history_meta as _history_meta
 import history_ops as _history_ops
 import history_export as _history_export
 import take_marker as _take_marker
+import action_hotkeys as _action_hotkeys
+import transforms as _transforms
+import transform_action as _transform_action
 from login_item import LoginItem, HIDDEN_FLAG as _HIDDEN_FLAG
 from user_messages import (
     CLIPBOARD_CHOICE_UNKNOWN,
@@ -453,8 +456,10 @@ def _recover_interrupted_takes():
 
 def record_usage(entry_type: str, duration_seconds: float = None,
                  input_tokens: int = 0, output_tokens: int = 0,
-                 provider: str = "openai"):
-    """Record an API usage entry with cost calculation."""
+                 provider: str = "openai", purpose: str = None):
+    """Record an API usage entry with cost calculation. ``purpose`` names a
+    feature other than dictation ("transform"): its rows are priced like any
+    other but are not a dictation (see get_usage_stats)."""
     rate = _rate_for(provider, entry_type)
     cost_usd = _usage_cost(rate, entry_type, duration_seconds,
                            input_tokens, output_tokens)
@@ -474,6 +479,8 @@ def record_usage(entry_type: str, duration_seconds: float = None,
     }
     if duration_seconds is not None:
         entry["duration_seconds"] = round(duration_seconds, 3)
+    if purpose:
+        entry["purpose"] = str(purpose)
 
     # One line added to the end of usage.jsonl: the cost does not grow with
     # the record (it used to rewrite the whole file, twice per dictation,
@@ -530,6 +537,9 @@ def _update_would_interrupt(pipeline) -> str:
         watchdog = getattr(pipeline, "_watchdog", None)
         if watchdog is not None and watchdog.active():
             return "a dictation is being processed"
+        rewrite = getattr(pipeline, "_transforms", None)
+        if rewrite is not None and rewrite.busy():
+            return "a transform is running"
         for name in ("_drain_lock", "_unsent_lock"):
             lock = getattr(pipeline, name, None)
             if lock is not None and lock.locked():
@@ -1154,6 +1164,7 @@ class Api:
     def get_settings(self) -> dict:
         """Return current settings for the UI."""
         from style_layer import cleanup_mode, signature_settings, styles_by_category
+        from transforms import window_view as window_view_transforms
         stored = self._load_settings_file()
         key = os.getenv("OPENAI_API_KEY", "")
         groq_key = os.getenv("GROQ_API_KEY", "")
@@ -1225,6 +1236,9 @@ class Api:
             "cleanup":               cleanup_mode(stored),
             "style_by_category":     styles_by_category(stored),
             "email_signature":       signature_settings(stored),
+            # Transforms (src/transforms.py): off, no shortcut, Polish with
+            # its default rules. Anything unreadable in settings.json is that.
+            "transforms":            window_view_transforms(stored),
         }
 
     def save_settings(self, settings: dict) -> dict:
@@ -1257,6 +1271,14 @@ class Api:
             problem = _sl.settings_problem(settings)
             if problem:
                 return {"ok": False, "error": problem}
+            # Transforms (Settings, Transforms): switch, shortcut, Polish
+            # rules, the outline, the person's own transforms. Checked as a
+            # whole, including the shortcut against the dictation hotkey.
+            import transforms as _tf
+            if "transforms" in settings:
+                problem = _tf.settings_problem(settings, self._load_settings_file())
+                if problem:
+                    return {"ok": False, "error": problem}
             with self._editing_settings() as stored:
                 # ── OpenAI API key ────────────────────────────────────────────────
                 new_key = (settings.get("api_key") or "").strip()
@@ -1327,6 +1349,13 @@ class Api:
                     stored["email_signature"] = _sl.merged_signature(stored, settings)
                     notes.append(f"Email signature: {'on' if stored['email_signature']['enabled'] else 'off'}")
 
+                # ── Transforms: read again for every run; the shortcut and the
+                # menu item are applied live (below). The notes never carry
+                # the person's own wording.
+                if "transforms" in settings:
+                    stored["transforms"] = _tf.merged(stored, settings)
+                    notes.append(f"Transforms: {'on' if stored['transforms']['enabled'] else 'off'}")
+
                 # ── Provider fallback order ──────────────────────────────────────
                 # A list like ["cerebras","groq","openai"]. Persisted AND applied
                 # live to the running pipeline so reordering takes effect on the
@@ -1344,6 +1373,12 @@ class Api:
                         except Exception as _e:
                             _log_to_file(f"provider_order live-apply failed: {_e}")
                     notes.append(f"Provider order: {' → '.join(order)}")
+
+            if "transforms" in settings and _pipeline is not None:
+                try:
+                    _pipeline.apply_transform_settings()
+                except Exception as _e:
+                    _log_to_file(f"[transform] settings not applied live: {type(_e).__name__}")
 
             return {"ok": True, "notes": notes}
         except Exception as e:
@@ -2346,6 +2381,16 @@ class Api:
                 return verdict
             keys = verdict["keys"]
 
+            # A new dictation hotkey must not overlap the Transform shortcut
+            # (src/action_hotkeys.py): holding it would also press the other.
+            import action_hotkeys as _ah
+            import transforms as _tf
+            clash = _ah.dictation_clash_message(
+                keys, [_tf.settings(self._load_settings_file())["hotkey"]], _platform.system())
+            if clash:
+                _log_to_file(f"Hotkey not saved ({keys!r}): it overlaps the Transform shortcut")
+                return {"ok": False, "error": clash}
+
             # Save to settings.json
             with self._editing_settings() as stored:
                 stored["hotkey_keys"] = keys
@@ -2376,6 +2421,13 @@ class Api:
                             keys=keys,
                             on_lock=_pipeline._on_hands_free_lock,
                         )
+                    # The Transform shortcut listens through this listener's
+                    # tap on a Mac, so it joins the new one (before start(),
+                    # which on Windows does not return).
+                    try:
+                        _pipeline.apply_transform_settings()
+                    except Exception as _e:
+                        _log_to_file(f"[transform] shortcut not re-attached: {type(_e).__name__}")
                     _log_to_file("New hotkey listener starting...")
                     _pipeline.hotkey_listener.start()
 
@@ -2385,6 +2437,29 @@ class Api:
         except Exception as e:
             _log_to_file(f"save_hotkey_config error: {e}")
             return {"ok": False, "error": "Couldn't save the hotkey. Please try again."}
+
+    def save_transform_hotkey(self, keys) -> dict:
+        """Set the Transform shortcut (Settings, Transforms), or clear it with
+        an empty list. The window's key recorder calls this with the keys it
+        heard. Returns what save_hotkey_config does: {"ok": True, "keys",
+        "display"} or {"ok": False, "error": "<one sentence>"}; the rules are
+        src/action_hotkeys.py's."""
+        try:
+            if isinstance(keys, str):
+                try:
+                    keys = json.loads(keys)
+                except ValueError:
+                    return {"ok": False, "error": "Hold the keys you want, then save."}
+            if keys is None:
+                keys = []           # nothing given clears it, as an empty list does
+            saved = self.save_settings({"transforms": {"hotkey": keys}})
+            if not saved.get("ok"):
+                return {"ok": False, "error": saved.get("error") or "Couldn't save the shortcut. Please try again."}
+            view = _transforms.window_view(self._load_settings_file())
+            return {"ok": True, "keys": view["hotkey"], "display": view["hotkey_display"]}
+        except Exception as e:
+            _log_to_file(f"save_transform_hotkey error: {type(e).__name__}")
+            return {"ok": False, "error": "Couldn't save the shortcut. Please try again."}
 
     # ── Permission APIs ─────────────────────────────────────────────────
 
@@ -2776,6 +2851,11 @@ class Api:
         month_cost = 0.0
         week_cost = 0.0
         today_cost = 0.0
+        # Rewrites of selected text (record_usage purpose "transform") are
+        # real spend and stay in every total, but they are not dictations:
+        # "about X a dictation" must not count them.
+        transform_cost = 0.0
+        transform_count = 0
         whisper_count = 0
         gpt_count = 0
         total_duration = 0.0
@@ -2788,6 +2868,9 @@ class Api:
         for entry in usage:
             cost = entry.get("cost_usd", 0)
             total_cost += cost
+            if entry.get("purpose") == "transform":
+                transform_cost += cost
+                transform_count += 1
             etype = entry.get("type")
             provider = (entry.get("provider") or "unknown").lower()
 
@@ -2832,7 +2915,8 @@ class Api:
             b["cost_usd"] = round(b["cost_usd"], 6)
 
         transcription_count = whisper_count
-        avg_cost = total_cost / transcription_count if transcription_count > 0 else 0
+        avg_cost = ((total_cost - transform_cost) / transcription_count
+                    if transcription_count > 0 else 0)
 
         return {
             "total_cost_usd": round(total_cost, 4),
@@ -2845,6 +2929,8 @@ class Api:
             "total_input_tokens": total_input_tokens,
             "total_output_tokens": total_output_tokens,
             "avg_cost_per_transcription": round(avg_cost, 4),
+            "transform_count": transform_count,
+            "transform_cost_usd": round(transform_cost, 6),
             "by_provider": by_provider,
         }
 
@@ -3650,6 +3736,12 @@ class WafflerPipeline:
         # hands-free (the "Don't tap, hold" hint is not for those).
         self._cues = _sound_cues.CuePlayer(settings=self._read_settings, log=_log_to_file)
         self._hands_free_press_id = 0
+        # Transforms (Settings, Transforms): rewrite the selected text. The
+        # shortcut that starts one (src/action_hotkeys.py) and the run itself
+        # (src/transform_action.py). Off by default; both are idle until the
+        # person turns it on.
+        self._action_hotkeys = _action_hotkeys.ActionHotkeys(log=_log_to_file)
+        self._transforms = _transform_action.TransformRunner(self._transform_hooks())
         threading.Thread(target=self._warm_paste_deps, daemon=True, name="PasteWarm").start()
         self.is_recording = False
         self._is_paused = False
@@ -4010,6 +4102,130 @@ class WafflerPipeline:
         _log_to_file(f"[copy-last] ok={ok} words={len(text.split())}")
         return {"ok": bool(ok)}
 
+    # ── Transforms: rewrite the selected text (src/transform_action.py) ────
+
+    def _transform_hooks(self):
+        """What a transform run needs from this app, as the pipeline's own
+        methods. Late-bound, so a replaced styler or clipboard is the one used."""
+        def usage(reply):
+            record_usage_safely("gpt", input_tokens=reply.input_tokens,
+                                output_tokens=reply.output_tokens, provider=reply.provider,
+                                purpose="transform")
+
+        def refocus():
+            if _platform.system() == "Windows":
+                proc = getattr(self.overlay, "_process", None)
+                _transform_action.refocus_last_app(
+                    {getattr(proc, "pid", None)}, log=_log_to_file)
+
+        return _transform_action.Hooks(
+            settings=self._read_settings,
+            dictation_busy=self._dictation_busy,
+            read_selection=lambda: _text_context.read_selection(allow_copy_fallback=True),
+            reread_selection=lambda: _text_context.read_selection(False, timeout=0.6),
+            front_app=lambda: _text_context.frontmost_app(),
+            window=lambda: self.clipboard.get_focused_window(),
+            refocus=refocus,
+            chat=lambda *a, **k: self.styler._chat(*a, **k),
+            dashes=lambda text: self.styler._strip_em_dashes(text),
+            profanity=lambda styled, raw: self.styler._restore_censored_profanity(styled, raw),
+            paste=lambda text, window, restore, ticket: self.clipboard.paste_text(
+                text, window, restore=restore, ticket=ticket),
+            settle_paste=self._settle_paste,
+            copy=lambda text: self.clipboard.copy(text),
+            remember=self._remember,
+            record_usage=usage,
+            save_history=append_history_safely,
+            announce_item=notify_js_new_item,
+            say=self._transform_say,
+            ui_begin=self._transform_ui_begin,
+            ui_tick=self._transform_ui_tick,
+            ui_end=self._transform_ui_end,
+            log=_log_to_file,
+            platform="darwin" if _platform.system() == "Darwin" else "win32",
+        )
+
+    def _dictation_busy(self) -> bool:
+        """A dictation is being recorded or processed (a transform waits)."""
+        return bool(self.is_recording) or bool(self._watchdog.active())
+
+    def transforms_enabled(self) -> bool:
+        return bool(_transforms.settings(self._read_settings())["enabled"])
+
+    def run_transform(self, origin: str = "shortcut"):
+        """Rewrite the text selected in the app in front with the chosen
+        transform. Returns at once; the work is on its own thread. Never raises."""
+        try:
+            return self._transforms.start(origin)
+        except Exception as e:
+            _log_to_file(f"[transform] not started: {type(e).__name__}")
+            return None
+
+    def apply_transform_settings(self):
+        """Make the shortcut and the menu item match settings.json: register
+        the shortcut when Transforms is on and one is set, drop it otherwise,
+        and join the dictation hotkey's listener (a Mac listens to keys
+        through its one event tap). Called at start, after the dictation
+        hotkey is rebuilt, and after a save. Never raises."""
+        try:
+            stored = self._read_settings()
+            view = _transforms.settings(stored)
+            platform = "Windows" if _platform.system() == "Windows" else "Darwin"
+            if view["enabled"] and view["hotkey"]:
+                verdict = self._action_hotkeys.register(
+                    "transform", view["hotkey"], self._on_transform_shortcut,
+                    _action_hotkeys.dictation_keys(stored, platform))
+                if not verdict["ok"]:
+                    self._action_hotkeys.unregister("transform")
+                    _log_to_file("[transform] the saved shortcut is not usable: " + verdict["error"])
+            else:
+                self._action_hotkeys.unregister("transform")
+            listener = getattr(self, "hotkey_listener", None)
+            if listener is not None:
+                self._action_hotkeys.attach_listener(listener)
+            if self._action_hotkeys.registered():
+                self._action_hotkeys.start()
+        except Exception as e:
+            _log_to_file(f"[transform] shortcut not applied: {type(e).__name__}")
+        _refresh_tray_menu()
+
+    def _on_transform_shortcut(self):
+        self.run_transform("shortcut")
+
+    def _transform_say(self, kind, style, heading, body, buttons=None, timeout=None):
+        """A transform's message, through the governor (src/notifier.py)."""
+        if self._toast_allowed(kind):
+            self._show_toast_safe(style, heading, body, buttons=buttons, timeout=timeout,
+                                  reposition=True)
+
+    def _transform_ui_begin(self, run):
+        """The pill turns to its working look (elapsed time and an X) and the
+        window says it is working. Esc is armed: until the paste starts it
+        stops the run (_on_hotkey_cancel)."""
+        notify_js_status("processing")
+        _set_tray_state(_tray_state.WORKING)
+        self._set_listener_processing(True)
+        try:
+            self.overlay.show()
+            self.overlay.show_working(0.0, reliable=True)
+        except Exception as e:
+            _log_to_file(f"[overlay] working pill not shown: {e}")
+
+    def _transform_ui_tick(self, run, seconds):
+        try:
+            self.overlay.show_working(seconds)
+        except Exception:
+            pass
+
+    def _transform_ui_end(self, run, outcome):
+        self._set_listener_processing(False)
+        try:
+            self.overlay.end_working("done" if outcome == _pw.DONE else "quiet")
+        except Exception as e:
+            _log_to_file(f"[overlay] working pill not ended: {e}")
+        notify_js_status("done" if outcome == _pw.DONE else "idle")
+        _set_tray_state(_tray_state.IDLE)
+
     def set_device(self, device_index: int):
         """Update the audio device used for future recordings.
 
@@ -4031,6 +4247,12 @@ class WafflerPipeline:
         styling, and _process checks for a cancel before that, so clearing
         protected nothing and wiped whatever the user had copied themselves
         (23 times in one user's log)."""
+        # The working pill is shared: its X stops a transform too. A transform
+        # and a recording never overlap, so this leaves the dictation alone.
+        rewrite = getattr(self, "_transforms", None)
+        if rewrite is not None and rewrite.busy() and not self.is_recording:
+            rewrite.cancel()
+            return
         # Flip is_recording and arm cancellation under one lock so a
         # concurrent release can't slip a _process() through between them.
         with self._processing_lock:
@@ -4076,6 +4298,11 @@ class WafflerPipeline:
             recording = self.is_recording
         if recording:
             self._on_overlay_cancel()
+            return
+        # Esc stops a transform too (armed while one runs): nothing is
+        # replaced, and the key is not a dictation's.
+        rewrite = getattr(self, "_transforms", None)
+        if rewrite is not None and rewrite.cancel():
             return
         watchdog = getattr(self, "_watchdog", None)
         run = watchdog.current_run() if watchdog is not None else None
@@ -4142,6 +4369,14 @@ class WafflerPipeline:
             run.close_offer()
         elif action == "open_journal":
             self._show_journal()
+        elif action.startswith("show_transform"):
+            # A transform's "Show in Journal": the Journal opens on its entry,
+            # with the before and after (ui/app.js waffler_show_transform).
+            self._show_journal()
+            entry_id = _history_ids.parse(action.partition(":")[2])
+            if entry_id is not None:
+                _post_js("window.waffler_show_transform && "
+                         f"window.waffler_show_transform({int(entry_id)})")
         elif action in _mac_perms.PANE_ACTIONS:
             # A permission message's button: open the exact Privacy pane. Off
             # the overlay's reader thread (it waits for `open` to answer).
@@ -4199,6 +4434,19 @@ class WafflerPipeline:
 
     def on_hotkey_press(self):
         """Start recording."""
+        # Never beside a transform (src/transform_action.py): the hotkey is
+        # told why, and the listener's state is put back, as for a blocked
+        # permission below.
+        rewrite = getattr(self, "_transforms", None)
+        if rewrite is not None and rewrite.busy():
+            rewrite.refuse_dictation()
+            listener = getattr(self, "hotkey_listener", None)
+            if listener is not None and hasattr(listener, "reset_state"):
+                try:
+                    listener.reset_state()
+                except Exception:
+                    pass
+            return
         # Permissions first, and cheap: a microphone or Accessibility switched
         # off gets one message with a button to the right pane, instead of a
         # silent recording or a paste that goes nowhere.
@@ -6198,6 +6446,10 @@ class WafflerPipeline:
                     keys=keys,
                     on_lock=self._on_hands_free_lock,
                 )
+            # The Transform shortcut, if it is on. Before start(): on a Mac it
+            # listens through this listener's tap, and on Windows start()
+            # does not return until the hook ends.
+            self.apply_transform_settings()
             _log_to_file("Calling hotkey.start()...")
             self.hotkey_listener.start()
             if _platform.system() == "Darwin":
@@ -6246,6 +6498,32 @@ def _reopen_should_show(window_hidden: bool, now: float, hidden_start_until: flo
 
 # "Paste last / Copy last transcript" menu bar items (macOS): (paste, copy).
 _mac_last_items = None
+# "Transform selected text" (macOS): shown only while Transforms is on.
+_mac_transform_item = None
+
+
+def _transform_async():
+    """Menu bar or tray: rewrite the selected text. Off the menu's thread; the
+    run itself is on another (the menu thread must never wait for a model)."""
+    if _pipeline is not None:
+        threading.Thread(target=_pipeline.run_transform, args=("menu",), daemon=True,
+                         name="TransformMenu").start()
+
+
+def _transforms_enabled() -> bool:
+    """Is Transforms on? For the menu, read just as it opens. False if the
+    app is not ready or settings.json cannot be read."""
+    try:
+        return bool(_pipeline is not None and _pipeline.transforms_enabled())
+    except Exception:
+        return False
+
+
+def _refresh_transform_item():
+    """Show or hide "Transform selected text". On the main thread, just
+    before the menu opens (its delegate)."""
+    if _mac_transform_item is not None:
+        _mac_transform_item.setHidden_(not _transforms_enabled())
 
 
 def _paste_last_async():
@@ -6329,7 +6607,7 @@ def _create_mac_menubar_icon():
     bar to bring it back" finally work on Mac.
     """
     global _tray_icon, _mac_menubar_status_item, _mac_menubar_target, _mac_menubar_menu
-    global _mac_last_items
+    global _mac_last_items, _mac_transform_item
 
     try:
         from AppKit import (
@@ -6396,10 +6674,14 @@ def _create_mac_menubar_icon():
             def copyLast_(self, _sender):  # noqa: N802
                 _copy_last_async()
 
+            def transformSelected_(self, _sender):  # noqa: N802
+                _transform_async()
+
             def menuNeedsUpdate_(self, _menu):  # noqa: N802 — NSMenuDelegate
                 # Just before the menu opens: the word count of the last result.
                 try:
                     _refresh_last_transcript_items()
+                    _refresh_transform_item()
                 except Exception as e:
                     _log_to_file(f"menu refresh failed: {type(e).__name__}")
 
@@ -6446,6 +6728,16 @@ def _create_mac_menubar_icon():
         item_copy_last.setEnabled_(False)
         menu.addItem_(item_copy_last)
 
+        # Transform selected text (beta): rewrite the selection in the app in
+        # front. Hidden until Transforms is switched on in Settings; the menu
+        # delegate shows it as the menu opens.
+        item_transform = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            "Transform selected text", b"transformSelected:", ""
+        )
+        item_transform.setTarget_(target)
+        item_transform.setHidden_(True)
+        menu.addItem_(item_transform)
+
         menu.addItem_(NSMenuItem.separatorItem())
 
         item_reset = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
@@ -6469,6 +6761,7 @@ def _create_mac_menubar_icon():
         # returns. Without these, the menu-bar icon vanishes after a
         # garbage-collection cycle.
         _mac_last_items = (item_paste_last, item_copy_last)
+        _mac_transform_item = item_transform
         _mac_menubar_status_item = status_item
         _mac_menubar_target = target
         _mac_menubar_menu = menu
@@ -6534,6 +6827,10 @@ def _create_windows_tray_icon():
             pystray.MenuItem(lambda item=None: _last_transcript_menu()[1],
                              lambda icon=None, item=None: _copy_last_async(),
                              enabled=lambda item=None: _last_transcript_menu()[2]),
+            # Transform selected text (beta), only while Transforms is on.
+            pystray.MenuItem("Transform selected text",
+                             lambda icon=None, item=None: _transform_async(),
+                             visible=lambda item=None: _transforms_enabled()),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Quit", _tray_quit),
         )

@@ -326,3 +326,117 @@ PERMISSION_MESSAGES = {
                  "It isn't receiving your keyboard. Turn Waffler on in System Settings > Privacy "
                  "& Security > Input Monitoring, then restart Waffler."),
 }
+
+
+# ── Transforms (Settings, Transforms; src/transforms.py, src/transform_action.py) ──
+# What the Settings checks say when a value is refused (a refused value saves
+# none of what came with it). The numbers match src/transforms.py; a test keeps
+# them the same.
+TRANSFORMS_BAD = "Waffler couldn't use those Transform settings. Check them and try again."
+TRANSFORM_UNKNOWN = "Waffler doesn't know that transform. Pick one from the list."
+TRANSFORM_RULE_UNKNOWN = "Waffler doesn't know one of those Polish rules. Use the checkboxes."
+TRANSFORM_RULES_NONE = "Keep at least one Polish rule on, or add a rule of your own."
+TRANSFORM_RULES_TOO_MANY = "You can add up to 5 rules of your own."
+TRANSFORM_RULE_EMPTY = "Type the rule first."
+TRANSFORM_RULE_LONG = "Keep each rule to 160 characters or fewer."
+TRANSFORM_RULE_TWICE = "You already have that rule."
+TRANSFORM_OUTLINE_LONG = "Keep the outline to 1,200 characters or fewer."
+TRANSFORMS_TOO_MANY = "You can keep up to 5 transforms of your own."
+TRANSFORM_NAME_EMPTY = "Give the transform a name."
+TRANSFORM_NAME_LONG = "Keep the name to 40 characters or fewer."
+TRANSFORM_NAME_TAKEN = "You already have a transform with that name."
+TRANSFORM_PROMPT_EMPTY = "Say what the transform should do."
+TRANSFORM_PROMPT_LONG = "Keep the instruction to 800 characters or fewer."
+
+
+def undo_keys(platform: str) -> str:
+    return "Cmd+Z" if platform == "darwin" else "Ctrl+Z"
+
+
+# What the pill says while a transform runs. Each is (heading, body); the body
+# says what became of the person's text, because that is the worry.
+TRANSFORM_NO_SELECTION = ("Select some text first",
+                          "Highlight the text you want to rewrite, then try again.")
+TRANSFORM_TOO_LONG = ("Too much text",
+                      "That's too much text for one go (limit 1,000 words). Select less and try again.")
+TRANSFORM_BUSY_DICTATING = ("Waffler is busy", "Finish your dictation first, then try again.")
+TRANSFORM_BUSY_ALREADY = ("Still working", "A transform is already running. Wait for it to finish.")
+TRANSFORM_BLOCKS_DICTATION = ("A transform is running",
+                              "Wait for it to finish, or press Esc to stop it, then dictate.")
+TRANSFORM_CANCELLED = ("Transform cancelled", "Your text is unchanged.")
+TRANSFORM_NO_CHANGE = ("Your text already looks good", "Nothing was changed.")
+TRANSFORM_BAD_LENGTH = ("Nothing was replaced",
+                        "The result looked wrong, so your text is untouched.")
+TRANSFORM_CUT_SHORT = ("Nothing was replaced",
+                       "The result was cut short, so your text is untouched.")
+TRANSFORM_NO_ANSWER = ("Nothing was replaced",
+                       "The service sent back no text, so your text is untouched.")
+TRANSFORM_TOO_SLOW = ("Took too long", "The service didn't answer in time. Your text is unchanged.")
+TRANSFORM_NOT_READY = ("Not ready yet", "Waffler is still starting. Try again in a moment.")
+
+
+def transform_read_message(reason: str):
+    """(heading, body) for a selection that could not be read. ``reason`` is
+    src/text_context.py's (``no_selection``, ``accessibility_off``,
+    ``secure_field``, ``too_large``, ``not_allowed_here``, anything else)."""
+    if reason in ("", "no_selection"):
+        return TRANSFORM_NO_SELECTION
+    if reason == "too_large":
+        return TRANSFORM_TOO_LONG
+    if reason == "accessibility_off":
+        return ("Accessibility is off",
+                "Waffler needs it to read selected text. Turn it on in System Settings > "
+                "Privacy & Security > Accessibility, then try again.")
+    if reason == "secure_field":
+        return ("Can't read this field", "It looks like a password field, so Waffler left it alone.")
+    if reason == "not_allowed_here":
+        return ("Can't copy from here",
+                "In a terminal, copying would stop the program. Select text in another app.")
+    return ("Couldn't read the selection",
+            "This app didn't hand over the selected text. Try again, or try another app.")
+
+
+def transform_done_message(name: str, platform: str):
+    return (f"{name} done", f"Press {undo_keys(platform)} in your app to undo it.")
+
+
+def transform_not_pasted_message(platform: str):
+    """The result was made but not pasted because the person moved on; it is
+    on the clipboard and in the Journal."""
+    return ("Result not pasted",
+            f"You switched away, so the result is on your clipboard. Press {paste_keys(platform)} "
+            f"where you want it.")
+
+
+def transform_failed_message(reason: str):
+    """(heading, body) when no provider answered. ``reason`` is the styler's
+    own (``RATE_LIMIT|...``, ``AUTH: ...``, ``CONNECTION: ...``,
+    ``MODEL_UNAVAILABLE: ...``, ``TIMEOUT|...``); it stays in the log and
+    nothing of it but a provider's name reaches the screen."""
+    text = str(reason or "")
+    lower = text.lower()
+    if "RATE_LIMIT|" in text:
+        return limit_reached_message(text)
+    provider = _provider_in(text)
+    who = provider or "Your service"
+    if "MODEL_UNAVAILABLE" in text:
+        return ("Couldn't rewrite", "The service's model is no longer available. Your text is unchanged.")
+    if "no styling providers configured" in lower:
+        return ("Couldn't rewrite", "No key is set up for this yet. Add a free Groq key in Settings. "
+                                    "Your text is unchanged.")
+    if "TIMEOUT|" in text:
+        return TRANSFORM_TOO_SLOW
+    blocked = ("AUTH:" in text or "access denied" in lower or "unauthorized" in lower
+               or "invalid_api_key" in lower or "incorrect api key" in lower)
+    if not blocked and "CONNECTION" not in text:
+        blocked = bool(re.search(r"\b40[13]\b", text))
+    if blocked:
+        return ("Couldn't rewrite", f"{who} refused the connection, which usually means a VPN is on "
+                                    f"or the key has stopped working. Your text is unchanged.")
+    if "CONNECTION" in text or "timeout" in lower or "timed out" in lower or "connection" in lower:
+        return ("Couldn't rewrite", f"Waffler couldn't reach {provider or 'your service'}. "
+                                    f"Check you're online. Your text is unchanged.")
+    return ("Couldn't rewrite", "Something went wrong with the service. Your text is unchanged.")
+TRANSFORM_COPIED = ("Result copied", "Paste it over your selection when you're ready.")
+TRANSFORM_MOVED_NOT_COPIED = ("Result not pasted",
+                              "You switched away, and the result couldn't be copied. It's in the Journal.")

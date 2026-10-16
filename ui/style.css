@@ -958,6 +958,29 @@ mark.hl {
 .meter i.p { background: linear-gradient(to top, var(--honey) 55%, var(--surface-2) 55%); }
 .mic-level.is-pending .meter { display: none; }
 
+/* Settings, Transforms (beta): the shortcut, the rules, the outline, the
+   person's own transforms. Journal, a rewrite: the text before and after with
+   the changes marked. Tokens only. */
+.tx-h3 { margin: 16px 2px 8px; font: 500 12.5px/1.2 var(--f-ui); color: var(--text-2); }
+.tx-h3[hidden], .tx-add[hidden], .tx-new[hidden], #polishOwnRules[hidden], #transformsList[hidden] { display: none; }
+.tx-caps { display: inline-flex; margin-top: 8px; }
+.tx-caps[hidden] { display: none; }
+.settings-panel .tx-own .row-t { font-weight: 400; overflow-wrap: anywhere; }
+.settings-panel .tx-row .row-d { overflow-wrap: anywhere; }
+.tx-add { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.tx-add .input { flex: 1 1 auto; min-width: 0; }
+.tx-new { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.tx-prompt { display: block; height: auto; min-height: 76px; padding: 9px 12px; resize: vertical; font: 400 14px/1.45 var(--f-ui); }
+.tx-new-foot { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+.tx-new-foot .snip-counter { margin: 0 auto 0 0; text-align: left; }
+.tx-outline { min-height: 220px; font-family: var(--f-mono, monospace); font-size: 13px; line-height: 1.5; }
+.tx-edit .row-main { display: flex; flex-direction: column; gap: 8px; }
+.tx-head { gap: 10px; margin-bottom: 10px; }
+.tx-pane + .tx-pane { margin-top: 12px; }
+.tx-text del { color: var(--muted); text-decoration: line-through; }
+.tx-text ins { text-decoration: none; background: linear-gradient(transparent 62%, rgba(217, 164, 65, 0.38) 62%); }
+.tx-status { margin-top: 10px; }
+
 /* ── Keys and providers ──────────────────────────────────────────────── */
 .flow { display: flex; align-items: center; margin-top: 22px; padding: 16px 18px; }
 .fnode { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
@@ -1397,6 +1420,7 @@ body[data-theme="dark"] .kc-xl.held {
   .transcript-card:not(.not-sent-card) .j-acts { max-width: none; justify-content: flex-start; }
   .j-live-mark { display: none; }
   .j-search-input { width: 100%; }
+  .tx-add { flex-wrap: wrap; }
 }
 
 /* ── Motion ────────────────────────────────────────────────────────────

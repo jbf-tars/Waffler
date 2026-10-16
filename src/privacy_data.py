@@ -119,10 +119,31 @@ DATA_GLOBS = ("usage.backup-*.json", "history.unreadable-*.json", "usage.unreada
 DATA_FOLDERS = ("debug_audio", "unsent")
 
 
+def _transforms_for_logs(t: dict) -> dict:
+    """The Transforms settings without the person's own wording (their rules,
+    outline and transforms can name a client or a plan): what is on, the
+    shortcut, and how long each piece of text is."""
+    def n(v):
+        return len(v) if isinstance(v, str) else 0
+    out = {k: t[k] for k in ("enabled", "hotkey", "default") if k in t}
+    pol = t.get("polish") if isinstance(t.get("polish"), dict) else {}
+    if isinstance(pol.get("rules"), dict):
+        out["polish_rules"] = {k: v for k, v in pol["rules"].items() if isinstance(v, bool)}
+    custom_rules = pol.get("custom_rules")
+    out["polish_own_rules"] = len(custom_rules) if isinstance(custom_rules, list) else 0
+    pe = t.get("prompt_engineer") if isinstance(t.get("prompt_engineer"), dict) else {}
+    out["outline_chars"] = n(pe.get("skeleton"))
+    mine = t.get("custom")
+    out["custom"] = [{"id": c.get("id"), "prompt_chars": n(c.get("prompt"))}
+                     for c in mine if isinstance(c, dict)] if isinstance(mine, list) else []
+    return out
+
+
 def settings_for_logs(raw: str) -> str:
     """settings.json as it goes into the logs bundle: the same, with the text
-    of the email signature (a name, a phone number, an address) taken out and
-    only its length left. A file that cannot be read is not included at all,
+    of the email signature (a name, a phone number, an address) and the wording
+    of the Transforms (the person's own rules, outline and transforms) taken
+    out and only the lengths left. A file that cannot be read is not included at all,
     because nothing can be taken out of it safely."""
     import json
     try:
@@ -131,6 +152,8 @@ def settings_for_logs(raw: str) -> str:
         return "settings.json could not be read, so it is not included.\n"
     if not isinstance(data, dict):
         return "settings.json could not be read, so it is not included.\n"
+    if isinstance(data.get("transforms"), dict):
+        data["transforms"] = _transforms_for_logs(data["transforms"])
     sig = data.get("email_signature")
     if isinstance(sig, dict):
         text = sig.get("text")

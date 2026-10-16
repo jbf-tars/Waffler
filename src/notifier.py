@@ -139,6 +139,12 @@ _REGISTRY = (
     # After a dictation.
     Kind("cancelled_kept", ERROR),
     Kind("history_not_saved", ERROR),
+    # Transforms (src/transform_action.py): what became of a rewrite, a
+    # refusal while a dictation is running (once every 8 s, so mashing the
+    # shortcut does not stack messages), and a rewrite that failed.
+    Kind("transform_result", INFO, hold_s=8),
+    Kind("transform_busy", INFO, min_gap_s=8, hold_s=6),
+    Kind("transform_failed", ERROR, hold_s=7),
     # Tips. The hint stays up 10 s (src/hold_hint.py HINT_SECONDS).
     Kind("hold_hint", TIP, min_gap_s=12 * _HOUR, category="hints", hold_s=10),
 )

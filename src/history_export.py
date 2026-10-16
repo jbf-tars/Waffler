@@ -90,7 +90,11 @@ def _heading(h: dict) -> str:
     except ValueError:
         when = ts or "Unknown time"
     app = " ".join(str(h.get("app") or "").split())
-    return f"{when} ({app})" if app else when
+    head = f"{when} ({app})" if app else when
+    if h.get("kind") == "transform":
+        name = " ".join(str(h.get("transform_name") or "").split())
+        head += f", rewritten with {name}" if name else ", rewritten"
+    return head
 
 
 def render_txt(history, now: datetime | None = None) -> str:

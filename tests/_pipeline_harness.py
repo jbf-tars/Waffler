@@ -28,6 +28,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT))
 
+import action_hotkeys  # noqa: E402
 import atomic_json  # noqa: E402
 import cleanup_pause  # noqa: E402
 import history_ids  # noqa: E402
@@ -45,6 +46,8 @@ import style_layer  # noqa: E402
 import sounds  # noqa: E402
 import take_marker  # noqa: E402
 import text_context  # noqa: E402
+import transform_action  # noqa: E402
+import transforms  # noqa: E402
 import tray_state  # noqa: E402
 import unsent  # noqa: E402
 import user_messages  # noqa: E402
@@ -80,6 +83,11 @@ PIPELINE_METHODS = (
     # The Style section (src/style_layer.py): a style for the kind of app,
     # the email signature, and the one read of the text before the cursor.
     "_style_words", "_add_signature", "_signature_reader",
+    # Transforms (src/transform_action.py): what a run needs from the app, the
+    # shortcut, and the pill and messages it uses.
+    "_transform_hooks", "_dictation_busy", "transforms_enabled", "run_transform",
+    "apply_transform_settings", "_on_transform_shortcut", "_transform_say",
+    "_transform_ui_begin", "_transform_ui_tick", "_transform_ui_end",
 )
 MODULE_DEFS = ("ensure_data_dir", "load_history", "_load_history_for_update",
                "save_history", "append_history",
@@ -380,6 +388,7 @@ def make_pipeline(data_dir: Path, *, transcriber=None, styler=None, clipboard=No
         hold_hint_message=user_messages.hold_hint_message,
         _history_ids=history_ids, _history_meta=history_meta, _history_ops=history_ops,
         _take_marker=take_marker, _text_context=text_context,
+        _action_hotkeys=action_hotkeys, _transforms=transforms, _transform_action=transform_action,
         _history_cache=types.SimpleNamespace(invalidate=lambda: None),
         _is_setup_complete=lambda: True,
         paste_timed_out_message=user_messages.paste_timed_out_message,
@@ -425,6 +434,10 @@ def make_pipeline(data_dir: Path, *, transcriber=None, styler=None, clipboard=No
     p._unsent_in_flight = {}
     p._signature_memory = style_layer.SignatureMemory()
     p._in_flight_lock = threading.Lock()
+    p._action_hotkeys = action_hotkeys.ActionHotkeys("Windows", log=logged.append,
+                                                     spawn=lambda fn: fn())
+    p._action_hotkeys.start = lambda: False        # never a real keyboard hook in a test
+    p._transforms = transform_action.TransformRunner(p._transform_hooks())
     p._watchdog = pw.PipelineWatchdog(
         on_begin=p._ui_begin, on_working=p._ui_working, on_offer=p._ui_offer,
         on_withdraw_offer=p._ui_withdraw_offer, on_finished=p._ui_finished,

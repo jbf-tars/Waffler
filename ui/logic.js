@@ -891,7 +891,9 @@
   // and punctuation. When the clean-up rewrote more than half the words,
   // striking most of the sentence would say nothing useful, so nothing is
   // struck. Returns [{text, cut}] pieces that join back to `said` exactly.
-  function saidDiff(said, wrote) {
+  // `maxCut` is that share (0.5 by default): a rewrite shown in the Journal
+  // passes 1, because there the changes are the point.
+  function saidDiff(said, wrote, maxCut) {
     const text = String(said || '');
     const tokens = text.match(/\S+\s*/g) || [];
     const lead = text.slice(0, text.length - tokens.join('').length);
@@ -915,7 +917,8 @@
     }
     const words = a.filter(Boolean).length;
     const cutWords = cut.filter(Boolean).length;
-    if (!cutWords || cutWords * 2 > words) return text ? [{ text, cut: false }] : [];
+    const share = typeof maxCut === 'number' ? maxCut : 0.5;
+    if (!cutWords || cutWords > words * share) return text ? [{ text, cut: false }] : [];
     const out = lead ? [{ text: lead, cut: false }] : [];
     tokens.forEach((t, k) => {
       if (cut[k]) {
@@ -1026,6 +1029,177 @@
     if (key === 'tips') return on ? 'Waffler will show an occasional tip.' : 'Tips are off.';
     return '';
   }
+
+  // ══ Transforms (beta): Settings, Transforms, and the Journal's rewrites ═══
+  // The rules and limits are src/transforms.py's, and a test compares them.
+  // The sentences are src/user_messages.py's, so the page and the app say the
+  // same thing whichever of them notices a problem first.
+  const TRANSFORM_RULES = [
+    { key: 'grammar', label: 'Fix grammar, spelling and punctuation', on: true },
+    { key: 'clarity', label: 'Make the wording clearer', on: true },
+    { key: 'tone', label: 'Keep my tone', on: true },
+    { key: 'sentences', label: 'Split long sentences', on: true },
+    { key: 'paragraphs', label: 'Improve paragraph breaks', on: true },
+    { key: 'structure', label: 'Add lists or headings where they help', on: false },
+    { key: 'concise', label: 'Make it shorter', on: false },
+  ];
+  const TRANSFORM_LIMITS = { custom: 5, name: 40, prompt: 800, rule: 160, rules: 5, outline: 1200 };
+  const TRANSFORM_BUILT_IN = [
+    { value: 'polish', label: 'Polish' },
+    { value: 'prompt_engineer', label: 'Prompt Engineer' },
+  ];
+  const TRANSFORM_TEXT = {
+    nameEmpty: 'Give the transform a name.',
+    nameLong: 'Keep the name to 40 characters or fewer.',
+    nameTaken: 'You already have a transform with that name.',
+    promptEmpty: 'Say what the transform should do.',
+    promptLong: 'Keep the instruction to 800 characters or fewer.',
+    tooMany: 'You can keep up to 5 transforms of your own.',
+    ruleEmpty: 'Type the rule first.',
+    ruleLong: 'Keep each rule to 160 characters or fewer.',
+    ruleTwice: 'You already have that rule.',
+    rulesTooMany: 'You can add up to 5 rules of your own.',
+    outlineLong: 'Keep the outline to 1,200 characters or fewer.',
+  };
+
+  function _oneLine(text) {
+    return String(text == null ? '' : text).split(/\s+/).filter(Boolean).join(' ');
+  }
+
+  // The Transforms settings (get_settings().transforms) as the section shows
+  // them: anything missing or odd is the default (off, no shortcut, Polish).
+  function transformView(settings, isMac) {
+    const t = settings && typeof settings.transforms === 'object' && settings.transforms ? settings.transforms : {};
+    const pol = t.polish && typeof t.polish === 'object' ? t.polish : {};
+    const given = pol.rules && typeof pol.rules === 'object' ? pol.rules : {};
+    const custom = (Array.isArray(t.custom) ? t.custom : [])
+      .filter((c) => c && typeof c.id === 'string' && typeof c.name === 'string')
+      .map((c) => ({ id: c.id, name: c.name, prompt: String(c.prompt || '') }));
+    const own = (Array.isArray(pol.custom_rules) ? pol.custom_rules : []).filter((r) => typeof r === 'string');
+    const choices = TRANSFORM_BUILT_IN.concat(custom.map((c) => ({ value: c.id, label: c.name })));
+    const wanted = typeof t.default === 'string' ? t.default : 'polish';
+    const keys = Array.isArray(t.hotkey) ? t.hotkey.filter((k) => typeof k === 'string') : [];
+    const skeleton = typeof (t.prompt_engineer || {}).skeleton === 'string' ? t.prompt_engineer.skeleton : '';
+    const outlineDefault = typeof t.skeleton_default === 'string' ? t.skeleton_default : '';
+    return {
+      enabled: t.enabled === true,
+      hotkey: keys,
+      hotkeyShown: keys.length ? hotkeyName(keys, !!isMac) : '',
+      defaultId: choices.some((c) => c.value === wanted) ? wanted : 'polish',
+      choices,
+      rules: TRANSFORM_RULES.map((r) => ({ key: r.key, label: r.label, on: typeof given[r.key] === 'boolean' ? given[r.key] : r.on })),
+      ownRules: own,
+      canAddRule: own.length < TRANSFORM_LIMITS.rules,
+      outline: skeleton || outlineDefault,
+      outlineDefault,
+      outlineIsDefault: !skeleton || skeleton === outlineDefault,
+      custom,
+      canAddCustom: custom.length < TRANSFORM_LIMITS.custom,
+    };
+  }
+
+  // What to say about a transform of the person's own before it is saved.
+  // `list` is the saved ones, `editing` the index being changed (-1 to add).
+  function transformCheck(list, name, prompt, editing) {
+    const have = Array.isArray(list) ? list : [];
+    const n = _oneLine(name);
+    const p = String(prompt == null ? '' : prompt).replace(/\r\n?/g, '\n').trim();
+    if (!n) return { ok: false, field: 'name', error: TRANSFORM_TEXT.nameEmpty };
+    if (n.length > TRANSFORM_LIMITS.name) return { ok: false, field: 'name', error: TRANSFORM_TEXT.nameLong };
+    const key = n.toLowerCase();
+    const builtIn = TRANSFORM_BUILT_IN.some((b) => b.label.toLowerCase() === key);
+    if (builtIn || have.some((c, i) => i !== editing && _oneLine(c.name).toLowerCase() === key)) {
+      return { ok: false, field: 'name', error: TRANSFORM_TEXT.nameTaken };
+    }
+    if (!p) return { ok: false, field: 'prompt', error: TRANSFORM_TEXT.promptEmpty };
+    if (p.length > TRANSFORM_LIMITS.prompt) return { ok: false, field: 'prompt', error: TRANSFORM_TEXT.promptLong };
+    if (editing < 0 && have.length >= TRANSFORM_LIMITS.custom) return { ok: false, field: 'name', error: TRANSFORM_TEXT.tooMany };
+    return { ok: true, name: n, prompt: p };
+  }
+
+  // The same for one of the person's own Polish rules.
+  function transformRuleCheck(rules, text) {
+    const have = Array.isArray(rules) ? rules : [];
+    const r = _oneLine(text);
+    if (!r) return { ok: false, error: TRANSFORM_TEXT.ruleEmpty };
+    if (r.length > TRANSFORM_LIMITS.rule) return { ok: false, error: TRANSFORM_TEXT.ruleLong };
+    if (have.some((x) => _oneLine(x).toLowerCase() === r.toLowerCase())) return { ok: false, error: TRANSFORM_TEXT.ruleTwice };
+    if (have.length >= TRANSFORM_LIMITS.rules) return { ok: false, error: TRANSFORM_TEXT.rulesTooMany };
+    return { ok: true, rule: r };
+  }
+
+  // The count under the outline box, and whether it can be saved.
+  function transformOutlineView(typed) {
+    const text = String(typed == null ? '' : typed).replace(/\r\n?/g, '\n').trim();
+    const n = Array.from(text).length;
+    const over = n > TRANSFORM_LIMITS.outline;
+    return {
+      text, chars: n, over,
+      counter: over ? `${formatCount(n - TRANSFORM_LIMITS.outline)} over the limit of ${formatCount(TRANSFORM_LIMITS.outline)}`
+        : `${formatCount(n)} of ${formatCount(TRANSFORM_LIMITS.outline)}`,
+    };
+  }
+
+  // The line under the shortcut.
+  function transformShortcutLine(view) {
+    if (view && view.hotkey && view.hotkey.length) {
+      return 'Select text in any app and press it. The keys also reach the app, so pick a combination it does not use.';
+    }
+    return 'Not set. Choose keys, or use "Transform selected text" in the menu bar.';
+  }
+
+  // What the page says after a save.
+  function transformSaved(what, value) {
+    if (what === 'enabled') return value ? 'Transforms are on.' : 'Transforms are off.';
+    if (what === 'hotkey') return value ? `Transform shortcut is now ${value}.` : 'Transform shortcut removed.';
+    if (what === 'default') return `The shortcut now runs ${value}.`;
+    if (what === 'added') return `Added "${value}".`;
+    if (what === 'removed') return `Removed "${value}".`;
+    if (what === 'outline') return 'Outline saved.';
+    return 'Saved.';
+  }
+
+  // The hotkey dialog, for the dictation hotkey or the Transform shortcut.
+  function hotkeyDialogText(target) {
+    return target === 'transform'
+      ? { title: 'Hold your Transform shortcut', sub: 'Hold the keys you want, then let go. Use a letter, a number or an F key with two modifier keys. Esc cancels.' }
+      : { title: 'Hold your new keys', sub: 'Hold the combination you want, then let go. Esc cancels.' };
+  }
+
+  // What became of the words, for a rewrite's entry in the Journal. `where`
+  // is " in Notes" or nothing.
+  const TRANSFORM_PASTE = {
+    pasted: (where) => `Replaced your selection${where}.`,
+    unverified: (where) => `Replaced your selection${where}.`,
+    failed: (where) => `Couldn't paste${where}. The rewrite is on your clipboard.`,
+    copied: () => 'Copied to the clipboard, not pasted.',
+    not_pasted: () => 'Not pasted.',
+  };
+
+  // A rewrite's Journal entry (kind "transform"): the two texts with what
+  // changed marked (words taken out struck through in the first, words put in
+  // marked in the second), how many changes, and where it happened.
+  function transformEntryView(item) {
+    const e = item && typeof item === 'object' ? item : {};
+    const before = String(e.before || ''), after = String(e.after || '');
+    const left = saidDiff(before, after, 1);
+    const right = saidDiff(after, before, 1);
+    const changes = Math.max(left.filter((p) => p.cut).length, right.filter((p) => p.cut).length);
+    const words = after.split(/\s+/).filter(Boolean).length;
+    const where = typeof e.app === 'string' && e.app ? ` in ${e.app}` : '';
+    const say = Object.prototype.hasOwnProperty.call(TRANSFORM_PASTE, e.paste) ? TRANSFORM_PASTE[e.paste] : null;
+    return {
+      id: Number.isInteger(e.id) && e.id > 0 ? e.id : null,
+      name: String(e.transform_name || 'Transform'),
+      before, after,
+      beforePieces: left, afterPieces: right,
+      changes,
+      changesLabel: changes ? `${formatCount(changes)} ${changes === 1 ? 'change' : 'changes'}` : 'Punctuation and layout only',
+      words: `${formatCount(words)} ${words === 1 ? 'word' : 'words'}`,
+      status: say ? say(where) : '',
+    };
+  }
+
 
   // ── Style (Settings, Style) ──────────────────────────────────────────
   // Clean-up On or Off (settings.json "cleanup"), a style for each kind of
@@ -1467,6 +1641,9 @@
     spellingSpecimen, languageOptions, languageDesc, languageSaved, spellingNote,
     STYLE_KINDS, STYLE_CHOICES, STYLE_LABELS, STYLE_NOTE, SIGNATURE_MAX, styleRows, styleAbout, cleanupView,
     cleanupSaved, styleSaved, signatureSaved, signatureView,
+    TRANSFORM_RULES, TRANSFORM_LIMITS, TRANSFORM_BUILT_IN, TRANSFORM_TEXT, transformView, transformCheck,
+    transformRuleCheck, transformOutlineView, transformShortcutLine, transformSaved, hotkeyDialogText,
+    transformEntryView,
     clipboardAfterPasteView, clipboardAfterPasteSaved, feedbackView, feedbackSaved, METER_CELLS, micMeter, usageChart, usageFacts, flowView, PROVIDER_MARKS, providerPill,
     privacyFlow, hotkeyTestLine, whatsNew,
   };

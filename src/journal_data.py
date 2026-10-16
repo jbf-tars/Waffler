@@ -65,6 +65,9 @@ def compute_stats(history: list, today: date) -> dict:
     ``daily_words``: the words of each of the last ``CHART_DAYS`` days,
     oldest first, ending today; ``daily_start`` is the first of those days
     ("2026-08-27"). Not sent entries add none, as everywhere else.
+
+    A transform (``kind == "transform"``, a rewrite of selected text) is
+    counted in ``entries`` and ``transform_count`` and nowhere else.
     """
     week_start = today - timedelta(days=today.weekday())
     chart_start = today - timedelta(days=CHART_DAYS - 1)
@@ -74,7 +77,7 @@ def compute_stats(history: list, today: date) -> dict:
         "week_words": 0, "week_count": 0,
         "month_words": 0, "month_count": 0,
         "total_words": 0, "total_count": 0,
-        "entries": 0, "streak_days": 0,
+        "entries": 0, "streak_days": 0, "transform_count": 0,
         "daily_start": chart_start.isoformat(), "daily_words": daily,
     }
     days = set()
@@ -82,6 +85,12 @@ def compute_stats(history: list, today: date) -> dict:
         if not isinstance(h, dict):
             continue
         out["entries"] += 1
+        if h.get("kind") == "transform":
+            # A rewrite of selected text (src/transforms.py) is in the Journal
+            # and in ``entries``, and in nothing else: not a word, a
+            # dictation, a day of the streak or a minute saved.
+            out["transform_count"] += 1
+            continue
         d = _day(h.get("timestamp"))
         w = _words(h)
         failed = bool(h.get("failed"))
@@ -171,11 +180,15 @@ def vocab_usage(history: list, recent: int = RECENT_CORRECTIONS) -> dict:
 
 
 def matches(item: dict, query: str) -> bool:
-    """The Journal search: the clean text and the transcript, any case."""
+    """The Journal search: the clean text and the transcript, any case (for a
+    rewrite, its result and the text it started from)."""
     q = str(query or "").strip().lower()
     if not q:
         return True
-    hay = ((item.get("styled") or "") + " " + (item.get("text") or "")).lower()
+    if item.get("kind") == "transform":
+        hay = (str(item.get("after") or "") + " " + str(item.get("before") or "")).lower()
+    else:
+        hay = ((item.get("styled") or "") + " " + (item.get("text") or "")).lower()
     return q in hay
 
 

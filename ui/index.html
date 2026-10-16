@@ -149,6 +149,7 @@
       <nav class="snav-list" aria-label="Settings sections">
         <button type="button" class="snav-item" data-sec="general" onclick="showSettingsSection('general')">General</button>
         <button type="button" class="snav-item" data-sec="style" onclick="showSettingsSection('style')">Style</button>
+        <button type="button" class="snav-item" data-sec="transforms" onclick="showSettingsSection('transforms')">Transforms (beta)</button>
         <button type="button" class="snav-item" data-sec="keys" onclick="showSettingsSection('keys')">Keys and providers</button>
         <button type="button" class="snav-item" data-sec="hotkey" onclick="showSettingsSection('hotkey')">Hotkey</button>
         <button type="button" class="snav-item" data-sec="usage" onclick="showSettingsSection('usage')">Usage</button>
@@ -342,6 +343,110 @@
               </div>
             </div>
           </div>
+        </section>
+
+        <!-- Transforms (beta; src/transforms.py, src/transform_action.py): select
+             text in any app, press a shortcut, and the selection is rewritten
+             in place. Off until switched on. Everything saves at once through
+             save_settings({transforms: ...}); the app checks it again and says
+             why in one sentence. The shortcut is chosen in the same dialog as
+             the dictation hotkey (openHotkeyCapture('transform')). -->
+        <section class="s-sec" id="secTransforms" data-sec="transforms" hidden>
+          <h1 class="ptitle">Transforms (beta)</h1>
+          <p class="pdesc">Select text in any app, press your shortcut, and Waffler rewrites it where it is. Your app's own Undo takes it back, and the text before and after is kept in your Journal.</p>
+
+          <h2 class="sh2">Transforms</h2>
+          <div class="sheet">
+            <div class="row" id="transformsRow">
+              <div class="row-main"><div class="row-t"><label for="transformsToggle">Turn on Transforms</label></div><div class="row-d" id="transformsDesc">It is off until you turn it on. When you use a transform, the text you selected is read from the app in front, with Accessibility or by copying it, and sent to the provider you chose in Keys and providers. Nothing is read or sent at any other time.</div></div>
+              <input type="checkbox" class="tog" role="switch" id="transformsToggle" aria-describedby="transformsDesc" onchange="setTransformsEnabled(this.checked)">
+            </div>
+            <div class="row" id="transformsShortcutRow">
+              <div class="row-main">
+                <div class="row-t" id="transformsShortcutTitle">Shortcut</div>
+                <div class="row-d" id="transformsShortcutDesc"></div>
+                <span class="keys tx-caps" id="transformsCaps" role="img" hidden></span>
+              </div>
+              <button type="button" class="btn btn-sec btn-sm" id="transformsChange" aria-describedby="transformsShortcutTitle" onclick="openHotkeyCapture('transform')">Change…</button>
+              <button type="button" class="btn btn-quiet btn-sm" id="transformsRemove" aria-describedby="transformsShortcutTitle" onclick="clearTransformHotkey()">Remove</button>
+            </div>
+            <div class="row" id="transformsRunRow">
+              <div class="row-main"><div class="row-t"><label for="transformsRun">Run</label></div><div class="row-d" id="transformsRunDesc">The transform the shortcut and the menu bar item use.</div></div>
+              <select id="transformsRun" class="select" aria-describedby="transformsRunDesc" onchange="onTransformRunChange(this)"></select>
+            </div>
+          </div>
+          <p class="s-error" id="transformsError" role="alert" hidden></p>
+          <p class="s-note" id="transformsOffNote" hidden>Transforms is off, so the shortcut and the menu bar item do nothing yet.</p>
+
+          <h2 class="sh2">Polish</h2>
+          <p class="s-note">Cleans up the writing you selected. Choose what it may change; it always keeps your meaning.</p>
+          <div class="sheet" id="polishSheet">
+            <div class="row">
+              <div class="row-main"><div class="row-t"><label for="polishRule-grammar">Fix grammar, spelling and punctuation</label></div></div>
+              <input type="checkbox" class="tog" role="switch" id="polishRule-grammar" onchange="setPolishRule('grammar', this.checked)">
+            </div>
+            <div class="row">
+              <div class="row-main"><div class="row-t"><label for="polishRule-clarity">Make the wording clearer</label></div></div>
+              <input type="checkbox" class="tog" role="switch" id="polishRule-clarity" onchange="setPolishRule('clarity', this.checked)">
+            </div>
+            <div class="row">
+              <div class="row-main"><div class="row-t"><label for="polishRule-tone">Keep my tone</label></div></div>
+              <input type="checkbox" class="tog" role="switch" id="polishRule-tone" onchange="setPolishRule('tone', this.checked)">
+            </div>
+            <div class="row">
+              <div class="row-main"><div class="row-t"><label for="polishRule-sentences">Split long sentences</label></div></div>
+              <input type="checkbox" class="tog" role="switch" id="polishRule-sentences" onchange="setPolishRule('sentences', this.checked)">
+            </div>
+            <div class="row">
+              <div class="row-main"><div class="row-t"><label for="polishRule-paragraphs">Improve paragraph breaks</label></div></div>
+              <input type="checkbox" class="tog" role="switch" id="polishRule-paragraphs" onchange="setPolishRule('paragraphs', this.checked)">
+            </div>
+            <div class="row">
+              <div class="row-main"><div class="row-t"><label for="polishRule-structure">Add lists or headings where they help</label></div></div>
+              <input type="checkbox" class="tog" role="switch" id="polishRule-structure" onchange="setPolishRule('structure', this.checked)">
+            </div>
+            <div class="row">
+              <div class="row-main"><div class="row-t"><label for="polishRule-concise">Make it shorter</label></div></div>
+              <input type="checkbox" class="tog" role="switch" id="polishRule-concise" onchange="setPolishRule('concise', this.checked)">
+            </div>
+          </div>
+          <h3 class="tx-h3" id="polishOwnTitle">Your own rules</h3>
+          <div class="sheet" id="polishOwnRules" role="list" aria-labelledby="polishOwnTitle"></div>
+          <form class="tx-add" id="polishRuleForm" onsubmit="addPolishRule(); return false;">
+            <input type="text" id="polishRuleInput" class="input" placeholder="For example: use British spelling" aria-label="A rule of your own for Polish" maxlength="160" autocomplete="off" spellcheck="false">
+            <button type="submit" class="btn btn-sec btn-sm" id="polishRuleAdd">Add rule</button>
+          </form>
+          <p class="s-error" id="polishRuleError" role="alert" hidden></p>
+
+          <h2 class="sh2">Prompt Engineer</h2>
+          <p class="s-note">Turns a rough request into a well-structured prompt for an AI model. It fills in this outline from what you wrote, never invents details, and writes "Not specified" where you said nothing.</p>
+          <div class="sheet">
+            <div class="row row-sig">
+              <div class="row-main">
+                <div class="row-t"><label for="peOutline">Outline</label></div>
+                <textarea id="peOutline" class="input sig-ta tx-outline" rows="12" aria-describedby="peCounter peHint" autocomplete="off" spellcheck="false" oninput="onOutlineInput()" onblur="commitOutline()"></textarea>
+                <div class="sig-foot">
+                  <span class="sig-hint" id="peHint" role="status" aria-live="polite"></span>
+                  <span class="sig-counter" id="peCounter"></span>
+                </div>
+              </div>
+            </div>
+            <div class="row">
+              <div class="row-main"><div class="row-d">The headings stay in this order. Put your own in if you want different ones.</div></div>
+              <button type="button" class="btn btn-sec btn-sm" id="peReset" onclick="resetOutline()">Reset to default</button>
+            </div>
+          </div>
+
+          <h2 class="sh2">Your transforms<span class="aside" id="transformsCount" aria-hidden="true"></span></h2>
+          <p class="s-note" id="transformsHelp">Each one is a name and an instruction. For example, call it Friendly and write "Rewrite this to sound warm and short". Pick it in Run above to use it with the shortcut. You can keep up to 5.</p>
+          <div class="sheet" id="transformsList" role="list" aria-label="Your transforms"></div>
+          <form class="tx-new" id="transformsForm" onsubmit="addTransform(); return false;">
+            <input type="text" id="transformName" class="input" placeholder="Name" aria-label="Name of the new transform" maxlength="40" autocomplete="off" spellcheck="false">
+            <textarea id="transformPrompt" class="input tx-prompt" rows="3" placeholder="What should it do to the text?" aria-label="What the new transform should do" aria-describedby="transformsFormCount" autocomplete="off" spellcheck="false" oninput="onTransformPromptInput()"></textarea>
+            <div class="tx-new-foot"><span class="snip-counter" id="transformsFormCount"></span><button type="submit" class="btn btn-pri btn-sm" id="transformAdd">Add transform</button></div>
+          </form>
+          <p class="s-error" id="transformFormError" role="alert" hidden></p>
+          <p class="s-note" id="transformsFull" hidden>You have 5 transforms, the most you can keep. Delete one to add another.</p>
         </section>
 
         <!-- Keys and providers: what a dictation goes through, then the
@@ -553,6 +658,11 @@
                  Delete, which asks first. -->
             <!-- Which tips have been shown, hidden or closed (src/notifier.py,
                  notifications.json): counts and times, nothing anyone said. -->
+            <!-- Transforms (beta): selected text is read and sent only when a
+                 transform is used, to the provider the person chose. -->
+            <div class="row" id="transformsPrivacyRow">
+              <div class="row-main"><div class="row-t">Transforms</div><div class="row-d">Only when you use a transform, Waffler reads the text you selected, with Accessibility or by copying it, and sends it to your provider on your own key. The text before and after is kept in your Journal, and Delete all my data clears it with the rest.</div></div>
+            </div>
             <div class="row" id="tipsMemoryRow">
               <div class="row-main"><div class="row-t">Tips seen</div><div class="row-d">Which tips Waffler has shown, and which you hid, so it doesn't repeat them. Counts and times only.</div></div>
             </div>
@@ -580,6 +690,10 @@
               </div>
               <div class="row">
                 <div class="row-main"><div class="row-t">The text field you paste into</div><div class="row-d">To confirm a paste landed, Waffler reads whether that field changed. It never stores or logs what is in it.</div></div>
+              </div>
+              <!-- Only when a transform is used (Settings, Transforms). -->
+              <div class="row">
+                <div class="row-main"><div class="row-t">The text you selected</div><div class="row-d">Only when you use a transform: Waffler reads your selection, through Accessibility or by copying it and putting your clipboard back, and sends it to your provider on your own key. It never reads a password field.</div></div>
               </div>
               <!-- Only with the email signature on (Settings, Style). -->
               <div class="row">
@@ -758,7 +872,7 @@
   <div class="modal hotkey-modal" role="dialog" aria-modal="true" aria-labelledby="hotkeyModalTitle" tabindex="-1" onclick="event.stopPropagation()">
     <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-keyboard"/></svg></span>
     <h2 class="modal-title" id="hotkeyModalTitle">Hold your new keys</h2>
-    <p class="modal-sub">Hold the combination you want, then let go. Esc cancels.</p>
+    <p class="modal-sub" id="hotkeyModalSub">Hold the combination you want, then let go. Esc cancels.</p>
     <div class="hk-capture" id="hotkeyCaptureBox">
       <span class="keys hk-capture-keys" id="hotkeyCaptureKeys"></span>
     </div>
@@ -769,7 +883,7 @@
       <span class="hk-preset-list" id="settingsHotkeyPresets"></span>
     </div>
     <div class="modal-acts">
-      <button type="button" class="btn btn-quiet" onclick="resetHotkeyDefault()">Use the default</button>
+      <button type="button" class="btn btn-quiet" id="hotkeyResetBtn" onclick="resetHotkeyDefault()">Use the default</button>
       <span class="modal-sp"></span>
       <button type="button" class="btn btn-sec" onclick="closeHotkeyCapture()">Cancel</button>
       <button type="button" class="btn btn-pri" onclick="saveHotkeyCapture()">Save</button>

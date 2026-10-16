@@ -291,6 +291,20 @@ class SmartHotkeyListener:
 
         threading.Thread(target=_send_escapes, daemon=True).start()
 
+    # ── Listen-only observers ─────────────────────────────────────────
+
+    def attach_observer(self, handler):
+        """Let one more handler see every key event on this listener's tap.
+
+        The process may have only ONE event tap (see mac_hotkey_monitor.py:
+        two taps crashed it), so anything else that needs to hear the keyboard
+        joins this one. The handler is added last, after the hotkey's own, and
+        must answer False from ``handle`` (it never swallows a key). It is used
+        by the action shortcuts (src/action_hotkeys.py). The hotkey's own
+        handlers and state are not touched.
+        """
+        self._tap.add_handler(handler)
+
     # ── State management ──────────────────────────────────────────────
 
     def set_processing(self, processing: bool):

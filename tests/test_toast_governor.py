@@ -116,7 +116,10 @@ def test_errors_and_info_keep_the_behaviour_the_old_code_had():
     the app asks for has no cap, and only the two that were already limited
     (the failed-paste message, the permission messages) have a gap."""
     limited = {"paste_failed", "permission_microphone", "permission_accessibility",
-               "permission_accessibility_idle", "permission_keyboard"}
+               "permission_accessibility_idle", "permission_keyboard",
+               # Transforms (S7): a refusal while a dictation runs is shown once
+               # every 8 seconds, so mashing the shortcut does not stack messages.
+               "transform_busy"}
     for kid, k in N.KINDS.items():
         if k.severity == N.TIP:
             continue

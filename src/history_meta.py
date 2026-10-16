@@ -26,6 +26,18 @@ treat each as "unknown" when it is missing.
                  Style section had one for the kind of app and the text was
                  one it styles; left out for "auto"
 
+A rewrite of selected text (src/transforms.py, Settings, Transforms) is an
+entry of its own kind and has no ``text`` or ``styled``, so no number built from
+dictations reads it:
+
+    kind            "transform" (a dictation has no ``kind``)
+    before, after   the selected text, and what replaced it
+    transform_id, transform_name   which transform ran
+    provider        {"transform": "groq"}, with ``model``
+    took_s          how long the rewrite took, in seconds (``duration_s`` is
+                    the length of a recording, so it is not used here)
+    paste, app, app_bundle, category, lang   as above
+
 The app's name, identifier and kind are kept on this computer with the entry
 and nowhere else; the window title that helped tell a browser's tab is not kept.
 Nothing here reads a file or the window.
@@ -56,7 +68,10 @@ KEPT_ON_REDO = ("id", "timestamp", "audio", "app", "app_bundle", "category", "du
 
 
 def words_of(item: dict) -> str:
-    """The words of an entry: what was pasted, else what was heard."""
+    """The words of an entry: what was pasted, else what was heard. For a
+    rewrite of selected text (``kind == "transform"``), the rewritten text."""
+    if item.get("kind") == "transform":
+        return str(item.get("after") or "")
     return str(item.get("styled") or item.get("text") or "")
 
 

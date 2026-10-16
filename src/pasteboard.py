@@ -752,7 +752,7 @@ class LastResult:
         except Exception:
             return ""
         for item in reversed(history):
-            if not isinstance(item, dict) or item.get("failed"):
+            if not isinstance(item, dict) or item.get("failed") or item.get("kind") == "transform":
                 continue
             text = item.get("styled") or item.get("text") or ""
             if isinstance(text, str) and text.strip():

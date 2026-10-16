@@ -677,4 +677,8 @@ def test_ordinary_dictation_never_reads_the_selection_or_the_clipboard():
         for forbidden in ("get_selected_text", "read_selection", "get_text_around_cursor",
                           "allow_copy_fallback", "selection_copy", "CopyRoundTrip"):
             assert forbidden not in body, f"{name} uses {forbidden}"
-    assert "allow_copy_fallback=True" not in src, "no caller asks for the copy fallback yet"
+    # One caller asks for it: a transform the person started (Settings,
+    # Transforms), through its hooks. Nothing on the dictation path does.
+    assert src.count("allow_copy_fallback=True") == 1, "only the Transform hook asks for the copy fallback"
+    hooks = ast.unparse(next(n for n in klass.body if isinstance(n, ast.FunctionDef) and n.name == "_transform_hooks"))
+    assert "allow_copy_fallback=True" in hooks
