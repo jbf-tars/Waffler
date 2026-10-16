@@ -49,7 +49,10 @@ keyboard and your clipboard. Specifically:
   the push-to-talk hotkey, plus the half-second before you pressed it. It is
   sent to the speech-to-text provider you configured (Groq or
   OpenAI) to be transcribed, and to the cleanup provider to be tidied into
-  readable text. It is not sent anywhere else.
+  readable text. It is not sent anywhere else. If you switch on the optional
+  sounds (off by default), Waffler plays a short tone through your speakers and
+  silences the microphone for the fraction of a second the tone sounds in, so a
+  tone is never part of a recording.
 - **Keyboard.** A global low-level keyboard hook
   (`SetWindowsHookEx(WH_KEYBOARD_LL)` on Windows) detects your hotkey being
   pressed and released. Only the configured hotkey combination is acted on.
@@ -70,8 +73,9 @@ keyboard and your clipboard. Specifically:
   recent recordings are stored under `~/.waffler-hosted/` on your own computer.
   Recordings are kept only to diagnose transcription faults, are capped at the
   last 10, and can be switched off or deleted at any time in Settings,
-  Privacy and data, which can also delete your history, usage and logs.
-  None of this is uploaded.
+  Privacy and data, which can also delete your history, usage and logs. A small
+  file, `notifications.json`, remembers which tips Waffler has shown or you
+  have hidden (counts and times, no text). None of this is uploaded.
 - **No telemetry.** Waffler has no analytics and no usage reporting.
 
 ## Uninstallation

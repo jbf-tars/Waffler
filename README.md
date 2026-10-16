@@ -41,6 +41,7 @@ It's gone through a ridiculous amount of prompt-wrangling and live-API testing t
 - **Auto-clipboard** — result is copied the moment it's ready
 - **Paste that keeps your clipboard (Mac).** Waffler puts back whatever you had copied once it has pasted, waits for your hotkey's keys to come up first, works on Dvorak and Colemak, and says so if the paste didn't land (your words stay on the clipboard). Paste last or copy last from the menu bar. Settings can keep the dictation on the clipboard instead.
 - **Permission check (Mac).** If the microphone or Accessibility is switched off, or Waffler isn't receiving your keyboard, one message opens the exact System Settings pane.
+- **Optional sounds and a quiet "Don't tap, hold" hint.** A soft tone when recording starts and stops and when hands-free locks (off until you switch it on; the microphone is silenced while one sounds, so it is never transcribed), and a once-in-a-while tip, with your own hotkey, if you tap instead of holding. Every message goes through one governor, so tips never talk over an error.
 - **Local transcription history** — searchable, stays on your machine
 - **Recording overlay** — floating waffle indicator that lives over any app, including full-screen
 - **Setup wizard** — guided onboarding for first-time users

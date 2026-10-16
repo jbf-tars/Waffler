@@ -66,6 +66,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   confirm the paste landed. Neither is stored or logged, and a password field
   is never read.
 
+- **Optional sounds.** Settings, General, "Sounds" (off until you ask): a
+  soft tone when recording starts, another when it stops, and a tick when
+  hands-free locks. They are short, quiet tones built into Waffler, with no
+  sound files. Waffler keeps the microphone open, so a tone would otherwise be
+  heard by it and sent to speech to text. Before each one the recorder is told
+  to silence the fraction of a second it sounds in (the tone itself and the
+  time it takes to reach the speakers), so it is never in a recording or in
+  the half-second kept before the next one; the cost is that you lose any
+  words you say in that fraction of a second right after the tone, which is
+  why it is off by default. The stop tone waits until the recording has been
+  captured, and a tone that cannot play never affects a dictation.
+- **"Don't tap, hold".** Press the hotkey and let go at once, and Waffler used
+  to drop the press without a word. It now says so, quietly, with your own
+  hotkey: "Hold Fn while you speak, then let go." It is shown at most once
+  every 12 hours, never when you went hands-free or pressed again straight
+  away, and it has "Got it" and "Don't show again". Settings, General has a
+  "Show tips" switch for this and for any tip to come.
+- **One place decides what Waffler says.** Every message that appears over
+  your screen (about twenty of them) now goes through one small governor
+  instead of being shown wherever the code saw fit. Errors appear exactly as
+  before; the failed-paste message and the permission messages keep their
+  gaps (30 seconds, a minute, ten minutes) from the same place. Tips wait for
+  a quiet moment: not while you record or while Waffler works, not before
+  setup is done, not over another message, and not once you have closed one
+  twice or hidden it. What it has shown is kept in `notifications.json`
+  (counts and times, no text). Privacy and data says so, Delete all my data
+  clears it, and it is never in the logs zip.
+
 ### Changed
 - **After a paste, your own clipboard is back (Mac).** This is the new
   default of the paste above; turn on "Keep what I dictated on the clipboard"
