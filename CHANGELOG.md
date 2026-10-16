@@ -135,6 +135,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   new fields as optional. Privacy and data now says each entry notes the app,
   language and services. The Journal pages by id as well as by count, so
   scrolling stays right if entries are added or deleted while you read.
+- **Each entry notes what kind of app it was for.** When you press the hotkey
+  Waffler now notes which app is in front, by name (and on a Mac by its
+  identifier), and what kind of app it is: email (Mail, Outlook, Spark,
+  Thunderbird and others), work chat (Slack, Teams, Zoom, Notion, Linear and
+  others), personal chat (Messages, WhatsApp, Telegram, Signal, Discord and
+  others) or anything else, from a list built into Waffler. It is the app you
+  were in when you pressed, not the one in front when your words were ready, it
+  is kept with the Journal entry (and survives Try again and Redo this take),
+  and it stays on this computer: it is not sent to your speech or clean-up
+  provider. On Windows only the app's name is noted. For a web browser Waffler
+  may use the Accessibility permission it already has to read the title of the
+  front window, only to tell a webmail or chat tab from any other page. That
+  title is never kept or logged, and the address of the page is never read.
+  Privacy and data and the privacy policy say so. What is pasted does not
+  change.
 
 ### Changed
 - **After a paste, your own clipboard is back (Mac).** This is the new
@@ -169,6 +184,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - **OpenAI first in your provider order stopped the clean-up.** If OpenAI
   came first and failed, your words were pasted without the clean-up and
   Groq and Cerebras were never tried. Waffler now carries on down your list.
+- **Two clean-ups at once could use each other's words.** The clean-up kept
+  the words it was working on, its length limit and its clock on one shared
+  object. Try again on a Not sent card, Redo this take, the background resend,
+  or a new dictation started after Esc could run while another clean-up was
+  waiting for its answer, and the later one replaced the earlier one's
+  figures. The checks that protect what you said (putting back a swear word
+  the model took out, removing a greeting it invented) then looked at the
+  wrong sentence. Each clean-up now keeps its own.
+- **An error that only contained "rate" paused a provider.** A reply such as
+  "Failed to generate JSON" was read as hitting a rate limit, because
+  "generate" contains "rate", and Groq or Cerebras was skipped for one to two
+  minutes. A retired Cerebras model whose notice said "migrate" was reported as
+  a limit too. "Rate" is now read as a word, and a retired Cerebras model gets
+  the same plain message as a retired Groq model.
 
 ## [3.15.1] - 2026-10-07
 

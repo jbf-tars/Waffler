@@ -69,13 +69,22 @@ keyboard and your clipboard. Specifically:
   Accessibility permission to read whether the text field you are typing in
   changed (a fingerprint of its text, compared before and after). It never
   reads a password field, and it never stores, logs or sends that text.
+- **The app you are in.** When you press the hotkey, Waffler notes which app
+  is in front: its name (and, on a Mac, its identifier) and its kind, which it
+  works out from a list built into Waffler: email, work chat, personal chat or
+  other. This stays on your computer. It is kept with the history entry (see
+  below) and is not sent to your speech or clean-up provider. For a web browser
+  only, Waffler uses the Accessibility permission to read the title of the
+  front window, to tell whether the tab is a well-known webmail or chat site.
+  That title is held in memory for that moment and is never stored, logged or
+  sent, and the address of the page is never read.
 - **On your machine.** Your API keys, settings, dictation history and the most
   recent recordings are stored under `~/.waffler-hosted/` on your own computer.
   Recordings are kept to diagnose transcription faults, to redo a take from
   the Journal and to bring back a dictation that a crash cut short; they are
   capped at the last 10, and can be switched off or deleted at any time in Settings,
   Privacy and data, which can also delete your history, usage and logs. Each
-  history entry notes, besides the words, the app you were in, the language,
+  history entry notes, besides the words, the app you were in and its kind, the language,
   how long the recording was and which services handled it. You can delete any
   single entry (its recording goes with it) and export your history as a file
   on your Desktop in Settings, Privacy and data; that file is your own copy and

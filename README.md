@@ -130,6 +130,7 @@ python app.py
 - Audio goes directly to OpenAI/Groq via **your own API key** — never through any Waffler servers
 - Transcription history is saved **locally on your machine only**
 - On a Mac, to confirm a paste landed, Waffler reads whether the text field you paste into changed. It never stores or logs what is in it
+- Each history entry notes the app you dictated into and its kind (email, work chat, personal chat or other), on your machine only and never sent to a provider. For a browser tab, Waffler may read the window title to tell webmail or chat from other pages; the title is not stored or logged, and the page address is never read
 - No account required, no telemetry, no data collection
 
 ---
