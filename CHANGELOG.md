@@ -7,6 +7,73 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 ## [Unreleased]
 
 ### Added
+- **A list of microphones, best first.** Settings, General has a Microphone
+  section where you list the microphones you want in order, with Move up,
+  Move down and Remove on each, and an "Add a microphone" menu of what is
+  plugged in now. Waffler uses the highest one in your list that is plugged in:
+  your USB microphone whenever it is there, the laptop's when it is not. When
+  none of them is, or the list is empty (the default), it follows the
+  microphone your computer is set to use, and still avoids a Bluetooth
+  headset's microphone so your music stays in high quality, as before (a
+  headset you put in the list on purpose is used, and the row says what that
+  costs). A microphone is kept by its name, and on a Mac by the identifier the
+  system gives it, never by a number: the number is a place in a list that is
+  made again before every recording, so plugging something in could make
+  "device 3" a different microphone. Each row says whether it is in use, not
+  plugged in, or Bluetooth. Meeting apps' audio, loopback and aggregate
+  devices are left out of the menu until you open "Show other devices". The
+  list holds up to 8, none twice, and is the setting `mic_ranking`. The
+  microphone you had chosen in an older version becomes the first in the list
+  (the old setting is left in place for an older Waffler to read); if it is
+  not plugged in at that start, nothing is guessed and it is tried again.
+  The level meter and the half-second kept before each press are as they were.
+  A change in the list or in what is plugged in applies to the next recording
+  at once, with no restart.
+- **A new microphone is asked about, once.** Plug in a microphone Waffler has
+  not met and a tip says "Yeti Stereo Microphone detected. Use it for
+  dictation?" with Use it (it goes first in your list) and Not now (it is not
+  asked about again). Each device is asked about at most once, whatever you
+  answer, and what you answered is kept in `mic_devices.json` (names and
+  answers, nothing you said), which Delete all my data clears. It never asks
+  about a Bluetooth headset Waffler avoids, or a virtual device, or one
+  already in your list; it never appears while you are recording or while a
+  dictation is being turned into text (it waits and asks afterwards); and it
+  follows Show tips. On a Mac a microphone plugged in or out is seen within a
+  couple of seconds, where before only a change of the computer's own choice
+  was noticed; on Windows it is seen after Waffler next opens the microphone
+  (the first recording after half a minute without one).
+- **If your microphone is unplugged in the middle of a take, you keep what you
+  said.** The take ends by itself, is turned into text as if you had let go,
+  and once the words are in a message says "Your microphone was disconnected.
+  Waffler used what it had recorded." If nothing usable had been recorded, the
+  usual message about that comes instead. Letting go of the key at the same
+  moment cannot make it run twice: both go through the one check that decides
+  who ended the take.
+- **A microphone that has gone silent is noticed while you speak.** If the
+  input sends nothing, or only blocks of exact zeros, for 5 seconds, Waffler
+  opens the microphone again once in that take (a stream that went dead after
+  sleep, or a USB device that glitched, often comes back); if it is still
+  silent at 15 seconds, a message says "Waffler can't hear your microphone"
+  with a "Choose microphone" button that opens Settings, General, Microphone,
+  and it goes away by itself if sound comes back. The check is for digital
+  silence, never for loudness, so a quiet voice (Waffler lifts quiet speech)
+  never counts as silence. It is the same idea as the check that already ran
+  on a finished recording, now run while there is still something to do, and
+  the "We couldn't hear you" message that would follow is not said a second
+  time. A microphone with a noise gate (Windows Voice Focus, a headset's own
+  processing) sends exact zeros whenever you are not speaking, which is the
+  same fact as a dead one; the first time such a microphone sends sound after
+  half a second or more of zeros, Waffler takes it for a gated one and leaves
+  its pauses alone for as long as that stream runs. Until it has seen that, a
+  silence of 5 seconds on it gets the one re-open (about a third of a second
+  without sound, which only matters if you start speaking in that gap) and
+  one of 15 seconds shows the message, which goes away when you speak.
+- **A tip when the lid is closed (Mac).** With the lid shut, the built-in
+  microphone is covered and sounds muffled. If you start a take on it in that
+  state, a tip says so once a day, after the dictation, with a "Choose
+  microphone" button, and follows Show tips. The lid is read once, when the key
+  goes down, straight from the system (no helper program and no timer); a Mac
+  without a lid never shows it.
 - **Takes of up to 20 minutes.** One take could run for 12 minutes and now runs
   for 20. A minute before the end Waffler says so once, in a toast: "One
   minute left, then Waffler will stop and clean up what you said." At 20
@@ -465,6 +532,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   and it will not put your old clipboard back over them.
 
 ### Fixed
+- **With no microphone chosen, Waffler pinned the one that was the default.**
+  Until you picked a microphone, Waffler looked up which one was the
+  computer's default, took its number, and used that as if it were your
+  choice. A choice outranks everything else the recorder knows, so a Bluetooth
+  default (AirPods) was opened after all and your music dropped to call
+  quality, a change of the computer's microphone was not followed, and a
+  number is only good until the list of devices is made again. With nothing
+  chosen Waffler now follows the computer's microphone, with the Bluetooth
+  avoidance, as it was meant to. The setup practice no longer saves the
+  microphone shown in its menu unless you pick one.
 - **A recording over about 9 minutes was retried whole.** When a long
   recording's words looked too few for the speech in it (the check that tries
   the other provider), the retry sent all of it at once: more than 24 MB, which
