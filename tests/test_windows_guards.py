@@ -198,3 +198,64 @@ def test_a_mac_still_looks_again_before_pasting_a_draft_over_nothing():
     rig.chat_text = "ACTION: draft\nI will be a little late."
     rig.go()
     assert tc.METHOD_COPY in rig.rereads
+
+
+# ── the Win32 plumbing itself, run against a fake library ────────────────────
+
+class FakeDll:
+    """What ``ctypes.WinDLL(name)`` gives: functions with prototypes that can be
+    set, behaving as the real ones do for one foreground window."""
+
+    def __init__(self, world, name):
+        self.w, self.name = world, name
+
+        class Fn:
+            def __init__(self, fn):
+                self._fn = fn
+                self.argtypes = None
+                self.restype = None
+
+            def __call__(self, *a):
+                return self._fn(*a)
+        w = world
+        if name == "user32":
+            self.GetForegroundWindow = Fn(lambda: w["hwnd"])
+            self.GetWindowThreadProcessId = Fn(lambda hwnd, ref: (setattr(ref._obj, "value", w["pid"]), 5)[1])
+            self.GetClassNameW = Fn(lambda hwnd, buf, n: (setattr(buf, "value", w["class"]), 1)[1])
+        else:
+            self.OpenProcess = Fn(lambda access, inherit, pid: w["handle"] if w["can_open"] else 0)
+            self.QueryFullProcessImageNameW = Fn(
+                lambda h, flags, buf, size: (setattr(buf, "value", w["path"]), 1)[1] if w["path"] else 0)
+            self.CloseHandle = Fn(lambda h: w["closed"].append(h))
+            self.opened_with = []
+
+
+def test_the_real_calls_read_a_window_its_program_and_its_class():
+    world = {"hwnd": 0x20A4, "pid": 4242, "class": "Notepad", "handle": 0x44, "can_open": True,
+             "path": r"C:\Windows\System32\notepad.exe", "closed": []}
+    api = ad._Win32(loader=lambda name: FakeDll(world, name))
+    assert api.foreground_window() == 0x20A4
+    assert api.window_pid(0x20A4) == 4242
+    assert api.window_class(0x20A4) == "Notepad"
+    assert api.process_image_path(4242) == r"C:\Windows\System32\notepad.exe"
+    assert world["closed"] == [0x44], "the process handle is closed"
+    assert ad._get_active_app_windows(api)["name"] == "notepad"
+
+
+def test_the_real_calls_say_nothing_when_the_process_cannot_be_opened():
+    world = {"hwnd": 9, "pid": 77, "class": "x", "handle": 0, "can_open": False, "path": "", "closed": []}
+    api = ad._Win32(loader=lambda name: FakeDll(world, name))
+    assert api.process_image_path(77) == ""
+    assert ad._get_active_app_windows(api)["name"] == "Unknown"
+    assert world["closed"] == []
+
+
+def test_the_handle_is_closed_even_when_the_name_cannot_be_read():
+    world = {"hwnd": 9, "pid": 77, "class": "x", "handle": 0x55, "can_open": True, "path": "", "closed": []}
+    api = ad._Win32(loader=lambda name: FakeDll(world, name))
+    assert api.process_image_path(77) == "" and world["closed"] == [0x55]
+
+
+def test_the_libraries_are_the_lookups_own_not_the_shared_windll():
+    src = (ROOT / "src" / "app_detection.py").read_text(encoding="utf-8")
+    assert "ctypes.windll" not in src and "WinDLL" in src

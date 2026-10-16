@@ -91,22 +91,41 @@ PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 
 class _Win32:
     """The few Win32 calls the window lookup makes. Imported on use, so this
-    module loads anywhere, and replaced by a stand-in in the tests."""
+    module loads anywhere, and replaced by a stand-in in the tests. The
+    libraries are this class's own (``ctypes.WinDLL``), so the prototypes set
+    here are not set on the process-wide Windows libraries that other code
+    shares. ``loader`` is how a library is opened (the tests give a fake)."""
+
+    def __init__(self, loader=None):
+        self._loader = loader
+        self._dlls = {}
+
+    def _dll(self, name: str):
+        if name not in self._dlls:
+            import ctypes
+            self._dlls[name] = (self._loader or ctypes.WinDLL)(name)
+        return self._dlls[name]
 
     def foreground_window(self) -> int:
         import ctypes
-        return int(ctypes.windll.user32.GetForegroundWindow() or 0)
+        user32 = self._dll("user32")
+        user32.GetForegroundWindow.restype = ctypes.c_void_p
+        return int(user32.GetForegroundWindow() or 0)
 
     def window_pid(self, hwnd: int) -> int:
         import ctypes
+        user32 = self._dll("user32")
+        user32.GetWindowThreadProcessId.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ulong)]
         pid = ctypes.c_ulong()
-        ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        user32.GetWindowThreadProcessId(ctypes.c_void_p(hwnd), ctypes.byref(pid))
         return int(pid.value)
 
     def window_class(self, hwnd: int) -> str:
         import ctypes
+        user32 = self._dll("user32")
+        user32.GetClassNameW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_int]
         buf = ctypes.create_unicode_buffer(256)
-        ctypes.windll.user32.GetClassNameW(hwnd, buf, 256)
+        user32.GetClassNameW(ctypes.c_void_p(hwnd), buf, 256)
         return buf.value
 
     def process_image_path(self, pid: int) -> str:
@@ -114,8 +133,13 @@ class _Win32:
         cannot be read."""
         import ctypes
         from ctypes import wintypes
-        kernel32 = ctypes.windll.kernel32
+        kernel32 = self._dll("kernel32")
+        kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
         kernel32.OpenProcess.restype = wintypes.HANDLE
+        kernel32.QueryFullProcessImageNameW.argtypes = [wintypes.HANDLE, wintypes.DWORD, ctypes.c_wchar_p,
+                                                        ctypes.POINTER(wintypes.DWORD)]
+        kernel32.QueryFullProcessImageNameW.restype = wintypes.BOOL
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
         handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
         if not handle:
             return ""

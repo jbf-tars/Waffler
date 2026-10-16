@@ -5614,20 +5614,24 @@ class WafflerPipeline:
         # Never beside a transform (src/transform_action.py): the hotkey is
         # told why, and the listener's state is put back, as for a blocked
         # permission below.
-        def other_action_busy() -> bool:
+        def busy_action():
             for action in (getattr(self, "_transforms", None), getattr(self, "_commands", None)):
                 if action is not None and action.busy():
-                    action.refuse_dictation()
-                    listener = getattr(self, "hotkey_listener", None)
-                    if listener is not None and hasattr(listener, "reset_state"):
-                        try:
-                            listener.reset_state()
-                        except Exception:
-                            pass
-                    return True
-            return False
+                    return action
+            return None
 
-        if other_action_busy():
+        def refuse(action):
+            action.refuse_dictation()
+            listener = getattr(self, "hotkey_listener", None)
+            if listener is not None and hasattr(listener, "reset_state"):
+                try:
+                    listener.reset_state()
+                except Exception:
+                    pass
+
+        blocker = busy_action()
+        if blocker is not None:
+            refuse(blocker)
             return
         # Permissions first, and cheap: a microphone or Accessibility switched
         # off gets one message with a button to the right pane, instead of a
@@ -5649,15 +5653,18 @@ class WafflerPipeline:
         # Transform that started since the first look must not share the
         # microphone (src/activity_gate.py).
         with _activity_gate.GATE:
-            if other_action_busy():
-                return
-            with self._processing_lock:
-                if self.is_recording:
-                    return
-                self.is_recording = True
-                self._processing_id += 1
-                self._current_press_id = self._processing_id
-                self._processing_cancelled.clear()
+            blocker = busy_action()
+            if blocker is None:
+                with self._processing_lock:
+                    if self.is_recording:
+                        return
+                    self.is_recording = True
+                    self._processing_id += 1
+                    self._current_press_id = self._processing_id
+                    self._processing_cancelled.clear()
+        if blocker is not None:
+            refuse(blocker)             # outside the gate: it shows a message
+            return
         # Capture focused window BEFORE overlay takes focus
         self._prev_window = self.clipboard.get_focused_window()
         # And the app in front, for the Journal and for the clean-up
