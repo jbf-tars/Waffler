@@ -939,3 +939,83 @@ def test_settings_pages_are_wired_to_real_data():
     for part in ('id="themeSeg" role="radiogroup"', 'id="micMeter"', 'id="keysFlow"', 'id="hkTest"',
                  'id="hotkeyPresetCards"', 'id="usageChart"', 'id="privTo"', 'id="aboutNewList"'):
         assert part in settings, part
+
+
+# ── Settings, Language (S1) ──────────────────────────────────────────────────
+
+_LANGS = [
+    {"code": "auto", "name": "Auto-detect"}, {"code": "en", "name": "English"},
+    {"code": "es", "name": "Spanish"}, {"code": "de", "name": "German"},
+    {"code": "af", "name": "Afrikaans"}, {"code": "zh", "name": "Chinese"},
+]
+
+
+@needs_node
+def test_the_language_picker_lists_auto_and_english_first_then_a_to_z():
+    got = js(f"L.languageOptions({json.dumps(_LANGS)})")
+    assert [o["name"] for o in got] == ["Auto-detect", "English", "Afrikaans", "Chinese", "German", "Spanish"]
+    assert [o["code"] for o in got] == ["auto", "en", "af", "zh", "de", "es"]
+
+
+@needs_node
+def test_the_language_picker_drops_what_is_not_a_language_and_never_throws():
+    junk = [None, 5, "es", {}, {"code": "es"}, {"name": "Spanish"}, {"code": "", "name": "x"},
+            {"code": "fr", "name": "French", "extra": 1}]
+    assert js(f"L.languageOptions({json.dumps(junk)})") == [{"code": "fr", "name": "French"}]
+    assert js("L.languageOptions(null)") == []
+    assert js("L.languageOptions('es')") == []
+
+
+@needs_node
+def test_the_language_line_says_what_happens_to_the_words():
+    assert js("L.languageDesc('es', 'Spanish')") == (
+        "Waffler writes what you say in Spanish and never translates it.")
+    assert js("L.languageDesc('en', 'English')") == (
+        "Waffler writes what you say in English and never translates it.")
+    auto = js("L.languageDesc('auto', 'Auto-detect')")
+    assert auto.startswith("Waffler works out the language each time.") and "short clips" in auto
+    # A name that did not arrive: the code, rather than a hole.
+    assert js("L.languageDesc('xx', '')") == "Waffler writes what you say in xx and never translates it."
+
+
+@needs_node
+def test_the_language_toast_is_one_plain_sentence():
+    assert js("L.languageSaved('de', 'German')") == "Language set to German."
+    assert js("L.languageSaved('auto', 'Auto-detect')") == "Waffler will work out the language each time."
+    for line in (js("L.languageSaved('de', 'German')"), js("L.languageSaved('auto', '')"),
+                 js("L.languageDesc('auto')"), js("L.spellingNote('fr')")):
+        assert "—" not in line and "–" not in line and line.endswith(".")
+
+
+@needs_node
+def test_spelling_says_it_is_for_english_only_in_another_language():
+    assert js("L.spellingNote('en')") == ""
+    assert js("L.spellingNote('')") == "" and js("L.spellingNote(undefined)") == ""
+    assert js("L.spellingNote('fr')") == "Used when your language is English."
+    assert js("L.spellingNote('auto')") == "Used when your language is English."
+
+
+def test_the_language_row_is_in_general_and_wired():
+    html = read("index.html")
+    general = html[html.index('id="secGeneral"'):html.index('id="secKeys"')]
+    assert '<label for="languageSelect">Language</label>' in general
+    assert 'id="languageSelect" class="select" onchange="onLanguageChange(this)"' in general
+    # Beside Spelling, in the Dictation sheet, above it.
+    assert general.index('id="languageRow"') < general.index('id="dialectSelect"')
+    assert general.index('<h2 class="sh2">Dictation</h2>') < general.index('id="languageRow"')
+    app = code_only(read("app.js"))
+    assert "pywebview.api.get_languages()" in app and "WL.languageOptions(" in app
+    assert "saveSetting('language', code)" in app
+    # A refused save puts the picker back where it was.
+    assert "sel.value = previous" in app
+    assert "WL.spellingNote(_language)" in app
+
+
+def test_the_language_texts_have_no_em_dash_and_the_row_has_no_jargon():
+    src = read("logic.js")
+    block = src[src.index("function languageOptions"):src.index("function spellingNote")]
+    assert "—" not in block and "–" not in block
+    row = read("index.html")
+    row = row[row.index('id="languageRow"'):row.index('id="dialectSelect"')]
+    for word in ("Whisper", "ISO", "locale", "API", "model"):
+        assert word not in row, word

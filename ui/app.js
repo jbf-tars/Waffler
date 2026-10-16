@@ -2262,11 +2262,57 @@ document.addEventListener('visibilitychange', _syncMicMeter);
 function renderSpellingSpecimen(dialect) {
   const el = document.getElementById('spellingSpecimen');
   if (!el) return;
-  const v = WL.spellingSpecimen(dialect);
+  // British or American only applies to English: in another language the
+  // engine puts the language rule in its place, and the row says so.
+  const note = WL.spellingNote(_language);
+  const v = note ? null : WL.spellingSpecimen(dialect);
   el.classList.toggle('specimen', !!v);
   el.innerHTML = v
     ? v.words.map((w) => `<span>${escHtml(w)}</span>`).join('') + `<s>${escHtml(v.not)}</s>`
-    : 'British or American, whichever you speak.';
+    : escHtml(note || 'British or American, whichever you speak.');
+}
+
+// Settings, General: Language. The options come from the app
+// (get_languages), the choice is saved at once (save_settings checks it)
+// and goes to speech to text and to the clean-up from the next dictation.
+let _language = 'en';
+let _languageList = [];
+
+function renderLanguageRow() {
+  const sel = document.getElementById('languageSelect');
+  if (!sel) return;
+  if (!sel.options.length || sel.options.length !== _languageList.length) {
+    sel.innerHTML = _languageList.map((l) => `<option value="${escHtml(l.code)}">${escHtml(l.name)}</option>`).join('');
+  }
+  sel.value = _language;
+  const known = _languageList.find((l) => l.code === _language);
+  const desc = document.getElementById('languageDesc');
+  if (desc) desc.textContent = WL.languageDesc(_language, known ? known.name : '');
+}
+
+async function loadLanguages() {
+  try {
+    if (!_languageList.length && pywebview.api.get_languages) {
+      _languageList = WL.languageOptions(await pywebview.api.get_languages());
+    }
+  } catch (e) {
+    console.warn('get_languages error:', e);
+  }
+  if (!_languageList.length) _languageList = [{ code: 'en', name: 'English' }];
+}
+
+async function onLanguageChange(sel) {
+  const previous = _language;
+  const code = sel.value;
+  const ok = await saveSetting('language', code);
+  if (ok) {
+    _language = code;
+    renderLanguageRow();
+    const dialectSel = document.getElementById('dialectSelect');
+    renderSpellingSpecimen(dialectSel ? dialectSel.value : 'auto');
+  } else {
+    sel.value = previous;
+  }
 }
 
 // Settings, General: Run setup again. Keys and history stay; setup opens at
@@ -2517,7 +2563,10 @@ async function loadSettings() {
     renderProviderOrder();
     _renderBackendInfo();
 
-    // Dialect / Spelling
+    // Language, then Dialect / Spelling (which depends on it)
+    _language = s.language || 'en';
+    await loadLanguages();
+    renderLanguageRow();
     const dialectSel = document.getElementById('dialectSelect');
     if (dialectSel) dialectSel.value = s.dialect || 'auto';
     renderSpellingSpecimen(s.dialect || 'auto');
@@ -2665,6 +2714,7 @@ async function saveApiKey() {
   }
 }
 
+// True when the setting was saved.
 async function saveSetting(key, value) {
   try {
     const r = await pywebview.api.save_settings({ [key]: value });
@@ -2672,18 +2722,20 @@ async function saveSetting(key, value) {
       if (key === 'auto_paste') {
         showToast(value ? 'Waffler pastes when you let go.' : 'Waffler puts the text on the clipboard. Paste it yourself.', 'success', 3500);
       } else if (key === 'language') {
-        showToast('Language saved.', 'success');
+        const known = _languageList.find((l) => l.code === value);
+        showToast(WL.languageSaved(value, known ? known.name : ''), 'success');
       } else if (key === 'dialect') {
         const labels = { 'auto': 'Spelling matches how you speak.', 'en-GB': 'Spelling: British English.', 'en-US': 'Spelling: American English.' };
         showToast(labels[value] || 'Spelling saved.', 'success');
       }
-    } else {
-      showToast("Couldn't save that. Try again.", 'error');
+      return true;
     }
+    showToast("Couldn't save that. Try again.", 'error');
   } catch(e) {
     console.warn('saveSetting error:', e);
     showToast("Couldn't save that. Try again.", 'error');
   }
+  return false;
 }
 
 // ── Search ────────────────────────────────────────────────────────────────

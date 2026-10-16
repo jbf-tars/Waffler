@@ -21,8 +21,10 @@ import re
 
 try:
     from data_paths import data_dir as _data_dir
+    import languages as _languages
 except ImportError:  # imported as src.style_openai
     from src.data_paths import data_dir as _data_dir
+    from src import languages as _languages
 
 # ── Try to load Groq SDK ────────────────────────────────────────────────────
 _groq_mod = None
@@ -88,6 +90,40 @@ _STYLE_DEADLINE_PER_WORD_S = 0.03
 # Don't start a provider call with less than this left on the clock — a
 # sub-second attempt just burns the remainder and still fails.
 _STYLE_MIN_ATTEMPT_S = 1.5
+
+
+def _dictation_language() -> str:
+    """The language chosen in Settings ("en" unless set or unreadable)."""
+    try:
+        from transcribe_whisper import load_settings
+        code = load_settings().get("language", "en")
+        return code if isinstance(code, str) and code else "en"
+    except Exception:
+        return "en"
+
+
+def _dialect_instruction(settings: dict) -> str:
+    """The sentence that fills ``{dialect_instruction}`` in the prompt.
+
+    Spelling (Settings, Spelling) when the language is English, which is the
+    default and the only case before the language picker: those sentences are
+    unchanged to the byte. In any other language the English spelling rule
+    does not apply, and the prompt is written in English, so a model can
+    answer a Spanish transcript in English; the language rule (src/languages.py)
+    takes the slot and says to keep the spoken language. An unknown or
+    unreadable language is treated as English.
+    """
+    dialect = settings.get("dialect", "auto")
+    if dialect == "en-GB":
+        text = "Use British English spelling (e.g. colour, organise, centre, behaviour, realise, programme, defence, licence, favour, catalogue)."
+    elif dialect == "en-US":
+        text = "Use American English spelling (e.g. color, organize, center, behavior, realize, program, defense, license, favor, catalog)."
+    else:
+        text = "Use the same spelling as the user. Do not change spelling conventions."
+    code = settings.get("language", "en")
+    if isinstance(code, str) and _languages.is_valid(code):
+        return _languages.language_instruction(code) or text
+    return text
 
 
 def _style_deadline_for(word_count: int) -> float:
@@ -329,16 +365,12 @@ Transcript: {transcript}"""
         # especially when combined with Whisper prompt echoes on silence.
         # The styler should only see the transcript text, not the vocab list.
 
-        # Load dialect/spelling setting
-        dialect_instruction = "Use the same spelling as the user. Do not change spelling conventions."
+        # The spelling setting, or the language rule when the user dictates in
+        # another language (see _dialect_instruction).
+        dialect_instruction = _dialect_instruction({})
         try:
             from transcribe_whisper import load_settings
-            settings = load_settings()
-            dialect = settings.get("dialect", "auto")
-            if dialect == "en-GB":
-                dialect_instruction = "Use British English spelling (e.g. colour, organise, centre, behaviour, realise, programme, defence, licence, favour, catalogue)."
-            elif dialect == "en-US":
-                dialect_instruction = "Use American English spelling (e.g. color, organize, center, behavior, realize, program, defense, license, favor, catalog)."
+            dialect_instruction = _dialect_instruction(load_settings())
         except Exception:
             pass
 
@@ -990,7 +1022,7 @@ Transcript: {transcript}"""
         text = _re.sub(r"(^|\n)\s*,\s*", r"\1", text)
         return text
 
-    def _fix_mid_sentence_caps(self, text: str) -> str:
+    def _fix_mid_sentence_caps(self, text: str, language=None) -> str:
         """Fix incorrectly capitalized words mid-sentence.
 
         The LLM sometimes capitalizes words as if starting new sentences
@@ -998,7 +1030,14 @@ Transcript: {transcript}"""
 
         Conservative approach: Only lowercase common words that are obviously wrong.
         Preserve proper nouns, company names, and acronyms.
+
+        English only. The list is English words, and in other languages the
+        same spellings are names or nouns (German capitalises every noun;
+        "Can" is a common Turkish name), so any other language, and
+        Auto-detect, leaves the text as the model wrote it.
         """
+        if (language or _dictation_language()) != "en":
+            return text
         # Common words that should NEVER be capitalized mid-sentence
         # (unless after punctuation or at sentence start)
         common_words_to_fix = {
@@ -1273,13 +1312,24 @@ Transcript: {transcript}"""
 
         return text.strip()
 
-    def _basic_clean(self, text: str) -> str:
+    def _basic_clean(self, text: str, language=None) -> str:
         """Fallback basic cleaning if API fails (or _is_simple bypassed the LLM).
         Only strips unambiguous fillers and collapses literal token-level
         stutters — meaning-bearing words (like, basically, actually, you know)
         are left alone because regex can't tell filler-use from meaning-use.
+
+        ``language`` is the dictation language (Settings, Language); left out,
+        it is read from there.
         """
         hard_fillers = ['um', 'uh', 'erm', 'ah', 'er']
+        if (language or _dictation_language()) != "en":
+            # "um" and "er" are English hesitations and ordinary words in
+            # others: "um" is "one" in Portuguese and "at" in German, "er" is
+            # "he" in German and "there" in Dutch. Taking them out of a short
+            # Portuguese or German sentence deletes words the speaker said,
+            # and a silent deletion is worse than an uncorrected filler. Under
+            # Auto-detect the language isn't known, so the same holds.
+            hard_fillers = ['uh', 'erm', 'ah']
         cleaned = text
         for filler in hard_fillers:
             escaped_filler = re.escape(filler)

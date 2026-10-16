@@ -187,6 +187,16 @@
 
           <h2 class="sh2">Dictation</h2>
           <div class="sheet">
+            <!-- Language (src/languages.py): the options come from
+                 get_languages(), the choice is settings.json "language". It
+                 goes to speech to text and to the clean-up, which is told
+                 to keep the spoken language. -->
+            <div class="row" id="languageRow">
+              <div class="row-main"><div class="row-t"><label for="languageSelect">Language</label></div><div class="row-d" id="languageDesc">Waffler writes what you say in English and never translates it.</div></div>
+              <select id="languageSelect" class="select" onchange="onLanguageChange(this)">
+                <option value="en">English</option>
+              </select>
+            </div>
             <div class="row">
               <div class="row-main"><div class="row-t"><label for="dialectSelect">Spelling</label></div><div class="row-d specimen" id="spellingSpecimen">British or American, whichever you speak.</div></div>
               <select id="dialectSelect" class="select" onchange="saveSetting('dialect', this.value); renderSpellingSpecimen(this.value)">

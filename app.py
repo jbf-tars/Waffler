@@ -129,6 +129,7 @@ import journal_data as _journal
 import recent_audio as _recent_audio
 import privacy_data as _privacy
 import cleanup_pause as _cleanup_pause
+import languages as _languages
 import mac_permissions as _mac_perms
 from login_item import LoginItem, HIDDEN_FLAG as _HIDDEN_FLAG
 from user_messages import (
@@ -849,6 +850,11 @@ class Api:
             _log_to_file(f"get_mic_level failed: {e}")
             return {"ok": False, "live": False, "level": 0.0, "current": True}
 
+    def get_languages(self) -> list:
+        """The dictation languages for the Settings picker, [{code, name}]:
+        Auto-detect, English, then the rest (src/languages.py)."""
+        return [{"code": c, "name": n} for c, n in _languages.LANGUAGES]
+
     def get_vocab(self) -> list:
         """Return the user's custom vocabulary list."""
         from transcribe_whisper import load_vocab
@@ -1099,6 +1105,15 @@ class Api:
         """Save settings — updates .env and/or settings.json, applies live where possible."""
         try:
             notes  = []
+            # Checked before anything is changed, so a refused value saves
+            # none of the payload. The picker only offers known codes; this
+            # keeps a bad one out of settings.json, where it would reach
+            # speech to text as a language no provider accepts.
+            if "language" in settings and not (
+                    isinstance(settings["language"], str)
+                    and _languages.is_valid(settings["language"])):
+                return {"ok": False, "error": "Waffler doesn't know that language. "
+                                              "Pick one from the list."}
             with self._editing_settings() as stored:
                 # ── OpenAI API key ────────────────────────────────────────────────
                 new_key = (settings.get("api_key") or "").strip()

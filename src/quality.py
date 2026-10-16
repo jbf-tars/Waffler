@@ -22,6 +22,11 @@ DESIGN RULES
 * Never invent a signal from a missing measurement.
 """
 
+try:
+    from languages import is_unspaced as _is_unspaced
+except ImportError:  # imported as src.quality
+    from src.languages import is_unspaced as _is_unspaced
+
 # Real speech does not sustain below ~1.5 words per second OF SPEECH, as
 # measured by transcribe_whisper._speech_seconds (noise-floor-relative since
 # v3.14.97). Across 160 real recordings the healthy distribution was p5 =
@@ -73,8 +78,12 @@ def assess(*, speech_seconds, transcript_words, styled_words, asr_filtered,
 
     # 1. Impossibly few words for the measured speech. Only judged when there
     #    is enough speech to make the ratio meaningful - never guessed.
+    #    Not for a script written without spaces (Chinese, Japanese, Thai):
+    #    there a "word" is a whole sentence, the ratio is always tiny, and
+    #    every long take would be flagged for nothing.
     if (speech_seconds >= _MIN_SPEECH_S_TO_JUDGE
-            and wps < _MIN_WORDS_PER_SPEECH_SEC):
+            and wps < _MIN_WORDS_PER_SPEECH_SEC
+            and not _is_unspaced(styled_text)):
         flags.append("low_word_rate")
 
     # 2. Cleanup discarded a large share of the transcript.

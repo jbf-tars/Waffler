@@ -815,6 +815,33 @@
     return s ? { words: s.words.slice(), not: s.not } : null;
   }
 
+  // General, Language: the options for the picker. get_languages() sends them
+  // in src/languages.py order; Auto-detect and English stay first and the rest
+  // go A to Z, which is easier to find a language in. Anything that is not a
+  // {code, name} pair is dropped.
+  function languageOptions(list) {
+    const ok = (Array.isArray(list) ? list : []).filter((l) => l && typeof l.code === 'string'
+      && l.code && typeof l.name === 'string' && l.name);
+    const rank = (l) => (l.code === 'auto' ? 0 : (l.code === 'en' ? 1 : 2));
+    return ok.map((l) => ({ code: l.code, name: l.name })).sort((a, b) => (rank(a) - rank(b))
+      || a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+  }
+  // The line under "Language": what Waffler does with the words.
+  function languageDesc(code, name) {
+    if (code === 'auto') return 'Waffler works out the language each time. It can be a little less sure on very short clips.';
+    return `Waffler writes what you say in ${name || code || 'English'} and never translates it.`;
+  }
+  // The toast after saving it.
+  function languageSaved(code, name) {
+    if (code === 'auto') return 'Waffler will work out the language each time.';
+    return `Language set to ${name || code}.`;
+  }
+  // Under "Spelling": British or American applies to English only (the
+  // engine puts the language rule in its place), so say so in any other.
+  function spellingNote(language) {
+    return !language || language === 'en' ? '' : 'Used when your language is English.';
+  }
+
   // General: the microphone meter, a strip of cells like the recording
   // overlay's waffle. The level (0 to 1, app.py get_mic_level) goes through
   // the overlay's own curve (level ** 0.4) so quiet speech still moves it.
@@ -1149,7 +1176,7 @@
     USAGE_NOTE, formatCount, usageView, usageProviderRows, usesView, keyRows,
     qualityView, dayKey, dayLabel, statNumber, vocabChanges, vocabChangesLine, originalText, hasOriginal, vocabAdd, VOCAB_MAX_ENTRY_LEN,
     SEARCH_DEBOUNCE_MS, debounce, feedView, searchAnnouncement, radioMove, focusAfterRemove,
-    spellingSpecimen, METER_CELLS, micMeter, usageChart, usageFacts, flowView, PROVIDER_MARKS, providerPill,
+    spellingSpecimen, languageOptions, languageDesc, languageSaved, spellingNote, METER_CELLS, micMeter, usageChart, usageFacts, flowView, PROVIDER_MARKS, providerPill,
     privacyFlow, hotkeyTestLine, whatsNew,
   };
 });

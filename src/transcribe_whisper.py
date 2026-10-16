@@ -387,8 +387,10 @@ _MIN_FUZZY_VOCAB_LEN = 5
 #     one sound: "Nash can" -> Ashkan passes, "chat bot" -> ChatGPT does not.
 try:
     from common_words import COMMON_WORDS as _COMMON_WORDS
+    from languages import is_unspaced as _is_unspaced
 except ImportError:  # imported as src.transcribe_whisper
     from src.common_words import COMMON_WORDS as _COMMON_WORDS
+    from src.languages import is_unspaced as _is_unspaced
 _BIGRAM_COMMON = _COMMON_WORDS | _VOCAB_PROTECTED_WORDS
 _BIGRAM_MIN_WORD_LEN = 3
 _BIGRAM_COMMON_MIN_WORD_LEN = 4
@@ -2041,6 +2043,11 @@ class WhisperTranscriber:
         try:
             if self._backend in ("mlx", "faster"):
                 return transcript  # no alternate provider to retry on
+            if _is_unspaced(transcript):
+                # Chinese, Japanese and Thai are written without spaces, so
+                # words per second of speech measures nothing: a long take
+                # would always look "impossibly short" and be sent twice.
+                return transcript
             words = len((transcript or "").split())
             speech_s = _speech_seconds(audio_bytes)
             if speech_s < _MIN_SPEECH_S_FOR_RETRY:
