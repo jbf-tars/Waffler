@@ -939,14 +939,16 @@ function _showCaptured(keys) {
 }
 
 // The dialog sets the dictation hotkey, or (from Settings, Transforms) the
-// Transform shortcut: `_captureTarget` says which, and what it offers follows.
+// Transform shortcut, or (Settings, Command mode) the keys held to give a
+// command: `_captureTarget` says which, and what it offers follows.
 let _captureTarget = 'dictation';
 
 function openHotkeyCapture(target) {
-  _captureTarget = target === 'transform' ? 'transform' : 'dictation';
-  const forTransform = _captureTarget === 'transform';
+  _captureTarget = target === 'transform' || target === 'command' ? target : 'dictation';
+  const forTransform = _captureTarget !== 'dictation';      // an action shortcut: no default, no presets
   _capturedKeys.clear();
-  _lastCapturedKeys = forTransform ? WL.transformView(_lastSettings, isMacPlatform).hotkey.slice() : [..._currentHotkeyKeys];
+  _lastCapturedKeys = _captureTarget === 'transform' ? WL.transformView(_lastSettings, isMacPlatform).hotkey.slice()
+    : (_captureTarget === 'command' ? WL.commandView(_lastSettings, isMacPlatform).hotkey.slice() : [..._currentHotkeyKeys]);
   _showCaptured(_lastCapturedKeys);
   document.getElementById("hotkeyError").style.display = "none";
   const text = WL.hotkeyDialogText(_captureTarget);
@@ -954,7 +956,7 @@ function openHotkeyCapture(target) {
   const sub = document.getElementById('hotkeyModalSub');
   if (title) title.textContent = text.title;
   if (sub) sub.textContent = text.sub;
-  // The Transform shortcut has no default and no presets to pick from.
+  // An action shortcut (Transform, Command) has no default and no presets to pick from.
   const reset = document.getElementById('hotkeyResetBtn');
   if (reset) reset.hidden = forTransform;
   // Setup has its own list of choices ("Pick another key").
@@ -1024,6 +1026,7 @@ async function saveHotkeyCapture() {
   const fail = (msg) => { errEl.textContent = msg; errEl.style.display = "block"; };
   if (!keys.length) { fail("Hold the keys you want, then click Save."); return; }
   if (_captureTarget === 'transform') { await saveTransformHotkey(keys, fail); return; }
+  if (_captureTarget === 'command') { await saveCommandHotkey(keys, fail); return; }
   // The backend decides (src/hotkey_rules.py) and says why in one sentence.
   let result;
   try {
@@ -1254,7 +1257,9 @@ window.waffler_refresh = function(newItem) {
   const shown = !_searchQuery ||
     (newItem.kind === 'transform'
       ? ((newItem.after || '') + ' ' + (newItem.before || ''))
-      : ((newItem.styled || '') + ' ' + (newItem.text || ''))).toLowerCase().includes(_searchQuery);
+      : (newItem.kind === 'command'
+        ? [newItem.instruction, newItem.after, newItem.before, newItem.query].map((x) => x || '').join(' ')
+        : ((newItem.styled || '') + ' ' + (newItem.text || '')))).toLowerCase().includes(_searchQuery);
   if (shown) {
     history.unshift(newItem);
     if (first || !$noMatch.hidden) drawFeed();
@@ -1262,10 +1267,10 @@ window.waffler_refresh = function(newItem) {
   }
   _trimRedo();
   if (window.pywebview && window.pywebview.api) _refreshStats();
-  // A Not sent card is not a finished transcription. A rewrite has said what
-  // it did on the overlay already (with its own "Show in Journal").
+  // A Not sent card is not a finished transcription. A rewrite or a command
+  // has said what it did on the overlay already (with its own "Show in Journal").
   if (newItem.failed) showToast('Not sent. The recording is saved in the Journal.', 'error');
-  else if (newItem.kind !== 'transform') showToast('Added to your Journal.', 'success');
+  else if (newItem.kind !== 'transform' && newItem.kind !== 'command') showToast('Added to your Journal.', 'success');
 };
 
 // ── Called by Python for status updates ──────────────────────────────
@@ -1553,6 +1558,7 @@ let _cardSeq = 0;   // ids for each card's text (the toggle's aria-controls)
 function makeCard(item, isNew) {
   if (item && item.failed) return makeNotSentCard(item, isNew);
   if (item && item.kind === 'transform') return makeTransformCard(item, isNew);
+  if (item && item.kind === 'command') return makeCommandCard(item, isNew);
   const div = document.createElement('article');
   div.className = 'transcript-card j-ent' + (isNew ? ' new' : '');
 
@@ -1685,6 +1691,80 @@ window.waffler_show_transform = async function(id) {
   const first = card.querySelector('button');
   if (first) first.focus({ preventScroll: true });
 };
+
+// ── Journal: a spoken command (Settings, Command mode) ───────────────────
+// What was said, what it did (Edited, Drafted, or Searched with the engine),
+// and for an edit the text before and after with the changes marked. Like a
+// rewrite it has a card of its own because it is not a dictation: no "What you
+// said", nothing to redo (no recording is kept).
+function makeCommandCard(item, isNew) {
+  const v = WL.commandEntryView(item);
+  const div = document.createElement('article');
+  div.className = 'transcript-card j-ent tx-card cmd-card' + (isNew ? ' new' : '');
+  if (v.id) div.dataset.id = String(v.id);
+  const when = formatTime(item.timestamp);
+  const piece = (p, tag) => (p.cut ? `<${tag}>${escHtml(p.text)}</${tag}>` : escHtml(p.text));
+  const paragraphs = (pieces, tag) => `<p>${pieces.map((p) => piece(p, tag)).join('')}</p>`;
+  const kid = `cmk${++_cardSeq}`;
+  const what = v.action === 'ask' ? 'search' : (v.action === 'edit' ? 'edit' : 'draft');
+  const aria = (label, of) => escHtml(of ? (when ? `${label} of the ${what} from ${when}` : `${label} of the ${what}`)
+    : (when ? `${label} from ${when}` : label));
+  let panes = '';
+  if (v.action === 'edit') {
+    panes = `
+      <div class="tx-pane">
+        <div class="j-said-k" id="${kid}b">Before</div>
+        <div class="card-text styled tx-text tx-before" role="group" aria-labelledby="${kid}b">${paragraphs(v.beforePieces, 'del')}</div>
+      </div>
+      <div class="tx-pane">
+        <div class="j-said-k" id="${kid}a">After</div>
+        <div class="card-text styled tx-text tx-after" role="group" aria-labelledby="${kid}a">${paragraphs(v.afterPieces, 'ins')}</div>
+      </div>`;
+  } else if (v.action === 'draft') {
+    panes = `
+      <div class="tx-pane">
+        <div class="j-said-k" id="${kid}a">Draft</div>
+        <div class="card-text styled tx-text tx-after" role="group" aria-labelledby="${kid}a"><p>${escHtml(v.after)}</p></div>
+      </div>`;
+  } else {
+    panes = `
+      <div class="tx-pane">
+        <div class="j-said-k" id="${kid}q">Question</div>
+        <div class="card-text styled tx-text tx-after" role="group" aria-labelledby="${kid}q"><p>${escHtml(v.query)}</p></div>
+      </div>`;
+  }
+  const copies = v.action === 'edit'
+    ? `<button type="button" class="btn btn-sec btn-sm tx-copy-after" data-idle="Copy result" aria-label="${aria('Copy the result', true)}">${WI.icon('copy')}<span>Copy result</span></button>
+       <button type="button" class="btn btn-quiet btn-sm tx-copy-before" data-idle="Copy original" aria-label="${aria('Copy the original', true)}">${WI.icon('copy')}<span>Copy original</span></button>`
+    : (v.action === 'draft'
+      ? `<button type="button" class="btn btn-sec btn-sm tx-copy-after" data-idle="Copy draft" aria-label="${aria('Copy the draft')}">${WI.icon('copy')}<span>Copy draft</span></button>`
+      : `<button type="button" class="btn btn-sec btn-sm tx-copy-after" data-idle="Copy question" aria-label="${aria('Copy the question')}">${WI.icon('copy')}<span>Copy question</span></button>`);
+  div.innerHTML = `
+    <div class="j-g"><div class="j-t">${escHtml(_clock(item.timestamp))}</div><div class="j-w">${escHtml(v.words)}</div></div>
+    <div class="j-body">
+      <p class="j-meta tx-head"><span class="chip chip-honey">${WI.icon(v.icon)}${escHtml(v.chip)}</span>${v.changesLabel ? `<span>${escHtml(v.changesLabel)}</span>` : ''}</p>
+      <p class="cmd-said"><span class="j-said-k">You said</span> <q>${escHtml(v.instruction)}</q></p>
+      ${panes}
+      ${v.status ? `<p class="j-meta tx-status">${escHtml(v.status)}</p>` : ''}
+      <p class="j-status" role="status" aria-live="polite" hidden></p>
+    </div>
+    <div class="j-acts card-actions">
+      ${copies}
+      <button type="button" class="rbtn rbtn-sm card-del" aria-label="${escHtml(when ? `Delete the ${what} from ${when}` : `Delete this ${what}`)}" title="Delete">${WI.icon('trash')}</button>
+    </div>
+  `;
+  const result = v.action === 'ask' ? v.query : v.after;
+  div.querySelector('.tx-copy-after').addEventListener('click', function() { copyItem(result, this); });
+  const original = div.querySelector('.tx-copy-before');
+  if (original) original.addEventListener('click', function() { copyItem(v.before, this); });
+  div.querySelector('.card-del').addEventListener('click', () => deleteEntry(item, div));
+  if (isNew) setTimeout(() => div.classList.remove('new'), 3000);
+  return div;
+}
+
+// "Show in Journal" on a command's message (app.py _on_toast_action): the same
+// scroll-to-the-card as a rewrite's.
+window.waffler_show_command = (id) => window.waffler_show_transform(id);
 
 // A new dictation keeps its recording and pushes the oldest kept one out, so
 // "Redo this take" goes from the entry that has just lost its recording.
@@ -2687,7 +2767,7 @@ function showPage(page) {
 }
 
 // Settings' side nav: one section at a time.
-const SETTINGS_SECTIONS = ['general', 'style', 'transforms', 'keys', 'hotkey', 'usage', 'privacy', 'about'];
+const SETTINGS_SECTIONS = ['general', 'style', 'transforms', 'command', 'keys', 'hotkey', 'usage', 'privacy', 'about'];
 let _settingsSection = 'general';
 
 function showSettingsSection(sec) {
@@ -3089,6 +3169,7 @@ async function loadSettings() {
     renderFeedbackRows();
     renderStyleSection();
     renderTransformsSection();
+    renderCommandSection();
   } catch(e) {
     console.warn('loadSettings error:', e);
   }
@@ -3225,6 +3306,121 @@ async function setSignatureEnabled(on) {
     const tog = document.getElementById('signatureToggle');
     if (tog) tog.checked = !on;
   }
+}
+
+// ── Settings, Command mode (beta) ────────────────────────────────────────
+// Hold a shortcut, say what you want, let go (src/command_mode.py). Everything
+// here saves at once through save_settings and is drawn from the last
+// get_settings() answer; the app checks every value again and says why in one
+// sentence when it refuses one (shown under the sheet). Switching it on or off
+// and the shortcut apply at once, with no restart. The shortcut is chosen in
+// the same dialog as the dictation hotkey.
+const _cmView = () => WL.commandView(_lastSettings, isMacPlatform);
+
+function _cmError(msg) {
+  const el = document.getElementById('commandError');
+  if (!el) return;
+  el.textContent = msg || '';
+  el.hidden = !msg;
+}
+
+// Save part of the Command mode settings. True when saved; when refused, the
+// app's sentence is shown and the controls go back to what is saved.
+async function saveCommandMode(part) {
+  _cmError('');
+  let r = null;
+  try {
+    r = await pywebview.api.save_settings({ command_mode: part });
+  } catch (e) {
+    console.warn('save command mode error:', e);
+  }
+  if (!r || !r.ok) {
+    _cmError((r && r.error) || "Couldn't save that. Try again.");
+    renderCommandSection();
+    return false;
+  }
+  await refreshCommandSettings();
+  return true;
+}
+
+async function refreshCommandSettings() {
+  try {
+    _lastSettings = (await pywebview.api.get_settings()) || _lastSettings;
+  } catch (e) {
+    console.warn('get_settings error:', e);
+  }
+  renderCommandSection();
+}
+
+function renderCommandSection() {
+  const v = _cmView();
+  const byId = (id) => document.getElementById(id);
+  const tog = byId('commandToggle');
+  if (tog) tog.checked = v.enabled;
+  const off = byId('commandOffNote');
+  if (off) off.hidden = v.enabled;
+
+  const caps = byId('commandCaps');
+  if (caps) {
+    caps.hidden = !v.hotkey.length;
+    caps.innerHTML = v.hotkey.length ? _capsHtml(v.hotkey) : '';
+    caps.setAttribute('aria-label', v.hotkey.length ? `Command shortcut: ${v.hotkeyShown}` : '');
+  }
+  const desc = byId('commandShortcutDesc');
+  if (desc) desc.textContent = WL.commandShortcutLine(v);
+  const remove = byId('commandRemove');
+  if (remove) remove.hidden = !v.hotkey.length;
+
+  const engine = byId('commandEngine');
+  if (engine) {
+    engine.innerHTML = v.engines.map((e) => `<option value="${escHtml(e.value)}">${escHtml(e.label)}</option>`).join('');
+    engine.value = v.engine;
+  }
+
+  const examples = byId('commandExamples');
+  if (examples) {
+    examples.innerHTML = v.examples.map((x) => `
+      <div class="row cmd-example" role="listitem">
+        <div class="row-main"><div class="row-t"><q>${escHtml(x.say)}</q></div><div class="row-d">${escHtml(x.does)}</div></div>
+      </div>`).join('');
+  }
+}
+
+async function setCommandEnabled(on) {
+  const ok = await saveCommandMode({ enabled: !!on });
+  if (ok) showToast(WL.commandSaved('enabled', !!on), 'success', 3500);
+}
+
+async function onCommandEngineChange(sel) {
+  const label = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].text : '';
+  const ok = await saveCommandMode({ web_engine: sel.value });
+  if (ok) showToast(WL.commandSaved('engine', label), 'success', 3500);
+}
+
+async function saveCommandHotkey(keys, fail) {
+  let result;
+  try {
+    result = await window.pywebview.api.save_command_hotkey(JSON.stringify(keys));
+  } catch (e) {
+    console.error('saveCommandHotkey error:', e);
+    result = { ok: false, error: "Couldn't save the shortcut. Try again." };
+  }
+  if (!result || !result.ok) { fail((result && result.error) || "Couldn't save the shortcut. Try again."); return; }
+  closeHotkeyCapture();
+  _cmError('');
+  await refreshCommandSettings();
+  showToast(WL.commandSaved('hotkey', result.display), 'success', 3500);
+}
+
+async function clearCommandHotkey() {
+  let result = null;
+  try { result = await window.pywebview.api.save_command_hotkey('[]'); } catch (e) { result = null; }
+  if (!result || !result.ok) { _cmError((result && result.error) || "Couldn't remove the shortcut. Try again."); return; }
+  _cmError('');
+  await refreshCommandSettings();
+  showToast(WL.commandSaved('hotkey', ''), 'success', 3500);
+  const change = document.getElementById('commandChange');
+  if (change) change.focus();
 }
 
 // ── Settings, Transforms (beta) ──────────────────────────────────────────

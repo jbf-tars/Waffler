@@ -27,6 +27,11 @@ import os
 import threading
 from datetime import date, timedelta
 
+try:
+    from history_meta import NON_DICTATION_KINDS
+except ImportError:  # imported as src.journal_data
+    from src.history_meta import NON_DICTATION_KINDS
+
 
 def _day(ts) -> date | None:
     """The calendar day of a history timestamp ("2026-09-25T16:31:02")."""
@@ -67,7 +72,8 @@ def compute_stats(history: list, today: date) -> dict:
     ("2026-08-27"). Not sent entries add none, as everywhere else.
 
     A transform (``kind == "transform"``, a rewrite of selected text) is
-    counted in ``entries`` and ``transform_count`` and nowhere else.
+    counted in ``entries`` and ``transform_count`` and nowhere else; a spoken
+    command (``kind == "command"``) in ``entries`` and ``command_count``.
     """
     week_start = today - timedelta(days=today.weekday())
     chart_start = today - timedelta(days=CHART_DAYS - 1)
@@ -77,7 +83,7 @@ def compute_stats(history: list, today: date) -> dict:
         "week_words": 0, "week_count": 0,
         "month_words": 0, "month_count": 0,
         "total_words": 0, "total_count": 0,
-        "entries": 0, "streak_days": 0, "transform_count": 0,
+        "entries": 0, "streak_days": 0, "transform_count": 0, "command_count": 0,
         "daily_start": chart_start.isoformat(), "daily_words": daily,
     }
     days = set()
@@ -85,11 +91,12 @@ def compute_stats(history: list, today: date) -> dict:
         if not isinstance(h, dict):
             continue
         out["entries"] += 1
-        if h.get("kind") == "transform":
-            # A rewrite of selected text (src/transforms.py) is in the Journal
-            # and in ``entries``, and in nothing else: not a word, a
-            # dictation, a day of the streak or a minute saved.
-            out["transform_count"] += 1
+        if h.get("kind") in NON_DICTATION_KINDS:
+            # A rewrite of selected text (src/transforms.py) or a spoken
+            # command (src/command_mode.py) is in the Journal and in
+            # ``entries``, and in nothing else: not a word, a dictation, a
+            # day of the streak or a minute saved.
+            out["transform_count" if h.get("kind") == "transform" else "command_count"] += 1
             continue
         d = _day(h.get("timestamp"))
         w = _words(h)
@@ -181,12 +188,15 @@ def vocab_usage(history: list, recent: int = RECENT_CORRECTIONS) -> dict:
 
 def matches(item: dict, query: str) -> bool:
     """The Journal search: the clean text and the transcript, any case (for a
-    rewrite, its result and the text it started from)."""
+    rewrite, its result and the text it started from; for a command, what was
+    said, the text before and after, and the question searched)."""
     q = str(query or "").strip().lower()
     if not q:
         return True
     if item.get("kind") == "transform":
         hay = (str(item.get("after") or "") + " " + str(item.get("before") or "")).lower()
+    elif item.get("kind") == "command":
+        hay = " ".join(str(item.get(k) or "") for k in ("instruction", "after", "before", "query")).lower()
     else:
         hay = ((item.get("styled") or "") + " " + (item.get("text") or "")).lower()
     return q in hay

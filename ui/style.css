@@ -980,6 +980,10 @@ mark.hl {
 .tx-text del { color: var(--muted); text-decoration: line-through; }
 .tx-text ins { text-decoration: none; background: linear-gradient(transparent 62%, rgba(217, 164, 65, 0.38) 62%); }
 .tx-status { margin-top: 10px; }
+/* Settings, Command mode: the phrases to try. Journal, a command: what was said. */
+.cmd-said { margin: 0 0 10px; color: var(--text-2); font: 400 14px/1.45 var(--f-ui); overflow-wrap: anywhere; }
+.cmd-said q, .cmd-example q { quotes: "\201C" "\201D"; }
+.settings-panel .cmd-example .row-t { font-weight: 400; overflow-wrap: anywhere; }
 
 /* ── Keys and providers ──────────────────────────────────────────────── */
 .flow { display: flex; align-items: center; margin-top: 22px; padding: 16px 18px; }

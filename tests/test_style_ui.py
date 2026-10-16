@@ -170,11 +170,11 @@ def test_style_is_a_section_of_settings_between_general_and_keys():
     start = html.index('aria-label="Settings sections"')
     nav = html[start:html.index("</nav>", start)]
     order = re.findall(r'data-sec="(\w+)"', nav)
-    # Transforms (beta, S7) follows it: both shape the text.
-    assert order == ["general", "style", "transforms", "keys", "hotkey", "usage", "privacy", "about"]
+    # Transforms (beta, S7) follows it: both shape the text. Command mode (beta, S8) comes next.
+    assert order == ["general", "style", "transforms", "command", "keys", "hotkey", "usage", "privacy", "about"]
     assert 'id="secStyle" data-sec="style" hidden' in html
     app = code_only(read("app.js"))
-    assert "const SETTINGS_SECTIONS = ['general', 'style', 'transforms', 'keys', 'hotkey', 'usage', 'privacy', 'about'];" in app
+    assert "const SETTINGS_SECTIONS = ['general', 'style', 'transforms', 'command', 'keys', 'hotkey', 'usage', 'privacy', 'about'];" in app
 
 
 def test_every_control_has_a_name_and_a_tab_stop():

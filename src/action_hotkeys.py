@@ -23,6 +23,13 @@ What it is
 * The listeners only listen. They never swallow a key, so the combination
   also reaches the app in front, as any key does. That is why the Settings
   text suggests a combination other apps do not use.
+* A hold-to-talk action (``register_hold``, used by Command mode) is told
+  twice: ``on_down`` when the combination goes down and ``on_up`` when any
+  part of it comes up (the key, or any one of its modifiers: letting go of
+  Control first ends it as surely as letting go of the letter). Down and up
+  of one action run one after the other on a thread of that action's own, in
+  the order they happened, so an up can never overtake the down that started
+  the recording.
 
 Where the keys come from
 ------------------------
@@ -45,6 +52,8 @@ call directly. Nothing here reads a file, the clipboard or the screen.
 
 from __future__ import annotations
 
+import collections
+import os
 import sys
 import threading
 import time
@@ -100,8 +109,11 @@ _WINDOWS_KEY_FOR_VK = {vk: name for name, vk in WINDOWS_VKS.items()}
 _MAC_FLAG_BITS = {"control": 0x40000, "option": 0x80000, "shift": 0x20000, "cmd": 0x100000}
 
 # Key events (Quartz): the values are fixed by the system.
-_KEY_DOWN, _KEY_UP = 10, 11
+_KEY_DOWN, _KEY_UP, _FLAGS_CHANGED = 10, 11, 12
 _FIELD_KEYCODE, _FIELD_AUTOREPEAT = 9, 8
+# The process that posted an event (0 for the keyboard itself): Waffler's own
+# Cmd+C and Cmd+V come back through the tap, and are not the person.
+_FIELD_SOURCE_PID = 41
 
 # Combinations the computer or nearly every app already uses. Compared as the
 # set of modifier names plus the key.
@@ -242,10 +254,36 @@ def check(keys, platform: str, dictation_hotkey: Sequence[str] = (),
         return {"ok": False, "error": "That overlaps your dictation hotkey, so one of them would "
                                       "fire by mistake. Choose another."}
     for other in others:
-        if here == comparable(other, platform):
+        theirs = comparable(other, platform)
+        if here == theirs:
             return {"ok": False, "error": "Another shortcut already uses that combination. "
                                           "Choose another."}
+        if theirs and (here <= theirs or theirs <= here):
+            # The same key with more or fewer modifiers: pressed in a rush
+            # (the letter a moment before the last modifier) it would set the
+            # other one off.
+            return {"ok": False, "error": "That overlaps another shortcut, so one of them would "
+                                          "fire by mistake. Choose another."}
     return {"ok": True, "keys": stored, "display": display(stored, platform)}
+
+
+def saved_shortcuts(settings, skip: str = "") -> Dict[str, List[str]]:
+    """The action shortcuts saved in settings.json, by action: ``transform``
+    (``transforms.hotkey``) and ``command`` (``command_mode.hotkey``). Read
+    from the raw file with no checking, so a Transform setting can be checked
+    against the Command shortcut without the two modules importing each other.
+    ``skip`` leaves one action out (the one being saved). Anything that is not
+    a list of names is no shortcut."""
+    stored = settings if isinstance(settings, dict) else {}
+    out: Dict[str, List[str]] = {}
+    for action, section in (("transform", "transforms"), ("command", "command_mode")):
+        if action == skip:
+            continue
+        block = stored.get(section)
+        keys = block.get("hotkey") if isinstance(block, dict) else None
+        if isinstance(keys, list) and keys and all(isinstance(k, str) and k.strip() for k in keys):
+            out[action] = list(keys)
+    return out
 
 
 def dictation_clash_message(dictation_keys_, shortcuts: Iterable[Sequence[str]], platform: str) -> str:
@@ -260,6 +298,40 @@ def dictation_clash_message(dictation_keys_, shortcuts: Iterable[Sequence[str]],
 
 # ── The registry and the decision ────────────────────────────────────────────
 
+class _Serial:
+    """Runs callbacks one after the other, in the order they were posted, on a
+    thread that exists only while there is something to run. The key listener
+    posts a hold's down and its up within milliseconds of each other; with a
+    thread for each, the up could run before the down had begun."""
+
+    def __init__(self, spawn: Callable[[Callable[[], None]], None], log: Callable[[str], None]):
+        self._spawn = spawn
+        self._log = log
+        self._lock = threading.Lock()
+        self._queue = collections.deque()
+        self._draining = False
+
+    def post(self, name: str, fn: Callable[[], None]) -> None:
+        with self._lock:
+            self._queue.append((name, fn))
+            if self._draining:
+                return
+            self._draining = True
+        self._spawn(self._drain)
+
+    def _drain(self) -> None:
+        while True:
+            with self._lock:
+                if not self._queue:
+                    self._draining = False
+                    return
+                name, fn = self._queue.popleft()
+            try:
+                fn()
+            except Exception as e:      # noqa: BLE001 - one callback must not stop the next
+                self._log(f"[shortcut] {name} failed: {type(e).__name__}")
+
+
 class ActionHotkeys:
     """The actions that have a shortcut, and which of them a key press fires."""
 
@@ -272,9 +344,11 @@ class ActionHotkeys:
         self._log = log or (lambda _m: None)
         self._spawn = spawn or self._spawn_thread
         self._lock = threading.RLock()
-        self._actions: Dict[str, dict] = {}     # id -> {keys, mods, key, callback}
+        self._actions: Dict[str, dict] = {}     # id -> {keys, mods, key, callback, on_up (a hold)}
         self._last_fired: Dict[str, float] = {}
         self._down: Dict[str, float] = {}       # key -> when it went down
+        self._holds: Dict[str, dict] = {}       # action id -> {key, mods}: a hold in progress
+        self._serial: Dict[str, _Serial] = {}   # action id -> its one-at-a-time runner
         self._observer = None
         self._attached = weakref.WeakSet()      # listeners whose tap carries the observer
         self._watcher = None
@@ -303,19 +377,39 @@ class ActionHotkeys:
         verdict = check(keys, self.platform, dictation_hotkey, self._others(action_id))
         if not verdict["ok"]:
             return verdict
+        return self._store(action_id, verdict, callback, None)
+
+    def register_hold(self, action_id: str, keys, on_down: Callable[[], None],
+                      on_up: Callable[[], None], dictation_hotkey: Sequence[str] = ()) -> dict:
+        """A hold-to-talk action: ``on_down`` when ``keys`` go down, ``on_up``
+        when any part of them comes up (the key or one of the modifiers). Both
+        run on a thread of the action's own, in order. A second call for the
+        same ``action_id`` replaces the first and ends a hold in progress.
+        Returns ``check``'s answer; nothing is registered when it is not ok."""
+        verdict = check(keys, self.platform, dictation_hotkey, self._others(action_id))
+        if not verdict["ok"]:
+            return verdict
+        return self._store(action_id, verdict, on_down, on_up)
+
+    def _store(self, action_id: str, verdict: dict, callback, on_up) -> dict:
         stored = verdict["keys"]
         mods = frozenset(k for k in stored if k in modifiers_of(self.platform))
         key = next(k for k in stored if k not in mods)
         with self._lock:
+            ended = self._end_hold_locked(action_id)
             self._actions[action_id] = {"keys": stored, "mods": mods, "key": key,
-                                        "callback": callback}
+                                        "callback": callback, "on_up": on_up}
             self._last_fired.pop(action_id, None)
+        self._post_up(action_id, ended)
         return verdict
 
     def unregister(self, action_id: str) -> bool:
         with self._lock:
             self._last_fired.pop(action_id, None)
-            return self._actions.pop(action_id, None) is not None
+            ended = self._end_hold_locked(action_id)
+            gone = self._actions.pop(action_id, None) is not None
+        self._post_up(action_id, ended)
+        return gone
 
     def registered(self) -> Dict[str, List[str]]:
         with self._lock:
@@ -335,7 +429,9 @@ class ActionHotkeys:
             # A key-up that never came must not keep a key "held" for ever.
             for k in [k for k, t in self._down.items() if now - t > HELD_FOR_S]:
                 del self._down[k]
-            held = key in self._down
+            # The key of a hold in progress is held for as long as the hold is,
+            # whether or not the system keeps repeating it.
+            held = key in self._down or any(h["key"] == key for h in self._holds.values())
             self._down[key] = now           # a repeating key keeps itself "held"
             if repeat or held:
                 return []
@@ -348,14 +444,65 @@ class ActionHotkeys:
                 if last is not None and 0 <= now - last < MIN_GAP_S:
                     continue
                 self._last_fired[action_id] = now
-                fired.append((action_id, a["callback"]))
-        for action_id, callback in fired:
-            self._spawn(lambda cb=callback, aid=action_id: self._run(aid, cb))
-        return [aid for aid, _cb in fired]
+                if a.get("on_up") is not None:
+                    self._holds[action_id] = {"key": key, "mods": a["mods"]}
+                fired.append((action_id, a["callback"], a.get("on_up") is not None))
+        for action_id, callback, hold in fired:
+            if hold:
+                self._serial_for(action_id).post(action_id, callback)
+            else:
+                self._spawn(lambda cb=callback, aid=action_id: self._run(aid, cb))
+        return [aid for aid, _cb, _hold in fired]
 
     def key_up(self, key: str) -> None:
         with self._lock:
             self._down.pop(key, None)
+            ended = [aid for aid in self._holds if self._holds[aid]["key"] == key]
+            ups = {aid: self._end_hold_locked(aid) for aid in ended}
+        for aid, on_up in ups.items():
+            self._post_up(aid, on_up)
+
+    def modifiers_changed(self, modifiers: Iterable[str]) -> None:
+        """The modifier keys held are now exactly ``modifiers`` (a Mac reports
+        them all at once). A hold ends when one of its own is not among them;
+        an extra modifier changes nothing."""
+        now_held = frozenset(modifiers)
+        with self._lock:
+            if not self._holds:
+                return
+            ended = [aid for aid, h in self._holds.items() if not h["mods"] <= now_held]
+            ups = {aid: self._end_hold_locked(aid) for aid in ended}
+        for aid, on_up in ups.items():
+            self._post_up(aid, on_up)
+
+    def modifier_up(self, modifier: str) -> None:
+        """One modifier key came up (Windows reports them one at a time)."""
+        with self._lock:
+            if not self._holds:
+                return
+            ended = [aid for aid, h in self._holds.items() if modifier in h["mods"]]
+            ups = {aid: self._end_hold_locked(aid) for aid in ended}
+        for aid, on_up in ups.items():
+            self._post_up(aid, on_up)
+
+    def _end_hold_locked(self, action_id: str):
+        """Take ``action_id``'s hold out of the books (call with the lock
+        held) and return what to call for it, or None if none was running."""
+        if self._holds.pop(action_id, None) is None:
+            return None
+        a = self._actions.get(action_id)
+        return a.get("on_up") if a else None
+
+    def _post_up(self, action_id: str, on_up) -> None:
+        if on_up is not None:
+            self._serial_for(action_id).post(action_id, on_up)
+
+    def _serial_for(self, action_id: str) -> _Serial:
+        with self._lock:
+            serial = self._serial.get(action_id)
+            if serial is None:
+                serial = self._serial[action_id] = _Serial(self._spawn, self._log)
+            return serial
 
     def _run(self, action_id: str, callback: Callable[[], None]) -> None:
         try:
@@ -413,12 +560,16 @@ class ActionHotkeys:
 class MacComboObserver:
     """Reads key events from the dictation hotkey's event tap and tells the
     registry. ``handle`` always answers False: it never swallows a key, and
-    nothing it does can raise into the tap's other handlers."""
+    nothing it does can raise into the tap's other handlers. Key events and
+    changes of the modifier keys are both read (a hold ends when any of its
+    modifiers does), and events Waffler posted itself (the Cmd+C and Cmd+V of
+    reading a selection and pasting) are left out."""
 
-    def __init__(self, registry: ActionHotkeys, *, get_flags=None, get_field=None):
+    def __init__(self, registry: ActionHotkeys, *, get_flags=None, get_field=None, own_pid=None):
         self._registry = registry
         self._get_flags = get_flags
         self._get_field = get_field
+        self._own_pid = own_pid if own_pid is not None else os.getpid()
 
     def _quartz(self):
         if self._get_flags is None or self._get_field is None:
@@ -427,24 +578,38 @@ class MacComboObserver:
             self._get_field = self._get_field or CGEventGetIntegerValueField
         return self._get_flags, self._get_field
 
+    def _mine(self, get_field, event) -> bool:
+        try:
+            return int(get_field(event, _FIELD_SOURCE_PID)) == self._own_pid
+        except Exception:      # noqa: BLE001 - an event that cannot say who sent it is the keyboard's
+            return False
+
     def handle(self, event_type, event) -> bool:
         try:
-            if event_type not in (_KEY_DOWN, _KEY_UP):
+            if event_type not in (_KEY_DOWN, _KEY_UP, _FLAGS_CHANGED):
                 return False
             get_flags, get_field = self._quartz()
+            if self._mine(get_field, event):
+                return False
+            if event_type == _FLAGS_CHANGED:
+                self._registry.modifiers_changed(self._modifiers(int(get_flags(event))))
+                return False
             key = _MAC_KEY_FOR_CODE.get(int(get_field(event, _FIELD_KEYCODE)))
             if key is None:
                 return False
             if event_type == _KEY_UP:
                 self._registry.key_up(key)
                 return False
-            flags = int(get_flags(event))
-            mods = [m for m, bit in _MAC_FLAG_BITS.items() if flags & bit]
+            mods = self._modifiers(int(get_flags(event)))
             repeat = bool(get_field(event, _FIELD_AUTOREPEAT))
             self._registry.key_down(key, mods, repeat=repeat)
         except Exception:      # noqa: BLE001 - see the class docstring
             pass
         return False
+
+    @staticmethod
+    def _modifiers(flags: int) -> List[str]:
+        return [m for m, bit in _MAC_FLAG_BITS.items() if flags & bit]
 
 
 # ── Windows: a keyboard hook of its own ──────────────────────────────────────
@@ -452,6 +617,12 @@ class MacComboObserver:
 _WM_KEYDOWN, _WM_KEYUP, _WM_SYSKEYDOWN, _WM_SYSKEYUP, _WM_QUIT = 0x0100, 0x0101, 0x0104, 0x0105, 0x0012
 _LLKHF_INJECTED = 0x10
 _WINDOWS_MODIFIER_VKS = {"ctrl": (0x11,), "alt": (0x12,), "shift": (0x10,), "win": (0x5B, 0x5C)}
+# The hook reports the left and right modifier keys by their own codes (and a
+# program may use the general ones): either side is the same modifier.
+_WINDOWS_MODIFIER_FOR_VK = {0x10: "shift", 0xA0: "shift", 0xA1: "shift",
+                            0x11: "ctrl", 0xA2: "ctrl", 0xA3: "ctrl",
+                            0x12: "alt", 0xA4: "alt", 0xA5: "alt",
+                            0x5B: "win", 0x5C: "win"}
 
 
 def windows_event(registry: ActionHotkeys, vk: int, message: int, flags: int,
@@ -461,6 +632,11 @@ def windows_event(registry: ActionHotkeys, vk: int, message: int, flags: int,
     the paste's own Ctrl+V. ``key_state(vk)`` says whether a key is down now;
     the modifiers are read from it when the key goes down."""
     if flags & _LLKHF_INJECTED:
+        return
+    modifier = _WINDOWS_MODIFIER_FOR_VK.get(vk)
+    if modifier is not None:
+        if message in (_WM_KEYUP, _WM_SYSKEYUP):
+            registry.modifier_up(modifier)
         return
     key = _WINDOWS_KEY_FOR_VK.get(vk)
     if key is None:

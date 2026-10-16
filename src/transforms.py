@@ -399,7 +399,9 @@ def settings_problem(payload, stored=None, *, platform: Optional[str] = None,
     platform = platform or _this_platform()
     if given.get("hotkey"):
         ptt = dictation_hotkey if dictation_hotkey is not None else action_hotkeys.dictation_keys(stored, platform)
-        verdict = action_hotkeys.check(given["hotkey"], platform, ptt)
+        # Nor may it be, or sit inside, another action's shortcut (Command mode's).
+        others = list(action_hotkeys.saved_shortcuts(stored, skip="transform").values())
+        verdict = action_hotkeys.check(given["hotkey"], platform, ptt, others)
         if not verdict["ok"]:
             return verdict["error"]
     candidate = merged(stored, payload, platform=platform)

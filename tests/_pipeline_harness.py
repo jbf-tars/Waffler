@@ -31,6 +31,8 @@ sys.path.insert(0, str(ROOT))
 import action_hotkeys  # noqa: E402
 import atomic_json  # noqa: E402
 import cleanup_pause  # noqa: E402
+import command_action  # noqa: E402
+import command_mode  # noqa: E402
 import history_ids  # noqa: E402
 import history_meta  # noqa: E402
 import history_ops  # noqa: E402
@@ -88,6 +90,11 @@ PIPELINE_METHODS = (
     "_transform_hooks", "_dictation_busy", "transforms_enabled", "run_transform",
     "apply_transform_settings", "_on_transform_shortcut", "_transform_say",
     "_transform_ui_begin", "_transform_ui_tick", "_transform_ui_end",
+    # Command mode (src/command_action.py): what a run needs from the app, the
+    # hold-to-talk shortcut, and the pill and messages it uses.
+    "_command_hooks", "_command_blocked", "command_enabled", "apply_command_settings",
+    "_command_say", "_command_ui_begin", "_command_ui_level", "_command_ui_working",
+    "_command_ui_tick", "_command_ui_end",
 )
 MODULE_DEFS = ("ensure_data_dir", "load_history", "_load_history_for_update",
                "save_history", "append_history",
@@ -177,6 +184,7 @@ class FakeAudio:
     def __init__(self, wav: bytes, hang=None):
         self.wav = wav
         self.hang = hang
+        self.starts = 0
         self.stops = 0
         self.deafened = []
 
@@ -184,7 +192,10 @@ class FakeAudio:
         self.deafened.append(seconds)
 
     def start(self):
-        self.starts = getattr(self, "starts", 0) + 1
+        self.starts += 1
+
+    def get_level(self):
+        return 0.3
 
     def stop(self):
         self.stops += 1
@@ -389,6 +400,7 @@ def make_pipeline(data_dir: Path, *, transcriber=None, styler=None, clipboard=No
         _history_ids=history_ids, _history_meta=history_meta, _history_ops=history_ops,
         _take_marker=take_marker, _text_context=text_context,
         _action_hotkeys=action_hotkeys, _transforms=transforms, _transform_action=transform_action,
+        _command_mode=command_mode, _command_action=command_action,
         _history_cache=types.SimpleNamespace(invalidate=lambda: None),
         _is_setup_complete=lambda: True,
         paste_timed_out_message=user_messages.paste_timed_out_message,
@@ -438,6 +450,7 @@ def make_pipeline(data_dir: Path, *, transcriber=None, styler=None, clipboard=No
                                                      spawn=lambda fn: fn())
     p._action_hotkeys.start = lambda: False        # never a real keyboard hook in a test
     p._transforms = transform_action.TransformRunner(p._transform_hooks())
+    p._commands = command_action.CommandRunner(p._command_hooks())
     p._watchdog = pw.PipelineWatchdog(
         on_begin=p._ui_begin, on_working=p._ui_working, on_offer=p._ui_offer,
         on_withdraw_offer=p._ui_withdraw_offer, on_finished=p._ui_finished,

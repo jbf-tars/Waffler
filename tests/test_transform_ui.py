@@ -339,7 +339,8 @@ def test_the_shortcut_uses_the_shared_hotkey_dialog_and_its_own_call():
     sec = section()
     assert "onclick=\"openHotkeyCapture('transform')\"" in sec
     open_fn = app[app.index("function openHotkeyCapture("):app.index("function closeHotkeyCapture")]
-    assert "_captureTarget = target === 'transform' ? 'transform' : 'dictation';" in open_fn
+    # (Command mode, S8, shares the dialog: a third target.)
+    assert "_captureTarget = target === 'transform' || target === 'command' ? target : 'dictation';" in open_fn
     assert "presets.hidden = forTransform ||" in open_fn and "reset.hidden = forTransform" in open_fn
     save = app[app.index("async function saveHotkeyCapture"):app.index("async function refreshAll")]
     assert "if (_captureTarget === 'transform') { await saveTransformHotkey(keys, fail); return; }" in save

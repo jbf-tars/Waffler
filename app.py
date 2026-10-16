@@ -146,6 +146,8 @@ import take_marker as _take_marker
 import action_hotkeys as _action_hotkeys
 import transforms as _transforms
 import transform_action as _transform_action
+import command_mode as _command_mode
+import command_action as _command_action
 from login_item import LoginItem, HIDDEN_FLAG as _HIDDEN_FLAG
 from user_messages import (
     CLIPBOARD_CHOICE_UNKNOWN,
@@ -458,8 +460,8 @@ def record_usage(entry_type: str, duration_seconds: float = None,
                  input_tokens: int = 0, output_tokens: int = 0,
                  provider: str = "openai", purpose: str = None):
     """Record an API usage entry with cost calculation. ``purpose`` names a
-    feature other than dictation ("transform"): its rows are priced like any
-    other but are not a dictation (see get_usage_stats)."""
+    feature other than dictation ("transform", "command"): its rows are priced
+    like any other but are not a dictation (see get_usage_stats)."""
     rate = _rate_for(provider, entry_type)
     cost_usd = _usage_cost(rate, entry_type, duration_seconds,
                            input_tokens, output_tokens)
@@ -540,6 +542,9 @@ def _update_would_interrupt(pipeline) -> str:
         rewrite = getattr(pipeline, "_transforms", None)
         if rewrite is not None and rewrite.busy():
             return "a transform is running"
+        spoken = getattr(pipeline, "_commands", None)
+        if spoken is not None and spoken.busy():
+            return "a command is running"
         for name in ("_drain_lock", "_unsent_lock"):
             lock = getattr(pipeline, name, None)
             if lock is not None and lock.locked():
@@ -1165,6 +1170,7 @@ class Api:
         """Return current settings for the UI."""
         from style_layer import cleanup_mode, signature_settings, styles_by_category
         from transforms import window_view as window_view_transforms
+        from command_mode import window_view as window_view_command
         stored = self._load_settings_file()
         key = os.getenv("OPENAI_API_KEY", "")
         groq_key = os.getenv("GROQ_API_KEY", "")
@@ -1239,6 +1245,8 @@ class Api:
             # Transforms (src/transforms.py): off, no shortcut, Polish with
             # its default rules. Anything unreadable in settings.json is that.
             "transforms":            window_view_transforms(stored),
+            # Command mode (src/command_mode.py): off, no shortcut, Perplexity.
+            "command_mode":          window_view_command(stored),
         }
 
     def save_settings(self, settings: dict) -> dict:
@@ -1277,6 +1285,14 @@ class Api:
             import transforms as _tf
             if "transforms" in settings:
                 problem = _tf.settings_problem(settings, self._load_settings_file())
+                if problem:
+                    return {"ok": False, "error": problem}
+            # Command mode (Settings, Command mode): switch, hold-to-talk
+            # shortcut, search engine. Checked as a whole too, including the
+            # shortcut against the dictation hotkey and the Transform shortcut.
+            import command_mode as _cm
+            if "command_mode" in settings:
+                problem = _cm.settings_problem(settings, self._load_settings_file())
                 if problem:
                     return {"ok": False, "error": problem}
             with self._editing_settings() as stored:
@@ -1356,6 +1372,12 @@ class Api:
                     stored["transforms"] = _tf.merged(stored, settings)
                     notes.append(f"Transforms: {'on' if stored['transforms']['enabled'] else 'off'}")
 
+                # ── Command mode: read again for every command; the shortcut is
+                # applied live (below).
+                if "command_mode" in settings:
+                    stored["command_mode"] = _cm.merged(stored, settings)
+                    notes.append(f"Command mode: {'on' if stored['command_mode']['enabled'] else 'off'}")
+
                 # ── Provider fallback order ──────────────────────────────────────
                 # A list like ["cerebras","groq","openai"]. Persisted AND applied
                 # live to the running pipeline so reordering takes effect on the
@@ -1379,6 +1401,11 @@ class Api:
                     _pipeline.apply_transform_settings()
                 except Exception as _e:
                     _log_to_file(f"[transform] settings not applied live: {type(_e).__name__}")
+            if "command_mode" in settings and _pipeline is not None:
+                try:
+                    _pipeline.apply_command_settings()
+                except Exception as _e:
+                    _log_to_file(f"[command] settings not applied live: {type(_e).__name__}")
 
             return {"ok": True, "notes": notes}
         except Exception as e:
@@ -2381,14 +2408,14 @@ class Api:
                 return verdict
             keys = verdict["keys"]
 
-            # A new dictation hotkey must not overlap the Transform shortcut
-            # (src/action_hotkeys.py): holding it would also press the other.
+            # A new dictation hotkey must not overlap the Transform shortcut or
+            # the Command shortcut (src/action_hotkeys.py): holding it would
+            # also press the other.
             import action_hotkeys as _ah
-            import transforms as _tf
             clash = _ah.dictation_clash_message(
-                keys, [_tf.settings(self._load_settings_file())["hotkey"]], _platform.system())
+                keys, list(_ah.saved_shortcuts(self._load_settings_file()).values()), _platform.system())
             if clash:
-                _log_to_file(f"Hotkey not saved ({keys!r}): it overlaps the Transform shortcut")
+                _log_to_file(f"Hotkey not saved ({keys!r}): it overlaps an action shortcut")
                 return {"ok": False, "error": clash}
 
             # Save to settings.json
@@ -2426,8 +2453,9 @@ class Api:
                     # which on Windows does not return).
                     try:
                         _pipeline.apply_transform_settings()
+                        _pipeline.apply_command_settings()
                     except Exception as _e:
-                        _log_to_file(f"[transform] shortcut not re-attached: {type(_e).__name__}")
+                        _log_to_file(f"[shortcut] action shortcuts not re-attached: {type(_e).__name__}")
                     _log_to_file("New hotkey listener starting...")
                     _pipeline.hotkey_listener.start()
 
@@ -2459,6 +2487,31 @@ class Api:
             return {"ok": True, "keys": view["hotkey"], "display": view["hotkey_display"]}
         except Exception as e:
             _log_to_file(f"save_transform_hotkey error: {type(e).__name__}")
+            return {"ok": False, "error": "Couldn't save the shortcut. Please try again."}
+
+    def save_command_hotkey(self, keys) -> dict:
+        """Set the Command shortcut (Settings, Command mode), the keys held
+        while speaking an instruction, or clear it with an empty list. The
+        window's key recorder calls this with the keys it heard. Returns what
+        save_transform_hotkey does: {"ok": True, "keys", "display"} or
+        {"ok": False, "error": "<one sentence>"}; the rules are
+        src/action_hotkeys.py's, and the shortcut may not overlap the dictation
+        hotkey or the Transform shortcut."""
+        try:
+            if isinstance(keys, str):
+                try:
+                    keys = json.loads(keys)
+                except ValueError:
+                    return {"ok": False, "error": "Hold the keys you want, then save."}
+            if keys is None:
+                keys = []           # nothing given clears it, as an empty list does
+            saved = self.save_settings({"command_mode": {"hotkey": keys}})
+            if not saved.get("ok"):
+                return {"ok": False, "error": saved.get("error") or "Couldn't save the shortcut. Please try again."}
+            view = _command_mode.window_view(self._load_settings_file())
+            return {"ok": True, "keys": view["hotkey"], "display": view["hotkey_display"]}
+        except Exception as e:
+            _log_to_file(f"save_command_hotkey error: {type(e).__name__}")
             return {"ok": False, "error": "Couldn't save the shortcut. Please try again."}
 
     # ── Permission APIs ─────────────────────────────────────────────────
@@ -2856,6 +2909,12 @@ class Api:
         # "about X a dictation" must not count them.
         transform_cost = 0.0
         transform_count = 0
+        # The same for spoken commands (purpose "command"): the speech to text
+        # of the instruction and the model's answer. A command is counted once,
+        # by its model call; its speech is not one of the "transcriptions".
+        command_cost = 0.0
+        command_count = 0
+        command_speech = 0
         whisper_count = 0
         gpt_count = 0
         total_duration = 0.0
@@ -2868,15 +2927,23 @@ class Api:
         for entry in usage:
             cost = entry.get("cost_usd", 0)
             total_cost += cost
-            if entry.get("purpose") == "transform":
+            purpose = entry.get("purpose")
+            if purpose == "transform":
                 transform_cost += cost
                 transform_count += 1
             etype = entry.get("type")
             provider = (entry.get("provider") or "unknown").lower()
+            if purpose == "command":
+                command_cost += cost
+                if etype == "gpt":
+                    command_count += 1
 
             if etype == "whisper":
-                whisper_count += 1
-                total_duration += entry.get("duration_seconds", 0)
+                if purpose == "command":
+                    command_speech += 1
+                else:
+                    whisper_count += 1
+                    total_duration += entry.get("duration_seconds", 0)
             elif etype == "gpt":
                 gpt_count += 1
                 total_input_tokens += entry.get("input_tokens", 0)
@@ -2915,7 +2982,7 @@ class Api:
             b["cost_usd"] = round(b["cost_usd"], 6)
 
         transcription_count = whisper_count
-        avg_cost = ((total_cost - transform_cost) / transcription_count
+        avg_cost = ((total_cost - transform_cost - command_cost) / transcription_count
                     if transcription_count > 0 else 0)
 
         return {
@@ -2931,6 +2998,8 @@ class Api:
             "avg_cost_per_transcription": round(avg_cost, 4),
             "transform_count": transform_count,
             "transform_cost_usd": round(transform_cost, 6),
+            "command_count": command_count,
+            "command_cost_usd": round(command_cost, 6),
             "by_provider": by_provider,
         }
 
@@ -3742,6 +3811,10 @@ class WafflerPipeline:
         # person turns it on.
         self._action_hotkeys = _action_hotkeys.ActionHotkeys(log=_log_to_file)
         self._transforms = _transform_action.TransformRunner(self._transform_hooks())
+        # Command mode (Settings, Command mode): hold a shortcut, say what you
+        # want, and the selection is edited, text is drafted, or a web search
+        # opens (src/command_action.py). Off by default; idle until switched on.
+        self._commands = _command_action.CommandRunner(self._command_hooks())
         threading.Thread(target=self._warm_paste_deps, daemon=True, name="PasteWarm").start()
         self.is_recording = False
         self._is_paused = False
@@ -4147,8 +4220,11 @@ class WafflerPipeline:
         )
 
     def _dictation_busy(self) -> bool:
-        """A dictation is being recorded or processed (a transform waits)."""
-        return bool(self.is_recording) or bool(self._watchdog.active())
+        """A dictation is being recorded or processed, or a command is being
+        spoken or carried out (a transform waits for either)."""
+        spoken = getattr(self, "_commands", None)
+        return (bool(self.is_recording) or bool(self._watchdog.active())
+                or (spoken is not None and spoken.busy()))
 
     def transforms_enabled(self) -> bool:
         return bool(_transforms.settings(self._read_settings())["enabled"])
@@ -4227,6 +4303,177 @@ class WafflerPipeline:
         notify_js_status("done" if outcome == _pw.DONE else "idle")
         _set_tray_state(_tray_state.IDLE)
 
+    # ── Command mode: speak an instruction (src/command_action.py) ──────────
+
+    def _command_hooks(self):
+        """What a command run needs from this app, as the pipeline's own
+        methods. Late-bound, so a replaced styler, recorder or clipboard is the
+        one used."""
+        def usage(reply):
+            record_usage_safely("gpt", input_tokens=reply.input_tokens,
+                                output_tokens=reply.output_tokens, provider=reply.provider,
+                                purpose="command")
+
+        def speech_usage(seconds, info):
+            provider = (info or {}).get("backend") or getattr(self.transcriber, "_backend", "")
+            if provider in ("mlx", "faster"):
+                provider = "local"
+            elif provider == "api":
+                provider = "openai"
+            if seconds > 0:
+                record_usage_safely("whisper", duration_seconds=seconds, provider=provider or "groq",
+                                    purpose="command")
+
+        def apply_vocab(text):
+            # The Vocabulary corrects the spoken instruction like any words (no
+            # clean-up pass, no snippets, no style).
+            from transcribe_whisper import load_vocab, load_sounds_like, apply_vocab_changes
+            vocab = load_vocab()
+            if not vocab or not text:
+                return text
+            sounds = load_sounds_like(vocab)
+            fixed, _changes = (apply_vocab_changes(text, vocab, sounds) if sounds
+                               else apply_vocab_changes(text, vocab))
+            return fixed
+
+        def open_url(url):
+            import webbrowser
+            return bool(webbrowser.open(url, new=2))
+
+        def no_audio():
+            threading.Thread(target=self._show_no_audio_toast, daemon=True, name="NoAudioToast").start()
+
+        return _command_action.Hooks(
+            settings=self._read_settings,
+            busy_elsewhere=self._command_blocked,
+            permissions_ok=lambda: not self._permissions_block_recording(),
+            start_audio=lambda: self.audio.start(),
+            stop_audio=lambda: self.audio.stop(),
+            level=lambda: self.audio.get_level(),
+            transcribe=lambda audio: self._transcribe_with_provenance(audio),
+            apply_vocab=apply_vocab,
+            classify_speech_error=lambda error: _unsent.classify_reason(str(error)),
+            speech_provider=self._speech_provider_name,
+            read_selection=lambda copy: _text_context.read_selection(allow_copy_fallback=copy),
+            read_context=lambda chars: _text_context.get_text_around_cursor(chars),
+            reread_selection=lambda method: _text_context.read_selection(
+                allow_copy_fallback=(method == _text_context.METHOD_COPY), timeout=0.9),
+            front_app=lambda: _text_context.frontmost_app(),
+            window=lambda: self.clipboard.get_focused_window(),
+            chat=lambda *a, **k: self.styler._chat(*a, **k),
+            dashes=lambda text: self.styler._strip_em_dashes(text),
+            profanity=lambda styled, raw: self.styler._restore_censored_profanity(styled, raw),
+            paste=lambda text, window, restore, ticket: self.clipboard.paste_text(
+                text, window, restore=restore, ticket=ticket),
+            settle_paste=self._settle_paste,
+            copy=lambda text: self.clipboard.copy(text),
+            remember=self._remember,
+            record_usage=usage,
+            record_speech=speech_usage,
+            save_history=append_history_safely,
+            announce_item=notify_js_new_item,
+            open_url=open_url,
+            cue=lambda name: self._play_cue(name),
+            no_audio=no_audio,
+            say=self._command_say,
+            ui_begin=self._command_ui_begin,
+            ui_level=self._command_ui_level,
+            ui_working=self._command_ui_working,
+            ui_tick=self._command_ui_tick,
+            ui_end=self._command_ui_end,
+            log=_log_to_file,
+            platform="darwin" if _platform.system() == "Darwin" else "win32",
+        )
+
+    def _command_blocked(self) -> bool:
+        """Something else has the microphone or the model: a dictation being
+        recorded or processed, or a transform running."""
+        rewrite = getattr(self, "_transforms", None)
+        return (bool(self.is_recording) or bool(self._watchdog.active())
+                or (rewrite is not None and rewrite.busy()))
+
+    def command_enabled(self) -> bool:
+        return bool(_command_mode.settings(self._read_settings())["enabled"])
+
+    def apply_command_settings(self):
+        """Make the Command shortcut match settings.json: register it (a
+        hold-to-talk combination) when Command mode is on and one is set, drop
+        it otherwise, and join the dictation hotkey's listener (a Mac listens to
+        keys through its one event tap). Called at start, after the dictation
+        hotkey is rebuilt, and after a save. Never raises."""
+        try:
+            stored = self._read_settings()
+            view = _command_mode.settings(stored)
+            platform = "Windows" if _platform.system() == "Windows" else "Darwin"
+            if view["enabled"] and view["hotkey"]:
+                verdict = self._action_hotkeys.register_hold(
+                    "command", view["hotkey"], self._commands.down, self._commands.up,
+                    _action_hotkeys.dictation_keys(stored, platform))
+                if not verdict["ok"]:
+                    self._action_hotkeys.unregister("command")
+                    _log_to_file("[command] the saved shortcut is not usable: " + verdict["error"])
+            else:
+                self._action_hotkeys.unregister("command")
+            listener = getattr(self, "hotkey_listener", None)
+            if listener is not None:
+                self._action_hotkeys.attach_listener(listener)
+            if self._action_hotkeys.registered():
+                self._action_hotkeys.start()
+        except Exception as e:
+            _log_to_file(f"[command] shortcut not applied: {type(e).__name__}")
+
+    def _command_say(self, kind, style, heading, body, buttons=None, timeout=None):
+        """A command's message, through the governor (src/notifier.py)."""
+        if self._toast_allowed(kind):
+            self._show_toast_safe(style, heading, body, buttons=buttons, timeout=timeout,
+                                  reposition=True)
+
+    def _command_ui_begin(self, run):
+        """The keys are down and the microphone is on: the recording pill, the
+        status, and Esc armed (until the paste starts it stops the command,
+        _on_hotkey_cancel)."""
+        notify_js_status("listening")
+        _set_tray_state(_tray_state.RECORDING)
+        self._set_listener_processing(True)
+        try:
+            self.overlay.show()
+        except Exception as e:
+            _log_to_file(f"[overlay] recording pill not shown: {e}")
+
+    def _command_ui_level(self, level):
+        try:
+            self.overlay.update_level(level)
+        except Exception:
+            pass
+
+    def _command_ui_working(self, run):
+        """The keys are up: the recording pill turns to the working look."""
+        notify_js_status("processing")
+        _set_tray_state(_tray_state.WORKING)
+        try:
+            self.overlay.show_working(0.0, reliable=True)
+        except Exception as e:
+            _log_to_file(f"[overlay] working pill not shown: {e}")
+
+    def _command_ui_tick(self, run, seconds):
+        try:
+            self.overlay.show_working(seconds)
+        except Exception:
+            pass
+
+    def _command_ui_end(self, run, outcome):
+        self._set_listener_processing(False)
+        try:
+            shown = getattr(run, "shown", "")
+            if shown == "working":
+                self.overlay.end_working("done" if outcome == _pw.DONE else "quiet")
+            elif shown == "recording":
+                self.overlay.hide()
+        except Exception as e:
+            _log_to_file(f"[overlay] pill not put back: {e}")
+        notify_js_status("done" if outcome == _pw.DONE else "idle")
+        _set_tray_state(_tray_state.IDLE)
+
     def set_device(self, device_index: int):
         """Update the audio device used for future recordings.
 
@@ -4248,12 +4495,12 @@ class WafflerPipeline:
         styling, and _process checks for a cancel before that, so clearing
         protected nothing and wiped whatever the user had copied themselves
         (23 times in one user's log)."""
-        # The working pill is shared: its X stops a transform too. A transform
-        # and a recording never overlap, so this leaves the dictation alone.
-        rewrite = getattr(self, "_transforms", None)
-        if rewrite is not None and rewrite.busy() and not self.is_recording:
-            rewrite.cancel()
-            return
+        # The pill is shared: its X stops a transform or a command too. They
+        # and a dictation never overlap, so this leaves the dictation alone.
+        for action in (getattr(self, "_transforms", None), getattr(self, "_commands", None)):
+            if action is not None and action.busy() and not self.is_recording:
+                action.cancel()
+                return
         # Flip is_recording and arm cancellation under one lock so a
         # concurrent release can't slip a _process() through between them.
         with self._processing_lock:
@@ -4300,11 +4547,11 @@ class WafflerPipeline:
         if recording:
             self._on_overlay_cancel()
             return
-        # Esc stops a transform too (armed while one runs): nothing is
-        # replaced, and the key is not a dictation's.
-        rewrite = getattr(self, "_transforms", None)
-        if rewrite is not None and rewrite.cancel():
-            return
+        # Esc stops a transform or a command too (armed while one runs):
+        # nothing is replaced, and the key is not a dictation's.
+        for action in (getattr(self, "_transforms", None), getattr(self, "_commands", None)):
+            if action is not None and action.cancel():
+                return
         watchdog = getattr(self, "_watchdog", None)
         run = watchdog.current_run() if watchdog is not None else None
         if run is None:
@@ -4378,6 +4625,14 @@ class WafflerPipeline:
             if entry_id is not None:
                 _post_js("window.waffler_show_transform && "
                          f"window.waffler_show_transform({int(entry_id)})")
+        elif action.startswith("show_command"):
+            # A command's "Show in Journal": the Journal opens on its entry
+            # (ui/app.js waffler_show_command).
+            self._show_journal()
+            entry_id = _history_ids.parse(action.partition(":")[2])
+            if entry_id is not None:
+                _post_js("window.waffler_show_command && "
+                         f"window.waffler_show_command({int(entry_id)})")
         elif action in _mac_perms.PANE_ACTIONS:
             # A permission message's button: open the exact Privacy pane. Off
             # the overlay's reader thread (it waits for `open` to answer).
@@ -4438,16 +4693,16 @@ class WafflerPipeline:
         # Never beside a transform (src/transform_action.py): the hotkey is
         # told why, and the listener's state is put back, as for a blocked
         # permission below.
-        rewrite = getattr(self, "_transforms", None)
-        if rewrite is not None and rewrite.busy():
-            rewrite.refuse_dictation()
-            listener = getattr(self, "hotkey_listener", None)
-            if listener is not None and hasattr(listener, "reset_state"):
-                try:
-                    listener.reset_state()
-                except Exception:
-                    pass
-            return
+        for action in (getattr(self, "_transforms", None), getattr(self, "_commands", None)):
+            if action is not None and action.busy():
+                action.refuse_dictation()
+                listener = getattr(self, "hotkey_listener", None)
+                if listener is not None and hasattr(listener, "reset_state"):
+                    try:
+                        listener.reset_state()
+                    except Exception:
+                        pass
+                return
         # Permissions first, and cheap: a microphone or Accessibility switched
         # off gets one message with a button to the right pane, instead of a
         # silent recording or a paste that goes nowhere.
@@ -6098,8 +6353,8 @@ class WafflerPipeline:
             except Exception:
                 history = []
             idx = _history_ops.find(history, item_id, timestamp, text)
-            if idx < 0 or history[idx].get("failed"):
-                return {"ok": False, "reason": "not_found"}
+            if idx < 0 or history[idx].get("failed") or not _history_meta.is_dictation(history[idx]):
+                return {"ok": False, "reason": "not_found"}     # a rewrite or a command has no take to redo
             entry = history[idx]
             path = _recent_audio.resolve(DATA_DIR, entry.get("audio"))
             if path is None:
@@ -6451,6 +6706,7 @@ class WafflerPipeline:
             # listens through this listener's tap, and on Windows start()
             # does not return until the hook ends.
             self.apply_transform_settings()
+            self.apply_command_settings()
             _log_to_file("Calling hotkey.start()...")
             self.hotkey_listener.start()
             if _platform.system() == "Darwin":

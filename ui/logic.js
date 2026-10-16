@@ -1159,8 +1159,12 @@
     return 'Saved.';
   }
 
-  // The hotkey dialog, for the dictation hotkey or the Transform shortcut.
+  // The hotkey dialog, for the dictation hotkey, the Transform shortcut or the
+  // Command shortcut.
   function hotkeyDialogText(target) {
+    if (target === 'command') {
+      return { title: 'Hold your Command shortcut', sub: 'Hold the keys you want, then let go. Use a letter, a number or an F key with two modifier keys. You will hold these keys while you speak. Esc cancels.' };
+    }
     return target === 'transform'
       ? { title: 'Hold your Transform shortcut', sub: 'Hold the keys you want, then let go. Use a letter, a number or an F key with two modifier keys. Esc cancels.' }
       : { title: 'Hold your new keys', sub: 'Hold the combination you want, then let go. Esc cancels.' };
@@ -1200,6 +1204,112 @@
     };
   }
 
+  // ══ Command mode (beta): Settings, Command mode, and the Journal's commands ═
+  // The engines are src/command_mode.py's, and a test compares them. The
+  // sentences are src/user_messages.py's where the app says them too.
+  const COMMAND_ENGINES = [
+    { value: 'perplexity', label: 'Perplexity' },
+    { value: 'google', label: 'Google' },
+    { value: 'duckduckgo', label: 'DuckDuckGo' },
+    { value: 'chatgpt', label: 'ChatGPT' },
+    { value: 'claude', label: 'Claude' },
+  ];
+  const COMMAND_EXAMPLES = [
+    { say: 'Make this shorter', does: 'Edits the text you selected.' },
+    { say: 'Translate to French', does: 'Edits the text you selected, into another language.' },
+    { say: "Reply saying I'll be 10 minutes late", does: 'Writes new text where your cursor is.' },
+  ];
+
+  function commandEngineLabel(id) {
+    const e = COMMAND_ENGINES.find((x) => x.value === id);
+    return e ? e.label : COMMAND_ENGINES[0].label;
+  }
+
+  // The Command mode settings (get_settings().command_mode) as the section
+  // shows them: anything missing or odd is the default (off, no shortcut,
+  // Perplexity).
+  function commandView(settings, isMac) {
+    const c = settings && typeof settings.command_mode === 'object' && settings.command_mode ? settings.command_mode : {};
+    const keys = Array.isArray(c.hotkey) ? c.hotkey.filter((k) => typeof k === 'string') : [];
+    const wanted = typeof c.web_engine === 'string' ? c.web_engine : COMMAND_ENGINES[0].value;
+    const engine = COMMAND_ENGINES.some((e) => e.value === wanted) ? wanted : COMMAND_ENGINES[0].value;
+    return {
+      enabled: c.enabled === true,
+      hotkey: keys,
+      hotkeyShown: keys.length ? hotkeyName(keys, !!isMac) : '',
+      engine,
+      engineLabel: commandEngineLabel(engine),
+      engines: COMMAND_ENGINES,
+      examples: COMMAND_EXAMPLES,
+    };
+  }
+
+  // The line under the shortcut.
+  function commandShortcutLine(view) {
+    if (view && view.hotkey && view.hotkey.length) {
+      return 'Hold these keys, say what you want, then let go. Esc stops it. The keys also reach the app, so pick a combination it does not use.';
+    }
+    return 'Not set. Choose keys to hold while you speak.';
+  }
+
+  // What the page says after a save.
+  function commandSaved(what, value) {
+    if (what === 'enabled') return value ? 'Command mode is on.' : 'Command mode is off.';
+    if (what === 'hotkey') return value ? `Command shortcut is now ${value}.` : 'Command shortcut removed.';
+    if (what === 'engine') return `Questions now open in ${value}.`;
+    return 'Saved.';
+  }
+
+  // What became of the words, for a command's entry in the Journal.
+  const COMMAND_PASTE = {
+    edit: {
+      pasted: (where) => `Replaced your selection${where}.`,
+      unverified: (where) => `Replaced your selection${where}.`,
+      failed: (where) => `Couldn't paste${where}. The result is on your clipboard.`,
+      copied: () => 'Copied to the clipboard, not pasted.',
+      not_pasted: () => 'Not pasted.',
+    },
+    draft: {
+      pasted: (where) => `Added at your cursor${where}.`,
+      unverified: (where) => `Added at your cursor${where}.`,
+      failed: (where) => `Couldn't paste${where}. The draft is on your clipboard.`,
+      copied: () => 'Copied to the clipboard, not pasted.',
+      not_pasted: () => 'Not pasted.',
+    },
+  };
+
+  // A command's Journal entry (kind "command"): what was said, what it did,
+  // and for an edit the two texts with what changed marked.
+  function commandEntryView(item) {
+    const e = item && typeof item === 'object' ? item : {};
+    const action = e.action === 'edit' || e.action === 'ask' ? e.action : 'draft';
+    const before = String(e.before || ''), after = String(e.after || '');
+    const query = String(e.query || '');
+    const engine = commandEngineLabel(e.engine);
+    const where = typeof e.app === 'string' && e.app ? ` in ${e.app}` : '';
+    const table = COMMAND_PASTE[action];
+    const say = table && Object.prototype.hasOwnProperty.call(table, e.paste) ? table[e.paste] : null;
+    let beforePieces = [], afterPieces = [], changes = 0;
+    if (action === 'edit') {
+      beforePieces = saidDiff(before, after, 1);
+      afterPieces = saidDiff(after, before, 1);
+      changes = Math.max(beforePieces.filter((p) => p.cut).length, afterPieces.filter((p) => p.cut).length);
+    }
+    const words = after.split(/\s+/).filter(Boolean).length;
+    return {
+      id: Number.isInteger(e.id) && e.id > 0 ? e.id : null,
+      action,
+      chip: action === 'ask' ? `Searched ${engine}` : (action === 'edit' ? 'Edited' : 'Drafted'),
+      icon: action === 'ask' ? 'search' : (action === 'edit' ? 'pencil' : 'text-cursor'),
+      instruction: String(e.instruction || ''),
+      before, after, query, engine,
+      beforePieces, afterPieces, changes,
+      changesLabel: action === 'edit'
+        ? (changes ? `${formatCount(changes)} ${changes === 1 ? 'change' : 'changes'}` : 'Punctuation and layout only') : '',
+      words: action === 'ask' ? '' : `${formatCount(words)} ${words === 1 ? 'word' : 'words'}`,
+      status: action === 'ask' ? 'Opened in your browser.' : (say ? say(where) : ''),
+    };
+  }
 
   // ── Style (Settings, Style) ──────────────────────────────────────────
   // Clean-up On or Off (settings.json "cleanup"), a style for each kind of
@@ -1644,6 +1754,8 @@
     TRANSFORM_RULES, TRANSFORM_LIMITS, TRANSFORM_BUILT_IN, TRANSFORM_TEXT, transformView, transformCheck,
     transformRuleCheck, transformOutlineView, transformShortcutLine, transformSaved, hotkeyDialogText,
     transformEntryView,
+    COMMAND_ENGINES, COMMAND_EXAMPLES, commandEngineLabel, commandView, commandShortcutLine, commandSaved,
+    commandEntryView,
     clipboardAfterPasteView, clipboardAfterPasteSaved, feedbackView, feedbackSaved, METER_CELLS, micMeter, usageChart, usageFacts, flowView, PROVIDER_MARKS, providerPill,
     privacyFlow, hotkeyTestLine, whatsNew,
   };

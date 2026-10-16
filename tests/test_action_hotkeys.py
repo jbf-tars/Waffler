@@ -420,19 +420,29 @@ def test_the_mac_observer_reads_a_real_key_event():
     got = isolated("""
 import json, action_hotkeys as ah
 from Quartz import CGEventCreateKeyboardEvent, CGEventSetFlags, kCGEventKeyDown, kCGEventKeyUp
+import os
+from Quartz import CGEventGetIntegerValueField, kCGEventFlagsChanged, kCGEventSourceUnixProcessID
 seen = []
 r = ah.ActionHotkeys('Darwin', spawn=lambda fn: fn())
 r.register('transform', ['control', 'option', 't'], lambda: seen.append(1))
-obs = ah.MacComboObserver(r)
+# An event made here carries this process's id (the keyboard's carries none),
+# which is how Waffler's own Cmd+C and Cmd+V are told from the person's keys.
+# This one is read as if the keyboard had sent it.
+obs = ah.MacComboObserver(r, own_pid=-1)
 T = ah.MAC_KEYCODES['t']
 down = CGEventCreateKeyboardEvent(None, T, True)
 CGEventSetFlags(down, 0x40000 | 0x80000)
 answer = obs.handle(kCGEventKeyDown, down)
 up = CGEventCreateKeyboardEvent(None, T, False)
-print(json.dumps({'constants': [kCGEventKeyDown, kCGEventKeyUp] == [ah._KEY_DOWN, ah._KEY_UP],
-                  'swallowed': answer, 'fired': seen, 'up': obs.handle(kCGEventKeyUp, up)}))
+mine = ah.MacComboObserver(r)
+print(json.dumps({'constants': [kCGEventKeyDown, kCGEventKeyUp, kCGEventFlagsChanged, kCGEventSourceUnixProcessID]
+                  == [ah._KEY_DOWN, ah._KEY_UP, ah._FLAGS_CHANGED, ah._FIELD_SOURCE_PID],
+                  'swallowed': answer, 'fired': seen, 'up': obs.handle(kCGEventKeyUp, up),
+                  'own_pid_is_read': CGEventGetIntegerValueField(down, ah._FIELD_SOURCE_PID) == os.getpid(),
+                  'own_events_ignored': mine.handle(kCGEventKeyDown, down) is False and seen == [1]}))
 """)
-    assert got == {"constants": True, "swallowed": False, "fired": [1], "up": False}
+    assert got == {"constants": True, "swallowed": False, "fired": [1], "up": False,
+                   "own_pid_is_read": True, "own_events_ignored": True}
 
 
 @mac_only

@@ -150,6 +150,7 @@
         <button type="button" class="snav-item" data-sec="general" onclick="showSettingsSection('general')">General</button>
         <button type="button" class="snav-item" data-sec="style" onclick="showSettingsSection('style')">Style</button>
         <button type="button" class="snav-item" data-sec="transforms" onclick="showSettingsSection('transforms')">Transforms (beta)</button>
+        <button type="button" class="snav-item" data-sec="command" onclick="showSettingsSection('command')">Command mode (beta)</button>
         <button type="button" class="snav-item" data-sec="keys" onclick="showSettingsSection('keys')">Keys and providers</button>
         <button type="button" class="snav-item" data-sec="hotkey" onclick="showSettingsSection('hotkey')">Hotkey</button>
         <button type="button" class="snav-item" data-sec="usage" onclick="showSettingsSection('usage')">Usage</button>
@@ -450,6 +451,45 @@
           <p class="s-note" id="transformsFull" hidden>You have 5 transforms, the most you can keep. Delete one to add another.</p>
         </section>
 
+        <!-- Command mode (beta; src/command_mode.py, src/command_action.py): hold a
+             shortcut, say what you want, let go. The selection is edited, new
+             text is written, or a web search opens. Off until switched on.
+             Everything saves at once through save_settings({command_mode: ...});
+             the app checks it again and says why in one sentence. The shortcut
+             is chosen in the same dialog as the dictation hotkey
+             (openHotkeyCapture('command')). -->
+        <section class="s-sec" id="secCommand" data-sec="command" hidden>
+          <h1 class="ptitle">Command mode (beta)</h1>
+          <p class="pdesc">Hold your shortcut, say what you want done, and let go. Waffler edits the text you selected, writes new text where your cursor is, or opens a web search for a question. Your app's own Undo takes an edit back, and the Journal keeps what you said and the text before and after.</p>
+
+          <h2 class="sh2">Command mode</h2>
+          <div class="sheet">
+            <div class="row" id="commandRow">
+              <div class="row-main"><div class="row-t"><label for="commandToggle">Turn on Command mode</label></div><div class="row-d" id="commandDesc">It is off until you turn it on. When you give a command, your recording is turned into text by your speech provider, and what you said, with the text you selected (or, with nothing selected, up to 500 characters before your cursor), is sent to the provider you chose in Keys and providers. Nothing is recorded, read or sent at any other time.</div></div>
+              <input type="checkbox" class="tog" role="switch" id="commandToggle" aria-describedby="commandDesc" onchange="setCommandEnabled(this.checked)">
+            </div>
+            <div class="row" id="commandShortcutRow">
+              <div class="row-main">
+                <div class="row-t" id="commandShortcutTitle">Hold to talk</div>
+                <div class="row-d" id="commandShortcutDesc"></div>
+                <span class="keys tx-caps" id="commandCaps" role="img" hidden></span>
+              </div>
+              <button type="button" class="btn btn-sec btn-sm" id="commandChange" aria-describedby="commandShortcutTitle" onclick="openHotkeyCapture('command')">Change…</button>
+              <button type="button" class="btn btn-quiet btn-sm" id="commandRemove" aria-describedby="commandShortcutTitle" onclick="clearCommandHotkey()">Remove</button>
+            </div>
+            <div class="row" id="commandEngineRow">
+              <div class="row-main"><div class="row-t"><label for="commandEngine">Search engine</label></div><div class="row-d" id="commandEngineDesc">When you ask a question, Waffler opens it here in your browser. Only your spoken question is sent to the engine, never the text you selected.</div></div>
+              <select id="commandEngine" class="select" aria-describedby="commandEngineDesc" onchange="onCommandEngineChange(this)"></select>
+            </div>
+          </div>
+          <p class="s-error" id="commandError" role="alert" hidden></p>
+          <p class="s-note" id="commandOffNote" hidden>Command mode is off, so the shortcut does nothing yet.</p>
+
+          <h2 class="sh2" id="commandExamplesTitle">Try saying</h2>
+          <p class="s-note">For the first two, select some text first. With nothing selected, Waffler can still write new text for you, or search the web when you ask a question.</p>
+          <div class="sheet" id="commandExamples" role="list" aria-labelledby="commandExamplesTitle"></div>
+        </section>
+
         <!-- Keys and providers: what a dictation goes through, then the
              keys in the order Waffler tries them (logic.js keyRows). Drag a
              row by its handle, or focus the handle and use the arrow keys;
@@ -664,6 +704,11 @@
             <div class="row" id="transformsPrivacyRow">
               <div class="row-main"><div class="row-t">Transforms</div><div class="row-d">Only when you use a transform, Waffler reads the text you selected, with Accessibility or by copying it, and sends it to your provider on your own key. The text before and after is kept in your Journal, and Delete all my data clears it with the rest.</div></div>
             </div>
+            <!-- Command mode (beta): what is said, and the text near the cursor, are
+                 sent only while the shortcut is held, to the provider the person chose. -->
+            <div class="row" id="commandPrivacyRow">
+              <div class="row-main"><div class="row-t">Command mode</div><div class="row-d">Only while you hold your Command shortcut, Waffler records what you say, turns it into text with your speech provider, and sends that with the text you selected (or up to 500 characters before your cursor) to your provider on your own key. A question opens your browser with only your spoken question. The recording is not kept. What you said and the text before and after are kept in your Journal, and Delete all my data clears them with the rest.</div></div>
+            </div>
             <div class="row" id="tipsMemoryRow">
               <div class="row-main"><div class="row-t">Tips seen</div><div class="row-d">Which tips Waffler has shown, and which you hid, so it doesn't repeat them. Counts and times only.</div></div>
             </div>
@@ -695,6 +740,10 @@
               <!-- Only when a transform is used (Settings, Transforms). -->
               <div class="row">
                 <div class="row-main"><div class="row-t">The text you selected</div><div class="row-d">Only when you use a transform: Waffler reads your selection, through Accessibility or by copying it and putting your clipboard back, and sends it to your provider on your own key. It never reads a password field.</div></div>
+              </div>
+              <!-- Only when a command is given (Settings, Command mode). -->
+              <div class="row">
+                <div class="row-main"><div class="row-t">The text near your cursor (Command mode)</div><div class="row-d">Only while you hold your Command shortcut with nothing selected: Waffler reads up to 500 characters before your cursor, to give your command some context, and sends them to your provider on your own key. It never reads a password field.</div></div>
               </div>
               <!-- Only with the email signature on (Settings, Style). -->
               <div class="row">

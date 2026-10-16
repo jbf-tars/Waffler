@@ -704,6 +704,13 @@ def report_paste_failure(outcome: Optional[PasteOutcome], notifier,
 
 # ── Paste last / copy last ────────────────────────────────────────────────
 
+# Journal entries that are not dictations (a rewrite of selected text, a spoken
+# command): "Paste last" is the last thing that was dictated. A test keeps this
+# the same as src/history_meta.py NON_DICTATION_KINDS, which this module does
+# not import.
+_NOT_A_DICTATION = ("transform", "command")
+
+
 class LastResult:
     """The last text Waffler produced, for "paste last" and "copy last".
 
@@ -752,7 +759,7 @@ class LastResult:
         except Exception:
             return ""
         for item in reversed(history):
-            if not isinstance(item, dict) or item.get("failed") or item.get("kind") == "transform":
+            if not isinstance(item, dict) or item.get("failed") or item.get("kind") in _NOT_A_DICTATION:
                 continue
             text = item.get("styled") or item.get("text") or ""
             if isinstance(text, str) and text.strip():

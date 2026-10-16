@@ -359,7 +359,7 @@ TRANSFORM_NO_SELECTION = ("Select some text first",
                           "Highlight the text you want to rewrite, then try again.")
 TRANSFORM_TOO_LONG = ("Too much text",
                       "That's too much text for one go (limit 1,000 words). Select less and try again.")
-TRANSFORM_BUSY_DICTATING = ("Waffler is busy", "Finish your dictation first, then try again.")
+TRANSFORM_BUSY_DICTATING = ("Waffler is busy", "Finish what Waffler is doing first, then try again.")
 TRANSFORM_BUSY_ALREADY = ("Still working", "A transform is already running. Wait for it to finish.")
 TRANSFORM_BLOCKS_DICTATION = ("A transform is running",
                               "Wait for it to finish, or press Esc to stop it, then dictate.")
@@ -458,3 +458,70 @@ def transform_failed_message(reason: str):
 TRANSFORM_COPIED = ("Result copied", "Paste it over your selection when you're ready.")
 TRANSFORM_MOVED_NOT_COPIED = ("Result not pasted",
                               "You switched away, and the result couldn't be copied. It's in the Journal.")
+
+
+# ── Command mode (Settings, Command mode; src/command_mode.py, src/command_action.py) ──
+# What the Settings checks say when a value is refused (a refused value saves
+# none of what came with it).
+COMMAND_BAD = "Waffler couldn't use those Command mode settings. Check them and try again."
+COMMAND_ENGINE_UNKNOWN = "Waffler doesn't know that search engine. Pick one from the list."
+
+# What the pill says while a command runs. Each is (heading, body), and the body
+# says what became of the person's text, because that is the worry.
+COMMAND_BUSY_ALREADY = ("Still working", "A command is already running. Wait for it to finish.")
+COMMAND_BUSY_ELSEWHERE = ("Waffler is busy", "Finish what Waffler is doing first, then try again.")
+COMMAND_BLOCKS_DICTATION = ("A command is running",
+                            "Wait for it to finish, or press Esc to stop it, then dictate.")
+COMMAND_CANCELLED = ("Command cancelled", "Your text is unchanged.")
+COMMAND_TOO_LONG = ("That's a long instruction", "Keep it short, a sentence or two, and try again.")
+COMMAND_NO_CHANGE = ("Nothing to change", "Your text already matches what you asked for.")
+COMMAND_BAD_LENGTH = ("Nothing was replaced", "The result looked wrong, so your text is untouched.")
+COMMAND_CUT_SHORT = ("Nothing was replaced", "The result was cut short, so your text is untouched.")
+COMMAND_NO_ANSWER = ("Nothing was replaced", "The service sent back no text, so your text is untouched.")
+COMMAND_REFUSED = ("Nothing was replaced", "The service wouldn't do that, so your text is untouched.")
+COMMAND_DRAFT_COPIED = ("Draft copied",
+                        "Your selected text was left as it is. Paste the draft where you want it.")
+COMMAND_COPIED = ("Result copied", "Paste it where you want it.")
+COMMAND_OPEN_FAILED = ("Couldn't open your browser", "Try again, or search for it yourself.")
+COMMAND_TOO_SLOW = ("Took too long", "The service didn't answer in time. Your text is unchanged.")
+
+
+def command_failed_message(reason: str):
+    """(heading, body) when no provider answered the command. ``reason`` is the
+    styler's own, as for a transform; only the heading differs."""
+    heading, body = transform_failed_message(reason)
+    if heading == "Couldn't rewrite":
+        heading = "Couldn't run that"
+    return heading, body
+
+
+def command_speech_failed_message(kind: str, provider: str = ""):
+    """(heading, body) when the spoken instruction could not be turned into
+    text. ``kind`` is src/unsent.py's sort of the failure (offline, blocked,
+    timeout, rate_limited, anything else); the raw error stays in the log."""
+    who = provider or "your speech service"
+    Who = who[:1].upper() + who[1:]
+    if kind == "blocked":
+        return ("Couldn't hear the command",
+                f"{Who} refused the connection, which usually means a VPN is on. Your text is unchanged.")
+    if kind == "rate_limited":
+        return ("Couldn't hear the command",
+                f"{Who} says you've reached your limit for now. Your text is unchanged.")
+    if kind == "timeout":
+        return ("Couldn't hear the command", f"{Who} took too long to answer. Your text is unchanged.")
+    if kind == "offline":
+        return ("Couldn't hear the command",
+                f"Waffler couldn't reach {who}. Check you're online. Your text is unchanged.")
+    return ("Couldn't hear the command", "Something went wrong turning your voice into text. "
+                                         "Your text is unchanged.")
+
+
+def command_done_message(action: str, platform: str):
+    """The toast after an edit or a draft was pasted."""
+    if action == "edit":
+        return ("Text edited", f"Press {undo_keys(platform)} in your app to undo it.")
+    return ("Draft added", f"Press {undo_keys(platform)} in your app to remove it.")
+
+
+def command_searching_message(engine_label: str):
+    return (f"Searching {engine_label}", "Your question is open in your browser.")

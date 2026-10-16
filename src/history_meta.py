@@ -38,6 +38,18 @@ dictations reads it:
                     the length of a recording, so it is not used here)
     paste, app, app_bundle, category, lang   as above
 
+A spoken command (src/command_mode.py, Settings, Command mode) is an entry of
+its own kind too, with no ``text`` or ``styled`` for the same reason:
+
+    kind            "command"
+    action          "edit", "draft" or "ask"
+    instruction     what the person said
+    before, after   an edit: the selected text, and what replaced it; a draft:
+                    ``after`` is the draft
+    query, engine   a search: the question that was opened, and the engine's id
+    provider        {"command": "groq"}, with ``model``
+    took_s, paste, app, app_bundle, category, lang   as above
+
 The app's name, identifier and kind are kept on this computer with the entry
 and nowhere else; the window title that helped tell a browser's tab is not kept.
 Nothing here reads a file or the window.
@@ -67,11 +79,25 @@ LANG_MAX = 16
 KEPT_ON_REDO = ("id", "timestamp", "audio", "app", "app_bundle", "category", "duration_s")
 
 
+# Entries that are not dictations: a rewrite of selected text and a spoken
+# command. They are in the Journal, and in no number, list or "Paste last"
+# that is built from what the person dictated.
+NON_DICTATION_KINDS = ("transform", "command")
+
+
+def is_dictation(item) -> bool:
+    return isinstance(item, dict) and item.get("kind") not in NON_DICTATION_KINDS
+
+
 def words_of(item: dict) -> str:
     """The words of an entry: what was pasted, else what was heard. For a
-    rewrite of selected text (``kind == "transform"``), the rewritten text."""
-    if item.get("kind") == "transform":
+    rewrite of selected text (``kind == "transform"``), the rewritten text; for
+    a command, the edit or the draft, or the question that was searched."""
+    kind = item.get("kind")
+    if kind == "transform":
         return str(item.get("after") or "")
+    if kind == "command":
+        return str(item.get("after") or item.get("query") or "")
     return str(item.get("styled") or item.get("text") or "")
 
 

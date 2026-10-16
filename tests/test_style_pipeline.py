@@ -594,17 +594,19 @@ def test_a_signature_is_read_again_for_every_dictation(tmp_path, screen):
 
 
 def test_the_privacy_story_in_the_code(tmp_path):
-    """The text before the cursor is read in one place, only when the signature
-    is on, and never logged."""
+    """The text before the cursor is read in two places and no others: for the
+    email signature (only when it is on), and as context for a spoken command
+    that has no selection (src/command_action.py, only while its shortcut is
+    held). It is never logged."""
     import ast
     src = (ROOT / "app.py").read_text(encoding="utf-8")
     tree = ast.parse(src)
     klass = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "WafflerPipeline")
     users = [n.name for n in klass.body if isinstance(n, ast.FunctionDef)
              and "get_text_around_cursor" in ast.unparse(n)]
-    assert users == ["_signature_reader"], users
+    assert users == ["_command_hooks", "_signature_reader"], users
     for fn in klass.body:
-        if isinstance(fn, ast.FunctionDef) and fn.name == "_signature_reader":
+        if isinstance(fn, ast.FunctionDef) and fn.name in ("_signature_reader", "_command_hooks"):
             for call in ast.walk(fn):
                 if isinstance(call, ast.Call) and getattr(call.func, "id", "") == "_log_to_file":
                     assert "before" not in ast.unparse(call), "the text before the cursor is never logged"

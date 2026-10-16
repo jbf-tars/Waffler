@@ -34,9 +34,11 @@ from pathlib import Path
 
 try:
     from atomic_json import replace_with_retry
+    from command_mode import engine_for
     from history_meta import words_of
 except ImportError:  # imported as src.history_export
     from src.atomic_json import replace_with_retry
+    from src.command_mode import engine_for
     from src.history_meta import words_of
 
 FORMATS = ("json", "csv", "txt")
@@ -94,6 +96,12 @@ def _heading(h: dict) -> str:
     if h.get("kind") == "transform":
         name = " ".join(str(h.get("transform_name") or "").split())
         head += f", rewritten with {name}" if name else ", rewritten"
+    elif h.get("kind") == "command":
+        action = h.get("action")
+        if action == "ask":
+            head += f", searched {engine_for(h.get('engine')).label}"
+        else:
+            head += ", drafted by voice" if action == "draft" else ", edited by voice"
     return head
 
 

@@ -145,6 +145,11 @@ _REGISTRY = (
     Kind("transform_result", INFO, hold_s=8),
     Kind("transform_busy", INFO, min_gap_s=8, hold_s=6),
     Kind("transform_failed", ERROR, hold_s=7),
+    # Command mode (src/command_action.py): what became of a command, a
+    # refusal while something else is running (once every 8 s), and a failure.
+    Kind("command_result", INFO, hold_s=8),
+    Kind("command_busy", INFO, min_gap_s=8, hold_s=6),
+    Kind("command_failed", ERROR, hold_s=7),
     # Tips. The hint stays up 10 s (src/hold_hint.py HINT_SECONDS).
     Kind("hold_hint", TIP, min_gap_s=12 * _HOUR, category="hints", hold_s=10),
 )
