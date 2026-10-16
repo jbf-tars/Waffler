@@ -123,6 +123,7 @@
           <h2 class="j-mk">This week</h2>
           <div class="j-spark" id="journalWeek" role="img" aria-label="Words a day, the last seven days"></div>
           <div class="j-spark-x" id="journalWeekDays" aria-hidden="true"></div>
+          <p class="j-msub j-weekline" id="journalWeekLine" hidden></p>
         </div>
         <div class="j-streak" id="streakChip" hidden>
           <span class="j-stack-svg" data-waffle="logo" data-size="28"></span>
@@ -599,7 +600,7 @@
           <div class="stage u-empty" id="usageEmpty" hidden>
             <span class="u-empty-mark" data-waffle="empty" data-size="64"></span>
             <div class="u-empty-t">Nothing counted yet</div>
-            <p class="u-empty-d">Hold <span id="usageEmptyKeys">Win + Ctrl</span> in any text box and talk. Your words and a 30-day chart appear here.</p>
+            <p class="u-empty-d">Hold <span id="usageEmptyKeys">Win + Ctrl</span> in any text box and talk. Your words, a 30-day chart and a map of your weeks appear here.</p>
           </div>
 
           <div id="usageDetail">
@@ -609,6 +610,82 @@
               <div><div class="k">This week</div><div class="v" id="usageWeekWords">0</div><div class="s"><span class="u-wl">words</span>, <span id="usageWeekCount">0</span> <span class="u1">dictations</span></div></div>
               <div><div class="k">This month</div><div class="v" id="usageMonthWords">0</div><div class="s"><span class="u-wl">words</span>, <span id="usageMonthCount">0</span> <span class="u1">dictations</span></div></div>
               <div><div class="k">All time</div><div class="v" id="usageAllWords">0</div><div class="s"><span class="u-wl">words</span>, <span id="usageAllCount">0</span> <span class="u1">dictations</span></div></div>
+            </div>
+
+            <!-- Weeks and pace: the week streak, this week against last and
+                 speaking speed, all counted on this computer from your history
+                 (get_stats, src/stats_insights.py). -->
+            <h2 class="sh2">Weeks and pace</h2>
+            <div class="sheet ledger ledger-3" id="usagePace">
+              <div>
+                <div class="k">Week streak</div>
+                <div class="v" id="insStreakValue">0 weeks</div>
+                <div class="s" id="insStreakSub"></div>
+              </div>
+              <div>
+                <div class="k">This week</div>
+                <div class="v"><span id="insWeekValue">0</span> <span class="u-wl" id="insWeekUnit">words</span></div>
+                <div class="s" id="insWeekLine"></div>
+                <div class="s" id="insWeekLast"></div>
+              </div>
+              <div>
+                <div class="k">Words a minute</div>
+                <div class="v" id="insWpmValue">Not yet</div>
+                <div class="s" id="insWpmSub"></div>
+              </div>
+            </div>
+
+            <!-- Time saved is an estimate and says so: the typing speed is
+                 yours to set (settings.json typing_wpm, 10 to 200). -->
+            <h2 class="sh2">Time saved<span class="aside">an estimate</span></h2>
+            <div class="sheet saved" id="usageSaved">
+              <div class="saved-main">
+                <div class="saved-v" id="insSavedValue">0 min</div>
+                <p class="saved-s" id="insSavedSub"></p>
+                <button type="button" class="link-btn" id="insSavedHowBtn" aria-expanded="false" aria-controls="insSavedHow" onclick="toggleSavedHow()">How this is estimated<svg class="ic ic-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
+                <div class="saved-how" id="insSavedHow" hidden></div>
+              </div>
+              <div class="row" id="typingWpmRow">
+                <div class="row-main">
+                  <div class="row-t"><label for="typingWpm">Your typing speed</label></div>
+                  <div class="row-d" id="typingWpmDesc">Words a minute. It only sets the estimate above and changes nothing else.</div>
+                  <div class="row-err" id="typingWpmErr" role="alert" hidden></div>
+                </div>
+                <input id="typingWpm" class="input input-wpm" type="number" inputmode="numeric" min="10" max="200" step="1" value="40" aria-describedby="typingWpmDesc" onchange="onTypingSpeedChange(this)">
+              </div>
+            </div>
+
+            <!-- When you dictate: the last 26 weeks as a map of days (one
+                 tab stop; the arrow keys move between days), the busiest hour
+                 and the apps dictated into most. -->
+            <h2 class="sh2">When you dictate</h2>
+            <div class="sheet heat" id="usageHeat">
+              <div class="heat-head">
+                <span class="heat-title">Words a day, the last 26 weeks</span>
+                <span class="heat-legend" aria-hidden="true">Less <i class="hm-s hm-l0"></i><i class="hm-s hm-l1"></i><i class="hm-s hm-l2"></i><i class="hm-s hm-l3"></i><i class="hm-s hm-l4"></i> More</span>
+              </div>
+              <div class="heat-wrap" id="heatWrap">
+                <div class="heat-months" id="heatMonths" aria-hidden="true"></div>
+                <div class="heat-dows" aria-hidden="true"><span>Mon</span><span></span><span>Wed</span><span></span><span>Fri</span><span></span><span></span></div>
+                <div class="heat-grid" id="heatGrid" role="grid" aria-rowcount="7" aria-colcount="26" aria-label="Words a day, the last 26 weeks, a row for each weekday and a column for each week. Use the arrow keys to move between days." aria-describedby="heatSummary"></div>
+                <div class="heat-tip" id="heatTip" aria-hidden="true" hidden></div>
+              </div>
+              <p class="heat-sum" id="heatSummary"></p>
+            </div>
+            <div class="sheet ins-pair">
+              <div class="ins-pane" id="peakPane">
+                <h3 class="k">Busiest hour</h3>
+                <div class="ins-title" id="peakTitle"></div>
+                <div class="hours" id="peakBars" aria-hidden="true"></div>
+                <div class="hours-x" id="peakAxis" aria-hidden="true"><span>12 am</span><span>6 am</span><span>noon</span><span>6 pm</span></div>
+                <p class="s" id="peakSub"></p>
+                <table class="sr-only" id="peakTable"></table>
+              </div>
+              <div class="ins-pane" id="appsPane">
+                <h3 class="k">Top apps</h3>
+                <div id="appsRows"></div>
+                <p class="s" id="appsNote"></p>
+              </div>
             </div>
 
             <h2 class="sh2">Estimated cost<span class="aside">an estimate</span></h2>

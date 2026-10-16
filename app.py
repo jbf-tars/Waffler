@@ -127,6 +127,7 @@ import unsent as _unsent
 import tray_state as _tray_state
 import first_run as _first_run
 import journal_data as _journal
+import stats_insights as _stats_insights
 import recent_audio as _recent_audio
 import privacy_data as _privacy
 import cleanup_pause as _cleanup_pause
@@ -344,10 +345,24 @@ def save_history(history: list):
     write_json_atomic(HISTORY_FILE, history)
 
 
+def _typing_wpm_setting() -> int:
+    """The typing speed in settings.json (Settings, Usage), for the
+    minutes-saved estimate; 40 when it is missing or unreadable."""
+    try:
+        sf = DATA_DIR / "settings.json"
+        stored = json.loads(sf.read_text(encoding="utf-8-sig")) if sf.exists() else {}
+    except Exception:
+        return _stats_insights.TYPING_WPM_DEFAULT
+    return _stats_insights.typing_wpm_of(stored)
+
+
 # The parsed history and its counts, kept until history.json changes
 # (src/journal_data.py). The window asks for pages and counts often; it
-# used to read and rescan the whole file every time.
-_history_cache = _journal.HistoryCache(HISTORY_FILE, load_history)
+# used to read and rescan the whole file every time. Older entries borrow
+# their speaking speed from quality.jsonl (seconds of speech, no words).
+_history_cache = _journal.HistoryCache(HISTORY_FILE, load_history,
+                                       quality_path=lambda: DATA_DIR / "quality.jsonl",
+                                       typing_wpm=_typing_wpm_setting)
 
 # Vocabulary, Try a sentence: the longest text it takes.
 TRY_VOCAB_MAX_CHARS = 2000
@@ -821,7 +836,12 @@ class Api:
         Worked out once per change to history.json, not on every call.
         Streak: consecutive days, ending today, with at least one entry; if
         today has none yet, yesterday anchors it, so a streak doesn't snap
-        to 0 at midnight before the first dictation of the day."""
+        to 0 at midnight before the first dictation of the day.
+
+        Also the figures of src/stats_insights.py: the week streak, this week
+        against last, the busiest hour, the activity map, minutes saved
+        (an estimate, from the typing speed in Settings, Usage), speaking
+        speed and top apps. All of it is computed on this computer."""
         return _history_cache.stats(date.today())
 
     # ── Mode / Prompt API ─────────────────────────────────────────────
@@ -1171,6 +1191,7 @@ class Api:
         from style_layer import cleanup_mode, signature_settings, styles_by_category
         from transforms import window_view as window_view_transforms
         from command_mode import window_view as window_view_command
+        from stats_insights import typing_wpm_of
         stored = self._load_settings_file()
         key = os.getenv("OPENAI_API_KEY", "")
         groq_key = os.getenv("GROQ_API_KEY", "")
@@ -1247,6 +1268,9 @@ class Api:
             "transforms":            window_view_transforms(stored),
             # Command mode (src/command_mode.py): off, no shortcut, Perplexity.
             "command_mode":          window_view_command(stored),
+            # Settings, Usage: how fast the person types, for the minutes-saved
+            # estimate (src/stats_insights.py). 40 until set; 10 to 200.
+            "typing_wpm":            typing_wpm_of(stored),
         }
 
     def save_settings(self, settings: dict) -> dict:
@@ -1277,6 +1301,11 @@ class Api:
             # the payload.
             import style_layer as _sl
             problem = _sl.settings_problem(settings)
+            if problem:
+                return {"ok": False, "error": problem}
+            # Typing speed (Settings, Usage): a whole number from 10 to 200.
+            import stats_insights as _si
+            problem = _si.settings_problem(settings)
             if problem:
                 return {"ok": False, "error": problem}
             # Transforms (Settings, Transforms): switch, shortcut, Polish
@@ -1364,6 +1393,12 @@ class Api:
                 if "email_signature" in settings:
                     stored["email_signature"] = _sl.merged_signature(stored, settings)
                     notes.append(f"Email signature: {'on' if stored['email_signature']['enabled'] else 'off'}")
+
+                # ── Typing speed: read again by every count of the stats, so
+                # Settings, Usage shows the new estimate at once.
+                if "typing_wpm" in settings:
+                    stored["typing_wpm"] = _si.clean_typing_wpm(settings["typing_wpm"])
+                    notes.append(f"Typing speed: {stored['typing_wpm']} words a minute")
 
                 # ── Transforms: read again for every run; the shortcut and the
                 # menu item are applied live (below). The notes never carry

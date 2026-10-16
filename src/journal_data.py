@@ -14,7 +14,10 @@ grew with every day of use. Now:
 - ``compute_stats`` is the one place the counts are worked out: today, this
   week, this month, all time, the day streak (and the longest one), and the
   words of each of the last 30 days (Settings, Usage draws them as a chart;
-  the Journal draws the last seven).
+  the Journal draws the last seven). In the same walk it collects what
+  src/stats_insights.py reports: the week streak, this week against last,
+  the busiest hour, the activity map, minutes saved, speaking speed and top
+  apps.
 - ``vocab_usage`` counts what the Vocabulary corrected, from the
   corrections recorded with each entry.
 
@@ -23,14 +26,17 @@ Nothing here touches the network or the window.
 
 from __future__ import annotations
 
+import copy
 import os
 import threading
 from datetime import date, timedelta
 
 try:
     from history_meta import NON_DICTATION_KINDS
+    import stats_insights
 except ImportError:  # imported as src.journal_data
     from src.history_meta import NON_DICTATION_KINDS
+    from src import stats_insights
 
 
 def _day(ts) -> date | None:
@@ -56,7 +62,8 @@ def _words(item: dict) -> int:
 CHART_DAYS = 30
 
 
-def compute_stats(history: list, today: date) -> dict:
+def compute_stats(history: list, today: date, *,
+                  typing_wpm=stats_insights.TYPING_WPM_DEFAULT, speech_log=None) -> dict:
     """Counts for the Journal strip and Settings, Usage.
 
     ``today_count`` counts every entry made today, as it always has; the
@@ -74,6 +81,13 @@ def compute_stats(history: list, today: date) -> dict:
     A transform (``kind == "transform"``, a rewrite of selected text) is
     counted in ``entries`` and ``transform_count`` and nowhere else; a spoken
     command (``kind == "command"``) in ``entries`` and ``command_count``.
+
+    The keys of src/stats_insights.py are added to the answer (its docstring
+    says what each means). ``words_this_month`` is ``month_words`` under the
+    name the week figures use. ``typing_wpm`` is the person's typing speed for
+    the minutes-saved estimate; ``speech_log`` is {timestamp: seconds of
+    speech} from quality.jsonl, or a function returning it (only called when
+    an entry needs it), for the speed of entries saved before ``speech_s``.
     """
     week_start = today - timedelta(days=today.weekday())
     chart_start = today - timedelta(days=CHART_DAYS - 1)
@@ -87,6 +101,7 @@ def compute_stats(history: list, today: date) -> dict:
         "daily_start": chart_start.isoformat(), "daily_words": daily,
     }
     days = set()
+    insights = stats_insights.Insights(today, typing_wpm, speech_log)
     for h in history:
         if not isinstance(h, dict):
             continue
@@ -104,6 +119,7 @@ def compute_stats(history: list, today: date) -> dict:
         out["total_words"] += w
         if not failed:
             out["total_count"] += 1
+            insights.add(h, d, w)
         if d is None:
             continue
         days.add(d)
@@ -123,6 +139,8 @@ def compute_stats(history: list, today: date) -> dict:
         out["streak_days"] += 1
         cursor -= timedelta(days=1)
     out["longest_streak_days"] = longest_run(days)
+    out["words_this_month"] = out["month_words"]
+    out.update(insights.result())
     return out
 
 
@@ -251,11 +269,27 @@ class HistoryCache:
     The cache is keyed on the file's size and modified time, so a write
     from anywhere (a dictation, Try again, Delete) is picked up on the next
     call. Callers get the cached list itself: they must not change it.
+
+    The stats are kept the same way, for the day, the typing speed and the
+    quality log they were worked out with; a Journal refresh on an unchanged
+    history is a copy, not a recount (``computes`` says how many counts were
+    made). Optional, all read at call time:
+
+    - ``quality_path``: quality.jsonl, or a function returning its path. Its
+      speech lengths give older entries a speaking speed. It is read only when
+      an entry needs it, and again only when the file changes.
+    - ``typing_wpm``: the typing speed setting, or a function returning it.
+    - ``clock`` and ``tz``: the clock (a datetime) and the zone it is read in,
+      for ``stats()`` without a day; by default the computer's own.
     """
 
-    def __init__(self, path, load):
+    def __init__(self, path, load, quality_path=None, typing_wpm=None, clock=None, tz=None):
         self._path = path
         self._load = load
+        self._quality_path = quality_path
+        self._typing_wpm = typing_wpm
+        self._clock = clock
+        self._tz = tz
         self._lock = threading.Lock()
         self._sig = None
         self._items: list = []
@@ -263,7 +297,10 @@ class HistoryCache:
         self._stats: dict | None = None
         self._vocab_key = None
         self._vocab: dict | None = None
+        self._speech_key = None
+        self._speech: dict | None = None
         self.loads = 0      # how many times the file was read (for tests)
+        self.computes = 0   # how many times the stats were worked out (for tests)
 
     def invalidate(self):
         """Read the file again on the next call. The size and time that tell
@@ -294,16 +331,53 @@ class HistoryCache:
                 self.loads += 1
             return self._items
 
-    def stats(self, today: date) -> dict:
+    def _quality_file(self):
+        q = self._quality_path
+        try:
+            return q() if callable(q) else q
+        except Exception:
+            return None
+
+    def _speech_signature(self):
+        path = self._quality_file()
+        if not path:
+            return None
+        try:
+            st = os.stat(path)
+            return (str(path), st.st_size, st.st_mtime_ns, st.st_ino)
+        except OSError:
+            return None
+
+    def _speech_log(self, sig):
+        """The quality log's speech lengths, read once per change to it."""
+        if self._speech_key != sig or self._speech is None:
+            self._speech = stats_insights.read_speech_log(self._quality_file()) if sig else {}
+            self._speech_key = sig
+        return self._speech
+
+    def _typing_speed(self, given):
+        if given is not None:
+            return given
+        try:
+            v = self._typing_wpm() if callable(self._typing_wpm) else self._typing_wpm
+        except Exception:
+            v = None            # a settings.json that is locked or unreadable: the default
+        return stats_insights.clean_typing_wpm(v) or stats_insights.TYPING_WPM_DEFAULT
+
+    def stats(self, today: date | None = None, typing_wpm=None) -> dict:
+        if today is None:
+            today = stats_insights.local_today(self._clock() if self._clock else None, self._tz)
         items = self.items()
+        speed = self._typing_speed(typing_wpm)
         with self._lock:
-            key = (self._sig, today)
+            speech_sig = self._speech_signature()
+            key = (self._sig, today, speed, speech_sig)
             if self._stats is None or self._stats_key != key:
-                self._stats = compute_stats(items, today)
+                self._stats = compute_stats(items, today, typing_wpm=speed,
+                                            speech_log=lambda: self._speech_log(speech_sig))
                 self._stats_key = key
-            out = dict(self._stats)
-            out["daily_words"] = list(out["daily_words"])
-            return out
+                self.computes += 1
+            return copy.deepcopy(self._stats)
 
     def vocab_usage(self) -> dict:
         """vocab_usage of the cached history, worked out once per change.

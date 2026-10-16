@@ -300,6 +300,10 @@ SOUNDS_UNKNOWN = "Waffler doesn't know that choice for sounds. Use the switch."
 TIPS_UNKNOWN = "Waffler doesn't know that choice for tips. Use the switch."
 
 
+# Settings, Usage: how fast the person types, for the minutes-saved estimate.
+TYPING_SPEED_UNKNOWN = "Typing speed needs a whole number of words a minute, from 10 to 200."
+
+
 # ── Style (Settings, Style): clean-up On or Off, a style per kind of app, the
 # email signature. A refused choice saves none of what came with it.
 CLEANUP_CHOICE_UNKNOWN = "Waffler doesn't know that clean-up choice. Use the switch."

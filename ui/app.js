@@ -1388,6 +1388,14 @@ function renderStats() {
     days.innerHTML = bars.map((b) => `<span>${escHtml(b.initial)}</span>`).join('');
     week.setAttribute('aria-label', 'Words a day, the last seven days: ' + bars.map((b) => WL.formatCount(b.words)).join(', '));
   }
+  // This week against last, in one calm line; nothing when there is nothing
+  // to compare (WL.weekView, from get_stats).
+  const weekLine = document.getElementById('journalWeekLine');
+  if (weekLine) {
+    const line = WL.weekView(stats).rail;
+    weekLine.textContent = line;
+    weekLine.hidden = !line;
+  }
 
   // Days in a row: hidden at 0, so the first day doesn't say "0 days".
   const streakChip = document.getElementById('streakChip');
@@ -3167,6 +3175,8 @@ async function loadSettings() {
     const reads = document.getElementById('privPasteReads');
     if (reads) reads.hidden = !isMacPlatform;
     renderFeedbackRows();
+    const typing = document.getElementById('typingWpm');
+    if (typing && document.activeElement !== typing && s.typing_wpm) typing.value = String(s.typing_wpm);
     renderStyleSection();
     renderTransformsSection();
     renderCommandSection();
@@ -4014,6 +4024,8 @@ async function saveSetting(key, value) {
         showToast(WL.styleSaved(kind, value[kind]), 'success', 3500);
       } else if (key === 'email_signature' && 'enabled' in value) {
         showToast(WL.signatureSaved(value.enabled), 'success', 3500);
+      } else if (key === 'typing_wpm') {
+        showToast(WL.typingSpeedSaved(value), 'success', 3500);
       } else if (key === 'language') {
         const known = _languageList.find((l) => l.code === value);
         showToast(WL.languageSaved(value, known ? known.name : ''), 'success');
@@ -5348,6 +5360,7 @@ async function loadUsageStats() {
     put('usageFactCountLabel', f.dictationsLabel);
     put('usageFactPer', f.perDictation);
     _renderUsageChart(st);
+    _renderInsights(st);
 
     const ids = { today: 'Today', week: 'Week', month: 'Month', all: 'All' };
     const wordKeys = { today: 'today_words', week: 'week_words', month: 'month_words', all: 'total_words' };
@@ -5400,6 +5413,191 @@ function _renderUsageChart(st) {
     + `<span class="bars">${c.bars.map((b) => `<i class="${b.cls}" style="height:${b.h}%" title="${escHtml(b.label)}"></i>`).join('')}</span>`;
   const total = c.bars.reduce((n, b) => n + b.words, 0);
   host.setAttribute('aria-label', `Words a day, the last 30 days: ${WL.formatCount(total)} words in all. ${c.bars.length ? c.bars[c.bars.length - 1].label : ''}`);
+}
+
+// ── Usage: weeks, time saved, the map of days, busiest hour, top apps ──────
+// Drawn from the same get_stats answer as the totals above (computed on this
+// computer by src/stats_insights.py). The sentences and the buckets are in
+// logic.js (weekView, minutesSavedView, heatmapView, ...) where they are
+// tested; this only puts them on the page.
+function _put(id, text) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = text;
+}
+
+function _renderInsights(st) {
+  const streak = WL.weekStreakView(st);
+  _put('insStreakValue', streak.value);
+  _put('insStreakSub', streak.sub);
+  const wk = WL.weekView(st);
+  _put('insWeekValue', wk.words);
+  _put('insWeekUnit', wk.wordsLabel);
+  _put('insWeekLine', wk.line);
+  _put('insWeekLast', wk.last);
+  const wpm = WL.wpmView(st);
+  _put('insWpmValue', wpm.value);
+  _put('insWpmSub', wpm.sub);
+  _renderSaved(st);
+  _renderHeat(st);
+  _renderPeakHour(st);
+  _renderTopApps(st);
+}
+
+function _renderSaved(st) {
+  const v = WL.minutesSavedView(st);
+  _put('insSavedValue', v.value);
+  _put('insSavedSub', v.sub);
+  const how = document.getElementById('insSavedHow');
+  if (how) how.innerHTML = v.how.map((t) => `<p>${escHtml(t)}</p>`).join('');
+  // The box shows the speed the estimate used; it is left alone while it is
+  // being typed in.
+  const input = document.getElementById('typingWpm');
+  if (input && document.activeElement !== input) {
+    input.value = String(v.typing);
+    input.removeAttribute('aria-invalid');
+    const err = document.getElementById('typingWpmErr');
+    if (err) { err.textContent = ''; err.hidden = true; }
+  }
+}
+
+function toggleSavedHow() {
+  const btn = document.getElementById('insSavedHowBtn');
+  const box = document.getElementById('insSavedHow');
+  if (!btn || !box) return;
+  const open = box.hidden;
+  box.hidden = !open;
+  btn.setAttribute('aria-expanded', String(open));
+}
+
+// Settings, Usage: the typing speed behind the estimate. Checked here, then
+// by the app, which refuses anything but a whole number from 10 to 200.
+async function onTypingSpeedChange(input) {
+  const err = document.getElementById('typingWpmErr');
+  const check = WL.typingSpeedCheck(input.value);
+  if (!check.ok) {
+    input.setAttribute('aria-invalid', 'true');
+    if (err) { err.textContent = check.message; err.hidden = false; }
+    return;
+  }
+  input.removeAttribute('aria-invalid');
+  if (err) { err.textContent = ''; err.hidden = true; }
+  const ok = await saveSetting('typing_wpm', check.value);
+  if (ok) {
+    if (_lastSettings) _lastSettings.typing_wpm = check.value;
+    await loadUsageStats();
+  } else if (_lastSettings && _lastSettings.typing_wpm) {
+    input.value = String(_lastSettings.typing_wpm);
+  }
+}
+
+// The map of days: a column a week, Monday at the top, one square a day. It is
+// a grid with one Tab stop; the arrow keys move between days (WL.heatMove) and
+// each square says its day and words to a screen reader and in a tip on focus
+// or hover.
+let _heat = null;
+
+function _renderHeat(st) {
+  const card = document.getElementById('usageHeat');
+  const grid = document.getElementById('heatGrid');
+  if (!card || !grid) return;
+  const v = WL.heatmapView(st.heatmap, st.today);
+  _heat = v;
+  card.hidden = !v.cells.length;
+  // A row for each weekday, a cell for each week (days still to come have no
+  // cell). The cells are not buttons: they do nothing when pressed.
+  const rows = [[], [], [], [], [], [], []];
+  v.cells.filter((c) => !c.future).forEach((c) => {
+    rows[c.dow].push(`<div role="gridcell" class="hm-c hm-l${c.level}${c.iso === st.today ? ' is-today' : ''}" data-i="${c.i}" tabindex="${c.i === v.last ? 0 : -1}" aria-label="${escHtml(c.label)}"></div>`);
+  });
+  grid.innerHTML = rows.map((r) => `<div role="row" class="heat-row">${r.join('')}</div>`).join('');
+  const months = document.getElementById('heatMonths');
+  if (months) months.innerHTML = v.months.map((m) => `<span style="grid-column:${m.col + 1} / span 3">${escHtml(m.label)}</span>`).join('');
+  _put('heatSummary', v.summary);
+  _heatHideTip();
+  if (!grid.dataset.wired) {
+    grid.dataset.wired = '1';
+    grid.addEventListener('keydown', _heatKey);
+    grid.addEventListener('focusin', (e) => {
+      const cell = e.target.closest && e.target.closest('.hm-c[data-i]');
+      if (!cell) return;
+      grid.querySelectorAll('.hm-c[tabindex="0"]').forEach((x) => { x.tabIndex = -1; });
+      cell.tabIndex = 0;
+      _heatShowTip(cell);
+    });
+    grid.addEventListener('focusout', _heatHideTip);
+    grid.addEventListener('mouseover', (e) => {
+      const cell = e.target.closest && e.target.closest('.hm-c[data-i]');
+      if (cell) _heatShowTip(cell);
+    });
+    grid.addEventListener('mouseleave', _heatHideTip);
+  }
+}
+
+function _heatKey(e) {
+  if (e.key === 'Escape') { _heatHideTip(); return; }
+  const cell = e.target.closest && e.target.closest('.hm-c[data-i]');
+  if (!cell || !_heat || e.altKey || e.ctrlKey || e.metaKey) return;
+  const to = WL.heatMove(Number(cell.dataset.i), e.key, _heat.last);
+  if (to === null) return;
+  e.preventDefault();
+  const next = document.querySelector(`#heatGrid .hm-c[data-i="${to}"]`);
+  if (next && next !== cell) next.focus();
+}
+
+function _heatShowTip(cell) {
+  const tip = document.getElementById('heatTip');
+  const wrap = document.getElementById('heatWrap');
+  if (!tip || !wrap) return;
+  tip.textContent = cell.getAttribute('aria-label') || '';
+  tip.hidden = false;
+  const w = wrap.getBoundingClientRect();
+  const r = cell.getBoundingClientRect();
+  const half = tip.offsetWidth / 2;
+  tip.style.left = Math.min(Math.max(r.left - w.left + r.width / 2, half), w.width - half) + 'px';
+  tip.style.top = (r.top - w.top) + 'px';
+}
+
+function _heatHideTip() {
+  const tip = document.getElementById('heatTip');
+  if (tip) tip.hidden = true;
+}
+
+// The busiest hour: 24 bars, the peak in honey, and a table for screen readers.
+function _renderPeakHour(st) {
+  const v = WL.peakHourView(st);
+  _put('peakTitle', v.known ? v.title : '');
+  const bars = document.getElementById('peakBars');
+  const axis = document.getElementById('peakAxis');
+  if (bars) {
+    bars.hidden = !v.known;
+    bars.innerHTML = v.bars.map((b) => `<i class="${b.peak ? 'is-peak' : (b.count ? '' : 'is-zero')}" style="height:${b.height}%" title="${escHtml(b.label)}"></i>`).join('');
+  }
+  if (axis) axis.hidden = !v.known;
+  _put('peakSub', v.known ? v.sub : v.teach);
+  const table = document.getElementById('peakTable');
+  if (table) {
+    table.innerHTML = v.known
+      ? '<caption>Dictations by hour of the day</caption>'
+        + v.bars.filter((b) => b.count).map((b) => `<tr><th scope="row">${escHtml(WL.hourRange(b.hour))}</th><td>${b.count}</td></tr>`).join('')
+      : '';
+  }
+}
+
+// The apps dictated into most, as ranked bars; the dictations that never
+// said which app are counted apart, so older history is not misread.
+function _renderTopApps(st) {
+  const v = WL.topAppsView(st);
+  const rows = document.getElementById('appsRows');
+  if (rows) {
+    rows.innerHTML = v.rows.map((r) => `
+      <div class="abar" title="${escHtml(r.name)}: ${r.countText} ${r.count === 1 ? 'dictation' : 'dictations'}">
+        <span class="abar-n">${escHtml(r.name)}</span>
+        <span class="pbar-tr" aria-hidden="true"><i class="${r.top ? 'is-top' : ''}" style="width:${r.pct}%"></i></span>
+        <span class="abar-c">${r.countText}</span>
+      </div>`).join('')
+      + (v.missing ? `<div class="abar abar-none"><span class="abar-n">${escHtml(v.missing.label)}</span><span></span><span class="abar-c">${v.missing.countText}</span></div>` : '');
+  }
+  _put('appsNote', v.empty ? v.teach : [v.more, v.missing ? v.missing.note : ''].filter(Boolean).join(' '));
 }
 
 async function loadAppVersion() {

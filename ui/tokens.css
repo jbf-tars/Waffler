@@ -175,6 +175,15 @@ body {
   /* Squared paper (setup): a grid you can see at 1x and 2x on --stage. */
   --stage-grid:  rgba(122, 87, 23, 0.10);
   --stage-edge:  rgba(122, 87, 23, 0.18);
+  /* The activity map's five steps (Settings, Usage): nothing, then four
+     steps of honey. Each is a step of at least 1.25:1 from the one before
+     and the darkest is 6.3:1 on --card, so the map reads without colour
+     alone and the day with most words is the strongest mark. */
+  --heat-0: #EEEBE7;
+  --heat-1: #F0D07A;
+  --heat-2: #DDAE48;
+  --heat-3: #BF8328;
+  --heat-4: #85561A;
   --danger-solid:       #B42318;       /* the solid Delete button: white on it, 6.5:1 */
   --danger-solid-hover: #8F1C13;
 
@@ -227,6 +236,11 @@ body[data-theme="dark"] {
   --stage-line:  rgba(232, 200, 108, 0.05);
   --stage-grid:  rgba(232, 200, 108, 0.085);
   --stage-edge:  rgba(232, 200, 108, 0.14);
+  --heat-0: #292524;
+  --heat-1: #4A3A1B;
+  --heat-2: #7D5E23;
+  --heat-3: #BA8A2E;
+  --heat-4: #EBCB75;
   --danger-solid:       #C8372B;
   --danger-solid-hover: #A82D23;
   --shadow-btn:    0 0 0 0.5px rgba(255, 255, 255, 0.10), 0 1px 2px rgba(0, 0, 0, 0.5);
@@ -273,6 +287,11 @@ body[data-theme="dark"] {
     --stage-line:  rgba(232, 200, 108, 0.05);
     --stage-grid:  rgba(232, 200, 108, 0.085);
     --stage-edge:  rgba(232, 200, 108, 0.14);
+    --heat-0: #292524;
+    --heat-1: #4A3A1B;
+    --heat-2: #7D5E23;
+    --heat-3: #BA8A2E;
+    --heat-4: #EBCB75;
     --danger-solid:       #C8372B;
     --danger-solid-hover: #A82D23;
     --shadow-btn:    0 0 0 0.5px rgba(255, 255, 255, 0.10), 0 1px 2px rgba(0, 0, 0, 0.5);

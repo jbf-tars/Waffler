@@ -1730,6 +1730,306 @@
     return { title, sub: '' };
   }
 
+
+  // ── The numbers beside the totals: week streak, this week against
+  // last, minutes saved, words a minute, busiest hour, top apps and the
+  // activity map. They are readings of get_stats (src/stats_insights.py,
+  // worked out on this computer from the Journal); nothing here asks for
+  // more. Every sentence is plain and calm: a quieter week is a fact, not a
+  // fault, and an estimate says it is one.
+  const TYPING_WPM = { min: 10, max: 200, def: 40 };     // stats_insights.TYPING_WPM_*
+  const TYPING_SPEED_PROBLEM = 'Typing speed needs a whole number of words a minute, from 10 to 200.';
+  const SMALL_WEEK = 50;          // under this many words, a percent jumps about: say the difference in words
+  const HEAT_LEVELS = 5;
+
+  function _n(v) {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  }
+  function _count(v) {
+    return Math.max(0, Math.round(_n(v)));
+  }
+  function _noun(n, one, many) {
+    return `${formatCount(n)} ${Math.round(_n(n)) === 1 ? one : many}`;
+  }
+  function _upper(text) {
+    return text ? text.charAt(0).toUpperCase() + text.slice(1) : '';
+  }
+
+  // "7 h 10 min", "45 min", "under a minute". Hours only from 100 h up.
+  function formatMinutes(minutes) {
+    const v = _n(minutes);
+    if (v <= 0) return '0 min';
+    if (v < 0.5) return 'under a minute';
+    const total = Math.round(v);
+    if (total < 60) return `${total} min`;
+    const h = Math.floor(total / 60);
+    const m = total % 60;
+    if (h >= 100) return `${formatCount(h)} h`;
+    return m ? `${h} h ${m} min` : `${h} h`;
+  }
+
+  // "about 7 h 10 min", but "under a minute" and "0 min" stand as they are.
+  function _about(minutes) {
+    const text = formatMinutes(minutes);
+    return text === '0 min' || text.indexOf('under') === 0 ? text : `about ${text}`;
+  }
+
+  // The hour 14 as "2 pm", 0 as "midnight", 12 as "noon".
+  function clockHour(h) {
+    const x = ((Math.round(_n(h)) % 24) + 24) % 24;
+    if (x === 0) return 'midnight';
+    if (x === 12) return 'noon';
+    return x < 12 ? `${x} am` : `${x - 12} pm`;
+  }
+  function hourRange(h) {
+    return `${clockHour(h)} to ${clockHour(_n(h) + 1)}`;
+  }
+
+  // Typing speed (Settings, Usage): the box holds text, the setting is a
+  // whole number from 10 to 200. The app checks it again.
+  function typingSpeedCheck(raw) {
+    const text = String(raw === null || raw === undefined ? '' : raw).trim();
+    if (!/^\d{1,4}$/.test(text)) return { ok: false, value: null, message: TYPING_SPEED_PROBLEM };
+    const value = parseInt(text, 10);
+    if (value < TYPING_WPM.min || value > TYPING_WPM.max) return { ok: false, value: null, message: TYPING_SPEED_PROBLEM };
+    return { ok: true, value, message: '' };
+  }
+  function typingSpeedSaved(value) {
+    return `Typing speed set to ${formatCount(value)} words a minute. Minutes saved is updated.`;
+  }
+
+  // This week against last. The comparison is this week so far with the same
+  // days of last week (a Monday is not "down 90%" for being one day long);
+  // on Sunday those are the whole week. ``phrase`` is the comparison alone
+  // ("up 12% on last week"), ``line`` the sentence for Settings, ``rail`` the
+  // line under the Journal's bars (empty when there is nothing to compare).
+  function weekView(stats) {
+    stats = stats || {};
+    const thisWords = _count(stats.words_this_week);
+    const lastWords = _count(stats.words_last_week);
+    const base = _count(stats.words_last_week_same_days);
+    const partial = stats.weekday === undefined || stats.weekday === null ? false : _n(stats.weekday) < 6;
+    const ref = partial ? 'the same days last week' : 'last week';
+    const pct = stats.week_change_pct;
+    let phrase = '';
+    if (thisWords > 0 && base > 0 && pct !== null && pct !== undefined && Number.isFinite(Number(pct))) {
+      const change = Math.round(Number(pct));
+      if (Math.abs(change) < 3) phrase = `about the same as ${ref}`;
+      else if (base < SMALL_WEEK) {
+        const diff = thisWords - base;
+        phrase = diff > 0 ? `${formatCount(diff)} more than ${ref}` : `${formatCount(-diff)} fewer than ${ref}`;
+      } else if (change >= 300) phrase = `well up on ${ref}`;
+      else if (change > 0) phrase = `up ${formatCount(change)}% on ${ref}`;
+      else phrase = `down ${formatCount(-change)}% on ${ref}`;
+    }
+    let line = '';
+    if (phrase) line = `${_upper(phrase)}.`;
+    else if (thisWords === 0 && lastWords > 0) line = `A fresh week. Last week you dictated ${_noun(lastWords, 'word', 'words')}.`;
+    else if (thisWords > 0 && lastWords === 0) line = 'Once there is a week behind you, this shows how the two compare.';
+    return {
+      words: formatCount(thisWords),
+      wordsLabel: thisWords === 1 ? 'word' : 'words',
+      phrase,
+      line,
+      last: lastWords > 0 ? `Last week in full: ${_noun(lastWords, 'word', 'words')}.` : '',
+      rail: phrase ? `This week: ${_noun(thisWords, 'word', 'words')}, ${phrase}.` : '',
+    };
+  }
+
+  // Weeks in a row with a dictation. Last week anchors it until this week
+  // has one, so the sentence says what keeps it going.
+  function weekStreakView(stats) {
+    stats = stats || {};
+    const n = _count(stats.week_streak);
+    if (!n) return { value: '0 weeks', sub: 'Dictate on any day this week to start one.' };
+    const thisWeek = _count(stats.week_count) > 0;
+    return {
+      value: _noun(n, 'week', 'weeks'),
+      sub: thisWeek ? 'in a row, counting this week.' : 'in a row. Dictate this week to keep it going.',
+    };
+  }
+
+  // Words a minute of speech. Nothing until enough dictations have a
+  // measured length (the app says how many it has used).
+  function wpmView(stats) {
+    stats = stats || {};
+    const wpm = stats.wpm;
+    if (wpm === null || wpm === undefined || !(_n(wpm) > 0)) {
+      return { known: false, value: 'Not yet', sub: 'A few more dictations and your speed shows up here.' };
+    }
+    const value = Math.round(_n(wpm));
+    const samples = _count(stats.wpm_samples);
+    const typing = _count((stats.minutes_saved_basis || {}).typing_wpm) || TYPING_WPM.def;
+    const ratio = Math.round((value / typing) * 10) / 10;
+    let sub = `words a minute, from your last ${_noun(samples, 'dictation', 'dictations')}.`;
+    if (ratio >= 1.2) sub += ` About ${String(ratio).replace(/\.0$/, '')} times as fast as typing at ${typing}.`;
+    return { known: true, value: formatCount(value), sub };
+  }
+
+  // Minutes saved, and the working behind it for "How this is estimated".
+  function minutesSavedView(stats) {
+    stats = stats || {};
+    const b = stats.minutes_saved_basis || {};
+    const words = _count(b.words);
+    const typing = _count(b.typing_wpm) || TYPING_WPM.def;
+    const saved = _n(stats.minutes_saved);
+    const timed = _count(b.timed);
+    const guessed = _count(b.estimated);
+    let spoken = 'the length of each recording';
+    if (timed === 0 && guessed > 0) spoken = '150 words a minute, because these dictations did not note how long they took';
+    else if (timed > 0 && guessed > 0) spoken = 'the length of each recording where it was kept, and 150 words a minute otherwise';
+    const how = [
+      `Typing ${_noun(words, 'word', 'words')} at ${typing} words a minute would take ${_about(b.typing_minutes)}.`,
+      `Saying them took ${_about(b.speaking_minutes)}, counted from ${spoken}.`,
+      'The difference is the time saved, and it is never below zero. It is an estimate, not a measurement: it leaves out the moment Waffler takes to answer and the time you would spend fixing typing mistakes. Set the typing speed below to match yours.',
+    ];
+    let sub = `an estimate, if you typed at ${typing} words a minute`;
+    if (!words) sub = 'Dictate a little and an estimate of the time saved shows up here.';
+    else if (saved <= 0) sub = `At ${typing} words a minute, typing these words would have taken no longer than saying them.`;
+    return { value: formatMinutes(saved), sub, how, words, typing };
+  }
+
+  // The busiest hour, with the 24 hours as bars.
+  function peakHourView(stats) {
+    stats = stats || {};
+    const counts = Array.isArray(stats.hour_counts) && stats.hour_counts.length === 24
+      ? stats.hour_counts.map(_count) : new Array(24).fill(0);
+    const total = counts.reduce((a, b) => a + b, 0);
+    const max = Math.max(0, ...counts);
+    const need = _count(stats.peak_hour_needs) || 20;
+    const peak = stats.peak_hour === null || stats.peak_hour === undefined ? null : Math.round(_n(stats.peak_hour));
+    const bars = counts.map((c, h) => ({
+      hour: h,
+      count: c,
+      height: c ? Math.max(6, Math.round((c / max) * 100)) : 0,
+      peak: peak === h,
+      label: `${hourRange(h)}: ${_noun(c, 'dictation', 'dictations')}`,
+    }));
+    if (peak === null || peak < 0 || peak > 23) {
+      return {
+        known: false, bars, total, range: '', title: '', sub: '',
+        teach: total === 0
+          ? `Your busiest hour shows up here after about ${need} dictations.`
+          : 'A few more dictations and your busiest hour shows up here.',
+      };
+    }
+    return {
+      known: true, bars, total, teach: '',
+      range: hourRange(peak),
+      title: `Your busiest hour is ${hourRange(peak)}`,
+      sub: `${formatCount(counts[peak])} of ${_noun(total, 'dictation', 'dictations')}, by the clock on this computer.`,
+    };
+  }
+
+  // The apps dictated into most, as ranked bars, and how many dictations
+  // never said which app (older ones, or where it could not be told).
+  function topAppsView(stats) {
+    stats = stats || {};
+    const list = (Array.isArray(stats.top_apps) ? stats.top_apps : [])
+      .filter((a) => a && typeof a.name === 'string' && a.name && _count(a.count) > 0);
+    const top = Math.max(0, ...list.map((a) => _count(a.count)));
+    const rows = list.map((a, i) => ({
+      name: a.name,
+      count: _count(a.count),
+      countText: formatCount(a.count),
+      pct: Math.max(4, Math.round((_count(a.count) / top) * 100)),
+      top: i === 0,
+    }));
+    const recorded = _count(stats.apps_recorded);
+    const missing = _count(stats.apps_not_recorded);
+    const total = _count(stats.apps_total);
+    return {
+      rows,
+      empty: recorded === 0,
+      teach: 'Waffler notes which app you dictate into, on this computer only. A few dictations and your top apps show up here.',
+      more: total > rows.length ? `${_noun(total - rows.length, 'more app', 'more apps')} not shown.` : '',
+      missing: missing > 0
+        ? { label: 'Not recorded', countText: formatCount(missing), note: 'Earlier dictations, and ones where Waffler could not tell, did not note the app.' }
+        : null,
+    };
+  }
+
+  // The activity map. Five steps, 0 for a day with no words; the others
+  // scale with the square root of the day's words against the busiest day,
+  // so one huge day does not turn every other day pale.
+  function heatLevel(words, max) {
+    const w = _n(words);
+    const m = _n(max);
+    if (!(w > 0) || !(m > 0)) return 0;
+    const r = Math.sqrt(Math.min(1, w / m));
+    return r > 0.75 ? 4 : (r > 0.5 ? 3 : (r > 0.25 ? 2 : 1));
+  }
+
+  // Cells in the order the grid draws them: a column a week, Monday first.
+  // Dates are counted on the calendar (UTC midnights), never in 24-hour
+  // steps, so a clock change cannot move a day.
+  function heatmapView(hm, todayIso) {
+    const weeks = hm && Array.isArray(hm.days) ? hm.days : [];
+    const max = hm ? _n(hm.max) : 0;
+    const thisYear = (_isoDay(todayIso) || new Date()).getUTCFullYear();
+    const cells = [];
+    weeks.forEach((wk, w) => {
+      for (let dow = 0; dow < 7; dow++) {
+        const raw = Array.isArray(wk) ? wk[dow] : null;
+        const future = raw === null || raw === undefined;
+        const words = future ? 0 : _count(raw);
+        const d = _isoDay(hm.start, w * 7 + dow);
+        const year = d && d.getUTCFullYear() !== thisYear ? ` ${d.getUTCFullYear()}` : '';
+        const name = d ? `${DAYS_SHORT[d.getUTCDay()]} ${d.getUTCDate()} ${MONTHS_SHORT[d.getUTCMonth()]}${year}` : '';
+        cells.push({
+          i: w * 7 + dow, week: w, dow, future, words,
+          iso: d ? d.toISOString().slice(0, 10) : '',
+          level: future ? -1 : heatLevel(words, max),
+          label: future ? '' : `${name}: ${words ? _noun(words, 'word', 'words') : 'no words'}`,
+          name,
+        });
+      }
+    });
+    const real = cells.filter((c) => !c.future);
+    const today = real.length ? real[real.length - 1] : null;
+    if (today && today.iso === String(todayIso || '')) today.label = `Today, ${today.label}`;
+    let busiest = null;
+    real.forEach((c) => { if (c.words > 0 && (!busiest || c.words >= busiest.words)) busiest = c; });
+    const active = real.filter((c) => c.words > 0).length;
+    const months = [];
+    for (let w = 0; w < weeks.length; w++) {
+      const monday = _isoDay(hm.start, w * 7);
+      if (monday && (w === 0 || monday.getUTCDate() <= 7)) months.push({ col: w, label: MONTHS_SHORT[monday.getUTCMonth()] });
+    }
+    return {
+      weeks: weeks.length,
+      cells,
+      last: real.length ? real[real.length - 1].i : -1,
+      months: months.filter((m, k) => k === months.length - 1 || months[k + 1].col - m.col >= 3),
+      active,
+      busiest: busiest ? { name: busiest.name, words: busiest.words } : null,
+      summary: active === 0
+        ? `No dictations in the last ${weeks.length} weeks yet. Each day you dictate fills in a square here.`
+        : `${_noun(active, 'day', 'days')} with a dictation in the last ${weeks.length} weeks. Busiest: ${busiest.name}, ${_noun(busiest.words, 'word', 'words')}.`,
+    };
+  }
+
+  // Arrow keys on the map: left and right are a week, up and down a day
+  // within the week, Home the first day and End today. Returns the cell to
+  // move to (the same one when there is nowhere to go), or null for any
+  // other key.
+  function heatMove(i, key, last) {
+    const at = Math.max(0, Math.round(_n(i)));
+    const end = Math.max(0, Math.round(_n(last)));
+    let to;
+    switch (key) {
+      case 'ArrowRight': to = at + 7; break;
+      case 'ArrowLeft': to = at - 7; break;
+      case 'ArrowDown': to = at % 7 === 6 ? at : at + 1; break;
+      case 'ArrowUp': to = at % 7 === 0 ? at : at - 1; break;
+      case 'Home': to = 0; break;
+      case 'End': to = end; break;
+      default: return null;
+    }
+    return to < 0 || to > end ? at : to;
+  }
+
   return {
     vocabLastUsed, vocabRecentWhen, vocabSoundsParse, vocabSoundsCheck, vocabRows, vocabSummary,
     VOCAB_MAX_SOUNDS, markSegments, markWords, dayHeading, weekBars, streakView,
@@ -1758,5 +2058,8 @@
     commandEntryView,
     clipboardAfterPasteView, clipboardAfterPasteSaved, feedbackView, feedbackSaved, METER_CELLS, micMeter, usageChart, usageFacts, flowView, PROVIDER_MARKS, providerPill,
     privacyFlow, hotkeyTestLine, whatsNew,
+    TYPING_WPM, TYPING_SPEED_PROBLEM, HEAT_LEVELS, formatMinutes, clockHour, hourRange, typingSpeedCheck,
+    typingSpeedSaved, weekView, weekStreakView, wpmView, minutesSavedView, peakHourView, topAppsView,
+    heatLevel, heatmapView, heatMove,
   };
 });
