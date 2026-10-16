@@ -4,6 +4,46 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Language.** Settings, General has a Language picker: Auto-detect,
+  English and 45 more. Until now the language could only be changed by
+  editing a file, and the clean-up was never told about it, so a model could
+  answer Spanish speech in English. The clean-up is now told to keep the
+  language you spoke and never translate it (checked on Spanish, French and
+  German). In English nothing changes: the clean-up gets the same text it
+  always did. Spelling, British or American, applies to English only and
+  says so. In other languages a short sentence no longer loses "um" and
+  "er" (ordinary words in Portuguese, German and Dutch), names such as
+  "Can" keep their capitals, and a long take in Chinese, Japanese or Thai is
+  no longer sent to a second provider and marked "Check this one" because
+  its words are not separated by spaces.
+- **Snippets, under your words in Vocabulary.** Say a short phrase and get
+  longer text: say "my address" and your whole address is pasted. 3.15.0
+  removed the only screen that could make a snippet, so nobody could add
+  one; it is back as a section of the Vocabulary page, with a form to add,
+  rows to change or remove, an undo line, and all of it by keyboard. Say
+  only the phrase and exactly that text is pasted, without the clean-up
+  (nothing to rephrase, and no clean-up used). Say it inside a sentence and
+  it is swapped in: any capitals, whole words only, the longest phrase
+  first, and what a snippet pastes is never searched for other snippets. A
+  phrase can be up to 60 characters, its text up to 4,000, and you can keep
+  200. Snippets stay when you choose Delete all my data, like your words,
+  and are never in the logs zip.
+
+### Fixed
+- **A retired clean-up model looked like a limit.** When Groq stops serving
+  the clean-up model, Waffler said "Clean-up paused for about an hour" and
+  the Journal showed the limit notice, as if you had run out. It now says
+  the clean-up model is no longer available, and that your words are pasted
+  as you said them until Waffler is updated or you add another key. Anyone
+  who wants a second model can name one with `GROQ_STYLE_FALLBACK_MODEL`
+  (off by default); Waffler moves to it when the first is retired.
+- **OpenAI first in your provider order stopped the clean-up.** If OpenAI
+  came first and failed, your words were pasted without the clean-up and
+  Groq and Cerebras were never tried. Waffler now carries on down your list.
+
 ## [3.15.1] - 2026-10-07
 
 Dictation had been getting words wrong and dropping parts of longer

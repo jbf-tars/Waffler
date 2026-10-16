@@ -44,6 +44,8 @@ It's gone through a ridiculous amount of prompt-wrangling and live-API testing t
 - **Setup wizard** — guided onboarding for first-time users
 - **In-app auto-update** — checks GitHub Releases and installs the new build with one click
 - **Custom vocabulary** — teach Waffler your jargon, names, and acronyms
+- **Snippets.** Say a short phrase, paste longer text: your address, a sign-off, a link. Any capitals, longest phrase first, and saying only the phrase skips the clean-up.
+- **Your language.** Dictate in 46 languages, or let Waffler detect which. The clean-up keeps what you spoke and never translates it.
 - **Mac + Windows** — native desktop app via PyInstaller
 
 ---
