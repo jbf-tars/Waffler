@@ -52,6 +52,8 @@ It's gone through a ridiculous amount of prompt-wrangling and live-API testing t
 - **Style for each kind of app.** Turn the clean-up off to get exactly what was heard, or give personal messages, work chat, email and everything else their own style (Formal, Casual, Very casual, Excited), and an optional email signature. The styles are plain rules, not a model, so they never change a word and work on short dictations too.
 - **Transforms (beta).** Select text in any app, press a shortcut, and it is rewritten in place: Polish with rules you choose, Prompt Engineer for turning a rough request into a structured prompt, and up to five transforms of your own. Your app's Undo takes it back, and the Journal keeps the text before and after.
 - **Command mode (beta).** Hold a shortcut and say what you want: edit the selected text ("make this shorter", "translate to French"), write new text where your cursor is ("reply saying I'll be 10 minutes late"), or ask a question and Waffler opens it in your search engine (Perplexity, Google, DuckDuckGo, ChatGPT or Claude). Your app's Undo takes an edit back, and the Journal keeps what you said.
+- **Takes of up to 20 minutes.** Talk for as long as you need: a minute before 20 Waffler says so once, and at 20 it stops by itself and turns what you said into text as if you had let go, so nothing is lost. A take over about 9 minutes goes to speech to text in pieces of about two minutes, cut at pauses after you stop, and the time Waffler waits for the answer grows with the length.
+- **Double-tap to go hands-free (off until you switch it on).** Settings, Shortcuts: tap your dictation hotkey twice, quickly, and Waffler keeps recording without you holding it. Tap once to finish, Esc to cancel. Holding the hotkey, and a single tap, work exactly as before.
 - **Every shortcut in one place.** Settings, Shortcuts lists Hold to dictate, Hands-free, Cancel, Transform, Command mode, Paste last and Copy last, each with its keys, Change, Clear and a plain sentence if it clashes with another. Choose keys for Paste last and Copy last, an F key as your cancel key, or (Mac) two modifier keys held together for Command mode. The key of a shortcut never reaches the app in front, and combinations your computer or most apps use are refused with the reason.
 - **Your week at a glance.** Settings, Usage shows your week streak, this week against last, words a minute, an estimate of the minutes saved (from your own typing speed), your busiest hour, the apps you dictate into most, and a map of the last 26 weeks. All of it is counted on your computer from your own history, with no accounts, rankings or uploads.
 - **Mac + Windows** — native desktop app via PyInstaller
@@ -119,7 +121,9 @@ python app.py
 
 **Hands-free (sticky) mode**
 - While holding the hotkey, tap `Space` to lock recording on — you can release the hotkey and keep talking.
-- Press the hotkey again (Fn on Mac, `Win + Ctrl` on Windows) to stop and send.
+- Or switch on **Double-tap to go hands-free** in Settings, Shortcuts, and tap the hotkey twice, quickly, instead.
+- Press the hotkey again (Fn on Mac, `Win + Ctrl` on Windows) to stop and send. On a Mac with Double-tap off, hold the hotkey and tap `Space` again instead; a bare press of Fn does not end a take that `Space` locked.
+- A take can be up to **20 minutes**. A minute before the end Waffler warns you once; at 20 it stops by itself and processes what you said as usual.
 
 **Paste again**
 - Click the waffle in the menu bar (Mac) or the tray (Windows) and choose **Paste last transcript** or **Copy last transcript**. The menu says how many words, never what they are.

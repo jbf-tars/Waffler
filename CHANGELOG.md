@@ -7,6 +7,54 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 ## [Unreleased]
 
 ### Added
+- **Takes of up to 20 minutes.** One take could run for 12 minutes and now runs
+  for 20. A minute before the end Waffler says so once, in a toast: "One
+  minute left, then Waffler will stop and clean up what you said." At 20
+  minutes it stops the recording itself and turns what you said into text
+  exactly as if you had let go of the key: the same speech to text, clean-up,
+  paste and Journal entry, with nothing dropped. It also puts your hotkey back
+  to idle (as the pill's stop button does), so on a Mac the next press after a
+  hands-free take that ran out of time starts a new one instead of being
+  ignored. Nothing about how a recording is turned into text changed, and
+  nothing is cut up while you speak: cutting by time is what lost words in
+  3.14.71 to 3.14.97. A recording up to 18 MB (a little over 9 minutes) still
+  goes to speech to text in one piece, and a bigger one is cut at pauses into
+  pieces of about two minutes after you stop, which for a 20-minute take
+  (38 MB) is about ten. What grew with it:
+  - Speech to text may take longer before Waffler gives up and keeps the
+    recording as Not sent: about 10 minutes for a 20-minute take (it was
+    capped at 5.5 minutes from a 10-minute take on), twice that on the local
+    model, and the same 45 seconds to 3 minutes as before for takes up to 5
+    minutes.
+    The "still working" choice (Keep waiting, Send later, Cancel) comes after
+    at most two and a half minutes; it came after 8 minutes for a 20-minute
+    take.
+  - Try again on a Not sent card and Redo this take of a long recording get
+    the same longer time.
+  - The clean-up is not changed: it keeps its own limit of 30 seconds, and a
+    20-minute take is about 3,000 words. If your clean-up provider is too slow
+    for that, the words are pasted as you said them, as always when the
+    clean-up does not finish in time, and the Journal says so.
+- **Double-tap to go hands-free (off until you switch it on).** Settings,
+  Shortcuts has a switch, "Double-tap to go hands-free", under the Hands-free
+  row. On, tap your dictation hotkey twice, quickly (the second press within
+  about a third of a second of the first coming up, and each press short), and
+  Waffler keeps recording after the second tap, exactly as if you had held the
+  hotkey and tapped Space: the same lock tone if sounds are on, Esc cancels,
+  and a press of the hotkey ends it and sends what you said. Everything
+  else is as it was. Holding the hotkey is untouched. Tap then hold is still
+  push to talk. A single tap is still a tap: nothing waits for a second one,
+  so a quick "Yes" is still written down and "Don't tap, hold" still comes.
+  Two taps that come too slowly, or a tap and then a long hold, are not a
+  double-tap. A key that bounces (two presses less than 0.04 seconds apart) is
+  never two taps and never ends a hands-free take. With double-tap on, a Mac
+  also ends a take that Space locked with a bare press of Fn: without it, only
+  Fn and Space together did, although the page said to tap the hotkey. On a
+  Mac the Fn key needs at least 0.15 seconds between the two taps, because
+  its own chatter filter joins anything closer into one press; on Windows
+  there is no such floor. Switching the setting on or off applies at once, with
+  no restart, and a hands-free take it has locked can always be ended with a
+  press.
 - **Find, sort and select your words.** The Vocabulary page has a search box
   that matches the word and what it sounds like as you type (any capitals,
   with or without accents: "sinead" finds Sinéad), a choice of order (Most
@@ -417,6 +465,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   and it will not put your old clipboard back over them.
 
 ### Fixed
+- **A recording over about 9 minutes was retried whole.** When a long
+  recording's words looked too few for the speech in it (the check that tries
+  the other provider), the retry sent all of it at once: more than 24 MB, which
+  neither provider takes, so the retry could only fail after a long upload.
+  It now goes to the other provider in the same pieces the first try used.
+- **A long take used more memory than it needed.** Measuring and lifting a
+  recording made several copies of all of it as numbers: a 20-minute take took
+  about 700 MB more than the app uses at rest while it was turned into text
+  (a 12-minute one about 410 MB). The measuring is now done a couple of
+  minutes at a time with the same results to the last bit, and the copies the
+  silence checks made are let go as soon as they have been used: about 340 MB
+  for 20 minutes and 195 MB for 12. The recording itself is 38 MB for 20
+  minutes, and Recent audio keeps the last ten, so up to 380 MB on disk if all
+  ten are that long.
 - **A retired clean-up model looked like a limit.** When Groq stops serving
   the clean-up model, Waffler said "Clean-up paused for about an hour" and
   the Journal showed the limit notice, as if you had run out. It now says
