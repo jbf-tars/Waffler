@@ -34,6 +34,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
+import activity_gate
+import app_categories
 import history_meta
 import pasteboard
 import pipeline_watchdog as pw
@@ -139,7 +141,9 @@ class TransformRunner:
             h.log("[transform] asked while Transforms is off: ignored")
             return OFF
         refuse = None
-        with self._lock:
+        # The look at what else is running and the claim are one step across
+        # dictation, Transform and Command (src/activity_gate.py).
+        with activity_gate.GATE, self._lock:
             if self._active:
                 refuse = (ALREADY_RUNNING, um.TRANSFORM_BUSY_ALREADY)
             elif self._dictation_busy():
@@ -289,6 +293,12 @@ class TransformRunner:
         # 5. Put it in.
         if stored.get("auto_paste", True) is False:
             return self._copied(spec, ctx, text, after, reply, started)
+        if "\n" in after.strip() and app_categories.is_terminal(getattr(ctx, "bundle_id", ""),
+                                                               getattr(ctx, "name", "")):
+            # A shell without bracketed paste runs each line of a paste as it
+            # arrives: more than one line is copied instead.
+            h.log("[transform] more than one line for a terminal: copied, not pasted")
+            return self._copied(spec, ctx, text, after, reply, started, terminal=True)
         run.enter(pw.PASTING)           # from here on Cancel is too late, and says so
         if run.cancelled:
             return self._cancelled()
@@ -445,8 +455,10 @@ class TransformRunner:
             copied = bool(h.copy(after))
         except Exception:      # noqa: BLE001
             copied = False
-        if copied:
-            h.remember(after)
+        # Not remembered: it is on the clipboard for the person to paste, and
+        # "Paste last" stays the last dictation. (A paste that failed IS
+        # remembered, above: the failed-paste message's "Copy again" copies
+        # whatever is remembered.)
         label = history_meta.PASTE_COPIED if copied else history_meta.PASTE_NOT_PASTED
         entry = self._save(spec, ctx, before, after, reply, started, label, h.settings())
         h.log(f"[transform] the person moved on: result {'copied' if copied else 'kept in the Journal'}")
@@ -459,16 +471,20 @@ class TransformRunner:
                       self._journal_buttons(entry), timeout=DONE_S)
         return pw.DONE
 
-    def _copied(self, spec, ctx, before, after, reply, started) -> str:
-        """Auto-paste is off in Settings: the rewrite is only copied."""
+    def _copied(self, spec, ctx, before, after, reply, started, terminal: bool = False) -> str:
+        """Auto-paste is off in Settings, or the app is a terminal and the
+        rewrite has more than one line: the rewrite is only copied."""
         h = self.h
         copied = bool(h.copy(after))
-        if copied:
-            h.remember(after)
+        # Not remembered: it is on the clipboard for the person to paste, and
+        # "Paste last" stays the last dictation. (A paste that failed IS
+        # remembered, above: the failed-paste message's "Copy again" copies
+        # whatever is remembered.)
         label = history_meta.PASTE_COPIED if copied else history_meta.PASTE_NOT_PASTED
         entry = self._save(spec, ctx, before, after, reply, started, label, h.settings())
         if copied:
-            self._say(RESULT, "info", um.TRANSFORM_COPIED, self._journal_buttons(entry), timeout=DONE_S)
+            self._say(RESULT, "info", um.TERMINAL_COPIED if terminal else um.TRANSFORM_COPIED,
+                      self._journal_buttons(entry), timeout=DONE_S)
         else:
             self._say(FAILED, "warn", um.TRANSFORM_MOVED_NOT_COPIED, self._journal_buttons(entry), timeout=DONE_S)
         return pw.DONE

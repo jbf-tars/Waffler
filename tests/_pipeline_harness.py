@@ -29,6 +29,7 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT))
 
 import action_hotkeys  # noqa: E402
+import activity_gate  # noqa: E402
 import atomic_json  # noqa: E402
 import cleanup_pause  # noqa: E402
 import command_action  # noqa: E402
@@ -450,7 +451,8 @@ def make_pipeline(data_dir: Path, *, transcriber=None, styler=None, clipboard=No
         _take_marker=take_marker, _take_limit=take_limit, _double_tap=double_tap,
         _mic_supervisor=mic_supervisor, _mic_ranking=mic_ranking, _mic_hotplug=mic_hotplug,
         _text_context=text_context,
-        _action_hotkeys=action_hotkeys, _transforms=transforms, _transform_action=transform_action,
+        _action_hotkeys=action_hotkeys, _activity_gate=activity_gate, _transforms=transforms,
+        _transform_action=transform_action,
         _command_mode=command_mode, _command_action=command_action,
         _user_messages=user_messages,
         _history_cache=types.SimpleNamespace(invalidate=lambda: None),

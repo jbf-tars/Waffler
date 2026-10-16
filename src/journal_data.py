@@ -129,7 +129,9 @@ def compute_stats(history: list, today: date, *,
         if not failed and week_start <= d <= today:
             out["week_words"] += w
             out["week_count"] += 1
-        if not failed and d.year == today.year and d.month == today.month:
+        if not failed and d.year == today.year and d.month == today.month and d <= today:
+            # (not a future date: an entry with a clock set wrong, or a stamp
+            # from another time zone, is not this month's words yet)
             out["month_words"] += w
             out["month_count"] += 1
         if chart_start <= d <= today:

@@ -153,7 +153,8 @@ def settings_for_logs(raw: str) -> str:
     """settings.json as it goes into the logs bundle: the same, with the text
     of the email signature (a name, a phone number, an address) and the wording
     of the Transforms (the person's own rules, outline and transforms) taken
-    out and only the lengths left. A file that cannot be read is not included at all,
+    out and only the lengths left, and the identifiers of the ranked
+    microphones dropped. A file that cannot be read is not included at all,
     because nothing can be taken out of it safely."""
     import json
     try:
@@ -164,6 +165,13 @@ def settings_for_logs(raw: str) -> str:
         return "settings.json could not be read, so it is not included.\n"
     if isinstance(data.get("transforms"), dict):
         data["transforms"] = _transforms_for_logs(data["transforms"])
+    ranking = data.get("mic_ranking")
+    if isinstance(ranking, list):
+        # A microphone's identifier can be a Bluetooth address or a serial
+        # number: its name is enough to see what was chosen. (mic_devices.json,
+        # which holds the same kind of thing, is left out of the bundle.)
+        data["mic_ranking"] = [{k: v for k, v in e.items() if k != "id"} if isinstance(e, dict) else e
+                               for e in ranking]
     sig = data.get("email_signature")
     if isinstance(sig, dict):
         text = sig.get("text")

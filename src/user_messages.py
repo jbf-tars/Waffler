@@ -549,6 +549,10 @@ COMMAND_REFUSED = ("Nothing was replaced", "The service wouldn't do that, so you
 COMMAND_DRAFT_COPIED = ("Draft copied",
                         "Your selected text was left as it is. Paste the draft where you want it.")
 COMMAND_COPIED = ("Result copied", "Paste it where you want it.")
+# A result of more than one line is not pasted into a terminal, where each line
+# could run as it arrives (a shell without bracketed paste does exactly that).
+TERMINAL_COPIED = ("Copied, not pasted",
+                   "It has more than one line, and a terminal could run each one. Check it, then paste it yourself.")
 COMMAND_OPEN_FAILED = ("Couldn't open your browser", "Try again, or search for it yourself.")
 COMMAND_TOO_SLOW = ("Took too long", "The service didn't answer in time. Your text is unchanged.")
 
@@ -605,7 +609,7 @@ IMPORT_FAILED = "Couldn't save that. Nothing was changed."
 IMPORT_NOTHING = "Waffler found nothing to add in that."
 IMPORT_STALE = "Your list changed since that preview. Look at it again."
 EDIT_EMPTY = "Type the text first. To remove a dictation, delete it instead."
-EDIT_TOO_LONG = "Keep it to 20,000 characters or fewer."
+EDIT_TOO_LONG = "Keep it to 60,000 characters or fewer."
 EDIT_NOT_FOUND = "That dictation isn't in your Journal any more."
 EDIT_NOT_EDITABLE = "Only a dictation's own words can be edited."
 EDIT_FAILED = "Couldn't save your change. Try again."

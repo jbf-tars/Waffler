@@ -796,7 +796,7 @@
                  shown in its folder. It is the user's own copy, so Delete all my
                  data does not touch it, and the row says so. -->
             <div class="row" id="exportRow">
-              <div class="row-main"><div class="row-t" id="exportTitle"><label for="exportFormat">Export history</label></div><div class="row-d">Save your Journal as a file on your Desktop. It never includes your keys. It's your own copy, so Delete all my data leaves it alone. Your Vocabulary and Snippets export from their own page, the same way.</div></div>
+              <div class="row-main"><div class="row-t" id="exportTitle"><label for="exportFormat">Export history</label></div><div class="row-d">Save your Journal as a file on your Desktop. If iCloud or OneDrive backs up your Desktop, it backs this file up too. It never includes your keys. It's your own copy, so Delete all my data leaves it alone. Your Vocabulary and Snippets export from their own page, the same way.</div></div>
               <select id="exportFormat" class="select">
                 <option value="json">JSON</option>
                 <option value="csv">CSV</option>
@@ -807,7 +807,7 @@
             <!-- Owner decision D9: the last 10 recordings are kept, said
                  here, with a switch and "Delete them now" (src/recent_audio.py). -->
             <div class="row" id="recentAudioRow">
-              <div class="row-main"><div class="row-t"><label for="recentAudioToggle">Recent recordings</label></div><div class="row-d"><span id="recentAudioDesc">The audio of your last 10 dictations, so you can redo a take, get one back if Waffler stops, or look into a problem.</span> <button type="button" class="link-btn" id="recentAudioDelete" onclick="deleteRecentAudio(this)">Delete them now</button></div></div>
+              <div class="row-main"><div class="row-t"><label for="recentAudioToggle">Recent recordings</label></div><div class="row-d"><span id="recentAudioDesc">The audio of your last 10 dictations (fewer if they are very long, about 300 MB at most), so you can redo a take, get one back if Waffler stops, or look into a problem.</span> <button type="button" class="link-btn" id="recentAudioDelete" onclick="deleteRecentAudio(this)">Delete them now</button></div></div>
               <input type="checkbox" class="tog" role="switch" id="recentAudioToggle" checked onchange="setRecentAudio(this.checked)">
             </div>
             <!-- Recordings that were not turned into text (Journal "Not sent"

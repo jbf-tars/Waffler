@@ -158,7 +158,9 @@ def new_unsent_path(unsent_dir: Path, now: datetime = None) -> Path:
 
 
 def is_valid_id(unsent_id: str) -> bool:
-    return isinstance(unsent_id, str) and bool(_ID_RE.match(unsent_id))
+    # fullmatch: "$" also matches before a trailing newline, and an id with a
+    # newline after it is not the name of a recording.
+    return isinstance(unsent_id, str) and bool(_ID_RE.fullmatch(unsent_id))
 
 
 def entry_id(entry: dict) -> str:

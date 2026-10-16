@@ -179,8 +179,11 @@ def saved_view(action_id, stored, platform: Optional[str] = None) -> dict:
 # ── The page ─────────────────────────────────────────────────────────────────
 
 _DICTATION_BLURB = "Hold it while you speak, then let go to paste."
+# True with double-tap off or on, on a Mac and on Windows: a bare press of the
+# hotkey ends a hands-free take on Windows, and on a Mac only when double-tap is
+# on, but the hotkey pressed together with Space ends it everywhere.
 _HANDS_FREE_BLURB = ("While you hold the dictation hotkey, tap Space to keep recording without "
-                     "holding. Tap the hotkey again to finish.")
+                     "holding. To finish, press the hotkey and Space together.")
 _CANCEL_BLURB = "Stops a recording. Nothing is pasted."
 
 

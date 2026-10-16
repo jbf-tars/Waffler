@@ -831,6 +831,20 @@
 
   // Arrow keys in a radio group (the theme picker): the index to move to,
   // wrapping at the ends, or -1 when the key isn't one of them.
+  // A refused save says why in one plain sentence (the app's own checks write
+  // them: "Keep it to 3 words or fewer."). The window used to drop it and say
+  // "Couldn't save that" every time. Anything that is not such a sentence (a
+  // raw exception text, nothing at all) still gets the generic line, so a
+  // Python message never reaches the screen.
+  const SAVE_FAILED = "Couldn't save that. Try again.";
+  function saveFailedMessage(result) {
+    const e = result && typeof result.error === 'string' ? result.error.trim() : '';
+    const plain = e.length > 0 && e.length <= 240 && e.indexOf('\n') < 0
+      && /^[A-Z0-9"\u201c'(]/.test(e) && /[.!?]$/.test(e)
+      && !/(Traceback|Exception|\w+Error:|invalid literal|has no attribute|\bNone\b|\{|\})/.test(e);
+    return plain ? e : SAVE_FAILED;
+  }
+
   // One save at a time. A double-click on a hotkey preset sent two saves, and the
   // second rebuilt the keyboard listener while the first was still doing it.
   // `run(fn)` does nothing (and says so) when a save is already under way.
@@ -2559,7 +2573,7 @@
     providerOrderRows, activeProviders, backendsLine, aboutLine,
     USAGE_NOTE, formatCount, usageView, usageProviderRows, usesView, keyRows,
     qualityView, dayKey, dayLabel, statNumber, vocabChanges, vocabChangesLine, originalText, hasOriginal, vocabAdd, VOCAB_MAX_ENTRY_LEN,
-    SEARCH_DEBOUNCE_MS, debounce, feedView, searchAnnouncement, savingGate, radioMove, focusAfterRemove,
+    SEARCH_DEBOUNCE_MS, debounce, feedView, searchAnnouncement, savingGate, SAVE_FAILED, saveFailedMessage, radioMove, focusAfterRemove,
     SNIPPET_MAX_TRIGGER, SNIPPET_MAX_EXPANSION, SNIPPET_MAX_COUNT, snippetTrigger, snippetCheck,
     snippetSummary, snippetCounter, snippetDone,
     spellingSpecimen, languageOptions, languageDesc, languageSaved, spellingNote,

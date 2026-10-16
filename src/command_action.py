@@ -46,6 +46,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
+import activity_gate
+import app_categories
 import command_mode as cm
 import history_meta
 import pasteboard
@@ -258,7 +260,9 @@ class CommandRunner:
             return OFF
         refuse = None
         run = None
-        with self._lock:
+        # The look at what else is running and the claim are one step across
+        # dictation, Transform and Command (src/activity_gate.py).
+        with activity_gate.GATE, self._lock:
             if self._active:
                 refuse = (ALREADY_RUNNING, um.COMMAND_BUSY_ALREADY)
             elif self._busy_elsewhere():
@@ -745,6 +749,12 @@ class CommandRunner:
         stored = h.settings()
         if stored.get("auto_paste", True) is False:
             return self._copied(action, run, instruction, before, after, reply, started)
+        if "\n" in after.strip() and app_categories.is_terminal(getattr(run.ctx, "bundle_id", ""),
+                                                               getattr(run.ctx, "name", "")):
+            # Other people's words steer what the model writes, and a shell
+            # without bracketed paste runs each line of a paste as it arrives.
+            h.log("[command] more than one line for a terminal: copied, not pasted")
+            return self._copied(action, run, instruction, before, after, reply, started, terminal=True)
         wd.enter(pw.PASTING)            # from here on Cancel is too late, and says so
         if run.cancelled:
             return self._cancelled()
@@ -923,8 +933,10 @@ class CommandRunner:
             copied = bool(h.copy(after))
         except Exception:      # noqa: BLE001
             copied = False
-        if copied:
-            h.remember(after)
+        # Not remembered: it is on the clipboard for the person to paste, and
+        # "Paste last" stays the last dictation. (A paste that failed IS
+        # remembered, above: the failed-paste message's "Copy again" copies
+        # whatever is remembered.)
         label = history_meta.PASTE_COPIED if copied else history_meta.PASTE_NOT_PASTED
         entry = self._save(action, run, instruction, reply, started, label, before=before, after=after)
         h.log(f"[command] the person moved on: result {'copied' if copied else 'kept in the Journal'}")
@@ -936,7 +948,8 @@ class CommandRunner:
             self._say(FAILED, "warn", um.TRANSFORM_MOVED_NOT_COPIED, self._journal_buttons(entry), timeout=DONE_S)
         return pw.DONE
 
-    def _copied(self, action, run, instruction, before, after, reply, started, selected: bool = False) -> str:
+    def _copied(self, action, run, instruction, before, after, reply, started, selected: bool = False,
+                terminal: bool = False) -> str:
         """The result is only copied: auto-paste is off in Settings, or it is a
         draft and text is selected."""
         h = self.h
@@ -945,13 +958,15 @@ class CommandRunner:
             copied = bool(h.copy(after))
         except Exception:      # noqa: BLE001
             copied = False
-        if copied:
-            h.remember(after)
+        # Not remembered: it is on the clipboard for the person to paste, and
+        # "Paste last" stays the last dictation. (A paste that failed IS
+        # remembered, above: the failed-paste message's "Copy again" copies
+        # whatever is remembered.)
         label = history_meta.PASTE_COPIED if copied else history_meta.PASTE_NOT_PASTED
         entry = self._save(action, run, instruction, reply, started, label, before=before, after=after)
         if copied:
-            self._say(RESULT, "info", um.COMMAND_DRAFT_COPIED if selected else um.COMMAND_COPIED,
-                      self._journal_buttons(entry), timeout=DONE_S)
+            message = um.TERMINAL_COPIED if terminal else (um.COMMAND_DRAFT_COPIED if selected else um.COMMAND_COPIED)
+            self._say(RESULT, "info", message, self._journal_buttons(entry), timeout=DONE_S)
         else:
             self._say(FAILED, "warn", um.TRANSFORM_MOVED_NOT_COPIED, self._journal_buttons(entry), timeout=DONE_S)
         return pw.DONE

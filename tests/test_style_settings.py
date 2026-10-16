@@ -233,7 +233,9 @@ def test_download_logs_uses_it_for_settings_json_and_says_so():
 # ── nothing under prompts/ changed ───────────────────────────────────────────
 
 PROMPTS = {
-    "README.md": "310e658c1c6f79e5078e002330557c5561e1e1a6aadcc7554018b3a51018d8d7",
+    # README.md is documentation, not a prompt: its hash moved when it stopped
+    # describing the retired Llama chain (audit cleanup); no model reads it.
+    "README.md": "8d9c36d463999a2ac132c537f63de41a333fa6049d06105b8a90c9778d9253bb",
     "email.txt": "f4619da2d78b5760b68d3dfc40e7b8dc89c51bd90147e91432f286268e1bf248",
     "normal.txt": "14e2868af8da6836f08c9c4a308cd1a7d8ea08505c681883f7b4926d4d91b84c",
 }

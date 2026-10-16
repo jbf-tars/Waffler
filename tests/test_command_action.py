@@ -381,7 +381,8 @@ def test_a_draft_with_a_selection_is_put_on_the_clipboard_and_never_replaces_it(
     rig.chat_text = "ACTION: draft\nYes, Thursday works for me."
     rig.go()
     assert not rig.pastes, "pasting would replace the selected text"
-    assert rig.copies == ["Yes, Thursday works for me."] and rig.remembered == rig.copies
+    assert rig.copies == ["Yes, Thursday works for me."]
+    assert rig.remembered == [], "copied only: 'Paste last' stays the last dictation"
     (entry,) = rig.saved
     assert entry["action"] == "draft" and entry["paste"] == "copied" and "before" not in entry
     assert rig.last()[2:4] == um.COMMAND_DRAFT_COPIED

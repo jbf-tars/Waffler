@@ -227,7 +227,12 @@ class RecordingOverlay:
         reposition: place the toast on the screen the cursor is on now, not
             where the pill last was. For a toast with no recording behind it.
         """
-        self._log(f"[overlay.py] show_toast: style={style}, heading='{heading}'")
+        # The heading is logged for the warnings and errors, whose wording is
+        # Waffler's own. An "info" toast can carry something the person named
+        # (a Transform of theirs is done, "Siobhan's AirPods detected"), and
+        # the log goes into the bundle they may send for a bug report.
+        shown = f"heading='{heading}'" if style in ("error", "warn", "cancel") else f"heading=({len(str(heading))} characters)"
+        self._log(f"[overlay.py] show_toast: style={style}, {shown}")
         # Auto-restart if the subprocess died since the last interaction —
         # otherwise toasts would silently drop (was hit in the wild when
         # errors fired after the overlay had crashed). Toasts AFTER a pipeline

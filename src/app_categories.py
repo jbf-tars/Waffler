@@ -151,6 +151,32 @@ BROWSER_NAMES = (
     "orion", "duckduckgo", "dia",
 )
 
+# Terminals: where a pasted line can be a command that runs at once (a shell
+# without bracketed paste, such as macOS's bash 3.2 or Windows' cmd, runs each
+# line of a paste as it arrives). Command mode and Transforms do not paste a
+# result of more than one line into one of these; they copy it and say so.
+TERMINAL_BUNDLE_IDS = (
+    "com.apple.terminal",
+    "com.googlecode.iterm2",
+    "dev.warp.warp-stable", "dev.warp.warp",
+    "net.kovidgoyal.kitty",
+    "com.github.wez.wezterm",
+    "org.alacritty", "io.alacritty",
+    "co.zeit.hyper",
+    "com.mitchellh.ghostty",
+    "org.tabby",
+    "com.raphaelamorim.rio",
+    "com.panic.prompt3",
+)
+TERMINAL_NAMES = (
+    "terminal", "iterm2", "iterm", "warp", "kitty", "wezterm", "wezterm-gui", "alacritty", "hyper",
+    "ghostty", "tabby", "rio", "termius", "prompt",
+    # Windows (process names)
+    "cmd", "powershell", "powershell_ise", "pwsh", "windowsterminal", "wt", "conhost", "openconsole",
+    "mintty", "putty", "conemu", "conemu64", "cmder", "mobaxterm", "securecrt", "xshell",
+    "fluentterminal", "terminus", "wsl", "wslhost", "bash", "git-bash", "ubuntu",
+)
+
 # Sites a browser tab can be on, as they name themselves in the tab's title
 # ("Inbox (3) - me@example.com - Gmail", "general | Acme | Slack"). Compared
 # against each part of the title as a whole, so a page that merely mentions
@@ -193,6 +219,11 @@ def _app_name(name) -> str:
     """The name as the tables spell it: lower case, no ``.exe``."""
     n = _clean(name)
     return n[:-4] if n.endswith(".exe") else n
+
+
+def is_terminal(bundle_id, name="") -> bool:
+    """True for a terminal program (see ``TERMINAL_NAMES``)."""
+    return _clean(bundle_id) in TERMINAL_BUNDLE_IDS or _app_name(name) in TERMINAL_NAMES
 
 
 def is_browser(bundle_id, name="") -> bool:

@@ -144,6 +144,7 @@ import history_meta as _history_meta
 import history_ops as _history_ops
 import history_export as _history_export
 import history_edit as _history_edit
+import activity_gate as _activity_gate
 import export_files as _export_files
 import dictionary as _dictionary
 import vocab_rank as _vocab_rank
@@ -1215,6 +1216,16 @@ class Api:
         from transcribe_whisper import load_vocab, load_sounds_like
         words = load_vocab()
         return words, load_sounds_like(words), _vocab_rank.load_stars(words)
+
+    def get_learn_from_edits(self) -> dict:
+        """Whether "suggest words from my edits" is on (settings.json
+        ``learn_from_edits``, on unless exactly false): the one switch the
+        Vocabulary page shows, read without get_settings' work (keys, models,
+        every page's settings)."""
+        try:
+            return {"ok": True, "on": self._load_settings_file().get("learn_from_edits") is not False}
+        except Exception:
+            return {"ok": True, "on": True}
 
     def export_vocabulary(self) -> dict:
         """Save the Vocabulary as a CSV on the Desktop (word, sounds_like,
@@ -4037,8 +4048,16 @@ def _wizard_finish_practice(transcript: str, audio_seconds: float):
     user is looking at Waffler's own window."""
     _push_wizard_js("wizOnCleaning", transcript)
     styler = _wizard_styler
+    # The practice honours the clean-up switch in Settings, as every dictation
+    # does: with it Off no model is asked and the words come back as said.
+    try:
+        cleanup_off = _style_layer.cleanup_is_off(_read_settings_now())
+    except Exception:
+        cleanup_off = False
 
     def _style(text):
+        if cleanup_off:
+            return (text or "").strip(), _style_layer.off_usage()
         if styler is None:
             raise RuntimeError("no styling providers configured")
         return styler.style(text)
@@ -5595,16 +5614,21 @@ class WafflerPipeline:
         # Never beside a transform (src/transform_action.py): the hotkey is
         # told why, and the listener's state is put back, as for a blocked
         # permission below.
-        for action in (getattr(self, "_transforms", None), getattr(self, "_commands", None)):
-            if action is not None and action.busy():
-                action.refuse_dictation()
-                listener = getattr(self, "hotkey_listener", None)
-                if listener is not None and hasattr(listener, "reset_state"):
-                    try:
-                        listener.reset_state()
-                    except Exception:
-                        pass
-                return
+        def other_action_busy() -> bool:
+            for action in (getattr(self, "_transforms", None), getattr(self, "_commands", None)):
+                if action is not None and action.busy():
+                    action.refuse_dictation()
+                    listener = getattr(self, "hotkey_listener", None)
+                    if listener is not None and hasattr(listener, "reset_state"):
+                        try:
+                            listener.reset_state()
+                        except Exception:
+                            pass
+                    return True
+            return False
+
+        if other_action_busy():
+            return
         # Permissions first, and cheap: a microphone or Accessibility switched
         # off gets one message with a button to the right pane, instead of a
         # silent recording or a paste that goes nowhere.
@@ -5620,13 +5644,20 @@ class WafflerPipeline:
         # cleared the cancel flag on press, which let a quick re-press clear
         # the flag out from under the old thread → it pasted the cancelled
         # transcript into the user's app.
-        with self._processing_lock:
-            if self.is_recording:
+        # The look at the other actions is made again here, together with the
+        # claim and under the one gate they claim through: a Command or
+        # Transform that started since the first look must not share the
+        # microphone (src/activity_gate.py).
+        with _activity_gate.GATE:
+            if other_action_busy():
                 return
-            self.is_recording = True
-            self._processing_id += 1
-            self._current_press_id = self._processing_id
-            self._processing_cancelled.clear()
+            with self._processing_lock:
+                if self.is_recording:
+                    return
+                self.is_recording = True
+                self._processing_id += 1
+                self._current_press_id = self._processing_id
+                self._processing_cancelled.clear()
         # Capture focused window BEFORE overlay takes focus
         self._prev_window = self.clipboard.get_focused_window()
         # And the app in front, for the Journal and for the clean-up

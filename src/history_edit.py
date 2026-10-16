@@ -26,9 +26,11 @@ except ImportError:  # imported as src.history_edit
     from src.history_meta import NON_DICTATION_KINDS, final_text, words_of
 
 KEY = "edited_text"
-# Far more than anyone dictates in one go (a recording is capped near 20
-# minutes, about 3,000 words), and far less than a file.
-MAX_EDIT_CHARS = 20000
+# Room for the longest take with something added: a recording is capped near 20
+# minutes, and a fast talker gets about 25,000 characters into that (3,500
+# words), so the limit that once suited it (20,000) refused to save an edit of
+# it. Still far less than a file.
+MAX_EDIT_CHARS = 60000
 
 EDITED = "edited"
 CLEARED = "cleared"

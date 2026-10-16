@@ -124,7 +124,7 @@ keyboard and your clipboard. Specifically:
   recent recordings are stored under `~/.waffler-hosted/` on your own computer.
   Recordings are kept to diagnose transcription faults, to redo a take from
   the Journal and to bring back a dictation that a crash cut short; they are
-  capped at the last 10, and can be switched off or deleted at any time in Settings,
+  capped at the last 10 (and about 300 MB in all), and can be switched off or deleted at any time in Settings,
   Privacy and data, which can also delete your history, usage and logs. Each
   history entry notes, besides the words, the app you were in and its kind, the language,
   how long the recording was and which services handled it. You can delete any

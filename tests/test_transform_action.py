@@ -579,7 +579,7 @@ def test_a_paste_whose_outcome_cannot_be_read_is_not_reported_as_unchanged_text(
 def test_with_auto_paste_off_the_rewrite_is_only_copied():
     rig = Rig(settings={"auto_paste": False})
     rig.go()
-    assert rig.pastes == [] and rig.copies == [GOOD] and rig.remembered == [GOOD]
+    assert rig.pastes == [] and rig.copies == [GOOD] and rig.remembered == [], "copied only: Paste last stays the last dictation"
     assert rig.saved[0]["paste"] == "copied"
     assert rig.last()[2:4] == um.TRANSFORM_COPIED
 
@@ -595,7 +595,7 @@ def test_another_app_in_front_when_the_model_answers_means_nothing_is_pasted():
     rig.runner.h.chat = chat
     rig.go()
     assert rig.pastes == []
-    assert rig.copies == [GOOD] and rig.remembered == [GOOD]
+    assert rig.copies == [GOOD] and rig.remembered == [], "copied only: 'Paste last' stays the last dictation"
     assert rig.saved[0]["paste"] == "copied" and rig.saved[0]["app"] == "Notes", "the app it was meant for"
     assert rig.last()[2:4] == um.transform_not_pasted_message("darwin")
     assert rig.last()[4][0]["action"].startswith("show_transform:")
@@ -751,7 +751,7 @@ def test_a_check_that_cannot_be_made_in_time_means_nothing_is_pasted():
     finally:
         ta.CHECK_DEADLINE_S = original
         release.set()
-    assert rig.pastes == [] and rig.copies == [GOOD] and rig.remembered == [GOOD]
+    assert rig.pastes == [] and rig.copies == [GOOD] and rig.remembered == []
     assert rig.last()[2:4] == um.transform_not_sure_message("darwin")
     assert rig.saved[0]["paste"] == "copied" and rig.ui[-1] == ("end", pw.DONE)
 

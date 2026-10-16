@@ -1,14 +1,22 @@
-"""LLM styling module — three-tier fallback chain:
+"""LLM styling module — a fallback chain over the providers the person has a key
+for, tried in the order they chose in Settings. The default order:
 
-  1. Groq Llama 3.3 70B       (very fast ~270 tok/s, ~100k tokens/day free)
-  2. Cerebras gpt-oss-120b   (paid, ~500 ms even on long inputs, ~2200+ tok/s)
-  3. OpenAI gpt-4.1-mini      (slower but always available, last-resort)
+  1. Groq openai/gpt-oss-120b  (fast, and a free tier; the one provider that
+                                also does the speech to text)
+  2. OpenAI gpt-4.1-mini       (slower but always available, the backstop)
+  3. Cerebras gpt-oss-120b     (optional and no longer recommended: it has no
+                                speech-to-text endpoint, so it can never run a
+                                dictation on its own)
 
-Order rationale: Groq is tried FIRST — not because it's fastest, but because
-its free tier (100k tokens/day) means a typical user pays £0 for cleanup
-until that allowance is exhausted. Only then does Cerebras's paid tier
-take over. This is the opposite order from "fastest first" but it matches
-what every BYOK user actually wants.
+Order rationale: Groq is tried FIRST — not because it's the only fast one, but
+because its free tier means a typical user pays nothing for clean-up until
+that allowance is used up, and one key covers both stages of a dictation.
+OpenAI answers when Groq cannot (a limit, an outage), and Cerebras after that
+for anyone who set it up. Every provider's model can be replaced without a
+release (GROQ_STYLE_MODEL, GROQ_STYLE_FALLBACK_MODEL, OPENAI_STYLE_MODEL,
+CEREBRAS_MODEL), and Groq moves to a backup model by itself when it retires
+one. The earlier chain (Groq Llama 3.3 70B first, Cerebras second) ended when
+Groq retired that model.
 
 All three speak OpenAI-compatible chat-completions APIs. The same prompt is
 sent everywhere so behaviour is consistent.
@@ -33,6 +41,7 @@ from openai import OpenAI
 from dataclasses import dataclass
 from pathlib import Path
 import contextlib
+import os
 import threading
 import time
 import re
@@ -108,6 +117,8 @@ _STYLE_DEADLINE_PER_WORD_S = 0.03
 # Don't start a provider call with less than this left on the clock — a
 # sub-second attempt just burns the remainder and still fails.
 _STYLE_MIN_ATTEMPT_S = 1.5
+# How much of a provider's error message goes in app.log (never a traceback).
+_LOGGED_ERROR_CHARS = 120
 
 
 def _dictation_language() -> str:
@@ -806,14 +817,25 @@ Transcript: {transcript}"""
         clean-up)."""
         import traceback
         from datetime import datetime
-        err_detail = traceback.format_exc()
-        print(f"{provider_name} {purpose} failed ({exc}), trying next provider")
+        # The class of the error, a short cut of its message and where it was
+        # raised: not the whole traceback. A provider's error body can echo
+        # part of the request, which is the person's words (the dictation, a
+        # selection they sent to a Transform, a spoken command).
+        summary = f"{type(exc).__name__}: {' '.join(str(exc).split())[:_LOGGED_ERROR_CHARS]}"
+        where = ""
+        try:
+            frames = traceback.extract_tb(exc.__traceback__) if getattr(exc, "__traceback__", None) else []
+            if frames:
+                last = frames[-1]
+                where = f" (at {os.path.basename(last.filename)}:{last.lineno} in {last.name})"
+        except Exception:
+            pass
+        print(f"{provider_name} {purpose} failed ({summary}), trying next provider")
         try:
             log_file = _data_dir() / "app.log"
             with open(log_file, "a", encoding="utf-8") as f:
                 ts = datetime.now().strftime("%H:%M:%S")
-                f.write(f"{ts}  [{purpose}] {provider_name} FAILED: {exc}\n")
-                f.write(f"{ts}  [{purpose}] {err_detail}\n")
+                f.write(f"{ts}  [{purpose}] {provider_name} FAILED: {summary}{where}\n")
         except Exception:
             pass
 
@@ -895,7 +917,7 @@ Transcript: {transcript}"""
     # from ``self``. They return the model's text exactly as it came, stripped.
 
     def _chat_groq(self, system: str, user: str, *, max_tokens: int, temperature: float,
-                   json_mode: bool, deadline) -> "ChatReply":
+                   json_mode: bool, deadline, purpose: str = "styling") -> "ChatReply":
         _model = self._groq_model
         # gpt-oss is a REASONING model: without reasoning_effort it spends its
         # whole output budget thinking before emitting any cleaned text and
@@ -932,7 +954,7 @@ Transcript: {transcript}"""
                     _model, error_msg,
                     lambda: self._chat_groq(system, user, max_tokens=max_tokens,
                                             temperature=temperature, json_mode=json_mode,
-                                            deadline=deadline),
+                                            deadline=deadline, purpose=purpose),
                     deadline)
             if "429" in error_msg or _mentions_rate(error_msg):
                 # Pull out the info the UI needs: which limit hit ("tokens per day",
@@ -971,8 +993,13 @@ Transcript: {transcript}"""
             elif "connection" in error_msg.lower() or "timeout" in error_msg.lower():
                 # Network connectivity hiccup — set a SHORT skip so we
                 # don't keep wasting round-trips while the network is
-                # flaky, but recover quickly when it comes back.
-                self._groq_skip_until = time.monotonic() + 30.0
+                # flaky, but recover quickly when it comes back. A slow ANSWER
+                # (a timeout) to a Transform or Command request, thousands of
+                # characters in, says nothing about the next dictation, so only
+                # the clean-up's timeouts start the pause; a connection that
+                # failed does, whatever the request was for.
+                if purpose == "styling" or "timeout" not in error_msg.lower():
+                    self._groq_skip_until = time.monotonic() + 30.0
                 raise RuntimeError(f"CONNECTION: Groq connection failed — {error_msg[:100]}")
             elif "403" in error_msg or "401" in error_msg or "access denied" in error_msg.lower() or "permission" in error_msg.lower() or "unauthorized" in error_msg.lower():
                 # Auth / network-policy block (most often a VPN exit-IP that
@@ -991,13 +1018,13 @@ Transcript: {transcript}"""
                     _model, error_msg,
                     lambda: self._chat_groq(system, user, max_tokens=max_tokens,
                                             temperature=temperature, json_mode=json_mode,
-                                            deadline=deadline),
+                                            deadline=deadline, purpose=purpose),
                     deadline)
             raise
         return ChatReply.from_response(response, provider="groq", model=_model)
 
     def _chat_cerebras(self, system: str, user: str, *, max_tokens: int, temperature: float,
-                       json_mode: bool, deadline) -> "ChatReply":
+                       json_mode: bool, deadline, purpose: str = "styling") -> "ChatReply":
         # reasoning_effort=low is CRITICAL for gpt-oss-120b. It's a reasoning
         # model: without this it spends 1000+ output tokens "thinking" before
         # emitting any cleaned text, blows the max_tokens budget, and returns
@@ -1045,10 +1072,17 @@ Transcript: {transcript}"""
                 self._cerebras_skip_until = time.monotonic() + cool
                 raise RuntimeError(f"RATE_LIMIT|Cerebras|{int(cool)}s|{error_msg[:80]}")
             elif "connection" in lower or "timeout" in lower:
-                # Short skip for transient network issues.
-                self._cerebras_skip_until = time.monotonic() + 30.0
+                # Short skip for transient network issues (a slow answer to
+                # another feature's request does not count: see Groq's).
+                if purpose == "styling" or "timeout" not in lower:
+                    self._cerebras_skip_until = time.monotonic() + 30.0
                 raise RuntimeError(f"CONNECTION: Cerebras connection failed — {error_msg[:100]}")
-            elif "401" in error_msg or "403" in error_msg or "unauthor" in lower or "invalid" in lower:
+            elif ("401" in error_msg or "403" in error_msg or "unauthor" in lower
+                  or "invalid api key" in lower or "invalid_api_key" in lower):
+                # Not a bare "invalid": a 400 invalid_request_error (a prompt
+                # past the context length, a max_tokens over the limit) is about
+                # that one request, and used to switch Cerebras off for the
+                # dictations for an hour.
                 # Auth failure — usually a bad / expired API key. Don't
                 # hammer the endpoint; fall through to Groq / OpenAI for
                 # the session.
@@ -1159,7 +1193,7 @@ Transcript: {transcript}"""
             try:
                 reply = self._chat_one(name, wording, user, max_tokens=max_tokens,
                                        temperature=temperature, json_mode=json_mode,
-                                       deadline=deadline)
+                                       deadline=deadline, purpose=purpose)
                 if not reply.text:
                     raise RuntimeError(f"EMPTY: {label} returned no text")
             except Exception as e:      # noqa: BLE001 - recorded, then the next provider
@@ -1170,13 +1204,15 @@ Transcript: {transcript}"""
         raise ChatError(self._pick_best_failure_reason(failures), failures)
 
     def _chat_one(self, name: str, system: str, user: str, *, max_tokens: int,
-                  temperature: float, json_mode: bool = False, deadline=None) -> "ChatReply":
+                  temperature: float, json_mode: bool = False, deadline=None,
+                  purpose: str = "styling") -> "ChatReply":
         """One request to the provider called ``name`` (``groq``,
         ``cerebras`` or ``openai``); raises what that provider's body raises."""
         send = {"groq": self._chat_groq, "cerebras": self._chat_cerebras,
                 "openai": self._chat_openai}[name]
+        extra = {"purpose": purpose} if name in ("groq", "cerebras") else {}
         return send(system, user, max_tokens=max_tokens, temperature=temperature,
-                    json_mode=json_mode, deadline=deadline)
+                    json_mode=json_mode, deadline=deadline, **extra)
 
     def _provider_ready(self, name: str) -> bool:
         """Is there a key (and, for Groq and Cerebras, a client) for ``name``?"""

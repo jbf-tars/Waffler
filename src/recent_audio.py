@@ -2,7 +2,9 @@
 
 Waffler keeps the audio of the last 10 dictations in the data folder
 (debug_audio/), because "half my words are missing" can't be looked into
-without it. It never leaves the computer and is left out of the logs
+without it. A take can now be 20 minutes (about 38 MB), so the folder is also
+held to a total size: the newest recordings that fit in ``MAX_TOTAL_BYTES``
+are kept, and always the latest one. It never leaves the computer and is left out of the logs
 bundle. Owner decision D9 (3.15): keep doing that, but say so in
 Settings, Privacy and data, with a switch to stop keeping them and a
 "Delete now" button.
@@ -21,6 +23,10 @@ from pathlib import Path
 
 DIRNAME = "debug_audio"
 KEEP = 10
+# Ten takes of the longest length are about 380 MB. The folder is pruned to the
+# newest that fit in this, as well as to KEEP: ten ordinary takes are a few
+# megabytes and are all kept.
+MAX_TOTAL_BYTES = 300 * 1024 * 1024
 SETTING = "keep_recent_audio"
 _PATTERN = "rec-*.wav"
 # rec-20261016-143012.wav (or -2, -3 ... when two takes end in the same
@@ -54,8 +60,9 @@ def files(data_dir) -> list:
 
 
 def keep(data_dir, audio_bytes: bytes, settings: dict | None, now: datetime | None = None,
-         limit: int = KEEP):
-    """Save one recording and prune to the newest ``limit``. Returns the
+         limit: int = KEEP, max_bytes: int = MAX_TOTAL_BYTES):
+    """Save one recording and prune to the newest ``limit`` that fit in
+    ``max_bytes`` (the latest is always kept, however large). Returns the
     path, or None when switched off or there is no audio. Pruning goes by
     modified time, so names never decide which file is newest."""
     if not audio_bytes or not enabled(settings):
@@ -77,7 +84,29 @@ def keep(data_dir, audio_bytes: bytes, settings: dict | None, now: datetime | No
             old.unlink()
         except OSError:
             pass
+    if max_bytes > 0:
+        _prune_to_size(data_dir, max_bytes)
     return path
+
+
+def _prune_to_size(data_dir, max_bytes: int) -> None:
+    """Delete the oldest recordings until the rest fit in ``max_bytes``. The
+    newest is never deleted here, so a single very long take is kept."""
+    total = 0
+    newest_first = list(reversed(files(data_dir)))
+    for i, p in enumerate(newest_first):
+        try:
+            size = p.stat().st_size
+        except OSError:
+            continue
+        if i > 0 and total + size > max_bytes:
+            for old in newest_first[i:]:
+                try:
+                    old.unlink()
+                except OSError:
+                    pass
+            return
+        total += size
 
 
 def is_valid_name(name) -> bool:

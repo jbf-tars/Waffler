@@ -3529,8 +3529,9 @@ async function loadLearnSwitch() {
   const t = document.getElementById('learnToggle');
   if (!t) return;
   try {
-    const s = await pywebview.api.get_settings();
-    t.checked = !(s && s.learn_from_edits === false);
+    // Just this one switch, not every page's settings and the key list.
+    const s = await pywebview.api.get_learn_from_edits();
+    t.checked = !(s && s.on === false);
   } catch (_) {
     t.checked = true;
   }
@@ -5170,10 +5171,10 @@ async function saveSetting(key, value) {
       }
       return true;
     }
-    showToast("Couldn't save that. Try again.", 'error');
+    showToast(WL.saveFailedMessage(r), 'error');       // the app's own sentence when it wrote one
   } catch(e) {
     console.warn('saveSetting error:', e);
-    showToast("Couldn't save that. Try again.", 'error');
+    showToast(WL.SAVE_FAILED, 'error');
   }
   return false;
 }
@@ -6364,7 +6365,7 @@ function _renderRecentAudio(s) {
   const now = n ? ` ${n === 1 ? '1 is' : `${n} are`} kept now.` : ' None are kept now.';
   if (desc) {
     desc.textContent = (s.enabled
-      ? `The audio of your last ${s.keep || 10} dictations, so you can redo a take, get one back if Waffler stops, or look into a problem.`
+      ? `The audio of your last ${s.keep || 10} dictations (fewer if they are very long, about 300 MB at most), so you can redo a take, get one back if Waffler stops, or look into a problem.`
       : "Off: new recordings are not kept, so a take can't be redone or recovered.") + now;
   }
   if (del) { del.disabled = !n; del.hidden = !n; }
@@ -6385,7 +6386,7 @@ async function setRecentAudio(on) {
     const r = await pywebview.api.set_recent_audio(!!on);
     if (r && r.ok) {
       _renderRecentAudio(r);
-      showToast(on ? 'Waffler keeps your last 10 recordings.' : 'Waffler stops keeping recordings. Delete now removes the ones kept.', 'success', 4000);
+      showToast(on ? 'Waffler keeps your recent recordings.' : 'Waffler stops keeping recordings. Delete now removes the ones kept.', 'success', 4000);
     } else {
       if (tog) tog.checked = !on;
       showToast((r && r.error) || "Couldn't change that setting. Try again.", 'error');
