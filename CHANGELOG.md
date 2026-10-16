@@ -7,6 +7,68 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 ## [Unreleased]
 
 ### Added
+- **Find, sort and select your words.** The Vocabulary page has a search box
+  that matches the word and what it sounds like as you type (any capitals,
+  with or without accents: "sinead" finds Sinéad), a choice of order (Most
+  used, which is how it always was, Recently used, Starred first and A to Z,
+  remembered next time), and Select, which puts a box on every row and a bar
+  to remove or star many words at once. Remove can be undone with the same
+  line as removing one word, and a word that a search has hidden is never
+  taken by accident. Everything works from the keyboard: Esc clears the
+  search, the Down arrow goes to the first row, Esc leaves Select.
+- **Stars.** Star the words that matter most. A star changes the order of the
+  list and one other thing: OpenAI and the local model are given your words
+  as a hint, and a list of 500 words was far more than they read (Whisper
+  looks at roughly the last 224 tokens of a hint), so the part they did read
+  was whatever came last. Now a short list is sent exactly as before (starred
+  words first if you have any), and a long one is cut to at most 80 words or
+  700 letters, starred first, then the words that have corrected the most
+  dictations, the same every time. Groq is given no hint and is not changed. A star does not
+  change how a word is corrected. Stars are kept in their own small file,
+  `vocab_stars.json`, so `vocab.json` stays the plain list Waffler 3.15.1 and
+  3.14 read: go back to an older version and nothing is lost.
+- **Import and export your Vocabulary.** Export saves a CSV on your Desktop
+  (word, sounds_like, starred) and shows it in its folder, with the accents
+  right in Excel and Numbers, and a word that starts with =, +, - or @ marked
+  so a spreadsheet shows it as text. Import takes a CSV from Excel, Numbers
+  or Google Sheets (a comma, a semicolon or a tab between the columns, the
+  columns in any order and named a few ways, or none: a word, then what it
+  sounds like), or rows you paste. It shows what would change before anything
+  is saved: new words, words that would gain a spelling or a star, words
+  already there, and every row left out with the row number and why. It only
+  adds: nothing is removed, renamed or unstarred; a word already in your list
+  in other capitals is left as it is. Words are held to the rules of typing
+  one in (up to 60 characters, 500 in the list, up to 8 spellings), plus: no
+  control characters, at least one letter, and an everyday word such as
+  "will" is left out unless you say what it sounds like, because Waffler
+  never changes an everyday word and the entry would do nothing. Import can be
+  undone.
+- **Edit text in the Journal, and words suggested from your edits.** Each
+  dictation has an Edit text button: fix a word, press Save (or Cmd or Ctrl and
+  Enter), Esc cancels. Your version is kept beside the entry. What was pasted
+  and what speech to text wrote are not touched. Copy, Paste last and Copy last
+  (menu bar and tray), the Journal search and the CSV and plain text exports use
+  your version from then on, the JSON export keeps both, and Redo this take
+  starts again from the recording. If you changed one word into another that
+  looks like a fix, such as a name, the card offers to add it: "Add "Waffler" to
+  your Vocabulary? Speech to text wrote "waffle"." Add, Dismiss; Add shows the
+  Undo line. What it sounds like is the word as speech to text wrote it, not the
+  clean-up's, because the Vocabulary runs before the clean-up. It suggests at
+  most four, only a single word changed into a single word, of three letters or
+  more, not an everyday word, not already in your Vocabulary, and never one day,
+  month or number swapped for another. Nothing is ever added by itself and no
+  model is asked: it is a comparison of two texts on your computer. A switch,
+  "Suggest words from my edits" on the Vocabulary page, turns the suggestions
+  off. Your edit is part of the entry, so it stays on this computer, goes with
+  Delete all my data and follows your history retention.
+- **Snippets: import and export.** Export saves a CSV (trigger, expansion) or a
+  JSON file on your Desktop. Import reads either, or any CSV close to it, with
+  a quoted text that has commas and line breaks, and shows what would change
+  before saving: new snippets, ones already there, and the rows left out with
+  the reason. A phrase you already have, in any capitals, keeps its text and the
+  row is listed as left out, so an import never changes what Waffler pastes for
+  something you set up. The limits are the editor's (60, 4,000 and 200). Import
+  can be undone.
 - **Language.** Settings, General has a Language picker: Auto-detect,
   English and 45 more. Until now the language could only be changed by
   editing a file, and the clean-up was never told about it, so a model could

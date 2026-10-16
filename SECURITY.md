@@ -19,7 +19,7 @@ We aim to acknowledge reports within 48 hours and provide a fix or mitigation pl
 Waffler handles sensitive data including:
 - **Microphone audio** — sent to Groq, Cerebras, or OpenAI via the user's own API key (whichever the user has configured; never routed through any Waffler-controlled server)
 - **API keys** — stored in a local `.env` file at `~/.waffler-hosted/.env`
-- **Transcription history** — stored locally on disk at `~/.waffler-hosted/history.json`
+- **Transcription history** — stored locally on disk at `~/.waffler-hosted/history.json`, including any corrected text the user saves with Edit text
 
 We take the security of this data seriously. Relevant areas include:
 - Credential handling and storage

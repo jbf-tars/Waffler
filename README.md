@@ -42,12 +42,12 @@ It's gone through a ridiculous amount of prompt-wrangling and live-API testing t
 - **Paste that keeps your clipboard (Mac).** Waffler puts back whatever you had copied once it has pasted, waits for your hotkey's keys to come up first, works on Dvorak and Colemak, and says so if the paste didn't land (your words stay on the clipboard). Paste last or copy last from the menu bar. Settings can keep the dictation on the clipboard instead.
 - **Permission check (Mac).** If the microphone or Accessibility is switched off, or Waffler isn't receiving your keyboard, one message opens the exact System Settings pane.
 - **Optional sounds and a quiet "Don't tap, hold" hint.** A soft tone when recording starts and stops and when hands-free locks (off until you switch it on; the microphone is silenced while one sounds, so it is never transcribed), and a once-in-a-while tip, with your own hotkey, if you tap instead of holding. Every message goes through one governor, so tips never talk over an error.
-- **Local transcription history** — searchable, stays on your machine. Delete any entry (with an undo), redo a take from its kept recording, export as JSON, CSV or plain text, and a take that a crash cut short comes back as a card you can try again
+- **Local transcription history** — searchable, stays on your machine. Delete any entry (with an undo), redo a take from its kept recording, export as JSON, CSV or plain text, correct a dictation with Edit text (Copy and Paste last then use your version), and a take that a crash cut short comes back as a card you can try again
 - **Recording overlay** — floating waffle indicator that lives over any app, including full-screen
 - **Setup wizard** — guided onboarding for first-time users
 - **In-app auto-update** — checks GitHub Releases and installs the new build with one click
-- **Custom vocabulary** — teach Waffler your jargon, names, and acronyms
-- **Snippets.** Say a short phrase, paste longer text: your address, a sign-off, a link. Any capitals, longest phrase first, and saying only the phrase skips the clean-up.
+- **Custom vocabulary** — teach Waffler your jargon, names, and acronyms. Say what speech to text writes for each ("grok" for Groq), search and sort the list, star the words that matter most, select many to remove or star, and import or export it as a CSV. Correct a dictation in the Journal and Waffler can offer to add the name it got wrong (it only offers; nothing is added by itself).
+- **Snippets.** Say a short phrase, paste longer text: your address, a sign-off, a link. Any capitals, longest phrase first, and saying only the phrase skips the clean-up. Import and export as CSV or JSON.
 - **Your language.** Dictate in 46 languages, or let Waffler detect which. The clean-up keeps what you spoke and never translates it.
 - **Style for each kind of app.** Turn the clean-up off to get exactly what was heard, or give personal messages, work chat, email and everything else their own style (Formal, Casual, Very casual, Excited), and an optional email signature. The styles are plain rules, not a model, so they never change a word and work on short dictations too.
 - **Transforms (beta).** Select text in any app, press a shortcut, and it is rewritten in place: Polish with rules you choose, Prompt Engineer for turning a rough request into a structured prompt, and up to five transforms of your own. Your app's Undo takes it back, and the Journal keeps the text before and after.
@@ -132,7 +132,8 @@ python app.py
 ## Privacy
 
 - Audio goes directly to OpenAI/Groq via **your own API key** — never through any Waffler servers
-- Transcription history is saved **locally on your machine only**
+- Transcription history is saved **locally on your machine only**. If you correct a dictation in the Journal, your corrected text is kept with it, on your machine only, and goes when the history does
+- Vocabulary and Snippets exports are files you save to your Desktop yourself: they are your own copies, never sent anywhere, and Delete all my data leaves them alone
 - On a Mac, to confirm a paste landed, Waffler reads whether the text field you paste into changed. It never stores or logs what is in it
 - Each history entry notes the app you dictated into and its kind (email, work chat, personal chat or other), on your machine only and never sent to a provider. For a browser tab, Waffler may read the window title to tell webmail or chat from other pages; the title is not stored or logged, and the page address is never read
 - If you turn on an email signature, then on a Mac Waffler reads the text before your cursor in an email app to check the signature isn't already there. It never stores or logs it, and the signature text is left out of the logs zip
