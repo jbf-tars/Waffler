@@ -52,6 +52,7 @@ It's gone through a ridiculous amount of prompt-wrangling and live-API testing t
 - **Style for each kind of app.** Turn the clean-up off to get exactly what was heard, or give personal messages, work chat, email and everything else their own style (Formal, Casual, Very casual, Excited), and an optional email signature. The styles are plain rules, not a model, so they never change a word and work on short dictations too.
 - **Transforms (beta).** Select text in any app, press a shortcut, and it is rewritten in place: Polish with rules you choose, Prompt Engineer for turning a rough request into a structured prompt, and up to five transforms of your own. Your app's Undo takes it back, and the Journal keeps the text before and after.
 - **Command mode (beta).** Hold a shortcut and say what you want: edit the selected text ("make this shorter", "translate to French"), write new text where your cursor is ("reply saying I'll be 10 minutes late"), or ask a question and Waffler opens it in your search engine (Perplexity, Google, DuckDuckGo, ChatGPT or Claude). Your app's Undo takes an edit back, and the Journal keeps what you said.
+- **Your week at a glance.** Settings, Usage shows your week streak, this week against last, words a minute, an estimate of the minutes saved (from your own typing speed), your busiest hour, the apps you dictate into most, and a map of the last 26 weeks. All of it is counted on your computer from your own history, with no accounts, rankings or uploads.
 - **Mac + Windows** — native desktop app via PyInstaller
 
 ---

@@ -255,6 +255,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   only while you hold the shortcut, to the clean-up provider you chose, on
   your own key. Privacy and data and the privacy policy say so. Beta: please
   tell me what it gets wrong.
+- **Your week at a glance, in Settings, Usage.** Usage used to stop at
+  totals and a 30-day chart. It now shows how many weeks in a row you have
+  dictated (Monday to Sunday; last week keeps it going until you dictate
+  again this week); this week against last, compared day for day so a
+  Monday is not called a slump for being one day long, in a calm line and
+  never a score; how fast you speak, in words a minute, from the last 100
+  dictations that have a measured length (older ones borrow it from the
+  quality log, which holds timings and no words; nothing is shown until 10
+  have one); your busiest hour of the day once there are 20 dictations to
+  tell; the apps you dictate into most, with the dictations that never said
+  which app counted apart as "Not recorded" so older history is not read as
+  if it had; and a map of the last 26 weeks, a square a day in five shades
+  of honey, in both themes, one Tab stop, the arrow keys to move between
+  days, and each square names its day and words on focus, on hover and to a
+  screen reader. Nothing leaves your computer, there are no rankings or
+  comparisons with anyone, and nothing was added to the Privacy page
+  because nothing new is kept: all of it is counted from the history you
+  already have. The Journal's margin gains one line under the week's bars,
+  such as "This week: 2,140 words, up 12% on the same days last week", and
+  hides it when there is nothing to compare. Rewrites of selected text and
+  spoken commands are not counted in any of these figures, as before.
+- **Minutes saved, and it says it is an estimate.** The words you dictated,
+  typed at your own speed (Settings, Usage, "Your typing speed", 40 words a
+  minute until you set it; 10 to 200), less the time it took to say them:
+  the length of each recording, or 150 words a minute for older dictations
+  that did not note one. Never below zero, and "How this is estimated"
+  shows the working. It leaves out the moment Waffler takes to answer and
+  the time typing would spend on mistakes, so it is a guide rather than a
+  measurement.
 
 ### Changed
 - **After a paste, your own clipboard is back (Mac).** This is the new

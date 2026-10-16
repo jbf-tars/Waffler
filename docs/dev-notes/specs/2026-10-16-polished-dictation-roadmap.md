@@ -122,3 +122,21 @@ Related, added with it:
 - Notifier kinds `command_result`, `command_busy` (a gap of 8 s), `command_failed`; toast action `show_command:<entry id>`. The dictation hotkey, a transform and a second command are refused while one runs, and a command is refused during any of them.
 - No new data file, menu item or tray item. The settings are not secret and go into the logs bundle as they are.
 
+
+### S9 Stats
+
+One key in `settings.json`, `typing_wpm`, a whole number from 10 to 200 (40 until set). It is read with `stats_insights.typing_wpm_of(stored)` (anything unreadable is 40) and written through `save_settings({"typing_wpm": n})`, which refuses anything else (`user_messages.TYPING_SPEED_UNKNOWN`) before saving any of the payload. `get_settings()["typing_wpm"]` is the same number. It only feeds the minutes-saved estimate; `HistoryCache` reads it through a function (`app._typing_wpm_setting`) on each `stats()` call and keys its cache on it, so a change shows at once with no new read of `history.json`.
+
+New keys of `journal_data.compute_stats` / `get_stats` (all optional for old entries, all computed in the one walk by `src/stats_insights.py`; the old keys are unchanged). Entries that are `failed` (Not sent) or of `kind` `transform` / `command` are in none of them.
+
+- `today`, `weekday`: the local date the figures were worked out for, and its weekday (0 = Monday).
+- `week_streak`: consecutive Monday-to-Sunday weeks with a dictation, ending this week, or last week while this week has none yet.
+- `words_this_week`, `words_last_week`, `words_last_week_same_days`, `week_change_pct`: this week so far; the whole week before; the days of last week that this week has had so far (all of it on a Sunday); the change between the first and the third as a whole percent (half away from zero), `None` when those days had no words.
+- `words_this_month`: `month_words` under the week figures' name.
+- `peak_hour`, `hour_counts`, `peak_hour_needs`: the local hour (0 to 23) with most dictations (the earlier on a tie), `None` until 20 dictations have a time; the 24 counts; the 20.
+- `heatmap`: `{start, weeks: 26, days: [[7 words or None] x 26], max}`, Monday-first columns from the Monday of the week 25 weeks back; days after today are `None`.
+- `minutes_saved`, `minutes_saved_basis`: an estimate. Words / `typing_wpm` less the time to say them (`duration_s`, never faster than 300 words a minute, else 150 words a minute), summed over dictations (a long recording counts against a short one), never below 0. The basis has `typing_wpm`, `words`, `typing_minutes`, `speaking_minutes`, `timed`, `estimated`.
+- `wpm`, `wpm_samples`: words said over seconds of speech for the latest 100 usable dictations (`speech_s`, else `quality.jsonl`'s by timestamp; 3 words or more, 1 s or more, 20 to 400 a minute); `None` until 10.
+- `top_apps`, `apps_recorded`, `apps_not_recorded`, `apps_total`: the five apps with most dictations (`app`, else `app_bundle`; case and spacing ignored), and the dictations that name none.
+
+Days and hours come from the entry's stamp (local wall-clock time) and every step between days is on the calendar, so a clock change cannot move a day. `local_today(now, tz)` is the one place a zone matters; `HistoryCache(..., clock=, tz=)` take them for `stats()` with no day. The window reads these with the pure helpers in `ui/logic.js` (`weekView`, `weekStreakView`, `wpmView`, `minutesSavedView`, `peakHourView`, `topAppsView`, `heatmapView`, `heatMove`, `typingSpeedCheck`). No new data file, nav page, network call or log line.
