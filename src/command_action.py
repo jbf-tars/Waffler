@@ -873,6 +873,10 @@ class CommandRunner:
         """Is something selected now, by a Copy (the way "nothing selected" was
         found)? A read that fails counts as yes: not knowing is a reason not to
         paste over what might be selected. (No reader at all is no.)"""
+        if self.h.platform == "win32":
+            # A second Ctrl+C is "stop the program" in a terminal that holds
+            # nothing selected; the one that found nothing selected stands.
+            return False
         again = self.h.reread_selection(text_context.METHOD_COPY)
         if again is None:
             return False

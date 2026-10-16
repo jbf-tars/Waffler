@@ -8,9 +8,6 @@ import platform
 
 if sys.platform == "darwin":
     import subprocess
-elif sys.platform == "win32":
-    import ctypes
-    from ctypes import wintypes
 
 
 def get_active_app() -> dict:
@@ -46,6 +43,21 @@ def frontmost_app_name() -> str:
     return ""
 
 
+def frontmost_window_class() -> str:
+    """The Windows class name of the window in front ('' elsewhere, and when
+    unknown). A terminal is told from other windows by it as well as by the
+    program's name: a terminal inside an IDE or a new terminal program has a
+    name nobody listed, but the class of its window gives it away."""
+    try:
+        if sys.platform == "win32":
+            api = _Win32()
+            hwnd = api.foreground_window()
+            return api.window_class(hwnd) if hwnd else ""
+    except Exception:
+        pass
+    return ""
+
+
 def _get_active_app_macos() -> dict:
     """Use AppleScript to get frontmost app on macOS."""
     try:
@@ -70,52 +82,72 @@ def _get_active_app_macos() -> dict:
         return {"name": "Unknown", "bundleId": "", "suggested_style": "normal"}
 
 
-def _get_active_app_windows() -> dict:
-    """Use Win32 API to get foreground window app on Windows."""
-    try:
-        # Get foreground window handle
-        hwnd = ctypes.windll.user32.GetForegroundWindow()
-        if not hwnd:
-            return {"name": "Unknown", "bundleId": "", "suggested_style": "normal"}
-        
-        # Get window title (process name)
-        length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
-        if length == 0:
-            return {"name": "Unknown", "bundleId": "", "suggested_style": "normal"}
-        
-        buffer = ctypes.create_unicode_buffer(length + 1)
-        ctypes.windll.user32.GetWindowTextW(hwnd, buffer, length + 1)
-        window_title = buffer.value
-        
-        # Try to get process name
+# The least a program may ask for to read another program's file name, and
+# the right that works across integrity levels (an elevated program, a
+# protected one). The older pair of rights (query information and read memory)
+# is refused for exactly the windows that matter here.
+PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+
+
+class _Win32:
+    """The few Win32 calls the window lookup makes. Imported on use, so this
+    module loads anywhere, and replaced by a stand-in in the tests."""
+
+    def foreground_window(self) -> int:
+        import ctypes
+        return int(ctypes.windll.user32.GetForegroundWindow() or 0)
+
+    def window_pid(self, hwnd: int) -> int:
+        import ctypes
         pid = ctypes.c_ulong()
         ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-        
-        # Get process name
-        PROCESS_QUERY_INFORMATION = 0x0400
-        PROCESS_VM_READ = 0x0010
-        kernel32 = ctypes.windll.kernel32
-        psapi = ctypes.windll.psapi
-        handle = kernel32.OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, False, pid.value)
+        return int(pid.value)
 
-        if handle:
-            try:
-                exe_buffer = ctypes.create_unicode_buffer(260)
-                if psapi.GetModuleFileNameExW(handle, 0, exe_buffer, 260):
-                    exe_path = exe_buffer.value
-                    app_name = exe_path.split("\\")[-1].replace(".exe", "")
-                else:
-                    app_name = window_title[:50] if window_title else "Unknown"
-            finally:
-                kernel32.CloseHandle(handle)
-        else:
-            app_name = window_title[:50] if window_title else "Unknown"
-        
-        return _map_app_to_style(app_name)
-        
+    def window_class(self, hwnd: int) -> str:
+        import ctypes
+        buf = ctypes.create_unicode_buffer(256)
+        ctypes.windll.user32.GetClassNameW(hwnd, buf, 256)
+        return buf.value
+
+    def process_image_path(self, pid: int) -> str:
+        """The full path of the program with process id ``pid``, or '' when it
+        cannot be read."""
+        import ctypes
+        from ctypes import wintypes
+        kernel32 = ctypes.windll.kernel32
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if not handle:
+            return ""
+        try:
+            size = wintypes.DWORD(1024)
+            buf = ctypes.create_unicode_buffer(1024)
+            if kernel32.QueryFullProcessImageNameW(handle, 0, buf, ctypes.byref(size)):
+                return buf.value
+            return ""
+        finally:
+            kernel32.CloseHandle(handle)
+
+
+def _get_active_app_windows(api=None) -> dict:
+    """The program that owns the window in front, by its file name without
+    ``.exe``. When that cannot be read the answer is "Unknown": never the
+    window's title. A title is the person's own text (a document's name, a
+    file in a folder), and this name is stored in the Journal."""
+    unknown = {"name": "Unknown", "bundleId": "", "suggested_style": "normal"}
+    try:
+        api = api or _Win32()
+        hwnd = api.foreground_window()
+        if not hwnd:
+            return unknown
+        path = api.process_image_path(api.window_pid(hwnd))
+        name = path.replace("/", "\\").split("\\")[-1] if path else ""
+        if name.lower().endswith(".exe"):
+            name = name[:-4]
+        return _map_app_to_style(name) if name else unknown
     except Exception as e:
-        print(f"[app_detection] Windows error: {e}")
-        return {"name": "Unknown", "bundleId": "", "suggested_style": "normal"}
+        print(f"[app_detection] Windows error: {type(e).__name__}")
+        return unknown
 
 
 def _map_app_to_style(app_name: str) -> dict:

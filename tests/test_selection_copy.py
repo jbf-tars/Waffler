@@ -317,7 +317,7 @@ def test_a_windows_console_is_never_sent_ctrl_c(name):
     assert sc.keystroke_allowed(name, "win32") is False
 
 
-@pytest.mark.parametrize("name", ["notepad", "Code", "chrome", "OUTLOOK.EXE", "slack", "WINWORD"])
+@pytest.mark.parametrize("name", ["notepad", "chrome", "OUTLOOK.EXE", "slack", "WINWORD"])
 def test_other_windows_apps_may_be_sent_ctrl_c(name):
     assert sc.keystroke_allowed(name, "win32") is True
 

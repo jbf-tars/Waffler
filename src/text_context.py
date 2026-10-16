@@ -350,6 +350,7 @@ class Front:
     bundle_id: str = ""
     name: str = ""
     pid: int = 0
+    window_class: str = ""      # Windows: the class of the window (a terminal gives itself away by it)
 
 
 def _mac_front() -> Optional[Front]:
@@ -364,7 +365,7 @@ def _mac_front() -> Optional[Front]:
 def _windows_front() -> Optional[Front]:
     import app_detection
     name = app_detection.frontmost_app_name()
-    return Front("", name, 0) if name else None
+    return Front("", name, 0, app_detection.frontmost_window_class()) if name else None
 
 
 class ContextReader:
@@ -459,7 +460,8 @@ class ContextReader:
         round_trip = self._get_round_trip()
         if round_trip is None:
             return SelectionResult("", METHOD_NONE, NOT_READABLE)
-        if not selection_copy.keystroke_allowed(front.name if front else "", self._platform):
+        if not selection_copy.keystroke_allowed(front.name if front else "", self._platform,
+                                                getattr(front, "window_class", "")):
             return SelectionResult("", METHOD_NONE, NOT_ALLOWED_HERE)
         left = deadline - self._clock()
         if left < MIN_COPY_BUDGET_S:

@@ -63,12 +63,30 @@ EMPTY_GRACE_SECONDS = 0.25
 MODIFIER_WAIT_SECONDS = 0.3
 
 # Windows consoles read Ctrl+C as "stop the running program" when nothing is
-# selected, so the copy fallback must never be sent into one. (Process names,
-# lower case, without .exe.)
+# selected, so the copy fallback must never be sent into one. That includes the
+# terminal inside an editor (VS Code, the JetBrains IDEs, Visual Studio): their
+# whole program is on the list, since from outside it cannot be said whether
+# the terminal or the editor has the keyboard. (Process names, lower case,
+# without .exe.)
 NO_COPY_KEY_NAMES = frozenset({
     "cmd", "powershell", "powershell_ise", "pwsh", "conhost", "windowsterminal", "wt",
     "wsl", "wslhost", "bash", "mintty", "alacritty", "wezterm-gui", "kitty", "putty",
     "openconsole", "git-bash", "cygwin-terminal",
+    # editors with a terminal of their own
+    "code", "code - insiders", "cursor", "windsurf", "vscodium", "codium",
+    "idea", "idea64", "pycharm", "pycharm64", "webstorm", "webstorm64", "phpstorm", "phpstorm64",
+    "clion", "clion64", "goland", "goland64", "rider", "rider64", "rubymine", "rubymine64",
+    "datagrip", "datagrip64", "dataspell", "dataspell64", "studio", "studio64", "fleet", "devenv",
+    # other terminal programs, and SSH clients
+    "hyper", "tabby", "mobaxterm", "mobaxterm_personal", "conemu", "conemu64", "cmder", "termius",
+    "securecrt", "xshell", "fluentterminal", "terminus", "warp", "ghostty", "wave", "rio",
+    "ubuntu", "debian", "kali-linux", "opensuse-leap", "mobaxterm_x64", "putty64", "kitty_portable",
+})
+# The class of a window gives a terminal away whatever its program is called.
+# (Lower case.)
+NO_COPY_WINDOW_CLASSES = frozenset({
+    "consolewindowclass", "cascadia_hosting_window_class", "mintty", "virtualconsoleclass", "putty",
+    "alacritty", "org.wezfurlong.wezterm", "kitty", "hwndwrapper[mobaxterm.exe;;",
 })
 
 
@@ -85,9 +103,10 @@ class CopyResult:
         return self.reason == OK and bool(self.text)
 
 
-def keystroke_allowed(app_name: str, platform: Optional[str] = None) -> bool:
+def keystroke_allowed(app_name: str, platform: Optional[str] = None, window_class: str = "") -> bool:
     """May the copy keystroke be sent into this app? Everywhere yes, except a
-    Windows console (see ``NO_COPY_KEY_NAMES``)."""
+    Windows console, terminal or editor with a terminal (see
+    ``NO_COPY_KEY_NAMES`` and ``NO_COPY_WINDOW_CLASSES``)."""
     if (platform or sys.platform) != "win32":
         return True
     name = " ".join(str(app_name or "").split()).lower()
@@ -95,6 +114,8 @@ def keystroke_allowed(app_name: str, platform: Optional[str] = None) -> bool:
         name = name[:-4]
     if not name:
         return False        # cannot tell what is in front, so do not risk Ctrl+C
+    if " ".join(str(window_class or "").split()).lower() in NO_COPY_WINDOW_CLASSES:
+        return False
     return name not in NO_COPY_KEY_NAMES
 
 
@@ -364,5 +385,5 @@ def default_round_trip(log: Callable[[str], None] = lambda _m: None) -> Optional
 
 
 __all__ = ["CopyResult", "CopyRoundTrip", "WindowsTextClipboard", "default_round_trip",
-           "keystroke_allowed", "windows_modifier_flags", "NO_COPY_KEY_NAMES", "OK", "NOT_RESTORABLE", "BUSY", "NO_COPY",
+           "keystroke_allowed", "windows_modifier_flags", "NO_COPY_KEY_NAMES", "NO_COPY_WINDOW_CLASSES", "OK", "NOT_RESTORABLE", "BUSY", "NO_COPY",
            "TIMED_OUT", "KEYSTROKE_FAILED", "UNREADABLE"]
