@@ -15,13 +15,21 @@ treat each as "unknown" when it is missing.
                  safe paste's outcomes), copied (auto-paste is off), or
                  not_pasted (a newer dictation took over, or Esc kept them)
     app          the app in front when the hotkey went down, by its name
+    app_bundle   the same app's identifier on a Mac ("com.apple.mail"), when
+                 the system gave one
+    category     the kind of app it is: email, work, personal or other
+                 (src/app_categories.py)
     audio        the name of the recording kept for this take
                  (src/recent_audio.py), so "Redo this take" can find it
 
+The app's name, identifier and kind are kept on this computer with the entry
+and nowhere else; the window title that helped tell a browser's tab is not kept.
 Nothing here reads a file or the window.
 """
 
 from __future__ import annotations
+
+import app_categories
 
 # The safe paste's own words (src/pasteboard.py), then the two that say no
 # paste was tried.
@@ -33,12 +41,13 @@ PASTE_NOT_PASTED = "not_pasted"
 PASTE_VALUES = (PASTE_PASTED, PASTE_UNVERIFIED, PASTE_FAILED, PASTE_COPIED, PASTE_NOT_PASTED)
 
 APP_NAME_MAX = 80
+APP_BUNDLE_MAX = 120
 LANG_MAX = 16
 
 # What stays with a take when it is done again ("Redo this take"): who and
 # when it was, and where its recording is. The words and everything about how
 # they were made are the new run's.
-KEPT_ON_REDO = ("id", "timestamp", "audio", "app", "duration_s")
+KEPT_ON_REDO = ("id", "timestamp", "audio", "app", "app_bundle", "category", "duration_s")
 
 
 def words_of(item: dict) -> str:
@@ -61,8 +70,11 @@ def _name(value, limit):
 
 
 def take_fields(*, audio_seconds=None, speech_seconds=None, language=None, stt=None,
-                cleanup=None, paste=None, app=None, audio=None) -> dict:
-    """The optional fields for an entry, leaving out whatever is unknown."""
+                cleanup=None, paste=None, app=None, audio=None, app_bundle=None,
+                category=None) -> dict:
+    """The optional fields for an entry, leaving out whatever is unknown.
+    ``category`` is kept only for an app that is known, and only if it is one
+    of src/app_categories.CATEGORIES."""
     out = {}
     d = _seconds(audio_seconds)
     if d is not None:
@@ -81,9 +93,30 @@ def take_fields(*, audio_seconds=None, speech_seconds=None, language=None, stt=N
     name = _name(app, APP_NAME_MAX)
     if name:
         out["app"] = name
+    bundle = _name(app_bundle, APP_BUNDLE_MAX)
+    if bundle:
+        out["app_bundle"] = bundle
+    if (name or bundle) and category in app_categories.CATEGORIES:
+        out["category"] = category
     if isinstance(audio, str) and audio:
         out["audio"] = audio
     return out
+
+
+def context_of(entry):
+    """The ``AppContext`` an entry was dictated in, from the fields above, or
+    None when it records no app (an older entry, or one made where the app
+    could not be told). The window title is never kept, so ``title`` is empty."""
+    if not isinstance(entry, dict):
+        return None
+    name, bundle = _name(entry.get("app"), APP_NAME_MAX), _name(entry.get("app_bundle"), APP_BUNDLE_MAX)
+    if not (name or bundle):
+        return None
+    import text_context
+    category = entry.get("category")
+    if category not in app_categories.CATEGORIES:
+        category = app_categories.category_for(bundle, name)
+    return text_context.AppContext(bundle, name, "", category)
 
 
 def paste_label(result, pasted: bool) -> str:

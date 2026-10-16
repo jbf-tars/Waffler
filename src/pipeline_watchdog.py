@@ -238,6 +238,10 @@ class DictationRun:
         # The name of this take's kept recording (src/recent_audio.py), once
         # it has one: a Not sent card made for it says which it is.
         self.audio_name = ""
+        # The app this take was dictated for: an AppContext captured when the
+        # key went down (src/text_context.py), or None. The clean-up is told
+        # it, and a Not sent card made for the take says which app it was.
+        self.app_context = None
         # Last whole second the pill was told about.
         self.shown_second = -1
         self._decision = None

@@ -110,6 +110,7 @@ from transcribe_whisper import WhisperTranscriber, _speech_seconds
 from style_openai import OpenAIStyler
 from clipboard import ClipboardManager
 import pasteboard as _pasteboard
+import text_context as _text_context
 from overlay import RecordingOverlay
 from permissions_manager import PermissionsManager
 from audio_devices import (
@@ -118,7 +119,7 @@ from audio_devices import (
     set_selected_device_index,
     get_selected_device_name,
 )
-from app_detection import get_active_app, frontmost_app_name
+from app_detection import get_active_app
 from log_util import transcript_for_log
 from atomic_json import write_json_atomic, read_json_for_update
 import pipeline_watchdog as _pw
@@ -3583,6 +3584,7 @@ class WafflerPipeline:
 
         self.clipboard = ClipboardManager()
         _pasteboard.set_logger(_log_to_file)
+        _text_context.set_logger(_log_to_file)
         # Safe paste (src/pasteboard.py): what "Paste last" pastes, the gate
         # that keeps a failed-paste message to one every 30 s, and the check
         # of the microphone and Accessibility each time the hotkey goes down
@@ -3663,7 +3665,7 @@ class WafflerPipeline:
             self._precheck.warm()
             _pasteboard.warm_up()
             self._cues.warm()
-            frontmost_app_name()     # the first call loads AppKit (about 70 ms)
+            _text_context.warm()     # the first call loads AppKit and Accessibility (about 70 ms)
         except Exception as e:
             _log_to_file(f"[paste] warm-up skipped: {type(e).__name__}")
 
@@ -4130,6 +4132,19 @@ class WafflerPipeline:
                 _log_to_file(f"select_mic action failed: {e}")
             self.overlay.hide_toast()
 
+    def _press_target(self, press_id):
+        """The app that was in front when press ``press_id`` began, as an
+        ``AppContext`` (``UNKNOWN`` when it was not captured, or belongs to
+        another press). Read once at the start of ``_process`` so a newer
+        press cannot change it."""
+        pc = getattr(self, "_press_context", None)
+        if pc and pc[0] == press_id:
+            return pc[1]
+        pa = getattr(self, "_press_app", None)      # the older shape: (press id, name)
+        if pa and pa[0] == press_id and pa[1]:
+            return _text_context.make_context("", pa[1])
+        return _text_context.UNKNOWN
+
     def on_hotkey_press(self):
         """Start recording."""
         # Permissions first, and cheap: a microphone or Accessibility switched
@@ -4156,12 +4171,15 @@ class WafflerPipeline:
             self._processing_cancelled.clear()
         # Capture focused window BEFORE overlay takes focus
         self._prev_window = self.clipboard.get_focused_window()
-        # And the app's name, for the Journal. Kept with this press's
-        # id: the next press must not rename this dictation's app.
+        # And the app in front, for the Journal and for the clean-up
+        # (src/text_context.py: its name, identifier and kind, plus the
+        # window's title for a browser). Kept with this press's id: the next
+        # press must not rename this dictation's app, and neither must
+        # whatever is in front when processing ends.
         try:
-            self._press_app = (self._current_press_id, frontmost_app_name())
+            self._press_context = (self._current_press_id, _text_context.frontmost_app())
         except Exception:
-            self._press_app = (self._current_press_id, "")
+            self._press_context = (self._current_press_id, _text_context.UNKNOWN)
         _log_to_file("Recording started")
         self._recording_session += 1
         # Track recording start time for duration checks
@@ -4370,10 +4388,12 @@ class WafflerPipeline:
         # the next press, so reading it later could send this dictation's paste
         # into the window the user opened for the following one.
         _target_window = self._prev_window
-        # The app that was in front when this press began, and the name of
-        # this take's kept recording once there is one (for the Journal).
-        _pa = getattr(self, "_press_app", None)
-        _target_app = _pa[1] if _pa and _pa[0] == processing_id else ""
+        # The app that was in front when this press began (for the Journal
+        # and the clean-up), and the name of this take's kept recording once
+        # there is one.
+        _target_ctx = self._press_target(processing_id)
+        _target_app = _target_ctx.name
+        run.app_context = _target_ctx
         _ring_name = ""
         # Set once the styled text is on the clipboard (not after a paste
         # that put the user's own clipboard back). After that point the error
@@ -4684,7 +4704,8 @@ class WafflerPipeline:
                 run.enter(_pw.SAVING)
                 if not run.abandoned:
                     _uid = self._handle_failed_transcription(audio_bytes, _why,
-                                                             audio_name=_ring_name)
+                                                             audio_name=_ring_name,
+                                                             app_context=_target_ctx)
                     run.saved_as_unsent = True
                     # The request itself is still running and will probably
                     # be billed: its answer goes into the card, and nothing
@@ -4756,7 +4777,7 @@ class WafflerPipeline:
                     "provider": "snippet"}))
             else:
                 _sty = run.call(self.styler.style, transcript, stage=_pw.STYLING,
-                                deadline=_pw.STYLE_DEADLINE_S)
+                                deadline=_pw.STYLE_DEADLINE_S, app_context=_target_ctx)
             if _sty.status == _pw.CANCEL and not run.cancel_keeps:
                 _log_to_file(f"Processing {processing_id} cancelled during styling")
                 _outcome = _pw.CANCELLED
@@ -4954,7 +4975,8 @@ class WafflerPipeline:
                     speech_seconds=_asr_info.get("last_speech_seconds", 0.0),
                     language=self._read_settings().get("language", "en"),
                     stt=whisper_provider, cleanup=(gpt_usage or {}).get("provider", ""),
-                    paste=_paste_label, app=_target_app, audio=_ring_name))
+                    paste=_paste_label, app=_target_app, audio=_ring_name,
+                    app_bundle=_target_ctx.bundle_id, category=_target_ctx.category))
             except Exception as _e:
                 _log_to_file(f"[pipeline] take details not kept: {type(_e).__name__}")
             if _as_said:
@@ -5121,7 +5143,8 @@ class WafflerPipeline:
             if not transcript and run.audio_bytes and not run.saved_as_unsent:
                 try:
                     self._handle_failed_transcription(run.audio_bytes, error_msg,
-                                                      audio_name=_ring_name)
+                                                      audio_name=_ring_name,
+                                                      app_context=_target_ctx)
                     run.saved_as_unsent = True
                     _outcome = _pw.NOT_SENT
                 except Exception as _e:
@@ -5144,7 +5167,8 @@ class WafflerPipeline:
                 }
                 try:
                     _entry.update(_history_meta.take_fields(
-                        audio_seconds=run.audio_seconds, app=_target_app, audio=_ring_name))
+                        audio_seconds=run.audio_seconds, app=_target_app, audio=_ring_name,
+                        app_bundle=_target_ctx.bundle_id, category=_target_ctx.category))
                 except Exception:
                     pass
                 _journal_saved = append_history_safely(_entry)
@@ -5398,7 +5422,8 @@ class WafflerPipeline:
             run.saved_as_unsent = True
             saved = bool(self._handle_failed_transcription(
                 run.audio_bytes, _unsent.REASON_STUCK, toast=False,
-                audio_name=getattr(run, "audio_name", "")))
+                audio_name=getattr(run, "audio_name", ""),
+                app_context=getattr(run, "app_context", None)))
         if not self._run_is_current(run):
             return
         heading, body = _unsent.toast_text(_unsent.REASON_STUCK, saved=True)
@@ -5436,7 +5461,8 @@ class WafflerPipeline:
             return None
 
     def _handle_failed_transcription(self, audio_bytes: bytes, reason: str,
-                                     toast: bool = True, audio_name: str = "") -> str:
+                                     toast: bool = True, audio_name: str = "",
+                                     app_context=None) -> str:
         """Speech to text produced no text (no connection, a VPN block, a
         limit, the watchdog's deadline, or the user chose "Send later").
 
@@ -5470,9 +5496,11 @@ class WafflerPipeline:
             # a crash left behind is not made again at the next start
             # (src/take_marker.py).
             try:
+                ctx = app_context or _text_context.UNKNOWN
                 item.update(_history_meta.take_fields(
                     audio_seconds=max(0, len(audio_bytes) - 44) / 32000.0,
-                    audio=audio_name))
+                    audio=audio_name, app=ctx.name, app_bundle=ctx.bundle_id,
+                    category=ctx.category))
             except Exception:
                 pass            # the card matters more than its details
             append_history(item)
@@ -5598,11 +5626,13 @@ class WafflerPipeline:
                                           run.audio_seconds)
 
     def _tidy_transcript(self, transcript: str, info: dict, audio_seconds: float,
-                         label: str, style: bool = True):
+                         label: str, style: bool = True, app_context=None):
         """The words a recording sent again is turned into: the Vocabulary,
         what the speech cost, the clean-up and the snippets, as a dictation
         gets (but never pasted). Used by Try again on a Not sent card and
-        by "Redo this take". ``label`` names the step for the watchdog.
+        by "Redo this take". ``label`` names the step for the watchdog;
+        ``app_context`` is the app the take was dictated in, if its entry
+        recorded one (the clean-up is told, as for a dictation).
 
         Returns (transcript, styled, vocab_changes, stt, cleanup): the words
         as heard (after the Vocabulary), as cleaned up, what the Vocabulary
@@ -5634,7 +5664,7 @@ class WafflerPipeline:
         elif style:
             run = _pw.DictationRun(label)
             sty = run.call(self.styler.style, transcript, stage=_pw.STYLING,
-                           deadline=_pw.STYLE_DEADLINE_S)
+                           deadline=_pw.STYLE_DEADLINE_S, app_context=app_context)
             if sty.ok and sty.value and sty.value[0]:
                 styled, usage = sty.value
                 cleanup = usage.get("provider", "")
@@ -5656,7 +5686,8 @@ class WafflerPipeline:
         remove the file. Call with _unsent_lock held."""
         transcript, info = asr_value
         transcript, styled, vocab_changes, stt, cleanup = self._tidy_transcript(
-            transcript, info, audio_seconds, f"fill:{unsent_id}", style)
+            transcript, info, audio_seconds, f"fill:{unsent_id}", style,
+            app_context=_history_meta.context_of(entry))
 
         new_item = _unsent.resolved(entry, transcript=transcript, styled=styled)
         if vocab_changes:
@@ -5753,7 +5784,8 @@ class WafflerPipeline:
                 return {"ok": False, "reason": kind}
             info = asr.value[1]
             transcript, styled, changes, stt, cleanup = self._tidy_transcript(
-                transcript, info, run.audio_seconds, f"redo:{path.name}")
+                transcript, info, run.audio_seconds, f"redo:{path.name}",
+                app_context=_history_meta.context_of(entry))
             new_item = _history_meta.redone_entry(
                 entry, transcript=transcript, styled=styled, vocab_changes=changes,
                 redone_at=datetime.now().isoformat(timespec="seconds"),

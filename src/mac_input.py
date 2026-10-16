@@ -123,15 +123,15 @@ def _layout_char_mapper(ascii_capable: bool = False) -> Optional[Callable[[int],
         return None
 
 
-def resolve_v_keycode(char_for_keycode: Optional[Callable[[int], Optional[str]]],
-                      default: Optional[int] = 9) -> Optional[int]:
-    """The hardware keycode whose character (with Command held) is "v".
+def resolve_keycode(char_for_keycode: Optional[Callable[[int], Optional[str]]], target: str,
+                    preferred: int, default: Optional[int]) -> Optional[int]:
+    """The hardware keycode whose character (with Command held) is ``target``.
 
     ``char_for_keycode`` maps a keycode to the character it types under the
-    active layout. QWERTY gives 9; Dvorak gives 47; layouts that keep
-    QWERTY positions for Command shortcuts give 9 again. When a layout offers
-    no Latin "v" (or the mapper is missing or fails) ``default`` is returned.
-    Keycode 9 wins when more than one key makes a "v".
+    active layout. ``preferred`` is where QWERTY keeps the key (and where
+    layouts that keep QWERTY positions for Command shortcuts keep it too): it
+    wins when more than one key makes the letter. When a layout offers no such
+    letter (or the mapper is missing or fails) ``default`` is returned.
     """
     if char_for_keycode is None:
         return default
@@ -139,43 +139,60 @@ def resolve_v_keycode(char_for_keycode: Optional[Callable[[int], Optional[str]]]
     try:
         for code in range(128):
             ch = char_for_keycode(code)
-            if ch and ch.lower() == "v":
+            if ch and ch.lower() == target:
                 found.append(code)
     except Exception:
         return default
     if not found:
         return default
-    return 9 if 9 in found else found[0]
+    return preferred if preferred in found else found[0]
 
 
-def _resolve_on_main_thread() -> Optional[int]:
+def resolve_v_keycode(char_for_keycode: Optional[Callable[[int], Optional[str]]],
+                      default: Optional[int] = 9) -> Optional[int]:
+    """The hardware keycode that types "v" with Command held (the paste key).
+
+    QWERTY gives 9; Dvorak gives 47; layouts that keep QWERTY positions for
+    Command shortcuts give 9 again. When a layout offers no Latin "v" (or the
+    mapper is missing or fails) ``default`` is returned. Keycode 9 wins when
+    more than one key makes a "v".
+    """
+    return resolve_keycode(char_for_keycode, "v", 9, default)
+
+
+def _resolve_char_on_main_thread(target: str, preferred: int) -> Optional[int]:
     mapper = _layout_char_mapper()
-    code = resolve_v_keycode(mapper, default=None) if mapper else None
+    code = resolve_keycode(mapper, target, preferred, None) if mapper else None
     if code is None:
         # Non-Latin layouts (Russian, Arabic, Greek...) keep Latin shortcuts.
         mapper = _layout_char_mapper(ascii_capable=True)
-        code = resolve_v_keycode(mapper, default=None) if mapper else None
+        code = resolve_keycode(mapper, target, preferred, None) if mapper else None
     return code
 
 
-_cached_v_keycode: Optional[int] = None
+def _resolve_on_main_thread() -> Optional[int]:
+    return _resolve_char_on_main_thread("v", 9)
 
 
-def v_keycode_for_current_layout(default: int = 9, timeout: float = 0.15) -> int:
-    """The hardware keycode that types "v" under the active keyboard layout.
+_cached_keycodes: dict = {}
+
+
+def keycode_for_current_layout(target: str, preferred: int, default: int,
+                               timeout: float = 0.15) -> int:
+    """The hardware keycode that types ``target`` (a letter) with Command held,
+    under the active keyboard layout.
 
     Text Input Services must be called on the main thread, so from a worker
     thread this hops to the main run loop and waits up to ``timeout`` s; if the
-    main thread is busy (or no run loop is running) the last good answer, then
-    ``default`` (QWERTY's 9), is used. Never raises.
+    main thread is busy (or no run loop is running) the last good answer for
+    that letter, then ``default`` (QWERTY's), is used. Never raises.
     """
-    global _cached_v_keycode
     if sys.platform != "darwin":
         return default
     code = None
     try:
         if threading.current_thread() is threading.main_thread():
-            code = _resolve_on_main_thread()
+            code = _resolve_char_on_main_thread(target, preferred)
         else:
             from PyObjCTools import AppHelper
             done = threading.Event()
@@ -183,7 +200,7 @@ def v_keycode_for_current_layout(default: int = 9, timeout: float = 0.15) -> int
 
             def work():
                 try:
-                    box.append(_resolve_on_main_thread())
+                    box.append(_resolve_char_on_main_thread(target, preferred))
                 finally:
                     done.set()
 
@@ -193,9 +210,21 @@ def v_keycode_for_current_layout(default: int = 9, timeout: float = 0.15) -> int
     except Exception:
         code = None
     if code is not None:
-        _cached_v_keycode = int(code)
-        return _cached_v_keycode
-    return _cached_v_keycode if _cached_v_keycode is not None else default
+        _cached_keycodes[target] = int(code)
+        return _cached_keycodes[target]
+    return _cached_keycodes.get(target, default)
+
+
+def v_keycode_for_current_layout(default: int = 9, timeout: float = 0.15) -> int:
+    """The keycode for Cmd+V under the active layout (see
+    ``keycode_for_current_layout``). QWERTY's 9 when it cannot be told."""
+    return keycode_for_current_layout("v", 9, default, timeout)
+
+
+def c_keycode_for_current_layout(default: int = 8, timeout: float = 0.15) -> int:
+    """The keycode for Cmd+C under the active layout (QWERTY's 8 when it
+    cannot be told). Used by the copy fallback that reads a selection."""
+    return keycode_for_current_layout("c", 8, default, timeout)
 
 
 # ── Sending Cmd+<key> ─────────────────────────────────────────────────────

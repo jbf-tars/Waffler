@@ -43,6 +43,7 @@ import recent_audio  # noqa: E402
 import snippets  # noqa: E402
 import sounds  # noqa: E402
 import take_marker  # noqa: E402
+import text_context  # noqa: E402
 import tray_state  # noqa: E402
 import unsent  # noqa: E402
 import user_messages  # noqa: E402
@@ -72,6 +73,9 @@ PIPELINE_METHODS = (
     # History details: "Redo this take" shares Try again's step that
     # turns a transcript into words; "Paste last" is told when its words go.
     "_tidy_transcript", "_replace_history_entry", "redo_take", "swap_last_text",
+    # Context (src/text_context.py): the app captured when the key goes down,
+    # and the helper _process reads it with.
+    "on_hotkey_press", "_press_target",
 )
 MODULE_DEFS = ("ensure_data_dir", "load_history", "_load_history_for_update",
                "save_history", "append_history",
@@ -167,6 +171,9 @@ class FakeAudio:
     def deafen_for(self, seconds):
         self.deafened.append(seconds)
 
+    def start(self):
+        self.starts = getattr(self, "starts", 0) + 1
+
     def stop(self):
         self.stops += 1
         if self.hang is not None:
@@ -214,9 +221,11 @@ class FakeStyler:
         self.error = error
         self.fallback_reason = fallback_reason
         self.calls = 0
+        self.contexts = []      # the app_context each call was given
 
-    def style(self, transcript):
+    def style(self, transcript, app_context=None):
         self.calls += 1
+        self.contexts.append(app_context)
         if self.hang is not None:
             self.hang.wait()
         if self.error is not None:
@@ -366,7 +375,7 @@ def make_pipeline(data_dir: Path, *, transcriber=None, styler=None, clipboard=No
         _notifier=notifier, _sound_cues=sounds, _hold_hint=hold_hint,
         hold_hint_message=user_messages.hold_hint_message,
         _history_ids=history_ids, _history_meta=history_meta, _history_ops=history_ops,
-        _take_marker=take_marker,
+        _take_marker=take_marker, _text_context=text_context,
         _history_cache=types.SimpleNamespace(invalidate=lambda: None),
         _is_setup_complete=lambda: True,
         paste_timed_out_message=user_messages.paste_timed_out_message,
@@ -404,6 +413,7 @@ def make_pipeline(data_dir: Path, *, transcriber=None, styler=None, clipboard=No
     p._recording_start_time = time.time() - 3.0
     p._recording_session = 1
     p._prev_window = None
+    p._level_loop = lambda: None
     p._mic_dropout = None
     p._unsent_lock = threading.Lock()
     p._drain_lock = threading.Lock()

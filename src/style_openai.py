@@ -12,10 +12,28 @@ what every BYOK user actually wants.
 
 All three speak OpenAI-compatible chat-completions APIs. The same prompt is
 sent everywhere so behaviour is consistent.
+
+How a request is made
+---------------------
+``OpenAIStyler._chat()`` is the one way to ask the user's providers for a
+reply, in the order they chose: ``_chat(system, user, max_tokens=...,
+temperature=..., json_mode=False, deadline=..., purpose=...)`` returns a
+``ChatReply`` (text, provider, model, usage) or raises ``ChatError``. Features
+with their own prompt (transforms, spoken commands) use it. The clean-up's
+``_style_groq``, ``_style_cerebras`` and ``_style_openai`` share the same
+per-provider bodies (``_chat_groq`` and friends: client, model, reasoning flags,
+cooldowns, reading a failure) and add the clean-up's own system message,
+output budget and post-processing. Everything that belongs to one call (the
+transcript, the output budget, the deadline) is passed to it or held in a
+``_StyleCall`` for that call alone; only what is really shared between calls
+(a provider's cooldown, which Groq model is current) lives on the styler.
 """
 
 from openai import OpenAI
+from dataclasses import dataclass
 from pathlib import Path
+import contextlib
+import threading
 import time
 import re
 
@@ -161,6 +179,133 @@ def _normalize_provider_order(order) -> list:
         if p not in out:
             out.append(p)
     return out
+
+
+# The state of ONE clean-up call. It used to live on the styler itself
+# (``_last_raw``, ``_max_out_tokens``, ``_deadline_at``), and the styler is
+# shared: Try again, Redo and the background resend call it while a dictation
+# may be in the middle of its own call, and a dictation started after another
+# was cancelled leaves the first still running. Whichever call began last
+# overwrote the others' transcript, budget and clock. Now ``style()`` makes
+# one of these per call and the provider bodies read it for the thread they
+# run on (a call's whole chain runs on one thread), falling back to the
+# attributes on ``self`` only when a provider method is called directly.
+_UNSET = object()
+_ACTIVE = threading.local()
+
+
+class _StyleCall:
+    __slots__ = ("owner", "raw", "max_tokens", "deadline_at")
+
+    def __init__(self, owner, raw, max_tokens, deadline_at):
+        self.owner = owner
+        self.raw = raw
+        self.max_tokens = max_tokens
+        self.deadline_at = deadline_at
+
+
+@contextlib.contextmanager
+def _active_call(call):
+    previous = getattr(_ACTIVE, "call", None)
+    _ACTIVE.call = call
+    try:
+        yield call
+    finally:
+        _ACTIVE.call = previous
+
+
+# The two words a provider uses for "slow down", read as words: "rate limit",
+# "rate_limit_exceeded", "request rates". Not "generate", "migrate" or
+# "separate", which an unrelated 400 can contain (Groq's JSON mode says
+# "Failed to generate JSON") and which used to pause the provider for a minute.
+_RATE_WORD = re.compile(r"(?<![a-z])rates?(?![a-z])", re.IGNORECASE)
+
+
+def _mentions_rate(error_msg) -> bool:
+    return bool(_RATE_WORD.search(str(error_msg)))
+
+
+_PROVIDER_LABELS = {"groq": "Groq", "cerebras": "Cerebras", "openai": "OpenAI"}
+
+
+@dataclass(frozen=True)
+class ChatReply:
+    """What a provider answered: the text exactly as it came (stripped), who
+    said it and with which model, the token counts and why it stopped
+    (``finish_reason == "length"`` means it was cut off)."""
+
+    text: str
+    provider: str
+    model: str = ""
+    input_tokens: int = 0
+    output_tokens: int = 0
+    finish_reason: object = None
+
+    @property
+    def usage(self) -> dict:
+        """The counts in the shape the pipeline records (the clean-up's)."""
+        return {
+            "input_tokens": self.input_tokens,
+            "output_tokens": self.output_tokens,
+            "api_used": True,
+            "provider": self.provider,
+            "finish_reason": self.finish_reason,
+        }
+
+    @classmethod
+    def from_response(cls, response, *, provider: str, model: str) -> "ChatReply":
+        choice = response.choices[0]
+        text = choice.message.content.strip()
+        usage = response.usage
+        return cls(text=text, provider=provider, model=model,
+                   input_tokens=usage.prompt_tokens if usage else 0,
+                   output_tokens=usage.completion_tokens if usage else 0,
+                   finish_reason=choice.finish_reason)
+
+
+class ChatError(RuntimeError):
+    """No provider answered. ``reason`` is the most useful failure in the
+    clean-up's own words (``RATE_LIMIT|...``, ``AUTH: ...``, ``CONNECTION: ...``,
+    ``MODEL_UNAVAILABLE: ...``, ``TIMEOUT|...``), the string
+    src/user_messages.py turns into a sentence; ``failures`` is every
+    ``(provider, error)`` that was recorded on the way."""
+
+    def __init__(self, reason: str, failures=()):
+        super().__init__(reason)
+        self.reason = reason
+        self.failures = list(failures)
+
+
+# The clean-up's system messages: Groq and Cerebras share one, OpenAI has its
+# own wording. Byte-for-byte what each provider has always been sent
+# (tests/test_shared_llm_path.py pins them).
+_CLEANUP_SYSTEM = (
+    "Clean up voice transcripts. Remove filler words (um, uh, like, yeah, you know). "
+    "Preserve the speaker's exact wording. Never paraphrase or add words they didn't say. "
+    "**NEVER censor profanity — keep swear words like 'fucking', 'shit', 'bloody' "
+    "exactly as the speaker said them.** "
+    "**NEVER abbreviate content with filler-tail phrases like 'and many more', "
+    "'and so on', 'etc.', 'amongst others', 'to name a few'.** If the speaker listed "
+    "items, list those items verbatim. If they trailed off, output their actual "
+    "trailing fragment, not a manufactured summary. Only keep these phrases if the "
+    "speaker literally said them out loud. Return only the cleaned text, no commentary."
+)
+_CLEANUP_SYSTEM_OPENAI = (
+    "You are a voice-to-text formatter. Clean up voice transcripts "
+    "by removing filler words (um, uh, like, yeah, you know) and "
+    "fixing obvious stammers. Preserve the speaker's exact wording. "
+    "Never paraphrase or add words they didn't say. **NEVER censor "
+    "profanity — keep swear words like 'fucking', 'shit', 'bloody' "
+    "exactly as the speaker said them.** "
+    "**NEVER abbreviate content with filler-tail phrases like "
+    "'and many more', 'and so on', 'etc.', 'amongst others', 'to "
+    "name a few'.** If the speaker listed items, list those items "
+    "verbatim. If they trailed off, output their actual trailing "
+    "fragment, not a manufactured summary. Only keep these phrases "
+    "if the speaker literally said them out loud. "
+    "Output ONLY the final cleaned text. No meta-commentary."
+)
+_CLEANUP_TEMPERATURE = 0.1
 
 
 class OpenAIStyler:
@@ -347,13 +492,24 @@ Transcript: {transcript}"""
         filler_count = sum(1 for w in words if w.lower().strip('.,!?') in hard_fillers)
         return len(words) <= 10 and filler_count / len(words) < 0.15
 
-    def style(self, transcript: str):
-        """Convert raw transcript to styled text. Returns (styled_text, usage_dict)."""
+    def style(self, transcript: str, app_context=None):
+        """Convert raw transcript to styled text. Returns (styled_text, usage_dict).
+
+        ``app_context`` is the app this dictation is for (a
+        src/text_context.AppContext, or None), captured when the hotkey went
+        down. Nothing in the clean-up reads it yet; it is passed here so the
+        style layer can.
+
+        Everything that belongs to THIS call (the transcript, the output
+        budget, the deadline) lives in a ``_StyleCall`` for the duration of the
+        call, not on ``self``: the styler is shared, and a second call (Try
+        again, Redo, or a dictation started after the first was cancelled)
+        used to overwrite the first one's while it was still running.
+        """
         if self._is_simple(transcript):
             cleaned = self._basic_clean(transcript)
             return cleaned, {"input_tokens": 0, "output_tokens": 0, "api_used": False}
 
-        self._last_raw = transcript
         start_time = time.time()
 
         # NOTE: Custom vocabulary is deliberately NOT passed to the styler.
@@ -390,14 +546,18 @@ Transcript: {transcript}"""
         # tokens of overhead; the higher floor guarantees the actual text
         # always has room. Ceiling 8192 (~6000 words / ~30 min of speech).
         word_count = max(1, len(transcript.split()))
-        self._max_out_tokens = max(2048, min(8192, word_count * 3))
 
         # Arm the overall styling budget. Every provider attempt below is
         # bounded by whatever is LEFT on this clock, so the whole step can't
         # outrun it no matter how the fallback chain goes. When it runs out we
         # stop trying and paste the raw transcript — which is the behaviour
         # that was promised but never actually fired (see _STYLE_DEADLINE_*).
-        self._deadline_at = time.monotonic() + _style_deadline_for(word_count)
+        call = _StyleCall(
+            owner=self,
+            raw=transcript,
+            max_tokens=max(2048, min(8192, word_count * 3)),
+            deadline_at=time.monotonic() + _style_deadline_for(word_count),
+        )
 
         # Three-tier fallback chain. Each provider has its own skip-until
         # deadline that pauses further attempts on that provider after a 429.
@@ -430,14 +590,9 @@ Transcript: {transcript}"""
         def _try_groq():
             if not self._use_groq:
                 return None
-            if time.monotonic() < self._groq_skip_until:
-                wait_s = max(0, int(self._groq_skip_until - time.monotonic()))
-                if time.monotonic() < getattr(self, "_groq_gone_until", 0.0):
-                    # A retired model is not a limit: "paused for an hour" and
-                    # a banner about a limit nobody reached were wrong for it.
-                    failures.append(("Groq", f"MODEL_UNAVAILABLE|cooldown|{wait_s}s|Groq clean-up model is not available"))
-                else:
-                    failures.append(("Groq", f"RATE_LIMIT|cooldown|{wait_s}s|Groq still in cooldown from previous limit"))
+            cooling = self._cooldown_failure("groq")
+            if cooling is not None:
+                failures.append(("Groq", cooling))
                 return None
             try:
                 _styled, _usage = self._style_groq(prompt, start_time)
@@ -450,12 +605,9 @@ Transcript: {transcript}"""
         def _try_cerebras():
             if not self._use_cerebras:
                 return None
-            if time.monotonic() < self._cerebras_skip_until:
-                wait_s = max(0, int(self._cerebras_skip_until - time.monotonic()))
-                if time.monotonic() < getattr(self, "_cerebras_gone_until", 0.0):
-                    failures.append(("Cerebras", f"MODEL_UNAVAILABLE|cooldown|{wait_s}s|Cerebras clean-up model is not available"))
-                else:
-                    failures.append(("Cerebras", f"RATE_LIMIT|cooldown|{wait_s}s|Cerebras still in cooldown"))
+            cooling = self._cooldown_failure("cerebras")
+            if cooling is not None:
+                failures.append(("Cerebras", cooling))
                 return None
             try:
                 _styled, _usage = self._style_cerebras(prompt, start_time)
@@ -479,57 +631,75 @@ Transcript: {transcript}"""
                 return None
 
         _dispatch = {"groq": _try_groq, "cerebras": _try_cerebras, "openai": _try_openai}
-        for _name in self._provider_order:
-            _fn = _dispatch.get(_name)
-            if _fn is None:
-                continue
-            # Aggregate budget guard: never START another provider once the
-            # clock is spent. Without this the chain grinds on provider after
-            # provider (30s each) and the user waits instead of getting text.
-            if self._budget_left() < _STYLE_MIN_ATTEMPT_S:
-                failures.append((
-                    "deadline",
-                    f"TIMEOUT|styling budget exhausted after "
-                    f"{_style_deadline_for(word_count):.0f}s - pasted raw",
-                ))
-                break
-            _result = _fn()
-            if _result is not None:
-                _styled, _usage = _result
-                # Restore a dictated sign-off the model deleted BEFORE the
-                # layout pass, so the restored block gets laid out like any
-                # other. Losing the user's words beats misplacing them.
-                _styled = self._restore_dropped_signoff(_styled, transcript)
-                # Deterministic email layout so the greeting/sign-off sit on
-                # their own lines regardless of which provider produced the
-                # text (previously left to the LLM -> inconsistent Mac vs PC).
-                return self._format_email_layout(_styled), _usage
+        with _active_call(call):
+            for _name in self._provider_order:
+                _fn = _dispatch.get(_name)
+                if _fn is None:
+                    continue
+                # Aggregate budget guard: never START another provider once the
+                # clock is spent. Without this the chain grinds on provider after
+                # provider (30s each) and the user waits instead of getting text.
+                if self._budget_left(call.deadline_at) < _STYLE_MIN_ATTEMPT_S:
+                    failures.append((
+                        "deadline",
+                        f"TIMEOUT|styling budget exhausted after "
+                        f"{_style_deadline_for(word_count):.0f}s - pasted raw",
+                    ))
+                    break
+                _result = _fn()
+                if _result is not None:
+                    _styled, _usage = _result
+                    # Restore a dictated sign-off the model deleted BEFORE the
+                    # layout pass, so the restored block gets laid out like any
+                    # other. Losing the user's words beats misplacing them.
+                    _styled = self._restore_dropped_signoff(_styled, transcript)
+                    # Deterministic email layout so the greeting/sign-off sit on
+                    # their own lines regardless of which provider produced the
+                    # text (previously left to the LLM -> inconsistent Mac vs PC).
+                    return self._format_email_layout(_styled, transcript), _usage
 
         # ── All providers exhausted ─────────────────────────────────
         # Pick the most informative reason and fall back to basic_clean.
         best = self._pick_best_failure_reason(failures)
-        return self._format_email_layout(self._basic_clean(transcript)), {
+        return self._format_email_layout(self._basic_clean(transcript), transcript), {
             "input_tokens": 0, "output_tokens": 0,
             "api_used": False, "provider": "basic_clean",
             "fallback_reason": best,
         }
 
-    def _budget_left(self) -> float:
+    def _current_call(self) -> "_StyleCall":
+        """The state of the clean-up call running on this thread, or, when
+        none is (a provider method called directly, as the tests do), what
+        was set on ``self`` by hand."""
+        call = getattr(_ACTIVE, "call", None)
+        if call is not None and call.owner is self:
+            return call
+        return _StyleCall(
+            owner=self,
+            raw=getattr(self, "_last_raw", ""),
+            max_tokens=getattr(self, "_max_out_tokens", 4096),
+            deadline_at=getattr(self, "_deadline_at", None),
+        )
+
+    def _budget_left(self, deadline_at=_UNSET) -> float:
         """Seconds left on the overall styling budget.
 
-        Returns the per-provider cap when no budget is armed (e.g. a provider
-        method called directly in a test), so the absence of a deadline never
-        accidentally starves a call.
+        ``deadline_at`` is the call's own deadline (a ``time.monotonic()``
+        instant, or None for "none armed"); left out, it is the one set on
+        ``self``. Returns the per-provider cap when no budget is armed (e.g. a
+        provider method called directly in a test), so the absence of a
+        deadline never accidentally starves a call.
         """
-        deadline = getattr(self, "_deadline_at", None)
-        if deadline is None:
+        if deadline_at is _UNSET:
+            deadline_at = getattr(self, "_deadline_at", None)
+        if deadline_at is None:
             return float(_STYLE_TIMEOUT_S)
-        return max(0.0, deadline - time.monotonic())
+        return max(0.0, deadline_at - time.monotonic())
 
-    def _attempt_timeout(self) -> float:
+    def _attempt_timeout(self, deadline_at=_UNSET) -> float:
         """Timeout for the next provider call: the per-provider cap, clamped to
         whatever remains of the overall budget so one call can't overrun it."""
-        return max(0.1, min(_STYLE_TIMEOUT_S, self._budget_left()))
+        return max(0.1, min(_STYLE_TIMEOUT_S, self._budget_left(deadline_at)))
 
     def _guard_truncation(self, styled, usage, transcript):
         """Backstop against the model silently deleting most of the content.
@@ -629,18 +799,20 @@ Transcript: {transcript}"""
             return "|".join(parts)[:200]
         return f"{provider}: {err}"[:200]
 
-    def _log_provider_failure(self, provider_name: str, exc: Exception):
-        """Common provider-failure log emitter — keeps each call site small."""
+    def _log_provider_failure(self, provider_name: str, exc: Exception, purpose: str = "styling"):
+        """Common provider-failure log emitter — keeps each call site small.
+        ``purpose`` names the feature the call was for ("styling" is the
+        clean-up)."""
         import traceback
         from datetime import datetime
         err_detail = traceback.format_exc()
-        print(f"{provider_name} styling failed ({exc}), trying next provider")
+        print(f"{provider_name} {purpose} failed ({exc}), trying next provider")
         try:
             log_file = _data_dir() / "app.log"
             with open(log_file, "a", encoding="utf-8") as f:
                 ts = datetime.now().strftime("%H:%M:%S")
-                f.write(f"{ts}  [styling] {provider_name} FAILED: {exc}\n")
-                f.write(f"{ts}  [styling] {err_detail}\n")
+                f.write(f"{ts}  [{purpose}] {provider_name} FAILED: {exc}\n")
+                f.write(f"{ts}  [{purpose}] {err_detail}\n")
         except Exception:
             pass
 
@@ -657,16 +829,37 @@ Transcript: {transcript}"""
             return {"reasoning_effort": "none"}
         return {}
 
-    def _groq_model_gone(self, model: str, error_msg: str, prompt: str, start_time: float):
+    def _cooldown_failure(self, name: str):
+        """None when provider ``name`` ("groq" or "cerebras") may be tried now;
+        otherwise the failure reason to record for it. A provider that returned
+        a limit, a block or "model gone" is skipped until its deadline, and
+        the reason says which of those it is (a retired model is not a limit:
+        "paused for an hour" and a banner about a limit nobody reached were
+        wrong for it)."""
+        if name == "groq":
+            until, gone = self._groq_skip_until, getattr(self, "_groq_gone_until", 0.0)
+            label, still = "Groq", "Groq still in cooldown from previous limit"
+        else:
+            until, gone = self._cerebras_skip_until, getattr(self, "_cerebras_gone_until", 0.0)
+            label, still = "Cerebras", "Cerebras still in cooldown"
+        if time.monotonic() >= until:
+            return None
+        wait_s = max(0, int(until - time.monotonic()))
+        if time.monotonic() < gone:
+            return f"MODEL_UNAVAILABLE|cooldown|{wait_s}s|{label} clean-up model is not available"
+        return f"RATE_LIMIT|cooldown|{wait_s}s|{still}"
+
+    def _groq_model_gone(self, model: str, error_msg: str, retry, deadline):
         """Groq says ``model`` no longer exists (or this key can't reach it).
 
         With a next model in ``_groq_models``, move to it, remember it for the
-        rest of the session and try again now. With none left this is the
-        standing condition it always was: a cooldown, so the dead model isn't
-        probed on every dictation (app.log carried 458 such probes), and a
-        MODEL_UNAVAILABLE reason that says so. The message can't tell
-        "retired" from "this key lacks access", which is why no replacement
-        is built in: a backup has to be asked for (GROQ_STYLE_FALLBACK_MODEL).
+        rest of the session and call ``retry()`` (the same request again) now.
+        With none left this is the standing condition it always was: a
+        cooldown, so the dead model isn't probed on every dictation (app.log
+        carried 458 such probes), and a MODEL_UNAVAILABLE reason that says
+        so. The message can't tell "retired" from "this key lacks access",
+        which is why no replacement is built in: a backup has to be asked for
+        (GROQ_STYLE_FALLBACK_MODEL).
         """
         models = list(getattr(self, "_groq_models", None) or [self._groq_model])
         at = models.index(model) if model in models else len(models)
@@ -675,11 +868,11 @@ Transcript: {transcript}"""
             self._groq_model = nxt
             self._log_provider_failure(
                 "Groq", f"model {model!r} is gone, switching to {nxt!r} ({error_msg[:100]})")
-            if self._budget_left() < _STYLE_MIN_ATTEMPT_S:
+            if self._budget_left(deadline) < _STYLE_MIN_ATTEMPT_S:
                 raise RuntimeError(
                     "TIMEOUT|styling budget exhausted while changing the clean-up model "
                     "- pasted raw")
-            return self._style_groq(prompt, start_time)
+            return retry()
         self._groq_skip_until = time.monotonic() + _MODEL_UNAVAILABLE_COOLDOWN_S
         self._groq_gone_until = self._groq_skip_until
         # Start from the top once the cooldown ends: access to an earlier
@@ -692,19 +885,16 @@ Transcript: {transcript}"""
         raise RuntimeError(
             f"MODEL_UNAVAILABLE: Groq model {model!r} is not available to this account - {error_msg[:100]}")
 
-    def _style_groq(self, prompt: str, start_time: float):
-        """Style using Groq — ~200-400ms."""
-        system_msg = (
-            "Clean up voice transcripts. Remove filler words (um, uh, like, yeah, you know). "
-            "Preserve the speaker's exact wording. Never paraphrase or add words they didn't say. "
-            "**NEVER censor profanity — keep swear words like 'fucking', 'shit', 'bloody' "
-            "exactly as the speaker said them.** "
-            "**NEVER abbreviate content with filler-tail phrases like 'and many more', "
-            "'and so on', 'etc.', 'amongst others', 'to name a few'.** If the speaker listed "
-            "items, list those items verbatim. If they trailed off, output their actual "
-            "trailing fragment, not a manufactured summary. Only keep these phrases if the "
-            "speaker literally said them out loud. Return only the cleaned text, no commentary."
-        )
+    # ── One provider, one request ────────────────────────────────────────────
+    # These three send ONE chat request to ONE provider and own everything
+    # that is the provider's: its client, its model, how it is told to reason,
+    # how a failure is read (limits, connection, auth, a retired model), and
+    # the cooldown that failure starts. They know nothing about clean-up. The
+    # request's own state (output budget, deadline) is passed in, never read
+    # from ``self``. They return the model's text exactly as it came, stripped.
+
+    def _chat_groq(self, system: str, user: str, *, max_tokens: int, temperature: float,
+                   json_mode: bool, deadline) -> "ChatReply":
         _model = self._groq_model
         # gpt-oss is a REASONING model: without reasoning_effort it spends its
         # whole output budget thinking before emitting any cleaned text and
@@ -713,28 +903,37 @@ Transcript: {transcript}"""
         # Cerebras path has needed the same flag since v3.14.74. What each
         # model gets is in _groq_request_extras.
         _extras = self._groq_request_extras(_model)
+        request = dict(
+            model=_model,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+        if _extras:
+            request["extra_body"] = _extras
+        if json_mode:
+            request["response_format"] = {"type": "json_object"}
+        # Bounded by whatever is LEFT of the overall budget, so this call can
+        # never overrun the deadline (see _attempt_timeout).
+        request["timeout"] = self._attempt_timeout(deadline)
         try:
-            response = self._groq_client.chat.completions.create(
-                model=_model,
-                messages=[
-                    {"role": "system", "content": system_msg},
-                    {"role": "user", "content": prompt},
-                ],
-                max_tokens=getattr(self, "_max_out_tokens", 4096),
-                temperature=0.1,
-                **({"extra_body": _extras} if _extras else {}),
-                # Bounded by whatever is LEFT of the overall styling budget, so
-                # this call can never overrun the deadline (see _attempt_timeout).
-                timeout=self._attempt_timeout(),
-            )
+            response = self._groq_client.chat.completions.create(**request)
         except Exception as e:
             error_msg = str(e)
             if _model_is_gone(error_msg, loose=False):
                 # A retirement code can't be a rate limit or an auth block, so
                 # it is read first: the looser tests below match "rate" inside
                 # "migrate" and "404" inside a limit's own numbers.
-                return self._groq_model_gone(_model, error_msg, prompt, start_time)
-            if "429" in error_msg or "rate" in error_msg.lower():
+                return self._groq_model_gone(
+                    _model, error_msg,
+                    lambda: self._chat_groq(system, user, max_tokens=max_tokens,
+                                            temperature=temperature, json_mode=json_mode,
+                                            deadline=deadline),
+                    deadline)
+            if "429" in error_msg or _mentions_rate(error_msg):
                 # Pull out the info the UI needs: which limit hit ("tokens per day",
                 # "requests per minute", etc.) and Groq's suggested wait time.
                 # Keeping the structured prefix so the pipeline can route without
@@ -787,37 +986,17 @@ Transcript: {transcript}"""
                 print(f"[styling] Groq returned auth/network error — skipping Groq for 1 hour")
                 raise RuntimeError(f"AUTH: Groq auth/network blocked — {error_msg[:120]}")
             elif _model_is_gone(error_msg):
-                return self._groq_model_gone(_model, error_msg, prompt, start_time)
+                return self._groq_model_gone(
+                    _model, error_msg,
+                    lambda: self._chat_groq(system, user, max_tokens=max_tokens,
+                                            temperature=temperature, json_mode=json_mode,
+                                            deadline=deadline),
+                    deadline)
             raise
-        styled = response.choices[0].message.content.strip()
-        # Fix mid-sentence capitalization bug
-        styled = self._strip_em_dashes(styled)
-        styled = self._fix_mid_sentence_caps(styled)
-        styled = self._strip_hallucinations(styled, self._last_raw)
-        styled = self._restore_censored_profanity(styled, self._last_raw)
-        usage = response.usage
-        return styled, {
-            "input_tokens": usage.prompt_tokens if usage else 0,
-            "output_tokens": usage.completion_tokens if usage else 0,
-            "api_used": True,
-            "provider": "groq",
-            "finish_reason": response.choices[0].finish_reason,
-        }
+        return ChatReply.from_response(response, provider="groq", model=_model)
 
-    def _style_cerebras(self, prompt: str, start_time: float):
-        """Style using Cerebras Llama 3.3 70B — fastest in the world for this
-        model (~2200+ tok/s output). OpenAI-compatible API."""
-        system_msg = (
-            "Clean up voice transcripts. Remove filler words (um, uh, like, yeah, you know). "
-            "Preserve the speaker's exact wording. Never paraphrase or add words they didn't say. "
-            "**NEVER censor profanity — keep swear words like 'fucking', 'shit', 'bloody' "
-            "exactly as the speaker said them.** "
-            "**NEVER abbreviate content with filler-tail phrases like 'and many more', "
-            "'and so on', 'etc.', 'amongst others', 'to name a few'.** If the speaker listed "
-            "items, list those items verbatim. If they trailed off, output their actual "
-            "trailing fragment, not a manufactured summary. Only keep these phrases if the "
-            "speaker literally said them out loud. Return only the cleaned text, no commentary."
-        )
+    def _chat_cerebras(self, system: str, user: str, *, max_tokens: int, temperature: float,
+                       json_mode: bool, deadline) -> "ChatReply":
         # reasoning_effort=low is CRITICAL for gpt-oss-120b. It's a reasoning
         # model: without this it spends 1000+ output tokens "thinking" before
         # emitting any cleaned text, blows the max_tokens budget, and returns
@@ -825,24 +1004,27 @@ Transcript: {transcript}"""
         # 1024 completion tokens, 0 words of actual output. With it, reasoning
         # drops to ~70 tokens and the full faithful text comes back. Sent via
         # extra_body so non-reasoning models that ignore it don't 400.
+        request = dict(
+            model=self._cerebras_model,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            max_tokens=max_tokens,
+            temperature=temperature,
+            extra_body={"reasoning_effort": "low"},
+        )
+        if json_mode:
+            request["response_format"] = {"type": "json_object"}
+        # Bounded by whatever is LEFT of the overall budget, so this call can
+        # never overrun the deadline (see _attempt_timeout).
+        request["timeout"] = self._attempt_timeout(deadline)
         try:
-            response = self._cerebras_client.chat.completions.create(
-                model=self._cerebras_model,
-                messages=[
-                    {"role": "system", "content": system_msg},
-                    {"role": "user", "content": prompt},
-                ],
-                max_tokens=getattr(self, "_max_out_tokens", 4096),
-                temperature=0.1,
-                extra_body={"reasoning_effort": "low"},
-                # Bounded by whatever is LEFT of the overall styling budget, so
-                # this call can never overrun the deadline (see _attempt_timeout).
-                timeout=self._attempt_timeout(),
-            )
+            response = self._cerebras_client.chat.completions.create(**request)
         except Exception as e:
             error_msg = str(e)
             lower = error_msg.lower()
-            if "429" in error_msg or "rate" in lower or "quota" in lower:
+            if "429" in error_msg or _mentions_rate(error_msg) or "quota" in lower:
                 # Cerebras returns 429 in two shapes:
                 #   1. Generic "high traffic" — global load-shedding on the
                 #      free tier. Transient, recovers in seconds.
@@ -872,10 +1054,9 @@ Transcript: {transcript}"""
                 self._cerebras_skip_until = time.monotonic() + 3600.0
                 print(f"[styling] Cerebras returned auth error — skipping for 1 hour")
                 raise RuntimeError(f"AUTH: Cerebras auth failed — {error_msg[:120]}")
-            elif ("model_not_found" in error_msg
-                  or "does not exist" in error_msg.lower()
-                  or "404" in error_msg):
-                # An unavailable model is not transient. Without a
+            elif _model_is_gone(error_msg):
+                # An unavailable model (a 404, "model_not_found", "does not
+                # exist", "decommissioned") is not transient. Without a
                 # cooldown it is re-probed on EVERY dictation: app.log
                 # carried 458 of these for llama-3.3-70b-versatile, so
                 # every recording paid a wasted round-trip before
@@ -887,25 +1068,150 @@ Transcript: {transcript}"""
                 self._cerebras_skip_until = time.monotonic() + _MODEL_UNAVAILABLE_COOLDOWN_S
                 self._cerebras_gone_until = self._cerebras_skip_until
                 _model = getattr(self, "_cerebras_model", "?")
-                self._log_provider_failure("Cerebras", 
+                self._log_provider_failure("Cerebras",
                     f"model {_model!r} unavailable - skipping for "
                     f"{int(_MODEL_UNAVAILABLE_COOLDOWN_S // 60)}m")
                 raise RuntimeError(
                     f"MODEL_UNAVAILABLE: Cerebras model {_model!r} is not available to this account - {error_msg[:100]}")
             raise
-        styled = response.choices[0].message.content.strip()
-        styled = self._strip_em_dashes(styled)
-        styled = self._fix_mid_sentence_caps(styled)
-        styled = self._strip_hallucinations(styled, self._last_raw)
-        styled = self._restore_censored_profanity(styled, self._last_raw)
-        usage = response.usage
-        return styled, {
-            "input_tokens": usage.prompt_tokens if usage else 0,
-            "output_tokens": usage.completion_tokens if usage else 0,
-            "api_used": True,
-            "provider": "cerebras",
-            "finish_reason": response.choices[0].finish_reason,
-        }
+        return ChatReply.from_response(response, provider="cerebras", model=self._cerebras_model)
+
+    def _chat_openai(self, system: str, user: str, *, max_tokens: int, temperature: float,
+                     json_mode: bool, deadline, model: str = "") -> "ChatReply":
+        chosen_model = model or self.model
+        # No try/except here, on purpose: this used to catch its own failure and
+        # return basic_clean, which style() took for an answer, so with OpenAI
+        # first in the user's order Groq and Cerebras were never tried. The error
+        # now reaches the chain, which records it and lets it carry on, as it
+        # does for the other two providers.
+        request = dict(
+            model=chosen_model,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+        if json_mode:
+            request["response_format"] = {"type": "json_object"}
+        # Bounded by whatever is LEFT of the overall budget, so this call can
+        # never overrun the deadline (see _attempt_timeout).
+        request["timeout"] = self._attempt_timeout(deadline)
+        response = self.client.chat.completions.create(**request)
+        return ChatReply.from_response(response, provider="openai", model=chosen_model)
+
+    # ── The shared call path ─────────────────────────────────────────────────
+
+    def _chat(self, system, user: str, *, max_tokens: int, temperature: float,
+              json_mode: bool = False, deadline, purpose: str) -> "ChatReply":
+        """Ask the user's providers, in the order they chose, for one reply.
+
+        This is the call path for everything that needs the language model
+        besides the clean-up's own chain: a feature with its own prompt (a
+        transform, a spoken command). It uses the same per-provider bodies as
+        the clean-up (``_chat_groq`` and friends), so it applies the provider
+        order from Settings, each provider's client and model, the cooldowns a
+        limit, a block or a retired model start, the move to a backup Groq
+        model when one is retired, the reasoning flags each model needs, and
+        the same reading of a failure. It does no clean-up: the text comes
+        back as the model wrote it, stripped.
+
+        ``system`` is the system message, or a mapping ``{"groq": ...,
+        "cerebras": ..., "openai": ...}`` (with an optional ``"default"``)
+        when a provider needs its own wording. ``user`` is the user message.
+        ``max_tokens`` is the output cap: gpt-oss spends 70 to 150 tokens
+        reasoning first, so leave room (the clean-up never asks for less than
+        2048). ``deadline`` is a ``time.monotonic()`` instant by which the
+        whole call, every provider tried, must be over (None: only the 15 s
+        per-provider cap applies); a provider is not started with less than
+        1.5 s left. ``json_mode`` asks for a JSON object (OpenAI's
+        ``response_format``; the prompt must itself say "JSON"; whether
+        Groq's gpt-oss honours it is unverified, so prefer a tagged first
+        line). ``purpose`` is a short word for the log ("transform").
+
+        All of that is this call's own: nothing is read from or left on
+        ``self`` except what really is shared between calls (a provider's
+        cooldown and its current model), so two calls at once cannot touch
+        each other's.
+
+        Returns a ``ChatReply`` (text, provider, model, token counts,
+        ``usage`` in the clean-up's shape). Raises ``ChatError`` when no
+        provider answered; its ``reason`` is the same string the clean-up
+        reports as ``fallback_reason`` (``RATE_LIMIT|...``, ``AUTH: ...``,
+        ``MODEL_UNAVAILABLE: ...``), which src/user_messages.py turns into
+        a plain sentence. Blocking: run it under the watchdog.
+        """
+        failures: list = []   # (provider label, error string)
+        for name in self._provider_order:
+            label = _PROVIDER_LABELS.get(name)
+            if label is None or not self._provider_ready(name):
+                continue
+            if self._budget_left(deadline) < _STYLE_MIN_ATTEMPT_S:
+                failures.append(("deadline", f"TIMEOUT|{purpose} budget exhausted - no answer in time"))
+                break
+            cooling = self._cooldown_failure(name) if name != "openai" else None
+            if cooling is not None:
+                failures.append((label, cooling))
+                continue
+            wording = system.get(name, system.get("default", "")) if isinstance(system, dict) else system
+            try:
+                reply = self._chat_one(name, wording, user, max_tokens=max_tokens,
+                                       temperature=temperature, json_mode=json_mode,
+                                       deadline=deadline)
+                if not reply.text:
+                    raise RuntimeError(f"EMPTY: {label} returned no text")
+            except Exception as e:      # noqa: BLE001 - recorded, then the next provider
+                self._log_provider_failure(label, e, purpose)
+                failures.append((label, str(e)))
+                continue
+            return reply
+        raise ChatError(self._pick_best_failure_reason(failures), failures)
+
+    def _chat_one(self, name: str, system: str, user: str, *, max_tokens: int,
+                  temperature: float, json_mode: bool = False, deadline=None) -> "ChatReply":
+        """One request to the provider called ``name`` (``groq``,
+        ``cerebras`` or ``openai``); raises what that provider's body raises."""
+        send = {"groq": self._chat_groq, "cerebras": self._chat_cerebras,
+                "openai": self._chat_openai}[name]
+        return send(system, user, max_tokens=max_tokens, temperature=temperature,
+                    json_mode=json_mode, deadline=deadline)
+
+    def _provider_ready(self, name: str) -> bool:
+        """Is there a key (and, for Groq and Cerebras, a client) for ``name``?"""
+        if name == "groq":
+            return bool(getattr(self, "_use_groq", False))
+        if name == "cerebras":
+            return bool(getattr(self, "_use_cerebras", False))
+        return getattr(self, "client", None) is not None
+
+    # ── The clean-up, on top of it ───────────────────────────────────────────
+
+    def _finish_cleanup(self, text: str, raw: str) -> str:
+        """What every provider's answer goes through before it is a clean-up:
+        the dash rule, mid-sentence capitals, hallucinated preambles and
+        greetings, restored profanity. ``raw`` is what the speaker said."""
+        text = self._strip_em_dashes(text)
+        text = self._fix_mid_sentence_caps(text)
+        text = self._strip_hallucinations(text, raw)
+        return self._restore_censored_profanity(text, raw)
+
+    def _style_groq(self, prompt: str, start_time: float):
+        """Style using Groq — ~200-400ms."""
+        call = self._current_call()
+        reply = self._chat_groq(_CLEANUP_SYSTEM, prompt, max_tokens=call.max_tokens,
+                                temperature=_CLEANUP_TEMPERATURE, json_mode=False,
+                                deadline=call.deadline_at)
+        return self._finish_cleanup(reply.text, call.raw), reply.usage
+
+    def _style_cerebras(self, prompt: str, start_time: float):
+        """Style using Cerebras gpt-oss-120b — fastest in the world for this
+        model (~2200+ tok/s output). OpenAI-compatible API."""
+        call = self._current_call()
+        reply = self._chat_cerebras(_CLEANUP_SYSTEM, prompt, max_tokens=call.max_tokens,
+                                    temperature=_CLEANUP_TEMPERATURE, json_mode=False,
+                                    deadline=call.deadline_at)
+        return self._finish_cleanup(reply.text, call.raw), reply.usage
 
     def _pick_openai_model(self, transcript: str) -> str:
         """OpenAI is now a last-resort fallback only — used when both Groq
@@ -924,45 +1230,12 @@ Transcript: {transcript}"""
     def _style_openai(self, prompt: str, transcript: str, start_time: float):
         """Style using OpenAI. Auto-routes to gpt-4.1 (full) on long inputs
         so we benefit from its higher per-token output speed."""
+        call = self._current_call()
         chosen_model = self._pick_openai_model(transcript)
-        # No try/except here, on purpose: this used to catch its own failure and
-        # return basic_clean, which style() took for an answer, so with OpenAI
-        # first in the user's order Groq and Cerebras were never tried. The error
-        # now reaches _try_openai, which records it and lets the chain carry on,
-        # as it does for the other two providers.
-        response = self.client.chat.completions.create(
-            model=chosen_model,
-            messages=[
-                {"role": "system", "content": (
-                    "You are a voice-to-text formatter. Clean up voice transcripts "
-                    "by removing filler words (um, uh, like, yeah, you know) and "
-                    "fixing obvious stammers. Preserve the speaker's exact wording. "
-                    "Never paraphrase or add words they didn't say. **NEVER censor "
-                    "profanity — keep swear words like 'fucking', 'shit', 'bloody' "
-                    "exactly as the speaker said them.** "
-                    "**NEVER abbreviate content with filler-tail phrases like "
-                    "'and many more', 'and so on', 'etc.', 'amongst others', 'to "
-                    "name a few'.** If the speaker listed items, list those items "
-                    "verbatim. If they trailed off, output their actual trailing "
-                    "fragment, not a manufactured summary. Only keep these phrases "
-                    "if the speaker literally said them out loud. "
-                    "Output ONLY the final cleaned text. No meta-commentary."
-                )},
-                {"role": "user", "content": prompt},
-            ],
-            max_tokens=getattr(self, "_max_out_tokens", 4096),
-            temperature=0.1,
-            # Bounded by whatever is LEFT of the overall styling budget, so
-            # this call can never overrun the deadline (see _attempt_timeout).
-            timeout=self._attempt_timeout(),
-        )
-        styled = response.choices[0].message.content.strip()
-        # Fix mid-sentence capitalization bug
-        styled = self._strip_em_dashes(styled)
-        styled = self._fix_mid_sentence_caps(styled)
-        styled = self._strip_hallucinations(styled, self._last_raw)
-        styled = self._restore_censored_profanity(styled, self._last_raw)
-        usage = response.usage
+        reply = self._chat_openai(_CLEANUP_SYSTEM_OPENAI, prompt, max_tokens=call.max_tokens,
+                                  temperature=_CLEANUP_TEMPERATURE, json_mode=False,
+                                  deadline=call.deadline_at, model=chosen_model)
+        styled = self._finish_cleanup(reply.text, call.raw)
         # Log which model was actually used so the auto-routing decision
         # is visible in the app log.
         try:
@@ -972,13 +1245,7 @@ Transcript: {transcript}"""
                 _fp.write(f"{_dt.now().strftime('%H:%M:%S')}  [styling] OpenAI model used: {chosen_model} ({len(transcript.split())} input words)\n")
         except Exception:
             pass
-        return styled, {
-            "input_tokens": usage.prompt_tokens if usage else 0,
-            "output_tokens": usage.completion_tokens if usage else 0,
-            "api_used": True,
-            "provider": "openai",
-            "finish_reason": response.choices[0].finish_reason,
-        }
+        return styled, reply.usage
 
     def _strip_em_dashes(self, text: str) -> str:
         """Em-dashes (—) and en-dashes (–) are the loudest 'AI wrote this'
@@ -1350,7 +1617,7 @@ Transcript: {transcript}"""
         return re.sub(r'\s+', ' ', cleaned).strip()
 
     # ── Deterministic email layout ─────────────────────────────────────────
-    def _format_email_layout(self, text: str) -> str:
+    def _format_email_layout(self, text: str, raw=None) -> str:
         """Put an email greeting and sign-off each on their own line, in code.
 
         Runs on the FINAL styled output regardless of which LLM produced it, so
@@ -1372,8 +1639,9 @@ Transcript: {transcript}"""
         if not looks_emailish:
             return text
         out = self._split_trailing_signoff(text)
-        out = self._strip_invented_signoff_name(
-            out, getattr(self, "_last_raw", "") or "")
+        if raw is None:
+            raw = self._current_call().raw
+        out = self._strip_invented_signoff_name(out, raw or "")
         out = self._split_signoff_name(out)
         out = self._split_leading_greeting(out)
         out = self._TRIPLE_NL_RE.sub("\n\n", out)

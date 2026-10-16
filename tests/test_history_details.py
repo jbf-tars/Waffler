@@ -354,9 +354,9 @@ def test_the_name_is_captured_when_the_key_goes_down_and_the_menu_warms_it_up():
         return ast.unparse(next(n for n in klass.body
                                 if isinstance(n, ast.FunctionDef) and n.name == name))
     press = method("on_hotkey_press")
-    assert "frontmost_app_name()" in press and "self._press_app" in press
-    assert press.index("frontmost_app_name") < press.index("self.overlay.show()")
-    assert "frontmost_app_name()" in method("_warm_paste_deps")
+    assert "_text_context.frontmost_app()" in press and "self._press_context" in press
+    assert press.index("_text_context.frontmost_app()") < press.index("self.overlay.show()")
+    assert "_text_context.warm()" in method("_warm_paste_deps")
 
 
 # ── the recording an entry points at ─────────────────────────────────────────

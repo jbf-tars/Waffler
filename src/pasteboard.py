@@ -228,6 +228,14 @@ class MacPasteboard:
             return Snapshot((), skipped="unreadable", change_count=cc)
         return Snapshot(tuple(rows), change_count=cc)
 
+    def current_text(self) -> str:
+        """The plain text on the pasteboard right now ('' when it holds none).
+        Only the copy fallback that reads a selection uses this
+        (src/selection_copy.py); a paste never reads the clipboard."""
+        from AppKit import NSPasteboardTypeString
+        value = self._pb.stringForType_(NSPasteboardTypeString)
+        return str(value) if value else ""
+
     def put_text(self, text: str, transient: bool = False) -> int:
         """Replace the pasteboard with ``text``; returns the new change count.
 
