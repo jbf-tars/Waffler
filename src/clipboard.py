@@ -1,21 +1,27 @@
-"""Clipboard management + auto-paste"""
+"""Clipboard management + auto-paste.
+
+The real work lives in ``pasteboard.py`` (snapshot and restore, the paste
+keystroke, the outcome). This class keeps the long-standing entry points so
+call sites do not change, and adds ``paste_text``, the one call a dictation
+makes to put its words into the app in front.
+"""
 
 import pyperclip
 import platform
-import time
+
+import pasteboard
 
 
 class ClipboardManager:
 
     @staticmethod
     def copy(text: str):
-        try:
-            pyperclip.copy(text)
+        ok = pasteboard.copy_text(text)
+        if ok:
             print(f"📋 Copied to clipboard ({len(text)} chars)")
-            return True
-        except Exception as e:
-            print(f"❌ Clipboard error: {e}")
-            return False
+        else:
+            print("❌ Clipboard error: could not copy")
+        return ok
 
     @staticmethod
     def paste() -> str:
@@ -38,66 +44,23 @@ class ClipboardManager:
 
     @staticmethod
     def auto_paste(window_handle=None):
-        """Paste clipboard contents into the previously focused window."""
-        if platform.system() == "Windows":
-            ClipboardManager._auto_paste_windows(window_handle)
-        else:
-            ClipboardManager._auto_paste_mac()
-
-    @staticmethod
-    def _auto_paste_windows(hwnd=None):
-        """Restore focus to previous window and send Ctrl+V."""
+        """Send only the paste keystroke (the clipboard must already hold the
+        text). Prefer ``paste_text``, which also restores the user's clipboard
+        and reports whether the paste worked."""
         try:
-            import ctypes
-            KEYEVENTF_KEYUP = 0x0002
-            VK_CONTROL = 0x11
-            VK_V = 0x56
-
-            if hwnd:
-                ctypes.windll.user32.SetForegroundWindow(hwnd)
-                time.sleep(0.15)  # let window regain focus
-
-            # Send Ctrl+V via keybd_event
-            ctypes.windll.user32.keybd_event(VK_CONTROL, 0, 0, 0)
-            ctypes.windll.user32.keybd_event(VK_V, 0, 0, 0)
-            time.sleep(0.05)
-            ctypes.windll.user32.keybd_event(VK_V, 0, KEYEVENTF_KEYUP, 0)
-            ctypes.windll.user32.keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0)
-            print("📋 Auto-pasted via Ctrl+V")
+            pasteboard.send_paste_keystroke(window_handle)
+            print("📋 Auto-pasted")
         except Exception as e:
             print(f"⚠️  Auto-paste failed: {e}")
 
     @staticmethod
-    def _auto_paste_mac():
-        """Send Cmd+V on macOS via Quartz events (same approach as Windows)."""
-        try:
-            from Quartz import (
-                CGEventCreateKeyboardEvent,
-                CGEventPost,
-                CGEventSetFlags,
-                kCGEventFlagMaskCommand,
-                kCGHIDEventTap
-            )
-
-            # V key code is 9 on macOS
-            v_keycode = 9
-
-            # Small delay to let the window get focus
-            time.sleep(0.1)
-
-            # Create Cmd+V key down event
-            key_down = CGEventCreateKeyboardEvent(None, v_keycode, True)
-            CGEventSetFlags(key_down, kCGEventFlagMaskCommand)
-
-            # Create Cmd+V key up event
-            key_up = CGEventCreateKeyboardEvent(None, v_keycode, False)
-            CGEventSetFlags(key_up, kCGEventFlagMaskCommand)
-
-            # Post events
-            CGEventPost(kCGHIDEventTap, key_down)
-            time.sleep(0.05)
-            CGEventPost(kCGHIDEventTap, key_up)
-
-            print("📋 Auto-pasted via Cmd+V")
-        except Exception as e:
-            print(f"⚠️  Auto-paste failed: {e}")
+    def paste_text(text: str, window_handle=None, restore: bool = True,
+                   settle_delay=None, ticket=None) -> "pasteboard.PasteOutcome":
+        """Put ``text`` into the focused app and report ``pasted`` /
+        ``unverified`` / ``failed``. With ``restore`` (macOS) the user's
+        previous clipboard, every type of it, is put back afterwards; on
+        ``failed`` the text is left on the clipboard instead. ``ticket`` lets
+        the caller stop waiting without a late restore (see
+        ``pasteboard.PasteTicket``)."""
+        return pasteboard.paste_text(text, window_handle=window_handle, restore=restore,
+                                     settle_delay=settle_delay, ticket=ticket)

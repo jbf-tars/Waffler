@@ -16,7 +16,11 @@ Commands:  {"type": "show"}
                  Neither touches a toast.
            {"type": "show_toast", "style": "cancel"|"error"|"warn"|"info",
             "heading": "...", "body": "...",
-            "buttons": [{"label", "action", "kind"}, ...]}   (buttons optional)
+            "buttons": [{"label", "action", "kind"}, ...],   (buttons optional)
+            "timeout": seconds, "reposition": true}          (both optional)
+                 timeout replaces the style's usual time on screen;
+                 reposition is accepted and ignored: the pill and its toasts
+                 always sit at the bottom centre of the main screen here
            {"type": "hide_toast", "style": "info"}   (style optional: only
                  a toast of that style is hidden)
            {"type": "quit"}
@@ -473,12 +477,23 @@ def _no_activate(win) -> bool:
         return False
 
 
-def _show_toast(style: str, heading: str, body: str, buttons=None):
+def _toast_ms(style: str, timeout=None):
+    """How long a toast stays, in ms: ``timeout`` seconds when it is a
+    positive number, else the style's usual time (None: until answered)."""
+    try:
+        if timeout and float(timeout) > 0:
+            return int(float(timeout) * 1000)
+    except (TypeError, ValueError):
+        pass
+    return _TOAST_AUTO_HIDE_MS.get(style)
+
+
+def _show_toast(style: str, heading: str, body: str, buttons=None, timeout=None):
     """Show a warm Waffler-branded toast above the waffle.
 
     ``buttons`` (optional) replaces the style's usual buttons: a list of up
     to three {"label", "action", "kind"} dicts, kind being "primary",
-    "secondary" or "danger".
+    "secondary" or "danger". ``timeout`` is in seconds.
     """
     global _toast_win, _toast_style
     _hide_toast()
@@ -599,7 +614,7 @@ def _show_toast(style: str, heading: str, body: str, buttons=None):
     # Auto-dismiss after the per-style timeout; cancel stays until answered.
     # Bumped warn/error from 6 s -> 9 s so users have time to actually read
     # the rate-limit guidance before it disappears.
-    ms = _TOAST_AUTO_HIDE_MS.get(style)
+    ms = _toast_ms(style, timeout)
     if ms:
         _toast_win.after(ms, _hide_toast)
 
@@ -851,6 +866,7 @@ def _handle_cmd(cmd: dict):
             heading=cmd.get("heading", ""),
             body=cmd.get("body", ""),
             buttons=cmd.get("buttons"),
+            timeout=cmd.get("timeout"),
         )
 
     elif ctype == "hide_toast":

@@ -316,6 +316,13 @@ class SmartHotkeyListener:
         # No listener thread to join — daemon CFRunLoop dies with the process.
         pass
 
+    def is_alive(self):
+        """Is the key listener still delivering keys? True, False (it died or
+        was switched off by the system), or None when that isn't known yet.
+        Asked from time to time by app.py, because a listener whose
+        permission was taken away gives no sign by itself."""
+        return self._tap.is_alive()
+
     # ── Backward-compat properties for IPC polling ────────────────────
 
     @property

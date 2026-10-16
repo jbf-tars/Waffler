@@ -209,6 +209,13 @@
               <div class="row-main"><div class="row-t"><label for="autoPasteToggle">Paste when I let go</label></div><div class="row-d">Puts the text where you were typing. Off, it's only copied.</div></div>
               <input type="checkbox" class="tog" role="switch" id="autoPasteToggle" onchange="saveSetting('auto_paste', this.checked)">
             </div>
+            <!-- What happens to the clipboard after a paste (src/pasteboard.py,
+                 settings.json clipboard_after_paste). Mac only: Windows has
+                 no restore, so the row stays hidden there (loadSettings). -->
+            <div class="row" id="clipboardAfterPasteRow" hidden>
+              <div class="row-main"><div class="row-t"><label for="keepClipboardToggle">Keep what I dictated on the clipboard</label></div><div class="row-d" id="clipboardAfterPasteDesc">Off, Waffler puts back what you had copied once it has pasted.</div></div>
+              <input type="checkbox" class="tog" role="switch" id="keepClipboardToggle" onchange="setClipboardAfterPaste(this.checked)">
+            </div>
             <!-- The microphone is kept ready so the first word isn't clipped:
                  audio from half a second before the keys go down is part of
                  each recording (src/audio.py _PREROLL_MS; owner decision D5).
@@ -442,6 +449,21 @@
               <div class="row-main"><div class="row-t" id="unsentDeleteTitle">Delete the recordings waiting to be sent?</div><div class="row-d">What you said in them is lost, and this can't be undone.</div></div>
               <button type="button" class="btn btn-sec btn-sm" id="unsentDeleteNo" onclick="askDeleteUnsent(false)">Keep them</button>
               <button type="button" class="btn btn-danger btn-sm" onclick="deleteAllUnsent(this)">Delete them</button>
+            </div>
+          </div>
+
+          <!-- What Waffler reads on a Mac while it pastes (src/pasteboard.py,
+               src/mac_input.py): said as it is. Shown on a Mac only
+               (loadSettings). -->
+          <div id="privPasteReads" hidden>
+            <h2 class="sh2">While it pastes</h2>
+            <div class="sheet">
+              <div class="row">
+                <div class="row-main"><div class="row-t">Your clipboard</div><div class="row-d">Unless you keep your text there, Waffler holds what you had copied in memory for about a second, then puts it back. It never stores or logs it.</div></div>
+              </div>
+              <div class="row">
+                <div class="row-main"><div class="row-t">The text field you paste into</div><div class="row-d">To confirm a paste landed, Waffler reads whether that field changed. It never stores or logs what is in it.</div></div>
+              </div>
             </div>
           </div>
 

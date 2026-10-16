@@ -25,17 +25,42 @@ offers the Keyboard settings; it never changes the setting itself.
 
 Everything that touches macOS is looked up at call time and can be passed in,
 so the tests run on any computer.
+
+The same module answers a quick question each time the hotkey goes down, before
+recording starts: is the microphone, or Accessibility, switched off? And, from
+time to time while the app runs, is the keyboard listener still alive? A
+permission taken away while Waffler runs leaves a tap that delivers no key at
+all, so the press that would tell us never arrives (PermissionPrecheck).
 """
 from __future__ import annotations
 
+import ctypes
 import subprocess
 import sys
+import threading
+import time
+from dataclasses import dataclass
+from typing import Callable, Dict, List, Optional
+
+try:
+    from rate_limit import RateLimiter
+    import user_messages as _msg
+except ImportError:  # imported as src.mac_permissions
+    from src.rate_limit import RateLimiter
+    import src.user_messages as _msg
 
 PANES = {
     "microphone": "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
     "input_monitoring": "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent",
     "accessibility": "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
     "keyboard": "x-apple.systempreferences:com.apple.preference.keyboard",
+}
+
+# The toast buttons that open one of the panes above (app.py _on_toast_action).
+PANE_ACTIONS = {
+    "open_mic_settings": "microphone",
+    "open_ax_settings": "accessibility",
+    "open_input_settings": "input_monitoring",
 }
 
 # AVAuthorizationStatus
@@ -196,3 +221,218 @@ def fn_conflict(usage, hotkey_keys) -> dict:
         "title": f"Your Fn key also {job}.",
         "detail": 'In Keyboard settings, set "Press \U0001F310 key to" to "Do Nothing".',
     }
+
+
+# ── Accessibility, read live ─────────────────────────────────────────────────
+
+_app_services = None
+
+
+def _load_application_services():
+    global _app_services
+    if _app_services is None:
+        _app_services = ctypes.cdll.LoadLibrary(
+            "/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")
+    return _app_services
+
+
+def accessibility_trusted(lib=None, platform: str | None = None) -> Optional[bool]:
+    """Is this process trusted for Accessibility? True or False, or None when
+    the question could not be asked (off a Mac, or the framework is missing),
+    so callers carry on as before.
+
+    Goes through ctypes and ``AXIsProcessTrustedWithOptions(NULL)``, which asks
+    macOS again on every call and never prompts. The PyObjC binding of
+    ``AXIsProcessTrusted`` can keep answering False after the user turned the
+    switch on, in a bundled app, which is why it is not used here. Costs
+    microseconds, so it is safe on every hotkey press.
+    """
+    if not is_mac(platform):
+        return None
+    try:
+        lib = lib or _load_application_services()
+        try:
+            fn = lib.AXIsProcessTrustedWithOptions
+            fn.restype = ctypes.c_bool
+            fn.argtypes = [ctypes.c_void_p]
+            return bool(fn(None))
+        except AttributeError:
+            fn = lib.AXIsProcessTrusted
+            fn.restype = ctypes.c_bool
+            fn.argtypes = []
+            return bool(fn())
+    except Exception:
+        return None
+
+
+# ── Checked when the hotkey goes down ────────────────────────────────────────
+
+@dataclass(frozen=True)
+class PermissionProblem:
+    """One missing permission, with the toast that explains it."""
+
+    permission: str      # "microphone" | "accessibility" | "keyboard"
+    status: str
+    heading: str
+    body: str
+    button_label: str
+    action: str          # a key of PANE_ACTIONS: the toast button's action id
+
+    @property
+    def pane(self) -> str:
+        return PANE_ACTIONS[self.action]
+
+
+def _problem(permission: str, status: str, message: str, action: str) -> PermissionProblem:
+    heading, body = _msg.PERMISSION_MESSAGES[message]
+    return PermissionProblem(permission, status, heading, body, "Open Settings", action)
+
+
+def evaluate_permissions(mic_status: str, ax_trusted: Optional[bool],
+                         listener_alive: Optional[bool] = True,
+                         need_accessibility: bool = True) -> List[PermissionProblem]:
+    """Which permissions are KNOWN to be missing, microphone first.
+
+    ===================  =====================================  ============
+    microphone           denied                                 microphone
+                         restricted                             microphone
+                         granted, not asked yet, unknown        nothing
+    Accessibility        off (and wanted)                       accessibility
+                         on, or the check failed                nothing
+    key listener         dead, Accessibility not known to be    keyboard
+                         off (the likelier cause)
+                         alive, or not known                    nothing
+    ===================  =====================================  ============
+
+    "Not asked yet" never counts: the system prompt appears on first use, and
+    sending someone to Settings first would be wrong. A check that failed
+    (``None`` or "unknown") never counts either: nobody is stopped from
+    dictating by a question Waffler could not answer.
+    """
+    problems: List[PermissionProblem] = []
+    if mic_status == "denied":
+        problems.append(_problem("microphone", mic_status, "microphone", "open_mic_settings"))
+    elif mic_status == "restricted":
+        problems.append(_problem("microphone", mic_status, "microphone_restricted",
+                                 "open_mic_settings"))
+    ax_off = need_accessibility and ax_trusted is False
+    if ax_off:
+        problems.append(_problem("accessibility", "denied", "accessibility", "open_ax_settings"))
+    if listener_alive is False and ax_trusted is not False:
+        problems.append(_problem("keyboard", "dead", "keyboard", "open_input_settings"))
+    return problems
+
+
+class PermissionPrecheck:
+    """Asked when the hotkey goes down, before recording starts.
+
+    ``check()`` returns the one problem to announce (a ``PermissionProblem``),
+    or None to carry on exactly as before. At most one toast per press, at most
+    one per permission every 60 s, and a reader that errors counts as
+    "unknown", never as a reason to block.
+
+    The microphone read is slow (about 7 ms), so a "granted" answer is cached
+    for ``mic_ttl`` seconds and refreshed in the background once stale; any
+    other answer is read again on every press, so a new grant is noticed at
+    once. Accessibility is read live (microseconds).
+
+    ``check_idle()`` is the same question asked from time to time while the
+    app idles: the hotkey's key listener dies silently when a permission is
+    taken away, and then no press ever arrives to ask it. It says each thing
+    once, and repeats a dead listener only every ``listener_gap`` seconds,
+    because nobody is pressing anything to ask for it.
+    """
+
+    def __init__(self, read_mic: Callable[[], str] = None,
+                 read_ax: Callable[[], Optional[bool]] = None,
+                 clock: Callable[[], float] = time.monotonic,
+                 gap: float = 60.0, mic_ttl: float = 30.0, listener_gap: float = 600.0,
+                 spawn: Callable[[Callable[[], None]], None] = None):
+        self._read_mic = read_mic or microphone_status
+        self._read_ax = read_ax or accessibility_trusted
+        self._clock = clock
+        self._mic_ttl = mic_ttl
+        self._spawn = spawn or (lambda fn: threading.Thread(
+            target=fn, daemon=True, name="MicStatusRefresh").start())
+        self._limiter = RateLimiter(gap, clock)
+        self._listener_limiter = RateLimiter(listener_gap, clock)
+        self._idle_ax_limiter = RateLimiter(float("inf"), clock)   # once, until it clears
+        self._mic_cache = None  # (status, read_at)
+        self._refreshing = False
+        self._lock = threading.Lock()
+        self.last_status: Dict[str, object] = {}
+
+    def _safe_mic(self) -> str:
+        try:
+            return self._read_mic()
+        except Exception:
+            return "unknown"
+
+    def _safe_ax(self) -> Optional[bool]:
+        try:
+            return self._read_ax()
+        except Exception:
+            return None
+
+    def _refresh_mic(self) -> None:
+        status = self._safe_mic()
+        with self._lock:
+            self._mic_cache = (status, self._clock())
+            self._refreshing = False
+
+    def _mic(self) -> str:
+        now = self._clock()
+        with self._lock:
+            cached = self._mic_cache
+            if cached and cached[0] == "granted":
+                refresh = (now - cached[1] >= self._mic_ttl) and not self._refreshing
+                if refresh:
+                    self._refreshing = True
+                status = cached[0]
+            else:
+                status, refresh = None, False
+        if status is not None:
+            if refresh:
+                self._spawn(self._refresh_mic)
+            return status
+        status = self._safe_mic()
+        with self._lock:
+            self._mic_cache = (status, now)
+        return status
+
+    def warm(self) -> None:
+        """Prime the microphone cache (call once at start-up, off the hot path)."""
+        self._refresh_mic()
+
+    def check(self, need_accessibility: bool = True) -> Optional[PermissionProblem]:
+        """Key-down: the first problem that may be announced now, or None."""
+        mic = self._mic()
+        ax = self._safe_ax() if need_accessibility else None
+        self.last_status = {"microphone": mic, "accessibility": ax}
+        for problem in evaluate_permissions(mic, ax, True, need_accessibility):
+            if self._limiter.allow(problem.permission):
+                return problem
+        return None
+
+    def check_idle(self, listener_alive: Optional[bool],
+                   need_accessibility: bool = True) -> Optional[PermissionProblem]:
+        """While idle: the one problem to announce now, or None.
+
+        Accessibility being off is said once, and again only after it has been
+        on in between. A dead key listener says Accessibility if that is off,
+        else the keyboard (Input Monitoring), and is repeated every
+        ``listener_gap`` seconds because no key press will ever ask. The
+        microphone is left to the key-down check."""
+        ax = self._safe_ax() if need_accessibility else None
+        problems = evaluate_permissions("unknown", ax, listener_alive, need_accessibility)
+        active = {p.permission for p in problems}
+        if "accessibility" not in active:
+            self._idle_ax_limiter.reset()
+        if "keyboard" not in active:
+            self._listener_limiter.reset()
+        for problem in problems:
+            limiter = self._idle_ax_limiter if problem.permission == "accessibility" \
+                else self._listener_limiter
+            if limiter.allow(problem.permission):
+                return problem
+        return None

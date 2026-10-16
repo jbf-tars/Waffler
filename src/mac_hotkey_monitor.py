@@ -591,6 +591,7 @@ class MacEventTap:
         self._runloop_source = None
         self._runloop = None
         self._thread: Optional[threading.Thread] = None
+        self._stopped = False       # stop() was called on purpose
         # Lock guards the handler list — add_handler / start happen in main
         # thread, callback iterates in event-tap thread.
         self._lock = threading.Lock()
@@ -679,10 +680,42 @@ class MacEventTap:
         if self._thread is not None and self._thread.is_alive():
             _diag_log(f"[HOTKEY/{self._id}] start() called but thread already alive — no-op")
             return
+        self._stopped = False
         self._thread = threading.Thread(
             target=self._run, daemon=True, name=f"MacEventTapThread-{self._id}"
         )
         self._thread.start()
+
+    def is_alive(self, repair: bool = True) -> Optional[bool]:
+        """Is the tap still delivering keys?
+
+        True while it runs. False when its thread has ended (the tap could
+        not be made: a permission was never given) or the system has switched
+        it off and it will not come back (a permission was taken away while
+        Waffler ran; no key press arrives to say so). None before ``start()``
+        and during the first moments of it.
+
+        A tap the system merely disabled (it does that when a callback is
+        slow) is switched on again first, as the callback itself does, when
+        ``repair`` is set.
+        """
+        thread, tap = self._thread, self._tap
+        if thread is None or self._stopped:
+            return None            # not started, or taken down on purpose
+        if not thread.is_alive():
+            return False
+        if tap is None:
+            return None            # the thread is still making the tap
+        try:
+            from Quartz import CGEventTapEnable as _enable, CGEventTapIsEnabled as _is_enabled
+            if _is_enabled(tap):
+                return True
+            if repair:
+                _enable(tap, True)
+                return bool(_is_enabled(tap))
+            return False
+        except Exception:
+            return None
 
     def stop(self) -> None:
         """Tear down the run loop and disable the tap. Cleanup must happen
@@ -691,6 +724,7 @@ class MacEventTap:
         before we drop the tap reference.
         """
         _diag_log(f"[HOTKEY/{self._id}] stop() called")
+        self._stopped = True
         if self._runloop is not None:
             try:
                 CFRunLoopStop(self._runloop)

@@ -30,8 +30,11 @@ sys.path.insert(0, str(ROOT))
 
 import atomic_json  # noqa: E402
 import cleanup_pause  # noqa: E402
+import mac_permissions  # noqa: E402
+import pasteboard  # noqa: E402
 import pipeline_watchdog as pw  # noqa: E402
 import privacy_data  # noqa: E402
+import rate_limit  # noqa: E402
 import recent_audio  # noqa: E402
 import snippets  # noqa: E402
 import tray_state  # noqa: E402
@@ -52,6 +55,10 @@ PIPELINE_METHODS = (
     "_replace_unsent_entry", "resend_unsent", "delete_unsent", "_drain_unsent",
     "_drain_unsent_soon", "_on_hotkey_cancel", "_fill_unsent_card", "_in_flight",
     "_collect_late_words", "_late_words_arrived", "_keep_late_recording",
+    # Safe paste (src/pasteboard.py), "Paste last", the hotkey's permission check.
+    "_read_settings", "_show_toast_safe", "_settle_paste", "_announce_paste_failure",
+    "_remember", "forget_last_result", "last_transcript_titles", "paste_last", "copy_last",
+    "_announce_permission_problem", "_permissions_block_recording",
 )
 MODULE_DEFS = ("ensure_data_dir", "load_history", "_load_history_for_update",
                "save_history", "append_history",
@@ -190,20 +197,42 @@ class FakeStyler:
 
 
 class FakeClipboard:
-    def __init__(self, paste_hang=None, copy_ok=True):
+    """``copies`` is what was put on the clipboard, ``pastes`` what was pasted
+    into the app, as before safe paste; ``paste_text`` fills both, like the
+    real one (the words go on the clipboard, then the keystroke). ``outcome``
+    makes it report something other than a paste that went in and put the
+    user's clipboard back; ``paste_calls`` records how it was called."""
+
+    def __init__(self, paste_hang=None, copy_ok=True, outcome=None):
         self.copies = []
         self.pastes = []
+        self.paste_calls = []
         self.paste_hang = paste_hang
         self.copy_ok = copy_ok
+        self.outcome = outcome
 
     def copy(self, text):
         self.copies.append(text)
         return self.copy_ok
 
-    def auto_paste(self, window=None):
+    def paste_text(self, text, window_handle=None, restore=True, settle_delay=None, ticket=None):
+        self.paste_calls.append({"text": text, "window": window_handle, "restore": restore,
+                                 "settle_delay": settle_delay, "ticket": ticket})
+        if not self.copy_ok:
+            return pasteboard.PasteOutcome(pasteboard.FAILED, "clipboard_error")
+        self.copies.append(text)
         if self.paste_hang is not None:
             self.paste_hang.wait()
-        self.pastes.append(self.copies[-1] if self.copies else None)
+        if ticket is not None and ticket.abandoned:
+            # What the real one does: the caller stopped waiting, so no
+            # keystroke now and the words stay on the clipboard.
+            return pasteboard.PasteOutcome(pasteboard.FAILED, "gave_up", on_clipboard=True)
+        if self.outcome is not None:
+            if self.outcome.status != pasteboard.FAILED:
+                self.pastes.append(text)
+            return self.outcome
+        self.pastes.append(text)
+        return pasteboard.PasteOutcome(pasteboard.PASTED, restored=restore, on_clipboard=not restore)
 
     def get_focused_window(self):
         return None
@@ -293,6 +322,10 @@ def make_pipeline(data_dir: Path, *, transcriber=None, styler=None, clipboard=No
         _recent_audio=recent_audio, _cleanup_pause=cleanup_pause, _privacy=privacy_data,
         _snippets=snippets,
         _set_cleanup_pause=page.pauses.append,
+        _pasteboard=pasteboard, _mac_perms=mac_permissions, RateLimiter=rate_limit.RateLimiter,
+        paste_timed_out_message=user_messages.paste_timed_out_message,
+        last_transcript_title=user_messages.last_transcript_title,
+        _refresh_tray_menu=lambda: None,
     )
     from transcribe_whisper import _speech_seconds
     ns["_speech_seconds"] = _speech_seconds
@@ -311,6 +344,9 @@ def make_pipeline(data_dir: Path, *, transcriber=None, styler=None, clipboard=No
     p.hotkey_listener = FakeListener()
     p.is_recording = False
     p._is_paused = False
+    p._last_result = pasteboard.LastResult()
+    p._paste_failure_gate = rate_limit.RateLimiter(pasteboard.PASTE_FAILURE_GAP_SECONDS)
+    p._precheck = types.SimpleNamespace(check=lambda need_accessibility=True: None)
     p._processing_lock = threading.Lock()
     p._processing_cancelled = threading.Event()
     p._processing_id = 1

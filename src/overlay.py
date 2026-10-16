@@ -213,7 +213,8 @@ class RecordingOverlay:
                 "elapsed_seconds": float(elapsed_seconds),
             })
 
-    def show_toast(self, style: str, heading: str, body: str, buttons=None):
+    def show_toast(self, style: str, heading: str, body: str, buttons=None,
+                   timeout: float = None, reposition: bool = False):
         """
         Show a floating toast popup above the pill overlay.
         style: "cancel" | "error" | "warn" | "info"
@@ -221,6 +222,10 @@ class RecordingOverlay:
             "primary", "secondary" or "danger"), up to three. Without it
             each style keeps its usual buttons. "info" toasts stay until
             answered or withdrawn with hide_toast(style="info").
+        timeout: seconds before the toast hides itself, instead of its
+            style's usual time. For a toast whose button needs a moment.
+        reposition: place the toast on the screen the cursor is on now, not
+            where the pill last was. For a toast with no recording behind it.
         """
         self._log(f"[overlay.py] show_toast: style={style}, heading='{heading}'")
         # Auto-restart if the subprocess died since the last interaction —
@@ -249,6 +254,11 @@ class RecordingOverlay:
                  "kind": str(b.get("kind", "secondary"))}
                 for b in list(buttons)[:3]
             ]
+        # Sent only when set, so every other toast is the message it always was.
+        if timeout:
+            cmd["timeout"] = float(timeout)
+        if reposition:
+            cmd["reposition"] = True
         self._send(cmd)
         self._log("[overlay.py] show_toast command SENT successfully")
 

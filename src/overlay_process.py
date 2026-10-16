@@ -16,7 +16,11 @@ Commands:  {"type": "show"}
                  Neither touches a toast.
            {"type": "show_toast", "style": "cancel"|"error"|"warn"|"info",
             "heading": "...", "body": "...",
-            "buttons": [{"label", "action", "kind"}, ...]}   (buttons optional)
+            "buttons": [{"label", "action", "kind"}, ...],   (buttons optional)
+            "timeout": seconds, "reposition": true}          (both optional)
+                 timeout replaces the style's usual time on screen;
+                 reposition puts the toast on the cursor's screen, for a
+                 toast with no recording (and so no pill) behind it
            {"type": "hide_toast", "style": "info"}   (style optional: only
                  a toast of that style is hidden)
            {"type": "quit"}
@@ -1474,6 +1478,8 @@ def _dispatch_cmd(cmd):
             heading=cmd.get("heading", ""),
             body=cmd.get("body", ""),
             buttons=cmd.get("buttons"),
+            timeout=cmd.get("timeout"),
+            anchor=_toast_anchor(True) if cmd.get("reposition") else None,
         )
 
     elif ctype == "hide_toast":
@@ -1497,12 +1503,44 @@ _TOAST_AUTO_HIDE_SECS = {
 }
 
 
-def _show_toast(style: str, heading: str, body: str, buttons=None):
+def _toast_anchor(reposition: bool):
+    """(x, y) a toast is placed relative to: where the pill last was, or, for
+    a toast with no recording behind it (reposition=True), where the pill
+    would appear now, on the cursor's screen. The pill's own position is left
+    alone, so the next `show` still moves it to wherever it belongs."""
+    if reposition:
+        try:
+            x, y = _compute_overlay_position()
+            return float(x), float(y)
+        except Exception as e:
+            print(f"[overlay_mac] toast reposition failed: {e}", file=sys.stderr, flush=True)
+    return _waffle_x, _waffle_y
+
+
+def _toast_origin(anchor=None):
+    """Window origin of the toast for an anchor (default: the pill's)."""
+    ax, ay = anchor if anchor else (_waffle_x, _waffle_y)
+    return ax + (WAFFLE_W - TOAST_W) // 2, ay + WAFFLE_H + TOAST_PAD
+
+
+def _toast_seconds(style: str, timeout=None):
+    """How long a toast stays: ``timeout`` when it is a positive number,
+    else the style's usual time (None: until answered)."""
+    try:
+        if timeout and float(timeout) > 0:
+            return float(timeout)
+    except (TypeError, ValueError):
+        pass
+    return _TOAST_AUTO_HIDE_SECS.get(style)
+
+
+def _show_toast(style: str, heading: str, body: str, buttons=None, timeout=None, anchor=None):
     """Show a warm Waffler-branded toast above the waffle.
 
     ``buttons`` (optional) replaces the style's usual buttons: a list of up
     to three {"label", "action", "kind"} dicts, kind being "primary",
-    "secondary" or "danger".
+    "secondary" or "danger". ``timeout`` and ``anchor`` are described in
+    the module docstring and _toast_anchor.
     """
     global _toast_win, _toast_style, _toast_auto_hide_timer
     try:
@@ -1516,8 +1554,7 @@ def _show_toast(style: str, heading: str, body: str, buttons=None):
             _g_window.orderOut_(None)
 
         # Centre toast where the pill used to sit, plus the TOAST_PAD gap.
-        tx = _waffle_x + (WAFFLE_W - TOAST_W) // 2
-        ty = _waffle_y + WAFFLE_H + TOAST_PAD
+        tx, ty = _toast_origin(anchor)
 
         print(f"[overlay_mac] _show_toast: style={style}, pos=({tx},{ty})", file=sys.stderr, flush=True)
 
@@ -1553,7 +1590,7 @@ def _show_toast(style: str, heading: str, body: str, buttons=None):
         # Auto-dismiss after the per-style timeout via a threading.Timer that
         # enqueues a hide_toast command; the main-thread dispatcher picks it
         # up. Using the queue avoids NSTimer target-selector plumbing.
-        secs = _TOAST_AUTO_HIDE_SECS.get(style)
+        secs = _toast_seconds(style, timeout)
         if secs:
             def _enqueue_hide():
                 try:

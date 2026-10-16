@@ -236,3 +236,64 @@ def limit_reached_message(error_text: str):
     else:
         then = "Wait a moment and try again."
     return ("Limit reached", f"{who} says you've reached your limit for now. {then}")
+
+
+# ── Pasting ──────────────────────────────────────────────────────────────────
+# What the pill says when the words did not land in the app, and the menu's
+# "Paste last" lines. The key to press is the platform's.
+
+def paste_keys(platform: str) -> str:
+    return "Cmd+V" if platform == "darwin" else "Ctrl+V"
+
+
+def paste_failed_message(reason: str, platform: str):
+    """(heading, body) for a paste that did not land. The words are on the
+    clipboard unless ``reason`` is "clipboard_error"; they are in the
+    Journal either way."""
+    keys = paste_keys(platform)
+    if reason == "accessibility_off":
+        return ("Couldn't paste",
+                f"Waffler needs Accessibility to paste. Your text is on the clipboard, "
+                f"so press {keys} in a text box.")
+    if reason == "clipboard_error":
+        return ("Couldn't copy to the clipboard",
+                "Your text is saved in the Journal. Copy it from there.")
+    return ("Couldn't paste", f"Your text is on the clipboard. Click a text box and press {keys}.")
+
+
+def paste_timed_out_message(platform: str):
+    """(heading, body) when the paste took too long and Waffler stopped waiting."""
+    return ("Not pasted",
+            f"Your text is on the clipboard and in the Journal. Press {paste_keys(platform)} to paste it.")
+
+
+def last_transcript_title(verb: str, words: int) -> str:
+    """The menu line for "Paste last" or "Copy last": a word count and never
+    the text, because menus show on screen shares."""
+    base = f"{verb} last transcript"
+    if words <= 0:
+        return base
+    return f"{base} ({words:,} word{'s' if words != 1 else ''})"
+
+
+CLIPBOARD_CHOICE_UNKNOWN = "Waffler doesn't know that clipboard choice. Pick one from the list."
+
+
+# ── Permissions checked when you press the hotkey ───────────────────────────
+# One short toast per missing permission, each with a button for the pane that
+# fixes it. They have to fit the pill's three lines.
+
+PERMISSION_MESSAGES = {
+    "microphone": ("Microphone is off",
+                   "Waffler can't hear you. Turn Waffler on in System Settings > Privacy & "
+                   "Security > Microphone, then try again."),
+    "microphone_restricted": ("Microphone is restricted",
+                              "A Screen Time or device rule is blocking the microphone. Check "
+                              "Privacy & Security > Microphone."),
+    "accessibility": ("Accessibility is off",
+                      "Waffler needs it to paste into other apps. Turn it on in System Settings > "
+                      "Privacy & Security > Accessibility, then try again."),
+    "keyboard": ("Waffler can't hear your shortcut",
+                 "It isn't receiving your keyboard. Turn Waffler on in System Settings > Privacy "
+                 "& Security > Input Monitoring, then restart Waffler."),
+}

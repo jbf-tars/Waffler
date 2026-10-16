@@ -900,6 +900,23 @@
     return !language || language === 'en' ? '' : 'Used when your language is English.';
   }
 
+  // General, under "Paste when I let go": what happens to the clipboard once
+  // the text is pasted (settings.json clipboard_after_paste, Mac only: the
+  // paste on Windows cannot put it back). "restore" gives you back what you
+  // had copied; "keep" leaves the dictation there. With paste off the text is
+  // only copied, so there is nothing to put back and the switch is fixed.
+  function clipboardAfterPasteView(autoPaste, mode, isMac) {
+    if (!isMac) return { visible: false, checked: true, disabled: true, desc: '' };
+    if (autoPaste === false) {
+      return { visible: true, checked: true, disabled: true, desc: 'Paste is off, so your text is only copied and stays on the clipboard.' };
+    }
+    return { visible: true, checked: mode === 'keep', disabled: false, desc: 'Off, Waffler puts back what you had copied once it has pasted.' };
+  }
+  // The toast after changing it.
+  function clipboardAfterPasteSaved(mode) {
+    return mode === 'keep' ? 'Waffler leaves your text on the clipboard.' : 'Waffler puts back what you had copied.';
+  }
+
   // General: the microphone meter, a strip of cells like the recording
   // overlay's waffle. The level (0 to 1, app.py get_mic_level) goes through
   // the overlay's own curve (level ** 0.4) so quiet speech still moves it.
@@ -1236,7 +1253,8 @@
     SEARCH_DEBOUNCE_MS, debounce, feedView, searchAnnouncement, radioMove, focusAfterRemove,
     SNIPPET_MAX_TRIGGER, SNIPPET_MAX_EXPANSION, SNIPPET_MAX_COUNT, snippetTrigger, snippetCheck,
     snippetSummary, snippetCounter, snippetDone,
-    spellingSpecimen, languageOptions, languageDesc, languageSaved, spellingNote, METER_CELLS, micMeter, usageChart, usageFacts, flowView, PROVIDER_MARKS, providerPill,
+    spellingSpecimen, languageOptions, languageDesc, languageSaved, spellingNote,
+    clipboardAfterPasteView, clipboardAfterPasteSaved, METER_CELLS, micMeter, usageChart, usageFacts, flowView, PROVIDER_MARKS, providerPill,
     privacyFlow, hotkeyTestLine, whatsNew,
   };
 });

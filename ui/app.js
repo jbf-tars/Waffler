@@ -2826,11 +2826,41 @@ async function loadSettings() {
     if (dialectSel) dialectSel.value = s.dialect || 'auto';
     renderSpellingSpecimen(s.dialect || 'auto');
 
-    // Auto-paste
+    // Auto-paste, and (Mac) what happens to the clipboard after it
     const apToggle = document.getElementById('autoPasteToggle');
     if (apToggle) apToggle.checked = s.auto_paste !== false;
+    renderClipboardRow();
+    const reads = document.getElementById('privPasteReads');
+    if (reads) reads.hidden = !isMacPlatform;
   } catch(e) {
     console.warn('loadSettings error:', e);
+  }
+}
+
+// Settings, General: "Keep what I dictated on the clipboard" (Mac only), from
+// the last get_settings() answer. With paste off the text is only copied, so
+// the switch is fixed and says so.
+function renderClipboardRow() {
+  const row = document.getElementById('clipboardAfterPasteRow');
+  const tog = document.getElementById('keepClipboardToggle');
+  const desc = document.getElementById('clipboardAfterPasteDesc');
+  if (!row || !tog) return;
+  const s = _lastSettings || {};
+  const v = WL.clipboardAfterPasteView(s.auto_paste !== false, s.clipboard_after_paste, isMacPlatform);
+  row.hidden = !v.visible;
+  tog.checked = v.checked;
+  tog.disabled = v.disabled;
+  if (desc && v.desc) desc.textContent = v.desc;
+}
+
+async function setClipboardAfterPaste(keep) {
+  const mode = keep ? 'keep' : 'restore';
+  const ok = await saveSetting('clipboard_after_paste', mode);
+  if (ok) {
+    if (_lastSettings) _lastSettings.clipboard_after_paste = mode;
+  } else {
+    const tog = document.getElementById('keepClipboardToggle');
+    if (tog) tog.checked = !keep;
   }
 }
 
@@ -2976,6 +3006,10 @@ async function saveSetting(key, value) {
     if (r.ok) {
       if (key === 'auto_paste') {
         showToast(value ? 'Waffler pastes when you let go.' : 'Waffler puts the text on the clipboard. Paste it yourself.', 'success', 3500);
+        if (_lastSettings) _lastSettings.auto_paste = !!value;
+        renderClipboardRow();
+      } else if (key === 'clipboard_after_paste') {
+        showToast(WL.clipboardAfterPasteSaved(value), 'success', 3500);
       } else if (key === 'language') {
         const known = _languageList.find((l) => l.code === value);
         showToast(WL.languageSaved(value, known ? known.name : ''), 'success');

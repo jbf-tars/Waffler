@@ -109,6 +109,8 @@ else:
 from transcribe_whisper import WhisperTranscriber, _speech_seconds
 from style_openai import OpenAIStyler
 from clipboard import ClipboardManager
+import pasteboard as _pasteboard
+from rate_limit import RateLimiter
 from overlay import RecordingOverlay
 from permissions_manager import PermissionsManager
 from audio_devices import (
@@ -133,6 +135,7 @@ import mac_permissions as _mac_perms
 import snippets as _snippets
 from login_item import LoginItem, HIDDEN_FLAG as _HIDDEN_FLAG
 from user_messages import (
+    CLIPBOARD_CHOICE_UNKNOWN,
     DOWNLOAD_PAGE,
     UPDATE_DOWNLOAD_FAILED,
     UPDATE_INSTALL_FAILED,
@@ -141,7 +144,9 @@ from user_messages import (
     classify_request_error,
     cleanup_skipped_message,
     key_check_error,
+    last_transcript_title,
     limit_reached_message,
+    paste_timed_out_message,
     update_check_error,
 )
 
@@ -442,8 +447,13 @@ def record_usage_safely(*args, **kwargs):
         return None
 
 
-def _words_kept_message(on_clipboard: bool, in_journal: bool) -> str:
-    """The error toast's sentence, from where the words really are."""
+def _words_kept_message(on_clipboard: bool, in_journal: bool, pasted: bool = False) -> str:
+    """The error toast's sentence, from where the words really are. After a
+    paste that went in, the clipboard is the user's own again (it is put
+    back), so the words are in their app and the Journal."""
+    if pasted:
+        return ("Your text was pasted and is in the Journal." if in_journal
+                else "Your text was pasted.")
     if on_clipboard and in_journal:
         return "Your words are on the clipboard and in the Journal."
     if on_clipboard:
@@ -704,6 +714,21 @@ class Api:
             import traceback
             traceback.print_exc()
             return False
+
+    def paste_last(self) -> dict:
+        """Paste the last transcript into the app in front, the same safe
+        paste as a dictation. {"ok", "outcome"} or {"ok": False, "error"}.
+        Behind the menu bar item; a shortcut for it comes with the shortcut
+        editor."""
+        if _pipeline is None:
+            return {"ok": False, "error": "not_ready"}
+        return _pipeline.paste_last()
+
+    def copy_last(self) -> dict:
+        """Put the last transcript on the clipboard."""
+        if _pipeline is None:
+            return {"ok": False, "error": "not_ready"}
+        return _pipeline.copy_last()
 
     def get_stats(self) -> dict:
         """The Journal's counts and the day streak (src/journal_data.py):
@@ -1097,6 +1122,11 @@ class Api:
             "language":              stored.get("language", "en"),
             "dialect":               stored.get("dialect", "auto"),
             "auto_paste":            stored.get("auto_paste", True),
+            # "restore": put the user's own clipboard back after a paste
+            # (the default); "keep": leave the dictation on it (what 3.15.1
+            # did). macOS only; Windows always keeps it.
+            "clipboard_after_paste": ("keep" if stored.get("clipboard_after_paste") == "keep"
+                                      else "restore"),
             # The engine's own default and clean-up, so Settings shows the
             # order Waffler really uses (it showed groq, cerebras, openai
             # while the engine ran groq, openai, cerebras).
@@ -1116,6 +1146,10 @@ class Api:
                     and _languages.is_valid(settings["language"])):
                 return {"ok": False, "error": "Waffler doesn't know that language. "
                                               "Pick one from the list."}
+            # The same for the clipboard choice: only the two it has.
+            if "clipboard_after_paste" in settings and \
+                    settings["clipboard_after_paste"] not in ("restore", "keep"):
+                return {"ok": False, "error": CLIPBOARD_CHOICE_UNKNOWN}
             with self._editing_settings() as stored:
                 # ── OpenAI API key ────────────────────────────────────────────────
                 new_key = (settings.get("api_key") or "").strip()
@@ -1158,6 +1192,11 @@ class Api:
                 if "auto_paste" in settings:
                     stored["auto_paste"] = bool(settings["auto_paste"])
                     notes.append(f"Auto-paste: {'on' if settings['auto_paste'] else 'off'}")
+
+                # ── Clipboard after paste ("restore" | "keep") ───────────────────
+                if "clipboard_after_paste" in settings:
+                    stored["clipboard_after_paste"] = settings["clipboard_after_paste"]
+                    notes.append(f"Clipboard after paste: {settings['clipboard_after_paste']}")
 
                 # ── Provider fallback order ──────────────────────────────────────
                 # A list like ["cerebras","groq","openai"]. Persisted AND applied
@@ -1557,6 +1596,7 @@ class Api:
                 result = _privacy.delete_my_data(DATA_DIR)
             if _pipeline:
                 _pipeline._unsent_waiting = 0
+                _pipeline.forget_last_result()    # nothing left to "paste last"
             if _tray_state_now == _tray_state.NOT_SENT:
                 _set_tray_state(_tray_state.IDLE)
             if not result["ok"]:
@@ -1583,6 +1623,8 @@ class Api:
         try:
             with _history_lock:
                 save_history([])
+            if _pipeline:
+                _pipeline.forget_last_result()
             return {"ok": True}
         except Exception as e:
             return {"ok": False, "error": str(e)}
@@ -1939,6 +1981,8 @@ class Api:
         try:
             import shutil
             data_dir = DATA_DIR
+            if _pipeline:
+                _pipeline.forget_last_result()
             if data_dir.exists():
                 shutil.rmtree(data_dir)
                 _log_to_file("[factory reset] Data directory cleared via UI")
@@ -2656,7 +2700,8 @@ class Api:
         via raw ctypes, bypassing the cache).
 
         Fix: query via ctypes against the ApplicationServices framework,
-        which calls the C function fresh each time. We try, in order:
+        which calls the C function fresh each time
+        (``mac_permissions.accessibility_trusted``). We try, in order:
 
             1. ``AXIsProcessTrustedWithOptions(NULL)`` via ctypes — modern API,
                explicitly designed for repeated polling.
@@ -2668,33 +2713,13 @@ class Api:
         if sys.platform != "darwin":
             return True  # Not applicable
 
-        # Try ctypes paths first — they bypass any PyObjC caching.
-        try:
-            import ctypes
-            appservices = ctypes.cdll.LoadLibrary(
-                "/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices"
-            )
-
-            # Preferred: AXIsProcessTrustedWithOptions(NULL).
-            # Signature: Boolean AXIsProcessTrustedWithOptions(CFDictionaryRef options)
-            # Passing NULL means "check without prompting" and always re-queries TCC.
-            try:
-                appservices.AXIsProcessTrustedWithOptions.restype = ctypes.c_bool
-                appservices.AXIsProcessTrustedWithOptions.argtypes = [ctypes.c_void_p]
-                result = bool(appservices.AXIsProcessTrustedWithOptions(None))
-                _log_to_file(f"[DEBUG] AXIsProcessTrustedWithOptions(NULL) returned: {result}")
-                return result
-            except (AttributeError, OSError) as e:
-                _log_to_file(f"[DEBUG] AXIsProcessTrustedWithOptions unavailable: {e}; falling back")
-
-            # Fallback: AXIsProcessTrusted() via ctypes.
-            appservices.AXIsProcessTrusted.restype = ctypes.c_bool
-            appservices.AXIsProcessTrusted.argtypes = []
-            result = bool(appservices.AXIsProcessTrusted())
-            _log_to_file(f"[DEBUG] AXIsProcessTrusted (ctypes) returned: {result}")
+        # The ctypes paths first (src/mac_permissions.py): they bypass any
+        # PyObjC caching. The hotkey pre-check and the paste use the same call.
+        result = _mac_perms.accessibility_trusted()
+        if result is not None:
+            _log_to_file(f"[DEBUG] Accessibility trusted (ctypes) returned: {result}")
             return result
-        except Exception as e:
-            _log_to_file(f"[DEBUG] ctypes Accessibility check failed: {e}; trying PyObjC")
+        _log_to_file("[DEBUG] ctypes Accessibility check unavailable; trying PyObjC")
 
         # Last resort: PyObjC binding (the original implementation).
         try:
@@ -3031,6 +3056,7 @@ def _build_pipeline():
         _log_to_file("Creating WafflerPipeline...")
         pipeline = WafflerPipeline(_config)
         _pipeline = pipeline
+        _refresh_tray_menu()    # "Paste last" can now see the last result
         _log_to_file("Pipeline created, starting hotkey thread...")
 
         hotkey_thread = threading.Thread(
@@ -3355,6 +3381,15 @@ class WafflerPipeline:
         _log_to_file(f"Styler backend: {primary}")
 
         self.clipboard = ClipboardManager()
+        _pasteboard.set_logger(_log_to_file)
+        # Safe paste (src/pasteboard.py): what "Paste last" pastes, the gate
+        # that keeps a failed-paste message to one every 30 s, and the check
+        # of the microphone and Accessibility each time the hotkey goes down
+        # (src/mac_permissions.py).
+        self._last_result = _pasteboard.LastResult(history_loader=_history_cache.items)
+        self._paste_failure_gate = RateLimiter(_pasteboard.PASTE_FAILURE_GAP_SECONDS)
+        self._precheck = _mac_perms.PermissionPrecheck()
+        threading.Thread(target=self._warm_paste_deps, daemon=True, name="PasteWarm").start()
         self.is_recording = False
         self._is_paused = False
         self._recording_session = 0  # incremented each press; guards _show_no_audio_toast
@@ -3408,6 +3443,209 @@ class WafflerPipeline:
         self._unsent_waiting = self._count_unsent()
         threading.Thread(target=self._unsent_drain_loop, daemon=True,
                          name="UnsentDrain").start()
+
+    # ── Safe paste, "Paste last", permission check ────────────────────────
+
+    def _warm_paste_deps(self):
+        """Do the slow first-time work (the microphone status, loading
+        Accessibility) off the hotkey's path. Best effort."""
+        try:
+            self._precheck.warm()
+            _pasteboard.warm_up()
+        except Exception as e:
+            _log_to_file(f"[paste] warm-up skipped: {type(e).__name__}")
+
+    def _read_settings(self) -> dict:
+        """settings.json as it is now, for the paste and the permission check
+        ({} when missing or unreadable). Read per use: Settings changes apply
+        to the next dictation."""
+        try:
+            sf = DATA_DIR / "settings.json"
+            if sf.exists():
+                data = json.loads(sf.read_text(encoding="utf-8-sig"))
+                return data if isinstance(data, dict) else {}
+        except Exception:
+            pass
+        return {}
+
+    def _show_toast_safe(self, style, heading, body, buttons=None, timeout=None,
+                         reposition=False):
+        """overlay.show_toast that never raises. Call it off the thread that
+        must not wait (the overlay may be restarting)."""
+        try:
+            self.overlay.show_toast(style=style, heading=heading, body=body, buttons=buttons,
+                                    timeout=timeout, reposition=reposition)
+        except Exception as e:
+            _log_to_file(f"[overlay] toast failed: {type(e).__name__}")
+
+    def _announce_permission_problem(self, problem):
+        """One toast whose button opens the pane that fixes it."""
+        threading.Thread(
+            target=lambda: self._show_toast_safe(
+                "error", problem.heading, problem.body,
+                buttons=[{"label": problem.button_label, "action": problem.action,
+                          "kind": "primary"},
+                         {"label": "Dismiss", "action": "dismiss", "kind": "secondary"}],
+                timeout=12,
+                reposition=True),    # nothing was recorded: the cursor's screen
+            daemon=True, name="PermissionToast",
+        ).start()
+
+    def _permissions_block_recording(self) -> bool:
+        """The hotkey has just gone down. Is the microphone (or, with
+        auto-paste on, Accessibility) known to be switched off?
+
+        If so: one toast whose button opens the exact Privacy pane, and True,
+        because recording would capture silence (or paste nowhere) and the
+        recording pill would hide the toast anyway. A check that errors, a
+        permission not asked for yet (the system prompt comes on first use)
+        and anything within the 60 s gap per permission all return False:
+        recording starts exactly as before. Never raises; microseconds when
+        everything is granted."""
+        if _platform.system() != "Darwin":
+            return False
+        try:
+            stored = self._read_settings()
+            problem = self._precheck.check(need_accessibility=bool(stored.get("auto_paste", True)))
+        except Exception as e:
+            _log_to_file(f"[precheck] skipped: {type(e).__name__}")
+            return False
+        if problem is None:
+            return False
+        _log_to_file(f"[precheck] {problem.permission} is {problem.status}: "
+                     f"toast shown, not recording")
+        self._announce_permission_problem(problem)
+        # Nothing started, so keep the hotkey's state in step (the same
+        # reset the cancel paths do).
+        listener = getattr(self, "hotkey_listener", None)
+        if listener is not None and hasattr(listener, "reset_state"):
+            try:
+                listener.reset_state()
+            except Exception:
+                pass
+        return True
+
+    def _watch_listener(self):
+        """Mac: every few seconds, is the key listener still delivering keys,
+        and is Accessibility still on?
+
+        A permission taken away while Waffler runs (or never given) leaves a
+        listener that gets no key press at all, so the check at key-down can
+        never see it. This asks the listener itself, and says so once with a
+        button to the pane that fixes it (a dead listener again every ten
+        minutes: src/mac_permissions.py check_idle). It also keeps the
+        microphone answer the key-down check uses fresh, so a switch turned
+        off while Waffler sat idle is caught by the very next press."""
+        time.sleep(10)          # the listener is up within a second
+        while True:
+            try:
+                self._precheck.warm()
+                listener = getattr(self, "hotkey_listener", None)
+                alive = listener.is_alive() if hasattr(listener, "is_alive") else None
+                problem = self._precheck.check_idle(
+                    alive, need_accessibility=bool(self._read_settings().get("auto_paste", True)))
+                if problem is not None:
+                    _log_to_file(f"[precheck] {problem.permission} while idle "
+                                 f"(key listener alive: {alive}): toast shown")
+                    self._announce_permission_problem(problem)
+            except Exception as e:
+                _log_to_file(f"[precheck] listener check failed: {type(e).__name__}")
+            time.sleep(10)
+
+    def _announce_paste_failure(self, outcome, reposition=False):
+        """One message (at most every 30 s) when a paste failed. The words are
+        already on the clipboard and in the Journal. ``reposition`` puts it on
+        the cursor's screen: for "Paste last", where no recording has just put
+        the pill there."""
+        platform = "darwin" if _platform.system() == "Darwin" else "win32"
+        toast = _pasteboard.report_paste_failure(outcome, self._paste_failure_gate, platform)
+        if toast is None:
+            if outcome is not None and outcome.status == _pasteboard.FAILED:
+                _log_to_file("[paste] failure message suppressed (once every 30 s)")
+            return
+        self._show_toast_safe("warn", toast["heading"], toast["body"], buttons=toast["buttons"],
+                              reposition=reposition)
+
+    def _settle_paste(self, result, ticket):
+        """What the paste step left behind: ``(on_clipboard, pasted)``, with
+        the message when the words did not land. ``result`` is the watchdog's
+        CallResult for ``clipboard.paste_text``.
+
+        After a paste that went in, the clipboard is the user's own again
+        (restored), so ``on_clipboard`` is False. A paste that outlived its
+        deadline is told to stop: ``ticket.abandon()`` decides, under a lock,
+        whether it will leave the words on the clipboard (the message says
+        so, and it is true) or had already begun putting the old clipboard
+        back, which means it went in."""
+        if result.ok:
+            outcome = result.value
+            if not isinstance(outcome, _pasteboard.PasteOutcome):
+                return False, True      # not told otherwise: it went in
+            if outcome.status == _pasteboard.FAILED:
+                # Shown now, before the pill ends, so the pill skips its
+                # tick: this one needs the user to act.
+                self._announce_paste_failure(outcome)
+            return outcome.on_clipboard, outcome.status != _pasteboard.FAILED
+        if not ticket.abandon():
+            _log_to_file(f"[pipeline] paste ran past its deadline but had gone in "
+                         f"({result.status})")
+            return False, True
+        _log_to_file(f"[pipeline] paste did not finish ({result.status}"
+                     f"{': ' + repr(result.error) if result.error else ''}); "
+                     f"the text is left on the clipboard and in History")
+        platform = "darwin" if _platform.system() == "Darwin" else "win32"
+        heading, body = paste_timed_out_message(platform)
+        try:
+            self.overlay.show_toast(style="warn", heading=heading, body=body)
+        except Exception:
+            pass
+        return True, False
+
+    def _remember(self, text: str):
+        """Keep the newest result for "Paste last", and refresh the tray menu."""
+        self._last_result.set(text)
+        _refresh_tray_menu()
+
+    def forget_last_result(self):
+        """Nothing to paste again: the user deleted their data."""
+        self._last_result.clear()
+        _refresh_tray_menu()
+
+    def last_transcript_titles(self):
+        """(paste line, copy line, has a result) for the menu: a word count,
+        never the text, because menus show on screen shares."""
+        words = self._last_result.word_count()
+        return (last_transcript_title("Paste", words), last_transcript_title("Copy", words),
+                words > 0)
+
+    def paste_last(self) -> dict:
+        """Paste the last transcript into the app in front (menu bar, bridge),
+        the same safe paste as a dictation."""
+        text = self._last_result.get()
+        if not text:
+            _log_to_file("[paste-last] nothing to paste yet")
+            return {"ok": False, "error": "no_transcript"}
+        stored = self._read_settings()
+        # Windows: the tray menu leaves a hidden window of ours in front, so
+        # aim at the app the user last dictated into. macOS pastes into
+        # whatever has focus (opening a menu bar menu does not take it).
+        target = self._prev_window if _platform.system() == "Windows" else None
+        # The menu has just closed: give the focus a moment to settle.
+        outcome = self.clipboard.paste_text(
+            text, window_handle=target, restore=_pasteboard.restore_after_paste(stored),
+            settle_delay=0.2)
+        _log_to_file(f"[paste-last] outcome={outcome.status} words={len(text.split())}")
+        self._announce_paste_failure(outcome, reposition=True)
+        return {"ok": outcome.ok, "outcome": outcome.status}
+
+    def copy_last(self) -> dict:
+        """Put the last transcript on the clipboard."""
+        text = self._last_result.get()
+        if not text:
+            return {"ok": False, "error": "no_transcript"}
+        ok = self.clipboard.copy(text)
+        _log_to_file(f"[copy-last] ok={ok} words={len(text.split())}")
+        return {"ok": bool(ok)}
 
     def set_device(self, device_index: int):
         """Update the audio device used for future recordings.
@@ -3529,6 +3767,16 @@ class WafflerPipeline:
             run.close_offer()
         elif action == "open_journal":
             self._show_journal()
+        elif action in _mac_perms.PANE_ACTIONS:
+            # A permission message's button: open the exact Privacy pane. Off
+            # the overlay's reader thread (it waits for `open` to answer).
+            threading.Thread(target=_mac_perms.open_pane,
+                             args=(_mac_perms.PANE_ACTIONS[action],),
+                             daemon=True, name="OpenPrivacyPane").start()
+        elif action == "copy_last":
+            # The failed-paste message's "Copy again", off the overlay's
+            # reader thread: it may have to wait behind a paste.
+            threading.Thread(target=self.copy_last, daemon=True, name="CopyAgain").start()
         elif action == "select_mic":
             # v3.14.35 — bring Waffler to front and open Settings, where
             # the in-app mic picker lives. Previously this called
@@ -3563,6 +3811,11 @@ class WafflerPipeline:
 
     def on_hotkey_press(self):
         """Start recording."""
+        # Permissions first, and cheap: a microphone or Accessibility switched
+        # off gets one message with a button to the right pane, instead of a
+        # silent recording or a paste that goes nowhere.
+        if not self.is_recording and self._permissions_block_recording():
+            return
         # Claim the recording slot + open a new generation atomically. Doing
         # the is_recording check+flip and the id bump under one lock closes
         # two races: (a) two near-simultaneous presses both starting a
@@ -3783,9 +4036,11 @@ class WafflerPipeline:
         # the next press, so reading it later could send this dictation's paste
         # into the window the user opened for the following one.
         _target_window = self._prev_window
-        # Set once the styled text is on the clipboard. After that point the
-        # error handler must not "salvage" the raw transcript over it.
+        # Set once the styled text is on the clipboard (not after a paste
+        # that put the user's own clipboard back). After that point the error
+        # handler must not "salvage" the raw transcript over it.
         _clipboard_written = False
+        _pasted = False    # set when the words went into the user's app
         transcript = None  # for the error handler, whatever fails first
         styled = None
         _history_written = False   # this dictation is in the Journal
@@ -4242,32 +4497,51 @@ class WafflerPipeline:
                 _outcome = _pw.CANCELLED
                 return
 
-            # Copy to clipboard, then paste. Both are bounded by the watchdog
-            # run: a clipboard that stays locked or a paste keystroke that
-            # never returns used to hold the dictation (and the History save
-            # after it) for good. The result of the copy was also once
-            # discarded, so a failed write still went on to "paste",
-            # replacing the user's selection with whatever unrelated text
-            # was on the clipboard already. The transcript is saved to
-            # History below either way, so the words are never lost.
+            # Paste. One step, bounded by the watchdog run: a clipboard that
+            # stays locked or a paste keystroke that never returns used to
+            # hold the dictation (and the History save after it) for good.
+            # On a Mac it keeps the user's own clipboard, puts the words on it
+            # for a moment, pastes, and puts it back (src/pasteboard.py);
+            # either way it says whether the paste went in. A failed clipboard
+            # write never goes on to "paste", which once replaced the user's
+            # selection with whatever unrelated text was on the clipboard
+            # already. The transcript is saved to History below either way, so
+            # the words are never lost.
             _t2 = time.time()
             _t_paste = 0.0
-            _copied = False
+            _step_ran = False
+            # It is kept either way (only a cancel returned above): "Paste
+            # last" can reach it, whatever goes wrong below.
+            self._remember(styled)
             if _policy["paste"]:
-                _copy = run.call(self.clipboard.copy, styled, stage=_pw.PASTING,
-                                 deadline=_pw.PASTE_DEADLINE_S)
-                _copied = bool(_copy.ok and _copy.value)
-                _clipboard_written = _copied
-                if not _copied:
-                    _log_to_file(f"Clipboard write FAILED ({_copy.status}): skipping paste "
-                                 f"so stale clipboard contents cannot overwrite the selection")
-                    try:
-                        threading.Thread(target=lambda: self.overlay.show_toast(
-                            style="warn", heading="Couldn't copy to the clipboard",
-                            body="Your text is saved in the Journal. Copy it from there.",
-                        ), daemon=True).start()
-                    except Exception:
-                        pass
+                stored = self._read_settings()
+                if stored.get("auto_paste", True):
+                    # _target_window, not self._prev_window: the latter now
+                    # belongs to whatever the user pressed most recently.
+                    _ticket = _pasteboard.PasteTicket()
+                    _paste = run.call(self.clipboard.paste_text, styled, _target_window,
+                                      restore=_pasteboard.restore_after_paste(stored),
+                                      ticket=_ticket, stage=_pw.PASTING,
+                                      deadline=_pw.PASTE_DEADLINE_S)
+                    # Where the words are now: after a restore they are not on
+                    # the clipboard any more, and the messages must not say so.
+                    _clipboard_written, _pasted = self._settle_paste(_paste, _ticket)
+                    _step_ran = True
+                else:
+                    # Auto-paste is off: the words just go on the clipboard.
+                    _copy = run.call(self.clipboard.copy, styled, stage=_pw.PASTING,
+                                     deadline=_pw.PASTE_DEADLINE_S)
+                    _clipboard_written = bool(_copy.ok and _copy.value)
+                    _step_ran = _clipboard_written
+                    if not _clipboard_written:
+                        _log_to_file(f"Clipboard write FAILED ({_copy.status})")
+                        try:
+                            threading.Thread(target=lambda: self.overlay.show_toast(
+                                style="warn", heading="Couldn't copy to the clipboard",
+                                body="Your text is saved in the Journal. Copy it from there.",
+                            ), daemon=True).start()
+                        except Exception:
+                            pass
             elif _policy["reason"] != "ok":
                 _log_to_file(
                     f"Processing {processing_id} not pasted ({_policy['reason']})"
@@ -4275,34 +4549,7 @@ class WafflerPipeline:
                        if _policy["save_history"] else "")
                 )
 
-            if _policy["paste"] and _copied:
-                stored = {}
-                _sf = DATA_DIR / "settings.json"
-                try:
-                    if _sf.exists():
-                        stored = json.loads(_sf.read_text(encoding="utf-8-sig"))
-                except Exception:
-                    pass
-                if stored.get("auto_paste", True):
-                    # _target_window, not self._prev_window: the latter now
-                    # belongs to whatever the user pressed most recently.
-                    _paste = run.call(self.clipboard.auto_paste, _target_window,
-                                      stage=_pw.PASTING, deadline=_pw.PASTE_DEADLINE_S)
-                    if not _paste.ok:
-                        _log_to_file(f"[pipeline] paste did not finish ({_paste.status}"
-                                     f"{': ' + repr(_paste.error) if _paste.error else ''}); "
-                                     f"the text is on the clipboard and in History")
-                        _paste_key = "Cmd+V" if _platform.system() == "Darwin" else "Ctrl+V"
-                        # Shown before the pill ends, so the pill skips its
-                        # tick: this one needs the user to act.
-                        try:
-                            self.overlay.show_toast(
-                                style="warn", heading="Not pasted",
-                                body=f"Your text is on the clipboard and in the Journal. "
-                                     f"Press {_paste_key} to paste it.",
-                            )
-                        except Exception:
-                            pass
+            if _step_ran:
                 _t_paste = (time.time() - _t2) * 1000
                 _log_to_file(f"[pipeline] clipboard+paste: {_t_paste:.0f}ms")
                 _log_to_file(f"[pipeline] TOTAL: {_t_transcribe + _t_style + _t_paste:.0f}ms")
@@ -4507,6 +4754,10 @@ class WafflerPipeline:
             _journal_saved = _history_written
             if transcript and not _history_written and not run.saved_as_unsent:
                 _words = styled or transcript
+                try:
+                    self._remember(_words)    # so "Paste last" is these words
+                except Exception:
+                    pass
                 _entry = {
                     "timestamp": datetime.now().isoformat(timespec="seconds"),
                     "text": transcript,
@@ -4561,7 +4812,7 @@ class WafflerPipeline:
                     # hit, don't throw the user's words away — copy the raw
                     # text to the clipboard so it's at least recoverable.
                     # Never over the styled text already put there.
-                    if transcript and not _clipboard_written:
+                    if transcript and not _clipboard_written and not _pasted:
                         try:
                             self.clipboard.copy(transcript)
                         except Exception:
@@ -4572,7 +4823,7 @@ class WafflerPipeline:
                     # used to say the text was copied even when there was no
                     # text at all.
                     _salvaged = False
-                    if transcript and not _clipboard_written:
+                    if transcript and not _clipboard_written and not _pasted:
                         try:
                             _salvaged = bool(self.clipboard.copy(transcript))
                         except Exception:
@@ -4581,7 +4832,8 @@ class WafflerPipeline:
                         style="warn",
                         heading="Something went wrong",
                         body=_words_kept_message(_salvaged or _clipboard_written,
-                                                 _journal_saved),
+                                                 _journal_saved,
+                                                 pasted=_pasted and not _clipboard_written),
                     )
             except Exception:
                 pass
@@ -5228,6 +5480,11 @@ class WafflerPipeline:
                 )
             _log_to_file("Calling hotkey.start()...")
             self.hotkey_listener.start()
+            if _platform.system() == "Darwin":
+                # A permission taken away leaves a listener that gets no key,
+                # so the check at key-down never sees it: watch it from here.
+                threading.Thread(target=self._watch_listener, daemon=True,
+                                 name="ListenerWatch").start()
             self.hotkey_listener.join()
         except Exception as e:
             _log_to_file(f"start_hotkey CRASHED: {e}")
@@ -5267,6 +5524,62 @@ def _reopen_should_show(window_hidden: bool, now: float, hidden_start_until: flo
     return bool(window_hidden) and now >= hidden_start_until
 
 
+# "Paste last / Copy last transcript" menu bar items (macOS): (paste, copy).
+_mac_last_items = None
+
+
+def _paste_last_async():
+    """Menu bar or tray: paste the last transcript, off the menu's thread (the
+    safe paste waits a second or so for the app in front)."""
+    if _pipeline is not None:
+        threading.Thread(target=_pipeline.paste_last, daemon=True, name="PasteLast").start()
+
+
+def _copy_last_async():
+    if _pipeline is not None:
+        threading.Thread(target=_pipeline.copy_last, daemon=True, name="CopyLast").start()
+
+
+def _last_transcript_menu():
+    """(paste line, copy line, enabled) for the menu: the word count of the
+    last result, never its text (menus show on screen shares). Both lines
+    plain and disabled while there is none, or the app is not ready."""
+    try:
+        if _pipeline is not None:
+            return _pipeline.last_transcript_titles()
+    except Exception as e:
+        _log_to_file(f"[menu] last transcript not read ({type(e).__name__})")
+    return last_transcript_title("Paste", 0), last_transcript_title("Copy", 0), False
+
+
+def _refresh_last_transcript_items():
+    """Set the two menu bar lines from the last result. On the main thread:
+    just before the menu opens (its delegate), and when the result changes."""
+    if not _mac_last_items:
+        return
+    paste_item, copy_item = _mac_last_items
+    paste_title, copy_title, enabled = _last_transcript_menu()
+    paste_item.setTitle_(paste_title)
+    copy_item.setTitle_(copy_title)
+    paste_item.setEnabled_(enabled)
+    copy_item.setEnabled_(enabled)
+
+
+def _refresh_tray_menu():
+    """The last result changed: update the menu's lines. The Mac menu also
+    refreshes just before it opens; pystray builds the Windows menu once, so
+    it is rebuilt here. Never raises."""
+    try:
+        if _platform.system() == "Windows":
+            if _tray_icon is not None:
+                _tray_icon.update_menu()
+        elif _platform.system() == "Darwin" and _mac_last_items:
+            from PyObjCTools import AppHelper
+            AppHelper.callAfter(_refresh_last_transcript_items)
+    except Exception:
+        pass
+
+
 def _create_tray_icon():
     """Create a status-area icon so the app can run in background.
     Windows: pystray system tray icon.
@@ -5296,6 +5609,7 @@ def _create_mac_menubar_icon():
     bar to bring it back" finally work on Mac.
     """
     global _tray_icon, _mac_menubar_status_item, _mac_menubar_target, _mac_menubar_menu
+    global _mac_last_items
 
     try:
         from AppKit import (
@@ -5356,6 +5670,19 @@ def _create_mac_menubar_icon():
             def show_(self, _sender):  # noqa: N802 — Cocoa selector form
                 _tray_show_window()
 
+            def pasteLast_(self, _sender):  # noqa: N802
+                _paste_last_async()
+
+            def copyLast_(self, _sender):  # noqa: N802
+                _copy_last_async()
+
+            def menuNeedsUpdate_(self, _menu):  # noqa: N802 — NSMenuDelegate
+                # Just before the menu opens: the word count of the last result.
+                try:
+                    _refresh_last_transcript_items()
+                except Exception as e:
+                    _log_to_file(f"menu refresh failed: {type(e).__name__}")
+
             def factoryReset_(self, _sender):  # noqa: N802
                 _perform_factory_reset()
 
@@ -5370,12 +5697,34 @@ def _create_mac_menubar_icon():
         # finicky on macOS so we leave them off rather than ship a
         # half-broken shortcut.
         menu = NSMenu.alloc().init()
+        # The paste last / copy last lines are enabled and titled by hand
+        # (menuNeedsUpdate_), not by the system's validation.
+        menu.setAutoenablesItems_(False)
+        menu.setDelegate_(target)
 
         item_show = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
             "Show Waffler", b"show:", ""
         )
         item_show.setTarget_(target)
         menu.addItem_(item_show)
+
+        menu.addItem_(NSMenuItem.separatorItem())
+
+        # Paste last / copy last transcript. The title carries a word count,
+        # never the text: menus are visible on screen shares.
+        item_paste_last = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            last_transcript_title("Paste", 0), b"pasteLast:", ""
+        )
+        item_paste_last.setTarget_(target)
+        item_paste_last.setEnabled_(False)
+        menu.addItem_(item_paste_last)
+
+        item_copy_last = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            last_transcript_title("Copy", 0), b"copyLast:", ""
+        )
+        item_copy_last.setTarget_(target)
+        item_copy_last.setEnabled_(False)
+        menu.addItem_(item_copy_last)
 
         menu.addItem_(NSMenuItem.separatorItem())
 
@@ -5399,6 +5748,7 @@ def _create_mac_menubar_icon():
         # garbage collector doesn't reclaim them once this function
         # returns. Without these, the menu-bar icon vanishes after a
         # garbage-collection cycle.
+        _mac_last_items = (item_paste_last, item_copy_last)
         _mac_menubar_status_item = status_item
         _mac_menubar_target = target
         _mac_menubar_menu = menu
@@ -5452,8 +5802,18 @@ def _create_windows_tray_icon():
         # but we'll bypass its ICO serialization when creating the HICON.
         img = Image.open(ico_str).convert('RGBA')
 
+        # Paste last / copy last transcript, with a word count and never the
+        # text. pystray calls the text and enabled functions when it (re)builds
+        # the menu: _refresh_tray_menu does that when the last result changes.
         menu = pystray.Menu(
             pystray.MenuItem("Show Waffler", _tray_show_window, default=True),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem(lambda item=None: _last_transcript_menu()[0],
+                             lambda icon=None, item=None: _paste_last_async(),
+                             enabled=lambda item=None: _last_transcript_menu()[2]),
+            pystray.MenuItem(lambda item=None: _last_transcript_menu()[1],
+                             lambda icon=None, item=None: _copy_last_async(),
+                             enabled=lambda item=None: _last_transcript_menu()[2]),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Quit", _tray_quit),
         )
@@ -5535,6 +5895,8 @@ def _perform_factory_reset():
         )
 
         if response == 1:  # User clicked "Reset Everything"
+            if _pipeline:
+                _pipeline.forget_last_result()
             # Clear data directory
             data_dir = DATA_DIR
             if data_dir.exists():

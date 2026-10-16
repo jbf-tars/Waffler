@@ -53,7 +53,8 @@ def _load(fake_pipeline_cls, monkeypatch):
     monkeypatch.setitem(sys.modules, "src.audio_device_monitor", fake_mod)
 
     ns = {"threading": threading, "WafflerPipeline": fake_pipeline_cls,
-          "_config": FakeConfig(), "_log_to_file": log.append}
+          "_config": FakeConfig(), "_log_to_file": log.append,
+          "_refresh_tray_menu": lambda: None}     # the tray's "Paste last" line
     exec(compile(ast.Module(nodes, []), "<app.py>", "exec"), ns)
     for n in NAMES:
         assert n in ns, f"{n} not found in app.py"
