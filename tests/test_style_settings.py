@@ -246,7 +246,8 @@ def test_the_prompts_are_exactly_what_they_were_before_the_style_section(name):
     """The Style section is code, not a prompt (S6): a style, Off and the
     signature add no word to what a model is asked. If a prompt is edited on
     purpose, this hash moves with it and the corpus has been run."""
-    data = (ROOT / "prompts" / name).read_bytes()
+    # As stored in git (LF): a Windows checkout may convert the line endings to CRLF.
+    data = (ROOT / "prompts" / name).read_bytes().replace(b"\r\n", b"\n")
     assert hashlib.sha256(data).hexdigest() == PROMPTS[name], name
 
 

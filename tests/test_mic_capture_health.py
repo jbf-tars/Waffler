@@ -124,12 +124,12 @@ def recording(sd, **kw):
 
 def test_a_chunk_with_any_sample_but_zero_is_a_sign_of_life(sd):
     rec = recording(sd)
-    time.sleep(0.02)
+    time.sleep(0.06)            # well over Windows' 15.6 ms clock step: a 20 ms sleep can measure as 16
     feed(rec, 0, 3)
     h = rec.health()
-    assert h["quiet_s"] >= 0.02 and h["stall_s"] < h["quiet_s"]       # chunks arrive, all zeros
+    assert h["quiet_s"] >= 0.03 and h["stall_s"] < h["quiet_s"]       # chunks arrive, all zeros
     feed(rec, 1)                                                      # the faintest sound there is
-    assert rec.health()["quiet_s"] < 0.02
+    assert rec.health()["quiet_s"] < 0.03
 
 
 def test_a_quiet_voice_is_not_silence_whatever_its_level(sd):

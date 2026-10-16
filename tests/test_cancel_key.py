@@ -29,8 +29,8 @@ mac_only = pytest.mark.skipif(sys.platform != "darwin", reason="needs macOS (Qua
 def isolated(code):
     """Run ``code`` in a fresh interpreter and return the JSON on its last line."""
     code = f"import sys; sys.path.insert(0, {str(ROOT / 'src')!r})\n" + code
-    done = subprocess.run([sys.executable, "-I", "-c", code], capture_output=True, text=True,
-                          env=dict(os.environ), timeout=60)
+    done = subprocess.run([sys.executable, "-I", "-X", "utf8", "-c", code], capture_output=True, text=True,
+                          encoding="utf-8", errors="replace", env=dict(os.environ), timeout=60)
     assert done.returncode == 0, done.stderr[-1200:]
     return json.loads(done.stdout.strip().splitlines()[-1])
 

@@ -28,8 +28,8 @@ def isolated(code):
     """Run ``code`` in a fresh interpreter, so the real Quartz is used even
     when another test has put a stand-in in sys.modules. Prints JSON."""
     code = f"import sys; sys.path.insert(0, {str(ROOT / 'src')!r})\n" + code
-    done = subprocess.run([sys.executable, "-I", "-c", code], capture_output=True, text=True,
-                          env=dict(os.environ), timeout=60)
+    done = subprocess.run([sys.executable, "-I", "-X", "utf8", "-c", code], capture_output=True, text=True,
+                          encoding="utf-8", errors="replace", env=dict(os.environ), timeout=60)
     assert done.returncode == 0, done.stderr[-800:]
     return json.loads(done.stdout.strip().splitlines()[-1])
 

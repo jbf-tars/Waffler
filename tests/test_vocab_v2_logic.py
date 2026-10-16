@@ -34,7 +34,8 @@ WORDS = [
 def js(expr):
     code = (f"const L = require({json.dumps(str(UI / 'logic.js'))});\n"
             f"process.stdout.write(JSON.stringify({expr}));")
-    out = subprocess.run([NODE, "-e", code], capture_output=True, text=True, timeout=60, encoding="utf-8")
+    # On stdin, not `-e`: a long argument is over the Windows command-line limit (WinError 206).
+    out = subprocess.run([NODE, "-"], input=code, capture_output=True, text=True, timeout=60, encoding="utf-8")
     assert out.returncode == 0, out.stderr
     return json.loads(out.stdout)
 

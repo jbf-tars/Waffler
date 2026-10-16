@@ -392,7 +392,7 @@ def test_the_prompts_readme_describes_the_real_chain_and_the_real_corpus():
 def test_nothing_under_prompts_but_the_readme_changed():
     import hashlib
     # The two prompts a model reads are exactly what the Style section's test pins.
-    assert hashlib.sha256((ROOT / "prompts" / "normal.txt").read_bytes()).hexdigest() == \
+    assert hashlib.sha256((ROOT / "prompts" / "normal.txt").read_bytes().replace(b"\r\n", b"\n")).hexdigest() == \
         "14e2868af8da6836f08c9c4a308cd1a7d8ea08505c681883f7b4926d4d91b84c"
-    assert hashlib.sha256((ROOT / "prompts" / "email.txt").read_bytes()).hexdigest() == \
+    assert hashlib.sha256((ROOT / "prompts" / "email.txt").read_bytes().replace(b"\r\n", b"\n")).hexdigest() == \
         "f4619da2d78b5760b68d3dfc40e7b8dc89c51bd90147e91432f286268e1bf248"

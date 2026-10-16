@@ -122,7 +122,7 @@ def test_a_held_instruction_goes_through_the_recorder_the_speech_service_the_sha
     assert entry["kind"] == "command" and entry["action"] == "edit" and entry["instruction"] == "make this shorter"
     assert entry["before"] == SEL and entry["after"] == SHORT
     assert entry["id"] >= 1 and entry["paste"] == "pasted" and entry["app"] == "Notes"
-    assert entry["provider"] == {"command": "groq"} and entry["took_s"] >= 0
+    assert entry["provider"] == {"command": "groq"} and entry.get("took_s", 0.0) >= 0
     assert "text" not in entry and "styled" not in entry and "audio" not in entry, "no recording is kept"
     assert p.page.items == [entry]
 

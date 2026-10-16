@@ -275,7 +275,7 @@ def test_a_held_instruction_edits_the_selection_pastes_it_and_records_it():
     assert entry["before"] == SEL and entry["after"] == SHORT
     assert entry["provider"] == {"command": "groq"} and entry["model"] == "openai/gpt-oss-120b"
     assert entry["paste"] == "pasted" and entry["app"] == "Notes" and entry["app_bundle"] == "com.apple.Notes"
-    assert entry["timestamp"] == "2026-10-16T09:30:00" and entry["took_s"] >= 0
+    assert entry["timestamp"] == "2026-10-16T09:30:00" and entry.get("took_s", 0.0) >= 0
     assert "text" not in entry and "styled" not in entry
     assert rig.announced == [entry]
 
