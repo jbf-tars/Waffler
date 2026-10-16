@@ -116,8 +116,6 @@ from permissions_manager import PermissionsManager
 from audio_devices import (
     list_input_devices,
     get_selected_device_index,
-    set_selected_device_index,
-    get_selected_device_name,
 )
 from app_detection import get_active_app
 from log_util import transcript_for_log
@@ -159,6 +157,10 @@ import transform_action as _transform_action
 import command_mode as _command_mode
 import command_action as _command_action
 import user_messages as _user_messages
+import mic_devices as _mic_devices
+import mic_ranking as _mic_ranking
+import mic_hotplug as _mic_hotplug
+import mic_supervisor as _mic_supervisor
 from login_item import LoginItem, HIDDEN_FLAG as _HIDDEN_FLAG
 from user_messages import (
     CLIPBOARD_CHOICE_UNKNOWN,
@@ -932,10 +934,103 @@ class Api:
         return list_input_devices()
 
     def get_selected_device(self) -> dict:
-        """Return {index, name} of the currently selected device."""
-        idx  = get_selected_device_index()
-        name = get_selected_device_name()
-        return {"index": idx, "name": name}
+        """The microphone in use, as {index, name}: the highest-ranked one that
+        is plugged in (src/mic_ranking.py). index None and "System Default" when
+        none is, since Waffler then follows the system's microphone."""
+        try:
+            stored = self._load_settings_file()
+            pa = _mic_devices.pa_inputs()
+            live = _mic_devices.live_inputs()
+            ranking = _mic_ranking.effective(stored, get_selected_device_index(), pa, live)
+            chosen = _mic_devices.first_present(ranking, live if live is not None else pa)
+            if chosen is not None:
+                return {"index": _mic_devices.index_of(chosen, pa), "name": chosen.name}
+        except Exception as e:
+            _log_to_file(f"[mic] selected microphone not read: {type(e).__name__}")
+        return {"index": None, "name": "System Default"}
+
+    # Microphones (Settings, General; src/mic_ranking.py). The ranked list is
+    # the setting "mic_ranking"; the page reads it with get_mic_setup and
+    # saves it with set_mic_ranking, and save_settings accepts it too.
+
+    def _mic_ranking_in(self, stored) -> list:
+        """The ranking in ``stored``, or, while none is saved, the index an
+        older Waffler saved, read as a ranking of one."""
+        if _mic_ranking.has_ranking(stored):
+            return _mic_ranking.ranking_of(stored)
+        legacy = get_selected_device_index()
+        if legacy is None:
+            return []
+        return _mic_ranking.migrate(legacy, _mic_devices.pa_inputs(),
+                                    _mic_devices.live_inputs()) or []
+
+    def _change_mic_ranking(self, change) -> list:
+        """Edit the ranking under the settings lock: ``change`` is given the
+        ranking as it is (an older Waffler's single microphone carried into
+        rank 1 first) and returns the new one. Returns what was saved."""
+        with self._editing_settings() as stored:
+            new = _mic_ranking.canonical(change(self._mic_ranking_in(stored)))
+            stored[_mic_ranking.SETTING] = new
+        return new
+
+    def migrate_mic_ranking(self) -> bool:
+        """Carry the single microphone an older Waffler saved (config.json
+        audio_device_index) into the ranking, as rank 1, once. The old key is
+        left as it is, for an older Waffler. True if the ranking was written.
+        Nothing is written when that index is not an input now (the person's
+        USB microphone not plugged in at this start): it is tried again."""
+        try:
+            if _mic_ranking.has_ranking(self._load_settings_file()):
+                return False
+            legacy = get_selected_device_index()
+            if legacy is None:
+                return False
+            found = _mic_ranking.migrate(legacy, _mic_devices.pa_inputs(), _mic_devices.live_inputs())
+            if not found:
+                return False
+            with self._editing_settings() as stored:
+                if _mic_ranking.has_ranking(stored):
+                    return False
+                stored[_mic_ranking.SETTING] = found
+            _log_to_file("[mic] the microphone saved by an older version is now first in the ranking")
+            return True
+        except Exception as e:
+            _log_to_file(f"[mic] ranking not migrated: {type(e).__name__}")
+            return False
+
+    def get_mic_setup(self) -> dict:
+        """What Settings, General, Microphone shows: the ranked list with which
+        are plugged in and which is in use, what the system's microphone is,
+        and the inputs that can be added (the virtual ones apart). ``listed``
+        is False when the system's list could not be read."""
+        try:
+            self.migrate_mic_ranking()
+            devices = _mic_devices.current_inputs()
+            view = _mic_ranking.setup_view(_mic_ranking.ranking_of(self._load_settings_file()), devices)
+            audio = getattr(_pipeline, "audio", None) if _pipeline else None
+            return dict(view, ok=True, listed=bool(devices),
+                        in_use=audio.opened_device() if audio is not None else None)
+        except Exception as e:
+            _log_to_file(f"[mic] microphones not listed: {type(e).__name__}")
+            return {"ok": False, "error": "Couldn't list your microphones. Try again."}
+
+    def set_mic_ranking(self, ranking) -> dict:
+        """Save the ranked list (the whole list, best first) and apply it: the
+        next dictation uses the best one that is plugged in. Answers with
+        get_mic_setup, or {"ok": False, "error": a plain sentence} and saves
+        nothing."""
+        problem = _mic_ranking.settings_problem({_mic_ranking.SETTING: ranking})
+        if problem:
+            return {"ok": False, "error": problem}
+        try:
+            with self._editing_settings() as stored:
+                stored[_mic_ranking.SETTING] = _mic_ranking.canonical(ranking)
+            if _pipeline is not None:
+                _pipeline.apply_mic_preferences()
+            return self.get_mic_setup()
+        except Exception as e:
+            _log_to_file(f"[mic] ranking not saved: {type(e).__name__}")
+            return {"ok": False, "error": "Couldn't save your microphones. Try again."}
 
     def get_fn_key_state(self) -> dict:
         """Return current hotkey press state (Fn on Mac, Win+Ctrl on Windows)."""
@@ -984,12 +1079,23 @@ class Api:
             return {"ok": False, "error": str(e), "pressed": False}
 
     def set_audio_device(self, device_index: int) -> dict:
-        """Persist selected audio device and update the recorder."""
+        """Choose a microphone by its number in the list get_audio_devices gave
+        (the setup practice's picker): it goes to rank 1 of the ranking, by
+        name, since the number is only good until PortAudio starts again."""
         try:
-            set_selected_device_index(int(device_index))
+            idx = int(device_index)
+            pa = _mic_devices.pa_inputs()
+            dev = next((d for d in pa if d.index == idx), None)
+            if dev is None:
+                return {"ok": False, "error": "Waffler couldn't find that microphone. "
+                                              "Pick one from the list."}
+            live = _mic_devices.live_inputs()
+            known = _mic_devices.find({"name": dev.name}, live) if live else None
+            entry = (known or dev).entry()
+            self._change_mic_ranking(lambda ranking: _mic_ranking.promote(ranking, entry))
             if _pipeline:
-                _pipeline.set_device(int(device_index))
-            return {"ok": True, "name": get_selected_device_name()}
+                _pipeline.apply_mic_preferences()
+            return {"ok": True, "name": dev.name}
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
@@ -1316,6 +1422,7 @@ class Api:
         from command_mode import window_view as window_view_command
         from shortcut_settings import window_view as window_view_shortcuts
         from stats_insights import typing_wpm_of
+        from mic_ranking import ranking_of as mic_ranking_of
         stored = self._load_settings_file()
         key = os.getenv("OPENAI_API_KEY", "")
         groq_key = os.getenv("GROQ_API_KEY", "")
@@ -1402,6 +1509,9 @@ class Api:
             # Shortcuts, double-tap to go hands-free (src/double_tap.py): off
             # unless exactly true.
             "double_tap_handsfree":  stored.get("double_tap_handsfree") is True,
+            # Microphones (src/mic_ranking.py): the ranked list, best first, as
+            # [{name, id?}]. Empty follows the system's microphone.
+            "mic_ranking":           mic_ranking_of(stored),
             # Shortcuts (src/shortcut_settings.py): the Paste last and Copy last
             # shortcuts (none until set) and the cancel key (Esc until changed),
             # with the shortcuts as they are shown. The page itself is drawn
@@ -1469,6 +1579,12 @@ class Api:
             # false (src/double_tap.py).
             import double_tap as _dt
             problem = _dt.settings_problem(settings)
+            if problem:
+                return {"ok": False, "error": problem}
+            # The ranked list of microphones (Settings, General): at most 8,
+            # each a name, none twice (src/mic_ranking.py).
+            import mic_ranking as _mr
+            problem = _mr.settings_problem(settings)
             if problem:
                 return {"ok": False, "error": problem}
             # Paste last, Copy last, the cancel key (Settings, Shortcuts): each
@@ -1578,6 +1694,11 @@ class Api:
                     stored[_dt.SETTING] = settings[_dt.SETTING]
                     notes.append(f"Double-tap to go hands-free: {'on' if settings[_dt.SETTING] else 'off'}")
 
+                # ── Microphones: the ranked list, applied live below ─────────────
+                if _mr.touches(settings):
+                    stored[_mr.SETTING] = _mr.merged(settings)
+                    notes.append(f"Microphones: {len(stored[_mr.SETTING])} ranked")
+
                 # ── Shortcuts: Paste last, Copy last, the cancel key. Applied
                 # live below (the cancel key by making the hotkey listener
                 # again, since that is what listens for it).
@@ -1621,6 +1742,11 @@ class Api:
                     _pipeline.apply_command_settings()
                 except Exception as _e:
                     _log_to_file(f"[command] settings not applied live: {type(_e).__name__}")
+            if _mr.touches(settings) and _pipeline is not None:
+                try:
+                    _pipeline.apply_mic_preferences()
+                except Exception as _e:
+                    _log_to_file(f"[mic] ranking not applied live: {type(_e).__name__}")
             if _dt.touches(settings) and _pipeline is not None:
                 try:
                     _pipeline.apply_double_tap()
@@ -1661,6 +1787,8 @@ class Api:
           - snippets.json                   (can hold an address or signature)
           - notifications.json              (which tips were shown: counters
                                              only, nothing a bug report needs)
+          - mic_devices.json                (which new microphones Waffler
+                                             asked about: names and answers)
           - usage.jsonl                     (what each call cost: not needed)
           - inflight.json                   (which takes were being turned into
                                              text: file names and times only)
@@ -1794,6 +1922,7 @@ class Api:
                     "  - Snippets (~/.waffler-hosted/snippets.json)\n"
                     "  - The text of your email signature (left out of config/settings.json)\n"
                     "  - Which tips were shown (~/.waffler-hosted/notifications.json)\n"
+                    "  - Which new microphones Waffler asked about (~/.waffler-hosted/mic_devices.json)\n"
                     "  - What each call cost (~/.waffler-hosted/usage.jsonl)\n"
                     "  - Which takes were being processed (~/.waffler-hosted/inflight.json)\n\n"
                     "Share this zip when reporting a bug to https://github.com/jbf-tars/Waffler/issues\n"
@@ -3119,15 +3248,17 @@ class Api:
                 device_index = int(device_index) if device_index is not None else None
             except (TypeError, ValueError):
                 device_index = None
-            if device_index is None:
-                device_index = get_selected_device_index()
             _wizard_result = None
             _wizard_recording = False
 
             # The practice recorder uses the microphone picked on screen; it
-            # used to ignore it and always record from the default one.
-            _wizard_recorder = AudioRecorder(sample_rate=16000, channels=1,
-                                             device_index=device_index)
+            # used to ignore it and always record from the default one. Left
+            # alone, it chooses as dictations do (the ranking, else the
+            # system's microphone), not by a saved index.
+            _wizard_recorder = AudioRecorder(
+                sample_rate=16000, channels=1, device_index=device_index,
+                device_resolver=_mic_ranking.open_resolver(
+                    _read_settings_now, read_legacy=get_selected_device_index))
 
             # Create overlay for wizard Step 4 visual feedback.
             # Previously skipped due to threading-crash concerns, but the
@@ -4005,6 +4136,11 @@ def _build_pipeline():
         _device_monitor = _ADM(
             on_change=_on_default_input_changed, log_fn=_log_to_file
         )
+        # The same poll carries the list of inputs to the pipeline (S12): a new
+        # microphone is asked about once, and a change of who is plugged in
+        # re-evaluates the ranking (src/mic_supervisor.py).
+        _device_monitor.on_devices = (
+            lambda devices: _pipeline.on_mic_devices(devices) if _pipeline is not None else None)
         _device_monitor.start()
     except Exception as e:
         _log_to_file(f"Pipeline init error: {e}")
@@ -4196,17 +4332,45 @@ def _set_tray_state(state: str):
 _MIN_TAP_SPEECH_S = 0.15
 
 
+def _read_settings_now() -> dict:
+    """settings.json as it is on disk now ({} when missing or unreadable): what
+    the recorder reads, at the moment it opens a stream, to choose a
+    microphone."""
+    try:
+        sf = DATA_DIR / "settings.json"
+        if sf.exists():
+            data = json.loads(sf.read_text(encoding="utf-8-sig"))
+            return data if isinstance(data, dict) else {}
+    except Exception:
+        pass
+    return {}
+
+
+def _new_recorder(config):
+    """The recorder for dictations. It is given no microphone: each time it
+    opens a stream it asks which one (src/mic_ranking.py): the highest-ranked
+    microphone that is plugged in, else the system's own, minus a Bluetooth
+    headset Waffler avoids. With nothing saved this is the system's
+    microphone. It used to be handed the default input's index as if the
+    person had chosen it, which defeated all of that, and an index is only
+    good until PortAudio starts again. The index saved by an older Waffler is
+    still read, as a ranking of one, until the ranking exists."""
+    return AudioRecorder(
+        sample_rate=config.sample_rate,
+        channels=config.channels,
+        device_index=None,
+        device_resolver=_mic_ranking.open_resolver(
+            _read_settings_now, read_legacy=get_selected_device_index),
+    )
+
+
 class WafflerPipeline:
     def __init__(self, config: Config):
         self.config = config
-        self.audio = AudioRecorder(
-            sample_rate=config.sample_rate,
-            channels=config.channels,
-            # The saved microphone choice. Passed at construction because the
-            # picker previously stored a selection that never reached stream
-            # creation, so choosing a mic in Settings silently did nothing.
-            device_index=get_selected_device_index(),
-        )
+        # The microphone is chosen each time a stream is opened (_new_recorder),
+        # not once here: the picker once stored a selection that never reached
+        # stream creation, and a pinned index went stale.
+        self.audio = _new_recorder(config)
         # Pre-warm the audio input stream at pipeline init so the FIRST
         # hotkey press is instant. The stream stays alive across recordings
         # and feeds a 500ms pre-roll buffer that gets spliced into every
@@ -4293,6 +4457,11 @@ class WafflerPipeline:
         self._notifier = _notifier.Notifier(
             store=_notifier.FileStore(), context=self._notifier_context, log=_log_to_file)
         self._precheck = _mac_perms.PermissionPrecheck(notifier=self._notifier)
+        # The microphone while Waffler runs (src/mic_supervisor.py): a new
+        # microphone is asked about once, a take is watched for silence and for
+        # the microphone leaving, and a closed lid is noticed. Idle until the
+        # device monitor and the recording loop call it.
+        self._mic = _mic_supervisor.MicSupervisor(self._mic_hooks())
         # Optional sound cues (src/sounds.py), and the press that locked
         # hands-free (the "Don't tap, hold" hint is not for those).
         self._cues = _sound_cues.CuePlayer(settings=self._read_settings, log=_log_to_file)
@@ -4324,12 +4493,8 @@ class WafflerPipeline:
         threading.Thread(target=self.overlay.prestart, daemon=True).start()
         self._prev_window = None  # focused window before recording starts
 
-        # Use persisted audio device (if set)
-        saved_idx = get_selected_device_index()
-        if saved_idx is not None:
-            self._device_index = saved_idx
-        else:
-            self._device_index = None  # sounddevice default
+        # Which microphone is decided when a stream is opened (src/mic_ranking.py).
+        self._device_index = None
 
         # Cancellation tracking for _process() thread
         self._processing_cancelled = threading.Event()
@@ -4628,8 +4793,91 @@ class WafflerPipeline:
 
     def forget_notifier(self):
         """The user deleted their data: what the notifier remembers (which
-        tips were shown, hidden or closed) goes with it."""
+        tips were shown, hidden or closed) goes with it, and so does which new
+        microphones Waffler has asked about."""
         self._notifier.forget()
+        mic = getattr(self, "_mic", None)
+        if mic is not None:
+            mic.forget()
+
+    # ── The microphone (src/mic_supervisor.py) ────────────────────────────
+
+    def _mic_hooks(self):
+        """What the microphone supervisor needs from this app, as the pipeline's
+        own methods. Late-bound, so a replaced recorder or overlay is the one
+        used."""
+        def show(style, heading, body, buttons=None, timeout=None):
+            self._show_toast_safe(style, heading, body, buttons=buttons, timeout=timeout)
+
+        def hide(style=None):
+            try:
+                self.overlay.hide_toast(style=style)
+            except Exception as e:
+                _log_to_file(f"[overlay] toast not hidden: {type(e).__name__}")
+
+        def promote(entry):
+            Api()._change_mic_ranking(lambda ranking: _mic_ranking.promote(ranking, entry))
+
+        def rebuild_idle():
+            # Open the always-on stream again so the next dictation and the
+            # Settings meter are on the microphone now chosen. Not during a
+            # take: that would lose what has been recorded.
+            if self.is_recording:
+                return
+            try:
+                self.audio.stop_monitoring()
+                self.audio.start_monitoring()
+                _log_to_file("[mic] the stream was opened again for the microphone now chosen")
+            except Exception as e:
+                _log_to_file(f"[mic] stream not reopened: {type(e).__name__}")
+
+        def stop_take():
+            # As the key coming up would: one atomic check, so a take is turned
+            # into text once however it is ended (on_hotkey_release), and the
+            # hotkey's own idea of the take is put back.
+            self.on_hotkey_release()
+            listener = getattr(self, "hotkey_listener", None)
+            if listener is not None and hasattr(listener, "reset_state"):
+                try:
+                    listener.reset_state()
+                except Exception:
+                    pass
+
+        return _mic_supervisor.Hooks(
+            settings=self._read_settings,
+            recording=lambda: bool(self.is_recording),
+            busy=lambda: bool(self._watchdog.active()),
+            toast_allowed=self._toast_allowed,
+            show_toast=show,
+            hide_toast=hide,
+            release_toast=lambda kind: self._notifier.release(kind),
+            health=lambda: self.audio.health(),
+            reopen=lambda: self.audio.reopen_stream(),
+            opened_device=lambda: self.audio.opened_device(),
+            stop_take=stop_take,
+            ranking=lambda: _mic_ranking.ranking_of(self._read_settings()),
+            promote=promote,
+            note_changed=lambda: self.audio.note_preference_changed(),
+            rebuild_idle=rebuild_idle,
+            memory=_mic_hotplug.DeviceMemory(),
+            log=_log_to_file,
+            platform="darwin" if _platform.system() == "Darwin" else "win32",
+        )
+
+    def on_mic_devices(self, devices):
+        """The device monitor's look at the inputs the system lists (every
+        couple of seconds). Never raises."""
+        mic = getattr(self, "_mic", None)
+        if mic is not None:
+            mic.on_devices(devices)
+
+    def apply_mic_preferences(self):
+        """The ranking of microphones was saved (Settings, or "Use it"): the
+        next dictation, and the Settings meter, use the one now chosen. Never
+        raises."""
+        mic = getattr(self, "_mic", None)
+        if mic is not None:
+            mic.preferences_changed()
 
     def last_transcript_titles(self):
         """(paste line, copy line, has a result) for the menu: a word count,
@@ -5231,7 +5479,13 @@ class WafflerPipeline:
             # The failed-paste message's "Copy again", off the overlay's
             # reader thread: it may have to wait behind a paste.
             threading.Thread(target=self.copy_last, daemon=True, name="CopyAgain").start()
-        elif action == "select_mic":
+        elif action.startswith(("mic_use:", "mic_later:")):
+            # The "use it?" tip for a new microphone (src/mic_supervisor.py).
+            # The answer writes settings, so not on the overlay's reader thread.
+            self.overlay.hide_toast()
+            threading.Thread(target=self._mic.answer, args=(action,), daemon=True,
+                             name="MicAnswer").start()
+        elif action in ("select_mic", _mic_supervisor.CHOOSE_ACTION):
             # v3.14.35 — bring Waffler to front and open Settings, where
             # the in-app mic picker lives. Previously this called
             # ``start ms-settings:privacy-microphone`` which is
@@ -5253,7 +5507,8 @@ class WafflerPipeline:
                         _log_to_file(f"[select_mic] window restore failed: {e}")
                     try:
                         _window.evaluate_js(
-                            "if (typeof showPage === 'function') showPage('settings');"
+                            "if (window.waffler_show_microphone) { window.waffler_show_microphone(); }"
+                            " else if (typeof showPage === 'function') { showPage('settings'); }"
                         )
                     except Exception as e:
                         _log_to_file(f"[select_mic] navigate-to-settings failed: {e}")
@@ -5330,6 +5585,11 @@ class WafflerPipeline:
         import time
         self._recording_start_time = time.time()
         self.audio.start()
+        # The check on this take's microphone (src/mic_supervisor.py), and a
+        # look at the lid, off this thread.
+        mic = getattr(self, "_mic", None)
+        if mic is not None:
+            mic.take_started(self._current_press_id)
         # The start cue, now that the microphone is live (src/sounds.py).
         self._play_cue(_sound_cues.START)
         notify_js_status("listening")
@@ -5418,6 +5678,8 @@ class WafflerPipeline:
         import time as _time
         watch = self._take_watch()
         session = self._recording_session
+        press = self._current_press_id
+        mic = getattr(self, "_mic", None)
         while self.is_recording and self._recording_session == session:
             lvl = self.audio.get_level()
             try:
@@ -5430,6 +5692,10 @@ class WafflerPipeline:
                 self._warn_take_limit()
             elif step == _take_limit.STOP:
                 self._stop_at_take_limit()
+                break
+            # The microphone: silence for 5 s opens the stream again, 15 s says
+            # so, and a microphone that left ends the take (src/mic_watch.py).
+            if mic is not None and mic.tick(press) == _mic_supervisor.LOST:
                 break
 
             _time.sleep(0.033)  # ~30 fps
@@ -5484,6 +5750,11 @@ class WafflerPipeline:
         recording is already over.
         """
         try:
+            # Already told, during the take itself, that the microphone could
+            # not be heard (src/mic_supervisor.py): once is enough.
+            mic = getattr(self, "_mic", None)
+            if mic is not None and mic.told_cant_hear(self._current_press_id):
+                return
             if not self._toast_allowed("no_audio"):
                 return
             self.overlay.show_toast(
@@ -6619,6 +6890,11 @@ class WafflerPipeline:
             notify_js_status("idle")
         _set_tray_state(_tray_state.NOT_SENT if outcome == _pw.NOT_SENT
                         else _tray_state.IDLE)
+        # A take whose microphone left was ended and turned into text with what
+        # there was; now, with the words in, say so (src/mic_supervisor.py).
+        mic = getattr(self, "_mic", None)
+        if mic is not None:
+            mic.announce_lost(run.generation, outcome == _pw.DONE)
 
     def _ui_stuck(self, run):
         """The watchdog gave up on a dictation that stopped making progress
@@ -8201,6 +8477,10 @@ def main():
     # Create pywebview window (always — wizard runs inside it)
     api = Api()
     _api_ref = api  # keep reference
+    # The microphone an older Waffler saved (an index) becomes rank 1 of the
+    # ranking, once; the old key is left for an older Waffler to read. On a
+    # thread: it reads the device list, which waits if a stream is being made.
+    threading.Thread(target=api.migrate_mic_ranking, daemon=True, name="MicMigrate").start()
 
     ui_dir = PROJECT_ROOT / "ui"
     html_path = ui_dir / "index.html"

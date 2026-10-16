@@ -132,7 +132,9 @@ keyboard and your clipboard. Specifically:
   on your Desktop in Settings, Privacy and data; that file is your own copy and
   is not removed by "Delete all my data". Small files remember which tips
   Waffler has shown or you have hidden (`notifications.json`: counts and times,
-  no text), what each call cost (`usage.jsonl`: amounts and times, never what
+  no text), which new microphones it has asked you about and what you answered
+  (`mic_devices.json`: device names and your answers, no text), what each call
+  cost (`usage.jsonl`: amounts and times, never what
   was said) and which recording was being turned into text, so a take that a
   crash cut short can come back (`inflight.json`: a file name and a time, gone
   when the dictation ends). None of this is uploaded.

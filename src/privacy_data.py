@@ -117,8 +117,12 @@ KEPT_FILES = (".env", "settings.json", "config.json", "setup_complete.json",
 # inflight.json (src/take_marker.py) names the takes being turned into text
 # right now, so a crash can bring one back as a card: file names and times,
 # no words, and gone as soon as the dictation ends.
+# mic_devices.json (src/mic_hotplug.py) is which new microphones Waffler has
+# asked about and what was answered: device names and times, no words.
+# Deleting it means Waffler may ask about a microphone again. The ranked list
+# itself (mic_ranking) is a setting and stays with settings.json.
 DATA_FILES = ("history.json", "usage.json", "usage.jsonl", "quality.jsonl", "notifications.json",
-              "inflight.json", "app.log", "app.log.1", "crash.log", "hotkey.log")
+              "inflight.json", "mic_devices.json", "app.log", "app.log.1", "crash.log", "hotkey.log")
 # The *.unreadable-* copies are a history.json or usage.json that could not
 # be read, kept aside instead of being written over (src/atomic_json.py).
 DATA_GLOBS = ("usage.backup-*.json", "history.unreadable-*.json", "usage.unreadable-*.json")

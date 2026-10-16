@@ -1572,6 +1572,120 @@
     return out;
   }
 
+  // General, Microphone (S12; src/mic_ranking.py): the microphones in the order
+  // the person prefers them. The window gets get_mic_setup() and saves the
+  // whole list with set_mic_ranking(list), so each edit is a pure function
+  // from one list to the next, and what the page says is decided here.
+  const MIC_MAX = 8;
+  const MIC_BLUETOOTH_NOTE = 'A Bluetooth headset switches your music to call quality while Waffler listens through it.';
+  function _micName(x) { return String((x && x.name) || '').replace(/\s+/g, ' ').trim(); }
+  function micSame(a, b) {
+    const k = (x) => _micName({ name: x }).toLowerCase().replace(/\s*\(\d+\)$/, '');
+    return !!k(a) && k(a) === k(b);
+  }
+  // {name, id?}: what is kept in the list, from a row or a device.
+  function micEntry(d) {
+    const e = { name: _micName(d) };
+    if (d && typeof d.id === 'string' && d.id) e.id = d.id;
+    return e;
+  }
+  function micList(view) {
+    return (view && Array.isArray(view.ranking) ? view.ranking : []).map(micEntry).filter((e) => e.name);
+  }
+  // One place up or down (delta -1 or +1); the same list if it cannot move.
+  function micMove(list, index, delta) {
+    const out = list.slice();
+    const j = index + delta;
+    if (!(index >= 0 && index < out.length && j >= 0 && j < out.length)) return out;
+    [out[index], out[j]] = [out[j], out[index]];
+    return out;
+  }
+  function micRemove(list, index) {
+    return list.filter((_, i) => i !== index);
+  }
+  // At the end (lowest rank); not twice, and not past the most.
+  function micAdd(list, device, max) {
+    const out = list.slice();
+    const e = micEntry(device);
+    if (!e.name || out.length >= (max || MIC_MAX) || out.some((x) => micSame(x.name, e.name))) return out;
+    out.push(e);
+    return out;
+  }
+  // The rows of the list: what each one says and which buttons it has.
+  function micRows(view) {
+    const rows = view && Array.isArray(view.ranking) ? view.ranking : [];
+    return rows.map((r, i) => {
+      const name = _micName(r);
+      const chips = [];
+      if (r.active) chips.push({ text: 'In use', cls: 'chip-ok' });
+      else if (r.present === false) chips.push({ text: 'Not plugged in', cls: '' });
+      if (r.bluetooth) chips.push({ text: 'Bluetooth', cls: '' });
+      return {
+        name, rank: i + 1, total: rows.length, dim: r.present === false, chips,
+        note: r.bluetooth ? MIC_BLUETOOTH_NOTE : '',
+        canUp: i > 0, canDown: i < rows.length - 1,
+        upLabel: `Move ${name} up`, downLabel: `Move ${name} down`,
+        removeLabel: `Remove ${name} from the list`,
+      };
+    });
+  }
+  // The line at the top: which microphone is in use, or that Waffler follows
+  // the computer's own (also the empty state of the list).
+  function micStatus(view) {
+    if (!view || view.ok === false) {
+      return { title: 'Microphone', desc: "Couldn't list your microphones.", following: false };
+    }
+    const rows = Array.isArray(view.ranking) ? view.ranking : [];
+    const active = rows.find((r) => r.active);
+    if (active) {
+      return { title: `Using ${_micName(active)}`, desc: 'The first microphone in your list that is plugged in.', following: false };
+    }
+    const sys = _micName({ name: view.system });
+    let desc = sys ? `Waffler uses your computer's microphone, ${sys}.` : "Waffler uses your computer's microphone.";
+    if (view.system_avoided) {
+      desc += ' It looks like a Bluetooth headset, so Waffler listens through another microphone and your music stays in high quality.';
+    }
+    desc += rows.length ? ' None of the microphones in your list is plugged in.'
+      : ' Add one below to use it whenever it is plugged in.';
+    return { title: "Follow the system's microphone", desc, following: true };
+  }
+  function _micOptionLabel(d) {
+    return _micName(d) + (d.default ? ' (system default)' : '') + (d.bluetooth ? ' (Bluetooth)' : '');
+  }
+  // The "Add a microphone" menu. The first option is the prompt; the devices
+  // are what is plugged in and not in the list; virtual ones (a meeting
+  // app's, a loopback) come only when "Show other devices" is open.
+  function micAddOptions(view, showOther) {
+    const add = view && Array.isArray(view.add) ? view.add : [];
+    const other = view && Array.isArray(view.other) ? view.other : [];
+    const max = (view && view.max) || MIC_MAX;
+    const full = (view && Array.isArray(view.ranking) ? view.ranking.length : 0) >= max;
+    const shown = showOther ? other : [];
+    const placeholder = full ? `Your list is full (${max})`
+      : (add.length || shown.length ? 'Add a microphone' : 'No other microphone found');
+    const options = [{ value: '', label: placeholder, group: '' }];
+    add.forEach((d, i) => options.push({ value: `add:${i}`, label: _micOptionLabel(d), group: '' }));
+    shown.forEach((d, i) => options.push({ value: `other:${i}`, label: _micOptionLabel(d), group: 'Other devices' }));
+    return {
+      options, disabled: full || options.length === 1, otherCount: other.length,
+      otherLabel: showOther ? 'Hide other devices' : `Show other devices (${other.length})`,
+    };
+  }
+  // The device an option stands for ("add:2", "other:0"), or null.
+  function micPick(view, value) {
+    const m = /^(add|other):(\d+)$/.exec(String(value || ''));
+    if (!m || !view) return null;
+    const from = m[1] === 'add' ? view.add : view.other;
+    return Array.isArray(from) && from[+m[2]] ? from[+m[2]] : null;
+  }
+  // What a change says, as a toast and for a screen reader.
+  function micSaved(kind, name, rank, total) {
+    if (kind === 'add') return `${name} added to your list.`;
+    if (kind === 'remove') return `${name} removed.`;
+    if (kind === 'move') return `${name} is now number ${rank} of ${total}.`;
+    return '';
+  }
+
   // Usage: the last 30 days' words (journal_data.py daily_words, oldest
   // first, ending today) as bars. Guide lines at a round step (1, 2 or 5
   // times a power of ten) about half the busiest day, and the top a little
@@ -2441,7 +2555,9 @@
     shortcutSaved, SHORTCUT_TEXT, cancelLabel, DOUBLE_TAP_TEXT, doubleTapView, doubleTapSaved,
     COMMAND_ENGINES, COMMAND_EXAMPLES, commandEngineLabel, commandView, commandShortcutLine, commandSaved,
     commandEntryView,
-    clipboardAfterPasteView, clipboardAfterPasteSaved, feedbackView, feedbackSaved, METER_CELLS, micMeter, usageChart, usageFacts, flowView, PROVIDER_MARKS, providerPill,
+    clipboardAfterPasteView, clipboardAfterPasteSaved, feedbackView, feedbackSaved, METER_CELLS, micMeter,
+    MIC_MAX, micSame, micEntry, micList, micMove, micRemove, micAdd, micRows, micStatus, micAddOptions, micPick, micSaved,
+    usageChart, usageFacts, flowView, PROVIDER_MARKS, providerPill,
     privacyFlow, hotkeyTestLine, whatsNew,
     TYPING_WPM, TYPING_SPEED_PROBLEM, HEAT_LEVELS, formatMinutes, clockHour, hourRange, typingSpeedCheck,
     typingSpeedSaved, weekView, weekStreakView, wpmView, minutesSavedView, peakHourView, topAppsView,

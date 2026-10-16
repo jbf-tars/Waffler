@@ -96,8 +96,14 @@ def get_default_device_index() -> Optional[int]:
 
 def get_selected_device_index() -> Optional[int]:
     """
-    Return the user-selected device index from ~/.waffler-hosted/config.json.
-    Falls back to the system default.
+    Return the device index saved in ~/.waffler-hosted/config.json, or None.
+
+    None means nothing is saved: follow the system's microphone. This used to
+    fall back to the default input's INDEX, which callers took for a choice
+    the person had made. An explicit choice outranks the recorder's default
+    and Bluetooth reasoning, and an index is only good until PortAudio is
+    started again, so a person who never picked a microphone was pinned to
+    whichever one was the default that day (S12, mic_ranking.py).
     """
     try:
         with open(CONFIG_FILE, "r", encoding="utf-8-sig") as f:
@@ -107,7 +113,7 @@ def get_selected_device_index() -> Optional[int]:
                 return int(idx)
     except Exception:
         pass
-    return get_default_device_index()
+    return None
 
 
 def set_selected_device_index(device_index: Optional[int]):

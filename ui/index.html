@@ -220,18 +220,35 @@
               <div class="row-main"><div class="row-t"><label for="keepClipboardToggle">Keep what I dictated on the clipboard</label></div><div class="row-d" id="clipboardAfterPasteDesc">Off, Waffler puts back what you had copied once it has pasted.</div></div>
               <input type="checkbox" class="tog" role="switch" id="keepClipboardToggle" onchange="setClipboardAfterPaste(this.checked)">
             </div>
-            <!-- The microphone is kept ready so the first word isn't clipped:
-                 audio from half a second before the keys go down is part of
-                 each recording (src/audio.py _PREROLL_MS; owner decision D5).
-                 The meter reads that same stream (app.py get_mic_level). -->
-            <div class="row row-mic">
-              <div class="row-main"><div class="row-t"><label for="micSelect">Microphone</label></div><div class="row-d">Includes the half-second before you press, so your first word isn't clipped.</div></div>
+          </div>
+
+          <!-- Microphone (src/mic_ranking.py, settings.json "mic_ranking"): the
+               microphones in the order the person prefers them. Waffler uses
+               the first that is plugged in; with none, or an empty list, it
+               follows the computer's own. The list and "Add a microphone" are
+               drawn by app.py's renderMicrophones from get_mic_setup(); every
+               edit saves the whole list with set_mic_ranking. The microphone is
+               kept ready so the first word isn't clipped: audio from half a
+               second before the keys go down is part of each recording
+               (src/audio.py _PREROLL_MS; owner decision D5). The meter reads
+               that same stream (app.py get_mic_level). -->
+          <h2 class="sh2" id="micHeading" tabindex="-1">Microphone</h2>
+          <p class="s-note" id="micNote">Includes the half-second before you press, so your first word isn't clipped.</p>
+          <div class="sheet mic-sheet" id="micSheet">
+            <div class="row row-mic" id="micNow">
+              <div class="row-main"><div class="row-t" id="micNowTitle">Follow the system's microphone</div><div class="row-d" id="micNowDesc"></div></div>
+              <div class="mic-level" id="micLevel" hidden><span id="micLevelLabel">Say something</span><span class="meter" id="micMeter" aria-hidden="true"></span></div>
+            </div>
+            <ol class="mic-rank" id="micRank" aria-label="Your microphones, best first"></ol>
+            <div class="row mic-add" id="micAddRow">
+              <div class="row-main"><div class="row-t"><label for="micSelect">Add a microphone</label></div><div class="row-d" id="micAddDesc">Waffler uses the first one in your list that is plugged in.</div></div>
               <div class="row-ctl-col">
-                <select id="micSelect" class="select" onchange="onMicChange(this.value)"></select>
-                <div class="mic-level" id="micLevel" hidden><span id="micLevelLabel">Say something</span><span class="meter" id="micMeter" aria-hidden="true"></span></div>
+                <select id="micSelect" class="select" onchange="onMicAdd(this)"></select>
+                <button type="button" class="link-btn" id="micOtherToggle" aria-expanded="false" aria-controls="micSelect" onclick="toggleMicOther()" hidden>Show other devices</button>
               </div>
             </div>
           </div>
+          <p class="sr-only" id="micLive" role="status" aria-live="polite"></p>
 
           <h2 class="sh2">Feedback</h2>
           <div class="sheet">
@@ -811,6 +828,11 @@
             </div>
             <div class="row" id="tipsMemoryRow">
               <div class="row-main"><div class="row-t">Tips seen</div><div class="row-d">Which tips Waffler has shown, and which you hid, so it doesn't repeat them. Counts and times only.</div></div>
+            </div>
+            <!-- Which new microphones Waffler has asked about (src/mic_hotplug.py,
+                 mic_devices.json): names and answers, deleted with my data. -->
+            <div class="row" id="micMemoryRow">
+              <div class="row-main"><div class="row-t">Microphones seen</div><div class="row-d">Which new microphones Waffler has asked you about, and what you answered, so it asks once for each. Names and answers only, and Delete all my data clears them.</div></div>
             </div>
             <div class="row" id="unsentRow">
               <span class="chk" id="unsentIcon" aria-hidden="true"><svg class="ic"><use href="#i-check"/></svg></span>

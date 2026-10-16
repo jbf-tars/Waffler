@@ -39,6 +39,9 @@ import history_meta  # noqa: E402
 import history_ops  # noqa: E402
 import hold_hint  # noqa: E402
 import mac_permissions  # noqa: E402
+import mic_hotplug  # noqa: E402
+import mic_ranking  # noqa: E402
+import mic_supervisor  # noqa: E402
 import notifier  # noqa: E402
 import pasteboard  # noqa: E402
 import pipeline_watchdog as pw  # noqa: E402
@@ -106,6 +109,10 @@ PIPELINE_METHODS = (
     "_take_watch", "_level_loop", "_warn_take_limit", "_stop_at_take_limit", "_stt_is_local",
     # Double-tap to go hands-free (src/double_tap.py): the setting handed to the listener.
     "apply_double_tap",
+    # The microphone (src/mic_supervisor.py): what the supervisor needs from the
+    # app, the device monitor's list of inputs, a saved ranking, and what
+    # "delete my data" forgets.
+    "_mic_hooks", "on_mic_devices", "apply_mic_preferences", "forget_notifier",
 )
 MODULE_DEFS = ("ensure_data_dir", "load_history", "_load_history_for_update",
                "save_history", "append_history",
@@ -215,6 +222,27 @@ class FakeAudio:
         return self.wav
 
     def force_rebuild(self):
+        pass
+
+    # The recorder's account of its microphone (src/audio.py), for the
+    # microphone supervisor. A healthy input unless a test says otherwise.
+    def health(self, now=None):
+        return {"recording": True, "reopening": False, "stream_ok": True,
+                "quiet_s": 0.0, "stall_s": 0.0, "device": "Fake Microphone"}
+
+    def reopen_stream(self):
+        return True
+
+    def opened_device(self):
+        return "Fake Microphone"
+
+    def note_preference_changed(self):
+        pass
+
+    def stop_monitoring(self):
+        pass
+
+    def start_monitoring(self):
         pass
 
 
@@ -410,6 +438,7 @@ def make_pipeline(data_dir: Path, *, transcriber=None, styler=None, clipboard=No
         hold_hint_message=user_messages.hold_hint_message,
         _history_ids=history_ids, _history_meta=history_meta, _history_ops=history_ops,
         _take_marker=take_marker, _take_limit=take_limit, _double_tap=double_tap,
+        _mic_supervisor=mic_supervisor, _mic_ranking=mic_ranking, _mic_hotplug=mic_hotplug,
         _text_context=text_context,
         _action_hotkeys=action_hotkeys, _transforms=transforms, _transform_action=transform_action,
         _command_mode=command_mode, _command_action=command_action,
@@ -470,6 +499,7 @@ def make_pipeline(data_dir: Path, *, transcriber=None, styler=None, clipboard=No
         on_stuck=p._ui_stuck, is_current=p._run_is_current, log=logged.append,
         tick_s=tick_s,
     )
+    p._mic = mic_supervisor.MicSupervisor(p._mic_hooks())
     return p
 
 

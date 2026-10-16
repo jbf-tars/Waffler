@@ -35,6 +35,21 @@ mic" and "Waffler sees it" is well under any meaningful user-perceived
 delay — they're still in System Settings clicking around when it
 catches up.
 
+S12 (microphone ranking and hot-plug)
+-------------------------------------
+The same poll now also carries the list of inputs to whoever registered
+``on_devices`` (src/mic_supervisor.py), so a microphone that is plugged in or
+unplugged is noticed here and not by a second thread. On a Mac the list is
+CoreAudio's own (src/mac_audio_devices.py), which is live: PortAudio's list is
+only as new as the last time it was started, and it cannot be started while a
+stream is open. That also makes the default-input name read here live, so a
+change of the system's microphone is seen when it happens and not at the next
+time something else restarts PortAudio. Elsewhere it is PortAudio's list, read
+under the stream lock, which changes whenever a new stream is made. One source
+is used for the whole run: a Mac that answers once and then fails is skipped
+for that tick rather than mixed with PortAudio's older list, which would make
+every microphone look new.
+
 Limitations:
 - Polling has a 1–2 s window. Acceptable.
 - We deliberately don't restart the stream if a recording is in flight
@@ -57,6 +72,11 @@ try:
 except ImportError:
     _HAS_SD = False
 
+try:
+    import mic_devices as _md
+except ImportError:  # imported as src.audio_device_monitor
+    from src import mic_devices as _md
+
 
 class AudioDeviceMonitor:
     """Background poll for default-input-device changes."""
@@ -67,15 +87,26 @@ class AudioDeviceMonitor:
         self,
         on_change: Callable[[str, str], None],
         log_fn: Optional[Callable[[str], None]] = None,
+        on_devices: Optional[Callable[[list], None]] = None,
+        reader: Optional[Callable[[], Optional[list]]] = None,
     ) -> None:
         """
         Args:
             on_change: Called when the default input device changes.
                 Receives ``(old_name, new_name)``.
             log_fn: Optional logger callable; defaults to ``print``.
+            on_devices: Called every poll with the inputs the system lists
+                now (``mic_devices.Device`` objects). May also be set later.
+            reader: How to list the inputs: a function that returns the
+                devices, or None when it cannot this time. Defaults to
+                CoreAudio's own list on a Mac and PortAudio's elsewhere.
         """
         self._on_change = on_change
         self._log = log_fn or print
+        self.on_devices = on_devices
+        self._reader = reader
+        self._source: Optional[str] = None      # "live" or "portaudio", once known
+        self._baselined = False
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._last_default_name: Optional[str] = None
@@ -104,29 +135,59 @@ class AudioDeviceMonitor:
             # one appears.
             return None
 
-    def _poll(self) -> None:
-        # Baseline: read the current default on first tick so we don't
-        # immediately fire a spurious "changed" event on startup.
-        self._last_default_name = self._current_default_name()
-        self._log(
-            f"[audio-monitor] started; baseline default input = "
-            f"{self._last_default_name!r}"
-        )
+    def _read_devices(self) -> Optional[list]:
+        """The inputs now, from one source for the whole run (see the module
+        docstring), or None when this poll cannot say."""
+        if self._reader is not None:
+            return self._reader()
+        if self._source in (None, "live"):
+            live = _md.live_inputs()
+            if live is not None:
+                self._source = "live"
+                return live
+            if self._source == "live":
+                return None
+            self._source = "portaudio"
+        return _md.pa_inputs() or None
 
+    def _tick(self) -> None:
+        """One poll: the default input's name, and the list of inputs. The
+        first one only learns the baseline (so nothing "changes" at startup)."""
+        devices = None
+        try:
+            devices = self._read_devices()
+        except Exception as e:
+            self._log(f"[audio-monitor] device list not read: {type(e).__name__}")
+        default = _md.default_of(devices) if devices else None
+        name = default.name if default is not None else self._current_default_name()
+        if not self._baselined:
+            self._baselined = True
+            self._last_default_name = name
+            self._log(
+                f"[audio-monitor] started; baseline default input = "
+                f"{self._last_default_name!r}"
+            )
+        elif name and name != self._last_default_name:
+            old = self._last_default_name
+            self._last_default_name = name
+            self._log(
+                f"[audio-monitor] default input changed: "
+                f"{old!r} → {name!r}"
+            )
+            try:
+                self._on_change(old or "", name)
+            except Exception as e:
+                self._log(f"[audio-monitor] on_change failed: {e}")
+        if devices and self.on_devices is not None:
+            try:
+                self.on_devices(devices)
+            except Exception as e:
+                self._log(f"[audio-monitor] on_devices failed: {type(e).__name__}")
+
+    def _poll(self) -> None:
         while not self._stop.is_set():
             try:
-                name = self._current_default_name()
-                if name and name != self._last_default_name:
-                    old = self._last_default_name
-                    self._last_default_name = name
-                    self._log(
-                        f"[audio-monitor] default input changed: "
-                        f"{old!r} → {name!r}"
-                    )
-                    try:
-                        self._on_change(old or "", name)
-                    except Exception as e:
-                        self._log(f"[audio-monitor] on_change failed: {e}")
+                self._tick()
             except Exception as e:
                 self._log(f"[audio-monitor] poll error: {e}")
             self._stop.wait(self.POLL_INTERVAL_S)

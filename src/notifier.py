@@ -157,6 +157,16 @@ _REGISTRY = (
     # show when they work, so a short notice says what they did, or why they
     # did nothing (busy, nothing yet). A gap of 3 s keeps a held key quiet.
     Kind("last_result_notice", INFO, min_gap_s=3, hold_s=3),
+    # Microphones (src/mic_supervisor.py). A microphone that left in the middle
+    # of a take (said once the take is turned into text), and one that has
+    # heard nothing for 15 seconds (at most once a minute: a dead microphone
+    # would otherwise say it at every take). Two tips: a microphone that is
+    # new to Waffler is asked about once for each device (src/mic_hotplug.py
+    # keeps that), and the closed-lid hint is said once a day.
+    Kind("mic_disconnected", ERROR, hold_s=8),
+    Kind("mic_cant_hear", ERROR, min_gap_s=60, hold_s=12),
+    Kind("mic_detected", TIP, category="hints", hold_s=20),
+    Kind("lid_closed", TIP, min_gap_s=24 * _HOUR, category="hints", hold_s=10),
     # Tips. The hint stays up 10 s (src/hold_hint.py HINT_SECONDS).
     Kind("hold_hint", TIP, min_gap_s=12 * _HOUR, category="hints", hold_s=10),
 )

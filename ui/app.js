@@ -2481,42 +2481,166 @@ function dismissToast() {
 }
 
 // ── Microphone (Settings, General) ────────────────────────────────────
+// The microphones in the order the person prefers them (src/mic_ranking.py).
+// Waffler uses the first that is plugged in; with none, it follows the
+// computer's own. get_mic_setup() says what is in the list and what is
+// plugged in; every edit (add, move, remove) is worked out in logic.js and
+// saved as the whole list with set_mic_ranking. The page looks again every
+// few seconds while it is open, so a microphone plugged in or out shows up.
+let _micView = null;          // the last get_mic_setup() answer
+let _micSig = '';             // ...as text, to draw only when it changed
+let _micShowOther = false;    // "Show other devices" (virtual ones) is open
+let _micSaving = false;
 
-async function loadAudioDevices() {
-  try {
-    const devices = await pywebview.api.get_audio_devices();
-    const current = await pywebview.api.get_selected_device();
-    const sel = document.getElementById('micSelect');
-    if (!sel) return;
+async function loadMicrophones(force) {
+  if (!(window.pywebview && pywebview.api && pywebview.api.get_mic_setup)) return;
+  if (_micSaving) return;
+  let view;
+  try { view = await pywebview.api.get_mic_setup(); } catch (e) { console.warn('get_mic_setup error:', e); return; }
+  if (!view || _micSaving) return;
+  const sig = JSON.stringify(view);
+  if (!force && sig === _micSig) return;
+  // Not under an open menu: redrawing it would close it.
+  const sel = document.getElementById('micSelect');
+  if (!force && sel && document.activeElement === sel) return;
+  _micSig = sig;
+  _micView = view;
+  renderMicrophones();
+}
+
+// Settings opens: the old name stays for loadSettings.
+async function loadAudioDevices() { await loadMicrophones(true); }
+
+// focus: {act: 'up' | 'down' | 'remove' | 'add' | 'other', name} says where
+// the keyboard goes after the list is drawn again.
+function renderMicrophones(focus) {
+  const view = _micView;
+  const status = WL.micStatus(view);
+  const title = document.getElementById('micNowTitle');
+  const desc = document.getElementById('micNowDesc');
+  if (title) title.textContent = status.title;
+  if (desc) desc.textContent = status.desc;
+  const host = document.getElementById('micRank');
+  if (host) {
+    host.innerHTML = WL.micRows(view).map((r) => `
+      <li class="row mic-item${r.dim ? ' is-dim' : ''}" data-i="${r.rank - 1}">
+        <span class="mic-n" aria-hidden="true">${r.rank}</span>
+        <div class="row-main">
+          <div class="row-t"><span class="mic-name">${escHtml(r.name)}</span>${r.chips.map((c) => `<span class="chip${c.cls ? ' ' + c.cls : ''}">${escHtml(c.text)}</span>`).join('')}</div>
+          ${r.note ? `<div class="row-d">${escHtml(r.note)}</div>` : ''}
+        </div>
+        <div class="mic-acts">
+          <button type="button" class="rbtn" data-act="up" aria-label="${escHtml(r.upLabel)}"${r.canUp ? '' : ' disabled'} onclick="moveMic(${r.rank - 1}, -1)">${WI.icon('chevron-up')}</button>
+          <button type="button" class="rbtn" data-act="down" aria-label="${escHtml(r.downLabel)}"${r.canDown ? '' : ' disabled'} onclick="moveMic(${r.rank - 1}, 1)">${WI.icon('chevron-down')}</button>
+          <button type="button" class="rbtn" data-act="remove" aria-label="${escHtml(r.removeLabel)}" onclick="removeMic(${r.rank - 1})">${WI.icon('x')}</button>
+        </div>
+      </li>`).join('');
+  }
+  const add = WL.micAddOptions(view, _micShowOther);
+  const sel = document.getElementById('micSelect');
+  if (sel) {
     sel.innerHTML = '';
-    if (!devices || devices.length === 0) {
-      sel.innerHTML = '<option value="">No microphone found</option>';
-      return;
-    }
-    devices.forEach(d => {
+    let group = null;
+    add.options.forEach((o) => {
       const opt = document.createElement('option');
-      opt.value = d.index;
-      opt.textContent = d.name + (d.is_default ? ' (default)' : '');
-      if (current && current.index === d.index) opt.selected = true;
-      else if (current && current.index === null && d.is_default) opt.selected = true;
-      sel.appendChild(opt);
+      opt.value = o.value;
+      opt.textContent = o.label;
+      if (!o.group) { sel.appendChild(opt); return; }
+      if (!group || group.label !== o.group) { group = document.createElement('optgroup'); group.label = o.group; sel.appendChild(group); }
+      group.appendChild(opt);
     });
-  } catch(e) {
-    console.warn('loadAudioDevices error:', e);
+    sel.value = '';
+    sel.disabled = add.disabled;
   }
+  const other = document.getElementById('micOtherToggle');
+  if (other) {
+    other.hidden = add.otherCount === 0;
+    other.textContent = add.otherLabel;
+    other.setAttribute('aria-expanded', String(_micShowOther));
+  }
+  if (focus) _focusMic(focus);
 }
 
-async function onMicChange(indexStr) {
-  const idx = parseInt(indexStr, 10);
-  try {
-    const result = await pywebview.api.set_audio_device(idx);
-    if (result && result.ok) {
-      showToast(`Microphone: ${result.name}`, 'success');
-    }
-  } catch(e) {
-    console.warn('setAudioDevice error:', e);
-  }
+function _focusMic(f) {
+  const host = document.getElementById('micRank');
+  const row = host && host.querySelector(`.mic-item[data-i="${f.index}"]`);
+  const btn = (act) => row && row.querySelector(`button[data-act="${act}"]:not(:disabled)`);
+  let target = null;
+  if (f.act === 'up' || f.act === 'down') target = btn(f.act) || btn(f.act === 'up' ? 'down' : 'up') || btn('remove');
+  else if (f.act === 'remove') {
+    const rows = host ? host.querySelectorAll('.mic-item') : [];
+    const near = rows[Math.min(f.index, rows.length - 1)];
+    target = (near && near.querySelector('button[data-act="remove"]')) || document.getElementById('micSelect');
+  } else if (f.act === 'other') target = document.getElementById('micOtherToggle');
+  else target = document.getElementById('micSelect');
+  if (target && typeof target.focus === 'function') target.focus();
 }
+
+async function saveMicRanking(list, focus, toast, said) {
+  if (_micSaving) return false;
+  _micSaving = true;
+  try {
+    const r = await pywebview.api.set_mic_ranking(list);
+    if (r && r.ok) {
+      _micView = r;
+      _micSig = JSON.stringify(r);
+      renderMicrophones(focus);
+      const live = document.getElementById('micLive');
+      if (live) live.textContent = said;
+      if (toast) showToast(said, 'success');
+      return true;
+    }
+    showToast((r && r.error) || "Couldn't save your microphones. Try again.", 'error');
+  } catch (e) {
+    console.warn('set_mic_ranking error:', e);
+    showToast("Couldn't save your microphones. Try again.", 'error');
+  } finally {
+    _micSaving = false;
+  }
+  return false;
+}
+
+async function onMicAdd(sel) {
+  const device = WL.micPick(_micView, sel.value);
+  sel.value = '';
+  if (!device) return;
+  const list = WL.micAdd(WL.micList(_micView), device, _micView.max);
+  await saveMicRanking(list, { act: 'add', index: 0 }, true, WL.micSaved('add', device.name));
+}
+
+async function moveMic(index, delta) {
+  const list = WL.micList(_micView);
+  if (!list[index]) return;
+  const name = list[index].name;
+  const next = WL.micMove(list, index, delta);
+  const to = index + delta;
+  await saveMicRanking(next, { act: delta < 0 ? 'up' : 'down', index: to }, false,
+    WL.micSaved('move', name, to + 1, list.length));
+}
+
+async function removeMic(index) {
+  const list = WL.micList(_micView);
+  if (!list[index]) return;
+  await saveMicRanking(WL.micRemove(list, index), { act: 'remove', index }, true,
+    WL.micSaved('remove', list[index].name));
+}
+
+function toggleMicOther() {
+  _micShowOther = !_micShowOther;
+  renderMicrophones({ act: 'other', index: 0 });
+}
+
+// "Choose microphone" on a toast (app.py _on_toast_action): Settings, General,
+// at the Microphone heading.
+window.waffler_show_microphone = function() {
+  showPage('settings');
+  showSettingsSection('general');
+  const h = document.getElementById('micHeading');
+  if (h) {
+    h.scrollIntoView({ block: 'start' });
+    h.focus({ preventScroll: true });
+  }
+};
 
 // ── Vocabulary ─────────────────────────────────────────────────────────
 // The Atelier design (3.15): a table of the words, busiest first, each with
@@ -3772,6 +3896,8 @@ function showSettingsSection(sec) {
   if (sec !== 'keys') closeKeyEditor();
   // The hotkey test starts fresh each time Hotkey is opened.
   if (sec === 'hotkey') { _hotkeyHeard = false; _renderHotkeyTest(); loadShortcuts(); }
+  // Who is plugged in may have changed since the list was last drawn.
+  if (sec === 'general') loadMicrophones(false);
   _syncMicMeter();
 }
 
@@ -3817,12 +3943,15 @@ function renderMicMeter(r) {
   cells.forEach((c, i) => { meter.children[i].className = c; });
 }
 
+let _micTicks = 0;
 async function _tickMicMeter() {
   if (_micBusy) return;
   if (!_micMeterWanted()) { _syncMicMeter(); return; }
   _micBusy = true;
   try { renderMicMeter(await pywebview.api.get_mic_level()); } catch (_) { renderMicMeter(null); }
   _micBusy = false;
+  // About every three seconds, look at which microphones are plugged in.
+  if (++_micTicks % 25 === 0) loadMicrophones(false);
 }
 
 // The meter stops while the window is hidden and starts again when it is back.
@@ -5729,11 +5858,16 @@ async function wizInitTryItStep() {
   await wizStartPractice();
 }
 
+// The practice records from the microphone Waffler would use (the ranking, or
+// the computer's own); only one the person picks here is passed on, and
+// remembered. The list shows the computer's microphone selected, which is not
+// a choice.
+let _wizMicPicked = false;
+
 async function wizStartPractice() {
   const sel = document.getElementById('wizMicSelect');
-  const idx = sel && sel.value !== '' ? Number(sel.value) : null;
+  const idx = _wizMicPicked && sel && sel.value !== '' ? Number(sel.value) : null;
   try {
-    if (idx !== null) await pywebview.api.set_audio_device(idx);
     const r = await pywebview.api.wizard_start_hotkey_test(idx);
     if (r && r.ok) {
       _wizardHotkeyTestActive = true;
@@ -5757,6 +5891,7 @@ function wizStopPractice() {
 
 async function wizMicChanged(value) {
   if (value === '') return;
+  _wizMicPicked = true;
   try { await pywebview.api.set_audio_device(Number(value)); } catch (_) {}
   if (_wizardStep === 'try') wizStartPractice();
 }

@@ -329,6 +329,36 @@ def take_limit_stopped(minutes: int):
             "Waffler is cleaning up what you said.")
 
 
+# ── Microphones (S12: src/mic_ranking.py, src/mic_supervisor.py) ─────────────
+MIC_RANKING_UNKNOWN = ("Waffler couldn't use that list of microphones. "
+                       "It takes up to 8, each with a name, and none twice.")
+
+
+def _short(name, limit: int = 40) -> str:
+    text = " ".join(str(name or "").split())
+    return text if len(text) <= limit else text[:limit - 1].rstrip() + "\u2026"
+
+
+def mic_detected_message(name: str):
+    """(heading, body) of the tip shown when a microphone that is new to
+    Waffler is plugged in: asks, once for each device, whether to use it."""
+    return (f"{_short(name)} detected", "Use it for dictation?")
+
+
+# A microphone left while a take was being recorded: the take was ended and
+# turned into text with what there was.
+MIC_DISCONNECTED = ("Your microphone was disconnected", "Waffler used what it had recorded.")
+# Nothing has come from the microphone for 15 seconds into a take (the stream
+# was opened again at 5 and is still quiet).
+MIC_CANT_HEAR = ("Waffler can't hear your microphone",
+                 "Check that it is plugged in and not muted, or choose another one.")
+# A tip, at most once a day: the Mac's lid is shut and the built-in microphone
+# is the one in use.
+MIC_LID_CLOSED = ("Your Mac's lid is closed",
+                  "The built-in microphone sounds muffled. Choose another microphone.")
+CHOOSE_MICROPHONE = "Choose microphone"
+
+
 # Settings, Shortcuts: double-tap to go hands-free (src/double_tap.py).
 DOUBLE_TAP_UNKNOWN = "Waffler doesn't know that choice for double-tap. Use the switch."
 

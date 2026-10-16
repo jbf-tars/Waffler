@@ -1076,6 +1076,39 @@ mark.hl {
 .meter i.p { background: linear-gradient(to top, var(--honey) 55%, var(--surface-2) 55%); }
 .mic-level.is-pending .meter { display: none; }
 
+/* Settings, General, Microphone (S12): the ranked list, best first. Tokens
+   only; the dotted rules are the sheet's own, drawn here because the list
+   sits between two rows. */
+.row-mic .mic-level { flex: none; }
+.mic-rank { list-style: none; margin: 0; padding: 0; }
+.mic-rank:not(:empty)::before {
+  content: "";
+  display: block;
+  height: 2px;
+  margin: 0 16px;
+  background: radial-gradient(circle, var(--dots) 0 1px, transparent 1.2px) 0 0 / 6px 2px repeat-x;
+}
+.mic-sheet .mic-add::before {
+  content: "";
+  display: block;
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  top: 0;
+  height: 2px;
+  background: radial-gradient(circle, var(--dots) 0 1px, transparent 1.2px) 0 0 / 6px 2px repeat-x;
+}
+.mic-item { gap: 12px; min-height: 56px; padding: 9px 12px 9px 16px; }
+.mic-n { flex: none; width: 14px; font: italic 400 15px/1 var(--f-serif); color: var(--muted); text-align: center; }
+.mic-item .row-t { flex-wrap: wrap; row-gap: 4px; }
+.mic-item .mic-name { min-width: 0; overflow-wrap: anywhere; }
+.mic-item.is-dim .row-t { color: var(--text-2); }
+.mic-item.is-dim .mic-n { color: var(--faint); }
+.mic-acts { display: flex; align-items: center; flex: none; gap: 2px; }
+.mic-acts .rbtn { width: 28px; height: 28px; border-radius: 7px; color: var(--text-2); }
+.mic-acts .rbtn .ic { width: 15px; height: 15px; }
+.mic-acts .rbtn:hover:not(:disabled) { background: var(--surface-2); color: var(--text); }
+
 /* Settings, Transforms (beta): the shortcut, the rules, the outline, the
    person's own transforms. Journal, a rewrite: the text before and after with
    the changes marked. Tokens only. */
@@ -1630,6 +1663,9 @@ body[data-theme="dark"] .kc-xl.held {
   .row > .row-main ~ * { margin-left: 50px; max-width: calc(100% - 50px); }
   .row:has(> .tog) > .row-main ~ .tog { margin-left: 0; }
   .row .select { width: auto; max-width: calc(100% - 50px); }
+  /* The microphone list keeps each microphone's buttons beside its name. */
+  .mic-item { flex-wrap: nowrap; }
+  .mic-item > .row-main { flex: 1 1 0; }
   .jhead { flex-wrap: wrap; row-gap: 12px; }
   .j-search-wrap { flex: 1 1 100%; margin-left: 0; }
   .j-col { padding: 18px 14px 28px; }

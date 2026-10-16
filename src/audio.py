@@ -57,6 +57,13 @@ _POSTROLL_MS = 150
 # long is not shown as live.
 _LEVEL_STALE_S = 0.5
 
+# A microphone with a noise gate (Windows Voice Focus, a headset's own DSP, a
+# virtual filter) sends exact zeros whenever nobody is speaking, which looks
+# like a dead input. If it is ever seen to send sound after at least this much
+# zero (the gate opening), silence on it is a pause, not a failure, and the
+# early silence check (src/mic_watch.py) leaves it alone.
+_GATE_MIN_ZERO_S = 0.5
+
 # Sound cues (src/sounds.py) play through the speakers while this microphone
 # is open, so the recorder can be told to silence the moments a cue sounds in
 # (``deafen_for``): the cue is then in neither the recording nor the half-
@@ -131,6 +138,52 @@ def _name_is_bluetooth(name: str) -> bool:
     return any(m in n for m in _BT_INPUT_MARKERS)
 
 
+def snapshot_devices(timeout: float = 1.0, locked: bool = False):
+    """PortAudio's list of devices as it is now: ``(devices, host APIs, the
+    default input's index, the default host API's index)``, or None when it
+    could not be read in time.
+
+    Taken under ``_STREAM_LOCK``. Making a stream starts PortAudio again
+    (``_create_stream``), and a query that runs in the middle of that is a
+    query of a library that is being torn down. The wait is bounded: a stream
+    being made or closed holds the lock for a fraction of a second, and a
+    caller that cannot wait (the Settings page, the device monitor) is better
+    served by "not now" than by a hang.
+
+    ``locked=True`` is for the one caller that already holds the lock: the
+    recorder's own choice of microphone, made inside ``_create_stream`` right
+    after PortAudio was started again. The lock is not reentrant, so asking
+    for it there would only wait out the timeout.
+    """
+    if not locked and not _STREAM_LOCK.acquire(timeout=timeout):
+        return None
+    try:
+        infos = list(sd.query_devices())
+        try:
+            hostapis = list(sd.query_hostapis())
+        except Exception:
+            hostapis = []
+        default_index = None
+        try:
+            default = sd.query_devices(kind="input")
+            default_index = default.get("index")
+            if default_index is None:
+                name = default.get("name")
+                default_index = next((i for i, d in enumerate(infos) if d.get("name") == name), None)
+        except Exception:
+            pass
+        try:
+            primary = int(sd.default.hostapi)
+        except Exception:
+            primary = None
+        return infos, hostapis, default_index, primary
+    except Exception:
+        return None
+    finally:
+        if not locked:
+            _STREAM_LOCK.release()
+
+
 def _resolve_input_device(selected_index=None):
     """Return the input device index to record from, or None to use PortAudio's
     current default.
@@ -201,7 +254,7 @@ class AudioRecorder:
     """
 
     def __init__(self, sample_rate: int = 16000, channels: int = 1,
-                 device_index=None):
+                 device_index=None, device_resolver=None):
         self.sample_rate = sample_rate
         self.channels = channels
         # Microphone the user picked in Settings. None means "use the OS
@@ -209,6 +262,12 @@ class AudioRecorder:
         # press, so a change takes effect without a restart and never mutates a
         # live stream mid-recording.
         self._device_index = device_index
+        # Which microphone to open when nothing is pinned by index: a function
+        # asked at the moment a stream is made, right after PortAudio has been
+        # started again, so the index it answers is the one that list uses
+        # (src/mic_ranking.py). None, or an answer of None, is "follow the
+        # system" (the default input, minus the Bluetooth headset).
+        self._device_resolver = device_resolver
         self.recording: Optional[np.ndarray] = None
         self.is_recording = False
         self.is_paused = False
@@ -225,6 +284,28 @@ class AudioRecorder:
         # delivered audio, and which microphone choice it was opened with.
         self._last_chunk_at = 0.0
         self._stream_choice = device_index
+        # Capture health (S12, src/mic_watch.py). ``_last_signal_at``: when a
+        # chunk last held any sample other than zero. A microphone that is
+        # live, however quiet the room, never delivers a block of exact zeros
+        # for long, so this is the one number that says "the input is dead"
+        # without calling a quiet voice silence. ``_take_started_at``: when the
+        # recording began, so the time before it is not counted.
+        self._last_signal_at = 0.0
+        self._take_started_at = 0.0
+        self._reopening = False
+        # When the current run of all-zero chunks began (None: the last chunk
+        # had sound), and whether this stream has been seen to send sound after
+        # a long zero run (a noise-gated microphone: see _GATE_MIN_ZERO_S).
+        self._zero_since = None
+        self._gated = False
+        # The name of the microphone the open stream is on: for the closed-lid
+        # tip, and for knowing when that device is the one that left.
+        self._opened_device = None
+        # A change of microphone preference (Settings, or a device coming or
+        # going) bumps ``_pref_version``; a stream made before it is stale, and
+        # the next start() makes a new one instead of reusing it.
+        self._pref_version = 0
+        self._stream_pref_version = 0
         # Recording ownership. is_recording and _buffer are shared, so with
         # overlapping presses one dictation could damage another: an old stop()
         # sleeping through its post-roll would wake to find a NEW recording in
@@ -275,7 +356,18 @@ class AudioRecorder:
         try:
             chunk = self._silence_cue(indata.copy())
             self._preroll.append(chunk)
-            self._last_chunk_at = time.monotonic()
+            now_m = time.monotonic()
+            self._last_chunk_at = now_m
+            # On what the device sent, before a sound cue was blanked out of
+            # it: a cue's silence is ours, not the microphone's.
+            if indata.any():
+                self._last_signal_at = now_m
+                if self._zero_since is not None:
+                    if now_m - self._zero_since >= _GATE_MIN_ZERO_S:
+                        self._gated = True
+                    self._zero_since = None
+            elif self._zero_since is None:
+                self._zero_since = now_m
 
             # Test and append under the SAME lock stop() uses, so an admitted
             # callback either makes it into the returned WAV or is dropped. It
@@ -358,7 +450,53 @@ class AudioRecorder:
             except IndexError:
                 live = False
         return {"live": live, "level": round(level, 3),
-                "current": self._stream_choice == self._device_index}
+                "current": (self._stream_choice == self._device_index
+                            and self._stream_pref_version == self._pref_version)}
+
+    def health(self, now=None) -> dict:
+        """How the input is doing, for the check that runs while a take is
+        recorded (src/mic_watch.py). Cheap, and safe to call from any thread.
+
+        ``quiet_s``   seconds since a chunk last held any sample but zero: the
+                      stream may be delivering blocks of digital silence, or
+                      nothing at all.
+        ``stall_s``   seconds since the last chunk of any kind arrived.
+        ``stream_ok`` the stream exists, PortAudio says it is active, and the
+                      callback is armed.
+        ``reopening`` the stream is being opened again right now; nothing else
+                      is meaningful until it is done.
+        ``gated``     this stream has sent sound after a long run of exact
+                      zeros: a noise gate, so silence on it is a pause.
+        Both times count from the start of the take at the earliest.
+        """
+        now = time.monotonic() if now is None else now
+        stream = self._stream
+        try:
+            ok = bool(stream is not None and getattr(stream, "active", False)
+                      and self._callback_active)
+        except Exception:
+            ok = False
+        started = self._take_started_at
+        return {
+            "recording": bool(self.is_recording),
+            "reopening": bool(self._reopening),
+            "stream_ok": ok,
+            "quiet_s": max(0.0, now - max(self._last_signal_at, started)),
+            "stall_s": max(0.0, now - max(self._last_chunk_at, started)),
+            "gated": bool(self._gated),
+            "device": self._opened_device,
+        }
+
+    def opened_device(self) -> Optional[str]:
+        """The name of the microphone the stream is on, or None."""
+        return self._opened_device
+
+    def note_preference_changed(self) -> None:
+        """The choice of microphone may be different now (the ranking was
+        edited, a device came or went). The stream that is open is stale: the
+        next start() makes a new one. Does not touch a stream, so it is safe
+        in the middle of a take."""
+        self._pref_version += 1
 
     def get_is_paused(self) -> bool:
         return self.is_paused
@@ -430,8 +568,11 @@ class AudioRecorder:
             # Avoid the AirPods mic when it's the default input (keeps music in
             # A2DP). Resolved AFTER the PortAudio reinit above so it sees the
             # current device list. None ⇒ PortAudio default (the normal case).
-            _input_device = _resolve_input_device(self._device_index)
+            _input_device = self._open_device()
+            self._zero_since, self._gated = None, False       # a new stream is a new device to judge
             self._stream_choice = self._device_index
+            self._stream_pref_version = self._pref_version
+            _opened_name = self._device_name(_input_device)
             self._stream = sd.InputStream(
                 samplerate=self.sample_rate,
                 channels=self.channels,
@@ -441,6 +582,33 @@ class AudioRecorder:
                 device=_input_device,
             )
             self._stream.start()
+            self._opened_device = _opened_name
+
+    def _open_device(self):
+        """The input device index to open, or None for the default. An index
+        pinned at construction or by set_device() (the setup practice) wins;
+        otherwise the resolver is asked now, with PortAudio just restarted, so
+        what it answers is an index of the list this stream is made from."""
+        pick = self._device_index
+        if pick is None and self._device_resolver is not None:
+            try:
+                pick = self._device_resolver()
+            except Exception as e:
+                print(f"[audio] microphone preference not applied ({type(e).__name__}) "
+                      f"— following the system")
+                pick = None
+        return _resolve_input_device(pick)
+
+    @staticmethod
+    def _device_name(index):
+        """The name of the device a stream is about to be opened on: the index
+        given, else the default input. None if PortAudio will not say."""
+        try:
+            info = sd.query_devices(index) if index is not None else sd.query_devices(kind="input")
+            name = info.get("name")
+            return name if isinstance(name, str) and name else None
+        except Exception:
+            return None
 
     def set_device(self, device_index) -> None:
         """Choose the input device for subsequent recordings.
@@ -525,7 +693,12 @@ class AudioRecorder:
             now = time.time()
             time_since_last_press = now - getattr(self, "_last_press_time", 0.0)
             self._last_press_time = now
-            force_recycle = time_since_last_press > 30.0
+            # Also when the microphone preference has changed since this
+            # stream was made (Settings, or a device that came or went): it
+            # is on the wrong one, and a warm stream would be reused.
+            force_recycle = (time_since_last_press > 30.0
+                             or self._pref_version != self._stream_pref_version
+                             or self._stream_choice != self._device_index)
 
             stream_was_running = (
                 self._stream is not None
@@ -555,6 +728,7 @@ class AudioRecorder:
                 # this assignment cannot interleave.
                 with self._lock:
                     self._buffer = list(self._preroll)
+                    self._take_started_at = time.monotonic()
                     self.is_recording = True
                 return
 
@@ -599,7 +773,46 @@ class AudioRecorder:
             # syllable isn't lost.
             with self._lock:
                 self._buffer = list(self._preroll)
+                self._take_started_at = time.monotonic()
                 self.is_recording = True
+
+    def reopen_stream(self) -> bool:
+        """Open the input stream again in the middle of a take, keeping what
+        has been recorded. For a stream that has gone quiet (src/mic_watch.py):
+        the microphone may come back on a fresh stream where the old one stays
+        dead. True if a new stream is running.
+
+        Exactly the teardown and creation every other path here uses, in the
+        same order and under the same locks: this recorder's ``_stream_lock``
+        is held throughout; ``_teardown_stream`` stops, drains and closes the
+        old stream under the process-wide ``_STREAM_LOCK`` (callback guard
+        first, the Python reference kept to the end); ``_create_stream`` then
+        starts PortAudio again, chooses the microphone again (so a device that
+        has come or gone since is accounted for) and opens the new stream.
+        ``is_recording`` and ``_buffer`` are not touched, so a stop() from the
+        key coming up waits its turn on ``_stream_lock`` and returns what
+        there is. Audio is lost for as long as this takes (about a third of a
+        second), in a take that has heard nothing for seconds. A stream that
+        could not be made is left as the other paths leave one (None, or not
+        running), which the take's check reads as the microphone having left.
+        """
+        with self._stream_lock:
+            if not self.is_recording or self._reopening:
+                return False
+            self._reopening = True
+            try:
+                stale = self._stream
+                self._stream = None
+                if stale is not None:
+                    self._teardown_stream(stale)
+                self._create_stream()
+                self._last_chunk_at = time.monotonic()
+                return self._stream is not None
+            except Exception as e:
+                print(f"[audio] reopening the stream failed ({type(e).__name__}): {e}")
+                return False
+            finally:
+                self._reopening = False
 
     def stop(self) -> bytes:
         """Stop the *recording* (not the stream) and return WAV bytes.

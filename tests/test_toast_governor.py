@@ -123,7 +123,10 @@ def test_errors_and_info_keep_the_behaviour_the_old_code_had():
                # Command mode (S8): the same, for a command refused while busy.
                "command_busy",
                # Paste last and Copy last as shortcuts (S11a): a notice at most every 3 seconds.
-               "last_result_notice"}
+               "last_result_notice",
+               # Microphones (S12): a dead microphone would otherwise say it at every take, so
+               # at most once a minute.
+               "mic_cant_hear"}
     for kid, k in N.KINDS.items():
         if k.severity == N.TIP:
             continue
@@ -131,8 +134,11 @@ def test_errors_and_info_keep_the_behaviour_the_old_code_had():
         assert (k.min_gap_s > 0) == (kid in limited), kid
 
 
-def test_only_the_hint_is_a_tip():
-    assert [k.id for k in N.KINDS.values() if k.severity == N.TIP] == ["hold_hint"]
+def test_only_the_hint_and_the_microphone_tips_are_tips():
+    """The hold hint, and the two microphone tips (S12): a new microphone to
+    ask about, and the closed lid. Everything else is an error or information."""
+    assert [k.id for k in N.KINDS.values() if k.severity == N.TIP] == [
+        "mic_detected", "lid_closed", "hold_hint"]
 
 
 # ── the glue ─────────────────────────────────────────────────────────────
