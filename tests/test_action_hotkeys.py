@@ -59,10 +59,13 @@ def test_a_good_combination_is_stored_in_one_order_with_its_name():
     assert ah.check(["control", "shift", "7"], MAC)["keys"] == ["control", "shift", "7"]
     assert ah.check(["ctrl", "alt", "f5"], MAC)["keys"] == ["control", "option", "f5"], "other spellings"
     assert ah.check(["T", " Control ", "OPTION"], MAC)["keys"] == ["control", "option", "t"]
-    win = ah.check(["t", "alt", "ctrl"], WIN)
-    assert win == {"ok": True, "keys": ["ctrl", "alt", "t"], "display": "Ctrl + Alt + T"}
+    win = ah.check(["y", "shift", "ctrl"], WIN)
+    assert win == {"ok": True, "keys": ["ctrl", "shift", "y"], "display": "Ctrl + Shift + Y"}
     assert ah.check(["shift", "ctrl", "9"], WIN)["keys"] == ["ctrl", "shift", "9"]
-    assert ah.check(["control", "alt", "t"], WIN)["keys"] == ["ctrl", "alt", "t"], "Windows reads Control as Ctrl"
+    assert ah.check(["control", "shift", "y"], WIN)["keys"] == ["ctrl", "shift", "y"], "Windows reads Control as Ctrl"
+    # Ctrl and Alt are AltGr on many keyboards (S11a): a letter with them is refused, so
+    # these Windows examples use Ctrl with Shift instead of Ctrl with Alt.
+    assert ah.check(["t", "alt", "ctrl"], WIN)["ok"] is False
 
 
 BAD = [
@@ -105,8 +108,8 @@ def test_a_combination_that_overlaps_the_dictation_hotkey_is_refused_either_way(
     assert ah.check(["control", "option", "t"], MAC, ["control", "shift"])["ok"]
     assert ah.check(["control", "option", "t"], MAC, ["fn"])["ok"]
     assert ah.check(["control", "option", "t"], MAC, ["cmd", "shift", "space"])["ok"]
-    assert "dictation hotkey" in ah.check(["ctrl", "shift", "alt", "t"], WIN, ["ctrl", "shift"])["error"]
-    assert ah.check(["ctrl", "alt", "t"], WIN, ["win", "ctrl"])["ok"]
+    assert "dictation hotkey" in ah.check(["win", "ctrl", "shift", "y"], WIN, ["ctrl", "shift"])["error"]
+    assert ah.check(["ctrl", "shift", "y"], WIN, ["win", "ctrl"])["ok"]
     # The dictation hotkey is saved with whatever spelling the recorder used.
     assert "dictation hotkey" in ah.check(["control", "option", "t"], MAC, ["ctrl", "alt"])["error"]
 
@@ -326,19 +329,23 @@ CTRL, OPT, SHIFT, CMD = 0x40000, 0x80000, 0x20000, 0x100000
 T = ah.MAC_KEYCODES["t"]
 
 
-def test_the_mac_observer_turns_key_events_into_presses_and_never_swallows():
+def test_the_mac_observer_turns_key_events_into_presses_and_swallows_only_the_shortcuts_key():
     r, clock = registry()
     seen = []
     r.register("transform", ["control", "option", "t"], lambda: seen.append(1))
     obs = observer(r)
-    assert obs.handle(ah._KEY_DOWN, FakeEvent(T, CTRL | OPT)) is False
+    assert obs.handle(ah._KEY_DOWN, FakeEvent(T, CTRL | OPT)) is True, "the app in front does not get the key"
     assert seen == [1]
-    assert obs.handle(ah._KEY_DOWN, FakeEvent(T, CTRL | OPT, repeat=1)) is False and seen == [1]
-    assert obs.handle(ah._KEY_UP, FakeEvent(T, CTRL | OPT)) is False
+    assert obs.handle(ah._KEY_DOWN, FakeEvent(T, CTRL | OPT, repeat=1)) is True and seen == [1]
+    assert obs.handle(ah._KEY_UP, FakeEvent(T, CTRL | OPT)) is True
+    assert obs.handle(ah._KEY_UP, FakeEvent(T, CTRL | OPT)) is False, "a second key-up is not ours"
     clock.advance(1)
     # Caps Lock, Fn and the numeric-pad bits do not count as modifiers.
-    assert obs.handle(ah._KEY_DOWN, FakeEvent(T, CTRL | OPT | 0x10000 | 0x800000 | 0x200000)) is False
+    assert obs.handle(ah._KEY_DOWN, FakeEvent(T, CTRL | OPT | 0x10000 | 0x800000 | 0x200000)) is True
     assert seen == [1, 1]
+    # The modifier keys themselves always pass.
+    assert obs.handle(ah._FLAGS_CHANGED, FakeEvent(0, CTRL | OPT)) is False
+    assert obs.handle(ah._FLAGS_CHANGED, FakeEvent(0, 0)) is False
 
 
 def test_the_mac_observer_ignores_what_is_not_a_registered_key():
@@ -441,7 +448,7 @@ print(json.dumps({'constants': [kCGEventKeyDown, kCGEventKeyUp, kCGEventFlagsCha
                   'own_pid_is_read': CGEventGetIntegerValueField(down, ah._FIELD_SOURCE_PID) == os.getpid(),
                   'own_events_ignored': mine.handle(kCGEventKeyDown, down) is False and seen == [1]}))
 """)
-    assert got == {"constants": True, "swallowed": False, "fired": [1], "up": False,
+    assert got == {"constants": True, "swallowed": True, "fired": [1], "up": True,
                    "own_pid_is_read": True, "own_events_ignored": True}
 
 
@@ -474,9 +481,9 @@ print(json.dumps({'first': first, 'attached': ok, 'again': again, 'count': len(l
 def test_a_windows_key_event_reads_the_modifiers_at_the_moment_it_goes_down():
     r, clock = registry(WIN)
     seen = []
-    r.register("transform", ["ctrl", "alt", "t"], lambda: seen.append(1))
+    r.register("transform", ["ctrl", "alt", "f5"], lambda: seen.append(1))      # AltGr types no letter with an F key
     held = {0x11, 0x12}                      # Ctrl and Alt
-    vk_t = ah.WINDOWS_VKS["t"]
+    vk_t = ah.WINDOWS_VKS["f5"]
     ah.windows_event(r, vk_t, ah._WM_KEYDOWN, 0, lambda vk: vk in held)
     assert seen == [1]
     ah.windows_event(r, vk_t, ah._WM_KEYDOWN, 0, lambda vk: vk in held)      # auto-repeat
@@ -490,8 +497,8 @@ def test_a_windows_key_event_reads_the_modifiers_at_the_moment_it_goes_down():
 def test_a_windows_key_with_the_wrong_modifiers_or_sent_by_a_program_does_nothing():
     r, clock = registry(WIN)
     seen = []
-    r.register("transform", ["ctrl", "alt", "t"], lambda: seen.append(1))
-    vk_t = ah.WINDOWS_VKS["t"]
+    r.register("transform", ["ctrl", "alt", "f5"], lambda: seen.append(1))
+    vk_t = ah.WINDOWS_VKS["f5"]
     ah.windows_event(r, vk_t, ah._WM_KEYDOWN, 0, lambda vk: vk == 0x11)             # Ctrl only
     ah.windows_event(r, vk_t, ah._WM_KEYDOWN, ah._LLKHF_INJECTED, lambda vk: vk in (0x11, 0x12))
     ah.windows_event(r, 0x1B, ah._WM_KEYDOWN, 0, lambda vk: True)                   # Esc has no name here

@@ -288,6 +288,20 @@ def last_transcript_title(verb: str, words: int) -> str:
 CLIPBOARD_CHOICE_UNKNOWN = "Waffler doesn't know that clipboard choice. Pick one from the list."
 
 
+# ── Shortcuts (Settings, Shortcuts): Paste last, Copy last, the cancel key ───
+SHORTCUT_BAD = "Waffler couldn't use that shortcut. Hold the keys you want, then save."
+SHORTCUT_UNKNOWN = "Waffler doesn't know that shortcut."
+SHORTCUT_HOLD_KEYS = "Hold the keys you want, then save."
+SHORTCUT_ONE_KEY = "Press one key to cancel with."
+SHORTCUT_NOT_SAVED = "Couldn't save the shortcut. Please try again."
+# What the Paste last and Copy last shortcuts say when they have nothing to do.
+LAST_BUSY = ("Waffler is busy", "Finish what Waffler is doing first, then try again.")
+LAST_NOTHING_TO_PASTE = ("Nothing to paste yet", "Dictate something first, then Waffler can paste it again.")
+LAST_NOTHING_TO_COPY = ("Nothing to copy yet", "Dictate something first, then Waffler can copy it.")
+LAST_COPIED = ("Copied", "Your last dictation is on the clipboard.")
+LAST_COPY_FAILED = ("Couldn't copy", "Waffler couldn't reach the clipboard. Try again.")
+
+
 # ── Tips ─────────────────────────────────────────────────────────────────────
 
 def hold_hint_message(hotkey: str):
@@ -366,7 +380,7 @@ TRANSFORM_TOO_LONG = ("Too much text",
 TRANSFORM_BUSY_DICTATING = ("Waffler is busy", "Finish what Waffler is doing first, then try again.")
 TRANSFORM_BUSY_ALREADY = ("Still working", "A transform is already running. Wait for it to finish.")
 TRANSFORM_BLOCKS_DICTATION = ("A transform is running",
-                              "Wait for it to finish, or press Esc to stop it, then dictate.")
+                              "Wait for it to finish, or cancel it, then dictate.")
 TRANSFORM_CANCELLED = ("Transform cancelled", "Your text is unchanged.")
 TRANSFORM_NO_CHANGE = ("Your text already looks good", "Nothing was changed.")
 TRANSFORM_BAD_LENGTH = ("Nothing was replaced",
@@ -475,7 +489,7 @@ COMMAND_ENGINE_UNKNOWN = "Waffler doesn't know that search engine. Pick one from
 COMMAND_BUSY_ALREADY = ("Still working", "A command is already running. Wait for it to finish.")
 COMMAND_BUSY_ELSEWHERE = ("Waffler is busy", "Finish what Waffler is doing first, then try again.")
 COMMAND_BLOCKS_DICTATION = ("A command is running",
-                            "Wait for it to finish, or press Esc to stop it, then dictate.")
+                            "Wait for it to finish, or cancel it, then dictate.")
 COMMAND_CANCELLED = ("Command cancelled", "Your text is unchanged.")
 COMMAND_TOO_LONG = ("That's a long instruction", "Keep it short, a sentence or two, and try again.")
 COMMAND_NO_CHANGE = ("Nothing to change", "Your text already matches what you asked for.")

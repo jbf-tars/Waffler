@@ -207,9 +207,10 @@ def settings_problem(payload, stored=None, *, platform: Optional[str] = None,
         return problem
     platform = platform or transforms._this_platform()
     if given.get("hotkey"):
-        ptt = dictation_hotkey if dictation_hotkey is not None else action_hotkeys.dictation_keys(stored, platform)
-        others = list(action_hotkeys.saved_shortcuts(stored, skip="command").values())
-        verdict = action_hotkeys.check(given["hotkey"], platform, ptt, others, hold=True)
+        # The one check (src/action_hotkeys.py validate), as a hold: on a Mac it
+        # may be modifier keys alone.
+        verdict = action_hotkeys.validate("command", given["hotkey"], platform, stored,
+                                          dictation_hotkey=dictation_hotkey)
         if not verdict["ok"]:
             return verdict["error"]
     return None

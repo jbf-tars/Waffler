@@ -128,7 +128,7 @@ def test_a_refused_value_saves_nothing_from_the_payload(tmp_path, payload, messa
 def test_the_shortcut_is_refused_when_it_overlaps_the_dictation_hotkey(tmp_path):
     start = {"hotkey_keys": ["cmd", "shift"]}
     api, save, _get = methods(tmp_path, start)
-    r = save(api, {"transforms": {"hotkey": ["cmd", "shift", "t"]}})
+    r = save(api, {"transforms": {"hotkey": ["cmd", "shift", "y"]}})
     assert r["ok"] is False and "overlaps your dictation hotkey" in r["error"]
     assert api.data == start
     assert save(api, {"transforms": {"hotkey": ["control", "option", "t"]}})["ok"] is True

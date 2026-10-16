@@ -121,7 +121,9 @@ def test_errors_and_info_keep_the_behaviour_the_old_code_had():
                # every 8 seconds, so mashing the shortcut does not stack messages.
                "transform_busy",
                # Command mode (S8): the same, for a command refused while busy.
-               "command_busy"}
+               "command_busy",
+               # Paste last and Copy last as shortcuts (S11a): a notice at most every 3 seconds.
+               "last_result_notice"}
     for kid, k in N.KINDS.items():
         if k.severity == N.TIP:
             continue

@@ -456,14 +456,19 @@ class GenericHotkeyHandler:
         on_press: Callable[[], None],
         on_release: Callable[[], None],
         suppress: bool = True,
+        key_codes: Optional[dict] = None,
     ) -> None:
         self._keys = [k.lower() for k in keys]
         self._on_press = on_press
         self._on_release = on_release
         self._suppress = suppress
+        # The key names this handler can watch, with their codes. Nothing but
+        # the cancel key chosen in Settings passes its own table (src/smart_hotkey.py):
+        # the hotkey's table is KEY_TO_KEYCODE, unchanged.
+        self._codes = KEY_TO_KEYCODE if key_codes is None else key_codes
 
         self._modifiers = [k for k in self._keys if k in MODIFIER_FLAGS]
-        self._regular_keys = [k for k in self._keys if k in KEY_TO_KEYCODE]
+        self._regular_keys = [k for k in self._keys if k in self._codes]
 
         self._pressed_modifiers: set = set()
         self._pressed_regular: set = set()
@@ -530,7 +535,7 @@ class GenericHotkeyHandler:
             keycode = CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode)
 
             key_name = None
-            for name, code in KEY_TO_KEYCODE.items():
+            for name, code in self._codes.items():
                 if code == keycode and name in self._regular_keys:
                     key_name = name
                     break

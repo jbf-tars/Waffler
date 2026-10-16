@@ -150,6 +150,10 @@ _REGISTRY = (
     Kind("command_result", INFO, hold_s=8),
     Kind("command_busy", INFO, min_gap_s=8, hold_s=6),
     Kind("command_failed", ERROR, hold_s=7),
+    # The Paste last and Copy last shortcuts (app.py): they have nothing to
+    # show when they work, so a short notice says what they did, or why they
+    # did nothing (busy, nothing yet). A gap of 3 s keeps a held key quiet.
+    Kind("last_result_notice", INFO, min_gap_s=3, hold_s=3),
     # Tips. The hint stays up 10 s (src/hold_hint.py HINT_SECONDS).
     Kind("hold_hint", TIP, min_gap_s=12 * _HOUR, category="hints", hold_s=10),
 )

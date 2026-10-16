@@ -95,6 +95,10 @@ PIPELINE_METHODS = (
     "_command_hooks", "_command_blocked", "command_enabled", "apply_command_settings",
     "_command_say", "_command_ui_begin", "_command_ui_level", "_command_ui_working",
     "_command_ui_tick", "_command_ui_end",
+    # Paste last and Copy last as shortcuts (src/shortcut_settings.py): the
+    # shortcuts, what they refuse, and the short notices they give.
+    "_last_result_blocked", "_last_result_say", "_on_paste_last_shortcut",
+    "_on_copy_last_shortcut", "apply_last_result_shortcuts",
 )
 MODULE_DEFS = ("ensure_data_dir", "load_history", "_load_history_for_update",
                "save_history", "append_history",
@@ -401,6 +405,7 @@ def make_pipeline(data_dir: Path, *, transcriber=None, styler=None, clipboard=No
         _take_marker=take_marker, _text_context=text_context,
         _action_hotkeys=action_hotkeys, _transforms=transforms, _transform_action=transform_action,
         _command_mode=command_mode, _command_action=command_action,
+        _user_messages=user_messages,
         _history_cache=types.SimpleNamespace(invalidate=lambda: None),
         _is_setup_complete=lambda: True,
         paste_timed_out_message=user_messages.paste_timed_out_message,

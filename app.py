@@ -156,6 +156,7 @@ import transforms as _transforms
 import transform_action as _transform_action
 import command_mode as _command_mode
 import command_action as _command_action
+import user_messages as _user_messages
 from login_item import LoginItem, HIDDEN_FLAG as _HIDDEN_FLAG
 from user_messages import (
     CLIPBOARD_CHOICE_UNKNOWN,
@@ -1311,6 +1312,7 @@ class Api:
         from style_layer import cleanup_mode, signature_settings, styles_by_category
         from transforms import window_view as window_view_transforms
         from command_mode import window_view as window_view_command
+        from shortcut_settings import window_view as window_view_shortcuts
         from stats_insights import typing_wpm_of
         stored = self._load_settings_file()
         key = os.getenv("OPENAI_API_KEY", "")
@@ -1395,6 +1397,11 @@ class Api:
             # (src/learn_words.py). On unless exactly false; suggestions only,
             # nothing is added without a click.
             "learn_from_edits":      stored.get("learn_from_edits") is not False,
+            # Shortcuts (src/shortcut_settings.py): the Paste last and Copy last
+            # shortcuts (none until set) and the cancel key (Esc until changed),
+            # with the shortcuts as they are shown. The page itself is drawn
+            # from get_shortcuts().
+            **window_view_shortcuts(stored),
         }
 
     def save_settings(self, settings: dict) -> dict:
@@ -1451,6 +1458,14 @@ class Api:
             import command_mode as _cm
             if "command_mode" in settings:
                 problem = _cm.settings_problem(settings, self._load_settings_file())
+                if problem:
+                    return {"ok": False, "error": problem}
+            # Paste last, Copy last, the cancel key (Settings, Shortcuts): each
+            # checked by the same rules as the two above, against the dictation
+            # hotkey, the cancel key and every other shortcut.
+            import shortcut_settings as _sc
+            if _sc.touches(settings):
+                problem = _sc.settings_problem(settings, self._load_settings_file())
                 if problem:
                     return {"ok": False, "error": problem}
             with self._editing_settings() as stored:
@@ -1547,6 +1562,21 @@ class Api:
                     stored["command_mode"] = _cm.merged(stored, settings)
                     notes.append(f"Command mode: {'on' if stored['command_mode']['enabled'] else 'off'}")
 
+                # ── Shortcuts: Paste last, Copy last, the cancel key. Applied
+                # live below (the cancel key by making the hotkey listener
+                # again, since that is what listens for it).
+                cancel_changed = False
+                if _sc.touches(settings):
+                    import action_hotkeys as _ah
+                    cancel_before = _ah.cancel_key_of(stored)
+                    for name, value in _sc.merged(stored, settings).items():
+                        if value is None:
+                            stored.pop(name, None)      # back to the default: no key in the file
+                        else:
+                            stored[name] = value
+                    cancel_changed = _ah.cancel_key_of(stored) != cancel_before
+                    notes.append("Shortcuts updated")
+
                 # ── Provider fallback order ──────────────────────────────────────
                 # A list like ["cerebras","groq","openai"]. Persisted AND applied
                 # live to the running pipeline so reordering takes effect on the
@@ -1575,6 +1605,14 @@ class Api:
                     _pipeline.apply_command_settings()
                 except Exception as _e:
                     _log_to_file(f"[command] settings not applied live: {type(_e).__name__}")
+            if _sc.touches(settings) and _pipeline is not None:
+                try:
+                    if cancel_changed:
+                        self._restart_hotkey_listener()     # re-applies every shortcut when it is up
+                    else:
+                        _pipeline.apply_last_result_shortcuts()
+                except Exception as _e:
+                    _log_to_file(f"[shortcut] settings not applied live: {type(_e).__name__}")
 
             return {"ok": True, "notes": notes}
         except Exception as e:
@@ -2571,10 +2609,14 @@ class Api:
         return " + ".join(parts) if len(parts) > 1 else parts[0] if parts else "Fn"
 
     def get_hotkey_config(self) -> dict:
-        """Return current hotkey configuration."""
+        """Return current hotkey configuration (and the key that cancels, which
+        the window names wherever it says what cancels a recording)."""
         try:
+            import action_hotkeys as _ah
             stored = self._load_settings_file()
             keys = stored.get("hotkey_keys")
+            cancel = _ah.cancel_key_of(stored)
+            cancel_display = _ah.display([cancel], _platform.system())
             if _platform.system() == "Windows":
                 from windows_hotkey import KEY_TO_VK, DEFAULT_HOTKEY, MODIFIER_KEYS
             else:
@@ -2582,7 +2624,8 @@ class Api:
                 if not keys:
                     keys = ["fn"]
                 display = self._get_mac_hotkey_display(keys)
-                return {"ok": True, "keys": keys, "display": display}
+                return {"ok": True, "keys": keys, "display": display,
+                        "cancel_key": cancel, "cancel_display": cancel_display}
             if not keys or not isinstance(keys, list):
                 keys = DEFAULT_HOTKEY
             for k in keys:
@@ -2591,7 +2634,8 @@ class Api:
                     keys = DEFAULT_HOTKEY
                     break
             from hotkey_rules import display as _hk_display, WINDOWS as _HK_WIN
-            return {"ok": True, "keys": keys, "display": _hk_display(keys, _HK_WIN)}
+            return {"ok": True, "keys": keys, "display": _hk_display(keys, _HK_WIN),
+                    "cancel_key": cancel, "cancel_display": cancel_display}
         except Exception as e:
             return {"ok": True, "keys": ["win", "ctrl"], "display": "Win + Ctrl"}
 
@@ -2631,8 +2675,10 @@ class Api:
             # the Command shortcut (src/action_hotkeys.py): holding it would
             # also press the other.
             import action_hotkeys as _ah
+            stored_now = self._load_settings_file()
             clash = _ah.dictation_clash_message(
-                keys, list(_ah.saved_shortcuts(self._load_settings_file()).values()), _platform.system())
+                keys, list(_ah.saved_shortcuts(stored_now).values()), _platform.system(),
+                cancel_key=_ah.cancel_key_of(stored_now))
             if clash:
                 _log_to_file(f"Hotkey not saved ({keys!r}): it overlaps an action shortcut")
                 return {"ok": False, "error": clash}
@@ -2644,46 +2690,64 @@ class Api:
 
             # Restart listener if pipeline is running
             if _pipeline and hasattr(_pipeline, 'hotkey_listener') and _pipeline.hotkey_listener:
-                _log_to_file("Restarting hotkey listener with new keys...")
-                _pipeline.hotkey_listener.stop()
-
-                def _restart():
-                    time.sleep(0.3)  # wait for old hook to uninstall
-                    if _platform.system() == "Windows":
-                        from windows_hotkey import WindowsHotkeyListener
-                        _pipeline.hotkey_listener = WindowsHotkeyListener(
-                            on_press=_pipeline.on_hotkey_press,
-                            on_release=_pipeline.on_hotkey_release,
-                            on_cancel=_pipeline._on_hotkey_cancel,   # Esc (see its docstring)
-                            keys=keys,
-                            on_lock=_pipeline._on_hands_free_lock,
-                        )
-                    elif _platform.system() == "Darwin":
-                        from smart_hotkey import SmartHotkeyListener
-                        _pipeline.hotkey_listener = SmartHotkeyListener(
-                            on_press=_pipeline.on_hotkey_press,
-                            on_release=_pipeline.on_hotkey_release,
-                            on_cancel=_pipeline._on_hotkey_cancel,   # Esc (see its docstring)
-                            keys=keys,
-                            on_lock=_pipeline._on_hands_free_lock,
-                        )
-                    # The Transform shortcut listens through this listener's
-                    # tap on a Mac, so it joins the new one (before start(),
-                    # which on Windows does not return).
-                    try:
-                        _pipeline.apply_transform_settings()
-                        _pipeline.apply_command_settings()
-                    except Exception as _e:
-                        _log_to_file(f"[shortcut] action shortcuts not re-attached: {type(_e).__name__}")
-                    _log_to_file("New hotkey listener starting...")
-                    _pipeline.hotkey_listener.start()
-
-                threading.Thread(target=_restart, daemon=True, name="HotkeyRestart").start()
+                self._restart_hotkey_listener()
 
             return {"ok": True, "keys": keys, "display": verdict["display"]}
         except Exception as e:
             _log_to_file(f"save_hotkey_config error: {e}")
             return {"ok": False, "error": "Couldn't save the hotkey. Please try again."}
+
+    def _restart_hotkey_listener(self):
+        """Make the dictation hotkey's listener again from settings.json (the
+        hotkey and the cancel key) and start it, as a change to either needs.
+        The action shortcuts join the new listener before it starts (a Mac
+        listens to them through its one event tap). Does nothing before the
+        pipeline is up. The listener's own rules are not touched: this only
+        builds it with different keys."""
+        if not (_pipeline and hasattr(_pipeline, 'hotkey_listener') and _pipeline.hotkey_listener):
+            return
+        import action_hotkeys as _ah
+        stored = self._load_settings_file()
+        keys = stored.get("hotkey_keys")
+        cancel_key = _ah.cancel_key_of(stored)
+        _log_to_file("Restarting hotkey listener with new keys...")
+        _pipeline.hotkey_listener.stop()
+
+        def _restart():
+            time.sleep(0.3)  # wait for old hook to uninstall
+            if _platform.system() == "Windows":
+                from windows_hotkey import WindowsHotkeyListener
+                _pipeline.hotkey_listener = WindowsHotkeyListener(
+                    on_press=_pipeline.on_hotkey_press,
+                    on_release=_pipeline.on_hotkey_release,
+                    on_cancel=_pipeline._on_hotkey_cancel,   # Esc (see its docstring)
+                    keys=keys,
+                    on_lock=_pipeline._on_hands_free_lock,
+                    cancel_key=cancel_key,
+                )
+            elif _platform.system() == "Darwin":
+                from smart_hotkey import SmartHotkeyListener
+                _pipeline.hotkey_listener = SmartHotkeyListener(
+                    on_press=_pipeline.on_hotkey_press,
+                    on_release=_pipeline.on_hotkey_release,
+                    on_cancel=_pipeline._on_hotkey_cancel,   # Esc (see its docstring)
+                    keys=keys,
+                    on_lock=_pipeline._on_hands_free_lock,
+                    cancel_key=cancel_key,
+                )
+            # The action shortcuts listen through this listener's tap on a Mac,
+            # so they join the new one (before start(), which on Windows does
+            # not return).
+            try:
+                _pipeline.apply_transform_settings()
+                _pipeline.apply_command_settings()
+                _pipeline.apply_last_result_shortcuts()
+            except Exception as _e:
+                _log_to_file(f"[shortcut] action shortcuts not re-attached: {type(_e).__name__}")
+            _log_to_file("New hotkey listener starting...")
+            _pipeline.hotkey_listener.start()
+
+        threading.Thread(target=_restart, daemon=True, name="HotkeyRestart").start()
 
     def save_transform_hotkey(self, keys) -> dict:
         """Set the Transform shortcut (Settings, Transforms), or clear it with
@@ -2732,6 +2796,123 @@ class Api:
         except Exception as e:
             _log_to_file(f"save_command_hotkey error: {type(e).__name__}")
             return {"ok": False, "error": "Couldn't save the shortcut. Please try again."}
+
+    # ── Shortcuts (Settings, Shortcuts; src/shortcut_settings.py) ─────────────
+
+    @staticmethod
+    def _keys_argument(keys):
+        """The keys a recorder sends: a list, or the JSON of one. None when it
+        is neither."""
+        if isinstance(keys, str):
+            try:
+                keys = json.loads(keys)
+            except ValueError:
+                return None
+        if keys is None:
+            return []                   # nothing given clears it, as an empty list does
+        return keys if isinstance(keys, list) else None
+
+    def get_shortcuts(self) -> dict:
+        """Every shortcut for the Shortcuts page: a row each for Hold to
+        dictate, Hands-free, Cancel, Transform, Command mode, Paste last and
+        Copy last (their keys, whether their feature is on, and a plain
+        sentence if a saved one no longer passes the rules), and the rules
+        and the refused combinations, in words. {"ok": True, "platform",
+        "rows", "rules"}."""
+        try:
+            import shortcut_settings as _sc
+            return _sc.view(self._load_settings_file())
+        except Exception as e:
+            _log_to_file(f"get_shortcuts error: {type(e).__name__}")
+            return {"ok": False, "error": "Couldn't read your shortcuts. Please try again."}
+
+    def check_shortcut(self, action_id, keys) -> dict:
+        """Would these keys be accepted for this action? The same rules as a
+        save, and nothing is saved: the key-recording dialog asks it when the
+        keys are let go. {"ok": True, "keys", "display"} or {"ok": False,
+        "error": "<one sentence>"} (src/shortcut_settings.py check_one)."""
+        try:
+            import shortcut_settings as _sc
+            return _sc.check_one(action_id, self._keys_argument(keys), self._load_settings_file(),
+                                 _platform.system())
+        except Exception as e:
+            _log_to_file(f"check_shortcut error: {type(e).__name__}")
+            return {"ok": False, "error": "Couldn't check the shortcut. Please try again."}
+
+    def save_shortcut(self, action_id, keys) -> dict:
+        """Set one shortcut from the Shortcuts page, or clear it with an empty
+        list (the cancel key goes back to Esc; the dictation hotkey cannot be
+        cleared). Each goes through the call that has always saved it, so the
+        rules are the same wherever it is set: {"ok": True, "keys", "display"}
+        or {"ok": False, "error": "<one sentence>"}."""
+        try:
+            import shortcut_settings as _sc
+            import user_messages as _um
+            keys = self._keys_argument(keys)
+            if keys is None:
+                return {"ok": False, "error": _um.SHORTCUT_HOLD_KEYS}
+            if action_id == "dictation":
+                return self.save_hotkey_config(keys)
+            if action_id == "transform":
+                return self.save_transform_hotkey(keys)
+            if action_id == "command":
+                return self.save_command_hotkey(keys)
+            if action_id not in ("paste_last", "copy_last", "cancel"):
+                return {"ok": False, "error": _um.SHORTCUT_UNKNOWN}
+            if action_id == "cancel":
+                if len(keys) > 1:
+                    return {"ok": False, "error": _um.SHORTCUT_ONE_KEY}
+                payload = {"cancel_key": keys[0] if keys else "esc"}
+            else:
+                payload = {f"{action_id}_hotkey": keys}
+            saved = self.save_settings(payload)
+            if not saved.get("ok"):
+                return {"ok": False, "error": saved.get("error") or _um.SHORTCUT_NOT_SAVED}
+            return _sc.saved_view(action_id, self._load_settings_file(), _platform.system())
+        except Exception as e:
+            _log_to_file(f"save_shortcut error: {type(e).__name__}")
+            return {"ok": False, "error": "Couldn't save the shortcut. Please try again."}
+
+    def reset_shortcuts(self) -> dict:
+        """Put every shortcut back: the dictation hotkey to its default, Esc to
+        cancel, and no shortcut for Transform, Command mode, Paste last and
+        Copy last (their switches stay as they are). Returns get_shortcuts()."""
+        try:
+            import action_hotkeys as _ah
+            import shortcut_settings as _sc
+            with self._editing_settings() as stored:
+                before = (stored.get("hotkey_keys"), _ah.cancel_key_of(stored))
+                _sc.reset(stored)
+                listener_changed = before != (stored.get("hotkey_keys"), _ah.cancel_key_of(stored))
+            _log_to_file("Shortcuts reset")
+            if listener_changed:
+                # The hotkey or the cancel key changed: the new listener takes
+                # every action shortcut with it (and before there is one,
+                # start_hotkey applies them all).
+                self._restart_hotkey_listener()
+            elif _pipeline is not None:
+                for apply in (_pipeline.apply_transform_settings, _pipeline.apply_command_settings,
+                              _pipeline.apply_last_result_shortcuts):
+                    try:
+                        apply()
+                    except Exception as _e:
+                        _log_to_file(f"[shortcut] not applied after the reset: {type(_e).__name__}")
+            return self.get_shortcuts()
+        except Exception as e:
+            _log_to_file(f"reset_shortcuts error: {type(e).__name__}")
+            return {"ok": False, "error": "Couldn't reset your shortcuts. Please try again."}
+
+    def shortcut_recording(self, active) -> dict:
+        """The key-recording dialog is open (True) or closed (False): while it
+        is, shortcuts neither run nor keep their keys from the dialog, so a
+        combination that is already in use can be pressed to be replaced."""
+        try:
+            if _pipeline is not None:
+                _pipeline._action_hotkeys.set_recording(bool(active))
+            return {"ok": True}
+        except Exception as e:
+            _log_to_file(f"shortcut_recording error: {type(e).__name__}")
+            return {"ok": False}
 
     # ── Permission APIs ─────────────────────────────────────────────────
 
@@ -4428,9 +4609,12 @@ class WafflerPipeline:
         return (last_transcript_title("Paste", words), last_transcript_title("Copy", words),
                 words > 0)
 
-    def paste_last(self) -> dict:
-        """Paste the last transcript into the app in front (menu bar, bridge),
-        the same safe paste as a dictation."""
+    def paste_last(self, aim_at_last_app: bool = True) -> dict:
+        """Paste the last transcript into the app in front (menu bar, bridge,
+        and the Paste last shortcut), the same safe paste as a dictation.
+        ``aim_at_last_app`` is for Windows' tray menu, which leaves a window of
+        ours in front; a shortcut leaves nothing of ours in front, so it passes
+        False and pastes where the person is."""
         text = self._last_result.get()
         if not text:
             _log_to_file("[paste-last] nothing to paste yet")
@@ -4439,7 +4623,7 @@ class WafflerPipeline:
         # Windows: the tray menu leaves a hidden window of ours in front, so
         # aim at the app the user last dictated into. macOS pastes into
         # whatever has focus (opening a menu bar menu does not take it).
-        target = self._prev_window if _platform.system() == "Windows" else None
+        target = self._prev_window if (aim_at_last_app and _platform.system() == "Windows") else None
         # The menu has just closed: give the focus a moment to settle.
         outcome = self.clipboard.paste_text(
             text, window_handle=target, restore=_pasteboard.restore_after_paste(stored),
@@ -4456,6 +4640,88 @@ class WafflerPipeline:
         ok = self.clipboard.copy(text)
         _log_to_file(f"[copy-last] ok={ok} words={len(text.split())}")
         return {"ok": bool(ok)}
+
+    # ── Paste last and Copy last as shortcuts (src/shortcut_settings.py) ──────
+
+    def _last_result_blocked(self) -> bool:
+        """Is something else using the microphone, the model or the paste: a
+        dictation being recorded or processed, a command being spoken or
+        carried out, or a transform running? Paste last and Copy last wait
+        for it, as a transform and a command do."""
+        rewrite = getattr(self, "_transforms", None)
+        return bool(self._dictation_busy()) or (rewrite is not None and bool(rewrite.busy()))
+
+    def _last_result_say(self, message):
+        """A short notice from the Paste last or Copy last shortcut, through the
+        governor (src/notifier.py). The menu bar items stay silent, as they were."""
+        heading, body = message
+        if self._toast_allowed("last_result_notice"):
+            self._show_toast_safe("info", heading, body, timeout=3, reposition=True)
+
+    def _on_paste_last_shortcut(self):
+        """The Paste last shortcut, once the keys are up: the same safe paste as
+        the menu bar item, unless Waffler is busy (then it says so and pastes
+        nothing, so it never types into a dictation in progress) or there is
+        nothing to paste."""
+        if self._last_result_blocked():
+            _log_to_file("[paste-last] shortcut refused: busy")
+            self._last_result_say(_user_messages.LAST_BUSY)
+            return
+        if _platform.system() == "Windows":
+            # Ctrl+V is sent while a modifier of the shortcut may still be down
+            # (macOS' paste waits for them itself): Shift would make it Ctrl+Shift+V.
+            _action_hotkeys.wait_for_modifiers_up(_action_hotkeys.windows_modifiers_down, 0.8)
+        result = self.paste_last(aim_at_last_app=False)     # no tray menu left a window of ours in front
+        if result.get("error") == "no_transcript":
+            self._last_result_say(_user_messages.LAST_NOTHING_TO_PASTE)
+
+    def _on_copy_last_shortcut(self):
+        """The Copy last shortcut: the last result on the clipboard, with a
+        short notice (a copy shows nothing by itself), unless Waffler is busy
+        or there is nothing to copy."""
+        if self._last_result_blocked():
+            _log_to_file("[copy-last] shortcut refused: busy")
+            self._last_result_say(_user_messages.LAST_BUSY)
+            return
+        result = self.copy_last()
+        if result.get("error") == "no_transcript":
+            self._last_result_say(_user_messages.LAST_NOTHING_TO_COPY)
+        elif result.get("ok"):
+            self._last_result_say(_user_messages.LAST_COPIED)
+        else:
+            self._last_result_say(_user_messages.LAST_COPY_FAILED)
+
+    def apply_last_result_shortcuts(self):
+        """Make the Paste last and Copy last shortcuts match settings.json:
+        register each that is set, drop each that is not, and join the
+        dictation hotkey's listener (a Mac listens to keys through its one
+        event tap). Paste last starts when the keys come back up, because it
+        types into the app in front. Called at start, after the dictation
+        hotkey is rebuilt, and after a save. Never raises."""
+        try:
+            stored = self._read_settings()
+            platform = "Windows" if _platform.system() == "Windows" else "Darwin"
+            self._action_hotkeys.set_cancel_key(_action_hotkeys.cancel_key_of(stored))
+            ptt = _action_hotkeys.dictation_keys(stored, platform)
+            for action_id, register, callback in (
+                    ("paste_last", self._action_hotkeys.register_on_release, self._on_paste_last_shortcut),
+                    ("copy_last", self._action_hotkeys.register, self._on_copy_last_shortcut)):
+                keys = _action_hotkeys.stored_keys(stored, action_id)
+                if not keys:
+                    self._action_hotkeys.unregister(action_id)
+                    continue
+                verdict = register(action_id, keys, callback, ptt)
+                if not verdict["ok"]:
+                    self._action_hotkeys.unregister(action_id)
+                    _log_to_file(f"[{action_id.replace('_', '-')}] the saved shortcut is not usable: "
+                                 + verdict["error"])
+            listener = getattr(self, "hotkey_listener", None)
+            if listener is not None:
+                self._action_hotkeys.attach_listener(listener)
+            if self._action_hotkeys.registered():
+                self._action_hotkeys.start()
+        except Exception as e:
+            _log_to_file(f"[shortcut] Paste last and Copy last not applied: {type(e).__name__}")
 
     # ── Transforms: rewrite the selected text (src/transform_action.py) ────
 
@@ -4530,6 +4796,7 @@ class WafflerPipeline:
             stored = self._read_settings()
             view = _transforms.settings(stored)
             platform = "Windows" if _platform.system() == "Windows" else "Darwin"
+            self._action_hotkeys.set_cancel_key(_action_hotkeys.cancel_key_of(stored))
             if view["enabled"] and view["hotkey"]:
                 verdict = self._action_hotkeys.register(
                     "transform", view["hotkey"], self._on_transform_shortcut,
@@ -4687,6 +4954,7 @@ class WafflerPipeline:
             stored = self._read_settings()
             view = _command_mode.settings(stored)
             platform = "Windows" if _platform.system() == "Windows" else "Darwin"
+            self._action_hotkeys.set_cancel_key(_action_hotkeys.cancel_key_of(stored))
             if view["enabled"] and view["hotkey"]:
                 verdict = self._action_hotkeys.register_hold(
                     "command", view["hotkey"], self._commands.down, self._commands.up,
@@ -6958,11 +7226,13 @@ class WafflerPipeline:
         try:
             # Load configured keys from settings
             keys = None
+            cancel_key = None
             try:
                 sf = DATA_DIR / "settings.json"
                 if sf.exists():
                     stored = json.loads(sf.read_text(encoding="utf-8-sig"))
                     keys = stored.get("hotkey_keys")
+                    cancel_key = _action_hotkeys.cancel_key_of(stored)      # Esc unless an F key was chosen
             except Exception:
                 pass
 
@@ -6974,6 +7244,7 @@ class WafflerPipeline:
                     on_cancel=self._on_hotkey_cancel,   # Esc (see its docstring)
                     keys=keys,
                     on_lock=self._on_hands_free_lock,
+                    cancel_key=cancel_key,
                 )
             else:
                 _log_to_file(f"Creating SmartHotkeyListener with keys: {keys}")
@@ -6983,12 +7254,14 @@ class WafflerPipeline:
                     on_cancel=self._on_hotkey_cancel,   # Esc (see its docstring)
                     keys=keys,
                     on_lock=self._on_hands_free_lock,
+                    cancel_key=cancel_key,
                 )
-            # The Transform shortcut, if it is on. Before start(): on a Mac it
-            # listens through this listener's tap, and on Windows start()
+            # The action shortcuts, those that are on. Before start(): on a Mac
+            # they listen through this listener's tap, and on Windows start()
             # does not return until the hook ends.
             self.apply_transform_settings()
             self.apply_command_settings()
+            self.apply_last_result_shortcuts()
             _log_to_file("Calling hotkey.start()...")
             self.hotkey_listener.start()
             if _platform.system() == "Darwin":

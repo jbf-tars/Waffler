@@ -223,7 +223,7 @@ def test_clearing_the_shortcut_with_an_empty_list(tmp_path):
 
 @pytest.mark.parametrize("keys,fragment", [
     (["c"], "Control or Command"),
-    (["control", "option"], "Add a letter"),
+    (["option", "shift"], "Include Control or Command"),       # (modifier keys alone are allowed on a Mac since S11a)
     (["fn", "control", "c"], "Fn"),
     (["control", "cmd", "q"], "already use"),
     ("not json", "Hold the keys"),

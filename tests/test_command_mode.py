@@ -103,9 +103,13 @@ def test_a_bad_payload_is_refused_with_a_plain_sentence(label, payload, message)
 
 def test_a_shortcut_that_cannot_be_used_says_why():
     for keys, fragment in ((["fn", "control", "c"], "Fn"), (["c"], "Control or Command"),
-                           (["control", "option"], "Add a letter"), (["control", "option", "space"], "can't be used")):
+                           (["option", "shift"], "Include Control or Command"), (["shift"], "One modifier key"),
+                           (["control", "option", "space"], "can't be used")):
         err = cm.settings_problem({"command_mode": {"hotkey": keys}}, {}, platform="Darwin")
         assert err and fragment in err, (keys, err)
+    # Since S11a a hold on a Mac may be modifier keys alone; Windows has no such thing.
+    assert cm.settings_problem({"command_mode": {"hotkey": ["control", "option"]}}, {}, platform="Darwin") is None
+    assert "Add a letter" in cm.settings_problem({"command_mode": {"hotkey": ["ctrl", "shift"]}}, {}, platform="Windows")
 
 
 def test_the_shortcut_may_not_overlap_the_dictation_hotkey_or_the_transform_shortcut():

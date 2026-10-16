@@ -39,6 +39,7 @@ from mac_hotkey_monitor import (
     SpaceHandler,
     GenericHotkeyHandler,
 )
+import action_hotkeys
 
 try:
     from log_util import log as _diag_log
@@ -52,7 +53,8 @@ _LISTENER_ID_GEN = itertools.count(1)
 
 class SmartHotkeyListener:
 
-    def __init__(self, on_press, on_release, on_cancel=None, keys=None, on_lock=None):
+    def __init__(self, on_press, on_release, on_cancel=None, keys=None, on_lock=None,
+                 cancel_key=None):
         """
         Args:
             on_press: Callback when recording should start
@@ -66,6 +68,10 @@ class SmartHotkeyListener:
             on_lock: Optional — callback when Space locks the recording on
                 (hands-free). Used for the lock sound cue and to keep the
                 "Don't tap, hold" hint away from takes that locked.
+            cancel_key: Optional — the key that cancels, by name. Esc unless
+                the person chose an F key in Settings (src/action_hotkeys.py
+                CANCEL_KEYS); anything else is Esc. The only thing it changes
+                is which key the cancel handler below listens for.
         """
         self._on_press_cb = on_press
         self._on_release_cb = on_release
@@ -134,13 +140,24 @@ class SmartHotkeyListener:
 
         # Esc cancel — universal escape hatch for sticky mode. Never
         # suppress; we just want to peek at Esc presses while it still
-        # reaches other apps (dialog dismiss, vim, etc).
-        self._esc_handler = GenericHotkeyHandler(
-            keys=["esc"],
-            on_press=self._on_esc_press,
-            on_release=lambda: None,
-            suppress=False,
-        )
+        # reaches other apps (dialog dismiss, vim, etc). A cancel key chosen
+        # in Settings (an F key) takes Esc's place with the same handler.
+        cancel = action_hotkeys.cancel_key_of({"cancel_key": cancel_key})
+        if cancel == action_hotkeys.CANCEL_DEFAULT:
+            self._esc_handler = GenericHotkeyHandler(
+                keys=["esc"],
+                on_press=self._on_esc_press,
+                on_release=lambda: None,
+                suppress=False,
+            )
+        else:
+            self._esc_handler = GenericHotkeyHandler(
+                keys=[cancel],
+                on_press=self._on_esc_press,
+                on_release=lambda: None,
+                suppress=False,
+                key_codes={k: v for k, v in action_hotkeys.MAC_KEYCODES.items() if k == cancel},
+            )
         self._tap.add_handler(self._esc_handler)
 
         # Backward-compat surface for app.py's get_fn_key_state — see
@@ -291,17 +308,19 @@ class SmartHotkeyListener:
 
         threading.Thread(target=_send_escapes, daemon=True).start()
 
-    # ── Listen-only observers ─────────────────────────────────────────
+    # ── Observers of the shortcuts ────────────────────────────────────
 
     def attach_observer(self, handler):
         """Let one more handler see every key event on this listener's tap.
 
         The process may have only ONE event tap (see mac_hotkey_monitor.py:
         two taps crashed it), so anything else that needs to hear the keyboard
-        joins this one. The handler is added last, after the hotkey's own, and
-        must answer False from ``handle`` (it never swallows a key). It is used
-        by the action shortcuts (src/action_hotkeys.py). The hotkey's own
-        handlers and state are not touched.
+        joins this one. The handler is added last, after the hotkey's own. It
+        answers True from ``handle`` only to keep the main key of a registered
+        action shortcut from the app in front (src/action_hotkeys.py: the key
+        and its repeats, never a modifier, never while the hotkey is held), and
+        it must catch its own errors. It is used by the action shortcuts. The
+        hotkey's own handlers and state are not touched.
         """
         self._tap.add_handler(handler)
 

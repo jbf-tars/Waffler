@@ -297,14 +297,15 @@ def test_the_mac_observer_turns_key_and_flag_events_into_a_hold():
     obs = observer(rig.r)
     assert obs.handle(ah._FLAGS_CHANGED, FakeEvent(0, CTRL)) is False
     assert obs.handle(ah._FLAGS_CHANGED, FakeEvent(0, CTRL | OPT)) is False
-    assert obs.handle(ah._KEY_DOWN, FakeEvent(C, CTRL | OPT)) is False
+    assert obs.handle(ah._KEY_DOWN, FakeEvent(C, CTRL | OPT)) is True      # the key is the shortcut's: swallowed
     assert rig.events == ["down"]
-    assert obs.handle(ah._KEY_DOWN, FakeEvent(C, CTRL | OPT, repeat=1)) is False
+    assert obs.handle(ah._KEY_DOWN, FakeEvent(C, CTRL | OPT, repeat=1)) is True
     assert obs.handle(ah._FLAGS_CHANGED, FakeEvent(0, CTRL | OPT | SHIFT)) is False     # an extra key
     assert rig.events == ["down"]
     assert obs.handle(ah._FLAGS_CHANGED, FakeEvent(0, OPT)) is False                      # Control let go
     assert rig.events == ["down", "up"]
-    assert obs.handle(ah._KEY_UP, FakeEvent(C, OPT)) is False
+    assert obs.handle(ah._KEY_DOWN, FakeEvent(C, OPT, repeat=1)) is True, "still held: the letter is not typed"
+    assert obs.handle(ah._KEY_UP, FakeEvent(C, OPT)) is True
     assert rig.events == ["down", "up"]
 
 
@@ -419,18 +420,20 @@ def test_on_windows_a_hold_may_not_be_ctrl_and_alt_because_that_is_altgr():
         assert "\u2014" not in got["error"] and "\u2013" not in got["error"]
     for keys in (["ctrl", "shift", "y"], ["win", "alt", "y"], ["win", "ctrl", "alt", "y"], ["win", "shift", "y"]):
         assert ah.check(keys, WIN, hold=True)["ok"], keys
-    # A press (Transform) is as it was, and a Mac has no AltGr.
-    assert ah.check(["ctrl", "alt", "c"], WIN)["ok"] is True
+    # A press with a letter is refused too since S11a (an F key types nothing), and a Mac has no AltGr.
+    assert ah.check(["ctrl", "alt", "c"], WIN)["ok"] is False
+    assert ah.check(["ctrl", "alt", "f5"], WIN)["ok"] is True
     assert ah.check(["control", "option", "c"], MAC, hold=True)["ok"] is True
 
 
-def test_the_registry_applies_the_altgr_rule_to_holds_only():
+def test_the_registry_applies_the_altgr_rule_to_holds_and_to_presses_with_a_letter():
     r = ah.ActionHotkeys(WIN, spawn=lambda fn: fn())
     refused = r.register_hold("command", ["ctrl", "alt", "c"], lambda: None, lambda: None)
     assert refused["ok"] is False and "AltGr" in refused["error"] and r.registered() == {}
     assert r.conflict("command", ["ctrl", "alt", "c"], hold=True) == refused["error"]
-    assert r.conflict("command", ["ctrl", "alt", "c"]) is None
-    assert r.register("transform", ["ctrl", "alt", "c"], lambda: None)["ok"] is True
+    assert r.conflict("command", ["ctrl", "alt", "c"]) == refused["error"], "since S11a a press is refused too"
+    assert r.register("transform", ["ctrl", "alt", "c"], lambda: None)["ok"] is False
+    assert r.register("transform", ["ctrl", "alt", "f6"], lambda: None)["ok"] is True, "an F key types nothing"
 
 
 def test_a_hold_nothing_ever_ended_is_ended_so_the_next_press_is_a_press():

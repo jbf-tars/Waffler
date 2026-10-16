@@ -143,6 +143,15 @@ def _key_down(vk: int) -> bool:
     return bool(user32.GetAsyncKeyState(vk) & 0x8000)
 
 
+def _cancel_vk_for(name) -> int:
+    """The virtual-key code of the cancel key: Esc, or the F key the person
+    chose in Settings. Anything else is Esc."""
+    key = str(name or "").strip().lower()
+    if key and key != "esc" and key.startswith("f") and key in KEY_TO_VK:
+        return KEY_TO_VK[key][0]
+    return VK_ESCAPE
+
+
 # ── State enum ────────────────────────────────────────────────────────
 
 class _State(Enum):
@@ -165,7 +174,8 @@ class WindowsHotkeyListener:
     Default combo: Win+Ctrl. Users can rebind via Settings.
     """
 
-    def __init__(self, on_press, on_release, on_cancel=None, keys=None, on_lock=None):
+    def __init__(self, on_press, on_release, on_cancel=None, keys=None, on_lock=None,
+                 cancel_key=None):
         self._on_press   = on_press
         self._on_release = on_release
         # v3.14.37 — Esc cancels an in-progress recording without firing
@@ -194,6 +204,9 @@ class WindowsHotkeyListener:
         # dictation being processed. Esc then stops that wait too, not only a
         # recording in progress.
         self._processing = False
+        # The key that cancels: Esc unless the person chose an F key in
+        # Settings (a name in KEY_TO_VK). It is the only thing that differs.
+        self._cancel_vk = _cancel_vk_for(cancel_key)
 
         # Must prevent garbage collection of the callback
         self._hook_proc = HOOKPROC(self._ll_keyboard_proc)
@@ -307,7 +320,7 @@ class WindowsHotkeyListener:
             # for a dictation being processed; outside those, Esc only passes
             # through so dialogs, vim and file pickers still work. It always
             # passes through.
-            elif vk == VK_ESCAPE and is_down and self._esc_cancels():
+            elif vk == self._cancel_vk and is_down and self._esc_cancels():
                 if self._state != _State.IDLE:
                     _log(f"Esc → CANCEL recording (was {self._state.value})")
                     self._state = _State.IDLE
@@ -445,7 +458,7 @@ class WindowsHotkeyListener:
                     for k in self._keys
                 )
                 space = _key_down(VK_SPACE)
-                esc = _key_down(VK_ESCAPE)
+                esc = _key_down(self._cancel_vk)
 
                 # v3.14.37 — Esc cancels any active recording. Same as the
                 # hook path: discards audio, no transcription, no paste. Also

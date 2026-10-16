@@ -258,11 +258,12 @@ def test_the_shortcut_is_checked_when_saved():
 
 def test_the_shortcut_may_not_overlap_the_dictation_hotkey():
     mine = {"hotkey_keys": ["cmd", "shift"]}
-    assert tf.settings_problem({"transforms": {"hotkey": ["cmd", "shift", "t"]}}, mine, platform=MAC)
+    assert "dictation hotkey" in tf.settings_problem({"transforms": {"hotkey": ["cmd", "shift", "y"]}}, mine, platform=MAC)
     assert tf.settings_problem({"transforms": {"hotkey": ["cmd", "option", "t"]}}, mine, platform=MAC) is None
     win = {"hotkey_keys": ["ctrl", "shift"]}
-    assert tf.settings_problem({"transforms": {"hotkey": ["ctrl", "shift", "alt", "t"]}}, win, platform=WIN)
-    assert tf.settings_problem({"transforms": {"hotkey": ["ctrl", "alt", "t"]}}, win, platform=WIN) is None
+    # (Ctrl with Alt is AltGr on Windows and refused since S11a, so these use the Windows key.)
+    assert "dictation hotkey" in tf.settings_problem({"transforms": {"hotkey": ["win", "ctrl", "shift", "y"]}}, win, platform=WIN)
+    assert tf.settings_problem({"transforms": {"hotkey": ["win", "alt", "t"]}}, win, platform=WIN) is None
 
 
 # ── which transform runs ─────────────────────────────────────────────────────

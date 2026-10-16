@@ -286,10 +286,10 @@ def test_the_shortcut_is_registered_when_on_and_dropped_when_off(rig):
     refreshed = []
     p.ns["_refresh_tray_menu"] = lambda: refreshed.append(1)
     p._action_hotkeys.platform = "Windows"
-    settings_file(p, hotkey=["ctrl", "alt", "t"])
+    settings_file(p, hotkey=["ctrl", "shift", "y"])     # (Ctrl and Alt are AltGr on Windows: refused since S11a)
     p.apply_transform_settings()
-    assert p._action_hotkeys.registered() == {"transform": ["ctrl", "alt", "t"]}
-    settings_file(p, enabled=False, hotkey=["ctrl", "alt", "t"])
+    assert p._action_hotkeys.registered() == {"transform": ["ctrl", "shift", "y"]}
+    settings_file(p, enabled=False, hotkey=["ctrl", "shift", "y"])
     p.apply_transform_settings()
     assert p._action_hotkeys.registered() == {}
     settings_file(p, hotkey=[])
@@ -301,9 +301,9 @@ def test_the_shortcut_is_registered_when_on_and_dropped_when_off(rig):
 def test_pressing_the_shortcut_runs_a_transform(rig):
     p = rig
     p._action_hotkeys.platform = "Windows"
-    settings_file(p, hotkey=["ctrl", "alt", "t"])
+    settings_file(p, hotkey=["ctrl", "shift", "y"])
     p.apply_transform_settings()
-    assert p._action_hotkeys.key_down("t", ["ctrl", "alt"]) == ["transform"]
+    assert p._action_hotkeys.key_down("y", ["ctrl", "shift"]) == ["transform"]
     wait_idle(p)
     assert p.clipboard.pastes == [GOOD]
 
@@ -312,7 +312,7 @@ def test_a_saved_shortcut_that_overlaps_the_dictation_hotkey_is_dropped_and_said
     p = rig
     p._action_hotkeys.platform = "Windows"
     (p.ns["DATA_DIR"] / "settings.json").write_text(json.dumps(
-        {"transforms": {"enabled": True, "hotkey": ["ctrl", "shift", "alt", "t"]},
+        {"transforms": {"enabled": True, "hotkey": ["win", "ctrl", "shift", "y"]},
          "hotkey_keys": ["ctrl", "shift"]}), encoding="utf-8")
     p.apply_transform_settings()
     assert p._action_hotkeys.registered() == {}
@@ -433,7 +433,11 @@ def test_the_shortcut_is_applied_before_the_listener_starts_because_windows_star
 
     api = next(n for n in APP_TREE.body if isinstance(n, ast.ClassDef) and n.name == "Api")
     save = next(n for n in api.body if isinstance(n, ast.FunctionDef) and n.name == "save_hotkey_config")
-    restart = next(n for n in ast.walk(save) if isinstance(n, ast.FunctionDef) and n.name == "_restart")
+    # Since S11a the restart is one helper, which a change of the cancel key shares.
+    assert any(isinstance(n, ast.Call) and getattr(n.func, "attr", "") == "_restart_hotkey_listener"
+               for n in ast.walk(save))
+    helper = next(n for n in api.body if isinstance(n, ast.FunctionDef) and n.name == "_restart_hotkey_listener")
+    restart = next(n for n in ast.walk(helper) if isinstance(n, ast.FunctionDef) and n.name == "_restart")
     calls = sorted((n.lineno, n.func.attr) for n in ast.walk(restart)
                    if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
                    and n.func.attr in ("apply_transform_settings", "start"))
