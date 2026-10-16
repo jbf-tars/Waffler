@@ -33,6 +33,8 @@ both legacy attributes via property aliases).
 
 import itertools
 import threading
+import time
+import mac_hotkey_monitor as _mhm
 from mac_hotkey_monitor import (
     MacEventTap,
     FnHandler,
@@ -40,6 +42,7 @@ from mac_hotkey_monitor import (
     GenericHotkeyHandler,
 )
 import action_hotkeys
+import double_tap
 
 try:
     from log_util import log as _diag_log
@@ -54,7 +57,7 @@ _LISTENER_ID_GEN = itertools.count(1)
 class SmartHotkeyListener:
 
     def __init__(self, on_press, on_release, on_cancel=None, keys=None, on_lock=None,
-                 cancel_key=None):
+                 cancel_key=None, double_tap=False, clock=None):
         """
         Args:
             on_press: Callback when recording should start
@@ -72,6 +75,11 @@ class SmartHotkeyListener:
                 the person chose an F key in Settings (src/action_hotkeys.py
                 CANCEL_KEYS); anything else is Esc. The only thing it changes
                 is which key the cancel handler below listens for.
+            double_tap: Optional — True to lock a take on when the hotkey is
+                tapped twice quickly (src/double_tap.py); Settings, Shortcuts.
+                Off, nothing below asks the module anything.
+            clock: Optional — the monotonic clock double-tap reads (a test
+                gives its own).
         """
         self._on_press_cb = on_press
         self._on_release_cb = on_release
@@ -86,6 +94,14 @@ class SmartHotkeyListener:
         # dictation being processed. Esc then stops that wait too
         # (set_processing, called by the pipeline).
         self._processing = False
+
+        # Double-tap to go hands-free (src/double_tap.py): None while it is
+        # off, and then no line of the state machine below behaves any
+        # differently. ``_locked_by_double_tap`` is a take it locked: a press
+        # ends that one even if the setting has since been switched off.
+        self._double_tap = None
+        self._locked_by_double_tap = False
+        self._clock = clock
 
         # v3.14.30 diagnostic: each listener gets an id so the log says
         # "L01 fired press" / "L02 fired press" — instantly answers the
@@ -166,6 +182,10 @@ class SmartHotkeyListener:
         # `_hotkey_active` attribute (as a property alias in mac_hotkey_monitor).
         self._monitor = self._fn_handler if self._fn_handler else self._hotkey_handler
 
+        # Last, because the gate needs to know whether the hotkey is Fn.
+        if double_tap:
+            self.set_double_tap(True)
+
         print(f"[HOTKEY] SmartHotkeyListener initialized with keys: {self._keys}")
 
     # ── Key events ────────────────────────────────────────────────────
@@ -178,8 +198,22 @@ class SmartHotkeyListener:
         if not self._recording:
             self._hotkey_held = True
             self._recording = True
+            if self._double_tap is not None:
+                self._double_tap.press()
             _diag_log(f"[HOTKEY/{self._id}] → starting push-to-talk (fire_press)")
             self._fire_press()
+        elif self._sticky and self._press_ends_hands_free():
+            # Double-tap is on (or this take was locked by it): a press of the
+            # hotkey ends a hands-free take, as the hotkey page says. Its
+            # release, and the key bouncing, find nothing recording.
+            self._hotkey_held = True
+            self._sticky = False
+            self._recording = False
+            self._locked_by_double_tap = False
+            self._double_tap_forget()
+            _diag_log(f"[HOTKEY/{self._id}] → press ends the hands-free take (fire_release)")
+            self._fire_visual_feedback("sticky_off_fn")
+            self._fire_release()
         else:
             # Hotkey pressed while already recording — keep held flag in
             # sync so Fn+Space detection still works in sticky mode.
@@ -196,6 +230,15 @@ class SmartHotkeyListener:
         )
         self._hotkey_held = False
         if self._recording and not self._sticky:
+            if self._double_tap is not None and self._double_tap.release():
+                # The second tap of two: keep the take recording and lock it
+                # on, as Space does (the lock cue, the hands-free pill).
+                self._sticky = True
+                self._locked_by_double_tap = True
+                _diag_log(f"[HOTKEY/{self._id}] → double tap: hands-free ON (fire_lock)")
+                self._fire_visual_feedback("sticky_on")
+                self._fire_lock()
+                return
             self._recording = False
             _diag_log(f"[HOTKEY/{self._id}] → stopping push-to-talk (fire_release)")
             self._fire_release()
@@ -212,12 +255,19 @@ class SmartHotkeyListener:
         )
         if self._hotkey_held and self._recording and not self._sticky:
             self._sticky = True
+            dt = getattr(self, "_double_tap", None)     # a Space lock forgets any taps before it
+            if dt is not None:
+                dt.reset()
             print("📌 Hotkey+Space → Sticky mode ON! Press hotkey+Space again to stop.")
             self._fire_visual_feedback("sticky_on")
             self._fire_lock()
         elif self._hotkey_held and self._recording and self._sticky:
             self._sticky = False
             self._recording = False
+            self._locked_by_double_tap = False
+            dt = getattr(self, "_double_tap", None)
+            if dt is not None:
+                dt.reset()
             print("🛑 Hotkey+Space → Sticky mode OFF")
             self._fire_visual_feedback("sticky_off_fn")
             self._fire_release()
@@ -254,8 +304,42 @@ class SmartHotkeyListener:
         self._sticky = False
         self._recording = False
         self._hotkey_held = False
+        self._locked_by_double_tap = False
+        self._double_tap_forget()
         self._fire_visual_feedback("sticky_off_esc")
         self._fire_cancel()
+
+    # ── Double-tap to go hands-free (src/double_tap.py) ───────────────
+
+    def set_double_tap(self, enabled: bool):
+        """Switch double-tap on or off while the listener runs (Settings,
+        Shortcuts). A hands-free take it has already locked is left alone
+        and can still be ended by a press. Nothing else changes."""
+        if enabled:
+            if self._double_tap is None:
+                # The Fn key says its release 150 ms late (hold-quiet timer),
+                # so a tap is measured from when the finger left the key.
+                lag = getattr(_mhm, "_FN_RELEASE_HOLD_S", 0.15) if self._fn_handler is not None else 0.0
+                self._double_tap = double_tap.DoubleTapGate(
+                    clock=self._clock or time.monotonic, release_lag_s=lag)
+        else:
+            self._double_tap = None
+
+    @property
+    def double_tap_enabled(self) -> bool:
+        return self._double_tap is not None
+
+    def _double_tap_forget(self):
+        if self._double_tap is not None:
+            self._double_tap.reset()
+
+    def _press_ends_hands_free(self) -> bool:
+        """A press of the hotkey in a hands-free take: does it end it? Only
+        with double-tap on (or for a take it locked), and not when it is the
+        last release bouncing."""
+        if self._double_tap is None:
+            return self._locked_by_double_tap
+        return not self._double_tap.is_bounce()
 
     # ── Callbacks (run in a thread to avoid blocking the event tap) ──
 
@@ -339,6 +423,8 @@ class SmartHotkeyListener:
         self._hotkey_held = False
         self._sticky = False
         self._recording = False
+        self._locked_by_double_tap = False
+        self._double_tap_forget()
         print("[HOTKEY] → State reset to: sticky=False recording=False hotkey_held=False")
 
     # ── Lifecycle ─────────────────────────────────────────────────────

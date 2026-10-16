@@ -42,7 +42,10 @@ def test_speech_to_text_has_one_overall_deadline_that_grows_with_the_recording()
     assert pw.transcribe_deadline_s(10) == 45.0
     assert pw.transcribe_deadline_s(60) == 60.0
     assert pw.transcribe_deadline_s(300) == 180.0
-    assert pw.transcribe_deadline_s(720) == 330.0     # the 12-minute cap
+    # The cap was 330 s, reached at 12 minutes, the longest take then. The longest take
+    # is 20 minutes now (src/take_limit.py), and it gets the time its pieces need.
+    assert pw.transcribe_deadline_s(720) == 390.0
+    assert pw.transcribe_deadline_s(1200) == 630.0
     # Far below the 240 s one request could take, three times over.
     assert pw.transcribe_deadline_s(30) < 240.0
 

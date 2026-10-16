@@ -314,6 +314,25 @@ SOUNDS_UNKNOWN = "Waffler doesn't know that choice for sounds. Use the switch."
 TIPS_UNKNOWN = "Waffler doesn't know that choice for tips. Use the switch."
 
 
+# ── The longest take (src/take_limit.py): a minute's warning, then the stop ──
+# (heading, body) of the two messages. The warning comes once, a minute before
+# the limit; the stop comes when the recording ends itself and what was said
+# is being turned into text, as if the key had been let go.
+def take_limit_warning():
+    return ("Long recording",
+            "One minute left, then Waffler will stop and clean up what you said.")
+
+
+def take_limit_stopped(minutes: int):
+    return ("Recording stopped",
+            f"That was {minutes} minutes, the longest one take can be. "
+            "Waffler is cleaning up what you said.")
+
+
+# Settings, Shortcuts: double-tap to go hands-free (src/double_tap.py).
+DOUBLE_TAP_UNKNOWN = "Waffler doesn't know that choice for double-tap. Use the switch."
+
+
 # Settings, Usage: how fast the person types, for the minutes-saved estimate.
 TYPING_SPEED_UNKNOWN = "Typing speed needs a whole number of words a minute, from 10 to 200."
 

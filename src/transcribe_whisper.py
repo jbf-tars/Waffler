@@ -1249,7 +1249,8 @@ def boost_quiet_speech(audio_bytes: bytes):
             params = r.getparams()
             if params.sampwidth != 2:
                 return audio_bytes
-            a = np.frombuffer(r.readframes(params.nframes), dtype=np.int16).astype(np.float32) / 32768.0
+            a = np.frombuffer(r.readframes(params.nframes), dtype=np.int16).astype(np.float32)
+        a /= 32768.0            # in place: an exact halving 15 times, and no second copy of the take
         if a.size == 0:
             return audio_bytes
         peak = float(np.abs(a).max())
@@ -1269,20 +1270,30 @@ def boost_quiet_speech(audio_bytes: bytes):
         # Size the boost by the loudest speech, not by a stray click or knock:
         # the top 0.1% of samples may exceed the ceiling, and those are
         # rounded off by a soft limiter rather than allowed to clip.
-        loud = max(float(np.percentile(np.abs(a), 99.9)), 1e-6)
+        # overwrite_input: the same answer without a second copy of the whole
+        # take (|a| is a temporary), which at 20 minutes is 77 MB.
+        loud = max(float(np.percentile(np.abs(a), 99.9, overwrite_input=True)), 1e-6)
         gain = min(gain, 10 ** (SPEECH_MAX_GAIN_DB / 20), SPEECH_PEAK_CEILING / loud)
         if gain <= 1.05:
             return audio_bytes
-        out = a * gain
-        over = np.abs(out) > SPEECH_PEAK_CEILING
-        if over.any():
-            head = 1.0 - SPEECH_PEAK_CEILING
-            x = np.abs(out[over]) - SPEECH_PEAK_CEILING
-            out[over] = np.sign(out[over]) * (SPEECH_PEAK_CEILING + head * np.tanh(x / head))
+        # The same arithmetic on every sample, a block at a time: whole-take
+        # copies of the scaled audio (float64, 154 MB for 20 minutes) and its
+        # absolute value are never made.
+        head = 1.0 - SPEECH_PEAK_CEILING
+        pcm = np.empty(a.size, dtype=np.int16)
+        step = 1 << 20
+        for i in range(0, a.size, step):
+            out = a[i:i + step] * gain
+            over = np.abs(out) > SPEECH_PEAK_CEILING
+            if over.any():
+                x = np.abs(out[over]) - SPEECH_PEAK_CEILING
+                out[over] = np.sign(out[over]) * (SPEECH_PEAK_CEILING + head * np.tanh(x / head))
+            pcm[i:i + step] = (out * 32767.0).astype(np.int16)
+        del a
         b = io.BytesIO()
         with wave.open(b, "wb") as w:
             w.setparams(params)
-            w.writeframes((out * 32767.0).astype(np.int16).tobytes())
+            w.writeframes(pcm.tobytes())
         _wlog(f"[whisper] quiet recording: speech at {20 * np.log10(level):.0f} dBFS, "
               f"boosted by {20 * np.log10(gain):.1f} dB")
         return b.getvalue()
@@ -1315,6 +1326,26 @@ def _pad_audio_with_silence(audio_bytes: bytes, padding_ms: int = 300) -> bytes:
         return out.getvalue()
     except Exception:
         return audio_bytes
+
+
+# Windows worked on at a time by _window_rms: 4,000 of 30 ms is 2 minutes, a
+# 8 MB float copy, instead of one copy of the whole take.
+_RMS_BLOCK_WINDOWS = 4000
+
+
+def _window_rms(samples, win: int):
+    """RMS of each consecutive ``win``-sample window of 16-bit ``samples`` (a
+    trailing part-window is left out), as float32. The same numbers as
+    squaring one float32 copy of the whole take, worked a block at a time, so
+    a 20-minute take does not make two 77 MB copies to measure it."""
+    import numpy as np
+    n_win = len(samples) // win
+    out = np.empty(n_win, dtype=np.float32)
+    for a in range(0, n_win, _RMS_BLOCK_WINDOWS):
+        b = min(n_win, a + _RMS_BLOCK_WINDOWS)
+        block = samples[a * win:b * win].astype(np.float32).reshape(b - a, win)
+        out[a:b] = np.sqrt(np.mean(block * block, axis=1))
+    return out
 
 
 def _split_audio_on_silence(
@@ -1370,11 +1401,12 @@ def _split_audio_on_silence(
         # provider upload limit. Whisper transcribes multi-minute clips fully in
         # one call, so chunking now exists ONLY as a last-resort guard against
         # the ~25 MB file-size cap — not as a duration limit. At 16 kHz mono
-        # 16-bit (32 KB/s) the 24 MB threshold is ~12.5 min, and Waffler
-        # auto-stops recording at 12 min, so in practice NOTHING here ever
-        # splits: every real dictation goes single-shot. (Splitting by
-        # *duration* used to cause the very truncation it was meant to prevent —
-        # see the module history above. This is the "chunking removed" change.)
+        # 16-bit (32 KB/s) the 18 MB threshold is ~9.4 min, and Waffler
+        # stops a recording at 20 min (src/take_limit.py, 38 MB), so a take of
+        # up to ten pieces is the longest this ever makes. Every ordinary
+        # dictation goes single-shot. (Splitting by *duration* used to cause
+        # the very truncation it was meant to prevent — see the module history
+        # above. This is the "chunking removed" change.)
         if (
             len(audio_bytes) <= max_single_shot_bytes
             or sampwidth != 2
@@ -1390,8 +1422,7 @@ def _split_audio_on_silence(
             return [audio_bytes]
 
         # Per-window RMS energy.
-        block = samples[: n_win * win].astype(np.float32).reshape(n_win, win)
-        rms = np.sqrt(np.mean(block * block, axis=1))
+        rms = _window_rms(samples, win)
 
         # Silence threshold: a small fraction of the median energy, floored at
         # an absolute value so a near-silent recording doesn't flag everything.
@@ -1843,8 +1874,7 @@ def _speech_seconds(audio_bytes: bytes) -> float:
         n_win = len(samples) // win
         if n_win < 1:
             return 0.0
-        block = samples[: n_win * win].astype(np.float32).reshape(n_win, win)
-        rms = np.sqrt(np.mean(block * block, axis=1))
+        rms = _window_rms(samples, win)
         noise_floor = float(np.percentile(rms, 10))
         # The old split-oriented threshold is kept as a CEILING: a clip that
         # is speech from end to end (a 0.3 s "Yes") has no quiet windows, so
@@ -2074,6 +2104,24 @@ class WhisperTranscriber:
             return _result
         raise RuntimeError("no transcription backend available")
 
+    def _dispatch_pieces(self, chunks: list, exclude: str = None) -> str:
+        """The pieces of a recording too big for one upload (see
+        _split_audio_on_silence), one after another, joined. ``exclude`` skips
+        one provider, as for _dispatch_one."""
+        parts = []
+        for idx, ch in enumerate(chunks):
+            part = self._dispatch_one(ch, exclude=exclude)
+            # Strip a hallucinated outro PER CHUNK so a fake ending Whisper
+            # tacks onto one chunk doesn't land in the middle of the joined
+            # transcript. (The trailing strip below still covers chunk N.)
+            part = _strip_hallucinations(
+                part, speech_seconds=_speech_seconds(ch)
+            ).strip()
+            _wlog(f"[whisper] chunk {idx+1}/{len(chunks)} -> {len(part.split())} words")
+            if part:
+                parts.append(part)
+        return " ".join(parts)
+
     def _retry_if_incomplete(self, audio_bytes: bytes, transcript: str) -> str:
         """Detect a transcript that is impossibly short for the measured speech
         and retry on the alternate cloud provider.
@@ -2097,7 +2145,15 @@ class WhisperTranscriber:
                 # would always look "impossibly short" and be sent twice.
                 return transcript
             words = len((transcript or "").split())
-            speech_s = _speech_seconds(audio_bytes)
+            # transcribe_sync has measured this very recording already (a
+            # second pass over a 20-minute take is wasted work): it leaves the
+            # answer here, with the recording it belongs to.
+            speech_s = None
+            measured = getattr(self, "_measured_speech", None)
+            if measured is not None and measured[0] is audio_bytes:
+                speech_s = measured[1]
+            if speech_s is None:
+                speech_s = _speech_seconds(audio_bytes)
             if speech_s < _MIN_SPEECH_S_FOR_RETRY:
                 return transcript
             wps = words / speech_s
@@ -2120,7 +2176,15 @@ class WhisperTranscriber:
                   f"{speech_s:.1f}s of speech ({why_suspect}) via "
                   f"{first_provider or '?'} — retrying on alternate provider")
             self.last_retry_fired = True
-            alt = self._dispatch_one(audio_bytes, exclude=first_provider)
+            # A recording over the single-upload size (18 MB, a bit over 9
+            # minutes) goes to the other provider in the same pieces as it did
+            # the first time: all of a 20-minute take at once is 38 MB, past
+            # what either will take, and the retry could only fail.
+            pieces = _split_audio_on_silence(audio_bytes)
+            if len(pieces) > 1:
+                alt = self._dispatch_pieces(pieces, exclude=first_provider)
+            else:
+                alt = self._dispatch_one(audio_bytes, exclude=first_provider)
             alt_words = len((alt or "").split())
             if alt_words < max(1, words) * factor:
                 _wlog(f"[whisper] retry no better ({alt_words} words) — keeping original")
@@ -2184,19 +2248,7 @@ class WhisperTranscriber:
         except Exception:
             pass
         if len(chunks) > 1:
-            parts = []
-            for idx, ch in enumerate(chunks):
-                part = self._dispatch_one(ch)
-                # Strip a hallucinated outro PER CHUNK so a fake ending Whisper
-                # tacks onto one chunk doesn't land in the middle of the joined
-                # transcript. (The trailing strip below still covers chunk N.)
-                part = _strip_hallucinations(
-                    part, speech_seconds=_speech_seconds(ch)
-                ).strip()
-                _wlog(f"[whisper] chunk {idx+1}/{len(chunks)} -> {len(part.split())} words")
-                if part:
-                    parts.append(part)
-            raw = " ".join(parts)
+            raw = self._dispatch_pieces(chunks)
         else:
             raw = self._dispatch_one(chunks[0])
             _wlog(f"[whisper] single-shot -> {len(raw.split())} words")
@@ -2205,7 +2257,11 @@ class WhisperTranscriber:
         # for the measured seconds of speech, retry on the alternate provider
         # and keep whichever transcript is fuller. (The live failure: 57s of
         # speech -> 18 words, ~85% of a dictation silently gone.)
-        raw = self._retry_if_incomplete(audio_bytes, raw)
+        self._measured_speech = (audio_bytes, _clip_speech_s)
+        try:
+            raw = self._retry_if_incomplete(audio_bytes, raw)
+        finally:
+            self._measured_speech = None
 
         # Snapshot the provider's words BEFORE any filtering runs.
         self.last_asr_response = raw

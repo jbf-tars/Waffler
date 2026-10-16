@@ -138,6 +138,8 @@ import style_layer as _style_layer
 import notifier as _notifier
 import sounds as _sound_cues
 import hold_hint as _hold_hint
+import take_limit as _take_limit
+import double_tap as _double_tap
 import usage_log as _usage_log
 import history_ids as _history_ids
 import history_meta as _history_meta
@@ -1397,6 +1399,9 @@ class Api:
             # (src/learn_words.py). On unless exactly false; suggestions only,
             # nothing is added without a click.
             "learn_from_edits":      stored.get("learn_from_edits") is not False,
+            # Shortcuts, double-tap to go hands-free (src/double_tap.py): off
+            # unless exactly true.
+            "double_tap_handsfree":  stored.get("double_tap_handsfree") is True,
             # Shortcuts (src/shortcut_settings.py): the Paste last and Copy last
             # shortcuts (none until set) and the cancel key (Esc until changed),
             # with the shortcuts as they are shown. The page itself is drawn
@@ -1460,6 +1465,12 @@ class Api:
                 problem = _cm.settings_problem(settings, self._load_settings_file())
                 if problem:
                     return {"ok": False, "error": problem}
+            # Double-tap to go hands-free (Settings, Shortcuts): a true or a
+            # false (src/double_tap.py).
+            import double_tap as _dt
+            problem = _dt.settings_problem(settings)
+            if problem:
+                return {"ok": False, "error": problem}
             # Paste last, Copy last, the cancel key (Settings, Shortcuts): each
             # checked by the same rules as the two above, against the dictation
             # hotkey, the cancel key and every other shortcut.
@@ -1562,6 +1573,11 @@ class Api:
                     stored["command_mode"] = _cm.merged(stored, settings)
                     notes.append(f"Command mode: {'on' if stored['command_mode']['enabled'] else 'off'}")
 
+                # ── Double-tap to go hands-free: applied live below, no restart.
+                if _dt.touches(settings):
+                    stored[_dt.SETTING] = settings[_dt.SETTING]
+                    notes.append(f"Double-tap to go hands-free: {'on' if settings[_dt.SETTING] else 'off'}")
+
                 # ── Shortcuts: Paste last, Copy last, the cancel key. Applied
                 # live below (the cancel key by making the hotkey listener
                 # again, since that is what listens for it).
@@ -1605,6 +1621,11 @@ class Api:
                     _pipeline.apply_command_settings()
                 except Exception as _e:
                     _log_to_file(f"[command] settings not applied live: {type(_e).__name__}")
+            if _dt.touches(settings) and _pipeline is not None:
+                try:
+                    _pipeline.apply_double_tap()
+                except Exception as _e:
+                    _log_to_file(f"[double-tap] setting not applied live: {type(_e).__name__}")
             if _sc.touches(settings) and _pipeline is not None:
                 try:
                     if cancel_changed:
@@ -2710,6 +2731,7 @@ class Api:
         stored = self._load_settings_file()
         keys = stored.get("hotkey_keys")
         cancel_key = _ah.cancel_key_of(stored)
+        double_tap = _double_tap.enabled(stored)
         _log_to_file("Restarting hotkey listener with new keys...")
         _pipeline.hotkey_listener.stop()
 
@@ -2724,6 +2746,7 @@ class Api:
                     keys=keys,
                     on_lock=_pipeline._on_hands_free_lock,
                     cancel_key=cancel_key,
+                    double_tap=double_tap,
                 )
             elif _platform.system() == "Darwin":
                 from smart_hotkey import SmartHotkeyListener
@@ -2734,6 +2757,7 @@ class Api:
                     keys=keys,
                     on_lock=_pipeline._on_hands_free_lock,
                     cancel_key=cancel_key,
+                    double_tap=double_tap,
                 )
             # The action shortcuts listen through this listener's tap on a Mac,
             # so they join the new one (before start(), which on Windows does
@@ -2821,7 +2845,12 @@ class Api:
         "rows", "rules"}."""
         try:
             import shortcut_settings as _sc
-            return _sc.view(self._load_settings_file())
+            stored = self._load_settings_file()
+            page = _sc.view(stored)
+            # The switch for double-tap to go hands-free sits under the
+            # Hands-free row (src/double_tap.py): off unless exactly true.
+            page["double_tap_handsfree"] = stored.get("double_tap_handsfree") is True
+            return page
         except Exception as e:
             _log_to_file(f"get_shortcuts error: {type(e).__name__}")
             return {"ok": False, "error": "Couldn't read your shortcuts. Please try again."}
@@ -4691,6 +4720,15 @@ class WafflerPipeline:
         else:
             self._last_result_say(_user_messages.LAST_COPY_FAILED)
 
+    def apply_double_tap(self):
+        """Give the running hotkey listener the double-tap setting as
+        settings.json has it now (Settings, Shortcuts): on or off at once, with
+        no restart. A take already locked hands-free is left alone."""
+        listener = getattr(self, "hotkey_listener", None)
+        setter = getattr(listener, "set_double_tap", None)
+        if setter is not None:
+            setter(_double_tap.enabled(self._read_settings()))
+
     def apply_last_result_shortcuts(self):
         """Make the Paste last and Copy last shortcuts match settings.json:
         register each that is set, drop each that is not, and join the
@@ -5306,7 +5344,7 @@ class WafflerPipeline:
     def on_hotkey_release(self):
         """In toggle mode this fires on hotkey-up but is also called on second press."""
         # Atomic check+flip so only the FIRST of two racing release events
-        # (overlay ■ click + hotkey-up, or the 12-min auto-stop racing a
+        # (overlay ■ click + hotkey-up, or the auto-stop at the longest take racing a
         # manual release) wins and spawns _process — otherwise both fire and
         # produce a double transcription + double paste. The generation id was
         # assigned on press, so we reuse it here.
@@ -5366,54 +5404,70 @@ class WafflerPipeline:
             notify_js_status("listening")
             _log_to_file("Recording resumed")
 
+    def _take_watch(self):
+        """The length check for the recording that has just begun
+        (src/take_limit.py): the minute's warning and the stop. Its own method
+        so a test can give it a clock."""
+        return _take_limit.TakeWatch(self._recording_start_time or time.time())
+
     def _level_loop(self):
-        """Feed live audio level to the overlay at ~30fps while recording."""
+        """Feed live audio level to the overlay at ~30fps while recording, and
+        watch the length of the take: one warning a minute before the limit,
+        then the stop (src/take_limit.py). It ends when the recording does, or
+        when a newer recording has begun, which has a loop of its own."""
         import time as _time
-        warning_shown = False
-        while self.is_recording:
+        watch = self._take_watch()
+        session = self._recording_session
+        while self.is_recording and self._recording_session == session:
             lvl = self.audio.get_level()
             try:
                 self.overlay.update_level(lvl)
             except Exception:
                 pass
 
-            # Check recording duration and warn/stop if too long
-            if hasattr(self, '_recording_start_time'):
-                elapsed = _time.time() - self._recording_start_time
-
-                # Warning at 10 minutes
-                if elapsed >= 600 and not warning_shown:
-                    warning_shown = True
-                    _log_to_file("⚠️  Recording duration: 10 minutes - approaching API limit")
-                    try:
-                        if self._toast_allowed("long_recording"):
-                            self.overlay.show_toast(
-                                style="warn",
-                                heading="Long recording",
-                                body="Recording will auto-stop at 12 minutes (API limit).",
-                            )
-                            # Hide toast after 3 seconds
-                            threading.Thread(target=lambda: (_time.sleep(3), self.overlay.hide_toast()), daemon=True).start()
-                    except Exception as e:
-                        _log_to_file(f"Warning toast failed: {e}")
-
-                # Auto-stop at 12 minutes (before 25MB API limit)
-                elif elapsed >= 720:
-                    _log_to_file("⚠️  Recording auto-stopped at 12 minutes (API limit)")
-                    try:
-                        if self._toast_allowed("recording_limit"):
-                            self.overlay.show_toast(
-                                style="warn",
-                                heading="Recording stopped",
-                                body="12-minute limit reached. Processing your audio now...",
-                            )
-                    except Exception:
-                        pass
-                    # Trigger stop via hotkey release
-                    self.on_hotkey_release()
-                    break
+            step = watch.check()
+            if step == _take_limit.WARN:
+                self._warn_take_limit()
+            elif step == _take_limit.STOP:
+                self._stop_at_take_limit()
+                break
 
             _time.sleep(0.033)  # ~30 fps
+
+    def _warn_take_limit(self):
+        """One minute left: say so once, through the notifier. On a thread of
+        its own, so the level feed does not wait on the overlay."""
+        _log_to_file(f"Recording has one minute left of {_take_limit.minutes()} minutes")
+        try:
+            if not self._toast_allowed("long_recording"):
+                return
+            heading, body = _user_messages.take_limit_warning()
+            threading.Thread(target=self._show_toast_safe, args=("warn", heading, body),
+                             kwargs={"timeout": 6}, daemon=True, name="TakeLimitWarning").start()
+        except Exception as e:
+            _log_to_file(f"Warning toast failed: {type(e).__name__}")
+
+    def _stop_at_take_limit(self):
+        """The longest take is reached: stop it and turn what was said into
+        text, exactly as if the key had been let go, so nothing is lost. The
+        hotkey's own idea of the take (hands-free on) is put back too, as the
+        pill's stop does, so the next press starts a new one."""
+        _log_to_file(f"Recording auto-stopped at {_take_limit.minutes()} minutes (the longest take)")
+        try:
+            if self._toast_allowed("recording_limit"):
+                heading, body = _user_messages.take_limit_stopped(_take_limit.minutes())
+                threading.Thread(target=self._show_toast_safe, args=("warn", heading, body),
+                                 daemon=True, name="TakeLimitStopped").start()
+        except Exception as e:
+            _log_to_file(f"Stop toast failed: {type(e).__name__}")
+        # Trigger stop via hotkey release
+        self.on_hotkey_release()
+        listener = getattr(self, "hotkey_listener", None)
+        if listener is not None and hasattr(listener, "reset_state"):
+            try:
+                listener.reset_state()
+            except Exception:
+                pass
 
     def _show_no_audio_toast(self):
         """Show 'We couldn't hear you' toast on the overlay.
@@ -5704,6 +5758,10 @@ class WafflerPipeline:
                     else:
                         _log_to_file("Suppressing error toast (quick tap)")
                     return
+                # The whole take as floats (77 MB for 20 minutes) is not needed
+                # again; the two arrays of these checks would otherwise be held
+                # until the paste.
+                del audio_arr
             except Exception:
                 pass  # If numpy check fails, continue with transcription
 
@@ -5766,6 +5824,7 @@ class WafflerPipeline:
                     except Exception as _e:
                         _log_to_file(f"force_rebuild (partial) failed: {_e}")
                     self._mic_dropout = _sig
+                del _arr
             except Exception:
                 pass
 
@@ -5782,9 +5841,13 @@ class WafflerPipeline:
             # single request used to be able to run for 240 s, a fallback and
             # a retry could chain three, and nothing could stop it.
             _t0 = time.time()
+            # On this computer (the local model) the budget is longer, and a
+            # 20-minute take gets the time its ten pieces need (see
+            # pipeline_watchdog.transcribe_deadline_s).
+            run.local_stt = self._stt_is_local()
             _asr = run.call(self._transcribe_with_provenance, audio_bytes,
                             stage=_pw.TRANSCRIBING,
-                            deadline=_pw.transcribe_deadline_s(run.audio_seconds))
+                            deadline=_pw.transcribe_deadline_s(run.audio_seconds, run.local_stt))
             if _asr.status == _pw.CANCEL and not run.cancel_keeps:
                 _log_to_file(f"Processing {processing_id} cancelled during transcription")
                 _outcome = _pw.CANCELLED
@@ -5802,7 +5865,7 @@ class WafflerPipeline:
                     _why = _unsent.REASON_LATER
                 elif _asr.status == _pw.DEADLINE:
                     _why = (f"deadline: no answer in "
-                            f"{_pw.transcribe_deadline_s(run.audio_seconds):.0f}s")
+                            f"{_pw.transcribe_deadline_s(run.audio_seconds, run.local_stt):.0f}s")
                 else:
                     _why = str(_asr.error)
                 _log_to_file(f"[pipeline] transcription not finished ({_asr.status}), "
@@ -6428,6 +6491,11 @@ class WafflerPipeline:
         except Exception:
             return transcript
 
+    def _stt_is_local(self) -> bool:
+        """Is speech to text done on this computer (the local model) rather
+        than by a provider? It then gets a longer deadline."""
+        return getattr(getattr(self, "transcriber", None), "_backend", "") in ("mlx", "faster")
+
     def _speech_provider_name(self) -> str:
         """The speech-to-text provider a dictation goes to first, by name."""
         t = getattr(self, "transcriber", None)
@@ -6730,7 +6798,7 @@ class WafflerPipeline:
                          f"({'automatic' if auto else 'Try again'})")
             run = _pw.DictationRun(f"resend:{unsent_id}")
             run.set_audio_seconds(len(audio_bytes) / 32000.0)
-            deadline = _pw.transcribe_deadline_s(run.audio_seconds)
+            deadline = _pw.transcribe_deadline_s(run.audio_seconds, self._stt_is_local())
             asr = None
             if late is not None:
                 _log_to_file(f"[unsent] {unsent_id}: an earlier request is still running; "
@@ -6921,7 +6989,8 @@ class WafflerPipeline:
             run.set_audio_seconds(len(audio_bytes) / 32000.0)
             asr = run.call(self._transcribe_with_provenance, audio_bytes,
                            stage=_pw.TRANSCRIBING,
-                           deadline=_pw.transcribe_deadline_s(run.audio_seconds))
+                           deadline=_pw.transcribe_deadline_s(run.audio_seconds,
+                                                              self._stt_is_local()))
             transcript = asr.value[0] if asr.ok and asr.value else ""
             if not asr.ok or not transcript:
                 if asr.ok:
@@ -7227,12 +7296,14 @@ class WafflerPipeline:
             # Load configured keys from settings
             keys = None
             cancel_key = None
+            double_tap = False
             try:
                 sf = DATA_DIR / "settings.json"
                 if sf.exists():
                     stored = json.loads(sf.read_text(encoding="utf-8-sig"))
                     keys = stored.get("hotkey_keys")
                     cancel_key = _action_hotkeys.cancel_key_of(stored)      # Esc unless an F key was chosen
+                    double_tap = _double_tap.enabled(stored)                # off unless switched on
             except Exception:
                 pass
 
@@ -7245,6 +7316,7 @@ class WafflerPipeline:
                     keys=keys,
                     on_lock=self._on_hands_free_lock,
                     cancel_key=cancel_key,
+                    double_tap=double_tap,
                 )
             else:
                 _log_to_file(f"Creating SmartHotkeyListener with keys: {keys}")
@@ -7255,6 +7327,7 @@ class WafflerPipeline:
                     keys=keys,
                     on_lock=self._on_hands_free_lock,
                     cancel_key=cancel_key,
+                    double_tap=double_tap,
                 )
             # The action shortcuts, those that are on. Before start(): on a Mac
             # they listen through this listener's tap, and on Windows start()

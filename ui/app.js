@@ -1165,12 +1165,37 @@ function _shortcutRowHtml(r) {
   </div>`;
 }
 
+// The "Double-tap to go hands-free" switch, a row of its own right under
+// Hands-free (src/double_tap.py). Not one of the shortcut rows: it has no keys.
+function _doubleTapRowHtml() {
+  const v = WL.doubleTapView(_shortcuts);
+  return `<div class="row sc-row sc-dt" role="listitem" data-id="double_tap">
+    <div class="row-main">
+      <div class="row-t"><label for="doubleTapToggle">${escHtml(v.label)}</label></div>
+      <div class="row-d" id="doubleTapDesc">${escHtml(v.desc)}</div>
+    </div>
+    <input type="checkbox" class="tog" role="switch" id="doubleTapToggle" aria-describedby="doubleTapDesc"${v.on ? ' checked' : ''}>
+  </div>`;
+}
+
+// Save the switch; a refused save puts it back.
+async function setDoubleTap(on) {
+  const ok = await saveSetting('double_tap_handsfree', !!on);
+  if (ok) {
+    if (_shortcuts) _shortcuts.double_tap_handsfree = !!on;
+    if (_lastSettings) _lastSettings.double_tap_handsfree = !!on;
+  } else {
+    const tog = document.getElementById('doubleTapToggle');
+    if (tog) tog.checked = !on;
+  }
+}
+
 function renderShortcuts() {
   const list = document.getElementById('shortcutsList');
   if (!list) return;
   const rows = WL.shortcutRows(_shortcuts, isMacPlatform);
   list.hidden = !rows.length;
-  list.innerHTML = rows.map(_shortcutRowHtml).join('');
+  list.innerHTML = rows.map((r) => _shortcutRowHtml(r) + (r.id === 'hands_free' ? _doubleTapRowHtml() : '')).join('');
   if (_scFocus) {
     const target = list.querySelector(`[data-act="change"][data-id="${_scFocus}"]:not(:disabled)`)
       || list.querySelector(`[data-act="enable"][data-id="${_scFocus}"]`);
@@ -1200,6 +1225,9 @@ function renderShortcuts() {
     if (act === 'change') openHotkeyCapture(id === 'dictation' ? undefined : id);
     else if (act === 'clear') clearShortcut(id);
     else if (act === 'enable' && b.getAttribute('data-sec')) showSettingsSection(b.getAttribute('data-sec'));
+  });
+  list.addEventListener('change', (e) => {
+    if (e.target && e.target.id === 'doubleTapToggle') setDoubleTap(e.target.checked);
   });
 })();
 
@@ -4980,6 +5008,8 @@ async function saveSetting(key, value) {
         showToast(WL.typingSpeedSaved(value), 'success', 3500);
       } else if (key === 'learn_from_edits') {
         showToast(WL.learnSaved(value), 'success', 3500);
+      } else if (key === 'double_tap_handsfree') {
+        showToast(WL.doubleTapSaved(value), 'success', 3500);
       } else if (key === 'language') {
         const known = _languageList.find((l) => l.code === value);
         showToast(WL.languageSaved(value, known ? known.name : ''), 'success');

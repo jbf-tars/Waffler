@@ -125,7 +125,10 @@ _REGISTRY = (
     Kind("mic_reset", ERROR),
     Kind("mic_dropped_out", ERROR),
     Kind("mic_slow_to_stop", ERROR),
-    Kind("long_recording", INFO, hold_s=3),
+    # The minute's warning before the longest take, and the stop at the end
+    # (src/take_limit.py). Said once a take: the recording loop's watch gives
+    # the warning once, and a newer recording ends an older loop.
+    Kind("long_recording", INFO, hold_s=6),
     Kind("recording_limit", INFO),
     # Waiting on a provider.
     Kind("still_working", INFO, hold_s=None),

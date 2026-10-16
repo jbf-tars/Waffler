@@ -50,6 +50,10 @@ import time
 # a long recording legitimately takes longer to upload and transcribe.
 OFFER_MIN_S = 8.0
 OFFER_AUDIO_FACTOR = 0.4
+# ...but never later than this, however long the take was: a 20-minute take
+# would otherwise wait 8 minutes for its first choice. Up to a 6 minute
+# recording the offer comes exactly when it always did.
+OFFER_MAX_S = 150.0
 # A stage must have run this long before its offer shows, so an offer never
 # flashes up just as the stage is finishing.
 OFFER_MIN_STAGE_AGE_S = 2.0
@@ -58,11 +62,20 @@ OFFER_MIN_STAGE_AGE_S = 2.0
 # to 240 s for a large upload, and a fallback plus a retry can chain three
 # requests. 45 s covers any normal dictation many times over; long recordings
 # get more time because the upload itself is slow.
-#   10 s of audio -> 45 s | 60 s -> 60 s | 300 s -> 180 s | 12 min -> 330 s
+#   10 s of audio -> 45 s | 60 s -> 60 s | 300 s -> 180 s | 12 min -> 390 s
+#   20 min (the longest take, src/take_limit.py) -> 630 s
+# A recording over 18 MB (a bit over 9 minutes) goes up in about ten pieces
+# one after another, and a slower provider than Groq (11.5 minutes took 18 s
+# there) can need several seconds for each, so the budget grows with the
+# length instead of stopping at the old cap.
 TRANSCRIBE_DEADLINE_MIN_S = 45.0
 TRANSCRIBE_DEADLINE_BASE_S = 30.0
 TRANSCRIBE_DEADLINE_PER_AUDIO_S = 0.5
-TRANSCRIBE_DEADLINE_MAX_S = 330.0
+TRANSCRIBE_DEADLINE_MAX_S = 660.0
+# Speech to text on this computer (the local model) runs at the computer's own
+# speed, not a provider's: about as long as the audio on a slow processor.
+# Every figure above is given this many times over for it.
+LOCAL_DEADLINE_FACTOR = 2.0
 
 # The styler stops itself at 30 s (style_openai._STYLE_DEADLINE_CAP_S). This
 # is the backstop in case it does not.
@@ -113,14 +126,18 @@ STUCK = "stuck"
 
 def offer_after_s(audio_seconds: float) -> float:
     """Seconds after release before the pill offers a choice."""
-    return max(OFFER_MIN_S, OFFER_AUDIO_FACTOR * max(0.0, float(audio_seconds or 0.0)))
+    wait = max(OFFER_MIN_S, OFFER_AUDIO_FACTOR * max(0.0, float(audio_seconds or 0.0)))
+    return min(OFFER_MAX_S, wait)
 
 
-def transcribe_deadline_s(audio_seconds: float) -> float:
-    """Overall speech-to-text budget for a recording of this length."""
+def transcribe_deadline_s(audio_seconds: float, local: bool = False) -> float:
+    """Overall speech-to-text budget for a recording of this length.
+    ``local`` is speech to text on this computer (the local model), which has
+    LOCAL_DEADLINE_FACTOR times as long."""
+    factor = LOCAL_DEADLINE_FACTOR if local else 1.0
     scaled = (TRANSCRIBE_DEADLINE_BASE_S
-              + TRANSCRIBE_DEADLINE_PER_AUDIO_S * max(0.0, float(audio_seconds or 0.0)))
-    return min(TRANSCRIBE_DEADLINE_MAX_S, max(TRANSCRIBE_DEADLINE_MIN_S, scaled))
+              + factor * TRANSCRIBE_DEADLINE_PER_AUDIO_S * max(0.0, float(audio_seconds or 0.0)))
+    return min(factor * TRANSCRIBE_DEADLINE_MAX_S, max(factor * TRANSCRIBE_DEADLINE_MIN_S, scaled))
 
 
 def elapsed_label(seconds: float) -> str:
@@ -213,6 +230,9 @@ class DictationRun:
         self._clock = clock
         self.started = clock()
         self.audio_seconds = 0.0
+        # Set by the pipeline before the stage it sizes: whether speech to
+        # text runs on this computer (it gets more time).
+        self.local_stt = False
         self.stage = PREPARING
         self.stage_started = self.started
         self.stage_deadline = PREPARE_DEADLINE_S
@@ -270,7 +290,7 @@ class DictationRun:
         dictation once a stage outlives its limit by STUCK_GRACE_S."""
         return {
             PREPARING: PREPARE_DEADLINE_S,
-            TRANSCRIBING: transcribe_deadline_s(self.audio_seconds),
+            TRANSCRIBING: transcribe_deadline_s(self.audio_seconds, self.local_stt),
             STYLING: STYLE_DEADLINE_S,
             PASTING: 2 * PASTE_DEADLINE_S,   # the copy, then the keystroke
             SAVING: SAVE_LIMIT_S,

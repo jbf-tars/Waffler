@@ -1283,6 +1283,23 @@
     return shown ? `${name} is now ${shown}.` : `${name} saved.`;
   }
 
+  // Shortcuts, under the Hands-free row: the "Double-tap to go hands-free"
+  // switch (settings.json "double_tap_handsfree", src/double_tap.py). Off until
+  // switched on; anything that is not a real true is off, as the engine reads
+  // it. The sentence says what the tap does and that holding is unchanged.
+  const DOUBLE_TAP_TEXT = {
+    label: 'Double-tap to go hands-free',
+    desc: 'Tap your dictation hotkey twice, quickly, to keep recording without holding it. Tap it once to finish. Holding the hotkey works as it always did.',
+    on: 'Waffler will keep recording when you double-tap.',
+    off: 'Double-tap is off.',
+  };
+  function doubleTapView(data) {
+    return { on: !!data && data.double_tap_handsfree === true, label: DOUBLE_TAP_TEXT.label, desc: DOUBLE_TAP_TEXT.desc };
+  }
+  function doubleTapSaved(on) {
+    return on ? DOUBLE_TAP_TEXT.on : DOUBLE_TAP_TEXT.off;
+  }
+
   // What the window calls the key that cancels a recording: "Esc" until the
   // person chooses another, from get_hotkey_config or a Shortcuts row.
   function cancelLabel(name) {
@@ -2421,7 +2438,7 @@
     TRANSFORM_RULES, TRANSFORM_LIMITS, TRANSFORM_BUILT_IN, TRANSFORM_TEXT, transformView, transformCheck,
     transformRuleCheck, transformOutlineView, transformShortcutLine, transformSaved, hotkeyDialogText,
     transformEntryView, SHORTCUT_TARGETS, shortcutIsTarget, captureKeyId, shortcutRows, shortcutRulesView,
-    shortcutSaved, SHORTCUT_TEXT, cancelLabel,
+    shortcutSaved, SHORTCUT_TEXT, cancelLabel, DOUBLE_TAP_TEXT, doubleTapView, doubleTapSaved,
     COMMAND_ENGINES, COMMAND_EXAMPLES, commandEngineLabel, commandView, commandShortcutLine, commandSaved,
     commandEntryView,
     clipboardAfterPasteView, clipboardAfterPasteSaved, feedbackView, feedbackSaved, METER_CELLS, micMeter, usageChart, usageFacts, flowView, PROVIDER_MARKS, providerPill,

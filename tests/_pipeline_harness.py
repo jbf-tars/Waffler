@@ -33,6 +33,7 @@ import atomic_json  # noqa: E402
 import cleanup_pause  # noqa: E402
 import command_action  # noqa: E402
 import command_mode  # noqa: E402
+import double_tap  # noqa: E402
 import history_ids  # noqa: E402
 import history_meta  # noqa: E402
 import history_ops  # noqa: E402
@@ -46,6 +47,7 @@ import recent_audio  # noqa: E402
 import snippets  # noqa: E402
 import style_layer  # noqa: E402
 import sounds  # noqa: E402
+import take_limit  # noqa: E402
 import take_marker  # noqa: E402
 import text_context  # noqa: E402
 import transform_action  # noqa: E402
@@ -99,6 +101,11 @@ PIPELINE_METHODS = (
     # shortcuts, what they refuse, and the short notices they give.
     "_last_result_blocked", "_last_result_say", "_on_paste_last_shortcut",
     "_on_copy_last_shortcut", "apply_last_result_shortcuts",
+    # The longest take (src/take_limit.py): the recording loop's length check,
+    # its warning and its stop; and the speech deadline's "on this computer".
+    "_take_watch", "_level_loop", "_warn_take_limit", "_stop_at_take_limit", "_stt_is_local",
+    # Double-tap to go hands-free (src/double_tap.py): the setting handed to the listener.
+    "apply_double_tap",
 )
 MODULE_DEFS = ("ensure_data_dir", "load_history", "_load_history_for_update",
                "save_history", "append_history",
@@ -402,7 +409,8 @@ def make_pipeline(data_dir: Path, *, transcriber=None, styler=None, clipboard=No
         _notifier=notifier, _sound_cues=sounds, _hold_hint=hold_hint,
         hold_hint_message=user_messages.hold_hint_message,
         _history_ids=history_ids, _history_meta=history_meta, _history_ops=history_ops,
-        _take_marker=take_marker, _text_context=text_context,
+        _take_marker=take_marker, _take_limit=take_limit, _double_tap=double_tap,
+        _text_context=text_context,
         _action_hotkeys=action_hotkeys, _transforms=transforms, _transform_action=transform_action,
         _command_mode=command_mode, _command_action=command_action,
         _user_messages=user_messages,
