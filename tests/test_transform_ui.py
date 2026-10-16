@@ -418,3 +418,33 @@ def test_the_transforms_css_uses_tokens_only():
 def test_the_menu_item_and_the_page_use_the_same_name():
     app_py = (ROOT / "app.py").read_text(encoding="utf-8")
     assert "Transform selected text" in app_py and "Transform selected text" in read("logic.js")
+
+
+def test_a_deleted_transform_can_be_brought_back_and_is_found_by_its_id():
+    """Found in review: the list is drawn again after every save, so a second
+    click on the same place meant the next row. The click names the transform,
+    and a line under the list undoes the removal."""
+    app = code_only(read("app.js"))
+    sec = section()
+    assert 'id="transformsUndo" role="status" aria-live="polite" hidden' in sec
+    assert 'id="transformsUndoBtn">Undo</button>' in sec
+    assert "deleteTransform(b.getAttribute('data-id'))" in app
+    fn = app[app.index("async function deleteTransform"):app.index("function renderClipboardRow")]
+    assert "before.find((c) => c.id === id)" in fn and "_txShowUndo(WL.transformSaved('removed', gone.name)" in fn
+    assert "saveTransforms({ custom: before }" in fn, "Undo saves the whole list as it was, ids and all"
+    assert "setTimeout(_txHideUndo, 10000)" in app
+
+
+def test_a_refused_edit_keeps_what_was_typed_and_says_why_in_the_form():
+    app = code_only(read("app.js"))
+    fn = app[app.index("async function saveTransformEdit"):app.index("function _txShowUndo")]
+    assert "const draft = { i, name, prompt };" in fn and "_txDraft = draft;" in fn
+    assert "shown.textContent = said.textContent;" in fn
+    render = app[app.index("function renderCustomTransforms"):app.index("async function setTransformsEnabled")]
+    assert "d ? d.name : c.name" in render and "d ? d.prompt : c.prompt" in render
+
+
+def test_the_edit_form_is_drawn_from_the_saved_transform_otherwise():
+    app = code_only(read("app.js"))
+    open_fn = app[app.index("function openTransformEdit"):app.index("function closeTransformEdit")]
+    assert "_txDraft = null;" in open_fn

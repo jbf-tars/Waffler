@@ -440,6 +440,7 @@
           <h2 class="sh2">Your transforms<span class="aside" id="transformsCount" aria-hidden="true"></span></h2>
           <p class="s-note" id="transformsHelp">Each one is a name and an instruction. For example, call it Friendly and write "Rewrite this to sound warm and short". Pick it in Run above to use it with the shortcut. You can keep up to 5.</p>
           <div class="sheet" id="transformsList" role="list" aria-label="Your transforms"></div>
+          <p class="v-undo" id="transformsUndo" role="status" aria-live="polite" hidden><span id="transformsUndoText"></span> <button type="button" class="link-btn" id="transformsUndoBtn">Undo</button></p>
           <form class="tx-new" id="transformsForm" onsubmit="addTransform(); return false;">
             <input type="text" id="transformName" class="input" placeholder="Name" aria-label="Name of the new transform" maxlength="40" autocomplete="off" spellcheck="false">
             <textarea id="transformPrompt" class="input tx-prompt" rows="3" placeholder="What should it do to the text?" aria-label="What the new transform should do" aria-describedby="transformsFormCount" autocomplete="off" spellcheck="false" oninput="onTransformPromptInput()"></textarea>

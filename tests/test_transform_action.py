@@ -75,7 +75,7 @@ class Rig:
         self.copy_ok = True
         self.toasts, self.chats, self.pastes, self.saved = [], [], [], []
         self.copies, self.remembered, self.usage, self.announced = [], [], [], []
-        self.ui, self.logged, self.refocused = [], [], []
+        self.ui, self.logged, self.refocused, self.rereads = [], [], [], []
         self.threads = []
         self.runner = ta.TransformRunner(self.hooks(), **runner)
 
@@ -92,7 +92,7 @@ class Rig:
             say=lambda *a: self.toasts.append(a),
             front_app=lambda: self.front,
             window=lambda: self.window,
-            reread_selection=lambda: self.reread,
+            reread_selection=self._reread,
             refocus=lambda: self.refocused.append(1),
             remember=self.remembered.append,
             record_usage=self.usage.append,
@@ -111,6 +111,10 @@ class Rig:
         t.start()
 
     # -- the fakes ---------------------------------------------------------
+
+    def _reread(self, method):
+        self.rereads.append(method)
+        return self.reread
 
     def _read(self):
         self.read_thread = threading.current_thread()
@@ -550,7 +554,7 @@ def test_a_paste_that_could_not_be_verified_still_counts_as_done():
     rig.paste_outcome = pasteboard.PasteOutcome(pasteboard.UNVERIFIED, "no_verification", on_clipboard=True)
     rig.go()
     assert rig.saved[0]["paste"] == "unverified" and rig.last()[2] == "Polish done"
-    assert rig.remembered == [GOOD], "it is on the clipboard"
+    assert rig.remembered == [], "not a failure: 'Paste last' is still the last dictation"
 
 
 def test_a_paste_that_never_finishes_is_given_up_on_with_the_text_kept():
@@ -725,3 +729,131 @@ def test_going_back_to_the_last_app_is_only_for_windows():
     import sys
     if sys.platform != "win32":
         assert ta.refocus_last_app({1}) is False
+
+
+# ── found in review: fail closed, order, and what 'Paste last' holds ─────────
+
+def test_a_check_that_cannot_be_made_in_time_means_nothing_is_pasted():
+    """If the app in front does not answer (Accessibility hangs), the person
+    may have moved on: the rewrite goes to the clipboard and the message says
+    Waffler could not check, rather than that they switched away."""
+    rig = Rig()
+    release = threading.Event()
+
+    def slow_reread(method):
+        release.wait(5)
+    rig.runner.h.reread_selection = slow_reread
+    rig.runner.h.front_app = lambda: NOTES
+    original = ta.CHECK_DEADLINE_S
+    ta.CHECK_DEADLINE_S = 0.3
+    try:
+        rig.go()
+    finally:
+        ta.CHECK_DEADLINE_S = original
+        release.set()
+    assert rig.pastes == [] and rig.copies == [GOOD] and rig.remembered == [GOOD]
+    assert rig.last()[2:4] == um.transform_not_sure_message("darwin")
+    assert rig.saved[0]["paste"] == "copied" and rig.ui[-1] == ("end", pw.DONE)
+
+
+def test_a_check_that_fails_means_nothing_is_pasted():
+    rig = Rig()
+
+    def broken(method):
+        raise RuntimeError("accessibility went away")
+    rig.runner.h.reread_selection = broken
+    rig.go()
+    assert rig.pastes == [] and rig.copies == [GOOD]
+    assert rig.last()[2:4] == um.transform_not_sure_message("darwin")
+
+
+def test_where_the_person_is_is_noted_before_the_pill_appears_and_for_the_menu_after_going_back():
+    order = []
+    rig = Rig()
+    rig.runner.h.front_app = lambda: order.append("front") or NOTES
+    rig.runner.h.window = lambda: order.append("window")
+    rig.runner.h.ui_begin = lambda run: order.append("begin")
+    rig.runner.h.refocus = lambda: order.append("refocus")
+    rig.go("shortcut")
+    shortcut = order[:3]
+    assert shortcut == ["front", "window", "begin"], "as a dictation notes its target first"
+    order.clear()
+    rig.go("menu")
+    assert order[0] == "begin" and order.index("refocus") < order.index("front") < order.index("window"), \
+        "from the menu it is the last app, once it has been brought back"
+
+
+def test_a_polish_answer_that_shares_none_of_the_wording_replaces_nothing():
+    rig = Rig()
+    rig.chat_result = reply("I am sorry, but I cannot help with that request, please try something different "
+                            "or ask me later today instead.")
+    rig.go()
+    assert rig.last()[2:4] == um.TRANSFORM_UNRELATED
+    assert rig.pastes == [] and rig.saved == [] and rig.usage == [rig.chat_result]
+
+
+def test_cancel_after_the_check_is_too_late_and_says_so():
+    """The stage moves to pasting before the last look at Cancel, so a Cancel
+    that comes after is refused (and logged) instead of reported as accepted."""
+    rig = Rig()
+    gate = threading.Event()
+    release = threading.Event()
+    original = rig.runner.h.settle_paste
+
+    def paste_waits(text, window, restore, ticket):
+        rig.pastes.append({"text": text})
+        gate.set()
+        release.wait(5)
+        return pasteboard.PasteOutcome(pasteboard.PASTED, restored=True)
+    rig.runner.h.paste = paste_waits
+    assert rig.runner.start() == ta.STARTED
+    assert gate.wait(5)
+    assert rig.runner._run.stage == pw.PASTING
+    assert rig.runner._run.decide(pw.CANCEL) is False
+    release.set()
+    assert wait_for(lambda: not rig.runner.busy())
+    assert rig.saved and original is not None
+
+
+@pytest.mark.parametrize("reason,heading,fragment", [
+    ("clipboard_not_restorable", "Can't copy right now", "can't put back safely"),
+    ("clipboard_busy", "Clipboard is busy", "Another program is using the clipboard"),
+])
+def test_a_clipboard_that_cannot_be_used_is_said_not_blamed_on_the_app(reason, heading, fragment):
+    """Windows reads a selection by copying it, and will not copy over a
+    clipboard it cannot put back (a picture, formatted text from a browser)."""
+    rig = Rig()
+    rig.read_result = selection("", "none", reason)
+    rig.go()
+    assert rig.last()[0] == ta.FAILED and rig.last()[2] == heading and fragment in rig.last()[3]
+    assert "didn't hand over" not in rig.last()[3]
+    assert rig.chats == [] and rig.pastes == []
+
+
+def test_the_check_reads_the_selection_the_way_it_was_first_read():
+    """Where an app shares its selection (Accessibility) the check asks that
+    way; where the first read had to press Copy (a browser, an Electron app)
+    the check does too, so a tab switched or text typed over the selection in
+    the meantime is seen."""
+    ax = Rig()
+    ax.go()
+    assert ax.rereads == ["ax"]
+    copy = Rig()
+    copy.read_result = selection(SOURCE, "copy")
+    copy.go()
+    assert copy.rereads == ["copy"] and copy.pastes
+
+
+def test_a_selection_that_changed_under_a_copy_read_means_nothing_is_pasted():
+    for again in (selection("something I typed over it in the meantime and more words", "copy"),
+                  selection("", "none", tc.NO_SELECTION)):
+        rig = Rig()
+        rig.read_result = selection(SOURCE, "copy")
+        rig.reread = again
+        rig.go()
+        assert rig.pastes == [] and rig.copies == [GOOD], again
+    same = Rig()
+    same.read_result = selection("  " + SOURCE + "  ", "copy")
+    same.reread = selection(SOURCE, "copy")
+    same.go()
+    assert same.pastes, "the same words, however the spaces fell, are the same selection"

@@ -3236,6 +3236,8 @@ async function setSignatureEnabled(on) {
 // apply at once, with no restart. The shortcut is chosen in the same dialog
 // as the dictation hotkey.
 let _txEditing = -1;       // the index of the transform being changed, or -1
+let _txDraft = null;       // what was typed in that form, kept when a save is refused
+let _txUndoTimer = null;
 let _outlineTimer = null;
 
 const _txView = () => WL.transformView(_lastSettings, isMacPlatform);
@@ -3351,10 +3353,11 @@ function renderCustomTransforms(v) {
   list.innerHTML = v.custom.map((c, i) => {
     const n = escHtml(c.name);
     if (_txEditing === i) {
+      const d = _txDraft && _txDraft.i === i ? _txDraft : null;
       return `<form class="row tx-edit" role="listitem" data-i="${i}">
         <div class="row-main">
-          <input type="text" class="input tx-ed-n" value="${n}" aria-label="Name" maxlength="40" autocomplete="off" spellcheck="false">
-          <textarea class="input tx-prompt tx-ed-p" rows="3" aria-label="What it should do" autocomplete="off" spellcheck="false">${escHtml(c.prompt)}</textarea>
+          <input type="text" class="input tx-ed-n" value="${escHtml(d ? d.name : c.name)}" aria-label="Name" maxlength="40" autocomplete="off" spellcheck="false">
+          <textarea class="input tx-prompt tx-ed-p" rows="3" aria-label="What it should do" autocomplete="off" spellcheck="false">${escHtml(d ? d.prompt : c.prompt)}</textarea>
           <p class="s-error tx-ed-err" role="alert" hidden></p>
           <div class="tx-new-foot"><button type="button" class="btn btn-quiet btn-sm" data-act="cancel">Cancel</button><button type="submit" class="btn btn-pri btn-sm">Save</button></div>
         </div>
@@ -3364,11 +3367,11 @@ function renderCustomTransforms(v) {
     return `<div class="row tx-row" role="listitem" data-i="${i}">
       <div class="row-main"><div class="row-t">${n}</div><div class="row-d">${escHtml(preview)}</div></div>
       <button type="button" class="btn btn-quiet btn-sm tx-edit-btn" data-i="${i}" aria-label="Edit ${n}">Edit</button>
-      <button type="button" class="btn btn-quiet btn-sm tx-del" data-i="${i}" aria-label="Delete ${n}">Delete</button>
+      <button type="button" class="btn btn-quiet btn-sm tx-del" data-i="${i}" data-id="${escHtml(c.id)}" aria-label="Delete ${n}">Delete</button>
     </div>`;
   }).join('');
   list.querySelectorAll('.tx-edit-btn').forEach((b) => b.addEventListener('click', () => openTransformEdit(Number(b.getAttribute('data-i')))));
-  list.querySelectorAll('.tx-del').forEach((b) => b.addEventListener('click', () => deleteTransform(Number(b.getAttribute('data-i')))));
+  list.querySelectorAll('.tx-del').forEach((b) => b.addEventListener('click', () => deleteTransform(b.getAttribute('data-id'))));
   const edit = list.querySelector('.tx-edit');
   if (edit) {
     const i = Number(edit.getAttribute('data-i'));
@@ -3525,6 +3528,7 @@ async function addTransform() {
 
 function openTransformEdit(i) {
   _txEditing = i;
+  _txDraft = null;
   _txError('', 'transformFormError');
   renderCustomTransforms(_txView());
   const box = document.querySelector('#transformsList .tx-ed-n');
@@ -3534,6 +3538,7 @@ function openTransformEdit(i) {
 function closeTransformEdit() {
   const i = _txEditing;
   _txEditing = -1;
+  _txDraft = null;
   renderCustomTransforms(_txView());
   const b = document.querySelector(`#transformsList .tx-edit-btn[data-i="${i}"]`);
   if (b) b.focus();
@@ -3551,28 +3556,63 @@ async function saveTransformEdit(i, name, prompt, form) {
   }
   const next = v.custom.map((c, n) => (n === i ? { id: c.id, name: check.name, prompt: check.prompt }
     : { id: c.id, name: c.name, prompt: c.prompt }));
+  const draft = { i, name, prompt };
   _txEditing = -1;
   if (await saveTransforms({ custom: next }, 'transformFormError')) {
+    _txDraft = null;
     const b = document.querySelector(`#transformsList .tx-edit-btn[data-i="${i}"]`);
     if (b) b.focus();
-  } else {
-    _txEditing = i;
-    renderCustomTransforms(_txView());
+    return;
+  }
+  // Refused: the form stays, with what was typed and the app's sentence in it.
+  _txEditing = i;
+  _txDraft = draft;
+  renderCustomTransforms(_txView());
+  const shown = document.querySelector('#transformsList .tx-ed-err');
+  const said = document.getElementById('transformFormError');
+  if (shown && said && said.textContent) {
+    shown.textContent = said.textContent;
+    shown.hidden = false;
+    _txError('', 'transformFormError');
   }
 }
 
-async function deleteTransform(i) {
-  const v = _txView();
-  const gone = v.custom[i];
+// "Removed "Friendly". Undo", for ten seconds, as for the words and snippets.
+function _txShowUndo(text, undo) {
+  const row = document.getElementById('transformsUndo');
+  const label = document.getElementById('transformsUndoText');
+  const btn = document.getElementById('transformsUndoBtn');
+  if (!row || !label || !btn) return;
+  label.textContent = text;
+  btn.onclick = async () => { _txHideUndo(); await undo(); };
+  row.hidden = false;
+  clearTimeout(_txUndoTimer);
+  _txUndoTimer = setTimeout(_txHideUndo, 10000);
+}
+
+function _txHideUndo() {
+  clearTimeout(_txUndoTimer);
+  const row = document.getElementById('transformsUndo');
+  if (row) row.hidden = true;
+}
+
+// By id, not by place in the list: the list may have been drawn again since
+// the click that meant this one.
+async function deleteTransform(id) {
+  const before = _txView().custom.map((c) => ({ id: c.id, name: c.name, prompt: c.prompt }));
+  const gone = before.find((c) => c.id === id);
   if (!gone) return;
+  const i = before.indexOf(gone);
   _txEditing = -1;
-  const next = v.custom.filter((_c, n) => n !== i).map((c) => ({ id: c.id, name: c.name, prompt: c.prompt }));
-  if (await saveTransforms({ custom: next }, 'transformFormError')) {
-    showToast(WL.transformSaved('removed', gone.name), 'success', 3500);
+  _txDraft = null;
+  if (await saveTransforms({ custom: before.filter((c) => c.id !== id) }, 'transformFormError')) {
     const left = [...document.querySelectorAll('#transformsList .tx-del')];
     const to = WL.focusAfterRemove(i, left.length);
     const target = to >= 0 ? left[to] : document.getElementById('transformName');
     if (target) target.focus();
+    _txShowUndo(WL.transformSaved('removed', gone.name), async () => {
+      if (await saveTransforms({ custom: before }, 'transformFormError')) showToast(WL.transformSaved('added', gone.name), 'success', 3500);
+    });
   }
 }
 

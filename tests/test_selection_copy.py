@@ -488,6 +488,44 @@ def test_default_round_trip_is_none_where_there_is_no_clipboard(monkeypatch):
     assert sc.default_round_trip() is None
 
 
+# ── Windows waits for the shortcut's own modifier keys, as a Mac does ────────
+
+def test_the_windows_modifier_flags_are_in_the_bits_the_wait_reads():
+    import mac_input
+    import pasteboard
+    held = lambda *vks: (lambda vk: vk in vks)       # noqa: E731
+    assert sc.windows_modifier_flags(held()) == 0
+    assert sc.windows_modifier_flags(held(0x10)) == mac_input.MOD_SHIFT
+    assert sc.windows_modifier_flags(held(0x11)) == mac_input.MOD_CONTROL
+    assert sc.windows_modifier_flags(held(0x12)) == mac_input.MOD_OPTION
+    assert sc.windows_modifier_flags(held(0x5B)) == mac_input.MOD_COMMAND
+    assert sc.windows_modifier_flags(held(0x5C)) == mac_input.MOD_COMMAND
+    both = sc.windows_modifier_flags(held(0x11, 0x12))
+    assert both == mac_input.MOD_CONTROL | mac_input.MOD_OPTION
+    assert both & pasteboard.HOTKEY_MODIFIER_MASK == both, "the wait looks at every one of them"
+
+
+def test_the_copy_waits_for_alt_to_come_up_before_ctrl_c(monkeypatch):
+    """The Transform shortcut has two modifier keys down when the copy starts;
+    Ctrl+C sent with Alt still held is Ctrl+Alt+C to the app."""
+    import mac_input
+    world = World()
+    state = {"held": mac_input.MOD_CONTROL | mac_input.MOD_OPTION}
+    world.at(0.1, lambda: state.update(held=0))
+    sent = []
+    pb = Clipboard([[(STRING, b"mine")]])
+    rt = sc.CopyRoundTrip(pb, lambda: sent.append(dict(state)), flags=lambda: state["held"], lock=Lock(),
+                          sleep=world.sleep, clock=world.clock)
+    rt.read(1.0)
+    assert sent and sent[0]["held"] == 0, "Ctrl+C went only once the keys were up"
+
+
+def test_windows_is_given_the_modifier_reader(monkeypatch):
+    monkeypatch.setattr(sc.sys, "platform", "win32")
+    trip = sc.default_round_trip()
+    assert trip is not None and trip._flags is sc.windows_modifier_flags
+
+
 # ── the Copy key follows the keyboard layout, like the Paste key ─────────────
 
 QWERTY = {9: "v", 8: "c", 47: "."}

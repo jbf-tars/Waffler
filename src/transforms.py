@@ -40,15 +40,18 @@ strips what models add despite being told not to (a fence around the text,
 "Here is the polished version:"), replaces dashes the model added, puts back a
 swear word it censored, keeps the selection's leading and trailing space, and
 then decides: ``REPLACE``, ``NO_CHANGE`` (nothing worth replacing), or
-``BAD_LENGTH`` / ``TRUNCATED`` / ``EMPTY`` (the answer looks wrong, so the
+``BAD_LENGTH`` / ``TRUNCATED`` / ``UNRELATED`` / ``EMPTY`` (the answer looks wrong, so the
 person's text is left alone). Nothing silently shortens a text: an answer under
 30 percent of the words (10 percent for a transform of the person's own, whose
-job may be to shorten), or one the model said it was cut off, is refused.
+job may be to shorten), one the model said it was cut off, and, for Polish, one
+that shares under a quarter of the person's wording, is refused. Lengths count
+half a word for each character of a script written without spaces.
 """
 
 from __future__ import annotations
 
 import copy
+import difflib
 import hashlib
 import re
 from dataclasses import dataclass
@@ -76,7 +79,7 @@ PROMPT_MAX = 800
 RULE_MAX = 160
 MAX_CUSTOM_RULES = 5
 SKELETON_MAX = 1200
-HOTKEY_MAX_KEYS = 4
+HOTKEY_MAX_KEYS = 5
 
 # The answer must be at least this share of the words in, and at most this
 # many times as many (or this many more words, whichever allows more). Only
@@ -94,6 +97,13 @@ SLACK_WORDS = 30
 # A structured prompt is longer than the rough request it came from, and so
 # is whatever a transform of the person's own is asked to write.
 PROMPT_ENGINEER_SLACK_WORDS = 300
+
+# Polish keeps the person's words: an answer that shares under a quarter of
+# them with the text (a refusal, an answer to a question that was only to be
+# polished) replaces nothing. Not checked for a few words, where a typo fixed
+# in a single word shares none.
+MIN_OVERLAP = 0.25
+MIN_WORDS_FOR_OVERLAP = 5
 
 # What a request may cost in the system message, as the rough count of tokens
 # (a quarter of the characters) the tests hold it to.
@@ -218,7 +228,7 @@ def _clean_custom(value, previous=()) -> List[dict]:
         if not name or not prompt or name.casefold() in names \
                 or name.casefold() in {n.casefold() for n in BUILT_IN_NAMES.values()}:
             continue
-        cid = item.get("id") if isinstance(item.get("id"), str) and _ID.match(item["id"]) else ""
+        cid = item.get("id") if isinstance(item.get("id"), str) and _ID.fullmatch(item["id"]) else ""
         if not cid or cid in ids or cid in BUILT_IN:
             cid = keep.get(name.casefold(), "")
         if not cid or cid in ids or cid in BUILT_IN:
@@ -366,7 +376,7 @@ def _types_problem(given: dict) -> Optional[str]:
                 return user_messages.TRANSFORM_PROMPT_EMPTY
             if len(prompt) > PROMPT_MAX:
                 return user_messages.TRANSFORM_PROMPT_LONG
-            if "id" in item and item["id"] and not _ID.match(item["id"]):
+            if "id" in item and item["id"] and not _ID.fullmatch(item["id"]):
                 return user_messages.TRANSFORMS_BAD
     return None
 
@@ -550,6 +560,32 @@ def word_count(text: str) -> int:
     return len(str(text or "").split())
 
 
+# Scripts written without spaces (Thai, Japanese, Chinese, Korean syllables):
+# a whole sentence is one "word" to split(), so the length checks count half a
+# word for each of their characters instead.
+_UNSPACED_RANGES = ((0x0E00, 0x0E7F), (0x3040, 0x30FF), (0x3400, 0x4DBF), (0x4E00, 0x9FFF),
+                    (0xAC00, 0xD7AF))
+_UNSPACED_CLASS = "".join(f"{chr(a)}-{chr(b)}" for a, b in _UNSPACED_RANGES)
+_UNSPACED = re.compile(f"[{_UNSPACED_CLASS}]")
+_TOKEN = re.compile(f"[{_UNSPACED_CLASS}]|[^\\W_]+")
+
+
+def size(text: str) -> int:
+    """How long a text is for the checks on an answer: its words, and half a
+    word for each character of a script written without spaces."""
+    text = str(text or "")
+    return len(text.split()) + len(_UNSPACED.findall(text)) // 2
+
+
+def overlap(source: str, text: str) -> float:
+    """How much of the wording two texts share, 0 to 1 (case and punctuation
+    ignored; a character each for the scripts written without spaces)."""
+    a, b = _TOKEN.findall(str(source or "").casefold()), _TOKEN.findall(str(text or "").casefold())
+    if not a or not b:
+        return 1.0
+    return difflib.SequenceMatcher(None, a, b, autojunk=False).ratio()
+
+
 # What a selection can be refused for.
 EMPTY = "empty"
 TOO_LONG = "too_long"
@@ -572,6 +608,7 @@ NO_CHANGE = "no_change"
 BAD_LENGTH = "bad_length"
 TRUNCATED = "truncated"
 EMPTY_ANSWER = "empty_answer"
+UNRELATED = "unrelated"
 
 
 @dataclass(frozen=True)
@@ -602,24 +639,42 @@ def _is_preamble(line: str) -> bool:
 _SIGNOFF = re.compile(
     r"^\W*(?:let me know|i hope this|hope this helps|feel free to|happy to (?:help|adjust))[^\n]*$",
     re.IGNORECASE)
-_MARKER_LINE = re.compile(r"^\s*(?:<<<SOURCE\d*|SOURCE\d*>>>)\s*$")
 _QUOTES = {'"': '"', chr(0x201C): chr(0x201D), "'": "'", chr(0x2018): chr(0x2019)}
 # The em dash and the en dash (U+2014, U+2013), by code so this file has none.
 _DASHES = (chr(0x2014), chr(0x2013))
+
+
+def _key(line: str) -> str:
+    return "".join(ch for ch in line.casefold() if ch.isalnum())
+
+
+def _in_source(line: str, source_lines) -> bool:
+    """Is ``line`` (nearly) one of the person's own lines? "heres the draft:"
+    and "Here's the draft:" are the same line: a model that puts it right has
+    not added it."""
+    k = _key(line)
+    if not k:
+        return False
+    return any(difflib.SequenceMatcher(None, k, other).ratio() >= 0.8 for other in source_lines)
 
 
 def clean_output(raw, source: str = "") -> str:
     """The model's answer without what it adds despite being told not to: a
     thinking block, a line like "Here is the polished version:", a fence around
     the text, a closing offer of more help, echoed markers, quotation marks
-    around the whole. Only what the person's own text did not start with is
-    removed."""
+    around the whole. Only what the person's own text did not hold is
+    removed: a first line, last line, tag or marker that is in the text
+    (however the model spelt it) stays."""
     text = str(raw or "").replace("\r\n", "\n").replace("\r", "\n")
-    text = _THINK.sub("", text).strip()
     src = str(source or "")
-    lines = [ln for ln in text.split("\n") if not _MARKER_LINE.match(ln)]
-    src_first = next((ln for ln in src.split("\n") if ln.strip()), "")
-    lines = _drop_preamble(lines, src_first)
+    if "<think" not in src.lower():
+        text = _THINK.sub("", text)
+    text = text.strip()
+    own = [_key(ln) for ln in src.split("\n")[:400] if _key(ln)]
+    word = marker(src)
+    echoed = re.compile(rf"^\s*(?:<<<{word}|{word}>>>)\s*$")
+    lines = [ln for ln in text.split("\n") if not echoed.match(ln)]
+    lines = _drop_preamble(lines, own)
     text = "\n".join(lines).strip()
     if text.startswith("```") and text.endswith("```") and not src.lstrip().startswith("```"):
         body = text.split("\n", 1)
@@ -627,8 +682,7 @@ def clean_output(raw, source: str = "") -> str:
             inner = body[1].rstrip()
             text = inner[:-3].rstrip() if inner.endswith("```") else inner
     lines = text.split("\n")
-    src_last = next((ln for ln in reversed(src.split("\n")) if ln.strip()), "")
-    if len(lines) > 1 and _SIGNOFF.match(lines[-1]) and not _SIGNOFF.match(src_last):
+    if len(lines) > 1 and _SIGNOFF.match(lines[-1]) and not _in_source(lines[-1], own):
         lines.pop()
     text = "\n".join(lines).strip()
     if len(text) > 1 and text[0] in _QUOTES and text[-1] == _QUOTES[text[0]] \
@@ -637,10 +691,10 @@ def clean_output(raw, source: str = "") -> str:
     return text
 
 
-def _drop_preamble(lines: List[str], src_first: str) -> List[str]:
+def _drop_preamble(lines: List[str], own) -> List[str]:
     first = next((i for i, ln in enumerate(lines) if ln.strip()), None)
     if first is not None and len(lines) - first > 1 and _is_preamble(lines[first]) \
-            and not _is_preamble(src_first):
+            and not _in_source(lines[first], own):
         return lines[first + 1:]
     return lines
 
@@ -693,17 +747,17 @@ def finish(source: str, raw, spec: Spec, *, finish_reason=None,
     are the same ones): replace dashes the model added, and put back a swear
     word it censored.
     """
-    words_in = word_count(source)
+    words_in = size(source)
     text = clean_output(raw, source)
     if not text:
         return Outcome(EMPTY_ANSWER, words_in=words_in)
     if finish_reason == "length":
-        return Outcome(TRUNCATED, words_in=words_in, words_out=word_count(text))
+        return Outcome(TRUNCATED, words_in=words_in, words_out=size(text))
     text = strip_dashes(text, source, dashes)
     text = (profanity or _default_profanity)(text, source)
     lead, trail = _edge_space(source)
     text = f"{lead}{text.strip()}{trail}"
-    words_out = word_count(text)
+    words_out = size(text)
     if normalise(text) == normalise(source):
         return Outcome(NO_CHANGE, words_in=words_in, words_out=words_out)
     floor = MIN_SHARE_CUSTOM if spec.kind == "custom" else MIN_SHARE
@@ -712,6 +766,8 @@ def finish(source: str, raw, spec: Spec, *, finish_reason=None,
     slack = SLACK_WORDS if spec.kind == "polish" else PROMPT_ENGINEER_SLACK_WORDS
     if words_out > max(words_in * MAX_TIMES, words_in + slack):
         return Outcome(BAD_LENGTH, words_in=words_in, words_out=words_out)
+    if spec.kind == "polish" and words_in >= MIN_WORDS_FOR_OVERLAP and overlap(source, text) < MIN_OVERLAP:
+        return Outcome(UNRELATED, words_in=words_in, words_out=words_out)
     return Outcome(REPLACE, text=text, words_in=words_in, words_out=words_out)
 
 

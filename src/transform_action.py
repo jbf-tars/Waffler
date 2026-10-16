@@ -81,7 +81,7 @@ class Hooks:
     say: Callable[..., None]                                    # (kind, style, heading, body, buttons=None, timeout=None)
     front_app: Callable[[], Any] = lambda: text_context.UNKNOWN
     window: Callable[[], Any] = lambda: None                    # Windows: the target window
-    reread_selection: Callable[[], Any] = lambda: None          # the selection again, without a Copy
+    reread_selection: Callable[[str], Any] = lambda method: None    # the selection again, read the way it was first
     refocus: Callable[[], None] = _noop                         # Windows tray: back to the last app
     dashes: Optional[Callable[[str], str]] = None               # the styler's own helpers
     profanity: Optional[Callable[[str, str], str]] = None
@@ -199,13 +199,17 @@ class TransformRunner:
         run = None
         outcome = pw.ERROR
         try:
+            # Where the person is, noted before the pill appears (as a
+            # dictation notes it). From the menu it is the last app, once
+            # it has been brought back (_work).
+            seen = None if origin == "menu" else (self._front(), self.h.window())
             run = self._watchdog.begin(next(self._ids))
             with self._lock:
                 self._run = run
                 early = self._cancel_early
             if early:
                 run.decide(pw.CANCEL)
-            outcome = self._work(run, origin)
+            outcome = self._work(run, origin, seen)
         except Exception as e:      # noqa: BLE001 - one line, never the text
             self.h.log(f"[transform] failed: {type(e).__name__}")
             self._say(FAILED, "warn", ("Couldn't rewrite",
@@ -222,16 +226,17 @@ class TransformRunner:
                     self._run = None
                     self._active = False
 
-    def _work(self, run: pw.DictationRun, origin: str) -> str:
+    def _work(self, run: pw.DictationRun, origin: str, seen=None) -> str:
         h = self.h
         stored = h.settings()
         spec = transforms.spec_for(stored)
         started = h.monotonic()
 
-        if origin == "menu":
-            run.call(h.refocus, stage=pw.PREPARING, deadline=2.0)
-        ctx = self._front()
-        window = h.window()
+        if seen is None:
+            if origin == "menu":
+                run.call(h.refocus, stage=pw.PREPARING, deadline=2.0)
+            seen = (self._front(), h.window())
+        ctx, window = seen
 
         # 1. The selection.
         got = run.call(h.read_selection, stage=pw.PREPARING, deadline=self.read_deadline_s)
@@ -276,24 +281,29 @@ class TransformRunner:
                          deadline=CHECK_DEADLINE_S)
         if moved.status == pw.CANCEL:
             return self._cancelled()
-        elif moved.ok and moved.value:
-            return self._not_pasted(spec, ctx, text, after, reply, started)
+        if not moved.ok or moved.value:
+            # Moved on, or not able to tell in time (the app did not answer):
+            # a paste into the wrong place costs more than a Cmd+V.
+            return self._not_pasted(spec, ctx, text, after, reply, started, sure=moved.ok)
 
         # 5. Put it in.
         if stored.get("auto_paste", True) is False:
             return self._copied(spec, ctx, text, after, reply, started)
+        run.enter(pw.PASTING)           # from here on Cancel is too late, and says so
+        if run.cancelled:
+            return self._cancelled()
         ticket = pasteboard.PasteTicket()
         restore = pasteboard.restore_after_paste(stored)
         pasted = run.call(h.paste, after, window, restore, ticket,
                           stage=pw.PASTING, deadline=self.paste_deadline_s)
         try:
-            on_clipboard, went_in = h.settle_paste(pasted, ticket)
+            _on_clipboard, went_in = h.settle_paste(pasted, ticket)
         except Exception as e:      # noqa: BLE001 - what became of the paste is unknown, so say it went in
             h.log(f"[transform] paste outcome not read: {type(e).__name__}")
-            on_clipboard, went_in = False, True
+            went_in = True
         label = history_meta.paste_label(pasted, went_in)
-        if on_clipboard or not went_in:
-            h.remember(after)               # so "Copy again" copies the rewrite
+        if not went_in:
+            h.remember(after)               # so the failed-paste message's "Copy again" copies the rewrite
         entry = self._save(spec, ctx, text, after, reply, started, label, stored)
         if went_in:
             buttons = self._journal_buttons(entry)
@@ -352,6 +362,7 @@ class TransformRunner:
             self._say(RESULT, "info", um.TRANSFORM_NO_CHANGE, timeout=NOTICE_S)
             return pw.NOTHING
         message = {transforms.TRUNCATED: um.TRANSFORM_CUT_SHORT,
+                   transforms.UNRELATED: um.TRANSFORM_UNRELATED,
                    transforms.EMPTY_ANSWER: um.TRANSFORM_NO_ANSWER}.get(status, um.TRANSFORM_BAD_LENGTH)
         self._say(FAILED, "warn", message, timeout=NOTICE_S)
         return pw.NOTHING
@@ -379,18 +390,22 @@ class TransformRunner:
 
     def _moved(self, ctx, source: str, selection) -> bool:
         """Has the person moved on while the model was thinking? True when
-        another app is in front now, or the selection is gone or has changed
-        (where Accessibility can tell). When it cannot tell, no."""
+        another app is in front now, or the selection is gone or has changed.
+        When the app does not answer, no (the caller treats a check that
+        timed out or failed as "not sure": see ``_work``)."""
         h = self.h
         now = self._front()
         if ctx.known and now.known and (now.bundle_id, now.name) != (ctx.bundle_id, ctx.name):
             return True
-        again = h.reread_selection()
+        # The selection again, the way it was first read: through Accessibility
+        # where the app shares it, by copying where it did not (browsers and
+        # most Electron apps, where a tab switch or a keystroke would not show).
+        again = h.reread_selection(selection.method)
         if again is None:
             return False
         if again.reason == text_context.NO_SELECTION:
             return True
-        if getattr(again, "method", "") == text_context.METHOD_AX and again.text:
+        if getattr(again, "method", "") in (text_context.METHOD_AX, text_context.METHOD_COPY) and again.text:
             return transforms.normalise(again.text) != transforms.normalise(source)
         return False
 
@@ -420,9 +435,10 @@ class TransformRunner:
             entry = {}
         return entry
 
-    def _not_pasted(self, spec, ctx, before, after, reply, started) -> str:
-        """The person moved on: the rewrite goes on the clipboard and in the
-        Journal, and is not pasted anywhere."""
+    def _not_pasted(self, spec, ctx, before, after, reply, started, sure: bool = True) -> str:
+        """The person moved on (or it could not be checked in time): the
+        rewrite goes on the clipboard and in the Journal, and is not pasted
+        anywhere."""
         h = self.h
         copied = False
         try:
@@ -435,8 +451,9 @@ class TransformRunner:
         entry = self._save(spec, ctx, before, after, reply, started, label, h.settings())
         h.log(f"[transform] the person moved on: result {'copied' if copied else 'kept in the Journal'}")
         if copied:
-            self._say(RESULT, "info", um.transform_not_pasted_message(h.platform),
-                      self._journal_buttons(entry), timeout=DONE_S)
+            message = (um.transform_not_pasted_message(h.platform) if sure
+                       else um.transform_not_sure_message(h.platform))
+            self._say(RESULT, "info", message, self._journal_buttons(entry), timeout=DONE_S)
         else:
             self._say(FAILED, "warn", um.TRANSFORM_MOVED_NOT_COPIED,
                       self._journal_buttons(entry), timeout=DONE_S)

@@ -577,3 +577,70 @@ def test_the_entry_has_no_text_or_styled_so_no_dictation_number_reads_it():
 def test_the_entry_leaves_out_what_is_unknown():
     e = tf.history_entry(POLISH, "a", "b", timestamp="2026-10-16T10:00:00")
     assert set(e) == {"timestamp", "kind", "before", "after", "transform_id", "transform_name", "word_count"}
+
+
+# ── found in review ──────────────────────────────────────────────────────────
+
+def test_an_id_with_a_line_break_on_the_end_is_not_an_id():
+    assert tf.settings_problem({"transforms": {"custom": [{"id": "abc\n", "name": "A", "prompt": "p"}]}}, {},
+                               platform=MAC) == um.TRANSFORMS_BAD
+    got = tf.settings({"transforms": {"custom": [{"id": "abc\n", "name": "A", "prompt": "p"},
+                                                   {"id": "polish\n", "name": "B", "prompt": "p"}]}})
+    assert all(c["id"].isalnum() or c["id"].isidentifier() for c in got["custom"])
+    assert not any("\n" in c["id"] for c in got["custom"])
+
+
+def test_a_shortcut_of_four_modifiers_and_a_key_is_saved_and_read_back():
+    keys = ["control", "option", "shift", "cmd", "t"]
+    saved = save({}, {"hotkey": keys}, MAC)
+    assert saved["hotkey"] == keys
+    assert tf.settings({"transforms": saved})["hotkey"] == keys
+    assert save({"transforms": saved}, {"hotkey": []}, MAC)["hotkey"] == []
+
+
+def test_a_text_in_a_script_without_spaces_is_measured_by_its_characters():
+    chinese = "\u6211\u4eca\u5929\u53bb\u4e86\u5546\u5e97\u4e70\u4e86\u725b\u5976\u548c\u9e21\u86cb" * 8
+    assert tf.word_count(chinese) == 1 and tf.size(chinese) == len(chinese) // 2 + 1
+    assert tf.size("two words") == 2 and tf.size("") == 0 and tf.size(None) == 0
+    refusal = "Sorry, I can't help with that request, please try something else."
+    out = finish(chinese, refusal)
+    assert out.status == tf.BAD_LENGTH, "a refusal is not a rewrite of 48 words"
+    same_script = chinese[:-3] + "\u3002"
+    assert finish(chinese, same_script).status == tf.REPLACE
+
+
+def test_polish_must_keep_some_of_the_wording_but_other_transforms_may_not():
+    source = "can you send me the quarterly numbers for the sales team by friday afternoon please thanks"
+    answer = "Certainly. Revenue grew in the last period across every region of the company."
+    assert finish(source, answer, POLISH).status == tf.UNRELATED
+    custom = tf.spec_for({"transforms": {"custom": [{"id": "c1", "name": "Other", "prompt": "Translate it."}]}}, "c1")
+    assert finish(source, answer, custom).status == tf.REPLACE, "a translation shares no words"
+    assert finish("teh", "the", POLISH).status == tf.REPLACE, "a typo in one word shares none, and that is fine"
+    assert finish("send me that file now", "Please send that file.", POLISH).status == tf.REPLACE
+    assert tf.overlap("a b c", "") == 1.0 and tf.overlap("", "x") == 1.0
+    assert 0.0 <= tf.overlap("one two three", "four five six") < 0.1
+    assert tf.overlap("Hello, World!", "hello world") == 1.0
+
+
+def test_a_first_or_last_line_that_was_the_persons_own_is_kept_however_the_model_spelt_it():
+    source = "heres the draft:\nwe meet at nine and we go to the site and check the pumps\nlmk if that works"
+    raw = "Here's the draft:\nWe meet at nine, go to the site and check the pumps.\nLet me know if that works."
+    out = tf.clean_output(raw, source)
+    assert out.startswith("Here's the draft:") and out.endswith("Let me know if that works.")
+    # Not the person's: still taken off.
+    assert not tf.clean_output("Here is the polished text:\nWe meet at nine.", "we meet at nine").startswith("Here")
+    assert tf.clean_output("We meet at nine.\nLet me know if you need anything else.", "we meet at nine") == "We meet at nine."
+
+
+def test_a_thinking_tag_or_a_marker_in_the_persons_text_is_not_taken_for_ours():
+    source = "use <think>hard</think> before you answer the question and then answer it well"
+    out = tf.clean_output("Use <think>hard</think> before you answer the question, then answer it well.", source)
+    assert "<think>hard</think>" in out
+    assert tf.clean_output("<think>hmm</think>Use it.", "use it please").strip() == "Use it."
+    own = "the format is <<<SOURCE then the text then SOURCE>>> and nothing else here at all"
+    kept = tf.clean_output("The format is\n<<<SOURCE\nthen the text\nSOURCE>>>\nand nothing else.", own)
+    assert "<<<SOURCE\n" in kept and "SOURCE>>>" in kept, "the person's own markers stay"
+    ours = tf.user_message(own)
+    word = tf.marker(own)
+    assert word == "SOURCE2"
+    assert tf.clean_output(f"<<<{word}\nDone here.\n{word}>>>", own) == "Done here."

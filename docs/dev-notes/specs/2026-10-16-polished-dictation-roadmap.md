@@ -93,7 +93,7 @@ One key in `settings.json`, `transforms`, an object. It is read with `transforms
 
 Related, added with it:
 
-- The answer is checked before it replaces anything (`transforms.finish`): the same text back is "no change"; under 30 percent of the words (10 percent for a `custom` transform, whose job may be to shorten), over 2.5 times the words (or 30 more; 300 more for Prompt Engineer and `custom`), or an answer the model said it cut off, replaces nothing.
+- The answer is checked before it replaces anything (`transforms.finish`): the same text back is "no change"; under 30 percent of the words (10 percent for a `custom` transform, whose job may be to shorten), over 2.5 times the words (or 30 more; 300 more for Prompt Engineer and `custom`), an answer the model said it cut off, or (Polish, five words or more) one that shares under a quarter of the wording, replaces nothing. Lengths count half a word per character of a script written without spaces.
 - Journal entries of `kind: "transform"` (`before`, `after`, `transform_id`, `transform_name`, `provider: {"transform": ...}`, `model`, `took_s`, plus the usual `app`, `app_bundle`, `category`, `paste`, `lang`). They have no `text` or `styled`, and `journal_data.compute_stats` counts them in `entries` and `transform_count` only. See `history_meta.py`.
 - Usage rows may carry `purpose: "transform"` (still `type: "gpt"`, priced as any call); `get_usage_stats` leaves them out of "about X a dictation" and adds `transform_count` and `transform_cost_usd`.
 - Notifier kinds `transform_result`, `transform_busy` (a gap of 8 s), `transform_failed`; toast action `show_transform:<entry id>`.

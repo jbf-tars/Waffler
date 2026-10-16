@@ -358,7 +358,9 @@ def test_the_hooks_ask_for_the_copy_fallback_and_the_dictation_path_never_does()
     klass = next(n for n in APP_TREE.body if isinstance(n, ast.ClassDef) and n.name == "WafflerPipeline")
     src = ast.unparse(next(n for n in klass.body if isinstance(n, ast.FunctionDef) and n.name == "_transform_hooks"))
     assert "read_selection(allow_copy_fallback=True)" in src
-    assert "read_selection(False" in src, "the check before the paste does not press Copy"
+    # The check before the paste reads the selection the way it was first read:
+    # by copying only where the first read had to copy.
+    assert "allow_copy_fallback=method == _text_context.METHOD_COPY" in src
 
 
 # ── the menu and the update check ────────────────────────────────────────────

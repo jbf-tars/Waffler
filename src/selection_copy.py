@@ -320,6 +320,32 @@ def _windows_ctrl_c() -> None:
     user32.keybd_event(vk_control, 0, keyup, 0)
 
 
+# The modifier keys, as virtual-key codes (a Windows key counts as Command).
+_WINDOWS_MODIFIER_VKS = ((0x10, "MOD_SHIFT"), (0x11, "MOD_CONTROL"), (0x12, "MOD_OPTION"),
+                         (0x5B, "MOD_COMMAND"), (0x5C, "MOD_COMMAND"))
+
+
+def windows_modifier_flags(down: Optional[Callable[[int], bool]] = None) -> int:
+    """The modifier keys held right now, in the bits ``mac_input`` uses (so
+    ``pasteboard.wait_for_modifiers_released`` reads it as it reads a Mac's).
+
+    Without it a Windows copy was sent while the shortcut's own Alt, Shift or
+    Windows key was still down: the app saw Ctrl+Alt+C or Ctrl+Shift+C
+    (developer tools in a browser), not Ctrl+C. ``down(vk)`` says whether a
+    key is down (``GetAsyncKeyState`` by default).
+    """
+    import mac_input
+    if down is None:
+        import ctypes
+        user32 = ctypes.windll.user32
+        down = lambda vk: bool(user32.GetAsyncKeyState(vk) & 0x8000)      # noqa: E731
+    bits = 0
+    for vk, name in _WINDOWS_MODIFIER_VKS:
+        if down(vk):
+            bits |= getattr(mac_input, name)
+    return bits
+
+
 def _mac_cmd_c() -> None:
     import mac_input
     mac_input.send_command_key(mac_input.c_keycode_for_current_layout())
@@ -332,10 +358,11 @@ def default_round_trip(log: Callable[[str], None] = lambda _m: None) -> Optional
         return CopyRoundTrip(pasteboard.MacPasteboard(), _mac_cmd_c,
                              flags=mac_input.modifier_flags, log=log)
     if sys.platform == "win32":
-        return CopyRoundTrip(WindowsTextClipboard(), _windows_ctrl_c, log=log)
+        return CopyRoundTrip(WindowsTextClipboard(), _windows_ctrl_c,
+                             flags=windows_modifier_flags, log=log)
     return None
 
 
 __all__ = ["CopyResult", "CopyRoundTrip", "WindowsTextClipboard", "default_round_trip",
-           "keystroke_allowed", "NO_COPY_KEY_NAMES", "OK", "NOT_RESTORABLE", "BUSY", "NO_COPY",
+           "keystroke_allowed", "windows_modifier_flags", "NO_COPY_KEY_NAMES", "OK", "NOT_RESTORABLE", "BUSY", "NO_COPY",
            "TIMED_OUT", "KEYSTROKE_FAILED", "UNREADABLE"]

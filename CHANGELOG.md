@@ -205,15 +205,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   word and uses no em dashes. If the answer is the same text, you are told
   "Your text already looks good" and nothing is replaced; if it looks wrong
   (under 30 percent of the words, or 10 percent for a transform of your own,
-  far too many, or cut off), nothing is replaced
+  far too many, cut off, or, for Polish, sharing almost none of your wording), nothing is replaced
   and your text is untouched. Your app's own Undo takes a rewrite back, and
   the toast says which keys. The shortcut needs two modifier keys and a
   letter, number or F key, and cannot overlap your dictation hotkey; it only
   listens, so it also reaches the app in front. It never starts during a
   dictation, a dictation never starts during it, Esc or the pill's X stops it
   until the paste begins, and it gives up after 30 seconds. If you move to
-  another app while it works, or change the selection where Waffler can tell,
-  nothing is pasted: the rewrite is put on your clipboard instead. Up to 1,000 words at a time. The
+  another app while it works, change the selection where Waffler can tell, or
+  Waffler cannot check in time, nothing is pasted: the rewrite is put on your
+  clipboard instead. Up to 1,000 words at a time. The
   Journal shows each rewrite as its own entry: the text before and after, the
   changes marked, and Copy result and Copy original; the toast has a "Show in
   Journal" button. Rewrites are not counted in your words, dictations, streak

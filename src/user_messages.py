@@ -367,6 +367,8 @@ TRANSFORM_CANCELLED = ("Transform cancelled", "Your text is unchanged.")
 TRANSFORM_NO_CHANGE = ("Your text already looks good", "Nothing was changed.")
 TRANSFORM_BAD_LENGTH = ("Nothing was replaced",
                         "The result looked wrong, so your text is untouched.")
+TRANSFORM_UNRELATED = ("Nothing was replaced",
+                       "The result didn't look like your text, so it's untouched.")
 TRANSFORM_CUT_SHORT = ("Nothing was replaced",
                        "The result was cut short, so your text is untouched.")
 TRANSFORM_NO_ANSWER = ("Nothing was replaced",
@@ -389,11 +391,27 @@ def transform_read_message(reason: str):
                 "Privacy & Security > Accessibility, then try again.")
     if reason == "secure_field":
         return ("Can't read this field", "It looks like a password field, so Waffler left it alone.")
+    if reason == "clipboard_not_restorable":
+        # Windows reads a selection by copying it, and will not do that over a
+        # clipboard it cannot put back (a picture, formatted text from a browser).
+        return ("Can't copy right now",
+                "Your clipboard holds something Waffler can't put back safely, such as a picture or "
+                "formatted text. Copy some plain text or clear it, then try again.")
+    if reason == "clipboard_busy":
+        return ("Clipboard is busy", "Another program is using the clipboard. Try again in a moment.")
     if reason == "not_allowed_here":
         return ("Can't copy from here",
                 "In a terminal, copying would stop the program. Select text in another app.")
     return ("Couldn't read the selection",
             "This app didn't hand over the selected text. Try again, or try another app.")
+
+
+def transform_not_sure_message(platform: str):
+    """The rewrite is on the clipboard because Waffler could not check, in time,
+    that the person's text was still selected."""
+    return ("Result not pasted",
+            f"Waffler couldn't check that your text was still selected, so the result is on "
+            f"your clipboard. Press {paste_keys(platform)} where you want it.")
 
 
 def transform_done_message(name: str, platform: str):

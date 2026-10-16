@@ -4122,7 +4122,8 @@ class WafflerPipeline:
             settings=self._read_settings,
             dictation_busy=self._dictation_busy,
             read_selection=lambda: _text_context.read_selection(allow_copy_fallback=True),
-            reread_selection=lambda: _text_context.read_selection(False, timeout=0.6),
+            reread_selection=lambda method: _text_context.read_selection(
+                allow_copy_fallback=(method == _text_context.METHOD_COPY), timeout=0.9),
             front_app=lambda: _text_context.frontmost_app(),
             window=lambda: self.clipboard.get_focused_window(),
             refocus=refocus,
