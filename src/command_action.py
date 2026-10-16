@@ -64,6 +64,7 @@ TOTAL_DEADLINE_S = 30.0
 MIN_ASK_S = 5.0                 # the model is never given less than this
 ASK_MARGIN_S = 2.0              # the provider chain stops this long before the watchdog does
 CHECK_DEADLINE_S = 3.0          # "is the selection still there?"
+READ_REPLY_S = 3.0              # reading the model's reply (pure text work: a second at the very most)
 OPEN_DEADLINE_S = 5.0
 PASTE_DEADLINE_S = pw.PASTE_DEADLINE_S
 MAX_HOLD_S = 60.0               # a key-up that never arrives must not record for ever
@@ -635,8 +636,17 @@ class CommandRunner:
         self._count(reply)
         if run.cancelled:
             return self._cancelled()
-        parsed = cm.parse_reply(getattr(reply, "text", ""), has_selection=bool(selection), instruction=instruction,
-                                own_text=selection or run.before)
+        # Reading the reply is only text work, but it holds the interpreter while it runs: under
+        # the watchdog, so a Cancel or the deadline frees the window even if it ever drags.
+        reading = wd.call(lambda: cm.parse_reply(getattr(reply, "text", ""), has_selection=bool(selection),
+                                                 instruction=instruction, own_text=selection or run.before,
+                                                 max_chars=cm.reply_limit(request.max_tokens)),
+                          stage=pw.STYLING, deadline=READ_REPLY_S)
+        if reading.status == pw.CANCEL:
+            return self._cancelled()
+        if not reading.ok:
+            return self._reply_unreadable(reading)
+        parsed = reading.value
         h.log(f"[command] the model chose {parsed.action}"
               f"{'' if parsed.tagged else ' (the reply had no tag: guessed)'}"
               f"{', as a draft because nothing was selected' if parsed.changed else ''}")
@@ -671,8 +681,14 @@ class CommandRunner:
 
     def _do_edit(self, *, run, cfg, wd, instruction, selection, method, reply, started, parsed) -> str:
         h = self.h
-        result = cm.finish_edit(selection, parsed.payload, finish_reason=getattr(reply, "finish_reason", None),
-                                tagged=parsed.tagged, dashes=h.dashes, profanity=h.profanity)
+        finished = wd.call(cm.finish_edit, selection, parsed.payload, stage=pw.STYLING, deadline=READ_REPLY_S,
+                           finish_reason=self._finish_reason(reply, parsed), tagged=parsed.tagged,
+                           dashes=h.dashes, profanity=h.profanity)
+        if finished.status == pw.CANCEL:
+            return self._cancelled()
+        if not finished.ok:
+            return self._reply_unreadable(finished)
+        result = finished.value
         if result.status != transforms.REPLACE:
             return self._not_replaced(result)
         after = result.text
@@ -689,9 +705,14 @@ class CommandRunner:
 
     def _do_draft(self, *, run, cfg, wd, instruction, selection, method, reply, started, parsed) -> str:
         h = self.h
-        result = cm.finish_draft(parsed.payload, instruction, "" if selection else run.before,
-                                 finish_reason=getattr(reply, "finish_reason", None),
-                                 dashes=h.dashes, profanity=h.profanity)
+        finished = wd.call(cm.finish_draft, parsed.payload, instruction, "" if selection else run.before,
+                           stage=pw.STYLING, deadline=READ_REPLY_S,
+                           finish_reason=self._finish_reason(reply, parsed), dashes=h.dashes, profanity=h.profanity)
+        if finished.status == pw.CANCEL:
+            return self._cancelled()
+        if not finished.ok:
+            return self._reply_unreadable(finished)
+        result = finished.value
         if result.status != transforms.REPLACE:
             return self._not_replaced(result)
         after = result.text
@@ -781,6 +802,19 @@ class CommandRunner:
         else:
             h.log(f"[command] the model call failed: {type(error).__name__}")
             self._say(FAILED, "warn", um.command_failed_message(""), timeout=NOTICE_S)
+        return pw.ERROR
+
+    @staticmethod
+    def _finish_reason(reply, parsed):
+        """A reply longer than any reply can be was cut by the reader: it counts as cut off."""
+        return "length" if getattr(parsed, "cut", False) else getattr(reply, "finish_reason", None)
+
+    def _reply_unreadable(self, reading) -> str:
+        """The reply could not be read in time (or failed): nothing is used."""
+        error = reading.error
+        self.h.log(f"[command] the reply could not be read ({reading.status}"
+                   f"{': ' + type(error).__name__ if error is not None else ''})")
+        self._say(FAILED, "warn", um.command_failed_message(""), timeout=NOTICE_S)
         return pw.ERROR
 
     def _not_replaced(self, result) -> str:

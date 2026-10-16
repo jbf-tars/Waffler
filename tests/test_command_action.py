@@ -924,6 +924,50 @@ def test_esc_while_the_model_thinks_pastes_nothing_and_says_so():
     block.set()
 
 
+def test_esc_while_the_reply_is_being_read_frees_the_window(monkeypatch):
+    """Reading the reply holds the interpreter, so it runs under the watchdog: a
+    Cancel ends the command even if the reader were to drag on."""
+    rig = Rig()
+    stuck = threading.Event()
+    started = threading.Event()
+
+    def slow_reader(*a, **kw):
+        started.set()
+        stuck.wait(10)
+        return cm.Parsed(cm.EDIT, SHORT)
+
+    monkeypatch.setattr(cm, "parse_reply", slow_reader)
+    rig.press()
+    assert wait_for(lambda: "begin" in rig.ui)
+    rig.let_go()
+    assert started.wait(5)
+    assert rig.runner.cancel() is True
+    assert wait_for(rig.finished)
+    assert rig.end()[1] == pw.CANCELLED and not rig.pastes and not rig.saved
+    stuck.set()
+
+
+def test_a_reader_that_never_finishes_gives_up_and_changes_nothing(monkeypatch):
+    rig = Rig()
+    stuck = threading.Event()
+    monkeypatch.setattr(cm, "parse_reply", lambda *a, **kw: stuck.wait(10))
+    monkeypatch.setattr(ca, "READ_REPLY_S", 0.3)
+    rig.go()
+    assert not rig.pastes and not rig.saved and rig.end()[1] == pw.ERROR
+    assert rig.last()[:2] == (ca.FAILED, "warn")
+    stuck.set()
+
+
+def test_a_reply_longer_than_any_reply_can_be_replaces_nothing():
+    """A model that fills its answer with white space is read only up to the most a reply
+    can hold, and what it wrote is not used."""
+    rig = Rig()
+    rig.chat_text = "ACTION: edit\n" + SHORT + " " * 200_000 + "and then some more words"
+    rig.go()
+    assert not rig.pastes and not rig.saved and not rig.copies
+    assert rig.last()[2:4] == um.COMMAND_CUT_SHORT
+
+
 def test_esc_while_speech_is_turned_to_text_cancels_it():
     rig = Rig()
     rig.stt_block = threading.Event()

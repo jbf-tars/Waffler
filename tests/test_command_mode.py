@@ -648,3 +648,52 @@ def test_the_scrub_does_not_touch_ordinary_text_or_raise():
     assert cm.scrub("A normal reply.\nWith two lines.") == "A normal reply.\nWith two lines."
     assert cm.scrub(None) == "" and cm.scrub("") == ""
     assert cm.scrub("TEXTBOOK >>> not a marker") == "TEXTBOOK >>> not a marker"
+
+
+# ── a reply that is mostly white space (audit H1) ────────────────────────────
+
+def test_a_tag_with_junk_around_it_is_still_read():
+    for raw in ('**ACTION:** *edit*\nShort.', '> Action - "edit"\nShort.', "[ACTION = edit]\nShort.",
+                "  action: Edit.\nShort.", "Action edit\nShort."):
+        got = cm.parse_reply(raw, has_selection=True, instruction="x")
+        assert (got.action, got.tagged, got.payload) == (cm.EDIT, True, "Short."), raw
+
+
+def test_a_tag_followed_by_a_long_line_keeps_the_whole_rest_of_the_line():
+    rest = "word " * 120
+    got = cm.parse_reply(f"ACTION: draft {rest}", has_selection=False, instruction="x")
+    assert got.action == cm.DRAFT and got.payload == rest.strip()
+
+
+def test_a_tag_that_is_buried_in_spaces_is_not_a_tag():
+    got = cm.parse_reply("action" + " " * 5000 + "x", has_selection=True, instruction="x")
+    assert got.tagged is False and got.action == cm.EDIT
+
+
+def test_a_bare_tag_line_that_goes_on_past_what_is_read_is_not_a_bare_tag():
+    raw = "Edit" + " " * 300 + "the second paragraph is the one to change\nrest"
+    assert cm.parse_reply(raw, has_selection=True, instruction="x").tagged is False
+
+
+def test_a_reply_past_the_limit_is_read_to_the_limit_and_marked_cut():
+    got = cm.parse_reply("ACTION: edit\n" + "word " * 5000, has_selection=True, instruction="x", max_chars=1000)
+    assert got.cut is True and got.action == cm.EDIT and len(got.payload) < 1000
+    fine = cm.parse_reply("ACTION: edit\nShort.", has_selection=True, instruction="x", max_chars=1000)
+    assert fine.cut is False
+
+
+def test_the_reply_limit_follows_the_tokens_the_request_allowed():
+    assert cm.reply_limit(1200) == 4800 and cm.reply_limit(8000) == 32000
+    assert cm.reply_limit(10) == 2000 and cm.reply_limit(None) == cm.DEFAULT_REPLY_CHARS
+    assert cm.reply_limit("many") == cm.DEFAULT_REPLY_CHARS
+
+
+def test_scrub_and_the_finishers_are_quick_on_a_line_of_spaces():
+    import time as _t
+    hostile = "ACTION: edit" + " " * 30_000 + "\nShort."
+    started = _t.perf_counter()
+    cm.scrub(hostile, SEL)
+    cm.finish_edit(SEL, hostile)
+    cm.finish_draft(hostile, "write", "")
+    assert _t.perf_counter() - started < 2.0
+

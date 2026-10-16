@@ -50,7 +50,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Callable, Optional
 from urllib.parse import quote
 
@@ -351,16 +351,22 @@ class Parsed:
     payload: str
     tagged: bool = True         # the reply began with the tag (else the action was guessed)
     changed: bool = False       # the action was adjusted: an edit with nothing selected is a draft
+    cut: bool = False           # the reply was longer than any reply can be: only its start was read
 
 
 # A model's thinking, closed or (when it ran out of room) not: everything from
 # the opening tag to the closing one, or to the end.
-_THINK = re.compile(r"<think(?:ing)?\b[^>]*>.*?(?:</think(?:ing)?>|\Z)", re.DOTALL | re.IGNORECASE)
+_THINK = re.compile(r"<think(?:ing)?\b[^>]{0,200}>.*?(?:</think(?:ing)?>|\Z)", re.DOTALL | re.IGNORECASE)
 _OPEN_FENCE = re.compile(r"^```[\w+-]*[ \t]*\n")
+# The tag line. Every run is bounded and no two runs can match the same
+# characters, so a model that fills a line with spaces cannot make this
+# backtrack for minutes (the match holds the interpreter, and with it the
+# window, the audio and the keyboard tap, until it ends).
 _TAG = re.compile(
-    r"^[\s>*_`#\[(\"']*(?:action)\s*[:=\-\u2013\u2014]?\s*[\s\"'*_`\[(]*(edit|draft|ask)\b"
-    r"[\s\"'*_`\])\.:;!,\-]*(.*)$", re.IGNORECASE | re.DOTALL)
-_BARE_TAG = re.compile(r"^[\s>*_`#\[(\"']*(edit|draft|ask)\b[\s\"'*_`\])\.:;!,\-]*$", re.IGNORECASE)
+    r"^[\s>*_`#\[(\"']{0,20}action[\s:=\-\u2013\u2014\"'*_`\[(]{0,20}(edit|draft|ask)\b"
+    r"[\s\"'*_`\])\.:;!,\-]{0,20}(.*)$", re.IGNORECASE | re.DOTALL)
+_BARE_TAG = re.compile(r"^[\s>*_`#\[(\"']{0,20}(edit|draft|ask)\b[\s\"'*_`\])\.:;!,\-]{0,20}$", re.IGNORECASE)
+_WORD_TAG = re.compile(r"^\W{0,20}(edit|draft|ask)\s{0,20}:\s{0,20}$", re.IGNORECASE)
 _JSON_ACTIONS = {"edit": EDIT, "edit_text": EDIT, "draft": DRAFT, "draft_text": DRAFT, "ask": ASK,
                  "ask_web": ASK, "ask_llm": ASK, "search": ASK}
 
@@ -411,6 +417,21 @@ def is_question(instruction) -> bool:
 # ("Sure!", "Here you go:"): a longer lead-in is the answer itself, not a preamble.
 _TAG_LINES = 3
 _PREAMBLE_WORDS = 20
+# A tag line is short; only this much of a line is read for it.
+_TAG_SCAN_CHARS = 200
+# A reply cannot hold more than about four characters for each token it was
+# allowed (white space is the exception, and it is what a runaway reply is made
+# of): beyond that it is cut and counted as cut off.
+CHARS_PER_TOKEN = 4
+DEFAULT_REPLY_CHARS = 8000 * CHARS_PER_TOKEN
+
+
+def reply_limit(max_tokens) -> int:
+    """The most characters of a reply that are read, for a request that allowed ``max_tokens``."""
+    try:
+        return max(2000, int(max_tokens) * CHARS_PER_TOKEN)
+    except (TypeError, ValueError):
+        return DEFAULT_REPLY_CHARS
 
 
 def _tag_in(lines):
@@ -424,21 +445,38 @@ def _tag_in(lines):
         seen += 1
         if seen > _TAG_LINES or words_before > _PREAMBLE_WORDS:
             return None
-        m = _TAG.match(line)
-        bare = None if m else _BARE_TAG.match(line)
-        word = None if (m or bare) else re.match(r"^\W*(edit|draft|ask)\s*:\s*$", line, re.IGNORECASE)
-        if m or bare or word:
-            hit = m or bare or word
-            return i, hit.group(1).lower(), (m.group(2).strip() if m else "")
+        head = line[:_TAG_SCAN_CHARS]
+        m = _TAG.match(head)
+        if m:
+            return i, m.group(1).lower(), line[m.start(2):].strip()
+        # A bare "edit" or "Draft:" line holds nothing else, so only a line
+        # whose unread end is blank can be one.
+        if not line[_TAG_SCAN_CHARS:].strip():
+            hit = _BARE_TAG.match(head) or _WORD_TAG.match(head)
+            if hit:
+                return i, hit.group(1).lower(), ""
         words_before += len(line.split())
     return None
 
 
-def parse_reply(raw, *, has_selection: bool, instruction: str = "", own_text: str = "") -> Parsed:
+def parse_reply(raw, *, has_selection: bool, instruction: str = "", own_text: str = "",
+                max_chars: Optional[int] = None) -> Parsed:
     """Read the model's reply: the action and the result. Never raises.
     ``own_text`` is the person's own text (the selection or the text before the
-    cursor): a thinking tag in it is theirs and is not taken out."""
+    cursor): a thinking tag in it is theirs and is not taken out. A reply of
+    more than ``max_chars`` characters (more than any reply to the request can
+    hold) is read up to there and marked ``cut``: it is a model gone wrong, and
+    nothing it wrote is to replace the person's text."""
     text = str(raw or "")
+    limit = DEFAULT_REPLY_CHARS if max_chars is None else max(1, int(max_chars))
+    cut = len(text) > limit
+    if cut:
+        text = text[:limit]
+    parsed = _read_reply(text, has_selection, instruction, own_text)
+    return replace(parsed, cut=True) if cut else parsed
+
+
+def _read_reply(text: str, has_selection: bool, instruction: str, own_text: str) -> Parsed:
     if "<think" not in str(own_text or "").lower():
         text = _THINK.sub("", text)
     text = text.replace("\r\n", "\n").replace("\r", "\n").strip()
@@ -481,8 +519,8 @@ _LABEL_LINE = re.compile(r"^[ \t]*(?:Selected text|Text before the cursor|Instru
 # "Instruction: make this shorter" at the top of the result, and a second
 # "ACTION: edit" line the model repeated inside it.
 _ECHOED_INSTRUCTION = re.compile(r"\A[ \t]*Instruction[ \t]*:[^\n]*\n?", re.IGNORECASE)
-_TAG_LINE = re.compile(r"^[ \t>*_`#\[(\"']*action[ \t]*[:=\-\u2013\u2014]?[ \t]*[\"'*_`\[(]*(?:edit|draft|ask)\b"
-                       r"[ \t\"'*_`\])\.:;!,\-]*$\n?", re.IGNORECASE | re.MULTILINE)
+_TAG_LINE = re.compile(r"^[ \t>*_`#\[(\"']{0,20}action[ \t:=\-\u2013\u2014\"'*_`\[(]{0,20}(?:edit|draft|ask)\b"
+                       r"[ \t\"'*_`\])\.:;!,\-]{0,20}$\n?", re.IGNORECASE | re.MULTILINE)
 
 
 def scrub(raw, *own_texts: str) -> str:

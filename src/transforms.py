@@ -670,7 +670,7 @@ def clean_output(raw, source: str = "") -> str:
     (however the model spelt it) stays."""
     text = str(raw or "").replace("\r\n", "\n").replace("\r", "\n")
     src = str(source or "")
-    if "<think" not in src.lower():
+    if "<think" not in src.lower() and "</think>" in text.lower():     # (an unclosed tag is left as it is)
         text = _THINK.sub("", text)
     text = text.strip()
     own = [_key(ln) for ln in src.split("\n")[:400] if _key(ln)]

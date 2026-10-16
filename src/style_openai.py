@@ -1278,9 +1278,12 @@ Transcript: {transcript}"""
         # (the em/en-dash → comma rule below must not touch them).
         text = _re.sub(r"[‐‑−]", "-", text)
         # Replace em/en-dashes with comma+space, with or without surrounding
-        # whitespace. The \s* on both sides eats any padding so we don't
-        # leave "X ,Y" or "X , Y" behind.
-        text = _re.sub(r"\s*[—–]\s*", ", ", text)
+        # whitespace, so we don't leave "X ,Y" or "X , Y" behind. Two passes
+        # rather than one "\s*[—–]\s*": that one re-reads a long run of white
+        # space from every position in it, and a model reply made of spaces
+        # held the whole app for seconds.
+        text = _re.sub(r"(?<!\s)\s+(?=[—–])", "", text)
+        text = _re.sub(r"[—–]\s*", ", ", text)
         # Clean up: if the replacement now sits right before another
         # punctuation mark (rare, but happens at sentence end), collapse it.
         text = _re.sub(r",\s*([,.;:!?])", r"\1", text)

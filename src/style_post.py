@@ -130,10 +130,13 @@ _CODE_START = re.compile(
     r"^\s*(?:\$ |>>> |// |/\*|#!|#include\b|import [\w.]+|from [\w.]+ import |def \w|class \w|"
     r"function \w|const \w|let \w|var \w|return\b|if \(|for \(|while \()")
 _CODE_MARKS = re.compile(
-    r"=>|->|==|!=|<=|>=|\+=|-=|\*=|::|&&|\|\||</?[A-Za-z][^>]*>|\$\(|\$\{|\\n|\\t|\{\s*\}|\[\s*\]")
+    r"=>|->|==|!=|<=|>=|\+=|-=|\*=|::|&&|\|\||</?[A-Za-z][^>]{0,200}>|\$\(|\$\{|\\n|\\t|\{\s*\}|\[\s*\]")
 _CODE_ASSIGN = re.compile(r"^\s*[A-Za-z_][\w.\[\]]*\s*[-+*/]?=\s*\S")
+# Bounded runs: a long dotted or underscored word (a transcript has none, a model
+# gone wrong might) must not make the search re-read it from every start.
 _CODE_CALL = re.compile(
-    r"\b(?:[A-Za-z_]\w*\.)+[A-Za-z_]\w*\(|\b\w+_\w+\(|\b[a-z]+[A-Z]\w*\(|\b[A-Za-z_]\w*\(\)")
+    r"\b(?:[A-Za-z_]\w{0,60}\.){1,6}[A-Za-z_]\w{0,60}\(|\b\w{1,60}_\w{1,60}\(|\b[a-z]{1,60}[A-Z]\w{0,60}\(|"
+    r"\b[A-Za-z_]\w{0,60}\(\)")
 _CODE_SYMBOLS = frozenset("{}[]<>=|\\^~_*#@$%&/")
 
 
