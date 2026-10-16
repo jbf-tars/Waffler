@@ -69,6 +69,16 @@ keyboard and your clipboard. Specifically:
   Accessibility permission to read whether the text field you are typing in
   changed (a fingerprint of its text, compared before and after). It never
   reads a password field, and it never stores, logs or sends that text.
+- **Text before your cursor (macOS, only with an email signature on).** If you
+  turn on the email signature (Settings, Style) and dictate into an email app,
+  Waffler uses the Accessibility permission to read the text before your
+  cursor, to see whether your signature is already there. It never reads a
+  password field. That text is compared with your signature and dropped: it is
+  never stored, logged or sent. If an app does not show its text, Waffler
+  remembers instead, in memory only, that it added a signature in that app
+  in the last ten minutes. The signature is a setting kept on your computer;
+  its text is left out of the logs bundle. With the signature off, none of
+  this happens.
 - **The app you are in.** When you press the hotkey, Waffler notes which app
   is in front: its name (and, on a Mac, its identifier) and its kind, which it
   works out from a list built into Waffler: email, work chat, personal chat or

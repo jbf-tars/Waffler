@@ -49,6 +49,7 @@ It's gone through a ridiculous amount of prompt-wrangling and live-API testing t
 - **Custom vocabulary** — teach Waffler your jargon, names, and acronyms
 - **Snippets.** Say a short phrase, paste longer text: your address, a sign-off, a link. Any capitals, longest phrase first, and saying only the phrase skips the clean-up.
 - **Your language.** Dictate in 46 languages, or let Waffler detect which. The clean-up keeps what you spoke and never translates it.
+- **Style for each kind of app.** Turn the clean-up off to get exactly what was heard, or give personal messages, work chat, email and everything else their own style (Formal, Casual, Very casual, Excited), and an optional email signature. The styles are plain rules, not a model, so they never change a word and work on short dictations too.
 - **Mac + Windows** — native desktop app via PyInstaller
 
 ---
@@ -131,6 +132,7 @@ python app.py
 - Transcription history is saved **locally on your machine only**
 - On a Mac, to confirm a paste landed, Waffler reads whether the text field you paste into changed. It never stores or logs what is in it
 - Each history entry notes the app you dictated into and its kind (email, work chat, personal chat or other), on your machine only and never sent to a provider. For a browser tab, Waffler may read the window title to tell webmail or chat from other pages; the title is not stored or logged, and the page address is never read
+- If you turn on an email signature, then on a Mac Waffler reads the text before your cursor in an email app to check the signature isn't already there. It never stores or logs it, and the signature text is left out of the logs zip
 - No account required, no telemetry, no data collection
 
 ---

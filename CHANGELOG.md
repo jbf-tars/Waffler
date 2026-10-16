@@ -151,6 +151,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   Privacy and data and the privacy policy say so. What is pasted does not
   change.
 
+- **Clean-up, On or Off.** Settings has a new Style section, and it starts
+  with a switch, "Clean up what I say". Off, Waffler pastes exactly what the
+  speech service heard, after your Vocabulary and Snippets: no clean-up
+  request is made, so nothing is rewritten, no "um" or repeated word is taken
+  out (the plain tidy-up the clean-up falls back to is not used either, since
+  it removes words), and nothing is spent on it. It is a choice, not a
+  failure: the Journal shows no "Check this one" and no "clean-up paused" for
+  it, and Try again on a Not sent card and Redo this take follow the switch
+  too. Styles are not used while it is off; the email signature still is. On is
+  today's behaviour and stays the default.
+- **A style for each kind of app.** Settings, Style lets each kind of app be
+  finished its own way: personal messages (Formal, Casual or Very casual), and
+  work chat, email and everything else (Formal, Casual or Excited). Every kind
+  starts on Automatic, which changes nothing. Casual takes the full stop off a
+  one-sentence message. Very casual starts each sentence in lower case, takes
+  off the last full stop and puts no line break after a greeting; "I",
+  acronyms, web and email addresses, words in your Vocabulary and anything in
+  quotation marks keep their capitals. Excited ends short statements with an
+  exclamation mark, and leaves questions, lists, code, links and any sentence
+  with a plain "sorry", "can't", "problem" or the like in it alone. These are plain rules in Waffler, not a request to the model, so they
+  work on short dictations that never reach it, give the same result whichever
+  provider answered, and never change a word. The kind comes from the app you
+  were in when you pressed the hotkey; a snippet is always pasted exactly as
+  written; each choice shows a live example; and the Journal entry notes the
+  style used. They apply to new dictations, in English and other languages
+  written in the Latin alphabet (not Chinese, Japanese, Thai, Russian, Arabic
+  and the like).
+- **An email signature, if you want one.** Settings, Style: off until you turn
+  it on and type it (up to 500 characters). In an email app, when you start
+  with a greeting or say ten words or more, Waffler adds it under your words,
+  unless it is already before your cursor. To check, Waffler reads the text
+  before your cursor through the Accessibility permission it already has
+  (Mac), only at that moment, and never stores or logs it; where an app does
+  not show its text, Waffler remembers instead that it added one in that app
+  in the last ten minutes. Never on a snippet. The Journal's word count leaves
+  the signature out, and the signature text is left out of the logs zip.
+  Privacy and data and the privacy policy say so.
+
 ### Changed
 - **After a paste, your own clipboard is back (Mac).** This is the new
   default of the paste above; turn on "Keep what I dictated on the clipboard"
