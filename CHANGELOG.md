@@ -222,6 +222,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   copying it (your clipboard is put back), only when you use a transform, and
   is sent to the clean-up provider you chose, on your own key. Privacy and data
   and the privacy policy say so. Beta: please tell me what it gets wrong.
+- **Command mode (beta): hold a shortcut and say what you want done.**
+  Settings has a new Command mode section, off until you turn it on. Choose
+  keys to hold (two modifier keys and a letter, number or F key; they cannot
+  overlap your dictation hotkey or your Transform shortcut), hold them, say an
+  instruction and let go. With text selected, "Make this shorter" or
+  "Translate to French" edits it in place and your app's own Undo takes it
+  back. With nothing selected, "Reply saying I'll be 10 minutes late" writes
+  new text where your cursor is, using up to 500 characters before the cursor
+  as context. A question such as "What's the capital of Australia?" opens your
+  browser at the search engine you chose (Perplexity, Google, DuckDuckGo,
+  ChatGPT or Claude) with only your spoken question in the address, never the
+  text you selected. One call to the same providers as the clean-up decides
+  which of the three it is, and what you said is not cleaned up, turned into a
+  snippet or given a style. A draft never replaces a selection: if text is
+  selected, the draft is put on your clipboard and your text is left alone. An
+  edit that comes back unchanged, empty, cut off, a refusal, under a tenth of
+  your words or far longer than them replaces nothing, and if you
+  move to another app or change the selection while it works, nothing is
+  pasted: the result goes on your clipboard instead. Up to 1,000 words at a
+  time. Esc or the pill's X stops it until the paste begins, it gives up after
+  30 seconds from letting go, and it never starts during a dictation (and a
+  dictation or a transform never starts during it). Holding for under
+  0.3 seconds does nothing, and silence gets the usual "We couldn't hear you". The Journal shows each command as its own entry, "Edited", "Drafted"
+  or "Searched" with the engine, with what you said and, for an edit, the
+  text before and after with the changes marked; commands are not counted in
+  your words, dictations, streak or cost per dictation, and have no Redo
+  because no recording is kept. The shortcut only listens, so it also reaches
+  the app in front. What you say is turned into text by your speech provider,
+  and it and the text you selected (or the text before your cursor) are sent
+  only while you hold the shortcut, to the clean-up provider you chose, on
+  your own key. Privacy and data and the privacy policy say so. Beta: please
+  tell me what it gets wrong.
 
 ### Changed
 - **After a paste, your own clipboard is back (Mac).** This is the new

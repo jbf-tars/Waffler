@@ -95,6 +95,7 @@ def test_the_privacy_page_says_it_in_both_places():
 def test_the_roadmap_documents_every_key_it_added():
     text = (ROOT / "docs" / "dev-notes" / "specs" / "2026-10-16-polished-dictation-roadmap.md").read_text(encoding="utf-8")
     appendix = text[text.index("## Settings added"):]
+    appendix = appendix[:appendix.index("### S8")] if "### S8" in appendix else appendix      # each package's own part
     assert "### S7 Transforms (beta)" in appendix
     keys = set(re.findall(r"^\| `([\w.]+)` \|", appendix, flags=re.M))
     view = tf.settings({})

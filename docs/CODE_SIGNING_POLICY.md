@@ -94,6 +94,23 @@ keyboard and your clipboard. Specifically:
   computer, and their wording is left out of the logs bundle. The shortcut is
   read by the same keyboard listener as your hotkey and only watches for that
   one combination.
+- **What you say, and the text around it (Command mode, only while you hold
+  its shortcut).** Command mode (Settings, Command mode) is off until you turn
+  it on. When you hold its shortcut, Waffler records what you say and sends
+  that recording to the speech provider you configured, as it does for a
+  dictation, to be turned into text; the recording is not kept. It then reads
+  the text selected in the app in front (through the Accessibility permission
+  or, where an app does not share it, by pressing Copy and putting your
+  clipboard back) or, when nothing is selected, up to 500 characters before
+  your cursor through the Accessibility permission. It never reads a password
+  field and does nothing at any other time. What you said and that text are sent
+  to the clean-up provider you configured to be carried out. If you asked a
+  question, Waffler opens your browser at the search engine you chose with only
+  your spoken question in the address: the selected text and the text before the
+  cursor are never put there. What you said, the text before and after and the
+  question are kept in your history and deleted with it. The Command shortcut is
+  read by the same keyboard listener as your hotkey and only watches for that one
+  combination.
 - **The app you are in.** When you press the hotkey, Waffler notes which app
   is in front: its name (and, on a Mac, its identifier) and its kind, which it
   works out from a list built into Waffler: email, work chat, personal chat or

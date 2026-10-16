@@ -51,6 +51,7 @@ It's gone through a ridiculous amount of prompt-wrangling and live-API testing t
 - **Your language.** Dictate in 46 languages, or let Waffler detect which. The clean-up keeps what you spoke and never translates it.
 - **Style for each kind of app.** Turn the clean-up off to get exactly what was heard, or give personal messages, work chat, email and everything else their own style (Formal, Casual, Very casual, Excited), and an optional email signature. The styles are plain rules, not a model, so they never change a word and work on short dictations too.
 - **Transforms (beta).** Select text in any app, press a shortcut, and it is rewritten in place: Polish with rules you choose, Prompt Engineer for turning a rough request into a structured prompt, and up to five transforms of your own. Your app's Undo takes it back, and the Journal keeps the text before and after.
+- **Command mode (beta).** Hold a shortcut and say what you want: edit the selected text ("make this shorter", "translate to French"), write new text where your cursor is ("reply saying I'll be 10 minutes late"), or ask a question and Waffler opens it in your search engine (Perplexity, Google, DuckDuckGo, ChatGPT or Claude). Your app's Undo takes an edit back, and the Journal keeps what you said.
 - **Mac + Windows** — native desktop app via PyInstaller
 
 ---
@@ -135,6 +136,7 @@ python app.py
 - Each history entry notes the app you dictated into and its kind (email, work chat, personal chat or other), on your machine only and never sent to a provider. For a browser tab, Waffler may read the window title to tell webmail or chat from other pages; the title is not stored or logged, and the page address is never read
 - If you turn on an email signature, then on a Mac Waffler reads the text before your cursor in an email app to check the signature isn't already there. It never stores or logs it, and the signature text is left out of the logs zip
 - Transforms is off until you turn it on. When you use it, Waffler reads the text you selected (through Accessibility, or by copying it and putting your clipboard back) and sends it to your clean-up provider on your own key. The rewrite is kept in your history, and your own rules and transforms are left out of the logs zip
+- Command mode is off until you turn it on. While you hold its shortcut, Waffler records what you say, your speech provider turns it into text, and that, with the text you selected (or up to 500 characters before your cursor when nothing is selected), goes to your clean-up provider on your own key. A question opens your browser with only your spoken question in the address. The recording is not kept
 - No account required, no telemetry, no data collection
 
 ---
