@@ -311,7 +311,10 @@ def test_the_take_stopped_at_the_limit_is_transcribed_cleaned_pasted_and_kept(tm
     p.on_hotkey_release()                              # what the level loop calls at the limit
     assert wait_for(lambda: len(history(p)) == 1, timeout=30)
     entry = history(p)[0]
-    assert entry["text"] == "ok so ship it on monday"
+    # On a failure say what the entry and the log hold (the text is synthetic): this test
+    # failed once, on the Windows runner only, with an empty text and nothing else to go on.
+    seen = ({k: v for k, v in entry.items() if k not in ("before", "after")}, list(p.logged)[-20:])
+    assert entry["text"] == "ok so ship it on monday", seen
     assert p.clipboard.pastes, "the take was pasted"
     assert entry["duration_s"] == pytest.approx(1200.0, abs=0.5)
     assert p.transcriber.calls == 1
