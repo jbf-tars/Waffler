@@ -31,6 +31,49 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   phrase can be up to 60 characters, its text up to 4,000, and you can keep
   200. Snippets stay when you choose Delete all my data, like your words,
   and are never in the logs zip.
+- **Paste that keeps your clipboard (Mac).** Waffler used to leave your
+  dictation on the clipboard, so whatever you had copied was gone after every
+  dictation, and a paste that landed nowhere (no text box, a button in focus,
+  Accessibility switched off) lost the words without a word. Now Waffler holds
+  what you had copied, puts the dictation there for a moment, waits for your
+  hotkey's keys to come up (they could turn Cmd+V into Fn+Cmd+V), pastes, and
+  puts everything back, every kind of thing you had copied, not only text.
+  It presses the V your keyboard layout has, so Dvorak and Colemak work. It
+  checks whether the text field changed to tell a paste that landed from one
+  that didn't, and where an app doesn't say (Slack, VS Code, terminals, Google
+  Docs) it simply doesn't claim either. A paste that didn't land leaves your
+  words on the clipboard and says so once, with a button to copy them again.
+  A clipboard from a password manager is never copied, and something you copy
+  while the paste runs is never overwritten. Windows pastes as before.
+- **Paste last and Copy last, in the menu bar (Mac) and the tray (Windows).**
+  Each says how many words it will paste, never the words themselves,
+  because menus show on screen shares. After a restart it is your newest
+  Journal entry. Delete all my data and the full reset forget it.
+- **A check before you record (Mac).** If the microphone or Accessibility is
+  switched off, Waffler now says so when you press the hotkey, with a button
+  that opens that exact page of System Settings, instead of recording
+  silence or pasting nowhere. A permission macOS hasn't asked about yet is
+  left to its own prompt, and a message comes at most once a minute. A
+  permission taken away while Waffler waits in the background is noticed too:
+  Accessibility is reported once, and if Waffler is no longer receiving your
+  keyboard at all (the usual result of taking Input Monitoring away, when no
+  key press can arrive to say so) it says that, offers the Input Monitoring
+  page, and says it again every ten minutes until it is fixed.
+- **Keep what I dictated on the clipboard** is a new switch under "Paste when
+  I let go" (Mac). It brings back the old behaviour. Privacy and data now
+  says what Waffler reads while it pastes: your clipboard, held in memory
+  for about a second, and whether the text field you paste into changed, to
+  confirm the paste landed. Neither is stored or logged, and a password field
+  is never read.
+
+### Changed
+- **After a paste, your own clipboard is back (Mac).** This is the new
+  default of the paste above; turn on "Keep what I dictated on the clipboard"
+  in Settings, General, to leave the dictation there as before. With "Paste
+  when I let go" off, the text is only copied and stays on the clipboard.
+- **A paste that never finished** now leaves your words on the clipboard
+  whatever happens afterwards: it will not type into another window later,
+  and it will not put your old clipboard back over them.
 
 ### Fixed
 - **A retired clean-up model looked like a limit.** When Groq stops serving

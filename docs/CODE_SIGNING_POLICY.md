@@ -55,10 +55,17 @@ keyboard and your clipboard. Specifically:
   pressed and released. Only the configured hotkey combination is acted on.
   Keystroke content is not recorded, stored or transmitted.
 - **Clipboard.** Finished transcripts are placed on your clipboard so they can
-  be pasted where you are typing. During first-run setup only, when you return
+  be pasted where you are typing. On macOS, unless you choose to keep your
+  dictation on the clipboard (Settings, General), what you had copied is held
+  in memory for about a second while Waffler pastes, then put back; it is
+  never stored or logged. During first-run setup only, when you return
   to the setup window Waffler checks the clipboard once for an API key you have
   just copied, so you do not have to paste it by hand; anything that is not
   shaped like an API key is ignored and never read into the app.
+- **Text field (macOS).** To confirm that a paste landed, Waffler uses the
+  Accessibility permission to read whether the text field you are typing in
+  changed (a fingerprint of its text, compared before and after). It never
+  reads a password field, and it never stores, logs or sends that text.
 - **On your machine.** Your API keys, settings, dictation history and the most
   recent recordings are stored under `~/.waffler-hosted/` on your own computer.
   Recordings are kept only to diagnose transcription faults, are capped at the

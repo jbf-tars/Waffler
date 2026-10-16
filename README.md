@@ -39,6 +39,8 @@ It's gone through a ridiculous amount of prompt-wrangling and live-API testing t
 - **AI cleanup with automatic fallback.** Groq gpt-oss-120b first, OpenAI GPT-4.1-mini as backup. Groq covers both transcription and cleanup, so one key is enough to run the whole app.
 - **Smart hallucination filtering** — strips Whisper's "and more / thanks for watching / please subscribe" outros on near-silent clips before they hit your clipboard
 - **Auto-clipboard** — result is copied the moment it's ready
+- **Paste that keeps your clipboard (Mac).** Waffler puts back whatever you had copied once it has pasted, waits for your hotkey's keys to come up first, works on Dvorak and Colemak, and says so if the paste didn't land (your words stay on the clipboard). Paste last or copy last from the menu bar. Settings can keep the dictation on the clipboard instead.
+- **Permission check (Mac).** If the microphone or Accessibility is switched off, or Waffler isn't receiving your keyboard, one message opens the exact System Settings pane.
 - **Local transcription history** — searchable, stays on your machine
 - **Recording overlay** — floating waffle indicator that lives over any app, including full-screen
 - **Setup wizard** — guided onboarding for first-time users
@@ -113,6 +115,9 @@ python app.py
 - While holding the hotkey, tap `Space` to lock recording on — you can release the hotkey and keep talking.
 - Press the hotkey again (Fn on Mac, `Win + Ctrl` on Windows) to stop and send.
 
+**Paste again**
+- Click the waffle in the menu bar (Mac) or the tray (Windows) and choose **Paste last transcript** or **Copy last transcript**. The menu says how many words, never what they are.
+
 **Cancel a recording**
 - Press **Esc** any time while recording to discard the current take without transcribing or touching the clipboard. Works in both push-to-talk and hands-free modes.
 - Or click the **×** button on the floating recording overlay.
@@ -123,6 +128,7 @@ python app.py
 
 - Audio goes directly to OpenAI/Groq via **your own API key** — never through any Waffler servers
 - Transcription history is saved **locally on your machine only**
+- On a Mac, to confirm a paste landed, Waffler reads whether the text field you paste into changed. It never stores or logs what is in it
 - No account required, no telemetry, no data collection
 
 ---
