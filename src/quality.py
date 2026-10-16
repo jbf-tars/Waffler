@@ -86,8 +86,14 @@ def assess(*, speech_seconds, transcript_words, styled_words, asr_filtered,
             and not _is_unspaced(styled_text)):
         flags.append("low_word_rate")
 
+    # A snippet (a dictation that was only a trigger) is the expansion the
+    # user wrote, whatever its length and however it ends. No model touched
+    # it, so the checks on what a model did to the words (2 and 6) don't apply.
+    snippet = str(styling_provider or "").lower() == "snippet"
+
     # 2. Cleanup discarded a large share of the transcript.
-    if transcript_words >= 8 and styled_words < transcript_words * _MIN_STYLED_RETENTION:
+    if (not snippet and transcript_words >= 8
+            and styled_words < transcript_words * _MIN_STYLED_RETENTION):
         flags.append("styled_dropped_words")
 
     # 3. Cleanup never ran - the user is looking at lightly-cleaned raw text.
@@ -117,7 +123,7 @@ def assess(*, speech_seconds, transcript_words, styled_words, asr_filtered,
     #    treated as content loss; anything else is advisory, because a
     #    legitimate title or fragment also lacks a full stop.
     txt = (styled_text or "").strip()
-    if txt and txt[-1] not in ".!?:\"')]" and len(txt.split()) >= 4:
+    if not snippet and txt and txt[-1] not in ".!?:\"')]" and len(txt.split()) >= 4:
         if txt.split()[-1].lower().strip(",;") in _DANGLING_TAIL:
             flags.append("truncated_midsentence")
         else:

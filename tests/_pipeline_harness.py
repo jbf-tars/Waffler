@@ -33,6 +33,7 @@ import cleanup_pause  # noqa: E402
 import pipeline_watchdog as pw  # noqa: E402
 import privacy_data  # noqa: E402
 import recent_audio  # noqa: E402
+import snippets  # noqa: E402
 import tray_state  # noqa: E402
 import unsent  # noqa: E402
 import user_messages  # noqa: E402
@@ -43,7 +44,7 @@ _PIPELINE = next(n for n in _TREE.body
 
 PIPELINE_METHODS = (
     "_process", "on_hotkey_release", "_on_overlay_cancel", "_on_overlay_cancel_request",
-    "_on_toast_action", "_show_no_audio_toast", "_apply_snippets",
+    "_on_toast_action", "_show_no_audio_toast", "_apply_snippets", "_whole_snippet",
     "_transcribe_with_provenance", "_unstyled", "_speech_provider_name", "_show_journal",
     "_run_is_current", "_set_listener_processing", "_ui_begin", "_ui_working",
     "_ui_offer", "_ui_withdraw_offer", "_ui_finished", "_ui_stuck",
@@ -290,6 +291,7 @@ def make_pipeline(data_dir: Path, *, transcriber=None, styler=None, clipboard=No
         cleanup_skipped_message=user_messages.cleanup_skipped_message,
         limit_reached_message=user_messages.limit_reached_message,
         _recent_audio=recent_audio, _cleanup_pause=cleanup_pause, _privacy=privacy_data,
+        _snippets=snippets,
         _set_cleanup_pause=page.pauses.append,
     )
     from transcribe_whisper import _speech_seconds

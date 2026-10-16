@@ -3,12 +3,14 @@
 - History retention: keep everything unless the user chooses 30, 90 or 365
   days. Not sent recordings are never pruned by it.
 - "Delete all my data": history, usage, recordings (recent and not sent) and
-  the logs go; keys, the words list and settings stay.
+  the logs go; keys, the words list, snippets and settings stay.
 - The transcript lines that versions before the redaction wrote to app.log
   are removed once on the first start of 3.15, and a large log is rotated.
 
 Offline, in temporary folders: no real data, no network.
 """
+import ast
+import fnmatch
 import json
 import os
 import re
@@ -102,13 +104,14 @@ def _fill(d: Path):
         (d / name).mkdir()
         (d / name / "a.wav").write_bytes(b"RIFF")
     kept = {".env": "GROQ_API_KEY=gsk_test", "settings.json": '{"theme": "dark"}',
-            "config.json": "{}", "setup_complete.json": "{}", "vocab.json": '["Isobel"]'}
+            "config.json": "{}", "setup_complete.json": "{}", "vocab.json": '["Isobel"]',
+            "snippets.json": '[{"trigger": "my address", "expansion": "1 High Street"}]'}
     for name, text in kept.items():
         (d / name).write_text(text, encoding="utf-8")
     return kept
 
 
-def test_delete_all_my_data_keeps_keys_words_and_settings(tmp_path):
+def test_delete_all_my_data_keeps_keys_words_snippets_and_settings(tmp_path):
     kept = _fill(tmp_path)
     assert P.delete_my_data(tmp_path) == {"ok": True, "failed": []}
     for name, text in kept.items():
@@ -121,6 +124,40 @@ def test_delete_all_my_data_keeps_keys_words_and_settings(tmp_path):
     assert sorted(p.name for p in tmp_path.iterdir()) == sorted(list(kept) + ["history.json", "usage.json"])
     # Nothing there is fine too.
     assert P.delete_my_data(tmp_path / "nowhere")["ok"] is True
+
+
+def test_snippets_are_kept_like_the_words_and_are_not_on_the_delete_lists():
+    assert "snippets.json" in P.KEPT_FILES and "vocab.json" in P.KEPT_FILES
+    assert not set(P.KEPT_FILES) & set(P.DATA_FILES)
+    assert not any(fnmatch.fnmatch("snippets.json", g) for g in P.DATA_GLOBS)
+    assert "snippets" not in P.DATA_FOLDERS
+
+
+def test_the_privacy_copy_says_snippets_stay_and_the_full_reset_takes_them():
+    html = (ROOT / "ui" / "index.html").read_text(encoding="utf-8")
+    assert "Your keys, words, snippets and settings stay." in html
+    assert "Waffler keeps running with your keys, words and snippets." in html
+    assert "Your keys, words, snippets and settings go as well." in html
+
+
+def test_the_full_reset_removes_the_whole_folder_snippets_included():
+    tree = ast.parse(_app())
+    fn = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "factory_reset")
+    calls = [ast.unparse(c) for c in ast.walk(fn) if isinstance(c, ast.Call)]
+    assert "shutil.rmtree(data_dir)" in calls
+    assert any("data_dir = DATA_DIR" in ast.unparse(a) for a in ast.walk(fn) if isinstance(a, ast.Assign))
+
+
+def test_the_logs_bundle_never_includes_the_snippets():
+    """download_logs names the config files it zips; an address or a signature
+    in a snippet must not be one of them."""
+    tree = ast.parse(_app())
+    fn = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "download_logs")
+    listed = [c.value for c in ast.walk(fn) if isinstance(c, ast.Constant) and isinstance(c.value, str)
+              and c.value.endswith(".json")]
+    assert "settings.json" in listed and "vocab.json" in listed
+    assert "snippets.json" not in listed
+    assert "Snippets (~/.waffler-hosted/snippets.json)" in ast.unparse(fn)
 
 
 def test_a_log_held_open_is_emptied_instead(tmp_path, monkeypatch):

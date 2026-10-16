@@ -588,6 +588,67 @@ mark.hl {
 .vhow { margin-top: auto; font: 400 12px/1.5 var(--f-ui); color: var(--muted); }
 .vside.is-empty .vhow { margin-top: 0; }
 
+/* Snippets: under the words. A phrase you say, an arrow, the text it pastes,
+   and change and remove buttons that are always there (a mouse is not the
+   only way in). */
+.snips { margin-top: 36px; }
+.snips .sh2 { margin: 0 0 8px; }
+.snip-desc { max-width: 560px; margin-bottom: 14px; font: 400 13.5px/1.5 var(--f-ui); color: var(--muted); }
+.snip-add { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr) auto; gap: 8px; align-items: start; }
+.snip-f-x { height: auto; min-height: 38px; align-items: flex-start; padding: 9px 12px; cursor: text; }
+.snip-f-x .snip-ta { height: auto; min-height: 36px; padding: 0; resize: vertical; font: 400 14px/1.45 var(--f-ui); }
+.snip-counter { margin-top: 6px; font: 400 12px/1.4 var(--f-ui); color: var(--muted); text-align: right; }
+.snip-counter:empty { display: none; }
+.snip-list { margin-top: 12px; }
+.sn-r {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) 16px minmax(0, 1.8fr) auto;
+  gap: 12px;
+  align-items: start;
+  padding: 11px 10px 11px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.sn-r.new { animation: j-entry-in var(--dur-enter) var(--ease-out); }
+.sn-t { font: italic 400 15px/1.4 var(--f-serif); color: var(--text); overflow-wrap: anywhere; user-select: text; }
+.sn-a { padding-top: 3px; color: var(--muted); }
+.sn-a .ic { width: 14px; height: 14px; }
+.sn-x {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font: 400 13.5px/1.5 var(--f-ui);
+  color: var(--text-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.sn-b { display: flex; gap: 2px; margin: -3px 0; }
+.sn-b .rbtn { width: 26px; height: 26px; color: var(--text-2); }
+.sn-b .rbtn .ic { width: 14px; height: 14px; }
+.sn-b .sn-del:hover { background: var(--danger-tint); color: var(--danger); }
+.sn-r:hover, .sn-r:focus-within {
+  background: var(--card);
+  border-radius: 8px;
+  border-bottom-color: transparent;
+  box-shadow: 0 0 0 1px var(--ring), 0 1px 2px rgba(12, 10, 9, 0.04);
+}
+.sn-r.sn-edit {
+  display: block;
+  margin: 2px 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border-bottom-color: transparent;
+  background: var(--honey-wash);
+  box-shadow: inset 0 0 0 1px rgba(196, 138, 46, 0.4);
+}
+.sn-form { display: grid; gap: 8px; }
+.sn-form .input { height: 32px; font: 400 13.5px/1 var(--f-ui); }
+.sn-form .sn-ed-x { height: auto; min-height: 72px; padding: 8px 12px; resize: vertical; font: 400 13.5px/1.5 var(--f-ui); }
+.sn-acts { display: flex; gap: 6px; justify-content: flex-end; align-items: center; }
+.sn-acts .snip-counter { margin: 0 auto 0 0; text-align: left; }
+.snips .btn-sm { height: 28px; padding: 0 11px; font-size: 12.5px; border-radius: 7px; }
+
 /* Narrower windows: the column goes under the table, then the boxes stack. */
 @media (max-width: 900px) {
   .vp { grid-template-columns: minmax(0, 1fr); }
@@ -595,7 +656,11 @@ mark.hl {
   .vmain { padding: 24px 24px 28px; }
 }
 @media (max-width: 640px) {
-  .vadd { grid-template-columns: 1fr; }
+  .vadd, .snip-add { grid-template-columns: 1fr; }
+  .sn-r { grid-template-columns: minmax(0, 1fr) auto; row-gap: 4px; padding: 8px 10px 8px 12px; }
+  .sn-a { display: none; }
+  .sn-x { grid-column: 1 / -1; grid-row: 2; }
+  .sn-b { grid-column: 2; grid-row: 1; }
   .vt-h { display: none; }
   .vt-r { grid-template-columns: minmax(0, 1fr) auto; row-gap: 4px; padding: 8px 10px 8px 12px; }
   .vt-sl { grid-column: 1 / -1; grid-row: 2; padding: 0; }

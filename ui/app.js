@@ -696,7 +696,7 @@ async function downloadLogs(btn) {
 
 // Settings, Privacy and data: Delete all my data. It asks first, in the
 // panel (it used to be a native confirm() box listing bullet points).
-// "Delete my data" keeps the keys, words and settings and Waffler keeps
+// "Delete my data" keeps the keys, words, snippets and settings and Waffler keeps
 // running (src/privacy_data.py). Deleting the keys too is the full reset,
 // asked about separately.
 function askFactoryReset(ask) {
@@ -1794,6 +1794,7 @@ async function loadVocabPage() {
   }
   renderVocab();
   _vocabRunTry();
+  loadSnippets();
 }
 
 function renderVocab() {
@@ -2129,6 +2130,260 @@ async function deleteVocabWord(word) {
     showToast("Couldn't remove that word. Try again.", 'error');
   }
 }
+
+// ── Snippets ───────────────────────────────────────────────────────────
+// Below the words: a phrase you say and the text Waffler pastes for it
+// (src/snippets.py). Said on its own the phrase pastes exactly the text and
+// skips the clean-up; said inside a sentence it is swapped in. Every change
+// saves the whole list (set_snippets, which tidies it and answers with what
+// it kept); a removal or a change can be undone, as on the words. With
+// none yet, the section says what it is for. Rows are found by their place
+// in the list, so a phrase with odd characters never has to be matched by
+// its text.
+let _snips = [];
+let _snipEditing = -1;      // the row being changed
+let _snipUndoTimer = null;
+
+const SNIPPET_EXAMPLES = [
+  ['my email', 'jane@example.com'], ['my address', '12 Acacia Avenue, London'], ['sign off', 'Best wishes, Jane'],
+];
+
+function _snipError(msg, field) {
+  const el = document.getElementById('snipError');
+  if (el) { el.textContent = msg || ''; el.hidden = !msg; }
+  const trig = document.getElementById('snipTrigger');
+  const text = document.getElementById('snipText');
+  if (trig) trig.setAttribute('aria-invalid', msg && field === 'trigger' ? 'true' : 'false');
+  if (text) text.setAttribute('aria-invalid', msg && field === 'text' ? 'true' : 'false');
+}
+
+function _snipShowUndo(text, undo) {
+  const box = document.getElementById('snipUndo');
+  const label = document.getElementById('snipUndoText');
+  const btn = document.getElementById('snipUndoBtn');
+  if (!box || !label || !btn) return;
+  clearTimeout(_snipUndoTimer);
+  label.textContent = text;
+  box.hidden = false;
+  btn.onclick = async () => {
+    box.hidden = true;
+    await undo();
+  };
+  _snipUndoTimer = setTimeout(() => { box.hidden = true; }, 10000);
+}
+
+function _snipHideUndo() {
+  const box = document.getElementById('snipUndo');
+  if (box) box.hidden = true;
+  clearTimeout(_snipUndoTimer);
+}
+
+async function loadSnippets() {
+  _snipError('');
+  _snipEditing = -1;
+  try {
+    const list = pywebview.api.get_snippets ? await pywebview.api.get_snippets() : [];
+    _snips = Array.isArray(list) ? list.filter((x) => x && typeof x.trigger === 'string' && typeof x.expansion === 'string') : [];
+  } catch (e) {
+    console.warn('loadSnippets error:', e);
+    _snips = [];
+  }
+  renderSnippets();
+}
+
+function _snipCounterText(box) {
+  return WL.snippetCounter(box ? box.value.length : 0);
+}
+
+function onSnipTextInput() {
+  const c = document.getElementById('snipCounter');
+  if (c) c.textContent = _snipCounterText(document.getElementById('snipText'));
+}
+
+function renderSnippets() {
+  const listEl = document.getElementById('snipList');
+  if (!listEl) return;
+  const sum = document.getElementById('snipSummary');
+  if (sum) sum.textContent = _snips.length ? WL.snippetSummary(_snips.length) : '';
+
+  if (!_snips.length) {
+    listEl.innerHTML = `
+      <div class="group"><div class="panel v-first">
+        <div class="v-first-top">
+          <div>
+            <h3 class="v-first-title">Say a short phrase, get longer text</h3>
+            <p class="v-first-text">Add the phrase and what it should paste. Your address, your email, a sign-off, a link you send all the time: say the phrase and it's there.</p>
+          </div>
+        </div>
+        <div class="vtable">
+          <div class="vrow vh"><span class="eyebrow">You say</span><span></span><span class="eyebrow">Waffler pastes</span></div>
+          ${_vocabRows(SNIPPET_EXAMPLES)}
+        </div>
+        <p class="v-foot">Examples. A snippet can be up to ${escHtml(WL.formatCount(WL.SNIPPET_MAX_EXPANSION))} characters, and more than one line.</p>
+      </div></div>`;
+    if (window.WafflerIcons) WafflerIcons.mount(listEl);
+    return;
+  }
+
+  const rows = _snips.map((s, i) => {
+    const t = escHtml(s.trigger);
+    if (_snipEditing === i) {
+      return `<form class="sn-r sn-edit" data-i="${i}">
+        <div class="sn-form">
+          <input type="text" class="input sn-ed-t" value="${t}" aria-label="When you say" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+          <textarea class="input sn-ed-x" rows="3" aria-label="Waffler pastes" autocomplete="off" spellcheck="false">${escHtml(s.expansion)}</textarea>
+          <div class="sn-acts"><span class="snip-counter" data-role="counter"></span><button type="button" class="btn btn-quiet btn-sm" data-act="cancel">Cancel</button><button type="submit" class="btn btn-pri btn-sm">Save</button></div>
+        </div>
+      </form>`;
+    }
+    return `<div class="sn-r" data-i="${i}">
+      <span class="sn-t">${t}</span>
+      <span class="sn-a" aria-hidden="true">${WI.icon('arrow')}</span>
+      <span class="sn-x">${escHtml(s.expansion)}</span>
+      <span class="sn-b"><button type="button" class="rbtn sn-edit-btn" data-i="${i}" aria-label="Change ${t}" title="Change">${WI.icon('pencil')}</button><button type="button" class="rbtn sn-del" data-i="${i}" aria-label="Remove ${t}" title="Remove">${WI.icon('x')}</button></span>
+    </div>`;
+  }).join('');
+  listEl.innerHTML = `<div class="sn-rows" role="list" aria-label="Your snippets">${rows}</div>`;
+  listEl.querySelectorAll('.sn-rows > .sn-r').forEach((r) => r.setAttribute('role', 'listitem'));
+
+  listEl.querySelectorAll('.sn-del').forEach((b) => {
+    b.addEventListener('click', () => deleteSnippet(Number(b.getAttribute('data-i'))));
+  });
+  listEl.querySelectorAll('.sn-edit-btn').forEach((b) => {
+    b.addEventListener('click', () => openSnippetEdit(Number(b.getAttribute('data-i'))));
+  });
+  const edit = listEl.querySelector('.sn-edit');
+  if (edit) {
+    const i = Number(edit.getAttribute('data-i'));
+    const trig = edit.querySelector('.sn-ed-t');
+    const text = edit.querySelector('.sn-ed-x');
+    const counter = edit.querySelector('[data-role="counter"]');
+    const save = () => saveSnippetEdit(i, trig.value, text.value);
+    edit.addEventListener('submit', (e) => { e.preventDefault(); save(); });
+    edit.querySelector('[data-act="cancel"]').addEventListener('click', () => closeSnippetEdit());
+    [trig, text].forEach((el) => el.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); closeSnippetEdit(); }
+      else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); save(); }
+    }));
+    const count = () => { if (counter) counter.textContent = _snipCounterText(text); };
+    text.addEventListener('input', count);
+    count();
+  }
+}
+
+// What a save came back with, or null after saying why it could not.
+async function _snipSave(list) {
+  try {
+    const res = await pywebview.api.set_snippets(list);
+    if (!res || !res.ok) {
+      _snipError((res && res.error) || "Couldn't save your snippets. Try again.");
+      return null;
+    }
+    _snips = Array.isArray(res.snippets) ? res.snippets : list;
+    return _snips;
+  } catch (e) {
+    console.warn('set_snippets error:', e);
+    _snipError("Couldn't save your snippets. Try again.");
+    return null;
+  }
+}
+
+async function addSnippet() {
+  const trig = document.getElementById('snipTrigger');
+  const text = document.getElementById('snipText');
+  if (!trig || !text) return;
+  const check = WL.snippetCheck(_snips, trig.value, text.value, -1);
+  if (!check.ok) {
+    _snipError(check.error, check.field);
+    (check.field === 'text' ? text : trig).focus();
+    return;
+  }
+  _snipError('');
+  _snipEditing = -1;
+  const before = _snips.map((x) => Object.assign({}, x));
+  const saved = await _snipSave(before.concat([{ trigger: check.trigger, expansion: check.expansion }]));
+  if (!saved) { trig.focus(); return; }
+  trig.value = '';
+  text.value = '';
+  onSnipTextInput();
+  renderSnippets();
+  const at = saved.findIndex((x) => x.trigger.toLowerCase() === check.trigger.toLowerCase());
+  const row = document.querySelector(`#snipList .sn-r[data-i="${at}"]`);
+  if (row) { row.classList.add('new'); row.scrollIntoView({ block: 'nearest' }); }
+  showToast(`Added "${check.trigger}".`, 'success');
+  trig.focus();
+}
+
+function openSnippetEdit(i) {
+  _snipEditing = i;
+  _snipError('');
+  renderSnippets();
+  const inp = document.querySelector('#snipList .sn-ed-t');
+  if (inp) { inp.focus(); inp.select(); }
+}
+
+function closeSnippetEdit() {
+  const i = _snipEditing;
+  _snipEditing = -1;
+  renderSnippets();
+  const b = document.querySelector(`#snipList .sn-edit-btn[data-i="${i}"]`);
+  if (b) b.focus();
+}
+
+async function saveSnippetEdit(i, trigger, expansion) {
+  const check = WL.snippetCheck(_snips, trigger, expansion, i);
+  const edit = document.querySelector('#snipList .sn-edit');
+  if (!check.ok) {
+    _snipError(check.error, check.field);
+    const box = edit && edit.querySelector(check.field === 'text' ? '.sn-ed-x' : '.sn-ed-t');
+    if (box) box.focus();
+    return;
+  }
+  _snipError('');
+  const before = _snips.map((x) => Object.assign({}, x));
+  const next = before.map((x, n) => (n === i ? { trigger: check.trigger, expansion: check.expansion } : x));
+  if (!(await _snipSave(next))) return;
+  _snipEditing = -1;
+  renderSnippets();
+  const b = document.querySelector(`#snipList .sn-edit-btn[data-i="${i}"]`);
+  if (b) b.focus();
+  _snipShowUndo(WL.snippetDone('edit', check.trigger), async () => {
+    if (await _snipSave(before)) renderSnippets();
+  });
+}
+
+async function deleteSnippet(i) {
+  const gone = _snips[i];
+  if (!gone) return;
+  _snipError('');
+  const before = _snips.map((x) => Object.assign({}, x));
+  const hadFocus = document.activeElement && document.activeElement.closest && document.activeElement.closest('#snipList');
+  if (!(await _snipSave(before.filter((_x, n) => n !== i)))) return;
+  _snipEditing = -1;
+  renderSnippets();
+  // Focus went with the row: the remove button of the next one, the
+  // previous one, or the box when the list is empty.
+  if (hadFocus || document.activeElement === document.body) {
+    const left = [...document.querySelectorAll('#snipList .sn-del')];
+    const to = WL.focusAfterRemove(i, left.length);
+    const target = to >= 0 ? left[to] : document.getElementById('snipTrigger');
+    if (target) target.focus();
+  }
+  _snipShowUndo(WL.snippetDone('remove', gone.trigger), async () => {
+    if (await _snipSave(before)) renderSnippets();
+  });
+}
+
+// Ctrl+Enter (Cmd+Enter on a Mac) adds from the text box, where Enter is a
+// new line.
+document.addEventListener('DOMContentLoaded', () => {
+  const text = document.getElementById('snipText');
+  if (!text) return;
+  text.addEventListener('input', onSnipTextInput);
+  text.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); addSnippet(); }
+  });
+});
 
 // The empty Journal's "Open Notepad and try it" (TextEdit on a Mac).
 async function openPracticeEditor(btn) {

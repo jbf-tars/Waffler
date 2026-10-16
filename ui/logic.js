@@ -607,6 +607,64 @@
     return { action: 'respell', word, existing: list[i], next };
   }
 
+  // ── Snippets (the Vocabulary page, below the words) ─────────────────
+  // A snippet is a phrase you say and the text Waffler pastes for it. The
+  // limits are src/snippets.py's, and the page checks them before it saves
+  // (the app checks again): a test compares the two.
+  const SNIPPET_MAX_TRIGGER = 60;
+  const SNIPPET_MAX_EXPANSION = 4000;
+  const SNIPPET_MAX_COUNT = 200;
+
+  // A trigger as it is kept: no outer space, any run of space one space.
+  function snippetTrigger(text) {
+    return String(text == null ? '' : text).split(/\s+/).filter(Boolean).join(' ');
+  }
+
+  // What to say about a snippet before it is saved. ``list`` is the saved
+  // snippets; ``editing`` the index being changed, or -1 when adding. Returns
+  // {ok: true, trigger, expansion} or {ok: false, field, error}: ``field`` is
+  // the box to put the cursor in, and the same trigger in other capitals is a
+  // second snippet for the same words, so it is refused.
+  function snippetCheck(list, trigger, expansion, editing) {
+    const have = Array.isArray(list) ? list : [];
+    const t = snippetTrigger(trigger);
+    const x = String(expansion == null ? '' : expansion).trim();
+    if (!t) return { ok: false, field: 'trigger', error: "Type the phrase you'll say first." };
+    if (t.length > SNIPPET_MAX_TRIGGER) {
+      return { ok: false, field: 'trigger', error: `Keep the phrase to ${SNIPPET_MAX_TRIGGER} characters or fewer.` };
+    }
+    if (!x) return { ok: false, field: 'text', error: 'Type the text to paste.' };
+    if (x.length > SNIPPET_MAX_EXPANSION) {
+      return { ok: false, field: 'text', error: `Keep the text to ${formatCount(SNIPPET_MAX_EXPANSION)} characters or fewer.` };
+    }
+    const key = t.toLowerCase();
+    const same = have.find((s, i) => i !== editing && snippetTrigger(s.trigger).toLowerCase() === key);
+    if (same) return { ok: false, field: 'trigger', error: `"${snippetTrigger(same.trigger)}" is already a snippet.` };
+    if (editing < 0 && have.length >= SNIPPET_MAX_COUNT) {
+      return { ok: false, field: 'trigger', error: `You can keep up to ${SNIPPET_MAX_COUNT} snippets.` };
+    }
+    return { ok: true, trigger: t, expansion: x };
+  }
+
+  // "3 snippets" beside the heading.
+  function snippetSummary(n) {
+    const c = Math.max(0, Number(n) || 0);
+    return c === 1 ? '1 snippet' : `${formatCount(c)} snippets`;
+  }
+
+  // A count under the text box, only once it is nearly full.
+  function snippetCounter(length) {
+    const n = Math.max(0, Number(length) || 0);
+    return n >= SNIPPET_MAX_EXPANSION * 0.9
+      ? `${formatCount(n)} of ${formatCount(SNIPPET_MAX_EXPANSION)} characters` : '';
+  }
+
+  // The undo line after a change: Removed "my address".
+  function snippetDone(kind, trigger) {
+    const verb = { remove: 'Removed', edit: 'Changed' }[kind] || 'Saved';
+    return `${verb} "${snippetTrigger(trigger)}".`;
+  }
+
   // The Journal's day rows: "Friday" on the left, "25 September" on the
   // right (with the year when it isn't this year). Keys are "YYYY-MM-DD".
   const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -1176,6 +1234,8 @@
     USAGE_NOTE, formatCount, usageView, usageProviderRows, usesView, keyRows,
     qualityView, dayKey, dayLabel, statNumber, vocabChanges, vocabChangesLine, originalText, hasOriginal, vocabAdd, VOCAB_MAX_ENTRY_LEN,
     SEARCH_DEBOUNCE_MS, debounce, feedView, searchAnnouncement, radioMove, focusAfterRemove,
+    SNIPPET_MAX_TRIGGER, SNIPPET_MAX_EXPANSION, SNIPPET_MAX_COUNT, snippetTrigger, snippetCheck,
+    snippetSummary, snippetCounter, snippetDone,
     spellingSpecimen, languageOptions, languageDesc, languageSaved, spellingNote, METER_CELLS, micMeter, usageChart, usageFacts, flowView, PROVIDER_MARKS, providerPill,
     privacyFlow, hotkeyTestLine, whatsNew,
   };

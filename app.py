@@ -24,7 +24,6 @@ import json
 import queue
 import time
 import threading
-import tempfile
 import atexit
 import copy
 import contextlib
@@ -131,6 +130,7 @@ import privacy_data as _privacy
 import cleanup_pause as _cleanup_pause
 import languages as _languages
 import mac_permissions as _mac_perms
+import snippets as _snippets
 from login_item import LoginItem, HIDDEN_FLAG as _HIDDEN_FLAG
 from user_messages import (
     DOWNLOAD_PAGE,
@@ -172,6 +172,8 @@ _usage_lock = threading.Lock()
 # And for settings.json, which bridge calls on separate threads read,
 # change and save (see Api._editing_settings).
 _settings_lock = threading.RLock()
+# And for snippets.json: the page saves the whole list on every change.
+_snippets_lock = threading.Lock()
 
 # ── Pricing ────────────────────────────────────────────────────────────────
 # Rates are keyed by the MODEL actually called, not merely by provider. The old
@@ -1317,7 +1319,8 @@ class Api:
                     "  sysinfo.txt               — one-page system snapshot\n\n"
                     "NOT included (intentional):\n"
                     "  - API keys (~/.waffler-hosted/.env)\n"
-                    "  - Transcript history (~/.waffler-hosted/history.json)\n\n"
+                    "  - Transcript history (~/.waffler-hosted/history.json)\n"
+                    "  - Snippets (~/.waffler-hosted/snippets.json)\n\n"
                     "Share this zip when reporting a bug to https://github.com/jbf-tars/Waffler/issues\n"
                 )
 
@@ -2426,38 +2429,35 @@ class Api:
         return DATA_DIR / "snippets.json"
 
     def get_snippets(self) -> list:
-        """Return list of {trigger, expansion} snippet dicts."""
-        try:
-            sf = self._snippets_file()
-            if sf.exists():
-                return json.loads(sf.read_text(encoding="utf-8-sig"))
-        except Exception:
-            pass
-        return []
+        """The saved snippets, [{trigger, expansion}], in the order they were
+        saved (src/snippets.py)."""
+        return _snippets.load(self._snippets_file())
 
     def set_snippets(self, snippets: list) -> dict:
-        """Save snippets list with atomic write"""
+        """Save the snippets (snippets.json, UTF-8, written atomically).
+
+        The list is tidied first (src/snippets.py clean: outer space
+        stripped, empty ones dropped, a trigger already there in other
+        capitals dropped) and held to the limits; the saved list comes back
+        as ``snippets``, so the page shows what was kept. A list that is over
+        a limit is refused whole with one plain sentence, and nothing is
+        saved. The next dictation reads the file, so no restart is needed."""
+        cleaned, error = _snippets.clean(snippets)
+        if error:
+            return {"ok": False, "error": error}
         try:
             sf = self._snippets_file()
             sf.parent.mkdir(parents=True, exist_ok=True)
-            tmp_fd, tmp_path = tempfile.mkstemp(
-                dir=sf.parent,
-                suffix='.tmp',
-                text=True
-            )
-            try:
-                with os.fdopen(tmp_fd, 'w', encoding='utf-8') as f:
-                    json.dump(snippets, f, indent=2)
-                os.replace(tmp_path, sf)  # Atomic on POSIX
-            except Exception as e:
-                try:
-                    os.unlink(tmp_path)
-                except:
-                    pass
-                raise e
-            return {"ok": True, "count": len(snippets)}
+            with _snippets_lock:
+                # A snippets.json that can't be read (a hand edit gone wrong)
+                # is kept aside, not written over; one that is locked stops
+                # the save.
+                read_json_for_update(sf, list)
+                write_json_atomic(sf, cleaned)
+            return {"ok": True, "count": len(cleaned), "snippets": cleaned}
         except Exception as e:
-            return {"ok": False, "error": str(e)}
+            _log_to_file(f"[snippets] not saved: {type(e).__name__}: {e}")
+            return {"ok": False, "error": "Couldn't save your snippets. Try again."}
 
     # ── Usage Tracking API ─────────────────────────────────────────────────
     def get_usage_stats(self) -> dict:
@@ -4136,8 +4136,16 @@ class WafflerPipeline:
             # passes the offer threshold. Any failure here pastes the words
             # as they were said rather than failing the dictation.
             _t1 = time.time()
-            _sty = run.call(self.styler.style, transcript, stage=_pw.STYLING,
-                            deadline=_pw.STYLE_DEADLINE_S)
+            # A dictation that is only a snippet's trigger is that snippet:
+            # no model call, and nothing to clean up (src/snippets.py).
+            _whole_snippet = self._whole_snippet(transcript)
+            if _whole_snippet is not None:
+                _sty = _pw.CallResult("ok", value=(_whole_snippet, {
+                    "input_tokens": 0, "output_tokens": 0, "api_used": False,
+                    "provider": "snippet"}))
+            else:
+                _sty = run.call(self.styler.style, transcript, stage=_pw.STYLING,
+                                deadline=_pw.STYLE_DEADLINE_S)
             if _sty.status == _pw.CANCEL and not run.cancel_keeps:
                 _log_to_file(f"Processing {processing_id} cancelled during styling")
                 _outcome = _pw.CANCELLED
@@ -4194,8 +4202,11 @@ class WafflerPipeline:
                     provider=gpt_usage.get("provider", "openai"),
                 )
 
-            # Apply snippets (text expansion)
-            styled = self._apply_snippets(styled)
+            # Apply snippets (text expansion). Not to a whole-snippet
+            # dictation: its text is already the expansion, and a trigger
+            # inside it must not set another off.
+            if _whole_snippet is None:
+                styled = self._apply_snippets(styled)
 
             # One decision, taken once, for both remaining side effects.
             # Pasting is about the present (whose window and clipboard is
@@ -4952,7 +4963,12 @@ class WafflerPipeline:
                             provider=provider or "groq")
 
         styled = ""
-        if style:
+        # A recording that is only a snippet's trigger is that snippet, as in
+        # _process: no clean-up, and its text is not searched for triggers.
+        whole_snippet = self._whole_snippet(transcript)
+        if whole_snippet is not None:
+            styled = whole_snippet
+        elif style:
             run = _pw.DictationRun(f"fill:{unsent_id}")
             sty = run.call(self.styler.style, transcript, stage=_pw.STYLING,
                            deadline=_pw.STYLE_DEADLINE_S)
@@ -4964,7 +4980,8 @@ class WafflerPipeline:
                                         provider=usage.get("provider", "openai"))
         if not styled:
             styled = self._unstyled(transcript)
-        styled = self._apply_snippets(styled)
+        if whole_snippet is None:
+            styled = self._apply_snippets(styled)
 
         new_item = _unsent.resolved(entry, transcript=transcript, styled=styled)
         if vocab_changes:
@@ -5160,21 +5177,25 @@ class WafflerPipeline:
             time.sleep(30)
 
     def _apply_snippets(self, text: str) -> str:
-        """Replace snippet trigger phrases with their expansions."""
-        import re
-        snip_file = DATA_DIR / "snippets.json"
+        """Replace snippet triggers in ``text`` with their expansions
+        (src/snippets.py). Never fatal: a snippets file that can't be read
+        leaves the text as it is."""
         try:
-            if snip_file.exists():
-                snippets = json.loads(snip_file.read_text(encoding="utf-8-sig"))
-                for s in snippets:
-                    trigger   = s.get("trigger", "").strip()
-                    expansion = s.get("expansion", "")
-                    if trigger:
-                        pattern = rf'(?i)\b{re.escape(trigger)}\b'
-                        text = re.sub(pattern, lambda m: expansion, text)
+            return _snippets.apply(text, _snippets.load(DATA_DIR / "snippets.json"))
         except Exception as e:
-            print(f"[snippets] error: {e}")
-        return text
+            _log_to_file(f"[snippets] not applied ({type(e).__name__}: {e})")
+            return text
+
+    def _whole_snippet(self, text: str):
+        """The expansion when the whole dictation is one snippet's trigger
+        (any case, any punctuation), else None. That dictation is pasted as
+        the snippet and is not sent to the clean-up: there is nothing to
+        clean up, and a model must not rephrase a signature."""
+        try:
+            return _snippets.whole_utterance(text, _snippets.load(DATA_DIR / "snippets.json"))
+        except Exception as e:
+            _log_to_file(f"[snippets] not checked ({type(e).__name__}: {e})")
+            return None
 
     def start_hotkey(self):
         """Start the hotkey listener — platform-specific."""

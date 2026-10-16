@@ -7,9 +7,10 @@ Four jobs, each small and testable without the app:
   days. Not sent entries are never pruned: they are waiting for Try again or
   Delete, and their recordings are counted in "Not sent yet".
 - "Delete all my data": history, usage, recent recordings, recordings not
-  sent and the logs. Keys, the words list and settings stay. Deleting the
-  keys as well is the full reset (factory_reset in app.py), which the window
-  asks about separately.
+  sent and the logs. Keys, the words list, snippets and settings stay: they
+  are what the user wrote, not what they dictated. Deleting the keys as well
+  is the full reset (factory_reset in app.py), which removes the whole folder,
+  snippets.json included, and which the window asks about separately.
 - Old transcript lines in app.log. Versions before the transcript redaction
   logged the first 80 characters of each dictation ("Done: <text>") and of
   the setup practice ("Wizard transcription: <text>"). On the owner's PC
@@ -88,9 +89,13 @@ def count_older(history: list, keep_days: int, now: datetime | None = None) -> i
 
 # ── Delete all my data ───────────────────────────────────────────────────────
 
-# Files and folders in the data folder. Keys (.env), settings.json,
-# config.json, setup_complete.json, vocab.json and vocab_sounds.json are not
-# here: they stay.
+# Files and folders in the data folder. What stays (KEPT_FILES) is not here.
+# snippets.json can hold an address or a signature: it stays with the words
+# list, is never in the logs bundle (app.py download_logs names what it
+# includes, and this is not one of them), and factory_reset removes it with
+# the folder.
+KEPT_FILES = (".env", "settings.json", "config.json", "setup_complete.json",
+              "vocab.json", "vocab_sounds.json", "snippets.json")
 DATA_FILES = ("history.json", "usage.json", "quality.jsonl",
               "app.log", "app.log.1", "crash.log", "hotkey.log")
 # The *.unreadable-* copies are a history.json or usage.json that could not
