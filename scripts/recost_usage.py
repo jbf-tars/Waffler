@@ -7,8 +7,9 @@ all so it was billed at OpenAI's. Every stored entry keeps the inputs the cost
 was derived from (duration for transcription, token counts for cleanup), so the
 history can be recomputed rather than written off.
 
-Writes a timestamped backup next to the file before touching it. Run with
---dry-run first to see what would change.
+Works on usage.jsonl (one row per line) or, on a folder that still has the
+older usage.json, that. Writes a timestamped backup next to the
+file before touching it. Run with --dry-run first to see what would change.
 
     python scripts/recost_usage.py --dry-run
     python scripts/recost_usage.py
@@ -17,12 +18,24 @@ Writes a timestamped backup next to the file before touching it. Run with
 import argparse
 import ast
 import json
+import os
 import pathlib
 import shutil
+import sys
 from datetime import datetime
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-USAGE = pathlib.Path.home() / ".waffler-hosted" / "usage.json"
+sys.path.insert(0, str(ROOT / "src"))
+import usage_log  # noqa: E402
+
+DATA = pathlib.Path(os.environ.get("WAFFLER_DATA_DIR") or pathlib.Path.home() / ".waffler-hosted")
+USAGE_LOG = DATA / usage_log.FILE
+USAGE = DATA / usage_log.LEGACY_FILE
+
+
+def usage_path() -> pathlib.Path:
+    """The record to work on: usage.jsonl, else an old usage.json."""
+    return USAGE_LOG if USAGE_LOG.exists() or not USAGE.exists() else USAGE
 
 
 def load_from_app(*names: str) -> dict:
@@ -66,14 +79,18 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
-    if not USAGE.exists():
-        print(f"no usage file at {USAGE}")
+    path = usage_path()
+    if not path.exists():
+        print(f"no usage file at {path}")
         return 0
 
     pricing = load_from_app("MODEL_RATES", "_usage_cost")
     rates, usage_cost = pricing["MODEL_RATES"], pricing["_usage_cost"]
-    data = json.loads(USAGE.read_text(encoding="utf-8"))
-    rows = data if isinstance(data, list) else data.get("entries", [])
+    if path == USAGE_LOG:
+        data = rows = usage_log.read(path)
+    else:
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
+        rows = data if isinstance(data, list) else data.get("entries", [])
 
     before = sum(float(r.get("cost_usd") or 0) for r in rows)
     skipped = 0
@@ -105,11 +122,14 @@ def main() -> int:
         return 0
 
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    backup = USAGE.with_name(f"usage.backup-{stamp}.json")
-    shutil.copy2(USAGE, backup)
-    USAGE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    backup = path.with_name(f"usage.backup-{stamp}.json")
+    shutil.copy2(path, backup)
+    if path == USAGE_LOG:
+        usage_log.write_all(path, rows)
+    else:
+        path.write_text(json.dumps(data, indent=2), encoding="utf-8")
     print(f"\nbackup written : {backup.name}")
-    print(f"usage.json updated with corrected costs")
+    print(f"{path.name} updated with corrected costs")
     return 0
 
 

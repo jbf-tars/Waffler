@@ -26,7 +26,9 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 import atomic_json  # noqa: E402
+import history_ids  # noqa: E402
 import privacy_data  # noqa: E402
+import usage_log  # noqa: E402
 from _settings_fake import settings_api  # noqa: E402
 
 _TREE = ast.parse((ROOT / "app.py").read_text(encoding="utf-8"))
@@ -55,6 +57,8 @@ def app(tmp_path):
     ns.update(json=json, os=os, datetime=datetime, threading=threading,
               DATA_DIR=tmp_path, HISTORY_FILE=tmp_path / "history.json",
               USAGE_FILE=tmp_path / "usage.json",
+              USAGE_LOG_FILE=tmp_path / "usage.jsonl", _usage_log=usage_log,
+              _history_ids=history_ids,
               _history_lock=threading.Lock(), _usage_lock=threading.Lock(),
               write_json_atomic=lambda p, d: atomic_json.write_json_atomic(p, d, sleep=lambda s: None),
               read_json_for_update=atomic_json.read_json_for_update,
@@ -121,8 +125,9 @@ def test_an_unreadable_journal_is_kept_not_replaced_by_the_next_dictation(app, t
     raw = json.dumps(OLD)[:-5].encode("utf-8")           # cut short
     app["HISTORY_FILE"].write_bytes(raw)
     assert app["append_history_safely"]({"timestamp": "2026-10-05T09:00:00", "text": "new"})
+    # The one new entry, with the id every new entry gets (src/history_ids.py).
     assert json.loads(app["HISTORY_FILE"].read_text(encoding="utf-8")) == [
-        {"timestamp": "2026-10-05T09:00:00", "text": "new"}]
+        {"timestamp": "2026-10-05T09:00:00", "text": "new", "id": 1}]
     kept = _unreadable(tmp_path, "history")
     assert len(kept) == 1 and kept[0].read_bytes() == raw
     assert any("history.json could not be read" in m for m in app["logged"])
@@ -169,16 +174,18 @@ def test_every_history_rewrite_in_app_py_reads_it_the_safe_way():
 # ── usage.json ───────────────────────────────────────────────────────────────
 
 def test_unreadable_usage_is_kept_and_a_bom_is_read(app, tmp_path):
+    """The usage record moved to usage.jsonl (src/usage_log.py); a usage.json
+    from before is still read, and an unreadable one is still kept aside."""
     app["USAGE_FILE"].write_bytes(b"not json")
     app["record_usage"]("whisper", duration_seconds=3.0, provider="groq")
-    rows = json.loads(app["USAGE_FILE"].read_text(encoding="utf-8"))
+    rows = usage_log.read(app["USAGE_LOG_FILE"])
     assert len(rows) == 1
     assert _unreadable(tmp_path, "usage")[0].read_bytes() == b"not json"
 
     app["USAGE_FILE"].write_bytes(b"\xef\xbb\xbf" + json.dumps(rows).encode("utf-8"))
-    assert app["load_usage"]() == rows
+    assert app["load_usage"]() == rows            # already held: not added twice
     app["record_usage"]("gpt", input_tokens=10, output_tokens=5, provider="groq")
-    assert len(json.loads(app["USAGE_FILE"].read_text(encoding="utf-8"))) == 2
+    assert len(usage_log.read(app["USAGE_LOG_FILE"])) == 2
 
 
 def test_usage_written_from_two_threads_keeps_every_row(app):
@@ -191,7 +198,7 @@ def test_usage_written_from_two_threads_keeps_every_row(app):
         t.start()
     for t in threads:
         t.join()
-    assert len(json.loads(app["USAGE_FILE"].read_text(encoding="utf-8"))) == 40
+    assert len(usage_log.read(app["USAGE_LOG_FILE"])) == 40
 
 
 def test_record_usage_holds_the_usage_lock():

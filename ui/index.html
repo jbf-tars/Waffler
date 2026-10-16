@@ -434,7 +434,7 @@
                  unless the user picks 30, 90 or 365 days. A shorter choice
                  that would delete dictations asks first, in the sheet. -->
             <div class="row" id="historyRow">
-              <div class="row-main"><div class="row-t"><label for="historyKeep">History</label></div><div class="row-d" id="privHistoryDesc">Your dictations, searchable in your Journal.</div></div>
+              <div class="row-main"><div class="row-t"><label for="historyKeep">History</label></div><div class="row-d" id="privHistoryDesc">Your dictations, searchable in your Journal. Each notes the app you were in, the language and which services handled it.</div></div>
               <select id="historyKeep" class="select" onchange="onHistoryKeepChange(this)">
                 <option value="0">Keep forever</option>
                 <option value="365">Keep for a year</option>
@@ -447,10 +447,22 @@
               <button type="button" class="btn btn-sec btn-sm" id="historyKeepNo" onclick="cancelHistoryKeep()">Keep them</button>
               <button type="button" class="btn btn-danger btn-sm" onclick="confirmHistoryKeep()">Delete them</button>
             </div>
+            <!-- Export history (src/history_export.py): a file on the Desktop,
+                 shown in its folder. It is the user's own copy, so Delete all my
+                 data does not touch it, and the row says so. -->
+            <div class="row" id="exportRow">
+              <div class="row-main"><div class="row-t" id="exportTitle"><label for="exportFormat">Export history</label></div><div class="row-d">Save your Journal as a file on your Desktop. It never includes your keys. It's your own copy, so Delete all my data leaves it alone.</div></div>
+              <select id="exportFormat" class="select">
+                <option value="json">JSON</option>
+                <option value="csv">CSV</option>
+                <option value="txt">Plain text</option>
+              </select>
+              <button type="button" class="btn btn-sec btn-sm" id="exportBtn" aria-describedby="exportTitle" onclick="exportHistory(this)"><svg class="ic" aria-hidden="true"><use href="#i-folder"/></svg><span>Export</span></button>
+            </div>
             <!-- Owner decision D9: the last 10 recordings are kept, said
                  here, with a switch and "Delete them now" (src/recent_audio.py). -->
             <div class="row" id="recentAudioRow">
-              <div class="row-main"><div class="row-t"><label for="recentAudioToggle">Recent recordings</label></div><div class="row-d"><span id="recentAudioDesc">The audio of your last 10 dictations, to help look into a problem.</span> <button type="button" class="link-btn" id="recentAudioDelete" onclick="deleteRecentAudio(this)">Delete them now</button></div></div>
+              <div class="row-main"><div class="row-t"><label for="recentAudioToggle">Recent recordings</label></div><div class="row-d"><span id="recentAudioDesc">The audio of your last 10 dictations, so you can redo a take, get one back if Waffler stops, or look into a problem.</span> <button type="button" class="link-btn" id="recentAudioDelete" onclick="deleteRecentAudio(this)">Delete them now</button></div></div>
               <input type="checkbox" class="tog" role="switch" id="recentAudioToggle" checked onchange="setRecentAudio(this.checked)">
             </div>
             <!-- Recordings that were not turned into text (Journal "Not sent"

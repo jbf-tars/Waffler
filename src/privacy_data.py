@@ -7,7 +7,9 @@ Four jobs, each small and testable without the app:
   days. Not sent entries are never pruned: they are waiting for Try again or
   Delete, and their recordings are counted in "Not sent yet".
 - "Delete all my data": history, usage, recent recordings, recordings not
-  sent and the logs. Keys, the words list, snippets and settings stay: they
+  sent, the logs, and what the Journal's Undo holds in memory. Keys, the words
+  list, snippets and settings stay, and so does a file the user exported
+  (Export history writes a copy to their Desktop): they
   are what the user wrote, not what they dictated. Deleting the keys as well
   is the full reset (factory_reset in app.py), which removes the whole folder,
   snippets.json included, and which the window asks about separately.
@@ -33,8 +35,10 @@ from pathlib import Path
 
 try:
     from atomic_json import replace_with_retry, write_json_atomic
+    import history_ops
 except ImportError:  # imported as src.privacy_data
     from src.atomic_json import replace_with_retry, write_json_atomic
+    from src import history_ops
 
 
 # ── History retention ────────────────────────────────────────────────────────
@@ -99,8 +103,14 @@ KEPT_FILES = (".env", "settings.json", "config.json", "setup_complete.json",
 # notifications.json is which tips Waffler has shown, hidden or had closed
 # (src/notifier.py): counts and times only, no text. Deleting it brings the
 # tips back.
-DATA_FILES = ("history.json", "usage.json", "quality.jsonl", "notifications.json",
-              "app.log", "app.log.1", "crash.log", "hotkey.log")
+# usage.jsonl is the usage record (src/usage_log.py): what each call cost,
+# never what was said. usage.json is the same record in its older form, emptied
+# rather than removed; it is set aside as usage.backup-*.json once moved.
+# inflight.json (src/take_marker.py) names the takes being turned into text
+# right now, so a crash can bring one back as a card: file names and times,
+# no words, and gone as soon as the dictation ends.
+DATA_FILES = ("history.json", "usage.json", "usage.jsonl", "quality.jsonl", "notifications.json",
+              "inflight.json", "app.log", "app.log.1", "crash.log", "hotkey.log")
 # The *.unreadable-* copies are a history.json or usage.json that could not
 # be read, kept aside instead of being written over (src/atomic_json.py).
 DATA_GLOBS = ("usage.backup-*.json", "history.unreadable-*.json", "usage.unreadable-*.json")
@@ -134,6 +144,9 @@ def delete_my_data(data_dir) -> dict:
     """
     d = Path(data_dir)
     failed = []
+    # What the Journal's Undo is holding in memory (deleted entries and the
+    # recordings that went with them) goes too.
+    history_ops.SHELF.clear()
     if not d.is_dir():
         return {"ok": True, "failed": []}
     for name in ("history.json", "usage.json"):

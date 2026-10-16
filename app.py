@@ -118,7 +118,7 @@ from audio_devices import (
     set_selected_device_index,
     get_selected_device_name,
 )
-from app_detection import get_active_app
+from app_detection import get_active_app, frontmost_app_name
 from log_util import transcript_for_log
 from atomic_json import write_json_atomic, read_json_for_update
 import pipeline_watchdog as _pw
@@ -135,6 +135,12 @@ import snippets as _snippets
 import notifier as _notifier
 import sounds as _sound_cues
 import hold_hint as _hold_hint
+import usage_log as _usage_log
+import history_ids as _history_ids
+import history_meta as _history_meta
+import history_ops as _history_ops
+import history_export as _history_export
+import take_marker as _take_marker
 from login_item import LoginItem, HIDDEN_FLAG as _HIDDEN_FLAG
 from user_messages import (
     CLIPBOARD_CHOICE_UNKNOWN,
@@ -169,7 +175,8 @@ def get_data_directory():
 # ── History File ──────────────────────────────────────────────────────
 DATA_DIR = get_data_directory()
 HISTORY_FILE = DATA_DIR / "history.json"
-USAGE_FILE = DATA_DIR / "usage.json"
+USAGE_FILE = DATA_DIR / "usage.json"          # the older record; moved into the next one
+USAGE_LOG_FILE = DATA_DIR / _usage_log.FILE   # usage.jsonl: one row per line
 
 # Serialises the load→append→save read-modify-write on history.json. The file
 # write itself is atomic (os.replace), but the read-modify-write around it is
@@ -376,29 +383,70 @@ def append_history(item: dict):
     load→append→save so concurrent writers don't clobber each other."""
     with _history_lock:
         history = _retain_history(_load_history_for_update())
+        # Every new entry gets an id (src/history_ids.py). The caller's own
+        # dict gets it, so the window is told about the entry with its id.
+        _history_ids.stamp(item, history)
         history.append(item)
         save_history(history)
 
 
 # ── Usage Tracking ──────────────────────────────────────────────────────
 def load_usage() -> list:
-    """Load usage records from usage.json."""
+    """Every usage row, oldest first (src/usage_log.py). A usage.json from
+    from an older Waffler is moved into usage.jsonl first, once."""
     ensure_data_dir()
-    if not USAGE_FILE.exists():
-        return []
     try:
-        with open(USAGE_FILE, "r", encoding="utf-8-sig") as f:
-            data = json.load(f)
-            return data if isinstance(data, list) else []
+        if USAGE_FILE.exists():
+            with _usage_lock:
+                _usage_log.try_import_legacy(USAGE_FILE, USAGE_LOG_FILE, _log_to_file)
+        return _usage_log.read(USAGE_LOG_FILE)
     except Exception:
         return []
 
 
 def save_usage(usage: list):
-    """Save usage records to usage.json with an atomic write. The replace is
-    retried while another handle briefly locks the file (Windows)."""
+    """Replace the whole usage record (Settings, reset). The write is atomic
+    and the replace is retried while another handle briefly locks the file
+    (Windows). Not for the dictation path: record_usage adds one row."""
     ensure_data_dir()
-    write_json_atomic(USAGE_FILE, usage)
+    with _usage_lock:
+        # An old usage.json goes first, or the next read would bring it back.
+        _usage_log.try_import_legacy(USAGE_FILE, USAGE_LOG_FILE, _log_to_file)
+        _usage_log.write_all(USAGE_LOG_FILE, usage)
+
+
+def _move_old_usage():
+    """Start-up: move an older usage.json into usage.jsonl (src/usage_log.py)
+    on a thread of its own, so that no dictation pays for it. Safe to stop at
+    any point and to repeat; logs counts only."""
+    try:
+        if USAGE_FILE.exists():
+            with _usage_lock:
+                _usage_log.try_import_legacy(USAGE_FILE, USAGE_LOG_FILE, _log_to_file)
+    except Exception as e:
+        _log_to_file(f"[usage] move at start-up failed: {type(e).__name__}")
+
+
+def _recover_interrupted_takes():
+    """Start-up: a take that was being turned into text when Waffler last
+    stopped (a crash, a power cut, a force quit) comes back as a Not sent card
+    with Try again, if its recording was kept (src/take_marker.py). The usual
+    case, no mark, costs one file check. Never raises; logs counts only."""
+    try:
+        if not (DATA_DIR / _take_marker.FILE).exists():
+            return
+        found = _take_marker.recover(DATA_DIR, load_history(), _log_to_file)
+        saved = True
+        for entry in found:
+            saved = append_history_safely(entry) and saved
+        if saved:
+            # What the mark held is dealt with. If a card could not be saved
+            # the mark stays, and the next start tries again (a take already
+            # in the Journal is not added twice).
+            _take_marker.forget_all(DATA_DIR)
+        _log_to_file(f"[marker] {len(found)} interrupted take(s) came back as Not sent cards")
+    except Exception as e:
+        _log_to_file(f"[marker] recovery skipped: {type(e).__name__}")
 
 
 def record_usage(entry_type: str, duration_seconds: float = None,
@@ -425,13 +473,13 @@ def record_usage(entry_type: str, duration_seconds: float = None,
     if duration_seconds is not None:
         entry["duration_seconds"] = round(duration_seconds, 3)
 
+    # One line added to the end of usage.jsonl: the cost does not grow with
+    # the record (it used to rewrite the whole file, twice per dictation,
+    # before the paste). An old usage.json is moved in first, once.
     with _usage_lock:
         ensure_data_dir()
-        usage, kept = read_json_for_update(USAGE_FILE, list)
-        if kept is not None:
-            _log_to_file(f"[usage] usage.json could not be read; kept as {kept.name}")
-        usage.append(entry)
-        save_usage(usage)
+        _usage_log.try_import_legacy(USAGE_FILE, USAGE_LOG_FILE, _log_to_file)
+        _usage_log.append(USAGE_LOG_FILE, entry)
     return entry
 
 
@@ -684,18 +732,25 @@ class Api:
             _log_to_file(f"[update] install failed: {e}")
             return {"ok": False, "error": UPDATE_INSTALL_FAILED, "download_page": DOWNLOAD_PAGE}
 
-    def get_history(self, limit=None, offset=0, query="") -> list:
+    def get_history(self, limit=None, offset=0, query="", before_id=None) -> list:
         """Journal entries, newest first: all of them, or one page.
 
         ``limit`` and ``offset`` page through them (the window draws about
         50 at a time and asks for more as you scroll); ``query`` keeps only
-        entries whose clean text or transcript contains it.
+        entries whose clean text or transcript contains it. ``before_id``
+        pages from the entry with that id instead of by offset: only
+        entries older than it, which stays right when entries are added or
+        deleted between two pages.
 
         Not sent entries get their live state: the recording's id, whether
         its file is still there, and whether Waffler will still send it by
-        itself (entries older than a day, or out of tries, will not)."""
-        items = _journal.page(_history_cache.items(), limit, offset, query)
+        itself (entries older than a day, or out of tries, will not). An
+        entry whose recording is still among the kept ones gets
+        ``can_redo`` (for "Redo this take")."""
+        items = _journal.page(_history_cache.items(), limit, offset, query,
+                              _history_ids.parse(before_id))
         unsent_dir = DATA_DIR / _unsent.UNSENT_DIRNAME
+        kept_audio = None
         out = []
         for item in items:
             if isinstance(item, dict) and item.get("failed"):
@@ -705,6 +760,12 @@ class Api:
                     uid = ""        # the file has gone; the card can only be deleted
                 item["unsent_id"] = uid
                 item["will_retry"] = bool(uid) and _unsent.will_auto_retry(item)
+            elif isinstance(item, dict) and item.get("audio"):
+                if kept_audio is None:
+                    kept_audio = _recent_audio.names(DATA_DIR)
+                if item["audio"] in kept_audio:
+                    item = dict(item)
+                    item["can_redo"] = True
             out.append(item)
         return out
 
@@ -1267,6 +1328,9 @@ class Api:
           - snippets.json                   (can hold an address or signature)
           - notifications.json              (which tips were shown: counters
                                              only, nothing a bug report needs)
+          - usage.jsonl                     (what each call cost: not needed)
+          - inflight.json                   (which takes were being turned into
+                                             text: file names and times only)
 
         Returns:
           {"ok": True, "path": "/Users/.../Desktop/waffler-logs-...zip"}
@@ -1388,7 +1452,9 @@ class Api:
                     "  - API keys (~/.waffler-hosted/.env)\n"
                     "  - Transcript history (~/.waffler-hosted/history.json)\n"
                     "  - Snippets (~/.waffler-hosted/snippets.json)\n"
-                    "  - Which tips were shown (~/.waffler-hosted/notifications.json)\n\n"
+                    "  - Which tips were shown (~/.waffler-hosted/notifications.json)\n"
+                    "  - What each call cost (~/.waffler-hosted/usage.jsonl)\n"
+                    "  - Which takes were being processed (~/.waffler-hosted/inflight.json)\n\n"
                     "Share this zip when reporting a bug to https://github.com/jbf-tars/Waffler/issues\n"
                 )
 
@@ -1417,24 +1483,127 @@ class Api:
 
     # ── History utilities ─────────────────────────────────────────────────────
 
-    def export_history(self) -> dict:
-        """Return all transcript history as formatted text for download."""
+    def export_history(self, fmt=None) -> dict:
+        """Export the Journal as a file on the Desktop, then show it in its
+        folder (src/history_export.py), the way download_logs does with its
+        zip. ``fmt`` is "json" (every kept field), "csv" (timestamp, app,
+        language, words, text; a spreadsheet will not run a cell as a
+        formula) or "txt" (dated paragraphs).
+
+        Returns {"ok": True, "path", "format", "count"} or {"ok": False,
+        "error": a plain sentence, "reason"}. With no ``fmt`` it answers as it
+        it always did: {"ok", "content", "count"}, the text format, and
+        nothing is written."""
         history = load_history()
         if not history:
-            return {"ok": False, "error": "No history to export"}
-        lines = [
-            "# Waffler — Transcript History",
-            f"Exported: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
-            f"Total entries: {len(history)}",
-            "",
-        ]
-        for item in history:
-            ts   = item.get("timestamp", "")
-            text = item.get("styled") or item.get("text") or ""
-            lines.append(f"── {ts} ──────────────────────")
-            lines.append(text)
-            lines.append("")
-        return {"ok": True, "content": "\n".join(lines), "count": len(history)}
+            return {"ok": False, "reason": "empty", "error": "Your Journal is empty, so there is nothing to export."}
+        if fmt is None:
+            return {"ok": True, "count": len(history),
+                    "content": _history_export.render_txt(history)}
+        if fmt not in _history_export.FORMATS:
+            return {"ok": False, "reason": "format", "error": "Pick JSON, CSV or Plain text."}
+        try:
+            path = _history_export.write_file(
+                history, fmt, _history_export.desktop_folder())
+        except Exception as e:
+            _log_to_file(f"[export] failed ({type(e).__name__}: {e})")
+            return {"ok": False, "reason": "error",
+                    "error": "Couldn't save the file. Try again."}
+        _log_to_file(f"[export] wrote {path.name} ({len(history)} entries)")
+        _history_export.reveal_in_folder(path, _platform.system())
+        return {"ok": True, "path": str(path), "format": fmt, "count": len(history)}
+
+    # ── One entry: delete, undo, redo ─────────────────────────────────────
+
+    def delete_history_item(self, item_id=None, timestamp="", text="") -> dict:
+        """Delete one Journal entry, and the recording kept with it.
+
+        The entry is found by its ``item_id`` (entries saved with an id), or,
+        for an older one without an id, by its ``timestamp`` and ``text``.
+        It goes from history.json at once, in one atomic write; what was
+        removed is kept in memory for a few seconds so the window can offer
+        Undo (undo_history_change). Not sent cards have their own delete
+        (delete_unsent), which also removes their file.
+
+        Returns {"ok": True, "undo": token} or {"ok": False, "reason"}."""
+        try:
+            with _history_lock:
+                history = _load_history_for_update()
+                idx = _history_ops.find(history, item_id, timestamp, text)
+                if idx < 0:
+                    return {"ok": False, "reason": "not_found"}
+                entry = history[idx]
+                if entry.get("failed"):
+                    return {"ok": False, "reason": "not_sent"}
+                del history[idx]
+                save_history(history)
+        except Exception as e:
+            _log_to_file(f"[history] could not delete an entry ({type(e).__name__}: {e})")
+            return {"ok": False, "reason": "error"}
+        _history_cache.invalidate()
+        taken = None
+        name = entry.get("audio")
+        if name:
+            taken = _recent_audio.take_out(DATA_DIR, name)
+        token = _history_ops.SHELF.put(_history_ops.DELETED, entry, audio=taken)
+        if _pipeline:
+            _pipeline.swap_last_text(_history_meta.words_of(entry))
+        _log_to_file(f"[history] entry deleted by the user"
+                     f"{' with its recording' if taken else ''}")
+        return {"ok": True, "undo": token}
+
+    def undo_history_change(self, token) -> dict:
+        """Undo the last delete or redo the window offered Undo for: the
+        entry goes back where its time says (or, for a redo, the old words
+        replace the new ones), with its recording if it had one. Works for a
+        few seconds after; {"ok": False, "reason": "expired"} after that.
+        Returns {"ok": True, "kind", "item"}."""
+        record = _history_ops.SHELF.take(token)
+        if record is None:
+            return {"ok": False, "reason": "expired"}
+        entry = record["entry"]
+        try:
+            with _history_lock:
+                history = _load_history_for_update()
+                if record["kind"] == _history_ops.DELETED:
+                    if (_history_ids.is_id(entry.get("id"))
+                            and _history_ops.find(history, entry["id"]) >= 0):
+                        return {"ok": False, "reason": "expired"}   # already back
+                    _history_ops.insert_in_order(history, entry)
+                else:
+                    new = record.get("now") or {}
+                    idx = _history_ops.find(history, new.get("id"), new.get("timestamp", ""),
+                                            new.get("text", ""))
+                    if idx < 0:
+                        return {"ok": False, "reason": "not_found"}
+                    history[idx] = entry
+                save_history(history)
+        except Exception as e:
+            _log_to_file(f"[history] could not undo ({type(e).__name__}: {e})")
+            return {"ok": False, "reason": "error"}
+        _history_cache.invalidate()
+        if record["audio"]:
+            _recent_audio.put_back(DATA_DIR, record["audio"])
+        if _pipeline and record["kind"] == _history_ops.REPLACED:
+            _pipeline.swap_last_text(_history_meta.words_of(record.get("now") or {}),
+                                     _history_meta.words_of(entry))
+        item = dict(entry)
+        if item.get("audio") and item["audio"] in _recent_audio.names(DATA_DIR):
+            item["can_redo"] = True
+        return {"ok": True, "kind": record["kind"], "item": item}
+
+    def redo_history_item(self, item_id=None, timestamp="", text="") -> dict:
+        """"Redo this take": send the entry's kept recording through speech to
+        text and the clean-up again and replace the words with the result,
+        in the same place (WafflerPipeline.redo_take). Nothing is pasted.
+        Returns {"ok", "item", "undo"} or {"ok": False, "reason"}."""
+        if not _pipeline:
+            return {"ok": False, "reason": "not_ready"}
+        try:
+            return _pipeline.redo_take(item_id, timestamp, text)
+        except Exception as e:
+            _log_to_file(f"[redo] failed ({type(e).__name__}: {e})")
+            return {"ok": False, "reason": "error"}
 
     # ── Recordings that were not sent (Journal "Not sent" cards) ─────────
 
@@ -3494,6 +3663,7 @@ class WafflerPipeline:
             self._precheck.warm()
             _pasteboard.warm_up()
             self._cues.warm()
+            frontmost_app_name()     # the first call loads AppKit (about 70 ms)
         except Exception as e:
             _log_to_file(f"[paste] warm-up skipped: {type(e).__name__}")
 
@@ -3739,6 +3909,12 @@ class WafflerPipeline:
         self._last_result.clear()
         _refresh_tray_menu()
 
+    def swap_last_text(self, old: str, new: str = ""):
+        """An entry was deleted (``new`` empty) or redone: if "Paste last" was
+        holding its old words, it must not paste them any more."""
+        self._last_result.swap(old, new)
+        _refresh_tray_menu()
+
     def forget_notifier(self):
         """The user deleted their data: what the notifier remembers (which
         tips were shown, hidden or closed) goes with it."""
@@ -3980,6 +4156,12 @@ class WafflerPipeline:
             self._processing_cancelled.clear()
         # Capture focused window BEFORE overlay takes focus
         self._prev_window = self.clipboard.get_focused_window()
+        # And the app's name, for the Journal. Kept with this press's
+        # id: the next press must not rename this dictation's app.
+        try:
+            self._press_app = (self._current_press_id, frontmost_app_name())
+        except Exception:
+            self._press_app = (self._current_press_id, "")
         _log_to_file("Recording started")
         self._recording_session += 1
         # Track recording start time for duration checks
@@ -4188,6 +4370,11 @@ class WafflerPipeline:
         # the next press, so reading it later could send this dictation's paste
         # into the window the user opened for the following one.
         _target_window = self._prev_window
+        # The app that was in front when this press began, and the name of
+        # this take's kept recording once there is one (for the Journal).
+        _pa = getattr(self, "_press_app", None)
+        _target_app = _pa[1] if _pa and _pa[0] == processing_id else ""
+        _ring_name = ""
         # Set once the styled text is on the clipboard (not after a paste
         # that put the user's own clipboard back). After that point the error
         # handler must not "salvage" the raw transcript over it.
@@ -4317,7 +4504,14 @@ class WafflerPipeline:
                             _stored = json.loads(_sf.read_text(encoding="utf-8-sig"))
                     except Exception:
                         pass
-                    _recent_audio.keep(DATA_DIR, audio_bytes, _stored)
+                    _kept = _recent_audio.keep(DATA_DIR, audio_bytes, _stored)
+                    if _kept is not None:
+                        _ring_name = _kept.name
+                        run.audio_name = _ring_name
+                        # Marked as being turned into text: if Waffler stops
+                        # before the dictation ends, the next start brings
+                        # it back as a card (src/take_marker.py).
+                        _take_marker.note_safely(DATA_DIR, _ring_name, _log_to_file)
             except Exception as _e:
                 _log_to_file(f"[pipeline] debug-audio save failed: {_e}")
             if not audio_bytes:
@@ -4489,7 +4683,8 @@ class WafflerPipeline:
                              f"keeping the recording: {_why[:160]}")
                 run.enter(_pw.SAVING)
                 if not run.abandoned:
-                    _uid = self._handle_failed_transcription(audio_bytes, _why)
+                    _uid = self._handle_failed_transcription(audio_bytes, _why,
+                                                             audio_name=_ring_name)
                     run.saved_as_unsent = True
                     # The request itself is still running and will probably
                     # be billed: its answer goes into the card, and nothing
@@ -4675,6 +4870,7 @@ class WafflerPipeline:
             # It is kept either way (only a cancel returned above): "Paste
             # last" can reach it, whatever goes wrong below.
             self._remember(styled)
+            _paste_label = _history_meta.PASTE_NOT_PASTED     # for the Journal entry
             if _policy["paste"]:
                 stored = self._read_settings()
                 if stored.get("auto_paste", True):
@@ -4688,12 +4884,15 @@ class WafflerPipeline:
                     # Where the words are now: after a restore they are not on
                     # the clipboard any more, and the messages must not say so.
                     _clipboard_written, _pasted = self._settle_paste(_paste, _ticket)
+                    _paste_label = _history_meta.paste_label(_paste, _pasted)
                     _step_ran = True
                 else:
                     # Auto-paste is off: the words just go on the clipboard.
                     _copy = run.call(self.clipboard.copy, styled, stage=_pw.PASTING,
                                      deadline=_pw.PASTE_DEADLINE_S)
                     _clipboard_written = bool(_copy.ok and _copy.value)
+                    _paste_label = (_history_meta.PASTE_COPIED if _clipboard_written
+                                    else _history_meta.PASTE_FAILED)
                     _step_ran = _clipboard_written
                     if not _clipboard_written:
                         _log_to_file(f"Clipboard write FAILED ({_copy.status})")
@@ -4745,6 +4944,19 @@ class WafflerPipeline:
                 "word_count": len(styled.split()),
                 "text_is": "asr_filtered",
             }
+            # What else is known about this take (src/history_meta.py), every
+            # field optional: its length, the speech in it, the language, who
+            # heard and tidied it, what became of the paste, the app, and its
+            # kept recording ("Redo this take").
+            try:
+                item.update(_history_meta.take_fields(
+                    audio_seconds=whisper_duration,
+                    speech_seconds=_asr_info.get("last_speech_seconds", 0.0),
+                    language=self._read_settings().get("language", "en"),
+                    stt=whisper_provider, cleanup=(gpt_usage or {}).get("provider", ""),
+                    paste=_paste_label, app=_target_app, audio=_ring_name))
+            except Exception as _e:
+                _log_to_file(f"[pipeline] take details not kept: {type(_e).__name__}")
             if _as_said:
                 # The Journal tags it "As said: limit reached".
                 item["as_said"] = _as_said
@@ -4908,7 +5120,8 @@ class WafflerPipeline:
             # keep it as Not sent rather than lose it.
             if not transcript and run.audio_bytes and not run.saved_as_unsent:
                 try:
-                    self._handle_failed_transcription(run.audio_bytes, error_msg)
+                    self._handle_failed_transcription(run.audio_bytes, error_msg,
+                                                      audio_name=_ring_name)
                     run.saved_as_unsent = True
                     _outcome = _pw.NOT_SENT
                 except Exception as _e:
@@ -4929,6 +5142,11 @@ class WafflerPipeline:
                     "styled": _words,
                     "word_count": len(_words.split()),
                 }
+                try:
+                    _entry.update(_history_meta.take_fields(
+                        audio_seconds=run.audio_seconds, app=_target_app, audio=_ring_name))
+                except Exception:
+                    pass
                 _journal_saved = append_history_safely(_entry)
                 if _journal_saved:
                     _log_to_file("[pipeline] the words were kept in the Journal after the error")
@@ -5016,6 +5234,10 @@ class WafflerPipeline:
                 self._watchdog.end(run, _outcome)
             except Exception as _e:
                 _log_to_file(f"[pipeline] could not end the dictation cleanly: {_e}")
+            # However it ended, this take is no longer waiting for its words
+            # (a hard stop never gets here: that is what the mark is for).
+            if _ring_name:
+                _take_marker.clear_safely(DATA_DIR, _ring_name, _log_to_file)
 
     # ── Steps the watchdog runs on worker threads ────────────────────────
 
@@ -5175,7 +5397,8 @@ class WafflerPipeline:
         if run.audio_bytes and not run.transcript and not run.saved_as_unsent:
             run.saved_as_unsent = True
             saved = bool(self._handle_failed_transcription(
-                run.audio_bytes, _unsent.REASON_STUCK, toast=False))
+                run.audio_bytes, _unsent.REASON_STUCK, toast=False,
+                audio_name=getattr(run, "audio_name", "")))
         if not self._run_is_current(run):
             return
         heading, body = _unsent.toast_text(_unsent.REASON_STUCK, saved=True)
@@ -5213,7 +5436,7 @@ class WafflerPipeline:
             return None
 
     def _handle_failed_transcription(self, audio_bytes: bytes, reason: str,
-                                     toast: bool = True) -> str:
+                                     toast: bool = True, audio_name: str = "") -> str:
         """Speech to text produced no text (no connection, a VPN block, a
         limit, the watchdog's deadline, or the user chose "Send later").
 
@@ -5243,6 +5466,15 @@ class WafflerPipeline:
                 "provider_name": provider,
             }
             item["will_retry"] = bool(uid) and _unsent.will_auto_retry(item)
+            # How long it was, and which kept recording it is, so a card that
+            # a crash left behind is not made again at the next start
+            # (src/take_marker.py).
+            try:
+                item.update(_history_meta.take_fields(
+                    audio_seconds=max(0, len(audio_bytes) - 44) / 32000.0,
+                    audio=audio_name))
+            except Exception:
+                pass            # the card matters more than its details
             append_history(item)
             if uid and _unsent.is_waiting(item):
                 self._unsent_waiting += 1
@@ -5365,12 +5597,16 @@ class WafflerPipeline:
             return self._fill_unsent_card(unsent_id, entry, path, asr.value,
                                           run.audio_seconds)
 
-    def _fill_unsent_card(self, unsent_id: str, entry: dict, path, asr_value,
-                          audio_seconds: float, style: bool = True) -> dict:
-        """Speech to text answered for a Not sent recording: tidy the words,
-        put them into its card (a normal Journal entry from then on) and
-        remove the file. Call with _unsent_lock held."""
-        transcript, info = asr_value
+    def _tidy_transcript(self, transcript: str, info: dict, audio_seconds: float,
+                         label: str, style: bool = True):
+        """The words a recording sent again is turned into: the Vocabulary,
+        what the speech cost, the clean-up and the snippets, as a dictation
+        gets (but never pasted). Used by Try again on a Not sent card and
+        by "Redo this take". ``label`` names the step for the watchdog.
+
+        Returns (transcript, styled, vocab_changes, stt, cleanup): the words
+        as heard (after the Vocabulary), as cleaned up, what the Vocabulary
+        changed, and who heard and who tidied them."""
         vocab_changes = []
         try:
             from transcribe_whisper import load_vocab, load_sounds_like, apply_vocab_changes
@@ -5388,29 +5624,50 @@ class WafflerPipeline:
                             provider=provider or "groq")
 
         styled = ""
+        cleanup = ""
         # A recording that is only a snippet's trigger is that snippet, as in
         # _process: no clean-up, and its text is not searched for triggers.
         whole_snippet = self._whole_snippet(transcript)
         if whole_snippet is not None:
             styled = whole_snippet
+            cleanup = "snippet"
         elif style:
-            run = _pw.DictationRun(f"fill:{unsent_id}")
+            run = _pw.DictationRun(label)
             sty = run.call(self.styler.style, transcript, stage=_pw.STYLING,
                            deadline=_pw.STYLE_DEADLINE_S)
             if sty.ok and sty.value and sty.value[0]:
                 styled, usage = sty.value
+                cleanup = usage.get("provider", "")
                 if usage.get("api_used"):
                     record_usage_safely("gpt", input_tokens=usage.get("input_tokens", 0),
                                         output_tokens=usage.get("output_tokens", 0),
                                         provider=usage.get("provider", "openai"))
         if not styled:
             styled = self._unstyled(transcript)
+            cleanup = cleanup or "basic_clean"
         if whole_snippet is None:
             styled = self._apply_snippets(styled)
+        return transcript, styled, vocab_changes, (provider or "groq"), cleanup
+
+    def _fill_unsent_card(self, unsent_id: str, entry: dict, path, asr_value,
+                          audio_seconds: float, style: bool = True) -> dict:
+        """Speech to text answered for a Not sent recording: tidy the words,
+        put them into its card (a normal Journal entry from then on) and
+        remove the file. Call with _unsent_lock held."""
+        transcript, info = asr_value
+        transcript, styled, vocab_changes, stt, cleanup = self._tidy_transcript(
+            transcript, info, audio_seconds, f"fill:{unsent_id}", style)
 
         new_item = _unsent.resolved(entry, transcript=transcript, styled=styled)
         if vocab_changes:
             new_item["vocab_changes"] = [[h, u] for h, u in vocab_changes]
+        try:
+            new_item.update(_history_meta.take_fields(
+                speech_seconds=(info or {}).get("last_speech_seconds", 0.0),
+                language=self._read_settings().get("language", "en"),
+                stt=stt, cleanup=cleanup))
+        except Exception as e:
+            _log_to_file(f"[unsent] take details not kept: {type(e).__name__}")
         if not self._replace_unsent_entry(unsent_id, new_item):
             return {"ok": False, "reason": "not_saved", "item": entry}
         if path is not None:
@@ -5424,6 +5681,93 @@ class WafflerPipeline:
         if self._unsent_waiting == 0 and _tray_state_now == _tray_state.NOT_SENT:
             _set_tray_state(_tray_state.IDLE)
         return {"ok": True, "item": new_item}
+
+    def _replace_history_entry(self, old: dict, new: dict) -> bool:
+        """Swap a Journal entry (found by id, else by time and words) for
+        ``new``, in one atomic write. True when saved."""
+        try:
+            with _history_lock:
+                history = _load_history_for_update()
+                idx = _history_ops.find(history, old.get("id"), old.get("timestamp", ""),
+                                        old.get("text", ""))
+                if idx < 0:
+                    return False
+                history[idx] = new
+                save_history(history)
+            _history_cache.invalidate()
+            return True
+        except Exception as e:
+            _log_to_file(f"[history] entry not replaced ({type(e).__name__}: {e})")
+            return False
+
+    def redo_take(self, item_id=None, timestamp="", text="") -> dict:
+        """"Redo this take": send an entry's kept recording (src/recent_audio.py)
+        through speech to text and the clean-up again, and put the new words
+        in its place. Like Try again on a Not sent card, nothing is pasted,
+        and it fails the same way (no connection, a block, a limit, the
+        watchdog's deadline). If it does, or nothing is heard, the entry
+        is left as it was. The old words are kept for Undo for a few seconds.
+
+        Returns {"ok": True, "item", "undo"} or {"ok": False, "reason"}.
+        """
+        # Never alongside a dictation: they share the clean-up's one client
+        # (the drain of Not sent cards leaves them alone the same way).
+        if self.is_recording or self._watchdog.active():
+            return {"ok": False, "reason": "busy"}
+        # One resend at a time, whichever kind.
+        if not self._unsent_lock.acquire(timeout=2.0):
+            return {"ok": False, "reason": "busy"}
+        try:
+            try:
+                history = load_history()
+            except Exception:
+                history = []
+            idx = _history_ops.find(history, item_id, timestamp, text)
+            if idx < 0 or history[idx].get("failed"):
+                return {"ok": False, "reason": "not_found"}
+            entry = history[idx]
+            path = _recent_audio.resolve(DATA_DIR, entry.get("audio"))
+            if path is None:
+                return {"ok": False, "reason": "missing"}
+            try:
+                audio_bytes = path.read_bytes()
+            except Exception as e:
+                _log_to_file(f"[redo] could not read the recording: {e}")
+                return {"ok": False, "reason": "missing"}
+
+            _log_to_file("[redo] sending a kept recording again")
+            run = _pw.DictationRun(f"redo:{path.name}")
+            run.set_audio_seconds(len(audio_bytes) / 32000.0)
+            asr = run.call(self._transcribe_with_provenance, audio_bytes,
+                           stage=_pw.TRANSCRIBING,
+                           deadline=_pw.transcribe_deadline_s(run.audio_seconds))
+            transcript = asr.value[0] if asr.ok and asr.value else ""
+            if not asr.ok or not transcript:
+                if asr.ok:
+                    kind = _unsent.REASON_EMPTY      # it went through, nothing was heard
+                elif asr.status == _pw.DEADLINE:
+                    kind = _unsent.REASON_TIMEOUT
+                else:
+                    kind = _unsent.classify_reason(str(asr.error))
+                _log_to_file(f"[redo] not done ({asr.status}, {kind}); the entry is as it was")
+                return {"ok": False, "reason": kind}
+            info = asr.value[1]
+            transcript, styled, changes, stt, cleanup = self._tidy_transcript(
+                transcript, info, run.audio_seconds, f"redo:{path.name}")
+            new_item = _history_meta.redone_entry(
+                entry, transcript=transcript, styled=styled, vocab_changes=changes,
+                redone_at=datetime.now().isoformat(timespec="seconds"),
+                speech_seconds=(info or {}).get("last_speech_seconds", 0.0),
+                language=self._read_settings().get("language", "en"),
+                stt=stt, cleanup=cleanup)
+            if not self._replace_history_entry(entry, new_item):
+                return {"ok": False, "reason": "not_saved"}
+            token = _history_ops.SHELF.put(_history_ops.REPLACED, entry, replaced_by=new_item)
+            self.swap_last_text(_history_meta.words_of(entry), _history_meta.words_of(new_item))
+            _log_to_file(f"[redo] done: {len(styled.split())} words")
+            return {"ok": True, "item": dict(new_item, can_redo=True), "undo": token}
+        finally:
+            self._unsent_lock.release()
 
     # ── Answers that arrive after Waffler stopped waiting ─────────────────
     # DictationRun.call stops waiting at a deadline or a choice, but the step
@@ -6322,6 +6666,12 @@ def main():
                 save_history(_kept)
     except Exception as _e:
         _log_to_file(f"[history] retention at start-up failed: {type(_e).__name__}")
+
+    # The usage record is appended to (usage.jsonl), not rewritten.
+    threading.Thread(target=_move_old_usage, daemon=True, name="UsageMove").start()
+    # A take that Waffler was stopped in the middle of comes back as a
+    # Not sent card, before the window first asks for the Journal.
+    _recover_interrupted_takes()
 
     # v3.14.30 — stamp the running version into the banner so every
     # "is this the right build?" question becomes a 1-second grep

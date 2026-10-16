@@ -29,7 +29,9 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 import atomic_json  # noqa: E402
+import history_ids  # noqa: E402
 import privacy_data  # noqa: E402
+import usage_log  # noqa: E402
 
 _TREE = ast.parse((ROOT / "app.py").read_text(encoding="utf-8"))
 
@@ -130,6 +132,8 @@ def book(tmp_path, monkeypatch):
             p, d, sleep=lambda s: None),
         DATA_DIR=tmp_path, HISTORY_FILE=tmp_path / "history.json",
         USAGE_FILE=tmp_path / "usage.json", _history_lock=threading.Lock(),
+        USAGE_LOG_FILE=tmp_path / "usage.jsonl", _usage_log=usage_log,
+        _history_ids=history_ids,
         _usage_lock=threading.Lock(),
         read_json_for_update=atomic_json.read_json_for_update,
         _log_to_file=logged.append, _privacy=privacy_data,
@@ -138,19 +142,35 @@ def book(tmp_path, monkeypatch):
     return _BOOK
 
 
-def test_save_usage_survives_a_brief_lock(book, monkeypatch):
-    fake, _ = _deny_replace(times=1)
-    monkeypatch.setattr(atomic_json.os, "replace", fake)
+def _deny_open(times):
+    """An open() inside src/usage_log.py that raises WinError 5 the first
+    ``times`` calls, as a file another program holds does on Windows."""
+    real = open
+    calls = []
+
+    def fake(*a, **k):
+        calls.append(a)
+        if len(calls) <= times:
+            raise PermissionError(13, "[WinError 5] Access is denied")
+        return real(*a, **k)
+    return fake, calls
+
+
+def test_a_usage_row_survives_a_brief_lock(book, monkeypatch):
+    fake, calls = _deny_open(times=1)
+    monkeypatch.setattr(usage_log, "open", fake, raising=False)
+    monkeypatch.setattr(usage_log.time, "sleep", lambda s: None)
     book["record_usage"]("whisper", duration_seconds=3.0, provider="groq")
-    rows = json.loads(book["USAGE_FILE"].read_text(encoding="utf-8"))
-    assert len(rows) == 1 and rows[0]["type"] == "whisper"
+    rows = usage_log.read(book["USAGE_LOG_FILE"])
+    assert len(rows) == 1 and rows[0]["type"] == "whisper" and len(calls) == 2
 
 
 def test_a_usage_write_that_keeps_failing_does_not_raise(book, monkeypatch):
     """This call sits before the paste. It returning normally is what lets
     the paste happen."""
-    fake, _ = _deny_replace(times=99)
-    monkeypatch.setattr(atomic_json.os, "replace", fake)
+    fake, _ = _deny_open(times=99)
+    monkeypatch.setattr(usage_log, "open", fake, raising=False)
+    monkeypatch.setattr(usage_log.time, "sleep", lambda s: None)
     assert book["record_usage_safely"]("whisper", duration_seconds=3.0,
                                        provider="groq") is None
     assert any("[usage] not recorded" in m and "PermissionError" in m
@@ -166,7 +186,9 @@ def test_a_history_write_that_keeps_failing_reports_false(book, monkeypatch):
 
 def test_a_history_write_that_works_reports_true(book):
     assert book["append_history_safely"]({"text": "hi"}) is True
-    assert json.loads(book["HISTORY_FILE"].read_text(encoding="utf-8")) == [{"text": "hi"}]
+    # Saved as given, plus the id every new entry gets (src/history_ids.py).
+    saved = json.loads(book["HISTORY_FILE"].read_text(encoding="utf-8"))
+    assert [h["text"] for h in saved] == ["hi"] and isinstance(saved[0]["id"], int)
 
 
 def _calls_in(node):

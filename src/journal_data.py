@@ -8,7 +8,9 @@ grew with every day of use. Now:
 - ``HistoryCache`` keeps the parsed file and its counts until the file
   changes (its size or modified time), so repeated calls cost nothing.
 - ``page`` returns one page of entries, newest first, optionally only
-  those matching a search, so the window draws about 50 cards at a time.
+  those matching a search, so the window draws about 50 cards at a time. A
+  page can start after a given offset or, steadier when entries are added or
+  deleted between pages, before a given entry id.
 - ``compute_stats`` is the one place the counts are worked out: today, this
   week, this month, all time, the day streak (and the longest one), and the
   words of each of the last 30 days (Settings, Usage draws them as a chart;
@@ -177,11 +179,18 @@ def matches(item: dict, query: str) -> bool:
     return q in hay
 
 
-def page(history: list, limit=None, offset=0, query: str = "") -> list:
+def page(history: list, limit=None, offset=0, query: str = "", before_id=None) -> list:
     """Entries newest first (history.json is oldest first).
 
     ``limit`` None means all of them. ``offset`` counts from the newest
     matching entry. With a ``query``, only matching entries are counted.
+
+    ``before_id``: only entries older than the entry with that id.
+    Ids go up with the file, and entries saved before ids existed have none
+    and are older than every id, so "older than id N" means every entry whose
+    id is below N or missing. It does not matter whether entry N is still
+    there. Unlike an offset it stays right when entries are added or deleted
+    between one page and the next; the window passes the oldest id it has.
     """
     try:
         offset = max(0, int(offset or 0))
@@ -191,10 +200,17 @@ def page(history: list, limit=None, offset=0, query: str = "") -> list:
         limit = None if limit is None else max(0, int(limit))
     except (TypeError, ValueError):
         limit = None
+    cutoff = before_id if type(before_id) is int and before_id > 0 else None
     out = []
     skipped = 0
     for item in reversed(history):
-        if not isinstance(item, dict) or not matches(item, query):
+        if not isinstance(item, dict):
+            continue
+        if cutoff is not None:
+            iid = item.get("id")
+            if type(iid) is int and iid >= cutoff:
+                continue
+        if not matches(item, query):
             continue
         if skipped < offset:
             skipped += 1
@@ -225,6 +241,16 @@ class HistoryCache:
         self._vocab_key = None
         self._vocab: dict | None = None
         self.loads = 0      # how many times the file was read (for tests)
+
+    def invalidate(self):
+        """Read the file again on the next call. The size and time that tell
+        the cache a write happened can match by chance (two writes within one
+        tick of the file system's clock, to a file the same size), so a writer
+        that has just changed history.json says so."""
+        with self._lock:
+            self._sig = None
+            self._stats_key = None
+            self._vocab_key = None
 
     def _signature(self):
         try:

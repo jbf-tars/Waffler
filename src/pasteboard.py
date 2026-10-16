@@ -723,6 +723,15 @@ class LastResult:
             self._text = ""
             self._cleared = True
 
+    def swap(self, old: str, new: str = "") -> None:
+        """The entry whose words are ``old`` was deleted, or redone with
+        ``new`` words: "paste last" must not bring the old words back. Does
+        nothing when the last result is something else. With no ``new`` it
+        falls back to the history, as after a restart."""
+        with self._lock:
+            if old and self._text == old:
+                self._text = new if new and new.strip() else ""
+
     def get(self) -> str:
         with self._lock:
             if self._text:

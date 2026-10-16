@@ -67,3 +67,20 @@ def _isolated_data_dir(tmp_path_factory, monkeypatch):
     data = tmp_path_factory.mktemp("waffler-data")
     monkeypatch.setenv("WAFFLER_DATA_DIR", str(data))
     return data
+
+
+@pytest.fixture(autouse=True)
+def _fresh_history_state():
+    """Two things app.py keeps in memory for a whole run, so a test must not
+    inherit them from the one before: the highest entry id handed out
+    (src/history_ids.py) and the Journal's Undo shelf (src/history_ops.py)."""
+    import sys
+    for name in ("history_ids", "src.history_ids"):
+        mod = sys.modules.get(name)
+        if mod is not None:
+            mod._floor = 0
+    for name in ("history_ops", "src.history_ops"):
+        mod = sys.modules.get(name)
+        if mod is not None:
+            mod.SHELF.clear()
+    yield

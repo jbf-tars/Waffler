@@ -235,6 +235,9 @@ class DictationRun:
         self.audio_bytes = None
         self.transcript = None
         self.saved_as_unsent = False
+        # The name of this take's kept recording (src/recent_audio.py), once
+        # it has one: a Not sent card made for it says which it is.
+        self.audio_name = ""
         # Last whole second the pill was told about.
         self.shown_second = -1
         self._decision = None

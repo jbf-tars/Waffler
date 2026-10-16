@@ -163,10 +163,14 @@ def _record(provider, dur):
     from datetime import datetime
     saved = []
     import threading
-    _P.update(datetime=datetime, USAGE_FILE=None, ensure_data_dir=lambda: None,
+    import types
+    _P.update(datetime=datetime, USAGE_FILE=None, USAGE_LOG_FILE=None,
+              ensure_data_dir=lambda: None,
               _usage_lock=threading.Lock(), _log_to_file=lambda m: None,
-              read_json_for_update=lambda path, expect: ([], None),
-              save_usage=lambda rows: saved.extend(rows))
+              # The usage record is appended to (src/usage_log.py): one row.
+              _usage_log=types.SimpleNamespace(
+                  try_import_legacy=lambda *a: None,
+                  append=lambda path, row: saved.append(row)))
     entry = _P["record_usage"]("whisper", duration_seconds=dur, provider=provider)
     assert saved == [entry]
     return entry

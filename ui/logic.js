@@ -106,6 +106,8 @@
       later: `You chose to send this later. ${kept}`,
       stuck: `Waffler stopped waiting for this one. ${kept}`,
       cancelled: `You pressed Esc while this was being turned into text, so nothing was pasted. ${kept}`,
+      // The same sentence as src/user_messages.py INTERRUPTED_MESSAGE (a test keeps them equal).
+      interrupted: `Waffler was closed before this one was turned into text. ${kept}`,
       empty: "This recording was sent again, but no words could be heard in it.",
       error: `This wasn't turned into text. ${kept}`,
     }[reason] || `This wasn't turned into text. ${kept}`;
@@ -146,6 +148,99 @@
       confirm: n === 1 ? 'Delete the recording waiting to be sent?'
         : `Delete the ${formatCount(n)} recordings waiting to be sent?`,
     };
+  }
+
+  // ── One Journal entry: delete, redo, undo ──────────────────────────────
+  // How many recordings Waffler keeps (src/recent_audio.py KEEP): only that
+  // many entries, the newest, can be redone; a new dictation pushes the oldest
+  // one out.
+  const RECENT_AUDIO_KEEP = 10;
+
+  // What the window sends to find an entry (history_ops.find): its id when it
+  // has one (entries saved with one), else its time and its words.
+  function entryRef(item) {
+    const id = item && Number.isInteger(item.id) && item.id > 0 ? item.id : null;
+    return [id, String((item && item.timestamp) || ''), String((item && item.text) || '')];
+  }
+
+  // Where the next page starts: before the oldest entry held, by its id, so it
+  // stays right when entries are added or deleted between pages; by offset
+  // for an entry that is older than ids.
+  function pageCursor(items) {
+    const list = items || [];
+    const last = list.length ? list[list.length - 1] : null;
+    if (last && Number.isInteger(last.id) && last.id > 0) return { beforeId: last.id, offset: 0 };
+    return { beforeId: null, offset: list.length };
+  }
+
+  // Where an entry that comes back belongs in a newest-first list: after
+  // every entry that is not older than it.
+  function insertIndex(items, item) {
+    const list = items || [];
+    const when = String((item && item.timestamp) || '');
+    let i = 0;
+    while (i < list.length && String(list[i].timestamp || '') >= when) i += 1;
+    return i;
+  }
+
+  // The line that offers Undo in the entry's place.
+  function undoLine(kind) {
+    return kind === 'replaced' ? 'Entry redone.' : 'Entry deleted.';
+  }
+
+  function deleteFailedMessage(reason) {
+    return {
+      not_found: 'That entry has already gone.',
+      busy: 'Waffler is busy. Try again in a moment.',
+    }[reason] || "Couldn't delete that entry. Try again.";
+  }
+
+  function undoFailedMessage(reason) {
+    return reason === 'expired'
+      ? 'Too late to undo that.'
+      : "Couldn't put that entry back. Try again.";
+  }
+
+  // What "Redo this take" says when it did not change the entry.
+  function redoFailedMessage(reason) {
+    return {
+      offline: "Couldn't connect, so this entry is unchanged. Check you're online and try again.",
+      blocked: 'The connection was refused, so this entry is unchanged. If a VPN is on, turn it off and try again.',
+      timeout: 'No answer in time, so this entry is unchanged. Try again in a moment.',
+      rate_limited: "You've reached your limit for now, so this entry is unchanged. Try again later.",
+      empty: 'No words could be heard in this recording, so this entry is unchanged.',
+      missing: "That recording isn't kept any more, so it can't be redone.",
+      not_found: 'That entry has already gone.',
+      busy: 'Waffler is busy with another recording. Try again in a moment.',
+      not_ready: "Waffler isn't ready yet. Try again in a moment.",
+    }[reason] || "That didn't go through, so this entry is unchanged. Try again in a moment.";
+  }
+
+  // ── Export history (Settings, Privacy and data) ─────────────────────────
+  // src/history_export.py FORMATS, in the order the list shows them.
+  const EXPORT_FORMATS = [
+    { id: 'json', label: 'JSON' },
+    { id: 'csv', label: 'CSV' },
+    { id: 'txt', label: 'Plain text' },
+  ];
+
+  function exportFormat(id) {
+    return EXPORT_FORMATS.some((f) => f.id === id) ? id : EXPORT_FORMATS[0].id;
+  }
+
+  // The toast after an export. The file is shown in its folder as well.
+  function exportDone(result) {
+    const where = /[\\/]Desktop[\\/]/.test(String((result && result.path) || ''))
+      ? 'your Desktop' : 'your home folder';
+    const n = Number(result && result.count) || 0;
+    const what = n === 1 ? '1 entry' : `${formatCount(n)} entries`;
+    return n ? `Saved ${what} to ${where}.` : `Saved to ${where}.`;
+  }
+
+  function exportFailed(result) {
+    return (result && result.reason === 'empty')
+      ? 'Your Journal is empty, so there is nothing to export.'
+      : "Couldn't save the file. Try again.";
   }
 
   // ── History retention (Settings, Privacy and data) ─────────────────────
@@ -1258,6 +1353,8 @@
     keyInputView, serviceRows, saidDiff, setupSteps, startupTheme,
     STATUS_VIEWS, STATUS_CLASSES, DONE_RESET_MS, statusView, statusResetMs, workingLabel, workingTime, recordingTime,
     notSentId, notSentView, retryFailedMessage, unsentSummary,
+    RECENT_AUDIO_KEEP, entryRef, pageCursor, insertIndex, undoLine, deleteFailedMessage, undoFailedMessage,
+    redoFailedMessage, EXPORT_FORMATS, exportFormat, exportDone, exportFailed,
     HISTORY_KEEP, historyKeepLabel, historyKeepConfirm, historyKeepDone,
     defaultHotkey, keyName, orderKeys, hotkeyName, keycaps, pressOrderHint, hotkeyPresets,
     DOWNLOAD_PAGE, UPDATE_TEXT, INSTALL_RETRY_MS, splitMessage, updateCheckView, updateFailureView,

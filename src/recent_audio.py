@@ -14,6 +14,8 @@ ones already there.
 
 from __future__ import annotations
 
+import os
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -21,6 +23,11 @@ DIRNAME = "debug_audio"
 KEEP = 10
 SETTING = "keep_recent_audio"
 _PATTERN = "rec-*.wav"
+# rec-20261016-143012.wav (or -2, -3 ... when two takes end in the same
+# second): the only shape keep() gives a file. A Journal entry names its
+# recording by this ("Redo this take"), and only a name of this shape
+# that is a file inside the folder is ever opened.
+_NAME = re.compile(r"^rec-\d{8}-\d{6}(?:-\d{1,3})?\.wav$")
 
 
 def enabled(settings: dict | None) -> bool:
@@ -56,7 +63,14 @@ def keep(data_dir, audio_bytes: bytes, settings: dict | None, now: datetime | No
     d = folder(data_dir)
     d.mkdir(parents=True, exist_ok=True)
     stamp = (now or datetime.now()).strftime("%Y%m%d-%H%M%S")
+    # Two short takes can end in the same second. Each keeps its own file: a
+    # Journal entry points at its recording by name, and the second
+    # must not overwrite the first's.
     path = d / f"rec-{stamp}.wav"
+    n = 2
+    while path.exists() and n < 1000:
+        path = d / f"rec-{stamp}-{n}.wav"
+        n += 1
     path.write_bytes(audio_bytes)
     for old in files(data_dir)[:-limit] if limit > 0 else files(data_dir):
         try:
@@ -64,6 +78,61 @@ def keep(data_dir, audio_bytes: bytes, settings: dict | None, now: datetime | No
         except OSError:
             pass
     return path
+
+
+def is_valid_name(name) -> bool:
+    return isinstance(name, str) and bool(_NAME.fullmatch(name))
+
+
+def resolve(data_dir, name):
+    """The recording's path when ``name`` is well formed and the file is
+    there inside the folder; otherwise None."""
+    if not is_valid_name(name):
+        return None
+    base = folder(data_dir).resolve()
+    path = (base / name).resolve()
+    if path.parent != base or not path.is_file():
+        return None
+    return path
+
+
+def names(data_dir) -> set:
+    """The names of the kept recordings (one listing, for a page of entries)."""
+    return {p.name for p in files(data_dir) if is_valid_name(p.name)}
+
+
+def take_out(data_dir, name):
+    """Delete one recording and return (name, its bytes, its modified time)
+    so a deletion can be undone; None when it is not there or cannot be
+    removed."""
+    path = resolve(data_dir, name)
+    if path is None:
+        return None
+    try:
+        mtime = path.stat().st_mtime
+        data = path.read_bytes()
+        path.unlink()
+    except OSError:
+        return None
+    return (name, data, mtime)
+
+
+def put_back(data_dir, taken) -> bool:
+    """Undo take_out. The recording gets its old modified time, so it is
+    still the one that rotates out first. Not put back when the folder has
+    filled up again since (newer recordings have the room)."""
+    if not taken or not is_valid_name(taken[0]) or len(files(data_dir)) >= KEEP:
+        return False
+    name, data, mtime = taken
+    d = folder(data_dir)
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+        path = d / name
+        path.write_bytes(data)
+        os.utime(path, (mtime, mtime))
+        return True
+    except OSError:
+        return False
 
 
 def delete_all(data_dir) -> int:

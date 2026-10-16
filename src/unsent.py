@@ -25,11 +25,21 @@ This module holds the rules; app.py does the sending. The rules:
   * A recording cancelled with Esc during processing is kept, because Esc
     also reaches the app in front, but it is not waiting to be sent: only
     Try again sends it.
+  * A take that was being processed when Waffler stopped (a crash, a power
+    cut, a force quit) comes back as a card at the next start, if its
+    recording was kept (src/take_marker.py). It is treated like a cancelled
+    one: nothing is sent behind the user's back at start-up, and Try again
+    sends it.
 """
 
 import re
 from datetime import datetime, timedelta
 from pathlib import Path
+
+try:
+    from user_messages import INTERRUPTED_MESSAGE
+except ImportError:  # imported as src.unsent
+    from src.user_messages import INTERRUPTED_MESSAGE
 
 UNSENT_DIRNAME = "unsent"
 
@@ -60,6 +70,11 @@ REASON_EMPTY = "empty"
 # kept, but only Try again sends it (and a request already on its way can
 # still fill the card).
 REASON_CANCELLED = "cancelled"
+# Waffler stopped while this was being turned into text. Found again at the
+# next start (src/take_marker.py); like a cancelled one it waits for Try again.
+REASON_INTERRUPTED = "interrupted"
+# Reasons whose recording is kept but is not waiting to be sent by itself.
+_HELD = (REASON_CANCELLED, REASON_INTERRUPTED)
 
 
 def classify_reason(error_text: str) -> str:
@@ -72,6 +87,8 @@ def classify_reason(error_text: str) -> str:
         return REASON_STUCK
     if lower == REASON_CANCELLED:
         return REASON_CANCELLED
+    if lower == REASON_INTERRUPTED:
+        return REASON_INTERRUPTED
     if "deadline" in lower or "took too long" in lower:
         return REASON_TIMEOUT
     if ("403" in text or "401" in text or "access denied" in lower
@@ -99,6 +116,8 @@ def toast_text(reason: str, provider: str = "", saved: bool = True):
     if reason == REASON_CANCELLED:
         return ("Cancelled", "Nothing was pasted. Your recording is in the Journal "
                              "if you want it after all.")
+    if reason == REASON_INTERRUPTED:
+        return ("Recovered", f"{INTERRUPTED_MESSAGE} It's in the Journal.")
     if reason == REASON_LATER:
         return ("Saved for later", f"Waffler will send it when {p} answers. "
                                    f"It's in the Journal.")
@@ -196,7 +215,7 @@ def pending(history: list, unsent_dir: Path, *, include_cancelled: bool = True) 
 def is_waiting(entry: dict) -> bool:
     """True when Waffler means to send this recording: every Not sent
     recording except one cancelled with Esc, which waits for Try again."""
-    return entry.get("not_sent_reason") != REASON_CANCELLED
+    return entry.get("not_sent_reason") not in _HELD
 
 
 def _parse(ts):
@@ -217,8 +236,8 @@ def auto_retry_due(entry: dict, now: datetime = None, ignore_backoff: bool = Fal
     made = _parse(entry.get("timestamp"))
     if made is None or now - made > AUTO_MAX_AGE:
         return False
-    if entry.get("not_sent_reason") in (REASON_EMPTY, REASON_CANCELLED):
-        return False       # nothing could be heard in it, or it was cancelled
+    if entry.get("not_sent_reason") in (REASON_EMPTY, *_HELD):
+        return False       # nothing could be heard in it, or it waits for Try again
     attempts = int(entry.get("auto_attempts") or 0)
     if attempts >= AUTO_MAX_ATTEMPTS:
         return False
@@ -235,7 +254,7 @@ def will_auto_retry(entry: dict, now: datetime = None) -> bool:
     made = _parse(entry.get("timestamp"))
     if made is None or now - made > AUTO_MAX_AGE:
         return False
-    if entry.get("not_sent_reason") in (REASON_EMPTY, REASON_CANCELLED):
+    if entry.get("not_sent_reason") in (REASON_EMPTY, *_HELD):
         return False
     return int(entry.get("auto_attempts") or 0) < AUTO_MAX_ATTEMPTS
 

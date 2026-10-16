@@ -740,6 +740,26 @@ async function deleteMyData(btn) {
   }
 }
 
+// Settings, Privacy and data: Export history. A file on the Desktop in the
+// chosen format, shown in its folder (src/history_export.py).
+async function exportHistory(btn) {
+  const api = _pageApi();
+  if (!api || !api.export_history) return;
+  const sel = document.getElementById('exportFormat');
+  const fmt = WL.exportFormat(sel && sel.value);
+  if (btn) btn.disabled = true;
+  try {
+    const r = await api.export_history(fmt);
+    if (r && r.ok) showToast(WL.exportDone(r), 'success', 5000);
+    else showToast(WL.exportFailed(r), 'error', 6000);
+  } catch (e) {
+    console.error('exportHistory error:', e);
+    showToast(WL.exportFailed(null), 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 async function factoryReset() {
   if (!window.pywebview || !window.pywebview.api) return;
   try {
@@ -1098,7 +1118,10 @@ async function loadMoreEntries() {
   _updateMore();
   let page = [];
   try {
-    page = (await window.pywebview.api.get_history(PAGE_SIZE, history.length, _searchText)) || [];
+    // After the oldest entry held, by its id (steady when entries are added
+    // or deleted meanwhile), or by count for one that predates ids.
+    const at = WL.pageCursor(history);
+    page = (await window.pywebview.api.get_history(PAGE_SIZE, at.offset, _searchText, at.beforeId)) || [];
   } catch (e) {
     console.warn('get_history failed:', e);
   }
@@ -1205,6 +1228,9 @@ async function _refreshStats() {
 // used to be rebuilt, about half a second at 3,300 entries).
 window.waffler_refresh = function(newItem) {
   if (!newItem) { refreshAll(); return; }
+  // Its recording was kept a moment ago, before it was turned into text, so
+  // it can be redone now (get_history says the same for a page).
+  if (newItem.audio && !newItem.failed) newItem.can_redo = true;
   const first = !history.length && !(Number(stats.entries) > 0);
   stats.entries = (Number(stats.entries) || 0) + 1;
   // During a search, it joins the list only if it matches.
@@ -1215,6 +1241,7 @@ window.waffler_refresh = function(newItem) {
     if (first || !$noMatch.hidden) drawFeed();
     else _prependCard(newItem);
   }
+  _trimRedo();
   if (window.pywebview && window.pywebview.api) _refreshStats();
   // A Not sent card is not a finished transcription.
   if (newItem.failed) showToast('Not sent. The recording is saved in the Journal.', 'error');
@@ -1524,16 +1551,24 @@ function makeCard(item, isNew) {
   const qualityLine = (q.chip || q.asSaid || q.reasons.length)
     ? `<p class="j-meta card-reason">${qualityBadge(item)}<span>${escHtml(q.reasons.join(' '))}</span></p>`
     : '';
+  // Redo this take only while its recording is still among the last ten
+  // kept (get_history says so with can_redo).
+  const redoButton = item.can_redo
+    ? `<button type="button" class="btn btn-quiet btn-sm card-redo" aria-label="${escHtml(when ? `Redo this take from ${when}` : 'Redo this take')}">${WI.icon('retry')}<span>Redo this take</span></button>`
+    : '';
   div.innerHTML = `
     <div class="j-g"><div class="j-t">${escHtml(_clock(item.timestamp))}</div><div class="j-w">${WL.formatCount(words)} ${words === 1 ? 'word' : 'words'}</div></div>
     <div class="j-body">
       <div class="j-said-k" hidden>What you said</div>
       <div class="card-text styled" id="${textId}">${_markedHtml(displayText, changes)}</div>
       ${vocabLine}${qualityLine}
+      <p class="j-status" role="status" aria-live="polite" hidden></p>
     </div>
     <div class="j-acts card-actions">
       <button type="button" class="btn btn-sec btn-sm btn-copy" aria-label="${escHtml(when ? `Copy the dictation from ${when}` : 'Copy')}">${WI.icon('copy')}<span>Copy</span></button>
       ${hasStyled ? `<button type="button" class="btn btn-quiet btn-sm text-toggle" aria-controls="${textId}" aria-pressed="false">${WI.icon('file-text')}<span>What you said</span></button>` : ''}
+      ${redoButton}
+      <button type="button" class="rbtn rbtn-sm card-del" aria-label="${escHtml(when ? `Delete the dictation from ${when}` : 'Delete this dictation')}" title="Delete">${WI.icon('trash')}</button>
     </div>
   `;
 
@@ -1555,11 +1590,145 @@ function makeCard(item, isNew) {
     });
   }
 
+  const redo = div.querySelector('.card-redo');
+  if (redo) redo.addEventListener('click', () => redoEntry(item, div));
+  div.querySelector('.card-del').addEventListener('click', () => deleteEntry(item, div));
+
   if (isNew) {
     setTimeout(() => div.classList.remove('new'), 3000);
   }
 
   return div;
+}
+
+// A new dictation keeps its recording and pushes the oldest kept one out, so
+// "Redo this take" goes from the entry that has just lost its recording.
+function _trimRedo() {
+  let n = 0;
+  history.forEach((h) => { if (h.can_redo && ++n > WL.RECENT_AUDIO_KEEP) delete h.can_redo; });
+  $feed.querySelectorAll('.card-redo').forEach((b, i) => { if (i >= WL.RECENT_AUDIO_KEEP) b.remove(); });
+}
+
+// ── Journal: delete, redo, undo ──────────────────────────────────────
+// Delete takes the entry (and the recording kept with it) off the disk at
+// once; what it removed stays in Waffler's memory for a few seconds, and the
+// card's place shows "Entry deleted. Undo" until then. Redo this take sends
+// the kept recording through speech to text and the clean-up again and puts
+// the new words in the same place, with an Undo line above it. Neither
+// pastes anything.
+const UNDO_MS = 10000;
+const _pageApi = () => (window.pywebview && window.pywebview.api) || null;
+
+function _cardSay(card, text) {
+  const el = card.querySelector('.j-status');
+  if (el) { el.textContent = text || ''; el.hidden = !text; }
+}
+
+// "Entry deleted. Undo", as a row in the feed. `undo` runs on the click and
+// answers true when the entry is back; `gone` runs when the time is up.
+function _makeUndoRow(kind, label, undo, gone) {
+  const row = document.createElement('div');
+  row.className = 'j-undo';
+  row.setAttribute('role', 'status');
+  row.innerHTML = `<span>${escHtml(WL.undoLine(kind))}</span> <button type="button" class="link-btn" aria-label="${escHtml(label)}">Undo</button>`;
+  const btn = row.querySelector('button');
+  const timer = setTimeout(gone, UNDO_MS);
+  btn.addEventListener('click', async () => {
+    clearTimeout(timer);
+    btn.disabled = true;
+    // Could not be put back (too late, or it failed): the line goes.
+    if (!(await undo())) gone();
+  });
+  return row;
+}
+
+async function deleteEntry(item, card) {
+  const api = _pageApi();
+  if (!api || !api.delete_history_item) return;
+  // Disabling a button takes its focus away, so note it first.
+  const hadFocus = card.contains(document.activeElement);
+  const buttons = card.querySelectorAll('button');
+  buttons.forEach((b) => { b.disabled = true; });
+  let r = null;
+  try { r = await api.delete_history_item(...WL.entryRef(item)); } catch (e) { r = null; }
+  if (!r || !r.ok) {
+    buttons.forEach((b) => { b.disabled = false; });
+    if (hadFocus) card.querySelector('.card-del').focus();
+    showToast(WL.deleteFailedMessage(r && r.reason), 'error');
+    return;
+  }
+  const at = history.indexOf(item);
+  if (at >= 0) history.splice(at, 1);
+  const when = formatTime(item.timestamp);
+  const row = _makeUndoRow('deleted', when ? `Undo deleting the dictation from ${when}` : 'Undo deleting this dictation', async () => {
+    let res = null;
+    try { res = await api.undo_history_change(r.undo); } catch (e) { res = null; }
+    if (!res || !res.ok || !res.item) { showToast(WL.undoFailedMessage(res && res.reason), 'error'); return false; }
+    history.splice(WL.insertIndex(history, res.item), 0, res.item);
+    const back = makeCard(res.item, false);
+    row.replaceWith(back);
+    const del = back.querySelector('.card-del');
+    if (del) del.focus();
+    _refreshStats();
+    return true;
+  }, () => {
+    if (row.isConnected) _removeCard(row);
+    _refreshStats().then(() => { if (!history.length) drawFeed(); });
+  });
+  card.replaceWith(row);
+  // Focus goes where the card was: onto Undo, so a keyboard user can undo at
+  // once and Tab on to the next entry.
+  if (hadFocus) row.querySelector('button').focus();
+  _refreshStats();
+}
+
+async function redoEntry(item, card) {
+  const api = _pageApi();
+  if (!api || !api.redo_history_item) return;
+  const hadFocus = card.contains(document.activeElement);
+  const buttons = card.querySelectorAll('button');
+  const btn = card.querySelector('.card-redo');
+  buttons.forEach((b) => { b.disabled = true; });
+  if (btn) btn.innerHTML = WI.icon('retry') + '<span>Redoing…</span>';
+  _cardSay(card, '');
+  let r = null;
+  try { r = await api.redo_history_item(...WL.entryRef(item)); } catch (e) { r = null; }
+  if (!r || !r.ok || !r.item) {
+    buttons.forEach((b) => { b.disabled = false; });
+    if (btn) btn.innerHTML = WI.icon('retry') + '<span>Redo this take</span>';
+    _cardSay(card, WL.redoFailedMessage(r && r.reason));
+    if (r && r.reason === 'missing') {
+      // The recording has rotated out since the page was drawn: nothing to redo.
+      delete item.can_redo;
+      if (btn) btn.remove();
+      if (hadFocus) card.querySelector('.card-del').focus();
+      return;
+    }
+    if (hadFocus && btn) btn.focus();
+    return;
+  }
+  const at = history.indexOf(item);
+  if (at >= 0) history[at] = r.item;
+  const fresh = makeCard(r.item, false);
+  const when = formatTime(item.timestamp);
+  const row = _makeUndoRow('replaced', when ? `Undo redoing the dictation from ${when}` : 'Undo redoing this take', async () => {
+    let res = null;
+    try { res = await api.undo_history_change(r.undo); } catch (e) { res = null; }
+    if (!res || !res.ok || !res.item) { showToast(WL.undoFailedMessage(res && res.reason), 'error'); return false; }
+    const i = history.indexOf(r.item);
+    if (i >= 0) history[i] = res.item;
+    const back = makeCard(res.item, false);
+    fresh.replaceWith(back);
+    row.remove();
+    const redoAgain = back.querySelector('.card-redo');
+    (redoAgain || back.querySelector('.card-del')).focus();
+    _refreshStats();
+    return true;
+  }, () => { row.remove(); });
+  card.replaceWith(fresh);
+  fresh.before(row);
+  if (hadFocus) row.querySelector('button').focus();
+  _refreshStats();
 }
 
 // The clean text in its paragraphs, with the words the Vocabulary put in
@@ -4223,8 +4392,8 @@ function _renderRecentAudio(s) {
   const now = n ? ` ${n === 1 ? '1 is' : `${n} are`} kept now.` : ' None are kept now.';
   if (desc) {
     desc.textContent = (s.enabled
-      ? `The audio of your last ${s.keep || 10} dictations, to help look into a problem.`
-      : 'Off: new recordings are not kept.') + now;
+      ? `The audio of your last ${s.keep || 10} dictations, so you can redo a take, get one back if Waffler stops, or look into a problem.`
+      : "Off: new recordings are not kept, so a take can't be redone or recovered.") + now;
   }
   if (del) { del.disabled = !n; del.hidden = !n; }
 }
@@ -4235,7 +4404,7 @@ async function loadRecentAudio() {
   // History: how many dictations the Journal holds.
   const h = document.getElementById('privHistoryDesc');
   const n = Number(stats.total_count) || 0;
-  if (h) h.textContent = `${WL.formatCount(n)} ${n === 1 ? 'dictation' : 'dictations'}, searchable in your Journal.`;
+  if (h) h.textContent = `${WL.formatCount(n)} ${n === 1 ? 'dictation' : 'dictations'}, searchable in your Journal. Each notes the app you were in, the language and which services handled it.`;
 }
 
 async function setRecentAudio(on) {

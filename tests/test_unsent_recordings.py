@@ -23,7 +23,9 @@ import pytest
 
 from _pipeline_harness import (ROOT, FakeTranscriber, Hang, fast_limits, history,
                                make_pipeline, run_process, speech_wav, wait_for)
+import history_ids
 import journal_data
+import recent_audio
 import types
 import unsent
 
@@ -239,7 +241,8 @@ def test_retries_use_the_same_transcriber_the_dictation_used():
 
     resend, fill = method("resend_unsent"), method("_fill_unsent_card")
     assert "self._transcribe_with_provenance" in resend and "self._fill_unsent_card" in resend
-    assert "self.styler.style" in fill
+    # The step that turns the words into text (shared with "Redo this take").
+    assert "self._tidy_transcript" in fill and "self.styler.style" in method("_tidy_transcript")
     # Every path that sends a recording or fills its card: the resend, the
     # card, and a late answer to a request Waffler stopped waiting for.
     for src in (resend, fill, method("_late_words_arrived"), method("_collect_late_words")):
@@ -332,7 +335,8 @@ def test_the_journal_gets_each_cards_live_state(tmp_path):
     # The window reads history through the cache (src/journal_data.py).
     cached = [dict(i) for i in items]
     ns = {"_history_cache": types.SimpleNamespace(items=lambda: cached),
-          "_journal": journal_data, "DATA_DIR": tmp_path, "_unsent": unsent}
+          "_journal": journal_data, "DATA_DIR": tmp_path, "_unsent": unsent,
+          "_history_ids": history_ids, "_recent_audio": recent_audio}
     exec(compile(ast.Module([fn], []), "<app.py>", "exec"), ns)
     out = ns["get_history"](None)
     assert [o["timestamp"] for o in out] == [now, now, "2026-06-05T09:12:44"]

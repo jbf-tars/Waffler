@@ -762,7 +762,10 @@ def test_the_journal_starts_once_and_adds_new_entries_without_redrawing():
     assert "addEventListener('pywebviewready', checkOnboarding)" not in app
     assert "if (_booted || !window.pywebview || !window.pywebview.api) return;" in app
     assert "const PAGE_SIZE = 50;" in app
-    assert "get_history(PAGE_SIZE, history.length, _searchText)" in app
+    # Older pages start after the oldest entry held, by id, or by
+    # count for an entry that predates ids (logic.js pageCursor).
+    assert "WL.pageCursor(history)" in app
+    assert "get_history(PAGE_SIZE, at.offset, _searchText, at.beforeId)" in app
     assert "new IntersectionObserver(" in app
     refresh = app[app.index("window.waffler_refresh"):]
     refresh = refresh[:refresh.index("\n};")]

@@ -238,6 +238,15 @@ def limit_reached_message(error_text: str):
     return ("Limit reached", f"{who} says you've reached your limit for now. {then}")
 
 
+# ── A dictation Waffler was stopped in the middle of ─────────────────────────
+# The Journal card of a take that was being processed when Waffler quit or
+# crashed, found again at the next start (src/take_marker.py). The card's own
+# sentence is in ui/logic.js (notSentView); a test keeps the two the same.
+
+INTERRUPTED_MESSAGE = ("Waffler was closed before this one was turned into text. "
+                       "The recording is saved on this computer.")
+
+
 # ── Pasting ──────────────────────────────────────────────────────────────────
 # What the pill says when the words did not land in the app, and the menu's
 # "Paste last" lines. The key to press is the platform's.

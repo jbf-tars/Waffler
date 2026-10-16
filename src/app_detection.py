@@ -28,6 +28,24 @@ def get_active_app() -> dict:
         return {"name": "Unknown", "bundleId": "", "suggested_style": "normal"}
 
 
+def frontmost_app_name() -> str:
+    """Name of the frontmost app, cheaply enough to call when the hotkey goes
+    down ('' when unknown). No subprocess: ``get_active_app`` shells out to
+    osascript on macOS, which is far too slow for that moment. The Journal
+    records it as the dictation's app (src/history_meta.py)."""
+    try:
+        if sys.platform == "darwin":
+            from AppKit import NSWorkspace
+            app = NSWorkspace.sharedWorkspace().frontmostApplication()
+            return str(app.localizedName() or "") if app is not None else ""
+        if sys.platform == "win32":
+            name = _get_active_app_windows().get("name") or ""
+            return "" if name == "Unknown" else name
+    except Exception:
+        pass
+    return ""
+
+
 def _get_active_app_macos() -> dict:
     """Use AppleScript to get frontmost app on macOS."""
     try:

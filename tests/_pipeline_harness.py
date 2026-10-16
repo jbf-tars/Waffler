@@ -30,6 +30,9 @@ sys.path.insert(0, str(ROOT))
 
 import atomic_json  # noqa: E402
 import cleanup_pause  # noqa: E402
+import history_ids  # noqa: E402
+import history_meta  # noqa: E402
+import history_ops  # noqa: E402
 import hold_hint  # noqa: E402
 import mac_permissions  # noqa: E402
 import notifier  # noqa: E402
@@ -39,6 +42,7 @@ import privacy_data  # noqa: E402
 import recent_audio  # noqa: E402
 import snippets  # noqa: E402
 import sounds  # noqa: E402
+import take_marker  # noqa: E402
 import tray_state  # noqa: E402
 import unsent  # noqa: E402
 import user_messages  # noqa: E402
@@ -65,6 +69,9 @@ PIPELINE_METHODS = (
     # (src/sounds.py) and the "Don't tap, hold" hint (src/hold_hint.py).
     "_toast_allowed", "_notifier_context", "_play_cue", "_on_hands_free_lock",
     "_hotkey_name", "_maybe_hold_hint", "_hold_hint_later",
+    # History details: "Redo this take" shares Try again's step that
+    # turns a transcript into words; "Paste last" is told when its words go.
+    "_tidy_transcript", "_replace_history_entry", "redo_take", "swap_last_text",
 )
 MODULE_DEFS = ("ensure_data_dir", "load_history", "_load_history_for_update",
                "save_history", "append_history",
@@ -358,6 +365,9 @@ def make_pipeline(data_dir: Path, *, transcriber=None, styler=None, clipboard=No
         _pasteboard=pasteboard, _mac_perms=mac_permissions,
         _notifier=notifier, _sound_cues=sounds, _hold_hint=hold_hint,
         hold_hint_message=user_messages.hold_hint_message,
+        _history_ids=history_ids, _history_meta=history_meta, _history_ops=history_ops,
+        _take_marker=take_marker,
+        _history_cache=types.SimpleNamespace(invalidate=lambda: None),
         _is_setup_complete=lambda: True,
         paste_timed_out_message=user_messages.paste_timed_out_message,
         last_transcript_title=user_messages.last_transcript_title,
