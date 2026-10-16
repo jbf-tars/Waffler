@@ -245,6 +245,16 @@ class FakeAudio:
     def start_monitoring(self):
         pass
 
+    # The recorder's own idea of a take (the pipeline's flag goes down first),
+    # and its one-step "open the idle stream again".
+    is_recording = False
+    rebuilds = 0
+    rebuild_result = True
+
+    def rebuild_if_idle(self):
+        self.rebuilds += 1
+        return self.rebuild_result
+
 
 class FakeTranscriber:
     """Groq-only by default, like the recommended setup."""

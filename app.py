@@ -4116,19 +4116,20 @@ def _build_pipeline():
             mid-recording would lose the captured audio."""
             if _pipeline is None or not getattr(_pipeline, "audio", None):
                 return
-            if getattr(_pipeline.audio, "is_recording", False):
-                _log_to_file(
-                    f"[audio-monitor] device changed to {new_name!r} but "
-                    f"recording is in flight — deferring stream restart"
-                )
-                return
             try:
-                _pipeline.audio.stop_monitoring()
-                _pipeline.audio.start_monitoring()
-                _log_to_file(
-                    f"[audio-monitor] monitoring stream restarted on "
-                    f"{new_name!r}"
-                )
+                # The recorder checks that nothing is recording and re-opens
+                # in one step; a separate check could be overtaken by a key
+                # coming up or a Command hold.
+                if _pipeline.audio.rebuild_if_idle():
+                    _log_to_file(
+                        f"[audio-monitor] monitoring stream restarted on "
+                        f"{new_name!r}"
+                    )
+                else:
+                    _log_to_file(
+                        f"[audio-monitor] device changed to {new_name!r} but "
+                        f"recording is in flight — deferring stream restart"
+                    )
             except Exception as e:
                 _log_to_file(f"[audio-monitor] restart failed: {e}")
 
@@ -4820,16 +4821,35 @@ class WafflerPipeline:
 
         def rebuild_idle():
             # Open the always-on stream again so the next dictation and the
-            # Settings meter are on the microphone now chosen. Not during a
-            # take: that would lose what has been recorded.
-            if self.is_recording:
-                return
+            # Settings meter are on the microphone now chosen. Never during a
+            # take: that would lose what has been recorded. The recorder
+            # checks that and re-opens in one step (a key coming up, a
+            # Command hold or a start can land between two separate ones).
             try:
-                self.audio.stop_monitoring()
-                self.audio.start_monitoring()
-                _log_to_file("[mic] the stream was opened again for the microphone now chosen")
+                if self.audio.rebuild_if_idle():
+                    _log_to_file("[mic] the stream was opened again for the microphone now chosen")
+                else:
+                    _log_to_file("[mic] a take is under way: the stream will be opened again for the next one")
             except Exception as e:
                 _log_to_file(f"[mic] stream not reopened: {type(e).__name__}")
+
+        def taking():
+            # Anything that holds the microphone or is about to be handed what
+            # it recorded: a dictation (the pipeline's flag goes down at the key
+            # coming up, before the recorder has copied the audio, so the
+            # recorder's own is asked too), a Transform or Command hold, or a
+            # take still being turned into text.
+            for source in (lambda: self.is_recording,
+                           lambda: getattr(self.audio, "is_recording", False),
+                           lambda: self._commands.busy(),
+                           lambda: self._transforms.busy(),
+                           lambda: self._watchdog.active()):
+                try:
+                    if source():
+                        return True
+                except Exception:
+                    return True         # not sure: do not tear a stream down
+            return False
 
         def stop_take():
             # As the key coming up would: one atomic check, so a take is turned
@@ -4845,7 +4865,7 @@ class WafflerPipeline:
 
         return _mic_supervisor.Hooks(
             settings=self._read_settings,
-            recording=lambda: bool(self.is_recording),
+            recording=taking,
             busy=lambda: bool(self._watchdog.active()),
             toast_allowed=self._toast_allowed,
             show_toast=show,

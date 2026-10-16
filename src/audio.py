@@ -280,6 +280,16 @@ class AudioRecorder:
                                                # the lock for start/stop.
         self._last_rms: float = 0.0
         self._callback_active = False
+        # The stream the callback is armed for. Tearing down an older stream
+        # (one that was detached before a newer one was made) must not switch
+        # off the newer stream's callback, and the one stable bound callback
+        # cannot say which stream called it, so the stream that is armed is
+        # remembered here and only its teardown disarms (see _teardown_stream).
+        self._armed = None
+        # Starts that have begun and not ended (a cold start waits for live
+        # audio outside the lock), so an idle re-open can tell that a take is
+        # about to begin on the stream it would tear down.
+        self._starting = 0
         # Settings' microphone meter (input_level): when the stream last
         # delivered audio, and which microphone choice it was opened with.
         self._last_chunk_at = 0.0
@@ -573,6 +583,7 @@ class AudioRecorder:
             self._stream_choice = self._device_index
             self._stream_pref_version = self._pref_version
             _opened_name = self._device_name(_input_device)
+            self._armed = None
             self._stream = sd.InputStream(
                 samplerate=self.sample_rate,
                 channels=self.channels,
@@ -581,6 +592,7 @@ class AudioRecorder:
                 blocksize=1024,
                 device=_input_device,
             )
+            self._armed = self._stream        # before start(): its first callback must not be dropped
             self._stream.start()
             self._opened_device = _opened_name
 
@@ -641,8 +653,13 @@ class AudioRecorder:
         if stream is None:
             return
         with _STREAM_LOCK:
-            # 1. Tell our Python-level callback to bail immediately.
-            self._callback_active = False
+            # 1. Tell our Python-level callback to bail immediately. Only when
+            # this is the stream it is armed for: a stream that was detached
+            # earlier and is torn down late must not silence the newer stream
+            # that has been armed since (the callback is one shared method).
+            if self._armed is None or self._armed is stream:
+                self._callback_active = False
+                self._armed = None
             # 2. Stop dispatching new audio.
             try:
                 stream.stop()
@@ -665,6 +682,17 @@ class AudioRecorder:
             # AND after close() has released the CFFI closure.
 
     def start(self):
+        """Begin recording; see ``_start``. Counted while it runs (its cold-start
+        warm-up waits outside the lock), so ``rebuild_if_idle`` can see it."""
+        with self._stream_lock:
+            self._starting += 1
+        try:
+            self._start()
+        finally:
+            with self._stream_lock:
+                self._starting -= 1
+
+    def _start(self):
         """Begin recording.
 
         Reuses the long-lived monitor stream when it's still healthy; if
@@ -887,7 +915,11 @@ class AudioRecorder:
             print("audio.shutdown: teardown did not return in 2s — abandoning")
 
     def start_monitoring(self):
-        """Start audio stream for level monitoring only (no recording)."""
+        """Start audio stream for level monitoring only (no recording).
+
+        A take in progress keeps its audio: only an idle recorder starts from
+        an empty buffer (a take that has lost its stream is carried on a new
+        one, as ``reopen_stream`` does)."""
         with self._stream_lock:
             if self._stream and self._stream.active and self._callback_active:
                 return  # Already monitoring/recording
@@ -895,18 +927,43 @@ class AudioRecorder:
             self._stream = None
             if stale is not None:
                 self._teardown_stream(stale)
-            self.is_recording = False
-            self._buffer = []
+            if not self.is_recording:
+                self._buffer = []
             self._create_stream()
 
     def stop_monitoring(self):
-        """Stop audio monitoring stream — used when switching devices etc."""
+        """Stop audio monitoring stream — used when switching devices etc.
+
+        Detached and torn down in ONE hold of ``_stream_lock``: a press landing
+        between the two steps would start a new stream (and PortAudio again,
+        which frees every open stream) while this one was still open."""
         with self._stream_lock:
             stream = self._stream
             self._stream = None
-        if stream is not None:
-            self._teardown_stream(stream)
+            if stream is not None:
+                self._teardown_stream(stream)
         self._last_rms = 0.0
+
+    def rebuild_if_idle(self) -> bool:
+        """Open the always-on stream again if nothing is using it, and say
+        whether that was done. For a microphone that came or went, or a new
+        ranking: the stream is then on the wrong one.
+
+        The check and the re-open are one step under ``_stream_lock``. Nothing
+        is rebuilt while a take is recorded (a Command-mode hold included), or
+        while a stop() waits out its post-roll before copying the audio, or
+        while a start() warms its stream up, or while the stream is being
+        opened again: tearing the stream down then loses the take."""
+        with self._stream_lock:
+            if self.is_recording or self._starting or self._reopening:
+                return False
+            stale = self._stream
+            self._stream = None
+            if stale is not None:
+                self._teardown_stream(stale)
+            self._buffer = []
+            self._create_stream()
+            return True
 
     def force_rebuild(self):
         """Hard-tear-down the current stream so the next start() builds fresh.
@@ -930,8 +987,9 @@ class AudioRecorder:
             self._stream = None
             # Force start()'s slow path next time, regardless of timing.
             self._last_press_time = 0.0
-        if stream is not None:
-            self._teardown_stream(stream)
+            # Torn down before the lock is let go (see stop_monitoring).
+            if stream is not None:
+                self._teardown_stream(stream)
         self._last_rms = 0.0
 
     def record_chunk(self, duration: float = 0.1):
