@@ -349,31 +349,40 @@ def test_the_mac_observer_cannot_raise_into_the_taps_other_handlers_for_flag_cha
 # ── the Windows reader ───────────────────────────────────────────────────────
 
 def test_windows_a_key_up_or_a_modifier_up_ends_the_hold():
-    rig = Rig(WIN, keys=("ctrl", "alt", "c"))
-    held = {0x11, 0x12}
-    vk_c = ah.WINDOWS_VKS["c"]
+    rig = Rig(WIN, keys=("ctrl", "shift", "y"))
+    held = {0x11, 0x10}
+    vk_y = ah.WINDOWS_VKS["y"]
     state = lambda vk: vk in held      # noqa: E731
-    ah.windows_event(rig.r, vk_c, ah._WM_KEYDOWN, 0, state)
-    ah.windows_event(rig.r, vk_c, ah._WM_KEYDOWN, 0, state)             # auto-repeat
+    ah.windows_event(rig.r, vk_y, ah._WM_KEYDOWN, 0, state)
+    ah.windows_event(rig.r, vk_y, ah._WM_KEYDOWN, 0, state)             # auto-repeat
     assert rig.events == ["down"]
-    held.discard(0x12)
-    ah.windows_event(rig.r, 0xA4, ah._WM_KEYUP, 0, state)               # left Alt up (SYSKEYUP in practice)
+    held.discard(0x10)
+    ah.windows_event(rig.r, 0xA0, ah._WM_KEYUP, 0, state)               # left Shift up
     assert rig.events == ["down", "up"]
-    ah.windows_event(rig.r, vk_c, ah._WM_KEYUP, 0, state)
+    ah.windows_event(rig.r, vk_y, ah._WM_KEYUP, 0, state)
     assert rig.events == ["down", "up"]
 
     rig.clock.advance(1)
-    held.update({0x11, 0x12})
-    ah.windows_event(rig.r, vk_c, ah._WM_SYSKEYDOWN, 0, state)
-    ah.windows_event(rig.r, vk_c, ah._WM_SYSKEYUP, 0, state)
+    held.update({0x11, 0x10})
+    ah.windows_event(rig.r, vk_y, ah._WM_KEYDOWN, 0, state)
+    ah.windows_event(rig.r, vk_y, ah._WM_KEYUP, 0, state)
     assert rig.events == ["down", "up", "down", "up"]
+
+
+def test_windows_alt_is_a_system_key_and_its_up_is_read_too():
+    rig = Rig(WIN, keys=("win", "alt", "y"))
+    held = {0x5B, 0x12}
+    ah.windows_event(rig.r, ah.WINDOWS_VKS["y"], ah._WM_SYSKEYDOWN, 0, lambda v: v in held)
+    assert rig.events == ["down"]
+    ah.windows_event(rig.r, 0xA4, ah._WM_SYSKEYUP, 0, lambda v: False)
+    assert rig.events == ["down", "up"]
 
 
 @pytest.mark.parametrize("vk,name", [(0xA2, "ctrl"), (0xA3, "ctrl"), (0x11, "ctrl"), (0xA0, "shift"),
                                      (0xA1, "shift"), (0xA4, "alt"), (0xA5, "alt"), (0x5B, "win"), (0x5C, "win")])
 def test_windows_either_side_of_a_modifier_counts(vk, name):
-    keys = {"ctrl": ("ctrl", "alt", "c"), "alt": ("ctrl", "alt", "c"), "shift": ("ctrl", "shift", "y"),
-            "win": ("win", "ctrl", "c")}[name]
+    keys = {"ctrl": ("ctrl", "shift", "y"), "alt": ("win", "alt", "y"), "shift": ("ctrl", "shift", "y"),
+            "win": ("win", "ctrl", "y")}[name]
     rig = Rig(WIN, keys=keys)
     mods = {"ctrl": 0x11, "alt": 0x12, "shift": 0x10, "win": 0x5B}
     held = {mods[m] for m in keys if m in mods}
@@ -384,18 +393,79 @@ def test_windows_either_side_of_a_modifier_counts(vk, name):
 
 
 def test_windows_a_modifier_that_is_not_part_of_the_combination_changes_nothing():
-    rig = Rig(WIN, keys=("ctrl", "alt", "c"))
-    held = {0x11, 0x12}
-    ah.windows_event(rig.r, ah.WINDOWS_VKS["c"], ah._WM_KEYDOWN, 0, lambda v: v in held)
-    ah.windows_event(rig.r, 0xA0, ah._WM_KEYUP, 0, lambda v: v in held)        # Shift was never part of it
+    rig = Rig(WIN, keys=("ctrl", "shift", "y"))
+    held = {0x11, 0x10}
+    ah.windows_event(rig.r, ah.WINDOWS_VKS["y"], ah._WM_KEYDOWN, 0, lambda v: v in held)
+    ah.windows_event(rig.r, 0xA4, ah._WM_SYSKEYUP, 0, lambda v: v in held)        # Alt was never part of it
     ah.windows_event(rig.r, 0x5B, ah._WM_KEYUP, 0, lambda v: v in held)
     assert rig.events == ["down"]
 
 
 def test_windows_keys_a_program_sent_are_ignored_so_its_own_paste_never_ends_a_hold():
-    rig = Rig(WIN, keys=("ctrl", "alt", "c"))
-    held = {0x11, 0x12}
-    ah.windows_event(rig.r, ah.WINDOWS_VKS["c"], ah._WM_KEYDOWN, 0, lambda v: v in held)
+    rig = Rig(WIN, keys=("ctrl", "shift", "y"))
+    held = {0x11, 0x10}
+    ah.windows_event(rig.r, ah.WINDOWS_VKS["y"], ah._WM_KEYDOWN, 0, lambda v: v in held)
     ah.windows_event(rig.r, 0xA2, ah._WM_KEYUP, ah._LLKHF_INJECTED, lambda v: False)     # its Ctrl+V's Ctrl
-    ah.windows_event(rig.r, ah.WINDOWS_VKS["c"], ah._WM_KEYUP, ah._LLKHF_INJECTED, lambda v: False)
+    ah.windows_event(rig.r, ah.WINDOWS_VKS["y"], ah._WM_KEYUP, ah._LLKHF_INJECTED, lambda v: False)
     assert rig.events == ["down"]
+
+
+# ── what a hold may not be, and what must not break it ───────────────────────
+
+def test_on_windows_a_hold_may_not_be_ctrl_and_alt_because_that_is_altgr():
+    for keys in (["ctrl", "alt", "c"], ["ctrl", "alt", "shift", "c"], ["alt", "ctrl", "f5"]):
+        got = ah.check(keys, WIN, hold=True)
+        assert got["ok"] is False and "AltGr" in got["error"] and got["error"].endswith("."), keys
+        assert "\u2014" not in got["error"] and "\u2013" not in got["error"]
+    for keys in (["ctrl", "shift", "y"], ["win", "alt", "y"], ["win", "ctrl", "alt", "y"], ["win", "shift", "y"]):
+        assert ah.check(keys, WIN, hold=True)["ok"], keys
+    # A press (Transform) is as it was, and a Mac has no AltGr.
+    assert ah.check(["ctrl", "alt", "c"], WIN)["ok"] is True
+    assert ah.check(["control", "option", "c"], MAC, hold=True)["ok"] is True
+
+
+def test_the_registry_applies_the_altgr_rule_to_holds_only():
+    r = ah.ActionHotkeys(WIN, spawn=lambda fn: fn())
+    refused = r.register_hold("command", ["ctrl", "alt", "c"], lambda: None, lambda: None)
+    assert refused["ok"] is False and "AltGr" in refused["error"] and r.registered() == {}
+    assert r.conflict("command", ["ctrl", "alt", "c"], hold=True) == refused["error"]
+    assert r.conflict("command", ["ctrl", "alt", "c"]) is None
+    assert r.register("transform", ["ctrl", "alt", "c"], lambda: None)["ok"] is True
+
+
+def test_a_hold_nothing_ever_ended_is_ended_so_the_next_press_is_a_press():
+    rig = Rig()
+    rig.down()
+    rig.clock.advance(ah.HOLD_STALE_S + 1)
+    rig.r.key_down("x", ["control"])                       # any key at all, a long time later
+    assert rig.events == ["down", "up"], "the stale hold was ended"
+    assert rig.down() == ["command"] and rig.events == ["down", "up", "down"]
+
+
+def test_a_stale_hold_is_ended_even_by_a_repeat_of_its_own_key():
+    rig = Rig()
+    rig.down()
+    rig.clock.advance(ah.HOLD_STALE_S + 1)
+    assert rig.down(repeat=True) == []
+    assert rig.events == ["down", "up"]
+
+
+def test_a_thread_that_cannot_start_does_not_kill_the_shortcut_for_good():
+    started = []
+
+    def spawn(fn):
+        if not started:
+            started.append(1)
+            raise RuntimeError("can't start new thread")
+        fn()
+    log, clock = [], Clock()
+    r = ah.ActionHotkeys(MAC, clock=clock, log=log.append, spawn=spawn)
+    events = []
+    r.register_hold("command", ["control", "option", "c"], lambda: events.append("down"), lambda: events.append("up"))
+    r.key_down("c", ["control", "option"])                 # the thread cannot start: nothing runs, nothing breaks
+    assert events == [] and any("could not start" in m and "RuntimeError" in m for m in log)
+    r.key_up("c")                                          # the hold ends; the runner ignores an up with no down
+    assert events == ["up"]
+    clock.advance(1)
+    assert r.key_down("c", ["control", "option"]) == ["command"]       # the next press works
+    assert events == ["up", "down"]

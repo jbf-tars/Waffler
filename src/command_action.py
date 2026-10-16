@@ -179,6 +179,7 @@ class CommandRun:
         self.window = None
         self.selection = None                   # text_context.SelectionResult from the Accessibility read
         self.needs_copy = False                 # Accessibility could not say: Copy it once the keys are up
+        self.empty_by_copy = False              # "nothing selected" was found by a Copy that copied nothing
         self.before = ""                        # the text before the cursor, when nothing is selected
         self.captured = threading.Event()
         self.lock = threading.Lock()
@@ -522,17 +523,18 @@ class CommandRunner:
         if run.cancelled:
             wd.decide(pw.CANCEL)
 
-        # 1. The recording.
+        # 1. The recording. It is stopped whatever else has happened: a cancel
+        # that landed while the working pill was starting must not leave the
+        # recorder running, which is why this is not a step Cancel can skip.
         run.audio_stopped = True
-        stopped = wd.call(h.stop_audio, stage=pw.PREPARING, deadline=pw.PREPARE_DEADLINE_S)
-        if stopped.status == pw.CANCEL:
-            return self._cancelled()
-        if not stopped.ok:
-            h.log(f"[command] the recording was not read ({stopped.status})")
+        ok, audio = _bounded(h.stop_audio, pw.PREPARE_DEADLINE_S)
+        if not ok:
+            h.log("[command] the recording was not read")
             self._say(FAILED, "warn", ("Your mic was slow to stop",
                                        "Nothing was changed. Try the command again."), timeout=NOTICE_S)
             return pw.ERROR
-        audio = stopped.value
+        if run.cancelled:
+            return self._cancelled()
         h.cue("stop")
         wd.set_audio_seconds(len(audio or b"") / 32000.0)
         problem = h.audio_problem(audio, held)
@@ -569,6 +571,7 @@ class CommandRunner:
                 run.selection = sel
             elif sel.reason in (text_context.NO_SELECTION,):
                 run.selection = sel
+                run.empty_by_copy = True
             elif sel.reason == text_context.TOO_LARGE:
                 self._say(RESULT, "info", um.TRANSFORM_TOO_LONG, timeout=NOTICE_S)
                 return pw.NOTHING
@@ -632,7 +635,8 @@ class CommandRunner:
         self._count(reply)
         if run.cancelled:
             return self._cancelled()
-        parsed = cm.parse_reply(getattr(reply, "text", ""), has_selection=bool(selection), instruction=instruction)
+        parsed = cm.parse_reply(getattr(reply, "text", ""), has_selection=bool(selection), instruction=instruction,
+                                own_text=selection or run.before)
         h.log(f"[command] the model chose {parsed.action}"
               f"{'' if parsed.tagged else ' (the reply had no tag: guessed)'}"
               f"{', as a draft because nothing was selected' if parsed.changed else ''}")
@@ -668,7 +672,7 @@ class CommandRunner:
     def _do_edit(self, *, run, cfg, wd, instruction, selection, method, reply, started, parsed) -> str:
         h = self.h
         result = cm.finish_edit(selection, parsed.payload, finish_reason=getattr(reply, "finish_reason", None),
-                                dashes=h.dashes, profanity=h.profanity)
+                                tagged=parsed.tagged, dashes=h.dashes, profanity=h.profanity)
         if result.status != transforms.REPLACE:
             return self._not_replaced(result)
         after = result.text
@@ -703,6 +707,16 @@ class CommandRunner:
             return self._cancelled()
         if not moved.ok or moved.value:
             return self._not_pasted(cm.DRAFT, run, instruction, "", after, reply, started, sure=moved.ok)
+        if run.empty_by_copy:
+            # Accessibility could not say, and the Copy that found "nothing
+            # selected" may only have been slow or ignored. Pasting over a
+            # selection that is there would lose it, so look once more.
+            appeared = wd.call(self._selection_appeared, stage=pw.STYLING, deadline=CHECK_DEADLINE_S)
+            if appeared.status == pw.CANCEL:
+                return self._cancelled()
+            if not appeared.ok or appeared.value:
+                h.log("[command] text turned out to be selected after all: the draft is put on the clipboard")
+                return self._copied(cm.DRAFT, run, instruction, "", after, reply, started, selected=True)
         return self._paste_in(cm.DRAFT, run, cfg, wd, instruction, "", after, reply, started)
 
     def _paste_in(self, action, run, cfg, wd, instruction, before, after, reply, started) -> str:
@@ -777,6 +791,7 @@ class CommandRunner:
             return pw.NOTHING
         message = {transforms.TRUNCATED: um.COMMAND_CUT_SHORT,
                    transforms.EMPTY_ANSWER: um.COMMAND_NO_ANSWER,
+                   transforms.UNRELATED: um.TRANSFORM_UNRELATED,
                    cm.REFUSED: um.COMMAND_REFUSED}.get(status, um.COMMAND_BAD_LENGTH)
         self._say(FAILED, "warn", message, timeout=NOTICE_S)
         return pw.NOTHING
@@ -819,6 +834,17 @@ class CommandRunner:
         if getattr(again, "method", "") in (text_context.METHOD_AX, text_context.METHOD_COPY) and again.text:
             return transforms.normalise(again.text) != transforms.normalise(source)
         return False
+
+    def _selection_appeared(self) -> bool:
+        """Is something selected now, by a Copy (the way "nothing selected" was
+        found)? A read that fails counts as yes: not knowing is a reason not to
+        paste over what might be selected. (No reader at all is no.)"""
+        again = self.h.reread_selection(text_context.METHOD_COPY)
+        if again is None:
+            return False
+        if getattr(again, "reason", "") in ("", text_context.OK):
+            return bool((getattr(again, "text", "") or "").strip())
+        return again.reason != text_context.NO_SELECTION
 
     def _journal_buttons(self, entry: dict):
         if not entry or not entry.get("id"):

@@ -34,7 +34,7 @@ SEL = ("I just wanted to reach out to let you know that the meeting has now been
        "to Thursday at 3pm because the room is not free on Wednesday.")
 SHORT = "The meeting moved to Thursday at 3pm because the room is not free on Wednesday."
 APP_TREE = ast.parse((ROOT / "app.py").read_text(encoding="utf-8"))
-KEYS = ["ctrl", "alt", "c"]           # the harness is a Windows machine
+KEYS = ["ctrl", "shift", "y"]         # the harness is a Windows machine (Ctrl and Alt together would be AltGr)
 
 
 def settings_file(p, **command):
@@ -89,12 +89,12 @@ def rig(tmp_path, monkeypatch):
 
 def hold(p, seconds=0.4, then=None):
     """Press the Command shortcut, hold it for ``seconds``, let go."""
-    assert p._action_hotkeys.key_down("c", ["ctrl", "alt"]) == ["command"]
+    assert p._action_hotkeys.key_down("y", ["ctrl", "shift"]) == ["command"]
     assert H.wait_for(lambda: p.page.statuses and p.page.statuses[-1] == "listening", 3)
     if then:
         then()
     time.sleep(seconds)
-    p._action_hotkeys.key_up("c")
+    p._action_hotkeys.key_up("y")
 
 
 def wait_idle(p):
@@ -285,12 +285,12 @@ def test_a_transform_will_not_start_while_a_command_is_held(rig):
     p = rig
     (p.ns["DATA_DIR"] / "settings.json").write_text(json.dumps({
         "command_mode": {"enabled": True, "hotkey": KEYS}, "transforms": {"enabled": True}}), encoding="utf-8")
-    assert p._action_hotkeys.key_down("c", ["ctrl", "alt"]) == ["command"]
+    assert p._action_hotkeys.key_down("y", ["ctrl", "shift"]) == ["command"]
     assert H.wait_for(lambda: p._commands.busy())
     assert p._dictation_busy() is True
     assert p.run_transform() == "dictating"
     assert p.overlay.toasts()[-1]["heading"] == "Waffler is busy"
-    p._action_hotkeys.key_up("c")
+    p._action_hotkeys.key_up("y")
     wait_idle(p)
 
 
@@ -314,11 +314,11 @@ def test_the_dictation_hotkey_is_refused_while_a_command_runs(rig):
 
 def test_the_dictation_hotkey_is_refused_while_the_command_keys_are_held(rig):
     p = rig
-    assert p._action_hotkeys.key_down("c", ["ctrl", "alt"]) == ["command"]
+    assert p._action_hotkeys.key_down("y", ["ctrl", "shift"]) == ["command"]
     assert H.wait_for(lambda: p._commands.busy())
     p.on_hotkey_press()
     assert p.is_recording is False
-    p._action_hotkeys.key_up("c")
+    p._action_hotkeys.key_up("y")
     wait_idle(p)
 
 
@@ -326,14 +326,14 @@ def test_the_dictation_hotkey_is_refused_while_the_command_keys_are_held(rig):
 
 def test_esc_while_holding_discards_the_recording(rig):
     p = rig
-    assert p._action_hotkeys.key_down("c", ["ctrl", "alt"]) == ["command"]
+    assert p._action_hotkeys.key_down("y", ["ctrl", "shift"]) == ["command"]
     assert H.wait_for(lambda: p.page.statuses and p.page.statuses[-1] == "listening")
     p._on_hotkey_cancel()
     wait_idle(p)
     assert p.audio.stops == 1 and p.transcriber.calls == 0 and p.model.calls == []
     assert p.overlay.toasts()[-1]["heading"] == "Command cancelled"
     assert p.overlay.names().count("hide") >= 1, "the recording pill goes"
-    p._action_hotkeys.key_up("c")                  # letting go afterwards changes nothing
+    p._action_hotkeys.key_up("y")                  # letting go afterwards changes nothing
     time.sleep(0.15)
     assert p.model.calls == [] and p.page.statuses[-1] == "idle"
 
@@ -403,9 +403,9 @@ def test_the_shortcut_is_registered_when_on_and_dropped_when_off(rig):
     settings_file(p, hotkey=[])
     p.apply_command_settings()
     assert p._action_hotkeys.registered() == {}
-    settings_file(p, hotkey=["ctrl", "alt", "y"])
+    settings_file(p, hotkey=["ctrl", "shift", "k"])
     p.apply_command_settings()
-    assert p._action_hotkeys.registered() == {"command": ["ctrl", "alt", "y"]}
+    assert p._action_hotkeys.registered() == {"command": ["ctrl", "shift", "k"]}
 
 
 def test_both_action_shortcuts_live_side_by_side(rig):
@@ -421,7 +421,7 @@ def test_both_action_shortcuts_live_side_by_side(rig):
 def test_a_saved_shortcut_that_overlaps_the_dictation_hotkey_is_dropped_and_said_in_the_log(rig):
     p = rig
     (p.ns["DATA_DIR"] / "settings.json").write_text(json.dumps(
-        {"command_mode": {"enabled": True, "hotkey": ["ctrl", "shift", "alt", "c"]},
+        {"command_mode": {"enabled": True, "hotkey": KEYS},
          "hotkey_keys": ["ctrl", "shift"]}), encoding="utf-8")
     p.apply_command_settings()
     assert p._action_hotkeys.registered() == {}
@@ -459,7 +459,7 @@ def test_applying_settings_never_raises(rig):
 
 def test_changing_the_setting_while_a_hold_is_on_ends_it_once(rig):
     p = rig
-    p._action_hotkeys.key_down("c", ["ctrl", "alt"])
+    p._action_hotkeys.key_down("y", ["ctrl", "shift"])
     assert H.wait_for(lambda: p._commands.busy())
     settings_file(p, enabled=False)
     p.apply_command_settings()                       # the hold ends: the keys are treated as let go

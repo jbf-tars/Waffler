@@ -6340,9 +6340,10 @@ class WafflerPipeline:
 
         Returns {"ok": True, "item", "undo"} or {"ok": False, "reason"}.
         """
-        # Never alongside a dictation: they share the clean-up's one client
-        # (the drain of Not sent cards leaves them alone the same way).
-        if self.is_recording or self._watchdog.active():
+        # Never alongside a dictation or a spoken command: they share the
+        # speech and clean-up clients (the drain of Not sent cards leaves them
+        # alone the same way).
+        if self._dictation_busy():
             return {"ok": False, "reason": "busy"}
         # One resend at a time, whichever kind.
         if not self._unsent_lock.acquire(timeout=2.0):
@@ -6456,7 +6457,7 @@ class WafflerPipeline:
                 path = _unsent.resolve_file(DATA_DIR / _unsent.UNSENT_DIRNAME, unsent_id)
                 # The clean-up never competes with a dictation for the styler:
                 # while one is running, the words go in as said.
-                busy = self.is_recording or bool(self._watchdog.active())
+                busy = self._dictation_busy()
                 result = self._fill_unsent_card(unsent_id, entry, path, value,
                                                 audio_seconds, style=not busy)
                 if result.get("ok"):
@@ -6540,7 +6541,7 @@ class WafflerPipeline:
                 return
             _log_to_file(f"[unsent] {len(due)} recording(s) to send again ({why})")
             for uid in due:
-                if self.is_recording or self._watchdog.active():
+                if self._dictation_busy():
                     _log_to_file("[unsent] a dictation started; sending the rest later")
                     return
                 result = self.resend_unsent(uid, auto=True)
@@ -6569,8 +6570,7 @@ class WafflerPipeline:
         time.sleep(20)
         while True:
             try:
-                if self._unsent_waiting > 0 and not self.is_recording \
-                        and not self._watchdog.active():
+                if self._unsent_waiting > 0 and not self._dictation_busy():
                     self._drain_unsent("the regular check")
             except Exception as e:
                 _log_to_file(f"[unsent] check failed: {e}")

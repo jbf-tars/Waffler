@@ -314,6 +314,17 @@ def test_an_ask_with_no_query_is_still_an_ask():
     assert got.action == cm.ASK and got.payload == "" and got.tagged
 
 
+def test_an_edit_the_model_never_tagged_must_still_look_like_the_text_it_replaces():
+    """With no tag the action was only guessed. An answer to a question about
+    the selection, or a draft, replaces nothing."""
+    answer = "The sender says the event has a new day and place, so check your calendar and tell your colleagues."
+    assert cm.finish_edit(SEL, answer, tagged=False).status == transforms.UNRELATED
+    assert cm.finish_edit(SEL, answer, tagged=True).status == transforms.REPLACE, "tagged, the model said edit"
+    assert cm.finish_edit(SEL, SHORT, tagged=False).status == transforms.REPLACE, "a real shortening shares its words"
+    short_src = "Hi Sam"
+    assert cm.finish_edit(short_src, "Hello Sam", tagged=False).status == transforms.REPLACE, "a few words: not checked"
+
+
 def test_a_reply_with_no_tag_and_a_selection_is_an_edit_of_the_whole_reply():
     got = cm.parse_reply(SHORT, has_selection=True, instruction="make this shorter")
     assert (got.action, got.payload, got.tagged) == (cm.EDIT, SHORT, False)
@@ -339,9 +350,44 @@ def test_a_selection_wins_over_a_question_when_the_tag_is_missing():
     assert got.action == cm.EDIT
 
 
-def test_a_tag_in_the_middle_of_the_text_is_not_a_tag():
-    got = cm.parse_reply("Sure.\nHere it is.\nACTION: ask", has_selection=True, instruction="x")
-    assert not got.tagged and got.action == cm.EDIT
+def test_a_tag_far_down_the_text_is_not_a_tag():
+    body = "I just wanted to reach out and let you know that the meeting has been moved to Thursday afternoon at three"
+    got = cm.parse_reply(f"{body}\nACTION: ask", has_selection=True, instruction="x")
+    assert not got.tagged and got.action == cm.EDIT, "a long first line is the answer, not a lead-in"
+    deep = cm.parse_reply("One.\nTwo.\nThree.\nACTION: ask", has_selection=True, instruction="x")
+    assert not deep.tagged
+
+
+@pytest.mark.parametrize("raw", [
+    "Sure!\nACTION: edit\nThe text",
+    "Sure, here you go:\n\nACTION: edit\nThe text",
+    "Here is the result.\nSure.\nACTION: edit\nThe text",
+    "<think>they want it short</think>\nSure!\nACTION: edit\nThe text",
+    "Thinking about it...\nACTION: Edit.\nThe text",
+])
+def test_a_short_lead_in_before_the_tag_is_dropped_and_the_tag_is_not_pasted(raw):
+    got = cm.parse_reply(raw, has_selection=True, instruction="x")
+    assert (got.action, got.payload, got.tagged) == (cm.EDIT, "The text", True), raw
+
+
+def test_a_thinking_block_that_never_closes_is_not_the_answer():
+    for raw in ("<think>they want it shorter, so", "<thinking>hmm</thinking>\nACTION: edit\nShort.",
+                "ACTION: edit\nShort.\n<think>and then"):
+        got = cm.parse_reply(raw, has_selection=True, instruction="x")
+        assert "<think" not in got.payload, raw
+    assert cm.parse_reply("<thinking>hmm</thinking>\nACTION: edit\nShort.", has_selection=True).payload == "Short."
+    # A thinking tag in the person's own text is theirs.
+    own = cm.parse_reply("ACTION: edit\nUse <think>x</think> here", has_selection=True, own_text="a <think>x</think> b")
+    assert own.payload == "Use <think>x</think> here"
+
+
+def test_a_second_tag_line_inside_the_result_is_not_pasted_either():
+    out = cm.finish_edit(SEL, f"ACTION: edit\n{SHORT}")
+    assert out.status == transforms.REPLACE and "ACTION" not in out.text
+    out = cm.finish_edit(SEL, f"{SHORT}\nACTION: edit")
+    assert "ACTION" not in out.text
+    mine = "Line one\nACTION: ask\nLine three of my own notes about the plan here"
+    assert "ACTION: ask" in cm.finish_edit(mine, "Line one\nACTION: ask\nLine three of my notes about the plan").text
 
 
 def test_a_json_answer_in_spite_of_the_protocol_is_read_not_pasted():
@@ -411,6 +457,34 @@ def test_a_translation_is_not_held_to_a_likeness_check():
 ])
 def test_a_refusal_never_replaces_the_persons_text(answer):
     assert cm.finish_edit(SEL, answer).status == cm.REFUSED
+
+
+@pytest.mark.parametrize("answer", [
+    "I apologize, but I cannot assist with that.",
+    "Unfortunately, I can't help with that request.",
+    "I'm afraid I can't do that.",
+    "I am sorry, but I am unable to rewrite this.",
+    "I'm unable to help with that.",
+    "I\u2019m sorry, but I can\u2019t help with that.",
+    "Apologies, I cannot provide that.",
+    "Sorry, but I won't comply with that.",
+])
+def test_the_other_ways_a_model_declines_are_refusals_too(answer):
+    assert cm.finish_edit(SEL, answer).status == cm.REFUSED
+    assert cm.finish_draft(answer, "reply").status == cm.REFUSED
+
+
+@pytest.mark.parametrize("draft", [
+    "Sorry, I can't make it on Thursday.",
+    "Unfortunately, I can't write back before Friday.",
+    "I'm afraid I can't come to the meeting, the train is cancelled.",
+    "I cannot wait to see you on Saturday.",
+    "I'm unable to attend, sorry. Can we move it?",
+    "Apologies for the late reply, I was away.",
+])
+def test_a_draft_that_says_no_to_an_invitation_is_not_taken_for_a_refusal(draft):
+    out = cm.finish_draft(draft, "reply saying I can't make it")
+    assert out.status == transforms.REPLACE and out.text == draft
 
 
 def test_a_selection_that_itself_starts_that_way_is_not_taken_for_a_refusal():

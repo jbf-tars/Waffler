@@ -255,3 +255,16 @@ def test_the_logs_copy_of_the_settings_carries_no_wording_from_command_mode():
     raw = json.dumps({"command_mode": {"enabled": True, "hotkey": ["control", "option", "c"], "web_engine": "google"}})
     out = json.loads(privacy_data.settings_for_logs(raw))
     assert out["command_mode"] == {"enabled": True, "hotkey": ["control", "option", "c"], "web_engine": "google"}
+
+
+def test_redo_and_the_unsent_retries_wait_while_a_command_is_using_the_speech_service(tmp_path):
+    """They share the transcriber's state with a command, so they wait for it
+    as they wait for a dictation."""
+    p = H.make_pipeline(tmp_path)
+    entry = dict(dictation("2026-10-16T09:00:00"), id=3, audio="recording-2026-10-16T09-00-00.wav")
+    (tmp_path / "history.json").write_text(json.dumps([entry]), encoding="utf-8")
+    p._commands._active = True
+    assert p._dictation_busy() is True
+    assert p.redo_take(3) == {"ok": False, "reason": "busy"}
+    p._commands._active = False
+    assert p.redo_take(3)["reason"] != "busy"

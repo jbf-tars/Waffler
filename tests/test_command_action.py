@@ -1081,3 +1081,119 @@ def test_a_read_that_answers_after_the_run_has_gone_on_without_it_changes_nothin
     assert rig.pastes and rig.pastes[0]["text"] == SHORT
     assert not any(t[2:4] == um.TRANSFORM_TOO_LONG for t in rig.toasts)
     assert rig.end()[1] == pw.DONE
+
+
+# ── found by an independent review ───────────────────────────────────────────
+
+def test_a_cancel_that_lands_while_the_working_pill_starts_still_stops_the_recorder():
+    rig = Rig()
+    original = rig.runner.h.ui_working
+
+    def cancel_while_starting(run):
+        original(run)
+        rig.runner.cancel()                 # Esc, just as the pill goes to its working look
+    rig.runner.h.ui_working = cancel_while_starting
+    rig.go()
+    assert rig.events.count("audio_stop") == 1, "the recorder is stopped, not left listening with no pill"
+    assert not rig.chats and not rig.pastes
+    assert rig.end()[1] == pw.CANCELLED and rig.last()[2:4] == um.COMMAND_CANCELLED
+
+
+def test_a_cancel_before_the_pill_has_a_watchdog_run_still_stops_the_recorder():
+    rig = Rig()
+    rig.press()
+    assert wait_for(lambda: "begin" in rig.ui)
+    rig.runner.cancel()
+    rig.let_go()
+    assert wait_for(rig.finished)
+    assert rig.events == ["audio_start", "audio_stop"] and not rig.runner.busy()
+
+
+def test_nothing_selected_found_by_a_copy_is_checked_again_before_a_draft_is_pasted():
+    """A Copy that copies nothing is "no selection" or an app that was slow or
+    ignored it. Pasting over a selection that is really there would lose it."""
+    rig = Rig()
+    rig.ax_result = UNREADABLE
+    rig.copy_result = tc.SelectionResult("", tc.METHOD_NONE, tc.NO_SELECTION)
+    rig.reread = selected("The text that was selected all along, but the first Copy missed it.", method="copy")
+    rig.spoken = "reply saying yes"
+    rig.chat_text = "ACTION: draft\nYes, that works for me."
+    rig.go()
+    assert not rig.pastes, "the draft did not go over a selection"
+    assert rig.copies == ["Yes, that works for me."] and rig.saved[0]["paste"] == "copied"
+    assert rig.last()[2:4] == um.COMMAND_DRAFT_COPIED
+    assert rig.rereads == ["copy"]
+
+
+def test_when_the_second_look_agrees_nothing_is_selected_the_draft_is_pasted():
+    rig = Rig()
+    rig.ax_result = UNREADABLE
+    rig.copy_result = tc.SelectionResult("", tc.METHOD_NONE, tc.NO_SELECTION)
+    rig.reread = tc.SelectionResult("", tc.METHOD_NONE, tc.NO_SELECTION)
+    rig.chat_text = "ACTION: draft\nYes, that works for me."
+    rig.go()
+    assert rig.pastes and rig.pastes[0]["text"] == "Yes, that works for me."
+
+
+@pytest.mark.parametrize("reason", ["timed_out", "clipboard_busy", "clipboard_not_restorable"])
+def test_a_second_look_that_cannot_be_made_is_a_reason_not_to_paste_the_draft(reason):
+    rig = Rig()
+    rig.ax_result = UNREADABLE
+    rig.copy_result = tc.SelectionResult("", tc.METHOD_NONE, tc.NO_SELECTION)
+    rig.reread = tc.SelectionResult("", tc.METHOD_NONE, reason)
+    rig.chat_text = "ACTION: draft\nYes, that works for me."
+    rig.go()
+    assert not rig.pastes and rig.copies == ["Yes, that works for me."]
+
+
+def test_an_app_that_said_nothing_is_selected_is_believed_without_a_second_copy():
+    rig = Rig()
+    rig.ax_result = NONE_SELECTED
+    rig.chat_text = "ACTION: draft\nYes, that works for me."
+    rig.go()
+    assert rig.pastes and rig.rereads == [] and rig.reads == [False]
+
+
+def test_a_reply_with_no_tag_that_does_not_look_like_the_selection_replaces_nothing():
+    rig = Rig()
+    rig.spoken = "what does this mean"
+    rig.chat_text = "The sender says the event has a new day and place, so check your calendar and tell your colleagues."
+    rig.go()
+    assert not rig.pastes and not rig.saved
+    assert rig.last()[2:4] == um.TRANSFORM_UNRELATED
+
+
+def test_a_reply_with_no_tag_that_is_a_real_edit_is_still_used():
+    rig = Rig()
+    rig.chat_text = SHORT
+    rig.go()
+    assert rig.pastes and rig.pastes[0]["text"] == SHORT
+
+
+def test_a_tag_after_a_short_lead_in_is_found_and_never_pasted():
+    rig = Rig()
+    rig.chat_text = f"Sure!\nACTION: edit\n{SHORT}"
+    rig.go()
+    assert rig.pastes[0]["text"] == SHORT
+
+
+@pytest.mark.parametrize("make", [
+    lambda r: setattr(r, "chat_error", RuntimeError("PRIVATE-WORDS from the provider")),
+    lambda r: setattr(r, "stt_error", RuntimeError("PRIVATE-WORDS from speech")),
+    lambda r: setattr(r, "spoken", "PRIVATE-WORDS " * 400),
+    lambda r: setattr(r, "chat_text", "ACTION: edit\nPRIVATE-WORDS"),
+    lambda r: setattr(r, "chat_text", "I'm sorry, but I can't help with that. PRIVATE-WORDS"),
+    lambda r: setattr(r, "chat_text", "ACTION: draft\nPRIVATE-WORDS"),
+    lambda r: setattr(r, "ax_result", selected("PRIVATE-WORDS " * 1100)),
+    lambda r: setattr(r, "reread", selected("PRIVATE-WORDS moved.")),
+    lambda r: setattr(r, "paste_outcome", pasteboard.PasteOutcome(pasteboard.FAILED, "x", on_clipboard=True)),
+    lambda r: setattr(r, "front", MAIL),
+])
+def test_no_ending_of_a_command_puts_the_persons_words_in_the_log_or_a_toast_they_did_not_ask_for(make):
+    rig = Rig()
+    rig.ax_result = selected("The PRIVATE-WORDS selection text in the app with a handful of words to edit.")
+    rig.chat_text = "ACTION: ask\nPRIVATE-WORDS"
+    make(rig)
+    rig.go()
+    assert "PRIVATE-WORDS" not in " ".join(rig.logged)
+    assert "PRIVATE-WORDS" not in " ".join(f"{t[2]} {t[3]}" for t in rig.toasts)

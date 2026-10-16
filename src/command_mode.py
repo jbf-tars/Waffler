@@ -209,7 +209,7 @@ def settings_problem(payload, stored=None, *, platform: Optional[str] = None,
     if given.get("hotkey"):
         ptt = dictation_hotkey if dictation_hotkey is not None else action_hotkeys.dictation_keys(stored, platform)
         others = list(action_hotkeys.saved_shortcuts(stored, skip="command").values())
-        verdict = action_hotkeys.check(given["hotkey"], platform, ptt, others)
+        verdict = action_hotkeys.check(given["hotkey"], platform, ptt, others, hold=True)
         if not verdict["ok"]:
             return verdict["error"]
     return None
@@ -225,7 +225,7 @@ def merged(stored, payload, *, platform: Optional[str] = None) -> dict:
         view["enabled"] = given["enabled"] is True
     if "hotkey" in given:
         keys = given["hotkey"]
-        verdict = action_hotkeys.check(keys, platform) if keys else None
+        verdict = action_hotkeys.check(keys, platform, hold=True) if keys else None
         view["hotkey"] = verdict["keys"] if verdict and verdict["ok"] else []
     if "web_engine" in given and given["web_engine"] in _ENGINE_BY_ID:
         view["web_engine"] = given["web_engine"]
@@ -352,10 +352,12 @@ class Parsed:
     changed: bool = False       # the action was adjusted: an edit with nothing selected is a draft
 
 
-_THINK = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
+# A model's thinking, closed or (when it ran out of room) not: everything from
+# the opening tag to the closing one, or to the end.
+_THINK = re.compile(r"<think(?:ing)?\b[^>]*>.*?(?:</think(?:ing)?>|\Z)", re.DOTALL | re.IGNORECASE)
 _OPEN_FENCE = re.compile(r"^```[\w+-]*[ \t]*\n")
 _TAG = re.compile(
-    r"^[\s>*_`#\[(\"']*(?:action)\s*[:=\-–—]?\s*[\s\"'*_`\[(]*(edit|draft|ask)\b"
+    r"^[\s>*_`#\[(\"']*(?:action)\s*[:=\-\u2013\u2014]?\s*[\s\"'*_`\[(]*(edit|draft|ask)\b"
     r"[\s\"'*_`\])\.:;!,\-]*(.*)$", re.IGNORECASE | re.DOTALL)
 _BARE_TAG = re.compile(r"^[\s>*_`#\[(\"']*(edit|draft|ask)\b[\s\"'*_`\])\.:;!,\-]*$", re.IGNORECASE)
 _JSON_ACTIONS = {"edit": EDIT, "edit_text": EDIT, "draft": DRAFT, "draft_text": DRAFT, "ask": ASK,
@@ -404,28 +406,51 @@ def is_question(instruction) -> bool:
     return s[-1] in "?？" or s[0] == "¿" or bool(_QUESTION_START.match(s))
 
 
-def parse_reply(raw, *, has_selection: bool, instruction: str = "") -> Parsed:
-    """Read the model's reply: the action and the result. Never raises."""
-    text = _THINK.sub("", str(raw or "")).replace("\r\n", "\n").replace("\r", "\n").strip()
+# How far down the reply the tag is looked for, and how much may come before it
+# ("Sure!", "Here you go:"): a longer lead-in is the answer itself, not a preamble.
+_TAG_LINES = 3
+_PREAMBLE_WORDS = 20
+
+
+def _tag_in(lines):
+    """``(index, action, rest of that line)`` for the line that holds the tag
+    among the first few lines that have words, or None."""
+    seen = 0
+    words_before = 0
+    for i, line in enumerate(lines):
+        if not line.strip():
+            continue
+        seen += 1
+        if seen > _TAG_LINES or words_before > _PREAMBLE_WORDS:
+            return None
+        m = _TAG.match(line)
+        bare = None if m else _BARE_TAG.match(line)
+        word = None if (m or bare) else re.match(r"^\W*(edit|draft|ask)\s*:\s*$", line, re.IGNORECASE)
+        if m or bare or word:
+            hit = m or bare or word
+            return i, hit.group(1).lower(), (m.group(2).strip() if m else "")
+        words_before += len(line.split())
+    return None
+
+
+def parse_reply(raw, *, has_selection: bool, instruction: str = "", own_text: str = "") -> Parsed:
+    """Read the model's reply: the action and the result. Never raises.
+    ``own_text`` is the person's own text (the selection or the text before the
+    cursor): a thinking tag in it is theirs and is not taken out."""
+    text = str(raw or "")
+    if "<think" not in str(own_text or "").lower():
+        text = _THINK.sub("", text)
+    text = text.replace("\r\n", "\n").replace("\r", "\n").strip()
     text = _unfence(text).strip()
     found = _from_json(text)
     if found is not None:
         return _settle(found[0], found[1].strip(), True, has_selection)
     lines = text.split("\n")
-    first = next((i for i, ln in enumerate(lines) if ln.strip()), None)
-    if first is not None:
-        head = lines[first]
-        m = _TAG.match(head)
-        bare = None if m else _BARE_TAG.match(head)
-        if m or bare:
-            action = (m or bare).group(1).lower()
-            rest = [m.group(2).strip()] if m and m.group(2).strip() else []
-            payload = "\n".join(rest + lines[first + 1:]).strip("\n")
-            return _settle(action, payload.strip(), True, has_selection)
-        # "Edit:" and "Draft:" as the whole first line (a colon after the word).
-        word = re.match(r"^\W*(edit|draft|ask)\s*:\s*$", head, re.IGNORECASE)
-        if word:
-            return _settle(word.group(1).lower(), "\n".join(lines[first + 1:]).strip(), True, has_selection)
+    tag = _tag_in(lines)
+    if tag is not None:
+        index, action, rest = tag
+        payload = "\n".join(([rest] if rest else []) + lines[index + 1:]).strip("\n")
+        return _settle(action, payload.strip(), True, has_selection)
     # No tag: decide from the situation, and treat the whole reply as the result.
     if has_selection:
         action = EDIT
@@ -452,6 +477,11 @@ _SPEC = transforms.Spec("command", "Command", "custom")
 _MARKER = re.compile(r"<<<TEXT\d*|TEXT\d*>>>")
 _LABEL_LINE = re.compile(r"^[ \t]*(?:Selected text|Text before the cursor|Instruction)[^\n]{0,60}:[ \t]*$",
                          re.IGNORECASE | re.MULTILINE)
+# "Instruction: make this shorter" at the top of the result, and a second
+# "ACTION: edit" line the model repeated inside it.
+_ECHOED_INSTRUCTION = re.compile(r"\A[ \t]*Instruction[ \t]*:[^\n]*\n?", re.IGNORECASE)
+_TAG_LINE = re.compile(r"^[ \t>*_`#\[(\"']*action[ \t]*[:=\-\u2013\u2014]?[ \t]*[\"'*_`\[(]*(?:edit|draft|ask)\b"
+                       r"[ \t\"'*_`\])\.:;!,\-]*$\n?", re.IGNORECASE | re.MULTILINE)
 
 
 def scrub(raw, *own_texts: str) -> str:
@@ -472,18 +502,24 @@ def scrub(raw, *own_texts: str) -> str:
             text = text[:-len(token)]
     mine_lines = {ln.strip().casefold() for ln in mine.split("\n") if ln.strip()}
     text = _LABEL_LINE.sub(lambda m: m.group(0) if m.group(0).strip().casefold() in mine_lines else "", text)
+    if not re.search(r"^[ \t]*Instruction[ \t]*:", mine, re.IGNORECASE | re.MULTILINE):
+        text = _ECHOED_INSTRUCTION.sub("", text.lstrip(), count=1)
+    text = _TAG_LINE.sub(lambda m: m.group(0) if m.group(0).strip().casefold() in mine_lines else "", text)
     return text.strip()
 
-_REFUSAL_VERBS = (r"help|assist|comply|do that|do this|fulfil|fulfill|rewrite|edit this|process|answer that|"
-                  r"answer this|continue with")
+# A model declining: an apology or "unfortunately" and then "I can't" with a verb
+# that is about the task, or "I can't" and such a verb on its own, or "As an AI".
+# "Sorry, I can't make it on Thursday" is a draft, not a refusal: its verb is not
+# one of these.
+_CANT = (r"(?:can(?:'t|\u2019t|not)|can not|am unable to|am not able to|(?:i'm|i\u2019m) unable to|"
+         r"won't|will not|am not going to)")
+_TASK = (r"(?:help|assist|comply|do (?:that|this)|fulfil\w*|rewrite|edit (?:this|that|the)|process|provide|"
+         r"generate|create|continue|answer|write (?:that|this|it|the)|complete (?:that|this))\b")
 _REFUSAL = re.compile(
-    r"^\W*(?:"
-    rf"(?:i(?:'m| am| ’m)\s+)?(?:so\s+)?sorry,?\s+(?:but\s+)?i\s+(?:can(?:'t|’t|not)|am unable to|"
-    rf"am not able to|won't|will not)\s+(?:{_REFUSAL_VERBS})"
-    rf"|i\s+(?:can(?:'t|’t|not)|am unable to|am not able to|won't|will not)\s+(?:{_REFUSAL_VERBS})"
-    r"|i(?:'m| am)\s+(?:unable|not able)\s+to\s+(?:" + _REFUSAL_VERBS + r")"
-    r"|as an ai\b"
-    r")", re.IGNORECASE)
+    rf"^\W*(?:(?:(?:i(?:'m|\u2019m| am)\s+)?(?:so |very |truly |terribly )?(?:sorry|afraid)|i apologi[sz]e|"
+    rf"unfortunately|apologies)[^.\n]{{0,30}}?\b)?i\s+{_CANT}\s+{_TASK}"
+    rf"|^\W*i(?:'m|\u2019m| am)\s+(?:unable|not able)\s+to\s+{_TASK}"
+    r"|^\W*as an ai\b", re.IGNORECASE)
 
 
 def _refused(answer: str, *own_texts: str) -> bool:
@@ -495,20 +531,27 @@ def _refused(answer: str, *own_texts: str) -> bool:
     return not any(_REFUSAL.match(next((ln for ln in t.split("\n") if ln.strip()), "")) for t in own_texts)
 
 
-def finish_edit(source: str, raw, *, finish_reason=None,
+def finish_edit(source: str, raw, *, finish_reason=None, tagged: bool = True,
                 dashes: Optional[Callable[[str], str]] = None,
                 profanity: Optional[Callable[[str, str], str]] = None) -> transforms.Outcome:
     """Decide what to do with the model's result for an edit of ``source``:
     the gate every transform passes (the same text back is "no change"; under a
-    tenth of the words, or over two and a half times them, or an answer the
-    model said was cut off, replaces nothing), with a refusal ruled out. A
-    shorter result is allowed, because "summarise this" is an edit."""
+    tenth of the words, or far longer than them, or an answer the model said
+    was cut off, replaces nothing), with a refusal ruled out. A shorter result
+    is allowed, because "summarise this" is an edit. A reply with no tag was
+    only guessed to be an edit, so it must also share a quarter of the
+    selection's wording (an answer to a question about the text, or a
+    translation, then replaces nothing rather than the text)."""
     raw = scrub(raw, source)
     cleaned = transforms.clean_output(raw, source)
     if cleaned and _refused(cleaned, source):
         return transforms.Outcome(REFUSED, words_in=transforms.size(source))
-    return transforms.finish(source, raw, _SPEC, finish_reason=finish_reason,
-                             dashes=dashes, profanity=profanity)
+    out = transforms.finish(source, raw, _SPEC, finish_reason=finish_reason,
+                            dashes=dashes, profanity=profanity)
+    if (not tagged and out.status == transforms.REPLACE and out.words_in >= transforms.MIN_WORDS_FOR_OVERLAP
+            and transforms.overlap(source, out.text) < transforms.MIN_OVERLAP):
+        return transforms.Outcome(transforms.UNRELATED, words_in=out.words_in, words_out=out.words_out)
+    return out
 
 
 # A line a model puts before a draft ("Sure, here is the reply:"). The words it

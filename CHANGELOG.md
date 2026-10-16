@@ -225,8 +225,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - **Command mode (beta): hold a shortcut and say what you want done.**
   Settings has a new Command mode section, off until you turn it on. Choose
   keys to hold (two modifier keys and a letter, number or F key; they cannot
-  overlap your dictation hotkey or your Transform shortcut), hold them, say an
-  instruction and let go. With text selected, "Make this shorter" or
+  overlap your dictation hotkey or your Transform shortcut, and on Windows
+  they cannot be Ctrl with Alt, which is AltGr on many keyboards and would
+  type letters while you hold), hold them, say an instruction and let go. With text selected, "Make this shorter" or
   "Translate to French" edits it in place and your app's own Undo takes it
   back. With nothing selected, "Reply saying I'll be 10 minutes late" writes
   new text where your cursor is, using up to 500 characters before the cursor

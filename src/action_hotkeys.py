@@ -70,6 +70,10 @@ WINDOWS = hotkey_rules.WINDOWS
 MIN_GAP_S = 0.5
 # A key reported down this long ago, with no key-up since, is not still held.
 HELD_FOR_S = 2.0
+# A hold-to-talk that has lasted this long never got its key-up (the action
+# stops listening long before, and so does everyone): it is ended, so the next
+# press is a press.
+HOLD_STALE_S = 120.0
 
 # ── Keys ─────────────────────────────────────────────────────────────────────
 
@@ -200,11 +204,15 @@ def overlaps_dictation(keys, dictation, platform: str) -> bool:
 
 
 def check(keys, platform: str, dictation_hotkey: Sequence[str] = (),
-          others: Iterable[Sequence[str]] = ()) -> dict:
+          others: Iterable[Sequence[str]] = (), hold: bool = False) -> dict:
     """Is ``keys`` a shortcut that can run an action?
 
     ``dictation_hotkey`` is the push-to-talk hotkey; ``others`` is the keys of
     the actions that already have a shortcut (not the one being checked).
+    ``hold`` says the shortcut is held while the person speaks (Command mode),
+    not pressed once: on Windows it then may not be Ctrl and Alt together
+    (without the Windows key), which is AltGr on many keyboards, so the
+    letter would be typed into the person's text, again and again while held.
     Returns ``{"ok": True, "keys": [...], "display": "..."}`` with the keys in
     their stored order, or ``{"ok": False, "error": "<one sentence>"}``.
     """
@@ -245,6 +253,9 @@ def check(keys, platform: str, dictation_hotkey: Sequence[str] = (),
                 else "Ctrl or the Windows key, with another modifier key")
         return {"ok": False, "error": f"Use {need}, so the shortcut doesn't type text or clash "
                                       f"with a shortcut in another app."}
+    if hold and platform == WINDOWS and "ctrl" in mods and "alt" in mods and "win" not in mods:
+        return {"ok": False, "error": "Ctrl and Alt together are the AltGr key on many keyboards, and it types "
+                                      "letters. Use Ctrl with Shift, or the Windows key, instead."}
     stored = _canonical_order(mods + [key], platform)
     here = comparable(stored, platform)
     if any(here == comparable(r, platform) for r in _RESERVED.get(platform, ())):
@@ -317,7 +328,13 @@ class _Serial:
             if self._draining:
                 return
             self._draining = True
-        self._spawn(self._drain)
+        try:
+            self._spawn(self._drain)
+        except Exception as e:      # noqa: BLE001 - out of threads: what is queued cannot run now
+            with self._lock:
+                self._queue.clear()
+                self._draining = False          # the next press may try again
+            self._log(f"[shortcut] {name} could not start: {type(e).__name__}")
 
     def _drain(self) -> None:
         while True:
@@ -359,10 +376,11 @@ class ActionHotkeys:
 
     # -- the actions -------------------------------------------------------
 
-    def conflict(self, action_id: str, keys, dictation_hotkey: Sequence[str] = ()) -> Optional[str]:
+    def conflict(self, action_id: str, keys, dictation_hotkey: Sequence[str] = (),
+                 hold: bool = False) -> Optional[str]:
         """Why ``keys`` cannot be this action's shortcut now (the same
         sentence ``register`` would return), or None."""
-        verdict = check(keys, self.platform, dictation_hotkey, self._others(action_id))
+        verdict = check(keys, self.platform, dictation_hotkey, self._others(action_id), hold=hold)
         return None if verdict["ok"] else verdict["error"]
 
     def _others(self, action_id: str) -> List[List[str]]:
@@ -386,7 +404,7 @@ class ActionHotkeys:
         run on a thread of the action's own, in order. A second call for the
         same ``action_id`` replaces the first and ends a hold in progress.
         Returns ``check``'s answer; nothing is registered when it is not ok."""
-        verdict = check(keys, self.platform, dictation_hotkey, self._others(action_id))
+        verdict = check(keys, self.platform, dictation_hotkey, self._others(action_id), hold=True)
         if not verdict["ok"]:
             return verdict
         return self._store(action_id, verdict, on_down, on_up)
@@ -429,15 +447,15 @@ class ActionHotkeys:
             # A key-up that never came must not keep a key "held" for ever.
             for k in [k for k, t in self._down.items() if now - t > HELD_FOR_S]:
                 del self._down[k]
+            stale = [aid for aid, h in self._holds.items() if now - h["since"] > HOLD_STALE_S]
+            ups = {aid: self._end_hold_locked(aid) for aid in stale}
             # The key of a hold in progress is held for as long as the hold is,
             # whether or not the system keeps repeating it.
             held = key in self._down or any(h["key"] == key for h in self._holds.values())
             self._down[key] = now           # a repeating key keeps itself "held"
-            if repeat or held:
-                return []
             mods = frozenset(modifiers)
             fired = []
-            for action_id, a in self._actions.items():
+            for action_id, a in ([] if repeat or held else self._actions.items()):
                 if a["key"] != key or a["mods"] != mods:
                     continue
                 last = self._last_fired.get(action_id)
@@ -445,8 +463,10 @@ class ActionHotkeys:
                     continue
                 self._last_fired[action_id] = now
                 if a.get("on_up") is not None:
-                    self._holds[action_id] = {"key": key, "mods": a["mods"]}
+                    self._holds[action_id] = {"key": key, "mods": a["mods"], "since": now}
                 fired.append((action_id, a["callback"], a.get("on_up") is not None))
+        for aid, on_up in ups.items():
+            self._post_up(aid, on_up)
         for action_id, callback, hold in fired:
             if hold:
                 self._serial_for(action_id).post(action_id, callback)
