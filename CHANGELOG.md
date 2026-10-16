@@ -188,6 +188,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   in the last ten minutes. Never on a snippet. The Journal's word count leaves
   the signature out, and the signature text is left out of the logs zip.
   Privacy and data and the privacy policy say so.
+- **Transforms (beta): rewrite the text you selected, with one shortcut.**
+  Settings has a new Transforms section, off until you turn it on. Select
+  text in any app, press your Transform shortcut (or pick "Transform selected
+  text" in the menu bar or the Windows tray), and the selection is replaced
+  with a rewrite. Polish cleans up the writing, with rules you switch on or off
+  (grammar and spelling, clearer wording, keep your tone, split long
+  sentences, paragraph breaks, lists and headings, make it shorter) and up to
+  five of your own. Prompt Engineer turns a rough request into a clear,
+  structured request for an AI model, using an outline you can edit and
+  reset; it writes "Not specified" where you said nothing and never invents
+  details. You can add up to five
+  transforms of your own, each a name and an instruction, and choose which
+  one the shortcut runs. The rewrite keeps names, numbers, links, code and
+  quoted text as they were, stays in your language, never softens a swear
+  word and uses no em dashes. If the answer is the same text, you are told
+  "Your text already looks good" and nothing is replaced; if it looks wrong
+  (under 30 percent of the words, or 10 percent for a transform of your own,
+  far too many, or cut off), nothing is replaced
+  and your text is untouched. Your app's own Undo takes a rewrite back, and
+  the toast says which keys. The shortcut needs two modifier keys and a
+  letter, number or F key, and cannot overlap your dictation hotkey; it only
+  listens, so it also reaches the app in front. It never starts during a
+  dictation, a dictation never starts during it, Esc or the pill's X stops it
+  until the paste begins, and it gives up after 30 seconds. If you move to
+  another app while it works, or change the selection where Waffler can tell,
+  nothing is pasted: the rewrite is put on your clipboard instead. Up to 1,000 words at a time. The
+  Journal shows each rewrite as its own entry: the text before and after, the
+  changes marked, and Copy result and Copy original; the toast has a "Show in
+  Journal" button. Rewrites are not counted in your words, dictations, streak
+  or cost per dictation. What you select is read through Accessibility, or by
+  copying it (your clipboard is put back), only when you use a transform, and
+  is sent to the clean-up provider you chose, on your own key. Privacy and data
+  and the privacy policy say so. Beta: please tell me what it gets wrong.
 
 ### Changed
 - **After a paste, your own clipboard is back (Mac).** This is the new

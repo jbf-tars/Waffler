@@ -79,6 +79,21 @@ keyboard and your clipboard. Specifically:
   in the last ten minutes. The signature is a setting kept on your computer;
   its text is left out of the logs bundle. With the signature off, none of
   this happens.
+- **Selected text (Transforms, only when you use it).** Transforms (Settings,
+  Transforms) is off until you turn it on. When you then press its shortcut,
+  or choose "Transform selected text" in the menu bar or the tray, Waffler
+  reads the text selected in the app in front: on a Mac through the
+  Accessibility permission, or, where an app does not share it, by pressing
+  Copy and putting your clipboard back (held in memory for about a second); on
+  Windows by pressing Ctrl+C the same way. It never reads a password field and
+  does nothing at any other time. That text, with your rules, is sent to the
+  clean-up provider you configured (Groq, OpenAI or Cerebras) to be rewritten;
+  the rewrite then replaces your selection by an ordinary paste. Recordings and
+  keys are not sent. The text before and after is kept in your history, and
+  deleted with it. Your own rules, outline and transforms are settings on your
+  computer, and their wording is left out of the logs bundle. The shortcut is
+  read by the same keyboard listener as your hotkey and only watches for that
+  one combination.
 - **The app you are in.** When you press the hotkey, Waffler notes which app
   is in front: its name (and, on a Mac, its identifier) and its kind, which it
   works out from a list built into Waffler: email, work chat, personal chat or

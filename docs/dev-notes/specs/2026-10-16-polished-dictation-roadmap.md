@@ -71,3 +71,33 @@ Start at login; persistent first-run setup with a live mic meter; Retry on "Not 
 ## Verification
 
 Each package ends with: new pytest tests, the full suite green (`python -m pytest tests -q`, baseline 1,298 passed and 13 skipped), `scripts/check_doc_drift.py`, pyflakes not above baseline, the import-every-module check, a CHANGELOG entry under `[Unreleased]`, and a local commit. Live provider checks for anything that changes a prompt or model. UI checked in a browser with a stubbed `pywebview.api`. Behaviour that needs real permissions (Accessibility reads, pasting into other apps, event taps, multi-display) is tested as far as this process allows and reported as unverified in a real session. Nothing is pushed, tagged or released.
+
+
+## Settings added
+
+Each package that adds a settings key records its shape here, so the shortcut editor (S11) and the next package find them in one place.
+
+### S7 Transforms (beta)
+
+One key in `settings.json`, `transforms`, an object. It is read with `transforms.settings(stored)` (every key present, anything unreadable the default) and written only through `save_settings({"transforms": {...}})`, which checks the whole payload first (`transforms.settings_problem`) and merges it (`transforms.merged`); a refused payload saves none of what came with it. A save names only the parts it changes. `get_settings()["transforms"]` is `transforms.window_view(stored)`: the same shape, plus `skeleton_default` and `hotkey_display`.
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `enabled` | bool | `false` | The whole feature. Off: no shortcut is registered, the menu item is hidden, a start request is ignored. |
+| `hotkey` | list of key names | `[]` | The Transform shortcut as the hotkey recorder names the keys (Mac: `control`, `option`, `shift`, `cmd`; Windows: `win`, `ctrl`, `alt`, `shift`; then one letter, digit or F key). Checked by `action_hotkeys.check`: one non-modifier key, at least two modifiers including Control or Command (Control or the Windows key on Windows), no Fn, nothing reserved, no overlap with `hotkey_keys`, nothing another action uses. Stored in the canonical order. Also saved through `Api.save_transform_hotkey(keys)` (the window's recorder). |
+| `default` | str | `"polish"` | Which transform the shortcut and the menu item run: `polish`, `prompt_engineer` or the `id` of one of `custom`. A value that is not there reads as `polish`; deleting the chosen transform resets it. |
+| `polish.rules` | `{key: bool}` | the defaults in `transforms.POLISH_RULES` (`grammar`, `clarity`, `tone`, `sentences`, `paragraphs` on; `structure`, `concise` off) | Unknown names are refused. At least one rule (or one of `custom_rules`) must stay on. |
+| `polish.custom_rules` | list of str | `[]` | Up to 5 one-line rules, 160 characters each, no duplicates. |
+| `prompt_engineer.skeleton` | str | `""` | The outline Prompt Engineer fills in, up to 1,200 characters. `""` means the built-in outline (`transforms.DEFAULT_SKELETON`); a save of the built-in text is stored as `""`, so a better built-in reaches whoever never changed it. |
+| `custom` | list of `{id, name, prompt}` | `[]` | Up to 5. `name` up to 40 characters, unique (any case), not "Polish" or "Prompt Engineer"; `prompt` up to 800. `id` is made by Waffler (`[a-z0-9_]{1,16}`); a name that was there keeps its id. |
+
+Related, added with it:
+
+- The answer is checked before it replaces anything (`transforms.finish`): the same text back is "no change"; under 30 percent of the words (10 percent for a `custom` transform, whose job may be to shorten), over 2.5 times the words (or 30 more; 300 more for Prompt Engineer and `custom`), or an answer the model said it cut off, replaces nothing.
+- Journal entries of `kind: "transform"` (`before`, `after`, `transform_id`, `transform_name`, `provider: {"transform": ...}`, `model`, `took_s`, plus the usual `app`, `app_bundle`, `category`, `paste`, `lang`). They have no `text` or `styled`, and `journal_data.compute_stats` counts them in `entries` and `transform_count` only. See `history_meta.py`.
+- Usage rows may carry `purpose: "transform"` (still `type: "gpt"`, priced as any call); `get_usage_stats` leaves them out of "about X a dictation" and adds `transform_count` and `transform_cost_usd`.
+- Notifier kinds `transform_result`, `transform_busy` (a gap of 8 s), `transform_failed`; toast action `show_transform:<entry id>`.
+- Logs bundle: `privacy_data.settings_for_logs` replaces the wording of `polish.custom_rules`, `prompt_engineer.skeleton` and `custom` with lengths.
+- `Api.save_hotkey_config` refuses a dictation hotkey that overlaps `transforms.hotkey` (`action_hotkeys.dictation_clash_message`).
+
+For S11: `src/action_hotkeys.py` keeps the shortcuts of actions in one registry (`register(action_id, keys, callback, dictation_hotkey)`, `unregister`, `conflict`, `registered`); Transform is the action `"transform"`. The Mac listener is a handler on the dictation hotkey's one event tap (`SmartHotkeyListener.attach_observer`), because a second tap crashed the process (src/mac_hotkey_monitor.py); Windows has a hook of its own.
