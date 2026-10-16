@@ -127,27 +127,21 @@ let _capturedKeys = new Set();
 const isMacPlatform = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
 let _lastCapturedKeys = isMacPlatform ? ["fn"] : ["win", "ctrl"];
 let _currentHotkeyKeys = isMacPlatform ? ["fn"] : ["win", "ctrl"];
-
-// Platform-specific key mapping
-const JS_KEY_TO_ID = isMacPlatform ? {
-  "Control": "control", "Alt": "option", "Shift": "shift",
-  "Meta": "cmd", "OS": "cmd",  // Command key on Mac
-} : {
-  "Control": "ctrl", "Alt": "alt", "Shift": "shift",
-  "Meta": "win", "OS": "win",  // Windows key
-};
+// What cancels a recording, as the Journal's live line names it: Esc until the
+// person has chosen another key (get_hotkey_config and Settings, Shortcuts).
+let _cancelLabel = 'Esc';
 
 const MODIFIER_IDS = new Set(isMacPlatform ?
   ["control", "option", "shift", "cmd", "fn"] :
   ["ctrl", "alt", "shift", "win"]
 );
 
+// The name the app saves for a key a keyboard event reports (logic.js
+// captureKeyId: a Windows letter is the key the layout types, a Mac's the
+// physical key, as each platform's keyboard listener reports it). In the cancel
+// key's dialog Esc is a key to record.
 function jsKeyToId(e) {
-  if (JS_KEY_TO_ID[e.key]) return JS_KEY_TO_ID[e.key];
-  if (e.code.startsWith("Key")) return e.code.slice(3).toLowerCase();
-  if (e.code.startsWith("Digit")) return e.code.slice(5);
-  if (e.code.startsWith("F") && !isNaN(e.code.slice(1))) return e.code.toLowerCase();
-  return null;
+  return WL.captureKeyId(e, isMacPlatform, _captureTarget);
 }
 
 function hotkeyDisplayStr(keys) {
@@ -785,6 +779,7 @@ async function loadHotkeyConfig() {
     const config = await window.pywebview.api.get_hotkey_config();
     if (config.ok) {
       _currentHotkeyKeys = config.keys;
+      _cancelLabel = WL.cancelLabel(config.cancel_display);
       renderHotkeyCaps(config.keys);
       renderSettingsHotkeyPresets();
     }
@@ -909,6 +904,7 @@ async function _onHotkeySaved(result) {
     wizRenderHotkey(result.keys);
   }
   await loadHotkeyConfig();
+  loadShortcuts();
 }
 
 // A preset in the hotkey dialog: saved at once, and the dialog closes.
@@ -940,18 +936,24 @@ function _showCaptured(keys) {
 
 // The dialog sets the dictation hotkey, or (from Settings, Transforms) the
 // Transform shortcut, or (Settings, Command mode) the keys held to give a
-// command: `_captureTarget` says which, and what it offers follows.
+// command, or (Settings, Shortcuts) Paste last, Copy last or the cancel key:
+// `_captureTarget` says which, and what it offers follows.
 let _captureTarget = 'dictation';
 
 function openHotkeyCapture(target) {
   _captureTarget = target === 'transform' || target === 'command' ? target : 'dictation';
+  if (WL.shortcutIsTarget(target)) _captureTarget = target;       // Paste last, Copy last, cancel too
   const forTransform = _captureTarget !== 'dictation';      // an action shortcut: no default, no presets
   _capturedKeys.clear();
   _lastCapturedKeys = _captureTarget === 'transform' ? WL.transformView(_lastSettings, isMacPlatform).hotkey.slice()
     : (_captureTarget === 'command' ? WL.commandView(_lastSettings, isMacPlatform).hotkey.slice() : [..._currentHotkeyKeys]);
+  if (_captureTarget !== 'dictation' && _captureTarget !== 'transform' && _captureTarget !== 'command') {
+    const row = WL.shortcutRows(_shortcuts, isMacPlatform).find((r) => r.id === _captureTarget);
+    _lastCapturedKeys = row ? row.keys.slice() : [];
+  }
   _showCaptured(_lastCapturedKeys);
   document.getElementById("hotkeyError").style.display = "none";
-  const text = WL.hotkeyDialogText(_captureTarget);
+  const text = WL.hotkeyDialogText(_captureTarget, isMacPlatform);
   const title = document.getElementById('hotkeyModalTitle');
   const sub = document.getElementById('hotkeyModalSub');
   if (title) title.textContent = text.title;
@@ -959,11 +961,15 @@ function openHotkeyCapture(target) {
   // An action shortcut (Transform, Command) has no default and no presets to pick from.
   const reset = document.getElementById('hotkeyResetBtn');
   if (reset) reset.hidden = forTransform;
+  // The cancel key has a default: Esc.
+  if (reset && _captureTarget === 'cancel') reset.hidden = false;
   // Setup has its own list of choices ("Pick another key").
   const presets = document.getElementById('hotkeyPresetRow');
   if (presets) presets.hidden = forTransform || (typeof _wizardVisible === 'function' && _wizardVisible());
   renderSettingsHotkeyPresets();
   _announceCaptured('');
+  _liveSeq += 1;                           // an answer to an earlier check is not this dialog's
+  _tellShortcutRecording(true);
   const modal = document.getElementById("hotkeyModal");
   modal.style.display = "flex";
   modalOpened(modal);
@@ -971,9 +977,28 @@ function openHotkeyCapture(target) {
   document.addEventListener("keyup", _onCaptureKeyUp);
 }
 
+// While the dialog is open the app's shortcuts neither run nor keep their keys
+// from it, so a combination in use can be pressed to be replaced. It closes the
+// moment the dialog does (and times out on its own if this page is reloaded).
+let _recordingChain = Promise.resolve();
+
+function _tellShortcutRecording(active) {
+  // One after the other, so "closed" can never overtake "open" on its way to the app.
+  _recordingChain = _recordingChain.then(async () => {
+    try {
+      if (window.pywebview && pywebview.api && pywebview.api.shortcut_recording) await pywebview.api.shortcut_recording(!!active);
+    } catch (e) {
+      console.warn('shortcut_recording error:', e);
+    }
+  });
+}
+
 function closeHotkeyCapture() {
   const modal = document.getElementById("hotkeyModal");
   modal.style.display = "none";
+  clearTimeout(_liveTimer);
+  _liveSeq += 1;
+  _tellShortcutRecording(false);
   document.removeEventListener("keydown", _onCaptureKeyDown);
   document.removeEventListener("keyup", _onCaptureKeyUp);
   _capturedKeys.clear();
@@ -989,7 +1014,7 @@ function _announceCaptured(text) {
 }
 
 function _onCaptureKeyDown(e) {
-  if (e.key === 'Escape') { e.preventDefault(); closeHotkeyCapture(); return; }
+  if (e.key === 'Escape' && _captureTarget !== 'cancel') { e.preventDefault(); closeHotkeyCapture(); return; }
   // Tab and Enter still reach the dialog's buttons.
   if (e.key === 'Tab' || (e.key === 'Enter' && !_capturedKeys.size)) return;
   e.preventDefault();
@@ -1000,6 +1025,11 @@ function _onCaptureKeyDown(e) {
   _lastCapturedKeys = [..._capturedKeys];
   _showCaptured(_lastCapturedKeys);
   document.getElementById("hotkeyError").style.display = "none";
+  _liveSeq += 1;
+  // A Mac sends no key-up for a letter while Command is held, so the check
+  // does not wait for it: it runs a moment after the last key went down.
+  clearTimeout(_liveTimer);
+  _liveTimer = setTimeout(_liveCheckCaptured, 600);
 }
 
 function _onCaptureKeyUp(e) {
@@ -1009,11 +1039,40 @@ function _onCaptureKeyUp(e) {
   if (id) _capturedKeys.delete(id);
   if (!_capturedKeys.size && _lastCapturedKeys.length && id) {
     _announceCaptured(WL.hotkeyName(_lastCapturedKeys, isMacPlatform));
+    _liveCheckCaptured();
+  }
+}
+
+// When the keys are let go, ask the app whether it would accept them (the same
+// rules as a save) and say so in the dialog, before Save is pressed. Only the
+// latest answer counts: more keys, or closing the dialog, drops a slower one.
+let _liveSeq = 0;
+let _liveTimer = null;
+
+async function _liveCheckCaptured() {
+  clearTimeout(_liveTimer);
+  const seq = ++_liveSeq;
+  const keys = _lastCapturedKeys.slice();
+  const errEl = document.getElementById("hotkeyError");
+  if (!errEl || !keys.length || !(window.pywebview && pywebview.api && pywebview.api.check_shortcut)) return;
+  let r = null;
+  try {
+    r = await pywebview.api.check_shortcut(_captureTarget, JSON.stringify(keys));
+  } catch (err) {
+    console.warn('check_shortcut error:', err);
+    return;
+  }
+  if (seq !== _liveSeq || !r) return;
+  if (r.ok === false && r.error) {
+    errEl.textContent = r.error;
+    errEl.style.display = "block";
+  } else {
+    errEl.style.display = "none";
   }
 }
 
 function resetHotkeyDefault() {
-  _lastCapturedKeys = WL.defaultHotkey(isMacPlatform);
+  _lastCapturedKeys = _captureTarget === 'cancel' ? ['esc'] : WL.defaultHotkey(isMacPlatform);
   _capturedKeys.clear();
   _showCaptured(_lastCapturedKeys);
   _announceCaptured(WL.hotkeyName(_lastCapturedKeys, isMacPlatform));
@@ -1027,6 +1086,7 @@ async function saveHotkeyCapture() {
   if (!keys.length) { fail("Hold the keys you want, then click Save."); return; }
   if (_captureTarget === 'transform') { await saveTransformHotkey(keys, fail); return; }
   if (_captureTarget === 'command') { await saveCommandHotkey(keys, fail); return; }
+  if (WL.shortcutIsTarget(_captureTarget)) { await saveShortcutCapture(_captureTarget, keys, fail); return; }
   // The backend decides (src/hotkey_rules.py) and says why in one sentence.
   let result;
   try {
@@ -1043,6 +1103,189 @@ async function saveHotkeyCapture() {
   // (wizHotkeyChanged says so).
   if (_wizardStep === 'try' && _wizardVisible()) { wizHotkeyChanged(result); return; }
   showToast(`Hotkey is now ${result.display || WL.hotkeyName(result.keys, isMacPlatform)}`, 'success');
+}
+
+// ── Settings, Shortcuts ──────────────────────────────────────────────────
+// Every shortcut on one page (src/shortcut_settings.py): a row each for Hold to
+// dictate, Hands-free, Cancel, Transform, Command mode, Paste last and Copy
+// last. The rows, the rules and the refused combinations come from the app
+// (get_shortcuts); the page holds no rule of its own. A shortcut is set in the
+// hotkey dialog (openHotkeyCapture), which asks the app whether the keys pass
+// before Save, and is saved through save_shortcut, the same checks as the
+// Transforms and Command mode sections make for their own.
+let _shortcuts = null;       // the last get_shortcuts() answer
+let _scSeq = 0;              // the newest request; an older answer is dropped
+let _scFocus = '';           // the row whose button gets focus after the next draw
+
+function _scError(msg) {
+  const el = document.getElementById('shortcutsError');
+  if (!el) return;
+  el.textContent = msg || '';
+  el.hidden = !msg;
+}
+
+async function loadShortcuts() {
+  const seq = ++_scSeq;
+  let r = null;
+  try {
+    if (window.pywebview && pywebview.api && pywebview.api.get_shortcuts) r = await pywebview.api.get_shortcuts();
+  } catch (e) {
+    console.warn('get_shortcuts error:', e);
+  }
+  if (seq !== _scSeq) return;
+  if (r && r.ok) {
+    _shortcuts = r;
+    _scError('');
+    const cancel = WL.shortcutRows(r, isMacPlatform).find((row) => row.id === 'cancel');
+    if (cancel && cancel.set) _cancelLabel = WL.cancelLabel(cancel.shown);
+  } else if (!_shortcuts) {
+    _scError(WL.SHORTCUT_TEXT.loadFailed);
+  }
+  renderShortcuts();
+}
+
+function _shortcutRowHtml(r) {
+  const id = escHtml(r.id);
+  const caps = r.set
+    ? `<span class="keys sc-caps" role="img" aria-label="${escHtml(r.capsLabel)}">${_capsHtml(r.keys)}</span>`
+    : '<span class="sc-unset">Not set</span>';
+  const described = `sc-${id}-t${r.conflict ? ` sc-${id}-c` : ''}`;
+  const buttons = r.fixed ? '' : `<div class="sc-acts">
+      <button type="button" class="btn btn-sec btn-sm" data-act="change" data-id="${id}" aria-label="${escHtml(r.changeLabel)}" aria-describedby="${described}"${r.canChange ? '' : ' disabled'}>${r.changeText}</button>${r.canClear ? `
+      <button type="button" class="btn btn-quiet btn-sm" data-act="clear" data-id="${id}" aria-label="${escHtml(r.clearLabel)}" aria-describedby="${described}">${escHtml(r.clearText)}</button>` : ''}
+    </div>`;
+  return `<div class="row sc-row${r.off ? ' is-off' : ''}" role="listitem" data-id="${id}">
+    <div class="row-main">
+      <div class="row-t" id="sc-${id}-t">${escHtml(r.label)}</div>
+      <div class="row-d">${escHtml(r.description)}</div>
+      <div class="sc-keyline">${caps}</div>${r.conflict ? `
+      <p class="s-error sc-conflict" id="sc-${id}-c">${escHtml(r.conflict)}</p>` : ''}${r.needs ? `
+      <p class="sc-needs"><button type="button" class="link-btn" data-act="enable" data-sec="${escHtml(r.needsSection)}" data-id="${id}">${escHtml(r.needs)}</button></p>` : ''}
+    </div>${buttons}
+  </div>`;
+}
+
+function renderShortcuts() {
+  const list = document.getElementById('shortcutsList');
+  if (!list) return;
+  const rows = WL.shortcutRows(_shortcuts, isMacPlatform);
+  list.hidden = !rows.length;
+  list.innerHTML = rows.map(_shortcutRowHtml).join('');
+  if (_scFocus) {
+    const target = list.querySelector(`[data-act="change"][data-id="${_scFocus}"]:not(:disabled)`)
+      || list.querySelector(`[data-act="enable"][data-id="${_scFocus}"]`);
+    _scFocus = '';
+    if (target) target.focus();
+  }
+  renderShortcutRules();
+  // The Transforms and Command mode sections say the same sentence about their own shortcut.
+  [['transform', 'transformsConflict'], ['command', 'commandConflict']].forEach(([id, elId]) => {
+    const node = document.getElementById(elId);
+    const row = rows.find((r) => r.id === id);
+    if (!node) return;
+    node.textContent = row ? row.conflict : '';
+    node.hidden = !(row && row.conflict);
+  });
+}
+
+// One listener for every row's buttons (the rows are drawn again after each change).
+(function wireShortcuts() {
+  const list = document.getElementById('shortcutsList');
+  if (!list) return;
+  list.addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-act]');
+    if (!b || b.disabled) return;
+    const id = b.getAttribute('data-id');
+    const act = b.getAttribute('data-act');
+    if (act === 'change') openHotkeyCapture(id === 'dictation' ? undefined : id);
+    else if (act === 'clear') clearShortcut(id);
+    else if (act === 'enable' && b.getAttribute('data-sec')) showSettingsSection(b.getAttribute('data-sec'));
+  });
+})();
+
+function _shortcutLabel(id) {
+  const row = WL.shortcutRows(_shortcuts, isMacPlatform).find((r) => r.id === id);
+  return row ? row.label : 'Shortcut';
+}
+
+function renderShortcutRules() {
+  const v = WL.shortcutRulesView(_shortcuts);
+  const fill = (id, items) => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = items.map((t) => `<li>${escHtml(t)}</li>`).join('');
+  };
+  fill('shortcutsRuleLines', v.lines);
+  fill('shortcutsReserved', v.reserved);
+}
+
+function toggleShortcutRules() {
+  const btn = document.getElementById('shortcutsRulesBtn');
+  const box = document.getElementById('shortcutsRules');
+  if (!btn || !box) return;
+  const open = box.hidden;
+  box.hidden = !open;
+  btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
+// Save from the dialog: Paste last, Copy last or the cancel key (Transform and
+// Command mode keep their own saves, which also refresh their sections).
+async function saveShortcutCapture(target, keys, fail) {
+  let result;
+  try {
+    result = await window.pywebview.api.save_shortcut(target, JSON.stringify(keys));
+  } catch (e) {
+    console.error('saveShortcutCapture error:', e);
+    result = { ok: false, error: WL.SHORTCUT_TEXT.saveFailed };
+  }
+  if (!result || !result.ok) { fail((result && result.error) || WL.SHORTCUT_TEXT.saveFailed); return; }
+  const label = _shortcutLabel(target);
+  closeHotkeyCapture();
+  _scError('');
+  _scFocus = target;
+  await loadShortcuts();
+  showToast(WL.shortcutSaved(label, result.display, false, target), 'success', 3500);
+}
+
+async function clearShortcut(id) {
+  const label = _shortcutLabel(id);
+  let result = null;
+  try { result = await window.pywebview.api.save_shortcut(id, '[]'); } catch (e) { result = null; }
+  if (!result || !result.ok) { _scError((result && result.error) || WL.SHORTCUT_TEXT.clearFailed); return; }
+  _scError('');
+  _scFocus = id;
+  await loadShortcuts();
+  if (id === 'transform') refreshTransformSettings();
+  if (id === 'command') refreshCommandSettings();
+  showToast(id === 'cancel' ? WL.shortcutSaved(label, 'Esc', false, id) : WL.shortcutSaved(label, '', true, id), 'success', 3500);
+}
+
+function askShortcutsReset(ask) {
+  const row = document.getElementById('shortcutsResetRow');
+  const confirmRow = document.getElementById('shortcutsResetConfirm');
+  if (!row || !confirmRow) return;
+  document.getElementById('shortcutsResetAskText').textContent = WL.SHORTCUT_TEXT.resetAsk;
+  document.getElementById('shortcutsResetBody').textContent = WL.SHORTCUT_TEXT.resetBody;
+  confirmRow.hidden = !ask;
+  document.getElementById('shortcutsResetAsk').hidden = !!ask;
+  const to = document.getElementById(ask ? 'shortcutsResetNo' : 'shortcutsResetAsk');
+  if (to) to.focus();
+}
+
+async function resetShortcuts(btn) {
+  if (btn) btn.disabled = true;
+  let r = null;
+  try { r = await window.pywebview.api.reset_shortcuts(); } catch (e) { r = null; }
+  if (btn) btn.disabled = false;
+  if (!r || !r.ok) { _scError((r && r.error) || WL.SHORTCUT_TEXT.resetFailed); return; }
+  _scError('');
+  _shortcuts = r;
+  askShortcutsReset(false);
+  renderShortcuts();
+  // The sections that show the same shortcuts follow.
+  loadHotkeyConfig();
+  refreshTransformSettings();
+  refreshCommandSettings();
+  showToast(WL.SHORTCUT_TEXT.resetDone, 'success', 3500);
 }
 
 // ── Journal: loading ─────────────────────────────────────────────────
@@ -1368,7 +1611,11 @@ function _journalLive(cls, time) {
   const esc = document.getElementById('journalLiveEsc');
   if (t) t.textContent = text;
   if (tm) tm.textContent = time || '';
-  if (esc) esc.hidden = cls === 'processing';
+  if (esc) {
+    esc.hidden = cls === 'processing';
+    const caps = esc.querySelector('kbd');
+    if (caps) caps.textContent = _cancelLabel;
+  }
 }
 
 // ── Render ─────────────────────────────────────────────────────────────
@@ -1435,7 +1682,7 @@ function qualityBadge(item) {
 const _unsentMessages = {};
 
 function makeNotSentCard(item, isNew) {
-  const v = WL.notSentView(item);
+  const v = WL.notSentView(item, _cancelLabel);
   const div = document.createElement('article');
   div.className = 'transcript-card j-ent not-sent-card' + (isNew ? ' new' : '');
   if (v.id) div.dataset.unsentId = v.id;
@@ -3496,7 +3743,7 @@ function showSettingsSection(sec) {
   if (panel && panel.scrollTop) panel.scrollTop = 0;
   if (sec !== 'keys') closeKeyEditor();
   // The hotkey test starts fresh each time Hotkey is opened.
-  if (sec === 'hotkey') { _hotkeyHeard = false; _renderHotkeyTest(); }
+  if (sec === 'hotkey') { _hotkeyHeard = false; _renderHotkeyTest(); loadShortcuts(); }
   _syncMicMeter();
 }
 
@@ -4063,6 +4310,7 @@ async function refreshCommandSettings() {
     console.warn('get_settings error:', e);
   }
   renderCommandSection();
+  loadShortcuts();            // the Shortcuts page shows the same shortcut
 }
 
 function renderCommandSection() {
@@ -4184,6 +4432,7 @@ async function refreshTransformSettings() {
     console.warn('get_settings error:', e);
   }
   renderTransformsSection();
+  loadShortcuts();            // the Shortcuts page shows the same shortcut
 }
 
 function renderTransformsSection() {

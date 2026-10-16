@@ -1103,6 +1103,29 @@ mark.hl {
 .cmd-said q, .cmd-example q { quotes: "\201C" "\201D"; }
 .settings-panel .cmd-example .row-t { font-weight: 400; overflow-wrap: anywhere; }
 
+/* Settings, Shortcuts: a row for every shortcut, the keys as keycaps, a plain
+   sentence under one that no longer passes the rules. A shortcut whose feature
+   is off is drawn quiet, with where to turn it on. Tokens only. */
+.sc-list[hidden], .sc-rules[hidden], .sc-confirm[hidden], .s-error[hidden] { display: none; }
+.sc-row .row-main { min-width: 0; }
+.sc-keyline { display: flex; align-items: center; min-height: 26px; margin-top: 8px; }
+.sc-unset { font: 400 12.75px/26px var(--f-ui); color: var(--muted); }
+.sc-conflict { margin-top: 8px; max-width: 62ch; }
+.sc-needs { margin: 8px 0 0; font: var(--t-desc); color: var(--text-2); }
+.sc-acts { display: flex; align-items: center; flex: none; gap: 8px; }
+.sc-row.is-off .row-t, .sc-row.is-off .row-d, .sc-row.is-off .sc-unset { color: var(--muted); }
+.sc-row.is-off .keys { opacity: 0.6; }
+.sc-tools { display: flex; align-items: center; gap: 14px; margin: 12px 2px 0; font: 400 12.75px/1.4 var(--f-ui); }
+.sc-rules { margin-top: 10px; padding: 14px 18px 16px; }
+.sc-rules .tx-h3 { margin: 16px 0 6px; }
+.sc-rule-list { margin: 0; padding: 0 0 0 18px; font: var(--t-desc); color: var(--text-2); }
+.sc-rule-list li { margin: 0 0 5px; max-width: 70ch; }
+.sc-reserved { columns: 2; column-gap: 28px; }
+.sc-reserved li { break-inside: avoid; }
+.sc-reset { margin-top: 14px; }
+.sc-confirm { background: var(--honey-tint); }
+.settings-panel .sheet > .sc-confirm:last-child { border-radius: 0 0 11px 11px; }
+
 /* ── Keys and providers ──────────────────────────────────────────────── */
 .flow { display: flex; align-items: center; margin-top: 22px; padding: 16px 18px; }
 .fnode { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
@@ -1590,6 +1613,7 @@ body[data-theme="dark"] .kc-xl.held {
   .snav-item { height: 32px; padding: 0 10px 0 14px; }
   .scol { padding: 18px 14px 28px; }
   .themes, .presets, .twocol, .ledger, .ledger-3, .facts, .cost, .pv-hero, .ab-hero, .ins-pair { grid-template-columns: minmax(0, 1fr); }
+  .sc-reserved { columns: 1; }
   .settings-panel .twocol .row + .row, .ledger > div + div, .facts > div + div, .ins-pane + .ins-pane { border-left: 0; border-top: 1px solid var(--line); }
   .u-top { flex-wrap: wrap; }
   .u-facts { margin-left: 0; }

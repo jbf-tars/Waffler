@@ -92,7 +92,8 @@
     return 'error';
   }
 
-  function notSentView(item) {
+  // `cancelKey` is what cancels a recording ("Esc" unless the person chose another key).
+  function notSentView(item, cancelKey) {
     const id = notSentId(item);
     const p = (item && item.provider_name) || 'your speech service';
     const P = p.charAt(0).toUpperCase() + p.slice(1);
@@ -105,7 +106,7 @@
       rate_limited: `${P} said you'd reached your limit for now. ${kept}`,
       later: `You chose to send this later. ${kept}`,
       stuck: `Waffler stopped waiting for this one. ${kept}`,
-      cancelled: `You pressed Esc while this was being turned into text, so nothing was pasted. ${kept}`,
+      cancelled: `You pressed ${typeof cancelKey === 'string' && cancelKey.trim() ? cancelKey.trim() : 'Esc'} while this was being turned into text, so nothing was pasted. ${kept}`,
       // The same sentence as src/user_messages.py INTERRUPTED_MESSAGE (a test keeps them equal).
       interrupted: `Waffler was closed before this one was turned into text. ${kept}`,
       empty: "This recording was sent again, but no words could be heard in it.",
@@ -1143,7 +1144,7 @@
   // The line under the shortcut.
   function transformShortcutLine(view) {
     if (view && view.hotkey && view.hotkey.length) {
-      return 'Select text in any app and press it. The keys also reach the app, so pick a combination it does not use.';
+      return 'Select text in any app and press it. The key of the shortcut does not reach the app.';
     }
     return 'Not set. Choose keys, or use "Transform selected text" in the menu bar.';
   }
@@ -1159,16 +1160,144 @@
     return 'Saved.';
   }
 
-  // The hotkey dialog, for the dictation hotkey, the Transform shortcut or the
-  // Command shortcut.
-  function hotkeyDialogText(target) {
+  // The hotkey dialog, for the dictation hotkey, the Transform shortcut, the
+  // Command shortcut, Paste last, Copy last or the cancel key. `isMac` adds what
+  // is true only on a Mac (holding modifier keys alone, the F keys needing Fn).
+  function hotkeyDialogText(target, isMac) {
+    const press = 'Use a letter, a number or an F key with two modifier keys, or an F key on its own.';
     if (target === 'command') {
-      return { title: 'Hold your Command shortcut', sub: 'Hold the keys you want, then let go. Use a letter, a number or an F key with two modifier keys. You will hold these keys while you speak. Esc cancels.' };
+      return { title: 'Hold your Command shortcut', sub: `Hold the keys you want, then let go. Use a letter, a number or an F key with two modifier keys${isMac ? ', or just two or more modifier keys, such as Control and Option' : ''}. You will hold these keys while you speak. Esc cancels.` };
     }
-    return target === 'transform'
-      ? { title: 'Hold your Transform shortcut', sub: 'Hold the keys you want, then let go. Use a letter, a number or an F key with two modifier keys. Esc cancels.' }
-      : { title: 'Hold your new keys', sub: 'Hold the combination you want, then let go. Esc cancels.' };
+    if (target === 'transform') {
+      return { title: 'Hold your Transform shortcut', sub: `Hold the keys you want, then let go. ${press} Esc cancels.` };
+    }
+    if (target === 'paste_last') {
+      return { title: 'Hold your Paste last shortcut', sub: `Hold the keys you want, then let go. ${press} It pastes when you let go. Esc cancels.` };
+    }
+    if (target === 'copy_last') {
+      return { title: 'Hold your Copy last shortcut', sub: `Hold the keys you want, then let go. ${press} Esc cancels.` };
+    }
+    if (target === 'cancel') {
+      return { title: 'Press your cancel key', sub: `Press one key: Esc, or an F key. Esc is recorded here, so use Cancel below to close this window.${isMac ? ' On a Mac laptop F1 to F12 need the Fn key unless your keyboard settings use them as standard function keys.' : ''}` };
+    }
+    return { title: 'Hold your new keys', sub: 'Hold the combination you want, then let go. Esc cancels.' };
   }
+
+  // ── Shortcuts: every shortcut on one page ─────────────────────────────
+  // The rows, the rules and the refused combinations come from the app
+  // (src/shortcut_settings.py get_shortcuts); these shape them for the page and
+  // decide the key the dialog records. The rules themselves are the app's.
+
+  // The shortcuts the hotkey dialog can record besides the dictation hotkey.
+  const SHORTCUT_TARGETS = ['transform', 'command', 'paste_last', 'copy_last', 'cancel'];
+
+  function shortcutIsTarget(id) {
+    return SHORTCUT_TARGETS.indexOf(id) >= 0;
+  }
+
+  // The name the app saves for a key a keyboard event reports, or null for a
+  // key a shortcut cannot use. Modifiers are named as the platform names them.
+  // Letters differ by platform because the keyboards' listeners do: a Mac's
+  // reports the physical key (so `code`), a Windows keyboard hook reports the
+  // key by the character it types in the layout in use (so `key`, which is the
+  // same key on an AZERTY or Dvorak layout where `code` is not). A key that
+  // types no Latin letter (Cyrillic, Greek, a dead key) is still the same
+  // virtual key as the physical position, so it falls back to `code`. With
+  // `target` 'cancel', Esc is a key to record, not a way to close the dialog.
+  function captureKeyId(ev, isMac, target) {
+    const e = ev || {};
+    const key = typeof e.key === 'string' ? e.key : '';
+    const code = typeof e.code === 'string' ? e.code : '';
+    const mods = isMac
+      ? { Control: 'control', Alt: 'option', Shift: 'shift', Meta: 'cmd', OS: 'cmd' }
+      : { Control: 'ctrl', Alt: 'alt', Shift: 'shift', Meta: 'win', OS: 'win' };
+    if (Object.prototype.hasOwnProperty.call(mods, key)) return mods[key];
+    if (target === 'cancel' && (key === 'Escape' || code === 'Escape')) return 'esc';
+    // Space is no part of a shortcut, but it is recorded for the shortcuts that
+    // are checked by the app, so that Command + Space is refused with the reason
+    // (it opens Spotlight) rather than ignored. The dictation hotkey's dialog
+    // never recorded it and still does not.
+    if ((target === 'transform' || target === 'command' || target === 'paste_last' || target === 'copy_last')
+        && (key === ' ' || code === 'Space')) return 'space';
+    if (!isMac && /^[A-Za-z]$/.test(key)) return key.toLowerCase();
+    let m = /^Key([A-Z])$/.exec(code);
+    if (m) return m[1].toLowerCase();
+    m = /^Digit([0-9])$/.exec(code);
+    if (m) return m[1];
+    m = /^(F(?:[1-9]|1[0-9]|2[0-4]))$/.exec(code);
+    return m ? m[1].toLowerCase() : null;
+  }
+
+  // The page's rows from get_shortcuts(): anything odd is left out or empty.
+  // `off` is a shortcut whose feature is switched off: it is drawn greyed with
+  // where to turn it on, and cannot be changed until it is on.
+  const SHORTCUT_SECTIONS = { 'Transforms': 'transforms', 'Command mode': 'command' };
+
+  function shortcutRows(data, isMac) {
+    const rows = data && Array.isArray(data.rows) ? data.rows : [];
+    return rows.filter((r) => r && typeof r.id === 'string' && typeof r.label === 'string').map((r) => {
+      const keys = (Array.isArray(r.keys) ? r.keys : []).filter((k) => typeof k === 'string');
+      const set = keys.length > 0;
+      const off = r.enabled === false;
+      const label = r.label;
+      const fixed = r.kind === 'fixed' || r.editable === false;
+      const shown = set ? hotkeyName(keys, !!isMac) : '';
+      return {
+        id: r.id,
+        label,
+        description: typeof r.description === 'string' ? r.description : '',
+        kind: r.kind === 'hold' || r.kind === 'fixed' ? r.kind : 'press',
+        keys,
+        set,
+        shown,
+        capsLabel: set ? `${label} shortcut: ${shown}` : `${label} shortcut: not set`,
+        fixed,
+        off,
+        canChange: !fixed && !off,
+        changeText: set ? 'Change…' : 'Set…',
+        changeLabel: `${set ? 'Change' : 'Set'} the ${label} shortcut`,
+        canClear: !fixed && !off && r.clearable === true,
+        clearText: typeof r.clear_text === 'string' && r.clear_text ? r.clear_text : 'Clear',
+        clearLabel: typeof r.clear_label === 'string' && r.clear_label ? r.clear_label : `Clear the ${label} shortcut`,
+        conflict: typeof r.conflict === 'string' ? r.conflict : '',
+        needs: off && typeof r.needs === 'string' ? r.needs : '',
+        needsSection: off && Object.prototype.hasOwnProperty.call(SHORTCUT_SECTIONS, r.needs_section) ? SHORTCUT_SECTIONS[r.needs_section] : '',
+      };
+    });
+  }
+
+  // The "Which shortcuts can I use?" part: sentences, then the refused ones.
+  function shortcutRulesView(data) {
+    const rules = data && typeof data.rules === 'object' && data.rules ? data.rules : {};
+    const lines = (Array.isArray(rules.lines) ? rules.lines : []).filter((l) => typeof l === 'string' && l);
+    const reserved = (Array.isArray(rules.reserved) ? rules.reserved : [])
+      .filter((x) => x && typeof x.line === 'string' && x.line).map((x) => x.line);
+    return { lines, reserved };
+  }
+
+  // What the page says after a save. The cancel key is a key, not a shortcut.
+  function shortcutSaved(label, shown, cleared, id) {
+    const noun = id === 'cancel' ? 'key' : 'shortcut';
+    const name = label ? `${label} ${noun}` : (noun === 'key' ? 'Key' : 'Shortcut');
+    if (cleared) return `${name} cleared.`;
+    return shown ? `${name} is now ${shown}.` : `${name} saved.`;
+  }
+
+  // What the window calls the key that cancels a recording: "Esc" until the
+  // person chooses another, from get_hotkey_config or a Shortcuts row.
+  function cancelLabel(name) {
+    return typeof name === 'string' && name.trim() ? name.trim() : 'Esc';
+  }
+
+  const SHORTCUT_TEXT = {
+    resetAsk: 'Reset every shortcut?',
+    resetBody: 'Hold to dictate goes back to its default, Cancel to Esc, and Transform, Command mode, Paste last and Copy last lose their shortcuts. Their switches stay as they are.',
+    resetDone: 'Shortcuts reset.',
+    resetFailed: "Couldn't reset your shortcuts. Try again.",
+    loadFailed: "Couldn't read your shortcuts. Try again.",
+    saveFailed: "Couldn't save the shortcut. Try again.",
+    clearFailed: "Couldn't clear the shortcut. Try again.",
+  };
 
   // What became of the words, for a rewrite's entry in the Journal. `where`
   // is " in Notes" or nothing.
@@ -1247,7 +1376,7 @@
   // The line under the shortcut.
   function commandShortcutLine(view) {
     if (view && view.hotkey && view.hotkey.length) {
-      return 'Hold these keys, say what you want, then let go. Esc stops it. The keys also reach the app, so pick a combination it does not use.';
+      return 'Hold these keys, say what you want, then let go. Your cancel key stops it. The key of the shortcut does not reach the app.';
     }
     return 'Not set. Choose keys to hold while you speak.';
   }
@@ -2291,7 +2420,8 @@
     cleanupSaved, styleSaved, signatureSaved, signatureView,
     TRANSFORM_RULES, TRANSFORM_LIMITS, TRANSFORM_BUILT_IN, TRANSFORM_TEXT, transformView, transformCheck,
     transformRuleCheck, transformOutlineView, transformShortcutLine, transformSaved, hotkeyDialogText,
-    transformEntryView,
+    transformEntryView, SHORTCUT_TARGETS, shortcutIsTarget, captureKeyId, shortcutRows, shortcutRulesView,
+    shortcutSaved, SHORTCUT_TEXT, cancelLabel,
     COMMAND_ENGINES, COMMAND_EXAMPLES, commandEngineLabel, commandView, commandShortcutLine, commandSaved,
     commandEntryView,
     clipboardAfterPasteView, clipboardAfterPasteSaved, feedbackView, feedbackSaved, METER_CELLS, micMeter, usageChart, usageFacts, flowView, PROVIDER_MARKS, providerPill,

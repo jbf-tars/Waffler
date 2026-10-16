@@ -270,8 +270,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   far too many, cut off, or, for Polish, sharing almost none of your wording), nothing is replaced
   and your text is untouched. Your app's own Undo takes a rewrite back, and
   the toast says which keys. The shortcut needs two modifier keys and a
-  letter, number or F key, and cannot overlap your dictation hotkey; it only
-  listens, so it also reaches the app in front. It never starts during a
+  letter, number or F key (or an F key on its own), and cannot overlap your
+  dictation hotkey; its key does not reach the app in front. It never starts during a
   dictation, a dictation never starts during it, Esc or the pill's X stops it
   until the paste begins, and it gives up after 30 seconds. If you move to
   another app while it works, change the selection where Waffler can tell, or
@@ -311,8 +311,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   or "Searched" with the engine, with what you said and, for an edit, the
   text before and after with the changes marked; commands are not counted in
   your words, dictations, streak or cost per dictation, and have no Redo
-  because no recording is kept. The shortcut only listens, so it also reaches
-  the app in front. What you say is turned into text by your speech provider,
+  because no recording is kept. The key of the shortcut does not reach the
+  app in front. What you say is turned into text by your speech provider,
   and it and the text you selected (or the text before your cursor) are sent
   only while you hold the shortcut, to the clean-up provider you chose, on
   your own key. Privacy and data and the privacy policy say so. Beta: please
@@ -346,8 +346,68 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   shows the working. It leaves out the moment Waffler takes to answer and
   the time typing would spend on mistakes, so it is a guide rather than a
   measurement.
+- **Shortcuts: every shortcut in one place.** Settings, Hotkey is now
+  Shortcuts. A row each for Hold to dictate, Hands-free (your hotkey and
+  Space, read only), Cancel, Transform, Command mode, Paste last and Copy
+  last, with what it does, its keys as keycaps, Change and Clear, and a plain
+  sentence under any shortcut that clashes with another or no longer passes
+  the rules. Transform and Command mode are greyed, with "Turn on in
+  Transforms" or "Turn on in Command mode", until you switch them on; their
+  own sections keep working and link here. One dialog sets them all, and as
+  you let go of the keys it tells you whether Waffler would accept them
+  (taken by another shortcut, inside your dictation hotkey, used by your
+  computer, and why), before you press Save. "Which shortcuts can I use?"
+  lists the rules and every combination that is refused with who uses it, and
+  Reset shortcuts puts everything back (after asking), leaving the switches of
+  Transform and Command mode alone. The dictation hotkey's test and presets
+  are still on the page, below the rows.
+- **Paste last and Copy last have shortcuts.** Choose keys for either in
+  Shortcuts (none until you do). Paste last pastes your last result again with
+  the same careful paste as a dictation, once you let go of the keys, so the
+  keys you are holding never reach the app (on Windows it also waits for Shift
+  and the others to come up first, so it is Ctrl+V and nothing more); Copy last puts it on the clipboard
+  and says so, since nothing else shows it. Neither runs while a dictation, a
+  command or a transform is going, and each says so (and says when there is
+  nothing yet), once every few seconds, never in a stack. The menu bar items
+  work as before. An F key on its own is enough for either, and for Transform:
+  F13 to F20 are free on most keyboards.
+- **Choose your cancel key.** Esc cancels a recording, as ever. In Shortcuts
+  you can pick an F key (F1 to F20) instead, for example if Esc is yours in
+  vim. It cannot be a key of your dictation hotkey or of another shortcut, and
+  on a Mac with Fn as the hotkey not F13 to F15, which some keyboards send for
+  Fn. Nothing else about recording, hands-free or cancelling changes.
+- **Command mode can be two modifier keys held together (Mac).** Hold Control
+  and Option, say what you want, let go: nothing is typed, because no letter is
+  involved. It starts after a moment's hold, and not if you press any other
+  key meanwhile, so Control and Option on the way to another shortcut start
+  nothing. It needs Control or Command, and two or more keys; one key alone, or
+  Option and Shift (which type and select), are refused with the reason.
 
 ### Changed
+- **A shortcut's key no longer reaches the app in front.** Transform, Command
+  mode, Paste last and Copy last used to only listen, so holding Command
+  mode's keys also typed its letter into the app and a combination like
+  Command + Shift + P also ran that app's shortcut. Now the key of a shortcut
+  (and its repeats, and letting go) is kept from the app, while the modifier
+  keys always pass. A key is only kept when the modifiers held are exactly the
+  shortcut's, and never while you are choosing a new shortcut in Settings or
+  holding your dictation hotkey. A key whose release is lost is forgotten
+  after a moment, so no key can stay stuck. Windows works the same way.
+- **More combinations are refused, and each says why.** Your computer's own
+  (Command + Space, Command + Tab, Control + Space, Windows + Space, Alt + Tab
+  and others) and the ones most apps use (redo, reopen a tab, developer tools
+  and others) are named with who uses them. On Windows, Ctrl and Alt together
+  are the AltGr key on many keyboards, so they can no longer be used with a
+  letter or a number for any shortcut (an F key is fine); a shortcut saved that
+  way is not used and the page says so. On a Mac whose dictation hotkey is Fn,
+  F1 to F15 are refused for a shortcut: the F1 to F12 keys are reached by
+  holding Fn, and some keyboards send F13 to F15 as Fn itself, so the shortcut
+  would start a recording too. F16 to F20 are free.
+- **Windows: the keys you choose are the keys you press.** The shortcut
+  recorder named a letter by its place on the keyboard, while Windows hears it
+  by what your layout types, so on an AZERTY or Dvorak keyboard a shortcut
+  recorded as "Q" fired on the key labelled A. It now records the key you
+  pressed. A shortcut you saved earlier is left as it is.
 - **After a paste, your own clipboard is back (Mac).** This is the new
   default of the paste above; turn on "Keep what I dictated on the clipboard"
   in Settings, General, to leave the dictation there as before. With "Paste

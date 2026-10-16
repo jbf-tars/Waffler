@@ -153,7 +153,7 @@
         <button type="button" class="snav-item" data-sec="transforms" onclick="showSettingsSection('transforms')">Transforms (beta)</button>
         <button type="button" class="snav-item" data-sec="command" onclick="showSettingsSection('command')">Command mode (beta)</button>
         <button type="button" class="snav-item" data-sec="keys" onclick="showSettingsSection('keys')">Keys and providers</button>
-        <button type="button" class="snav-item" data-sec="hotkey" onclick="showSettingsSection('hotkey')">Hotkey</button>
+        <button type="button" class="snav-item" data-sec="hotkey" onclick="showSettingsSection('hotkey')">Shortcuts</button>
         <button type="button" class="snav-item" data-sec="usage" onclick="showSettingsSection('usage')">Usage</button>
         <button type="button" class="snav-item" data-sec="privacy" onclick="showSettingsSection('privacy')">Privacy and data</button>
         <button type="button" class="snav-item" data-sec="about" onclick="showSettingsSection('about')">About</button>
@@ -368,6 +368,7 @@
                 <div class="row-t" id="transformsShortcutTitle">Shortcut</div>
                 <div class="row-d" id="transformsShortcutDesc"></div>
                 <span class="keys tx-caps" id="transformsCaps" role="img" hidden></span>
+                <p class="s-error sc-conflict" id="transformsConflict" hidden></p>
               </div>
               <button type="button" class="btn btn-sec btn-sm" id="transformsChange" aria-describedby="transformsShortcutTitle" onclick="openHotkeyCapture('transform')">Change…</button>
               <button type="button" class="btn btn-quiet btn-sm" id="transformsRemove" aria-describedby="transformsShortcutTitle" onclick="clearTransformHotkey()">Remove</button>
@@ -379,6 +380,7 @@
           </div>
           <p class="s-error" id="transformsError" role="alert" hidden></p>
           <p class="s-note" id="transformsOffNote" hidden>Transforms is off, so the shortcut and the menu bar item do nothing yet.</p>
+          <p class="s-note" id="transformsAllShortcuts">Your other shortcuts are in <button type="button" class="link-btn" onclick="showSettingsSection('hotkey')">Shortcuts</button>.</p>
 
           <h2 class="sh2">Polish</h2>
           <p class="s-note">Cleans up the writing you selected. Choose what it may change; it always keeps your meaning.</p>
@@ -474,6 +476,7 @@
                 <div class="row-t" id="commandShortcutTitle">Hold to talk</div>
                 <div class="row-d" id="commandShortcutDesc"></div>
                 <span class="keys tx-caps" id="commandCaps" role="img" hidden></span>
+                <p class="s-error sc-conflict" id="commandConflict" hidden></p>
               </div>
               <button type="button" class="btn btn-sec btn-sm" id="commandChange" aria-describedby="commandShortcutTitle" onclick="openHotkeyCapture('command')">Change…</button>
               <button type="button" class="btn btn-quiet btn-sm" id="commandRemove" aria-describedby="commandShortcutTitle" onclick="clearCommandHotkey()">Remove</button>
@@ -485,6 +488,7 @@
           </div>
           <p class="s-error" id="commandError" role="alert" hidden></p>
           <p class="s-note" id="commandOffNote" hidden>Command mode is off, so the shortcut does nothing yet.</p>
+          <p class="s-note" id="commandAllShortcuts">Your other shortcuts are in <button type="button" class="link-btn" onclick="showSettingsSection('hotkey')">Shortcuts</button>.</p>
 
           <h2 class="sh2" id="commandExamplesTitle">Try saying</h2>
           <p class="s-note">For the first two, select some text first. With nothing selected, Waffler can still write new text for you, or search the web when you ask a question.</p>
@@ -536,13 +540,44 @@
           <p class="s-foot">New to keys? <a class="link" href="#" onclick="openKeyPage('groq'); return false;">Get a free Groq key</a><svg class="ic ic-sm" aria-hidden="true"><use href="#i-external"/></svg></p>
         </section>
 
-        <!-- Hotkey: the keys, big. Holding them here is the test: the app's
-             own listener hears them (the status turns to Recording) and the
-             keys light up. -->
+        <!-- Shortcuts: every shortcut in one place (src/shortcut_settings.py). The
+             rows are drawn by app.js renderShortcuts from get_shortcuts(); each is
+             set in the hotkey dialog (openHotkeyCapture(id)) and every check is
+             the app's (action_hotkeys.validate), so the page holds no rule of its
+             own. The section is still data-sec="hotkey" (the page this was); below
+             the rows are the dictation hotkey's test and presets, as that page
+             always had them. -->
         <section class="s-sec" id="secHotkey" data-sec="hotkey" hidden>
-          <h1 class="ptitle">Hotkey</h1>
-          <p class="pdesc">Hold it to talk. Let go and the text is pasted.</p>
+          <h1 class="ptitle">Shortcuts</h1>
+          <p class="pdesc">Every shortcut in one place. The key of a shortcut doesn't reach the app in front, so it never types a letter or runs that app's own shortcut.</p>
 
+          <div class="sheet sc-list" id="shortcutsList" role="list" aria-label="Shortcuts"></div>
+          <p class="s-error" id="shortcutsError" role="alert" hidden></p>
+
+          <div class="sc-tools">
+            <button type="button" class="link-btn" id="shortcutsRulesBtn" aria-expanded="false" aria-controls="shortcutsRules" onclick="toggleShortcutRules()">Which shortcuts can I use?</button>
+          </div>
+          <div class="sheet sc-rules" id="shortcutsRules" hidden>
+            <ul class="sc-rule-list" id="shortcutsRuleLines"></ul>
+            <h3 class="tx-h3" id="shortcutsReservedTitle">Refused, because your computer or most apps use them</h3>
+            <ul class="sc-rule-list sc-reserved" id="shortcutsReserved" aria-labelledby="shortcutsReservedTitle"></ul>
+          </div>
+
+          <div class="sheet sc-reset">
+            <div class="row" id="shortcutsResetRow">
+              <div class="row-main"><div class="row-t" id="shortcutsResetTitle">Reset shortcuts</div><div class="row-d">Put every shortcut back to how Waffler comes.</div></div>
+              <button type="button" class="btn btn-sec btn-sm" id="shortcutsResetAsk" aria-describedby="shortcutsResetTitle" onclick="askShortcutsReset(true)">Reset shortcuts…</button>
+            </div>
+            <div class="row sc-confirm" id="shortcutsResetConfirm" hidden>
+              <div class="row-main"><div class="row-t" id="shortcutsResetAskText"></div><div class="row-d" id="shortcutsResetBody"></div></div>
+              <button type="button" class="btn btn-sec btn-sm" id="shortcutsResetNo" onclick="askShortcutsReset(false)">Keep them</button>
+              <button type="button" class="btn btn-pri btn-sm" id="shortcutsResetYes" onclick="resetShortcuts(this)">Reset shortcuts</button>
+            </div>
+          </div>
+
+          <h2 class="sh2">Try your dictation hotkey</h2>
+          <!-- Holding the hotkey here is the test: the app's own listener hears
+               it (the status turns to Recording) and the keys light up. -->
           <div class="stage hk-stage" id="hkStage">
             <span class="hk-corner-l" aria-hidden="true">Your hotkey</span>
             <button type="button" class="btn btn-sec btn-sm hk-corner" onclick="openHotkeyCapture()">Change…</button>
@@ -564,18 +599,6 @@
 
           <h2 class="sh2">Presets</h2>
           <div class="presets" id="hotkeyPresetCards" role="radiogroup" aria-label="Hotkey presets"></div>
-
-          <h2 class="sh2">While you're recording</h2>
-          <div class="sheet twocol">
-            <div class="row">
-              <kbd class="kc kc-md">Space</kbd>
-              <div class="row-main"><div class="row-t">Keep going hands-free</div><div class="row-d">Tap Space while you hold the keys, then let go. Tap the keys again to finish.</div></div>
-            </div>
-            <div class="row">
-              <kbd class="kc kc-md">Esc</kbd>
-              <div class="row-main"><div class="row-t">Cancel</div><div class="row-d">Stops recording. Nothing is pasted.</div></div>
-            </div>
-          </div>
         </section>
 
         <!-- Usage: the words first, from the Journal, with the last 30

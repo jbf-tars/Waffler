@@ -106,6 +106,7 @@ def test_the_policy_says_what_is_read_and_where_it_goes():
 def test_the_roadmap_documents_every_key_it_added():
     text = (ROOT / "docs" / "dev-notes" / "specs" / "2026-10-16-polished-dictation-roadmap.md").read_text(encoding="utf-8")
     appendix = text[text.index("### S8 Command mode (beta)"):]
+    appendix = appendix[:appendix.index("### S9")] if "### S9" in appendix else appendix      # each package's own part
     keys = set(re.findall(r"^\| `([\w.]+)` \|", appendix, flags=re.M))
     assert keys == {"enabled", "hotkey", "web_engine"}
     view = cm.settings({})
