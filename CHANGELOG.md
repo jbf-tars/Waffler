@@ -4,7 +4,19 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [3.16.0] - 2026-10-16
+
+Waffler's dictation was already solid. 3.16 adds the layer around it: a paste
+that leaves your clipboard alone, a style for each kind of app, a shortcut that
+rewrites the text you selected, a hold-to-talk Command mode, your week at a
+glance in Settings, and microphones that behave when you plug them in and out.
+Transforms and Command mode are beta and off until you switch them on.
+
+One default changed: on a Mac, after a paste Waffler puts back what you had on
+the clipboard. Turn that off in Settings, General, "Keep what I dictated on the
+clipboard". Clean-up on Groq also works again after Groq retired a model, and
+an audit before release found and fixed several rare problems, listed under
+Fixed.
 
 ### Added
 - **A list of microphones, best first.** Settings, General has a Microphone

@@ -1818,6 +1818,11 @@
       'Setup in three steps, four on a Mac, with a real try-it.',
       'Choose how long your history is kept, and delete it any time.',
     ],
+    '3.16': [
+      'Paste that keeps your clipboard, and Paste last (Mac).',
+      'A style for each kind of app, and Clean-up On or Off.',
+      'Transforms and Command mode (beta): change text with a shortcut or your voice.',
+    ],
   };
   function whatsNew(version) {
     const m = String(version || '').match(/^(\d+)\.(\d+)/);

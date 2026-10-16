@@ -20,7 +20,7 @@ def _flat(path):
 
 def _mine():
     log = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    unreleased = log[log.index("## [Unreleased]"):log.index("## [3.15.1]")]
+    unreleased = log[log.index("## [3.16.0]"):log.index("## [3.15.1]")]
     start = unreleased.index("- **Command mode (beta): hold a shortcut and say what you want done.**")
     return unreleased[start:unreleased.index("### Changed")]
 

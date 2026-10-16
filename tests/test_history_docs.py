@@ -14,7 +14,7 @@ def test_the_policy_readme_and_changelog_say_the_same_thing():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     assert "Delete any entry (with an undo), redo a take" in readme and "JSON, CSV or plain text" in readme
     log = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    unreleased = log[log.index("## [Unreleased]"):log.index("## [3.15.1]")]
+    unreleased = log[log.index("## [3.16.0]"):log.index("## [3.15.1]")]
     for headline in ("**Delete one entry, and undo it.**", "**Redo this take.**", "**Export history.**",
                      "**A take Waffler was stopped in the middle of comes back.**", "**Entries know more.**",
                      "**The usage record rewrote itself twice per dictation.**",

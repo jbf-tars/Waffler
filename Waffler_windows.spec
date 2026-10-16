@@ -29,6 +29,7 @@ a = Analysis(
         'sounddevice',
         'numpy',
         '_sounddevice_data',
+        'winsound',   # src/sounds.py imports it by name, so PyInstaller cannot see it
         # ── UI ──
         'webview',
         'webview.platforms.edgechromium',

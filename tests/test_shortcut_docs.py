@@ -61,7 +61,7 @@ def test_the_four_actions_are_the_ones_the_appendix_lists():
 
 def test_the_changelog_says_what_changed_in_the_users_words():
     text = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    unreleased = text[text.index("## [Unreleased]"):text.index("## [3.15.1]")]
+    unreleased = text[text.index("## [3.16.0]"):text.index("## [3.15.1]")]
     for phrase in ("**Shortcuts: every shortcut in one place.**", "**Paste last and Copy last have shortcuts.**",
                    "**Choose your cancel key.**", "**Command mode can be two modifier keys held together (Mac).**",
                    "**A shortcut's key no longer reaches the app in front.**",

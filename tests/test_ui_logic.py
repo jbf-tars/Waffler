@@ -921,6 +921,17 @@ def test_whats_new_is_in_the_changelog():
     assert js("L.whatsNew('3.14.100')") is None and js("L.whatsNew(null)") is None
 
 
+@needs_node
+def test_whats_new_3_16_is_in_the_changelog():
+    v = js("L.whatsNew('3.16.0')")
+    assert v["title"] == "New in 3.16" and len(v["items"]) == 3
+    log = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    section = log[log.index("## [3.16.0]"):log.index("## [3.15.1]")]
+    for needle in ("Paste that keeps your clipboard", "Paste last", "A style for each kind of app",
+                   "Clean-up, On or Off", "Transforms (beta)", "Command mode (beta)"):
+        assert needle in section, needle
+
+
 def test_settings_pages_are_wired_to_real_data():
     """The Atelier Settings: every figure comes from the app. The meter polls
     get_mic_level only while General is on screen, the hotkey test is the

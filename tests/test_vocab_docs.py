@@ -25,7 +25,7 @@ def appendix():
 
 def unreleased():
     text = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    start = text.index("## [Unreleased]")
+    start = text.index("## [3.16.0]")
     return text[start:text.index("\n## [", start + 5)]
 
 

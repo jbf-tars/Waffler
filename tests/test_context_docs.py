@@ -18,7 +18,7 @@ def test_the_policy_says_what_is_read_and_what_is_kept():
 
 def test_the_changelog_says_what_changed_in_plain_words():
     log = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    unreleased = log[log.index("## [Unreleased]"):log.index("## [3.15.1]")]
+    unreleased = log[log.index("## [3.16.0]"):log.index("## [3.15.1]")]
     for headline in ("**Each entry notes what kind of app it was for.**",
                      "**Two clean-ups at once could use each other's words.**",
                      '**An error that only contained "rate" paused a provider.**'):

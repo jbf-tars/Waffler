@@ -12,14 +12,14 @@ def _flat(path):
 
 def _mine():
     log = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    unreleased = log[log.index("## [Unreleased]"):log.index("## [3.15.1]")]
+    unreleased = log[log.index("## [3.16.0]"):log.index("## [3.15.1]")]
     start = unreleased.index("- **Clean-up, On or Off.**")
     return unreleased[start:unreleased.index("### Changed")]
 
 
 def test_the_changelog_says_what_the_user_gets():
     log = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    unreleased = log[log.index("## [Unreleased]"):log.index("## [3.15.1]")]
+    unreleased = log[log.index("## [3.16.0]"):log.index("## [3.15.1]")]
     for headline in ("**Clean-up, On or Off.**", "**A style for each kind of app.**",
                      "**An email signature, if you want one.**"):
         assert headline in unreleased, headline
