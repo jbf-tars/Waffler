@@ -32,8 +32,10 @@ stage=..., deadline=...)``. ``read_selection`` is the same call with the
 reason it came back empty, for the message a feature shows.
 
 ``get_text_around_cursor`` reads the text before and after the caret, if the
-app shows it through Accessibility, otherwise ``("", "")``. Dictation does not
-use it yet.
+app shows it through Accessibility, otherwise ``("", "")``. Dictation uses it
+for one thing: with the email signature switched on, to see whether the
+signature is already before the cursor (src/style_layer.py; app.py
+``_signature_reader`` is the only caller).
 
 Privacy: the window title, the selection and the surrounding text are held in
 memory by the caller for as long as it needs them and are never logged,

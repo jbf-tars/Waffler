@@ -2602,7 +2602,7 @@ function showPage(page) {
 }
 
 // Settings' side nav: one section at a time.
-const SETTINGS_SECTIONS = ['general', 'keys', 'hotkey', 'usage', 'privacy', 'about'];
+const SETTINGS_SECTIONS = ['general', 'style', 'keys', 'hotkey', 'usage', 'privacy', 'about'];
 let _settingsSection = 'general';
 
 function showSettingsSection(sec) {
@@ -3002,8 +3002,142 @@ async function loadSettings() {
     const reads = document.getElementById('privPasteReads');
     if (reads) reads.hidden = !isMacPlatform;
     renderFeedbackRows();
+    renderStyleSection();
   } catch(e) {
     console.warn('loadSettings error:', e);
+  }
+}
+
+// ── Settings, Style ──────────────────────────────────────────────────────
+// Clean-up On or Off, a style for each kind of app, and the email signature
+// (src/style_layer.py). Everything is saved at once, read again for the next
+// dictation, and drawn from the last get_settings() answer. The example
+// under each choice comes from the app (preview_style), which runs the real
+// rules on a sample sentence, so there is only one copy of them.
+let _sigTimer = null;
+
+function renderCleanupRow() {
+  const c = WL.cleanupView(_lastSettings);
+  const tog = document.getElementById('cleanupToggle');
+  const desc = document.getElementById('cleanupDesc');
+  const note = document.getElementById('styleOffNote');
+  if (tog) tog.checked = c.on;
+  if (desc) desc.textContent = c.desc;
+  if (note) { note.textContent = c.note; note.hidden = !c.note; }
+}
+
+function renderStyleSection() {
+  renderCleanupRow();
+  WL.styleRows(_lastSettings).forEach((r) => {
+    const sel = document.getElementById(`styleSelect-${r.kind}`);
+    if (!sel) return;
+    if (sel.options.length !== r.choices.length) {
+      sel.innerHTML = r.choices.map((c) => `<option value="${escHtml(c.value)}">${escHtml(c.label)}</option>`).join('');
+    }
+    sel.value = r.value;
+    showStyleChoice(r.kind, r.value);
+  });
+  const sig = (_lastSettings && _lastSettings.email_signature) || {};
+  const tog = document.getElementById('signatureToggle');
+  const box = document.getElementById('signatureText');
+  if (tog) tog.checked = sig.enabled === true;
+  if (box && document.activeElement !== box) box.value = sig.text || '';
+  renderSignatureCount();
+}
+
+// What the choice does, and an example of it.
+function showStyleChoice(kind, style) {
+  const about = document.getElementById(`styleAbout-${kind}`);
+  if (about) about.textContent = WL.styleAbout(style);
+  refreshStyleExample(kind, style);
+}
+
+async function refreshStyleExample(kind, style) {
+  const el = document.getElementById(`styleEg-${kind}`);
+  if (!el) return;
+  try {
+    if (!(window.pywebview && pywebview.api && pywebview.api.preview_style)) { el.textContent = ''; return; }
+    const r = await pywebview.api.preview_style(style, kind);
+    const sel = document.getElementById(`styleSelect-${kind}`);
+    if (sel && sel.value !== style) return;      // a newer choice is on its way
+    el.innerHTML = r && r.ok ? `<span class="eg-k">Example</span>${escHtml(r.text)}` : '';
+  } catch (e) {
+    console.warn('preview_style error:', e);
+    el.textContent = '';
+  }
+}
+
+async function onStyleChange(kind, sel) {
+  const row = WL.styleRows(_lastSettings).find((r) => r.kind === kind);
+  const previous = row ? row.value : 'auto';
+  const value = sel.value;
+  const ok = await saveSetting('style_by_category', { [kind]: value });
+  if (ok) {
+    if (_lastSettings) {
+      _lastSettings.style_by_category = Object.assign({}, _lastSettings.style_by_category, { [kind]: value });
+    }
+    showStyleChoice(kind, value);
+  } else {
+    sel.value = previous;
+  }
+}
+
+async function setCleanup(on) {
+  const ok = await saveSetting('cleanup', on ? 'on' : 'off');
+  if (ok) {
+    if (_lastSettings) _lastSettings.cleanup = on ? 'on' : 'off';
+    renderCleanupRow();
+  } else {
+    const tog = document.getElementById('cleanupToggle');
+    if (tog) tog.checked = !on;
+  }
+}
+
+// The signature: the switch saves at once, the text a moment after typing
+// stops (and when the box loses focus). Too long is said, not cut.
+function renderSignatureCount(saved) {
+  const box = document.getElementById('signatureText');
+  const tog = document.getElementById('signatureToggle');
+  const counter = document.getElementById('signatureCounter');
+  const hint = document.getElementById('signatureHint');
+  if (!box) return;
+  const v = WL.signatureView({ enabled: !!(tog && tog.checked), text: '' }, box.value);
+  if (counter) { counter.textContent = v.counter; counter.classList.toggle('is-over', v.over); }
+  box.setAttribute('aria-invalid', v.over ? 'true' : 'false');
+  if (hint) hint.textContent = v.over ? 'Shorten it to save it.' : (saved ? 'Saved.' : v.hint);
+}
+
+function onSignatureInput() {
+  renderSignatureCount();
+  clearTimeout(_sigTimer);
+  _sigTimer = setTimeout(commitSignature, 800);
+}
+
+async function commitSignature() {
+  clearTimeout(_sigTimer);
+  const box = document.getElementById('signatureText');
+  if (!box) return;
+  const kept = (_lastSettings && _lastSettings.email_signature) || {};
+  const v = WL.signatureView(kept, box.value);
+  if (v.over || v.text === (kept.text || '')) return;
+  const ok = await saveSetting('email_signature', { text: v.text });
+  if (ok) {
+    if (_lastSettings) _lastSettings.email_signature = Object.assign({}, kept, { text: v.text });
+    renderSignatureCount(true);
+  }
+}
+
+async function setSignatureEnabled(on) {
+  await commitSignature();
+  const ok = await saveSetting('email_signature', { enabled: !!on });
+  if (ok) {
+    if (_lastSettings) {
+      _lastSettings.email_signature = Object.assign({}, _lastSettings.email_signature, { enabled: !!on });
+    }
+    renderSignatureCount();
+  } else {
+    const tog = document.getElementById('signatureToggle');
+    if (tog) tog.checked = !on;
   }
 }
 
@@ -3202,6 +3336,13 @@ async function saveSetting(key, value) {
         showToast(WL.clipboardAfterPasteSaved(value), 'success', 3500);
       } else if (key === 'sounds' || key === 'tips') {
         showToast(WL.feedbackSaved(key, value), 'success', 3500);
+      } else if (key === 'cleanup') {
+        showToast(WL.cleanupSaved(value === 'on'), 'success', 3500);
+      } else if (key === 'style_by_category') {
+        const kind = Object.keys(value)[0];
+        showToast(WL.styleSaved(kind, value[kind]), 'success', 3500);
+      } else if (key === 'email_signature' && 'enabled' in value) {
+        showToast(WL.signatureSaved(value.enabled), 'success', 3500);
       } else if (key === 'language') {
         const known = _languageList.find((l) => l.code === value);
         showToast(WL.languageSaved(value, known ? known.name : ''), 'success');

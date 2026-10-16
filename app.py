@@ -133,6 +133,7 @@ import cleanup_pause as _cleanup_pause
 import languages as _languages
 import mac_permissions as _mac_perms
 import snippets as _snippets
+import style_layer as _style_layer
 import notifier as _notifier
 import sounds as _sound_cues
 import hold_hint as _hold_hint
@@ -949,6 +950,19 @@ class Api:
         Auto-detect, English, then the rest (src/languages.py)."""
         return [{"code": c, "name": n} for c, n in _languages.LANGUAGES]
 
+    def preview_style(self, style="auto", category="other") -> dict:
+        """The example Settings, Style shows under a choice: the kind of
+        app's sample sentence run through the real style rules
+        (src/style_post.py), so the page never has a second copy of them.
+        {"ok": True, "text": the example, "sample": the sentence as it is}."""
+        try:
+            import style_post
+            kind = category if isinstance(category, str) and category in style_post.SAMPLES else "other"
+            return {"ok": True, "text": style_post.preview(style, kind), "sample": style_post.SAMPLES[kind]}
+        except Exception as e:
+            _log_to_file(f"[style] example not made ({type(e).__name__})")
+            return {"ok": False, "error": "Couldn't make the example."}
+
     def get_vocab(self) -> list:
         """Return the user's custom vocabulary list."""
         from transcribe_whisper import load_vocab
@@ -1139,6 +1153,7 @@ class Api:
 
     def get_settings(self) -> dict:
         """Return current settings for the UI."""
+        from style_layer import cleanup_mode, signature_settings, styles_by_category
         stored = self._load_settings_file()
         key = os.getenv("OPENAI_API_KEY", "")
         groq_key = os.getenv("GROQ_API_KEY", "")
@@ -1204,6 +1219,12 @@ class Api:
             # order Waffler really uses (it showed groq, cerebras, openai
             # while the engine ran groq, openai, cerebras).
             "provider_order":        _normalize_provider_order(stored.get("provider_order")),
+            # Style (src/style_layer.py): clean-up "on" or "off", a style for
+            # each kind of app ("auto" until chosen), and the email signature
+            # (off, empty). Anything unreadable in settings.json is the default.
+            "cleanup":               cleanup_mode(stored),
+            "style_by_category":     styles_by_category(stored),
+            "email_signature":       signature_settings(stored),
         }
 
     def save_settings(self, settings: dict) -> dict:
@@ -1229,6 +1250,13 @@ class Api:
                 return {"ok": False, "error": SOUNDS_UNKNOWN}
             if "tips" in settings and not isinstance(settings["tips"], bool):
                 return {"ok": False, "error": TIPS_UNKNOWN}
+            # Style (Settings, Style): clean-up On or Off, a style for each
+            # kind of app, the email signature. A refused value saves none of
+            # the payload.
+            import style_layer as _sl
+            problem = _sl.settings_problem(settings)
+            if problem:
+                return {"ok": False, "error": problem}
             with self._editing_settings() as stored:
                 # ── OpenAI API key ────────────────────────────────────────────────
                 new_key = (settings.get("api_key") or "").strip()
@@ -1284,6 +1312,20 @@ class Api:
                 if "tips" in settings:
                     stored["tips"] = settings["tips"]
                     notes.append(f"Tips: {'on' if settings['tips'] else 'off'}")
+
+                # ── Style: clean-up, a style per kind of app, the signature ──────
+                # Read again for every dictation: no restart. The signature's
+                # text is never put in the notes (they come back to the page).
+                if "cleanup" in settings:
+                    stored["cleanup"] = settings["cleanup"]
+                    notes.append(f"Clean-up: {settings['cleanup']}")
+                if "style_by_category" in settings:
+                    stored["style_by_category"] = _sl.merged_styles(stored, settings)
+                    notes.append("Styles: " + ", ".join(
+                        f"{k} {v}" for k, v in stored["style_by_category"].items()))
+                if "email_signature" in settings:
+                    stored["email_signature"] = _sl.merged_signature(stored, settings)
+                    notes.append(f"Email signature: {'on' if stored['email_signature']['enabled'] else 'off'}")
 
                 # ── Provider fallback order ──────────────────────────────────────
                 # A list like ["cerebras","groq","openai"]. Persisted AND applied
@@ -1378,7 +1420,13 @@ class Api:
                     src_path = DATA_DIR / name
                     if src_path.exists():
                         try:
-                            zf.write(src_path, f"config/{name}")
+                            if name == "settings.json":
+                                # The email signature can hold a name, a phone
+                                # number or an address: its text is left out.
+                                zf.writestr(f"config/{name}", _privacy.settings_for_logs(
+                                    src_path.read_text(encoding="utf-8-sig")))
+                            else:
+                                zf.write(src_path, f"config/{name}")
                         except Exception as e:
                             zf.writestr(f"config/{name}.READ_ERROR", str(e))
 
@@ -1453,6 +1501,7 @@ class Api:
                     "  - API keys (~/.waffler-hosted/.env)\n"
                     "  - Transcript history (~/.waffler-hosted/history.json)\n"
                     "  - Snippets (~/.waffler-hosted/snippets.json)\n"
+                    "  - The text of your email signature (left out of config/settings.json)\n"
                     "  - Which tips were shown (~/.waffler-hosted/notifications.json)\n"
                     "  - What each call cost (~/.waffler-hosted/usage.jsonl)\n"
                     "  - Which takes were being processed (~/.waffler-hosted/inflight.json)\n\n"
@@ -3652,6 +3701,9 @@ class WafflerPipeline:
         # by unsent id (see _collect_late_words).
         self._unsent_in_flight = {}
         self._in_flight_lock = threading.Lock()
+        # Where an email signature was added lately, for the apps that do not
+        # show the text before the cursor (src/style_layer.py). Memory only.
+        self._signature_memory = _style_layer.SignatureMemory()
         self._unsent_waiting = self._count_unsent()
         threading.Thread(target=self._unsent_drain_loop, daemon=True,
                          name="UnsentDrain").start()
@@ -4768,6 +4820,10 @@ class WafflerPipeline:
             # passes the offer threshold. Any failure here pastes the words
             # as they were said rather than failing the dictation.
             _t1 = time.time()
+            # The Style section (Settings, Style), read once for this
+            # dictation: clean-up On or Off, a style for the kind of app, the
+            # email signature (src/style_layer.py).
+            _settings = self._read_settings()
             # A dictation that is only a snippet's trigger is that snippet:
             # no model call, and nothing to clean up (src/snippets.py).
             _whole_snippet = self._whole_snippet(transcript)
@@ -4775,6 +4831,13 @@ class WafflerPipeline:
                 _sty = _pw.CallResult("ok", value=(_whole_snippet, {
                     "input_tokens": 0, "output_tokens": 0, "api_used": False,
                     "provider": "snippet"}))
+            elif _style_layer.cleanup_is_off(_settings):
+                # Clean-up is off: no model is asked. The words are what the
+                # speech service heard (after the Vocabulary above and the
+                # Snippets below), with nothing taken out: not even the
+                # filler words the plain tidy-up removes. Its own provider
+                # tag, so nothing reads it as a clean-up that failed.
+                _sty = _pw.CallResult("ok", value=(transcript.strip(), _style_layer.off_usage()))
             else:
                 _sty = run.call(self.styler.style, transcript, stage=_pw.STYLING,
                                 deadline=_pw.STYLE_DEADLINE_S, app_context=_target_ctx)
@@ -4835,11 +4898,27 @@ class WafflerPipeline:
                     provider=gpt_usage.get("provider", "openai"),
                 )
 
-            # Apply snippets (text expansion). Not to a whole-snippet
-            # dictation: its text is already the expansion, and a trigger
-            # inside it must not set another off.
+            # The style for this kind of app, as code (src/style_post.py), then
+            # the snippets (text expansion). Neither touches a whole-snippet
+            # dictation: its text is already the expansion, a trigger inside
+            # it must not set another off, and it is pasted exactly. The
+            # style comes first so that what a snippet pastes is never
+            # restyled, and it is not applied when the clean-up is off
+            # ("exactly what was heard").
+            _style_used = ""
             if _whole_snippet is None:
+                if gpt_usage.get("provider") != _style_layer.PROVIDER_OFF:
+                    styled, _style_used = self._style_words(styled, _target_ctx, _settings)
                 styled = self._apply_snippets(styled)
+            # The words the speaker said, finished: what the quality checks
+            # and the word count look at. The signature is added below.
+            _body = styled
+            # The email signature (opt-in): under a new email in an email
+            # app. Not for a snippet, and not for a dictation that will not be
+            # pasted because a newer one has started or this one was cancelled.
+            if not (_is_superseded() or _is_cancelled_explicitly() or run.abandoned or run.cancelled):
+                styled, _ = self._add_signature(run, styled, _target_ctx, _settings,
+                                                snippet=_whole_snippet is not None)
 
             # One decision, taken once, for both remaining side effects.
             # Pasting is about the present (whose window and clipboard is
@@ -4962,7 +5041,8 @@ class WafflerPipeline:
                 "timestamp": datetime.now().isoformat(timespec="seconds"),
                 "text": transcript,
                 "styled": styled,
-                "word_count": len(styled.split()),
+                # The words dictated: a signature added under them is not.
+                "word_count": len(_body.split()),
                 "text_is": "asr_filtered",
             }
             # What else is known about this take (src/history_meta.py), every
@@ -4976,7 +5056,8 @@ class WafflerPipeline:
                     language=self._read_settings().get("language", "en"),
                     stt=whisper_provider, cleanup=(gpt_usage or {}).get("provider", ""),
                     paste=_paste_label, app=_target_app, audio=_ring_name,
-                    app_bundle=_target_ctx.bundle_id, category=_target_ctx.category))
+                    app_bundle=_target_ctx.bundle_id, category=_target_ctx.category,
+                    style=_style_used))
             except Exception as _e:
                 _log_to_file(f"[pipeline] take details not kept: {type(_e).__name__}")
             if _as_said:
@@ -5042,13 +5123,16 @@ class WafflerPipeline:
                 _q = _assess(
                     speech_seconds=_asr_info.get("last_speech_seconds", 0.0),
                     transcript_words=len((transcript or "").split()),
-                    styled_words=len((styled or "").split()),
+                    styled_words=len((_body or "").split()),
                     asr_filtered=_asr_info.get("last_asr_filtered", False),
                     styling_provider=(gpt_usage or {}).get("provider", ""),
-                    styled_text=styled or "",
+                    styled_text=_body or "",
                     retry_fired=_asr_info.get("last_retry_fired", False),
                     deadline_fired="TIMEOUT" in str((gpt_usage or {}).get("fallback_reason", "")),
                     retry_rejected=_asr_info.get("last_retry_rejected", False),
+                    # Casual and very casual drop the last full stop on
+                    # purpose; a signature is not the end of what was said.
+                    ending_dropped_on_purpose=_style_used in ("casual", "very_casual"),
                 )
                 if _q["level"] != "ok":
                     item["quality"] = _q
@@ -5072,7 +5156,7 @@ class WafflerPipeline:
                             "speech_s": round(float(
                                 _asr_info.get("last_speech_seconds", 0.0) or 0.0), 1),
                             "transcript_words": len((transcript or "").split()),
-                            "styled_words": len((styled or "").split()),
+                            "styled_words": len((_body or "").split()),
                             "words_per_speech_second": _q["words_per_speech_second"],
                             "styling_provider": (gpt_usage or {}).get("provider", ""),
                             "asr_provider": _asr_info.get("_last_cloud_provider", "") or "",
@@ -5122,7 +5206,7 @@ class WafflerPipeline:
             # dictations to anyone they send logs to. Setting
             # logging.log_transcripts: true adds the styled text on the line
             # below - opt-in, for chasing truncation bugs like v3.14.78's.
-            _log_to_file(f"Done: {len(styled.split())} words, {len(styled)} chars")
+            _log_to_file(f"Done: {len(_body.split())} words, {len(_body)} chars")
             if _transcripts_loggable():
                 _log_to_file(f"Styled text: {styled}")
             _outcome = _pw.CANCELLED if _esc_kept else _pw.DONE
@@ -5628,15 +5712,18 @@ class WafflerPipeline:
     def _tidy_transcript(self, transcript: str, info: dict, audio_seconds: float,
                          label: str, style: bool = True, app_context=None):
         """The words a recording sent again is turned into: the Vocabulary,
-        what the speech cost, the clean-up and the snippets, as a dictation
-        gets (but never pasted). Used by Try again on a Not sent card and
-        by "Redo this take". ``label`` names the step for the watchdog;
+        what the speech cost, the clean-up (or none, when it is off), the
+        style for the kind of app it was dictated in and the snippets, as a
+        dictation gets (but never pasted, and never with the email signature,
+        which is for a paste). Used by Try again on a Not sent card and by
+        "Redo this take". ``label`` names the step for the watchdog;
         ``app_context`` is the app the take was dictated in, if its entry
         recorded one (the clean-up is told, as for a dictation).
 
-        Returns (transcript, styled, vocab_changes, stt, cleanup): the words
-        as heard (after the Vocabulary), as cleaned up, what the Vocabulary
-        changed, and who heard and who tidied them."""
+        Returns (transcript, styled, vocab_changes, stt, cleanup, style): the
+        words as heard (after the Vocabulary), as cleaned up, what the
+        Vocabulary changed, who heard and who tidied them, and the style the
+        words were finished in (``""`` for none)."""
         vocab_changes = []
         try:
             from transcribe_whisper import load_vocab, load_sounds_like, apply_vocab_changes
@@ -5655,12 +5742,17 @@ class WafflerPipeline:
 
         styled = ""
         cleanup = ""
+        settings = self._read_settings()
         # A recording that is only a snippet's trigger is that snippet, as in
         # _process: no clean-up, and its text is not searched for triggers.
         whole_snippet = self._whole_snippet(transcript)
         if whole_snippet is not None:
             styled = whole_snippet
             cleanup = "snippet"
+        elif _style_layer.cleanup_is_off(settings):
+            # Off, as in _process: the words as heard, no model.
+            styled = transcript.strip()
+            cleanup = _style_layer.PROVIDER_OFF
         elif style:
             run = _pw.DictationRun(label)
             sty = run.call(self.styler.style, transcript, stage=_pw.STYLING,
@@ -5675,9 +5767,12 @@ class WafflerPipeline:
         if not styled:
             styled = self._unstyled(transcript)
             cleanup = cleanup or "basic_clean"
+        style_used = ""
         if whole_snippet is None:
+            if cleanup != _style_layer.PROVIDER_OFF:
+                styled, style_used = self._style_words(styled, app_context, settings)
             styled = self._apply_snippets(styled)
-        return transcript, styled, vocab_changes, (provider or "groq"), cleanup
+        return transcript, styled, vocab_changes, (provider or "groq"), cleanup, style_used
 
     def _fill_unsent_card(self, unsent_id: str, entry: dict, path, asr_value,
                           audio_seconds: float, style: bool = True) -> dict:
@@ -5685,7 +5780,7 @@ class WafflerPipeline:
         put them into its card (a normal Journal entry from then on) and
         remove the file. Call with _unsent_lock held."""
         transcript, info = asr_value
-        transcript, styled, vocab_changes, stt, cleanup = self._tidy_transcript(
+        transcript, styled, vocab_changes, stt, cleanup, style_used = self._tidy_transcript(
             transcript, info, audio_seconds, f"fill:{unsent_id}", style,
             app_context=_history_meta.context_of(entry))
 
@@ -5696,7 +5791,7 @@ class WafflerPipeline:
             new_item.update(_history_meta.take_fields(
                 speech_seconds=(info or {}).get("last_speech_seconds", 0.0),
                 language=self._read_settings().get("language", "en"),
-                stt=stt, cleanup=cleanup))
+                stt=stt, cleanup=cleanup, style=style_used))
         except Exception as e:
             _log_to_file(f"[unsent] take details not kept: {type(e).__name__}")
         if not self._replace_unsent_entry(unsent_id, new_item):
@@ -5783,7 +5878,7 @@ class WafflerPipeline:
                 _log_to_file(f"[redo] not done ({asr.status}, {kind}); the entry is as it was")
                 return {"ok": False, "reason": kind}
             info = asr.value[1]
-            transcript, styled, changes, stt, cleanup = self._tidy_transcript(
+            transcript, styled, changes, stt, cleanup, style_used = self._tidy_transcript(
                 transcript, info, run.audio_seconds, f"redo:{path.name}",
                 app_context=_history_meta.context_of(entry))
             new_item = _history_meta.redone_entry(
@@ -5791,7 +5886,7 @@ class WafflerPipeline:
                 redone_at=datetime.now().isoformat(timespec="seconds"),
                 speech_seconds=(info or {}).get("last_speech_seconds", 0.0),
                 language=self._read_settings().get("language", "en"),
-                stt=stt, cleanup=cleanup)
+                stt=stt, cleanup=cleanup, style=style_used)
             if not self._replace_history_entry(entry, new_item):
                 return {"ok": False, "reason": "not_saved"}
             token = _history_ops.SHELF.put(_history_ops.REPLACED, entry, replaced_by=new_item)
@@ -5997,6 +6092,80 @@ class WafflerPipeline:
         except Exception as e:
             _log_to_file(f"[snippets] not checked ({type(e).__name__}: {e})")
             return None
+
+    # ── The Style section (src/style_layer.py, src/style_post.py) ─────────
+
+    def _style_words(self, text: str, ctx, settings=None):
+        """``(text, style)``: the style Settings, Style has for the kind of app
+        the words are for, applied as code after the clean-up, and the style
+        that was applied (``""`` for Auto, and for text or a language the rules
+        do not style). Not for a snippet (the caller never asks) and not when
+        the clean-up is off. Never fatal: a style that cannot be applied leaves
+        the words as they are."""
+        try:
+            s = settings if isinstance(settings, dict) else self._read_settings()
+            category = getattr(ctx, "category", "") or "other"
+            if _style_layer.style_for(s, category) == _style_layer.AUTO:
+                return text, ""      # today's behaviour: nothing is read, nothing runs
+            language = s.get("language", "en")
+            language = language if isinstance(language, str) and language else "en"
+            from transcribe_whisper import load_vocab
+            return _style_layer.finish_style(text, settings=s, category=category, language=language,
+                                             protected_words=load_vocab())
+        except Exception as e:
+            _log_to_file(f"[style] not applied ({type(e).__name__})")
+            return text, ""
+
+    def _signature_reader(self, run, ctx):
+        """The function the signature decision calls to see the text before the
+        cursor: ``read(chars)`` gives that text, ``""`` for an empty field,
+        None when it could not be read, or FIELD_MOVED when another app is in
+        front now. The one place Waffler reads the field around the cursor, and
+        only when the email signature is on and everything else says yes. The
+        read goes through the watchdog run; what it finds is compared with the
+        signature and dropped, never stored or logged."""
+        def _same_app(front):
+            if ctx.bundle_id and front.bundle_id:
+                return ctx.bundle_id.lower() == front.bundle_id.lower()
+            return bool(ctx.name and front.name) and ctx.name.lower() == front.name.lower()
+
+        def read(chars):
+            def _read():
+                front = _text_context.frontmost_app(read_title=False)
+                if front.known and not _same_app(front):
+                    return _style_layer.FIELD_MOVED
+                before, _after = _text_context.get_text_around_cursor(
+                    chars, _style_layer.FIELD_READ_TIMEOUT_S)
+                return before
+            got = run.call(_read, stage=_pw.STYLING, deadline=_style_layer.FIELD_READ_DEADLINE_S)
+            return got.value if got.ok else None
+        return read
+
+    def _add_signature(self, run, text: str, ctx, settings=None, snippet: bool = False):
+        """``(text, added)``: ``text`` with the email signature under it when
+        Settings, Style has one, the app is an email app, the dictation is the
+        start of a message and the signature is not there yet (see
+        src/style_layer.py decide_signature). Never for a snippet. Never
+        fatal."""
+        try:
+            s = settings if isinstance(settings, dict) else self._read_settings()
+            sig = _style_layer.signature_settings(s)
+            if not sig["enabled"] or not sig["text"]:
+                return text, False
+            key = (ctx.bundle_id or ctx.name or "").strip().lower()
+            choice = _style_layer.decide_signature(
+                settings=s, category=ctx.category, text=text, snippet=snippet,
+                read_before=self._signature_reader(run, ctx), app_key=key,
+                memory=self._signature_memory)
+            if choice.reason not in (_style_layer.REASON_NOT_EMAIL, _style_layer.REASON_DISABLED):
+                _log_to_file(f"[signature] {choice.reason}")
+            if not choice.add:
+                return text, False
+            self._signature_memory.note(key)
+            return _style_layer.with_signature(text, sig["text"]), True
+        except Exception as e:
+            _log_to_file(f"[signature] not added ({type(e).__name__})")
+            return text, False
 
     def start_hotkey(self):
         """Start the hotkey listener — platform-specific."""

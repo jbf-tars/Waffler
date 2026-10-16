@@ -148,6 +148,7 @@
       </div>
       <nav class="snav-list" aria-label="Settings sections">
         <button type="button" class="snav-item" data-sec="general" onclick="showSettingsSection('general')">General</button>
+        <button type="button" class="snav-item" data-sec="style" onclick="showSettingsSection('style')">Style</button>
         <button type="button" class="snav-item" data-sec="keys" onclick="showSettingsSection('keys')">Keys and providers</button>
         <button type="button" class="snav-item" data-sec="hotkey" onclick="showSettingsSection('hotkey')">Hotkey</button>
         <button type="button" class="snav-item" data-sec="usage" onclick="showSettingsSection('usage')">Usage</button>
@@ -258,6 +259,87 @@
             <div class="row">
               <div class="row-main"><div class="row-t">Run setup again</div><div class="row-d">Your keys and history stay as they are.</div></div>
               <button type="button" class="btn btn-sec btn-sm" onclick="runSetupAgain()">Run setup</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- Style (src/style_layer.py, src/style_post.py): clean-up On or Off
+             (settings.json "cleanup"), a style for each kind of app
+             ("style_by_category", rows drawn by renderStyleSection from
+             logic.js styleRows), and the opt-in email signature
+             ("email_signature"). The example under each choice is the real
+             rule run on a sample sentence by the app (preview_style). All of
+             it is read again for every dictation, so it applies to the next
+             one. -->
+        <section class="s-sec" id="secStyle" data-sec="style" hidden>
+          <h1 class="ptitle">Style</h1>
+          <p class="pdesc">How your words are finished, for each kind of app. It applies to new dictations.</p>
+
+          <h2 class="sh2">Clean-up</h2>
+          <div class="sheet">
+            <div class="row" id="cleanupRow">
+              <div class="row-main"><div class="row-t"><label for="cleanupToggle">Clean up what I say</label></div><div class="row-d" id="cleanupDesc">Takes out ums and false starts, adds punctuation and tidies the sentence.</div></div>
+              <input type="checkbox" class="tog" role="switch" id="cleanupToggle" aria-describedby="cleanupDesc" onchange="setCleanup(this.checked)">
+            </div>
+          </div>
+
+          <h2 class="sh2">Style for each kind of app</h2>
+          <p class="s-note" id="styleOffNote" role="status" hidden></p>
+          <div class="sheet" id="styleSheet">
+            <div class="row row-style" data-kind="personal">
+              <div class="row-main">
+                <div class="row-t"><label for="styleSelect-personal">Personal messages</label></div>
+                <div class="row-d">Messages, WhatsApp, Telegram, Signal, Discord</div>
+                <div class="row-d" id="styleAbout-personal"></div>
+                <div class="style-eg" id="styleEg-personal"></div>
+              </div>
+              <select id="styleSelect-personal" class="select" aria-describedby="styleAbout-personal styleEg-personal" onchange="onStyleChange('personal', this)"></select>
+            </div>
+            <div class="row row-style" data-kind="work">
+              <div class="row-main">
+                <div class="row-t"><label for="styleSelect-work">Work chat</label></div>
+                <div class="row-d">Slack, Teams, Zoom, Notion, Linear</div>
+                <div class="row-d" id="styleAbout-work"></div>
+                <div class="style-eg" id="styleEg-work"></div>
+              </div>
+              <select id="styleSelect-work" class="select" aria-describedby="styleAbout-work styleEg-work" onchange="onStyleChange('work', this)"></select>
+            </div>
+            <div class="row row-style" data-kind="email">
+              <div class="row-main">
+                <div class="row-t"><label for="styleSelect-email">Email</label></div>
+                <div class="row-d">Mail, Outlook, Spark, Thunderbird, and Gmail in a browser</div>
+                <div class="row-d" id="styleAbout-email"></div>
+                <div class="style-eg" id="styleEg-email"></div>
+              </div>
+              <select id="styleSelect-email" class="select" aria-describedby="styleAbout-email styleEg-email" onchange="onStyleChange('email', this)"></select>
+            </div>
+            <div class="row row-style" data-kind="other">
+              <div class="row-main">
+                <div class="row-t"><label for="styleSelect-other">Everything else</label></div>
+                <div class="row-d">Notes, documents, your browser, any other app</div>
+                <div class="row-d" id="styleAbout-other"></div>
+                <div class="style-eg" id="styleEg-other"></div>
+              </div>
+              <select id="styleSelect-other" class="select" aria-describedby="styleAbout-other styleEg-other" onchange="onStyleChange('other', this)"></select>
+            </div>
+          </div>
+          <p class="s-note" id="styleNote">Applies to new dictations. Works in English and other Latin-script languages.</p>
+
+          <h2 class="sh2">Email signature</h2>
+          <div class="sheet">
+            <div class="row" id="signatureRow">
+              <div class="row-main"><div class="row-t"><label for="signatureToggle">Add my signature to new emails</label></div><div class="row-d" id="signatureDesc">In Mail, Outlook and other email apps, when you start with a greeting or say ten words or more. Where the app allows it, Waffler looks at the text before your cursor, only to check your signature isn't already there. It isn't kept or logged.</div></div>
+              <input type="checkbox" class="tog" role="switch" id="signatureToggle" aria-describedby="signatureDesc" onchange="setSignatureEnabled(this.checked)">
+            </div>
+            <div class="row row-sig">
+              <div class="row-main">
+                <div class="row-t"><label for="signatureText">Your signature</label></div>
+                <textarea id="signatureText" class="input sig-ta" rows="4" placeholder="Best,&#10;Your name" aria-describedby="signatureCounter signatureHint" autocomplete="off" spellcheck="false" oninput="onSignatureInput()" onblur="commitSignature()"></textarea>
+                <div class="sig-foot">
+                  <span class="sig-hint" id="signatureHint" role="status" aria-live="polite"></span>
+                  <span class="sig-counter" id="signatureCounter"></span>
+                </div>
+              </div>
             </div>
           </div>
         </section>
@@ -499,13 +581,17 @@
               <div class="row">
                 <div class="row-main"><div class="row-t">The text field you paste into</div><div class="row-d">To confirm a paste landed, Waffler reads whether that field changed. It never stores or logs what is in it.</div></div>
               </div>
+              <!-- Only with the email signature on (Settings, Style). -->
+              <div class="row">
+                <div class="row-main"><div class="row-t">The text before your cursor</div><div class="row-d">Only if you turn on an email signature, in an email app: Waffler reads the text before your cursor to check your signature isn't already there. It never stores or logs it.</div></div>
+              </div>
             </div>
           </div>
 
           <h2 class="sh2">Help</h2>
           <div class="sheet">
             <div class="row">
-              <div class="row-main"><div class="row-t" id="logsTitle">Logs</div><div class="row-d">A zip on your Desktop with no keys and no transcripts. Handy for a bug report.</div></div>
+              <div class="row-main"><div class="row-t" id="logsTitle">Logs</div><div class="row-d">A zip on your Desktop with no keys, no transcripts and no signature text. Handy for a bug report.</div></div>
               <button type="button" class="btn btn-sec btn-sm" id="logsBtn" aria-describedby="logsTitle" onclick="downloadLogs(this)"><svg class="ic" aria-hidden="true"><use href="#i-folder"/></svg><span>Show in folder</span></button>
             </div>
           </div>

@@ -300,6 +300,14 @@ SOUNDS_UNKNOWN = "Waffler doesn't know that choice for sounds. Use the switch."
 TIPS_UNKNOWN = "Waffler doesn't know that choice for tips. Use the switch."
 
 
+# ── Style (Settings, Style): clean-up On or Off, a style per kind of app, the
+# email signature. A refused choice saves none of what came with it.
+CLEANUP_CHOICE_UNKNOWN = "Waffler doesn't know that clean-up choice. Use the switch."
+STYLE_CHOICE_UNKNOWN = "Waffler doesn't know that style for this kind of app. Pick one from the list."
+SIGNATURE_BAD = "Waffler couldn't use that signature. Check the switch and the text, then try again."
+SIGNATURE_TOO_LONG = "Keep your signature to 500 characters or fewer."
+
+
 # ── Permissions checked when you press the hotkey ───────────────────────────
 # One short toast per missing permission, each with a button for the pane that
 # fixes it. They have to fit the pill's three lines.

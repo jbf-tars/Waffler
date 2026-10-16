@@ -41,6 +41,7 @@ import pipeline_watchdog as pw  # noqa: E402
 import privacy_data  # noqa: E402
 import recent_audio  # noqa: E402
 import snippets  # noqa: E402
+import style_layer  # noqa: E402
 import sounds  # noqa: E402
 import take_marker  # noqa: E402
 import text_context  # noqa: E402
@@ -76,6 +77,9 @@ PIPELINE_METHODS = (
     # Context (src/text_context.py): the app captured when the key goes down,
     # and the helper _process reads it with.
     "on_hotkey_press", "_press_target",
+    # The Style section (src/style_layer.py): a style for the kind of app,
+    # the email signature, and the one read of the text before the cursor.
+    "_style_words", "_add_signature", "_signature_reader",
 )
 MODULE_DEFS = ("ensure_data_dir", "load_history", "_load_history_for_update",
                "save_history", "append_history",
@@ -369,7 +373,7 @@ def make_pipeline(data_dir: Path, *, transcriber=None, styler=None, clipboard=No
         cleanup_skipped_message=user_messages.cleanup_skipped_message,
         limit_reached_message=user_messages.limit_reached_message,
         _recent_audio=recent_audio, _cleanup_pause=cleanup_pause, _privacy=privacy_data,
-        _snippets=snippets,
+        _snippets=snippets, _style_layer=style_layer,
         _set_cleanup_pause=page.pauses.append,
         _pasteboard=pasteboard, _mac_perms=mac_permissions,
         _notifier=notifier, _sound_cues=sounds, _hold_hint=hold_hint,
@@ -419,6 +423,7 @@ def make_pipeline(data_dir: Path, *, transcriber=None, styler=None, clipboard=No
     p._drain_lock = threading.Lock()
     p._unsent_waiting = 0
     p._unsent_in_flight = {}
+    p._signature_memory = style_layer.SignatureMemory()
     p._in_flight_lock = threading.Lock()
     p._watchdog = pw.PipelineWatchdog(
         on_begin=p._ui_begin, on_working=p._ui_working, on_offer=p._ui_offer,

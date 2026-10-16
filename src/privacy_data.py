@@ -97,7 +97,9 @@ def count_older(history: list, keep_days: int, now: datetime | None = None) -> i
 # snippets.json can hold an address or a signature: it stays with the words
 # list, is never in the logs bundle (app.py download_logs names what it
 # includes, and this is not one of them), and factory_reset removes it with
-# the folder.
+# the folder. The email signature (Settings, Style) lives in settings.json,
+# which does go in the logs bundle, so its text is blanked there
+# (settings_for_logs) and it stays with the settings otherwise.
 KEPT_FILES = (".env", "settings.json", "config.json", "setup_complete.json",
               "vocab.json", "vocab_sounds.json", "snippets.json")
 # notifications.json is which tips Waffler has shown, hidden or had closed
@@ -115,6 +117,27 @@ DATA_FILES = ("history.json", "usage.json", "usage.jsonl", "quality.jsonl", "not
 # be read, kept aside instead of being written over (src/atomic_json.py).
 DATA_GLOBS = ("usage.backup-*.json", "history.unreadable-*.json", "usage.unreadable-*.json")
 DATA_FOLDERS = ("debug_audio", "unsent")
+
+
+def settings_for_logs(raw: str) -> str:
+    """settings.json as it goes into the logs bundle: the same, with the text
+    of the email signature (a name, a phone number, an address) taken out and
+    only its length left. A file that cannot be read is not included at all,
+    because nothing can be taken out of it safely."""
+    import json
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return "settings.json could not be read, so it is not included.\n"
+    if not isinstance(data, dict):
+        return "settings.json could not be read, so it is not included.\n"
+    sig = data.get("email_signature")
+    if isinstance(sig, dict):
+        text = sig.get("text")
+        data["email_signature"] = dict(sig, text="", text_chars=len(text) if isinstance(text, str) else 0)
+    elif sig is not None:
+        data["email_signature"] = {"text": "", "text_chars": 0}
+    return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
 
 
 def _remove_file(p: Path) -> bool:

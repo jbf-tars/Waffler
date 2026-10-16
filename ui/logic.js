@@ -1027,6 +1027,105 @@
     return '';
   }
 
+  // ── Style (Settings, Style) ──────────────────────────────────────────
+  // Clean-up On or Off (settings.json "cleanup"), a style for each kind of
+  // app ("style_by_category") and the email signature ("email_signature").
+  // The choices and limits are the engine's (src/style_layer.py); a test
+  // compares them. The examples under each choice are not made here: the app
+  // runs the real rules on a sample sentence (preview_style), so the page
+  // never holds a second copy of them.
+  const STYLE_KINDS = ['personal', 'work', 'email', 'other'];
+  const STYLE_CHOICES = {
+    personal: ['auto', 'formal', 'casual', 'very_casual'],
+    work: ['auto', 'formal', 'casual', 'excited'],
+    email: ['auto', 'formal', 'casual', 'excited'],
+    other: ['auto', 'formal', 'casual', 'excited'],
+  };
+  const STYLE_KIND_TEXT = {
+    personal: { title: 'Personal messages', apps: 'Messages, WhatsApp, Telegram, Signal, Discord' },
+    work: { title: 'Work chat', apps: 'Slack, Teams, Zoom, Notion, Linear' },
+    email: { title: 'Email', apps: 'Mail, Outlook, Spark, Thunderbird, and Gmail in a browser' },
+    other: { title: 'Everything else', apps: 'Notes, documents, your browser, any other app' },
+  };
+  const STYLE_LABELS = {
+    auto: 'Automatic', formal: 'Formal', casual: 'Casual', very_casual: 'Very casual', excited: 'Excited',
+  };
+  const STYLE_ABOUT = {
+    auto: 'Waffler writes as it does today. Nothing is changed.',
+    formal: 'Capital letters and full stops, as Waffler writes them.',
+    casual: 'Takes the full stop off a one-sentence message.',
+    very_casual: 'Lower case, and no last full stop. Names in your Vocabulary and acronyms keep their capitals.',
+    excited: 'Ends short statements with an exclamation mark.',
+  };
+  const STYLE_NOTE = 'Applies to new dictations. Works in English and other Latin-script languages.';
+  const STYLE_OFF_NOTE = "Clean-up is off, so styles aren't used until you turn it back on.";
+  const SIGNATURE_MAX = 500;      // style_layer.SIGNATURE_MAX_CHARS
+
+  function _styleOf(settings, kind) {
+    const saved = settings && settings.style_by_category;
+    const v = saved && typeof saved === 'object' ? saved[kind] : '';
+    return STYLE_CHOICES[kind].includes(v) ? v : 'auto';
+  }
+
+  // The four rows: the kind, the apps it covers, the choices it offers and
+  // the one saved.
+  function styleRows(settings) {
+    return STYLE_KINDS.map((kind) => ({
+      kind,
+      title: STYLE_KIND_TEXT[kind].title,
+      apps: STYLE_KIND_TEXT[kind].apps,
+      value: _styleOf(settings, kind),
+      about: STYLE_ABOUT[_styleOf(settings, kind)],
+      choices: STYLE_CHOICES[kind].map((v) => ({ value: v, label: STYLE_LABELS[v] })),
+    }));
+  }
+
+  function styleAbout(style) {
+    return STYLE_ABOUT[style] || STYLE_ABOUT.auto;
+  }
+
+  // Anything but a saved "off" is on, as the engine reads it.
+  function cleanupView(settings) {
+    const off = !!settings && settings.cleanup === 'off';
+    return {
+      on: !off,
+      desc: off
+        ? "Off, Waffler pastes exactly what it heard, with your Vocabulary and Snippets. Nothing is sent for clean-up. Styles aren't used, but an email signature still is."
+        : 'Takes out ums and false starts, adds punctuation and tidies the sentence.',
+      note: off ? STYLE_OFF_NOTE : '',
+    };
+  }
+
+  // The toasts after saving.
+  function cleanupSaved(on) {
+    return on ? 'Clean-up is on.' : "Clean-up is off. Waffler pastes exactly what it hears.";
+  }
+  function styleSaved(kind, style) {
+    const t = STYLE_KIND_TEXT[kind];
+    return t ? `${t.title}: ${STYLE_LABELS[style] || 'Automatic'}.` : 'Style saved.';
+  }
+  function signatureSaved(enabled) {
+    return enabled ? 'Waffler will add your signature to new emails.' : "Waffler won't add a signature.";
+  }
+
+  // The signature box: the text as the engine will keep it (outer space off),
+  // the count shown under it, and whether it can be saved.
+  function signatureView(sig, typed) {
+    const saved = sig && typeof sig === 'object' ? sig : {};
+    const text = String(typed == null ? (saved.text || '') : typed).replace(/\r\n?/g, '\n').trim();
+    const n = Array.from(text).length;
+    const over = n > SIGNATURE_MAX;
+    return {
+      enabled: saved.enabled === true,
+      text,
+      chars: n,
+      over,
+      counter: over ? `${formatCount(n - SIGNATURE_MAX)} over the limit of ${formatCount(SIGNATURE_MAX)}`
+        : `${formatCount(n)} of ${formatCount(SIGNATURE_MAX)}`,
+      hint: saved.enabled === true && !text ? 'Type your signature, or no signature will be added.' : '',
+    };
+  }
+
   // General: the microphone meter, a strip of cells like the recording
   // overlay's waffle. The level (0 to 1, app.py get_mic_level) goes through
   // the overlay's own curve (level ** 0.4) so quiet speech still moves it.
@@ -1366,6 +1465,8 @@
     SNIPPET_MAX_TRIGGER, SNIPPET_MAX_EXPANSION, SNIPPET_MAX_COUNT, snippetTrigger, snippetCheck,
     snippetSummary, snippetCounter, snippetDone,
     spellingSpecimen, languageOptions, languageDesc, languageSaved, spellingNote,
+    STYLE_KINDS, STYLE_CHOICES, STYLE_LABELS, STYLE_NOTE, SIGNATURE_MAX, styleRows, styleAbout, cleanupView,
+    cleanupSaved, styleSaved, signatureSaved, signatureView,
     clipboardAfterPasteView, clipboardAfterPasteSaved, feedbackView, feedbackSaved, METER_CELLS, micMeter, usageChart, usageFacts, flowView, PROVIDER_MARKS, providerPill,
     privacyFlow, hotkeyTestLine, whatsNew,
   };

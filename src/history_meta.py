@@ -21,6 +21,10 @@ treat each as "unknown" when it is missing.
                  (src/app_categories.py)
     audio        the name of the recording kept for this take
                  (src/recent_audio.py), so "Redo this take" can find it
+    style        the style the text was finished in (formal, casual,
+                 very_casual or excited: src/style_post.py), when the
+                 Style section had one for the kind of app and the text was
+                 one it styles; left out for "auto"
 
 The app's name, identifier and kind are kept on this computer with the entry
 and nowhere else; the window title that helped tell a browser's tab is not kept.
@@ -30,6 +34,7 @@ Nothing here reads a file or the window.
 from __future__ import annotations
 
 import app_categories
+import style_post
 
 # The safe paste's own words (src/pasteboard.py), then the two that say no
 # paste was tried.
@@ -71,10 +76,11 @@ def _name(value, limit):
 
 def take_fields(*, audio_seconds=None, speech_seconds=None, language=None, stt=None,
                 cleanup=None, paste=None, app=None, audio=None, app_bundle=None,
-                category=None) -> dict:
+                category=None, style=None) -> dict:
     """The optional fields for an entry, leaving out whatever is unknown.
     ``category`` is kept only for an app that is known, and only if it is one
-    of src/app_categories.CATEGORIES."""
+    of src/app_categories.CATEGORIES; ``style`` only if it is one of
+    src/style_post.STYLES."""
     out = {}
     d = _seconds(audio_seconds)
     if d is not None:
@@ -100,6 +106,8 @@ def take_fields(*, audio_seconds=None, speech_seconds=None, language=None, stt=N
         out["category"] = category
     if isinstance(audio, str) and audio:
         out["audio"] = audio
+    if isinstance(style, str) and style in style_post.STYLES:
+        out["style"] = style
     return out
 
 

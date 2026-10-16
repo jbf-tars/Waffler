@@ -59,12 +59,21 @@ _CONTENT_LOSS = {"low_word_rate", "styled_dropped_words", "styling_fallback",
 
 def assess(*, speech_seconds, transcript_words, styled_words, asr_filtered,
            styling_provider, styled_text, retry_fired=False,
-           deadline_fired=False, retry_rejected=False) -> dict:
+           deadline_fired=False, retry_rejected=False,
+           ending_dropped_on_purpose=False) -> dict:
     """Return {"level": "ok"|"check"|"low", "flags": [...],
     "words_per_speech_second": float}.
 
     ``level`` is "low" when a content-loss signal fired, "check" for advisory
     signals worth a glance, "ok" otherwise.
+
+    ``styling_provider`` "off" is clean-up switched off in Settings: a choice,
+    so the checks that judge what a clean-up did (words dropped, an ending a
+    model left off) do not apply, while the ones about the recording and about
+    a take that stops mid-clause still do. ``ending_dropped_on_purpose`` is a
+    style (casual, very casual) that removed the last full stop in code:
+    ``styled_text`` should then be the words before any signature, and the
+    missing stop is not a fault.
     """
     flags = []
     speech_seconds = float(speech_seconds or 0.0)
@@ -90,9 +99,12 @@ def assess(*, speech_seconds, transcript_words, styled_words, asr_filtered,
     # user wrote, whatever its length and however it ends. No model touched
     # it, so the checks on what a model did to the words (2 and 6) don't apply.
     snippet = str(styling_provider or "").lower() == "snippet"
+    # Clean-up switched off in Settings (src/style_layer.py): the words are
+    # what was heard, as asked.
+    off = str(styling_provider or "").lower() == "off"
 
     # 2. Cleanup discarded a large share of the transcript.
-    if (not snippet and transcript_words >= 8
+    if (not snippet and not off and transcript_words >= 8
             and styled_words < transcript_words * _MIN_STYLED_RETENTION):
         flags.append("styled_dropped_words")
 
@@ -126,7 +138,7 @@ def assess(*, speech_seconds, transcript_words, styled_words, asr_filtered,
     if not snippet and txt and txt[-1] not in ".!?:\"')]" and len(txt.split()) >= 4:
         if txt.split()[-1].lower().strip(",;") in _DANGLING_TAIL:
             flags.append("truncated_midsentence")
-        else:
+        elif not off and not ending_dropped_on_purpose:
             flags.append("unterminated_ending")
 
     if empty_and_silent:

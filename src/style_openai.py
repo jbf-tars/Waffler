@@ -497,8 +497,9 @@ Transcript: {transcript}"""
 
         ``app_context`` is the app this dictation is for (a
         src/text_context.AppContext, or None), captured when the hotkey went
-        down. Nothing in the clean-up reads it yet; it is passed here so the
-        style layer can.
+        down. Nothing in the clean-up reads it: the Style section
+        (src/style_layer.py) uses the same app after the clean-up, as code, so
+        no word about styles is ever added to what the model is asked.
 
         Everything that belongs to THIS call (the transcript, the output
         budget, the deadline) lives in a ``_StyleCall`` for the duration of the

@@ -935,6 +935,21 @@ mark.hl {
 .specimen { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 6px; font: italic 400 13.5px/1.2 var(--f-serif); color: var(--text-2); }
 .specimen s { text-decoration: none; color: var(--muted); }
 .row-ctl-col { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; flex: none; max-width: 46%; }
+
+/* Settings, Style: a note under a sheet, the example under each choice, and
+   the signature box with its count. */
+.s-note { margin: 8px 2px 0; max-width: 560px; font: var(--t-desc); color: var(--muted); }
+.sh2 + .s-note { margin: 0 2px 10px; }
+.s-note[hidden] { display: none; }
+.style-eg { margin-top: 6px; font: italic 400 13.5px/1.35 var(--f-serif); color: var(--text-2); overflow-wrap: anywhere; }
+.style-eg:empty { display: none; }
+.style-eg .eg-k { margin-right: 8px; font: 500 12px/1 var(--f-ui); font-style: normal; color: var(--muted); }
+.settings-panel .row-style .row-main { padding-right: 4px; }
+.settings-panel .row-sig { align-items: stretch; }
+.sig-ta { display: block; height: auto; min-height: 96px; margin-top: 8px; padding: 9px 12px; resize: vertical; font: 400 14px/1.45 var(--f-ui); }
+.sig-foot { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-top: 6px; font: 400 12px/1.4 var(--f-ui); color: var(--muted); }
+.sig-hint:empty { display: none; }
+.sig-counter.is-over { color: var(--danger); }
 .row-ctl-col .select { max-width: 100%; }
 .mic-level { display: flex; align-items: center; gap: 8px; font: 400 11.5px/1 var(--f-ui); color: var(--muted); }
 .meter { display: inline-flex; align-items: flex-end; gap: 3px; height: 16px; }
