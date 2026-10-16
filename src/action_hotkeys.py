@@ -99,6 +99,11 @@ MODIFIER_HOLD_S = 0.35
 # swallowed. A key held down repeats far more often than this, even at the
 # slowest setting; the pause before the first repeat is shorter.
 SWALLOW_STALE_S = 2.5
+# Windows sends no repeat flag, so a key-down is taken for a repeat when the
+# same key was seen this recently (the pause before the first repeat is at most
+# a second; after that they come every few hundredths). Any later key-down is a
+# new press, whatever a lost key-up left in the books.
+REPEAT_WINDOW_S = 1.1
 # The key-recording dialog tells us it is open; if it never says it closed
 # (the window was reloaded) the shortcuts come back after this long.
 RECORDING_MAX_S = 120.0
@@ -250,9 +255,13 @@ def _reserved_message(names, platform: str, table) -> Optional[str]:
     return None
 
 
+# F1 to F24, by name: a test of the digits with str.isdigit() lets "f\u00b2" and
+# "f\u0663" through to int(), which raises, and "f0001" through to no key at all.
+_F_KEYS = frozenset(f"f{i}" for i in range(1, 25))
+
+
 def _is_key(name: str) -> bool:
-    return (len(name) == 1 and (name in _LETTERS or name in _DIGITS)) or (
-        name[:1] == "f" and name[1:].isdigit() and 1 <= int(name[1:]) <= 24)
+    return (len(name) == 1 and (name in _LETTERS or name in _DIGITS)) or name in _F_KEYS
 
 
 def _alias(key: str, platform: str) -> str:
@@ -463,7 +472,7 @@ def _check_modifier_only(mods, platform: str, dictation_hotkey, others, cancel_k
     mods = list(dict.fromkeys(mods))
     if len(mods) < 2:
         return {"ok": False, "error": "One modifier key on its own would start every time you use it in another "
-                                      "shortcut. Hold two or more, such as Control and Option."}
+                                      "shortcut. Hold two or more, such as Control and Command."}
     if not any(m in ("control", "cmd") for m in mods):
         return {"ok": False, "error": "Include Control or Command. Option and Shift together are used to type "
                                       "special characters and select text."}
@@ -647,6 +656,48 @@ def dictation_clash_message(dictation_keys_, shortcuts: Iterable[Sequence[str]],
 
 # ── The registry and the decision ────────────────────────────────────────────
 
+class _Dispatcher:
+    """Starts the threads that actions run on, from one long-lived thread of
+    its own. The keyboard's callback (an event tap on a Mac, a hook on Windows)
+    must return at once or the system disables it, and starting a thread waits
+    for the new thread to be running; a callback that only queues the work
+    never waits for anything. Each action still gets a thread of its own, so a
+    slow one (a paste waiting for the modifiers to come up) holds up no other."""
+
+    def __init__(self):
+        self._queue = collections.deque()
+        self._wake = threading.Semaphore(0)
+        self._thread = None
+        self._lock = threading.Lock()
+
+    def submit(self, fn: Callable[[], None]) -> None:
+        with self._lock:
+            if self._thread is None or not self._thread.is_alive():
+                self._thread = threading.Thread(target=self._loop, daemon=True, name="ActionHotkeyStarter")
+                self._thread.start()
+        self._queue.append(fn)
+        self._wake.release()
+
+    def _loop(self) -> None:
+        while True:
+            self._wake.acquire()
+            try:
+                fn = self._queue.popleft()
+            except IndexError:
+                continue
+            try:
+                threading.Thread(target=fn, daemon=True, name="ActionHotkey").start()
+            except Exception:      # noqa: BLE001 - out of threads: the action cannot run now
+                pass
+
+
+_DISPATCHER = _Dispatcher()
+
+
+def _dispatcher() -> _Dispatcher:
+    return _DISPATCHER
+
+
 class _Serial:
     """Runs callbacks one after the other, in the order they were posted, on a
     thread that exists only while there is something to run. The key listener
@@ -660,12 +711,21 @@ class _Serial:
         self._queue = collections.deque()
         self._draining = False
 
-    def post(self, name: str, fn: Callable[[], None]) -> None:
+    def enqueue(self, name: str, fn: Callable[[], None]) -> bool:
+        """Put a callback in the queue. True when nothing is draining it, so
+        the caller is to ``kick`` the queue once it has let go of its own
+        locks. Queueing under the caller's lock is what keeps a hold's down
+        ahead of its up: the order is then the order the books were written in,
+        not the order two threads got round to posting."""
         with self._lock:
             self._queue.append((name, fn))
             if self._draining:
-                return
+                return False
             self._draining = True
+            return True
+
+    def kick(self, name: str) -> None:
+        """Start the thread that runs the queue (after ``enqueue`` said so)."""
         try:
             self._spawn(self._drain)
         except Exception as e:      # noqa: BLE001 - out of threads: what is queued cannot run now
@@ -673,6 +733,10 @@ class _Serial:
                 self._queue.clear()
                 self._draining = False          # the next press may try again
             self._log(f"[shortcut] {name} could not start: {type(e).__name__}")
+
+    def post(self, name: str, fn: Callable[[], None]) -> None:
+        if self.enqueue(name, fn):
+            self.kick(name)
 
     def _drain(self) -> None:
         while True:
@@ -718,7 +782,7 @@ class ActionHotkeys:
 
     @staticmethod
     def _spawn_thread(fn):
-        threading.Thread(target=fn, daemon=True, name="ActionHotkey").start()
+        _dispatcher().submit(fn)
 
     @staticmethod
     def _start_timer(delay: float, fn: Callable[[], None]):
@@ -789,22 +853,26 @@ class ActionHotkeys:
         stored = verdict["keys"]
         mods = frozenset(k for k in stored if k in modifiers_of(self.platform))
         key = next((k for k in stored if k not in mods), None)      # None: modifier keys alone
+        kicks = []
         with self._lock:
             ended = self._end_hold_locked(action_id, fire=False)
             self._pending.pop(action_id, None)
             self._actions[action_id] = {"keys": stored, "mods": mods, "key": key,
                                         "callback": callback, "on_up": on_up, "on_release": on_release}
             self._last_fired.pop(action_id, None)
-        self._post_up(action_id, ended)
+            self._queue_locked(action_id, ended, kicks)
+        self._kick(kicks)
         return verdict
 
     def unregister(self, action_id: str) -> bool:
+        kicks = []
         with self._lock:
             self._last_fired.pop(action_id, None)
             self._pending.pop(action_id, None)
             ended = self._end_hold_locked(action_id, fire=False)
+            self._queue_locked(action_id, ended, kicks)
             gone = self._actions.pop(action_id, None) is not None
-        self._post_up(action_id, ended)
+        self._kick(kicks)
         return gone
 
     def registered(self) -> Dict[str, List[str]]:
@@ -820,6 +888,7 @@ class ActionHotkeys:
         repeating: it never fires. While the key-recording dialog is open
         nothing fires (the person is choosing keys, not using them)."""
         now = self._clock()
+        kicks = []
         with self._lock:
             self._pending.clear()           # a key pressed: modifier keys held are not a hold on their own
             if not self._actions:
@@ -828,7 +897,8 @@ class ActionHotkeys:
             for k in [k for k, t in self._down.items() if now - t > HELD_FOR_S]:
                 del self._down[k]
             stale = [aid for aid, h in self._holds.items() if now - h["since"] > HOLD_STALE_S]
-            ups = {aid: self._end_hold_locked(aid, fire=False) for aid in stale}
+            for aid in stale:
+                self._queue_locked(aid, self._end_hold_locked(aid, fire=False), kicks)
             # The key of a hold in progress is held for as long as the hold is,
             # whether or not the system keeps repeating it.
             held = key in self._down or any(h["key"] == key for h in self._holds.values())
@@ -845,13 +915,13 @@ class ActionHotkeys:
                 self._last_fired[action_id] = now
                 if a.get("on_up") is not None:
                     self._holds[action_id] = {"key": key, "mods": a["mods"], "since": now}
+                    # Queued here, with the hold booked: a key-up on another thread
+                    # queues its up behind this down, whatever the threads do next.
+                    self._queue_locked(action_id, a["callback"], kicks)
                 fired.append((action_id, a["callback"], a.get("on_up") is not None))
-        for aid, on_up in ups.items():
-            self._post_up(aid, on_up)
+        self._kick(kicks)
         for action_id, callback, hold in fired:
-            if hold:
-                self._serial_for(action_id).post(action_id, callback)
-            else:
+            if not hold:
                 self._spawn(lambda cb=callback, aid=action_id: self._run(aid, cb))
         return [aid for aid, _cb, _hold in fired]
 
@@ -863,12 +933,13 @@ class ActionHotkeys:
             self._pending.clear()
 
     def key_up(self, key: str) -> None:
+        kicks = []
         with self._lock:
             self._down.pop(key, None)
             ended = [aid for aid in self._holds if self._holds[aid]["key"] == key]
-            ups = {aid: self._end_hold_locked(aid) for aid in ended}
-        for aid, on_up in ups.items():
-            self._post_up(aid, on_up)
+            for aid in ended:
+                self._queue_locked(aid, self._end_hold_locked(aid), kicks)
+        self._kick(kicks)
 
     def modifiers_changed(self, modifiers: Iterable[str]) -> None:
         """The modifier keys held are now exactly ``modifiers`` (a Mac reports
@@ -879,11 +950,13 @@ class ActionHotkeys:
         now_held = frozenset(modifiers)
         now = self._clock()
         arm = []
+        kicks = []
         with self._lock:
             self._expire_swallowed_locked(now)      # a modifier change is a chance to clean up
             stale = [aid for aid, h in self._holds.items() if now - h["since"] > HOLD_STALE_S]
             ended = [aid for aid, h in self._holds.items() if not h["mods"] <= now_held or aid in stale]
-            ups = {aid: self._end_hold_locked(aid, fire=aid not in stale) for aid in ended}
+            for aid in ended:
+                self._queue_locked(aid, self._end_hold_locked(aid, fire=aid not in stale), kicks)
             for aid, a in self._actions.items():
                 if a["key"] is not None:
                     continue
@@ -894,8 +967,7 @@ class ActionHotkeys:
                     arm.append((aid, token))
                 elif a["mods"] != now_held:
                     self._pending.pop(aid, None)    # more or fewer keys than the hold: not (yet) it
-        for aid, on_up in ups.items():
-            self._post_up(aid, on_up)
+        self._kick(kicks)
         for aid, token in arm:
             self._timer(MODIFIER_HOLD_S, lambda aid=aid, token=token: self._start_modifier_hold(aid, token))
 
@@ -903,6 +975,7 @@ class ActionHotkeys:
         """The timer: the modifier keys have been held long enough with nothing
         else pressed. Starts the hold unless something cancelled it."""
         now = self._clock()
+        kicks = []
         with self._lock:
             if self._pending.get(action_id) is not token:
                 return
@@ -911,18 +984,22 @@ class ActionHotkeys:
             if a is None or a["key"] is not None or self._recording_locked(now):
                 return
             self._holds[action_id] = {"key": None, "mods": a["mods"], "since": now}
-            callback = a["callback"]
-        self._serial_for(action_id).post(action_id, callback)
+            # Queued with the hold booked, so a release on the keyboard's thread
+            # queues its up behind this down (an up first would find nothing to
+            # end, and the down would then record until the hold's limit).
+            self._queue_locked(action_id, a["callback"], kicks)
+        self._kick(kicks)
 
     def modifier_up(self, modifier: str) -> None:
         """One modifier key came up (Windows reports them one at a time)."""
+        kicks = []
         with self._lock:
             if not self._holds:
                 return
             ended = [aid for aid, h in self._holds.items() if modifier in h["mods"]]
-            ups = {aid: self._end_hold_locked(aid) for aid in ended}
-        for aid, on_up in ups.items():
-            self._post_up(aid, on_up)
+            for aid in ended:
+                self._queue_locked(aid, self._end_hold_locked(aid), kicks)
+        self._kick(kicks)
 
     # -- swallowing the key ------------------------------------------------
     #
@@ -977,6 +1054,24 @@ class ActionHotkeys:
         with self._lock:
             t = self._down.get(key)
             return t is not None and now - t <= HELD_FOR_S
+
+    def is_repeat(self, key: str, modifiers: Iterable[str] = ()) -> bool:
+        """Windows has no repeat flag: is a key-down of ``key``, with exactly
+        ``modifiers`` held, a repeat of the press already seen? Yes when the
+        key was seen a moment ago (``REPEAT_WINDOW_S``), or when it is a
+        registered shortcut's key with the shortcut's own modifiers and its
+        key-down is on the books. A key-up that was lost does not make the next
+        plain press of that letter a repeat."""
+        now = self._clock()
+        with self._lock:
+            self._expire_swallowed_locked(now)
+            seen = [t for t in (self._swallowed.get(key), self._down.get(key)) if t is not None]
+            if not seen:
+                return False
+            if now - max(seen) <= REPEAT_WINDOW_S:
+                return True
+            mods = frozenset(modifiers)
+            return any(a["key"] == key and a["mods"] == mods for a in self._actions.values())
 
     def is_swallowing(self, key: str) -> bool:
         """Is ``key`` one whose key-down was swallowed and which has not come
@@ -1039,9 +1134,20 @@ class ActionHotkeys:
             return None
         return a.get("on_up")
 
-    def _post_up(self, action_id: str, on_up) -> None:
-        if on_up is not None:
-            self._serial_for(action_id).post(action_id, on_up)
+    def _queue_locked(self, action_id: str, fn, kicks: list) -> None:
+        """Put ``fn`` in ``action_id``'s queue, in the order the books were
+        written (call with the lock held). The caller kicks the queues once it
+        has let go of the lock (``_kick``): a thread is only started outside it."""
+        if fn is None:
+            return
+        serial = self._serial_for(action_id)
+        if serial.enqueue(action_id, fn):
+            kicks.append((action_id, serial))
+
+    @staticmethod
+    def _kick(kicks: list) -> None:
+        for action_id, serial in kicks:
+            serial.kick(action_id)
 
     def _serial_for(self, action_id: str) -> _Serial:
         with self._lock:
@@ -1066,8 +1172,17 @@ class ActionHotkeys:
         ask that listener whether the dictation hotkey is held, so a
         shortcut never swallows a key while it is."""
         self.set_ptt_probe(lambda: bool(getattr(listener, "is_combo_active", False)))
+        try:
+            known = listener in self._attached
+        except TypeError:
+            known = False
         with self._lock:
-            self._swallowed.clear()         # a new tap: nothing it was told is still true
+            # A new listener is a new tap, and nothing the old one was told is
+            # still true. The same listener asked again (every time a setting
+            # is applied) is not: a key held through that has had its key-down
+            # kept from the app, so its repeats and key-up must still be.
+            if not known:
+                self._swallowed.clear()
             self._pending.clear()
         if self.platform != MAC:
             return False
@@ -1215,8 +1330,9 @@ def windows_event(registry: ActionHotkeys, vk: int, message: int, flags: int,
     if message in (_WM_KEYDOWN, _WM_SYSKEYDOWN):
         mods = [m for m, vks in _WINDOWS_MODIFIER_VKS.items() if any(key_state(v) for v in vks)]
         # Windows sends no repeat flag: a key-down for a key that went down
-        # (and was perhaps swallowed) and has not come up is a repeat.
-        repeat = registry.is_swallowing(key) or registry.is_held(key)
+        # (and was perhaps swallowed) a moment ago and has not come up is a
+        # repeat. Much later it is a new press: its key-up was lost.
+        repeat = registry.is_repeat(key, mods)
         registry.key_down(key, mods)
         swallow = bool(registry.swallow_down(key, mods, repeat=repeat))
         if swallow and not repeat and mask is not None and ("win" in mods or "alt" in mods):
@@ -1265,7 +1381,9 @@ class WindowsComboWatcher:
                         ("time", wt.DWORD), ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong))]
 
         hookproc_t = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_int, wt.WPARAM, wt.LPARAM)
-        user32, kernel32 = ctypes.windll.user32, ctypes.windll.kernel32
+        # Libraries of this watcher's own: the prototypes set below would otherwise
+        # replace the ones the dictation hotkey's hook has on the shared user32.
+        user32, kernel32 = ctypes.WinDLL("user32"), ctypes.WinDLL("kernel32")
         user32.SetWindowsHookExW.argtypes = [ctypes.c_int, hookproc_t, wt.HINSTANCE, wt.DWORD]
         user32.SetWindowsHookExW.restype = wt.HHOOK
         user32.CallNextHookEx.argtypes = [wt.HHOOK, ctypes.c_int, wt.WPARAM, wt.LPARAM]

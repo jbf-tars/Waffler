@@ -907,26 +907,45 @@ async function _onHotkeySaved(result) {
   loadShortcuts();
 }
 
+// One hotkey save at a time: each one makes the keyboard listener again, and a
+// double-click used to start a second before the first had finished.
+const _hotkeySaving = WL.savingGate();
+
+// The preset buttons show that they wait while a save is under way. aria-disabled
+// rather than disabled: a disabled button loses the focus, and the cards are
+// redrawn with the focus kept on the preset the person was on.
+function _hotkeyButtonsBusy(on) {
+  document.querySelectorAll('#hotkeyPresetCards button, #settingsHotkeyPresets button, #wizHotkeyPresetList button')
+    .forEach((b) => { if (on) b.setAttribute('aria-disabled', 'true'); else b.removeAttribute('aria-disabled'); });
+}
+
 // A preset in the hotkey dialog: saved at once, and the dialog closes.
 async function changeSettingsHotkey(keys) {
-  let result;
+  if (!_hotkeySaving.enter()) return;
+  _hotkeyButtonsBusy(true);
   try {
-    result = await window.pywebview.api.save_hotkey_config(keys);
-  } catch (e) {
-    console.error("Failed to change hotkey:", e);
-    result = { ok: false, error: "Couldn't change the hotkey. Try again." };
+    let result;
+    try {
+      result = await window.pywebview.api.save_hotkey_config(keys);
+    } catch (e) {
+      console.error("Failed to change hotkey:", e);
+      result = { ok: false, error: "Couldn't change the hotkey. Try again." };
+    }
+    if (!result || !result.ok) {
+      const msg = (result && result.error) || "Couldn't change the hotkey. Try again.";
+      _showSettingsHotkeyError(msg);
+      const errEl = document.getElementById("hotkeyError");
+      if (errEl) { errEl.textContent = msg; errEl.style.display = "block"; }
+      return;
+    }
+    _showSettingsHotkeyError('');
+    closeHotkeyCapture();
+    await _onHotkeySaved(result);
+    showToast(`Hotkey is now ${result.display || WL.hotkeyName(result.keys, isMacPlatform)}`, 'success');
+  } finally {
+    _hotkeySaving.leave();
+    _hotkeyButtonsBusy(false);
   }
-  if (!result || !result.ok) {
-    const msg = (result && result.error) || "Couldn't change the hotkey. Try again.";
-    _showSettingsHotkeyError(msg);
-    const errEl = document.getElementById("hotkeyError");
-    if (errEl) { errEl.textContent = msg; errEl.style.display = "block"; }
-    return;
-  }
-  _showSettingsHotkeyError('');
-  closeHotkeyCapture();
-  await _onHotkeySaved(result);
-  showToast(`Hotkey is now ${result.display || WL.hotkeyName(result.keys, isMacPlatform)}`, 'success');
 }
 
 function _showCaptured(keys) {
@@ -1088,12 +1107,15 @@ async function saveHotkeyCapture() {
   if (_captureTarget === 'command') { await saveCommandHotkey(keys, fail); return; }
   if (WL.shortcutIsTarget(_captureTarget)) { await saveShortcutCapture(_captureTarget, keys, fail); return; }
   // The backend decides (src/hotkey_rules.py) and says why in one sentence.
+  if (!_hotkeySaving.enter()) return;
   let result;
   try {
     result = await window.pywebview.api.save_hotkey_config(JSON.stringify(keys));
   } catch (e) {
     console.error("saveHotkeyCapture error:", e);
     result = { ok: false, error: "Couldn't change the hotkey. Try again." };
+  } finally {
+    _hotkeySaving.leave();
   }
   if (!result || !result.ok) { fail((result && result.error) || "Couldn't change the hotkey. Try again."); return; }
   closeHotkeyCapture();
@@ -5940,21 +5962,28 @@ function wizShowKeyPicker() {
 }
 
 async function selectHotkeyPreset(keys) {
-  let result;
+  if (!_hotkeySaving.enter()) return;
+  _hotkeyButtonsBusy(true);
   try {
-    result = await pywebview.api.save_hotkey_config(keys);
-  } catch (e) {
-    console.error('Failed to save hotkey:', e);
-    result = { ok: false, error: "Couldn't change the hotkey. Try again." };
+    let result;
+    try {
+      result = await pywebview.api.save_hotkey_config(keys);
+    } catch (e) {
+      console.error('Failed to save hotkey:', e);
+      result = { ok: false, error: "Couldn't change the hotkey. Try again." };
+    }
+    if (!result || !result.ok) {
+      // Nothing changed, so the keys stay as they are and the picker says why.
+      const err = document.getElementById('obKeyPickerErr');
+      if (err) { err.textContent = (result && result.error) || "Couldn't change the hotkey. Try again."; err.hidden = false; }
+      return;
+    }
+    await _onHotkeySaved(result);
+    wizHotkeyChanged(result);
+  } finally {
+    _hotkeySaving.leave();
+    _hotkeyButtonsBusy(false);
   }
-  if (!result || !result.ok) {
-    // Nothing changed, so the keys stay as they are and the picker says why.
-    const err = document.getElementById('obKeyPickerErr');
-    if (err) { err.textContent = (result && result.error) || "Couldn't change the hotkey. Try again."; err.hidden = false; }
-    return;
-  }
-  await _onHotkeySaved(result);
-  wizHotkeyChanged(result);
 }
 
 // A new hotkey from the picker or the capture dialog: the practice listens

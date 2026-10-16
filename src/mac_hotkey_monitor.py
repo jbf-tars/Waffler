@@ -669,6 +669,15 @@ class MacEventTap:
             self._runloop = CFRunLoopGetCurrent()
             CFRunLoopAddSource(self._runloop, self._runloop_source, kCFRunLoopCommonModes)
             CGEventTapEnable(self._tap, True)
+            if self._stopped:
+                # stop() came while the tap was still being made and found
+                # nothing to take down: left alone this tap would run for the
+                # life of the process, beside the one that replaced it.
+                tap, self._tap = self._tap, None
+                if tap is not None:
+                    CGEventTapEnable(tap, False)
+                _diag_log(f"[HOTKEY/{self._id}] stopped while starting: the tap is not run")
+                return
 
             _diag_log(
                 f"[HOTKEY/{self._id}] CGEventTap started "

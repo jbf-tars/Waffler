@@ -130,7 +130,7 @@ def test_every_dialog_has_a_title_and_a_plain_sentence():
 
 @needs_node
 def test_the_command_dialog_offers_modifier_keys_alone_on_a_mac_only():
-    assert "modifier keys, such as Control and Option" in js("L.hotkeyDialogText('command', true)")["sub"]
+    assert "modifier keys, such as Control and Command" in js("L.hotkeyDialogText('command', true)")["sub"]
     assert "modifier keys, such as" not in js("L.hotkeyDialogText('command', false)")["sub"]
     assert "F key on its own" in js("L.hotkeyDialogText('transform', true)")["sub"]
     assert "F key on its own" not in js("L.hotkeyDialogText('command', true)")["sub"], "a hold has no bare key"

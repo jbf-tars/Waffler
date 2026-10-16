@@ -248,7 +248,8 @@ def rules(platform: Optional[str] = None) -> dict:
     ]
     if mac:
         lines.append("Command mode can also be two or more modifier keys held together, such as Control and "
-                     "Option. Include Control or Command, and hold them a moment.")
+                     "Command. Include Control or Command, and hold them a moment. Control and Option are the "
+                     "keys VoiceOver uses, so leave them out if you use VoiceOver.")
         lines.append("While your dictation hotkey is Fn, F13 to F15 are left for the Fn key of some keyboards.")
     else:
         lines.append("Ctrl and Alt together are the AltGr key on many keyboards, so they can't be used with "

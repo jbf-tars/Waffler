@@ -831,6 +831,22 @@
 
   // Arrow keys in a radio group (the theme picker): the index to move to,
   // wrapping at the ends, or -1 when the key isn't one of them.
+  // One save at a time. A double-click on a hotkey preset sent two saves, and the
+  // second rebuilt the keyboard listener while the first was still doing it.
+  // `run(fn)` does nothing (and says so) when a save is already under way.
+  function savingGate() {
+    let busy = false;
+    return {
+      busy() { return busy; },
+      enter() { if (busy) return false; busy = true; return true; },
+      leave() { busy = false; },
+      async run(fn) {
+        if (!this.enter()) return false;
+        try { await fn(); return true; } finally { this.leave(); }
+      },
+    };
+  }
+
   function radioMove(index, count, key) {
     if (!count || index < 0) return -1;
     if (key === 'ArrowRight' || key === 'ArrowDown') return (index + 1) % count;
@@ -1166,7 +1182,7 @@
   function hotkeyDialogText(target, isMac) {
     const press = 'Use a letter, a number or an F key with two modifier keys, or an F key on its own.';
     if (target === 'command') {
-      return { title: 'Hold your Command shortcut', sub: `Hold the keys you want, then let go. Use a letter, a number or an F key with two modifier keys${isMac ? ', or just two or more modifier keys, such as Control and Option' : ''}. You will hold these keys while you speak. Esc cancels.` };
+      return { title: 'Hold your Command shortcut', sub: `Hold the keys you want, then let go. Use a letter, a number or an F key with two modifier keys${isMac ? ', or just two or more modifier keys, such as Control and Command' : ''}. You will hold these keys while you speak. Esc cancels.` };
     }
     if (target === 'transform') {
       return { title: 'Hold your Transform shortcut', sub: `Hold the keys you want, then let go. ${press} Esc cancels.` };
@@ -2543,7 +2559,7 @@
     providerOrderRows, activeProviders, backendsLine, aboutLine,
     USAGE_NOTE, formatCount, usageView, usageProviderRows, usesView, keyRows,
     qualityView, dayKey, dayLabel, statNumber, vocabChanges, vocabChangesLine, originalText, hasOriginal, vocabAdd, VOCAB_MAX_ENTRY_LEN,
-    SEARCH_DEBOUNCE_MS, debounce, feedView, searchAnnouncement, radioMove, focusAfterRemove,
+    SEARCH_DEBOUNCE_MS, debounce, feedView, searchAnnouncement, savingGate, radioMove, focusAfterRemove,
     SNIPPET_MAX_TRIGGER, SNIPPET_MAX_EXPANSION, SNIPPET_MAX_COUNT, snippetTrigger, snippetCheck,
     snippetSummary, snippetCounter, snippetDone,
     spellingSpecimen, languageOptions, languageDesc, languageSaved, spellingNote,

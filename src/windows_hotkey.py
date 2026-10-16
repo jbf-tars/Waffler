@@ -196,6 +196,10 @@ class WindowsHotkeyListener:
         self._poll_awaiting_release = False
         self._hook       = None
         self._thread_id  = None
+        # stop() was called. A listener is made again, never reused, so one that
+        # was stopped before it began (the app made a newer one in between) must
+        # not then install a hook of its own: two hooks fire every key twice.
+        self._stop_requested = False
 
         # Configurable keys
         self._keys = keys or DEFAULT_HOTKEY
@@ -225,6 +229,9 @@ class WindowsHotkeyListener:
 
     def start(self):
         """Install the hook and run a message loop (blocks)."""
+        if self._stop_requested:
+            _log("start() skipped — this listener was stopped before it began")
+            return
         self._running   = True
         self._thread_id = kernel32.GetCurrentThreadId()
         _log(f"WindowsHotkeyListener.start() — {hotkey_display(self._keys)} smart hotkey")
@@ -240,15 +247,28 @@ class WindowsHotkeyListener:
 
         _log("Low-level keyboard hook installed")
         try:
-            self._message_loop()
+            if not self._stop_requested:        # stopped while the hook was being installed
+                self._message_loop()
         finally:
             user32.UnhookWindowsHookEx(self._hook)
             _log("Hook removed")
 
     def stop(self):
+        self._stop_requested = True
         self._running = False
         if self._thread_id:
             user32.PostThreadMessageW(self._thread_id, WM_QUIT, 0, 0)
+
+    def reset_state(self):
+        """The take was ended by something other than the keys (the pill's stop
+        button, the 20-minute limit, the microphone leaving): forget it, as the
+        Mac listener does. Without this the listener still believed a take was
+        running, and the next press of the combination was taken for the press
+        that ends hands-free mode and absorbed."""
+        _log(f"reset_state() | was: {self._state.value}")
+        self._state = _State.IDLE
+        self._clear_key_states()
+        self._double_tap_forget()
 
     def join(self):
         pass
@@ -274,8 +294,9 @@ class WindowsHotkeyListener:
         return self._double_tap is not None
 
     def _double_tap_forget(self):
-        if self._double_tap is not None:
-            self._double_tap.reset()
+        dt = self._double_tap
+        if dt is not None:
+            dt.reset()
 
     def set_busy(self, busy: bool):
         """Call with True while transcription is processing, False when done."""
@@ -405,15 +426,17 @@ class WindowsHotkeyListener:
 
         if self._state == _State.IDLE:
             self._state = _State.PUSH_TO_TALK
-            if self._double_tap is not None:
-                self._double_tap.press()
+            dt = self._double_tap       # read once: Settings can switch it off between two reads
+            if dt is not None:
+                dt.press()
             _log(f"{hotkey_display(self._keys)} → PUSH_TO_TALK, start recording")
             self._fire_press()
 
         elif self._state == _State.STICKY:
             # With double-tap on, the keys coming up and bouncing straight
             # back down are not a press that ends the take.
-            if self._double_tap is not None and self._double_tap.is_bounce():
+            dt = self._double_tap
+            if dt is not None and dt.is_bounce():
                 _log("Combo press right after the keys came up: bounce, hands-free kept")
                 return
             self._state = _State.IDLE
@@ -426,7 +449,8 @@ class WindowsHotkeyListener:
         """Called when any configured key is released."""
         if self._state == _State.PUSH_TO_TALK:
             if not self._all_keys_held():
-                if self._double_tap is not None and self._double_tap.release():
+                dt = self._double_tap
+                if dt is not None and dt.release():
                     # The second tap of two: keep recording and lock the take
                     # on, as Space does. The keys are not cleared: the take
                     # is still going, as in _enter_sticky.
@@ -537,8 +561,9 @@ class WindowsHotkeyListener:
                 if self._state == _State.IDLE:
                     if all_held and not self._poll_awaiting_release:
                         self._state = _State.PUSH_TO_TALK
-                        if self._double_tap is not None:
-                            self._double_tap.press()
+                        dt = self._double_tap
+                        if dt is not None:
+                            dt.press()
                         _log(f"[poll] {hotkey_display(self._keys)} → PUSH_TO_TALK")
                         self._fire_press()
 
@@ -549,7 +574,8 @@ class WindowsHotkeyListener:
                         # it can mean "cancel".
                         self._poll_awaiting_release = True
                     elif not all_held:
-                        if self._double_tap is not None and self._double_tap.release():
+                        dt = self._double_tap
+                        if dt is not None and dt.release():
                             self._state = _State.STICKY
                             _log("[poll] double tap → STICKY mode (recording locked)")
                             self._fire_lock()
@@ -559,8 +585,9 @@ class WindowsHotkeyListener:
                             self._fire_release()
 
                 elif self._state == _State.STICKY:
+                    dt = self._double_tap
                     if (all_held and not self._poll_awaiting_release
-                            and self._double_tap is not None and self._double_tap.is_bounce()):
+                            and dt is not None and dt.is_bounce()):
                         pass        # the keys bouncing straight back down, not a press
                     elif all_held and not self._poll_awaiting_release:
                         self._double_tap_forget()

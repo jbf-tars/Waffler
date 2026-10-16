@@ -1276,6 +1276,7 @@ mark.hl {
   cursor: pointer;
 }
 .preset:hover { box-shadow: 0 0 0 1px var(--ring-ctl); }
+.preset[aria-disabled="true"] { cursor: progress; }
 .preset.on { box-shadow: 0 0 0 1.5px var(--text); cursor: default; }
 .preset-top { display: flex; align-items: center; justify-content: space-between; min-height: 22px; }
 .preset-cus { font: 500 12.5px/22px var(--f-ui); }

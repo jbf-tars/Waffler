@@ -198,8 +198,9 @@ class SmartHotkeyListener:
         if not self._recording:
             self._hotkey_held = True
             self._recording = True
-            if self._double_tap is not None:
-                self._double_tap.press()
+            dt = self._double_tap       # read once: Settings can switch it off between two reads
+            if dt is not None:
+                dt.press()
             _diag_log(f"[HOTKEY/{self._id}] → starting push-to-talk (fire_press)")
             self._fire_press()
         elif self._sticky and self._press_ends_hands_free():
@@ -230,7 +231,8 @@ class SmartHotkeyListener:
         )
         self._hotkey_held = False
         if self._recording and not self._sticky:
-            if self._double_tap is not None and self._double_tap.release():
+            dt = self._double_tap
+            if dt is not None and dt.release():
                 # The second tap of two: keep the take recording and lock it
                 # on, as Space does (the lock cue, the hands-free pill).
                 self._sticky = True
@@ -330,16 +332,18 @@ class SmartHotkeyListener:
         return self._double_tap is not None
 
     def _double_tap_forget(self):
-        if self._double_tap is not None:
-            self._double_tap.reset()
+        dt = self._double_tap
+        if dt is not None:
+            dt.reset()
 
     def _press_ends_hands_free(self) -> bool:
         """A press of the hotkey in a hands-free take: does it end it? Only
         with double-tap on (or for a take it locked), and not when it is the
         last release bouncing."""
-        if self._double_tap is None:
+        dt = self._double_tap
+        if dt is None:
             return self._locked_by_double_tap
-        return not self._double_tap.is_bounce()
+        return not dt.is_bounce()
 
     # ── Callbacks (run in a thread to avoid blocking the event tap) ──
 

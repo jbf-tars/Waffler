@@ -2853,52 +2853,71 @@ class Api:
         The action shortcuts join the new listener before it starts (a Mac
         listens to them through its one event tap). Does nothing before the
         pipeline is up. The listener's own rules are not touched: this only
-        builds it with different keys."""
+        builds it with different keys.
+
+        One restart at a time (src/hotkey_restart.py): two quick changes used
+        to stop the same listener twice and build two, which on a Mac is two
+        event taps in one process. A request that a newer one has overtaken
+        steps aside, and the newer one reads the settings as they are by then."""
         if not (_pipeline and hasattr(_pipeline, 'hotkey_listener') and _pipeline.hotkey_listener):
             return
         import action_hotkeys as _ah
-        stored = self._load_settings_file()
-        keys = stored.get("hotkey_keys")
-        cancel_key = _ah.cancel_key_of(stored)
-        double_tap = _double_tap.enabled(stored)
+        import hotkey_restart as _hr
+        mine = _hr.SWAP.ask()
         _log_to_file("Restarting hotkey listener with new keys...")
-        _pipeline.hotkey_listener.stop()
 
         def _restart():
-            time.sleep(0.3)  # wait for old hook to uninstall
-            if _platform.system() == "Windows":
-                from windows_hotkey import WindowsHotkeyListener
-                _pipeline.hotkey_listener = WindowsHotkeyListener(
-                    on_press=_pipeline.on_hotkey_press,
-                    on_release=_pipeline.on_hotkey_release,
-                    on_cancel=_pipeline._on_hotkey_cancel,   # Esc (see its docstring)
-                    keys=keys,
-                    on_lock=_pipeline._on_hands_free_lock,
-                    cancel_key=cancel_key,
-                    double_tap=double_tap,
-                )
-            elif _platform.system() == "Darwin":
-                from smart_hotkey import SmartHotkeyListener
-                _pipeline.hotkey_listener = SmartHotkeyListener(
-                    on_press=_pipeline.on_hotkey_press,
-                    on_release=_pipeline.on_hotkey_release,
-                    on_cancel=_pipeline._on_hotkey_cancel,   # Esc (see its docstring)
-                    keys=keys,
-                    on_lock=_pipeline._on_hands_free_lock,
-                    cancel_key=cancel_key,
-                    double_tap=double_tap,
-                )
-            # The action shortcuts listen through this listener's tap on a Mac,
-            # so they join the new one (before start(), which on Windows does
-            # not return).
-            try:
-                _pipeline.apply_transform_settings()
-                _pipeline.apply_command_settings()
-                _pipeline.apply_last_result_shortcuts()
-            except Exception as _e:
-                _log_to_file(f"[shortcut] action shortcuts not re-attached: {type(_e).__name__}")
-            _log_to_file("New hotkey listener starting...")
-            _pipeline.hotkey_listener.start()
+            with _hr.SWAP.turn(mine) as newest:
+                if not newest:
+                    _log_to_file("Hotkey listener restart superseded by a newer change")
+                    return
+                _pipeline.hotkey_listener.stop()        # whichever one runs now, not the one asked about
+                time.sleep(0.3)  # wait for old hook to uninstall
+                stored = self._load_settings_file()
+                keys = stored.get("hotkey_keys")
+                cancel_key = _ah.cancel_key_of(stored)
+                double_tap = _double_tap.enabled(stored)
+                if _platform.system() == "Windows":
+                    from windows_hotkey import WindowsHotkeyListener
+                    _pipeline.hotkey_listener = WindowsHotkeyListener(
+                        on_press=_pipeline.on_hotkey_press,
+                        on_release=_pipeline.on_hotkey_release,
+                        on_cancel=_pipeline._on_hotkey_cancel,   # Esc (see its docstring)
+                        keys=keys,
+                        on_lock=_pipeline._on_hands_free_lock,
+                        cancel_key=cancel_key,
+                        double_tap=double_tap,
+                    )
+                elif _platform.system() == "Darwin":
+                    from smart_hotkey import SmartHotkeyListener
+                    _pipeline.hotkey_listener = SmartHotkeyListener(
+                        on_press=_pipeline.on_hotkey_press,
+                        on_release=_pipeline.on_hotkey_release,
+                        on_cancel=_pipeline._on_hotkey_cancel,   # Esc (see its docstring)
+                        keys=keys,
+                        on_lock=_pipeline._on_hands_free_lock,
+                        cancel_key=cancel_key,
+                        double_tap=double_tap,
+                    )
+                # The action shortcuts listen through this listener's tap on a Mac,
+                # so they join the new one (before start(), which on Windows does
+                # not return).
+                try:
+                    _pipeline.apply_transform_settings()
+                    _pipeline.apply_command_settings()
+                    _pipeline.apply_last_result_shortcuts()
+                except Exception as _e:
+                    _log_to_file(f"[shortcut] action shortcuts not re-attached: {type(_e).__name__}")
+                _log_to_file("New hotkey listener starting...")
+                if _platform.system() == "Windows":
+                    # start() runs the hook's message loop and does not return:
+                    # on a thread of its own, so the next change is not kept
+                    # waiting for it. (A stop() that comes first is remembered
+                    # by the listener, which then never installs its hook.)
+                    threading.Thread(target=_pipeline.hotkey_listener.start, daemon=True,
+                                     name="HotkeyListener").start()
+                else:
+                    _pipeline.hotkey_listener.start()   # returns at once; inside the turn, so it is never stopped unstarted
 
         threading.Thread(target=_restart, daemon=True, name="HotkeyRestart").start()
 
