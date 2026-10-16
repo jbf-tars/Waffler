@@ -593,6 +593,82 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   minutes. A retired Cerebras model whose notice said "migrate" was reported as
   a limit too. "Rate" is now read as a word, and a retired Cerebras model gets
   the same plain message as a retired Groq model.
+- **One odd reply from the model could freeze Waffler for minutes.** Command
+  mode reads the first line of the model's answer for the word that says what
+  to do (edit, draft or ask). A line made of that word and a long run of
+  spaces, which a model sometimes produces and a hostile text could ask for,
+  took the pattern that reads it minutes to give up, and while it did the
+  window, the pill, the microphone and, on a Mac, the keyboard all stopped.
+  Every pattern that reads a model's answer or your text is now bounded and
+  tested against 20,000 characters of the worst input; the answer is read for a
+  few lines only, an answer longer than any answer can be is treated as cut
+  off and replaces nothing, and Esc can end the step if it ever drags.
+- **Plugging a microphone in or out could lose a take.** When your best
+  microphone changed (a USB one plugged in or out, or you edited the list),
+  Waffler opened the microphone again, and if that happened in the instant
+  after you let go, or while you held a Command shortcut, the recording was
+  emptied and the words were lost. It now never opens the microphone again
+  while a take, a Command or Transform hold, or a stop is under way. Pressing
+  the hotkey while a microphone was being changed could also leave the new
+  stream silent.
+- **Changing a shortcut twice quickly could leave two keyboard listeners.**
+  A double-click on a hotkey in Settings, or saving the cancel key just after
+  the hotkey, could start a second listener beside the first: on a Mac two
+  event taps, on Windows two hooks that fire every key twice. They now take
+  turns, the newest change wins, and the preset buttons wait while a save is
+  under way.
+- **Command mode could record for a minute by itself.** If you let go of a
+  Command shortcut at the instant it started, the release could be handled
+  before the start; the recording then ran for a minute and acted on whatever
+  it heard. The start is now always handled first.
+- **Windows: Command mode and Transforms could stop a program in a terminal.**
+  With nothing selected, the Ctrl+C they use to read a selection means "stop"
+  in a terminal, including the one inside VS Code and the JetBrains IDEs. They
+  now never copy from terminals, editors with a terminal, or any window whose
+  class is a console, and Command mode no longer copies a second time to check.
+- **Windows: a window's title could be saved as the app's name.** For a program
+  Waffler could not open (one run as administrator), the title (a document's
+  name) was used as the app name in the Journal, Usage and exports. The name is
+  now "Unknown" then, never the title.
+- **A result of more than one line is not pasted into a terminal.** Command
+  mode and Transforms copy it and say so, because a shell can run each line
+  of a paste as it arrives. A result that was only copied no longer becomes
+  what Paste last pastes.
+- **Windows: small keyboard fixes.** After the pill's stop button or the
+  20-minute stop, the next press of your hotkey was taken for the press that
+  ends hands-free mode and did nothing; a key-up that went missing could make
+  the next plain press of a shortcut's letter vanish; and a shortcut key written
+  with an odd digit in settings.json no longer breaks the Shortcuts page.
+- **Settings stopped suggesting Control and Option for Command mode.** They are
+  the keys VoiceOver uses. The examples say Control and Command, and the
+  Shortcuts page says why.
+- **Clear history left Undo for 15 seconds.** An entry deleted just before could
+  still be put back into the emptied Journal. Clear history now empties the Undo
+  shelf too.
+- **Cerebras could be switched off by one oversized request.** A 400 "invalid
+  request" (a Transform past the context length, say) was read as a bad key and
+  Cerebras was skipped for an hour for your dictations too. Only a real
+  authorisation error does that now, and a slow answer to a Transform or Command
+  no longer pauses a provider.
+- **The setup practice ignored Clean-up Off.** It now shows your words as said,
+  like every dictation does.
+- **A refused setting says why.** Where the app has a plain sentence for it
+  ("Keep it to 3 words or fewer."), the window shows it instead of "Couldn't
+  save that".
+- **Editing a long take.** The limit on an edited dictation is 60,000
+  characters, not 20,000, which a fast 20-minute take (about 25,000) went over.
+- **This month's words counted entries dated in the future.** Only entries up
+  to today are counted.
+- **Recent recordings are also kept to about 300 MB.** Ten takes of 20 minutes
+  are 380 MB; the newest that fit are kept, and always the latest. Ten ordinary
+  takes are all kept, as before.
+- **A failed restart of the sound system left the microphone dead.** Waffler
+  now tries it again with the next recording. Also: unplugging your last
+  microphone is noticed on a Mac, the setup practice keeps the microphone you
+  chose by name, and a sound cue can no longer slip into a recording.
+- **Logs no longer carry what you named.** The names of your Transforms and
+  microphones, a provider's error text and the identifiers of ranked
+  microphones are left out of the log and the logs zip.
 
 ## [3.15.1] - 2026-10-07
 
