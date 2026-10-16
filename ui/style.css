@@ -600,6 +600,109 @@ mark.hl {
 .vhow { margin-top: auto; font: 400 12px/1.5 var(--f-ui); color: var(--muted); }
 .vside.is-empty .vhow { margin-top: 0; }
 
+/* Vocabulary v2 (S10): find, order and select the words, move the list in and
+   out, and the little "suggest words" switch. A star changes the order only. */
+.vtools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin-top: 16px; }
+.vtools-find { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; min-width: 0; }
+.vtools-find[hidden] { display: none; }
+.vtools-file { display: flex; align-items: center; gap: 4px; margin-left: auto; }
+.vtools .vt-search { margin-left: 0; }
+.vtools .j-search-input { width: 240px; }
+.vt-sort { display: inline-flex; align-items: center; gap: 8px; font: 500 12px/1 var(--f-ui); color: var(--muted); }
+.vt-sort .select { min-width: 150px; height: 34px; }
+.vtools .btn-sm, .vbulk .btn-sm, .vimport .btn-sm { height: 32px; padding: 0 12px; font-size: 13px; border-radius: 8px; }
+.vtools .btn .ic, .vimport .btn .ic { width: 14px; height: 14px; }
+.btn[aria-pressed="true"] { background: var(--honey-tint); color: var(--text); box-shadow: inset 0 0 0 1px rgba(196, 138, 46, 0.55); }
+.snip-tools { margin-top: 4px; }
+.snip-fmt { min-width: 76px; height: 32px; padding-left: 10px; }
+
+.vbulk {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  margin-top: 10px; padding: 8px 12px;
+  border-radius: 10px; background: var(--honey-wash); box-shadow: inset 0 0 0 1px rgba(196, 138, 46, 0.4);
+}
+.vbulk[hidden] { display: none; }
+.vbulk-n { font: 500 13px/1 var(--f-ui); color: var(--text); min-width: 84px; }
+.vbulk-sp { flex: 1; }
+
+.vt-empty { padding: 18px 14px; font: 400 13.5px/1.5 var(--f-ui); color: var(--muted); }
+
+/* A row can carry a star (always shown once set) and a box, while selecting. */
+.vt-w { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.vt-wt { min-width: 0; overflow-wrap: anywhere; }
+.vt-star { width: 24px; height: 24px; flex: none; margin-left: -6px; color: var(--muted); opacity: 0; }
+.vt-star .ic { width: 14px; height: 14px; }
+.vt-r:hover .vt-star, .vt-r:focus-within .vt-star, .vt-star:focus-visible, .vt-star[aria-pressed="true"] { opacity: 1; }
+.vt-star[aria-pressed="true"] { color: var(--accent-ink); }
+.vt-star[aria-pressed="true"] .ic { fill: currentColor; }
+.vt-c { display: flex; align-items: center; justify-content: center; }
+.vt-sel { width: 16px; height: 16px; margin: 0; accent-color: var(--accent-ink); cursor: pointer; }
+.vt.is-select .vt-h, .vt.is-select .vt-r:not(.vt-ask):not(.vt-edit) {
+  grid-template-columns: 22px minmax(0, 1.15fr) minmax(0, 1.35fr) 118px 96px 60px;
+}
+
+/* Import: a panel under the tools, quiet until it is opened. */
+.vimport {
+  margin-top: 12px; padding: 16px 18px 14px;
+  border-radius: 12px; background: var(--card);
+  box-shadow: 0 0 0 1px var(--ring), 0 1px 2px rgba(12, 10, 9, 0.04);
+}
+.vimport[hidden] { display: none; }
+.vimport-t { margin: 0; font: 500 14.5px/1.3 var(--f-ui); color: var(--text); }
+.vimport-d { margin: 4px 0 12px; max-width: 620px; font: 400 13px/1.5 var(--f-ui); color: var(--muted); }
+.vimport-in { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; min-width: 0; }
+.vimport-name { min-width: 0; font: 400 12.5px/1.3 var(--f-ui); color: var(--text-2); overflow-wrap: anywhere; }
+.vimport-lbl { display: block; margin-bottom: 6px; font: 500 12px/1 var(--f-ui); color: var(--muted); }
+.vimport-ta {
+  display: block; width: 100%; height: auto; min-height: 96px; padding: 9px 12px;
+  resize: vertical; font: 400 13px/1.5 var(--f-mono, ui-monospace, Menlo, Consolas, monospace);
+}
+.vimport-prev { margin-top: 12px; padding: 12px 14px; border-radius: 10px; background: var(--surface); }
+.vimport-prev[hidden] { display: none; }
+.vi-head { margin: 0; font: 500 13.5px/1.4 var(--f-ui); color: var(--text); }
+.vi-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.vi-chip { padding: 5px 9px; border-radius: 6px; background: var(--card); box-shadow: inset 0 0 0 1px var(--ring); font: 500 12.5px/1 var(--f-ui); color: var(--text); }
+.vi-new { background: var(--ok-tint, var(--card)); }
+.vi-skipped { background: var(--honey-tint); }
+.vi-note { margin: 8px 0 0; font: 400 12.5px/1.4 var(--f-ui); color: var(--muted); }
+.vi-k { margin: 12px 0 4px; font: 500 11.5px/1 var(--f-ui); color: var(--muted); }
+.vi-list { margin: 0; font: 400 13px/1.5 var(--f-ui); color: var(--text-2); overflow-wrap: anywhere; }
+.vi-skip { margin: 0; padding: 0; list-style: none; font: 400 12.5px/1.5 var(--f-ui); color: var(--text-2); }
+.vi-skip li { padding: 2px 0; overflow-wrap: anywhere; }
+.vi-row { display: inline-block; min-width: 52px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.vimport-acts { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+
+/* The switch under Try a sentence. */
+.vlearn { display: flex; align-items: flex-start; gap: 12px; padding-top: 4px; }
+.vlearn .tog { flex: none; margin-top: 2px; }
+.vlearn-t { display: block; font: 500 13px/1.3 var(--f-ui); color: var(--text); cursor: pointer; }
+.vlearn-d { margin: 3px 0 0; font: 400 12px/1.5 var(--f-ui); color: var(--muted); }
+
+/* Journal: Edit text and the words it suggests. */
+.card-edited { color: var(--muted); }
+.j-edit { margin: 2px 0 4px; }
+.transcript-card.j-ent.is-editing { grid-template-columns: 76px minmax(0, 1fr); }
+.j-ent.is-editing .j-acts { display: none; }
+.j-edit { max-width: 660px; }
+.j-edit-ta { display: block; width: 100%; height: auto; min-height: 84px; padding: 10px 12px; resize: vertical; font: 400 14.5px/1.6 var(--f-ui); }
+.j-edit-hint { margin: 6px 0 0; font: 400 12px/1.4 var(--f-ui); color: var(--muted); }
+.j-edit-acts { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.j-edit-acts .btn-sm { height: 28px; padding: 0 11px; font-size: 12.5px; border-radius: 7px; }
+.j-edit-sp { flex: 1; }
+.j-sug { display: grid; gap: 8px; margin-top: 10px; }
+.j-sug-r {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; align-items: center;
+  padding: 9px 12px; border-radius: 9px;
+  background: var(--honey-wash); box-shadow: inset 0 0 0 1px rgba(196, 138, 46, 0.4);
+  font: 400 13px/1.4 var(--f-ui); color: var(--text);
+}
+.j-sug-t b { font-weight: 600; }
+.j-sug-t span { display: block; margin-top: 2px; font-size: 12px; color: var(--text-2); }
+.j-sug-b { display: flex; gap: 6px; }
+.j-sug-b .btn-sm { height: 28px; padding: 0 11px; font-size: 12.5px; border-radius: 7px; }
+.j-sug-err { grid-column: 1 / -1; margin: 0; }
+.j-sug-r.is-done { grid-template-columns: auto auto; justify-content: start; gap: 8px; }
+
 /* Snippets: under the words. A phrase you say, an arrow, the text it pastes,
    and change and remove buttons that are always there (a mouse is not the
    only way in). */
@@ -668,6 +771,19 @@ mark.hl {
   .vmain { padding: 24px 24px 28px; }
 }
 @media (max-width: 640px) {
+  .vtools .j-search-input { width: 100%; }
+  .vtools-find, .vtools .vt-search { flex: 1 1 100%; }
+  .vtools-file { margin-left: 0; }
+  .vt-star { opacity: 1; }
+  .vt.is-select .vt-h { display: none; }
+  .vt.is-select .vt-r:not(.vt-ask):not(.vt-edit) { grid-template-columns: 22px minmax(0, 1fr) auto; }
+  .vt.is-select .vt-c { grid-column: 1; grid-row: 1; }
+  .vt.is-select .vt-w { grid-column: 2; grid-row: 1; }
+  .vt.is-select .vt-x { grid-column: 3; grid-row: 1; }
+  .vt.is-select .vt-sl { grid-column: 2 / -1; grid-row: 2; }
+  .vt.is-select .vt-u { grid-column: 2; grid-row: 3; }
+  .vt.is-select .vt-l { grid-column: 3; grid-row: 3; }
+  .j-sug-r { grid-template-columns: minmax(0, 1fr); }
   .vadd, .snip-add { grid-template-columns: 1fr; }
   .sn-r { grid-template-columns: minmax(0, 1fr) auto; row-gap: 4px; padding: 8px 10px 8px 12px; }
   .sn-a { display: none; }

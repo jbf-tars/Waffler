@@ -311,6 +311,40 @@ def vocab_to_prompt(words: list[str]) -> str:
     return ", ".join(words)
 
 
+# Where the ranking of a long list finds how many dictations each word
+# corrected (set by app.py: the Journal's counts). None, or one that fails,
+# ranks nobody, and the list's own order decides.
+_vocab_usage_source = None
+
+
+def set_vocab_usage_source(source) -> None:
+    """``source()`` returns {word: dictations corrected} (src/vocab_rank.py)."""
+    global _vocab_usage_source
+    _vocab_usage_source = source
+
+
+def vocab_prompt_hint(vocab) -> str:
+    """The prompt OpenAI and the local model get: the Vocabulary as a bare
+    list (vocab_to_prompt), starred words first and, when the list is too long
+    for the model to use, cut to the starred and most used words
+    (src/vocab_rank.py). A short list with no stars is exactly what
+    vocab_to_prompt gave before. Groq is given no prompt and does not use
+    this. Never raises: if the ranking fails the whole list is sent, as it
+    always was."""
+    if not vocab:
+        return ""
+    try:
+        try:
+            import vocab_rank
+        except ImportError:  # imported as src.transcribe_whisper
+            from src import vocab_rank
+        return vocab_to_prompt(vocab_rank.prompt_words(
+            vocab, vocab_rank.load_stars(vocab), _vocab_usage_source))
+    except Exception as e:
+        _wlog(f"[vocab] prompt ranking skipped ({type(e).__name__})")
+        return vocab_to_prompt(vocab)
+
+
 def _levenshtein_distance(a: str, b: str) -> int:
     """Calculate Levenshtein distance between two strings."""
     if len(a) < len(b):
@@ -532,6 +566,20 @@ def _is_everyday(word: str) -> bool:
                     or (len(stem) >= 4 and stem[-1] == stem[-2] and stem[:-1] in _BIGRAM_COMMON)):
                 return True
     return False
+
+
+def is_everyday_entry(entry) -> bool:
+    """True for a Vocabulary entry made only of everyday English words
+    ("will", "of course"). The matcher never changes an everyday word, so such
+    an entry does nothing unless it has a "sounds like" (the same test as
+    _sounds_rules). Used to keep an import, or a suggestion made from an edit,
+    from adding a word that could never act."""
+    if not isinstance(entry, str):
+        return False
+    entry = " ".join(entry.split())
+    if not entry or not _ENTRY_RE.fullmatch(entry):
+        return False
+    return all(_is_everyday(t.lower()) for t in re.split(r"[\s'’\-]+", entry))
 
 
 def _levenshtein_within(a: str, b: str, limit: int) -> int:
@@ -2212,7 +2260,7 @@ class WhisperTranscriber:
             tmp = f.name
         try:
             vocab    = load_vocab()
-            hint     = vocab_to_prompt(vocab)
+            hint     = vocab_prompt_hint(vocab)
             settings = load_settings()
             lang     = settings.get("language", "en")
             kwargs   = dict(path_or_hf_repo="mlx-community/whisper-base-mlx")
@@ -2309,7 +2357,7 @@ class WhisperTranscriber:
             tmp = f.name
         try:
             vocab    = load_vocab()
-            hint     = vocab_to_prompt(vocab)
+            hint     = vocab_prompt_hint(vocab)
             settings = load_settings()
             lang     = settings.get("language", "en")
             with open(tmp, "rb") as af:

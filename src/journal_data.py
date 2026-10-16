@@ -205,7 +205,8 @@ def vocab_usage(history: list, recent: int = RECENT_CORRECTIONS) -> dict:
 
 
 def matches(item: dict, query: str) -> bool:
-    """The Journal search: the clean text and the transcript, any case (for a
+    """The Journal search: the clean text, the transcript and the text the
+    person made of it in the Journal, any case (for a
     rewrite, its result and the text it started from; for a command, what was
     said, the text before and after, and the question searched)."""
     q = str(query or "").strip().lower()
@@ -216,7 +217,9 @@ def matches(item: dict, query: str) -> bool:
     elif item.get("kind") == "command":
         hay = " ".join(str(item.get(k) or "") for k in ("instruction", "after", "before", "query")).lower()
     else:
-        hay = ((item.get("styled") or "") + " " + (item.get("text") or "")).lower()
+        edited = item.get("edited_text")
+        hay = ((item.get("styled") or "") + " " + (item.get("text") or "") + " "
+               + (edited if isinstance(edited, str) else "")).lower()
     return q in hay
 
 

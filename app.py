@@ -143,6 +143,13 @@ import history_ids as _history_ids
 import history_meta as _history_meta
 import history_ops as _history_ops
 import history_export as _history_export
+import history_edit as _history_edit
+import export_files as _export_files
+import dictionary as _dictionary
+import vocab_rank as _vocab_rank
+import snippets_io as _snippets_io
+import table_io as _table_io
+import transcribe_whisper as _transcribe_whisper
 import take_marker as _take_marker
 import action_hotkeys as _action_hotkeys
 import transforms as _transforms
@@ -159,6 +166,16 @@ from user_messages import (
     UPDATE_INSTALL_FAILED,
     UPDATE_NO_INSTALLER,
     UPDATE_WAITING,
+    EDIT_EMPTY,
+    EDIT_FAILED,
+    EDIT_NOT_EDITABLE,
+    EDIT_NOT_FOUND,
+    EDIT_TOO_LONG,
+    EXPORT_FAILED,
+    EXPORT_FORMAT_UNKNOWN,
+    IMPORT_FAILED,
+    SNIPPETS_EXPORT_EMPTY,
+    VOCAB_EXPORT_EMPTY,
     classify_request_error,
     cleanup_skipped_message,
     hold_hint_message,
@@ -363,6 +380,15 @@ def _typing_wpm_setting() -> int:
 _history_cache = _journal.HistoryCache(HISTORY_FILE, load_history,
                                        quality_path=lambda: DATA_DIR / "quality.jsonl",
                                        typing_wpm=_typing_wpm_setting)
+
+def _vocab_usage_counts() -> dict:
+    """{word: dictations it corrected}, from the Journal, for ranking a
+    Vocabulary too long to send as a speech prompt (src/vocab_rank.py)."""
+    by_entry = _history_cache.vocab_usage()["by_entry"]
+    return {k: v.get("count", 0) for k, v in by_entry.items()}
+
+
+_transcribe_whisper.set_vocab_usage_source(_vocab_usage_counts)
 
 # Vocabulary, Try a sentence: the longest text it takes.
 TRY_VOCAB_MAX_CHARS = 2000
@@ -1003,7 +1029,7 @@ class Api:
         from transcribe_whisper import load_vocab
         return load_vocab()
 
-    def set_vocab(self, words: list, sounds_like=None) -> dict:
+    def set_vocab(self, words: list, sounds_like=None, starred=None) -> dict:
         """Save the user's custom vocabulary list (vocab.json, UTF-8, written
         atomically). The list is tidied first (transcribe_whisper.clean_vocab)
         and checked against the limits; the saved list comes back as
@@ -1013,20 +1039,31 @@ class Api:
         ``sounds_like`` ({word: [spellings]}, 3.15) replaces what each word
         sounds like (vocab_sounds.json); left out, the saved spellings stay
         with the words still listed. The saved spellings come back as
-        ``sounds_like``."""
+        ``sounds_like``.
+
+        ``starred`` (S10, a list of the starred words) replaces the stars
+        (vocab_stars.json, src/vocab_rank.py); left out, the saved stars stay
+        with the words still listed. They come back as ``starred``. Stars are
+        a separate file so vocab.json stays the plain list older versions
+        read."""
         from transcribe_whisper import save_vocab, load_sounds_like
-        result = save_vocab(words) if sounds_like is None else save_vocab(words, sounds_like)
-        if result.get("log"):
-            _log_to_file(f"[vocab] {result.pop('log')}")
-        if result.get("ok") and "sounds_like" not in result:
-            result["sounds_like"] = load_sounds_like(result.get("words") or [])
+        import vocab_rank as _vr
+        with _vr.LOCK:
+            result = save_vocab(words) if sounds_like is None else save_vocab(words, sounds_like)
+            if result.get("log"):
+                _log_to_file(f"[vocab] {result.pop('log')}")
+            if result.get("ok"):
+                if "sounds_like" not in result:
+                    result["sounds_like"] = load_sounds_like(result.get("words") or [])
+                result["starred"] = _vr.sync_quietly(result.get("words") or [], starred, _log_to_file)
         return result
 
     def get_vocab_book(self) -> dict:
         """The Vocabulary page: each word with what it sounds like, how many
         dictations it corrected and when it last did, from the corrections
         recorded in the Journal (src/journal_data.py vocab_usage), and the
-        newest corrections. ``total`` is the sum of the words' counts."""
+        newest corrections. ``total`` is the sum of the words' counts.
+        ``starred`` lists the starred words (vocab_stars.json)."""
         try:
             from transcribe_whisper import load_vocab, load_sounds_like
             words = load_vocab()
@@ -1039,8 +1076,9 @@ class Api:
                 total += n
                 rows.append({"word": w, "sounds_like": sounds.get(w, []),
                              "count": n, "last": u.get("last") or ""})
+            import vocab_rank as _vr
             return {"ok": True, "entries": rows, "total": total,
-                    "recent": usage["recent"]}
+                    "recent": usage["recent"], "starred": _vr.load_stars(words)}
         except Exception as e:
             _log_to_file(f"[vocab] get_vocab_book failed: {type(e).__name__}: {e}")
             return {"ok": False, "entries": [], "total": 0, "recent": []}
@@ -1060,6 +1098,88 @@ class Api:
         except Exception as e:
             _log_to_file(f"[vocab] try_vocab failed: {type(e).__name__}: {e}")
             return {"ok": False, "text": text, "changes": [], "marks": []}
+
+    # ── Vocabulary: stars, import and export (S10) ────────────────────────
+
+    def _vocab_state(self):
+        """(words, sounds_like, starred) as saved."""
+        from transcribe_whisper import load_vocab, load_sounds_like
+        words = load_vocab()
+        return words, load_sounds_like(words), _vocab_rank.load_stars(words)
+
+    def export_vocabulary(self) -> dict:
+        """Save the Vocabulary as a CSV on the Desktop (word, sounds_like,
+        starred; spreadsheet-safe, UTF-8 with a byte order mark), shown in its
+        folder (src/dictionary.py, src/export_files.py), as export_history
+        does. It is the person's own copy: Delete all my data leaves it alone.
+
+        Returns {"ok": True, "path", "format", "count"} or {"ok": False,
+        "reason", "error": a plain sentence}."""
+        try:
+            words, sounds, starred = self._vocab_state()
+            if not words:
+                return {"ok": False, "reason": "empty", "error": VOCAB_EXPORT_EMPTY}
+            path = _export_files.save(_dictionary.export_bytes(words, sounds, starred),
+                                      "waffler-vocabulary", "csv")
+        except Exception as e:
+            _log_to_file(f"[export] vocabulary failed ({type(e).__name__})")
+            return {"ok": False, "reason": "error", "error": EXPORT_FAILED}
+        _log_to_file(f"[export] wrote {path.name} ({len(words)} words)")
+        _export_files.reveal_in_folder(path, _platform.system())
+        return {"ok": True, "path": str(path), "format": "csv", "count": len(words)}
+
+    def preview_vocab_import(self, content, is_base64=False) -> dict:
+        """What importing this file would do to the Vocabulary, without doing
+        it: counts of new words, words that gain spellings or a star, words
+        already there, and the rows left out with the reason (src/dictionary.py
+        plan_import). ``content`` is the file's text, or its bytes as base64
+        (``is_base64``) so the file's own encoding is kept. Nothing is saved.
+
+        Returns {"ok": True, **preview_view} or {"ok": False, "error"}."""
+        try:
+            words, sounds, starred = self._vocab_state()
+            plan = _dictionary.plan_from_payload(content, is_base64, words, sounds, starred)
+        except _table_io.TableError as e:
+            return {"ok": False, "error": str(e)}
+        except Exception as e:
+            _log_to_file(f"[vocab] import preview failed ({type(e).__name__})")
+            return {"ok": False, "error": IMPORT_FAILED}
+        return dict(_dictionary.preview_view(plan), ok=True)
+
+    def import_vocabulary(self, content, is_base64=False) -> dict:
+        """Import the file into the Vocabulary: the same plan as the preview,
+        saved through save_vocab (so every limit holds) and the stars file.
+        It only adds: words, spellings, stars. ``before`` is the Vocabulary as
+        it was ({words, sounds_like, starred}), for the page's Undo, which
+        puts it back through set_vocab.
+
+        Returns {"ok": True, "changed", "words", "sounds_like", "starred",
+        "before", **preview_view} or {"ok": False, "error"}."""
+        from transcribe_whisper import save_vocab
+        try:
+            with _vocab_rank.LOCK:
+                words, sounds, starred = self._vocab_state()
+                plan = _dictionary.plan_from_payload(content, is_base64, words, sounds, starred)
+                view = _dictionary.preview_view(plan)
+                before = {"words": words, "sounds_like": sounds, "starred": starred}
+                counts = plan["counts"]
+                if not (counts["new"] or counts["updated"]):
+                    return dict(view, ok=True, changed=False, words=words, sounds_like=sounds,
+                                starred=starred, before=before)
+                result = save_vocab(plan["words"], plan["sounds"])
+                if not result.get("ok"):
+                    return {"ok": False, "error": result.get("error") or IMPORT_FAILED}
+                kept = _vocab_rank.sync_quietly(result["words"], plan["starred"], _log_to_file)
+        except _table_io.TableError as e:
+            return {"ok": False, "error": str(e)}
+        except Exception as e:
+            _log_to_file(f"[vocab] import failed ({type(e).__name__})")
+            return {"ok": False, "error": IMPORT_FAILED}
+        _log_to_file(f"[vocab] import: {counts['new']} added, {counts['updated']} changed, "
+                     f"{counts['skipped']} left out")
+        return dict(view, ok=True, changed=True, words=result["words"],
+                    sounds_like=result.get("sounds_like") or plan["sounds"], starred=kept,
+                    before=before)
 
     def demo_overlay_show(self) -> dict:
         """Show overlay with mic feedback for wizard demo (Step 4)."""
@@ -1271,6 +1391,10 @@ class Api:
             # Settings, Usage: how fast the person types, for the minutes-saved
             # estimate (src/stats_insights.py). 40 until set; 10 to 200.
             "typing_wpm":            typing_wpm_of(stored),
+            # Vocabulary: suggest words from the edits made in the Journal
+            # (src/learn_words.py). On unless exactly false; suggestions only,
+            # nothing is added without a click.
+            "learn_from_edits":      stored.get("learn_from_edits") is not False,
         }
 
     def save_settings(self, settings: dict) -> dict:
@@ -1301,6 +1425,11 @@ class Api:
             # the payload.
             import style_layer as _sl
             problem = _sl.settings_problem(settings)
+            if problem:
+                return {"ok": False, "error": problem}
+            # Suggest words from my edits (Vocabulary): a true or a false.
+            import learn_words as _lw
+            problem = _lw.settings_problem(settings)
             if problem:
                 return {"ok": False, "error": problem}
             # Typing speed (Settings, Usage): a whole number from 10 to 200.
@@ -1380,6 +1509,11 @@ class Api:
                     stored["tips"] = settings["tips"]
                     notes.append(f"Tips: {'on' if settings['tips'] else 'off'}")
 
+                # ── Vocabulary: suggest words from the edits made in the Journal ─
+                if "learn_from_edits" in settings:
+                    stored["learn_from_edits"] = settings["learn_from_edits"]
+                    notes.append(f"Suggest words from edits: {'on' if settings['learn_from_edits'] else 'off'}")
+
                 # ── Style: clean-up, a style per kind of app, the signature ──────
                 # Read again for every dictation: no restart. The signature's
                 # text is never put in the notes (they come back to the page).
@@ -1457,7 +1591,7 @@ class Api:
           - app.log, crash.log              (runtime + Python crash dumps)
           - settings.json, config.json,
             setup_complete.json, vocab.json,
-            vocab_sounds.json               (config / state — no PII)
+            vocab_sounds.json, vocab_stars.json   (config / state — no PII)
           - macOS DiagnosticReports/*.ips   (last 5 system crash dumps)
           - sysinfo.txt                     (synthesised: version, OS,
                                              hotkey, audio device, VPN)
@@ -1513,7 +1647,8 @@ class Api:
 
                 # 2) Config snapshots (no PII, no keys).
                 for name in ("settings.json", "config.json",
-                             "setup_complete.json", "vocab.json", "vocab_sounds.json"):
+                             "setup_complete.json", "vocab.json", "vocab_sounds.json",
+                             "vocab_stars.json"):
                     src_path = DATA_DIR / name
                     if src_path.exists():
                         try:
@@ -1694,7 +1829,7 @@ class Api:
             taken = _recent_audio.take_out(DATA_DIR, name)
         token = _history_ops.SHELF.put(_history_ops.DELETED, entry, audio=taken)
         if _pipeline:
-            _pipeline.swap_last_text(_history_meta.words_of(entry))
+            _pipeline.swap_last_text(_history_meta.final_text(entry))
         _log_to_file(f"[history] entry deleted by the user"
                      f"{' with its recording' if taken else ''}")
         return {"ok": True, "undo": token}
@@ -1732,12 +1867,61 @@ class Api:
         if record["audio"]:
             _recent_audio.put_back(DATA_DIR, record["audio"])
         if _pipeline and record["kind"] == _history_ops.REPLACED:
-            _pipeline.swap_last_text(_history_meta.words_of(record.get("now") or {}),
-                                     _history_meta.words_of(entry))
+            _pipeline.swap_last_text(_history_meta.final_text(record.get("now") or {}),
+                                     _history_meta.final_text(entry))
         item = dict(entry)
         if item.get("audio") and item["audio"] in _recent_audio.names(DATA_DIR):
             item["can_redo"] = True
         return {"ok": True, "kind": record["kind"], "item": item}
+
+    def edit_history_text(self, item_id=None, timestamp="", text="", new_text="") -> dict:
+        """"Edit text" on a Journal card: keep what the person made of a
+        dictation as ``edited_text`` on its entry (src/history_edit.py). The
+        words that were pasted and the words the speech service wrote are not
+        touched. The entry is found as delete_history_item finds it, and
+        written in one atomic write under the history lock. "Copy" and "Paste
+        last" use the edited text from now on.
+
+        Returns {"ok": True, "state": "edited" | "cleared" | "unchanged",
+        "item": the entry, "suggestions": [{word, sounds_like}]} or
+        {"ok": False, "reason", "error": a plain sentence}. Suggestions are
+        Vocabulary words the edit points to (src/learn_words.py), only when
+        "Suggest words from my edits" is on; nothing is added by this call."""
+        cleaned, why = _history_edit.clean(new_text)
+        if why:
+            return {"ok": False, "reason": why,
+                    "error": EDIT_TOO_LONG if why == "too_long" else EDIT_EMPTY}
+        try:
+            with _history_lock:
+                history = _load_history_for_update()
+                idx = _history_ops.find(history, item_id, timestamp, text)
+                if idx < 0:
+                    return {"ok": False, "reason": "not_found", "error": EDIT_NOT_FOUND}
+                old = history[idx]
+                if not _history_edit.is_editable(old):
+                    return {"ok": False, "reason": "not_editable", "error": EDIT_NOT_EDITABLE}
+                new, state = _history_edit.apply(old, cleaned)
+                if state != _history_edit.UNCHANGED:
+                    history[idx] = new
+                    save_history(history)
+        except Exception as e:
+            _log_to_file(f"[history] could not save an edit ({type(e).__name__})")
+            return {"ok": False, "reason": "error", "error": EDIT_FAILED}
+        if state != _history_edit.UNCHANGED:
+            _history_cache.invalidate()
+            if _pipeline:
+                _pipeline.swap_last_text(_history_meta.final_text(old), _history_meta.final_text(new))
+            _log_to_file(f"[history] a dictation's text was {state} by the user")
+        suggestions = []
+        if state == _history_edit.EDITED:
+            try:
+                import learn_words as _lw
+                if _lw.enabled(self._load_settings_file()):
+                    words, sounds, _stars = self._vocab_state()
+                    suggestions = _lw.suggest_for_entry(new, cleaned, words, sounds)
+            except Exception as e:
+                _log_to_file(f"[vocab] suggestions skipped ({type(e).__name__})")
+        return {"ok": True, "state": state, "item": new, "suggestions": suggestions}
 
     def redo_history_item(self, item_id=None, timestamp="", text="") -> dict:
         """"Redo this take": send the entry's kept recording through speech to
@@ -2916,6 +3100,69 @@ class Api:
         except Exception as e:
             _log_to_file(f"[snippets] not saved: {type(e).__name__}: {e}")
             return {"ok": False, "error": "Couldn't save your snippets. Try again."}
+
+    def export_snippets(self, fmt="csv") -> dict:
+        """Save the snippets as a file on the Desktop: ``fmt`` "csv" (trigger
+        and expansion; spreadsheet-safe, UTF-8 with a byte order mark) or "json"
+        (the shape snippets.json has). Shown in its folder, like the other
+        exports (src/snippets_io.py, src/export_files.py).
+
+        Returns {"ok": True, "path", "format", "count"} or {"ok": False,
+        "reason", "error"}."""
+        if fmt not in _snippets_io.FORMATS:
+            return {"ok": False, "reason": "format", "error": EXPORT_FORMAT_UNKNOWN}
+        try:
+            items = self.get_snippets()
+            if not items:
+                return {"ok": False, "reason": "empty", "error": SNIPPETS_EXPORT_EMPTY}
+            path = _export_files.save(_snippets_io.export_bytes(items, fmt), "waffler-snippets", fmt)
+        except Exception as e:
+            _log_to_file(f"[export] snippets failed ({type(e).__name__})")
+            return {"ok": False, "reason": "error", "error": EXPORT_FAILED}
+        _log_to_file(f"[export] wrote {path.name} ({len(items)} snippets)")
+        _export_files.reveal_in_folder(path, _platform.system())
+        return {"ok": True, "path": str(path), "format": fmt, "count": len(items)}
+
+    def preview_snippets_import(self, content, is_base64=False) -> dict:
+        """What importing this file would do to the snippets, without doing it
+        (src/snippets_io.py plan_import). ``content`` is the text of a CSV or
+        JSON file, or its bytes as base64. Nothing is saved.
+
+        Returns {"ok": True, **preview_view} or {"ok": False, "error"}."""
+        try:
+            plan = _snippets_io.plan_from_payload(content, is_base64, self.get_snippets())
+        except _table_io.TableError as e:
+            return {"ok": False, "error": str(e)}
+        except Exception as e:
+            _log_to_file(f"[snippets] import preview failed ({type(e).__name__})")
+            return {"ok": False, "error": IMPORT_FAILED}
+        return dict(_snippets_io.preview_view(plan), ok=True)
+
+    def import_snippets(self, content, is_base64=False) -> dict:
+        """Import the file into the snippets: the preview's plan, saved through
+        set_snippets (so the editor's tidying and limits hold). It only adds;
+        a phrase that is already a snippet keeps its text. ``before`` is the
+        list as it was, for the page's Undo, which puts it back through
+        set_snippets.
+
+        Returns {"ok": True, "changed", "snippets", "before", **preview_view}
+        or {"ok": False, "error"}."""
+        try:
+            before = self.get_snippets()
+            plan = _snippets_io.plan_from_payload(content, is_base64, before)
+        except _table_io.TableError as e:
+            return {"ok": False, "error": str(e)}
+        except Exception as e:
+            _log_to_file(f"[snippets] import failed ({type(e).__name__})")
+            return {"ok": False, "error": IMPORT_FAILED}
+        view = _snippets_io.preview_view(plan)
+        if not plan["counts"]["new"]:
+            return dict(view, ok=True, changed=False, snippets=before, before=before)
+        saved = self.set_snippets(plan["snippets"])
+        if not saved.get("ok"):
+            return {"ok": False, "error": saved.get("error") or IMPORT_FAILED}
+        _log_to_file(f"[snippets] import: {plan['counts']['new']} added, {plan['counts']['skipped']} left out")
+        return dict(view, ok=True, changed=True, snippets=saved["snippets"], before=before)
 
     # ── Usage Tracking API ─────────────────────────────────────────────────
     def get_usage_stats(self) -> dict:
@@ -6430,7 +6677,7 @@ class WafflerPipeline:
             if not self._replace_history_entry(entry, new_item):
                 return {"ok": False, "reason": "not_saved"}
             token = _history_ops.SHELF.put(_history_ops.REPLACED, entry, replaced_by=new_item)
-            self.swap_last_text(_history_meta.words_of(entry), _history_meta.words_of(new_item))
+            self.swap_last_text(_history_meta.final_text(entry), _history_meta.words_of(new_item))
             _log_to_file(f"[redo] done: {len(styled.split())} words")
             return {"ok": True, "item": dict(new_item, can_redo=True), "undo": token}
         finally:

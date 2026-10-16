@@ -1570,7 +1570,7 @@ function makeCard(item, isNew) {
   const div = document.createElement('article');
   div.className = 'transcript-card j-ent' + (isNew ? ' new' : '');
 
-  const displayText = item.styled || item.text || '';
+  const displayText = WL.finalText(item);          // the person's version, if they edited it
   const rawText     = WL.originalText(item);
   const hasStyled   = WL.hasOriginal(item);
   const words       = (displayText.split(/\s+/).filter(Boolean)).length;
@@ -1582,6 +1582,10 @@ function makeCard(item, isNew) {
   // What the Vocabulary changed: "Vocabulary changed post hog to PostHog".
   const vocabLine = changes.length
     ? `<p class="j-meta card-vocab" aria-label="${escHtml(WL.vocabChangesLine(item))}"><span class="j-vd" aria-hidden="true"></span><span aria-hidden="true">Vocabulary changed ${changes.map((c, i) => `${i ? (i === changes.length - 1 ? ' and ' : ', ') : ''}<b>${escHtml(c.heard)}</b> to <b>${escHtml(c.used)}</b>`).join('')}</span></p>`
+    : '';
+  // Edited by the person in the Journal (Edit text): Copy and Paste last use it.
+  const editedLine = WL.isEdited(item)
+    ? `<p class="j-meta card-edited">${WI.icon('pencil')}<span>Edited by you. Copy and Paste last use your text.</span></p>`
     : '';
   const qualityLine = (q.chip || q.asSaid || q.reasons.length)
     ? `<p class="j-meta card-reason">${qualityBadge(item)}<span>${escHtml(q.reasons.join(' '))}</span></p>`
@@ -1596,11 +1600,12 @@ function makeCard(item, isNew) {
     <div class="j-body">
       <div class="j-said-k" hidden>What you said</div>
       <div class="card-text styled" id="${textId}">${_markedHtml(displayText, changes)}</div>
-      ${vocabLine}${qualityLine}
+      ${editedLine}${vocabLine}${qualityLine}
       <p class="j-status" role="status" aria-live="polite" hidden></p>
     </div>
     <div class="j-acts card-actions">
       <button type="button" class="btn btn-sec btn-sm btn-copy" aria-label="${escHtml(when ? `Copy the dictation from ${when}` : 'Copy')}">${WI.icon('copy')}<span>Copy</span></button>
+      <button type="button" class="btn btn-quiet btn-sm card-edit" aria-label="${escHtml(when ? `Edit the text of the dictation from ${when}` : 'Edit the text of this dictation')}">${WI.icon('pencil')}<span>Edit text</span></button>
       ${hasStyled ? `<button type="button" class="btn btn-quiet btn-sm text-toggle" aria-controls="${textId}" aria-pressed="false">${WI.icon('file-text')}<span>What you said</span></button>` : ''}
       ${redoButton}
       <button type="button" class="rbtn rbtn-sm card-del" aria-label="${escHtml(when ? `Delete the dictation from ${when}` : 'Delete this dictation')}" title="Delete">${WI.icon('trash')}</button>
@@ -1625,6 +1630,7 @@ function makeCard(item, isNew) {
     });
   }
 
+  div.querySelector('.card-edit').addEventListener('click', () => beginEdit(item, div));
   const redo = div.querySelector('.card-redo');
   if (redo) redo.addEventListener('click', () => redoEntry(item, div));
   div.querySelector('.card-del').addEventListener('click', () => deleteEntry(item, div));
@@ -1773,6 +1779,207 @@ function makeCommandCard(item, isNew) {
 // "Show in Journal" on a command's message (app.py _on_toast_action): the same
 // scroll-to-the-card as a rewrite's.
 window.waffler_show_command = (id) => window.waffler_show_transform(id);
+
+// ── Journal: Edit text, and the words it suggests (S10) ─────────────────
+// "Edit text" turns a card's words into a box. Save keeps the person's version
+// beside the entry (edit_history_text: edited_text), so Copy and Paste last use
+// it from then on; the words that were pasted and the words speech to text
+// wrote are not touched. If the change looks like a name or a word the
+// Vocabulary should know, the card offers to add it, with what speech to text
+// wrote. Nothing is added without a click, and Add shows the same Undo line as
+// the Vocabulary page.
+
+function beginEdit(item, card) {
+  const open = card.querySelector('.j-edit');
+  if (open) { open.querySelector('.j-edit-ta').focus(); return; }
+  const textEl = card.querySelector('.card-text');
+  if (!textEl) return;
+  // "What you said" shows the speech service's words, not the ones to edit.
+  if (textEl.classList.contains('raw')) {
+    const toggle = card.querySelector('.text-toggle');
+    if (toggle) toggle.click();
+  }
+  const when = formatTime(item.timestamp);
+  const form = document.createElement('form');
+  form.className = 'j-edit';
+  form.setAttribute('aria-label', when ? `Edit the text of the dictation from ${when}` : 'Edit the text of this dictation');
+  const keys = isMacPlatform ? 'Cmd+Enter' : 'Ctrl+Enter';
+  form.innerHTML = `
+    <textarea class="input j-edit-ta" rows="4" aria-label="Text of this dictation" aria-describedby="${textEl.id}-h" spellcheck="true"></textarea>
+    <p class="j-edit-hint" id="${textEl.id}-h">Your version is kept with this dictation, on this computer. Esc cancels, ${keys} saves.</p>
+    <p class="s-error j-edit-err" role="alert" hidden></p>
+    <div class="j-edit-acts">${WL.isEdited(item) ? '<button type="button" class="btn btn-quiet btn-sm" data-act="reset">Use the pasted text</button>' : ''}<span class="j-edit-sp"></span><button type="button" class="btn btn-quiet btn-sm" data-act="cancel">Cancel</button><button type="submit" class="btn btn-pri btn-sm">Save</button></div>`;
+  const ta = form.querySelector('.j-edit-ta');
+  ta.value = WL.finalText(item);
+  textEl.hidden = true;
+  textEl.after(form);
+  card.classList.add('is-editing');
+  const grow = () => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight + 2, 360) + 'px'; };
+  ta.addEventListener('input', grow);
+  grow();
+  form.addEventListener('submit', (e) => { e.preventDefault(); saveEdit(item, card, form, ta.value); });
+  form.querySelector('[data-act="cancel"]').addEventListener('click', () => endEdit(card, true));
+  const reset = form.querySelector('[data-act="reset"]');
+  if (reset) reset.addEventListener('click', () => saveEdit(item, card, form, item.styled || item.text || ''));
+  ta.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); endEdit(card, true); }
+    else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); saveEdit(item, card, form, ta.value); }
+  });
+  ta.focus();
+  ta.setSelectionRange(ta.value.length, ta.value.length);
+}
+
+// Close the box and show the words again; focus goes back to Edit text.
+function endEdit(card, refocus) {
+  const form = card.querySelector('.j-edit');
+  if (form) form.remove();
+  const textEl = card.querySelector('.card-text');
+  if (textEl) textEl.hidden = false;
+  card.classList.remove('is-editing');
+  const btn = card.querySelector('.card-edit');
+  if (refocus && btn) btn.focus();
+}
+
+async function saveEdit(item, card, form, value) {
+  const api = _pageApi();
+  const err = form.querySelector('.j-edit-err');
+  const say = (msg) => { if (err) { err.textContent = msg || ''; err.hidden = !msg; } };
+  if (!api || !api.edit_history_text) return;
+  say('');
+  const buttons = form.querySelectorAll('button');
+  buttons.forEach((b) => { b.disabled = true; });
+  let r = null;
+  try { r = await api.edit_history_text(...WL.entryRef(item), value); } catch (e) { r = null; }
+  buttons.forEach((b) => { b.disabled = false; });
+  if (!r || !r.ok || !r.item) {
+    say(WL.editFailedMessage(r && r.reason, r && r.error));
+    const ta = form.querySelector('.j-edit-ta');
+    if (ta) ta.focus();
+    return;
+  }
+  if (r.state === 'unchanged') { endEdit(card, true); return; }
+  // What the card was given keeps its other flags (can_redo); the edit is the
+  // app's word on whether there is one.
+  const merged = Object.assign({}, item, r.item);
+  if (!r.item.edited_text) delete merged.edited_text;
+  const at = history.indexOf(item);
+  if (at >= 0) history[at] = merged;
+  const fresh = makeCard(merged, false);
+  card.replaceWith(fresh);
+  showToast(WL.editSavedLine(r.state), 'success', 3500);
+  showSuggestions(fresh, r.suggestions || []);
+  const btn = fresh.querySelector('.card-edit');
+  if (btn) btn.focus();
+}
+
+function showSuggestions(card, list) {
+  const old = card.querySelector('.j-sug');
+  if (old) old.remove();
+  const items = (Array.isArray(list) ? list : []).map(WL.suggestionView).filter((v) => v.word);
+  const body = card.querySelector('.j-body');
+  if (!items.length || !body) return;
+  const box = document.createElement('div');
+  box.className = 'j-sug';
+  box.setAttribute('role', 'group');
+  box.setAttribute('aria-label', 'Words to add to your Vocabulary');
+  items.forEach((v) => box.appendChild(_suggestionRow(card, box, v)));
+  body.appendChild(box);
+}
+
+function _suggestionRow(card, box, v) {
+  const row = document.createElement('div');
+  row.className = 'j-sug-r';
+  row.innerHTML = `<div class="j-sug-t"><b>${escHtml(v.question)}</b><span>${escHtml(v.detail)}</span></div>
+    <div class="j-sug-b"><button type="button" class="btn btn-quiet btn-sm" data-act="dismiss" aria-label="${escHtml(`Don't add ${v.word}`)}">Dismiss</button><button type="button" class="btn btn-sec btn-sm" data-act="add" aria-label="${escHtml(`Add ${v.word} to your Vocabulary`)}">Add</button></div>
+    <p class="s-error j-sug-err" role="alert" hidden></p>`;
+  row.querySelector('[data-act="dismiss"]').addEventListener('click', () => _dropSuggestion(card, box, row));
+  row.querySelector('[data-act="add"]').addEventListener('click', () => addSuggestedWord(card, box, row, v));
+  return row;
+}
+
+// A suggestion is gone (dismissed, or its time is up): focus moves on.
+function _dropSuggestion(card, box, row) {
+  const next = row.nextElementSibling || row.previousElementSibling;
+  const hadFocus = row.contains(document.activeElement);
+  row.remove();
+  if (!box.querySelector('.j-sug-r')) box.remove();
+  if (!hadFocus) return;
+  const target = (next && next.isConnected && next.querySelector('button')) || card.querySelector('.card-edit');
+  if (target) target.focus();
+}
+
+// Add goes the Vocabulary page's way: the same checks (logic.js vocabAdd,
+// vocabSoundsCheck), the same save (set_vocab), the same Undo for ten seconds.
+async function addSuggestedWord(card, box, row, v) {
+  const api = _pageApi();
+  const err = row.querySelector('.j-sug-err');
+  const say = (msg) => { if (err) { err.textContent = msg || ''; err.hidden = !msg; } };
+  if (!api || !api.set_vocab) return;
+  const buttons = row.querySelectorAll('button');
+  buttons.forEach((b) => { b.disabled = true; });
+  say('');
+  const back = () => buttons.forEach((b) => { b.disabled = false; });
+  await _vocabReloadBook();
+  const entries = _vocabBook.entries.map((e) => Object.assign({}, e, { sounds_like: (e.sounds_like || []).slice() }));
+  const r = WL.vocabAdd(_vocabWords, v.word, WL.VOCAB_MAX_ENTRY_LEN);
+  if (r.action === 'same' || r.action === 'respell') {
+    say(`"${v.word}" is already in your Vocabulary.`);
+    back();
+    return;
+  }
+  if (r.action !== 'add') { say("That can't be added."); back(); return; }
+  if (entries.length >= 500) {
+    say('Your Vocabulary is full (500 words). Remove one you no longer need first.');
+    back();
+    return;
+  }
+  const check = WL.vocabSoundsCheck(entries, r.word, v.sounds, WL.VOCAB_MAX_ENTRY_LEN);
+  if (!check.ok) { say(check.error); back(); return; }
+  const before = _vocabPayload(entries);
+  entries.push({ word: r.word, sounds_like: v.sounds.slice(), count: 0, last: '', starred: false });
+  const p = _vocabPayload(entries);
+  let res = null;
+  try { res = await api.set_vocab(p.words, p.sounds); } catch (e) { res = null; }
+  if (!res || !res.ok) {
+    say((res && res.error) || "Couldn't add that word. Try again.");
+    back();
+    return;
+  }
+  _vocabTakeSaved({ words: Array.isArray(res.words) ? res.words : p.words, sounds_like: res.sounds_like || p.sounds, starred: res.starred }, entries);
+  _suggestionAdded(card, box, row, v, before);
+}
+
+// "Added "Waffler". Undo": for ten seconds, in the suggestion's place.
+function _suggestionAdded(card, box, row, v, before) {
+  const done = document.createElement('div');
+  done.className = 'j-sug-r is-done';
+  done.setAttribute('role', 'status');
+  done.innerHTML = `<span>${escHtml(v.added)}</span> <button type="button" class="link-btn" aria-label="${escHtml(`Undo adding ${v.word}`)}">Undo</button>`;
+  row.replaceWith(done);
+  const undoBtn = done.querySelector('button');
+  const gone = setTimeout(() => _dropSuggestion(card, box, done), UNDO_MS);
+  undoBtn.addEventListener('click', async () => {
+    clearTimeout(gone);
+    undoBtn.disabled = true;
+    let res = null;
+    try { res = await pywebview.api.set_vocab(before.words, before.sounds, before.starred); } catch (e) { res = null; }
+    if (!res || !res.ok) {
+      done.replaceWith(row);
+      row.querySelectorAll('button').forEach((b) => { b.disabled = false; });
+      const err = row.querySelector('.j-sug-err');
+      if (err) { err.textContent = (res && res.error) || "Couldn't take that back. Try again."; err.hidden = false; }
+      return;
+    }
+    await _vocabReloadBook();
+    done.replaceWith(row);
+    row.querySelectorAll('button').forEach((b) => { b.disabled = false; });
+    const err = row.querySelector('.j-sug-err');
+    if (err) err.hidden = true;
+    const add = row.querySelector('[data-act="add"]');
+    if (add) add.focus();
+  });
+  if (card.contains(document.activeElement) || document.activeElement === document.body) undoBtn.focus();
+}
 
 // A new dictation keeps its recording and pushes the oldest kept one out, so
 // "Redo this take" goes from the entry that has just lost its recording.
@@ -2052,6 +2259,13 @@ let _vocabBook = { entries: [], total: 0, recent: [] };
 let _vocabAsk = null;      // { existing, word, sounds }: Replace PostHog with POSTHOG?
 let _vocabEditing = '';    // the word whose "sounds like" is open for editing
 let _vocabUndoTimer = null;
+// S10: search, order, select. The order is remembered (a convenience only: the
+// page works without it).
+let _vocabQuery = '';
+let _vocabSort = 'used';
+let _vocabSelecting = false;
+let _vocabSelected = new Set();
+try { _vocabSort = WL.vocabSortId(window.localStorage.getItem('waffler.vocabSort')); } catch (_) { _vocabSort = 'used'; }
 
 const VOCAB_EXAMPLES = [
   ['Isabel', 'Isobel'], ['Caitlin', 'Caitlyn'], ['Sinead', 'Sinéad'], ['Hayley', 'Hailey'], ['club card', 'Clubcard'],
@@ -2070,7 +2284,7 @@ function _vocabError(msg) {
 function _vocabPayload(entries) {
   const sounds = {};
   entries.forEach((e) => { if (e.sounds_like && e.sounds_like.length) sounds[e.word] = e.sounds_like.slice(); });
-  return { words: entries.map((e) => e.word), sounds };
+  return { words: entries.map((e) => e.word), sounds, starred: entries.filter((e) => e.starred).map((e) => e.word) };
 }
 
 // After a save: the saved words, with the counts they already had (a
@@ -2079,9 +2293,13 @@ function _vocabTakeSaved(res, entries) {
   const before = {};
   (_vocabBook.entries || []).concat(entries || []).forEach((e) => { before[e.word.toLowerCase()] = e; });
   const sounds = (res && res.sounds_like) || {};
+  // The stars the app saved (set_vocab answers them), else the ones the page held.
+  const stars = new Set((res && Array.isArray(res.starred)
+    ? res.starred
+    : (entries || _vocabBook.entries || []).filter((e) => e.starred).map((e) => e.word)).map((w) => w.toLowerCase()));
   _vocabBook.entries = res.words.map((w) => {
     const old = before[w.toLowerCase()] || {};
-    return { word: w, sounds_like: sounds[w] || [], count: old.count || 0, last: old.last || '' };
+    return { word: w, sounds_like: sounds[w] || [], count: old.count || 0, last: old.last || '', starred: stars.has(w.toLowerCase()) };
   });
   _vocabBook.total = _vocabBook.entries.reduce((n, e) => n + (Number(e.count) || 0), 0);
   _vocabWords = res.words.slice();
@@ -2121,22 +2339,41 @@ async function loadVocabPage() {
   _vocabError('');
   _vocabAsk = null;
   _vocabEditing = '';
+  // Search and selection start fresh each visit; the order is kept.
+  _vocabQuery = '';
+  _vocabSelecting = false;
+  _vocabSelected = new Set();
+  const searchEl = document.getElementById('vocabSearch');
+  if (searchEl) searchEl.value = '';
+  const sortEl = document.getElementById('vocabSort');
+  if (sortEl) sortEl.value = _vocabSort;
 
+  _vocabImport.close(false);
+  await _vocabReloadBook();
+  renderVocab();
+  _vocabRunTry();
+  loadSnippets();
+  loadLearnSwitch();
+}
+
+// The words from the app, each with its counts, spellings and star.
+async function _vocabReloadBook() {
   try {
     const book = pywebview.api.get_vocab_book ? await pywebview.api.get_vocab_book() : null;
     if (book && book.ok) {
-      _vocabBook = { entries: book.entries || [], total: book.total || 0, recent: book.recent || [] };
+      const stars = new Set((book.starred || []).map((w) => String(w).toLowerCase()));
+      _vocabBook = {
+        entries: (book.entries || []).map((e) => Object.assign({}, e, { starred: stars.has(String(e.word).toLowerCase()) })),
+        total: book.total || 0, recent: book.recent || [],
+      };
     } else {
       const words = (await pywebview.api.get_vocab()) || [];
-      _vocabBook = { entries: words.map((w) => ({ word: w, sounds_like: [], count: 0, last: '' })), total: 0, recent: [] };
+      _vocabBook = { entries: words.map((w) => ({ word: w, sounds_like: [], count: 0, last: '', starred: false })), total: 0, recent: [] };
     }
     _vocabWords = _vocabBook.entries.map((e) => e.word);
   } catch (e) {
     console.warn('loadVocabPage error:', e);
   }
-  renderVocab();
-  _vocabRunTry();
-  loadSnippets();
 }
 
 function renderVocab() {
@@ -2161,13 +2398,24 @@ function renderVocab() {
   if (side) side.classList.toggle('is-empty', !entries.length);
   _renderVocabRecent();
 
+  // Search, Sort and Select are for a list; Export needs a word to save.
+  const find = document.getElementById('vocabFind');
+  if (find) find.hidden = !entries.length;
+  const exportBtn = document.getElementById('vocabExportBtn');
+  if (exportBtn) exportBtn.disabled = !entries.length;
+
   if (!entries.length) {
+    _vocabSelecting = false;
+    _vocabSelected = new Set();
+    _renderVocabBulk([]);
+    const status = document.getElementById('vocabSearchStatus');
+    if (status) status.textContent = '';
     listEl.innerHTML = `
       <div class="group"><div class="panel v-first">
         <div class="v-first-top">
           <div>
             <h2 class="v-first-title">Teach it the names it gets wrong</h2>
-            <p class="v-first-text">Speech to text guesses how names are spelled. Add yours once and Waffler spells them your way from then on.</p>
+            <p class="v-first-text">Speech to text guesses how names are spelled. Add yours once and Waffler spells them your way from then on. Or import a list you already have.</p>
           </div>
           <span data-waffle="logo" data-size="44"></span>
         </div>
@@ -2181,8 +2429,20 @@ function renderVocab() {
     return;
   }
 
-  const rows = WL.vocabRows(entries, new Date());
-  const head = `<div class="vt-h" role="row"><span role="columnheader">Word</span><span role="columnheader">Sounds like</span><span role="columnheader">Corrections</span><span role="columnheader">Last used</span><span role="columnheader"><span class="sr-only">Change or remove</span></span></div>`;
+  const rows = WL.vocabRows(entries, new Date(), { sort: _vocabSort, query: _vocabQuery });
+  const shown = rows.map((r) => r.word);
+  _vocabSelected = new Set(WL.vocabKeepSelected([..._vocabSelected], shown));
+  const status = document.getElementById('vocabSearchStatus');
+  if (status) status.textContent = WL.vocabSearchAnnouncement(_vocabQuery, rows.length, entries.length);
+  _renderVocabBulk(shown);
+
+  if (!rows.length) {
+    listEl.innerHTML = `<p class="vt-empty">No words match &ldquo;${escHtml(_vocabQuery.trim())}&rdquo;. <button type="button" class="link-btn" onclick="clearVocabSearch()">Clear search</button></p>`;
+    return;
+  }
+
+  const pick = _vocabSelecting;
+  const head = `<div class="vt-h" role="row">${pick ? '<span role="columnheader"><span class="sr-only">Select</span></span>' : ''}<span role="columnheader">Word</span><span role="columnheader">Sounds like</span><span role="columnheader">Corrections</span><span role="columnheader">Last used</span><span role="columnheader"><span class="sr-only">Change or remove</span></span></div>`;
   const body = rows.map((r) => {
     const w = escHtml(r.word);
     if (_vocabAsk && _vocabAsk.existing === r.word) {
@@ -2200,21 +2460,31 @@ function renderVocab() {
     const sl = r.sounds.length
       ? r.sounds.map((s) => `<span class="vt-chip">${escHtml(s)}</span>`).join('')
       : '<span class="vt-none">Matched loosely</span>';
-    return `<div class="vt-r" role="row" data-word="${w}">
-      <span class="vt-w" role="cell">${w}</span>
+    const check = pick
+      ? `<span class="vt-c" role="cell"><input type="checkbox" class="vt-sel" data-word="${w}" aria-label="Select ${w}"${_vocabSelected.has(r.word) ? ' checked' : ''}></span>`
+      : '';
+    return `<div class="vt-r${r.starred ? ' is-starred' : ''}" role="row" data-word="${w}">
+      ${check}
+      <span class="vt-w" role="cell"><button type="button" class="rbtn vt-star" data-word="${w}" aria-pressed="${r.starred ? 'true' : 'false'}" aria-label="Star ${w}" title="${r.starred ? 'Starred: kept first when a list is long' : 'Star it'}">${WI.icon('star')}</button><span class="vt-wt">${w}</span></span>
       <span class="vt-sl" role="cell">${sl}</span>
       <span class="vt-u" role="cell"><span class="vt-n">${WL.formatCount(r.count)}</span><span class="vt-b" aria-hidden="true"><i style="width:${r.bar}%"></i></span></span>
       <span class="vt-l" role="cell">${escHtml(r.last)}</span>
       <span class="vt-x" role="cell"><button type="button" class="rbtn vt-edit-btn" data-word="${w}" aria-label="Change what ${w} sounds like" title="Change what it sounds like">${WI.icon('pencil')}</button><button type="button" class="rbtn vt-del" data-word="${w}" aria-label="Remove ${w}" title="Remove">${WI.icon('x')}</button></span>
     </div>`;
   }).join('');
-  listEl.innerHTML = `<div class="vt" role="table" aria-label="Your words">${head}${body}</div>`;
+  listEl.innerHTML = `<div class="vt${pick ? ' is-select' : ''}" role="table" aria-label="Your words">${head}${body}</div>`;
 
   listEl.querySelectorAll('.vt-del').forEach((b) => {
     b.addEventListener('click', () => deleteVocabWord(b.getAttribute('data-word')));
   });
   listEl.querySelectorAll('.vt-edit-btn').forEach((b) => {
     b.addEventListener('click', () => openVocabSounds(b.getAttribute('data-word')));
+  });
+  listEl.querySelectorAll('.vt-star').forEach((b) => {
+    b.addEventListener('click', () => toggleVocabStar(b.getAttribute('data-word')));
+  });
+  listEl.querySelectorAll('.vt-sel').forEach((b) => {
+    b.addEventListener('change', () => onVocabSelect(b.getAttribute('data-word'), b.checked));
   });
   const ask = listEl.querySelector('.vt-ask');
   if (ask) {
@@ -2325,7 +2595,7 @@ async function saveVocabSounds(word, input) {
 async function _vocabSave(entries) {
   const p = _vocabPayload(entries);
   try {
-    const res = await pywebview.api.set_vocab(p.words, p.sounds);
+    const res = await pywebview.api.set_vocab(p.words, p.sounds, p.starred);
     if (!res || !res.ok) {
       _vocabError((res && res.error) || "Couldn't save your list. Try again.");
       return false;
@@ -2419,7 +2689,7 @@ async function addVocabWord() {
       inputEl.focus();
       return;
     }
-    _vocabTakeSaved({ words: Array.isArray(res.words) ? res.words : p.words, sounds_like: res.sounds_like || p.sounds }, entries);
+    _vocabTakeSaved({ words: Array.isArray(res.words) ? res.words : p.words, sounds_like: res.sounds_like || p.sounds, starred: res.starred }, entries);
     inputEl.value = '';
     if (soundsEl) soundsEl.value = '';
     renderVocab();
@@ -2451,7 +2721,7 @@ async function deleteVocabWord(word) {
       showToast((res && res.error) || "Couldn't remove that word. Try again.", 'error');
       return;
     }
-    _vocabTakeSaved({ words: Array.isArray(res.words) ? res.words : next, sounds_like: res.sounds_like || p.sounds }, entries);
+    _vocabTakeSaved({ words: Array.isArray(res.words) ? res.words : next, sounds_like: res.sounds_like || p.sounds, starred: res.starred }, entries);
     if (_vocabEditing === word) _vocabEditing = '';
     renderVocab();
     _vocabRunTry();
@@ -2470,6 +2740,388 @@ async function deleteVocabWord(word) {
   } catch(e) {
     console.warn('deleteVocabWord error:', e);
     showToast("Couldn't remove that word. Try again.", 'error');
+  }
+}
+
+// ── Vocabulary: find, order and select words (S10) ─────────────────────
+// Search matches the word and what it sounds like, as you type. The order is
+// one of four (logic.js VOCAB_SORTS) and is remembered. Select shows a box on
+// each row and a bar to remove or star many at once; Remove can be undone with
+// the same line as removing one. A star changes the order, and which words are
+// kept when a long list is sent as a hint to OpenAI or the local model.
+
+function _vocabShown() {
+  return [...document.querySelectorAll('#vocabList .vt-sel, #vocabList .vt-star')]
+    .map((b) => b.getAttribute('data-word'))
+    .filter((w, i, all) => all.indexOf(w) === i);
+}
+
+// The bar above the table: how many are selected and what can be done.
+function _renderVocabBulk(shown) {
+  const btn = document.getElementById('vocabSelectBtn');
+  if (btn) btn.setAttribute('aria-pressed', _vocabSelecting ? 'true' : 'false');
+  const bar = document.getElementById('vocabBulk');
+  if (!bar) return;
+  bar.hidden = !_vocabSelecting;
+  const n = _vocabSelected.size;
+  const count = document.getElementById('vocabBulkCount');
+  if (count) count.textContent = WL.vocabSelectedLabel(n);
+  ['vocabBulkStar', 'vocabBulkUnstar', 'vocabBulkRemove'].forEach((id) => {
+    const b = document.getElementById(id);
+    if (b) b.disabled = !n;
+  });
+  const all = document.getElementById('vocabSelectAll');
+  if (all) {
+    const everything = shown.length > 0 && shown.every((w) => _vocabSelected.has(w));
+    all.textContent = everything ? 'Select none' : 'Select all shown';
+    all.disabled = !shown.length;
+  }
+}
+
+function onVocabSearch(value) {
+  _vocabQuery = String(value || '');
+  renderVocab();
+}
+
+function clearVocabSearch() {
+  const box = document.getElementById('vocabSearch');
+  if (box) box.value = '';
+  _vocabQuery = '';
+  renderVocab();
+  if (box) box.focus();
+}
+
+// Esc clears the search; the Down arrow goes to the first row.
+function onVocabSearchKey(e) {
+  if (e.key === 'Escape') {
+    if (_vocabQuery) { e.preventDefault(); e.stopPropagation(); clearVocabSearch(); }
+    return;
+  }
+  if (e.key === 'ArrowDown') {
+    const first = document.querySelector('#vocabList .vt-sel, #vocabList .vt-star');
+    if (first) { e.preventDefault(); first.focus(); }
+  }
+}
+
+function onVocabSort(value) {
+  _vocabSort = WL.vocabSortId(value);
+  try { window.localStorage.setItem('waffler.vocabSort', _vocabSort); } catch (_) { /* a convenience only */ }
+  renderVocab();
+}
+
+async function toggleVocabStar(word) {
+  const entries = _vocabBook.entries.map((e) => Object.assign({}, e));
+  const entry = entries.find((e) => e.word === word);
+  if (!entry) return;
+  entry.starred = !entry.starred;
+  if (!(await _vocabSave(entries))) return;
+  _vocabError('');
+  renderVocab();
+  // The row may have moved with the order; focus follows the word.
+  const star = [...document.querySelectorAll('#vocabList .vt-star')].find((b) => b.getAttribute('data-word') === word);
+  if (star) star.focus();
+}
+
+function toggleVocabSelect() {
+  _vocabSelecting = !_vocabSelecting;
+  if (!_vocabSelecting) _vocabSelected = new Set();
+  renderVocab();
+  const btn = document.getElementById('vocabSelectBtn');
+  if (btn) btn.focus();
+}
+
+function onVocabSelect(word, checked) {
+  if (checked) _vocabSelected.add(word); else _vocabSelected.delete(word);
+  _renderVocabBulk(_vocabShown());
+}
+
+function selectAllVocab() {
+  const shown = _vocabShown();
+  const everything = shown.length > 0 && shown.every((w) => _vocabSelected.has(w));
+  _vocabSelected = new Set(everything ? [] : shown);
+  renderVocab();
+}
+
+// Esc leaves Select, from the table or from the bar.
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || !_vocabSelecting) return;
+  const t = e.target;
+  if (!t || !t.closest || !(t.closest('#vocabList') || t.closest('#vocabBulk'))) return;
+  e.preventDefault();
+  toggleVocabSelect();
+});
+
+async function bulkRemoveVocab() {
+  const words = _vocabBook.entries.map((e) => e.word).filter((w) => _vocabSelected.has(w));
+  if (!words.length) return;
+  const before = _vocabBook.entries.map((e) => Object.assign({}, e));
+  const gone = new Set(words);
+  const entries = before.filter((e) => !gone.has(e.word));
+  const boxes = [...document.querySelectorAll('#vocabList .vt-sel')];
+  const at = boxes.findIndex((b) => gone.has(b.getAttribute('data-word')));
+  if (!(await _vocabSave(entries))) return;
+  _vocabError('');
+  _vocabSelected = new Set();
+  if (_vocabEditing && gone.has(_vocabEditing)) _vocabEditing = '';
+  renderVocab();
+  _vocabRunTry();
+  // Focus went with the rows: to the row that took their place, else the Select button.
+  const left = [...document.querySelectorAll('#vocabList .vt-sel')];
+  const to = WL.focusAfterRemove(at, left.length);
+  const target = to >= 0 ? left[to] : (document.getElementById('vocabSelectBtn') || document.getElementById('vocabInput'));
+  if (target) target.focus();
+  _vocabShowUndo(WL.vocabBulkDone('remove', words), async () => {
+    if (await _vocabSave(before)) { renderVocab(); _vocabRunTry(); }
+  });
+}
+
+async function bulkStarVocab(on) {
+  const words = _vocabBook.entries.map((e) => e.word).filter((w) => _vocabSelected.has(w));
+  if (!words.length) return;
+  const before = _vocabBook.entries.map((e) => Object.assign({}, e));
+  const picked = new Set(words);
+  const entries = before.map((e) => (picked.has(e.word) ? Object.assign({}, e, { starred: !!on }) : e));
+  if (!(await _vocabSave(entries))) return;
+  _vocabError('');
+  renderVocab();
+  _vocabShowUndo(WL.vocabBulkDone(on ? 'star' : 'unstar', words), async () => {
+    if (await _vocabSave(before)) renderVocab();
+  });
+}
+
+// ── Import: choose a file or paste rows, look, then add (S10) ──────────
+// One panel for the words and one for the snippets. The app decides what an
+// import does (preview_vocab_import / import_vocabulary, and the snippets'
+// own); this shows it. A file is read here as bytes and sent as base64, so its
+// encoding (UTF-16 from Excel, say) is decoded by the app and not guessed at.
+// A file picker may not be offered by every web view: pasting always works.
+const IMPORT_MAX_BYTES = 2000000;
+
+function _importPreviewHtml(v, kind) {
+  const snip = kind === 'snippets';
+  const view = snip ? WL.snippetImportView(v) : WL.vocabImportView(v);
+  const chips = view.parts.map((p) => `<span class="vi-chip vi-${p.kind}">${escHtml(p.text)}</span>`).join('');
+  const more = (n) => (n ? ` and ${WL.formatCount(n)} more` : '');
+  let h = `<p class="vi-head">${escHtml(view.headline)}</p>`;
+  if (chips) h += `<div class="vi-chips">${chips}</div>`;
+  if (view.header) h += '<p class="vi-note">The first row is used as the column names.</p>';
+  if ((v.new || []).length) {
+    h += `<p class="vi-k">${snip ? 'New snippets' : 'New words'}</p><p class="vi-list">${v.new.map(escHtml).join(', ')}${more(v.new_more)}</p>`;
+  }
+  if (!snip && (v.updated || []).length) {
+    h += `<p class="vi-k">Already there, gaining a spelling or a star</p><p class="vi-list">${v.updated.map(escHtml).join(', ')}${more(v.updated_more)}</p>`;
+  }
+  const shorten = (t) => (t.length > 40 ? `${t.slice(0, 40)}\u2026` : t);
+  const problem = (s) => `<li><span class="vi-row">Row ${WL.formatCount(s.row)}</span>${(s.word || s.trigger) ? ` <b>${escHtml(shorten(String(s.word || s.trigger)))}</b>` : ''} ${escHtml(s.message)}</li>`;
+  if ((v.skipped || []).length) {
+    h += `<p class="vi-k">Left out</p><ul class="vi-skip">${v.skipped.map(problem).join('')}</ul>${v.skipped_more ? `<p class="vi-list">${more(v.skipped_more).trim()}.</p>` : ''}`;
+  }
+  if (!snip && (v.notes || []).length) {
+    h += `<p class="vi-k">Spellings left out</p><ul class="vi-skip">${v.notes.map(problem).join('')}</ul>${v.notes_more ? `<p class="vi-list">${more(v.notes_more).trim()}.</p>` : ''}`;
+  }
+  return { html: h, view };
+}
+
+function makeImportPanel(c) {
+  let payload = null;          // { content, base64 }
+  let seq = 0;
+  let ready = false;           // a preview that can be added is showing
+  const el = (id) => document.getElementById(id);
+  const say = (msg) => { const e = el(c.error); if (e) { e.textContent = msg || ''; e.hidden = !msg; } };
+  const clearPreview = () => {
+    ready = false;
+    const box = el(c.preview);
+    if (box) { box.hidden = true; box.innerHTML = ''; }
+    const go = el(c.go);
+    if (go) go.disabled = true;
+  };
+  const reset = () => {
+    payload = null;
+    seq += 1;
+    const t = el(c.text); if (t) t.value = '';
+    const n = el(c.name); if (n) n.textContent = '';
+    say('');
+    clearPreview();
+  };
+  const soon = WL.debounce(() => preview(), 250);
+
+  async function preview() {
+    const my = ++seq;
+    const api = _pageApi();
+    say('');
+    if (!payload || !String(payload.content).trim()) { clearPreview(); return; }
+    if (!api || !api[c.previewApi]) { clearPreview(); say("Couldn't read that just now. Try again."); return; }
+    let r = null;
+    try { r = await api[c.previewApi](payload.content, payload.base64); } catch (e) { r = null; }
+    if (my !== seq) return;
+    if (!r || !r.ok) {
+      clearPreview();
+      say((r && r.error) || "Couldn't read that just now. Try again.");
+      return;
+    }
+    const out = _importPreviewHtml(r, c.kind);
+    const box = el(c.preview);
+    if (box) { box.innerHTML = out.html; box.hidden = false; }
+    const go = el(c.go);
+    if (go) { go.disabled = !out.view.canApply; go.textContent = out.view.button; }
+    ready = out.view.canApply;
+  }
+
+  async function apply() {
+    if (!ready || !payload) return;
+    const api = _pageApi();
+    const go = el(c.go);
+    if (!api || !api[c.applyApi]) return;
+    if (go) go.disabled = true;
+    let r = null;
+    try { r = await api[c.applyApi](payload.content, payload.base64); } catch (e) { r = null; }
+    if (!r || !r.ok) {
+      say((r && r.error) || "Couldn't save that. Nothing was changed.");
+      if (go) go.disabled = false;
+      return;
+    }
+    close(false);
+    await c.onApplied(r);
+  }
+
+  function open() {
+    const root = el(c.root);
+    if (!root) return;
+    root.hidden = false;
+    const b = el(c.toggle);
+    if (b) b.setAttribute('aria-expanded', 'true');
+    const t = el(c.text);
+    if (t) t.focus();
+  }
+
+  function close(refocus) {
+    const root = el(c.root);
+    if (root) root.hidden = true;
+    reset();
+    const b = el(c.toggle);
+    if (b) { b.setAttribute('aria-expanded', 'false'); if (refocus) b.focus(); }
+  }
+
+  function toggle() {
+    const root = el(c.root);
+    if (root && !root.hidden) close(true); else open();
+  }
+
+  async function onFile(input) {
+    const f = input && input.files && input.files[0];
+    if (input) input.value = '';
+    if (!f) return;
+    if (f.size > IMPORT_MAX_BYTES) { say('That file is too big to be a list.'); return; }
+    let buf;
+    try {
+      buf = f.arrayBuffer ? await f.arrayBuffer() : await new Promise((ok, no) => {
+        const fr = new FileReader();
+        fr.onload = () => ok(fr.result);
+        fr.onerror = () => no(fr.error);
+        fr.readAsArrayBuffer(f);
+      });
+    } catch (e) {
+      clearPreview();
+      say("Waffler couldn't read that file. Paste its rows below instead.");
+      return;
+    }
+    const t = el(c.text); if (t) t.value = '';
+    const n = el(c.name); if (n) n.textContent = f.name;
+    payload = { content: WL.bytesToBase64(new Uint8Array(buf)), base64: true };
+    await preview();
+  }
+
+  function onText() {
+    const t = el(c.text);
+    const n = el(c.name); if (n) n.textContent = '';
+    payload = { content: t ? t.value : '', base64: false };
+    soon();
+  }
+
+  function onKey(e) {
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(true); }
+    else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); apply(); }
+  }
+
+  function pick() {
+    const f = el(c.file);
+    if (f) f.click();
+  }
+
+  return { open, close, toggle, onFile, onText, onKey, pick, apply, preview };
+}
+
+async function _vocabImported(r) {
+  await _vocabReloadBook();
+  renderVocab();
+  _vocabRunTry();
+  const btn = document.getElementById('vocabImportBtn');
+  if (btn) btn.focus();
+  if (!r.changed) { showToast(WL.vocabImportDone(r), 'success'); return; }
+  const before = r.before || { words: [], sounds_like: {}, starred: [] };
+  _vocabShowUndo(WL.vocabImportDone(r), async () => {
+    try {
+      const res = await pywebview.api.set_vocab(before.words, before.sounds_like, before.starred);
+      if (!res || !res.ok) { _vocabError((res && res.error) || "Couldn't put your list back. Try again."); return; }
+    } catch (e) {
+      _vocabError("Couldn't put your list back. Try again.");
+      return;
+    }
+    await _vocabReloadBook();
+    renderVocab();
+    _vocabRunTry();
+  });
+}
+
+const _vocabImport = makeImportPanel({
+  kind: 'vocab', root: 'vocabImport', toggle: 'vocabImportBtn', text: 'vocabImportText', file: 'vocabImportFile',
+  name: 'vocabImportName', error: 'vocabImportError', preview: 'vocabImportPreview', go: 'vocabImportGo',
+  previewApi: 'preview_vocab_import', applyApi: 'import_vocabulary', onApplied: _vocabImported,
+});
+function toggleVocabImport() { _vocabImport.toggle(); }
+function closeVocabImport(refocus) { _vocabImport.close(refocus); }
+function pickVocabFile() { _vocabImport.pick(); }
+function onVocabFile(input) { return _vocabImport.onFile(input); }
+function onVocabImportText() { _vocabImport.onText(); }
+function onVocabImportKey(e) { _vocabImport.onKey(e); }
+function applyVocabImport() { return _vocabImport.apply(); }
+
+// Export: a CSV on the Desktop, shown in its folder (export_vocabulary).
+async function exportVocab(btn) {
+  const api = _pageApi();
+  if (!api || !api.export_vocabulary) return;
+  if (btn) btn.disabled = true;
+  try {
+    const r = await api.export_vocabulary();
+    if (r && r.ok) showToast(WL.listExportDone(r, 'words'), 'success', 5000);
+    else showToast((r && r.error) || "Couldn't save the file. Try again.", 'error', 6000);
+  } catch (e) {
+    console.error('exportVocab error:', e);
+    showToast("Couldn't save the file. Try again.", 'error');
+  } finally {
+    if (btn) btn.disabled = !(_vocabBook.entries || []).length;
+  }
+}
+
+// ── Suggest words from my edits (S10): the switch on this page ─────────
+async function loadLearnSwitch() {
+  const t = document.getElementById('learnToggle');
+  if (!t) return;
+  try {
+    const s = await pywebview.api.get_settings();
+    t.checked = !(s && s.learn_from_edits === false);
+  } catch (_) {
+    t.checked = true;
+  }
+}
+
+async function setLearnFromEdits(on) {
+  const ok = await saveSetting('learn_from_edits', !!on);
+  if (ok) {
+    if (_lastSettings) _lastSettings.learn_from_edits = !!on;
+  } else {
+    const t = document.getElementById('learnToggle');
+    if (t) t.checked = !on;
   }
 }
 
@@ -2523,6 +3175,7 @@ function _snipHideUndo() {
 async function loadSnippets() {
   _snipError('');
   _snipEditing = -1;
+  _snipImport.close(false);
   try {
     const list = pywebview.api.get_snippets ? await pywebview.api.get_snippets() : [];
     _snips = Array.isArray(list) ? list.filter((x) => x && typeof x.trigger === 'string' && typeof x.expansion === 'string') : [];
@@ -2714,6 +3367,56 @@ async function deleteSnippet(i) {
   _snipShowUndo(WL.snippetDone('remove', gone.trigger), async () => {
     if (await _snipSave(before)) renderSnippets();
   });
+}
+
+// ── Snippets: import and export (S10) ───────────────────────────────────
+// The same panel as the words' (makeImportPanel): a CSV or JSON file, or rows
+// pasted, a preview, then Add. A phrase that is already a snippet keeps its
+// text and the row is listed as left out. The Undo puts the list back.
+async function _snipImported(r) {
+  if (Array.isArray(r.snippets)) {
+    _snips = r.snippets.filter((x) => x && typeof x.trigger === 'string' && typeof x.expansion === 'string');
+  }
+  _snipEditing = -1;
+  renderSnippets();
+  const btn = document.getElementById('snipImportBtn');
+  if (btn) btn.focus();
+  if (!r.changed) { showToast(WL.snippetImportDone(r), 'success'); return; }
+  const before = Array.isArray(r.before) ? r.before : [];
+  _snipShowUndo(WL.snippetImportDone(r), async () => {
+    if (await _snipSave(before)) renderSnippets();
+  });
+}
+
+const _snipImport = makeImportPanel({
+  kind: 'snippets', root: 'snipImport', toggle: 'snipImportBtn', text: 'snipImportText', file: 'snipImportFile',
+  name: 'snipImportName', error: 'snipImportError', preview: 'snipImportPreview', go: 'snipImportGo',
+  previewApi: 'preview_snippets_import', applyApi: 'import_snippets', onApplied: _snipImported,
+});
+function toggleSnipImport() { _snipImport.toggle(); }
+function closeSnipImport(refocus) { _snipImport.close(refocus); }
+function pickSnipFile() { _snipImport.pick(); }
+function onSnipFile(input) { return _snipImport.onFile(input); }
+function onSnipImportText() { _snipImport.onText(); }
+function onSnipImportKey(e) { _snipImport.onKey(e); }
+function applySnipImport() { return _snipImport.apply(); }
+
+async function exportSnippets(btn) {
+  const api = _pageApi();
+  if (!api || !api.export_snippets) return;
+  const sel = document.getElementById('snipExportFormat');
+  const fmt = sel && sel.value === 'json' ? 'json' : 'csv';
+  if (btn) btn.disabled = true;
+  try {
+    const r = await api.export_snippets(fmt);
+    if (r && r.ok) showToast(WL.listExportDone(r, 'snippets'), 'success', 5000);
+    else showToast((r && r.error) || "Couldn't save the file. Try again.", 'error', 6000);
+  } catch (e) {
+    console.error('exportSnippets error:', e);
+    showToast("Couldn't save the file. Try again.", 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 // Ctrl+Enter (Cmd+Enter on a Mac) adds from the text box, where Enter is a
@@ -4026,6 +4729,8 @@ async function saveSetting(key, value) {
         showToast(WL.signatureSaved(value.enabled), 'success', 3500);
       } else if (key === 'typing_wpm') {
         showToast(WL.typingSpeedSaved(value), 'success', 3500);
+      } else if (key === 'learn_from_edits') {
+        showToast(WL.learnSaved(value), 'success', 3500);
       } else if (key === 'language') {
         const known = _languageList.find((l) => l.code === value);
         showToast(WL.languageSaved(value, known ? known.name : ''), 'success');

@@ -761,7 +761,11 @@ class LastResult:
         for item in reversed(history):
             if not isinstance(item, dict) or item.get("failed") or item.get("kind") in _NOT_A_DICTATION:
                 continue
-            text = item.get("styled") or item.get("text") or ""
+            # What the person made of it in the Journal, if they edited it
+            # (src/history_meta.py final_text, which this module does not import).
+            edited = item.get("edited_text")
+            text = edited if isinstance(edited, str) and edited.strip() \
+                else (item.get("styled") or item.get("text") or "")
             if isinstance(text, str) and text.strip():
                 return text
         return ""

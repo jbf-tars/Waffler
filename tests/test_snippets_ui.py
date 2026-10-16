@@ -143,8 +143,11 @@ def test_the_section_text_is_plain_sentence_case_with_no_em_dash():
     text = re.sub(r"<[^>]+>", " ", sec)
     assert "—" not in sec and "–" not in sec
     assert "Say a short phrase and Waffler pastes longer text in its place." in text
-    for word in ("API", "JSON", "regex", "trigger", "expansion"):
+    for word in ("API", "regex", "trigger", "expansion"):
         assert word not in text, word
+    # S10: "JSON" is a file format in the Export choice (CSV or JSON), and is
+    # said nowhere else in the section.
+    assert text.count("JSON") == 1 and '<option value="json">JSON</option>' in sec
     assert "Say only the phrase and you get exactly that text." in text
 
 

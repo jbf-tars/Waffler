@@ -8,9 +8,12 @@ Four jobs, each small and testable without the app:
   Delete, and their recordings are counted in "Not sent yet".
 - "Delete all my data": history, usage, recent recordings, recordings not
   sent, the logs, and what the Journal's Undo holds in memory. Keys, the words
-  list, snippets and settings stay, and so does a file the user exported
-  (Export history writes a copy to their Desktop): they
-  are what the user wrote, not what they dictated. Deleting the keys as well
+  list (with its "sounds like" spellings and stars), snippets and settings
+  stay, and so does a file the user exported (Export history, Export
+  Vocabulary and Export snippets write a copy to their Desktop): they
+  are what the user wrote, not what they dictated. A correction made with
+  "Edit text" (``edited_text``) is part of a Journal entry, so it goes with
+  the history and follows its retention. Deleting the keys as well
   is the full reset (factory_reset in app.py), which removes the whole folder,
   snippets.json included, and which the window asks about separately.
 - Old transcript lines in app.log. Versions before the transcript redaction
@@ -100,8 +103,11 @@ def count_older(history: list, keep_days: int, now: datetime | None = None) -> i
 # the folder. The email signature (Settings, Style) lives in settings.json,
 # which does go in the logs bundle, so its text is blanked there
 # (settings_for_logs) and it stays with the settings otherwise.
+# vocab_stars.json (src/vocab_rank.py) is which Vocabulary words are starred:
+# it stays with the words list it belongs to, and goes in the logs bundle with
+# vocab.json (words, no sentences).
 KEPT_FILES = (".env", "settings.json", "config.json", "setup_complete.json",
-              "vocab.json", "vocab_sounds.json", "snippets.json")
+              "vocab.json", "vocab_sounds.json", "vocab_stars.json", "snippets.json")
 # notifications.json is which tips Waffler has shown, hidden or had closed
 # (src/notifier.py): counts and times only, no text. Deleting it brings the
 # tips back.

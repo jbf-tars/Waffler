@@ -529,3 +529,70 @@ def command_done_message(action: str, platform: str):
 
 def command_searching_message(engine_label: str):
     return (f"Searching {engine_label}", "Your question is open in your browser.")
+
+
+# ── Vocabulary and Snippets: import, export, edits ───────────────────────────
+
+LEARN_FROM_EDITS_UNKNOWN = "Waffler doesn't know that choice for learning from edits. Use the switch."
+VOCAB_EXPORT_EMPTY = "Your Vocabulary is empty, so there is nothing to export."
+SNIPPETS_EXPORT_EMPTY = "You have no snippets yet, so there is nothing to export."
+EXPORT_FORMAT_UNKNOWN = "Pick CSV or JSON."
+EXPORT_FAILED = "Couldn't save the file. Try again."
+IMPORT_FAILED = "Couldn't save that. Nothing was changed."
+IMPORT_NOTHING = "Waffler found nothing to add in that."
+IMPORT_STALE = "Your list changed since that preview. Look at it again."
+EDIT_EMPTY = "Type the text first. To remove a dictation, delete it instead."
+EDIT_TOO_LONG = "Keep it to 20,000 characters or fewer."
+EDIT_NOT_FOUND = "That dictation isn't in your Journal any more."
+EDIT_NOT_EDITABLE = "Only a dictation's own words can be edited."
+EDIT_FAILED = "Couldn't save your change. Try again."
+
+# Why a row of an imported file was left out: said on the preview, with the row.
+_SKIP_WORD = {
+    "empty": "No word on this row.",
+    "too_long": "Longer than 60 characters.",
+    "odd": "It has a character Waffler can't use.",
+    "no_letters": "It has no letters in it.",
+    "everyday": "An everyday word. Waffler never changes those, so it does nothing without a \"sounds like\".",
+    "full": "Your list is full (500 words).",
+}
+
+
+def vocab_skip_message(reason: str, other: str = "") -> str:
+    if reason == "is_spelling":
+        return f"It is already how {other} sounds." if other else "It is already how another word sounds."
+    return _SKIP_WORD.get(reason, "Waffler couldn't use this row.")
+
+
+def spelling_note(reason: str, spelling: str, other: str = "") -> str:
+    """Why one "sounds like" spelling of an imported word was not used."""
+    s = f"\"{spelling}\""
+    return {
+        "spelling_long": f"Left out {s}: longer than 60 characters.",
+        "spelling_none": f"Left out {s}: it has no letters in it.",
+        "spelling_odd": f"Left out {s}: it has a character Waffler can't use.",
+        "spelling_same": f"Left out {s}: it is how the word is written already.",
+        "spelling_word": f"Left out {s}: it is a word of its own in your list.",
+        "spelling_taken": f"Left out {s}: it already sounds like {other}." if other
+        else f"Left out {s}: it already sounds like another word.",
+        "spelling_max": f"Left out {s}: a word can have up to 8.",
+    }.get(reason, f"Left out {s}.")
+
+
+_SKIP_SNIPPET = {
+    "empty": "No phrase on this row.",
+    "no_text": "No text to paste on this row.",
+    "trigger_long": "The phrase is longer than 60 characters.",
+    "text_long": "The text is longer than 4,000 characters.",
+    "full": "You can keep up to 200 snippets.",
+}
+
+
+def snippet_skip_message(reason: str, other: str = "") -> str:
+    if reason == "exists":
+        return f"\"{other}\" is already a snippet, so yours was kept." if other \
+            else "That phrase is already a snippet, so yours was kept."
+    if reason == "repeat":
+        return "The same phrase is on an earlier row, so the first one was kept."
+    return _SKIP_SNIPPET.get(reason, "Waffler couldn't use this row.")
+

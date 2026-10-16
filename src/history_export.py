@@ -9,7 +9,7 @@ settings or logs):
   the user name in it) and ``error`` (a provider's raw message, which can
   quote part of a key).
 - ``csv``: one row per entry with the columns timestamp, app, language,
-  words and text, for a spreadsheet. It opens in Numbers and Excel with the
+  words and text (the text as edited in the Journal, if it was), for a spreadsheet. It opens in Numbers and Excel with the
   accents right (a byte order mark says UTF-8), and a cell that starts with
   ``=``, ``+``, ``-`` or ``@`` (or a tab or carriage return) gets a ``'`` in
   front, so a spreadsheet shows it as text instead of running it as a formula
@@ -35,11 +35,11 @@ from pathlib import Path
 try:
     from atomic_json import replace_with_retry
     from command_mode import engine_for
-    from history_meta import words_of
+    from history_meta import final_text
 except ImportError:  # imported as src.history_export
     from src.atomic_json import replace_with_retry
     from src.command_mode import engine_for
-    from src.history_meta import words_of
+    from src.history_meta import final_text
 
 FORMATS = ("json", "csv", "txt")
 LABELS = {"json": "JSON", "csv": "CSV", "txt": "Plain text"}
@@ -73,7 +73,7 @@ def render_csv(history) -> str:
     out.writerow(CSV_COLUMNS)
     for h in _entries(history):
         words = h.get("word_count")
-        text = words_of(h)
+        text = final_text(h)
         out.writerow([
             defuse(h.get("timestamp", "")),
             defuse(h.get("app", "")),
@@ -114,7 +114,7 @@ def render_txt(history, now: datetime | None = None) -> str:
              ""]
     for h in items:
         lines.append(_heading(h))
-        lines.append(words_of(h))
+        lines.append(final_text(h))
         lines.append("")
     return "\n".join(lines)
 

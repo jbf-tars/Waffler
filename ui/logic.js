@@ -676,7 +676,7 @@
     return asr || (item.text || '').trim();
   }
   function hasOriginal(item) {
-    const shown = ((item && (item.styled || item.text)) || '').trim();
+    const shown = finalText(item).trim();
     const orig = originalText(item);
     return !!orig && orig !== shown;
   }
@@ -1614,12 +1614,14 @@
   }
 
   // The table: busiest first, then A to Z; each bar against the busiest.
-  function vocabRows(entries, now) {
+  // ``opts`` (S10): { sort, query } as vocabSortRows and vocabFilter take them.
+  // The bars stay against the busiest word of the whole list, so searching
+  // does not make a rarely used word look busy.
+  function vocabRows(entries, now, opts) {
+    const o = opts || {};
     const list = (Array.isArray(entries) ? entries : []).filter((e) => e && typeof e.word === 'string');
     const max = list.reduce((m, e) => Math.max(m, Number(e.count) || 0), 0);
-    return list.slice()
-      .sort((a, b) => (Number(b.count) || 0) - (Number(a.count) || 0)
-        || a.word.localeCompare(b.word, 'en', { sensitivity: 'base' }))
+    return vocabSortRows(vocabFilter(list, o.query), o.sort)
       .map((e) => {
         const count = Math.max(0, Number(e.count) || 0);
         return {
@@ -1628,8 +1630,240 @@
           count,
           bar: max ? Math.round((count / max) * 100) : 0,
           last: vocabLastUsed(e.last, now),
+          starred: e.starred === true,
         };
       });
+  }
+
+  // ── Vocabulary: search, sort, select, import (S10) ─────────────────────
+  // How the list can be ordered. "Most used" is the order the page always
+  // had; the others are the person's choice (remembered by the page).
+  const VOCAB_SORTS = [
+    { id: 'used', label: 'Most used' },
+    { id: 'recent', label: 'Recently used' },
+    { id: 'starred', label: 'Starred first' },
+    { id: 'az', label: 'A to Z' },
+  ];
+  const VOCAB_SORT_DEFAULT = 'used';
+
+  function vocabSortId(id) {
+    return VOCAB_SORTS.some((s) => s.id === id) ? id : VOCAB_SORT_DEFAULT;
+  }
+
+  // Lower case with the accents off, so "sinead" finds Sinéad.
+  function foldText(text) {
+    return String(text == null ? '' : text).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  }
+
+  // Does the entry match what was typed in the search box? Every word typed
+  // must be found in the word or in one of its "sounds like" spellings, in any
+  // case and with or without accents.
+  function vocabMatches(entry, query) {
+    const terms = foldText(query).split(/\s+/).filter(Boolean);
+    if (!terms.length) return true;
+    if (!entry || typeof entry.word !== 'string') return false;
+    const hay = [entry.word].concat(Array.isArray(entry.sounds_like) ? entry.sounds_like : []).map(foldText).join('\n');
+    return terms.every((t) => hay.indexOf(t) >= 0);
+  }
+
+  function vocabFilter(entries, query) {
+    const list = Array.isArray(entries) ? entries : [];
+    return foldText(query).trim() ? list.filter((e) => vocabMatches(e, query)) : list.slice();
+  }
+
+  function _byWord(a, b) {
+    return a.word.localeCompare(b.word, 'en', { sensitivity: 'base' });
+  }
+
+  function _byCount(a, b) {
+    return (Number(b.count) || 0) - (Number(a.count) || 0);
+  }
+
+  // The list in the chosen order. Every order ends with A to Z, so it is the
+  // same each time.
+  function vocabSortRows(entries, sort) {
+    const by = vocabSortId(sort);
+    const list = (Array.isArray(entries) ? entries : []).slice();
+    const star = (e) => (e.starred === true ? 0 : 1);
+    const last = (e) => (typeof e.last === 'string' ? e.last : '');
+    const cmp = {
+      used: (a, b) => _byCount(a, b) || _byWord(a, b),
+      az: (a, b) => _byWord(a, b),
+      starred: (a, b) => star(a) - star(b) || _byCount(a, b) || _byWord(a, b),
+      recent: (a, b) => (last(a) === last(b) ? 0 : (!last(a) ? 1 : (!last(b) ? -1 : (last(a) < last(b) ? 1 : -1))))
+        || _byCount(a, b) || _byWord(a, b),
+    }[by];
+    return list.sort(cmp);
+  }
+
+  // What a screen reader hears after a search: nothing without one.
+  function vocabSearchAnnouncement(query, shown, total) {
+    if (!foldText(query).trim()) return '';
+    const n = Number(shown) || 0;
+    if (!n) return 'No words match.';
+    if (n === 1) return '1 word matches.';
+    return Number(total) > n ? `${formatCount(n)} of ${formatCount(total)} words match.` : `${formatCount(n)} words match.`;
+  }
+
+  // The words kept selected when the list on screen changes: only those still
+  // shown, so a bulk remove never takes a word that is out of sight.
+  function vocabKeepSelected(selected, shownWords) {
+    const shown = new Set(Array.isArray(shownWords) ? shownWords : []);
+    return (Array.isArray(selected) ? selected : []).filter((w) => shown.has(w));
+  }
+
+  function vocabSelectedLabel(n) {
+    const c = Math.max(0, Number(n) || 0);
+    return c === 1 ? '1 selected' : `${formatCount(c)} selected`;
+  }
+
+  // The undo line after a bulk change.
+  function vocabBulkDone(kind, words) {
+    const list = Array.isArray(words) ? words : [];
+    const n = list.length;
+    const what = n === 1 ? list[0] : `${formatCount(n)} words`;
+    if (kind === 'remove') return `Removed ${what}.`;
+    if (kind === 'star') return `Starred ${what}.`;
+    if (kind === 'unstar') return `Unstarred ${what}.`;
+    return `Changed ${what}.`;
+  }
+
+  // The preview of an import (preview_vocab_import): the counts in plain
+  // words, in the order they matter. Empty counts are left out.
+  function _plural(n, one, many) {
+    const c = Math.max(0, Number(n) || 0);
+    return c === 1 ? `1 ${one}` : `${formatCount(c)} ${many}`;
+  }
+
+  function vocabImportView(view) {
+    const v = view || {};
+    const c = v.counts || {};
+    const parts = [];
+    if (c.new) parts.push({ kind: 'new', text: _plural(c.new, 'new word', 'new words') });
+    if (c.updated) parts.push({ kind: 'updated', text: `${_plural(c.updated, 'word', 'words')} gain${c.updated === 1 ? 's' : ''} a spelling or a star` });
+    if (c.already) parts.push({ kind: 'already', text: `${formatCount(c.already)} already there` });
+    if (c.skipped) parts.push({ kind: 'skipped', text: `${formatCount(c.skipped)} left out` });
+    const canApply = (Number(c.new) || 0) + (Number(c.updated) || 0) > 0;
+    let headline;
+    if (!c.rows) headline = 'Waffler found no rows in that.';
+    else if (canApply) headline = 'This is what will change. Nothing is saved until you add it.';
+    else headline = 'There is nothing new in that.';
+    return { headline, parts, canApply, button: vocabImportButton(c), header: !!v.header };
+  }
+
+  function vocabImportButton(counts) {
+    const c = counts || {};
+    const n = (Number(c.new) || 0) + (Number(c.updated) || 0);
+    if (!n) return 'Add to my Vocabulary';
+    return Number(c.new) && !Number(c.updated) ? `Add ${_plural(c.new, 'word', 'words')}` : 'Add to my Vocabulary';
+  }
+
+  function vocabImportDone(view) {
+    const c = (view && view.counts) || {};
+    const bits = [];
+    if (c.new) bits.push(`Added ${_plural(c.new, 'word', 'words')}`);
+    if (c.updated) bits.push(`${bits.length ? 'changed' : 'Changed'} ${_plural(c.updated, 'word', 'words')}`);
+    return bits.length ? `${bits.join(' and ')}.` : 'Nothing new to add.';
+  }
+
+  // The same for snippets.
+  function snippetImportView(view) {
+    const v = view || {};
+    const c = v.counts || {};
+    const parts = [];
+    if (c.new) parts.push({ kind: 'new', text: _plural(c.new, 'new snippet', 'new snippets') });
+    if (c.already) parts.push({ kind: 'already', text: `${formatCount(c.already)} already there` });
+    if (c.skipped) parts.push({ kind: 'skipped', text: `${formatCount(c.skipped)} left out` });
+    const canApply = (Number(c.new) || 0) > 0;
+    let headline;
+    if (!c.rows) headline = 'Waffler found no rows in that.';
+    else if (canApply) headline = 'This is what will change. Nothing is saved until you add it.';
+    else headline = 'There is nothing new in that.';
+    return { headline, parts, canApply, button: canApply ? `Add ${_plural(c.new, 'snippet', 'snippets')}` : 'Add snippets',
+             header: !!v.header };
+  }
+
+  function snippetImportDone(view) {
+    const n = Number(view && view.counts && view.counts.new) || 0;
+    return n ? `Added ${_plural(n, 'snippet', 'snippets')}.` : 'Nothing new to add.';
+  }
+
+  // The toast after Export on the Vocabulary page or the Snippets list.
+  function listExportDone(result, what) {
+    const where = /[\\/]Desktop[\\/]/.test(String((result && result.path) || ''))
+      ? 'your Desktop' : 'your home folder';
+    const n = Number(result && result.count) || 0;
+    const names = what === 'snippets'
+      ? (n === 1 ? '1 snippet' : `${formatCount(n)} snippets`)
+      : (n === 1 ? '1 word' : `${formatCount(n)} words`);
+    return n ? `Saved ${names} to ${where}.` : `Saved to ${where}.`;
+  }
+
+  // A file read in the page, ready for the bridge: its bytes as base64, so the
+  // file's own encoding (UTF-16 from Excel, say) is kept and decoded by the app.
+  function bytesToBase64(bytes) {
+    const view = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
+    let binary = '';
+    const chunk = 0x8000;
+    for (let i = 0; i < view.length; i += chunk) {
+      binary += String.fromCharCode.apply(null, view.subarray(i, i + chunk));
+    }
+    return typeof btoa === 'function' ? btoa(binary) : Buffer.from(binary, 'binary').toString('base64');
+  }
+
+  // ── The Journal: Edit text, and the words it suggests (S10) ────────────
+  // The words shown, copied and pasted again for a dictation: what the person
+  // made of it in the Journal, else what was pasted (src/history_meta.py
+  // final_text).
+  function finalText(item) {
+    if (!item) return '';
+    if (item.kind !== 'transform' && item.kind !== 'command' && typeof item.edited_text === 'string' && item.edited_text.trim()) {
+      return item.edited_text;
+    }
+    return item.styled || item.text || '';
+  }
+
+  function isEdited(item) {
+    return !!item && item.kind !== 'transform' && item.kind !== 'command'
+      && typeof item.edited_text === 'string' && !!item.edited_text.trim();
+  }
+
+  function _listed(items) {
+    const list = items.map((t) => `"${t}"`);
+    if (list.length <= 1) return list.join('');
+    return `${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}`;
+  }
+
+  // One suggestion under an entry: the question, and what speech to text wrote.
+  function suggestionView(s) {
+    const word = String((s && s.word) || '');
+    const heard = Array.isArray(s && s.sounds_like) ? s.sounds_like.filter((x) => typeof x === 'string' && x) : [];
+    return {
+      word,
+      sounds: heard,
+      question: `Add "${word}" to your Vocabulary?`,
+      detail: heard.length ? `Speech to text wrote ${_listed(heard)}.` : 'Its capitals will be kept.',
+      added: `Added "${word}".`,
+    };
+  }
+
+  // The toast after the Vocabulary page's "Suggest words from my edits" switch.
+  function learnSaved(on) {
+    return on ? 'Waffler will offer words from your edits.' : "Waffler won't offer words from your edits.";
+  }
+
+  // What Edit text says when it did not save.
+  function editFailedMessage(reason, error) {
+    if (typeof error === 'string' && error) return error;
+    return {
+      not_found: "That dictation isn't in your Journal any more.",
+      empty: 'Type the text first. To remove a dictation, delete it instead.',
+    }[reason] || "Couldn't save your change. Try again.";
+  }
+
+  // The message after a saved edit.
+  function editSavedLine(state) {
+    return { edited: 'Saved. Copy and Paste last use your text now.', cleared: 'Back to the words that were pasted.' }[state] || '';
   }
 
   // "11 words · 181 corrections in your Journal"
@@ -2032,6 +2266,10 @@
 
   return {
     vocabLastUsed, vocabRecentWhen, vocabSoundsParse, vocabSoundsCheck, vocabRows, vocabSummary,
+    VOCAB_SORTS, VOCAB_SORT_DEFAULT, vocabSortId, foldText, vocabMatches, vocabFilter, vocabSortRows,
+    vocabSearchAnnouncement, vocabKeepSelected, vocabSelectedLabel, vocabBulkDone, vocabImportView,
+    vocabImportDone, snippetImportView, snippetImportDone, listExportDone, bytesToBase64,
+    finalText, isEdited, suggestionView, editFailedMessage, editSavedLine, learnSaved,
     VOCAB_MAX_SOUNDS, markSegments, markWords, dayHeading, weekBars, streakView,
     keyInputView, serviceRows, saidDiff, setupSteps, startupTheme,
     STATUS_VIEWS, STATUS_CLASSES, DONE_RESET_MS, statusView, statusResetMs, workingLabel, workingTime, recordingTime,

@@ -739,7 +739,7 @@
                  unless the user picks 30, 90 or 365 days. A shorter choice
                  that would delete dictations asks first, in the sheet. -->
             <div class="row" id="historyRow">
-              <div class="row-main"><div class="row-t"><label for="historyKeep">History</label></div><div class="row-d" id="privHistoryDesc">Your dictations, searchable in your Journal. Each notes the app you were in, the language and which services handled it. The app is kept with its kind (email, work chat, personal chat or other), on this computer only.</div></div>
+              <div class="row-main"><div class="row-t"><label for="historyKeep">History</label></div><div class="row-d" id="privHistoryDesc">Your dictations, searchable in your Journal. Each notes the app you were in, the language and which services handled it. The app is kept with its kind (email, work chat, personal chat or other), on this computer only. If you correct a dictation with Edit text, your corrected version is kept with it, on this computer only, for as long as the dictation is.</div></div>
               <select id="historyKeep" class="select" onchange="onHistoryKeepChange(this)">
                 <option value="0">Keep forever</option>
                 <option value="365">Keep for a year</option>
@@ -756,7 +756,7 @@
                  shown in its folder. It is the user's own copy, so Delete all my
                  data does not touch it, and the row says so. -->
             <div class="row" id="exportRow">
-              <div class="row-main"><div class="row-t" id="exportTitle"><label for="exportFormat">Export history</label></div><div class="row-d">Save your Journal as a file on your Desktop. It never includes your keys. It's your own copy, so Delete all my data leaves it alone.</div></div>
+              <div class="row-main"><div class="row-t" id="exportTitle"><label for="exportFormat">Export history</label></div><div class="row-d">Save your Journal as a file on your Desktop. It never includes your keys. It's your own copy, so Delete all my data leaves it alone. Your Vocabulary and Snippets export from their own page, the same way.</div></div>
               <select id="exportFormat" class="select">
                 <option value="json">JSON</option>
                 <option value="csv">CSV</option>
@@ -925,6 +925,64 @@
         <p class="sr-only" id="vocabSoundsHint">What speech to text writes instead of the word. Separate more than one with commas.</p>
         <p class="s-error" id="vocabError" role="alert" hidden></p>
         <p class="v-undo" id="vocabUndo" role="status" aria-live="polite" hidden><span id="vocabUndoText"></span> <button type="button" class="link-btn" id="vocabUndoBtn">Undo</button></p>
+
+        <!-- Find, order and select words, and move the list in and out as a
+             CSV (src/dictionary.py). Search, Sort and Select show once there
+             are words; Import is there from the start, because it is how a
+             list gets here. A star only changes the order. -->
+        <div class="vtools" id="vocabTools">
+          <div class="vtools-find" id="vocabFind" hidden>
+            <label class="j-search-wrap vt-search">
+              <svg class="ic j-search-icon" aria-hidden="true"><use href="#i-search"/></svg>
+              <input type="search" id="vocabSearch" class="j-search-input" placeholder="Search words" aria-label="Search your words and what they sound like" aria-describedby="vocabSearchStatus" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" oninput="onVocabSearch(this.value)" onkeydown="onVocabSearchKey(event)">
+            </label>
+            <label class="vt-sort"><span class="vt-sort-k">Sort</span>
+              <select id="vocabSort" class="select" onchange="onVocabSort(this.value)">
+                <option value="used">Most used</option>
+                <option value="recent">Recently used</option>
+                <option value="starred">Starred first</option>
+                <option value="az">A to Z</option>
+              </select>
+            </label>
+            <button type="button" class="btn btn-sec btn-sm" id="vocabSelectBtn" aria-pressed="false" onclick="toggleVocabSelect()">Select</button>
+          </div>
+          <div class="vtools-file">
+            <button type="button" class="btn btn-quiet btn-sm" id="vocabImportBtn" aria-expanded="false" aria-controls="vocabImport" onclick="toggleVocabImport()"><svg class="ic" aria-hidden="true"><use href="#i-upload"/></svg><span>Import</span></button>
+            <button type="button" class="btn btn-quiet btn-sm" id="vocabExportBtn" onclick="exportVocab(this)"><svg class="ic" aria-hidden="true"><use href="#i-download"/></svg><span>Export</span></button>
+          </div>
+        </div>
+        <span class="sr-only" id="vocabSearchStatus" role="status" aria-live="polite"></span>
+        <div class="vbulk" id="vocabBulk" role="group" aria-label="Change the selected words" hidden>
+          <span class="vbulk-n" id="vocabBulkCount" aria-live="polite">0 selected</span>
+          <button type="button" class="btn btn-quiet btn-sm" id="vocabSelectAll" onclick="selectAllVocab()">Select all shown</button>
+          <span class="vbulk-sp"></span>
+          <button type="button" class="btn btn-sec btn-sm" id="vocabBulkStar" onclick="bulkStarVocab(true)">Star</button>
+          <button type="button" class="btn btn-sec btn-sm" id="vocabBulkUnstar" onclick="bulkStarVocab(false)">Unstar</button>
+          <button type="button" class="btn btn-danger btn-sm" id="vocabBulkRemove" onclick="bulkRemoveVocab()">Remove</button>
+        </div>
+
+        <!-- Import (src/dictionary.py plan_import): choose a CSV file or paste
+             rows, look at what would change, then add. It only adds: no word
+             or spelling is ever removed or renamed. A file picker may not be
+             offered by every web view, so pasting always works. -->
+        <section class="vimport" id="vocabImport" aria-labelledby="vocabImportTitle" hidden>
+          <h2 class="vimport-t" id="vocabImportTitle">Import words</h2>
+          <p class="vimport-d" id="vocabImportHelp">A CSV file from Excel, Numbers or Google Sheets, or rows pasted here: a word, then what speech to text writes for it (more than one with semicolons). Columns named word, sounds_like and starred also work.</p>
+          <div class="vimport-in">
+            <button type="button" class="btn btn-sec btn-sm" id="vocabImportPick" onclick="pickVocabFile()"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg><span>Choose a file</span></button>
+            <input type="file" id="vocabImportFile" hidden accept=".csv,.tsv,.txt,text/csv,text/plain" onchange="onVocabFile(this)">
+            <span class="vimport-name" id="vocabImportName" aria-live="polite"></span>
+          </div>
+          <label class="vimport-lbl" for="vocabImportText">Or paste rows here</label>
+          <textarea id="vocabImportText" class="input vimport-ta" rows="5" spellcheck="false" autocomplete="off" autocapitalize="off" aria-describedby="vocabImportHelp" placeholder="word,sounds_like&#10;Waffler,waffle; wafler&#10;PostHog,post hog" oninput="onVocabImportText()" onkeydown="onVocabImportKey(event)"></textarea>
+          <p class="s-error" id="vocabImportError" role="alert" hidden></p>
+          <div class="vimport-prev" id="vocabImportPreview" aria-live="polite" hidden></div>
+          <div class="vimport-acts">
+            <button type="button" class="btn btn-quiet btn-sm" onclick="closeVocabImport(true)">Cancel</button>
+            <button type="button" class="btn btn-pri btn-sm" id="vocabImportGo" onclick="applyVocabImport()" disabled>Add to my Vocabulary</button>
+          </div>
+        </section>
+
         <div id="vocabList" class="vocab-list"></div>
 
         <!-- Snippets (src/snippets.py): a phrase you say and the text Waffler
@@ -949,6 +1007,38 @@
           <p class="snip-counter" id="snipCounter"></p>
           <p class="s-error" id="snipError" role="alert" hidden></p>
           <p class="v-undo" id="snipUndo" role="status" aria-live="polite" hidden><span id="snipUndoText"></span> <button type="button" class="link-btn" id="snipUndoBtn">Undo</button></p>
+
+          <!-- Import and export (src/snippets_io.py): a CSV (trigger, expansion)
+               or JSON file. An import only adds; a phrase that is already a
+               snippet keeps its text. -->
+          <div class="vtools snip-tools" id="snipTools">
+            <div class="vtools-file">
+              <button type="button" class="btn btn-quiet btn-sm" id="snipImportBtn" aria-expanded="false" aria-controls="snipImport" onclick="toggleSnipImport()"><svg class="ic" aria-hidden="true"><use href="#i-upload"/></svg><span>Import</span></button>
+              <label class="sr-only" for="snipExportFormat">Export as</label>
+              <select id="snipExportFormat" class="select snip-fmt">
+                <option value="csv">CSV</option>
+                <option value="json">JSON</option>
+              </select>
+              <button type="button" class="btn btn-quiet btn-sm" id="snipExportBtn" onclick="exportSnippets(this)"><svg class="ic" aria-hidden="true"><use href="#i-download"/></svg><span>Export</span></button>
+            </div>
+          </div>
+          <section class="vimport" id="snipImport" aria-labelledby="snipImportTitle" hidden>
+            <h3 class="vimport-t" id="snipImportTitle">Import snippets</h3>
+            <p class="vimport-d" id="snipImportHelp">A file you exported from Waffler, a CSV from a spreadsheet, or rows pasted here: the phrase you say, then the text to paste. A text with commas or line breaks goes in quotes. A phrase you already have keeps its text.</p>
+            <div class="vimport-in">
+              <button type="button" class="btn btn-sec btn-sm" id="snipImportPick" onclick="pickSnipFile()"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg><span>Choose a file</span></button>
+              <input type="file" id="snipImportFile" hidden accept=".csv,.tsv,.txt,.json,text/csv,text/plain,application/json" onchange="onSnipFile(this)">
+              <span class="vimport-name" id="snipImportName" aria-live="polite"></span>
+            </div>
+            <label class="vimport-lbl" for="snipImportText">Or paste rows here</label>
+            <textarea id="snipImportText" class="input vimport-ta" rows="5" spellcheck="false" autocomplete="off" autocapitalize="off" aria-describedby="snipImportHelp" placeholder="trigger,expansion&#10;my email,jane@example.com" oninput="onSnipImportText()" onkeydown="onSnipImportKey(event)"></textarea>
+            <p class="s-error" id="snipImportError" role="alert" hidden></p>
+            <div class="vimport-prev" id="snipImportPreview" aria-live="polite" hidden></div>
+            <div class="vimport-acts">
+              <button type="button" class="btn btn-quiet btn-sm" onclick="closeSnipImport(true)">Cancel</button>
+              <button type="button" class="btn btn-pri btn-sm" id="snipImportGo" onclick="applySnipImport()" disabled>Add snippets</button>
+            </div>
+          </section>
           <div id="snipList" class="snip-list"></div>
         </section>
       </section>
@@ -963,6 +1053,10 @@
         <div class="vside-recent" id="vocabRecentBox">
           <h2 class="vk">Recently corrected</h2>
           <ul class="vrc" id="vocabRecent"></ul>
+        </div>
+        <div class="vlearn" id="vocabLearn">
+          <input type="checkbox" class="tog" role="switch" id="learnToggle" aria-describedby="learnDesc" onchange="setLearnFromEdits(this.checked)">
+          <div class="vlearn-main"><label class="vlearn-t" for="learnToggle">Suggest words from my edits</label><p class="vlearn-d" id="learnDesc">When you correct a dictation in the Journal, Waffler offers to add a name it got wrong. It only offers. It never adds a word by itself.</p></div>
         </div>
         <p class="vhow">Waffler fixes these after speech to text and before the clean-up. Without a "sounds like", it matches loosely, so close spellings change too. Give more than one with commas.</p>
       </aside>

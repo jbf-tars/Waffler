@@ -19,6 +19,9 @@ treat each as "unknown" when it is missing.
                  the system gave one
     category     the kind of app it is: email, work, personal or other
                  (src/app_categories.py)
+    edited_text  what the person made of the words in the Journal ("Edit text",
+                 src/history_edit.py); ``styled`` and ``text`` stay as they were.
+                 Shown, copied, pasted again and exported in place of ``styled``
     audio        the name of the recording kept for this take
                  (src/recent_audio.py), so "Redo this take" can find it
     style        the style the text was finished in (formal, casual,
@@ -99,6 +102,18 @@ def words_of(item: dict) -> str:
     if kind == "command":
         return str(item.get("after") or item.get("query") or "")
     return str(item.get("styled") or item.get("text") or "")
+
+
+def final_text(item: dict) -> str:
+    """The words to show, copy and paste again: what the person made of a
+    dictation in the Journal (``edited_text``) when they edited it, else
+    ``words_of``. Only a dictation can be edited, so a rewrite or a command
+    keeps its own words."""
+    if isinstance(item, dict) and item.get("kind") not in NON_DICTATION_KINDS:
+        edited = item.get("edited_text")
+        if isinstance(edited, str) and edited.strip():
+            return edited
+    return words_of(item)
 
 
 def _seconds(value):
