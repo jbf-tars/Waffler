@@ -110,7 +110,6 @@ from transcribe_whisper import WhisperTranscriber, _speech_seconds
 from style_openai import OpenAIStyler
 from clipboard import ClipboardManager
 import pasteboard as _pasteboard
-from rate_limit import RateLimiter
 from overlay import RecordingOverlay
 from permissions_manager import PermissionsManager
 from audio_devices import (
@@ -133,16 +132,22 @@ import cleanup_pause as _cleanup_pause
 import languages as _languages
 import mac_permissions as _mac_perms
 import snippets as _snippets
+import notifier as _notifier
+import sounds as _sound_cues
+import hold_hint as _hold_hint
 from login_item import LoginItem, HIDDEN_FLAG as _HIDDEN_FLAG
 from user_messages import (
     CLIPBOARD_CHOICE_UNKNOWN,
     DOWNLOAD_PAGE,
+    SOUNDS_UNKNOWN,
+    TIPS_UNKNOWN,
     UPDATE_DOWNLOAD_FAILED,
     UPDATE_INSTALL_FAILED,
     UPDATE_NO_INSTALLER,
     UPDATE_WAITING,
     classify_request_error,
     cleanup_skipped_message,
+    hold_hint_message,
     key_check_error,
     last_transcript_title,
     limit_reached_message,
@@ -1127,6 +1132,12 @@ class Api:
             # did). macOS only; Windows always keeps it.
             "clipboard_after_paste": ("keep" if stored.get("clipboard_after_paste") == "keep"
                                       else "restore"),
+            # Sound cues (src/sounds.py sounds_enabled): off until asked for.
+            # Tips (src/notifier.py tips_enabled): on until turned off.
+            # Anything but a real True / False in settings.json means the
+            # default. Written out here because tests lift this method alone.
+            "sounds":                stored.get("sounds") is True,
+            "tips":                  stored.get("tips") is not False,
             # The engine's own default and clean-up, so Settings shows the
             # order Waffler really uses (it showed groq, cerebras, openai
             # while the engine ran groq, openai, cerebras).
@@ -1150,6 +1161,12 @@ class Api:
             if "clipboard_after_paste" in settings and \
                     settings["clipboard_after_paste"] not in ("restore", "keep"):
                 return {"ok": False, "error": CLIPBOARD_CHOICE_UNKNOWN}
+            # Sounds and tips are switches: a true or a false, nothing else
+            # (a string "false" would otherwise count as on).
+            if "sounds" in settings and not isinstance(settings["sounds"], bool):
+                return {"ok": False, "error": SOUNDS_UNKNOWN}
+            if "tips" in settings and not isinstance(settings["tips"], bool):
+                return {"ok": False, "error": TIPS_UNKNOWN}
             with self._editing_settings() as stored:
                 # ── OpenAI API key ────────────────────────────────────────────────
                 new_key = (settings.get("api_key") or "").strip()
@@ -1198,6 +1215,14 @@ class Api:
                     stored["clipboard_after_paste"] = settings["clipboard_after_paste"]
                     notes.append(f"Clipboard after paste: {settings['clipboard_after_paste']}")
 
+                # ── Sound cues, and tips (read per use: no restart) ───────────────
+                if "sounds" in settings:
+                    stored["sounds"] = settings["sounds"]
+                    notes.append(f"Sounds: {'on' if settings['sounds'] else 'off'}")
+                if "tips" in settings:
+                    stored["tips"] = settings["tips"]
+                    notes.append(f"Tips: {'on' if settings['tips'] else 'off'}")
+
                 # ── Provider fallback order ──────────────────────────────────────
                 # A list like ["cerebras","groq","openai"]. Persisted AND applied
                 # live to the running pipeline so reordering takes effect on the
@@ -1239,6 +1264,9 @@ class Api:
         Deliberately EXCLUDES:
           - .env                            (API keys)
           - history.json                    (user transcripts — PII)
+          - snippets.json                   (can hold an address or signature)
+          - notifications.json              (which tips were shown: counters
+                                             only, nothing a bug report needs)
 
         Returns:
           {"ok": True, "path": "/Users/.../Desktop/waffler-logs-...zip"}
@@ -1359,7 +1387,8 @@ class Api:
                     "NOT included (intentional):\n"
                     "  - API keys (~/.waffler-hosted/.env)\n"
                     "  - Transcript history (~/.waffler-hosted/history.json)\n"
-                    "  - Snippets (~/.waffler-hosted/snippets.json)\n\n"
+                    "  - Snippets (~/.waffler-hosted/snippets.json)\n"
+                    "  - Which tips were shown (~/.waffler-hosted/notifications.json)\n\n"
                     "Share this zip when reporting a bug to https://github.com/jbf-tars/Waffler/issues\n"
                 )
 
@@ -1597,6 +1626,7 @@ class Api:
             if _pipeline:
                 _pipeline._unsent_waiting = 0
                 _pipeline.forget_last_result()    # nothing left to "paste last"
+                _pipeline.forget_notifier()       # tips and counters start afresh
             if _tray_state_now == _tray_state.NOT_SENT:
                 _set_tray_state(_tray_state.IDLE)
             if not result["ok"]:
@@ -2116,6 +2146,7 @@ class Api:
                             on_release=_pipeline.on_hotkey_release,
                             on_cancel=_pipeline._on_hotkey_cancel,   # Esc (see its docstring)
                             keys=keys,
+                            on_lock=_pipeline._on_hands_free_lock,
                         )
                     elif _platform.system() == "Darwin":
                         from smart_hotkey import SmartHotkeyListener
@@ -2124,6 +2155,7 @@ class Api:
                             on_release=_pipeline.on_hotkey_release,
                             on_cancel=_pipeline._on_hotkey_cancel,   # Esc (see its docstring)
                             keys=keys,
+                            on_lock=_pipeline._on_hands_free_lock,
                         )
                     _log_to_file("New hotkey listener starting...")
                     _pipeline.hotkey_listener.start()
@@ -3387,8 +3419,17 @@ class WafflerPipeline:
         # of the microphone and Accessibility each time the hotkey goes down
         # (src/mac_permissions.py).
         self._last_result = _pasteboard.LastResult(history_loader=_history_cache.items)
-        self._paste_failure_gate = RateLimiter(_pasteboard.PASTE_FAILURE_GAP_SECONDS)
-        self._precheck = _mac_perms.PermissionPrecheck()
+        # Every toast and tip asks the notifier first (src/notifier.py): one
+        # slot, caps and gaps, what was dismissed. Its counters are kept in
+        # notifications.json. The permission check and the failed-paste
+        # message take their gaps from the same place.
+        self._notifier = _notifier.Notifier(
+            store=_notifier.FileStore(), context=self._notifier_context, log=_log_to_file)
+        self._precheck = _mac_perms.PermissionPrecheck(notifier=self._notifier)
+        # Optional sound cues (src/sounds.py), and the press that locked
+        # hands-free (the "Don't tap, hold" hint is not for those).
+        self._cues = _sound_cues.CuePlayer(settings=self._read_settings, log=_log_to_file)
+        self._hands_free_press_id = 0
         threading.Thread(target=self._warm_paste_deps, daemon=True, name="PasteWarm").start()
         self.is_recording = False
         self._is_paused = False
@@ -3452,6 +3493,7 @@ class WafflerPipeline:
         try:
             self._precheck.warm()
             _pasteboard.warm_up()
+            self._cues.warm()
         except Exception as e:
             _log_to_file(f"[paste] warm-up skipped: {type(e).__name__}")
 
@@ -3477,6 +3519,91 @@ class WafflerPipeline:
                                     timeout=timeout, reposition=reposition)
         except Exception as e:
             _log_to_file(f"[overlay] toast failed: {type(e).__name__}")
+
+    def _toast_allowed(self, kind_id: str) -> bool:
+        """May this message be shown now? Every toast and tip asks here first;
+        src/notifier.py decides (one slot, caps, gaps, tips waiting for a
+        quiet moment) and counts what it lets through. An error always passes
+        unless it is a duplicate inside its gap. If the notifier itself
+        fails, the message is shown: it must never cost anyone an error."""
+        try:
+            decision = self._notifier.request(kind_id)
+        except Exception as e:
+            _log_to_file(f"[notifier] skipped ({type(e).__name__}); showing {kind_id}")
+            return True
+        if not decision.show:
+            _log_to_file(f"[notifier] {kind_id} not shown ({decision.reason})")
+            return False
+        if decision.sound:
+            self._play_cue(decision.sound)
+        return True
+
+    def _notifier_context(self):
+        """Is this a quiet moment for a tip? Asked by the notifier, for tips
+        only: not while recording or processing, not before setup is done, and
+        not with "Show tips" off."""
+        run = self._watchdog.current_run()
+        return _notifier.Context(
+            recording=bool(self.is_recording),
+            processing=run is not None,
+            setup_done=bool(_is_setup_complete()),
+            tips_enabled=_notifier.tips_enabled(self._read_settings()),
+        )
+
+    def _play_cue(self, name: str):
+        """A sound cue, when the person has sounds on. The recorder is told
+        to ignore the moments the cue sounds in first, so the microphone never
+        hears it (src/sounds.py, AudioRecorder.deafen_for). A recorder that
+        cannot be told gets no cue. Never raises."""
+        try:
+            deafen = getattr(self.audio, "deafen_for", None)
+            if deafen is None:
+                return
+            self._cues.play(name, deafen=deafen)
+        except Exception as e:
+            _log_to_file(f"[sounds] {name} cue skipped ({type(e).__name__})")
+
+    def _on_hands_free_lock(self):
+        """The hotkey listener saw Space while the key was held: recording is
+        locked on. Remembers which press, and gives the lock tick."""
+        self._hands_free_press_id = self._current_press_id
+        self._play_cue(_sound_cues.LOCK)
+
+    def _hotkey_name(self) -> str:
+        """The person's hotkey as the Hotkey page shows it ("Fn", "Win + Ctrl")."""
+        return _hold_hint.hotkey_name(self._read_settings().get("hotkey_keys"), _platform.system())
+
+    def _maybe_hold_hint(self, processing_id: int, duration_s: float):
+        """A quick tap was just dropped as an accidental press. Say what to do,
+        quietly, once in a while. On a thread: it waits for a second press
+        before saying anything. Never raises."""
+        try:
+            hands_free = self._hands_free_press_id == processing_id
+            if not _hold_hint.wants_hint(duration_s, hands_free):
+                return
+            if not _notifier.tips_enabled(self._read_settings()):
+                return          # no need to wait to find that out
+            threading.Thread(target=self._hold_hint_later, args=(processing_id,),
+                             daemon=True, name="HoldHint").start()
+        except Exception as e:
+            _log_to_file(f"[hint] skipped ({type(e).__name__})")
+
+    def _hold_hint_later(self, processing_id: int):
+        try:
+            time.sleep(_hold_hint.SETTLE_S)
+            with self._processing_lock:
+                alone = processing_id == self._processing_id and not self.is_recording
+            if not alone:
+                _log_to_file("[hint] a second press followed the tap: no hint")
+                return
+            if not self._toast_allowed("hold_hint"):
+                return
+            heading, body = hold_hint_message(self._hotkey_name())
+            self.overlay.show_toast(style="info", heading=heading, body=body,
+                                    buttons=_notifier.tip_buttons("hold_hint"),
+                                    timeout=_hold_hint.HINT_SECONDS)
+        except Exception as e:
+            _log_to_file(f"[hint] not shown ({type(e).__name__})")
 
     def _announce_permission_problem(self, problem):
         """One toast whose button opens the pane that fixes it."""
@@ -3558,7 +3685,7 @@ class WafflerPipeline:
         the cursor's screen: for "Paste last", where no recording has just put
         the pill there."""
         platform = "darwin" if _platform.system() == "Darwin" else "win32"
-        toast = _pasteboard.report_paste_failure(outcome, self._paste_failure_gate, platform)
+        toast = _pasteboard.report_paste_failure(outcome, self._notifier, platform)
         if toast is None:
             if outcome is not None and outcome.status == _pasteboard.FAILED:
                 _log_to_file("[paste] failure message suppressed (once every 30 s)")
@@ -3596,7 +3723,8 @@ class WafflerPipeline:
         platform = "darwin" if _platform.system() == "Darwin" else "win32"
         heading, body = paste_timed_out_message(platform)
         try:
-            self.overlay.show_toast(style="warn", heading=heading, body=body)
+            if self._toast_allowed("paste_timed_out"):
+                self.overlay.show_toast(style="warn", heading=heading, body=body)
         except Exception:
             pass
         return True, False
@@ -3610,6 +3738,11 @@ class WafflerPipeline:
         """Nothing to paste again: the user deleted their data."""
         self._last_result.clear()
         _refresh_tray_menu()
+
+    def forget_notifier(self):
+        """The user deleted their data: what the notifier remembers (which
+        tips were shown, hidden or closed) goes with it."""
+        self._notifier.forget()
 
     def last_transcript_titles(self):
         """(paste line, copy line, has a result) for the menu: a word count,
@@ -3747,7 +3880,19 @@ class WafflerPipeline:
     def _on_toast_action(self, action: str):
         """Handle toast button clicks from overlay."""
         _log_to_file(f"Toast action: {action}")
-        if action == "confirm":
+        # Whatever was clicked, that message is answered and gone.
+        self._notifier.release()
+        tip = _notifier.parse_tip_action(action)
+        if tip is not None:
+            # A tip's own buttons: "Got it" counts as a dismissal (two and it
+            # stays away), "Don't show again" is for good.
+            verb, kind_id = tip
+            if verb == _notifier.TIP_MUTE:
+                self._notifier.mute(kind_id)
+            else:
+                self._notifier.dismiss(kind_id)
+            self.overlay.hide_toast()
+        elif action == "confirm":
             # User confirmed cancel
             self._on_overlay_cancel()
         elif action == "dismiss":
@@ -3841,6 +3986,8 @@ class WafflerPipeline:
         import time
         self._recording_start_time = time.time()
         self.audio.start()
+        # The start cue, now that the microphone is live (src/sounds.py).
+        self._play_cue(_sound_cues.START)
         notify_js_status("listening")
         _set_tray_state(_tray_state.RECORDING)
         try:
@@ -3933,13 +4080,14 @@ class WafflerPipeline:
                     warning_shown = True
                     _log_to_file("⚠️  Recording duration: 10 minutes - approaching API limit")
                     try:
-                        self.overlay.show_toast(
-                            style="warn",
-                            heading="Long recording",
-                            body="Recording will auto-stop at 12 minutes (API limit).",
-                        )
-                        # Hide toast after 3 seconds
-                        threading.Thread(target=lambda: (_time.sleep(3), self.overlay.hide_toast()), daemon=True).start()
+                        if self._toast_allowed("long_recording"):
+                            self.overlay.show_toast(
+                                style="warn",
+                                heading="Long recording",
+                                body="Recording will auto-stop at 12 minutes (API limit).",
+                            )
+                            # Hide toast after 3 seconds
+                            threading.Thread(target=lambda: (_time.sleep(3), self.overlay.hide_toast()), daemon=True).start()
                     except Exception as e:
                         _log_to_file(f"Warning toast failed: {e}")
 
@@ -3947,11 +4095,12 @@ class WafflerPipeline:
                 elif elapsed >= 720:
                     _log_to_file("⚠️  Recording auto-stopped at 12 minutes (API limit)")
                     try:
-                        self.overlay.show_toast(
-                            style="warn",
-                            heading="Recording stopped",
-                            body="12-minute limit reached. Processing your audio now...",
-                        )
+                        if self._toast_allowed("recording_limit"):
+                            self.overlay.show_toast(
+                                style="warn",
+                                heading="Recording stopped",
+                                body="12-minute limit reached. Processing your audio now...",
+                            )
                     except Exception:
                         pass
                     # Trigger stop via hotkey release
@@ -3975,6 +4124,8 @@ class WafflerPipeline:
         recording is already over.
         """
         try:
+            if not self._toast_allowed("no_audio"):
+                return
             self.overlay.show_toast(
                 style="error",
                 heading="We couldn't hear you",
@@ -3987,6 +4138,7 @@ class WafflerPipeline:
             _t.sleep(4)
             # Only this style, so a newer message or offer is left alone.
             self.overlay.hide_toast(style="error")
+            self._notifier.release("no_audio")
         except Exception as e:
             _log_to_file(f"[overlay] no-audio toast failed: {e}")
 
@@ -4098,10 +4250,11 @@ class WafflerPipeline:
                              f"{_pw.PREPARE_DEADLINE_S:.0f}s; it will be kept if it finishes")
                 _stopped.late.when_done(self._keep_late_recording)
                 try:
-                    self.overlay.show_toast(
-                        style="warn", heading="Your mic was slow to stop",
-                        body="Nothing was pasted. If the recording comes through, "
-                             "Waffler keeps it in the Journal and sends it from there.")
+                    if self._toast_allowed("mic_slow_to_stop"):
+                        self.overlay.show_toast(
+                            style="warn", heading="Your mic was slow to stop",
+                            body="Nothing was pasted. If the recording comes through, "
+                                 "Waffler keeps it in the Journal and sends it from there.")
                 except Exception:
                     pass
                 _outcome = _pw.ERROR
@@ -4113,6 +4266,11 @@ class WafflerPipeline:
             audio_bytes = _stopped.value
             run.audio_bytes = audio_bytes or None
             run.set_audio_seconds(len(audio_bytes or b"") / 32000.0)
+            # The stop cue, now the recording is safely captured: sounding
+            # earlier would put it in the recording. Not if a newer press has
+            # started recording (its audio is not ours to silence).
+            if not _is_superseded() and not self.is_recording:
+                self._play_cue(_sound_cues.STOP)
 
             # Accidental-tap guard. This used to discard ANY press under 500 ms
             # on press duration alone, before looking at the audio at all, so a
@@ -4131,6 +4289,8 @@ class WafflerPipeline:
                         f"Short press ({recording_duration:.2f}s) with "
                         f"{_tap_speech:.2f}s of speech — discarding as accidental tap"
                     )
+                    # Say what to do, once in a while (src/hold_hint.py).
+                    self._maybe_hold_hint(processing_id, recording_duration)
                     return
                 _log_to_file(
                     f"Short press ({recording_duration:.2f}s) but {_tap_speech:.2f}s "
@@ -4208,15 +4368,16 @@ class WafflerPipeline:
                             _log_to_file(f"force_rebuild failed: {_e}")
                     if recording_duration >= 1.0:
                         if rms_is_dead:
-                            threading.Thread(
-                                target=lambda: self.overlay.show_toast(
-                                    style="warn",
-                                    heading="Mic reset",
-                                    body="Your mic stopped responding after sleep or a device "
-                                         "change. It has been reset: press and speak again.",
-                                ),
-                                daemon=True,
-                            ).start()
+                            if self._toast_allowed("mic_reset"):
+                                threading.Thread(
+                                    target=lambda: self.overlay.show_toast(
+                                        style="warn",
+                                        heading="Mic reset",
+                                        body="Your mic stopped responding after sleep or a device "
+                                             "change. It has been reset: press and speak again.",
+                                    ),
+                                    daemon=True,
+                                ).start()
                         else:
                             _log_to_file("Showing 'couldn't hear you' toast")
                             threading.Thread(target=self._show_no_audio_toast, daemon=True).start()
@@ -4444,7 +4605,8 @@ class WafflerPipeline:
                     _log_to_file(f"[pipeline] clean-up pause note failed: {_e}")
                 _log_to_file(f"[pipeline] styling fell back to basic_clean: {reason}")
                 try:
-                    self.overlay.show_toast(style="warn", heading=heading, body=body)
+                    if self._toast_allowed("cleanup_skipped"):
+                        self.overlay.show_toast(style="warn", heading=heading, body=body)
                 except Exception as _e:
                     _log_to_file(f"[pipeline] fallback toast failed: {_e}")
 
@@ -4536,10 +4698,11 @@ class WafflerPipeline:
                     if not _clipboard_written:
                         _log_to_file(f"Clipboard write FAILED ({_copy.status})")
                         try:
-                            threading.Thread(target=lambda: self.overlay.show_toast(
-                                style="warn", heading="Couldn't copy to the clipboard",
-                                body="Your text is saved in the Journal. Copy it from there.",
-                            ), daemon=True).start()
+                            if self._toast_allowed("clipboard_copy_failed"):
+                                threading.Thread(target=lambda: self.overlay.show_toast(
+                                    style="warn", heading="Couldn't copy to the clipboard",
+                                    body="Your text is saved in the Journal. Copy it from there.",
+                                ), daemon=True).start()
                         except Exception:
                             pass
             elif _policy["reason"] != "ok":
@@ -4613,15 +4776,16 @@ class WafflerPipeline:
                     )
                     _wps = len((transcript or "").split()) / _live_s
                     if _wps < 1.0:
-                        threading.Thread(
-                            target=lambda: self.overlay.show_toast(
-                                style="warn",
-                                heading="Mic dropped out",
-                                body="Your mic cut out partway through - some of this "
-                                     "may be missing. Mic reset; please re-record.",
-                            ),
-                            daemon=True,
-                        ).start()
+                        if self._toast_allowed("mic_dropped_out"):
+                            threading.Thread(
+                                target=lambda: self.overlay.show_toast(
+                                    style="warn",
+                                    heading="Mic dropped out",
+                                    body="Your mic cut out partway through - some of this "
+                                         "may be missing. Mic reset; please re-record.",
+                                ),
+                                daemon=True,
+                            ).start()
                         _log_to_file(
                             f"[pipeline] mic dropout CONFIRMED by transcript "
                             f"({_wps:.2f} words/live-second)"
@@ -4687,7 +4851,7 @@ class WafflerPipeline:
             _history_written = _saved
             if _esc_kept:
                 # Said only while this dictation still owns the pill.
-                if self._run_is_current(run):
+                if self._run_is_current(run) and self._toast_allowed("cancelled_kept"):
                     try:
                         self.overlay.show_toast(
                             style="warn", heading="Cancelled",
@@ -4705,10 +4869,11 @@ class WafflerPipeline:
                 # The words were pasted (or are on the clipboard); only the
                 # History copy is missing. Say so, and leave the clipboard.
                 try:
-                    threading.Thread(target=lambda: self.overlay.show_toast(
-                        style="warn", heading="Not saved to History",
-                        body="Your text was pasted, but Waffler couldn't save it to History.",
-                    ), daemon=True).start()
+                    if self._toast_allowed("history_not_saved"):
+                        threading.Thread(target=lambda: self.overlay.show_toast(
+                            style="warn", heading="Not saved to History",
+                            body="Your text was pasted, but Waffler couldn't save it to History.",
+                        ), daemon=True).start()
                 except Exception:
                     pass
 
@@ -4784,13 +4949,15 @@ class WafflerPipeline:
                     # and its wait, in plain words: "Groq says you've reached
                     # your limit for now. Try again in about 17 minutes."
                     heading, body = limit_reached_message(error_msg)
-                    self.overlay.show_toast(style="warn", heading=heading, body=body)
+                    if self._toast_allowed("limit_reached"):
+                        self.overlay.show_toast(style="warn", heading=heading, body=body)
                 elif "CONNECTION" in error_msg or "Connection error" in error_msg or "timeout" in error_msg.lower():
-                    self.overlay.show_toast(
-                        style="warn",
-                        heading="Connection failed",
-                        body="Couldn't reach the server. Check your internet or VPN.",
-                    )
+                    if self._toast_allowed("connection_failed"):
+                        self.overlay.show_toast(
+                            style="warn",
+                            heading="Connection failed",
+                            body="Couldn't reach the server. Check your internet or VPN.",
+                        )
                 elif "403" in error_msg or "Access denied" in error_msg:
                     # Most common cause on a working install is a VPN exit IP
                     # that Groq blocks at the network layer. Without an
@@ -4803,11 +4970,12 @@ class WafflerPipeline:
                         body = "API key may be invalid, or your VPN server's IP is blocked. Try a different VPN server."
                     else:
                         body = "Your VPN server's IP is blocked by Groq. Switch to a different VPN server/location and try again."
-                    self.overlay.show_toast(
-                        style="warn",
-                        heading="Access denied",
-                        body=body,
-                    )
+                    if self._toast_allowed("access_denied"):
+                        self.overlay.show_toast(
+                            style="warn",
+                            heading="Access denied",
+                            body=body,
+                        )
                     # Salvage: if a transcript already existed when the error
                     # hit, don't throw the user's words away — copy the raw
                     # text to the clipboard so it's at least recoverable.
@@ -4828,13 +4996,14 @@ class WafflerPipeline:
                             _salvaged = bool(self.clipboard.copy(transcript))
                         except Exception:
                             pass
-                    self.overlay.show_toast(
-                        style="warn",
-                        heading="Something went wrong",
-                        body=_words_kept_message(_salvaged or _clipboard_written,
-                                                 _journal_saved,
-                                                 pasted=_pasted and not _clipboard_written),
-                    )
+                    if self._toast_allowed("pipeline_error"):
+                        self.overlay.show_toast(
+                            style="warn",
+                            heading="Something went wrong",
+                            body=_words_kept_message(_salvaged or _clipboard_written,
+                                                     _journal_saved,
+                                                     pasted=_pasted and not _clipboard_written),
+                        )
             except Exception:
                 pass
         finally:
@@ -4964,7 +5133,8 @@ class WafflerPipeline:
             ]
         else:
             return
-        self.overlay.show_toast(style="info", heading=heading, body=body, buttons=buttons)
+        if self._toast_allowed("still_working"):
+            self.overlay.show_toast(style="info", heading=heading, body=body, buttons=buttons)
         # While the offer is up, Esc stops the wait (keeping the recording).
         run.offer_shown()
         self._set_listener_processing(True)
@@ -4974,6 +5144,7 @@ class WafflerPipeline:
             self._set_listener_processing(False)
             # Only an "info" toast: a message that replaced the offer stays.
             self.overlay.hide_toast(style="info")
+            self._notifier.release("still_working")
 
     def _ui_finished(self, run, outcome):
         """End of a dictation, exactly once: a tick, or back to Ready."""
@@ -5012,7 +5183,8 @@ class WafflerPipeline:
             body = ("Waffler stopped waiting. If your words come through, "
                     "they'll be in the Journal.")
         try:
-            self.overlay.show_toast(style="warn", heading=heading, body=body)
+            if self._toast_allowed("pipeline_stuck"):
+                self.overlay.show_toast(style="warn", heading=heading, body=body)
         except Exception:
             pass
 
@@ -5090,8 +5262,9 @@ class WafflerPipeline:
                     {"label": "Dismiss", "action": "dismiss", "kind": "secondary"},
                 ]
             try:
-                self.overlay.show_toast(style="warn", heading=heading, body=body,
-                                        buttons=buttons)
+                if self._toast_allowed("not_sent"):
+                    self.overlay.show_toast(style="warn", heading=heading, body=body,
+                                            buttons=buttons)
             except Exception:
                 pass
         return uid
@@ -5469,6 +5642,7 @@ class WafflerPipeline:
                     on_release=self.on_hotkey_release,
                     on_cancel=self._on_hotkey_cancel,   # Esc (see its docstring)
                     keys=keys,
+                    on_lock=self._on_hands_free_lock,
                 )
             else:
                 _log_to_file(f"Creating SmartHotkeyListener with keys: {keys}")
@@ -5477,6 +5651,7 @@ class WafflerPipeline:
                     on_release=self.on_hotkey_release,
                     on_cancel=self._on_hotkey_cancel,   # Esc (see its docstring)
                     keys=keys,
+                    on_lock=self._on_hands_free_lock,
                 )
             _log_to_file("Calling hotkey.start()...")
             self.hotkey_listener.start()

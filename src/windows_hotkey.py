@@ -165,7 +165,7 @@ class WindowsHotkeyListener:
     Default combo: Win+Ctrl. Users can rebind via Settings.
     """
 
-    def __init__(self, on_press, on_release, on_cancel=None, keys=None):
+    def __init__(self, on_press, on_release, on_cancel=None, keys=None, on_lock=None):
         self._on_press   = on_press
         self._on_release = on_release
         # v3.14.37 — Esc cancels an in-progress recording without firing
@@ -173,6 +173,9 @@ class WindowsHotkeyListener:
         # clicking X on the overlay. Optional so wizard test-listeners
         # that don't want cancellation can just leave it as None.
         self._on_cancel  = on_cancel
+        # Optional: Space locked the recording on (hands-free). For the lock
+        # sound cue and the "Don't tap, hold" hint.
+        self._on_lock    = on_lock
         self._state      = _State.IDLE
         self._running    = False
         # Polling fallback only. A held combination is ONE activation: this
@@ -383,6 +386,7 @@ class WindowsHotkeyListener:
         """Space pressed during push-to-talk → switch to sticky."""
         self._state = _State.STICKY
         _log("Space → STICKY mode (recording locked)")
+        self._fire_lock()
 
     # ── Callback helpers ──────────────────────────────────────────────
 
@@ -393,6 +397,13 @@ class WindowsHotkeyListener:
     def _fire_release(self):
         threading.Thread(target=self._safe_callback,
                          args=(self._on_release,), daemon=True).start()
+
+    def _fire_lock(self):
+        """Hands-free just locked on. Skipped without an `on_lock` callback."""
+        if self._on_lock is None:
+            return
+        threading.Thread(target=self._safe_callback,
+                         args=(self._on_lock,), daemon=True).start()
 
     def _fire_cancel(self):
         """Esc-cancel — invoke the pipeline's cancel handler. Skipped when

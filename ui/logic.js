@@ -917,6 +917,21 @@
     return mode === 'keep' ? 'Waffler leaves your text on the clipboard.' : 'Waffler puts back what you had copied.';
   }
 
+  // General, Feedback: the Sounds and Show tips switches (settings.json
+  // "sounds" and "tips"). Sounds are off until asked for and tips are on
+  // until turned off; anything that is not a real true or false in the
+  // settings means that default, as the engine reads it.
+  function feedbackView(settings) {
+    const s = settings || {};
+    return { sounds: s.sounds === true, tips: s.tips !== false };
+  }
+  // The toast after changing one of them.
+  function feedbackSaved(key, on) {
+    if (key === 'sounds') return on ? 'Waffler will play soft tones.' : 'Sounds are off.';
+    if (key === 'tips') return on ? 'Waffler will show an occasional tip.' : 'Tips are off.';
+    return '';
+  }
+
   // General: the microphone meter, a strip of cells like the recording
   // overlay's waffle. The level (0 to 1, app.py get_mic_level) goes through
   // the overlay's own curve (level ** 0.4) so quiet speech still moves it.
@@ -1254,7 +1269,7 @@
     SNIPPET_MAX_TRIGGER, SNIPPET_MAX_EXPANSION, SNIPPET_MAX_COUNT, snippetTrigger, snippetCheck,
     snippetSummary, snippetCounter, snippetDone,
     spellingSpecimen, languageOptions, languageDesc, languageSaved, spellingNote,
-    clipboardAfterPasteView, clipboardAfterPasteSaved, METER_CELLS, micMeter, usageChart, usageFacts, flowView, PROVIDER_MARKS, providerPill,
+    clipboardAfterPasteView, clipboardAfterPasteSaved, feedbackView, feedbackSaved, METER_CELLS, micMeter, usageChart, usageFacts, flowView, PROVIDER_MARKS, providerPill,
     privacyFlow, hotkeyTestLine, whatsNew,
   };
 });

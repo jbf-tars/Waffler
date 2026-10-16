@@ -23,6 +23,7 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "tests"))
 
 import _pipeline_harness as H  # noqa: E402
+import notifier  # noqa: E402
 import pasteboard  # noqa: E402
 import pipeline_watchdog as pw  # noqa: E402
 import user_messages  # noqa: E402
@@ -97,7 +98,8 @@ def test_a_failed_paste_message_comes_once_every_30_seconds(tmp_path, limits):
     out = PasteOutcome(FAILED, "no_focus", on_clipboard=True)
     p = make_pipeline(tmp_path, clipboard=FakeClipboard(outcome=out))
     clock = [1000.0]
-    p._paste_failure_gate = pasteboard.RateLimiter(30, lambda: clock[0])
+    p._notifier = notifier.Notifier(store=notifier.MemoryStore(), clock=lambda: clock[0],
+                                    context=p._notifier_context)
     _dictate(p)
     clock[0] += 10
     _dictate(p)
@@ -490,6 +492,9 @@ class _Forgetful:
     def forget_last_result(self):
         self.forgot += 1
 
+    def forget_notifier(self):
+        self.forgot_notifier = getattr(self, "forgot_notifier", 0) + 1
+
 
 def test_delete_my_data_forgets_the_last_result(tmp_path):
     pipe = _Forgetful()
@@ -500,6 +505,7 @@ def test_delete_my_data_forgets_the_last_result(tmp_path):
               _set_tray_state=lambda s: None, _log_to_file=lambda m: None)
     assert fn(object()) == {"ok": True}
     assert pipe.forgot == 1 and pipe._unsent_waiting == 0
+    assert pipe.forgot_notifier == 1, "and the tips it remembered"
 
 
 def test_clear_history_forgets_the_last_result(tmp_path):

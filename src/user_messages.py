@@ -279,6 +279,18 @@ def last_transcript_title(verb: str, words: int) -> str:
 CLIPBOARD_CHOICE_UNKNOWN = "Waffler doesn't know that clipboard choice. Pick one from the list."
 
 
+# ── Tips ─────────────────────────────────────────────────────────────────────
+
+def hold_hint_message(hotkey: str):
+    """(heading, body) of the tip shown when a quick tap of the hotkey was
+    dropped. ``hotkey`` is the person's own, as the Hotkey page shows it."""
+    return ("Don't tap, hold", f"Hold {hotkey} while you speak, then let go.")
+
+
+SOUNDS_UNKNOWN = "Waffler doesn't know that choice for sounds. Use the switch."
+TIPS_UNKNOWN = "Waffler doesn't know that choice for tips. Use the switch."
+
+
 # ── Permissions checked when you press the hotkey ───────────────────────────
 # One short toast per missing permission, each with a button for the pane that
 # fixes it. They have to fit the pill's three lines.

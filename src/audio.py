@@ -36,6 +36,7 @@ That makes step 5 deterministic — the bound method survives until the
 import sounddevice as sd
 import numpy as np
 import io
+import math
 import wave
 import threading
 import time
@@ -55,6 +56,28 @@ _POSTROLL_MS = 150
 # Settings' microphone meter: a stream that has delivered nothing for this
 # long is not shown as live.
 _LEVEL_STALE_S = 0.5
+
+# Sound cues (src/sounds.py) play through the speakers while this microphone
+# is open, so the recorder can be told to silence the moments a cue sounds in
+# (``deafen_for``): the cue is then in neither the recording nor the half-
+# second of audio kept from before the next one. A cue cannot be heard in the
+# first instant after it is started; and no request is allowed to silence the
+# microphone for longer than a cue could ever last.
+_CUE_LEAD_S = 0.01
+_MAX_DEAF_S = 1.0
+
+
+def cue_mask_range(frames: int, sample_rate: int, chunk_end: float,
+                   deaf_from: float, deaf_until: float):
+    """Which samples of a chunk fall in the window ``[deaf_from, deaf_until)``:
+    ``(first, end)`` as slice bounds, or None when none do. ``chunk_end`` is
+    the time the chunk arrived, taken as the time of its last sample."""
+    start = chunk_end - frames / sample_rate
+    if chunk_end <= deaf_from or start >= deaf_until:
+        return None
+    first = max(0, int(math.ceil((deaf_from - start) * sample_rate)))
+    end = min(frames, int(math.ceil((deaf_until - start) * sample_rate)))
+    return (first, end) if end > first else None
 
 
 def rms_level(chunk) -> float:
@@ -217,6 +240,10 @@ class AudioRecorder:
         # transcribed as if nothing had happened.
         self._capture_overflows = 0
         self._capture_errors = 0
+        # Windows (start, end) on ``_clock`` that sound cues are playing in;
+        # audio arriving in one is replaced by silence (see ``deafen_for``).
+        self._clock = time.monotonic
+        self._deaf = ()
 
         # CRITICAL: cache the bound callback method ONCE. Every ``self._callback``
         # access creates a new bound-method object; we want exactly one to
@@ -246,7 +273,7 @@ class AudioRecorder:
             # them: that audio is gone, and the recording is incomplete.
             self._capture_overflows += 1
         try:
-            chunk = indata.copy()
+            chunk = self._silence_cue(indata.copy())
             self._preroll.append(chunk)
             self._last_chunk_at = time.monotonic()
 
@@ -260,7 +287,7 @@ class AudioRecorder:
             # RMS is computed outside the lock to keep the held region to a
             # single list append on the real-time audio thread.
             if _captured:
-                rms_raw = float(np.sqrt(np.mean(indata.astype(np.float32) ** 2)))
+                rms_raw = float(np.sqrt(np.mean(chunk.astype(np.float32) ** 2)))
                 self._last_rms = min(1.0, rms_raw / 800.0)
             elif self.is_paused:
                 self._last_rms = 0.0
@@ -268,6 +295,41 @@ class AudioRecorder:
             # Never crash inside the audio callback, but do not pretend it did
             # not happen: a failed append is a missing chunk.
             self._capture_errors += 1
+
+    def _silence_cue(self, chunk):
+        """``chunk`` with any part that falls in a cue's window set to silence.
+        Runs for every chunk, so it does nothing when no cue is armed."""
+        windows = self._deaf
+        if not windows:
+            return chunk
+        end = self._clock()
+        live = False
+        for a, b in windows:
+            if b > end - len(chunk) / self.sample_rate:
+                live = True
+            span = cue_mask_range(len(chunk), self.sample_rate, end, a, b)
+            if span is not None:
+                chunk[span[0]:span[1]] = 0
+        if not live:
+            self._deaf = ()
+        return chunk
+
+    def deafen_for(self, seconds: float, lead_s: float = _CUE_LEAD_S) -> None:
+        """Replace the audio that arrives over the next ``seconds`` with
+        silence, before it reaches the recording or the pre-roll. Called just
+        before a sound cue starts, so the speakers' sound is never in what is
+        sent to speech to text. Overlapping requests add up. Never raises."""
+        try:
+            seconds = min(float(seconds), _MAX_DEAF_S)
+            if not seconds > 0:
+                return
+            now = self._clock()
+            window = (now + lead_s, now + seconds)
+            if window[1] <= window[0]:
+                return
+            self._deaf = tuple(w for w in self._deaf if w[1] > now) + (window,)
+        except (TypeError, ValueError):
+            return
 
     # ── Public state inspection ─────────────────────────────────────────
 

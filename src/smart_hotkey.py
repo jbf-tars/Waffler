@@ -52,7 +52,7 @@ _LISTENER_ID_GEN = itertools.count(1)
 
 class SmartHotkeyListener:
 
-    def __init__(self, on_press, on_release, on_cancel=None, keys=None):
+    def __init__(self, on_press, on_release, on_cancel=None, keys=None, on_lock=None):
         """
         Args:
             on_press: Callback when recording should start
@@ -63,10 +63,14 @@ class SmartHotkeyListener:
                 + paste). Added v3.14.37 alongside Esc-cancel hotkey.
             keys: List of key names (default: ["fn"])
                  Examples: ["fn"], ["cmd", "shift", "space"], ["option", "space"]
+            on_lock: Optional — callback when Space locks the recording on
+                (hands-free). Used for the lock sound cue and to keep the
+                "Don't tap, hold" hint away from takes that locked.
         """
         self._on_press_cb = on_press
         self._on_release_cb = on_release
         self._on_cancel_cb = on_cancel
+        self._on_lock_cb = on_lock
         self._keys = keys or ["fn"]
 
         self._hotkey_held = False   # Hotkey currently down
@@ -193,6 +197,7 @@ class SmartHotkeyListener:
             self._sticky = True
             print("📌 Hotkey+Space → Sticky mode ON! Press hotkey+Space again to stop.")
             self._fire_visual_feedback("sticky_on")
+            self._fire_lock()
         elif self._hotkey_held and self._recording and self._sticky:
             self._sticky = False
             self._recording = False
@@ -250,6 +255,12 @@ class SmartHotkeyListener:
         if self._on_cancel_cb is None:
             return
         threading.Thread(target=self._on_cancel_cb, daemon=True).start()
+
+    def _fire_lock(self):
+        """Hands-free just locked on. No-op without an `on_lock` callback."""
+        if self._on_lock_cb is None:
+            return
+        threading.Thread(target=self._on_lock_cb, daemon=True).start()
 
     def _fire_visual_feedback(self, event_type):
         """Override in RecorderApp to push toast notifications. No-op by default."""

@@ -96,7 +96,10 @@ def count_older(history: list, keep_days: int, now: datetime | None = None) -> i
 # the folder.
 KEPT_FILES = (".env", "settings.json", "config.json", "setup_complete.json",
               "vocab.json", "vocab_sounds.json", "snippets.json")
-DATA_FILES = ("history.json", "usage.json", "quality.jsonl",
+# notifications.json is which tips Waffler has shown, hidden or had closed
+# (src/notifier.py): counts and times only, no text. Deleting it brings the
+# tips back.
+DATA_FILES = ("history.json", "usage.json", "quality.jsonl", "notifications.json",
               "app.log", "app.log.1", "crash.log", "hotkey.log")
 # The *.unreadable-* copies are a history.json or usage.json that could not
 # be read, kept aside instead of being written over (src/atomic_json.py).

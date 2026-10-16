@@ -81,6 +81,8 @@ a = Analysis(
         'tempfile',
         'subprocess',
         'webbrowser',
+        # Sound cues (src/sounds.py) import it by name at the first cue.
+        'winsound',
     ],
     hookspath=[],
     hooksconfig={},

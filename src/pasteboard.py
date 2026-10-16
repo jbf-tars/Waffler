@@ -42,7 +42,6 @@ from mac_input import (
     TEXT,
     FocusState,
 )
-from rate_limit import RateLimiter
 import user_messages
 
 # Re-exported so callers (and tests) can reach the keycode resolver from here.
@@ -679,16 +678,18 @@ def paste_failure_toast(outcome: PasteOutcome, platform: str = None) -> dict:
     return {"heading": heading, "body": body, "buttons": buttons}
 
 
+# The notifier's "paste_failed" kind keeps this gap (src/notifier.py).
 PASTE_FAILURE_GAP_SECONDS = 30
 
 
-def report_paste_failure(outcome: Optional[PasteOutcome], limiter: RateLimiter,
+def report_paste_failure(outcome: Optional[PasteOutcome], notifier,
                          platform: str = None) -> Optional[dict]:
     """Toast fields if ``outcome`` is a failure that may be announced now
-    (at most once per 30 s), else None."""
+    (the notifier allows "paste_failed" at most once per 30 s), else None.
+    ``notifier`` is a src/notifier.py Notifier, or anything with ``claim``."""
     if outcome is None or outcome.status != FAILED:
         return None
-    if not limiter.allow("paste_failed"):
+    if not notifier.claim("paste_failed"):
         return None
     return paste_failure_toast(outcome, platform)
 

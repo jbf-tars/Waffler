@@ -43,10 +43,10 @@ from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional
 
 try:
-    from rate_limit import RateLimiter
+    import notifier as _notifier
     import user_messages as _msg
 except ImportError:  # imported as src.mac_permissions
-    from src.rate_limit import RateLimiter
+    import src.notifier as _notifier
     import src.user_messages as _msg
 
 PANES = {
@@ -328,8 +328,9 @@ class PermissionPrecheck:
 
     ``check()`` returns the one problem to announce (a ``PermissionProblem``),
     or None to carry on exactly as before. At most one toast per press, at most
-    one per permission every 60 s, and a reader that errors counts as
-    "unknown", never as a reason to block.
+    one per permission every 60 s (the notifier's "permission_*" kinds keep the
+    gaps, src/notifier.py), and a reader that errors counts as "unknown", never
+    as a reason to block.
 
     The microphone read is slow (about 7 ms), so a "granted" answer is cached
     for ``mic_ttl`` seconds and refreshed in the background once stale; any
@@ -339,24 +340,25 @@ class PermissionPrecheck:
     ``check_idle()`` is the same question asked from time to time while the
     app idles: the hotkey's key listener dies silently when a permission is
     taken away, and then no press ever arrives to ask it. It says each thing
-    once, and repeats a dead listener only every ``listener_gap`` seconds,
-    because nobody is pressing anything to ask for it.
+    once, and repeats a dead listener only every ten minutes, because nobody is
+    pressing anything to ask for it.
     """
 
     def __init__(self, read_mic: Callable[[], str] = None,
                  read_ax: Callable[[], Optional[bool]] = None,
                  clock: Callable[[], float] = time.monotonic,
-                 gap: float = 60.0, mic_ttl: float = 30.0, listener_gap: float = 600.0,
-                 spawn: Callable[[Callable[[], None]], None] = None):
+                 mic_ttl: float = 30.0,
+                 spawn: Callable[[Callable[[], None]], None] = None,
+                 notifier=None):
         self._read_mic = read_mic or microphone_status
         self._read_ax = read_ax or accessibility_trusted
         self._clock = clock
         self._mic_ttl = mic_ttl
         self._spawn = spawn or (lambda fn: threading.Thread(
             target=fn, daemon=True, name="MicStatusRefresh").start())
-        self._limiter = RateLimiter(gap, clock)
-        self._listener_limiter = RateLimiter(listener_gap, clock)
-        self._idle_ax_limiter = RateLimiter(float("inf"), clock)   # once, until it clears
+        # The app passes its own notifier; alone, this keeps a private one in
+        # memory on the same clock.
+        self._notifier = notifier or _notifier.Notifier(clock=clock)
         self._mic_cache = None  # (status, read_at)
         self._refreshing = False
         self._lock = threading.Lock()
@@ -410,7 +412,7 @@ class PermissionPrecheck:
         ax = self._safe_ax() if need_accessibility else None
         self.last_status = {"microphone": mic, "accessibility": ax}
         for problem in evaluate_permissions(mic, ax, True, need_accessibility):
-            if self._limiter.allow(problem.permission):
+            if self._notifier.claim(f"permission_{problem.permission}"):
                 return problem
         return None
 
@@ -421,18 +423,18 @@ class PermissionPrecheck:
         Accessibility being off is said once, and again only after it has been
         on in between. A dead key listener says Accessibility if that is off,
         else the keyboard (Input Monitoring), and is repeated every
-        ``listener_gap`` seconds because no key press will ever ask. The
+        ten minutes because no key press will ever ask. The
         microphone is left to the key-down check."""
         ax = self._safe_ax() if need_accessibility else None
         problems = evaluate_permissions("unknown", ax, listener_alive, need_accessibility)
         active = {p.permission for p in problems}
         if "accessibility" not in active:
-            self._idle_ax_limiter.reset()
+            self._notifier.reset_gap("permission_accessibility_idle")
         if "keyboard" not in active:
-            self._listener_limiter.reset()
+            self._notifier.reset_gap("permission_keyboard")
         for problem in problems:
-            limiter = self._idle_ax_limiter if problem.permission == "accessibility" \
-                else self._listener_limiter
-            if limiter.allow(problem.permission):
+            kind = "permission_accessibility_idle" if problem.permission == "accessibility" \
+                else "permission_keyboard"
+            if self._notifier.claim(kind):
                 return problem
         return None

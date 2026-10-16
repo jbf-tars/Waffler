@@ -30,13 +30,15 @@ sys.path.insert(0, str(ROOT))
 
 import atomic_json  # noqa: E402
 import cleanup_pause  # noqa: E402
+import hold_hint  # noqa: E402
 import mac_permissions  # noqa: E402
+import notifier  # noqa: E402
 import pasteboard  # noqa: E402
 import pipeline_watchdog as pw  # noqa: E402
 import privacy_data  # noqa: E402
-import rate_limit  # noqa: E402
 import recent_audio  # noqa: E402
 import snippets  # noqa: E402
+import sounds  # noqa: E402
 import tray_state  # noqa: E402
 import unsent  # noqa: E402
 import user_messages  # noqa: E402
@@ -59,6 +61,10 @@ PIPELINE_METHODS = (
     "_read_settings", "_show_toast_safe", "_settle_paste", "_announce_paste_failure",
     "_remember", "forget_last_result", "last_transcript_titles", "paste_last", "copy_last",
     "_announce_permission_problem", "_permissions_block_recording",
+    # The notifier (src/notifier.py): every toast asks first. Sound cues
+    # (src/sounds.py) and the "Don't tap, hold" hint (src/hold_hint.py).
+    "_toast_allowed", "_notifier_context", "_play_cue", "_on_hands_free_lock",
+    "_hotkey_name", "_maybe_hold_hint", "_hold_hint_later",
 )
 MODULE_DEFS = ("ensure_data_dir", "load_history", "_load_history_for_update",
                "save_history", "append_history",
@@ -118,14 +124,41 @@ class Hang:
         self.release.wait(self.seconds)
 
 
+def silence_wav(seconds: float = 0.3, rate: int = 16000) -> bytes:
+    """A mono 16-bit WAV of digital silence: a tap that caught no speech."""
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes(bytes(int(seconds * rate) * 2))
+    return buf.getvalue()
+
+
+class FakeCueBackend:
+    """Stands in for NSSound / winsound: no test ever makes a sound."""
+
+    latency_s = 0.06
+
+    def __init__(self):
+        self.played = []
+
+    def play(self, name, wav):
+        self.played.append(name)
+
+
 class FakeAudio:
     """``hang`` makes stop() wait like a recorder whose lock is held while a
-    device is rebuilt."""
+    device is rebuilt. ``deafened`` is what the sound cues asked it to ignore."""
 
     def __init__(self, wav: bytes, hang=None):
         self.wav = wav
         self.hang = hang
         self.stops = 0
+        self.deafened = []
+
+    def deafen_for(self, seconds):
+        self.deafened.append(seconds)
 
     def stop(self):
         self.stops += 1
@@ -322,7 +355,10 @@ def make_pipeline(data_dir: Path, *, transcriber=None, styler=None, clipboard=No
         _recent_audio=recent_audio, _cleanup_pause=cleanup_pause, _privacy=privacy_data,
         _snippets=snippets,
         _set_cleanup_pause=page.pauses.append,
-        _pasteboard=pasteboard, _mac_perms=mac_permissions, RateLimiter=rate_limit.RateLimiter,
+        _pasteboard=pasteboard, _mac_perms=mac_permissions,
+        _notifier=notifier, _sound_cues=sounds, _hold_hint=hold_hint,
+        hold_hint_message=user_messages.hold_hint_message,
+        _is_setup_complete=lambda: True,
         paste_timed_out_message=user_messages.paste_timed_out_message,
         last_transcript_title=user_messages.last_transcript_title,
         _refresh_tray_menu=lambda: None,
@@ -345,7 +381,11 @@ def make_pipeline(data_dir: Path, *, transcriber=None, styler=None, clipboard=No
     p.is_recording = False
     p._is_paused = False
     p._last_result = pasteboard.LastResult()
-    p._paste_failure_gate = rate_limit.RateLimiter(pasteboard.PASTE_FAILURE_GAP_SECONDS)
+    p._notifier = notifier.Notifier(store=notifier.MemoryStore(), context=p._notifier_context,
+                                    log=logged.append)
+    p.cue_backend = FakeCueBackend()
+    p._cues = sounds.CuePlayer(backend=p.cue_backend, settings=p._read_settings, log=logged.append)
+    p._hands_free_press_id = 0
     p._precheck = types.SimpleNamespace(check=lambda need_accessibility=True: None)
     p._processing_lock = threading.Lock()
     p._processing_cancelled = threading.Event()

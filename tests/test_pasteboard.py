@@ -26,7 +26,7 @@ from pasteboard import (  # noqa: E402
     SafePaster, Snapshot, classify_paste, paste_failure_toast, report_paste_failure,
     resolve_v_keycode, restore_after_paste, wait_for_modifiers_released,
 )
-from rate_limit import RateLimiter  # noqa: E402
+from notifier import Notifier  # noqa: E402
 
 IS_MAC = sys.platform == "darwin"
 mac_only = pytest.mark.skipif(not IS_MAC, reason="needs macOS (AppKit)")
@@ -883,7 +883,7 @@ def test_failure_messages_are_plain_sentences_with_no_dash_or_raw_error():
 
 def test_failure_toast_is_rate_limited_to_one_per_30_seconds():
     clock = Clock()
-    limiter = RateLimiter(30, clock)
+    limiter = Notifier(clock=clock)         # the notifier keeps the gap (src/notifier.py)
     out = PasteOutcome(FAILED, "no_focus")
     assert report_paste_failure(out, limiter, "darwin") is not None
     clock.now += 10
@@ -891,10 +891,12 @@ def test_failure_toast_is_rate_limited_to_one_per_30_seconds():
     clock.now += 21
     assert report_paste_failure(out, limiter, "darwin") is not None
     assert pasteboard.PASTE_FAILURE_GAP_SECONDS == 30
+    import notifier
+    assert notifier.KINDS["paste_failed"].min_gap_s == pasteboard.PASTE_FAILURE_GAP_SECONDS
 
 
 def test_only_failures_produce_a_toast():
-    limiter = RateLimiter(30, Clock())
+    limiter = Notifier(clock=Clock())
     assert report_paste_failure(PasteOutcome(PASTED), limiter, "darwin") is None
     assert report_paste_failure(PasteOutcome(UNVERIFIED), limiter, "darwin") is None
     assert report_paste_failure(None, limiter, "darwin") is None

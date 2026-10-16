@@ -341,3 +341,31 @@ def test_the_waiting_recordings_can_be_deleted_after_asking():
     two = js("L.unsentSummary({count: 2, provider: 'Groq'})")
     assert two["confirm"] == "Delete the 2 recordings waiting to be sent?"
     assert js("L.unsentSummary({count: 1})")["confirm"] == "Delete the recording waiting to be sent?"
+
+
+# ── the notifier's state file (S3) ───────────────────────────────────────
+
+def test_the_tip_memory_is_deleted_with_my_data_and_not_zipped_into_the_logs(tmp_path):
+    assert "notifications.json" in P.DATA_FILES and "notifications.json" not in P.KEPT_FILES
+    (tmp_path / "notifications.json").write_text('{"version": 1, "kinds": {}}', encoding="utf-8")
+    assert P.delete_my_data(tmp_path)["ok"] is True
+    assert not (tmp_path / "notifications.json").exists()
+    tree = ast.parse(_app())
+    fn = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "download_logs")
+    listed = [c.value for c in ast.walk(fn) if isinstance(c, ast.Constant) and isinstance(c.value, str)
+              and c.value.endswith(".json")]
+    assert "notifications.json" not in listed
+    assert "Which tips were shown (~/.waffler-hosted/notifications.json)" in ast.unparse(fn)
+
+
+def test_the_state_file_name_is_the_one_the_notifier_writes():
+    import notifier
+    assert notifier.STATE_FILE == "notifications.json"
+
+
+def test_the_full_reset_removes_it_with_the_folder_and_delete_my_data_forgets_it_in_memory():
+    src = _app()
+    tree = ast.parse(src)
+    fn = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "delete_my_data"
+              and "_privacy" in ast.unparse(n))
+    assert "_pipeline.forget_notifier()" in ast.unparse(fn)

@@ -2832,6 +2832,7 @@ async function loadSettings() {
     renderClipboardRow();
     const reads = document.getElementById('privPasteReads');
     if (reads) reads.hidden = !isMacPlatform;
+    renderFeedbackRows();
   } catch(e) {
     console.warn('loadSettings error:', e);
   }
@@ -2851,6 +2852,26 @@ function renderClipboardRow() {
   tog.checked = v.checked;
   tog.disabled = v.disabled;
   if (desc && v.desc) desc.textContent = v.desc;
+}
+
+// Settings, General: the Sounds and Show tips switches, from the last
+// get_settings() answer.
+function renderFeedbackRows() {
+  const v = WL.feedbackView(_lastSettings);
+  const sounds = document.getElementById('soundsToggle');
+  const tips = document.getElementById('tipsToggle');
+  if (sounds) sounds.checked = v.sounds;
+  if (tips) tips.checked = v.tips;
+}
+
+// Save one of the two switches; a refused save puts the switch back.
+async function setFeedback(key, on) {
+  const ok = await saveSetting(key, !!on);
+  if (ok) {
+    if (_lastSettings) _lastSettings[key] = !!on;
+  } else {
+    renderFeedbackRows();
+  }
 }
 
 async function setClipboardAfterPaste(keep) {
@@ -3010,6 +3031,8 @@ async function saveSetting(key, value) {
         renderClipboardRow();
       } else if (key === 'clipboard_after_paste') {
         showToast(WL.clipboardAfterPasteSaved(value), 'success', 3500);
+      } else if (key === 'sounds' || key === 'tips') {
+        showToast(WL.feedbackSaved(key, value), 'success', 3500);
       } else if (key === 'language') {
         const known = _languageList.find((l) => l.code === value);
         showToast(WL.languageSaved(value, known ? known.name : ''), 'success');

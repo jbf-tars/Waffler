@@ -229,6 +229,24 @@
             </div>
           </div>
 
+          <h2 class="sh2">Feedback</h2>
+          <div class="sheet">
+            <!-- Sound cues (src/sounds.py, settings.json "sounds"): off until
+                 asked for. The microphone ignores the moments a tone sounds
+                 in, so a tone is never sent to speech to text; the line says
+                 so. -->
+            <div class="row" id="soundsRow">
+              <div class="row-main"><div class="row-t"><label for="soundsToggle">Sounds</label></div><div class="row-d" id="soundsDesc">Soft tones when recording starts and stops, and when hands-free locks. The microphone ignores a fraction of a second around each one.</div></div>
+              <input type="checkbox" class="tog" role="switch" id="soundsToggle" onchange="setFeedback('sounds', this.checked)">
+            </div>
+            <!-- Tips (src/notifier.py, settings.json "tips"): on until turned
+                 off. Every tip has "Don't show again" of its own. -->
+            <div class="row" id="tipsRow">
+              <div class="row-main"><div class="row-t"><label for="tipsToggle">Show tips</label></div><div class="row-d" id="tipsDesc">An occasional hint, such as how to hold the key. Each one can be hidden for good.</div></div>
+              <input type="checkbox" class="tog" role="switch" id="tipsToggle" onchange="setFeedback('tips', this.checked)">
+            </div>
+          </div>
+
           <h2 class="sh2">Startup</h2>
           <div class="sheet">
             <!-- Start at sign-in: read from the operating system each time
@@ -439,6 +457,11 @@
                  cards). Waffler sends them by itself when the speech service
                  answers; this is the count, Try again for all of them, and
                  Delete, which asks first. -->
+            <!-- Which tips have been shown, hidden or closed (src/notifier.py,
+                 notifications.json): counts and times, nothing anyone said. -->
+            <div class="row" id="tipsMemoryRow">
+              <div class="row-main"><div class="row-t">Tips seen</div><div class="row-d">Which tips Waffler has shown, and which you hid, so it doesn't repeat them. Counts and times only.</div></div>
+            </div>
             <div class="row" id="unsentRow">
               <span class="chk" id="unsentIcon" aria-hidden="true"><svg class="ic"><use href="#i-check"/></svg></span>
               <div class="row-main"><div class="row-t" id="unsentTitle">Nothing waiting to be sent</div><div class="row-d" id="unsentSummary">Every recording has been turned into text.</div></div>
@@ -481,7 +504,7 @@
                  snippets and settings; deleting those too is the full reset, which
                  asks again on its own. -->
             <div class="row" id="resetRow">
-              <div class="row-main"><div class="row-t" id="resetTitle">Delete all my data</div><div class="row-d">History, usage, recordings and logs. Your keys, words, snippets and settings stay.</div></div>
+              <div class="row-main"><div class="row-t" id="resetTitle">Delete all my data</div><div class="row-d">History, usage, recordings, logs and which tips you've seen. Your keys, words, snippets and settings stay.</div></div>
               <button type="button" class="btn btn-danger-solid btn-sm" id="resetAsk" aria-describedby="resetTitle" onclick="askFactoryReset(true)">Delete…</button>
             </div>
             <div class="row reset-confirm" id="resetConfirm" hidden>

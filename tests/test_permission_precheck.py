@@ -33,7 +33,7 @@ class Clock:
         return self.now
 
 
-def make_precheck(mic="granted", ax=True, clock=None, mic_ttl=30.0, spawn=None, listener_gap=600.0):
+def make_precheck(mic="granted", ax=True, clock=None, mic_ttl=30.0, spawn=None):
     clock = clock or Clock()
     state = {"mic": mic, "ax": ax, "mic_calls": 0, "ax_calls": 0}
 
@@ -50,7 +50,7 @@ def make_precheck(mic="granted", ax=True, clock=None, mic_ttl=30.0, spawn=None, 
         return state["ax"]
 
     pc = PermissionPrecheck(read_mic=read_mic, read_ax=read_ax, clock=clock, mic_ttl=mic_ttl,
-                            listener_gap=listener_gap, spawn=spawn or (lambda fn: fn()))
+                            spawn=spawn or (lambda fn: fn()))
     pc.state, pc.clock = state, clock
     return pc
 
