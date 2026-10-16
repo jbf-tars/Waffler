@@ -49,6 +49,22 @@ _STYLE_TIMEOUT_S = 15.0
 # recovers without a restart.
 _MODEL_UNAVAILABLE_COOLDOWN_S = 3600.0
 
+# How a provider says "this model is gone". The first group are codes and
+# phrases that cannot be anything else, so they are checked before the looser
+# substring tests for rate limits and auth (a decommission notice that says
+# "migrate to ..." contains "rate"). A bare 404, or "does not exist", is
+# checked last: "404" can sit inside a rate limit's own numbers.
+_MODEL_GONE_CODES = ("model_not_found", "model_decommissioned", "decommissioned",
+                     "no longer supported")
+_MODEL_GONE_LOOSE = ("does not exist", "404")
+
+
+def _model_is_gone(error_msg: str, loose: bool = True) -> bool:
+    lower = str(error_msg).lower()
+    if any(m in lower for m in _MODEL_GONE_CODES):
+        return True
+    return loose and any(m in lower for m in _MODEL_GONE_LOOSE)
+
 # Overall wall-clock budget for the WHOLE styling step (all fallback attempts).
 #
 # The bug this fixes: there was only ever a PER-PROVIDER timeout, never an
@@ -207,9 +223,19 @@ class OpenAIStyler:
             # Cerebras uses here - so both fast providers speak the same
             # dialect and the prompt behaves consistently across them.
             # Overridable without a release, mirroring OPENAI_STYLE_MODEL.
-            self._groq_model = (
+            _primary_model = (
                 _os.getenv("GROQ_STYLE_MODEL", "").strip() or "openai/gpt-oss-120b"
             )
+            # The models tried in order: today's, then an optional backup for
+            # when Groq retires it. No backup is set by default (a replacement
+            # needs the corpus first, see tests/test_groq_model_chain.py), so
+            # the tuple only grows for someone who sets the variable. When
+            # Groq says a model is gone the styler moves down the tuple and
+            # keeps the one that answers (_groq_model_gone).
+            _backup_model = _os.getenv("GROQ_STYLE_FALLBACK_MODEL", "").strip()
+            self._groq_models = (_primary_model,) + (
+                (_backup_model,) if _backup_model and _backup_model != _primary_model else ())
+            self._groq_model = self._groq_models[0]
             print(f"Styling fallback: Groq {self._groq_model}")
         elif not self._use_cerebras:
             print(f"Styling: OpenAI {model}")
@@ -374,7 +400,12 @@ Transcript: {transcript}"""
                 return None
             if time.monotonic() < self._groq_skip_until:
                 wait_s = max(0, int(self._groq_skip_until - time.monotonic()))
-                failures.append(("Groq", f"RATE_LIMIT|cooldown|{wait_s}s|Groq still in cooldown from previous limit"))
+                if time.monotonic() < getattr(self, "_groq_gone_until", 0.0):
+                    # A retired model is not a limit: "paused for an hour" and
+                    # a banner about a limit nobody reached were wrong for it.
+                    failures.append(("Groq", f"MODEL_UNAVAILABLE|cooldown|{wait_s}s|Groq clean-up model is not available"))
+                else:
+                    failures.append(("Groq", f"RATE_LIMIT|cooldown|{wait_s}s|Groq still in cooldown from previous limit"))
                 return None
             try:
                 _styled, _usage = self._style_groq(prompt, start_time)
@@ -389,7 +420,10 @@ Transcript: {transcript}"""
                 return None
             if time.monotonic() < self._cerebras_skip_until:
                 wait_s = max(0, int(self._cerebras_skip_until - time.monotonic()))
-                failures.append(("Cerebras", f"RATE_LIMIT|cooldown|{wait_s}s|Cerebras still in cooldown"))
+                if time.monotonic() < getattr(self, "_cerebras_gone_until", 0.0):
+                    failures.append(("Cerebras", f"MODEL_UNAVAILABLE|cooldown|{wait_s}s|Cerebras clean-up model is not available"))
+                else:
+                    failures.append(("Cerebras", f"RATE_LIMIT|cooldown|{wait_s}s|Cerebras still in cooldown"))
                 return None
             try:
                 _styled, _usage = self._style_cerebras(prompt, start_time)
@@ -578,6 +612,54 @@ Transcript: {transcript}"""
         except Exception:
             pass
 
+    @staticmethod
+    def _groq_request_extras(model: str) -> dict:
+        """What a Groq model is sent besides the messages. gpt-oss and Qwen
+        reason before they answer, which on a formatting job costs latency
+        and output tokens (a gpt-oss answer was empty without it); each is
+        told how little to think. Any other model gets nothing."""
+        name = str(model or "").lower()
+        if "gpt-oss" in name:
+            return {"reasoning_effort": "low"}
+        if "qwen" in name:
+            return {"reasoning_effort": "none"}
+        return {}
+
+    def _groq_model_gone(self, model: str, error_msg: str, prompt: str, start_time: float):
+        """Groq says ``model`` no longer exists (or this key can't reach it).
+
+        With a next model in ``_groq_models``, move to it, remember it for the
+        rest of the session and try again now. With none left this is the
+        standing condition it always was: a cooldown, so the dead model isn't
+        probed on every dictation (app.log carried 458 such probes), and a
+        MODEL_UNAVAILABLE reason that says so. The message can't tell
+        "retired" from "this key lacks access", which is why no replacement
+        is built in: a backup has to be asked for (GROQ_STYLE_FALLBACK_MODEL).
+        """
+        models = list(getattr(self, "_groq_models", None) or [self._groq_model])
+        at = models.index(model) if model in models else len(models)
+        if at + 1 < len(models):
+            nxt = models[at + 1]
+            self._groq_model = nxt
+            self._log_provider_failure(
+                "Groq", f"model {model!r} is gone, switching to {nxt!r} ({error_msg[:100]})")
+            if self._budget_left() < _STYLE_MIN_ATTEMPT_S:
+                raise RuntimeError(
+                    "TIMEOUT|styling budget exhausted while changing the clean-up model "
+                    "- pasted raw")
+            return self._style_groq(prompt, start_time)
+        self._groq_skip_until = time.monotonic() + _MODEL_UNAVAILABLE_COOLDOWN_S
+        self._groq_gone_until = self._groq_skip_until
+        # Start from the top once the cooldown ends: access to an earlier
+        # model may have come back, and the last one tried is no better.
+        if model in models:
+            self._groq_model = models[0]
+        self._log_provider_failure(
+            "Groq", f"model {model!r} unavailable - skipping for "
+                    f"{int(_MODEL_UNAVAILABLE_COOLDOWN_S // 60)}m")
+        raise RuntimeError(
+            f"MODEL_UNAVAILABLE: Groq model {model!r} is not available to this account - {error_msg[:100]}")
+
     def _style_groq(self, prompt: str, start_time: float):
         """Style using Groq — ~200-400ms."""
         system_msg = (
@@ -591,28 +673,35 @@ Transcript: {transcript}"""
             "trailing fragment, not a manufactured summary. Only keep these phrases if the "
             "speaker literally said them out loud. Return only the cleaned text, no commentary."
         )
+        _model = self._groq_model
+        # gpt-oss is a REASONING model: without reasoning_effort it spends its
+        # whole output budget thinking before emitting any cleaned text and
+        # returns empty or truncated output (verified live - a probe against
+        # openai/gpt-oss-120b with no reasoning_effort came back as ''). The
+        # Cerebras path has needed the same flag since v3.14.74. What each
+        # model gets is in _groq_request_extras.
+        _extras = self._groq_request_extras(_model)
         try:
             response = self._groq_client.chat.completions.create(
-                model=self._groq_model,
+                model=_model,
                 messages=[
                     {"role": "system", "content": system_msg},
                     {"role": "user", "content": prompt},
                 ],
                 max_tokens=getattr(self, "_max_out_tokens", 4096),
                 temperature=0.1,
-                # gpt-oss is a REASONING model: without this it spends its whole
-                # output budget thinking before emitting any cleaned text and
-                # returns empty or truncated output (verified live - a probe
-                # against openai/gpt-oss-120b with no reasoning_effort came back
-                # as ''). The Cerebras path has needed the same flag since
-                # v3.14.74. Harmless on non-reasoning models, which ignore it.
-                extra_body={"reasoning_effort": "low"},
+                **({"extra_body": _extras} if _extras else {}),
                 # Bounded by whatever is LEFT of the overall styling budget, so
                 # this call can never overrun the deadline (see _attempt_timeout).
                 timeout=self._attempt_timeout(),
             )
         except Exception as e:
             error_msg = str(e)
+            if _model_is_gone(error_msg, loose=False):
+                # A retirement code can't be a rate limit or an auth block, so
+                # it is read first: the looser tests below match "rate" inside
+                # "migrate" and "404" inside a limit's own numbers.
+                return self._groq_model_gone(_model, error_msg, prompt, start_time)
             if "429" in error_msg or "rate" in error_msg.lower():
                 # Pull out the info the UI needs: which limit hit ("tokens per day",
                 # "requests per minute", etc.) and Groq's suggested wait time.
@@ -665,25 +754,8 @@ Transcript: {transcript}"""
                 self._groq_skip_until = time.monotonic() + 3600.0
                 print(f"[styling] Groq returned auth/network error — skipping Groq for 1 hour")
                 raise RuntimeError(f"AUTH: Groq auth/network blocked — {error_msg[:120]}")
-            elif ("model_not_found" in error_msg
-                  or "does not exist" in error_msg.lower()
-                  or "404" in error_msg):
-                # An unavailable model is not transient. Without a
-                # cooldown it is re-probed on EVERY dictation: app.log
-                # carried 458 of these for llama-3.3-70b-versatile, so
-                # every recording paid a wasted round-trip before
-                # falling through to the next provider. The message is
-                # ambiguous between "retired" and "this key lacks
-                # access", so we do NOT silently swap in another model
-                # (that needs a benchmark and a docs check) - we just
-                # stop paying the latency and say why.
-                self._groq_skip_until = time.monotonic() + _MODEL_UNAVAILABLE_COOLDOWN_S
-                _model = getattr(self, "_groq_model", "?")
-                self._log_provider_failure("Groq", 
-                    f"model {_model!r} unavailable - skipping for "
-                    f"{int(_MODEL_UNAVAILABLE_COOLDOWN_S // 60)}m")
-                raise RuntimeError(
-                    f"MODEL_UNAVAILABLE: Groq model {_model!r} is not available to this account - {error_msg[:100]}")
+            elif _model_is_gone(error_msg):
+                return self._groq_model_gone(_model, error_msg, prompt, start_time)
             raise
         styled = response.choices[0].message.content.strip()
         # Fix mid-sentence capitalization bug
@@ -781,6 +853,7 @@ Transcript: {transcript}"""
                 # (that needs a benchmark and a docs check) - we just
                 # stop paying the latency and say why.
                 self._cerebras_skip_until = time.monotonic() + _MODEL_UNAVAILABLE_COOLDOWN_S
+                self._cerebras_gone_until = self._cerebras_skip_until
                 _model = getattr(self, "_cerebras_model", "?")
                 self._log_provider_failure("Cerebras", 
                     f"model {_model!r} unavailable - skipping for "
@@ -820,59 +893,60 @@ Transcript: {transcript}"""
         """Style using OpenAI. Auto-routes to gpt-4.1 (full) on long inputs
         so we benefit from its higher per-token output speed."""
         chosen_model = self._pick_openai_model(transcript)
+        # No try/except here, on purpose: this used to catch its own failure and
+        # return basic_clean, which style() took for an answer, so with OpenAI
+        # first in the user's order Groq and Cerebras were never tried. The error
+        # now reaches _try_openai, which records it and lets the chain carry on,
+        # as it does for the other two providers.
+        response = self.client.chat.completions.create(
+            model=chosen_model,
+            messages=[
+                {"role": "system", "content": (
+                    "You are a voice-to-text formatter. Clean up voice transcripts "
+                    "by removing filler words (um, uh, like, yeah, you know) and "
+                    "fixing obvious stammers. Preserve the speaker's exact wording. "
+                    "Never paraphrase or add words they didn't say. **NEVER censor "
+                    "profanity — keep swear words like 'fucking', 'shit', 'bloody' "
+                    "exactly as the speaker said them.** "
+                    "**NEVER abbreviate content with filler-tail phrases like "
+                    "'and many more', 'and so on', 'etc.', 'amongst others', 'to "
+                    "name a few'.** If the speaker listed items, list those items "
+                    "verbatim. If they trailed off, output their actual trailing "
+                    "fragment, not a manufactured summary. Only keep these phrases "
+                    "if the speaker literally said them out loud. "
+                    "Output ONLY the final cleaned text. No meta-commentary."
+                )},
+                {"role": "user", "content": prompt},
+            ],
+            max_tokens=getattr(self, "_max_out_tokens", 4096),
+            temperature=0.1,
+            # Bounded by whatever is LEFT of the overall styling budget, so
+            # this call can never overrun the deadline (see _attempt_timeout).
+            timeout=self._attempt_timeout(),
+        )
+        styled = response.choices[0].message.content.strip()
+        # Fix mid-sentence capitalization bug
+        styled = self._strip_em_dashes(styled)
+        styled = self._fix_mid_sentence_caps(styled)
+        styled = self._strip_hallucinations(styled, self._last_raw)
+        styled = self._restore_censored_profanity(styled, self._last_raw)
+        usage = response.usage
+        # Log which model was actually used so the auto-routing decision
+        # is visible in the app log.
         try:
-            response = self.client.chat.completions.create(
-                model=chosen_model,
-                messages=[
-                    {"role": "system", "content": (
-                        "You are a voice-to-text formatter. Clean up voice transcripts "
-                        "by removing filler words (um, uh, like, yeah, you know) and "
-                        "fixing obvious stammers. Preserve the speaker's exact wording. "
-                        "Never paraphrase or add words they didn't say. **NEVER censor "
-                        "profanity — keep swear words like 'fucking', 'shit', 'bloody' "
-                        "exactly as the speaker said them.** "
-                        "**NEVER abbreviate content with filler-tail phrases like "
-                        "'and many more', 'and so on', 'etc.', 'amongst others', 'to "
-                        "name a few'.** If the speaker listed items, list those items "
-                        "verbatim. If they trailed off, output their actual trailing "
-                        "fragment, not a manufactured summary. Only keep these phrases "
-                        "if the speaker literally said them out loud. "
-                        "Output ONLY the final cleaned text. No meta-commentary."
-                    )},
-                    {"role": "user", "content": prompt},
-                ],
-                max_tokens=getattr(self, "_max_out_tokens", 4096),
-                temperature=0.1,
-                # Bounded by whatever is LEFT of the overall styling budget, so
-                # this call can never overrun the deadline (see _attempt_timeout).
-                timeout=self._attempt_timeout(),
-            )
-            styled = response.choices[0].message.content.strip()
-            # Fix mid-sentence capitalization bug
-            styled = self._strip_em_dashes(styled)
-            styled = self._fix_mid_sentence_caps(styled)
-            styled = self._strip_hallucinations(styled, self._last_raw)
-            styled = self._restore_censored_profanity(styled, self._last_raw)
-            usage = response.usage
-            # Log which model was actually used so the auto-routing decision
-            # is visible in the app log.
-            try:
-                from datetime import datetime as _dt
-                log_path = _data_dir() / "app.log"
-                with open(log_path, "a", encoding="utf-8") as _fp:
-                    _fp.write(f"{_dt.now().strftime('%H:%M:%S')}  [styling] OpenAI model used: {chosen_model} ({len(transcript.split())} input words)\n")
-            except Exception:
-                pass
-            return styled, {
-                "input_tokens": usage.prompt_tokens if usage else 0,
-                "output_tokens": usage.completion_tokens if usage else 0,
-                "api_used": True,
-                "provider": "openai",
-                "finish_reason": response.choices[0].finish_reason,
-            }
-        except Exception as e:
-            print(f"GPT styling error: {e}")
-            return self._basic_clean(transcript), {"input_tokens": 0, "output_tokens": 0, "api_used": False, "provider": "basic_clean", "fallback_reason": str(e)[:160]}
+            from datetime import datetime as _dt
+            log_path = _data_dir() / "app.log"
+            with open(log_path, "a", encoding="utf-8") as _fp:
+                _fp.write(f"{_dt.now().strftime('%H:%M:%S')}  [styling] OpenAI model used: {chosen_model} ({len(transcript.split())} input words)\n")
+        except Exception:
+            pass
+        return styled, {
+            "input_tokens": usage.prompt_tokens if usage else 0,
+            "output_tokens": usage.completion_tokens if usage else 0,
+            "api_used": True,
+            "provider": "openai",
+            "finish_reason": response.choices[0].finish_reason,
+        }
 
     def _strip_em_dashes(self, text: str) -> str:
         """Em-dashes (—) and en-dashes (–) are the loudest 'AI wrote this'

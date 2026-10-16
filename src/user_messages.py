@@ -191,6 +191,13 @@ def cleanup_skipped_message(reason: str):
         return (f"Clean-up paused {when}",
                 f"{who} says you've reached your limit for now. Your words were "
                 f"pasted as you said them.")
+    if "MODEL_UNAVAILABLE" in text:
+        # The provider has retired the clean-up model (or this key can't reach
+        # it). Not a limit, so no "paused" and no Journal banner: it lasts
+        # until an update changes the model or another key can take over.
+        return (CLEANUP_SKIPPED, "The clean-up model is no longer available, so your words "
+                                 "went in as you said them. That will carry on until Waffler "
+                                 "is updated or you add another key.")
     if "no styling providers configured" in lower:
         return (CLEANUP_SKIPPED, "No key is set up for the clean-up yet. Add a free Groq "
                                  "key in Settings to turn it on.")
