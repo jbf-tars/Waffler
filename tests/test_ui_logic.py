@@ -378,7 +378,7 @@ def test_a_release_with_no_installer_opens_its_page():
 def test_an_update_with_an_installer_downloads_it():
     v = js("L.updateCheckView({update_available: true, latest_version: '3.14.101', current_version: '3.14.100', "
            "download_url: 'https://github.com/x/releases/download/v3.14.101/Waffler-Setup.exe'})")
-    assert v["primary"] == {"label": "Download and install",
+    assert v["primary"] == {"label": "Update now",
                             "download": "https://github.com/x/releases/download/v3.14.101/Waffler-Setup.exe"}
     assert v["browserUrl"] == um.DOWNLOAD_PAGE
 

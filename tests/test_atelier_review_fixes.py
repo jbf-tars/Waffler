@@ -181,8 +181,10 @@ def test_dialogs_have_a_light_veil_and_a_serif_title():
 def test_the_update_dialog_speaks_plainly():
     v = js("L.updateCheckView({update_available: true, latest_version: '3.15.2', current_version: '3.15.0', download_url: 'https://x/y.exe'})")
     assert v["title"] == "Waffler 3.15.2 is ready"
-    assert v["subtitle"] == "You have 3.15.0. Download it and install it now?"
-    assert v["primary"]["label"] == "Download and install"
+    # One click does it all (the dialog goes straight on to download and install), so these
+    # are the words only if that is ever held back.
+    assert v["subtitle"] == "You have 3.15.0. Waffler will download it, install it and open again."
+    assert v["primary"]["label"] == "Update now"
     v = js("L.updateCheckView({update_available: false, latest_version: '3.15.0', current_version: '3.15.0'})")
     assert v["subtitle"] == "You have Waffler 3.15.0."
     v = js("L.updateCheckView({update_available: false, latest_version: '3.15.0', current_version: '3.15.1'})")

@@ -15,7 +15,19 @@ import numpy as np
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
+import audio  # noqa: E402
+import pytest  # noqa: E402
 from audio import AudioRecorder, rms_level  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _a_busy_machine_is_not_a_stalled_stream(monkeypatch):
+    """The meter calls a stream live only if a chunk came in the last half second
+    (audio._LEVEL_STALE_S). These tests feed a chunk and read the level an instant later,
+    but a loaded CI runner can pause for longer than that between the two lines, and the
+    stream then reads as stalled (it failed once, on a macOS runner, with live False and
+    level 0.0). 1.5 s is still well under the 2 s "the device went quiet" case below."""
+    monkeypatch.setattr(audio, "_LEVEL_STALE_S", 1.5)
 
 
 class _Stream:

@@ -494,10 +494,16 @@ function openUpdateModalFromCheck(r) {
   showUpdateModal();
   _lastUpdateInfo = r;
 
-  // Both platforms get the same "Download and install": stream the installer
-  // in-app, show a progress bar, run the platform installer, relaunch.
-  // A release with no installer for this computer opens its page instead.
+  // One click does it all: stream the installer in-app (with a progress
+  // bar), run the platform installer and open Waffler again. A click on
+  // Check for updates, or on Update in the Journal, is the person asking for
+  // the update, so the dialog does not ask again. A release with no
+  // installer for this computer opens its page instead.
   const v = WL.updateCheckView(r);
+  if (v.kind === 'available' && v.primary.download) {
+    startDownloadFlow(v.primary.download);
+    return;
+  }
   setUpdateModal({
     ...v,
     primaryLabel: v.primary.label,
@@ -512,9 +518,7 @@ async function startDownloadFlow(url) {
   // On any failure, or a click on "Open download page", send people to the
   // website's download page: the friendly place to get the installer.
   setUpdateModal({
-    icon: 'download',
-    title: 'Downloading the update…',
-    subtitle: 'Keep Waffler open until it finishes.',
+    ...WL.updatingView(_lastUpdateInfo, 'downloading'),
     showProgress: true,
     browserUrl: WL.DOWNLOAD_PAGE,
     cancelLabel: 'Cancel',
@@ -559,14 +563,10 @@ async function pollUpdateProgress() {
     if (p.done) {
       stopProgressPolling();
       _downloadedPath = p.path;
-      setUpdateModal({
-        icon: 'check-circle',
-        title: 'Ready to install',
-        subtitle: 'Waffler will close, install the update and open again.',
-        primaryLabel: 'Install now',
-        primaryHandler: () => installDownloadedUpdate(),
-        cancelLabel: 'Later',
-      });
+      // Straight on to the install: the person asked for the update when they
+      // clicked. If a dictation is being recorded or cleaned up the install
+      // waits for it (installDownloadedUpdate) and says so.
+      installDownloadedUpdate();
     }
   } catch(e) {
     console.warn('progress poll failed', e);
@@ -580,7 +580,7 @@ let _installRetryTimer = null;
 async function installDownloadedUpdate() {
   if (!_downloadedPath) return;
   if (_installRetryTimer) { clearTimeout(_installRetryTimer); _installRetryTimer = null; }
-  setUpdateModal({ icon: 'settings', title: 'Installing…', subtitle: 'Waffler is closing to install the update.' });
+  setUpdateModal(WL.updatingView(_lastUpdateInfo, 'installing'));
   let r;
   try {
     r = await pywebview.api.install_update_and_restart(_downloadedPath);

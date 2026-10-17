@@ -398,10 +398,13 @@
           cancelLabel: 'Later',
         };
       }
+      // One click does all of it: the dialog goes straight on to download the
+      // update, install it and open Waffler again (see openUpdateModalFromCheck).
+      // These words are what it says if that is ever held back.
       return {
         kind: 'available', icon: 'circle-up', title,
-        subtitle: `You have ${r.current_version}. Download it and install it now?`,
-        primary: { label: 'Download and install', download: r.download_url },
+        subtitle: `You have ${r.current_version}. Waffler will download it, install it and open again.`,
+        primary: { label: 'Update now', download: r.download_url },
         browserUrl: DOWNLOAD_PAGE, cancelLabel: 'Later',
       };
     }
@@ -413,6 +416,18 @@
     const latest = r.latest_version && r.latest_version !== r.current_version ? ` The newest release is ${r.latest_version}.` : '';
     return { kind: 'up_to_date', icon: 'check-circle', title: "You're up to date",
              subtitle: (r.current_version ? `You have Waffler ${r.current_version}.${latest}` : latest.trim()) };
+  }
+
+  // The update on its way: what the dialog says while it downloads, and then
+  // while Waffler closes to install it. Said once a person has asked for the
+  // update (a click on Check for updates, or on Update in the Journal).
+  function updatingView(r, stage) {
+    const v = r && r.latest_version ? ` ${r.latest_version}` : '';
+    if (stage === 'installing') {
+      return { icon: 'settings', title: 'Installing…', subtitle: 'Waffler is closing to install the update. It opens again by itself.' };
+    }
+    return { icon: 'download', title: `Updating Waffler${v ? ' to' + v : ''}…`,
+             subtitle: 'Waffler installs it and opens again by itself. Keep it open until then.' };
   }
 
   // A failed download or install: the backend's sentence, and a way to the
@@ -2573,7 +2588,7 @@
     redoFailedMessage, EXPORT_FORMATS, exportFormat, exportDone, exportFailed,
     HISTORY_KEEP, historyKeepLabel, historyKeepConfirm, historyKeepDone,
     defaultHotkey, keyName, orderKeys, hotkeyName, keycaps, pressOrderHint, hotkeyPresets,
-    DOWNLOAD_PAGE, UPDATE_TEXT, INSTALL_RETRY_MS, splitMessage, updateCheckView, updateFailureView,
+    DOWNLOAD_PAGE, UPDATE_TEXT, INSTALL_RETRY_MS, splitMessage, updateCheckView, updatingView, updateFailureView,
     DEFAULT_PROVIDER_ORDER, PROVIDER_NAMES, providerHasKey, normalizeProviderOrder,
     providerOrderRows, activeProviders, backendsLine, aboutLine,
     USAGE_NOTE, formatCount, usageView, usageProviderRows, usesView, keyRows,

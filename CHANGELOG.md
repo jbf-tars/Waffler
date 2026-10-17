@@ -4,6 +4,22 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+- **One click updates Waffler.** Clicking Check for updates, or Update in the
+  Journal's notice, now downloads the new version, installs it and opens
+  Waffler again by itself. It used to ask twice more ("Download and install",
+  then "Install now"). If you are in the middle of a dictation the install
+  waits until it is done, and says so. The dialog names the version it is
+  updating to and still has Cancel while it downloads. Settings, About now has
+  a button for it, not a small text link that was easy to miss.
+
+### Added
+- **Check for updates in the menu bar (Mac) and the tray (Windows).** "Check
+  for Updates..." brings Waffler's window up and checks there, so you do not
+  have to open Settings first.
+
 ## [3.16.0] - 2026-10-16
 
 Waffler's dictation was already solid. 3.16 adds the layer around it: a paste

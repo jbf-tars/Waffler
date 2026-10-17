@@ -7935,6 +7935,9 @@ def _create_mac_menubar_icon():
             def transformSelected_(self, _sender):  # noqa: N802
                 _transform_async()
 
+            def checkForUpdates_(self, _sender):  # noqa: N802
+                _tray_check_for_updates()
+
             def menuNeedsUpdate_(self, _menu):  # noqa: N802 — NSMenuDelegate
                 # Just before the menu opens: the word count of the last result.
                 try:
@@ -7997,6 +8000,12 @@ def _create_mac_menubar_icon():
         menu.addItem_(item_transform)
 
         menu.addItem_(NSMenuItem.separatorItem())
+
+        item_update = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            "Check for Updates...", b"checkForUpdates:", ""
+        )
+        item_update.setTarget_(target)
+        menu.addItem_(item_update)
 
         item_reset = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
             "Factory Reset...", b"factoryReset:", ""
@@ -8090,6 +8099,7 @@ def _create_windows_tray_icon():
                              lambda icon=None, item=None: _transform_async(),
                              visible=lambda item=None: _transforms_enabled()),
             pystray.Menu.SEPARATOR,
+            pystray.MenuItem("Check for updates", _tray_check_for_updates),
             pystray.MenuItem("Quit", _tray_quit),
         )
         _tray_icon = pystray.Icon("Waffler", img, "Waffler", menu)
@@ -8138,6 +8148,15 @@ def _tray_show_window(icon=None, item=None):
         except Exception as e:
             _log_to_file(f"Tray show error: {e}")
     notify_js_window_visible(True)
+
+
+def _tray_check_for_updates(icon=None, item=None):
+    """Menu bar or tray: bring the window up and check for an update there. The
+    window does the rest: if one is found its dialog downloads it, installs it and
+    opens Waffler again, and if not it says "You're up to date"."""
+    _tray_show_window()
+    if not _post_js("if (window.checkForUpdatesManual) checkForUpdatesManual();"):
+        _log_to_file("[update] the window did not take the check from the menu")
 
 
 def _tray_quit(icon=None, item=None):
