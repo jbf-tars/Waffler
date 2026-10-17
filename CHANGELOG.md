@@ -4,7 +4,13 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [3.16.1] - 2026-10-17
+
+Updating Waffler is now one click. Check for updates downloads the new
+version, installs it and opens Waffler again by itself, where it used to ask
+twice more, and it is easier to find: a button in Settings, About, and an entry
+in the menu bar and the tray.
+
 
 ### Changed
 - **One click updates Waffler.** Clicking Check for updates, or Update in the

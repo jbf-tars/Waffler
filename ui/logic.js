@@ -1837,6 +1837,7 @@
       'Paste that keeps your clipboard, and Paste last (Mac).',
       'A style for each kind of app, and Clean-up On or Off.',
       'Transforms and Command mode (beta): change text with a shortcut or your voice.',
+      'Check for updates in one click, from Settings or the menu bar.',
     ],
   };
   function whatsNew(version) {
