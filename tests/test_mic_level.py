@@ -72,23 +72,39 @@ def test_a_newly_picked_microphone_is_not_passed_off_as_the_current_one():
     assert v["live"] is True and v["current"] is False
 
 
+_APP_TREE = None
+
+
 def _lift_api(name):
-    tree = ast.parse((ROOT / "app.py").read_text(encoding="utf-8"))
-    api = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "Api")
+    # app.py is about 9,000 lines: parse it once.
+    global _APP_TREE
+    if _APP_TREE is None:
+        _APP_TREE = ast.parse((ROOT / "app.py").read_text(encoding="utf-8"))
+    api = next(n for n in _APP_TREE.body if isinstance(n, ast.ClassDef) and n.name == "Api")
     return next(n for n in api.body if isinstance(n, ast.FunctionDef) and n.name == name)
 
 
-def _get_mic_level(pipeline):
+def _mic_level_reader(pipeline):
+    """``get_mic_level`` lifted out of app.py and bound to ``pipeline``, as a function to call.
+
+    Lift it BEFORE feeding the recorder a chunk: the meter calls a stream live only if a chunk
+    came in the last half second, and lifting parses app.py, which on a loaded CI runner took
+    longer than that. (The bridge test failed on macOS CI about every other run for that
+    reason, with live False and level 0.0.)"""
     ns = {"_pipeline": pipeline, "_log_to_file": lambda *_: None}
     exec(compile(ast.Module([_lift_api("get_mic_level")], []), "<app.py>", "exec"), ns)
-    return ns["get_mic_level"](None)
+    return lambda: ns["get_mic_level"](None)
+
+
+def _get_mic_level(pipeline):
+    return _mic_level_reader(pipeline)()
 
 
 def test_the_bridge_reads_the_pipelines_stream():
     rec = _live_recorder()
+    read = _mic_level_reader(types.SimpleNamespace(audio=rec))     # lifted first, then the chunk is fresh
     _feed(rec, 400)
-    assert _get_mic_level(types.SimpleNamespace(audio=rec)) == {
-        "ok": True, "live": True, "level": 0.5, "current": True}
+    assert read() == {"ok": True, "live": True, "level": 0.5, "current": True}
     # Still starting (no pipeline): nothing live, and no error.
     assert _get_mic_level(None) == {"ok": True, "live": False, "level": 0.0, "current": True}
 

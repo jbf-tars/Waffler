@@ -378,7 +378,7 @@ def test_a_release_with_no_installer_opens_its_page():
 def test_an_update_with_an_installer_downloads_it():
     v = js("L.updateCheckView({update_available: true, latest_version: '3.14.101', current_version: '3.14.100', "
            "download_url: 'https://github.com/x/releases/download/v3.14.101/Waffler-Setup.exe'})")
-    assert v["primary"] == {"label": "Download and install",
+    assert v["primary"] == {"label": "Update now",
                             "download": "https://github.com/x/releases/download/v3.14.101/Waffler-Setup.exe"}
     assert v["browserUrl"] == um.DOWNLOAD_PAGE
 
@@ -924,11 +924,12 @@ def test_whats_new_is_in_the_changelog():
 @needs_node
 def test_whats_new_3_16_is_in_the_changelog():
     v = js("L.whatsNew('3.16.0')")
-    assert v["title"] == "New in 3.16" and len(v["items"]) == 3
+    assert v["title"] == "New in 3.16" and len(v["items"]) == 4
     log = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    section = log[log.index("## [3.16.0]"):log.index("## [3.15.1]")]
+    # 3.16 is two releases: 3.16.1 sits above 3.16.0, and the What's new covers both.
+    section = log[log.index("## [3.16.1]"):log.index("## [3.15.1]")]
     for needle in ("Paste that keeps your clipboard", "Paste last", "A style for each kind of app",
-                   "Clean-up, On or Off", "Transforms (beta)", "Command mode (beta)"):
+                   "Clean-up, On or Off", "Transforms (beta)", "Command mode (beta)", "One click updates Waffler"):
         assert needle in section, needle
 
 
