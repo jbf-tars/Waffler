@@ -4164,9 +4164,11 @@ def _build_pipeline():
         # the stream via the existing ``stop_monitoring`` /
         # ``start_monitoring`` path on ``AudioRecorder``.
         try:
-            from src.audio_device_monitor import AudioDeviceMonitor as _ADM
+            from src.audio_device_monitor import (
+                AudioDeviceMonitor as _ADM, restart_stream_when_idle as _restart_stream_when_idle)
         except ImportError:
-            from audio_device_monitor import AudioDeviceMonitor as _ADM
+            from audio_device_monitor import (
+                AudioDeviceMonitor as _ADM, restart_stream_when_idle as _restart_stream_when_idle)
 
         def _on_default_input_changed(old_name: str, new_name: str) -> None:
             """Recreate the monitoring stream so the new device is used
@@ -4174,22 +4176,13 @@ def _build_pipeline():
             mid-recording would lose the captured audio."""
             if _pipeline is None or not getattr(_pipeline, "audio", None):
                 return
-            try:
-                # The recorder checks that nothing is recording and re-opens
-                # in one step; a separate check could be overtaken by a key
-                # coming up or a Command hold.
-                if _pipeline.audio.rebuild_if_idle():
-                    _log_to_file(
-                        f"[audio-monitor] monitoring stream restarted on "
-                        f"{new_name!r}"
-                    )
-                else:
-                    _log_to_file(
-                        f"[audio-monitor] device changed to {new_name!r} but "
-                        f"recording is in flight — deferring stream restart"
-                    )
-            except Exception as e:
-                _log_to_file(f"[audio-monitor] restart failed: {e}")
+            # The recorder checks that nothing is recording and re-opens in one
+            # step; a separate check could be overtaken by a key coming up or a
+            # Command hold. If a take IS being recorded the restart is tried
+            # again on every poll until it is over: it used to be logged as
+            # deferred and never done, which left the stream on a microphone
+            # that had stopped delivering (AirPods connecting mid-take).
+            _restart_stream_when_idle(_pipeline.audio, _device_monitor, new_name, _log_to_file)
 
         global _device_monitor
         _device_monitor = _ADM(
@@ -4891,6 +4884,17 @@ class WafflerPipeline:
             except Exception as e:
                 _log_to_file(f"[mic] stream not reopened: {type(e).__name__}")
 
+        def rebuild_after_take():
+            # A ranking or a microphone changed while a take is recorded: open the
+            # stream again on the next poll after the take is over (it used to be
+            # left until the next change).
+            try:
+                from src.audio_device_monitor import restart_stream_when_idle as _restart_stream_when_idle
+            except ImportError:
+                from audio_device_monitor import restart_stream_when_idle as _restart_stream_when_idle
+            _restart_stream_when_idle(self.audio, _device_monitor, "the microphone now chosen", _log_to_file,
+                                      busy=taking)
+
         def taking():
             # Anything that holds the microphone or is about to be handed what
             # it recorded: a dictation (the pipeline's flag goes down at the key
@@ -4937,6 +4941,7 @@ class WafflerPipeline:
             promote=promote,
             note_changed=lambda: self.audio.note_preference_changed(),
             rebuild_idle=rebuild_idle,
+            rebuild_after_take=rebuild_after_take,
             memory=_mic_hotplug.DeviceMemory(),
             log=_log_to_file,
             platform="darwin" if _platform.system() == "Darwin" else "win32",

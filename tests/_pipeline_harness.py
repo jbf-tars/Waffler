@@ -451,6 +451,7 @@ def make_pipeline(data_dir: Path, *, transcriber=None, styler=None, clipboard=No
         _take_marker=take_marker, _take_limit=take_limit, _double_tap=double_tap,
         _mic_supervisor=mic_supervisor, _mic_ranking=mic_ranking, _mic_hotplug=mic_hotplug,
         _text_context=text_context,
+        _device_monitor=None,           # app.py's module global: the watcher of the default input
         _action_hotkeys=action_hotkeys, _activity_gate=activity_gate, _transforms=transforms,
         _transform_action=transform_action,
         _command_mode=command_mode, _command_action=command_action,

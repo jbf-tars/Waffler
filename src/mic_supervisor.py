@@ -101,6 +101,7 @@ class Hooks:
     hide_toast: Callable[..., None] = _noop              # (style)
     release_toast: Callable[[str], None] = _noop         # the notifier's slot, by kind
     rebuild_idle: Callable[[], None] = _noop             # open the monitoring stream again, if idle
+    rebuild_after_take: Callable[[], None] = _noop       # ... or as soon as the take that is under way ends
     lid_closed: Callable[[], Optional[bool]] = clamshell.lid_closed
     log: Callable[[str], None] = _noop
     clock: Callable[[], float] = time.monotonic
@@ -177,6 +178,9 @@ class MicSupervisor:
         self.h.note_changed()
         if not self.h.recording():
             self._spawn(self.h.rebuild_idle)
+        else:
+            # Not forgotten: the stream is on the wrong microphone until it is opened again.
+            self._spawn(self.h.rebuild_after_take)
 
     def preferences_changed(self) -> None:
         """The ranking was saved. Never raises."""

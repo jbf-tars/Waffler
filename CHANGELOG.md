@@ -9,7 +9,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 Updating Waffler is now one click. Check for updates downloads the new
 version, installs it and opens Waffler again by itself, where it used to ask
 twice more, and it is easier to find: a button in Settings, About, and an entry
-in the menu bar and the tray.
+in the menu bar and the tray. It also fixes a microphone that went silent
+after AirPods connected in the middle of a dictation.
+
+### Fixed
+- **A change of microphone in the middle of a take no longer leaves Waffler
+  listening to a dead stream.** If the system's input changed while you were
+  recording (AirPods connecting, a USB mic plugged in), Waffler logged that it
+  would restart its microphone stream afterwards and then never did, so every
+  dictation after that came back as "We couldn't hear you" or "Mic reset"
+  until the input changed again, sometimes nearly two hours later. It now
+  restarts the stream as soon as the take is over (it tries again every two
+  seconds), and the same applies to a change of microphone you make in
+  Settings during a take.
 
 
 ### Changed

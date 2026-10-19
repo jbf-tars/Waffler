@@ -82,6 +82,10 @@ class AudioDeviceMonitor:
     """Background poll for default-input-device changes."""
 
     POLL_INTERVAL_S = 2.0
+    # A restart that could not run (a take was being recorded) is tried again on each
+    # poll; five minutes of polls is longer than any take but a 20-minute one, and a
+    # take that long ends in a stream that is rebuilt anyway.
+    DEFERRED_MAX_POLLS = 150
     QUERY_WAIT_S = 0.5          # the most a PortAudio query waits for a stream being made
 
     def __init__(
@@ -108,6 +112,9 @@ class AudioDeviceMonitor:
         self._reader = reader
         self._source: Optional[str] = None      # "live" or "portaudio", once known
         self._baselined = False
+        # What to try again on each poll until it works: (function, polls so far).
+        self._deferred: Optional[list] = None
+        self._deferred_lock = threading.Lock()
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._last_default_name: Optional[str] = None
@@ -125,6 +132,38 @@ class AudioDeviceMonitor:
 
     def stop(self) -> None:
         self._stop.set()
+
+    def defer_until_done(self, fn: Callable[[], bool]) -> None:
+        """Call ``fn`` on every poll until it returns True. A newer request
+        replaces an older one. For work that cannot run now and must not be
+        forgotten: a change of microphone in the middle of a take used to be
+        logged as "deferring stream restart" and never done, which left the
+        always-open stream on a microphone that no longer delivered anything."""
+        with self._deferred_lock:
+            self._deferred = [fn, 0]
+
+    def _run_deferred(self) -> None:
+        with self._deferred_lock:
+            job = self._deferred
+        if job is None:
+            return
+        fn = job[0]
+        job[1] += 1
+        try:
+            done = bool(fn())
+        except Exception as e:
+            self._log(f"[audio-monitor] deferred work failed: {type(e).__name__}")
+            done = False
+        if done:
+            with self._deferred_lock:
+                if self._deferred is job:
+                    self._deferred = None
+        elif job[1] >= self.DEFERRED_MAX_POLLS:
+            self._log("[audio-monitor] giving up on the deferred restart; the next change of "
+                      "microphone or the next take will open the stream again")
+            with self._deferred_lock:
+                if self._deferred is job:
+                    self._deferred = None
 
     def _current_default_name(self) -> Optional[str]:
         try:
@@ -168,6 +207,7 @@ class AudioDeviceMonitor:
     def _tick(self) -> None:
         """One poll: the default input's name, and the list of inputs. The
         first one only learns the baseline (so nothing "changes" at startup)."""
+        self._run_deferred()
         devices = None
         try:
             devices = self._read_devices()
@@ -214,3 +254,36 @@ class AudioDeviceMonitor:
             except Exception as e:
                 self._log(f"[audio-monitor] poll error: {e}")
             self._stop.wait(self.POLL_INTERVAL_S)
+
+
+def restart_stream_when_idle(audio, monitor, new_name: str, log: Callable[[str], None],
+                             busy: Optional[Callable[[], bool]] = None) -> None:
+    """The system's default input changed: open the always-on stream again so it
+    is on the microphone now in use. If a take is being recorded that would lose
+    it, so the restart is tried again on each poll of ``monitor`` until the take
+    is over. ``busy`` is the app's own "something is using the microphone" check
+    (a Command or Transform hold, a take being turned into text), asked as well
+    as the recorder's own. Never raises."""
+    if audio is None:
+        return                                  # the pipeline is still starting
+
+    def attempt(after_take: bool) -> bool:
+        try:
+            if busy is not None and busy():
+                return False
+            if audio.rebuild_if_idle():
+                log(f"[audio-monitor] monitoring stream restarted on {new_name!r}"
+                    + (" after the take" if after_take else ""))
+                return True
+        except Exception as e:
+            log(f"[audio-monitor] restart failed: {type(e).__name__}")
+        return False
+
+    if attempt(False):
+        return
+    log(f"[audio-monitor] device changed to {new_name!r} but a take is under way; "
+        f"the stream will be restarted when the take is over")
+    try:
+        monitor.defer_until_done(lambda: attempt(True))
+    except Exception as e:
+        log(f"[audio-monitor] could not schedule the restart: {type(e).__name__}")
