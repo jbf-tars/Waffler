@@ -139,6 +139,13 @@ _REGISTRY = (
     Kind("connection_failed", ERROR),
     Kind("access_denied", ERROR),
     Kind("pipeline_error", ERROR),
+    # A provider could not be reached from this network (a VPN is the usual
+    # reason) and another one did the work: said once per provider per half
+    # hour, after the paste (src/net_health.py FAILOVER_KINDS, app.py
+    # _announce_failover). It is information, so it never interrupts a take.
+    Kind("failover_groq", INFO, min_gap_s=30 * 60, hold_s=8),
+    Kind("failover_openai", INFO, min_gap_s=30 * 60, hold_s=8),
+    Kind("failover_cerebras", INFO, min_gap_s=30 * 60, hold_s=8),
     # After a dictation.
     Kind("cancelled_kept", ERROR),
     Kind("history_not_saved", ERROR),

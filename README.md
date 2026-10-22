@@ -206,6 +206,7 @@ Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for gu
 - **Accessibility / Input Monitoring (Mac):** Required for keyboard monitoring. Granted via System Settings → Privacy & Security → Accessibility *and* Input Monitoring. The wizard walks you through it on first launch.
 - **Microphone permission:** Required for recording. Granted on first run via the standard macOS / Windows prompt.
 - **Windows SmartScreen warning:** Builds are not yet code-signed on Windows; SmartScreen will say "Windows protected your PC" on first launch. Click "More info" → "Run anyway". (Mac builds *are* signed and notarised — no Gatekeeper warning.)
+- **VPNs:** Some VPN servers are blocked by Groq or Cerebras (an `HTTP 403` before your key is even read), or drop the packets. With an OpenAI key set as well, Waffler switches to it within seconds, stays on it while Groq keeps failing, tries Groq again every few minutes, and tells you once (at most every 30 minutes) when it had to. With a Groq key alone, switch to another VPN server, or exclude Waffler from the VPN. `app.log` has a `[vpn]` line at start-up and a `[net]` line for each failure.
 - **Rate limits:** Groq's free tier has daily and per-minute caps. Waffler falls back to OpenAI automatically, but if both hit limits in the same window you'll see a "Rate limit reached" toast. Set multiple keys to maximise headroom.
 
 ---

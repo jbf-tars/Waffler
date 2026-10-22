@@ -223,6 +223,24 @@ def cleanup_skipped_message(reason: str):
                              "you said them.")
 
 
+_PROVIDER_NAMES = {"groq": "Groq", "openai": "OpenAI", "cerebras": "Cerebras"}
+
+
+def failover_message(provider: str, used: str, kind: str = "unreachable"):
+    """(heading, body) for the notice after another provider did the work
+    because ``provider`` could not be reached from this network, or refused
+    it. ``kind`` is "blocked" (it answered with a refusal) or "unreachable".
+    Said once per provider per half hour; it is information, not an error."""
+    who = _PROVIDER_NAMES.get(str(provider).lower(), "Your provider")
+    other = _PROVIDER_NAMES.get(str(used).lower(), "another service")
+    if kind == "blocked":
+        problem = f"{who} is blocking this network"
+    else:
+        problem = f"{who} can't be reached from this network"
+    return (f"Used {other} instead",
+            f"{problem}, so Waffler used {other} instead. A VPN is often the reason.")
+
+
 def limit_reached_message(error_text: str):
     """(heading, body) when a dictation stopped because a provider's limit
     was reached (a 429, or "RATE_LIMIT|<limit>|<wait>|<detail>")."""

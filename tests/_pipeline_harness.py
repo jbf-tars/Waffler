@@ -43,6 +43,7 @@ import mac_permissions  # noqa: E402
 import mic_hotplug  # noqa: E402
 import mic_ranking  # noqa: E402
 import mic_supervisor  # noqa: E402
+import net_health  # noqa: E402
 import notifier  # noqa: E402
 import pasteboard  # noqa: E402
 import pipeline_watchdog as pw  # noqa: E402
@@ -114,6 +115,9 @@ PIPELINE_METHODS = (
     # app, the device monitor's list of inputs, a saved ranking, and what
     # "delete my data" forgets.
     "_mic_hooks", "on_mic_devices", "apply_mic_preferences", "forget_notifier",
+    # The notice that another provider did the work because the first could
+    # not be reached from this network (src/net_health.py).
+    "_announce_failover",
 )
 MODULE_DEFS = ("ensure_data_dir", "load_history", "_load_history_for_update",
                "save_history", "append_history",
@@ -455,7 +459,7 @@ def make_pipeline(data_dir: Path, *, transcriber=None, styler=None, clipboard=No
         _action_hotkeys=action_hotkeys, _activity_gate=activity_gate, _transforms=transforms,
         _transform_action=transform_action,
         _command_mode=command_mode, _command_action=command_action,
-        _user_messages=user_messages,
+        _user_messages=user_messages, _net_health=net_health,
         _history_cache=types.SimpleNamespace(invalidate=lambda: None),
         _is_setup_complete=lambda: True,
         paste_timed_out_message=user_messages.paste_timed_out_message,
