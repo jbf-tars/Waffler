@@ -70,6 +70,36 @@ def _isolated_data_dir(tmp_path_factory, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_real_routing_lookup():
+    """No test starts `route`, `ifconfig` or PowerShell.
+
+    The `[net]` line a failed provider call writes carries a description of
+    the VPN (src/vpn_detect.py), which asks the system. In a test that would
+    run a process on whatever computer the suite is on, and put its answer in
+    the output. Every command "fails" here, so the answer is "unknown"; the
+    tests of vpn_detect itself install their own `_run`.
+    """
+    import sys
+    from pathlib import Path
+    src = str(Path(__file__).resolve().parent.parent / "src")
+    if src not in sys.path:
+        sys.path.insert(0, src)
+    import vpn_detect
+    patched = []
+    for name in ("vpn_detect", "src.vpn_detect"):
+        mod = sys.modules.get(name)
+        if mod is not None:
+            patched.append((mod, mod._run, mod._cached))
+            mod._run = lambda cmd, timeout: None
+            mod._cached = None
+    yield
+    for mod, run, cached in patched:
+        mod._run = run
+        mod._cached = cached
+    vpn_detect._cached = None
+
+
+@pytest.fixture(autouse=True)
 def _fresh_history_state():
     """Two things app.py keeps in memory for a whole run, so a test must not
     inherit them from the one before: the highest entry id handed out

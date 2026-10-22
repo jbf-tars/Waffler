@@ -49,9 +49,13 @@ import re
 try:
     from data_paths import data_dir as _data_dir
     import languages as _languages
+    import net_health as _nh
+    from log_util import log as _log_line
 except ImportError:  # imported as src.style_openai
     from src.data_paths import data_dir as _data_dir
     from src import languages as _languages
+    from src import net_health as _nh
+    from src.log_util import log as _log_line
 
 # ── Try to load Groq SDK ────────────────────────────────────────────────────
 _groq_mod = None
@@ -71,6 +75,15 @@ except ImportError:
 # generous headroom over every measured healthy p95 (all < 6 s) while
 # abandoning a hung provider fast.
 _STYLE_TIMEOUT_S = 15.0
+
+# The first pause after a provider's connection fails. Each failure in a row
+# doubles it (30 s, 60 s, 120 s, 240 s, then 5 minutes, net_health.escalated)
+# and the first answer starts it again, so behind a VPN that drops a
+# provider's packets the clean-up stops waiting on it after a couple of
+# dictations and tries it again every few minutes. A connect that hangs is
+# also given only net_health.CONNECT_TIMEOUT_FAST_S when another provider is
+# next in the order (_request_timeout), so one such wait costs seconds.
+_CONNECTION_COOLDOWN_BASE_S = _nh.ERROR_COOLDOWN_BASE_S
 
 # A 404 / model_not_found is a standing condition, not a blip: re-probing it on
 # every dictation costs a full round-trip for nothing (app.log carried 458 such
@@ -234,6 +247,26 @@ _RATE_WORD = re.compile(r"(?<![a-z])rates?(?![a-z])", re.IGNORECASE)
 
 def _mentions_rate(error_msg) -> bool:
     return bool(_RATE_WORD.search(str(error_msg)))
+
+
+def _is_connection_failure(exc, error_msg: str) -> bool:
+    """A failure of the connection itself or of the wait for an answer: the
+    words the SDKs use, or (the SDK's "Request timed out." has neither word)
+    the kind of error it was."""
+    lower = error_msg.lower()
+    return ("connection" in lower or "timeout" in lower
+            or _nh.classify(exc).kind in (_nh.UNREACHABLE, _nh.SLOW))
+
+
+def _pauses_provider(exc, error_msg: str, purpose: str) -> bool:
+    """Does this connection failure pause the provider? One that failed does,
+    whatever the request was for. A slow ANSWER (a timeout after the request
+    was taken) to a Transform or a Command, thousands of characters in, says
+    nothing about the next dictation, so only the clean-up's timeouts do."""
+    if purpose == "styling":
+        return True
+    slow = "timeout" in error_msg.lower() or _nh.classify(exc).kind == _nh.SLOW
+    return not slow
 
 
 _PROVIDER_LABELS = {"groq": "Groq", "cerebras": "Cerebras", "openai": "OpenAI"}
@@ -594,6 +627,17 @@ Transcript: {transcript}"""
         # (c) pick the most informative failure to propagate.
 
         failures: list[tuple[str, str]] = []  # (provider, error_str)
+        # (provider, kind) of the failures that were this network's doing
+        # (a block, or no connection). If another provider then answers, the
+        # fact goes in the usage for the pipeline to say after the paste.
+        net_failed: list[tuple[str, str]] = []
+
+        def _failed(name, label, e, started):
+            self._log_provider_failure(label, e)
+            failures.append((label, str(e)))
+            kind = self._note_net_failure(name, e, started).kind
+            if kind in _nh.NETWORK_KINDS:
+                net_failed.append((name, kind))
 
         # Try each configured provider in the user's chosen order. Each entry
         # knows how to (a) check it's usable, (b) report a cooldown reason, and
@@ -606,12 +650,12 @@ Transcript: {transcript}"""
             if cooling is not None:
                 failures.append(("Groq", cooling))
                 return None
+            started = time.monotonic()
             try:
                 _styled, _usage = self._style_groq(prompt, start_time)
                 return self._guard_truncation(_styled, _usage, transcript)
             except Exception as e:
-                self._log_provider_failure("Groq", e)
-                failures.append(("Groq", str(e)))
+                _failed("groq", "Groq", e, started)
                 return None
 
         def _try_cerebras():
@@ -621,12 +665,12 @@ Transcript: {transcript}"""
             if cooling is not None:
                 failures.append(("Cerebras", cooling))
                 return None
+            started = time.monotonic()
             try:
                 _styled, _usage = self._style_cerebras(prompt, start_time)
                 return self._guard_truncation(_styled, _usage, transcript)
             except Exception as e:
-                self._log_provider_failure("Cerebras", e)
-                failures.append(("Cerebras", str(e)))
+                _failed("cerebras", "Cerebras", e, started)
                 return None
 
         def _try_openai():
@@ -634,12 +678,12 @@ Transcript: {transcript}"""
             # NoneType call and lose the real failure reason.
             if self.client is None:
                 return None
+            started = time.monotonic()
             try:
                 _styled, _usage = self._style_openai(prompt, transcript, start_time)
                 return self._guard_truncation(_styled, _usage, transcript)
             except Exception as e:
-                self._log_provider_failure("OpenAI", e)
-                failures.append(("OpenAI", str(e)))
+                _failed("openai", "OpenAI", e, started)
                 return None
 
         _dispatch = {"groq": _try_groq, "cerebras": _try_cerebras, "openai": _try_openai}
@@ -661,6 +705,11 @@ Transcript: {transcript}"""
                 _result = _fn()
                 if _result is not None:
                     _styled, _usage = _result
+                    if net_failed:
+                        _usage = dict(_usage or {})
+                        _usage["failovers"] = [
+                            _nh.failover_dict(p, _name, k, _nh.STAGE_CLEANUP)
+                            for p, k in net_failed]
                     # Restore a dictated sign-off the model deleted BEFORE the
                     # layout pass, so the restored block gets laid out like any
                     # other. Losing the user's words beats misplacing them.
@@ -712,6 +761,87 @@ Transcript: {transcript}"""
         """Timeout for the next provider call: the per-provider cap, clamped to
         whatever remains of the overall budget so one call can't overrun it."""
         return max(0.1, min(_STYLE_TIMEOUT_S, self._budget_left(deadline_at)))
+
+    def _request_timeout(self, name: str, deadline_at=_UNSET):
+        """``_attempt_timeout`` for a request to provider ``name``, with a short
+        connect allowance when another provider is next in the order
+        (net_health.request_timeout). With none next, the connect may take as
+        long as the answer: a plain number, exactly as before."""
+        return _nh.request_timeout(self._attempt_timeout(deadline_at),
+                                   fallback=self._has_later_provider(name))
+
+    def _has_later_provider(self, name: str) -> bool:
+        """Is there a provider after ``name`` in the user's order that is set
+        up and not paused, to take the request if this one fails?"""
+        order = list(getattr(self, "_provider_order", None) or [])
+        if name not in order:
+            return False
+        return any(self._can_take_over(later) for later in order[order.index(name) + 1:])
+
+    def _can_take_over(self, name: str) -> bool:
+        if not self._provider_ready(name):
+            return False
+        if name == "openai":
+            return True
+        try:
+            return self._cooldown_failure(name) is None
+        except Exception:       # a styler built without its cooldown fields
+            return True
+
+    def _next_provider(self, name: str):
+        """The provider that will be asked after ``name`` fails, by name, or None."""
+        order = list(getattr(self, "_provider_order", None) or [])
+        if name not in order:
+            return None
+        for later in order[order.index(name) + 1:]:
+            if self._can_take_over(later):
+                return later
+        return None
+
+    # ── Pauses that grow, and what a failure says in app.log ─────────────────
+
+    def _streak(self, name: str):
+        """The count of ``name``'s failures in a row (net_health.FailureStreak),
+        made on first use so a styler built without ``__init__`` has one."""
+        streaks = self.__dict__.setdefault("_streaks", {})
+        return streaks.setdefault(name, _nh.FailureStreak())
+
+    def _pause_after_connection_failure(self, name: str) -> float:
+        """Pause provider ``name`` (groq or cerebras) for longer each time its
+        connection fails in a row; returns the seconds."""
+        now = time.monotonic()
+        failures = self._streak(name).failed(now)
+        pause = _nh.escalated(_CONNECTION_COOLDOWN_BASE_S, failures)
+        setattr(self, f"_{name}_skip_until", now + pause)
+        return pause
+
+    def _note_answered(self, name: str) -> None:
+        """Provider ``name`` answered: its failures in a row are over."""
+        try:
+            was = self._streak(name).succeeded()
+            if was:
+                _log_line(f"[net] cleanup {name} answered again after {was} failed "
+                          f"{'try' if was == 1 else 'tries'} in a row")
+        except Exception:       # noqa: BLE001 - bookkeeping must not fail a request
+            pass
+
+    def _note_net_failure(self, name: str, exc: Exception, started: float,
+                          purpose: str = "styling"):
+        """Write the ``[net]`` line for a failed attempt on provider ``name``
+        (class names and numbers only: no key, no text) and return the
+        failure's net_health.Failure. Never raises."""
+        failure = _nh.classify(exc)
+        try:
+            now = time.monotonic()
+            until = getattr(self, f"_{name}_skip_until", 0.0) if name != "openai" else 0.0
+            pause = until - now if until > now else None
+            stage = _nh.STAGE_CLEANUP if purpose == "styling" else purpose
+            _log_line(_nh.failover_line(
+                stage, name, failure, now - started, pause,
+                self._streak(name).count, self._next_provider(name), _nh.vpn_text()))
+        except Exception:       # noqa: BLE001
+            pass
+        return failure
 
     def _guard_truncation(self, styled, usage, transcript):
         """Backstop against the model silently deleting most of the content.
@@ -786,7 +916,7 @@ Transcript: {transcript}"""
                 return 0
             if err.startswith("AUTH:"):
                 return 1
-            if "CONNECTION" in err or "timeout" in err.lower():
+            if "CONNECTION" in err or "timeout" in err.lower() or "timed out" in err.lower():
                 return 2
             return 3
 
@@ -940,8 +1070,9 @@ Transcript: {transcript}"""
         if json_mode:
             request["response_format"] = {"type": "json_object"}
         # Bounded by whatever is LEFT of the overall budget, so this call can
-        # never overrun the deadline (see _attempt_timeout).
-        request["timeout"] = self._attempt_timeout(deadline)
+        # never overrun the deadline (see _attempt_timeout), and short to
+        # connect when another provider is next (see _request_timeout).
+        request["timeout"] = self._request_timeout("groq", deadline)
         try:
             response = self._groq_client.chat.completions.create(**request)
         except Exception as e:
@@ -990,16 +1121,15 @@ Transcript: {transcript}"""
                 self._groq_skip_until = time.monotonic() + _cool
 
                 raise RuntimeError(f"RATE_LIMIT|{_limit}|{_wait}|{error_msg[:60]}")
-            elif "connection" in error_msg.lower() or "timeout" in error_msg.lower():
+            elif _is_connection_failure(e, error_msg):
                 # Network connectivity hiccup — set a SHORT skip so we
                 # don't keep wasting round-trips while the network is
-                # flaky, but recover quickly when it comes back. A slow ANSWER
-                # (a timeout) to a Transform or Command request, thousands of
-                # characters in, says nothing about the next dictation, so only
-                # the clean-up's timeouts start the pause; a connection that
-                # failed does, whatever the request was for.
-                if purpose == "styling" or "timeout" not in error_msg.lower():
-                    self._groq_skip_until = time.monotonic() + 30.0
+                # flaky, but recover quickly when it comes back. It doubles
+                # while the connection keeps failing (a VPN that drops this
+                # provider's packets), up to 5 minutes. Which failures pause:
+                # see _pauses_provider.
+                if _pauses_provider(e, error_msg, purpose):
+                    self._pause_after_connection_failure("groq")
                 raise RuntimeError(f"CONNECTION: Groq connection failed — {error_msg[:100]}")
             elif "403" in error_msg or "401" in error_msg or "access denied" in error_msg.lower() or "permission" in error_msg.lower() or "unauthorized" in error_msg.lower():
                 # Auth / network-policy block (most often a VPN exit-IP that
@@ -1021,6 +1151,7 @@ Transcript: {transcript}"""
                                             deadline=deadline, purpose=purpose),
                     deadline)
             raise
+        self._note_answered("groq")
         return ChatReply.from_response(response, provider="groq", model=_model)
 
     def _chat_cerebras(self, system: str, user: str, *, max_tokens: int, temperature: float,
@@ -1045,8 +1176,9 @@ Transcript: {transcript}"""
         if json_mode:
             request["response_format"] = {"type": "json_object"}
         # Bounded by whatever is LEFT of the overall budget, so this call can
-        # never overrun the deadline (see _attempt_timeout).
-        request["timeout"] = self._attempt_timeout(deadline)
+        # never overrun the deadline (see _attempt_timeout), and short to
+        # connect when another provider is next (see _request_timeout).
+        request["timeout"] = self._request_timeout("cerebras", deadline)
         try:
             response = self._cerebras_client.chat.completions.create(**request)
         except Exception as e:
@@ -1071,11 +1203,12 @@ Transcript: {transcript}"""
                     cool = float(wait_m.group(1)) if wait_m else 120.0
                 self._cerebras_skip_until = time.monotonic() + cool
                 raise RuntimeError(f"RATE_LIMIT|Cerebras|{int(cool)}s|{error_msg[:80]}")
-            elif "connection" in lower or "timeout" in lower:
-                # Short skip for transient network issues (a slow answer to
-                # another feature's request does not count: see Groq's).
-                if purpose == "styling" or "timeout" not in lower:
-                    self._cerebras_skip_until = time.monotonic() + 30.0
+            elif _is_connection_failure(e, error_msg):
+                # Short skip for transient network issues, doubling while they
+                # last (a slow answer to another feature's request does not
+                # count: see Groq's).
+                if _pauses_provider(e, error_msg, purpose):
+                    self._pause_after_connection_failure("cerebras")
                 raise RuntimeError(f"CONNECTION: Cerebras connection failed — {error_msg[:100]}")
             elif ("401" in error_msg or "403" in error_msg or "unauthor" in lower
                   or "invalid api key" in lower or "invalid_api_key" in lower):
@@ -1109,6 +1242,7 @@ Transcript: {transcript}"""
                 raise RuntimeError(
                     f"MODEL_UNAVAILABLE: Cerebras model {_model!r} is not available to this account - {error_msg[:100]}")
             raise
+        self._note_answered("cerebras")
         return ChatReply.from_response(response, provider="cerebras", model=self._cerebras_model)
 
     def _chat_openai(self, system: str, user: str, *, max_tokens: int, temperature: float,
@@ -1131,8 +1265,9 @@ Transcript: {transcript}"""
         if json_mode:
             request["response_format"] = {"type": "json_object"}
         # Bounded by whatever is LEFT of the overall budget, so this call can
-        # never overrun the deadline (see _attempt_timeout).
-        request["timeout"] = self._attempt_timeout(deadline)
+        # never overrun the deadline (see _attempt_timeout), and short to
+        # connect when another provider is next (see _request_timeout).
+        request["timeout"] = self._request_timeout("openai", deadline)
         response = self.client.chat.completions.create(**request)
         return ChatReply.from_response(response, provider="openai", model=chosen_model)
 
@@ -1190,6 +1325,7 @@ Transcript: {transcript}"""
                 failures.append((label, cooling))
                 continue
             wording = system.get(name, system.get("default", "")) if isinstance(system, dict) else system
+            started = time.monotonic()
             try:
                 reply = self._chat_one(name, wording, user, max_tokens=max_tokens,
                                        temperature=temperature, json_mode=json_mode,
@@ -1199,6 +1335,7 @@ Transcript: {transcript}"""
             except Exception as e:      # noqa: BLE001 - recorded, then the next provider
                 self._log_provider_failure(label, e, purpose)
                 failures.append((label, str(e)))
+                self._note_net_failure(name, e, started, purpose)
                 continue
             return reply
         raise ChatError(self._pick_best_failure_reason(failures), failures)
