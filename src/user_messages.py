@@ -359,6 +359,23 @@ MIC_LID_CLOSED = ("Your Mac's lid is closed",
 CHOOSE_MICROPHONE = "Choose microphone"
 
 
+# The computer's audio system stopped answering (src/wedge_recovery.py). On a
+# Mac Waffler opens itself again, and says so; where it cannot (Windows, a
+# second time within ten minutes) it says to quit and open it. ``kept`` is
+# whether the recording that was in progress was saved as Not sent: True or
+# None (there was none), or False when it could not be.
+def audio_wedged_message(platform: str, restarting: bool, kept=None):
+    system = "Windows" if str(platform).startswith("win") else "macOS"
+    if not restarting:
+        return ("Your microphone is stuck",
+                f"{system}'s audio system stopped answering. "
+                "Quit and open Waffler again to get your microphone back.")
+    tail = ("The recording you were making could not be kept." if kept is False
+            else "Anything you were recording is kept under Not sent.")
+    return ("Waffler is restarting",
+            f"{system}'s audio system stopped answering, so Waffler is restarting itself. {tail}")
+
+
 # Settings, Shortcuts: double-tap to go hands-free (src/double_tap.py).
 DOUBLE_TAP_UNKNOWN = "Waffler doesn't know that choice for double-tap. Use the switch."
 

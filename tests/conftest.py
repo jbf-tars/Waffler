@@ -86,6 +86,24 @@ def _fresh_history_state():
     yield
 
 
+@pytest.fixture(autouse=True)
+def _fresh_audio_guard():
+    """A bounded audio call a test left stuck (a fake CoreAudio that never
+    answers) is remembered process-wide, and while one is, the next bounded call
+    is not made (src/audio_guard.py). Forget it before and after every test, so
+    one test's wedge cannot make another's microphone calls skip."""
+    import sys
+
+    def forget():
+        for name in ("audio_guard", "src.audio_guard"):
+            mod = sys.modules.get(name)
+            if mod is not None:
+                mod.reset()
+    forget()
+    yield
+    forget()
+
+
 # A test's id is also the value of an environment variable (PYTEST_CURRENT_TEST), and on
 # Windows that cannot exceed 32,767 characters: a parametrized 60,000-character string
 # made CI fail there with "the environment variable is longer than 32767 characters".

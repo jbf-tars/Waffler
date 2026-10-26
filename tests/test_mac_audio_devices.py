@@ -88,3 +88,94 @@ def test_asking_many_times_is_stable_and_quick():
     for _ in range(200):
         assert ca.list_inputs() is not None
     assert time.perf_counter() - t0 < 5.0       # about a millisecond each; the bound is for a slow runner
+
+
+# ── a CoreAudio that does not answer ─────────────────────────────────────────
+# The device monitor asks for this list every two seconds. On a Mac whose audio
+# system had deadlocked, one of these asks sat in AudioObjectGetPropertyDataSize
+# for ever; the listing now runs under a bound (src/audio_guard.py) and gives
+# None, as it does for a Mac that cannot be asked at all.
+
+class _Stuck:
+    """A listing that never returns until the test lets it."""
+
+    def __init__(self):
+        import threading
+        self.gate = threading.Event()
+        self.calls = 0
+
+    def __call__(self, api=None):
+        self.calls += 1
+        self.gate.wait(30)
+        return ["late"]
+
+
+@pytest.fixture
+def mac(monkeypatch):
+    import audio_guard
+    monkeypatch.setattr(ca.sys, "platform", "darwin")
+    monkeypatch.setattr(ca, "_load", lambda: object())
+    monkeypatch.setattr(ca, "_LIST_TIMEOUT_S", 0.2)
+    audio_guard.reset()
+    yield
+    audio_guard.reset()
+
+
+def test_a_listing_that_never_returns_gives_none_within_the_bound(mac, monkeypatch):
+    import time
+    import audio_guard
+    stuck = _Stuck()
+    monkeypatch.setattr(ca, "_list_inputs", stuck)
+    t0 = time.monotonic()
+    assert ca.list_inputs() is None
+    assert time.monotonic() - t0 < 1.5
+    assert audio_guard.wedged_op() == "coreaudio device list"
+    stuck.gate.set()
+
+
+def test_while_it_is_stuck_the_next_poll_does_not_ask_again(mac, monkeypatch):
+    import time
+    stuck = _Stuck()
+    monkeypatch.setattr(ca, "_list_inputs", stuck)
+    ca.list_inputs()
+    t0 = time.monotonic()
+    for _ in range(10):
+        assert ca.list_inputs() is None
+    assert time.monotonic() - t0 < 0.5, "the polls did not wait"
+    assert stuck.calls == 1, "and no thread was started for them"
+    stuck.gate.set()
+
+
+def test_the_wedge_is_told_to_the_process_handler_once(mac, monkeypatch):
+    import time
+    import audio_guard
+    told = []
+    audio_guard.set_handler(told.append)
+    stuck = _Stuck()
+    monkeypatch.setattr(ca, "_list_inputs", stuck)
+    ca.list_inputs()
+    ca.list_inputs()
+    deadline = time.monotonic() + 2
+    while not told and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert told == ["coreaudio device list"]
+    stuck.gate.set()
+
+
+def test_a_listing_that_answers_is_returned_as_it_was(mac, monkeypatch):
+    monkeypatch.setattr(ca, "_list_inputs", lambda api: ["MacBook Pro Microphone"])
+    assert ca.list_inputs() == ["MacBook Pro Microphone"]
+
+
+def test_a_listing_that_raises_is_none_and_not_a_wedge(mac, monkeypatch):
+    import audio_guard
+
+    def boom(api):
+        raise OSError("coreaudiod went away")
+    monkeypatch.setattr(ca, "_list_inputs", boom)
+    assert ca.list_inputs() is None
+    assert audio_guard.wedged_op() is None
+
+
+def test_the_bound_is_a_named_constant_with_room_over_a_healthy_listing():
+    assert ca._LIST_TIMEOUT_S >= 1.0, "a listing takes under a millisecond; the bound is for a slow runner"

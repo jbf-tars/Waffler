@@ -19,6 +19,12 @@ Every buffer is sized from what CoreAudio says it needs, nothing is written
 past it, and a status other than zero leaves that device or that answer out.
 Nothing here raises; a Mac that does not answer gives None and the callers
 fall back to PortAudio's list.
+
+A CoreAudio that has deadlocked never answers, and the device monitor asks every
+two seconds from a thread of its own: the listing runs under a bound
+(src/audio_guard.py), and one that does not come back is given up on and reported
+(Waffler then restarts itself, src/wedge_recovery.py). While it is stuck the
+polls are not made at all, so they cannot pile up.
 """
 
 from __future__ import annotations
@@ -30,8 +36,10 @@ from typing import List, Optional
 
 try:
     from mic_devices import Device
+    import audio_guard
 except ImportError:  # imported as src.mac_audio_devices
     from src.mic_devices import Device
+    from src import audio_guard
 
 HOST_API = "Core Audio"
 
@@ -39,6 +47,10 @@ _SYSTEM_OBJECT = 1
 _UTF8 = 0x08000100                 # kCFStringEncodingUTF8
 _MAX_BLOB = 1 << 20                # no property here is anywhere near 1 MB
 _MAX_TEXT = 1024
+# A listing takes under a millisecond. A call that has not come back in this
+# long is the CoreAudio deadlock that was caught in a capture (a thread in
+# AudioObjectGetPropertyDataSize waiting on a lock another thread never let go).
+_LIST_TIMEOUT_S = 3.0
 
 
 def _code(text: str) -> int:
@@ -169,12 +181,26 @@ def _word(blob: Optional[bytes]) -> Optional[int]:
 
 def list_inputs() -> Optional[List[Device]]:
     """Every input device the Mac lists now, in the system's order, or None if
-    CoreAudio cannot be asked (not a Mac, or it did not answer)."""
+    CoreAudio cannot be asked (not a Mac, or it did not answer in time)."""
     if sys.platform != "darwin":
         return None
     api = _load()
     if api is None:
         return None
+    done, value = audio_guard.run_bounded(lambda: _list_inputs(api), _LIST_TIMEOUT_S,
+                                          "coreaudio device list")
+    if not done:
+        if value is audio_guard.WEDGED:
+            audio_guard.report_wedge("coreaudio device list", _LIST_TIMEOUT_S)
+        return None
+    if isinstance(value, BaseException):
+        return None
+    return value
+
+
+def _list_inputs(api) -> Optional[List[Device]]:
+    """The listing itself: the calls into CoreAudio. Runs on a bounded thread
+    (``list_inputs``); nothing else calls it."""
     try:
         with _lock:
             ids = parse_ids(_blob(api, _SYSTEM_OBJECT, _DEVICES))

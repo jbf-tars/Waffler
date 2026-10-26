@@ -575,7 +575,7 @@ def test_the_press_checks_before_it_claims_the_recording_slot_or_starts_audio():
     press = _pipe_method("on_hotkey_press")
     src = ast.unparse(press)
     assert src.index("self._permissions_block_recording()") < src.index("self._processing_lock")
-    assert src.index("self._permissions_block_recording()") < src.index("self.audio.start()")
+    assert src.index("self._permissions_block_recording()") < src.index("self._start_audio(")
     assert "not self.is_recording" in src.split("self._permissions_block_recording()")[0]
 
 

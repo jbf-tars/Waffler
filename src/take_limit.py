@@ -16,17 +16,31 @@ silence, after it ends. 20 minutes is a 38 MB recording, ten pieces.
 The constants here are the one place the limit is written; the recording loop,
 the messages and the tests all read them. The clock is injected, so the
 warning and the stop are tested without waiting.
+
+Who enforces it
+---------------
+``TakeTimer`` does, on a thread of its own, started when the key goes down and
+before anything that touches the microphone. The limit used to be checked by the
+loop that feeds the pill its level, which was started only after the recorder
+had begun: on a Mac whose audio system had wedged the recorder never began, and
+two hands-free takes ran for 670 s and 1,760 s with nothing to stop them. The
+timer reads the clock and whether this is still the current take, and nothing
+else, so it holds whatever the recorder, the pill or the microphone is doing.
 """
 
 from __future__ import annotations
 
+import threading
 import time
-from typing import Callable
+from typing import Callable, Optional
 
 # The longest one take can be, and how long before it the warning comes.
 MAX_TAKE_S = 20 * 60
 WARN_BEFORE_S = 60
 WARN_AT_S = MAX_TAKE_S - WARN_BEFORE_S
+
+# How often the timer looks at the clock. The limit is enforced to within this.
+TICK_S = 1.0
 
 # The recording is 16 kHz, 16-bit, mono: 32,000 bytes a second. Used for the
 # size of a take at the limit (the splitter's gate is in bytes).
@@ -74,3 +88,77 @@ class TakeWatch:
             self._warned = True
             return WARN
         return NOTHING
+
+
+class TakeTimer:
+    """Enforces the limit for one take, asked every ``tick_s`` seconds on a
+    daemon thread (``tick()`` is public so a test can turn the clock and call
+    it). Calls ``on_warn()`` once at the warning and ``on_stop()`` once at the
+    limit, then finishes; finishes quietly when ``is_current()`` says the take
+    is over (the key came up, another take began) or ``cancel()`` is called.
+    A callback that raises is logged nowhere and stops nothing: the next one
+    still comes.
+    """
+
+    def __init__(self, watch: TakeWatch, on_warn: Callable[[], None], on_stop: Callable[[], None],
+                 is_current: Callable[[], bool] = lambda: True, tick_s: Optional[float] = None,
+                 autostart: bool = True):
+        self._watch = watch
+        self._on_warn = on_warn
+        self._on_stop = on_stop
+        self._is_current = is_current
+        self._tick_s = float(TICK_S if tick_s is None else tick_s)
+        self._cancel = threading.Event()
+        self._finished = False
+        self.thread: Optional[threading.Thread] = None
+        if autostart:
+            self.start()
+
+    @property
+    def finished(self) -> bool:
+        return self._finished
+
+    def start(self) -> None:
+        try:
+            self.thread = threading.Thread(target=self._run, daemon=True, name="TakeLimit")
+            self.thread.start()
+        except RuntimeError:
+            # Out of threads: the press carries on without a limit rather than
+            # failing; the process is in worse trouble than this.
+            self.thread = None
+
+    def cancel(self) -> None:
+        self._cancel.set()
+
+    def tick(self) -> str:
+        """One look at the take. Returns what it did: ``WARN``, ``STOP`` or
+        ``NOTHING``."""
+        if self._finished:
+            return NOTHING
+        if self._cancel.is_set() or not self._safe(self._is_current, True):
+            self._finished = True
+            return NOTHING
+        step = self._watch.check()
+        if step == WARN:
+            self._safe(self._on_warn)
+        elif step == STOP:
+            self._finished = True
+            self._safe(self._on_stop)
+        return step
+
+    @staticmethod
+    def _safe(fn, default=None):
+        try:
+            result = fn()
+            return default if result is None and default is not None else result
+        except Exception:
+            return default
+
+    def _run(self) -> None:
+        try:
+            while not self._cancel.wait(self._tick_s):
+                self.tick()
+                if self._finished:
+                    return
+        finally:
+            self._finished = True

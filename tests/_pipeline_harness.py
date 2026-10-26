@@ -31,6 +31,7 @@ sys.path.insert(0, str(ROOT))
 import action_hotkeys  # noqa: E402
 import activity_gate  # noqa: E402
 import atomic_json  # noqa: E402
+import audio_guard  # noqa: E402
 import cleanup_pause  # noqa: E402
 import command_action  # noqa: E402
 import command_mode  # noqa: E402
@@ -59,6 +60,7 @@ import transforms  # noqa: E402
 import tray_state  # noqa: E402
 import unsent  # noqa: E402
 import user_messages  # noqa: E402
+import wedge_recovery  # noqa: E402
 
 _TREE = ast.parse((ROOT / "app.py").read_text(encoding="utf-8"))
 _PIPELINE = next(n for n in _TREE.body
@@ -114,6 +116,13 @@ PIPELINE_METHODS = (
     # app, the device monitor's list of inputs, a saved ranking, and what
     # "delete my data" forgets.
     "_mic_hooks", "on_mic_devices", "apply_mic_preferences", "forget_notifier",
+    # A press that does not depend on the microphone, and what is done when the
+    # audio system stops answering (src/audio_guard.py, src/wedge_recovery.py):
+    # the bounded start, undoing a press whose recorder did not start, the
+    # take's own timer, and the recovery's hooks.
+    "_start_audio", "_abort_press", "_discard_late_start", "_arm_take_timer", "_show_recording_pill",
+    "_on_audio_wedge", "_make_wedge_recovery", "_keep_wedged_take", "_show_wedge_message",
+    "_clear_audio_wedge",
 )
 MODULE_DEFS = ("ensure_data_dir", "load_history", "_load_history_for_update",
                "save_history", "append_history",
@@ -200,18 +209,39 @@ class FakeAudio:
     """``hang`` makes stop() wait like a recorder whose lock is held while a
     device is rebuilt. ``deafened`` is what the sound cues asked it to ignore."""
 
-    def __init__(self, wav: bytes, hang=None):
+    def __init__(self, wav: bytes, hang=None, start_hang=None, start_error=None):
         self.wav = wav
         self.hang = hang
+        self.start_hang = start_hang        # start() waits like a recorder stuck in CoreAudio
+        self.start_error = start_error      # ...or raises (no input device, a wedge)
         self.starts = 0
         self.stops = 0
         self.deafened = []
+        self.salvage = wav                  # what salvage_wav() hands over (None: unreadable)
 
     def deafen_for(self, seconds):
         self.deafened.append(seconds)
 
     def start(self):
         self.starts += 1
+        if self.start_hang is not None:
+            self.start_hang.wait()
+        if self.start_error is not None:
+            raise self.start_error
+
+    def salvage_wav(self):
+        return self.salvage
+
+    # Whether the recorder is still wedged, and the clearing of a wedge that was
+    # only slow (src/wedge_recovery.py asks, the app hands over).
+    stuck = False
+    cleared = 0
+
+    def is_stuck(self):
+        return self.stuck
+
+    def clear_wedge(self):
+        self.cleared += 1
 
     def get_level(self):
         return 0.3
@@ -397,6 +427,17 @@ class FakeListener:
         pass
 
 
+class FakeRecovery:
+    """Stands in for WedgeRecovery: nothing is restarted by a test."""
+
+    def __init__(self):
+        self.told = []
+
+    def handle(self, op):
+        self.told.append(op)
+        return "restart"
+
+
 class Page:
     """Everything the pipeline sends to the window."""
 
@@ -455,7 +496,7 @@ def make_pipeline(data_dir: Path, *, transcriber=None, styler=None, clipboard=No
         _action_hotkeys=action_hotkeys, _activity_gate=activity_gate, _transforms=transforms,
         _transform_action=transform_action,
         _command_mode=command_mode, _command_action=command_action,
-        _user_messages=user_messages,
+        _user_messages=user_messages, _wedge_recovery=wedge_recovery, _audio_guard=audio_guard, sys=sys,
         _history_cache=types.SimpleNamespace(invalidate=lambda: None),
         _is_setup_complete=lambda: True,
         paste_timed_out_message=user_messages.paste_timed_out_message,
@@ -494,6 +535,9 @@ def make_pipeline(data_dir: Path, *, transcriber=None, styler=None, clipboard=No
     p._recording_session = 1
     p._prev_window = None
     p._level_loop = lambda: None
+    p._wedge_recovery = FakeRecovery()
+    p._take_timer = None
+    p._pill_lock = threading.Lock()
     p._mic_dropout = None
     p._unsent_lock = threading.Lock()
     p._drain_lock = threading.Lock()

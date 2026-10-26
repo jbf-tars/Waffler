@@ -50,6 +50,17 @@ is used for the whole run: a Mac that answers once and then fails is skipped
 for that tick rather than mixed with PortAudio's older list, which would make
 every microphone look new.
 
+Waking up
+---------
+A Mac that has slept is the other time a stream most often goes dead, and the
+poll is how that is noticed: it runs every two seconds, so a tick that arrives
+more than ``WAKE_GAP_S`` after the one before it means the computer was
+asleep. ``on_wake`` is called then, and Waffler flags the stream stale, so the
+next press opens a new one (once) instead of recording on a dead one. On a
+Mac this replaces the old rule "a press after 30 s idle opens a new stream",
+which put a stop and a restart of CoreAudio on the hotkey's path every time
+(src/audio.py keeps that rule only where there is no live device list, Windows).
+
 Limitations:
 - Polling has a 1–2 s window. Acceptable.
 - We deliberately don't restart the stream if a recording is in flight
@@ -64,6 +75,7 @@ Limitations:
 from __future__ import annotations
 
 import threading
+import time
 from typing import Callable, Optional
 
 try:
@@ -87,6 +99,9 @@ class AudioDeviceMonitor:
     # take that long ends in a stream that is rebuilt anyway.
     DEFERRED_MAX_POLLS = 150
     QUERY_WAIT_S = 0.5          # the most a PortAudio query waits for a stream being made
+    # A poll this much later than the last one means the Mac was asleep: more than
+    # a poll (2 s) plus the longest a bounded CoreAudio call may take (3 s), with room.
+    WAKE_GAP_S = 20.0
 
     def __init__(
         self,
@@ -94,6 +109,8 @@ class AudioDeviceMonitor:
         log_fn: Optional[Callable[[str], None]] = None,
         on_devices: Optional[Callable[[list], None]] = None,
         reader: Optional[Callable[[], Optional[list]]] = None,
+        on_wake: Optional[Callable[[], None]] = None,
+        wall_clock: Callable[[], float] = time.time,
     ) -> None:
         """
         Args:
@@ -105,11 +122,17 @@ class AudioDeviceMonitor:
             reader: How to list the inputs: a function that returns the
                 devices, or None when it cannot this time. Defaults to
                 CoreAudio's own list on a Mac and PortAudio's elsewhere.
+            on_wake: Called when a poll comes much later than due (the
+                computer was asleep). May also be set later.
+            wall_clock: The time of day, for noticing that; a test's.
         """
         self._on_change = on_change
         self._log = log_fn or print
         self.on_devices = on_devices
         self._reader = reader
+        self.on_wake = on_wake
+        self._wall = wall_clock
+        self._last_tick_at: Optional[float] = None
         self._source: Optional[str] = None      # "live" or "portaudio", once known
         self._baselined = False
         # What to try again on each poll until it works: (function, polls so far).
@@ -204,9 +227,24 @@ class AudioDeviceMonitor:
             self._source = "portaudio"
         return _md.pa_inputs() or None
 
+    def _look_for_wake(self) -> None:
+        """A poll that comes WAKE_GAP_S or more after the last one: the computer
+        was asleep. Tells ``on_wake`` once; never raises."""
+        now = self._wall()
+        last, self._last_tick_at = self._last_tick_at, now
+        if last is None or now - last < self.WAKE_GAP_S:
+            return
+        self._log(f"[audio-monitor] the computer woke up after {int(now - last)}s")
+        if self.on_wake is not None:
+            try:
+                self.on_wake()
+            except Exception as e:
+                self._log(f"[audio-monitor] on_wake failed: {type(e).__name__}")
+
     def _tick(self) -> None:
         """One poll: the default input's name, and the list of inputs. The
         first one only learns the baseline (so nothing "changes" at startup)."""
+        self._look_for_wake()
         self._run_deferred()
         devices = None
         try:
@@ -266,6 +304,14 @@ def restart_stream_when_idle(audio, monitor, new_name: str, log: Callable[[str],
     as the recorder's own. Never raises."""
     if audio is None:
         return                                  # the pipeline is still starting
+    # Before anything that can fail or wait: if the restart below cannot run (a
+    # take is under way, the stream cannot be opened) the next press opens it.
+    flag = getattr(audio, "note_devices_changed", None)
+    if flag is not None:
+        try:
+            flag()
+        except Exception as e:
+            log(f"[audio-monitor] could not flag the change: {type(e).__name__}")
 
     def attempt(after_take: bool) -> bool:
         try:

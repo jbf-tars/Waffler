@@ -125,6 +125,9 @@ _REGISTRY = (
     Kind("mic_reset", ERROR),
     Kind("mic_dropped_out", ERROR),
     Kind("mic_slow_to_stop", ERROR),
+    # The audio system stopped answering and Waffler is restarting itself, or
+    # tells the person to (src/wedge_recovery.py). Said once a run.
+    Kind("audio_wedged", ERROR, hold_s=12),
     # The minute's warning before the longest take, and the stop at the end
     # (src/take_limit.py). Said once a take: the recording loop's watch gives
     # the warning once, and a newer recording ends an older loop.

@@ -355,7 +355,7 @@ def test_the_name_is_captured_when_the_key_goes_down_and_the_menu_warms_it_up():
                                 if isinstance(n, ast.FunctionDef) and n.name == name))
     press = method("on_hotkey_press")
     assert "_text_context.frontmost_app()" in press and "self._press_context" in press
-    assert press.index("_text_context.frontmost_app()") < press.index("self.overlay.show()")
+    assert press.index("_text_context.frontmost_app()") < press.index("self._show_recording_pill")
     assert "_text_context.warm()" in method("_warm_paste_deps")
 
 

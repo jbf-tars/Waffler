@@ -37,11 +37,17 @@ import sounddevice as sd
 import numpy as np
 import io
 import math
+import sys
 import wave
 import threading
 import time
 from collections import deque
 from typing import Optional
+
+try:
+    import audio_guard
+except ImportError:  # imported as src.audio
+    from src import audio_guard
 
 
 # Pre-roll window in milliseconds. When the user presses the hotkey, we splice
@@ -101,6 +107,50 @@ def rms_level(chunk) -> float:
 _HAL_DRAIN_S = 0.1
 
 
+# ── Bounds on every call into PortAudio and CoreAudio (src/audio_guard.py) ──
+# Each of these calls takes milliseconds when audio is healthy, and none may
+# take more than its bound: a call that does not come back is a CoreAudio
+# deadlock (a capture of one showed stream.stop() and CoreAudio's own I/O thread
+# waiting on each other), which nothing in the process can end. The call is then
+# abandoned on its thread, the locks are let go, and the recorder says so
+# (``on_wedge``). Every call that can wedge runs under ``_stream_lock`` and
+# ``_STREAM_LOCK``, so a bound is also how long a stop(), an Esc or a quit can
+# wait behind it: kept small, but well above what a healthy call takes.
+_STOP_TIMEOUT_S = 3.0        # Pa_StopStream: a HAL buffer cycle (~64 ms) when healthy
+_CLOSE_TIMEOUT_S = 3.0       # Pa_CloseStream: releases the stream, milliseconds
+_TERMINATE_TIMEOUT_S = 3.0   # Pa_Terminate: milliseconds with no stream open
+_INITIALIZE_TIMEOUT_S = 5.0  # Pa_Initialize lists every device, ~50 ms (more while one is connecting)
+_CREATE_TIMEOUT_S = 5.0      # open and start a stream: 50-300 ms (a Bluetooth mic can take seconds)
+_QUERY_TIMEOUT_S = 3.0       # asking PortAudio for its device list: microseconds, it is cached
+# How long stop() waits for the recorder's stream lock before reading the
+# recording without it: past any bounded hold (stop 3 + drain + close 3), so only
+# something that has stopped answering reaches it.
+_STOP_LOCK_WAIT_S = 4.0
+_SHUTDOWN_LOCK_WAIT_S = 2.0  # quitting never waits longer than this for the lock
+# Reading the recorded audio for a rescue: the lock is the callback's, held for
+# one list append.
+_SALVAGE_LOCK_WAIT_S = 0.5
+
+
+# A system with no live list of its devices for the device monitor to read (every
+# one but a Mac, where src/mac_audio_devices.py asks CoreAudio) learns of a
+# microphone plugged in only when PortAudio is started again, which a new stream
+# does. There, a press after this much quiet still opens a new stream, as it
+# always has, so a device added meanwhile is found. A Mac is told by the monitor
+# (``note_devices_changed``) and does not: the CoreAudio deadlock was met in that
+# rebuild.
+_IDLE_RECYCLE_S = 30.0
+
+
+def _recycles_when_idle() -> bool:
+    return sys.platform != "darwin"
+
+
+class AudioWedged(RuntimeError):
+    """A call into PortAudio or CoreAudio did not come back, so the stream
+    could not be made. The message is for the log, never for the screen."""
+
+
 # Process-wide lock that serialises InputStream creation and teardown across
 # ALL ``AudioRecorder`` instances. The wizard → pipeline handoff bug
 # (v3.14.15) was: the wizard's ``AudioRecorder`` was dropped without proper
@@ -158,30 +208,41 @@ def snapshot_devices(timeout: float = 1.0, locked: bool = False):
     if not locked and not _STREAM_LOCK.acquire(timeout=timeout):
         return None
     try:
-        infos = list(sd.query_devices())
-        try:
-            hostapis = list(sd.query_hostapis())
-        except Exception:
-            hostapis = []
-        default_index = None
-        try:
-            default = sd.query_devices(kind="input")
-            default_index = default.get("index")
-            if default_index is None:
-                name = default.get("name")
-                default_index = next((i for i, d in enumerate(infos) if d.get("name") == name), None)
-        except Exception:
-            pass
-        try:
-            primary = int(sd.default.hostapi)
-        except Exception:
-            primary = None
-        return infos, hostapis, default_index, primary
-    except Exception:
+        # One bounded call for all the queries: they ask PortAudio, and a
+        # PortAudio that has stopped answering must not hold the lock (or the
+        # device monitor's thread) for ever.
+        done, value = audio_guard.run_bounded(_read_device_lists, _QUERY_TIMEOUT_S, "query_devices")
+        if done and not isinstance(value, BaseException):
+            return value
+        if not done and value is audio_guard.WEDGED:
+            audio_guard.report_wedge("query_devices", _QUERY_TIMEOUT_S)
         return None
     finally:
         if not locked:
             _STREAM_LOCK.release()
+
+
+def _read_device_lists():
+    """What snapshot_devices reads from PortAudio. Runs on a bounded thread."""
+    infos = list(sd.query_devices())
+    try:
+        hostapis = list(sd.query_hostapis())
+    except Exception:
+        hostapis = []
+    default_index = None
+    try:
+        default = sd.query_devices(kind="input")
+        default_index = default.get("index")
+        if default_index is None:
+            name = default.get("name")
+            default_index = next((i for i, d in enumerate(infos) if d.get("name") == name), None)
+    except Exception:
+        pass
+    try:
+        primary = int(sd.default.hostapi)
+    except Exception:
+        primary = None
+    return infos, hostapis, default_index, primary
 
 
 def _resolve_input_device(selected_index=None):
@@ -316,6 +377,25 @@ class AudioRecorder:
         # the next start() makes a new one instead of reusing it.
         self._pref_version = 0
         self._stream_pref_version = 0
+        # A change in the devices themselves (the system's default input
+        # changed, the microphone the stream is on left, the Mac woke up)
+        # bumps ``_devices_version``; like the preference above, a stream made
+        # before it is stale. Nothing else makes start() open a new stream: the
+        # time since the last press used to, which put every press after half a
+        # minute's quiet through a stop and a restart of PortAudio, the calls
+        # that wedged CoreAudio.
+        self._devices_version = 0
+        self._stream_devices_version = 0
+        # When a call into PortAudio or CoreAudio does not come back (see
+        # src/audio_guard.py): that the recorder is wedged, which call, and when.
+        # ``on_wedge(op)`` is told once, on its own thread. ``log`` is where the
+        # recorder's own lines go (the app points it at app.log).
+        self._wedged = False
+        self._wedge_op = None
+        self._wedge_at = None
+        self._wedge_lock = threading.Lock()
+        self.on_wedge = None
+        self.log = print
         # Recording ownership. is_recording and _buffer are shared, so with
         # overlapping presses one dictation could damage another: an old stop()
         # sleeping through its post-roll would wake to find a NEW recording in
@@ -510,6 +590,89 @@ class AudioRecorder:
         in the middle of a take."""
         self._pref_version += 1
 
+    def note_devices_changed(self) -> None:
+        """The devices changed under the stream (the system's default input,
+        the microphone it is on leaving, the Mac waking): it may be on the wrong
+        one, or dead. The next start() opens a new stream, once. Does not touch
+        a stream, so it is safe in the middle of a take, and it is the only
+        thing besides a change of preference that makes start() do so."""
+        self._devices_version += 1
+
+    # ── A call into PortAudio or CoreAudio that does not come back ──────
+
+    def wedge_info(self):
+        """``(call, wall time)`` of the call that did not come back, or None."""
+        if not self._wedged:
+            return None
+        return self._wedge_op, self._wedge_at
+
+    def is_stuck(self) -> bool:
+        """Still wedged: a call into PortAudio or CoreAudio that was given up on
+        has not come back (src/audio_guard.py), or the recorder's stream lock is
+        held by something that does not let go. False for a recorder that is
+        healthy, and for one whose slow call has returned since. Touches no
+        stream; the lock is only asked for, briefly, when the recorder was
+        flagged for it."""
+        if audio_guard.wedged_op() is not None:
+            return True
+        if not self._wedged:
+            return False
+        got = self._stream_lock.acquire(timeout=0.25)
+        if got:
+            self._stream_lock.release()
+        return not got
+
+    def clear_wedge(self) -> None:
+        """The wedge turned out to be a call that was only slow, and it has
+        returned: forget it, so the next one is logged and told again."""
+        with self._wedge_lock:
+            self._wedged = False
+            self._wedge_op = None
+            self._wedge_at = None
+        audio_guard.forget_report()
+
+    def _say(self, line: str) -> None:
+        try:
+            self.log(line)
+        except Exception:
+            pass
+
+    def _note_wedge(self, op: str, timeout_s: float) -> None:
+        """CoreAudio did not answer ``op`` within ``timeout_s``. Said once for
+        the process (src/audio_guard.py): the one line in the log, and
+        ``on_wedge(op)`` told once, on a thread of its own because the caller
+        is holding a stream lock."""
+        with self._wedge_lock:
+            first = not self._wedged
+            if first:
+                self._wedged = True
+                self._wedge_op = op
+                self._wedge_at = time.time()
+        if not first:
+            return
+        audio_guard.report_wedge(op, timeout_s, notify=False, log=self.log)
+        callback = self.on_wedge
+        if callback is not None:
+            threading.Thread(target=self._tell_wedge, args=(callback, op), daemon=True,
+                             name="AudioWedgeNotify").start()
+
+    def _tell_wedge(self, callback, op: str) -> None:
+        try:
+            callback(op)
+        except Exception as e:
+            self._say(f"[audio] the wedge handler failed ({type(e).__name__})")
+
+    def _bounded(self, op: str, fn, timeout_s: float, keep=None):
+        """``fn()`` under a bound (src/audio_guard.py): ``(True, result)``, or
+        ``(True, exception)`` if it raised, or ``(False, why)`` if it did not
+        come back. A call that did not come back (or was not made, because an
+        earlier one is still stuck) marks this recorder wedged."""
+        done, value = audio_guard.run_bounded(fn, timeout_s, op, keep=keep)
+        if not done:
+            wedged_op = op if value is audio_guard.WEDGED else (audio_guard.wedged_op() or op)
+            self._note_wedge(wedged_op, timeout_s)
+        return done, value
+
     def get_is_paused(self) -> bool:
         return self.is_paused
 
@@ -557,10 +720,18 @@ class AudioRecorder:
         ``AudioDeviceMonitor`` (v3.14.47) read PortAudio's *same* cached
         view, so it usually missed the change. The reinit costs ~50 ms
         per stream creation, which is invisible to the user, and means
-        every press of the hotkey resolves the *current* OS default —
-        no app restart needed when the user changes their mic. We do
-        this inside ``_STREAM_LOCK`` so it can't race with another
-        thread's stream teardown.
+        every stream resolves the *current* OS default — no app restart
+        needed when the user changes their mic. We do this inside
+        ``_STREAM_LOCK`` so it can't race with another thread's stream
+        teardown.
+
+        A stream is made when none is running, and when something says the
+        devices changed (``note_devices_changed``, a change of preference), no
+        longer on every press after half a minute: that put the PortAudio
+        restart and the stream's stop on the hotkey's path every time, which
+        is where a CoreAudio deadlock was met. Each call that can wedge is
+        bounded (``_bounded``); the lock is let go and ``AudioWedged`` raised
+        when one does not return.
         """
         with _STREAM_LOCK:
             # Force PortAudio to re-read the OS-level default input device.
@@ -570,43 +741,105 @@ class AudioRecorder:
             # after a wake) every later stop raises "not initialised"; with
             # both in one try the start was then never tried again and the
             # microphone stayed dead until a restart of the app.
-            try:
-                sd._terminate()
-            except Exception as e:
-                print(f"[audio] PortAudio stop failed before stream create: {e}")
-            try:
-                sd._initialize()
-            except Exception as e:
+            # Each call is bounded (src/audio_guard.py): one that does not come
+            # back is a CoreAudio deadlock, and the lock is let go (the
+            # AudioWedged raised here unwinds through ``with``) instead of
+            # being held for as long as it lasts.
+            done, value = self._bounded("sd._terminate", lambda: sd._terminate(),
+                                        _TERMINATE_TIMEOUT_S)
+            if not done:
+                raise AudioWedged("PortAudio did not stop")
+            if isinstance(value, Exception):
+                print(f"[audio] PortAudio stop failed before stream create: {value}")
+            done, value = self._bounded("sd._initialize", lambda: sd._initialize(),
+                                        _INITIALIZE_TIMEOUT_S)
+            if not done:
+                raise AudioWedged("PortAudio did not start")
+            if isinstance(value, Exception):
                 # Reinit failure (coreaudiod restarting, or PortAudio in a bad
                 # state). Fall through to InputStream creation against what
                 # there is; the next stream tries the restart again.
-                print(f"[audio] PortAudio reinit failed before stream create: {e}")
+                print(f"[audio] PortAudio reinit failed before stream create: {value}")
             # ``self._callback_active`` is set true BEFORE start() so the
             # very first callback that fires isn't dropped.
             self._callback_active = True
             # Avoid the AirPods mic when it's the default input (keeps music in
             # A2DP). Resolved AFTER the PortAudio reinit above so it sees the
             # current device list. None ⇒ PortAudio default (the normal case).
+            # Both versions are read BEFORE the choice is made: a change that
+            # arrives while the resolver runs is then newer than this stream,
+            # and the next start() opens it again.
             _pref_before = self._pref_version
-            _input_device = self._open_device()
+            _devices_before = self._devices_version
+
+            def _choose():
+                device = self._open_device()
+                return device, self._device_name(device)
+
+            done, value = self._bounded("choose the microphone", _choose, _QUERY_TIMEOUT_S)
+            if not done:
+                self._callback_active = False
+                raise AudioWedged("PortAudio did not list the microphones")
+            if isinstance(value, BaseException):
+                self._callback_active = False
+                raise value
+            _input_device, _opened_name = value
             self._zero_since, self._gated = None, False       # a new stream is a new device to judge
             self._stream_choice = self._device_index
-            # The version seen BEFORE the choice was made: a preference saved
-            # while the resolver ran is then newer than this stream, and the
-            # next start() opens it again.
             self._stream_pref_version = _pref_before
-            _opened_name = self._device_name(_input_device)
+            self._stream_devices_version = _devices_before
             self._armed = None
-            self._stream = sd.InputStream(
-                samplerate=self.sample_rate,
-                channels=self.channels,
-                dtype='int16',
-                callback=self._callback_bound,  # stable bound method
-                blocksize=1024,
-                device=_input_device,
-            )
-            self._armed = self._stream        # before start(): its first callback must not be dropped
-            self._stream.start()
+            made = {"state": "running"}      # running, then done (used) or abandoned (given up on)
+            made_lock = threading.Lock()
+
+            def _make():
+                stream = sd.InputStream(
+                    samplerate=self.sample_rate,
+                    channels=self.channels,
+                    dtype='int16',
+                    callback=self._callback_bound,  # stable bound method
+                    blocksize=1024,
+                    device=_input_device,
+                )
+                made["stream"] = stream
+                stream.start()
+                with made_lock:
+                    late = made["state"] == "abandoned"
+                    if not late:
+                        made["state"] = "done"
+                if late:
+                    # The call was only slow, and the recorder has moved on:
+                    # nobody owns this stream, and left running it would feed
+                    # the one callback a second copy of the audio. End it as a
+                    # teardown does (this is the abandoned thread, off to the
+                    # side, so nothing waits on it).
+                    try:
+                        stream.stop()
+                        time.sleep(_HAL_DRAIN_S)
+                        stream.close()
+                    except Exception:
+                        pass
+                return stream
+
+            # ``made`` is kept for ever if this does not return: the stream it
+            # holds (or will hold, if the call finishes late) has a callback
+            # CoreAudio may still call.
+            done, value = self._bounded("create the stream", _make, _CREATE_TIMEOUT_S, keep=made)
+            if not done:
+                with made_lock:
+                    if made["state"] == "done":
+                        done, value = True, made["stream"]   # back in the instant after the bound
+                    else:
+                        made["state"] = "abandoned"
+            if not done:
+                self._callback_active = False
+                self._stream = None
+                raise AudioWedged("the stream did not open")
+            if isinstance(value, BaseException):
+                self._stream = made.get("stream")
+                raise value
+            self._stream = value
+            self._armed = value
             self._opened_device = _opened_name
 
     def _open_device(self):
@@ -673,11 +906,17 @@ class AudioRecorder:
             if self._armed is None or self._armed is stream:
                 self._callback_active = False
                 self._armed = None
-            # 2. Stop dispatching new audio.
-            try:
-                stream.stop()
-            except Exception as e:
-                print(f"audio._teardown_stream: stream.stop() failed: {e}")
+            # 2. Stop dispatching new audio. Bounded: this is the call a
+            # CoreAudio deadlock was caught in (``AudioOutputUnitStop``). One
+            # that does not return is abandoned with the stream kept alive for
+            # ever (CoreAudio may still call its callback), and nothing more is
+            # asked of a CoreAudio that is not answering: not the drain, not
+            # the close.
+            done, value = self._bounded("stream.stop", stream.stop, _STOP_TIMEOUT_S, keep=stream)
+            if not done:
+                return
+            if isinstance(value, Exception):
+                print(f"audio._teardown_stream: stream.stop() failed: {value}")
             # 3. Drain — let any in-flight HAL callback complete. We hold
             # `stream` in this local scope for the entire sleep so the
             # InputStream (and its bound-method callback) can't be GC'd.
@@ -686,10 +925,9 @@ class AudioRecorder:
             except Exception:
                 pass
             # 4. Release C-level resources and the CFFI closure.
-            try:
-                stream.close()
-            except Exception as e:
-                print(f"audio._teardown_stream: stream.close() failed: {e}")
+            done, value = self._bounded("stream.close", stream.close, _CLOSE_TIMEOUT_S, keep=stream)
+            if done and isinstance(value, Exception):
+                print(f"audio._teardown_stream: stream.close() failed: {value}")
             # 5. ``stream`` goes out of scope when this function returns —
             # the InputStream is GC-eligible only after the drain window
             # AND after close() has released the CFFI closure.
@@ -705,6 +943,32 @@ class AudioRecorder:
             with self._stream_lock:
                 self._starting -= 1
 
+    def _stale_reason(self, idle_s: float = 0.0):
+        """Why the stream that is open is not the one to record on: a sentence
+        for the log, or None when it is current. Reads a few numbers and a
+        name; touches no stream. ``idle_s`` is how long it has been since the
+        last press: it counts only where nothing else can say that the devices
+        changed (``_recycles_when_idle``)."""
+        if idle_s > _IDLE_RECYCLE_S and _recycles_when_idle():
+            return (f"idle for {idle_s:.0f}s, and this system cannot say when a "
+                    f"microphone is plugged in")
+        if self._pref_version != self._stream_pref_version:
+            return "the microphone preference changed"
+        if self._stream_choice != self._device_index:
+            return "another microphone was chosen"
+        if self._devices_version != self._stream_devices_version:
+            return "the audio devices changed"
+        return None
+
+    def _stream_is_running(self) -> bool:
+        stream = self._stream
+        if stream is None or not self._callback_active:
+            return False
+        try:
+            return bool(getattr(stream, 'active', False))
+        except Exception:
+            return False            # a stream PortAudio has already closed
+
     def _start(self):
         """Begin recording.
 
@@ -712,16 +976,20 @@ class AudioRecorder:
         the stream isn't running (first call, or after ``stop_monitoring``),
         spins up a fresh one via the safe lifecycle helpers.
 
-        Mic hot-swap belt-and-suspenders (v3.14.50)
-        -------------------------------------------
-        If it's been more than 30 s since the last press, we recycle the
-        stream — i.e. force the slow path with its fresh PortAudio reinit.
-        This is the moment a user is most likely to have switched mics
-        (plugged in a wireless headset, gone to System Settings, etc.),
-        and PortAudio's cached default doesn't refresh on its own.
-        Recycling once-per-session-burst loses only ~50 ms of pre-roll
-        for that single press — invisible — and means the user no longer
-        has to restart the app to pick up a new default device.
+        On a Mac a healthy stream is reused however long it has been since the
+        last press. It used to be that a press after more than 30 s idle took the
+        stream down and made a new one "to pick up any mic change" (v3.14.50),
+        with the recorder's locks held and PortAudio restarted in the middle:
+        the stop of a stream is the call a CoreAudio deadlock was caught in, and
+        on a Mac with devices coming and going (a phone's microphone, a meeting
+        app's driver, AirPods) every press was a chance of it, with the pill
+        and the take waiting behind it. A mic change is now noticed where it
+        happens (the device monitor: the system's default input changed, the
+        microphone in use left, the Mac woke up) and says so with
+        ``note_devices_changed``; that, a change of preference, or a stream
+        that is not running are the only reasons to open a new one here. (On
+        Windows, which has no such list to read, the timed recycle stays: see
+        ``_IDLE_RECYCLE_S``.)
         """
         with self._stream_lock:
             # Claim this recording. Anything older is now superseded.
@@ -732,24 +1000,14 @@ class AudioRecorder:
             self._buffer = []
 
             now = time.time()
-            time_since_last_press = now - getattr(self, "_last_press_time", 0.0)
+            idle_s = now - getattr(self, "_last_press_time", 0.0)
             self._last_press_time = now
-            # Also when the microphone preference has changed since this
-            # stream was made (Settings, or a device that came or went): it
-            # is on the wrong one, and a warm stream would be reused.
-            force_recycle = (time_since_last_press > 30.0
-                             or self._pref_version != self._stream_pref_version
-                             or self._stream_choice != self._device_index)
+            stale_reason = self._stale_reason(idle_s)
 
-            stream_was_running = (
-                self._stream is not None
-                and getattr(self._stream, 'active', False)
-                and self._callback_active
-                and not force_recycle
-            )
+            stream_was_running = self._stream_is_running() and stale_reason is None
 
-            if force_recycle and self._stream is not None:
-                print(f"[audio] recycling stream after {time_since_last_press:.0f}s idle to pick up any mic change")
+            if stale_reason is not None and self._stream is not None:
+                self._say(f"[audio] opening the microphone again: {stale_reason}")
 
             if not stream_was_running:
                 # Slow path. If there's a stale stream hanging around,
@@ -862,9 +1120,22 @@ class AudioRecorder:
         post-roll trick: we sleep BEFORE flipping ``is_recording=False``
         so the callback continues to append trailing audio chunks during
         the wait, capturing the last word.
+
+        Never waits for ever on ``_stream_lock``: something stuck inside
+        PortAudio or CoreAudio can be holding it (a start that does not
+        return), and the recording is already in ``_buffer``, put there by the
+        callback with no help from the stream. After ``_STOP_LOCK_WAIT_S`` the
+        recording is read without that lock, and the recorder says it is wedged
+        (the person's words are kept, and ``on_wedge`` can act on the rest).
         """
-        with self._stream_lock:
+        locked = self._stream_lock.acquire(timeout=_STOP_LOCK_WAIT_S)
+        try:
+            if not locked:
+                self._note_wedge("waiting for the stream lock to stop", _STOP_LOCK_WAIT_S)
             my_session = self._session
+        finally:
+            if locked:
+                self._stream_lock.release()
 
         # The post-roll runs BEFORE we take ownership, so a press landing in
         # this window starts a new recording. That is why the session check
@@ -872,8 +1143,13 @@ class AudioRecorder:
         # drain its buffer, losing a dictation the user had only just begun.
         time.sleep(_POSTROLL_MS / 1000.0)
 
-        with self._stream_lock:
-            if self._session != my_session:
+        # One long wait for the lock is enough: if the first did not get it, the
+        # second only looks (a start that let go in the meantime).
+        locked = self._stream_lock.acquire(timeout=_STOP_LOCK_WAIT_S if locked else 0.2)
+        if not locked:
+            self._note_wedge("waiting for the stream lock to stop", _STOP_LOCK_WAIT_S)
+        try:
+            if locked and self._session != my_session:
                 print("[audio] stop superseded by a newer recording — leaving it alone")
                 return b""
             # Invalidate: no in-flight start() for this session may finalise.
@@ -883,10 +1159,21 @@ class AudioRecorder:
             # Previously the callback tested is_recording outside the lock and
             # appended inside it, so a late chunk could be appended to the
             # buffer after it had been cleared, and was then thrown away.
-            with self._lock:
+            # ``_lock`` is the callback's own: held for one list append, so a
+            # wait for it that runs out means something else is wrong.
+            if not self._lock.acquire(timeout=_SALVAGE_LOCK_WAIT_S):
+                self._say("[audio] the recording could not be read: its lock was not let go")
+                self.is_recording = False
+                return b""
+            try:
                 self.is_recording = False
                 buf_snapshot = list(self._buffer)
                 self._buffer = []
+            finally:
+                self._lock.release()
+        finally:
+            if locked:
+                self._stream_lock.release()
 
         if not buf_snapshot:
             return b""
@@ -902,6 +1189,29 @@ class AudioRecorder:
         print(f"Recording stopped ({duration:.2f}s, RMS: {rms:.0f})")
         return self._to_wav_bytes(self.recording)
 
+    def salvage_wav(self, timeout: float = None):
+        """What this take has recorded so far, as WAV bytes, read from the
+        buffer alone: no stream, no PortAudio, no ``_stream_lock``. For the
+        moment CoreAudio has stopped answering and the take has to be kept
+        before Waffler restarts. The recording goes on; nothing is emptied.
+
+        ``b""`` when nothing has been recorded, and None when the buffer could
+        not be read (its lock, the callback's, was not let go in ``timeout``
+        seconds): the caller says so rather than pretending it was kept."""
+        wait = _SALVAGE_LOCK_WAIT_S if timeout is None else timeout
+        if not self._lock.acquire(timeout=wait):
+            return None
+        try:
+            chunks = list(self._buffer)
+        finally:
+            self._lock.release()
+        if not chunks:
+            return b""
+        try:
+            return self._to_wav_bytes(np.concatenate(chunks, axis=0))
+        except Exception:
+            return None
+
     def shutdown(self):
         """Fully tear down the audio stream. Called on app exit only.
 
@@ -909,11 +1219,17 @@ class AudioRecorder:
         long recording or after a device hot-swap; we abandon the stream
         after 1.5s rather than block the shutdown path.
         """
-        with self._stream_lock:
+        # Quitting never waits for ever for the lock: a start stuck inside
+        # CoreAudio can be holding it, and the app has to be able to end.
+        locked = self._stream_lock.acquire(timeout=_SHUTDOWN_LOCK_WAIT_S)
+        try:
             self._session += 1  # nothing in flight may finalise after shutdown
             self.is_recording = False
             stream = self._stream
             self._stream = None
+        finally:
+            if locked:
+                self._stream_lock.release()
 
         if stream is None:
             return
@@ -985,8 +1301,9 @@ class AudioRecorder:
         zero-filled buffers (overall RMS ≈ 0). This happens after the Mac
         sleeps/wakes or a mic is hot-swapped: PortAudio's stream stays
         ``.active`` and keeps firing the callback, but CoreAudio hands back
-        pure silence. The 30 s idle-recycle and PortAudio reinit don't
-        always recover it, so we make the detection *reactive*: once we've
+        pure silence. The PortAudio reinit doesn't always recover it (nor
+        did the timed recycle that used to be here), so we make the
+        detection *reactive*: once we've
         captured a recording that's pure digital silence, treat the stream
         as poisoned and drop it. The next press takes the slow path in
         start() → _create_stream() with a fresh sd._terminate()/_initialize()
@@ -998,8 +1315,7 @@ class AudioRecorder:
             self._session += 1
             stream = self._stream
             self._stream = None
-            # Force start()'s slow path next time, regardless of timing.
-            self._last_press_time = 0.0
+            # With no stream, start()'s slow path is next, whatever the timing.
             # Torn down before the lock is let go (see stop_monitoring).
             if stream is not None:
                 self._teardown_stream(stream)

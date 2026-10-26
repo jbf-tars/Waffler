@@ -84,6 +84,14 @@ STYLE_DEADLINE_S = 40.0
 # take milliseconds when healthy.
 PREPARE_DEADLINE_S = 15.0
 PASTE_DEADLINE_S = 8.0
+# Starting the recorder and stopping it are milliseconds when audio is healthy
+# (a cold start waits up to 2 s for live sound). The recorder bounds each call it
+# makes into PortAudio and CoreAudio at 3 to 5 s (src/audio.py), so a start or a
+# stop that has not come back in this long is stuck inside CoreAudio, which
+# nothing in the process can free: the take is given up on and the wedge
+# recovery told (src/wedge_recovery.py). Above the recorder's own bounds, below
+# PREPARE_DEADLINE_S.
+WEDGE_DEADLINE_S = 12.0
 # History and the quality log: local file writes, retried for under a second.
 SAVE_LIMIT_S = 20.0
 # How far past a stage's limit the watchdog waits before it gives up on the

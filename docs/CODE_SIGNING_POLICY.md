@@ -137,7 +137,9 @@ keyboard and your clipboard. Specifically:
   cost (`usage.jsonl`: amounts and times, never what
   was said) and which recording was being turned into text, so a take that a
   crash cut short can come back (`inflight.json`: a file name and a time, gone
-  when the dictation ends). None of this is uploaded.
+  when the dictation ends) and when Waffler last restarted itself because the
+  computer's audio system stopped answering, so it does not do so in a loop
+  (`audio_restarts.json`: times, no text). None of this is uploaded.
 - **No telemetry.** Waffler has no analytics and no usage reporting.
 
 ## Uninstallation

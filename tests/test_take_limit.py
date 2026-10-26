@@ -189,11 +189,22 @@ def test_the_limit_can_be_given_to_a_watch_for_a_shorter_take():
     assert watch.check() == "stop"
 
 
-# ── the recording loop (the real _level_loop from app.py) ────────────────────
+# ── the recording loop and the limit's timer (the real ones from app.py) ─────
+# The limit used to be checked by _level_loop. It is the take's own timer's now
+# (take_limit.TakeTimer, armed by _arm_take_timer at the press: see
+# tests/test_take_timer.py and tests/test_press_independent_of_microphone.py),
+# so that it holds when the recorder never starts and the loop never begins.
+# These tests drive both, as a press does, with a clock the test turns.
+
+@pytest.fixture(autouse=True)
+def quick_timer(monkeypatch):
+    monkeypatch.setattr(take_limit, "TICK_S", 0.02)
+
 
 class LoopRig:
-    """The pipeline's own _level_loop running on a thread, with a clock the
-    test turns. ``released`` is how many times the stop was asked for."""
+    """The pipeline's own limit timer and _level_loop running on threads, with
+    a clock the test turns. ``released`` is how many times the stop was asked
+    for."""
 
     def __init__(self, tmp_path):
         self.p = make_pipeline(tmp_path)
@@ -209,6 +220,7 @@ class LoopRig:
         self.thread = threading.Thread(target=self.p._level_loop, daemon=True)
 
     def start(self):
+        self.p._arm_take_timer()
         self.thread.start()
         return self
 

@@ -162,6 +162,8 @@ import mic_devices as _mic_devices
 import mic_ranking as _mic_ranking
 import mic_hotplug as _mic_hotplug
 import mic_supervisor as _mic_supervisor
+import audio_guard as _audio_guard
+import wedge_recovery as _wedge_recovery
 from login_item import LoginItem, HIDDEN_FLAG as _HIDDEN_FLAG
 from user_messages import (
     CLIPBOARD_CHOICE_UNKNOWN,
@@ -1803,6 +1805,9 @@ class Api:
           - usage.jsonl                     (what each call cost: not needed)
           - inflight.json                   (which takes were being turned into
                                              text: file names and times only)
+          - audio_restarts.json             (when Waffler restarted itself
+                                             because the audio system stopped
+                                             answering: times only)
 
         Returns:
           {"ok": True, "path": "/Users/.../Desktop/waffler-logs-...zip"}
@@ -1935,7 +1940,8 @@ class Api:
                     "  - Which tips were shown (~/.waffler-hosted/notifications.json)\n"
                     "  - Which new microphones Waffler asked about (~/.waffler-hosted/mic_devices.json)\n"
                     "  - What each call cost (~/.waffler-hosted/usage.jsonl)\n"
-                    "  - Which takes were being processed (~/.waffler-hosted/inflight.json)\n\n"
+                    "  - Which takes were being processed (~/.waffler-hosted/inflight.json)\n"
+                    "  - When Waffler restarted itself (~/.waffler-hosted/audio_restarts.json)\n\n"
                     "Share this zip when reporting a bug to https://github.com/jbf-tars/Waffler/issues\n"
                 )
 
@@ -4193,6 +4199,14 @@ def _build_pipeline():
         # re-evaluates the ranking (src/mic_supervisor.py).
         _device_monitor.on_devices = (
             lambda devices: _pipeline.on_mic_devices(devices) if _pipeline is not None else None)
+
+        def _on_wake() -> None:
+            """The computer was asleep: the stream may have died with it, and a
+            press no longer opens a new one just because time has passed, so
+            say so. The next press opens one, once."""
+            if _pipeline is not None and getattr(_pipeline, "audio", None):
+                _pipeline.audio.note_devices_changed()
+        _device_monitor.on_wake = _on_wake
         _device_monitor.start()
     except Exception as e:
         _log_to_file(f"Pipeline init error: {e}")
@@ -4423,6 +4437,18 @@ class WafflerPipeline:
         # not once here: the picker once stored a selection that never reached
         # stream creation, and a pinned index went stale.
         self.audio = _new_recorder(config)
+        # If macOS's audio system stops answering (every call into it then
+        # blocks for ever, and nothing in this process can free it), the
+        # recorder and the device monitor say so once, and Waffler keeps what was
+        # being recorded and opens itself again (src/wedge_recovery.py). Set
+        # before anything touches the microphone, so the pre-warm below is
+        # covered; the recorder's own lines go to app.log from here on.
+        self._wedge_recovery = self._make_wedge_recovery()
+        self._pill_lock = threading.Lock()      # ordering of the recording pill's show and hide
+        self.audio.log = _log_to_file
+        self.audio.on_wedge = self._on_audio_wedge
+        _audio_guard.set_logger(_log_to_file)
+        _audio_guard.set_handler(self._on_audio_wedge)
         # Pre-warm the audio input stream at pipeline init so the FIRST
         # hotkey press is instant. The stream stays alive across recordings
         # and feeds a 500ms pre-roll buffer that gets spliced into every
@@ -4940,6 +4966,7 @@ class WafflerPipeline:
             ranking=lambda: _mic_ranking.ranking_of(self._read_settings()),
             promote=promote,
             note_changed=lambda: self.audio.note_preference_changed(),
+            note_devices_changed=lambda: self.audio.note_devices_changed(),
             rebuild_idle=rebuild_idle,
             rebuild_after_take=rebuild_after_take,
             memory=_mic_hotplug.DeviceMemory(),
@@ -5686,22 +5713,212 @@ class WafflerPipeline:
         # Track recording start time for duration checks
         import time
         self._recording_start_time = time.time()
-        self.audio.start()
+        press_id = self._current_press_id
+        # What the person sees, and the longest take, come BEFORE anything that
+        # touches the microphone. Both used to follow ``audio.start()``, and
+        # when macOS's audio system stopped answering that call never returned:
+        # no pill, the app looking idle while it listened, and takes that ran
+        # for 670 s and 1,760 s with nothing to stop them. The pill is the
+        # app's own state; it must never depend on the recorder.
+        notify_js_status("listening")
+        _set_tray_state(_tray_state.RECORDING)
+        # And not the other way round either: the pill is shown on a thread of
+        # its own, because a stalled overlay (its pipe full, or a restart of
+        # its process) takes seconds to answer, and the first words of the take
+        # are lost for each of them if the recorder waits for it.
+        try:
+            threading.Thread(target=self._show_recording_pill, args=(press_id,), daemon=True,
+                             name="RecordingPill").start()
+        except RuntimeError:
+            self._show_recording_pill(press_id)
+        self._arm_take_timer()
+        if not self._start_audio(press_id):
+            return
         # The check on this take's microphone (src/mic_supervisor.py), and a
         # look at the lid, off this thread.
         mic = getattr(self, "_mic", None)
         if mic is not None:
-            mic.take_started(self._current_press_id)
+            mic.take_started(press_id)
+        # Not for a take the key has already ended while the recorder started
+        # (a tap): its pill is the working one by now.
+        with self._processing_lock:
+            still_recording = self.is_recording and self._current_press_id == press_id
+        if not still_recording:
+            return
         # The start cue, now that the microphone is live (src/sounds.py).
         self._play_cue(_sound_cues.START)
-        notify_js_status("listening")
-        _set_tray_state(_tray_state.RECORDING)
-        try:
-            self.overlay.show()
-        except Exception as e:
-            print(f"[overlay] show failed: {e}")
         # Start VU level feed thread
         threading.Thread(target=self._level_loop, daemon=True, name="LevelLoop").start()
+
+    def _show_recording_pill(self, press_id):
+        """Show the recording pill for press ``press_id``, unless that take is
+        already over (the key came up, or the recorder failed): the pill then
+        belongs to the dictation or to nobody. Under ``_pill_lock``, which
+        ``_abort_press`` takes to hide it, so a late show can never follow a
+        hide and leave a pill with no take behind it."""
+        with self._pill_lock:
+            with self._processing_lock:
+                current = self.is_recording and self._current_press_id == press_id
+            if not current:
+                return
+            try:
+                self.overlay.show()
+            except Exception as e:
+                print(f"[overlay] show failed: {e}")
+
+    def _start_audio(self, press_id) -> bool:
+        """Start the recorder, bounded. True when it is recording.
+
+        The recorder bounds each call it makes into PortAudio and CoreAudio
+        (src/audio.py), but the press must not be held by anything it does not
+        control either: this waits WEDGE_DEADLINE_S at most
+        (src/pipeline_watchdog.py), through the same bounded call every other
+        step of a dictation uses. A recorder that raises, or does not answer,
+        undoes the press (``_abort_press``); one that does not answer is a
+        wedge and goes to the recovery (src/wedge_recovery.py), and if it
+        comes back late, the take it started is ended again so nothing is
+        recording that nobody is listening to."""
+        run = _pw.DictationRun(press_id)
+        result = run.call(self.audio.start, stage=_pw.PREPARING, deadline=_pw.WEDGE_DEADLINE_S)
+        if result.ok:
+            return True
+        if result.status == _pw.DEADLINE:
+            _log_to_file(f"[pipeline] starting the recording took over {_pw.WEDGE_DEADLINE_S:.0f}s")
+            if result.late is not None:
+                result.late.when_done(lambda value, error: self._discard_late_start(press_id))
+            threading.Thread(target=self._on_audio_wedge, args=("starting the recording",),
+                             daemon=True, name="AudioWedge").start()
+        else:
+            _log_to_file(f"[pipeline] the recording did not start ({type(result.error).__name__})")
+            if type(result.error).__name__ != "AudioWedged":
+                threading.Thread(target=self._show_no_audio_toast, daemon=True,
+                                 name="NoAudioToast").start()
+        self._abort_press(press_id)
+        return False
+
+    def _abort_press(self, press_id):
+        """A press whose recorder did not start: no take, no pill, no status
+        left behind, and the hotkey's own idea of the take put back (hands-free
+        on would otherwise outlive a take that never began). Only if this press
+        is still the take: a key that came up meanwhile has started its own
+        processing, which ends the pill itself."""
+        with self._processing_lock:
+            mine = self.is_recording and self._current_press_id == press_id
+            if mine:
+                self.is_recording = False
+        if not mine:
+            return
+        timer = getattr(self, "_take_timer", None)
+        if timer is not None:
+            timer.cancel()
+        with self._pill_lock:
+            try:
+                self.overlay.hide()
+            except Exception as e:
+                print(f"[overlay] hide failed: {e}")
+        notify_js_status("error")
+        _set_tray_state(_tray_state.IDLE)
+        listener = getattr(self, "hotkey_listener", None)
+        if listener is not None and hasattr(listener, "reset_state"):
+            try:
+                listener.reset_state()
+            except Exception:
+                pass
+
+    def _discard_late_start(self, press_id):
+        """``audio.start()`` returned after the press was given up on: end the
+        take it began. Not if a newer press has begun its own (the recorder
+        itself ignores a start that a newer one has superseded)."""
+        with self._processing_lock:
+            newer = self.is_recording or self._current_press_id != press_id
+        if newer:
+            return
+        try:
+            self.audio.stop()
+        except Exception as e:
+            _log_to_file(f"[pipeline] a late start was not ended ({type(e).__name__})")
+
+    def _arm_take_timer(self):
+        """The longest take's own timer (src/take_limit.py TakeTimer), started
+        at the press: the minute's warning and the stop, from a thread that asks
+        nothing of the recorder, the pill or the microphone. It ends with the
+        take (the key coming up, or a newer take)."""
+        previous = getattr(self, "_take_timer", None)
+        if previous is not None:
+            previous.cancel()
+        session = self._recording_session
+        self._take_timer = _take_limit.TakeTimer(
+            self._take_watch(), on_warn=self._warn_take_limit, on_stop=self._stop_at_take_limit,
+            is_current=lambda: bool(self.is_recording) and self._recording_session == session)
+
+    # ── The audio system stops answering (src/audio_guard.py, src/wedge_recovery.py) ──
+
+    def _on_audio_wedge(self, op):
+        """A call into PortAudio or CoreAudio did not come back (``op`` names
+        it): the recorder's own report, the device monitor's, or a start or a
+        stop that is still not done after WEDGE_DEADLINE_S. Nothing in the
+        process can free that, so this hands it to the recovery, which acts
+        once whoever tells it. Never raises, and is run off every thread that
+        must not wait."""
+        recovery = getattr(self, "_wedge_recovery", None)
+        if recovery is None:
+            return
+        try:
+            recovery.handle(op)
+        except Exception as e:
+            _log_to_file(f"[wedge] recovery failed ({type(e).__name__})")
+
+    def _make_wedge_recovery(self):
+        """The recovery, with what it needs from this app as late-bound
+        functions: whether a take is being recorded or a dictation is being
+        turned into text, the recorder's buffer (read without touching the
+        stream), where to keep a recording, and how to say what is happening."""
+        return _wedge_recovery.WedgeRecovery(
+            platform="darwin" if _platform.system() == "Darwin" else "win32",
+            frozen=bool(getattr(sys, "frozen", False)),
+            executable=sys.executable,
+            state_path=DATA_DIR / _wedge_recovery.FILE,
+            take_in_progress=lambda: bool(self.is_recording) or bool(getattr(self.audio, "is_recording", False)),
+            busy=lambda: bool(self._watchdog.active()),
+            salvage=lambda: self.audio.salvage_wav(),
+            keep=self._keep_wedged_take,
+            show=self._show_wedge_message,
+            still_stuck=lambda: bool(self.audio.is_stuck()),
+            on_cleared=self._clear_audio_wedge,
+            log=_log_to_file,
+        )
+
+    def _clear_audio_wedge(self):
+        """The wedge was a call that was only slow, and it came back: forget it,
+        in the recorder and in the guard, so the next one is a new wedge."""
+        try:
+            self.audio.clear_wedge()
+        except Exception as e:
+            _log_to_file(f"[wedge] could not be cleared ({type(e).__name__})")
+        _audio_guard.forget_report()
+
+    def _keep_wedged_take(self, wav) -> bool:
+        """The take that was being recorded when the audio system stopped
+        answering, kept as Not sent, so the dictation is sent for text by itself
+        when Waffler is back. True when it is kept, or when there was nothing in
+        it to keep (no speech: the same rule as a recording that was slow to
+        stop). Its words are never in the log."""
+        try:
+            speech = _speech_seconds(wav)
+        except Exception:
+            speech = _MIN_TAP_SPEECH_S     # can't tell: keep it rather than lose it
+        if speech < _MIN_TAP_SPEECH_S:
+            _log_to_file("[wedge] the recording in progress has no speech in it; not kept")
+            return True
+        return bool(self._handle_failed_transcription(wav, _unsent.REASON_STUCK, toast=False))
+
+    def _show_wedge_message(self, heading, body):
+        """The message that Waffler is restarting itself (or that it is stuck),
+        through the notifier like every other. It stays up long enough to be read
+        if Waffler cannot restart itself."""
+        if self._toast_allowed("audio_wedged"):
+            self.overlay.show_toast(style="warn", heading=heading, body=body, timeout=12,
+                                    reposition=True)
 
     def on_hotkey_release(self):
         """In toggle mode this fires on hotkey-up but is also called on second press."""
@@ -5774,11 +5991,12 @@ class WafflerPipeline:
 
     def _level_loop(self):
         """Feed live audio level to the overlay at ~30fps while recording, and
-        watch the length of the take: one warning a minute before the limit,
-        then the stop (src/take_limit.py). It ends when the recording does, or
-        when a newer recording has begun, which has a loop of its own."""
+        watch the microphone (src/mic_supervisor.py). It ends when the
+        recording does, or when a newer recording has begun, which has a loop
+        of its own. The length of the take is not checked here: this loop is
+        started only once the recorder has begun, and the limit has to hold
+        when it never does (``_arm_take_timer``, src/take_limit.py)."""
         import time as _time
-        watch = self._take_watch()
         session = self._recording_session
         press = self._current_press_id
         mic = getattr(self, "_mic", None)
@@ -5789,12 +6007,6 @@ class WafflerPipeline:
             except Exception:
                 pass
 
-            step = watch.check()
-            if step == _take_limit.WARN:
-                self._warn_take_limit()
-            elif step == _take_limit.STOP:
-                self._stop_at_take_limit()
-                break
             # The microphone: silence for 5 s opens the stream again, 15 s says
             # so, and a microphone that left ends the take (src/mic_watch.py).
             if mic is not None and mic.tick(press) == _mic_supervisor.LOST:
@@ -5974,8 +6186,9 @@ class WafflerPipeline:
             _log_to_file("[pipeline] stopping audio capture...")
             # Bounded: stop() waits on the recorder's stream lock, which a
             # stream rebuild on a dead device could hold indefinitely.
+            _stop_deadline = min(_pw.PREPARE_DEADLINE_S, _pw.WEDGE_DEADLINE_S)
             _stopped = run.call(self.audio.stop, stage=_pw.PREPARING,
-                                deadline=_pw.PREPARE_DEADLINE_S)
+                                deadline=_stop_deadline)
             if _stopped.status == _pw.CANCEL:
                 _log_to_file(f"Processing {processing_id} cancelled while stopping the recording")
                 _outcome = _pw.CANCELLED
@@ -5987,8 +6200,13 @@ class WafflerPipeline:
                 # went through, so its bytes are not thrown away now: when
                 # stop() returns they are kept as Not sent and sent from there.
                 _log_to_file(f"[pipeline] stopping the recording took over "
-                             f"{_pw.PREPARE_DEADLINE_S:.0f}s; it will be kept if it finishes")
+                             f"{_stop_deadline:.0f}s; it will be kept if it finishes")
                 _stopped.late.when_done(self._keep_late_recording)
+                # A recorder that has not stopped in this long is stuck inside
+                # CoreAudio (its own calls are bounded well below it): the
+                # recovery keeps what is in its buffer and restarts Waffler.
+                threading.Thread(target=self._on_audio_wedge, args=("stopping the recording",),
+                                 daemon=True, name="AudioWedge").start()
                 try:
                     if self._toast_allowed("mic_slow_to_stop"):
                         self.overlay.show_toast(

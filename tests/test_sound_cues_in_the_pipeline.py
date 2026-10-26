@@ -158,10 +158,14 @@ def _method(name):
     return next(n for n in _PIPE.body if isinstance(n, ast.FunctionDef) and n.name == name)
 
 
-def test_the_start_cue_follows_audio_start_and_comes_before_the_pill():
+def test_the_start_cue_follows_the_recorder_and_the_pill_comes_before_both():
+    """Changed on purpose (the CoreAudio wedge): the pill used to follow
+    audio.start() and the cue, so a recorder that never returned left no pill
+    at all. The pill is up first and does not depend on the microphone; the cue
+    still means "the microphone is live", so it still follows the recorder."""
     src = ast.unparse(_method("on_hotkey_press"))
-    assert src.index("self.audio.start()") < src.index("self._play_cue(_sound_cues.START)") \
-        < src.index("self.overlay.show()")
+    assert src.index("self._show_recording_pill") < src.index("self._start_audio(") \
+        < src.index("self._play_cue(_sound_cues.START)")
 
 
 def test_the_stop_cue_is_after_the_recorder_returned_and_before_anything_slow():

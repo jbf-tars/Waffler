@@ -4,6 +4,63 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+Waffler no longer freezes with no recording pill when macOS's audio system gets
+stuck: it stops rebuilding the microphone every time you pause for half a
+minute, and if macOS's audio does hang it restarts itself and keeps what you
+were recording.
+
+### Fixed
+- **A stuck audio system no longer leaves Waffler looking idle while it
+  listens.** On one Mac, pressing the key showed no recording pill, hands-free
+  takes ran for 11 and 29 minutes (past the 20 minute limit) with nothing to
+  stop them, and letting go showed "Your mic was slow to stop" every time. A
+  capture of the frozen app showed a deadlock inside macOS's own audio system
+  (CoreAudio), between a call that stops the microphone's stream and a
+  thread of CoreAudio's own. Once that happens every audio call from the app
+  waits for ever, and nothing the app does can free it. It happened on a Mac
+  with devices coming and going (a phone's microphone, a meeting app's
+  driver, AirPods), and it also happened on 3.15.1, so it is not new in 3.16.
+  Four things changed.
+- **The microphone is no longer rebuilt every time you pause for half a
+  minute.** Since 3.14.50 the first press after 30 seconds of quiet took the
+  always-open microphone stream down and made a new one "to pick up any mic
+  change", in the middle of your key press, which is where the deadlock was
+  caught. A healthy stream is now reused however long it has been. A new one
+  is made only when something says the devices changed: the computer's
+  microphone setting changed, the microphone Waffler is using was unplugged,
+  the Mac woke from sleep, or you changed the microphone list in Settings.
+  A phone's microphone or a meeting app's driver appearing and disappearing
+  while you use another microphone no longer costs anything. On Windows,
+  which has no live list of microphones to watch, the half-minute rule stays
+  as it was, so a microphone you plug in is still found.
+- **The recording pill no longer waits for the microphone.** It was shown after
+  the microphone had started, so a microphone that never started left no
+  pill, and the app looked idle while it listened. The pill and the
+  "Listening" status now come first. A microphone that fails to start, or has
+  not started after 12 seconds, takes the pill down again and leaves Waffler
+  ready for the next press, where it used to stay "recording" until you
+  quit.
+- **The 20 minute limit holds even when the microphone is stuck.** It was
+  checked by the loop that feeds the pill its level, which only began once the
+  microphone had started. The limit now has a timer of its own, started the
+  moment you press the key, and it stops the take exactly as letting go
+  would. The "one minute left" warning comes from the same timer.
+- **Waffler no longer hangs on a stuck audio system, and restarts itself.**
+  Every call into the audio system now has a time limit (3 to 5 seconds), and
+  Waffler lets go of its locks when one is not answered, so the key, Esc and
+  quitting all work. Stopping a take that cannot reach the microphone hands
+  back what was recorded. Because nothing short of a new process cures a
+  deadlock in macOS's audio, on a Mac Waffler then keeps the take you were
+  recording as a Not sent recording (it is sent for text by itself when
+  Waffler is back), says "Waffler is restarting", and opens itself again
+  about two seconds later. It looks for six seconds longer first, so a call
+  that was only slow does not cost a restart. It restarts at most twice in
+  ten minutes (the times are kept in `audio_restarts.json`, which Delete all
+  my data removes); after that it only says to quit and open Waffler again.
+  Windows has a different audio system, so there Waffler only says so.
+
 ## [3.16.1] - 2026-10-17
 
 Updating Waffler is now one click. Check for updates downloads the new

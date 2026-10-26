@@ -161,8 +161,8 @@ def test_the_app_is_read_before_the_overlay_can_take_focus():
     klass = next(n for n in _TREE.body if isinstance(n, ast.ClassDef) and n.name == "WafflerPipeline")
     press = ast.unparse(next(n for n in klass.body
                              if isinstance(n, ast.FunctionDef) and n.name == "on_hotkey_press"))
-    assert press.index("_text_context.frontmost_app()") < press.index("self.audio.start()")
-    assert press.index("_text_context.frontmost_app()") < press.index("self.overlay.show()")
+    assert press.index("_text_context.frontmost_app()") < press.index("self._start_audio(")
+    assert press.index("_text_context.frontmost_app()") < press.index("self._show_recording_pill")
 
 
 # ── handed to the clean-up as a plain argument ───────────────────────────────

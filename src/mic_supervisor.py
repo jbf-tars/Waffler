@@ -98,6 +98,7 @@ class Hooks:
     promote: Callable[[dict], Any]                       # put an entry at rank 1 and save it
     note_changed: Callable[[], None]                     # AudioRecorder.note_preference_changed
     memory: hp.DeviceMemory
+    note_devices_changed: Callable[[], None] = _noop     # AudioRecorder.note_devices_changed
     hide_toast: Callable[..., None] = _noop              # (style)
     release_toast: Callable[[str], None] = _noop         # the notifier's slot, by kind
     rebuild_idle: Callable[[], None] = _noop             # open the monitoring stream again, if idle
@@ -155,10 +156,27 @@ class MicSupervisor:
         listed = md.distinct(devices)
         ranking = self.h.ranking()
         with self._lock:
-            self._present = {d.key for d in listed}
+            before, self._present = self._present, {d.key for d in listed}
+        self._note_if_the_open_one_left(before)
         self._follow_ranking(listed, ranking)
         for dev in self.tracker.update(listed):
             self._consider(dev, ranking)
+
+    def _note_if_the_open_one_left(self, before: Optional[set]) -> None:
+        """The microphone the stream is on was listed at the last look and is
+        not now: the stream is on a device that is gone. Told to the recorder,
+        so the next press opens a new one, once. Only that: a phone's
+        microphone, a meeting app's driver or AirPods coming and going while
+        another microphone is in use change nothing, and a press must not be a
+        cold start every time they do. Nothing is torn down here, at the moment
+        the device is going: that is when CoreAudio is busiest."""
+        name = self.h.opened_device()
+        if not name or before is None:
+            return
+        was_there = md.norm_name(name) in before or any(md.same_name(name, k) for k in before)
+        if was_there and self._device_present(name) is False:
+            self._say("[mic] the microphone the stream is on left; the next dictation opens it again")
+            self.h.note_devices_changed()
 
     def _follow_ranking(self, listed: List[md.Device], ranking: List[dict]) -> None:
         """If a change of devices changes which ranked microphone is the best

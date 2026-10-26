@@ -286,7 +286,7 @@ def test_the_gate_is_reentrant_and_held_only_for_the_claim():
     src = ast.unparse(next(n for n in _TREE.body if isinstance(n, ast.ClassDef) and n.name == "WafflerPipeline"))
     press = src[src.index("def on_hotkey_press"):src.index("def on_hotkey_release")]
     assert press.index("_activity_gate.GATE") < press.index("_processing_lock")
-    assert press.index("_activity_gate.GATE") < press.index("self.audio.start()"), "the claim, not the recording"
+    assert press.index("_activity_gate.GATE") < press.index("self._start_audio("), "the claim, not the recording"
     assert "with _activity_gate.GATE" in press and press.count("with _activity_gate.GATE") == 1
 
 
