@@ -31,6 +31,25 @@ We also cache the bound ``_callback`` method on ``__init__`` so there is
 always a single, stable Python object backing every InputStream's callback.
 That makes step 5 deterministic — the bound method survives until the
 ``AudioRecorder`` itself is destroyed.
+
+CoreAudio that stops answering
+------------------------------
+The sequence above is also where a deadlock inside CoreAudio was caught
+(``stream.stop()`` against CoreAudio's own I/O thread, in a capture of a frozen
+Waffler): after it every call into audio from this process blocks for ever, and
+nothing in the process can free it. Two rules follow, both in this file:
+
+  * Every call into PortAudio or CoreAudio runs under a bound
+    (``_bounded``, src/audio_guard.py). One that does not come back is
+    abandoned (a stream it may still touch is kept alive for ever), the locks
+    are let go, ``AudioWedged`` is raised, and ``on_wedge(op)`` is told once
+    (src/wedge_recovery.py keeps the take and restarts Waffler). ``stop()``
+    never waits for ever for ``_stream_lock``: the recording is in ``_buffer``,
+    put there by the callback, and is read without the stream.
+  * A press no longer takes a healthy stream down and makes a new one. It
+    did, after 30 s idle, to pick up a mic change; the stop in that rebuild is
+    the call that wedged. A mic change is now flagged where it is seen
+    (``note_devices_changed``), and the next press opens one stream, once.
 """
 
 import sounddevice as sd

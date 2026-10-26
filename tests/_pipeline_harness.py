@@ -31,6 +31,7 @@ sys.path.insert(0, str(ROOT))
 import action_hotkeys  # noqa: E402
 import activity_gate  # noqa: E402
 import atomic_json  # noqa: E402
+import audio  # noqa: E402
 import audio_guard  # noqa: E402
 import cleanup_pause  # noqa: E402
 import command_action  # noqa: E402
@@ -496,7 +497,7 @@ def make_pipeline(data_dir: Path, *, transcriber=None, styler=None, clipboard=No
         _action_hotkeys=action_hotkeys, _activity_gate=activity_gate, _transforms=transforms,
         _transform_action=transform_action,
         _command_mode=command_mode, _command_action=command_action,
-        _user_messages=user_messages, _wedge_recovery=wedge_recovery, _audio_guard=audio_guard, sys=sys,
+        _user_messages=user_messages, _wedge_recovery=wedge_recovery, _audio_guard=audio_guard, AudioWedged=audio.AudioWedged, sys=sys,
         _history_cache=types.SimpleNamespace(invalidate=lambda: None),
         _is_setup_complete=lambda: True,
         paste_timed_out_message=user_messages.paste_timed_out_message,

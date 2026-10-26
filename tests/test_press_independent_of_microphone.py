@@ -174,6 +174,18 @@ def test_a_recorder_that_raises_undoes_the_press(tmp_path):
     assert p._wedge_recovery.told == [], "a failed start is not a wedge"
 
 
+def test_a_wedged_recorder_is_not_told_to_the_recovery_a_second_time_or_called_a_missing_microphone(tmp_path):
+    """The recorder tells the recovery itself, and the recovery says what is
+    happening: the press only comes down."""
+    import audio as audio_mod
+    p = pipeline(tmp_path, start_error=audio_mod.AudioWedged("the stream did not open"))
+    p.on_hotkey_press()
+    time.sleep(0.2)
+    assert not p.is_recording and "hide" in p.overlay.names()
+    assert p._wedge_recovery.told == []
+    assert p.overlay.toasts() == [], "no 'We couldn't hear you'"
+
+
 def test_after_a_failed_start_the_next_press_records(tmp_path):
     p = pipeline(tmp_path, start_error=OSError("no input device"))
     p.on_hotkey_press()
@@ -453,8 +465,9 @@ def test_the_message_goes_through_the_notifier_and_the_pill(tmp_path):
     assert toast["timeout"] >= 8, "it stays up if Waffler cannot restart itself"
 
 
-def test_a_message_the_notifier_holds_back_is_still_not_lost_to_a_restart(tmp_path):
-    """The restart does not wait on whether the message was shown."""
+def test_a_message_the_notifier_holds_back_is_not_shown(tmp_path):
+    """The notifier decides, like for every other message (the restart itself does not
+    wait on it: see tests/test_wedge_recovery.py)."""
     p, rec = built(tmp_path)
     p._toast_allowed = lambda kind: False
     rec._show("a", "b")

@@ -100,7 +100,7 @@ if '--overlay' in sys.argv:
 import webview
 
 from config import Config
-from audio import AudioRecorder
+from audio import AudioRecorder, AudioWedged
 import platform as _platform
 if _platform.system() == "Windows":
     from windows_hotkey import WindowsHotkeyListener
@@ -5790,7 +5790,10 @@ class WafflerPipeline:
                              daemon=True, name="AudioWedge").start()
         else:
             _log_to_file(f"[pipeline] the recording did not start ({type(result.error).__name__})")
-            if type(result.error).__name__ != "AudioWedged":
+            # A wedge has already been told to the recovery, by the recorder, which
+            # says what is happening itself; any other failure is a microphone
+            # that could not be opened.
+            if not isinstance(result.error, AudioWedged):
                 threading.Thread(target=self._show_no_audio_toast, daemon=True,
                                  name="NoAudioToast").start()
         self._abort_press(press_id)

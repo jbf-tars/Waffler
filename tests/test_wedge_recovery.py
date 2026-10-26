@@ -629,6 +629,34 @@ def test_the_real_spawner_detaches_the_helper(monkeypatch):
     assert calls["kw"]["stdin"] == subprocess.DEVNULL
 
 
+@posix_only
+def test_a_process_ended_with_os_exit_lets_go_of_the_single_instance_lock(tmp_path):
+    """The real lock, in a real process, ended the way the recovery ends Waffler:
+    the new Waffler asks for the lock the moment it starts, and must find it free."""
+    env = dict(os.environ, WAFFLER_DATA_DIR=str(tmp_path), PYTHONPATH=str(ROOT / "src"))
+    holder = subprocess.Popen(
+        [sys.executable, "-c",
+         "import os, sys, single_instance\n"
+         "assert single_instance.acquire()\n"
+         "print('held', flush=True)\n"
+         "sys.stdin.readline()\n"
+         "os._exit(0)\n"],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, env=env, text=True, encoding="utf-8")
+    try:
+        assert holder.stdout.readline().strip() == "held"
+        ask = [sys.executable, "-c", "import single_instance; print(single_instance.acquire())"]
+        assert subprocess.run(ask, env=env, capture_output=True, text=True, encoding="utf-8",
+                              timeout=30).stdout.strip() == "False", "the lock really is held"
+        holder.stdin.write("go\n")
+        holder.stdin.flush()
+        holder.wait(10)
+        assert subprocess.run(ask, env=env, capture_output=True, text=True, encoding="utf-8",
+                              timeout=30).stdout.strip() == "True", "and is free the moment the process is gone"
+    finally:
+        if holder.poll() is None:
+            holder.kill()
+
+
 def test_the_single_instance_lock_is_one_the_kernel_lets_go_when_the_process_ends():
     """The relaunched Waffler asks for the single-instance lock at once. It is
     a flock (a Mac) and the kernel drops it when the process ends, which is what
