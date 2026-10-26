@@ -45,6 +45,7 @@ import mac_permissions  # noqa: E402
 import mic_hotplug  # noqa: E402
 import mic_ranking  # noqa: E402
 import mic_supervisor  # noqa: E402
+import net_health  # noqa: E402
 import notifier  # noqa: E402
 import pasteboard  # noqa: E402
 import pipeline_watchdog as pw  # noqa: E402
@@ -124,6 +125,9 @@ PIPELINE_METHODS = (
     "_start_audio", "_abort_press", "_discard_late_start", "_arm_take_timer", "_show_recording_pill",
     "_on_audio_wedge", "_make_wedge_recovery", "_keep_wedged_take", "_show_wedge_message",
     "_clear_audio_wedge",
+    # The notice that another provider did the work because the first could
+    # not be reached from this network (src/net_health.py).
+    "_announce_failover",
 )
 MODULE_DEFS = ("ensure_data_dir", "load_history", "_load_history_for_update",
                "save_history", "append_history",
@@ -497,7 +501,7 @@ def make_pipeline(data_dir: Path, *, transcriber=None, styler=None, clipboard=No
         _action_hotkeys=action_hotkeys, _activity_gate=activity_gate, _transforms=transforms,
         _transform_action=transform_action,
         _command_mode=command_mode, _command_action=command_action,
-        _user_messages=user_messages, _wedge_recovery=wedge_recovery, _audio_guard=audio_guard, AudioWedged=audio.AudioWedged, sys=sys,
+        _user_messages=user_messages, _wedge_recovery=wedge_recovery, _audio_guard=audio_guard, AudioWedged=audio.AudioWedged, sys=sys, _net_health=net_health,
         _history_cache=types.SimpleNamespace(invalidate=lambda: None),
         _is_setup_complete=lambda: True,
         paste_timed_out_message=user_messages.paste_timed_out_message,

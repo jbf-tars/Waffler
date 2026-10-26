@@ -158,6 +158,7 @@ import transform_action as _transform_action
 import command_mode as _command_mode
 import command_action as _command_action
 import user_messages as _user_messages
+import net_health as _net_health
 import mic_devices as _mic_devices
 import mic_ranking as _mic_ranking
 import mic_hotplug as _mic_hotplug
@@ -6912,6 +6913,12 @@ class WafflerPipeline:
             if _saved:
                 notify_js_new_item(item)
 
+            # When another provider had to do the work because the first could
+            # not be reached from this network, say so once (src/net_health.py).
+            # After the paste, so it never delays the words.
+            if not _esc_kept:
+                self._announce_failover(run, _asr_info, gpt_usage)
+
             # Metadata only. app.log is what the "Download Logs" diagnostic
             # bundle ships, so logging content here would leak the user's
             # dictations to anyone they send logs to. Setting
@@ -7072,10 +7079,39 @@ class WafflerPipeline:
             ("last_asr_response", ""), ("last_asr_filtered", False),
             ("last_speech_seconds", 0.0), ("last_retry_fired", False),
             ("last_retry_rejected", False), ("_last_cloud_provider", ""),
-            ("_backend", ""),
+            ("last_failovers", ()), ("_backend", ""),
         )}
         info["backend"] = info.pop("_backend")
+        # A copy: a request the watchdog gave up on can still finish later and
+        # add to the transcriber's own list, which is now someone else's.
+        info["last_failovers"] = list(info["last_failovers"] or ())
         return text, info
+
+    def _announce_failover(self, run, asr_info, gpt_usage):
+        """Say, in one plain sentence, that another provider did the work
+        because the first could not be reached from this network (usually a
+        VPN). The transcriber and the styler only RECORD it
+        (``last_failovers``, the clean-up's ``failovers``); this is called once
+        the words are pasted, so no toast ever sits on the hot path. The
+        notifier lets one through per provider per half hour
+        (src/notifier.py ``failover_*``), and not while a newer recording has
+        the pill. Never raises."""
+        try:
+            if not self._run_is_current(run):
+                return
+            events = list((asr_info or {}).get("last_failovers") or ())
+            events += list((gpt_usage or {}).get("failovers") or ())
+            for event in _net_health.notice_candidates(events):
+                if not self._toast_allowed(_net_health.FAILOVER_KINDS[event["provider"]]):
+                    continue
+                heading, body = _user_messages.failover_message(
+                    event["provider"], event["used"], event["kind"])
+                self._show_toast_safe("info", heading, body, timeout=8)
+                _log_to_file(f"[net] told the person: {event['provider']} {event['kind']}, "
+                             f"{event['used']} used for the {event['stage']}")
+                break
+        except Exception as _e:
+            _log_to_file(f"[net] notice skipped ({type(_e).__name__})")
 
     def _unstyled(self, transcript: str) -> str:
         """The words as said, with only the regex tidy-up the styler falls
@@ -8710,19 +8746,23 @@ def main():
     # work or is very slow with a VPN. Having this issue with NordVPN."
     # The underlying cause (VPN exit IPs blocked by Groq / Cerebras, or
     # added latency on every request) isn't always fixable from inside
-    # Waffler — but a one-line ``[vpn] on`` / ``[vpn] off`` in the
-    # startup banner makes future "why is this slow?" investigations
-    # one-grep instead of guessing. The detector is best-effort and
-    # never blocks startup; any error logs nothing extra.
+    # Waffler — but a one-line ``[vpn]`` entry in the startup banner makes
+    # future "why is this slow?" investigations one-grep instead of
+    # guessing. It now asks the system where traffic to the public
+    # internet goes (src/vpn_detect.py), so a tunnel that is only present
+    # (Tailscale) is no longer called a VPN: ``[vpn] off``, ``[vpn] a tunnel
+    # (utun4) is present but internet traffic does not use it (Tailscale?)``
+    # or ``[vpn] full tunnel via utun4: providers may be slower or block
+    # requests``. Best-effort and never blocks startup (short timeouts).
     try:
-        from src.vpn_detect import is_vpn_active as _is_vpn_active
+        from src.vpn_detect import describe as _describe_vpn, is_vpn_active as _is_vpn_active
     except ImportError:
-        from vpn_detect import is_vpn_active as _is_vpn_active
+        from vpn_detect import describe as _describe_vpn, is_vpn_active as _is_vpn_active
     try:
-        _vpn_on = _is_vpn_active()
-        _log_to_file(
-            f"[vpn] {'on (VPN tunnel detected — providers may be slower or block requests)' if _vpn_on else 'off'}"
-        )
+        _log_to_file(_describe_vpn().log_line())
+        if _is_vpn_active():        # the answer just read is reused (kept for a minute)
+            _log_to_file("[vpn] a provider that cannot be reached from here shows up "
+                         "below as a [net] line")
     except Exception as _e:
         _log_to_file(f"[vpn] detection failed: {_e}")
 

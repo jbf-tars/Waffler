@@ -24,6 +24,18 @@ transcription failure the raw audio is written to
 so it's visible in History, and the user gets a clear toast telling them to
 turn the VPN off and retry. The proper *automatic* fix is still outstanding:
 
+**Shipped since (unreleased): fail over fast, stay failed over, say so.** A
+provider that drops its packets used to be waited on for the whole request
+timeout (the pipeline gives speech to text 45 s for a short clip, so Groq's
+60 s connect wait used up the deadline before OpenAI was asked at all). With an
+OpenAI key set as well, connecting is now given 6 s when another provider can
+take the clip, a failed provider is paused for 30 s, 60 s, 120 s, 240 s and then
+5 minutes (and asked again whenever the others fail), the person is told once
+per provider per half hour, and `app.log` carries a `[vpn]` line at start-up
+and a `[net]` line for each failure (see `src/net_health.py`,
+`src/vpn_detect.py`). What is still outstanding is the case below: **no**
+second provider (the hosted build's empty `OPENAI_API_KEY`).
+
 **Planned fix (one or both):**
 
 - **OpenAI Whisper fallback** — bake a working OpenAI key into the hosted build

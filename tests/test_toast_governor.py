@@ -126,7 +126,10 @@ def test_errors_and_info_keep_the_behaviour_the_old_code_had():
                "last_result_notice",
                # Microphones (S12): a dead microphone would otherwise say it at every take, so
                # at most once a minute.
-               "mic_cant_hear"}
+               "mic_cant_hear",
+               # A provider that could not be reached from this network, said once per
+               # provider per half hour (src/net_health.py, tests/test_vpn_failover_notice.py).
+               "failover_groq", "failover_openai", "failover_cerebras"}
     for kid, k in N.KINDS.items():
         if k.severity == N.TIP:
             continue

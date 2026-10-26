@@ -4,12 +4,45 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [3.16.2] - 2026-10-26
+
+Two things that could leave you unable to dictate are fixed.
 
 Waffler no longer freezes with no recording pill when macOS's audio system gets
 stuck: it stops rebuilding the microphone every time you pause for half a
 minute, and if macOS's audio does hang it restarts itself and keeps what you
 were recording.
+
+Waffler now copes with a VPN that blocks or silently drops a provider, and says
+so in plain words. Behind a full-tunnel VPN such as NordVPN, every request
+leaves through the VPN company's servers, and Groq and Cerebras often refuse
+those addresses (or the packets simply vanish). Nothing changes on a network
+where every provider answers.
+
+### Added
+- **A plain notice when another provider had to step in.** If speech to text or
+  the clean-up used a different provider than your first choice because the
+  first could not be reached from this network, or refused it, a short message
+  says so once the words are pasted: "Groq can't be reached from this network,
+  so Waffler used OpenAI instead. A VPN is often the reason." It shows at most
+  once per provider every 30 minutes, never for a rate limit, and never on the
+  way to your words.
+- **Every failure of a provider is one `[net]` line in `app.log`**, so a session
+  behind a VPN can be diagnosed from the log alone: which provider, the kind of
+  failure and the error class, the seconds it cost, the pause it set, the
+  provider that was tried next, and whether a VPN tunnel carries the internet
+  (read from the routing table at most once a minute). No key and no text from
+  a dictation is ever in it.
+
+### Changed
+- **The `[vpn]` line in the log no longer calls Tailscale a VPN.** The old check
+  called any tunnel interface with an IPv4 address a VPN, so Tailscale (which
+  only carries traffic for your own devices) read "providers may be slower or
+  block requests". Waffler now asks the system where a request to a public
+  address goes (`route -n get` on a Mac, `Find-NetRoute` on Windows) and says
+  one of `[vpn] off`, `[vpn] a tunnel (utun4) is present but internet traffic
+  does not use it (Tailscale?)` or `[vpn] full tunnel via utun4: providers may be
+  slower or block requests`. It is for the log only; nothing else changed.
 
 ### Fixed
 - **A stuck audio system no longer leaves Waffler looking idle while it
@@ -60,6 +93,33 @@ were recording.
   ten minutes (the times are kept in `audio_restarts.json`, which Delete all
   my data removes); after that it only says to quit and open Waffler again.
   Windows has a different audio system, so there Waffler only says so.
+
+- **Dictation no longer goes dead when a VPN blocks or stalls a provider.** A
+  provider that dropped its packets used to be waited on for the whole request
+  timeout (a minute or more for speech to text) before the next one was tried,
+  and the flat 30 second pause then repeated that wait every 30 seconds. Now,
+  when another provider can take the request, connecting is given 6 seconds,
+  an upload that stops moving is given up on after 20, and an answer that never
+  starts after about 25 (plus a few seconds per megabyte of audio). A black
+  hole costs about 6 seconds before OpenAI answers, measured here against a real
+  address that never replies. A provider that is the only one set up is still
+  waited on generously (20 seconds to connect), because giving up on the only
+  option is a certain failure.
+- **A provider that keeps failing is left alone for longer each time.** The
+  pause after a failure doubles while it keeps failing (30 seconds, then 60,
+  120, 240, and never more than 5 minutes; a block starts at 60 seconds), and
+  starts again at the first answer. Behind a VPN that blocks Groq, Waffler stops
+  touching it after a couple of dictations and goes straight to OpenAI, asking
+  Groq again every few minutes in case the VPN server changed. This covers speech
+  to text (Groq and OpenAI) and the clean-up (Groq and Cerebras). If every other
+  provider fails, a paused one is asked anyway rather than failing a dictation
+  it could have done. The only speech provider is never paused. The Groq
+  clean-up still pauses for an hour after a 403, as before.
+- **A timed-out clean-up request is now treated as a connection problem.** The
+  SDK reports it as "Request timed out.", which the clean-up did not recognise,
+  so it was never paused and its message did not say Waffler could not reach
+  the service.
+
 
 ## [3.16.1] - 2026-10-17
 
