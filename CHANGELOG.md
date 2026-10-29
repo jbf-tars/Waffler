@@ -4,6 +4,43 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+A dictation on a Mac now finishes when your words appear, about a second
+sooner in most apps, and Waffler's log keeps several times as much history.
+
+### Changed
+- **The pill, the Journal and the tick come when your words land (Mac).**
+  Since 3.16.0 Waffler puts back what you had copied after each paste. In an
+  app whose text Waffler can't read, which is most of them (Chrome, Slack,
+  VS Code and other Electron apps, terminals: 28 of the last 30 pastes on one
+  Mac), it leaves your words on the clipboard for a second after pressing
+  Cmd+V before it does that, so a slow app still pastes your words and not
+  your old clipboard. The whole dictation waited for that second too: the
+  working pill, the Journal entry and the tick came about a second after the
+  words appeared, and the paste step in the log went from 160 ms in 3.15.1
+  to 1,100 ms. Waffler now moves on as soon as Cmd+V is sent. Your clipboard
+  still comes back on the same schedule as before. In that second a paste, a
+  copy (Copy in the Journal too) or Paste last waits for it, a Transform
+  says Waffler is busy, as it did while the dictation ran, and a restart to
+  update waits.
+- **In a text box Waffler can read, the dictation finishes as soon as the
+  paste shows (Mac).** Waffler now looks at the text every tenth of a second
+  after Cmd+V, where it looked once, at half a second, so the dictation
+  finishes within about a tenth of a second of the words appearing. Your
+  clipboard still comes back at the half second. A paste with nothing to
+  land in (no text box in focus, or a button) says so half a second sooner,
+  in Transforms, Command mode and Paste last too.
+
+### Fixed
+- **`app.log` keeps weeks of history again, not a week (Mac).** Since
+  3.14.68 the recording pill wrote a line to the log for each of the roughly
+  30 level updates a second it gets while you record: 29,474 of the 35,853
+  lines in one log, and 83% of its size. The log is cut at 5 MB, so a bug
+  report could only look back about a week. Those updates are no longer
+  logged; the lines that follow the pill being shown, hidden and moved
+  across Spaces and full-screen apps, and every message, still are.
+
 ## [3.16.2] - 2026-10-26
 
 Two things that could leave you unable to dictate are fixed.
