@@ -69,6 +69,10 @@ def recycled(rec):
     return [line for line in rec.lines if "while idle" in line]
 
 
+def plug(sd, name):
+    sd.devices.append({"name": name, "max_input_channels": 1, "max_output_channels": 0, "hostapi": 0})
+
+
 # ── the press ────────────────────────────────────────────────────────────────
 
 def test_a_press_after_a_long_idle_keeps_the_preroll_and_opens_nothing(sd):
@@ -105,6 +109,7 @@ def test_the_first_press_logs_no_idle_time(sd):
 def test_idle_is_counted_from_when_the_recorder_began_not_from_1970(sd):
     clock = Clock()
     rec = make(sd, clock)              # no press yet
+    plug(sd, "USB Microphone")
     clock.t += 31
     assert rec.recycle_when_idle()
     line, = recycled(rec)
@@ -122,21 +127,98 @@ def test_an_idle_stream_is_opened_again_once_it_has_been_idle_long_enough(sd):
     clock.t += 2
     assert rec.recycle_when_idle() is True
     assert sd.log == REOPEN
-    assert len(recycled(rec)) == 1
 
 
-def test_one_line_per_recycle_not_per_poll(sd):
+def test_a_reopen_that_changes_nothing_logs_nothing(sd):
     clock = Clock()
     rec = make(sd, clock)
     clock.t += 31
-    rec.recycle_when_idle()
-    for _ in range(14):                # the next 28 s of polls
-        clock.t += 2
-        assert rec.recycle_when_idle() is False
-    assert sd.log == REOPEN and len(recycled(rec)) == 1
-    clock.t += 4                       # 32 s after the last one
     assert rec.recycle_when_idle() is True
-    assert len(recycled(rec)) == 2
+    assert rec.lines == []
+
+
+def reopen_times(rec, clock, until_s, step=2):
+    """Poll every ``step`` seconds for ``until_s`` seconds; the idle times (from
+    the start) at which the stream was opened again."""
+    start, times = clock.t, []
+    while clock.t - start < until_s:
+        clock.t += step
+        if rec.recycle_when_idle():
+            times.append(clock.t - start)
+    return times
+
+
+def test_reopens_back_off_30_s_then_2_min_then_every_5_min(sd):
+    clock = Clock()
+    rec = make(sd, clock)
+    times = reopen_times(rec, clock, 22 * 60)
+    assert times == [30, 120, 420, 720, 1020, 1320], times
+    assert rec.lines == [], "routine reopens are not logged"
+
+
+def test_a_press_resets_the_schedule(sd):
+    clock = Clock()
+    rec = make(sd, clock)
+    assert reopen_times(rec, clock, 10 * 60) == [30, 120, 420]
+    rec.start()
+    rec.stop()
+    assert reopen_times(rec, clock, 3 * 60) == [30, 120]
+
+
+def test_a_long_sleep_reopens_once_and_does_not_catch_up(sd):
+    clock = Clock()
+    rec = make(sd, clock)
+    clock.t += 3 * 3600                 # asleep for three hours
+    assert rec.recycle_when_idle() is True
+    clock.t += 2
+    assert rec.recycle_when_idle() is False
+    assert reopen_times(rec, clock, 60) == []
+
+
+def test_a_new_microphone_is_logged_with_the_quiet_reopens_before_it(sd):
+    clock = Clock()
+    rec = make(sd, clock)
+    assert reopen_times(rec, clock, 8 * 60) == [30, 120, 420]
+    assert rec.lines == []
+    plug(sd, "USB Microphone")
+    assert reopen_times(rec, clock, 5 * 60) == [240]       # at 12 min idle
+    line, = recycled(rec)
+    assert "USB Microphone" in line and "after 3 quiet reopens" in line, line
+    assert reopen_times(rec, clock, 5 * 60) == [240]       # at 17 min
+    assert len(recycled(rec)) == 1, "the counter starts again and nothing changed"
+
+
+def test_a_microphone_that_left_is_logged(sd):
+    clock = Clock()
+    plug(sd, "USB Microphone")
+    rec = make(sd, clock)
+    sd.devices.pop()
+    clock.t += 31
+    assert rec.recycle_when_idle()
+    line, = recycled(rec)
+    assert "USB Microphone" in line and "gone" in line, line
+
+
+def test_a_reopen_onto_another_microphone_is_logged(sd):
+    clock = Clock()
+    rec = make(sd, clock)
+    sd.default_index = 2                # the system's default input is now another one
+    clock.t += 31
+    assert rec.recycle_when_idle()
+    line, = recycled(rec)
+    assert "Yeti" in line, line
+
+
+def test_the_press_after_quiet_reopens_says_how_many(sd):
+    clock = Clock()
+    rec = make(sd, clock)
+    assert len(reopen_times(rec, clock, 3 * 60)) == 2
+    rec.start()
+    assert any("2 quiet reopens" in line for line in rec.lines), rec.lines
+    rec.stop()
+    rec.lines.clear()
+    rec.start()                         # nothing reopened since: nothing said
+    assert rec.lines == []
 
 
 def test_the_press_after_a_recycle_finds_a_warm_stream_and_its_preroll(sd):
@@ -219,19 +301,28 @@ def test_a_wedged_recorder_is_left_alone(sd):
     assert sd.log == []
 
 
-def test_a_recycle_that_fails_is_logged_once_and_not_tried_on_every_poll(sd):
+def failures(rec):
+    return [line for line in rec.lines if "could not open the microphone again" in line]
+
+
+def test_a_recycle_that_fails_is_logged_and_tried_again_on_the_schedule_not_every_poll(sd):
     clock = Clock()
     rec = make(sd, clock)
+    assert reopen_times(rec, clock, 60) == [30]          # one quiet reopen first
     sd.fail_start = True
-    clock.t += 31
+    clock.t += 60                                        # 2 min idle: the next one, which fails
     assert rec.recycle_when_idle() is False
-    failed = [line for line in rec.lines if "could not open the microphone again" in line]
-    assert len(failed) == 1
+    line, = failures(rec)
+    assert "after 1 quiet reopen" in line, line
     sd.log.clear()
-    clock.t += 2
-    assert rec.recycle_when_idle() is False
-    assert sd.log == []
-    assert len([line for line in rec.lines if "could not open the microphone again" in line]) == 1
+    for _ in range(100):                                 # the next 200 s of polls
+        clock.t += 2
+        assert rec.recycle_when_idle() is False
+    assert sd.log == [] and len(failures(rec)) == 1
+    clock.t += 100                                       # 7 min idle: the one after
+    sd.fail_start = False
+    assert rec.recycle_when_idle() is True
+    assert len(failures(rec)) == 1
 
 
 def test_a_recycle_also_clears_a_flagged_device_change(sd):

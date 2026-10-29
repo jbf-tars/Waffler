@@ -4215,9 +4215,10 @@ def _build_pipeline():
 
         def _on_poll_tick() -> None:
             """Windows: PortAudio's list of microphones is only as new as the
-            stream, so a stream idle for half a minute is opened again here,
-            between presses, and the next press keeps its pre-roll (a Mac does
-            nothing: src/audio.py ``recycle_when_idle``). Never while anything
+            stream, so an idle stream is opened again here, between presses
+            (at 30 s of quiet, 2 minutes, then every 5), and the next press
+            keeps its pre-roll (a Mac does nothing: src/audio.py
+            ``recycle_when_idle``). Never while anything
             is using the microphone or a paste is putting the clipboard back."""
             audio = getattr(_pipeline, "audio", None) if _pipeline is not None else None
             if audio is not None and hasattr(audio, "recycle_when_idle"):

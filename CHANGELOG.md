@@ -16,11 +16,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   microphone when it opens the microphone again), and the take then also
   waited for the microphone to start. On one Windows PC that happened on 26 of 33
   dictations. Waffler now opens the microphone again in the background while
-  you're not dictating, once it has been idle for 30 seconds, so a microphone
-  you plug in is still found and the next press has its half second. It never
-  does this while you're dictating, holding a Transform or Command key, or
-  while a paste is putting your clipboard back. Nothing changes on a Mac,
-  which says when a microphone is plugged in.
+  you're not dictating: after 30 seconds of quiet, so the next press is on a
+  fresh microphone and has its half second, then at 2 minutes, then every 5
+  minutes for as long as the quiet lasts (each one can click, or make a
+  Bluetooth headset reconnect its microphone, so they are kept few). A
+  microphone you plug in is still found. It never does this while you're
+  dictating, holding a Transform or Command key, or while a paste is putting
+  your clipboard back, and app.log only mentions it when it found a
+  microphone that came or went, or failed. Nothing changes on a Mac, which
+  says when a microphone is plugged in.
 - **The first dictation after starting Waffler no longer logs a nonsense idle
   time** (app.log said "idle for 1793277391s").
 - **A timing test no longer fails on a slow Windows disk.** It now compares

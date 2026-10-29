@@ -60,9 +60,10 @@ next press opens a new one (once) instead of recording on a dead one. On a
 Mac this replaces the old rule "a press after 30 s idle opens a new stream",
 which put a stop and a restart of CoreAudio on the hotkey's path every time.
 Where there is no live device list (Windows) the poll keeps a form of that rule
-off the hotkey's path: ``on_tick`` lets the app open a stream that has been idle
-for 30 s again between presses (src/audio.py ``recycle_when_idle``), so the
-press keeps its pre-roll and PortAudio's list is new again.
+off the hotkey's path: ``on_tick`` lets the app open an idle stream again
+between presses, at 30 s of quiet, 2 minutes, then every 5 (src/audio.py
+``recycle_when_idle``), so the press keeps its pre-roll and PortAudio's list is
+new again.
 
 Limitations:
 - Polling has a 1–2 s window. Acceptable.
