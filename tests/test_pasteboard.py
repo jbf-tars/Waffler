@@ -780,6 +780,367 @@ def test_a_busy_clipboard_pastes_without_restoring_instead_of_waiting_for_ever()
     assert "snapshot" not in events, "two overlapping sequences must not restore each other's data"
 
 
+# ── the outcome as soon as it is known ───────────────────────────────────
+# 28 of one user's last 30 pastes went into apps whose text Accessibility cannot
+# read (Chrome, Electron). The paste then keeps the dictation on the clipboard
+# for a second after the keystroke before putting theirs back, and the
+# dictation waited for all of it: the pill, the Journal and the tick came a
+# second after the words. The paste now reports how it went the moment that
+# is known. The restore keeps exactly its old timing, and the clipboard lock,
+# on the paste's own thread.
+
+def _reporting_paste(focus_states, restore=True, items=((STRING, b"old"),), skipped="",
+                     read_cost=0.0):
+    """A paste with a ticket; ``stamps`` holds the fake clock when the paste
+    began ("start"), at the keystroke ("key") and at the report ("report")."""
+    events, stamps = [], {}
+    pb = FakePasteboard(events, items=[list(items)], skipped=skipped)
+    ticket = PasteTicket()
+    paster = make_paster(events, pb, focus_states, read_cost=read_cost,
+                         send=lambda kc: stamps.setdefault("key", paster.clock.now))
+    pb.stamp = lambda: paster.clock.now
+    ticket.when_reported(lambda: stamps.setdefault("report", paster.clock.now))
+    started = paster.clock.now
+    out = paster.paste("hello there", restore=restore, ticket=ticket)
+    stamps["start"] = started
+    return out, ticket, pb, stamps, events, paster
+
+
+def test_the_ticket_keeps_the_first_report_and_tells_whoever_waits():
+    t = PasteTicket()
+    heard = []
+    t.when_reported(lambda: heard.append("early listener"))
+    assert t.reported is False and t.outcome is None and heard == []
+    first = PasteOutcome(UNVERIFIED, "opaque")
+    t.report(first)
+    t.report(PasteOutcome(PASTED))
+    assert t.reported and t.outcome is first and heard == ["early listener"]
+    t.when_reported(lambda: heard.append("late listener"))
+    assert heard == ["early listener", "late listener"], "told at once once it has reported"
+
+
+def test_a_listener_that_raises_does_not_break_the_report():
+    t = PasteTicket()
+    t.when_reported(lambda: 1 / 0)
+    heard = []
+    t.when_reported(lambda: heard.append(1))
+    t.report(PasteOutcome(PASTED))
+    assert t.reported and heard == [1]
+
+
+def test_a_listener_may_abandon_from_inside_the_report_without_a_deadlock():
+    t = PasteTicket()
+    told = []
+    t.when_reported(lambda: told.append(t.abandon()))
+    t.report(PasteOutcome(UNVERIFIED, "opaque"))
+    assert told == [True] and t.commit_restore() is False
+
+
+def test_an_app_that_hides_its_text_hears_at_the_keystroke_and_still_gets_its_second():
+    out, ticket, pb, stamps, events, _ = _reporting_paste([FocusState(OPAQUE)])
+    assert ticket.outcome == PasteOutcome(UNVERIFIED, "opaque", restored=False, on_clipboard=False)
+    assert stamps["report"] == stamps["key"], "nothing can be checked, so nothing is waited for"
+    assert stamps["report"] - stamps["start"] == pytest.approx(0.05), "was 1.05 s: the settle, then two waits"
+    assert 0.95 <= pb.restored_at - stamps["key"] <= 1.15, "the restore keeps its second, as before"
+    assert out == PasteOutcome(UNVERIFIED, "opaque", restored=True, on_clipboard=False)
+    assert pb.text() == "old"
+
+
+def test_an_app_slow_to_answer_keeps_the_words_longer_as_before():
+    """Half a second in, the paste looks at the field once more. What it
+    sees cannot change the outcome, but a busy app is slow to answer, and the
+    app that is slow to answer is the one that reads the pasteboard late, so
+    that time is added to its second (the look costs 0.3 s here)."""
+    out, ticket, pb, stamps, events, _ = _reporting_paste([FocusState(OPAQUE)], read_cost=0.3)
+    assert stamps["report"] == stamps["key"]
+    assert pb.restored_at - stamps["key"] == pytest.approx(0.5 + 0.3 + 0.5)
+
+
+def test_a_text_field_that_changes_is_reported_at_once_and_put_back_at_the_half_second():
+    """A change shows the app has read the pasteboard, unless something else
+    changed the field (a key pressed just before, a field that updates
+    itself), so the clipboard still stays the half second it always did."""
+    out, ticket, pb, stamps, events, _ = _reporting_paste([text_state(5), text_state(5), text_state(30)])
+    assert ticket.outcome == PasteOutcome(PASTED, "", restored=False, on_clipboard=False)
+    assert stamps["report"] - stamps["key"] == pytest.approx(0.2), "the second look saw the change"
+    assert pb.restored_at - stamps["key"] == pytest.approx(0.5)
+    assert out == PasteOutcome(PASTED, "", restored=True, on_clipboard=False)
+
+
+class _ChangesAt:
+    """A readable field whose text changes ``at`` seconds after the keystroke;
+    each look costs ``cost`` from the ``after``-th look on."""
+
+    def __init__(self, paster, stamps, events, at, cost=0.0, after=1):
+        self.paster, self.stamps, self.events = paster, stamps, events
+        self.at, self.cost, self.after, self.reads = at, cost, after, 0
+
+    def read(self):
+        self.events.append("ax")
+        self.reads += 1
+        if self.reads > self.after:
+            self.paster.clock.now += self.cost
+        key = self.stamps.get("key")
+        return text_state(30 if key is not None and self.paster.clock.now - key >= self.at else 5)
+
+
+def _field_paste(at, cost=0.0, after=1, before_cost=0.0):
+    events, stamps = [], {}
+    pb = FakePasteboard(events, items=[[(STRING, b"old")]])
+    ticket = PasteTicket()
+    paster = make_paster(events, pb, [text_state(5)],
+                         send=lambda kc: stamps.setdefault("key", paster.clock.now))
+    paster._focus = _ChangesAt(paster, stamps, events, at, cost, after)
+    if before_cost:
+        first = paster._focus.read
+
+        def slow_first():
+            if paster._focus.reads == 0:
+                paster.clock.now += before_cost
+            return first()
+        paster._focus.read = slow_first
+    pb.stamp = lambda: paster.clock.now
+    ticket.when_reported(lambda: stamps.setdefault("report", paster.clock.now))
+    out = paster.paste("hello there", ticket=ticket)
+    return out, ticket, pb, stamps, events
+
+
+def test_a_change_that_shows_after_the_half_second_is_put_back_at_once_as_before():
+    out, ticket, pb, stamps, events = _field_paste(at=0.65)
+    assert ticket.outcome.status == PASTED
+    assert stamps["report"] - stamps["key"] == pytest.approx(0.7)
+    assert pb.restored_at == stamps["report"], "well before the unconfirmed second is up"
+
+
+def test_a_field_slow_to_answer_is_not_looked_at_more_than_before():
+    """Its first look took longer than the looks are apart: the paste keeps to
+    the old sequence, and reports when that sequence knows."""
+    out, ticket, pb, stamps, events = _field_paste(at=0.3, before_cost=0.2)
+    key = events.index("key:9")
+    assert events[key:].count("ax") == 1, "only the look at the half second, as before"
+    assert stamps["report"] - stamps["key"] == pytest.approx(0.5)
+    assert pb.restored_at == stamps["report"]
+
+
+def test_a_look_still_going_at_the_half_second_is_that_look():
+    """The field turned slow to answer right after the keystroke: the look
+    begun at 0.1 s takes 2.4 s. It stands for the look at the half second, and
+    what follows runs from when that look would have ended. Before, that look
+    took 2.4 s from 0.5 s, then half a second more (the looks past the verify
+    budget are instant): 3.4 s. A second look at the half second would have
+    found the budget spent, and put the clipboard back at 3.0 s."""
+    out, ticket, pb, stamps, events = _field_paste(at=99, cost=2.4, after=1)
+    assert pb.restored_at - stamps["key"] == pytest.approx(3.4)
+    assert stamps["report"] == pb.restored_at, "and the report is no later than the paste used to end"
+    assert out.status == UNVERIFIED and out.restored
+    assert events[events.index("key:9"):].count("ax") == 1
+
+
+def test_a_slow_look_is_the_last_extra_one():
+    """The first look after the keystroke took 0.2 s, longer than the looks
+    are apart: no more of them, and the old sequence runs as it did."""
+    out, ticket, pb, stamps, events = _field_paste(at=99, cost=0.2, after=1)
+    # Before: 0.5 s, the look (0.2 s), then looks at 0.8 s and 1.1 s within
+    # the half second more, each 0.2 s: put back 1.3 s after the keystroke.
+    assert pb.restored_at - stamps["key"] == pytest.approx(1.3)
+    assert events[events.index("key:9"):].count("ax") == 1 + 3
+
+
+def test_a_text_field_that_never_changes_is_reported_when_the_wait_is_over():
+    out, ticket, pb, stamps, events, _ = _reporting_paste([text_state(5)])
+    assert ticket.outcome == PasteOutcome(UNVERIFIED, "no_change", restored=False, on_clipboard=False)
+    assert 0.95 <= stamps["report"] - stamps["key"] <= 1.15
+    assert pb.restored_at == stamps["report"] and out.restored is True
+
+
+def test_a_text_field_is_looked_at_every_tenth_of_a_second_after_the_keystroke():
+    out, ticket, pb, stamps, events, paster = _reporting_paste([text_state(5)])
+    key = events.index("key:9")
+    assert events[:key].count("ax") == 1, "one look before the keystroke"
+    assert 9 <= events[key:].count("ax") <= 12, "then one every 0.1 s for the second it may take"
+
+
+def test_a_paste_with_nowhere_to_land_reports_failed_at_once_and_keeps_the_words():
+    out, ticket, pb, stamps, events, paster = _reporting_paste([FocusState(NONE)])
+    assert ticket.outcome == PasteOutcome(FAILED, "no_focus", restored=False, on_clipboard=True)
+    assert stamps["report"] == stamps["key"]
+    assert pb.text() == "hello there" and pb.transient is False, "a plain copy before the report"
+    assert sum(paster.clock.slept) == pytest.approx(0.05), "nothing to put back, so no second of waiting"
+    assert "restore" not in events and out == ticket.outcome
+
+
+def test_with_no_reader_the_paste_reports_at_the_keystroke_and_keeps_the_second():
+    out, ticket, pb, stamps, events, _ = _reporting_paste([None])
+    assert ticket.outcome == PasteOutcome(UNVERIFIED, "no_reader", restored=False, on_clipboard=False)
+    assert stamps["report"] == stamps["key"]
+    assert 0.95 <= pb.restored_at - stamps["key"] <= 1.15
+    assert out.restored is True
+
+
+def test_keep_mode_reports_at_once_but_keeps_the_clipboard_to_itself_as_long_as_before():
+    out, ticket, pb, stamps, events, paster = _reporting_paste([FocusState(OPAQUE)], restore=False)
+    assert ticket.outcome == PasteOutcome(UNVERIFIED, "opaque", restored=False, on_clipboard=True)
+    assert stamps["report"] == stamps["key"]
+    assert paster.clock.now - stamps["key"] >= 0.95, "a slow app still reads the words, not a later copy"
+    assert pb.text() == "hello there" and out.on_clipboard is True
+
+
+def test_when_nothing_can_be_put_back_the_report_says_the_words_stay():
+    out, ticket, pb, stamps, events, _ = _reporting_paste([FocusState(OPAQUE)], skipped="concealed")
+    assert ticket.outcome.on_clipboard is True
+    assert out.on_clipboard is True and out.restored is False and pb.transient is False
+
+
+def test_a_restore_that_fails_after_the_report_still_leaves_the_words_as_a_plain_copy():
+    events = []
+    pb = FakePasteboard(events, items=[[(STRING, b"old")]])
+    pb.restore_raises = True
+    ticket = PasteTicket()
+    out = make_paster(events, pb, [FocusState(OPAQUE)]).paste("hello there", ticket=ticket)
+    assert ticket.outcome.on_clipboard is False, "at the report the restore was still to come"
+    assert out.restored is False and out.on_clipboard is True
+    assert pb.text() == "hello there" and pb.transient is False
+
+
+def test_a_paste_that_could_not_start_reports_its_failure_too():
+    events = []
+    pb = FakePasteboard(events)
+    pb.put_text = lambda text, transient=False: (_ for _ in ()).throw(RuntimeError("refused"))
+    ticket = PasteTicket()
+    out = make_paster(events, pb, [text_state(5)]).paste("hello", ticket=ticket)
+    assert ticket.outcome == out == PasteOutcome(FAILED, "clipboard_error")
+
+
+def test_abandoned_before_the_report_the_words_stay_and_nothing_is_put_back():
+    """The deadline passed while a text field was still being watched."""
+    events = []
+    pb = FakePasteboard(events, items=[[(STRING, b"old")]])
+    ticket = PasteTicket()
+    told = {}
+    paster = make_paster(events, pb, [text_state(5), text_state(5), text_state(30)],
+                         send=lambda kc: told.setdefault("abandon", ticket.abandon()))
+    out = paster.paste("hello there", ticket=ticket)
+    assert told["abandon"] is True, "the caller may say the words are on the clipboard"
+    assert out.status == PASTED and out.restored is False and out.on_clipboard is True
+    assert pb.text() == "hello there" and pb.transient is False and "restore" not in events
+
+
+def test_abandoned_after_the_report_but_before_the_restore_the_words_stay():
+    events = []
+    pb = FakePasteboard(events, items=[[(STRING, b"old")]])
+    ticket = PasteTicket()
+    told = {}
+    ticket.when_reported(lambda: told.setdefault("abandon", ticket.abandon()))
+    out = make_paster(events, pb, [FocusState(OPAQUE)]).paste("hello there", ticket=ticket)
+    assert ticket.outcome.status == UNVERIFIED and told["abandon"] is True
+    assert out == PasteOutcome(UNVERIFIED, "opaque", restored=False, on_clipboard=True)
+    assert pb.text() == "hello there" and pb.transient is False and "restore" not in events
+
+
+def test_abandoned_once_the_restore_has_begun_the_paste_counts_as_done():
+    events = []
+    pb = FakePasteboard(events, items=[[(STRING, b"old")]])
+    ticket = PasteTicket()
+    told = {}
+    pb.on_restore = lambda: told.setdefault("abandon", ticket.abandon())
+    out = make_paster(events, pb, [FocusState(OPAQUE)]).paste("hello", ticket=ticket)
+    assert told["abandon"] is False and out.restored is True and pb.text() == "old"
+
+
+class _Gate:
+    """Holds a paste's thread in the second after its report, until opened."""
+
+    def __init__(self, paster, ticket):
+        self.open = threading.Event()
+        self.reported = threading.Event()
+        ticket.when_reported(self.reported.set)
+        fake_sleep = paster._sleep
+
+        def sleep(dt):
+            if ticket.reported:
+                assert self.open.wait(5), "the test never opened the gate"
+            fake_sleep(dt)
+        paster._sleep = sleep
+
+
+def test_the_clipboard_stays_locked_until_the_restore_so_the_next_paste_keeps_the_users_own():
+    events = []
+    pb = FakePasteboard(events, items=[[(STRING, b"my old clipboard")]])
+    first, ticket = make_paster(events, pb, [FocusState(OPAQUE)]), PasteTicket()
+    gate = _Gate(first, ticket)
+    done = {}
+    a = threading.Thread(target=lambda: done.setdefault("first", first.paste("first words", ticket=ticket)))
+    a.start()
+    try:
+        assert gate.reported.wait(5)
+        second = make_paster(events, pb, [FocusState(OPAQUE)])     # the next dictation, Paste last
+        b = threading.Thread(target=lambda: done.setdefault("second", second.paste("second words")))
+        b.start()
+        b.join(0.3)
+        assert b.is_alive() and events.count("snapshot") == 1, "it waits for the first restore"
+    finally:
+        gate.open.set()
+    a.join(5)
+    b.join(5)
+    assert done["first"].restored and done["second"].restored
+    snapshots = [i for i, e in enumerate(events) if e == "snapshot"]
+    assert events.index("restore") < snapshots[1], "the second saved the clipboard after the first put it back"
+    assert pb.text() == "my old clipboard", "so it put back the user's own, not the first dictation"
+
+
+def test_a_copy_made_straight_after_the_report_lands_after_the_restore(monkeypatch):
+    events = []
+    pb = FakePasteboard(events, items=[[(STRING, b"my old clipboard")]])
+
+    class Copier:
+        def copy(self, text):
+            events.append("copy")
+            pb.user_copies(text)
+    monkeypatch.setitem(sys.modules, "pyperclip", Copier())
+    paster, ticket = make_paster(events, pb, [FocusState(OPAQUE)]), PasteTicket()
+    gate = _Gate(paster, ticket)
+    a = threading.Thread(target=lambda: paster.paste("dictated words", ticket=ticket))
+    a.start()
+    try:
+        assert gate.reported.wait(5)
+        copied = {}
+        b = threading.Thread(target=lambda: copied.setdefault("ok", pasteboard.copy_text("copy last")))
+        b.start()
+        b.join(0.3)
+        assert b.is_alive() and "copy" not in events, "the copy waits for the restore"
+    finally:
+        gate.open.set()
+    a.join(5)
+    b.join(5)
+    assert copied["ok"] is True and events.index("restore") < events.index("copy")
+    assert pb.text() == "copy last", "the copy is what is left on the clipboard"
+
+
+def test_a_paste_counts_as_in_progress_until_the_users_clipboard_is_back():
+    """A restart to update must not cut the restore off (app.py asks this)."""
+    events = []
+    pb = FakePasteboard(events, items=[[(STRING, b"old")]])
+    ticket = PasteTicket()
+    seen = {}
+    ticket.when_reported(lambda: seen.setdefault("at the report", pasteboard.paste_in_progress()))
+    pb.on_restore = lambda: seen.setdefault("during the restore", pasteboard.paste_in_progress())
+    assert pasteboard.paste_in_progress() is False
+    make_paster(events, pb, [FocusState(OPAQUE)]).paste("hello", ticket=ticket)
+    assert seen == {"at the report": True, "during the restore": True}
+    assert pasteboard.paste_in_progress() is False
+
+
+def test_a_paste_stuck_for_far_longer_than_any_healthy_one_stops_counting():
+    events = []
+    pb = FakePasteboard(events, items=[[(STRING, b"old")]])
+    seen = {}
+    later = lambda: pasteboard.time.monotonic() + pasteboard.STUCK_PASTE_SECONDS + 1  # noqa: E731
+    pb.on_restore = lambda: seen.update(now=pasteboard.paste_in_progress(),
+                                        later=pasteboard.paste_in_progress(clock=later))
+    make_paster(events, pb, [FocusState(OPAQUE)]).paste("hello", ticket=PasteTicket())
+    assert seen == {"now": True, "later": False}, "a restart must not wait for a wedged paste for ever"
+
+
 # ── Windows: copy and Ctrl+V, as before ──────────────────────────────────
 
 class _FakePyperclip:

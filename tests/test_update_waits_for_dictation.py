@@ -79,6 +79,29 @@ def test_a_dictation_in_progress_makes_the_restart_wait(monkeypatch, busy):
     assert any(m.startswith("[update] install waits:") for m in logged)
 
 
+def test_a_paste_still_putting_the_clipboard_back_makes_the_restart_wait(monkeypatch):
+    """A dictation now ends when its words land, up to a second before the
+    paste has put the user's own clipboard back. The window asks again every
+    1.5 s while an install waits, so a restart would often land in that
+    second and leave the dictation where their clipboard was."""
+    restoring = [True]
+    p = pipeline()
+    p.clipboard = types.SimpleNamespace(paste_in_progress=lambda: restoring[0])
+    installed = []
+    install, logged = _lift(p, monkeypatch, installed)
+    assert install() == {"ok": False, "busy": True, "error": um.UPDATE_WAITING}
+    assert installed == []
+    assert "[update] install waits: a paste is putting the clipboard back" in logged
+    restoring[0] = False
+    assert install() == {"ok": True} and installed
+
+
+def test_the_real_clipboard_says_whether_a_paste_is_under_way():
+    import clipboard
+    import pasteboard
+    assert clipboard.ClipboardManager.paste_in_progress() is pasteboard.paste_in_progress() is False
+
+
 def test_with_nothing_in_progress_the_install_goes_ahead(monkeypatch):
     installed = []
     install, _ = _lift(pipeline(), monkeypatch, installed)

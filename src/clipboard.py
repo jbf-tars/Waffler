@@ -64,3 +64,10 @@ class ClipboardManager:
         ``pasteboard.PasteTicket``)."""
         return pasteboard.paste_text(text, window_handle=window_handle, restore=restore,
                                      settle_delay=settle_delay, ticket=ticket)
+
+    @staticmethod
+    def paste_in_progress() -> bool:
+        """True while a paste is under way, including the second after a
+        dictation has moved on while the paste puts the user's clipboard back
+        (see ``pasteboard.paste_in_progress``)."""
+        return pasteboard.paste_in_progress()

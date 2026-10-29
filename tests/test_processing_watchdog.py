@@ -26,6 +26,7 @@ import pytest
 from _pipeline_harness import (ROOT, FakeAudio, FakeClipboard, FakeStyler, FakeTranscriber,
                                Hang, fast_limits, history, make_pipeline, run_process,
                                speech_wav, wait_for)
+import pasteboard
 import pipeline_watchdog as pw
 
 
@@ -139,6 +140,67 @@ def test_a_choice_also_hands_over_the_step_and_an_answer_has_none():
     assert r.late.wait(2)
     assert run.call(lambda: 1, stage=pw.STYLING, deadline=1).late is None
     assert run.call(lambda: 1 / 0, stage=pw.STYLING, deadline=1).late is None
+
+
+def test_a_step_that_reports_early_is_waited_for_only_until_it_reports():
+    """A paste knows how it went at the keystroke, then has a second of
+    putting the user's clipboard back. The dictation goes on at the report;
+    the rest of the step is handed over as ``late``."""
+    run = pw.DictationRun(1)
+    ticket = pasteboard.PasteTicket()
+    restore = Hang(30)
+    reported_at = []
+
+    def paste():
+        time.sleep(0.3)                 # between two of the wait's quarter-second looks
+        reported_at.append(time.monotonic())
+        ticket.report("how it went")
+        restore.wait()
+        return "the final outcome"
+    r = run.call(paste, stage=pw.PASTING, deadline=5.0, early=ticket)
+    returned_at = time.monotonic()
+    try:
+        assert r.ok and r.value == "how it went"
+        # Woken by the report, not found by the next look at 0.5 s.
+        assert returned_at - reported_at[0] < 0.15
+        assert r.late is not None and not r.late.done, "the rest of the step is still running"
+    finally:
+        restore.release.set()
+    assert r.late.wait(2) and r.late.value == "the final outcome"
+
+
+def test_a_step_that_never_reports_is_waited_for_to_its_end_as_before():
+    run = pw.DictationRun(1)
+    r = run.call(lambda: "done", stage=pw.PASTING, deadline=1.0, early=pasteboard.PasteTicket())
+    assert r.ok and r.value == "done" and r.late is None
+    r = run.call(lambda: 1 / 0, stage=pw.PASTING, deadline=1.0, early=pasteboard.PasteTicket())
+    assert r.status == "error" and isinstance(r.error, ZeroDivisionError)
+
+
+def test_a_report_once_the_deadline_has_passed_is_too_late():
+    run = pw.DictationRun(1)
+    ticket = pasteboard.PasteTicket()
+    hang = Hang(30)
+
+    def paste():
+        hang.wait()
+        ticket.report("too late")
+    r = run.call(paste, stage=pw.PASTING, deadline=0.3, early=ticket)
+    hang.release.set()
+    assert r.status == pw.DEADLINE and r.late is not None
+
+
+def test_what_was_reported_wins_over_what_the_step_returns():
+    """By the time the wait looks, the step may be over too. The report is
+    the answer either way, so the dictation sees the same thing every time."""
+    run = pw.DictationRun(1)
+
+    def paste():
+        ticket.report("reported")
+        return "returned"
+    for _ in range(20):
+        ticket = pasteboard.PasteTicket()
+        assert run.call(paste, stage=pw.PASTING, deadline=1.0, early=ticket).value == "reported"
 
 
 def test_a_click_on_cancel_wins_over_esc():

@@ -11,13 +11,18 @@ This module does the whole job in one place:
       -> put the text on it
       -> wait until the hotkey's modifiers are physically up
       -> send Cmd+V (keycode resolved from the active keyboard layout)
-      -> wait ~500 ms for the target app to read the pasteboard
+      -> wait ~500 ms for the target app to read the pasteboard (about a
+         second when nothing confirms the paste by then)
       -> put the old contents back (only if nobody else wrote meanwhile)
 
 and reports a ``PasteOutcome``: ``pasted``, ``unverified`` or ``failed``.
 ``failed`` never restores: the text stays on the clipboard so the user can
-press Cmd+V themselves. The macOS pieces live in ``mac_input`` and are
-lazily imported, so this module imports cleanly on Windows and in CI.
+press Cmd+V themselves. The outcome is usually known well before the restore
+(at the keystroke for an app whose text cannot be read), and a caller holding
+a ``PasteTicket`` hears it then; the waits and the restore still run as
+before, on the paste's thread with the clipboard lock held. The macOS pieces
+live in ``mac_input`` and are lazily imported, so this module imports cleanly
+on Windows and in CI.
 
 Nothing here logs or stores any text: the clipboard's old contents live in
 memory for about a second, and the focused field is only compared by a
@@ -84,8 +89,25 @@ LOCK_WAIT_SECONDS = 3.0
 # hung target app (each read then runs to its own timeout) cannot push the
 # paste past the pipeline's deadline.
 VERIFY_BUDGET_SECONDS = 2.5
+# A healthy paste is over within a few seconds (the lock wait, the snapshot and
+# the Accessibility reads each have a limit of their own). One still going
+# after this long is stuck, and a restart to update must not wait for it.
+STUCK_PASTE_SECONDS = 15.0
 
 _PASTE_LOCK = threading.RLock()  # one clipboard operation at a time
+
+# The pastes under way, each with when it began (by time.monotonic, not the
+# paster's own clock), so a restart can wait for the user's clipboard to be
+# put back (paste_in_progress).
+_ACTIVE_LOCK = threading.Lock()
+_active = {}
+
+
+def _call_quietly(fn) -> None:
+    try:
+        fn()
+    except Exception:
+        pass    # a listener's trouble must not stop the paste
 
 
 @dataclass(frozen=True)
@@ -96,6 +118,12 @@ class PasteOutcome:
     is True when the dictation is on the clipboard now (it is not after a
     restore, which is the point). ``restored`` is True when the user's own
     clipboard was put back.
+
+    The outcome a paste reports to its ``PasteTicket`` comes before the
+    restore. Its ``restored`` is False (not yet), and its ``on_clipboard`` is
+    False when the user's clipboard is about to be put back, True when the
+    words will stay (a failed paste, "keep" mode, or a clipboard that could
+    not be saved).
     """
 
     status: str
@@ -135,12 +163,26 @@ class PasteTicket:
     ``abandon`` and ``commit_restore`` take the same lock, so exactly one of
     them wins: either the restore has begun (the paste went in, and
     ``abandon`` says so) or it never will.
+
+    ``report`` is the paste thread saying how the paste went, as soon as it
+    knows: at the keystroke for an app whose text cannot be read (most of
+    them), and up to a second before the user's clipboard is put back. The
+    pipeline goes on from there (``DictationRun.call``'s ``early``); the
+    paste thread finishes the restore and keeps the clipboard lock until it
+    has, so the next paste or copy waits for it. ``abandon`` still decides
+    against ``commit_restore`` after a report.
     """
+
+    _NOT_YET = object()
 
     def __init__(self):
         self._lock = threading.Lock()
         self._abandoned = False
         self._restoring = False
+        # One attribute, set once: a reader never sees "reported" without
+        # the outcome that was reported.
+        self._outcome = self._NOT_YET
+        self._listeners = []
 
     @property
     def abandoned(self) -> bool:
@@ -164,6 +206,37 @@ class PasteTicket:
                 return False
             self._restoring = True
             return True
+
+    def report(self, outcome: "PasteOutcome") -> None:
+        """How the paste went. Only the first report counts; whoever asked
+        (``when_reported``) is told, on this thread."""
+        with self._lock:
+            if self._outcome is not self._NOT_YET:
+                return
+            self._outcome = outcome
+            listeners, self._listeners = self._listeners, []
+        for fn in listeners:
+            _call_quietly(fn)
+
+    @property
+    def reported(self) -> bool:
+        return self._outcome is not self._NOT_YET
+
+    @property
+    def outcome(self) -> Optional["PasteOutcome"]:
+        """The reported outcome; None before the report."""
+        outcome = self._outcome
+        return None if outcome is self._NOT_YET else outcome
+
+    def when_reported(self, fn: Callable[[], None]) -> None:
+        """Call ``fn()`` once the paste has reported: now if it has, else on
+        the paste thread when it does. ``fn`` must be quick (the watchdog
+        passes the setter of the event its wait sleeps on)."""
+        with self._lock:
+            if self._outcome is self._NOT_YET:
+                self._listeners.append(fn)
+                return
+        _call_quietly(fn)
 
 
 # ── The pasteboard (macOS) ────────────────────────────────────────────────
@@ -377,8 +450,7 @@ class SafePaster:
 
     # -- helpers ---------------------------------------------------------
 
-    def _wait(self, seconds: float) -> None:
-        end = self._clock() + seconds
+    def _wait_until(self, end: float) -> None:
         while True:
             left = end - self._clock()
             if left <= 0:
@@ -419,6 +491,41 @@ class SafePaster:
                     return PASTED, ""
         return None
 
+    def _watch_field(self, before: FocusState, started: float,
+                     half: float) -> Tuple[bool, Optional[Tuple[Optional[FocusState], float]]]:
+        """Look at a readable text field every ``poll_interval`` until
+        ``half`` (the look then is the sequence's own), so a change can be
+        reported the moment it shows. A look that took longer than
+        ``poll_interval`` is the last: a field slow to answer is not asked
+        more often than before.
+
+        Returns whether the text changed, and, for a look still going at
+        ``half``, ``(what it saw, how long it took)``: that look is the look
+        at ``half``."""
+        while True:
+            left = half - self._clock()
+            if left <= 0:
+                return False, None
+            self._sleep(min(self.poll_interval, left))
+            if self._clock() >= half:
+                return False, None
+            began = self._clock()
+            after = self._read_focus(started)
+            took = self._clock() - began
+            at_half = (after, took) if self._clock() > half else None
+            if after is not None and after.kind == TEXT and after.fingerprint != before.fingerprint:
+                return True, at_half
+            if at_half is not None or took > self.poll_interval:
+                return False, at_half
+
+    @staticmethod
+    def _report(ticket: Optional[PasteTicket], status: str, reason: str, restore: bool,
+                snap: Optional[Snapshot]) -> None:
+        """Tell the caller how the paste went, before the restore."""
+        if ticket is not None:
+            restoring = restore and snap is not None and not snap.skipped
+            ticket.report(PasteOutcome(status, reason, on_clipboard=not restoring))
+
     def _leave_as_plain_copy(self, text: str, our_count: Optional[int]) -> bool:
         """Make the text a normal, durable clipboard entry (drop the transient
         markers) -- but never over something the user copied after us. True
@@ -435,16 +542,33 @@ class SafePaster:
 
     def paste(self, text: str, restore: bool = True, settle_delay: Optional[float] = None,
               ticket: Optional[PasteTicket] = None) -> PasteOutcome:
-        if not _PASTE_LOCK.acquire(timeout=self.lock_wait):
-            # Something else has held the clipboard for seconds. Paste anyway,
-            # but without a snapshot: restoring from two overlapping
-            # sequences could put back the wrong thing.
-            self._log("[paste] clipboard busy; pasting without restoring")
-            return self._paste(text, False, settle_delay, ticket)
+        """The whole sequence; returns when it is over (with ``restore``,
+        once the user's clipboard is back). With a ``ticket``, the outcome is
+        reported to it as soon as it is known, usually well before that."""
+        token = object()
+        with _ACTIVE_LOCK:
+            _active[token] = time.monotonic()
+        outcome = None
         try:
-            return self._paste(text, restore, settle_delay, ticket)
+            if not _PASTE_LOCK.acquire(timeout=self.lock_wait):
+                # Something else has held the clipboard for seconds. Paste
+                # anyway, but without a snapshot: restoring from two
+                # overlapping sequences could put back the wrong thing.
+                self._log("[paste] clipboard busy; pasting without restoring")
+                outcome = self._paste(text, False, settle_delay, ticket)
+                return outcome
+            try:
+                outcome = self._paste(text, restore, settle_delay, ticket)
+                return outcome
+            finally:
+                _PASTE_LOCK.release()
         finally:
-            _PASTE_LOCK.release()
+            with _ACTIVE_LOCK:
+                _active.pop(token, None)
+            if ticket is not None and outcome is not None:
+                # A paste that ended with nothing reported yet (it failed, or
+                # never got as far as the keystroke) reports how it ended.
+                ticket.report(outcome)
 
     def _paste(self, text: str, restore: bool, settle_delay: Optional[float],
                ticket: Optional[PasteTicket]) -> PasteOutcome:
@@ -486,28 +610,64 @@ class SafePaster:
             self._log("[paste] gave up before the keystroke (the caller stopped waiting)")
             return PasteOutcome(FAILED, "gave_up", on_clipboard=on_clipboard)
 
+        looked = self._clock()
         before = self._read_focus(started)
+        look_took = self._clock() - looked
         try:
             self._send_key(self._keycode())
         except Exception as e:
             self._log(f"[paste] keystroke failed: {type(e).__name__}")
             on_clipboard = self._leave_as_plain_copy(text, ours) if restore else True
             return PasteOutcome(FAILED, "keystroke_error", on_clipboard=on_clipboard)
+        sent = self._clock()
+
+        # The caller hears how the paste went as soon as that is known
+        # (``_report``) and goes on. Everything else below is as it always
+        # was, on this thread with the clipboard lock held, so the clipboard
+        # is not put back sooner than before.
+        half = sent + self.restore_delay
+        seen, at_half = False, None
+        if before is not None and before.kind == TEXT:
+            if look_took <= self.poll_interval:
+                # A readable field that answers quickly is looked at every
+                # poll_interval meanwhile, so a change is reported the moment
+                # it shows.
+                seen, at_half = self._watch_field(before, started, half)
+                if seen:
+                    self._report(ticket, PASTED, "", restore, snap)
+        else:
+            # Nothing to watch: whether it failed depends only on what had the
+            # focus before the keystroke, so it is known now.
+            status, reason = classify_paste(before, None)
+            if status == FAILED:
+                on_clipboard = self._leave_as_plain_copy(text, ours) if restore else True
+                self._log(f"[paste] outcome=failed reason={reason}")
+                return PasteOutcome(FAILED, reason, on_clipboard=on_clipboard)
+            self._report(ticket, status, reason, restore, snap)
 
         # Give the target app time to read the pasteboard before we change it.
-        self._wait(self.restore_delay)
+        # Even a field that has changed keeps the words this long: something
+        # else may have changed it (a key pressed just before, a field that
+        # updates itself). Then a look at the field, which a busy app is slow
+        # to answer, and that time is the app's too.
+        if at_half is None:
+            self._wait_until(half)
+            after = self._read_focus(started)
+        else:
+            # A look begun earlier was still going at the half second: it is
+            # that look, and it ends when that look would have.
+            after, took = at_half
+            self._wait_until(half + took)
 
-        status, reason = classify_paste(before, self._read_focus(started))
+        status, reason = classify_paste(before, after)
 
         if status == UNVERIFIED:
             late = self._wait_for_late_paste(before, started)
             if late is not None:
                 status, reason = late
-
-        if status == FAILED:
-            on_clipboard = self._leave_as_plain_copy(text, ours) if restore else True
-            self._log(f"[paste] outcome=failed reason={reason}")
-            return PasteOutcome(FAILED, reason, on_clipboard=on_clipboard)
+        if seen:
+            status, reason = PASTED, ""
+        self._report(ticket, status, reason, restore, snap)
 
         if not restore:
             self._log(f"[paste] outcome={status} reason={reason or '-'} restored=False (kept)")
@@ -534,7 +694,8 @@ class SafePaster:
             # the clipboard is empty and ours to refill; otherwise only if
             # it is still our write.
             on_clipboard = self._leave_as_plain_copy(text, None if errored else ours)
-        self._log(f"[paste] outcome={status} reason={reason or '-'} restored={restored}")
+        self._log(f"[paste] outcome={status} reason={reason or '-'} restored={restored} "
+                  f"({self._clock() - sent:.2f} s after the keystroke)")
         return PasteOutcome(status, reason, restored=restored, on_clipboard=on_clipboard)
 
 
@@ -577,6 +738,17 @@ def warm_up() -> None:
         _default_paster()._focus.warm()
     except Exception as e:
         _logger(f"[paste] warm-up skipped: {type(e).__name__}")
+
+
+def paste_in_progress(clock: Callable[[], float] = time.monotonic) -> bool:
+    """True while a paste is under way, including the second or so after it
+    has reported how it went, while it puts the user's clipboard back. A
+    restart cut into that second would leave the dictation where their own
+    clipboard was. A paste going for longer than STUCK_PASTE_SECONDS is stuck
+    and not counted."""
+    now = clock()
+    with _ACTIVE_LOCK:
+        return any(now - began < STUCK_PASTE_SECONDS for began in _active.values())
 
 
 def copy_text(text: str) -> bool:

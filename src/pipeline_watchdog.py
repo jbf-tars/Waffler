@@ -17,7 +17,8 @@ its own worker thread and the dictation's thread waits for whichever comes
 first:
 
   * the step finishes, or raises (an exception becomes a result, never a
-    crash in a thread nobody watches);
+    crash in a thread nobody watches), or reports its answer before it is
+    over (a paste, which then still puts the user's clipboard back);
   * the user decides: Cancel (the pill's X or the offer's Cancel; Esc while
     the offer is on screen, which keeps what exists), "Send later" while
     speech to text is slow, or "Paste as is" while the clean-up is slow;
@@ -373,15 +374,25 @@ class DictationRun:
 
     # ── the bounded wait ──────────────────────────────────────────────────
 
-    def call(self, fn, *args, stage: str, deadline: float, **kwargs) -> CallResult:
+    def call(self, fn, *args, stage: str, deadline: float, early=None, **kwargs) -> CallResult:
         """Run ``fn(*args, **kwargs)`` on a worker thread and wait for it,
-        a choice, or ``deadline`` seconds, whichever comes first."""
+        a choice, or ``deadline`` seconds, whichever comes first.
+
+        ``early`` is for a step that knows its answer before it is over: a
+        paste, which still has the user's clipboard to put back
+        (``pasteboard.PasteTicket``: ``reported``, ``outcome`` and
+        ``when_reported(fn)``). The wait then also ends when the step
+        reports, with what it reported as the value and the rest of the step
+        as ``late``. A report is the answer even if the step has finished by
+        the time the wait looks."""
         self.enter(stage)
         allowed = STAGE_CHOICES.get(stage, ())
         if self._cancelled and CANCEL in allowed:
             return CallResult(CANCEL)
 
         late = LateResult()
+        if early is not None:
+            early.when_reported(self._wake.set)
 
         def _work():
             value = error = None
@@ -404,6 +415,8 @@ class DictationRun:
             # Clear before checking, so a wake-up between the checks and the
             # wait below is never lost.
             self._wake.clear()
+            if early is not None and early.reported:
+                return CallResult("ok", value=early.outcome, late=late)
             if late.done:
                 if late.error is not None:
                     return CallResult("error", error=late.error)

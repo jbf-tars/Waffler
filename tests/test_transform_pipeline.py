@@ -199,6 +199,25 @@ def pw_done():
     return pipeline_watchdog.DONE
 
 
+def test_a_transform_waits_for_a_paste_still_putting_the_clipboard_back(rig):
+    """A dictation now ends when its words land, up to a second before its
+    paste has put the user's clipboard back. A transform started in that
+    second could have to read the selection by copying it, which waits for
+    the clipboard and eats into its 1.5 s, so it is refused as it was while
+    the dictation ran. Paste last and Copy last just wait their turn."""
+    p = rig
+    pasting = [True]
+    p.clipboard.paste_in_progress = lambda: pasting[0]
+    assert p._dictation_busy() is False, "the dictation itself is over"
+    assert p.run_transform() == ta.DICTATING
+    assert [t["heading"] for t in p.overlay.toasts()][-1] == "Waffler is busy"
+    assert p._last_result_blocked() is False
+    pasting[0] = False
+    assert p.run_transform("menu") == ta.STARTED
+    wait_idle(p)
+    assert p.clipboard.pastes == [GOOD]
+
+
 def test_the_dictation_hotkey_is_refused_while_a_transform_runs(rig):
     p = rig
     p.model.block = threading.Event()
@@ -342,7 +361,13 @@ def test_applying_settings_never_raises(rig):
 def test_the_hooks_are_the_pipelines_own_calls(rig):
     p = rig
     hooks = p._transform_hooks()
-    assert hooks.settings == p._read_settings and hooks.dictation_busy == p._dictation_busy
+    assert hooks.settings == p._read_settings
+    # The pipeline's own check, and a paste still putting the clipboard back
+    # (test_a_transform_waits_for_a_paste_still_putting_the_clipboard_back).
+    assert hooks.dictation_busy() is p._dictation_busy() is False
+    p.is_recording = True
+    assert hooks.dictation_busy() is p._dictation_busy() is True
+    p.is_recording = False
     assert hooks.settle_paste == p._settle_paste and hooks.remember == p._remember
     assert hooks.say == p._transform_say
     assert hooks.platform == "win32"

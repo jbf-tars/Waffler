@@ -30,6 +30,7 @@ import user_messages  # noqa: E402
 from _pipeline_harness import (  # noqa: E402
     FakeClipboard, Hang, fast_limits, history, make_pipeline, run_process, wait_for,
 )
+from mac_input import OPAQUE, FocusState  # noqa: E402
 from pasteboard import FAILED, PASTED, UNVERIFIED, PasteOutcome, SafePaster  # noqa: E402
 from test_pasteboard import FakeFocus, FakePasteboard, STRING, text_state  # noqa: E402
 
@@ -278,13 +279,14 @@ class _RealPasterClipboard(FakeClipboard):
     """The real SafePaster over an in-memory pasteboard, as the pipeline's
     clipboard. Its steps can be held up to stand in for a slow system."""
 
-    def __init__(self, hold=None, hold_in="flags", old=b"my old clipboard"):
+    def __init__(self, hold=None, hold_in="flags", old=b"my old clipboard", states=None):
         super().__init__()
         self.events = []
+        self.logged = []
         self.pb = FakePasteboard(self.events, items=[[(STRING, old)]])
         self.finished = threading.Event()
         self.hold, self.hold_in = hold, hold_in
-        states = [text_state(5), text_state(30)]
+        states = states or [text_state(5), text_state(30)]
         focus = FakeFocus(self.events, states)
         real_read = focus.read
 
@@ -304,7 +306,7 @@ class _RealPasterClipboard(FakeClipboard):
             self.pb, flags=flags, keycode_resolver=lambda: 9,
             send_key=lambda kc: self.events.append(f"key:{kc}"), focus_reader=focus,
             trusted=lambda: True, restore_delay=0.02, unconfirmed_extra_delay=0.02,
-            modifier_timeout=0.05, settle_delay=0.0)
+            modifier_timeout=0.05, settle_delay=0.0, log=self.logged.append)
 
     def paste_text(self, text, window_handle=None, restore=True, settle_delay=None, ticket=None):
         self.paste_calls.append({"text": text, "restore": restore, "ticket": ticket})
@@ -320,9 +322,57 @@ class _RealPasterClipboard(FakeClipboard):
 def test_end_to_end_a_normal_paste_puts_the_users_clipboard_back(tmp_path, limits):
     clip = _RealPasterClipboard()
     p = _dictate(make_pipeline(tmp_path, clipboard=clip))
+    assert clip.finished.wait(3), "the restore may finish after the dictation has moved on"
     assert clip.pb.text() == "my old clipboard"
     assert [e for e in clip.events if e != "ax"] == ["snapshot", "write:transient", "key:9", "restore"]
     assert p.overlay.toasts() == [] and p.clipboard.pastes == [STYLED]
+
+
+def test_the_dictation_ends_when_the_words_land_and_the_restore_follows_on_its_own(
+        tmp_path, monkeypatch):
+    """28 of one user's last 30 pastes went into apps whose text Accessibility
+    cannot read (Chrome, Electron). Such a paste keeps the words on the
+    clipboard for a second after the keystroke before putting the user's own
+    back, and the pill, the Journal and the tick used to wait for that second
+    too: the median paste step went from 160 ms to 1,100 ms with safe paste.
+    They now come when the words land. The restore follows on the paste's
+    own thread, which keeps the clipboard to itself until it is done."""
+    fast_limits(monkeypatch, PASTE_DEADLINE_S=30.0)     # no deadline may end this wait
+    hold = Hang(30)
+    clip = _RealPasterClipboard(hold=hold, hold_in="restore", states=[FocusState(OPAQUE)])
+    p = make_pipeline(tmp_path, clipboard=clip)
+    try:
+        worker = run_process(p)
+        worker.join(5)
+        assert not worker.is_alive(), "the dictation waited for the user's clipboard to be put back"
+        assert ("end_working", ("done",), {}) in p.overlay.calls, "the pill ended with its tick"
+        assert p.page.statuses[-1] == "done" and p.overlay.toasts() == []
+        [entry] = history(p)
+        assert entry["styled"] == STYLED and entry["paste"] == "unverified"
+        assert "restore" not in clip.events and clip.pb.text() == STYLED, "all before the restore"
+        assert pasteboard.paste_in_progress(), "which still holds the clipboard"
+        assert not any("past its deadline" in m or "did not finish" in m for m in p.logged)
+        assert any(m.startswith("[pipeline] clipboard+paste:") for m in p.logged)
+    finally:
+        hold.release.set()
+    assert clip.finished.wait(3)
+    assert clip.pb.text() == "my old clipboard", "then the user's own clipboard came back"
+    assert any(m.startswith("[paste] outcome=unverified reason=opaque restored=True")
+               for m in clip.logged)
+    assert not pasteboard.paste_in_progress()
+
+
+def test_a_paste_whose_words_stay_says_so_at_the_report(tmp_path, limits):
+    """"Keep what I dictated on the clipboard": nothing is put back, and the
+    pipeline is told the words are on the clipboard."""
+    _settings(tmp_path, clipboard_after_paste="keep")
+    clip = _RealPasterClipboard(states=[FocusState(OPAQUE)])
+    p = make_pipeline(tmp_path, clipboard=clip)
+    _crash_after_the_paste(p)
+    _dictate(p)
+    assert clip.finished.wait(3)
+    assert p.overlay.toasts()[-1]["body"] == "Your words are on the clipboard and in the Journal."
+    assert clip.pb.text() == STYLED and "restore" not in clip.events
 
 
 def test_end_to_end_a_paste_stuck_before_the_keystroke_leaves_the_words_and_types_nothing(
@@ -551,6 +601,26 @@ def test_the_bridge_methods_reach_the_pipeline_or_say_it_is_not_ready():
     assert calls == ["paste", "copy"]
     assert _api("paste_last", _pipeline=None)(object()) == {"ok": False, "error": "not_ready"}
     assert _api("copy_last", _pipeline=None)(object()) == {"ok": False, "error": "not_ready"}
+
+
+def test_the_journals_copy_waits_its_turn_behind_a_paste(monkeypatch):
+    """A dictation's Journal entry now shows up to a second before its paste
+    has put the user's clipboard back. Copy on that entry goes through the
+    same lock as every other copy, so it lands after the restore and is what
+    is left on the clipboard."""
+    order = []
+    fake = types.SimpleNamespace(copy=lambda text: order.append(("copied", text)))
+    monkeypatch.setitem(sys.modules, "pyperclip", fake)
+    copy = _api("copy_item", _pasteboard=pasteboard, pyperclip=fake, print=lambda *a, **k: None)
+    with pasteboard._PASTE_LOCK:
+        done = []
+        t = threading.Thread(target=lambda: done.append(copy(object(), "from the Journal")))
+        t.start()
+        t.join(0.3)
+        assert t.is_alive() and order == [], "it waits while a paste holds the clipboard"
+        order.append("restored")
+    t.join(5)
+    assert done == [True] and order == ["restored", ("copied", "from the Journal")]
 
 
 def _settings_methods(tmp_path, initial=None):

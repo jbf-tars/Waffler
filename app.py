@@ -27,7 +27,6 @@ import threading
 import atexit
 import copy
 import contextlib
-import pyperclip
 import faulthandler
 from pathlib import Path
 from datetime import datetime, date
@@ -579,7 +578,8 @@ def _words_kept_message(on_clipboard: bool, in_journal: bool, pasted: bool = Fal
 
 def _update_would_interrupt(pipeline) -> str:
     """What a restart to update would cut off, or "" when nothing would:
-    a recording, a dictation still being processed, or a Not sent
+    a recording, a dictation still being processed, a paste still putting
+    the user's clipboard back (a dictation ends before that), or a Not sent
     recording being sent."""
     if pipeline is None:
         return ""
@@ -595,6 +595,9 @@ def _update_would_interrupt(pipeline) -> str:
         spoken = getattr(pipeline, "_commands", None)
         if spoken is not None and spoken.busy():
             return "a command is running"
+        pasting = getattr(getattr(pipeline, "clipboard", None), "paste_in_progress", None)
+        if pasting is not None and pasting():
+            return "a paste is putting the clipboard back"
         for name in ("_drain_lock", "_unsent_lock"):
             lock = getattr(pipeline, name, None)
             if lock is not None and lock.locked():
@@ -837,16 +840,13 @@ class Api:
         return out
 
     def copy_item(self, text: str):
-        """Copy text to clipboard."""
-        try:
-            pyperclip.copy(text)
+        """Copy text to clipboard. Through the clipboard lock, like every
+        other copy: a dictation's entry shows before its paste has put the
+        user's clipboard back, and a copy made then lands after that."""
+        ok = _pasteboard.copy_text(text)
+        if ok:
             print(f"[clipboard] Copied {len(text)} chars")
-            return True
-        except Exception as e:
-            print(f"[clipboard] Error: {e}")
-            import traceback
-            traceback.print_exc()
-            return False
+        return ok
 
     def paste_last(self) -> dict:
         """Paste the last transcript into the app in front, the same safe
@@ -4821,14 +4821,15 @@ class WafflerPipeline:
     def _settle_paste(self, result, ticket):
         """What the paste step left behind: ``(on_clipboard, pasted)``, with
         the message when the words did not land. ``result`` is the watchdog's
-        CallResult for ``clipboard.paste_text``.
+        CallResult for ``clipboard.paste_text``: what the paste reported, which
+        for a dictation can come before the user's clipboard is put back.
 
         After a paste that went in, the clipboard is the user's own again
-        (restored), so ``on_clipboard`` is False. A paste that outlived its
-        deadline is told to stop: ``ticket.abandon()`` decides, under a lock,
-        whether it will leave the words on the clipboard (the message says
-        so, and it is true) or had already begun putting the old clipboard
-        back, which means it went in."""
+        (put back, or about to be), so ``on_clipboard`` is False. A paste
+        that outlived its deadline is told to stop: ``ticket.abandon()``
+        decides, under a lock, whether it will leave the words on the
+        clipboard (the message says so, and it is true) or had already begun
+        putting the old clipboard back, which means it went in."""
         if result.ok:
             outcome = result.value
             if not isinstance(outcome, _pasteboard.PasteOutcome):
@@ -5136,9 +5137,17 @@ class WafflerPipeline:
                 _transform_action.refocus_last_app(
                     {getattr(proc, "pid", None)}, log=_log_to_file)
 
+        def busy():
+            # A dictation ends when its words land, up to a second before its
+            # paste has put the user's clipboard back. A transform may read
+            # the selection by copying it, which waits for the clipboard and
+            # eats into its time, so it waits as it did while the dictation ran.
+            pasting = getattr(self.clipboard, "paste_in_progress", None)
+            return self._dictation_busy() or bool(pasting is not None and pasting())
+
         return _transform_action.Hooks(
             settings=self._read_settings,
-            dictation_busy=self._dictation_busy,
+            dictation_busy=busy,
             read_selection=lambda: _text_context.read_selection(allow_copy_fallback=True),
             reread_selection=lambda method: _text_context.read_selection(
                 allow_copy_fallback=(method == _text_context.METHOD_COPY), timeout=0.9),
@@ -6676,6 +6685,15 @@ class WafflerPipeline:
             # selection with whatever unrelated text was on the clipboard
             # already. The transcript is saved to History below either way, so
             # the words are never lost.
+            #
+            # The dictation goes on as soon as the paste reports how it went
+            # (``early``): at the keystroke for an app whose text cannot be
+            # read, most of them. It used to wait too for the second the
+            # words stay on the clipboard after that, so the pill, the
+            # Journal and the tick came a second after the words. The paste's
+            # own thread still puts the user's clipboard back, with the
+            # clipboard lock held until it has, so the next paste or copy
+            # waits for it.
             _t2 = time.time()
             _t_paste = 0.0
             _step_ran = False
@@ -6692,9 +6710,10 @@ class WafflerPipeline:
                     _paste = run.call(self.clipboard.paste_text, styled, _target_window,
                                       restore=_pasteboard.restore_after_paste(stored),
                                       ticket=_ticket, stage=_pw.PASTING,
-                                      deadline=_pw.PASTE_DEADLINE_S)
-                    # Where the words are now: after a restore they are not on
-                    # the clipboard any more, and the messages must not say so.
+                                      deadline=_pw.PASTE_DEADLINE_S, early=_ticket)
+                    # Where the words are now: once the user's clipboard is
+                    # put back they are not on it, and the messages must not
+                    # say so.
                     _clipboard_written, _pasted = self._settle_paste(_paste, _ticket)
                     _paste_label = _history_meta.paste_label(_paste, _pasted)
                     _step_ran = True
@@ -6724,6 +6743,8 @@ class WafflerPipeline:
                 )
 
             if _step_ran:
+                # Until the paste reported, not until the user's clipboard was
+                # back (the paste's own "[paste] outcome=" line says when).
                 _t_paste = (time.time() - _t2) * 1000
                 _log_to_file(f"[pipeline] clipboard+paste: {_t_paste:.0f}ms")
                 _log_to_file(f"[pipeline] TOTAL: {_t_transcribe + _t_style + _t_paste:.0f}ms")
