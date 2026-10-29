@@ -103,6 +103,13 @@ _OVERLAY_COLLECTION_BEHAVIOR = (
 # the JSON command) so a specific show's end-to-end trail can be isolated.
 _show_gen = 0  # last gen seen from a "show" command
 
+# Commands the stdin reader passes on without a debug line. "level" drives the
+# bars about 30 times a second while recording: logging each one made these
+# lines over 80% of app.log, which is cut at 5 MB, so it kept about a week.
+# Everything that shows, hides or moves the pill, and every toast, is still
+# logged; so is "working", once a second while a dictation is processed.
+_UNLOGGED_COMMANDS = frozenset({"level"})
+
 
 def _dbg(event: str, **fields) -> None:
     """Emit a one-line structured debug record to stderr."""
@@ -1658,9 +1665,10 @@ def _stdin_reader():
             try:
                 cmd = json.loads(line)
                 _cmd_queue.put(cmd)
-                _dbg("stdin.cmd", type=cmd.get("type"),
-                     depth=_cmd_queue.qsize(),
-                     gen=cmd.get("gen", ""))
+                if cmd.get("type") not in _UNLOGGED_COMMANDS:
+                    _dbg("stdin.cmd", type=cmd.get("type"),
+                         depth=_cmd_queue.qsize(),
+                         gen=cmd.get("gen", ""))
             except json.JSONDecodeError:
                 pass
     except Exception as e:
