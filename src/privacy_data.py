@@ -124,9 +124,12 @@ KEPT_FILES = (".env", "settings.json", "config.json", "setup_complete.json",
 # audio_restarts.json (src/wedge_recovery.py) is the times Waffler restarted
 # itself because the audio system stopped answering, so it cannot do so in a
 # loop: times only, no words, and not in the logs bundle.
+# mic_volume.json (src/quiet_mic.py) is the Mac's input volume as last read,
+# and when: read at most once a day, and only while dictations arrive very
+# quiet, for the tip that suggests turning it up. A number and a time.
 DATA_FILES = ("history.json", "usage.json", "usage.jsonl", "quality.jsonl", "notifications.json",
-              "inflight.json", "mic_devices.json", "audio_restarts.json", "app.log", "app.log.1",
-              "crash.log", "hotkey.log")
+              "inflight.json", "mic_devices.json", "audio_restarts.json", "mic_volume.json",
+              "app.log", "app.log.1", "crash.log", "hotkey.log")
 # The *.unreadable-* copies are a history.json or usage.json that could not
 # be read, kept aside instead of being written over (src/atomic_json.py).
 DATA_GLOBS = ("usage.backup-*.json", "history.unreadable-*.json", "usage.unreadable-*.json")

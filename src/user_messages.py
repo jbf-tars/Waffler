@@ -377,6 +377,19 @@ MIC_LID_CLOSED = ("Your Mac's lid is closed",
 CHOOSE_MICROPHONE = "Choose microphone"
 
 
+# A tip, at most once a week (src/quiet_mic.py): the last ten takes arrived so
+# quiet that each had to be lifted, and the Mac's input volume is under 70.
+def quiet_mic_message(volume: int):
+    """(heading, body) of the tip; ``volume`` is the Mac's input volume, 0 to 100."""
+    return ("Your microphone is set low",
+            f"Your Mac's microphone is set low ({int(volume)}%), so Waffler has to boost it "
+            "and picks up more background noise. Turn Input volume up to about 80% in "
+            "Sound settings for clearer dictation.")
+
+
+OPEN_SOUND_SETTINGS = "Open Sound settings"
+
+
 # The computer's audio system stopped answering (src/wedge_recovery.py). On a
 # Mac Waffler opens itself again, and says so; where it cannot (Windows, a
 # second time within ten minutes) it says to quit and open it. ``kept`` is

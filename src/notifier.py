@@ -179,6 +179,9 @@ _REGISTRY = (
     Kind("lid_closed", TIP, min_gap_s=24 * _HOUR, category="hints", hold_s=10),
     # Tips. The hint stays up 10 s (src/hold_hint.py HINT_SECONDS).
     Kind("hold_hint", TIP, min_gap_s=12 * _HOUR, category="hints", hold_s=10),
+    # The Mac's input volume is set so low that every take has to be lifted
+    # (src/quiet_mic.py): at most once a week, with a button for Sound settings.
+    Kind("quiet_mic", TIP, min_gap_s=7 * 24 * _HOUR, category="hints", hold_s=15),
 )
 KINDS: Dict[str, Kind] = {k.id: k for k in _REGISTRY}
 
@@ -431,6 +434,28 @@ class Notifier:
     def claim(self, kind_id: str) -> bool:
         """``request`` as a yes or no."""
         return self.request(kind_id).show
+
+    def could_show(self, kind_id: str) -> bool:
+        """Could this message be shown at the next quiet moment? Only what
+        lasts is asked (tips off, hidden for good or as a family, dismissed
+        twice, its cap, its gap); whether a take is running or something is
+        on screen right now is not. Nothing is counted. For work that is only
+        worth doing if the tip could follow (src/quiet_mic.py reads the
+        Mac's volume only then). A kind nobody registered could be shown."""
+        kind = self._kinds.get(kind_id)
+        if kind is None:
+            return True
+        ctx = None
+        if kind.severity == TIP:
+            now_ctx = self._read_context()
+            if now_ctx is None:
+                return False
+            ctx = Context(setup_done=now_ctx.setup_done, tips_enabled=now_ctx.tips_enabled)
+        with self._lock:
+            record = self._loaded().get(kind.id) or _Record()
+            return not evaluate(
+                kind, record, ctx, self._clock(), session_start=self._session_start, slot=None,
+                category_muted=bool(kind.category and kind.category in self._muted_categories))
 
     # ── what happened to a message ──────────────────────────────────────
 

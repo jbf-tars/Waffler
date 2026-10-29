@@ -9,6 +9,9 @@ treat each as "unknown" when it is missing.
     id           whole number, one more than the last (src/history_ids.py)
     duration_s   how long the recording was, in seconds (one decimal)
     speech_s     seconds of it that were speech (what the transcriber measured)
+    speech_db    how loud the speech arrived, in dBFS (one decimal), before
+                 Waffler lifted a quiet recording; the quiet-microphone tip
+                 reads the last ten (src/quiet_mic.py)
     lang         the Language setting at the time ("en", "auto", ...)
     provider     {"stt": "groq", "cleanup": "groq"}: who heard it, who tidied it
     paste        what happened to the words: pasted, unverified, failed (the
@@ -130,9 +133,17 @@ def _name(value, limit):
     return " ".join(value.split())[:limit]
 
 
+def _decibels(value):
+    """A speech level in dBFS, one decimal, or None: a number from -120 to 0."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    v = float(value)
+    return round(v, 1) if -120.0 <= v <= 0.0 else None
+
+
 def take_fields(*, audio_seconds=None, speech_seconds=None, language=None, stt=None,
                 cleanup=None, paste=None, app=None, audio=None, app_bundle=None,
-                category=None, style=None) -> dict:
+                category=None, style=None, speech_db=None) -> dict:
     """The optional fields for an entry, leaving out whatever is unknown.
     ``category`` is kept only for an app that is known, and only if it is one
     of src/app_categories.CATEGORIES; ``style`` only if it is one of
@@ -144,6 +155,9 @@ def take_fields(*, audio_seconds=None, speech_seconds=None, language=None, stt=N
     s = _seconds(speech_seconds)
     if s is not None:
         out["speech_s"] = s
+    db = _decibels(speech_db)
+    if db is not None:
+        out["speech_db"] = db
     lang = _name(language, LANG_MAX)
     if lang:
         out["lang"] = lang
