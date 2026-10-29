@@ -5,6 +5,17 @@ Deliberately deferred work — the "known, planned, not done yet" list. This is
 
 ## Reliability
 
+### OpenAI retires both backup models  *(planned, due before 14 January 2027)*
+
+OpenAI's deprecations page (checked 2026-10-29) shuts down the two models the
+OpenAI backup uses: `gpt-4.1-mini` (the clean-up) on 14 January 2027, with
+`gpt-6-luna` as its suggested replacement, and `gpt-4o-mini-transcribe` (speech
+to text) on 26 February 2027, with `gpt-transcribe` or `gpt-live-transcribe`.
+After those dates the backup fails, so a Groq outage or a VPN that blocks Groq
+would leave nothing to fall back on. Before then: switch both, check that the
+replacements take the same request shape (a reasoning model may not accept
+`temperature`), price them in `MODEL_RATES`, and test the fallback for real.
+
 ### Transcription fallback when a VPN blocks Groq  *(planned)*
 
 **Problem.** Transcription (speech → text) runs on **Groq Whisper**. Some VPN
