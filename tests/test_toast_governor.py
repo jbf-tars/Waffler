@@ -138,10 +138,11 @@ def test_errors_and_info_keep_the_behaviour_the_old_code_had():
 
 
 def test_only_the_hint_and_the_microphone_tips_are_tips():
-    """The hold hint, and the two microphone tips (S12): a new microphone to
-    ask about, and the closed lid. Everything else is an error or information."""
+    """The hold hint, the two microphone tips (S12): a new microphone to ask
+    about, and the closed lid; and (3.16.3) the Mac's input volume set too low.
+    Everything else is an error or information."""
     assert [k.id for k in N.KINDS.values() if k.severity == N.TIP] == [
-        "mic_detected", "lid_closed", "hold_hint"]
+        "mic_detected", "lid_closed", "hold_hint", "quiet_mic"]
 
 
 # ── the glue ─────────────────────────────────────────────────────────────

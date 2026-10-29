@@ -410,7 +410,12 @@ def test_a_short_take_still_retries_whole():
     rec = PieceRecorder(words_per_piece=3)
     rec.t.transcribe_sync(short)
     retry = [s for s in rec.sent if s[1] == "groq"]
-    assert len(retry) == 1 and retry[0][0] == len(short) + 2 * RATE * 2 * 300 // 1000
+    first = [s for s in rec.sent if s[1] is None]
+    # One upload, the very one the first pass made. Since 3.16.3 a silent end
+    # is cut before it (this take ends on a 1 s pause), so it can be shorter
+    # than the take plus its padding, never longer.
+    assert len(retry) == 1 and len(first) == 1 and retry[0][0] == first[0][0]
+    assert first[0][0] <= len(short) + 2 * RATE * 2 * 300 // 1000
 
 
 def test_the_retry_reuses_the_speech_measured_for_the_first_pass(wav20, monkeypatch):

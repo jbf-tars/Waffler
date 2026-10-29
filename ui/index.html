@@ -779,7 +779,7 @@
                  unless the user picks 30, 90 or 365 days. A shorter choice
                  that would delete dictations asks first, in the sheet. -->
             <div class="row" id="historyRow">
-              <div class="row-main"><div class="row-t"><label for="historyKeep">History</label></div><div class="row-d" id="privHistoryDesc">Your dictations, searchable in your Journal. Each notes the app you were in, the language and which services handled it. The app is kept with its kind (email, work chat, personal chat or other), on this computer only. If you correct a dictation with Edit text, your corrected version is kept with it, on this computer only, for as long as the dictation is.</div></div>
+              <div class="row-main"><div class="row-t"><label for="historyKeep">History</label></div><div class="row-d" id="privHistoryDesc">Your dictations, searchable in your Journal. Each notes the app you were in, the language and which services handled it. The app is kept with its kind (email, work chat, personal chat or other), on this computer only. Each also notes how loud your speech arrived, so Waffler can tell you if your microphone is set too low. If you correct a dictation with Edit text, your corrected version is kept with it, on this computer only, for as long as the dictation is.</div></div>
               <select id="historyKeep" class="select" onchange="onHistoryKeepChange(this)">
                 <option value="0">Keep forever</option>
                 <option value="365">Keep for a year</option>
@@ -833,6 +833,12 @@
                  mic_devices.json): names and answers, deleted with my data. -->
             <div class="row" id="micMemoryRow">
               <div class="row-main"><div class="row-t">Microphones seen</div><div class="row-d">Which new microphones Waffler has asked you about, and what you answered, so it asks once for each. Names and answers only, and Delete all my data clears them.</div></div>
+            </div>
+            <!-- The Mac's input volume (src/quiet_mic.py, mic_volume.json): read at
+                 most once a day, only while dictations arrive very quiet, for the
+                 tip that suggests turning it up. Never changed by Waffler. -->
+            <div class="row" id="micVolumeRow">
+              <div class="row-main"><div class="row-t">Microphone volume</div><div class="row-d">On a Mac, when your dictations keep arriving very quiet, Waffler reads your Mac's input volume at most once a day, to suggest turning it up. It never changes it. The reading and when it was taken stay on this computer, and Delete all my data clears them.</div></div>
             </div>
             <div class="row" id="unsentRow">
               <span class="chk" id="unsentIcon" aria-hidden="true"><svg class="ic"><use href="#i-check"/></svg></span>

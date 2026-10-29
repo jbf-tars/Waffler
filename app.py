@@ -162,6 +162,7 @@ import mic_devices as _mic_devices
 import mic_ranking as _mic_ranking
 import mic_hotplug as _mic_hotplug
 import mic_supervisor as _mic_supervisor
+import quiet_mic as _quiet_mic
 import audio_guard as _audio_guard
 import wedge_recovery as _wedge_recovery
 from login_item import LoginItem, HIDDEN_FLAG as _HIDDEN_FLAG
@@ -4544,6 +4545,9 @@ class WafflerPipeline:
         # the microphone leaving, and a closed lid is noticed. Idle until the
         # device monitor and the recording loop call it.
         self._mic = _mic_supervisor.MicSupervisor(self._mic_hooks())
+        # The tip that says when the Mac's microphone is set too low
+        # (src/quiet_mic.py): told each saved take's level, idle otherwise.
+        self._quiet_mic = _quiet_mic.QuietMicAdvisor(self._quiet_mic_hooks())
         # Optional sound cues (src/sounds.py), and the press that locked
         # hands-free (the "Don't tap, hold" hint is not for those).
         self._cues = _sound_cues.CuePlayer(settings=self._read_settings, log=_log_to_file)
@@ -4877,11 +4881,48 @@ class WafflerPipeline:
     def forget_notifier(self):
         """The user deleted their data: what the notifier remembers (which
         tips were shown, hidden or closed) goes with it, and so does which new
-        microphones Waffler has asked about."""
+        microphones Waffler has asked about, and the levels and the input
+        volume the quiet-microphone tip kept (src/quiet_mic.py)."""
         self._notifier.forget()
         mic = getattr(self, "_mic", None)
         if mic is not None:
             mic.forget()
+        quiet = getattr(self, "_quiet_mic", None)
+        if quiet is not None:
+            quiet.forget()
+
+    # ── The quiet-microphone tip (src/quiet_mic.py) ───────────────────────
+
+    def _quiet_mic_hooks(self):
+        """What the quiet-microphone tip needs from this app. Late-bound."""
+        def quiet():
+            return not self.is_recording and self._watchdog.current_run() is None
+
+        def show(heading, body, buttons, timeout):
+            self._show_toast_safe("info", heading, body, buttons=buttons, timeout=timeout)
+
+        return _quiet_mic.Hooks(
+            platform="darwin" if _platform.system() == "Darwin" else sys.platform,
+            history=load_history,
+            could_show=self._notifier.could_show, quiet=quiet,
+            toast_allowed=self._toast_allowed, show=show,
+            read_volume=_quiet_mic.read_input_volume, log=_log_to_file,
+            store=_quiet_mic.VolumeLog(DATA_DIR / _quiet_mic.STATE_FILE))
+
+    def _note_mic_level(self, level_db):
+        """A dictation is saved: hand its speech level to the quiet-microphone
+        tip, on its own thread (it may read the Mac's input volume, and it
+        waits for a quiet moment). On a Mac only. Never raises."""
+        try:
+            if _platform.system() != "Darwin":
+                return
+            advisor = getattr(self, "_quiet_mic", None)
+            if advisor is None:         # a pipeline made without __init__ (the tests' harness)
+                advisor = self._quiet_mic = _quiet_mic.QuietMicAdvisor(self._quiet_mic_hooks())
+            threading.Thread(target=advisor.take_done, args=(level_db,), daemon=True,
+                             name="QuietMic").start()
+        except Exception as e:
+            _log_to_file(f"[mic] level not noted ({type(e).__name__})")
 
     # ── The microphone (src/mic_supervisor.py) ────────────────────────────
 
@@ -5592,6 +5633,12 @@ class WafflerPipeline:
             if entry_id is not None:
                 _post_js("window.waffler_show_command && "
                          f"window.waffler_show_command({int(entry_id)})")
+        elif action == _quiet_mic.OPEN_SOUND_ACTION:
+            # The quiet-microphone tip's button: Sound settings at Input, off
+            # the overlay's reader thread. Waffler never sets the volume.
+            self.overlay.hide_toast()
+            threading.Thread(target=_quiet_mic.open_sound_settings, daemon=True,
+                             name="OpenSoundSettings").start()
         elif action in _mac_perms.PANE_ACTIONS:
             # A permission message's button: open the exact Privacy pane. Off
             # the overlay's reader thread (it waits for `open` to answer).
@@ -6789,6 +6836,7 @@ class WafflerPipeline:
                 item.update(_history_meta.take_fields(
                     audio_seconds=whisper_duration,
                     speech_seconds=_asr_info.get("last_speech_seconds", 0.0),
+                    speech_db=_asr_info.get("last_speech_dbfs"),
                     language=self._read_settings().get("language", "en"),
                     stt=whisper_provider, cleanup=(gpt_usage or {}).get("provider", ""),
                     paste=_paste_label, app=_target_app, audio=_ring_name,
@@ -6936,6 +6984,11 @@ class WafflerPipeline:
             # dictation still owns the pill.
             if _saved:
                 notify_js_new_item(item)
+
+            # How loud this take arrived, for the tip that says when the Mac's
+            # microphone is set too low (src/quiet_mic.py). Its own thread,
+            # after the save: never on the way to the words.
+            self._note_mic_level(_asr_info.get("last_speech_dbfs"))
 
             # When another provider had to do the work because the first could
             # not be reached from this network, say so once (src/net_health.py).
@@ -7103,7 +7156,7 @@ class WafflerPipeline:
             ("last_asr_response", ""), ("last_asr_filtered", False),
             ("last_speech_seconds", 0.0), ("last_retry_fired", False),
             ("last_retry_rejected", False), ("_last_cloud_provider", ""),
-            ("last_failovers", ()), ("_backend", ""),
+            ("last_failovers", ()), ("_backend", ""), ("last_speech_dbfs", None),
         )}
         info["backend"] = info.pop("_backend")
         # A copy: a request the watchdog gave up on can still finish later and
@@ -7571,6 +7624,7 @@ class WafflerPipeline:
         try:
             new_item.update(_history_meta.take_fields(
                 speech_seconds=(info or {}).get("last_speech_seconds", 0.0),
+                speech_db=(info or {}).get("last_speech_dbfs"),
                 language=self._read_settings().get("language", "en"),
                 stt=stt, cleanup=cleanup, style=style_used))
         except Exception as e:
@@ -7668,6 +7722,7 @@ class WafflerPipeline:
                 entry, transcript=transcript, styled=styled, vocab_changes=changes,
                 redone_at=datetime.now().isoformat(timespec="seconds"),
                 speech_seconds=(info or {}).get("last_speech_seconds", 0.0),
+                speech_db=(info or {}).get("last_speech_dbfs"),
                 language=self._read_settings().get("language", "en"),
                 stt=stt, cleanup=cleanup, style=style_used)
             if not self._replace_history_entry(entry, new_item):

@@ -6377,7 +6377,7 @@ async function loadRecentAudio() {
   // History: how many dictations the Journal holds.
   const h = document.getElementById('privHistoryDesc');
   const n = Number(stats.total_count) || 0;
-  if (h) h.textContent = `${WL.formatCount(n)} ${n === 1 ? 'dictation' : 'dictations'}, searchable in your Journal. Each notes the app you were in, the language and which services handled it. The app is kept with its kind (email, work chat, personal chat or other), on this computer only.`;
+  if (h) h.textContent = `${WL.formatCount(n)} ${n === 1 ? 'dictation' : 'dictations'}, searchable in your Journal. Each notes the app you were in, the language and which services handled it. The app is kept with its kind (email, work chat, personal chat or other), on this computer only. Each also notes how loud your speech arrived, so Waffler can tell you if your microphone is set too low.`;
 }
 
 async function setRecentAudio(on) {

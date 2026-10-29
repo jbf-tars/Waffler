@@ -1492,7 +1492,20 @@ def _split_audio_on_silence(
 _NEAR_SILENCE_S = 1.5
 
 
-def _strip_hallucinations(text: str, speech_seconds: float = None) -> str:
+# The join artefact (3.16.3): an invented thanks segment after a sentence the
+# speaker left unfinished. Whisper joins segments with a plain space, so it
+# reads "...maybe like Thank you.": a capital after a lower-case word (a comma
+# at most between them), then at most a known tail and the end of the text.
+_JOIN_THANKS_RE = re.compile(
+    r"(?P<prev>[^\W\d_]+),?\s+(?P<thanks>(?:Thank you|Thanks)"
+    r"(?i:\s+(?:very much|so much|so very much|a lot|from the heart"
+    r"|from the bottom of my heart|for watching|for listening|for your (?:time|attention)))"
+    r"{0,2})[.!]*\s*$")
+
+
+def _strip_hallucinations(text: str, speech_seconds: float = None, *,
+                          voiced_seconds: float = None,
+                          trailing_silence_s: float = None) -> str:
     """Remove stock Whisper outros without eating the speaker's own words.
 
     Whisper's training data skews to YouTube, so on silence or poor audio it
@@ -1527,6 +1540,25 @@ def _strip_hallucinations(text: str, speech_seconds: float = None) -> str:
 
     ``speech_seconds=None`` means "unknown" and keeps the conservative
     behaviour: guards 1 and 2 still apply, so integrated speech is safe.
+
+    Two more pieces of audio evidence (3.16.3), each None when unknown, which
+    keeps the behaviour above:
+
+    ``voiced_seconds`` is the strict measure (_voiced_seconds). A transcript
+    that is nothing but a stock phrase is kept on measured speech only when
+    some of the take was voiced beyond doubt, _MIN_VOICED_S. The loose
+    measure counts a lifted noise floor as speech: 2.1 s of the owner's room
+    noise read 2.0 s, and its "Thank you." was pasted. It decides nothing
+    else.
+
+    ``trailing_silence_s`` is the silent end the cut measured
+    (_trim_silent_tail). When it is at least _TAIL_MIN_S, a final "Thank
+    you." or "Thanks." (with at most a known tail such as "very much" or "for
+    watching") written with a capital straight after a lower-case word, with
+    no full stop between, is a segment join, not speech: "...expand on
+    betfred Thank you." loses its last two words. Guard 2 still applies
+    ("...to Priya and Thank you." stays). The caller leaves it None when
+    Groq's segments showed a voice under that thanks.
     """
     # Unambiguous channel outros: accept a sentence end OR a comma before them.
     _STRONG_TAIL_PATTERNS = [
@@ -1570,6 +1602,10 @@ def _strip_hallucinations(text: str, speech_seconds: float = None) -> str:
     stripped = text.strip()
     original = stripped
     had_speech = speech_seconds is not None and speech_seconds >= _NEAR_SILENCE_S
+    if had_speech and voiced_seconds is not None and voiced_seconds < _MIN_VOICED_S:
+        # Measured "speech" with nothing voiced beyond doubt is a lifted
+        # noise floor: it cannot vouch for a take that is only a stock phrase.
+        had_speech = False
     # Evidence of silence licenses aggressive filtering; absence of evidence
     # does not. On a clip measured as effectively silent the ENTIRE transcript
     # is model invention, so the boundary and dangling-word guards (which exist
@@ -1604,6 +1640,18 @@ def _strip_hallucinations(text: str, speech_seconds: float = None) -> str:
 
     _try(_STRONG_TAIL_PATTERNS, r"(?:^|(?<=[.!?])|(?<=,))")
     _try(_WEAK_TAIL_PATTERNS, r"(?:^|(?<=[.!?]))")
+
+    # The join artefact, on evidence that the take ended in silence (see the
+    # docstring). On a near-silent take the patterns above already matched
+    # without a boundary.
+    if (not near_silent and trailing_silence_s is not None
+            and trailing_silence_s >= _TAIL_MIN_S):
+        m = _JOIN_THANKS_RE.search(stripped)
+        if m and m.group("prev")[-1].islower():
+            candidate = _tidy(stripped[: m.start("thanks")])
+            words = candidate.rstrip(".!?,").split()
+            if words and words[-1].lower() not in _DANGLING:
+                stripped = candidate
 
     if not stripped or stripped in (".", ",", "!"):
         # Everything was boilerplate. Only honour that when the audio agrees
@@ -1919,6 +1967,419 @@ def _speech_seconds(audio_bytes: bytes) -> float:
         return float((rms >= thresh).sum()) * (win / float(framerate))
     except Exception:
         return 0.0
+
+
+# ── The end of a take, and how much of it was voiced (3.16.3) ───────────────
+# Whisper's best-known invention, "Thank you.", grows out of noisy
+# near-silence at the end of a clip. On the owner's Mac (input volume 40%)
+# speech arrives near -42 dBFS, the quiet-audio lift raises each take by about
+# 21 dB, and the room noise in its silent end goes up with it. Of the owner's 61
+# pasted dictations that end in a thanks, every one already had it in the
+# speech-to-text output; the recent ones were never said: a whole take of
+# only "Thank you." (2.1 s long, measured as 2.0 s of "speech"), and
+# "...maybe like Thank you." tacked onto an unfinished sentence.
+#
+# _speech_seconds cannot see this: the 300 ms of padding is exact zeros, so
+# its noise floor is zero and its threshold drops to 12, under the lifted
+# hiss; and its cap at 15% of the median sits under the hiss of a noisy take.
+# The measures below take the floor from the windows that are not digital
+# silence, and have no cap. Measured on the owner's ten latest takes and on
+# 2 s of their room noise alone: windows at 3x the floor (+9.5 dB) gave 0.00 s
+# for the noise and 1.5 s to 47 s for the takes; their speech stands 21 to 44 dB
+# over the floor at its loud end (95th percentile), the noise alone 5 to 6 dB,
+# and one take recorded in a loud room only 11 dB.
+#
+# The cut counts a window as voice from 1.5x the floor (+3.5 dB). Each of
+# the ten takes was given its own last word again, after a 0.4 s pause and
+# 6, 10, 15 or 20 dB under its speech level, then its own room noise: the cut
+# kept every one at 6 and 10 dB under, and cut 1 of the 10 at 15 dB and 3 at
+# 20 dB (a 2x bar had cut two at 10 dB). The price is a cut that fires less:
+# 2 to 4 s of a take's own room noise added to its end was cut in 21 of 30
+# trials, against 25 at 2x, because some rooms' noise flickers over 1.5x.
+# Groq's segments and the join artefact (below) cover those takes.
+#
+# The margin kept after the last voice is 0.6 s, not the 0.35 s first tried:
+# on the owner's 88 s take with 4 s of its room noise added, cutting to
+# 0.35 s made Groq end its last window three words early ("...really cheap,"
+# for "...cheap, because it is."), the same every time, while 0.6 s and 1 s
+# kept them. Any change to the audio can move Whisper's last window, so a
+# silent end is only cut when it is over a second long; the owner's own ten
+# takes end within 0.2 s of the last word and are never cut.
+_TAIL_MIN_S = 1.0            # a silent end shorter than this is left alone
+_TAIL_MARGIN_S = 0.6         # kept after the last voiced window
+_TAIL_VOICE_RATIO = 1.5      # voice, for the cut: 1.5x the floor, so a soft last word counts
+_TAIL_MIN_SPREAD_DB = 15.0   # the take's loud end must clear its floor by this, or no cut
+_SEGMENT_VOICE_RATIO = 2.0   # voice under a final segment: 2x the floor (+6 dB)
+_STRICT_VOICE_RATIO = 3.0    # voiced beyond doubt: 3x the floor (+9.5 dB); room noise never is
+_MIN_VOICED_S = 0.25         # less audio voiced beyond doubt than this: nothing was said
+_DIGITAL_SILENCE_RMS = 1.0   # a window quieter than this is exact zeros (padding, a gate)
+
+
+class _VoiceProfile:
+    """The 30 ms window levels of a take (``rms``, 16-bit units) and what they
+    say. ``floor``: the room's noise, the 10th percentile of the windows that
+    are not digital silence (None when every window is). ``spread_db``: how
+    far the take's loud end (95th percentile) stands over that floor.
+    ``level_db``: the speech level in dBFS exactly as boost_quiet_speech
+    measures and logs it, before any lift (None when nothing is voiced)."""
+
+    __slots__ = ("framerate", "nframes", "win", "rms", "floor", "spread_db", "level_db")
+
+
+def _voice_profile(audio_bytes: bytes):
+    """The take's _VoiceProfile, or None for anything but 16-bit mono WAV of at
+    least one window. One pass, a block at a time (_window_rms), so a
+    20-minute take is not copied. Never raises."""
+    import io
+    import math
+    import wave
+    try:
+        import numpy as np
+        with wave.open(io.BytesIO(audio_bytes), "rb") as w:
+            if w.getsampwidth() != 2 or w.getnchannels() != 1:
+                return None
+            framerate = w.getframerate()
+            frames = w.readframes(w.getnframes())
+        samples = np.frombuffer(frames, dtype=np.int16)
+        win = max(1, int(framerate * 30 / 1000))
+        if len(samples) < win:
+            return None
+        rms = _window_rms(samples, win)
+        p = _VoiceProfile()
+        p.framerate, p.nframes, p.win, p.rms = framerate, len(samples), win, rms
+        sounding = rms[rms >= _DIGITAL_SILENCE_RMS]
+        if sounding.size:
+            p.floor = max(float(np.percentile(sounding, 10)), _DIGITAL_SILENCE_RMS)
+            p.spread_db = 20 * math.log10(max(float(np.percentile(sounding, 95)), p.floor) / p.floor)
+        else:
+            p.floor = p.spread_db = None
+        # boost_quiet_speech's own measure: frames over four times the 10th
+        # percentile of every frame (digital silence included) and over
+        # -70 dBFS, their median.
+        floor_all = float(np.percentile(rms, 10))
+        voiced = rms[rms > max(floor_all * 4.0, 32768.0 * 10 ** (-70 / 20))]
+        p.level_db = (20 * math.log10(float(np.median(voiced)) / 32768.0)
+                      if voiced.size else None)
+        return p
+    except Exception:
+        return None
+
+
+def _tail_cut(profile):
+    """``(trailing_s, cut_frame)`` for a take: the seconds after its last
+    voiced window (_TAIL_VOICE_RATIO times the floor), and the frame to cut
+    at (that window's end plus _TAIL_MARGIN_S), or None when the end is not
+    long enough to cut. ``(None, None)`` when the take has no clear speech:
+    nothing voiced, or a loud end under _TAIL_MIN_SPREAD_DB over the floor,
+    where speech cannot be told from noise."""
+    if profile is None or profile.floor is None or profile.spread_db is None \
+            or profile.spread_db < _TAIL_MIN_SPREAD_DB:
+        return None, None
+    import numpy as np
+    thr = max(_SPEECH_RMS_FLOOR, profile.floor * _TAIL_VOICE_RATIO)
+    voiced = np.nonzero(profile.rms >= thr)[0]
+    if voiced.size == 0:
+        return None, None
+    end = (int(voiced[-1]) + 1) * profile.win
+    trailing = (profile.nframes - end) / float(profile.framerate)
+    if trailing < _TAIL_MIN_S:
+        return trailing, None
+    return trailing, end + int(round(_TAIL_MARGIN_S * profile.framerate))
+
+
+def _trim_silent_tail(audio_bytes: bytes, profile=None):
+    """Cut the silent end off a take: ``(audio, trailing_s)``.
+
+    Everything after the last voiced window plus _TAIL_MARGIN_S goes, when
+    that end is longer than _TAIL_MIN_S. The start is never touched (the
+    pre-roll is there to catch first words), nothing voiced is ever cut, and a
+    take with no clear speech is returned as it is: the near-silence rules
+    decide that one. ``trailing_s`` is the measured silent end in seconds
+    (whether cut or not), None when it could not be measured.
+
+    ``profile`` is the take's _voice_profile when the caller has one: in
+    transcribe_sync it is measured on the take as recorded and the cut is
+    made in the lifted audio, which has the same frames, so the lift is
+    sized on the whole take exactly as before. Never raises."""
+    try:
+        p = profile if profile is not None else _voice_profile(audio_bytes)
+        trailing, cut = _tail_cut(p)
+        if cut is None:
+            return audio_bytes, trailing
+        import io
+        import wave
+        with wave.open(io.BytesIO(audio_bytes), "rb") as r:
+            params = r.getparams()
+            if params.nframes != p.nframes or params.sampwidth != 2 or params.nchannels != 1:
+                return audio_bytes, None
+            frames = r.readframes(cut)
+        out = io.BytesIO()
+        with wave.open(out, "wb") as w:
+            w.setparams(params)
+            w.writeframes(frames)
+        _wlog(f"[whisper] silent end cut: {(p.nframes - cut) / float(p.framerate):.1f}s "
+              f"of {trailing:.1f}s")
+        return out.getvalue(), trailing
+    except Exception as e:
+        _wlog(f"[whisper] silent end not cut ({type(e).__name__})")
+        return audio_bytes, None
+
+
+def _voiced_seconds(audio) -> float:
+    """Seconds of a take voiced beyond doubt: 30 ms windows at
+    _STRICT_VOICE_RATIO times the room's floor or more, the floor taken from
+    windows that are not digital silence. Stricter than _speech_seconds,
+    which a lifted noise floor fools (2 s of the owner's room noise measured
+    2.0 s of speech there, and 0.0 s here). ``audio`` is WAV bytes or a
+    _VoiceProfile; 0.0 for anything unreadable or silent."""
+    p = audio if isinstance(audio, _VoiceProfile) else _voice_profile(audio)
+    if p is None or p.floor is None:
+        return 0.0
+    thr = max(_SPEECH_RMS_FLOOR, p.floor * _STRICT_VOICE_RATIO)
+    return float((p.rms >= thr).sum()) * p.win / float(p.framerate)
+
+
+def _voiced_between(profile, start, end, ratio=None):
+    """Seconds of voice between ``start`` and ``end`` seconds of the audio
+    ``profile`` measured; a window part inside counts whole. 0.0 for a span
+    past the end of the audio or of no length; None when the times or the
+    audio cannot say. Voice is ``ratio`` times the floor, by default
+    _SEGMENT_VOICE_RATIO: between the cut's bar and the strict one, as room
+    noise flickers over 1.5x the floor often enough to fake a short word, and
+    a quietly said thanks can miss 3x."""
+    if profile is None or start is None or end is None:
+        return None
+    if profile.floor is None:
+        return 0.0
+    dur = profile.nframes / float(profile.framerate)
+    s = min(max(start, 0.0), dur)
+    e = min(max(end, s), dur)
+    a = int(s * profile.framerate) // profile.win
+    b = min(len(profile.rms), -(-int(e * profile.framerate) // profile.win))
+    if b <= a:
+        return 0.0
+    k = _SEGMENT_VOICE_RATIO if ratio is None else ratio
+    thr = max(_SPEECH_RMS_FLOOR, profile.floor * k)
+    return float((profile.rms[a:b] >= thr).sum()) * profile.win / float(profile.framerate)
+
+
+# ── Coverage: clear voice that no segment covers (3.16.3) ───────────────────
+# The incomplete-transcript retry fires on too few words for the measured
+# speech (_retry_if_incomplete), and that measure counts a lifted room's hiss:
+# in two weeks of the owner's logs it fired 13 times, every one "retry no
+# better", each costing 2 to 8 s. When Groq's segments came with the words,
+# the retry is now only sent if some clear voice in the upload lies outside
+# every segment: a transcript that dropped speech leaves voice with nothing
+# over it, a slow speaker or a lifted room does not. Measured on the owner's
+# ten takes: complete transcripts left at most 0.54 s uncovered (with half a
+# second allowed either side of each segment; 1.32 s with none), and the
+# three retries the old rule sent (one slow take, as recorded and with 2 or 4
+# s of room noise added) left 0.00 s. With the last half of each answer's
+# segments taken away the old rule fired on 8 and so did this one, with the
+# middle third taken away 2 and 2; what those left uncovered was 1.5 s or
+# more (the least in a take recorded in a loud room).
+_COVER_MARGIN_S = 0.5          # a segment covers this far beyond its own times
+_MIN_UNCOVERED_VOICE_S = 1.0   # less clear voice than this outside them: nothing was dropped
+
+
+def _uncovered_voice(audio, spans, margin=_COVER_MARGIN_S):
+    """Seconds of clear voice (_STRICT_VOICE_RATIO times the floor) in
+    ``audio`` (WAV bytes or a _VoiceProfile) outside every ``(start, end)`` of
+    ``spans`` widened by ``margin``; a window touching a span is covered.
+    Spans past the end of the audio are clamped. None when the audio cannot be
+    read, so the caller falls back to what it did without this."""
+    import math
+    p = audio if isinstance(audio, _VoiceProfile) else _voice_profile(audio)
+    if p is None:
+        return None
+    if p.floor is None:
+        return 0.0
+    import numpy as np
+    w = p.win / float(p.framerate)
+    voiced = p.rms >= max(_SPEECH_RMS_FLOOR, p.floor * _STRICT_VOICE_RATIO)
+    covered = np.zeros(len(p.rms), dtype=bool)
+    for start, end in spans:
+        a = max(0, int(math.floor((start - margin) / w)))
+        b = min(len(p.rms), int(math.ceil((end + margin) / w)))
+        if b > a:
+            covered[a:b] = True
+    return float((voiced & ~covered).sum()) * w
+
+
+# ── Groq's segments (3.16.3) ────────────────────────────────────────────────
+# Groq is asked for verbose_json: the same words in segments, each with its
+# start and end in the uploaded audio and Whisper's own no_speech_prob (one
+# value for each 30 s window, so every segment of a short take shares it).
+# On the owner's recordings the segments joined spelled the text Groq sent
+# before (the same last words on all ten). 2 s of the owner's room noise alone came
+# back as one segment, "Thank you.", no_speech_prob 0.70; every segment of their
+# ten takes, with and without room noise added to their end, had 0.002 to
+# 0.31.
+_SEGMENT_NO_SPEECH_PROB = 0.5    # Whisper's own "nothing was said here"
+_SEGMENT_MIN_VOICED_S = 0.15     # less voice than this under a segment: none
+
+# A final segment that is only one of these is a candidate: a thanks with at
+# most four more words ("Thank you from the heart.", "Thanks for watching!",
+# "Thank you, James."), a sign-off, a channel outro, a caption credit, a bare
+# "you" or a sound tag. Only a candidate with evidence of no speech goes.
+_OUTRO_CREDIT_RE = re.compile(
+    r"^(?:closed\s+)?(?:subtitles|captions?|captioned|captioning|transcription|transcribed"
+    r"|translated|translation)\s+(?:by|provided\s+by)\s+.+$", re.IGNORECASE)
+_OUTRO_SENTENCE_RE = re.compile(r"""^(?:
+      (?:(?:okay|ok|so|and|well|alright|all\s+right)\s+)?(?:thank\s+you|thanks)(?:\s+\S+){0,4}
+    | (?:bye(?:[\s-]+bye)?|good\s*bye|bye\s+now)(?:\s+(?:everyone|everybody|all|guys))?
+    | see\s+you(?:\s+(?:next\s+time|later|soon|tomorrow|around|in\s+the\s+next\s+(?:one|video)))?
+    | take\s+care
+    | have\s+a\s+(?:good|nice|great|lovely)\s+(?:day|one|night|evening|weekend)
+    | (?:please\s+|don'?t\s+forget\s+to\s+|remember\s+to\s+)?(?:like\s+and\s+)?subscribe
+      (?:\s+to\s+(?:my|the|our)\s+channel)?
+    | (?:please\s+)?(?:hit|smash)\s+(?:the|that)\s+like\s+button
+    | you
+    | \[?(?:music|applause|laughter|silence)\]?
+)$""", re.IGNORECASE | re.VERBOSE)
+
+
+def _is_outro_segment(text) -> bool:
+    """Is this segment only a thanks, a sign-off or a known outro (one or two
+    of them: "Thank you. Bye.")? A thanks inside a sentence, or one followed
+    by more than four words, is not."""
+    if not isinstance(text, str):
+        return False
+    t = " ".join(text.replace("’", "'").split())
+    if not t or len(t.split()) > 12:
+        return False
+    if _OUTRO_CREDIT_RE.match(t.rstrip(".!?")):
+        return True
+    parts = [re.sub(r"\s*,\s*", " ", p).strip(" ,;:-") for p in re.split(r"[.!?]+", t)]
+    parts = [p for p in parts if p]
+    return bool(parts) and len(parts) <= 3 and all(_OUTRO_SENTENCE_RE.match(p) for p in parts)
+
+
+class _Heard(str):
+    """A provider's words, carrying what the audio said about them.
+    ``end_verified``: they end on a thanks or sign-off with a voice under it
+    and a low no_speech_prob, so it was said. ``spans``: the ``(start, end)``
+    of the segments the words came from, in the upload's own time (None
+    without usable segments: plain text, OpenAI, an answer that could not be
+    read). ``uncovered_s``: a take sent in pieces, the clear voice no segment
+    covers, added up over the pieces (None when a piece had no spans)."""
+
+    end_verified = False
+    spans = None
+    uncovered_s = None
+
+
+def _field(obj, name):
+    return obj.get(name) if isinstance(obj, dict) else getattr(obj, name, None)
+
+
+def _number(value):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    value = float(value)
+    return value if value == value and value not in (float("inf"), float("-inf")) else None
+
+
+def _read_segments(response):
+    """The segments of a verbose_json answer as dicts of ``text`` (a string)
+    and ``start``, ``end`` and ``no_speech_prob`` (numbers, None when
+    missing); None when there are none or one has no text. The Groq SDK keeps
+    them as an extra field of plain dicts, the OpenAI SDK as objects."""
+    raw = _field(response, "segments")
+    if raw is None and not isinstance(response, dict):
+        extra = getattr(response, "model_extra", None)
+        if isinstance(extra, dict):
+            raw = extra.get("segments")
+    if not isinstance(raw, list) or not raw:
+        return None
+    out = []
+    for s in raw:
+        text = _field(s, "text")
+        if not isinstance(text, str):
+            return None
+        out.append({"text": text, "start": _number(_field(s, "start")),
+                    "end": _number(_field(s, "end")),
+                    "no_speech_prob": _number(_field(s, "no_speech_prob"))})
+    return out
+
+
+def _settle_ending(segments, audio_bytes):
+    """``(segments to keep, end_verified)``. While the final segment is an
+    outro (_is_outro_segment), it goes when the audio under it holds under
+    _SEGMENT_MIN_VOICED_S of voice, or when Whisper says nothing was said
+    (no_speech_prob >= _SEGMENT_NO_SPEECH_PROB) and the audio under it holds
+    no clear voice either (_SEGMENT_MIN_VOICED_S at the strict bar,
+    _STRICT_VOICE_RATIO). no_speech_prob is one value for a whole 30 s window,
+    shared by every segment in it, and a quiet, lifted microphone can raise
+    it; the audio under the segment is the segment's own, so a clear voice
+    there keeps a "Thanks for letting me know." whatever the window scored.
+    The audio is the very upload the segments' times refer to (the padding
+    and the cut are in it), and only the part after the previous segment's
+    end counts: Whisper's times overlap, and the last real word is not the
+    invented one's. A segment with no times is judged on no_speech_prob
+    alone, one without that on the audio alone, and one with neither is
+    kept."""
+    kept = list(segments)
+    profile, measured = None, False
+    while kept and _is_outro_segment(kept[-1]["text"]):
+        seg = kept[-1]
+        if not measured:
+            profile, measured = _voice_profile(audio_bytes), True
+        start = seg["start"]
+        if start is not None and len(kept) > 1 and kept[-2]["end"] is not None:
+            start = max(start, kept[-2]["end"])
+        voiced = _voiced_between(profile, start, seg["end"])
+        clear = _voiced_between(profile, start, seg["end"], _STRICT_VOICE_RATIO)
+        nsp = seg["no_speech_prob"]
+        clear_voice = clear is not None and clear >= _SEGMENT_MIN_VOICED_S
+        no_speech = (nsp is not None and nsp >= _SEGMENT_NO_SPEECH_PROB
+                     and not clear_voice)
+        no_voice = voiced is not None and voiced < _SEGMENT_MIN_VOICED_S
+        if not (no_speech or no_voice):
+            return kept, voiced is not None
+        _wlog("[whisper] dropped an invented ending: "
+              f"no_speech_prob {'?' if nsp is None else f'{nsp:.2f}'}, "
+              f"voice under it {'?' if voiced is None else f'{voiced:.2f}s'}")
+        kept.pop()
+    return kept, False
+
+
+def _groq_words(response, audio_bytes):
+    """The words of a Groq answer as a _Heard, or None when it holds neither
+    usable segments nor text (the caller then asks for plain text). A string
+    answer is used as it is. Segments that cannot be read, or that do not
+    spell the answer's text, leave the text as it came, unchecked."""
+    if isinstance(response, str):
+        return _Heard(response.strip())
+    full = _field(response, "text")
+    full = full if isinstance(full, str) else None
+    segments = _read_segments(response)
+    if segments is None:
+        if full is None:
+            return None
+        if full.strip():
+            _wlog("[whisper] Groq sent no segments to check; using its text")
+        return _Heard(full.strip())
+    joined = "".join(s["text"] for s in segments)
+    if full is not None and joined.strip() != full.strip():
+        _wlog("[whisper] Groq's segments do not spell its text; using the text unchecked")
+        return _Heard(full.strip())
+    kept, verified = _settle_ending(segments, audio_bytes)
+    out = _Heard("".join(s["text"] for s in kept).strip())
+    out.end_verified = verified
+    if all(s["start"] is not None and s["end"] is not None for s in kept):
+        out.spans = [(s["start"], s["end"]) for s in kept]
+    return out
+
+
+def _detail_refused(exc) -> bool:
+    """A 400 or 422 that names the response format: Groq will not send
+    segments for this request, so the plain text is asked for instead."""
+    status = getattr(exc, "status_code", None)
+    if not isinstance(status, int):
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+    text = str(exc).lower()
+    return status in (400, 422) and ("response_format" in text or "verbose" in text)
 
 
 def _normalize_transcriber_order(order) -> list:
@@ -2244,18 +2705,31 @@ class WhisperTranscriber:
         _split_audio_on_silence), one after another, joined. ``exclude`` skips
         one provider, as for _dispatch_one."""
         parts = []
+        verified = False
+        uncovered = 0.0        # None once a piece has no spans to judge by
         for idx, ch in enumerate(chunks):
-            part = self._dispatch_one(ch, exclude=exclude)
+            heard = self._dispatch_one(ch, exclude=exclude)
+            # Each piece's segment times are its own, so its coverage is
+            # measured on it, and the pieces' add up (3.16.3).
+            spans = getattr(heard, "spans", None)
+            piece = _uncovered_voice(ch, spans) if spans is not None else None
+            uncovered = None if uncovered is None or piece is None else uncovered + piece
             # Strip a hallucinated outro PER CHUNK so a fake ending Whisper
             # tacks onto one chunk doesn't land in the middle of the joined
             # transcript. (The trailing strip below still covers chunk N.)
             part = _strip_hallucinations(
-                part, speech_seconds=_speech_seconds(ch)
+                heard, speech_seconds=_speech_seconds(ch)
             ).strip()
             _wlog(f"[whisper] chunk {idx+1}/{len(chunks)} -> {len(part.split())} words")
             if part:
                 parts.append(part)
-        return " ".join(parts)
+                # What Groq's segments said about the end of the take is the
+                # last piece's, while the filter left that piece as it came.
+                verified = bool(getattr(heard, "end_verified", False)) and part == str(heard).strip()
+        out = _Heard(" ".join(parts))
+        out.end_verified = verified
+        out.uncovered_s = uncovered
+        return out
 
     def _retry_if_incomplete(self, audio_bytes: bytes, transcript: str) -> str:
         """Detect a transcript that is impossibly short for the measured speech
@@ -2300,6 +2774,21 @@ class WhisperTranscriber:
             tail_derailed = _ends_on_derailment(transcript)
             if wps >= _MIN_WORDS_PER_SPEECH_SEC and not tail_derailed:
                 return transcript
+            # Too few words for the measured speech, which counts a lifted
+            # room's hiss. Where Groq's segments say where the words were,
+            # retry only if clear voice lies outside all of them (3.16.3: see
+            # _MIN_UNCOVERED_VOICE_S). This can only hold back a retry the
+            # rule above would send. A derailed ending is not judged so: its
+            # invented segment sits over the voice it replaced.
+            if not tail_derailed:
+                uncovered = getattr(transcript, "uncovered_s", None)
+                if uncovered is None and getattr(transcript, "spans", None) is not None:
+                    uncovered = _uncovered_voice(audio_bytes, transcript.spans)
+                if uncovered is not None and uncovered < _MIN_UNCOVERED_VOICE_S:
+                    _wlog(f"[whisper] {words} words for {speech_s:.1f}s of speech, but "
+                          f"Groq's segments cover all but {uncovered:.1f}s of the clear "
+                          f"voice: no retry")
+                    return transcript
             factor = _RETRY_IMPROVEMENT_FACTOR
             if tail_derailed:
                 factor = _TAIL_RETRY_IMPROVEMENT_FACTOR
@@ -2360,7 +2849,22 @@ class WhisperTranscriber:
         # Which provider could not be reached from this network and had to be
         # replaced by another for this recording (net_health.failover_dict).
         self.last_failovers = []
+        # The level the speech arrived at, in dBFS, before any lift (None when
+        # nothing in it is voiced). Kept with the Journal entry, where the
+        # quiet-microphone tip reads the last ten (src/quiet_mic.py).
+        self.last_speech_dbfs = None
+        # Measured once, on the take as recorded: its level, its silent end
+        # and how much of it is voiced beyond doubt (see _voice_profile).
+        _profile = _voice_profile(audio_bytes)
+        if _profile is not None and _profile.level_db is not None:
+            self.last_speech_dbfs = round(_profile.level_db, 1)
         audio_bytes = boost_quiet_speech(audio_bytes)
+        # The silent end goes after the lift (sized on the whole take, as
+        # before) and before the padding (3.16.3): see _trim_silent_tail. The
+        # 300 ms of exact zeros stays at both ends, as before: the owner's
+        # takes end within 0.2 s of the last word and come back whole with it,
+        # and at the start it still guards a clipped first word.
+        audio_bytes, _trailing_s = _trim_silent_tail(audio_bytes, _profile)
         audio_bytes = _pad_audio_with_silence(audio_bytes)
 
         # Long-recording fix: split clips over ~30 s into <= 25-30 s chunks on
@@ -2401,12 +2905,20 @@ class WhisperTranscriber:
         finally:
             self._measured_speech = None
 
-        # Snapshot the provider's words BEFORE any filtering runs.
-        self.last_asr_response = raw
+        # Snapshot the provider's words BEFORE any filtering runs (as plain
+        # text: Groq's words come as a _Heard).
+        self.last_asr_response = str(raw)
 
         # Pass MEASURED speech duration so the filter decides ambiguous
-        # cases on audio evidence instead of guessing from the text.
-        cleaned = _strip_hallucinations(raw, speech_seconds=_clip_speech_s)
+        # cases on audio evidence instead of guessing from the text, and
+        # (3.16.3) the strict measure and the silent end the cut found. When
+        # Groq's segments showed a voice under a final thanks, that thanks
+        # was said, and the silent end after it is no evidence against it.
+        _voiced_s = _voiced_seconds(_profile) if _profile is not None else None
+        _heard_said = bool(getattr(raw, "end_verified", False))
+        cleaned = _strip_hallucinations(
+            raw, speech_seconds=_clip_speech_s, voiced_seconds=_voiced_s,
+            trailing_silence_s=None if _heard_said else _trailing_s)
         if cleaned != raw:
             # Metadata only — don't print the transcript text (PII; app.log
             # ships in the Download Logs bundle).
@@ -2428,8 +2940,11 @@ class WhisperTranscriber:
         # audio agrees it was silence. A user who genuinely says just "Thank
         # you." or "Thanks." produces text identical to the classic
         # hallucination, and blanking that is silent loss of their words.
+        # Since 3.16.3 the measured speech must include some audio voiced
+        # beyond doubt: a lifted noise floor alone used to vouch for it.
         if _is_whisper_hallucination(cleaned):
-            if _clip_speech_s >= _NEAR_SILENCE_S:
+            if _clip_speech_s >= _NEAR_SILENCE_S and (
+                    _voiced_s is None or _voiced_s >= _MIN_VOICED_S):
                 _wlog(f"[whisper] boilerplate-shaped text kept: "
                       f"{_clip_speech_s:.1f}s of measured speech says it is real")
             else:
@@ -2514,22 +3029,39 @@ class WhisperTranscriber:
             hint = ""
             if os.environ.get("WAFFLER_WHISPER_PROMPT") == "1":
                 hint = vocab_to_prompt(load_vocab())
-            with open(tmp, "rb") as af:
-                kwargs = dict(
-                    model="whisper-large-v3",
-                    file=af,
-                    response_format="text",
-                )
-                if hint:
-                    kwargs["prompt"] = hint
-                if lang and lang != "auto":
-                    kwargs["language"] = lang
-                # Per-request timeout scaled to the upload size — the flat 60s
-                # client default kills large uploads on slow uplinks — and
-                # short to connect when OpenAI can take the clip instead.
-                kwargs["timeout"] = _request_timeout(len(audio_bytes))
-                response = self._groq_client.audio.transcriptions.create(**kwargs)
-            text = response.strip()
+
+            def ask(response_format):
+                with open(tmp, "rb") as af:
+                    kwargs = dict(
+                        model="whisper-large-v3",
+                        file=af,
+                        response_format=response_format,
+                    )
+                    if hint:
+                        kwargs["prompt"] = hint
+                    if lang and lang != "auto":
+                        kwargs["language"] = lang
+                    # Per-request timeout scaled to the upload size — the flat
+                    # 60s client default kills large uploads on slow uplinks —
+                    # and short to connect when OpenAI can take the clip instead.
+                    kwargs["timeout"] = _request_timeout(len(audio_bytes))
+                    return self._groq_client.audio.transcriptions.create(**kwargs)
+
+            # The words with their segments (3.16.3), so an ending Whisper
+            # invented over no speech can be told and dropped (_groq_words).
+            # If Groq will not send them, or sends something unreadable, the
+            # plain text is asked for, as before.
+            try:
+                response = ask("verbose_json")
+            except Exception as e:
+                if not _detail_refused(e):
+                    raise
+                _wlog("[whisper] Groq would not send segments; asked for its plain text")
+                response = ask("text")
+            text = _groq_words(response, audio_bytes)
+            if text is None:
+                _wlog("[whisper] Groq's answer could not be read; asked for its plain text")
+                text = _groq_words(ask("text"), audio_bytes) or _Heard("")
             duration = time.time() - t0
             self._last_duration = duration
             print(f"⚡ Groq Whisper ({duration*1000:.0f}ms, {len(text)} chars)")

@@ -50,6 +50,7 @@ import notifier  # noqa: E402
 import pasteboard  # noqa: E402
 import pipeline_watchdog as pw  # noqa: E402
 import privacy_data  # noqa: E402
+import quiet_mic  # noqa: E402
 import recent_audio  # noqa: E402
 import snippets  # noqa: E402
 import style_layer  # noqa: E402
@@ -128,6 +129,9 @@ PIPELINE_METHODS = (
     # The notice that another provider did the work because the first could
     # not be reached from this network (src/net_health.py).
     "_announce_failover",
+    # The tip that says when the Mac's microphone is set too low
+    # (src/quiet_mic.py): each saved take's level, and what the tip asks.
+    "_note_mic_level", "_quiet_mic_hooks",
 )
 MODULE_DEFS = ("ensure_data_dir", "load_history", "_load_history_for_update",
                "save_history", "append_history",
@@ -501,7 +505,7 @@ def make_pipeline(data_dir: Path, *, transcriber=None, styler=None, clipboard=No
         _action_hotkeys=action_hotkeys, _activity_gate=activity_gate, _transforms=transforms,
         _transform_action=transform_action,
         _command_mode=command_mode, _command_action=command_action,
-        _user_messages=user_messages, _wedge_recovery=wedge_recovery, _audio_guard=audio_guard, AudioWedged=audio.AudioWedged, sys=sys, _net_health=net_health,
+        _user_messages=user_messages, _wedge_recovery=wedge_recovery, _quiet_mic=quiet_mic, _audio_guard=audio_guard, AudioWedged=audio.AudioWedged, sys=sys, _net_health=net_health,
         _history_cache=types.SimpleNamespace(invalidate=lambda: None),
         _is_setup_complete=lambda: True,
         paste_timed_out_message=user_messages.paste_timed_out_message,
