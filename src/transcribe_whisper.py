@@ -1494,7 +1494,7 @@ _NEAR_SILENCE_S = 1.5
 
 # The join artefact (3.16.3): an invented thanks segment after a sentence the
 # speaker left unfinished. Whisper joins segments with a plain space, so it
-# reads "...maybe like Thank you.": a capital after a lower-case word (a comma
+# reads "...or maybe we could just Thank you.": a capital after a lower-case word (a comma
 # at most between them), then at most a known tail and the end of the text.
 _JOIN_THANKS_RE = re.compile(
     r"(?P<prev>[^\W\d_]+),?\s+(?P<thanks>(?:Thank you|Thanks)"
@@ -1555,8 +1555,8 @@ def _strip_hallucinations(text: str, speech_seconds: float = None, *,
     (_trim_silent_tail). When it is at least _TAIL_MIN_S, a final "Thank
     you." or "Thanks." (with at most a known tail such as "very much" or "for
     watching") written with a capital straight after a lower-case word, with
-    no full stop between, is a segment join, not speech: "...expand on
-    betfred Thank you." loses its last two words. Guard 2 still applies
+    no full stop between, is a segment join, not speech: "...expand on the
+    summary Thank you." loses its last two words. Guard 2 still applies
     ("...to Priya and Thank you." stays). The caller leaves it None when
     Groq's segments showed a voice under that thanks.
     """
@@ -1977,7 +1977,7 @@ def _speech_seconds(audio_bytes: bytes) -> float:
 # pasted dictations that end in a thanks, every one already had it in the
 # speech-to-text output; the recent ones were never said: a whole take of
 # only "Thank you." (2.1 s long, measured as 2.0 s of "speech"), and
-# "...maybe like Thank you." tacked onto an unfinished sentence.
+# "Thank you." tacked onto an unfinished sentence.
 #
 # _speech_seconds cannot see this: the 300 ms of padding is exact zeros, so
 # its noise floor is zero and its threshold drops to 12, under the lifted
@@ -2000,9 +2000,8 @@ def _speech_seconds(audio_bytes: bytes) -> float:
 #
 # The margin kept after the last voice is 0.6 s, not the 0.35 s first tried:
 # on the owner's 88 s take with 4 s of its room noise added, cutting to
-# 0.35 s made Groq end its last window three words early ("...really cheap,"
-# for "...cheap, because it is."), the same every time, while 0.6 s and 1 s
-# kept them. Any change to the audio can move Whisper's last window, so a
+# 0.35 s made Groq end its last window three words early, the same every
+# time, while 0.6 s and 1 s kept them. Any change to the audio can move Whisper's last window, so a
 # silent end is only cut when it is over a second long; the owner's own ten
 # takes end within 0.2 s of the last word and are never cut.
 _TAIL_MIN_S = 1.0            # a silent end shorter than this is left alone

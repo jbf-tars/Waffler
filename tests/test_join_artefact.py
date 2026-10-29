@@ -2,11 +2,11 @@
 
 1. The join artefact. Whisper writes each segment on its own and the joins are
    plain spaces, so a sentence the speaker left unfinished followed by an
-   invented segment reads "...maybe like Thank you." or "...expand on
-   betfred Thank you.": a capital after a lower-case word, with no full stop
+   invented segment reads "...or maybe we could just Thank you." or "...expand on
+   the summary Thank you.": a capital after a lower-case word, with no full stop
    between. The old filter only looked for a thanks as its own sentence after
    a full stop, so both were pasted. In the owner's 1,225 dictations that
-   shape ended four of them (these two and two "Thank you for watching!"),
+   shape ended four of them (two like these and two "Thank you for watching!"),
    all invented; every thanks they really said had a full stop or a comma
    before it. It is now dropped, but only with audio evidence that the end
    of the take held no speech (``trailing_silence_s``, from the cut), and
@@ -38,8 +38,8 @@ from transcribe_whisper import WhisperTranscriber, _strip_hallucinations  # noqa
 SR = 16000
 
 UNFINISHED = ("So I was thinking we could probably move the launch to next week, "
-              "maybe not maybe like Thank you.")
-BETFRED = "I want you to look at the odds feed and expand on betfred Thank you."
+              "or maybe we could just Thank you.")
+SUMMARY = "I want you to look at the sales figures and expand on the summary Thank you."
 
 
 def strip(text, trailing=1.2, speech=30.0, voiced=None):
@@ -49,33 +49,33 @@ def strip(text, trailing=1.2, speech=30.0, voiced=None):
 
 # ── 1. the join artefact ────────────────────────────────────────────────────
 
-def test_the_owners_two_invented_endings_go_when_the_end_was_silent():
-    assert strip(UNFINISHED).endswith("maybe not maybe like")
-    assert strip(BETFRED) == "I want you to look at the odds feed and expand on betfred"
+def test_two_invented_endings_go_when_the_end_was_silent():
+    assert strip(UNFINISHED).endswith("or maybe we could just")
+    assert strip(SUMMARY) == "I want you to look at the sales figures and expand on the summary"
 
 
 @pytest.mark.parametrize("trailing", [None, 0.0, 0.3, 0.6, 0.99])
 def test_without_evidence_of_a_silent_end_they_stay(trailing):
     assert strip(UNFINISHED, trailing=trailing) == UNFINISHED
-    assert strip(BETFRED, trailing=trailing) == BETFRED
+    assert strip(SUMMARY, trailing=trailing) == SUMMARY
 
 
 def test_the_evidence_threshold_is_the_cut_minimum():
-    assert strip(BETFRED, trailing=tw._TAIL_MIN_S) != BETFRED
+    assert strip(SUMMARY, trailing=tw._TAIL_MIN_S) != SUMMARY
 
 
 @pytest.mark.parametrize("ending,stripped", [
-    ("expand on betfred Thanks.", "expand on betfred"),
-    ("expand on betfred Thank you!", "expand on betfred"),
-    ("expand on betfred Thank you very much.", "expand on betfred"),
-    ("expand on betfred Thank you so much.", "expand on betfred"),
-    ("expand on betfred Thank you from the heart.", "expand on betfred"),
-    ("expand on betfred Thank you for watching!", "expand on betfred"),
-    ("expand on betfred, Thank you.", "expand on betfred"),
+    ("expand on the summary Thanks.", "expand on the summary"),
+    ("expand on the summary Thank you!", "expand on the summary"),
+    ("expand on the summary Thank you very much.", "expand on the summary"),
+    ("expand on the summary Thank you so much.", "expand on the summary"),
+    ("expand on the summary Thank you from the heart.", "expand on the summary"),
+    ("expand on the summary Thank you for watching!", "expand on the summary"),
+    ("expand on the summary, Thank you.", "expand on the summary"),
 ])
 def test_the_join_artefact_in_its_forms(ending, stripped):
-    assert strip("I want you to look at the odds feed and " + ending) == (
-        "I want you to look at the odds feed and " + stripped)
+    assert strip("I want you to look at the sales figures and " + ending) == (
+        "I want you to look at the sales figures and " + stripped)
 
 
 @pytest.mark.parametrize("text", [
@@ -83,13 +83,13 @@ def test_the_join_artefact_in_its_forms(ending, stripped):
     "Please send the deck to Priya and Thank you.",
     "Can you pass this on to Thank you.",
     # A lower-case thanks ran on from the words before it in one segment.
-    "I want you to look at the odds feed and expand on betfred thank you.",
-    "I want you to look at the odds feed and expand on betfred, thank you.",
+    "I want you to look at the sales figures and expand on the summary thank you.",
+    "I want you to look at the sales figures and expand on the summary, thank you.",
     # A capital word before it: not the shape of a join.
-    "I want you to look at the odds feed for the API Thank you.",
+    "I want you to look at the sales figures for the API Thank you.",
     # A name, or more words, after the thanks: the speaker's own.
-    "I want you to look at the odds feed and expand on betfred Thank you, James.",
-    "I want you to look at the odds feed and expand on betfred Thank you for the help with it.",
+    "I want you to look at the sales figures and expand on the summary Thank you, James.",
+    "I want you to look at the sales figures and expand on the summary Thank you for the help with it.",
     # A thanks that is not at the end.
     "Thank you for the notes, I will look at them tomorrow.",
 ])
@@ -104,7 +104,7 @@ def test_the_pinned_legitimate_endings_survive_the_new_rule_too():
 
 
 def test_never_blank_and_idempotent():
-    once = strip(BETFRED)
+    once = strip(SUMMARY)
     assert strip(once) == once
     assert strip("Thank you.", trailing=3.0, speech=4.0) == "Thank you."     # nothing before it
 
@@ -177,23 +177,23 @@ NO_SILENT_END = (_noise(0.5, -70, 2), _speech(4.0, -40))
 
 
 def test_the_transcriber_drops_the_join_artefact_after_a_silent_end(monkeypatch):
-    t = _transcriber(monkeypatch, BETFRED)
+    t = _transcriber(monkeypatch, SUMMARY)
     assert t.transcribe_sync(_wav(*SILENT_END)) == \
-        "I want you to look at the odds feed and expand on betfred"
-    assert t.last_asr_response == BETFRED and type(t.last_asr_response) is str
+        "I want you to look at the sales figures and expand on the summary"
+    assert t.last_asr_response == SUMMARY and type(t.last_asr_response) is str
     assert t.last_asr_filtered is True
 
 
 def test_the_transcriber_keeps_it_when_the_take_ended_on_speech(monkeypatch):
-    t = _transcriber(monkeypatch, BETFRED)
-    assert t.transcribe_sync(_wav(*NO_SILENT_END)) == BETFRED
+    t = _transcriber(monkeypatch, SUMMARY)
+    assert t.transcribe_sync(_wav(*NO_SILENT_END)) == SUMMARY
 
 
 def test_a_thanks_groq_heard_said_is_kept_whatever_the_end(monkeypatch):
-    heard = tw._Heard(BETFRED)
+    heard = tw._Heard(SUMMARY)
     heard.end_verified = True
     t = _transcriber(monkeypatch, heard)
-    assert t.transcribe_sync(_wav(*SILENT_END)) == BETFRED
+    assert t.transcribe_sync(_wav(*SILENT_END)) == SUMMARY
 
 
 def test_room_noise_that_came_back_as_thank_you_is_nothing(monkeypatch):

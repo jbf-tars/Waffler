@@ -12,7 +12,7 @@ and a Mac whose microphone is set too low now says so.
 
 On one Mac, dictations kept ending in a thanks that was never said: a whole
 take that was only "Thank you.", or "Thank you." tacked onto an unfinished
-sentence ("...maybe like Thank you."). Every one was already in what speech to
+sentence ("...or maybe we could just Thank you."). Every one was already in what speech to
 text sent back; the clean-up added none. It is Whisper's best-known invention,
 and it grows out of noisy near-silence at the end of a take. That Mac's input
 volume was 40%, so Waffler lifted nearly every take by about 21 dB, and the
@@ -71,7 +71,7 @@ room's noise in the silent end went up with it.
   if Groq ever sends something it cannot read, Waffler uses the plain text as
   it always did. OpenAI's speech to text has no such timings; there the
   other two fixes apply.
-- **"...expand on betfred Thank you."** A thanks written with a capital
+- **"...expand on the summary Thank you."** A thanks written with a capital
   straight after an unfinished sentence, with no full stop between, is how
   Whisper joins an invented segment on. It is now dropped when the take ended
   in over a second of silence, unless the word before it shows it belongs to
