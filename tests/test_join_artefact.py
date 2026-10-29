@@ -7,7 +7,7 @@
    between. The old filter only looked for a thanks as its own sentence after
    a full stop, so both were pasted. In the owner's 1,225 dictations that
    shape ended four of them (these two and two "Thank you for watching!"),
-   all invented; every thanks he really said had a full stop or a comma
+   all invented; every thanks they really said had a full stop or a comma
    before it. It is now dropped, but only with audio evidence that the end
    of the take held no speech (``trailing_silence_s``, from the cut), and
    never when the word before it dangles or Groq's segments showed a voice

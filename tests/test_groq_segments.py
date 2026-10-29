@@ -10,7 +10,7 @@ outro ("Thank you.", "Thank you from the heart.", "Thanks for watching!",
 "Bye.") AND either Whisper itself says there was no speech
 (no_speech_prob >= 0.5) or the audio under it holds no voice by the module's
 own measure. 2 s of the owner's room noise came back as "Thank you." with
-no_speech_prob 0.70; his real takes were 0.05 to 0.08. A thanks that was
+no_speech_prob 0.70; their real takes were 0.05 to 0.08. A thanks that was
 said (a voice under it, a low no_speech_prob) is always kept.
 
 An answer that cannot be read falls back to the plain text, silently. Fakes

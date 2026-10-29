@@ -6878,16 +6878,10 @@ class WafflerPipeline:
             # actually did - never from a judgement about the prose, because
             # reading a transcript cannot reveal what is missing from it.
             # Flag, never block: the paste already happened above.
-            # The words-per-second check judges speech as the transcriber's
-            # retry did (transcribe_whisper._speech_for_rate: a lifted room's
-            # hiss is not speech); History's speech_s keeps the old measure.
-            _rate_speech_s = _asr_info.get("last_judged_speech_seconds")
-            if _rate_speech_s is None:
-                _rate_speech_s = _asr_info.get("last_speech_seconds", 0.0)
             try:
                 from src.quality import assess as _assess
                 _q = _assess(
-                    speech_seconds=_rate_speech_s,
+                    speech_seconds=_asr_info.get("last_speech_seconds", 0.0),
                     transcript_words=len((transcript or "").split()),
                     styled_words=len((_body or "").split()),
                     asr_filtered=_asr_info.get("last_asr_filtered", False),
@@ -6921,7 +6915,6 @@ class WafflerPipeline:
                             "flags": _q["flags"],
                             "speech_s": round(float(
                                 _asr_info.get("last_speech_seconds", 0.0) or 0.0), 1),
-                            "rate_speech_s": round(float(_rate_speech_s or 0.0), 1),
                             "transcript_words": len((transcript or "").split()),
                             "styled_words": len((_body or "").split()),
                             "words_per_speech_second": _q["words_per_speech_second"],
@@ -7140,7 +7133,6 @@ class WafflerPipeline:
             ("last_speech_seconds", 0.0), ("last_retry_fired", False),
             ("last_retry_rejected", False), ("_last_cloud_provider", ""),
             ("last_failovers", ()), ("_backend", ""), ("last_speech_dbfs", None),
-            ("last_judged_speech_seconds", None),
         )}
         info["backend"] = info.pop("_backend")
         # A copy: a request the watchdog gave up on can still finish later and

@@ -23,7 +23,7 @@ room's noise in the silent end went up with it.
   hiss of a room counts as speech by that measure (the take on 27 October was
   2.1 seconds of noise and measured 2.0). A take that is nothing but a stock
   phrase is now kept only if some of it was clearly voiced: 9.5 dB over the
-  room's own noise, which the owner's room noise alone never reached.
+  room's own noise, which that Mac's room noise alone never reached.
 - **The silent end of a take is cut off before it is sent.** When a take ends
   in more than a second of silence or room noise, everything more than 0.6
   seconds after the last sound that could be a word goes. The start of a take
@@ -31,8 +31,8 @@ room's noise in the silent end went up with it.
   real takes' own last word, 10 dB quieter than the rest, was kept every
   time), and a take recorded in a room too loud to tell speech from noise is
   left as it is. The margin was 0.35 seconds at first: on one long take that
-  made Groq end three words early, every time, and 0.6 kept them. The
-  owner's ten latest takes all ended within 0.2 seconds of the last word, so
+  made Groq end three words early, every time, and 0.6 kept them. That
+  Mac's ten latest takes all ended within 0.2 seconds of the last word, so
   they were sent exactly as before.
 - **An ending Whisper invented over no speech is dropped.** Waffler now asks
   Groq for its words with their timings and Whisper's own score for "nothing
@@ -52,20 +52,25 @@ room's noise in the silent end went up with it.
   Whisper joins an invented segment on. It is now dropped when the take ended
   in over a second of silence, unless the word before it shows it belongs to
   the sentence ("...to Priya and Thank you." stays) or Groq heard your voice
-  under it. In the owner's 1,225 dictations that shape ended four, and all
+  under it. In 1,225 dictations on that Mac that shape ended four, and all
   four were invented.
 - **A quiet microphone no longer sets off a second, wasted speech-to-text
-  request.** When a transcript looked too short for the speech in a take
-  (under 1.5 words a second of speech), Waffler sent the take again to the
-  other provider. The seconds of speech counted a lifted room's hiss, so on a
-  quiet microphone almost any unhurried take looked short: on one Mac it
-  happened 13 times in two weeks, the second answer was never better, and
-  each cost 2 to 8 seconds. Speech is now counted only where it is clearly
-  voiced, which on that Mac's ten latest takes, with and without room noise
-  added, would have sent none of 20 again instead of 2. A transcript missing
-  half of a clearly spoken take still gets its second try. The quality check
-  for too few words counts the same way; the seconds of speech kept in the
-  Journal (and the Stats page's words a minute) are measured as before.
+  request.** When a transcript looks too short for the speech in a take
+  (under 1.5 words a second of speech), Waffler sends the take again to the
+  other provider. The seconds of speech count a lifted room's hiss, so on a
+  quiet microphone an unhurried take could look short: on one Mac it happened
+  13 times in two weeks, the second answer was never better, and each cost 2
+  to 8 seconds. That check is unchanged, but when Groq's segments came with
+  the words, the take is now sent again only if at least a second of clearly
+  voiced audio lies outside every segment (half a second either side
+  allowed). Words that were really lost leave voice with no segment over it;
+  a slow speaker or a noisy room does not. On that Mac's ten latest takes,
+  with 2 or 4 seconds of room noise added and without, this held back all 3
+  of the old check's retries; complete transcripts left 0.54 seconds
+  uncovered at most. Taking away the last half of each Groq answer, or its
+  middle third, still sent every take the old check sent again (8 of 8, and
+  2 of 2). It can only hold a retry back, never add one: with OpenAI, or
+  without readable segments, the check decides as before.
 
 ### Added
 - **A tip when your Mac's microphone is set too low.** When your last ten
@@ -86,7 +91,7 @@ room's noise in the silent end went up with it.
   last release and this version, as recorded, with 2 to 4 seconds of their
   own room noise added, and as room noise alone, and prints only the last four
   words of each result and counts. It will not run unless `WAFFLER_DATA_DIR`
-  names a scratch folder. On the owner's ten latest takes nothing ended in a
+  names a scratch folder. On that Mac's ten latest takes nothing ended in a
   thanks either way, no real last word was lost with the final settings, the
   provider took about as long (median 0.87 against 0.93 seconds), and the
   takes with room noise added sent 6% less audio.

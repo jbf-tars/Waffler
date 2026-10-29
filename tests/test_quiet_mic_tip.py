@@ -1,7 +1,7 @@
 """3.16.3: say so, on a Mac, when the microphone is set too low.
 
-The owner's Mac had its input volume at 40 of 100: 56 of his last 57 takes
-were lifted by the quiet-audio lift, his speech arriving at a median
+The owner's Mac had its input volume at 40 of 100: 56 of the owner's last 57 takes
+were lifted by the quiet-audio lift, their speech arriving at a median
 -42.5 dBFS (clear dictation is near -20) and raised by 21.5 dB, which raises
 the room's noise too, and noisy near-silence is what Whisper turns into
 "Thank you." Turning the input volume up fixes it at the source.

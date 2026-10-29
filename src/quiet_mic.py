@@ -1,8 +1,8 @@
 """A tip when the Mac's microphone is set too low (3.16.3).
 
-The owner's Mac had its input volume at 40 of 100. 56 of his last 57 takes
+The owner's Mac had its input volume at 40 of 100. 56 of the owner's last 57 takes
 were lifted by the quiet-audio lift (transcribe_whisper.boost_quiet_speech):
-his speech arrived at a median -42.5 dBFS, where clear dictation sits near
+their speech arrived at a median -42.5 dBFS, where clear dictation sits near
 -20, and was raised by 21.5 dB, up to 30. The lift raises the room's noise
 with the speech, and noisy near-silence at the end of a take is what Whisper
 turns into "Thank you." Turning the input volume up fixes it at the source,

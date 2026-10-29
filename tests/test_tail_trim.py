@@ -2,9 +2,9 @@
 
 Whisper's best-known invention is "Thank you." and it comes from noisy
 near-silence at the end of a clip. The owner's Mac records at an input volume
-of 40%, so Waffler's quiet-audio lift raises his takes by about 21 dB, and the
+of 40%, so Waffler's quiet-audio lift raises the owner's takes by about 21 dB, and the
 room noise in the silent end of each one with them. Every recent "Thank you."
-he never said was already in the speech-to-text output.
+the owner never said was already in the speech-to-text output.
 
 So, before the upload, the take is cut after its last voiced moment plus
 _TAIL_MARGIN_S (0.6 s), when what follows is longer than _TAIL_MIN_S (1 s).
