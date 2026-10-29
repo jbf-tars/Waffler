@@ -4,6 +4,78 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+Dictations no longer end in a "Thank you." you never said, and a Mac whose
+microphone is set too low now says so.
+
+On one Mac, dictations kept ending in a thanks that was never said: a whole
+take that was only "Thank you.", or "Thank you." tacked onto an unfinished
+sentence ("...maybe like Thank you."). Every one was already in what speech to
+text sent back; the clean-up added none. It is Whisper's best-known invention,
+and it grows out of noisy near-silence at the end of a take. That Mac's input
+volume was 40%, so Waffler lifted nearly every take by about 21 dB, and the
+room's noise in the silent end went up with it.
+
+### Fixed
+- **A take of room noise that came back as "Thank you." is no longer pasted.**
+  It was kept whenever the take measured 1.5 seconds of speech, and the lifted
+  hiss of a room counts as speech by that measure (the take on 27 October was
+  2.1 seconds of noise and measured 2.0). A take that is nothing but a stock
+  phrase is now kept only if some of it was clearly voiced: 9.5 dB over the
+  room's own noise, which the owner's room noise alone never reached.
+- **The silent end of a take is cut off before it is sent.** When a take ends
+  in more than a second of silence or room noise, everything more than 0.6
+  seconds after the last sound that could be a word goes. The start of a take
+  is never touched, a soft last word counts as a word (a copy of each of ten
+  real takes' own last word, 10 dB quieter than the rest, was kept every
+  time), and a take recorded in a room too loud to tell speech from noise is
+  left as it is. The margin was 0.35 seconds at first: on one long take that
+  made Groq end three words early, every time, and 0.6 kept them. The
+  owner's ten latest takes all ended within 0.2 seconds of the last word, so
+  they were sent exactly as before.
+- **An ending Whisper invented over no speech is dropped.** Waffler now asks
+  Groq for its words with their timings and Whisper's own score for "nothing
+  was said here". A final "Thank you.", "Thank you from the heart.", "Thanks
+  for watching!", "Bye." or a caption credit goes when Whisper gives no speech
+  a score of 0.5 or more, or there is no voice under it in the recording. A
+  thanks you said, with your voice under it, always stays. The words are
+  otherwise the same as before (the same last words on ten real takes), and
+  if Groq ever sends something it cannot read, Waffler uses the plain text as
+  it always did. OpenAI's speech to text has no such timings; there the
+  other two fixes apply.
+- **"...expand on betfred Thank you."** A thanks written with a capital
+  straight after an unfinished sentence, with no full stop between, is how
+  Whisper joins an invented segment on. It is now dropped when the take ended
+  in over a second of silence, unless the word before it shows it belongs to
+  the sentence ("...to Priya and Thank you." stays) or Groq heard your voice
+  under it. In the owner's 1,225 dictations that shape ended four, and all
+  four were invented.
+
+### Added
+- **A tip when your Mac's microphone is set too low.** When your last ten
+  dictations arrived quieter than -36 dBFS (clear speech is about -20),
+  Waffler reads your Mac's input volume, at most once a day, and if it is
+  under 70% says: "Your Mac's microphone is set low (40%), so Waffler has to
+  boost it and picks up more background noise. Turn Input volume up to about
+  80% in Sound settings for clearer dictation." Its button opens Sound
+  settings at Input. Waffler never changes the volume itself. It is a tip:
+  at most once a week, only with Show tips on, and Don't show again works.
+  Nothing new happens on Windows.
+- **Each Journal entry notes how loud your speech arrived** (`speech_db`, in
+  dBFS, before any lift), which is what the tip reads. Settings, Privacy and
+  data says so, and has a Microphone volume row: the last reading and its time
+  are kept in `mic_volume.json` on this computer, and Delete all my data
+  removes them.
+- **`scripts/eval_tail_hallucination.py`** runs real recordings through the
+  last release and this version, as recorded, with 2 to 4 seconds of their
+  own room noise added, and as room noise alone, and prints only the last four
+  words of each result and counts. It will not run unless `WAFFLER_DATA_DIR`
+  names a scratch folder. On the owner's ten latest takes nothing ended in a
+  thanks either way, no real last word was lost with the final settings, the
+  provider took about as long (median 0.87 against 0.93 seconds), and the
+  takes with room noise added sent 6% less audio.
+
 ## [3.16.2] - 2026-10-26
 
 Two things that could leave you unable to dictate are fixed.
