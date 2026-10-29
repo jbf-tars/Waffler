@@ -10,9 +10,11 @@ at OpenAI's rates:
     OpenAI cleanup priced as gpt-4o-mini    $0.15/$0.60  actual $0.40/$1.60  # doc-drift-ok (records the wrong rate deliberately)
     OpenAI whisper priced as whisper-1      $0.006/min   actual $0.003/min
     Cerebras       no rate at all, fell through to OpenAI's
+    Cerebras       then an estimate at $0.15/$0.60      actual $0.35/$0.75 (3.16.3)
 
-Rates verified 2026-09-09 against console.groq.com/docs/models and
-developers.openai.com/api/docs/pricing.
+Rates verified 2026-10-29 against console.groq.com/docs/models,
+developers.openai.com/api/docs/pricing and
+inference-docs.cerebras.ai/models/openai-oss.
 
 app.py imports pywebview and audio hardware at module scope, so the table is
 read out of the source rather than imported.
@@ -78,10 +80,14 @@ def test_cerebras_has_its_own_rate():
         "Cerebras with no rate falls through to OpenAI's prices"
 
 
-def test_cerebras_rate_is_flagged_unverified():
-    """Cerebras publishes no per-token rate, so the figure is an estimate and
-    must say so rather than implying a precision we do not have."""
-    assert RATES["cerebras"]["gpt"]["verified"] is False
+def test_cerebras_rate_matches_published():
+    """Cerebras published no per-token rate until October 2026, so the app
+    used the same model's Groq rate as an estimate ($0.15/$0.60), under half
+    the price it now publishes."""
+    r = RATES["cerebras"]["gpt"]
+    assert r["model"] == "gpt-oss-120b"
+    assert (r["in_per_1m"], r["out_per_1m"]) == (0.35, 0.75)
+    assert r["verified"] is True
 
 
 def test_every_rate_records_its_source():
@@ -241,8 +247,10 @@ def test_recost_script_applies_the_same_minimum():
 def test_cerebras_entries_count_as_estimates():
     est = _P["_entry_rate_is_estimate"]
     assert est({"provider": "cerebras", "type": "gpt", "rate_verified": False})
-    # Rows from before 3.14.95 carry no flag; Cerebras is still an estimate.
+    # Rows from before 3.14.95 carry no flag. They were priced before Cerebras
+    # published a rate, so they stay estimates although the table's is real now.
     assert est({"provider": "cerebras", "type": "gpt"})
+    assert not est({"provider": "cerebras", "type": "gpt", "rate_verified": True})
     assert not est({"provider": "groq", "type": "gpt", "rate_verified": True})
     assert not est({"provider": "groq", "type": "whisper"})
     assert not est({"provider": "openai", "type": "gpt"})

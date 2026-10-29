@@ -40,6 +40,12 @@ sooner in most apps, and Waffler's log keeps several times as much history.
   report could only look back about a week. Those updates are no longer
   logged; the lines that follow the pill being shown, hidden and moved
   across Spaces and full-screen apps, and every message, still are.
+- **Usage prices Cerebras clean-ups at Cerebras's own rate.** Cerebras now
+  publishes its price for gpt-oss-120b, $0.35 per million tokens in and
+  $0.75 out. Until now Waffler used the same model's Groq price as an
+  estimate, under half of that, so the Usage panel showed Cerebras
+  clean-ups as cheaper than they were. Older Cerebras entries keep their
+  "~" estimate mark.
 
 ## [3.16.2] - 2026-10-26
 

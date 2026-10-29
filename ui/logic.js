@@ -564,8 +564,8 @@
   }
 
   // One bar per provider in Usage: the estimated cost of its calls, the
-  // biggest in honey and the rest neutral. A provider whose rate isn't
-  // published (Cerebras) is marked as an estimate.
+  // biggest in honey and the rest neutral. A provider with calls priced at
+  // an unpublished rate (older Cerebras ones) is marked as an estimate.
   function usageProviderRows(byProvider) {
     const by = byProvider || {};
     const order = DEFAULT_PROVIDER_ORDER.filter((p) => by[p])

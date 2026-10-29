@@ -6531,9 +6531,9 @@ async function loadUsageStats() {
     const free = document.getElementById('usageFreeNote');
     if (free) free.hidden = !(usage && usage.by_provider && usage.by_provider.groq);
 
-    // One bar per provider. A provider priced at an unpublished rate
-    // (Cerebras publishes no per-token price) shows "~" before its cost,
-    // so its figure is not read as exact (estimated_count).
+    // One bar per provider. A provider with calls priced at an unpublished
+    // rate (Cerebras before it published one, in 3.16.3) shows "~" before its
+    // cost, so its figure is not read as exact (estimated_count).
     const rows = document.getElementById('usageProviderRows');
     if (rows) {
       const list = WL.usageProviderRows((usage && usage.by_provider) || {});

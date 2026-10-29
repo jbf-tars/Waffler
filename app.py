@@ -243,7 +243,7 @@ _snippets_lock = threading.Lock()
 # stale rate is distinguishable from a current one. `verified` is False where
 # the provider publishes no per-token rate; the UI shows those as estimates
 # rather than implying precision we do not have.
-_RATES_CHECKED = "2026-09-09"
+_RATES_CHECKED = "2026-10-29"
 
 MODEL_RATES = {
     "groq": {
@@ -273,15 +273,15 @@ MODEL_RATES = {
                     "source": "developers.openai.com/api/docs/pricing"},
     },
     "cerebras": {
-        # Cerebras publishes no per-token rate on cerebras.ai/pricing or its
-        # inference docs (both checked 2026-09-09; the docs URL redirects to
-        # the pricing page, which lists only tier prices). Rather than invent a
-        # figure this mirrors the same model's published Groq rate and is
-        # flagged unverified so the UI can label it an estimate.
-        "gpt":     {"model": "gpt-oss-120b", "in_per_1m": 0.15,
-                    "out_per_1m": 0.60, "verified": False,
-                    "source": "estimated from the same model on Groq; "
-                              "Cerebras does not publish per-token pricing"},
+        # Cerebras now publishes its gpt-oss-120b rate: $0.35 in, $0.75 out
+        # (inference-docs.cerebras.ai/models/openai-oss, checked 2026-10-29).
+        # Until 3.16.3 it published none, and the same model's Groq rate
+        # ($0.15/$0.60) stood in as an estimate: rows priced that way say
+        # rate_verified False, and older rows with no flag are estimates too
+        # (_entry_rate_is_estimate).
+        "gpt":     {"model": "gpt-oss-120b", "in_per_1m": 0.35,
+                    "out_per_1m": 0.75, "verified": True,
+                    "source": "inference-docs.cerebras.ai/models/openai-oss"},
     },
 }
 
@@ -319,12 +319,15 @@ def _entry_rate_is_estimate(entry: dict) -> bool:
     """True when a usage entry's cost rests on an unpublished (estimated) rate.
 
     Entries written since 3.14.95 carry ``rate_verified``. Older ones do not,
-    so for those the current rate table decides: every Cerebras row is an
-    estimate, because Cerebras publishes no per-token price.
+    so for those the current rate table decides, except Cerebras: those rows
+    were priced before Cerebras published a rate (3.16.3), so they are
+    estimates whatever the table says now.
     """
     if "rate_verified" in entry:
         return not entry["rate_verified"]
     provider = (entry.get("provider") or "openai").lower()
+    if provider == "cerebras":
+        return True
     return not _rate_for(provider, entry.get("type") or "gpt").get("verified", False)
 
 
