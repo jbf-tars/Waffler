@@ -46,7 +46,6 @@ def taking(sd):
     """A recorder mid-take on a live (fake) stream, with a little audio in it."""
     rec = AudioRecorder()
     rec.start_monitoring()
-    rec._last_press_time = time.time()
     rec.start()
     assert rec.is_recording
     feed(rec, 300, 4)

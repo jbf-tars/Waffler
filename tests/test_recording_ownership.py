@@ -53,7 +53,6 @@ def _warm_recorder():
     r = AudioRecorder()
     r._stream = _FakeStream()
     r._callback_active = True
-    r._last_press_time = time.time()          # avoid the 30s force-recycle
     r._preroll.append(np.zeros((1024, 1), dtype=np.int16))
     return r
 

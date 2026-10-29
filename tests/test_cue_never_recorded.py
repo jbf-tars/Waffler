@@ -15,7 +15,6 @@ import math
 import random
 import struct
 import sys
-import time
 import types
 import wave
 from pathlib import Path
@@ -95,7 +94,6 @@ class Rig:
         self.r._callback_active = True
         self.r._clock = self.clock
         self.r._stream = types.SimpleNamespace(active=True)
-        self.r._last_press_time = time.time()       # not "idle for 30 s"
         self.fed = 0                                # samples given so far
 
     def now_index(self):

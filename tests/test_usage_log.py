@@ -107,13 +107,26 @@ def test_recording_usage_costs_the_same_at_20000_dictations_as_at_none(tmp_path)
 def test_the_old_file_is_moved_in_without_slowing_the_next_dictation_twice(tmp_path):
     """The one-off move of a big usage.json happens once; after it the cost
     is the same as ever."""
-    app = _app(tmp_path)
-    (tmp_path / "usage.json").write_text(
+    # What a row costs on this machine with nothing recorded, the yardstick
+    # (a fixed 5 ms failed on a slow Windows disk, where a row costs 5-7 ms).
+    fresh = tmp_path / "fresh"
+    fresh.mkdir()
+    small = statistics.median(_timed(_app(fresh)["record_usage"], 15))
+
+    moved = tmp_path / "moved"
+    moved.mkdir()
+    app = _app(moved)
+    (moved / "usage.json").write_text(
         json.dumps([_row(i) for i in range(DICTATIONS * 2)]), encoding="utf-8")
     app["record_usage"]("whisper", duration_seconds=3.0, provider="groq")   # the move
     after = statistics.median(_timed(app["record_usage"], 15))
-    assert after <= 0.005
-    assert not (tmp_path / "usage.json").exists()
+    # Rewriting the old file each time cost hundreds of ms; a few times the
+    # empty-folder cost, or 5 ms, is the same as ever.
+    assert after <= max(small * 5, 0.005), (
+        f"adding a row took {after * 1000:.1f} ms after the move and "
+        f"{small * 1000:.2f} ms with nothing recorded")
+    assert not (moved / "usage.json").exists()
+    assert len(usage_log.read(moved / usage_log.FILE)) == DICTATIONS * 2 + 16
 
 
 # ── a line, a torn line ──────────────────────────────────────────────────────

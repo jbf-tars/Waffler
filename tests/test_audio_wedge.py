@@ -169,7 +169,7 @@ def wav_frames(data):
 def test_a_press_after_a_long_idle_leaves_a_healthy_stream_alone(sd):
     rec = make(sd)
     preroll = list(rec._preroll)
-    rec._last_press_time = time.time() - 31          # the old trigger: more than 30 s idle
+    rec._last_active_at -= 31                        # the old trigger: more than 30 s idle
     sd.log.clear()
     sd.calls.update({k: 0 for k in sd.calls})
     rec.start()
@@ -178,26 +178,6 @@ def test_a_press_after_a_long_idle_leaves_a_healthy_stream_alone(sd):
     assert sd.touched_audio() == {}, "nothing was asked of PortAudio"
     assert len(rec._buffer) == len(preroll) and all(a is b for a, b in zip(rec._buffer, preroll)), \
         "the pre-roll was spliced in"
-
-
-def test_a_system_with_no_live_device_list_still_opens_a_new_stream_after_a_long_idle(sd, monkeypatch):
-    """Windows. PortAudio's list of devices, and its idea of the default input, are
-    only as new as its last restart, and the device monitor has nothing but that
-    list to look at (a Mac's is CoreAudio's own). Without a restart now and then a
-    microphone plugged in later is never seen, so there a press after half a
-    minute's quiet opens a new stream, as it always did. The deadlock this change
-    is about was met on a Mac, in CoreAudio."""
-    monkeypatch.setattr(audio_mod, "_recycles_when_idle", lambda: True)
-    rec = make(sd)
-    rec._last_press_time = time.time() - 29
-    sd.log.clear()
-    rec.start()
-    assert sd.log == [], "29 s is not idle enough"
-    rec.stop()
-    rec._last_press_time = time.time() - 31
-    rec.start()
-    assert sd.log == ["stop", "close", "terminate", "initialize", "start"]
-    assert any("opening the microphone again" in line and "idle" in line for line in rec.lines)
 
 
 def test_only_a_system_without_a_live_device_list_recycles_when_idle(monkeypatch):
@@ -210,7 +190,7 @@ def test_only_a_system_without_a_live_device_list_recycles_when_idle(monkeypatch
 def test_a_press_a_day_later_still_does_not_rebuild(sd):
     rec = make(sd)
     for _ in range(3):
-        rec._last_press_time = 0.0                   # "idle since 1970"
+        rec._last_active_at -= 86400                 # a day of quiet
         sd.log.clear()
         rec.start()
         assert sd.log == []

@@ -58,8 +58,11 @@ more than ``WAKE_GAP_S`` after the one before it means the computer was
 asleep. ``on_wake`` is called then, and Waffler flags the stream stale, so the
 next press opens a new one (once) instead of recording on a dead one. On a
 Mac this replaces the old rule "a press after 30 s idle opens a new stream",
-which put a stop and a restart of CoreAudio on the hotkey's path every time
-(src/audio.py keeps that rule only where there is no live device list, Windows).
+which put a stop and a restart of CoreAudio on the hotkey's path every time.
+Where there is no live device list (Windows) the poll keeps a form of that rule
+off the hotkey's path: ``on_tick`` lets the app open a stream that has been idle
+for 30 s again between presses (src/audio.py ``recycle_when_idle``), so the
+press keeps its pre-roll and PortAudio's list is new again.
 
 Limitations:
 - Polling has a 1–2 s window. Acceptable.
@@ -129,6 +132,11 @@ class AudioDeviceMonitor:
         self._on_change = on_change
         self._log = log_fn or print
         self.on_devices = on_devices
+        # Called at the start of every poll, before the list is read. Set
+        # later; on Windows the app opens an idle stream again from it
+        # (AudioRecorder.recycle_when_idle), so the same poll reads the list
+        # PortAudio has just made.
+        self.on_tick: Optional[Callable[[], None]] = None
         self._reader = reader
         self.on_wake = on_wake
         self._wall = wall_clock
@@ -246,6 +254,11 @@ class AudioDeviceMonitor:
         first one only learns the baseline (so nothing "changes" at startup)."""
         self._look_for_wake()
         self._run_deferred()
+        if self.on_tick is not None:
+            try:
+                self.on_tick()
+            except Exception as e:
+                self._log(f"[audio-monitor] on_tick failed: {type(e).__name__}")
         devices = None
         try:
             devices = self._read_devices()

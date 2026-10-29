@@ -4,6 +4,29 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+- **Windows: your first words are no longer cut off after a pause.** Waffler
+  keeps the last half second of sound before you press the key, so a word you
+  start as you press it is still caught. On Windows, a press after more than
+  30 seconds of quiet threw that half second away: Waffler closed the
+  microphone and opened it again first, so that a microphone plugged in
+  meanwhile would be found (on Windows, Waffler only learns of a new
+  microphone when it opens the microphone again), and the take then also
+  waited for the microphone to start. On one Windows PC that happened on 26 of 33
+  dictations. Waffler now opens the microphone again in the background while
+  you're not dictating, once it has been idle for 30 seconds, so a microphone
+  you plug in is still found and the next press has its half second. It never
+  does this while you're dictating, holding a Transform or Command key, or
+  while a paste is putting your clipboard back. Nothing changes on a Mac,
+  which says when a microphone is plugged in.
+- **The first dictation after starting Waffler no longer logs a nonsense idle
+  time** (app.log said "idle for 1793277391s").
+- **A timing test no longer fails on a slow Windows disk.** It now compares
+  with what one row costs on the same machine, as its neighbour does, instead
+  of a fixed 5 ms.
+
 ## [3.16.3] - 2026-10-29
 
 Dictations no longer end in a "Thank you." you never said, a dictation on a

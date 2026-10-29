@@ -114,7 +114,6 @@ def recording(sd, **kw):
     """A recorder with a live (fake) stream, mid-take."""
     rec = AudioRecorder(**kw)
     rec.start_monitoring()
-    rec._last_press_time = time.time()
     rec.start()
     assert rec.is_recording
     return rec
@@ -153,7 +152,6 @@ def test_the_time_before_the_take_is_not_counted(sd):
     rec = AudioRecorder()
     rec.start_monitoring()
     rec._last_signal_at = rec._last_chunk_at = time.monotonic() - 100.0     # a long quiet before
-    rec._last_press_time = time.time()
     rec.start()
     h = rec.health()
     assert h["quiet_s"] < 1.0 and h["stall_s"] < 1.0
@@ -311,14 +309,12 @@ def test_a_preference_change_makes_the_next_start_open_a_new_stream(sd):
     picks = iter([0, 2])
     rec = AudioRecorder(device_resolver=lambda: next(picks))
     rec.start_monitoring()
-    rec._last_press_time = time.time()
     first = rec._stream
     rec.start()                                             # warm: the same stream
     assert rec._stream is first
     rec.is_recording = False
     rec.note_preference_changed()
     assert rec.input_level()["current"] is False            # the meter says it is not the current one
-    rec._last_press_time = time.time()
     rec.start()
     assert rec._stream is not first and opened_on(sd) == 2
     assert first.events == ["start", "stop", "close"]       # the old one was torn down in order
@@ -331,7 +327,6 @@ def test_set_device_is_picked_up_by_the_next_start_too(sd):
     rec.start_monitoring()
     first = rec._stream
     rec.set_device(2)
-    rec._last_press_time = time.time()
     rec.start()
     assert rec._stream is not first and opened_on(sd) == 2
 
@@ -365,7 +360,6 @@ def test_a_reopen_asks_which_microphone_again(sd):
     picks = iter([0, 2])
     rec = AudioRecorder(device_resolver=lambda: next(picks))
     rec.start_monitoring()
-    rec._last_press_time = time.time()
     rec.start()
     rec.reopen_stream()
     assert opened_on(sd) == 2 and rec.opened_device() == "Yeti"

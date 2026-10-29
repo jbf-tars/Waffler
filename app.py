@@ -4212,6 +4212,17 @@ def _build_pipeline():
             if _pipeline is not None and getattr(_pipeline, "audio", None):
                 _pipeline.audio.note_devices_changed()
         _device_monitor.on_wake = _on_wake
+
+        def _on_poll_tick() -> None:
+            """Windows: PortAudio's list of microphones is only as new as the
+            stream, so a stream idle for half a minute is opened again here,
+            between presses, and the next press keeps its pre-roll (a Mac does
+            nothing: src/audio.py ``recycle_when_idle``). Never while anything
+            is using the microphone or a paste is putting the clipboard back."""
+            audio = getattr(_pipeline, "audio", None) if _pipeline is not None else None
+            if audio is not None and hasattr(audio, "recycle_when_idle"):
+                audio.recycle_when_idle(busy=lambda: bool(_update_would_interrupt(_pipeline)))
+        _device_monitor.on_tick = _on_poll_tick
         _device_monitor.start()
     except Exception as e:
         _log_to_file(f"Pipeline init error: {e}")

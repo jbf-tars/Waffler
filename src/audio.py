@@ -154,10 +154,14 @@ _SALVAGE_LOCK_WAIT_S = 0.5
 # A system with no live list of its devices for the device monitor to read (every
 # one but a Mac, where src/mac_audio_devices.py asks CoreAudio) learns of a
 # microphone plugged in only when PortAudio is started again, which a new stream
-# does. There, a press after this much quiet still opens a new stream, as it
-# always has, so a device added meanwhile is found. A Mac is told by the monitor
-# (``note_devices_changed``) and does not: the CoreAudio deadlock was met in that
-# rebuild.
+# does: the monitor's list there is PortAudio's own, read from what PortAudio
+# found when it last started. There, once the stream has been idle this long, the
+# device monitor's poll opens it again in the background (``recycle_when_idle``),
+# so a device added meanwhile is found. It used to be the press after this much
+# quiet that did it, which threw away the pre-roll holding the first words and
+# made the take wait for a new stream. A Mac is told by the monitor
+# (``note_devices_changed``) and does neither: the CoreAudio deadlock was met in
+# that rebuild.
 _IDLE_RECYCLE_S = 30.0
 
 
@@ -434,6 +438,11 @@ class AudioRecorder:
         # audio arriving in one is replaced by silence (see ``deafen_for``).
         self._clock = time.monotonic
         self._deaf = ()
+        # When the microphone was last used or opened, on ``_clock``: a press, a
+        # stop, or a new stream. Where the stream is opened again while idle
+        # (``recycle_when_idle``) idle is counted from here, and from when the
+        # recorder was made before any of those, never from 1970.
+        self._last_active_at = self._clock()
 
         # CRITICAL: cache the bound callback method ONCE. Every ``self._callback``
         # access creates a new bound-method object; we want exactly one to
@@ -860,6 +869,7 @@ class AudioRecorder:
             self._stream = value
             self._armed = value
             self._opened_device = _opened_name
+            self._last_active_at = self._clock()
 
     def _open_device(self):
         """The input device index to open, or None for the default. An index
@@ -962,15 +972,12 @@ class AudioRecorder:
             with self._stream_lock:
                 self._starting -= 1
 
-    def _stale_reason(self, idle_s: float = 0.0):
+    def _stale_reason(self):
         """Why the stream that is open is not the one to record on: a sentence
         for the log, or None when it is current. Reads a few numbers and a
-        name; touches no stream. ``idle_s`` is how long it has been since the
-        last press: it counts only where nothing else can say that the devices
-        changed (``_recycles_when_idle``)."""
-        if idle_s > _IDLE_RECYCLE_S and _recycles_when_idle():
-            return (f"idle for {idle_s:.0f}s, and this system cannot say when a "
-                    f"microphone is plugged in")
+        name; touches no stream. The time since the last press is not a reason:
+        where it matters (``_recycles_when_idle``) the stream is opened again
+        while idle, by ``recycle_when_idle``, so the press keeps its pre-roll."""
         if self._pref_version != self._stream_pref_version:
             return "the microphone preference changed"
         if self._stream_choice != self._device_index:
@@ -1006,9 +1013,11 @@ class AudioRecorder:
         happens (the device monitor: the system's default input changed, the
         microphone in use left, the Mac woke up) and says so with
         ``note_devices_changed``; that, a change of preference, or a stream
-        that is not running are the only reasons to open a new one here. (On
-        Windows, which has no such list to read, the timed recycle stays: see
-        ``_IDLE_RECYCLE_S``.)
+        that is not running are the only reasons to open a new one here. The
+        same holds on Windows, which has no such list to read: there the stream
+        is opened again while idle (``recycle_when_idle``, see
+        ``_IDLE_RECYCLE_S``), no longer at the press, which threw away the
+        pre-roll.
         """
         with self._stream_lock:
             # Claim this recording. Anything older is now superseded.
@@ -1018,10 +1027,8 @@ class AudioRecorder:
             self._capture_errors = 0
             self._buffer = []
 
-            now = time.time()
-            idle_s = now - getattr(self, "_last_press_time", 0.0)
-            self._last_press_time = now
-            stale_reason = self._stale_reason(idle_s)
+            self._last_active_at = self._clock()
+            stale_reason = self._stale_reason()
 
             stream_was_running = self._stream_is_running() and stale_reason is None
 
@@ -1173,6 +1180,7 @@ class AudioRecorder:
                 return b""
             # Invalidate: no in-flight start() for this session may finalise.
             self._session += 1
+            self._last_active_at = self._clock()      # idle is counted from the end of a take
             # is_recording and the snapshot flip together under _lock, so a
             # callback either lands in this snapshot or sees recording off.
             # Previously the callback tested is_recording outside the lock and
@@ -1312,6 +1320,52 @@ class AudioRecorder:
             self._buffer = []
             self._create_stream()
             return True
+
+    def recycle_when_idle(self, busy=None) -> bool:
+        """Where PortAudio's device list is the only one there is (Windows,
+        ``_recycles_when_idle``), open the always-on stream again once it has
+        been idle longer than ``_IDLE_RECYCLE_S``, so a microphone plugged in
+        meanwhile is found before the next press and that press still has its
+        pre-roll. Called on every poll of the device monitor; True when the
+        stream was opened again. One line in the log for each time it is.
+
+        Never while anything is using the microphone: ``rebuild_if_idle``
+        refuses during a take (a Command or Transform hold included), a stop's
+        post-roll, a start's warm-up or a reopen, and ``busy`` is the app's own
+        check (a take being turned into text, a paste putting the clipboard
+        back, a hold), asked first; one that fails counts as busy. Nothing is
+        opened where no stream is open (the pipeline is starting, or a dead
+        stream was dropped for the next press), or while the recorder is wedged.
+        A recycle that fails is said once and not tried again for another
+        ``_IDLE_RECYCLE_S``. Never raises."""
+        if not _recycles_when_idle():
+            return False
+        if self._clock() - self._last_active_at <= _IDLE_RECYCLE_S:
+            return False
+        if self._stream is None or self._wedged or audio_guard.wedged_op() is not None:
+            return False
+        if busy is not None:
+            try:
+                if busy():
+                    return False
+            except Exception:
+                return False
+        with self._stream_lock:
+            # Asked again under the lock: a press may have landed since.
+            idle_s = self._clock() - self._last_active_at
+            if idle_s <= _IDLE_RECYCLE_S or self._stream is None:
+                return False
+            try:
+                rebuilt = self.rebuild_if_idle()
+            except Exception as e:
+                self._last_active_at = self._clock()
+                self._say(f"[audio] could not open the microphone again while idle "
+                          f"({type(e).__name__}); the next press will try")
+                return False
+            if rebuilt:
+                self._say(f"[audio] opened the microphone again while idle ({idle_s:.0f}s), "
+                          f"so a microphone plugged in meanwhile is found")
+            return rebuilt
 
     def force_rebuild(self):
         """Hard-tear-down the current stream so the next start() builds fresh.
