@@ -31,7 +31,10 @@ except ImportError:  # imported as src.quality
 # measured by transcribe_whisper._speech_seconds (noise-floor-relative since
 # v3.14.97). Across 160 real recordings the healthy distribution was p5 =
 # 1.74, median 3.0; confirmed-broken ones sat at 0.47, 0.73 and 1.31. Keep in
-# step with transcribe_whisper._MIN_WORDS_PER_SPEECH_SEC.
+# step with transcribe_whisper._MIN_WORDS_PER_SPEECH_SEC. Since 3.16.3 the
+# app passes the speech the transcriber's retry judged by
+# (transcribe_whisper._speech_for_rate: the strict measure where a take has a
+# floor to measure from), so a lifted room's hiss is not counted as speech.
 _MIN_WORDS_PER_SPEECH_SEC = 1.5
 # Below this much measured speech the ratio is too noisy to judge, and short
 # utterances ("Yes.") are legitimate.

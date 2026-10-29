@@ -71,6 +71,20 @@ SPEECH_WINDOW = (1.5, 2.3)
 NOISE_WINDOW = (2.4, 3.7)
 
 
+def _soft_upload():
+    """Speech 0.3-1.5 s, then a steady sound 7.5 dB over the room from 1.5 to
+    2.3 s (over 2x the floor, under 3x), then room noise."""
+    t = np.arange(int(0.8 * SR)) / SR
+    soft = np.sin(2 * np.pi * 200 * t) * np.sqrt(2) * 10 ** (-63.5 / 20)
+    body = np.concatenate([_speech(1.2, -30), soft, np.zeros(int(1.5 * SR))])
+    body = body + _noise(len(body) / SR, -70, seed=2)        # the room, under all of it
+    return tw._pad_audio_with_silence(_wav(body))
+
+
+SOFT_AUDIO = _soft_upload()
+SOFT_WINDOW = (1.55, 2.25)          # inside the soft sound (on SOFT_AUDIO only)
+
+
 def seg(text, window=(0.3, 2.3), nsp=0.05):
     start, end = window if window is not None else (None, None)
     return {"id": 0, "seek": 0, "start": start, "end": end, "text": text,
@@ -88,8 +102,8 @@ def answer(*segments, text=None):
         "language": "English", "duration": 4.1, "segments": list(segments)})
 
 
-def words(response, audio=AUDIO):
-    out = tw._groq_words(response, audio)
+def words(response, audio=None):
+    out = tw._groq_words(response, AUDIO if audio is None else audio)
     return None if out is None else str(out)
 
 
@@ -141,8 +155,10 @@ def test_typed_segments_like_the_openai_sdk_makes_are_read_too():
 @pytest.mark.parametrize("window,nsp,dropped", [
     (NOISE_WINDOW, 0.10, True),       # no voice under it
     (NOISE_WINDOW, 0.70, True),       # no voice, and Whisper says no speech
-    (SPEECH_WINDOW, 0.70, True),      # Whisper says no speech
+    (SPEECH_WINDOW, 0.70, False),     # Whisper says no speech, but a clear voice is under it
     (SPEECH_WINDOW, 0.10, False),     # said: a voice under it, a low no_speech_prob
+    (SOFT_WINDOW, 0.70, True),        # a soft voice (2x, not 3x) and Whisper says no speech
+    (SOFT_WINDOW, 0.10, False),       # the same soft voice, a low no_speech_prob
     (NOISE_WINDOW, None, True),       # no no_speech_prob: the audio decides
     (SPEECH_WINDOW, None, False),
     (None, 0.70, True),               # no times: no_speech_prob decides
@@ -152,15 +168,56 @@ def test_typed_segments_like_the_openai_sdk_makes_are_read_too():
 def test_a_final_thank_you_is_dropped_only_on_evidence(window, nsp, dropped):
     r = answer(seg(" Okay so ship it on Monday.", (0.3, 1.5)), seg(" Thank you.", window, nsp))
     expected = "Okay so ship it on Monday." + ("" if dropped else " Thank you.")
-    assert words(r) == expected
+    assert words(r, SOFT_AUDIO if window == SOFT_WINDOW else AUDIO) == expected
 
 
 def test_the_threshold_is_the_chosen_one():
+    """On a soft voice, which only no_speech_prob can decide."""
     assert tw._SEGMENT_NO_SPEECH_PROB == 0.5
-    r = answer(seg(" Ship it.", (0.3, 1.5)), seg(" Thank you.", SPEECH_WINDOW, 0.49))
-    assert words(r).endswith("Thank you.")
-    r = answer(seg(" Ship it.", (0.3, 1.5)), seg(" Thank you.", SPEECH_WINDOW, 0.5))
-    assert words(r) == "Ship it."
+    r = answer(seg(" Ship it.", (0.3, 1.5)), seg(" Thank you.", SOFT_WINDOW, 0.49))
+    assert words(r, SOFT_AUDIO).endswith("Thank you.")
+    r = answer(seg(" Ship it.", (0.3, 1.5)), seg(" Thank you.", SOFT_WINDOW, 0.5))
+    assert words(r, SOFT_AUDIO) == "Ship it."
+
+
+# ── no_speech_prob alone never deletes a clearly spoken ending ──────────────
+# It is one value for each 30 s window, shared by every segment in it, and a
+# quiet, lifted microphone can raise it; the audio under the last segment is
+# that segment's own. A clear voice under it (3x the floor, the strict bar,
+# for at least _SEGMENT_MIN_VOICED_S after the previous segment's end) is
+# enough to keep it.
+
+def test_a_take_that_is_only_a_clearly_said_thanks_is_kept_at_06():
+    r = answer(seg(" Thanks for letting me know.", (0.3, 2.3), 0.6))
+    assert tw._is_outro_segment(" Thanks for letting me know.")
+    out = tw._groq_words(r, AUDIO)
+    assert out == "Thanks for letting me know." and out.end_verified is True
+
+
+def test_a_final_thank_you_james_with_a_strong_voice_is_kept_at_055():
+    r = answer(seg(" Okay so ship it on Monday.", (0.3, 1.5)),
+               seg(" Thank you, James.", (1.5, 2.3), 0.55))
+    assert words(r) == "Okay so ship it on Monday. Thank you, James."
+
+
+def test_room_noise_called_thank_you_is_still_dropped_at_070():
+    """The 2 s of the owner's room noise Groq heard as "Thank you." measured
+    0.00 s at the strict bar (checked on the recording itself); so does this."""
+    noise_only = tw._pad_audio_with_silence(_wav(_noise(2.0, -50)))
+    prof = tw._voice_profile(noise_only)
+    assert tw._voiced_between(prof, 0.0, 2.28, tw._STRICT_VOICE_RATIO) < tw._SEGMENT_MIN_VOICED_S
+    assert words(answer(seg(" Thank you.", (0.0, 2.28), 0.70)), noise_only) == ""
+
+
+def test_a_soft_thanks_under_the_strict_bar_is_decided_as_before():
+    prof = tw._voice_profile(SOFT_AUDIO)
+    start, end = SOFT_WINDOW
+    assert tw._voiced_between(prof, start, end) >= tw._SEGMENT_MIN_VOICED_S              # 2x: a voice
+    assert tw._voiced_between(prof, start, end, tw._STRICT_VOICE_RATIO) < tw._SEGMENT_MIN_VOICED_S
+    high = answer(seg(" Okay so ship it on Monday.", (0.3, 1.5)), seg(" Thanks.", SOFT_WINDOW, 0.7))
+    assert words(high, SOFT_AUDIO) == "Okay so ship it on Monday."
+    low = answer(seg(" Okay so ship it on Monday.", (0.3, 1.5)), seg(" Thanks.", SOFT_WINDOW, 0.1))
+    assert words(low, SOFT_AUDIO) == "Okay so ship it on Monday. Thanks."
 
 
 def test_the_audio_a_segment_before_it_claims_is_not_counted():

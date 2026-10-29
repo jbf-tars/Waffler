@@ -37,9 +37,12 @@ room's noise in the silent end went up with it.
 - **An ending Whisper invented over no speech is dropped.** Waffler now asks
   Groq for its words with their timings and Whisper's own score for "nothing
   was said here". A final "Thank you.", "Thank you from the heart.", "Thanks
-  for watching!", "Bye." or a caption credit goes when Whisper gives no speech
-  a score of 0.5 or more, or there is no voice under it in the recording. A
-  thanks you said, with your voice under it, always stays. The words are
+  for watching!", "Bye." or a caption credit goes when there is no voice under
+  it in the recording, or when Whisper scores "nothing was said" at 0.5 or
+  more and there is no clear voice under it either. That score covers 30
+  seconds of audio at a time and a quiet microphone can raise it, so on its
+  own it never deletes a "Thanks for letting me know." with your voice
+  clearly under it. A thanks you said always stays. The words are
   otherwise the same as before (the same last words on ten real takes), and
   if Groq ever sends something it cannot read, Waffler uses the plain text as
   it always did. OpenAI's speech to text has no such timings; there the
@@ -51,6 +54,18 @@ room's noise in the silent end went up with it.
   the sentence ("...to Priya and Thank you." stays) or Groq heard your voice
   under it. In the owner's 1,225 dictations that shape ended four, and all
   four were invented.
+- **A quiet microphone no longer sets off a second, wasted speech-to-text
+  request.** When a transcript looked too short for the speech in a take
+  (under 1.5 words a second of speech), Waffler sent the take again to the
+  other provider. The seconds of speech counted a lifted room's hiss, so on a
+  quiet microphone almost any unhurried take looked short: on one Mac it
+  happened 13 times in two weeks, the second answer was never better, and
+  each cost 2 to 8 seconds. Speech is now counted only where it is clearly
+  voiced, which on that Mac's ten latest takes, with and without room noise
+  added, would have sent none of 20 again instead of 2. A transcript missing
+  half of a clearly spoken take still gets its second try. The quality check
+  for too few words counts the same way; the seconds of speech kept in the
+  Journal (and the Stats page's words a minute) are measured as before.
 
 ### Added
 - **A tip when your Mac's microphone is set too low.** When your last ten
