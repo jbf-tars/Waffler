@@ -105,28 +105,42 @@ def test_recording_usage_costs_the_same_at_20000_dictations_as_at_none(tmp_path)
 
 
 def test_the_old_file_is_moved_in_without_slowing_the_next_dictation_twice(tmp_path):
-    """The one-off move of a big usage.json happens once; after it the cost
-    is the same as ever."""
-    # What a row costs on this machine with nothing recorded, the yardstick
-    # (a fixed 5 ms failed on a slow Windows disk, where a row costs 5-7 ms).
-    fresh = tmp_path / "fresh"
-    fresh.mkdir()
-    small = statistics.median(_timed(_app(fresh)["record_usage"], 15))
-
+    """The one-off move of a big usage.json happens once; after it, a row is
+    one line added to the end of the record, never the record read or
+    rewritten. Checked by what is done, not by the clock: a Windows disk
+    varies by more than a row costs (3.5 to 6.4 ms a row on one PC, whatever
+    was recorded), so a time limit failed there with nothing wrong."""
     moved = tmp_path / "moved"
     moved.mkdir()
     app = _app(moved)
     (moved / "usage.json").write_text(
         json.dumps([_row(i) for i in range(DICTATIONS * 2)]), encoding="utf-8")
     app["record_usage"]("whisper", duration_seconds=3.0, provider="groq")   # the move
-    after = statistics.median(_timed(app["record_usage"], 15))
-    # Rewriting the old file each time cost hundreds of ms; a few times the
-    # empty-folder cost, or 5 ms, is the same as ever.
-    assert after <= max(small * 5, 0.005), (
-        f"adding a row took {after * 1000:.1f} ms after the move and "
-        f"{small * 1000:.2f} ms with nothing recorded")
     assert not (moved / "usage.json").exists()
-    assert len(usage_log.read(moved / usage_log.FILE)) == DICTATIONS * 2 + 16
+    assert list(moved.glob("usage.backup-*.json")), "the old file is kept aside once"
+
+    calls = []
+
+    class Watched:
+        def __getattr__(self, name):
+            real = getattr(usage_log, name)
+            if name in ("read", "write_all", "import_legacy") and callable(real):
+                def spy(*a, **k):
+                    calls.append(name)
+                    return real(*a, **k)
+                return spy
+            return real
+
+    app["_usage_log"] = Watched()
+    record = moved / usage_log.FILE
+    for _ in range(15):
+        before = record.read_bytes()
+        app["record_usage"]("gpt", input_tokens=5200, output_tokens=180, provider="groq")
+        after = record.read_bytes()
+        assert after.startswith(before) and after.count(b"\n") == before.count(b"\n") + 1, \
+            "a row is one line added to the end"
+    assert calls == [], f"after the move a row still did {calls}"
+    assert len(usage_log.read(record)) == DICTATIONS * 2 + 16
 
 
 # ── a line, a torn line ──────────────────────────────────────────────────────
