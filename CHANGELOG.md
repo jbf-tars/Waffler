@@ -4,7 +4,7 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [3.16.4] - 2026-10-30
 
 ### Fixed
 - **Windows: your first words are no longer cut off after a pause.** Waffler
