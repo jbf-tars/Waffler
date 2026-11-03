@@ -11,7 +11,8 @@ and when the median of the last ten is under -36 dBFS, Waffler reads the
 Mac's input volume (osascript, 2 s timeout, at most once a day, never
 raising) and, under 70, shows a tip, at most once a week, through the
 notifier: "Open Sound settings", "Got it", "Don't show again". It respects
-the Show tips switch, and never changes the volume itself. On Windows nothing
+the Show tips switch, and never changes the volume itself. Windows has the
+same tip since 3.16.5 (tests/test_quiet_mic_windows.py); elsewhere nothing
 new happens.
 
 Fakes only: no osascript is run, no settings pane is opened.
@@ -119,9 +120,9 @@ def test_nothing_is_read_off_a_mac():
 
 def test_open_sound_settings_opens_the_input_pane_and_never_raises():
     r = Runner("")
-    assert Q.open_sound_settings(runner=r) is True
+    assert Q.open_sound_settings(runner=r, platform="darwin") is True
     assert r.calls[0][0] == ["/usr/bin/open", "x-apple.systempreferences:com.apple.preference.sound?input"]
-    assert Q.open_sound_settings(runner=Runner(error=OSError("no"))) is False
+    assert Q.open_sound_settings(runner=Runner(error=OSError("no")), platform="darwin") is False
 
 
 # ── the tip's words ─────────────────────────────────────────────────────────
@@ -312,8 +313,8 @@ def test_no_quiet_moment_no_tip(tmp_path):
     assert rig.shown == [] and rig.asked == []
 
 
-def test_windows_does_nothing_new(tmp_path):
-    rig = Rig(tmp_path, platform="win32")
+def test_linux_does_nothing_new(tmp_path):
+    rig = Rig(tmp_path, platform="linux")
     rig.takes(*[-42.5] * 12)
     assert rig.reads == 0 and rig.shown == [] and rig.history_reads == 0
 
@@ -500,12 +501,13 @@ def test_a_loud_enough_take_history_brings_nothing(tmp_path, limits, monkeypatch
     assert reads == []
 
 
-def test_on_windows_nothing_new_happens(tmp_path, limits, monkeypatch):
+def test_off_a_mac_and_windows_nothing_new_happens(tmp_path, limits, monkeypatch):
     p = H.make_pipeline(tmp_path, transcriber=LevelTranscriber(-44.0))
+    p.ns["_platform"] = types.SimpleNamespace(system=lambda: "Linux")
     quiet_history(p)
     reads = []
     monkeypatch.setattr(Q, "read_input_volume", lambda: reads.append(1) or 40)
-    dictate(p)                                              # the harness is "Windows"
+    dictate(p)
     H.wait_for(lambda: False, timeout=0.5)
     assert reads == [] and getattr(p, "_quiet_mic", None) is None
     assert H.history(p)[-1]["speech_db"] == -44.0           # the level is kept all the same
