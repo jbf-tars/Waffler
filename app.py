@@ -122,6 +122,7 @@ from atomic_json import write_json_atomic, read_json_for_update
 import pipeline_watchdog as _pw
 import unsent as _unsent
 import tray_state as _tray_state
+import quit_flow as _quit_flow
 import first_run as _first_run
 import journal_data as _journal
 import stats_insights as _stats_insights
@@ -3329,7 +3330,7 @@ class Api:
             _wizard_overlay = None
             try:
                 from src.overlay import RecordingOverlay
-                _wizard_overlay = RecordingOverlay()
+                _wizard_overlay = RecordingOverlay(on_quit_request=_on_overlay_quit_request)
                 _wizard_overlay.prestart()
                 _log_to_file("Wizard overlay started for Try-It step")
             except Exception as _e:
@@ -4586,6 +4587,7 @@ class WafflerPipeline:
             on_stop=self._on_overlay_stop,
             on_cancel_request=self._on_overlay_cancel_request,
             on_toast_action=self._on_toast_action,
+            on_quit_request=_on_overlay_quit_request,
         )
         # Pre-start overlay subprocess so first recording has no delay
         threading.Thread(target=self.overlay.prestart, daemon=True).start()
@@ -8513,19 +8515,58 @@ def _tray_check_for_updates(icon=None, item=None):
 
 
 def _tray_quit(icon=None, item=None):
-    """Actually quit the app from tray."""
-    global _should_quit
-    _should_quit = True
-    if _tray_icon:
-        try:
+    """Actually quit the app: the Mac menu bar's Quit, or the Windows tray's."""
+    _quit_app("Quit from the menu bar or tray")
+
+
+# ── Quitting ──────────────────────────────────────────────────────────
+# Every way of quitting runs the same shutdown (src/quit_flow.py), which also
+# ends the process outright if it is still running 2 s later.
+_quit_controller = None
+_quit_controller_lock = threading.Lock()
+
+
+def _quit_steps():
+    """The shutdown every quit runs, in order."""
+    def mark_quitting():
+        global _should_quit
+        _should_quit = True  # the closing handler now lets the window go
+
+    def stop_tray():
+        if _tray_icon:
             _tray_icon.stop()
-        except Exception:
-            pass
-    if _window_ref:
-        try:
+
+    def end_app():
+        if _platform.system() == "Darwin":
+            # AppKit's terminate: — the route Cmd-Q takes — rather than closing
+            # the window and waiting for webview.start() to return and Python
+            # to wind down. Queued on the main thread: a quit can be asked from
+            # the overlay's reader thread, and from inside AppKit's own
+            # applicationShouldTerminate:, where the queued call never runs
+            # because AppKit has already ended the process.
+            from PyObjCTools import AppHelper
+            from AppKit import NSApplication
+            AppHelper.callAfter(NSApplication.sharedApplication().terminate_, None)
+        elif _window_ref:
             _window_ref.destroy()
-        except Exception:
-            pass
+
+    return [("mark quitting", mark_quitting), ("tray", stop_tray), ("end app", end_app)]
+
+
+def _quit_app(reason):
+    """Quit Waffler, whoever asked. True the first time, False if already quitting."""
+    global _quit_controller
+    with _quit_controller_lock:
+        if _quit_controller is None:
+            _quit_controller = _quit_flow.QuitController(_quit_steps(), log=_log_to_file)
+    return _quit_controller.quit(reason)
+
+
+def _on_overlay_quit_request():
+    """The overlay process was told to quit from outside (AppleScript, the
+    Dock). It is the same executable as the app, so the system can deliver a
+    quit meant for Waffler to it. It passes the request here instead of exiting."""
+    _quit_app("a quit that reached the overlay (AppleScript or the Dock)")
 
 
 def _perform_factory_reset():
@@ -8584,19 +8625,25 @@ def _on_window_closing():
     """Intercept window close: hide window, keep running in background.
     Both Mac and Windows have a status icon (menu bar / tray) to restore or quit.
     """
-    global _window_hidden, _should_quit
+    global _window_hidden
     if _should_quit:
         return True  # Allow close
 
-    # Distinguish a genuine quit (Cmd-Q / app-menu Quit) from the red-X close.
-    # pywebview routes BOTH through this single `closing` event, and since
-    # v3.14.52 we return False on a red-X to hide-to-menu-bar — but that also
-    # swallowed Cmd-Q, so the app could never be quit from the keyboard and
-    # the user had to Force Quit. The triggering NSEvent is still current
-    # while this fires: if it's a Cmd-Q key-down, treat it as a real quit.
-    # Anything else (red-X mouse click, Cmd-W, etc.) falls through to hide,
-    # so this can't misfire into an accidental quit.
+    # Distinguish a genuine quit from the red-X close. pywebview routes BOTH
+    # through this single `closing` event, and since v3.14.52 we return False
+    # on a red-X to hide-to-menu-bar. v3.14.66 let a Cmd-Q key-down through;
+    # every other quit (the app menu's Quit clicked, the Dock's Quit, log out,
+    # `tell application "Waffler" to quit`) still hid the window and cancelled
+    # the quit, so the app kept running. Now any close asked from AppKit's
+    # applicationShouldTerminate: is a quit, with the key-down and the quit
+    # Apple Event checked as well (src/quit_flow.py). A red-X click or Cmd-W
+    # comes from the window delegate instead and falls through to hide.
     if _platform.system() == "Darwin":
+        in_terminate = cmd_q = quit_event = False
+        try:
+            in_terminate = _quit_flow.inside_app_terminate()
+        except Exception as e:
+            _log_to_file(f"[quit] terminate check failed (ignored): {e}")
         try:
             from AppKit import (
                 NSApplication, NSEventTypeKeyDown, NSEventModifierFlagCommand,
@@ -8604,18 +8651,22 @@ def _on_window_closing():
             ev = NSApplication.sharedApplication().currentEvent()
             if ev is not None and ev.type() == NSEventTypeKeyDown:
                 chars = ev.charactersIgnoringModifiers()
-                if (chars and chars.lower() == "q"
-                        and (ev.modifierFlags() & NSEventModifierFlagCommand)):
-                    _log_to_file("[quit] Cmd-Q detected — allowing real quit")
-                    _should_quit = True
-                    if _window_ref:
-                        try:
-                            _window_ref.destroy()
-                        except Exception:
-                            pass
-                    return True  # allow the app to actually terminate
+                cmd_q = bool(chars and chars.lower() == "q"
+                             and (ev.modifierFlags() & NSEventModifierFlagCommand))
         except Exception as e:
             _log_to_file(f"[quit] Cmd-Q detection failed (ignored): {e}")
+        try:
+            from Foundation import NSAppleEventManager
+            ae = NSAppleEventManager.sharedAppleEventManager().currentAppleEvent()
+            if ae is not None:
+                quit_event = _quit_flow.is_quit_apple_event(ae.eventClass(), ae.eventID())
+        except Exception as e:
+            _log_to_file(f"[quit] Apple Event check failed (ignored): {e}")
+        reason = _quit_flow.quit_reason(in_terminate=in_terminate, cmd_q=cmd_q,
+                                        quit_event=quit_event)
+        if reason:
+            _quit_app(reason)
+            return True  # allow the app to actually terminate
 
     # Otherwise (red-X) → hide window, keep running in background.
     if _window_ref:
