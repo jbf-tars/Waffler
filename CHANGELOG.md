@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+Every way of quitting Waffler on a Mac now quits it, Windows says when your
+microphone is set too low, and the OpenAI backup moves to OpenAI's new models
+before the old ones are shut down.
+
 ### Changed
 - **The OpenAI backup moves to the models OpenAI is replacing its old ones
   with.** OpenAI shuts down both of the models the backup used: gpt-4.1-mini
@@ -26,30 +30,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   about 1.5 s against 1.15 s. gpt-transcribe heard two test clips word for word, as
   the old model did, and answered sooner (about 1.0 s against 1.5 s).
 
-### Fixed
-- **A model OpenAI no longer serves is handled like Groq's and Cerebras's.**
-  A model pinned with OPENAI_STYLE_MODEL or OPENAI_WHISPER_MODEL that OpenAI
-  has retired moves to the built-in one by itself, so an old setting can't
-  leave the backup dead. If the built-in clean-up model itself goes, OpenAI is
-  left alone for an hour instead of being asked on every dictation, and the
-  message says the clean-up model is no longer available instead of "The
-  clean-up didn't work this time".
-### Added
-- **Windows now says when your microphone is set too low.** On one Windows
-  PC, dictations arrived very quiet (a median of -49 dBFS, where clear speech
-  is near -20), so Waffler boosted every take by about 24 dB, some by the
-  full 30, which raises the room's noise too. The microphone, a headset
-  microphone, was set to 54%. As on a Mac since 3.16.3, when your last ten
-  dictations are that quiet Waffler reads the level of your default
-  microphone, at most once a day, and if it is under 70% shows a tip, at most
-  once a week: "Your microphone (Headset Microphone) is set low (54%)...",
-  with a button that opens that microphone's page in Settings, Input volume
-  first. It never changes the level itself. Show tips and
-  "Don't show again" apply as for any tip. The reading is taken from Windows
-  directly, with nothing new to install, and gives up after 2 seconds. On
-  Windows the reading kept on this computer also has the microphone's short
-  name, so the tip can say which one; Privacy and data says so, and Delete
-  all my data clears it. Nothing changes on a Mac.
 ### Fixed
 - **Mac: every way of quitting Waffler now quits it.** v3.14.66 made Cmd-Q
   work, but quitting from the Dock, logging out, clicking the app menu's Quit
@@ -74,6 +54,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   lookup, reach PortAudio. They all use stand-ins now (the live read can still
   be run with `WAFFLER_LIVE_AUDIO=1`), and a test that asks the real CoreAudio
   or PortAudio for devices or a stream fails.
+- **A model OpenAI no longer serves is handled like Groq's and Cerebras's.**
+  A model pinned with OPENAI_STYLE_MODEL or OPENAI_WHISPER_MODEL that OpenAI
+  has retired moves to the built-in one by itself, so an old setting can't
+  leave the backup dead. If the built-in clean-up model itself goes, OpenAI is
+  left alone for an hour instead of being asked on every dictation, and the
+  message says the clean-up model is no longer available instead of "The
+  clean-up didn't work this time".
+
+### Added
+- **Windows now says when your microphone is set too low.** On one Windows
+  PC, dictations arrived very quiet (a median of -49 dBFS, where clear speech
+  is near -20), so Waffler boosted every take by about 24 dB, some by the
+  full 30, which raises the room's noise too. The microphone, a headset
+  microphone, was set to 54%. As on a Mac since 3.16.3, when your last ten
+  dictations are that quiet Waffler reads the level of your default
+  microphone, at most once a day, and if it is under 70% shows a tip, at most
+  once a week: "Your microphone (Headset Microphone) is set low (54%)...",
+  with a button that opens that microphone's page in Settings, Input volume
+  first. It never changes the level itself. Show tips and
+  "Don't show again" apply as for any tip. The reading is taken from Windows
+  directly, with nothing new to install, and gives up after 2 seconds. On
+  Windows the reading kept on this computer also has the microphone's short
+  name, so the tip can say which one; Privacy and data says so, and Delete
+  all my data clears it. Nothing changes on a Mac.
 
 ## [3.16.4] - 2026-10-30
 
