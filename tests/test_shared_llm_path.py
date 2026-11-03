@@ -66,7 +66,7 @@ def styler(order=("groq", "cerebras", "openai"), groq=None, cerebras=None, opena
     s._provider_order = list(order)
     s._use_groq, s._use_cerebras = groq is not None, cerebras is not None
     s._groq_client, s._cerebras_client, s.client = groq, cerebras, openai
-    s.model = "gpt-4.1-mini"
+    s.model = "gpt-6-luna"
     s._groq_models, s._groq_model = tuple(models), models[0]
     s._cerebras_model = "gpt-oss-120b"
     s._groq_skip_until = s._cerebras_skip_until = 0.0
@@ -116,12 +116,16 @@ def test_a_clean_up_request_to_each_provider_has_the_same_shape_as_before():
         [sent] = client.calls
         assert sent["messages"] == [{"role": "system", "content": system},
                                     {"role": "user", "content": "PROMPT"}]
-        assert sent["max_tokens"] == 2048 and sent["temperature"] == 0.1
+        # OpenAI's gpt-6-luna takes the cap as max_completion_tokens
+        # (tests/test_openai_model_retirement.py); the others as max_tokens.
+        cap = sent["extra_body"]["max_completion_tokens"] if client is o else sent["max_tokens"]
+        assert cap == 2048 and sent["temperature"] == 0.1
         assert 0.1 <= sent["timeout"] <= so._STYLE_TIMEOUT_S
         assert "response_format" not in sent, "the clean-up never asks for JSON"
     assert g.calls[0]["model"] == PRIMARY and g.calls[0]["extra_body"] == {"reasoning_effort": "low"}
     assert c.calls[0]["model"] == "gpt-oss-120b" and c.calls[0]["extra_body"] == {"reasoning_effort": "low"}
-    assert o.calls[0]["model"] == "gpt-4.1-mini" and "extra_body" not in o.calls[0]
+    assert o.calls[0]["model"] == "gpt-6-luna" and "max_tokens" not in o.calls[0]
+    assert o.calls[0]["extra_body"] == {"max_completion_tokens": 2048, "reasoning_effort": "none"}
 
 
 def test_the_clean_up_answer_and_usage_keep_their_shape():
@@ -363,7 +367,8 @@ def test_each_model_is_told_how_much_to_reason():
     c, o = Client([_answer("ok")]), Client([_answer("ok")])
     chat(styler(order=("cerebras",), cerebras=c))
     chat(styler(order=("openai",), openai=o))
-    assert c.calls[0]["extra_body"] == {"reasoning_effort": "low"} and "extra_body" not in o.calls[0]
+    assert c.calls[0]["extra_body"] == {"reasoning_effort": "low"}
+    assert o.calls[0]["extra_body"] == {"max_completion_tokens": 1024, "reasoning_effort": "none"}
 
 
 @pytest.mark.parametrize("provider", ["groq", "cerebras", "openai"])

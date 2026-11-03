@@ -36,7 +36,7 @@ It's gone through a ridiculous amount of prompt-wrangling and live-API testing t
 
 - **Global hotkey** — works in any app, instantly
 - **Multi-provider transcription** — Groq Whisper (fastest) or OpenAI Whisper
-- **AI cleanup with automatic fallback.** Groq gpt-oss-120b first, OpenAI GPT-4.1-mini as backup. Groq covers both transcription and cleanup, so one key is enough to run the whole app.
+- **AI cleanup with automatic fallback.** Groq gpt-oss-120b first, OpenAI gpt-6-luna as backup. Groq covers both transcription and cleanup, so one key is enough to run the whole app.
 - **Smart hallucination filtering** — strips Whisper's "and more / thanks for watching / please subscribe" outros on near-silent clips before they hit your clipboard, cuts the silent end off a take before it is sent, and drops a closing "Thank you." when Groq's own segments show no speech under it
 - **Auto-clipboard** — result is copied the moment it's ready
 - **Paste that keeps your clipboard (Mac).** Waffler puts back whatever you had copied once it has pasted, waits for your hotkey's keys to come up first, works on Dvorak and Colemak, and says so if the paste didn't land (your words stay on the clipboard). Paste last or copy last from the menu bar. Settings can keep the dictation on the clipboard instead.
@@ -163,8 +163,8 @@ Edit `.env` to set your API key(s).
 | Component | Technology |
 |-----------|-----------|
 | Language | Python 3.11 |
-| Speech-to-text | Groq Whisper (default) or OpenAI Whisper (`gpt-4o-mini-transcribe`) |
-| LLM cleanup | Groq gpt-oss-120b → OpenAI GPT-4.1-mini (Groq is faster and has a free tier; OpenAI is the backstop). Cerebras is still supported if a key is set, but it has no speech-to-text so it can never run a dictation alone |
+| Speech-to-text | Groq Whisper (default) or OpenAI (`gpt-transcribe`) |
+| LLM cleanup | Groq gpt-oss-120b → OpenAI gpt-6-luna (Groq is faster and has a free tier; OpenAI is the backstop). Cerebras is still supported if a key is set, but it has no speech-to-text so it can never run a dictation alone |
 | Audio | sounddevice + NumPy |
 | UI | pywebview (WebView2 on Windows, WebKit on Mac) |
 | Hotkey (Mac) | Single HID-level CGEventTap with multi-handler dispatch + 150 ms hold-quiet trailing edge on Fn |

@@ -82,7 +82,7 @@ def styler(net, order=("groq", "openai"), groq=None, cerebras=None, openai=None)
     s._groq_client = nf.groq_client(g) if g else None
     s._cerebras_client = nf.openai_client(c) if c else None
     s.client = nf.openai_client(o) if o else None
-    s.model = "gpt-4.1-mini"
+    s.model = "gpt-6-luna"
     s._groq_models, s._groq_model = (PRIMARY,), PRIMARY
     s._cerebras_model = "gpt-oss-120b"
     s._groq_skip_until = s._cerebras_skip_until = 0.0

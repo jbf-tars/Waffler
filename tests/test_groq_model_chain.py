@@ -299,7 +299,7 @@ def _chain(order, *, openai_error=None, groq_outcomes=None):
     s._use_groq = True
     s._use_cerebras = False
     s.prompt_template = "{transcript} {dialect_instruction}"
-    s.model = "gpt-4.1-mini"
+    s.model = "gpt-6-luna"
     s._openai_calls = 0
 
     class _OpenAIClient:

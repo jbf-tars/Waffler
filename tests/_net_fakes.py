@@ -148,7 +148,7 @@ def transcriber(net, groq_mode=None, openai_mode=None, order=("groq", "openai"))
     t._backend = "groq"
     t._cloud_order = list(order)
     t._groq_skip_until = 0.0
-    t.model = "gpt-4o-mini-transcribe"
+    t.model = "gpt-transcribe"
     g = Provider(net, "groq", groq_mode) if groq_mode is not None else None
     o = Provider(net, "openai", openai_mode) if openai_mode is not None else None
     t._groq_client = groq_client(g) if g else None

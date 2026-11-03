@@ -15,8 +15,9 @@ What it checks
    "Cerebras / Groq" or implies Cerebras is the default has historically
    been a bug. Caught in iterations 7, 12, 14, 15.
 
-2. **Stale OpenAI styler model name.** The OpenAI default is
-   `gpt-4.1-mini` since v3.13.x. Anywhere user-facing that still says
+2. **Stale OpenAI styler model name.** The OpenAI default was
+   `gpt-4.1-mini` from v3.13.x and is `gpt-6-luna` now (gpt-4.1-mini is
+   retired on 14 January 2027). Anywhere user-facing that still says
    `gpt-4o-mini` is stale. Caught in iteration 8 (api-key-guide)
    and iteration 15 (Settings backend display).
 
@@ -107,12 +108,12 @@ CHECKS: List[Check] = [
     Check(
         name="stale-openai-styler-model",
         # Match the literal "gpt-4o-mini" (case-insensitive) when not preceded
-        # by 'gpt-4o-mini-transcribe' (which IS the current Whisper default).
+        # by 'gpt-4o-mini-transcribe' (the speech model before gpt-transcribe).
         # Also skip lines that look like cost constants or comparison talk.
         pattern=r"\bgpt-4o-mini\b(?!-transcribe)",
-        why="The OpenAI styler default has been gpt-4.1-mini since v3.13.x. "
-            "Anywhere user-facing that still says gpt-4o-mini is stale.",
-        fix="Replace with 'gpt-4.1-mini' in user-facing strings. For per-model "
+        why="The OpenAI styler default is gpt-6-luna (gpt-4.1-mini before it, "
+            "from v3.13.x). Anywhere user-facing that still says gpt-4o-mini is stale.",
+        fix="Replace with 'gpt-6-luna' in user-facing strings. For per-model "
             "cost constants or historical comparison text, append "
             "' # doc-drift-ok' to the line.",
     ),

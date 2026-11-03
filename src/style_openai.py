@@ -3,7 +3,7 @@ for, tried in the order they chose in Settings. The default order:
 
   1. Groq openai/gpt-oss-120b  (fast, and a free tier; the one provider that
                                 also does the speech to text)
-  2. OpenAI gpt-4.1-mini       (slower but always available, the backstop)
+  2. OpenAI gpt-6-luna         (slower but always available, the backstop)
   3. Cerebras gpt-oss-120b     (optional and no longer recommended: it has no
                                 speech-to-text endpoint, so it can never run a
                                 dictation on its own)
@@ -15,8 +15,9 @@ OpenAI answers when Groq cannot (a limit, an outage), and Cerebras after that
 for anyone who set it up. Every provider's model can be replaced without a
 release (GROQ_STYLE_MODEL, GROQ_STYLE_FALLBACK_MODEL, OPENAI_STYLE_MODEL,
 CEREBRAS_MODEL), and Groq moves to a backup model by itself when it retires
-one. The earlier chain (Groq Llama 3.3 70B first, Cerebras second) ended when
-Groq retired that model.
+one, as OpenAI moves from a retired model pinned with OPENAI_STYLE_MODEL to
+the default. The earlier chain (Groq Llama 3.3 70B first, Cerebras second)
+ended when Groq retired that model.
 
 All three speak OpenAI-compatible chat-completions APIs. The same prompt is
 sent everywhere so behaviour is consistent.
@@ -106,6 +107,44 @@ def _model_is_gone(error_msg: str, loose: bool = True) -> bool:
     if any(m in lower for m in _MODEL_GONE_CODES):
         return True
     return loose and any(m in lower for m in _MODEL_GONE_LOOSE)
+
+
+# The OpenAI backup's clean-up model. gpt-4.1-mini, the model before it, shuts
+# down on 14 January 2027 and OpenAI names gpt-6-luna as its replacement
+# (developers.openai.com/api/docs/deprecations, checked 2026-11-03). It is the
+# cheapest current GPT-6 model ($0.10 in / $0.50 out per 1M tokens against
+# gpt-4.1-mini's $0.40 / $1.60) and the only cheaper current sibling,
+# gpt-5.4-nano, is itself deprecated. It is a reasoning model, so it is asked
+# differently: see _openai_request_extras.
+OPENAI_STYLE_MODEL = "gpt-6-luna"
+
+# OpenAI models known to answer with no reasoning at all when sent
+# reasoning_effort "none", which is also what lets them take a temperature
+# (gpt-6-luna, checked live 2026-11-03: 0 reasoning tokens).
+_OPENAI_NO_REASONING_MODELS = ("gpt-6-luna",)
+
+
+def _openai_is_reasoning_model(model: str) -> bool:
+    name = str(model or "").lower()
+    return name.startswith(("gpt-5", "gpt-6")) or bool(re.match(r"o\d", name))
+
+
+def _openai_request_extras(model: str) -> tuple:
+    """What an OpenAI chat request carries besides the messages, for ``model``.
+
+    The output cap goes as ``max_completion_tokens``: reasoning models refuse
+    ``max_tokens`` ("Use 'max_completion_tokens' instead", a 400 from
+    gpt-6-luna) and every current chat model takes the newer name. It and the
+    reasoning flag ride in ``extra_body`` so an older openai package (the
+    requirement is >=1.0.0) sends them unchanged. A model known to answer
+    without reasoning is told not to reason: a formatting job gains nothing
+    from it and dictation waits on every token. Any other reasoning model a
+    power user pins is left at its own default and sent no temperature, which
+    such models refuse. Returns ``(extra_body, keeps_temperature)``."""
+    name = str(model or "").lower()
+    if any(name.startswith(m) for m in _OPENAI_NO_REASONING_MODELS):
+        return {"reasoning_effort": "none"}, True
+    return {}, not _openai_is_reasoning_model(name)
 
 # Overall wall-clock budget for the WHOLE styling step (all fallback attempts).
 #
@@ -361,29 +400,35 @@ class OpenAIStyler:
     provider fails over instead of hanging the dictation.
     """
 
-    def __init__(self, api_key: str = "", model: str = "gpt-4.1-mini",
+    def __init__(self, api_key: str = "", model: str = OPENAI_STYLE_MODEL,
                  max_tokens: int = 1024, prompt_style: str = "normal",
                  groq_api_key: str = "", cerebras_api_key: str = "",
                  provider_order=None):
         self.api_key = api_key
-        # Default styling model: gpt-4.1-mini.
-        # Benchmark against the user's actual failing case (May 2026):
+        # Default styling model: gpt-6-luna (OPENAI_STYLE_MODEL above), since
+        # gpt-4.1-mini is retired on 14 January 2027. The choice of
+        # gpt-4.1-mini came from this benchmark against a real failing case
+        # (May 2026):
         #   gpt-4o-mini     2507ms, occasionally censored "fucking"  # doc-drift-ok (benchmark comparison)
         #   gpt-4.1-mini    1608ms, reliably preserved "fucking"   <-- winner
         #   gpt-4.1-nano     628ms, censored profanity (skipped)
         #   gpt-4.1         1021ms, ~4× the cost of mini for marginal gain
         #   gpt-5 family    4-16s, returned empty outputs (reasoning-tuned,
         #                   not suited for low-latency formatting)
-        # gpt-4.1-mini is ~35% faster and ~2.5× the input cost of 4o-mini,
+        # gpt-4.1-mini is ~35% faster and ~2.5× the input cost of 4o-mini,  # doc-drift-ok (benchmark comparison)
         # which works out to fractions of a cent per dictation.
         # Power users can flip the choice without a release via
-        # OPENAI_STYLE_MODEL env var (gpt-4.1, gpt-4o, etc).
+        # OPENAI_STYLE_MODEL env var (gpt-4o, etc). A pinned model OpenAI no
+        # longer serves moves to the default by itself (_openai_model_gone),
+        # so a pin set years ago cannot leave the backup dead.
         import os as _os
         env_override = _os.getenv("OPENAI_STYLE_MODEL", "").strip()
         if env_override:
             self.model = env_override
         else:
             self.model = model
+        self._openai_models = tuple(dict.fromkeys(m for m in (self.model, model) if m))
+        self._openai_skip_until = 0.0
         self.max_tokens = max_tokens
         self.prompt_style = prompt_style
         self.groq_api_key = groq_api_key
@@ -611,7 +656,7 @@ Transcript: {transcript}"""
         # daily free quota gets used up before any paid Cerebras tokens
         # are spent. Once Groq's TPD is exhausted (or it errors), Cerebras
         # gpt-oss-120b takes over — fast and smart on the paid tier.
-        # OpenAI gpt-4.1-mini sits as a last-resort fallback for the rare
+        # OpenAI gpt-6-luna sits as a last-resort fallback for the rare
         # case both fast providers are unavailable.
         #
         # v3.14.19: track failures across providers so that when EVERYTHING
@@ -677,6 +722,10 @@ Transcript: {transcript}"""
             # Skip entirely if no client is configured so we don't crash on a
             # NoneType call and lose the real failure reason.
             if self.client is None:
+                return None
+            cooling = self._cooldown_failure("openai")
+            if cooling is not None:
+                failures.append(("OpenAI", cooling))
                 return None
             started = time.monotonic()
             try:
@@ -983,8 +1032,8 @@ Transcript: {transcript}"""
         return {}
 
     def _cooldown_failure(self, name: str):
-        """None when provider ``name`` ("groq" or "cerebras") may be tried now;
-        otherwise the failure reason to record for it. A provider that returned
+        """None when provider ``name`` ("groq", "cerebras" or "openai") may be
+        tried now; otherwise the failure reason to record for it. A provider that returned
         a limit, a block or "model gone" is skipped until its deadline, and
         the reason says which of those it is (a retired model is not a limit:
         "paused for an hour" and a banner about a limit nobody reached were
@@ -992,6 +1041,11 @@ Transcript: {transcript}"""
         if name == "groq":
             until, gone = self._groq_skip_until, getattr(self, "_groq_gone_until", 0.0)
             label, still = "Groq", "Groq still in cooldown from previous limit"
+        elif name == "openai":
+            # Only a gone model pauses OpenAI (it has no limit cooldown).
+            until = getattr(self, "_openai_skip_until", 0.0)
+            gone = getattr(self, "_openai_gone_until", 0.0)
+            label, still = "OpenAI", "OpenAI still in cooldown"
         else:
             until, gone = self._cerebras_skip_until, getattr(self, "_cerebras_gone_until", 0.0)
             label, still = "Cerebras", "Cerebras still in cooldown"
@@ -1253,23 +1307,70 @@ Transcript: {transcript}"""
         # first in the user's order Groq and Cerebras were never tried. The error
         # now reaches the chain, which records it and lets it carry on, as it
         # does for the other two providers.
+        # The one failure read here is a model OpenAI no longer serves, the
+        # way Groq's and Cerebras's are (_openai_model_gone).
+        extras, keeps_temperature = _openai_request_extras(chosen_model)
         request = dict(
             model=chosen_model,
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-            max_tokens=max_tokens,
-            temperature=temperature,
+            extra_body={"max_completion_tokens": max_tokens, **extras},
         )
+        if keeps_temperature:
+            request["temperature"] = temperature
         if json_mode:
             request["response_format"] = {"type": "json_object"}
         # Bounded by whatever is LEFT of the overall budget, so this call can
         # never overrun the deadline (see _attempt_timeout), and short to
         # connect when another provider is next (see _request_timeout).
         request["timeout"] = self._request_timeout("openai", deadline)
-        response = self.client.chat.completions.create(**request)
+        try:
+            response = self.client.chat.completions.create(**request)
+        except Exception as e:
+            error_msg = str(e)
+            # Strict codes, or OpenAI's own wording ("The model `x` does not
+            # exist or you do not have access to it."); a bare "404" is not
+            # enough, it can sit inside a limit's numbers.
+            if _model_is_gone(error_msg, loose=False) or "does not exist" in error_msg.lower():
+                return self._openai_model_gone(
+                    chosen_model, error_msg,
+                    lambda: self._chat_openai(system, user, max_tokens=max_tokens,
+                                              temperature=temperature, json_mode=json_mode,
+                                              deadline=deadline),
+                    deadline)
+            raise
         return ChatReply.from_response(response, provider="openai", model=chosen_model)
+
+    def _openai_model_gone(self, model: str, error_msg: str, retry, deadline):
+        """OpenAI says ``model`` no longer exists (or this key can't reach it).
+
+        A model pinned with OPENAI_STYLE_MODEL moves to the built-in default
+        for the rest of the session and ``retry()`` sends the same request
+        again now. With nothing left it is Groq's standing condition: an hour's
+        pause, so the dead model isn't asked on every dictation, and a
+        MODEL_UNAVAILABLE reason that src/user_messages.py turns into a plain
+        sentence instead of a raw 404."""
+        models = list(getattr(self, "_openai_models", None) or [self.model])
+        at = models.index(model) if model in models else len(models)
+        if at + 1 < len(models):
+            nxt = models[at + 1]
+            self.model = nxt
+            self._log_provider_failure(
+                "OpenAI", f"model {model!r} is gone, switching to {nxt!r} ({error_msg[:100]})")
+            if self._budget_left(deadline) < _STYLE_MIN_ATTEMPT_S:
+                raise RuntimeError(
+                    "TIMEOUT|styling budget exhausted while changing the clean-up model "
+                    "- pasted raw")
+            return retry()
+        self._openai_skip_until = time.monotonic() + _MODEL_UNAVAILABLE_COOLDOWN_S
+        self._openai_gone_until = self._openai_skip_until
+        self._log_provider_failure(
+            "OpenAI", f"model {model!r} unavailable - skipping for "
+                      f"{int(_MODEL_UNAVAILABLE_COOLDOWN_S // 60)}m")
+        raise RuntimeError(
+            f"MODEL_UNAVAILABLE: OpenAI model {model!r} is not available to this account - {error_msg[:100]}")
 
     # ── The shared call path ─────────────────────────────────────────────────
 
@@ -1320,7 +1421,7 @@ Transcript: {transcript}"""
             if self._budget_left(deadline) < _STYLE_MIN_ATTEMPT_S:
                 failures.append(("deadline", f"TIMEOUT|{purpose} budget exhausted - no answer in time"))
                 break
-            cooling = self._cooldown_failure(name) if name != "openai" else None
+            cooling = self._cooldown_failure(name)
             if cooling is not None:
                 failures.append((label, cooling))
                 continue
@@ -1389,26 +1490,30 @@ Transcript: {transcript}"""
 
     def _pick_openai_model(self, transcript: str) -> str:
         """OpenAI is now a last-resort fallback only — used when both Groq
-        and Cerebras are unavailable. We always use gpt-4.1-mini here:
+        and Cerebras are unavailable. We always use one model here
+        (gpt-6-luna unless OPENAI_STYLE_MODEL pins another):
         the previous Cerebras model (qwen-3-235b-a22b-instruct-2507) was
         benchmarked at ~equal quality to full gpt-4.1 on long inputs
         (and 6x faster), so the old
-        ≥200-word → gpt-4.1-full routing has been removed. Mini is plenty
-        for the rare emergency-fallback case. Power users can still pin
+        ≥200-word → gpt-4.1-full routing has been removed. One small model
+        is plenty for the rare emergency-fallback case. Power users can still pin
         a model via the OPENAI_STYLE_MODEL env var."""
         import os as _os
         if _os.getenv("OPENAI_STYLE_MODEL", "").strip():
             return self.model
-        return self.model  # gpt-4.1-mini default
+        return self.model  # gpt-6-luna default
 
     def _style_openai(self, prompt: str, transcript: str, start_time: float):
-        """Style using OpenAI. Auto-routes to gpt-4.1 (full) on long inputs
-        so we benefit from its higher per-token output speed."""
+        """Style using OpenAI (one model; the ≥200-word routing to a bigger
+        model was removed)."""
         call = self._current_call()
         chosen_model = self._pick_openai_model(transcript)
         reply = self._chat_openai(_CLEANUP_SYSTEM_OPENAI, prompt, max_tokens=call.max_tokens,
                                   temperature=_CLEANUP_TEMPERATURE, json_mode=False,
                                   deadline=call.deadline_at, model=chosen_model)
+        # The model that answered: a pinned model that has gone moves to the
+        # default inside _chat_openai.
+        chosen_model = reply.model or chosen_model
         styled = self._finish_cleanup(reply.text, call.raw)
         # Log which model was actually used so the auto-routing decision
         # is visible in the app log.
@@ -1426,7 +1531,7 @@ Transcript: {transcript}"""
         marker — bigger LLMs love them. The prompt forbids them, but as a
         safety net we strip any that slip through and replace with comma
         + space. Hyphens (-) inside compound words and identifiers
-        ('voice-to-text', 'gpt-4.1-mini', 'Ctrl+Alt+S') are untouched —
+        ('voice-to-text', 'gpt-6-luna', 'Ctrl+Alt+S') are untouched —
         only the em/en-dash codepoints (U+2014, U+2013) are targeted.
 
         Handles the common typographic patterns:

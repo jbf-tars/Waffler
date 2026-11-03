@@ -371,8 +371,8 @@ def test_the_styler_docstring_describes_the_real_chain():
     import style_openai
     doc = style_openai.__doc__
     assert "Llama" not in doc.replace("ended when Groq retired", "") or "retired" in doc
-    assert "gpt-oss-120b" in doc and "gpt-4.1-mini" in doc and "chose in Settings" in doc
-    assert doc.index("Groq openai/gpt-oss-120b") < doc.index("OpenAI gpt-4.1-mini") < doc.index("Cerebras gpt-oss-120b")
+    assert "gpt-oss-120b" in doc and "gpt-6-luna" in doc and "chose in Settings" in doc
+    assert doc.index("Groq openai/gpt-oss-120b") < doc.index("OpenAI gpt-6-luna") < doc.index("Cerebras gpt-oss-120b")
     assert "Cerebras → Groq" not in doc and "free allowance" not in doc   # doc-drift-ok
 
 

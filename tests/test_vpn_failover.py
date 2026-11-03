@@ -458,7 +458,7 @@ def test_no_key_and_no_text_ever_reach_the_log(net, log, full_tunnel, capsys):
     t, g, o = nf.transcriber(net, nf.edge_403(), nf.black_hole())
     with pytest.raises(Exception):
         t._dispatch_one(AUDIO)
-    t.model = "gpt-4o-mini-transcribe"
+    t.model = "gpt-transcribe"
     everything = "\n".join(log) + capsys.readouterr().out
     assert nf.GROQ_KEY not in everything and nf.OPENAI_KEY not in everything
     assert "gsk_" not in everything and "sk-TEST" not in everything

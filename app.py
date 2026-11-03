@@ -240,11 +240,17 @@ _snippets_lock = threading.Lock()
 #     gpt-4o-mini-transcribe at $0.003/min: overstated 2x.
 #   * Cerebras had no branch at all and was billed at OpenAI's rates.
 #
+# OpenAI retires both of the backup's models (gpt-4.1-mini on 14 January 2027,
+# gpt-4o-mini-transcribe on 26 February 2027), so the backup now calls the
+# replacements OpenAI names, priced below. Rows already recorded keep the
+# model and price they were billed at (scripts/recost_usage.py leaves a row
+# billed as another model alone).
+#
 # Each entry records where the figure came from and when it was checked, so a
 # stale rate is distinguishable from a current one. `verified` is False where
 # the provider publishes no per-token rate; the UI shows those as estimates
 # rather than implying precision we do not have.
-_RATES_CHECKED = "2026-10-29"
+_RATES_CHECKED = "2026-11-03"
 
 MODEL_RATES = {
     "groq": {
@@ -263,13 +269,15 @@ MODEL_RATES = {
                     "verified": True, "source": "console.groq.com/docs/models"},
     },
     "openai": {
-        "gpt":     {"model": "gpt-4.1-mini", "in_per_1m": 0.40,
-                    "out_per_1m": 1.60, "verified": True,
+        # gpt-6-luna, standard tier: $0.10 in, $0.50 out per 1M tokens
+        # (developers.openai.com/api/docs/pricing, checked 2026-11-03).
+        "gpt":     {"model": "gpt-6-luna", "in_per_1m": 0.10,
+                    "out_per_1m": 0.50, "verified": True,
                     "source": "developers.openai.com/api/docs/pricing"},
         # No minimum here on purpose: OpenAI's pricing page lists
-        # gpt-4o-mini-transcribe at an estimated $0.003/min and documents no
-        # minimum billed length per request (checked 2026-09-25).
-        "whisper": {"model": "gpt-4o-mini-transcribe", "per_minute": 0.003,
+        # gpt-transcribe at an estimated $0.0045/min (checked 2026-11-03) and
+        # documents no minimum billed length per request.
+        "whisper": {"model": "gpt-transcribe", "per_minute": 0.0045,
                     "verified": True,
                     "source": "developers.openai.com/api/docs/pricing"},
     },
@@ -4497,9 +4505,8 @@ class WafflerPipeline:
 
         # Transcriber — Groq Whisper (fast) → OpenAI Whisper (fallback), in the
         # user's configured order (Cerebras auto-skipped — no speech-to-text).
-        # OpenAI model defaults to gpt-4o-mini-transcribe (half the cost of
-        # whisper-1 and noticeably better quality). Override via
-        # OPENAI_WHISPER_MODEL env var.
+        # OpenAI model defaults to gpt-transcribe (gpt-4o-mini-transcribe is
+        # retired on 26 February 2027). Override via OPENAI_WHISPER_MODEL.
         self.transcriber = WhisperTranscriber(
             api_key=openai_key,
             groq_api_key=groq_key,
@@ -4507,15 +4514,12 @@ class WafflerPipeline:
         )
         _log_to_file(f"Transcriber backend: {self.transcriber._backend}")
 
-        # Styler — three-tier fallback chain:
-        #   1. Cerebras Llama 3.3 70B   (fastest ever for this model, ~1M
-        #      tokens/day free) — primary when CEREBRAS_API_KEY is set
-        #   2. Groq Llama 3.3 70B       (very fast, lower daily free cap)
-        #   3. OpenAI gpt-4.1-mini      (slower but always available;
-        #      gpt-4.1 auto-routed for inputs ≥ 200 words)
+        # Styler: a fallback chain in the user's provider order (default
+        # Groq gpt-oss-120b, then OpenAI gpt-6-luna, then Cerebras
+        # gpt-oss-120b; see src/style_openai.py).
         # Same prompt sent everywhere so behaviour is consistent.
         # DO NOT pass model= here — the OpenAIStyler ctor default is
-        # gpt-4.1-mini and overriding it silently was a real bug.
+        # gpt-6-luna and overriding it silently was a real bug.
         cerebras_key = getattr(config, "cerebras_api_key", "") or ""
         self.styler = OpenAIStyler(
             api_key=openai_key,
