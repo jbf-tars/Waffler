@@ -4,6 +4,25 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Windows now says when your microphone is set too low.** On one Windows
+  PC, dictations arrived very quiet (a median of -49 dBFS, where clear speech
+  is near -20), so Waffler boosted every take by about 24 dB, some by the
+  full 30, which raises the room's noise too. The microphone, a headset
+  microphone, was set to 54%. As on a Mac since 3.16.3, when your last ten
+  dictations are that quiet Waffler reads the level of your default
+  microphone, at most once a day, and if it is under 70% shows a tip, at most
+  once a week: "Your microphone (Headset Microphone) is set low (54%)...",
+  with a button that opens Sound settings, where the Input section has the
+  microphone's volume. It never changes the level itself. Show tips and
+  "Don't show again" apply as for any tip. The reading is taken from Windows
+  directly, with nothing new to install, and gives up after 2 seconds. On
+  Windows the reading kept on this computer also has the microphone's short
+  name, so the tip can say which one; Privacy and data says so, and Delete
+  all my data clears it. Nothing changes on a Mac.
+
 ## [3.16.4] - 2026-10-30
 
 ### Fixed

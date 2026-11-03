@@ -4557,8 +4557,8 @@ class WafflerPipeline:
         # the microphone leaving, and a closed lid is noticed. Idle until the
         # device monitor and the recording loop call it.
         self._mic = _mic_supervisor.MicSupervisor(self._mic_hooks())
-        # The tip that says when the Mac's microphone is set too low
-        # (src/quiet_mic.py): told each saved take's level, idle otherwise.
+        # The tip that says when the microphone is set too low, on a Mac or
+        # Windows (src/quiet_mic.py): told each saved take's level, idle otherwise.
         self._quiet_mic = _quiet_mic.QuietMicAdvisor(self._quiet_mic_hooks())
         # Optional sound cues (src/sounds.py), and the press that locked
         # hands-free (the "Don't tap, hold" hint is not for those).
@@ -4913,20 +4913,22 @@ class WafflerPipeline:
         def show(heading, body, buttons, timeout):
             self._show_toast_safe("info", heading, body, buttons=buttons, timeout=timeout)
 
+        system = _platform.system()
         return _quiet_mic.Hooks(
-            platform="darwin" if _platform.system() == "Darwin" else sys.platform,
+            platform={"Darwin": "darwin", "Windows": "win32"}.get(system, sys.platform),
             history=load_history,
             could_show=self._notifier.could_show, quiet=quiet,
             toast_allowed=self._toast_allowed, show=show,
-            read_volume=_quiet_mic.read_input_volume, log=_log_to_file,
+            read_volume=_quiet_mic.read_input_volume,
+            read_input=_quiet_mic.read_windows_input, log=_log_to_file,
             store=_quiet_mic.VolumeLog(DATA_DIR / _quiet_mic.STATE_FILE))
 
     def _note_mic_level(self, level_db):
         """A dictation is saved: hand its speech level to the quiet-microphone
-        tip, on its own thread (it may read the Mac's input volume, and it
-        waits for a quiet moment). On a Mac only. Never raises."""
+        tip, on its own thread (it may read the input volume, and it waits
+        for a quiet moment). On a Mac or Windows. Never raises."""
         try:
-            if _platform.system() != "Darwin":
+            if _platform.system() not in ("Darwin", "Windows"):
                 return
             advisor = getattr(self, "_quiet_mic", None)
             if advisor is None:         # a pipeline made without __init__ (the tests' harness)
@@ -5646,8 +5648,9 @@ class WafflerPipeline:
                 _post_js("window.waffler_show_command && "
                          f"window.waffler_show_command({int(entry_id)})")
         elif action == _quiet_mic.OPEN_SOUND_ACTION:
-            # The quiet-microphone tip's button: Sound settings at Input, off
-            # the overlay's reader thread. Waffler never sets the volume.
+            # The quiet-microphone tip's button: Sound settings at Input (on
+            # Windows, the Sound page), off the overlay's reader thread.
+            # Waffler never sets the volume.
             self.overlay.hide_toast()
             threading.Thread(target=_quiet_mic.open_sound_settings, daemon=True,
                              name="OpenSoundSettings").start()
@@ -6997,7 +7000,7 @@ class WafflerPipeline:
             if _saved:
                 notify_js_new_item(item)
 
-            # How loud this take arrived, for the tip that says when the Mac's
+            # How loud this take arrived, for the tip that says when the
             # microphone is set too low (src/quiet_mic.py). Its own thread,
             # after the save: never on the way to the words.
             self._note_mic_level(_asr_info.get("last_speech_dbfs"))

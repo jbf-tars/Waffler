@@ -378,10 +378,19 @@ CHOOSE_MICROPHONE = "Choose microphone"
 
 
 # A tip, at most once a week (src/quiet_mic.py): the last ten takes arrived so
-# quiet that each had to be lifted, and the Mac's input volume is under 70.
-def quiet_mic_message(volume: int):
-    """(heading, body) of the tip; ``volume`` is the Mac's input volume, 0 to 100."""
-    return ("Your microphone is set low",
+# quiet that each had to be lifted, and the input volume is under 70. On
+# Windows it names the microphone (its short name, or none when it could not
+# be read) and says only what was read.
+def quiet_mic_message(volume: int, platform: str = "darwin", device=None):
+    """(heading, body) of the tip; ``volume`` is the input volume, 0 to 100."""
+    heading = "Your microphone is set low"
+    if str(platform).startswith("win"):
+        who = f"Your microphone ({device})" if device else "Your microphone"
+        return (heading,
+                f"{who} is set low ({int(volume)}%), so Waffler has to boost it and picks "
+                "up more background noise. Turn its level up to about 80% in Sound settings "
+                "for clearer dictation.")
+    return (heading,
             f"Your Mac's microphone is set low ({int(volume)}%), so Waffler has to boost it "
             "and picks up more background noise. Turn Input volume up to about 80% in "
             "Sound settings for clearer dictation.")

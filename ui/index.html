@@ -834,11 +834,12 @@
             <div class="row" id="micMemoryRow">
               <div class="row-main"><div class="row-t">Microphones seen</div><div class="row-d">Which new microphones Waffler has asked you about, and what you answered, so it asks once for each. Names and answers only, and Delete all my data clears them.</div></div>
             </div>
-            <!-- The Mac's input volume (src/quiet_mic.py, mic_volume.json): read at
-                 most once a day, only while dictations arrive very quiet, for the
-                 tip that suggests turning it up. Never changed by Waffler. -->
+            <!-- The input volume (src/quiet_mic.py, mic_volume.json): read at most
+                 once a day, only while dictations arrive very quiet, for the tip
+                 that suggests turning it up; on Windows with the microphone's
+                 name. Never changed by Waffler. -->
             <div class="row" id="micVolumeRow">
-              <div class="row-main"><div class="row-t">Microphone volume</div><div class="row-d">On a Mac, when your dictations keep arriving very quiet, Waffler reads your Mac's input volume at most once a day, to suggest turning it up. It never changes it. The reading and when it was taken stay on this computer, and Delete all my data clears them.</div></div>
+              <div class="row-main"><div class="row-t">Microphone volume</div><div class="row-d">When your dictations keep arriving very quiet, Waffler reads your microphone's input volume at most once a day, to suggest turning it up, and on Windows its name, so the tip can say which microphone. It never changes it. The reading and when it was taken stay on this computer, and Delete all my data clears them.</div></div>
             </div>
             <div class="row" id="unsentRow">
               <span class="chk" id="unsentIcon" aria-hidden="true"><svg class="ic"><use href="#i-check"/></svg></span>
