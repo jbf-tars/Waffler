@@ -42,15 +42,23 @@ def _load(fake_pipeline_cls, monkeypatch):
             pass
 
     class FakeMonitor:
+        started = []
+
         def __init__(self, on_change=None, log_fn=None):
             pass
 
         def start(self):
-            pass
+            FakeMonitor.started.append(self)
 
+    # Both names app.py tries, with both names it imports. The fake used to
+    # lack restart_stream_when_idle, so the import fell back to the real
+    # module, and a real monitor polled this Mac's CoreAudio every 2 s for the
+    # rest of the run (and printed "CoreAudio did not answer" after it ended).
     fake_mod = types.ModuleType("src.audio_device_monitor")
     fake_mod.AudioDeviceMonitor = FakeMonitor
+    fake_mod.restart_stream_when_idle = lambda *a, **k: None
     monkeypatch.setitem(sys.modules, "src.audio_device_monitor", fake_mod)
+    monkeypatch.setitem(sys.modules, "audio_device_monitor", fake_mod)
 
     ns = {"threading": threading, "WafflerPipeline": fake_pipeline_cls,
           "_config": FakeConfig(), "_log_to_file": log.append,
@@ -88,6 +96,8 @@ def test_two_callers_at_once_build_one_pipeline_and_one_listener(monkeypatch):
     assert len(listeners) == 1
     assert ns["_pipeline"] is built[0]
     assert ns["_pipeline_initialising"] is False
+    # The fake device monitor, not the real one polling this Mac's CoreAudio.
+    assert type(ns["_device_monitor"]).__name__ == "FakeMonitor"
 
 
 def test_the_practice_guard_sees_a_pipeline_that_is_still_building(monkeypatch):

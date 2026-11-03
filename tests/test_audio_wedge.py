@@ -110,8 +110,16 @@ def sd(monkeypatch):
     monkeypatch.setattr(audio_mod, "_SHUTDOWN_LOCK_WAIT_S", 1.0)
     monkeypatch.setattr(audio_mod, "_SALVAGE_LOCK_WAIT_S", 0.3)
     monkeypatch.setattr(audio_mod, "_recycles_when_idle", lambda: False)    # a Mac, whatever runs the test
+    before = set(threading.enumerate())
     yield fake
     fake.never.set()                           # let the stuck threads finish
+    # ...while the fake is still in place: a released call goes on to its next
+    # call of `sd` (query_devices, then query_hostapis), and once monkeypatch
+    # has put the real sounddevice back that would be this computer's PortAudio.
+    deadline = time.monotonic() + 2.0
+    for t in threading.enumerate():
+        if t not in before and t is not threading.current_thread():
+            t.join(max(0.0, deadline - time.monotonic()))
 
 
 def make(sd, **kw):
