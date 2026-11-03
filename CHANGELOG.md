@@ -4,6 +4,37 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+- **The OpenAI backup moves to the models OpenAI is replacing its old ones
+  with.** OpenAI shuts down both of the models the backup used: gpt-4.1-mini
+  (the clean-up) on 14 January 2027 and gpt-4o-mini-transcribe (speech to
+  text) on 26 February 2027. After those dates a Groq outage, or a VPN that
+  Groq blocks, would have left nothing to fall back on. The clean-up now uses
+  gpt-6-luna and speech to text uses gpt-transcribe, the replacements OpenAI
+  names (its deprecations page, checked 2026-11-03). gpt-6-luna costs a
+  quarter of what gpt-4.1-mini did ($0.10 in and $0.50 out per million tokens,
+  against $0.40 and $1.60); gpt-transcribe is an estimated $0.0045 a minute,
+  against $0.003. The Usage panel prices new rows at those rates and keeps
+  the price already recorded for older ones. gpt-6-luna is a reasoning model,
+  so it is asked differently: told not to reason (a clean-up gains nothing
+  from it and you wait for every word), and given its output limit under the
+  newer name it insists on. Tried on five made-up dictations, gpt-6-luna kept
+  the same words as gpt-4.1-mini but for one "honestly" it dropped, punctuated
+  better (gpt-4.1-mini left two without a capital or a full stop), and took
+  about 1.5 s against 1.15 s. gpt-transcribe heard two test clips word for word, as
+  the old model did, and answered sooner (about 1.0 s against 1.5 s).
+
+### Fixed
+- **A model OpenAI no longer serves is handled like Groq's and Cerebras's.**
+  A model pinned with OPENAI_STYLE_MODEL or OPENAI_WHISPER_MODEL that OpenAI
+  has retired moves to the built-in one by itself, so an old setting can't
+  leave the backup dead. If the built-in clean-up model itself goes, OpenAI is
+  left alone for an hour instead of being asked on every dictation, and the
+  message says the clean-up model is no longer available instead of "The
+  clean-up didn't work this time".
+
 ## [3.16.4] - 2026-10-30
 
 ### Fixed

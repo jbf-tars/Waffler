@@ -504,7 +504,7 @@ def test_the_about_line_names_the_models_in_use():
     assert about == "v3.14.100 · Powered by Whisper large v3 and gpt-oss-120b"
     assert "LLaMA" not in about
     assert js("L.aboutLine('3.14.100', {transcription_backend: 'api', styling_backend: 'openai'})") == \
-        "v3.14.100 · Powered by gpt-4o-mini-transcribe and gpt-4.1-mini"
+        "v3.14.100 · Powered by gpt-transcribe and gpt-6-luna"
     # Nothing known yet: just the version, never a guess.
     assert js("L.aboutLine('3.14.100', null)") == "v3.14.100"
 
@@ -749,7 +749,7 @@ def test_about_names_what_each_job_uses():
     assert js("L.usesView({transcription_backend: 'groq', styling_backend: 'groq'})") == \
         {"speech": "Whisper large v3 on Groq", "cleanup": "gpt-oss-120b on Groq"}
     assert js("L.usesView({transcription_backend: 'mlx', styling_backend: 'openai'})") == \
-        {"speech": "Whisper, on this Mac", "cleanup": "gpt-4.1-mini on OpenAI"}
+        {"speech": "Whisper, on this Mac", "cleanup": "gpt-6-luna on OpenAI"}
     assert js("L.usesView(null)") == {"speech": "No key yet", "cleanup": "No key yet"}
 
 
@@ -878,7 +878,7 @@ def test_the_keys_page_draws_what_a_dictation_goes_through():
         "cleanup": {"by": "Groq", "model": "gpt-oss-120b"}, "out": "Pasted"}
     s = {"transcription_backend": "api", "styling_backend": "cerebras", "auto_paste": False}
     assert js(f"L.flowView({json.dumps(s)})") == {
-        "speech": {"by": "OpenAI", "model": "gpt-4o-mini-transcribe"},
+        "speech": {"by": "OpenAI", "model": "gpt-transcribe"},
         "cleanup": {"by": "Cerebras", "model": "gpt-oss-120b"}, "out": "Copied"}
     assert js("L.flowView(null)") == {"speech": None, "cleanup": None, "out": "Pasted"}
 

@@ -63,9 +63,18 @@ def load_rates() -> dict:
 def cost_for(rates: dict, entry: dict, usage_cost) -> tuple[float, dict]:
     """Price one stored entry with app.py's own ``_usage_cost``, so a recost
     applies the same rules as a live dictation (including Groq's 10-second
-    minimum per transcription request)."""
+    minimum per transcription request).
+
+    A row that names the model it was billed as, when that is no longer the
+    model the table prices (OpenAI's gpt-4.1-mini rows after the move to
+    gpt-6-luna), keeps its stored cost: the table has no rate for that model,
+    and the provider's current one would be another model's price."""
     provider, kind = entry.get("provider", "openai"), entry.get("type", "gpt")
     rate = rates.get(provider, {}).get(kind) or rates["openai"].get(kind, {})
+    billed_as = entry.get("model")
+    if billed_as and rate.get("model") and billed_as != rate["model"]:
+        kept = {"model": billed_as, "verified": bool(entry.get("rate_verified", False))}
+        return float(entry.get("cost_usd") or 0.0), kept
     return usage_cost(
         rate, kind,
         float(entry.get("duration_seconds") or 0.0),
