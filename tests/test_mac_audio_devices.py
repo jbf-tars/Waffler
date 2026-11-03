@@ -5,6 +5,7 @@ made-up bytes on every platform. The one live test asks this Mac for its list
 of inputs: that is a read of the device list, it opens no device and starts no
 stream.
 """
+import os
 import struct
 import sys
 from pathlib import Path
@@ -15,6 +16,10 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 import mac_audio_devices as ca  # noqa: E402
+
+# The real loader, kept for the opt-in live test: tests/conftest.py swaps
+# ca._load for one that refuses, so no other test reaches the hardware.
+_REAL_LOAD = getattr(ca._load, "real", ca._load)
 
 mac_only = pytest.mark.skipif(sys.platform != "darwin", reason="CoreAudio is macOS only")
 
@@ -63,8 +68,93 @@ def test_not_a_mac_gives_none(monkeypatch):
     assert ca.list_inputs() is None
 
 
+# ── the listing, against a made-up CoreAudio ─────────────────────────────────
+# No test asks this computer's CoreAudio (tests/conftest.py refuses it): a live
+# read from a test ran on a thread that could outlive the suite, and printed
+# "[audio] CoreAudio did not answer within 3s" after it had finished. The
+# listing's logic is checked here against a fake set of properties instead.
+
+class FakeCoreAudio:
+    """The properties of a Mac with a built-in mic (the default), USB speakers
+    with no input, and an AirPods headset."""
+
+    def __init__(self):
+        self.asked = 0
+        g, i = ca._GLOBAL, ca._INPUT
+        self.blobs = {
+            (ca._SYSTEM_OBJECT, ca._DEVICES, g): struct.pack("=3I", 90, 83, 95),
+            (ca._SYSTEM_OBJECT, ca._DEFAULT_INPUT, g): struct.pack("=I", 90),
+            (90, ca._STREAM_CONFIG, i): buffer_list(1),
+            (83, ca._STREAM_CONFIG, i): buffer_list(),
+            (95, ca._STREAM_CONFIG, i): buffer_list(1),
+            (90, ca._TRANSPORT, g): struct.pack("=I", struct.unpack(">I", b"bltn")[0]),
+            (95, ca._TRANSPORT, g): struct.pack("=I", struct.unpack(">I", b"blue")[0]),
+        }
+        self.texts = {
+            (90, ca._NAME): "MacBook Pro Microphone", (90, ca._UID): "BuiltInMicrophoneDevice",
+            (83, ca._NAME): "USB Speakers", (83, ca._UID): "usb-spk",
+            (95, ca._NAME): " AirPods Pro ", (95, ca._UID): "aa-bb-cc:input",
+        }
+
+    def blob(self, api, obj, selector, scope=ca._GLOBAL):
+        self.asked += 1
+        return self.blobs.get((obj, selector, scope))
+
+    def text(self, api, obj, selector):
+        self.asked += 1
+        return self.texts.get((obj, selector))
+
+
+@pytest.fixture
+def fake_mac(monkeypatch):
+    fake = FakeCoreAudio()
+    monkeypatch.setattr(ca.sys, "platform", "darwin")
+    monkeypatch.setattr(ca, "_load", lambda: object())
+    monkeypatch.setattr(ca, "_blob", fake.blob)
+    monkeypatch.setattr(ca, "_text", fake.text)
+    return fake
+
+
+def test_a_mac_lists_its_inputs_and_nothing_else(fake_mac):
+    got = ca.list_inputs()
+    assert [d.name for d in got] == ["MacBook Pro Microphone", "AirPods Pro"]   # no speakers
+    mic, pods = got
+    assert mic.is_default and not pods.is_default
+    assert mic.uid == "BuiltInMicrophoneDevice" and pods.uid == "aa-bb-cc:input"
+    assert mic.transport == "bltn" and pods.transport == "blue"
+    for d in got:
+        assert d.channels >= 1 and d.host_api == "Core Audio"
+        assert d.index is None                                  # PortAudio's index is not known here
+    # Asking again gives the same list (nothing is consumed or left behind).
+    assert [d.name for d in ca.list_inputs()] == [d.name for d in got]
+
+
+def test_a_device_with_no_name_is_left_out(fake_mac):
+    fake_mac.texts[(95, ca._NAME)] = "   "
+    assert [d.name for d in ca.list_inputs()] == ["MacBook Pro Microphone"]
+
+
+def test_no_devices_is_none(fake_mac):
+    fake_mac.blobs[(ca._SYSTEM_OBJECT, ca._DEVICES, ca._GLOBAL)] = b""
+    assert ca.list_inputs() is None
+
+
+def test_asking_many_times_is_stable_and_quick(fake_mac):
+    import time
+    first = [d.name for d in ca.list_inputs()]
+    t0 = time.perf_counter()
+    for _ in range(200):
+        assert [d.name for d in ca.list_inputs()] == first
+    assert time.perf_counter() - t0 < 5.0       # one bounded thread each; the bound is for a slow runner
+
+
 @mac_only
-def test_this_mac_lists_its_inputs_without_opening_anything():
+@pytest.mark.skipif(not os.environ.get("WAFFLER_LIVE_AUDIO"),
+                    reason="asks this Mac's CoreAudio; set WAFFLER_LIVE_AUDIO=1 to run")
+def test_this_mac_lists_its_inputs_without_opening_anything(monkeypatch):
+    """Opt-in: a read of this Mac's device list. It opens no device and
+    starts no stream."""
+    monkeypatch.setattr(ca, "_load", _REAL_LOAD)
     got = ca.list_inputs()
     if got is None:
         pytest.skip("CoreAudio did not answer (a headless runner)")
@@ -72,22 +162,7 @@ def test_this_mac_lists_its_inputs_without_opening_anything():
     for d in got:
         assert isinstance(d.name, str) and d.name.strip()
         assert d.channels >= 1 and d.host_api == "Core Audio"
-        assert d.index is None                                  # PortAudio's index is not known here
     assert sum(1 for d in got if d.is_default) <= 1
-    # Asking again gives the same list (nothing is consumed or left behind).
-    assert [d.name for d in ca.list_inputs()] == [d.name for d in got]
-
-
-@mac_only
-def test_asking_many_times_is_stable_and_quick():
-    import time
-    first = ca.list_inputs()
-    if first is None:
-        pytest.skip("CoreAudio did not answer (a headless runner)")
-    t0 = time.perf_counter()
-    for _ in range(200):
-        assert ca.list_inputs() is not None
-    assert time.perf_counter() - t0 < 5.0       # about a millisecond each; the bound is for a slow runner
 
 
 # ── a CoreAudio that does not answer ─────────────────────────────────────────

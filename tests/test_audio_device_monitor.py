@@ -86,6 +86,9 @@ def test_one_source_is_used_for_the_run(monkeypatch):
     monkeypatch.setattr(md, "pa_inputs", lambda: [Device("Cached Only")])
     seen = []
     m = adm.AudioDeviceMonitor(on_change=lambda *a: None, log_fn=lambda *_: None, on_devices=seen.append)
+    # The skipped poll has no default to report, so the monitor would ask
+    # PortAudio for the machine's own: not in a test.
+    monkeypatch.setattr(m, "_current_default_name", lambda: None)
     for _ in range(3):
         m._tick()
     assert [[d.name for d in s] for s in seen] == [["MacBook Pro Microphone", "Yeti"]] * 2

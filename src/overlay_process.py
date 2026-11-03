@@ -75,6 +75,11 @@ from Foundation import (
     NSMakePoint, NSMakeRect,
 )
 
+try:
+    from quit_flow import overlay_terminate_decision
+except ImportError:  # imported as src.overlay_process
+    from src.quit_flow import overlay_terminate_decision
+
 
 # Bundle of collection-behavior flags that make a window appear on every
 # Space (including other apps' full-screen Spaces).
@@ -297,6 +302,47 @@ def _compute_overlay_position(verbose: bool = False):
             file=sys.stderr, flush=True,
         )
     return x, y
+
+
+# The app asked this process to quit (its "quit" command, or its stdin
+# closed). Until it has, a terminate request came from outside.
+_parent_asked_quit = False
+# When a quit from outside was last passed to the app (time.monotonic()).
+_last_quit_forward = None
+_app_delegate = None
+
+# NSApplicationTerminateReply
+_NS_TERMINATE_CANCEL = 0
+_NS_TERMINATE_NOW = 1
+
+
+class OverlayAppDelegate(NSObject):
+    """Passes a quit from outside to the app instead of obeying it.
+
+    This process is the app's own executable run with --overlay, so the system
+    lists it as a second "Waffler" with the same bundle id, and
+    ``tell application "Waffler" to quit`` (or the Dock's Quit) can reach it
+    rather than the app. It used to exit, leaving the app running with no pill.
+    Now it tells the app, which quits and takes the overlay with it. If the
+    app does nothing about it for a while, a second request lets it go
+    (src/quit_flow.py).
+    """
+
+    def applicationShouldTerminate_(self, _app):  # noqa: N802 - Cocoa selector form
+        global _last_quit_forward
+        now = time.monotonic()
+        decision = overlay_terminate_decision(parent_asked=_parent_asked_quit,
+                                              now=now, last_forward=_last_quit_forward)
+        if decision == "terminate":
+            return _NS_TERMINATE_NOW
+        try:
+            emit("quit_request")
+        except Exception:
+            return _NS_TERMINATE_NOW  # the app is gone: nothing to pass it to
+        if _last_quit_forward is None:
+            _last_quit_forward = now
+        _dbg("quit.forwarded")
+        return _NS_TERMINATE_CANCEL
 
 
 class SpaceChangeObserver(NSObject):
@@ -1496,6 +1542,8 @@ def _dispatch_cmd(cmd):
         _show_progress(cmd.get("label", ""), float(cmd.get("elapsed_seconds", 0.0)))
 
     elif ctype == "quit":
+        global _parent_asked_quit
+        _parent_asked_quit = True
         _hide_toast()
         NSApplication.sharedApplication().terminate_(None)
 
@@ -1688,6 +1736,9 @@ def main():
     # NSApplication
     app = NSApplication.sharedApplication()
     app.setActivationPolicy_(AppKit.NSApplicationActivationPolicyAccessory)
+    global _app_delegate
+    _app_delegate = OverlayAppDelegate.alloc().init()  # strong ref: PyObjC would free it
+    app.setDelegate_(_app_delegate)
 
     # Initial position — full multi-monitor / dock-on-side handling lives
     # in _compute_overlay_position(). This is just a launch-time best

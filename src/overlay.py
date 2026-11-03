@@ -57,18 +57,23 @@ class RecordingOverlay:
             pass  # Don't crash if logging fails
 
     def __init__(self, on_cancel=None, on_stop=None, on_cancel_request=None,
-                 on_toast_action=None):
+                 on_toast_action=None, on_quit_request=None):
         """
         Args:
             on_cancel:         Callback when user clicks X (discard recording)
             on_stop:           Callback when user clicks ■ (process recording)
             on_cancel_request: Callback when user clicks X (confirmation needed first)
             on_toast_action:   Callback(action: str) when user clicks a toast button
+            on_quit_request:   Callback when the overlay process was asked to
+                               quit from outside (AppleScript, Dock): it is the
+                               same executable as the app, so a quit Apple
+                               Event can reach it instead. The app quits.
         """
         self._on_cancel = on_cancel
         self._on_stop   = on_stop
         self._on_cancel_request = on_cancel_request
         self._on_toast_action = on_toast_action
+        self._on_quit_request = on_quit_request
         self._process   = None
         self._reader_thread = None
         self._visible   = False
@@ -604,6 +609,8 @@ class RecordingOverlay:
                     self._on_stop()
                 elif event == "toast_action" and self._on_toast_action:
                     self._on_toast_action(data.get("action", ""))
+                elif event == "quit_request" and self._on_quit_request:
+                    self._on_quit_request()
             except json.JSONDecodeError:
                 pass
 

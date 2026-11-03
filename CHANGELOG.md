@@ -50,6 +50,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   Windows the reading kept on this computer also has the microphone's short
   name, so the tip can say which one; Privacy and data says so, and Delete
   all my data clears it. Nothing changes on a Mac.
+### Fixed
+- **Mac: every way of quitting Waffler now quits it.** v3.14.66 made Cmd-Q
+  work, but quitting from the Dock, logging out, clicking the app menu's Quit
+  or running `osascript -e 'tell application "Waffler" to quit'` could still
+  leave Waffler running until it was killed. Two causes. AppKit asks the app
+  whether it may quit through the same event as the red close button, and
+  only a Cmd-Q key press was taken as a quit: anything else hid the window and
+  cancelled the quit. And the floating pill runs as a second copy of the same
+  program, so the system lists two "Waffler" processes and a quit could reach
+  the pill instead: it closed and the app stayed up. Now any quit AppKit asks
+  for is a quit, the pill passes a quit it receives to the app, and every
+  route (Cmd-Q, the app menu, the menu bar's Quit, the Dock, AppleScript, the
+  Windows tray) runs the same shutdown, which ends the process outright if it
+  is still running 2 seconds later. The red close button still hides the
+  window to the menu bar.
+- **The test suite no longer touches the computer's audio hardware.** A run
+  could end by printing "CoreAudio did not answer within 3s in coreaudio
+  device list". A test's stand-in for the microphone watcher was missing one
+  name, so app.py fell back to the real one, which then read the Mac's device
+  list every 2 seconds until Python exited. Two more tests read the real list
+  on purpose, and others let a released thread, or a default-microphone
+  lookup, reach PortAudio. They all use stand-ins now (the live read can still
+  be run with `WAFFLER_LIVE_AUDIO=1`), and a test that asks the real CoreAudio
+  or PortAudio for devices or a stream fails.
 
 ## [3.16.4] - 2026-10-30
 
