@@ -4,7 +4,7 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [3.16.5] - 2026-11-03
 
 Every way of quitting Waffler on a Mac now quits it, Windows says when your
 microphone is set too low, and the OpenAI backup moves to OpenAI's new models
