@@ -25,8 +25,8 @@ comtypes are not in requirements_windows.txt, and sounddevice knows names but
 not levels. PowerShell is no fallback: it has no command for an endpoint's
 level, and compiling one with Add-Type takes longer than READ_TIMEOUT_S. The
 reading runs on its own thread and is given READ_TIMEOUT_S. The tip names the
-device and its level, and its button opens Sound settings (ms-settings:sound),
-whose Input section has the default microphone and its volume.
+device and its level, and its button opens the microphone's own settings page
+(ms-settings:sound-defaultinputproperties), with its Input volume at the top.
 
 The time of the last reading and what it read are kept in STATE_FILE in the
 data folder: a number and a time, and on Windows the microphone's short name,
@@ -74,11 +74,12 @@ POLL_S = 0.5
 TIP_KIND = "quiet_mic"
 OPEN_SOUND_ACTION = "open_sound_input"       # the tip's button (app.py _on_toast_action)
 SOUND_INPUT_URL = "x-apple.systempreferences:com.apple.preference.sound?input"
-# Settings, System, Sound. Its Input section shows the default microphone with
-# its volume (Windows 11; on Windows 10, the device and its properties), so it
-# lands on the level the tip is about. The Sound control panel's Recording tab
-# (mmsys.cpl,,1) has the level two dialogs further in, under Properties, Levels.
-WINDOWS_SOUND_SETTINGS = "ms-settings:sound"
+# The default microphone's own page in Settings: Input volume first, then the
+# microphone test (checked on the owner's Windows 11 PC, 2026-11-03).
+# ms-settings:sound also has the slider, but at the bottom, below the fold, and
+# the Sound control panel's Recording tab (mmsys.cpl,,1) has it two dialogs
+# further in, under Properties, Levels.
+WINDOWS_SOUND_SETTINGS = "ms-settings:sound-defaultinputproperties"
 NAME_CHARS = 32              # the tip names the device in at most this many characters
 STATE_FILE = "mic_volume.json"
 STATE_VERSION = 1

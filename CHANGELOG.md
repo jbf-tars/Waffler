@@ -15,8 +15,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   dictations are that quiet Waffler reads the level of your default
   microphone, at most once a day, and if it is under 70% shows a tip, at most
   once a week: "Your microphone (Headset Microphone) is set low (54%)...",
-  with a button that opens Sound settings, where the Input section has the
-  microphone's volume. It never changes the level itself. Show tips and
+  with a button that opens that microphone's page in Settings, Input volume
+  first. It never changes the level itself. Show tips and
   "Don't show again" apply as for any tip. The reading is taken from Windows
   directly, with nothing new to install, and gives up after 2 seconds. On
   Windows the reading kept on this computer also has the microphone's short

@@ -409,7 +409,7 @@ def test_the_tip_never_guesses_about_a_headset():
 def test_on_windows_the_button_opens_sound_settings():
     opened = []
     assert Q.open_sound_settings(platform="win32", starter=opened.append) is True
-    assert opened == ["ms-settings:sound"] and Q.WINDOWS_SOUND_SETTINGS == "ms-settings:sound"
+    assert opened == ["ms-settings:sound-defaultinputproperties"] and Q.WINDOWS_SOUND_SETTINGS == "ms-settings:sound-defaultinputproperties"
 
 
 def test_on_windows_a_button_that_cannot_open_settings_never_raises(monkeypatch):
