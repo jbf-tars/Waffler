@@ -35,8 +35,8 @@ def test_em_dash_still_becomes_comma():
 
 
 def test_ascii_compounds_untouched():
-    assert S._strip_em_dashes("voice-to-text and gpt-4.1-mini stay") == \
-        "voice-to-text and gpt-4.1-mini stay"
+    assert S._strip_em_dashes("voice-to-text and gpt-6-luna stay") == \
+        "voice-to-text and gpt-6-luna stay"
 
 
 if __name__ == "__main__":

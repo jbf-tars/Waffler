@@ -134,6 +134,86 @@ def _fresh_audio_guard():
     forget()
 
 
+# ── no test asks this computer's audio hardware ──────────────────────────────
+# A live read of CoreAudio's device list (src/mac_audio_devices.py) from a test
+# ran on a thread that could outlive the suite: "[audio] CoreAudio did not
+# answer within 3s in coreaudio device list" was printed after pytest had
+# finished, and the result depended on the machine. The loader is swapped for
+# one that refuses, for the whole session (a thread a test leaves behind is
+# caught too), and a test during which it was asked fails. It answers None, as
+# on a Mac that cannot be asked, so the caller carries on. A test of the
+# listing installs its own fake (tests/test_mac_audio_devices.py); the opt-in
+# live test there uses `.real`.
+#
+# PortAudio's queries and streams (sounddevice) are refused the same way: they
+# raise PortAudioError, as when PortAudio cannot answer. Every test of
+# src/audio.py gives it a fake `sd`. Importing sounddevice still starts
+# PortAudio (it does that on import), and its exit handler still stops it.
+_REAL_AUDIO_ASKS = []
+
+
+def _install_coreaudio_refusal():
+    import sys
+    import threading
+    from pathlib import Path
+    src = str(Path(__file__).resolve().parent.parent / "src")
+    if src not in sys.path:
+        sys.path.insert(0, src)
+    import importlib
+    for name in ("mac_audio_devices", "src.mac_audio_devices"):
+        mod = importlib.import_module(name)
+        real = getattr(mod._load, "real", mod._load)
+
+        def refuse(_name=name):
+            _REAL_AUDIO_ASKS.append(
+                f"{_name}._load (the CoreAudio device list) on thread "
+                f"{threading.current_thread().name}")
+            return None
+
+        refuse.real = real
+        mod._load = refuse
+
+
+_install_coreaudio_refusal()
+
+_REFUSED_SD_CALLS = ("query_devices", "query_hostapis", "InputStream", "check_input_settings")
+
+
+def _install_portaudio_refusal():
+    import threading
+    try:
+        import sounddevice
+    except Exception:  # no PortAudio on this runner: nothing to reach
+        return
+    for name in _REFUSED_SD_CALLS:
+        real = getattr(sounddevice, name, None)
+        if real is None:
+            continue
+        real = getattr(real, "real", real)
+
+        def refuse(*_a, _name=name, **_k):
+            _REAL_AUDIO_ASKS.append(
+                f"sounddevice.{_name} on thread {threading.current_thread().name}")
+            raise sounddevice.PortAudioError(f"sounddevice.{_name} is not for tests")
+
+        refuse.real = real
+        setattr(sounddevice, name, refuse)
+
+
+_install_portaudio_refusal()
+
+
+@pytest.fixture(autouse=True)
+def _no_real_audio_hardware():
+    """Fail a test during which this computer's CoreAudio was asked."""
+    _REAL_AUDIO_ASKS.clear()
+    yield
+    asked, _REAL_AUDIO_ASKS[:] = list(_REAL_AUDIO_ASKS), []
+    if asked:
+        pytest.fail("a test asked the real audio hardware; give it a fake: "
+                    + "; ".join(sorted(set(asked))), pytrace=False)
+
+
 # A test's id is also the value of an environment variable (PYTEST_CURRENT_TEST), and on
 # Windows that cannot exceed 32,767 characters: a parametrized 60,000-character string
 # made CI fail there with "the environment variable is longer than 32767 characters".

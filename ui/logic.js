@@ -494,8 +494,8 @@
   }
 
   const SPEECH_BY = { groq: 'Groq', api: 'OpenAI', mlx: 'on this Mac', faster: 'on this computer' };
-  const SPEECH_MODEL = { groq: 'Whisper large v3', api: 'gpt-4o-mini-transcribe', mlx: 'Whisper', faster: 'Whisper' };
-  const CLEANUP_MODEL = { groq: 'gpt-oss-120b', cerebras: 'gpt-oss-120b', openai: 'gpt-4.1-mini' };
+  const SPEECH_MODEL = { groq: 'Whisper large v3', api: 'gpt-transcribe', mlx: 'Whisper', faster: 'Whisper' };
+  const CLEANUP_MODEL = { groq: 'gpt-oss-120b', cerebras: 'gpt-oss-120b', openai: 'gpt-6-luna' };
 
   // "Speech to text: Groq · Clean-up: Groq". It used to read
   // "STT: Groq Whisper · LLM: Groq gpt-oss-120b" under "Active Backends".

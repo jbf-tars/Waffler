@@ -179,7 +179,7 @@ _REGISTRY = (
     Kind("lid_closed", TIP, min_gap_s=24 * _HOUR, category="hints", hold_s=10),
     # Tips. The hint stays up 10 s (src/hold_hint.py HINT_SECONDS).
     Kind("hold_hint", TIP, min_gap_s=12 * _HOUR, category="hints", hold_s=10),
-    # The Mac's input volume is set so low that every take has to be lifted
+    # The input volume is set so low that every take has to be lifted
     # (src/quiet_mic.py): at most once a week, with a button for Sound settings.
     Kind("quiet_mic", TIP, min_gap_s=7 * 24 * _HOUR, category="hints", hold_s=15),
 )
@@ -441,7 +441,7 @@ class Notifier:
         twice, its cap, its gap); whether a take is running or something is
         on screen right now is not. Nothing is counted. For work that is only
         worth doing if the tip could follow (src/quiet_mic.py reads the
-        Mac's volume only then). A kind nobody registered could be shown."""
+        input volume only then). A kind nobody registered could be shown."""
         kind = self._kinds.get(kind_id)
         if kind is None:
             return True

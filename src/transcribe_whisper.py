@@ -1675,6 +1675,24 @@ def _strip_hallucinations(text: str, speech_seconds: float = None, *,
 # fail over to the next instead of hanging the dictation.
 _TRANSCRIBE_TIMEOUT_S = 60.0
 
+# The OpenAI backup's speech-to-text model. gpt-4o-mini-transcribe, the model
+# before it, shuts down on 26 February 2027 and OpenAI names gpt-transcribe (or
+# the streaming gpt-live-transcribe) as its replacement
+# (developers.openai.com/api/docs/deprecations, checked 2026-11-03).
+# gpt-transcribe takes the same multipart request (model, file, language,
+# prompt, response_format "text": checked live 2026-11-03) at an estimated
+# $0.0045 a minute; gpt-live-transcribe is $0.017 and built for live sessions,
+# which a finished clip does not need.
+OPENAI_TRANSCRIBE_MODEL = "gpt-transcribe"
+
+
+def _openai_model_gone(exc: BaseException) -> bool:
+    """OpenAI no longer serves the requested model (or this key can't reach
+    it): ``model_not_found`` / "does not exist", the way the styler reads it."""
+    lower = str(exc).lower()
+    return any(m in lower for m in ("model_not_found", "model_decommissioned",
+                                    "decommissioned", "does not exist"))
+
 # Groq's upload path stalls and dies with a connection error on near-max
 # files: proven live 2026-07-29 — a 23.2MB WAV failed ("Connection error.")
 # while a 7.7MB clip from the same audio transcribed fine. Above this gate we
@@ -2419,12 +2437,11 @@ class WhisperTranscriber:
     def __init__(self, api_key: str = "", model: str = "",
                  groq_api_key: str = "", provider_order=None):
         self.api_key = api_key
-        # Default to the newer, cheaper, better gpt-4o-mini-transcribe ($0.003/min
-        # vs whisper-1's $0.006/min). Users can override via the OPENAI_WHISPER_MODEL
-        # env var — e.g. "gpt-4o-transcribe" for max quality at the old whisper-1
-        # price, or "whisper-1" to force the legacy model.
+        # Default to gpt-transcribe (OPENAI_TRANSCRIBE_MODEL above). Users can
+        # override via the OPENAI_WHISPER_MODEL env var; a pinned model OpenAI
+        # no longer serves moves to the default by itself (_transcribe_api).
         if not model:
-            model = os.getenv("OPENAI_WHISPER_MODEL", "gpt-4o-mini-transcribe")
+            model = os.getenv("OPENAI_WHISPER_MODEL", "") or OPENAI_TRANSCRIBE_MODEL
         self.model   = model
         self.groq_api_key = groq_api_key
         # Cloud transcriber order, filtered to providers that can do
@@ -3104,7 +3121,16 @@ class WhisperTranscriber:
             return text
         except Exception as e:
             print(f"❌ Whisper API error: {e}")
-            raise
+            # A model pinned with OPENAI_WHISPER_MODEL that OpenAI has retired
+            # moves to the default for the session and the clip is sent again,
+            # as the clean-up moves on from a retired model. The default
+            # itself gone is raised like any other failure.
+            if not (_openai_model_gone(e) and self.model != OPENAI_TRANSCRIBE_MODEL):
+                raise
+            _wlog(f"[whisper] OpenAI model {self.model!r} is gone, "
+                  f"switching to {OPENAI_TRANSCRIBE_MODEL!r}")
+            self.model = OPENAI_TRANSCRIBE_MODEL
         finally:
             if os.path.exists(tmp):
                 os.unlink(tmp)
+        return self._transcribe_api(audio_bytes)

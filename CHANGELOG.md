@@ -4,6 +4,81 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.16.5] - 2026-11-03
+
+Every way of quitting Waffler on a Mac now quits it, Windows says when your
+microphone is set too low, and the OpenAI backup moves to OpenAI's new models
+before the old ones are shut down.
+
+### Changed
+- **The OpenAI backup moves to the models OpenAI is replacing its old ones
+  with.** OpenAI shuts down both of the models the backup used: gpt-4.1-mini
+  (the clean-up) on 14 January 2027 and gpt-4o-mini-transcribe (speech to
+  text) on 26 February 2027. After those dates a Groq outage, or a VPN that
+  Groq blocks, would have left nothing to fall back on. The clean-up now uses
+  gpt-6-luna and speech to text uses gpt-transcribe, the replacements OpenAI
+  names (its deprecations page, checked 2026-11-03). gpt-6-luna costs a
+  quarter of what gpt-4.1-mini did ($0.10 in and $0.50 out per million tokens,
+  against $0.40 and $1.60); gpt-transcribe is an estimated $0.0045 a minute,
+  against $0.003. The Usage panel prices new rows at those rates and keeps
+  the price already recorded for older ones. gpt-6-luna is a reasoning model,
+  so it is asked differently: told not to reason (a clean-up gains nothing
+  from it and you wait for every word), and given its output limit under the
+  newer name it insists on. Tried on five made-up dictations, gpt-6-luna kept
+  the same words as gpt-4.1-mini but for one "honestly" it dropped, punctuated
+  better (gpt-4.1-mini left two without a capital or a full stop), and took
+  about 1.5 s against 1.15 s. gpt-transcribe heard two test clips word for word, as
+  the old model did, and answered sooner (about 1.0 s against 1.5 s).
+
+### Fixed
+- **Mac: every way of quitting Waffler now quits it.** v3.14.66 made Cmd-Q
+  work, but quitting from the Dock, logging out, clicking the app menu's Quit
+  or running `osascript -e 'tell application "Waffler" to quit'` could still
+  leave Waffler running until it was killed. Two causes. AppKit asks the app
+  whether it may quit through the same event as the red close button, and
+  only a Cmd-Q key press was taken as a quit: anything else hid the window and
+  cancelled the quit. And the floating pill runs as a second copy of the same
+  program, so the system lists two "Waffler" processes and a quit could reach
+  the pill instead: it closed and the app stayed up. Now any quit AppKit asks
+  for is a quit, the pill passes a quit it receives to the app, and every
+  route (Cmd-Q, the app menu, the menu bar's Quit, the Dock, AppleScript, the
+  Windows tray) runs the same shutdown, which ends the process outright if it
+  is still running 2 seconds later. The red close button still hides the
+  window to the menu bar.
+- **The test suite no longer touches the computer's audio hardware.** A run
+  could end by printing "CoreAudio did not answer within 3s in coreaudio
+  device list". A test's stand-in for the microphone watcher was missing one
+  name, so app.py fell back to the real one, which then read the Mac's device
+  list every 2 seconds until Python exited. Two more tests read the real list
+  on purpose, and others let a released thread, or a default-microphone
+  lookup, reach PortAudio. They all use stand-ins now (the live read can still
+  be run with `WAFFLER_LIVE_AUDIO=1`), and a test that asks the real CoreAudio
+  or PortAudio for devices or a stream fails.
+- **A model OpenAI no longer serves is handled like Groq's and Cerebras's.**
+  A model pinned with OPENAI_STYLE_MODEL or OPENAI_WHISPER_MODEL that OpenAI
+  has retired moves to the built-in one by itself, so an old setting can't
+  leave the backup dead. If the built-in clean-up model itself goes, OpenAI is
+  left alone for an hour instead of being asked on every dictation, and the
+  message says the clean-up model is no longer available instead of "The
+  clean-up didn't work this time".
+
+### Added
+- **Windows now says when your microphone is set too low.** On one Windows
+  PC, dictations arrived very quiet (a median of -49 dBFS, where clear speech
+  is near -20), so Waffler boosted every take by about 24 dB, some by the
+  full 30, which raises the room's noise too. The microphone, a headset
+  microphone, was set to 54%. As on a Mac since 3.16.3, when your last ten
+  dictations are that quiet Waffler reads the level of your default
+  microphone, at most once a day, and if it is under 70% shows a tip, at most
+  once a week: "Your microphone (Headset Microphone) is set low (54%)...",
+  with a button that opens that microphone's page in Settings, Input volume
+  first. It never changes the level itself. Show tips and
+  "Don't show again" apply as for any tip. The reading is taken from Windows
+  directly, with nothing new to install, and gives up after 2 seconds. On
+  Windows the reading kept on this computer also has the microphone's short
+  name, so the tip can say which one; Privacy and data says so, and Delete
+  all my data clears it. Nothing changes on a Mac.
+
 ## [3.16.4] - 2026-10-30
 
 ### Fixed

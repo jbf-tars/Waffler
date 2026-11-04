@@ -122,6 +122,7 @@ from atomic_json import write_json_atomic, read_json_for_update
 import pipeline_watchdog as _pw
 import unsent as _unsent
 import tray_state as _tray_state
+import quit_flow as _quit_flow
 import first_run as _first_run
 import journal_data as _journal
 import stats_insights as _stats_insights
@@ -240,11 +241,17 @@ _snippets_lock = threading.Lock()
 #     gpt-4o-mini-transcribe at $0.003/min: overstated 2x.
 #   * Cerebras had no branch at all and was billed at OpenAI's rates.
 #
+# OpenAI retires both of the backup's models (gpt-4.1-mini on 14 January 2027,
+# gpt-4o-mini-transcribe on 26 February 2027), so the backup now calls the
+# replacements OpenAI names, priced below. Rows already recorded keep the
+# model and price they were billed at (scripts/recost_usage.py leaves a row
+# billed as another model alone).
+#
 # Each entry records where the figure came from and when it was checked, so a
 # stale rate is distinguishable from a current one. `verified` is False where
 # the provider publishes no per-token rate; the UI shows those as estimates
 # rather than implying precision we do not have.
-_RATES_CHECKED = "2026-10-29"
+_RATES_CHECKED = "2026-11-03"
 
 MODEL_RATES = {
     "groq": {
@@ -263,13 +270,15 @@ MODEL_RATES = {
                     "verified": True, "source": "console.groq.com/docs/models"},
     },
     "openai": {
-        "gpt":     {"model": "gpt-4.1-mini", "in_per_1m": 0.40,
-                    "out_per_1m": 1.60, "verified": True,
+        # gpt-6-luna, standard tier: $0.10 in, $0.50 out per 1M tokens
+        # (developers.openai.com/api/docs/pricing, checked 2026-11-03).
+        "gpt":     {"model": "gpt-6-luna", "in_per_1m": 0.10,
+                    "out_per_1m": 0.50, "verified": True,
                     "source": "developers.openai.com/api/docs/pricing"},
         # No minimum here on purpose: OpenAI's pricing page lists
-        # gpt-4o-mini-transcribe at an estimated $0.003/min and documents no
-        # minimum billed length per request (checked 2026-09-25).
-        "whisper": {"model": "gpt-4o-mini-transcribe", "per_minute": 0.003,
+        # gpt-transcribe at an estimated $0.0045/min (checked 2026-11-03) and
+        # documents no minimum billed length per request.
+        "whisper": {"model": "gpt-transcribe", "per_minute": 0.0045,
                     "verified": True,
                     "source": "developers.openai.com/api/docs/pricing"},
     },
@@ -3329,7 +3338,7 @@ class Api:
             _wizard_overlay = None
             try:
                 from src.overlay import RecordingOverlay
-                _wizard_overlay = RecordingOverlay()
+                _wizard_overlay = RecordingOverlay(on_quit_request=_on_overlay_quit_request)
                 _wizard_overlay.prestart()
                 _log_to_file("Wizard overlay started for Try-It step")
             except Exception as _e:
@@ -4497,9 +4506,8 @@ class WafflerPipeline:
 
         # Transcriber — Groq Whisper (fast) → OpenAI Whisper (fallback), in the
         # user's configured order (Cerebras auto-skipped — no speech-to-text).
-        # OpenAI model defaults to gpt-4o-mini-transcribe (half the cost of
-        # whisper-1 and noticeably better quality). Override via
-        # OPENAI_WHISPER_MODEL env var.
+        # OpenAI model defaults to gpt-transcribe (gpt-4o-mini-transcribe is
+        # retired on 26 February 2027). Override via OPENAI_WHISPER_MODEL.
         self.transcriber = WhisperTranscriber(
             api_key=openai_key,
             groq_api_key=groq_key,
@@ -4507,15 +4515,12 @@ class WafflerPipeline:
         )
         _log_to_file(f"Transcriber backend: {self.transcriber._backend}")
 
-        # Styler — three-tier fallback chain:
-        #   1. Cerebras Llama 3.3 70B   (fastest ever for this model, ~1M
-        #      tokens/day free) — primary when CEREBRAS_API_KEY is set
-        #   2. Groq Llama 3.3 70B       (very fast, lower daily free cap)
-        #   3. OpenAI gpt-4.1-mini      (slower but always available;
-        #      gpt-4.1 auto-routed for inputs ≥ 200 words)
+        # Styler: a fallback chain in the user's provider order (default
+        # Groq gpt-oss-120b, then OpenAI gpt-6-luna, then Cerebras
+        # gpt-oss-120b; see src/style_openai.py).
         # Same prompt sent everywhere so behaviour is consistent.
         # DO NOT pass model= here — the OpenAIStyler ctor default is
-        # gpt-4.1-mini and overriding it silently was a real bug.
+        # gpt-6-luna and overriding it silently was a real bug.
         cerebras_key = getattr(config, "cerebras_api_key", "") or ""
         self.styler = OpenAIStyler(
             api_key=openai_key,
@@ -4557,8 +4562,8 @@ class WafflerPipeline:
         # the microphone leaving, and a closed lid is noticed. Idle until the
         # device monitor and the recording loop call it.
         self._mic = _mic_supervisor.MicSupervisor(self._mic_hooks())
-        # The tip that says when the Mac's microphone is set too low
-        # (src/quiet_mic.py): told each saved take's level, idle otherwise.
+        # The tip that says when the microphone is set too low, on a Mac or
+        # Windows (src/quiet_mic.py): told each saved take's level, idle otherwise.
         self._quiet_mic = _quiet_mic.QuietMicAdvisor(self._quiet_mic_hooks())
         # Optional sound cues (src/sounds.py), and the press that locked
         # hands-free (the "Don't tap, hold" hint is not for those).
@@ -4586,6 +4591,7 @@ class WafflerPipeline:
             on_stop=self._on_overlay_stop,
             on_cancel_request=self._on_overlay_cancel_request,
             on_toast_action=self._on_toast_action,
+            on_quit_request=_on_overlay_quit_request,
         )
         # Pre-start overlay subprocess so first recording has no delay
         threading.Thread(target=self.overlay.prestart, daemon=True).start()
@@ -4913,20 +4919,22 @@ class WafflerPipeline:
         def show(heading, body, buttons, timeout):
             self._show_toast_safe("info", heading, body, buttons=buttons, timeout=timeout)
 
+        system = _platform.system()
         return _quiet_mic.Hooks(
-            platform="darwin" if _platform.system() == "Darwin" else sys.platform,
+            platform={"Darwin": "darwin", "Windows": "win32"}.get(system, sys.platform),
             history=load_history,
             could_show=self._notifier.could_show, quiet=quiet,
             toast_allowed=self._toast_allowed, show=show,
-            read_volume=_quiet_mic.read_input_volume, log=_log_to_file,
+            read_volume=_quiet_mic.read_input_volume,
+            read_input=_quiet_mic.read_windows_input, log=_log_to_file,
             store=_quiet_mic.VolumeLog(DATA_DIR / _quiet_mic.STATE_FILE))
 
     def _note_mic_level(self, level_db):
         """A dictation is saved: hand its speech level to the quiet-microphone
-        tip, on its own thread (it may read the Mac's input volume, and it
-        waits for a quiet moment). On a Mac only. Never raises."""
+        tip, on its own thread (it may read the input volume, and it waits
+        for a quiet moment). On a Mac or Windows. Never raises."""
         try:
-            if _platform.system() != "Darwin":
+            if _platform.system() not in ("Darwin", "Windows"):
                 return
             advisor = getattr(self, "_quiet_mic", None)
             if advisor is None:         # a pipeline made without __init__ (the tests' harness)
@@ -5646,8 +5654,9 @@ class WafflerPipeline:
                 _post_js("window.waffler_show_command && "
                          f"window.waffler_show_command({int(entry_id)})")
         elif action == _quiet_mic.OPEN_SOUND_ACTION:
-            # The quiet-microphone tip's button: Sound settings at Input, off
-            # the overlay's reader thread. Waffler never sets the volume.
+            # The quiet-microphone tip's button: Sound settings at Input (on
+            # Windows, the Sound page), off the overlay's reader thread.
+            # Waffler never sets the volume.
             self.overlay.hide_toast()
             threading.Thread(target=_quiet_mic.open_sound_settings, daemon=True,
                              name="OpenSoundSettings").start()
@@ -6997,7 +7006,7 @@ class WafflerPipeline:
             if _saved:
                 notify_js_new_item(item)
 
-            # How loud this take arrived, for the tip that says when the Mac's
+            # How loud this take arrived, for the tip that says when the
             # microphone is set too low (src/quiet_mic.py). Its own thread,
             # after the save: never on the way to the words.
             self._note_mic_level(_asr_info.get("last_speech_dbfs"))
@@ -8513,19 +8522,58 @@ def _tray_check_for_updates(icon=None, item=None):
 
 
 def _tray_quit(icon=None, item=None):
-    """Actually quit the app from tray."""
-    global _should_quit
-    _should_quit = True
-    if _tray_icon:
-        try:
+    """Actually quit the app: the Mac menu bar's Quit, or the Windows tray's."""
+    _quit_app("Quit from the menu bar or tray")
+
+
+# ── Quitting ──────────────────────────────────────────────────────────
+# Every way of quitting runs the same shutdown (src/quit_flow.py), which also
+# ends the process outright if it is still running 2 s later.
+_quit_controller = None
+_quit_controller_lock = threading.Lock()
+
+
+def _quit_steps():
+    """The shutdown every quit runs, in order."""
+    def mark_quitting():
+        global _should_quit
+        _should_quit = True  # the closing handler now lets the window go
+
+    def stop_tray():
+        if _tray_icon:
             _tray_icon.stop()
-        except Exception:
-            pass
-    if _window_ref:
-        try:
+
+    def end_app():
+        if _platform.system() == "Darwin":
+            # AppKit's terminate: — the route Cmd-Q takes — rather than closing
+            # the window and waiting for webview.start() to return and Python
+            # to wind down. Queued on the main thread: a quit can be asked from
+            # the overlay's reader thread, and from inside AppKit's own
+            # applicationShouldTerminate:, where the queued call never runs
+            # because AppKit has already ended the process.
+            from PyObjCTools import AppHelper
+            from AppKit import NSApplication
+            AppHelper.callAfter(NSApplication.sharedApplication().terminate_, None)
+        elif _window_ref:
             _window_ref.destroy()
-        except Exception:
-            pass
+
+    return [("mark quitting", mark_quitting), ("tray", stop_tray), ("end app", end_app)]
+
+
+def _quit_app(reason):
+    """Quit Waffler, whoever asked. True the first time, False if already quitting."""
+    global _quit_controller
+    with _quit_controller_lock:
+        if _quit_controller is None:
+            _quit_controller = _quit_flow.QuitController(_quit_steps(), log=_log_to_file)
+    return _quit_controller.quit(reason)
+
+
+def _on_overlay_quit_request():
+    """The overlay process was told to quit from outside (AppleScript, the
+    Dock). It is the same executable as the app, so the system can deliver a
+    quit meant for Waffler to it. It passes the request here instead of exiting."""
+    _quit_app("a quit that reached the overlay (AppleScript or the Dock)")
 
 
 def _perform_factory_reset():
@@ -8584,19 +8632,25 @@ def _on_window_closing():
     """Intercept window close: hide window, keep running in background.
     Both Mac and Windows have a status icon (menu bar / tray) to restore or quit.
     """
-    global _window_hidden, _should_quit
+    global _window_hidden
     if _should_quit:
         return True  # Allow close
 
-    # Distinguish a genuine quit (Cmd-Q / app-menu Quit) from the red-X close.
-    # pywebview routes BOTH through this single `closing` event, and since
-    # v3.14.52 we return False on a red-X to hide-to-menu-bar — but that also
-    # swallowed Cmd-Q, so the app could never be quit from the keyboard and
-    # the user had to Force Quit. The triggering NSEvent is still current
-    # while this fires: if it's a Cmd-Q key-down, treat it as a real quit.
-    # Anything else (red-X mouse click, Cmd-W, etc.) falls through to hide,
-    # so this can't misfire into an accidental quit.
+    # Distinguish a genuine quit from the red-X close. pywebview routes BOTH
+    # through this single `closing` event, and since v3.14.52 we return False
+    # on a red-X to hide-to-menu-bar. v3.14.66 let a Cmd-Q key-down through;
+    # every other quit (the app menu's Quit clicked, the Dock's Quit, log out,
+    # `tell application "Waffler" to quit`) still hid the window and cancelled
+    # the quit, so the app kept running. Now any close asked from AppKit's
+    # applicationShouldTerminate: is a quit, with the key-down and the quit
+    # Apple Event checked as well (src/quit_flow.py). A red-X click or Cmd-W
+    # comes from the window delegate instead and falls through to hide.
     if _platform.system() == "Darwin":
+        in_terminate = cmd_q = quit_event = False
+        try:
+            in_terminate = _quit_flow.inside_app_terminate()
+        except Exception as e:
+            _log_to_file(f"[quit] terminate check failed (ignored): {e}")
         try:
             from AppKit import (
                 NSApplication, NSEventTypeKeyDown, NSEventModifierFlagCommand,
@@ -8604,18 +8658,22 @@ def _on_window_closing():
             ev = NSApplication.sharedApplication().currentEvent()
             if ev is not None and ev.type() == NSEventTypeKeyDown:
                 chars = ev.charactersIgnoringModifiers()
-                if (chars and chars.lower() == "q"
-                        and (ev.modifierFlags() & NSEventModifierFlagCommand)):
-                    _log_to_file("[quit] Cmd-Q detected — allowing real quit")
-                    _should_quit = True
-                    if _window_ref:
-                        try:
-                            _window_ref.destroy()
-                        except Exception:
-                            pass
-                    return True  # allow the app to actually terminate
+                cmd_q = bool(chars and chars.lower() == "q"
+                             and (ev.modifierFlags() & NSEventModifierFlagCommand))
         except Exception as e:
             _log_to_file(f"[quit] Cmd-Q detection failed (ignored): {e}")
+        try:
+            from Foundation import NSAppleEventManager
+            ae = NSAppleEventManager.sharedAppleEventManager().currentAppleEvent()
+            if ae is not None:
+                quit_event = _quit_flow.is_quit_apple_event(ae.eventClass(), ae.eventID())
+        except Exception as e:
+            _log_to_file(f"[quit] Apple Event check failed (ignored): {e}")
+        reason = _quit_flow.quit_reason(in_terminate=in_terminate, cmd_q=cmd_q,
+                                        quit_event=quit_event)
+        if reason:
+            _quit_app(reason)
+            return True  # allow the app to actually terminate
 
     # Otherwise (red-X) → hide window, keep running in background.
     if _window_ref:

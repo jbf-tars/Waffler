@@ -60,17 +60,18 @@ def test_groq_whisper_rate_matches_published():
 
 
 def test_openai_cleanup_rate_matches_published():
-    """gpt-4.1-mini, not gpt-4o-mini: the app calls the former."""  # doc-drift-ok (names the wrong model deliberately)
+    """gpt-6-luna, which replaced gpt-4.1-mini (retired 14 January 2027)."""
     r = RATES["openai"]["gpt"]
-    assert r["model"] == "gpt-4.1-mini"
-    assert (r["in_per_1m"], r["out_per_1m"]) == (0.40, 1.60)
+    assert r["model"] == "gpt-6-luna"
+    assert (r["in_per_1m"], r["out_per_1m"]) == (0.10, 0.50)
 
 
 def test_openai_whisper_rate_matches_published():
-    """gpt-4o-mini-transcribe at $0.003/min, not whisper-1 at $0.006."""
+    """gpt-transcribe at an estimated $0.0045/min (it replaced
+    gpt-4o-mini-transcribe, retired 26 February 2027)."""
     r = RATES["openai"]["whisper"]
-    assert r["model"] == "gpt-4o-mini-transcribe"
-    assert r["per_minute"] == 0.003
+    assert r["model"] == "gpt-transcribe"
+    assert r["per_minute"] == 0.0045
 
 
 # ── Cerebras must not be billed as OpenAI ───────────────────────────────────
@@ -202,7 +203,7 @@ def test_groq_clip_over_ten_seconds_is_billed_as_is():
 def test_openai_transcription_has_no_minimum():
     """OpenAI documents no minimum billed length, so none is applied."""
     assert "min_billed_seconds" not in OPENAI_WHISPER
-    assert _usage_cost(OPENAI_WHISPER, "whisper", 3.0) == pytest.approx(3 / 60 * 0.003)
+    assert _usage_cost(OPENAI_WHISPER, "whisper", 3.0) == pytest.approx(3 / 60 * 0.0045)
 
 
 def test_no_audio_costs_nothing():
@@ -225,7 +226,7 @@ def test_record_usage_bills_the_minimum_but_keeps_the_real_duration():
 def test_record_usage_bills_a_short_openai_clip_as_is():
     entry = _record("openai", 3.0)
     assert entry["duration_seconds"] == 3.0
-    assert entry["cost_usd"] == round(3 / 60 * 0.003, 6)
+    assert entry["cost_usd"] == round(3 / 60 * 0.0045, 6)
 
 
 def test_recost_script_applies_the_same_minimum():
