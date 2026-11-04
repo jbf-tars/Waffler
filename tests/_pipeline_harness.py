@@ -64,6 +64,7 @@ import tray_state  # noqa: E402
 import unsent  # noqa: E402
 import user_messages  # noqa: E402
 import wedge_recovery  # noqa: E402
+import idle_pill  # noqa: E402
 
 _TREE = ast.parse((ROOT / "app.py").read_text(encoding="utf-8"))
 _PIPELINE = next(n for n in _TREE.body
@@ -132,6 +133,9 @@ PIPELINE_METHODS = (
     # The tip that says when the Mac's microphone is set too low
     # (src/quiet_mic.py): each saved take's level, and what the tip asks.
     "_note_mic_level", "_quiet_mic_hooks",
+    # The pill between dictations and its hover menu (src/idle_pill.py).
+    "apply_pill_settings", "_pill_menu_items", "_on_pill_event", "_run_pill_action",
+    "_pill_paste_last", "_open_microphone_settings", "_hide_idle_pill", "_save_pill_position",
 )
 MODULE_DEFS = ("ensure_data_dir", "load_history", "_load_history_for_update",
                "save_history", "append_history",
@@ -511,6 +515,9 @@ def make_pipeline(data_dir: Path, *, transcriber=None, styler=None, clipboard=No
         paste_timed_out_message=user_messages.paste_timed_out_message,
         last_transcript_title=user_messages.last_transcript_title,
         _refresh_tray_menu=lambda: None,
+        _idle_pill=idle_pill,
+        _tray_show_window=lambda *a, **k: None,
+        _store_setting=lambda key, value: None,
     )
     from transcribe_whisper import _speech_seconds
     ns["_speech_seconds"] = _speech_seconds

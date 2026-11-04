@@ -4305,6 +4305,7 @@ async function loadSettings() {
     const reads = document.getElementById('privPasteReads');
     if (reads) reads.hidden = !isMacPlatform;
     renderFeedbackRows();
+    renderPillRows();
     const typing = document.getElementById('typingWpm');
     if (typing && document.activeElement !== typing && s.typing_wpm) typing.value = String(s.typing_wpm);
     renderStyleSection();
@@ -4980,6 +4981,45 @@ function renderFeedbackRows() {
   if (tips) tips.checked = v.tips;
 }
 
+// Settings, General, The pill: "Show the pill when idle" and "Reset pill
+// position" (src/idle_pill.py). Mac only for now.
+function renderPillRows() {
+  const v = WL.pillView(_lastSettings, isMacPlatform);
+  const group = document.getElementById('pillGroup');
+  const tog = document.getElementById('pillIdleToggle');
+  if (group) group.hidden = !v.visible;
+  if (tog) tog.checked = v.on;
+}
+
+async function setPillIdle(on) {
+  const ok = await saveSetting('idle_pill', !!on);
+  if (ok) {
+    if (_lastSettings) _lastSettings.idle_pill = !!on;
+  } else {
+    renderPillRows();
+  }
+}
+
+// "Hide the pill" on the pill's own menu turned the setting off.
+window.waffler_pill_idle_changed = function(on) {
+  if (_lastSettings) _lastSettings.idle_pill = !!on;
+  renderPillRows();
+};
+
+async function resetPillPosition(btn) {
+  if (btn) btn.disabled = true;
+  try {
+    const r = await pywebview.api.reset_pill_position();
+    if (r && r.ok) showToast(r.message || WL.PILL_TEXT.reset, 'success', 3500);
+    else showToast(WL.saveFailedMessage(r || {}), 'error');
+  } catch (e) {
+    console.warn('reset_pill_position error:', e);
+    showToast(WL.SAVE_FAILED, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 // Save one of the two switches; a refused save puts the switch back.
 async function setFeedback(key, on) {
   const ok = await saveSetting(key, !!on);
@@ -5162,6 +5202,8 @@ async function saveSetting(key, value) {
         showToast(WL.learnSaved(value), 'success', 3500);
       } else if (key === 'double_tap_handsfree') {
         showToast(WL.doubleTapSaved(value), 'success', 3500);
+      } else if (key === 'idle_pill') {
+        showToast(WL.pillSaved(value), 'success', 3500);
       } else if (key === 'language') {
         const known = _languageList.find((l) => l.code === value);
         showToast(WL.languageSaved(value, known ? known.name : ''), 'success');

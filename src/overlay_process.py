@@ -23,14 +23,25 @@ Commands:  {"type": "show"}
                  toast with no recording (and so no pill) behind it
            {"type": "hide_toast", "style": "info"}   (style optional: only
                  a toast of that style is hidden)
+           {"type": "pill_config", "idle": bool, "positions": {key: {cx, y}}}
+                 the idle pill on or off, and where the pill was dropped on
+                 each screen (src/idle_pill.py). Never sent while both are at
+                 their default, so without it this process is as it was.
+           {"type": "pill_menu", "items": [{action, label, enabled}, ...]}
+                 the idle pill's menu, in answer to "pill_hover"
            {"type": "quit"}
 
 Events:    {"event": "cancel_request"}
            {"event": "stop"}
            {"event": "ready"}
            {"event": "toast_action", "action": "confirm"|"dismiss"|"select_mic"|...}
+           {"event": "pill_hover"}                     the idle pill wants its menu
+           {"event": "pill_action", "action": "paste_last"|"copy_last"|...}
+           {"event": "pill_moved", "screen": key, "cx": x, "y": y}
 
 Kept in step with overlay_process_windows.py: same commands, same looks.
+The idle pill and its menu are Mac only for now; the Windows overlay ignores
+pill_config and pill_menu, and the app never sends them there.
 """
 
 import sys
@@ -76,9 +87,11 @@ from Foundation import (
 )
 
 try:
-    from quit_flow import overlay_terminate_decision
+    from quit_flow import overlay_terminate_decision, OVERLAY_FORWARD_PATIENCE_S
+    import idle_pill as _ip
 except ImportError:  # imported as src.overlay_process
-    from src.quit_flow import overlay_terminate_decision
+    from src.quit_flow import overlay_terminate_decision, OVERLAY_FORWARD_PATIENCE_S
+    from src import idle_pill as _ip
 
 
 # Bundle of collection-behavior flags that make a window appear on every
@@ -290,6 +303,14 @@ def _compute_overlay_position(verbose: bool = False):
     # the strip between target.frame().origin.y and vf.origin.y.
     y = vf.origin.y + gap
 
+    # S12: a spot the person dragged the pill to on this screen. Only when one
+    # is saved; with none, the position above is used exactly as before.
+    if _saved_positions:
+        saved = _saved_origin_on(target, WIN_W, WIN_H)
+        if saved is not None:
+            x, y = saved
+            chosen_via += "+saved"
+
     if verbose:
         sf = target.frame()
         print(
@@ -314,6 +335,9 @@ _app_delegate = None
 # NSApplicationTerminateReply
 _NS_TERMINATE_CANCEL = 0
 _NS_TERMINATE_NOW = 1
+_NS_TERMINATE_LATER = 2
+# A quit from outside is waiting for this process's answer (NSTerminateLater).
+_terminate_pending = False
 
 
 class OverlayAppDelegate(NSObject):
@@ -326,10 +350,18 @@ class OverlayAppDelegate(NSObject):
     Now it tells the app, which quits and takes the overlay with it. If the
     app does nothing about it for a while, a second request lets it go
     (src/quit_flow.py).
+
+    The answer is "later" (NSTerminateLater), not "no": the Apple Event waits,
+    and this process says yes once the app has told it to quit (its quit
+    command, or its stdin closing as the app exits), so the script that asked
+    hears that the quit worked. It said "no" at once before, which AppleScript
+    reports as "User canceled (-128)" although both processes then quit. If
+    the app has not told it within OVERLAY_FORWARD_PATIENCE_S, the answer is
+    "no" after all and it stays up, as it always did.
     """
 
     def applicationShouldTerminate_(self, _app):  # noqa: N802 - Cocoa selector form
-        global _last_quit_forward
+        global _last_quit_forward, _terminate_pending
         now = time.monotonic()
         decision = overlay_terminate_decision(parent_asked=_parent_asked_quit,
                                               now=now, last_forward=_last_quit_forward)
@@ -342,7 +374,17 @@ class OverlayAppDelegate(NSObject):
         if _last_quit_forward is None:
             _last_quit_forward = now
         _dbg("quit.forwarded")
-        return _NS_TERMINATE_CANCEL
+        _terminate_pending = True
+
+        def _patience_over():
+            try:
+                _cmd_queue.put({"type": "_quit_patience"})
+            except Exception:
+                pass
+        t = threading.Timer(OVERLAY_FORWARD_PATIENCE_S, _patience_over)
+        t.daemon = True
+        t.start()
+        return _NS_TERMINATE_LATER
 
 
 class SpaceChangeObserver(NSObject):
@@ -533,6 +575,21 @@ _done_gen: int = 0           # bumps on every tick, so a stale timer is ignored
 # Screen position (set during init, reused for toast positioning)
 _waffle_x = 0.0
 _waffle_y = 0.0
+
+# ── The idle pill (S12, src/idle_pill.py) ──────────────────────────────
+# Off and empty until a pill_config command says otherwise, which the app
+# sends only when the setting is on or a position is saved. While they are,
+# nothing below runs and the recording pill is placed as it always was.
+_idle_enabled = False
+_saved_positions: dict = {}  # {screen key: {"cx", "y"}}: where it was dropped
+_idle_win = None             # its own non-activating panel, made when first on
+_idle_view = None
+_idle_shown = False
+_idle_drag = None            # a drag in progress: where it started
+_idle_ticks = 0
+_menu_win = None             # the hover menu's panel while it is open
+_menu_view = None
+_hover = _ip.HoverMenu()
 
 
 def elapsed_text(seconds) -> str:
@@ -951,6 +1008,12 @@ class WaffleView(NSView):
             if self._reassert_counter >= 30:
                 self._reassert_counter = 0
                 _refresh_overlay_space_membership()
+
+        # The idle pill (S12), in a window of its own. Nothing happens here
+        # unless it was turned on: no window exists until then. Guarded, so a
+        # fault in it can never stop this tick, which drains every command.
+        if _idle_win is not None:
+            _idle_guarded(_idle_tick)
 
     def setTargets_(self, targets):
         self._targets = list(targets)
@@ -1445,6 +1508,7 @@ def _dispatch_cmd(cmd):
             _dbg("space.handle.done", gen=_show_gen, **_window_state_fields())
         else:
             _dbg("space.handle.skip", reason="not_visible")
+            _idle_guarded(_idle_on_space_changed)
 
     elif ctype == "_retry_show":
         # Deferred check after a show or space-change. If the window isn't on
@@ -1541,11 +1605,21 @@ def _dispatch_cmd(cmd):
     elif ctype == "progress":
         _show_progress(cmd.get("label", ""), float(cmd.get("elapsed_seconds", 0.0)))
 
+    elif ctype == "pill_config":
+        _idle_guarded(_apply_pill_config, cmd)
+
+    elif ctype == "pill_menu":
+        _idle_guarded(_open_pill_menu, cmd.get("items"))
+
+    elif ctype == "_quit_patience":
+        _answer_pending_quit(False)
+
     elif ctype == "quit":
         global _parent_asked_quit
         _parent_asked_quit = True
         _hide_toast()
-        NSApplication.sharedApplication().terminate_(None)
+        if not _answer_pending_quit(True):
+            NSApplication.sharedApplication().terminate_(None)
 
 
 # ── Toast Functions ──────────────────────────────────────────────────
@@ -1575,7 +1649,15 @@ def _toast_anchor(reposition: bool):
 def _toast_origin(anchor=None):
     """Window origin of the toast for an anchor (default: the pill's)."""
     ax, ay = anchor if anchor else (_waffle_x, _waffle_y)
-    return ax + (WAFFLE_W - TOAST_W) // 2, ay + WAFFLE_H + TOAST_PAD
+    tx, ty = ax + (WAFFLE_W - TOAST_W) // 2, ay + WAFFLE_H + TOAST_PAD
+    if _saved_positions:
+        # The pill may have been dragged near the top or an edge: keep the
+        # toast on the screen. With no saved spot, toasts are where they were.
+        screen = _screen_at(ax + WIN_W / 2.0, ay + 1.0)
+        if screen is not None:
+            tx, ty = _ip.toast_origin_inside(tx, ty, TOAST_W, TOAST_H, ay,
+                                             _rect(screen.visibleFrame()), TOAST_PAD)
+    return tx, ty
 
 
 def _toast_seconds(style: str, timeout=None):
@@ -1684,6 +1766,512 @@ def _hide_toast(style=None):
     # Restore the pill if it was meant to be visible (show_toast hides it).
     if _visible and _g_window:
         _g_window.orderFront_(None)
+
+
+
+# ── The idle pill and its hover menu (S12) ───────────────────────────────
+# A window of its own, never the recording pill's: everything that shows,
+# hides, raises and re-asserts the recording pill is untouched, and the idle
+# pill simply steps aside (orderOut) whenever the recording pill or a toast is
+# up. Both its window and the menu's are non-activating panels, like the
+# toasts, so hovering, dragging and clicking leave the app the person is typing
+# in at the front. Only Open Waffler and the microphone item bring Waffler
+# forward, and that is done by the app, not here.
+
+IDLE_CAPSULE_W = 34
+IDLE_CAPSULE_H = 8
+MENU_W = 200
+MENU_PAD = 5
+MENU_ITEM_H = 24
+MENU_CAPTION_ITEM_H = 36
+MENU_BG = '#2A1F0E'
+MENU_RING = '#C8A256'
+MENU_HOT = '#3D2E14'
+MENU_TEXT = '#F0E0C0'
+MENU_TEXT_OFF = '#7A6A4E'
+MENU_CAPTION = '#A89070'
+
+
+def _idle_guarded(fn, *args):
+    """Run a piece of the idle pill so that whatever goes wrong in it stays in
+    it: logged, never raised into the animation tick or the dispatcher."""
+    try:
+        fn(*args)
+    except Exception as e:
+        _dbg("idle.error", fn=getattr(fn, "__name__", "?"), err=str(e)[:80])
+
+
+def _rect(r):
+    return (r.origin.x, r.origin.y, r.size.width, r.size.height)
+
+
+def _point_in(frame, x, y) -> bool:
+    fx, fy, fw, fh = frame
+    return fx <= x < fx + fw and fy <= y < fy + fh
+
+
+def _screen_key_of(screen) -> str:
+    try:
+        did = screen.deviceDescription()["NSScreenNumber"]
+    except Exception:
+        did = 0
+    return _ip.screen_key(did, _rect(screen.frame()))
+
+
+def _screen_at(x, y):
+    """The screen holding the point (x, y), or None."""
+    try:
+        for sc in NSScreen.screens() or []:
+            if _point_in(_rect(sc.frame()), x, y):
+                return sc
+    except Exception:
+        pass
+    return None
+
+
+def _cursor_screen():
+    """The screen the pointer is on, else the main one, else the first."""
+    try:
+        loc = NSEvent.mouseLocation()
+        sc = _screen_at(loc.x, loc.y)
+        if sc is not None:
+            return sc
+        return NSScreen.mainScreen() or (NSScreen.screens() or [None])[0]
+    except Exception:
+        return None
+
+
+def _saved_origin_on(screen, w, h):
+    """The origin of a ``w`` by ``h`` window at the spot saved for ``screen``,
+    inside its visible frame; None when nothing is saved for it (a screen that
+    is gone, or was never dragged on, has no entry)."""
+    if not _saved_positions or screen is None:
+        return None
+    anchor = _saved_positions.get(_screen_key_of(screen))
+    if anchor is None:
+        return None
+    try:
+        return _ip.origin_at(anchor, w, h, _rect(screen.visibleFrame()))
+    except Exception:
+        return None
+
+
+def _idle_target_origin():
+    """Where the idle pill sits: the spot saved for the pointer's screen, or
+    the bottom centre of its visible frame, where the recording pill sits."""
+    screen = _cursor_screen()
+    if screen is None:
+        return 0.0, 0.0
+    saved = _saved_origin_on(screen, _ip.IDLE_W, _ip.IDLE_H)
+    if saved is not None:
+        return saved
+    vf = screen.visibleFrame()
+    return vf.origin.x + (vf.size.width - _ip.IDLE_W) / 2.0, vf.origin.y + 16
+
+
+def _ensure_idle_window():
+    global _idle_win, _idle_view
+    if _idle_win is not None:
+        return
+    _idle_win = _new_overlay_window(NSMakeRect(0, 0, _ip.IDLE_W, _ip.IDLE_H))
+    _idle_win.setLevel_(NSStatusWindowLevel)
+    _idle_win.setOpaque_(False)
+    _idle_win.setBackgroundColor_(NSColor.clearColor())
+    _idle_win.setHasShadow_(False)
+    _idle_win.setIgnoresMouseEvents_(False)
+    _idle_win.setCollectionBehavior_(_OVERLAY_COLLECTION_BEHAVIOR)
+    _idle_view = IdlePillView.alloc().initWithFrame_(NSMakeRect(0, 0, _ip.IDLE_W, _ip.IDLE_H))
+    _idle_win.setContentView_(_idle_view)
+
+
+def _apply_pill_config(cmd):
+    """pill_config: the setting and the saved spots. Turning it off hides the
+    idle pill; a new set of spots (Reset pill position) moves it."""
+    global _idle_enabled, _saved_positions
+    _saved_positions = _ip.clean_positions({"screens": cmd.get("positions")})
+    _idle_enabled = bool(cmd.get("idle"))
+    _dbg("pill.config", idle=_idle_enabled, saved=len(_saved_positions))
+    if _idle_enabled:
+        _ensure_idle_window()
+    if _idle_shown:
+        if _idle_enabled:
+            _idle_place()
+        _idle_tick()
+
+
+def _idle_place():
+    x, y = _idle_target_origin()
+    try:
+        _idle_win.setFrameOrigin_(NSMakePoint(x, y))
+    except Exception as e:
+        _dbg("idle.place.error", err=str(e)[:80])
+
+
+def _idle_show():
+    global _idle_shown
+    _idle_place()
+    try:
+        _idle_win.setCollectionBehavior_(_OVERLAY_COLLECTION_BEHAVIOR)
+        _idle_win.setLevel_(NSStatusWindowLevel)
+        _idle_win.orderFrontRegardless()     # never makeKey: the focus stays put
+        _idle_shown = True
+        if _idle_view is not None:
+            _idle_view.setNeedsDisplay_(True)
+    except Exception as e:
+        _dbg("idle.show.error", err=str(e)[:80])
+
+
+def _idle_hide():
+    global _idle_shown, _idle_drag
+    _close_pill_menu()
+    _hover.closed()
+    _idle_drag = None
+    _idle_shown = False
+    try:
+        _idle_win.orderOut_(None)
+    except Exception:
+        pass
+
+
+def _idle_tick():
+    """Every animation tick while the idle pill exists: show it when nothing
+    else is up, hide it when the recording pill or a toast is, and follow the
+    pointer for the menu."""
+    global _idle_ticks
+    want = _idle_enabled and not _visible and _toast_win is None
+    if want and not _idle_shown:
+        _idle_show()
+    elif not want and _idle_shown:
+        _idle_hide()
+    if not _idle_shown:
+        return
+    _idle_ticks += 1
+    if _idle_ticks >= 30:            # the same quiet safety net as the pill's
+        _idle_ticks = 0
+        try:
+            _idle_win.setCollectionBehavior_(_OVERLAY_COLLECTION_BEHAVIOR)
+        except Exception:
+            pass
+    if _idle_drag is not None:
+        return
+    try:
+        loc = NSEvent.mouseLocation()
+        on_pill = _point_in(_rect(_idle_win.frame()), loc.x, loc.y)
+        on_menu = _menu_win is not None and _point_in(_rect(_menu_win.frame()), loc.x, loc.y)
+    except Exception:
+        return
+    if _idle_view is not None:
+        _idle_view.set_hot(on_pill or _menu_win is not None)
+    if _menu_view is not None:
+        _menu_view.track(loc)
+    step = _hover.tick(time.monotonic(), on_pill=on_pill, on_menu=on_menu)
+    if step == "ask":
+        emit("pill_hover")
+    elif step == "close":
+        _close_pill_menu()
+
+
+def _idle_on_space_changed():
+    """A Space change while no dictation is showing: bring the idle pill onto
+    the new Space too. The recording pill's own handling is above, unchanged."""
+    if not _idle_shown or _idle_win is None:
+        return
+    _close_pill_menu()
+    _hover.closed()
+    try:
+        _idle_win.setCollectionBehavior_(_OVERLAY_COLLECTION_BEHAVIOR)
+        _idle_win.orderFrontRegardless()
+    except Exception as e:
+        _dbg("idle.space.error", err=str(e)[:80])
+
+
+def _open_pill_menu(items):
+    """pill_menu: the app's answer to pill_hover. Opened above the idle pill
+    only if the pointer is still there."""
+    global _menu_win, _menu_view
+    if not _idle_shown or _idle_drag is not None or _idle_win is None:
+        return
+    items = [i for i in (items or []) if isinstance(i, dict) and i.get("action") and i.get("label")][:8]
+    if not items:
+        return
+    try:
+        loc = NSEvent.mouseLocation()
+        on_pill = _point_in(_rect(_idle_win.frame()), loc.x, loc.y)
+    except Exception:
+        return
+    if not _hover.should_open(on_pill=on_pill, on_menu=False):
+        return
+    _close_pill_menu()
+    h = MENU_PAD * 2 + sum(MENU_CAPTION_ITEM_H if i.get("caption") else MENU_ITEM_H for i in items)
+    pill = _rect(_idle_win.frame())
+    screen = _screen_at(pill[0] + pill[2] / 2.0, pill[1] + 1.0) or _cursor_screen()
+    visible = _rect(screen.visibleFrame()) if screen is not None else pill
+    x, y = _ip.menu_origin(pill, MENU_W, h, visible)
+    try:
+        _menu_win = _new_overlay_window(NSMakeRect(x, y, MENU_W, h))
+        _menu_win.setLevel_(NSStatusWindowLevel + 1)
+        _menu_win.setOpaque_(False)
+        _menu_win.setBackgroundColor_(NSColor.clearColor())
+        _menu_win.setHasShadow_(True)
+        _menu_win.setCollectionBehavior_(_OVERLAY_COLLECTION_BEHAVIOR)
+        _menu_view = PillMenuView.alloc().initWithFrame_(NSMakeRect(0, 0, MENU_W, h))
+        _menu_view.set_items(items)
+        _menu_win.setContentView_(_menu_view)
+        _menu_win.orderFrontRegardless()     # never makeKey: the focus stays put
+        _hover.opened()
+    except Exception as e:
+        _dbg("menu.open.error", err=str(e)[:80])
+        _close_pill_menu()
+
+
+def _close_pill_menu():
+    global _menu_win, _menu_view
+    if _menu_win is not None:
+        try:
+            _menu_win.orderOut_(None)
+        except Exception:
+            pass
+    _menu_win = None
+    _menu_view = None
+    _hover.closed()
+
+
+def _idle_press():
+    global _idle_drag
+    try:
+        loc = NSEvent.mouseLocation()
+        f = _idle_win.frame()
+    except Exception:
+        return
+    _idle_drag = {"mx": loc.x, "my": loc.y, "wx": f.origin.x, "wy": f.origin.y, "moved": False}
+
+
+def _idle_drag_to():
+    if _idle_drag is None:
+        return
+    try:
+        loc = NSEvent.mouseLocation()
+    except Exception:
+        return
+    dx, dy = loc.x - _idle_drag["mx"], loc.y - _idle_drag["my"]
+    if not _idle_drag["moved"] and dx * dx + dy * dy < 9:
+        return                       # a click, so far
+    if not _idle_drag["moved"]:
+        _idle_drag["moved"] = True
+        _close_pill_menu()
+    try:
+        _idle_win.setFrameOrigin_(NSMakePoint(_idle_drag["wx"] + dx, _idle_drag["wy"] + dy))
+    except Exception:
+        pass
+
+
+def _idle_release():
+    """The end of a press on the idle pill: a drag is kept (inside the screen
+    it was dropped on, and saved for that screen); a click asks for the menu."""
+    global _idle_drag
+    drag, _idle_drag = _idle_drag, None
+    if drag is None:
+        return
+    if not drag["moved"]:
+        if _hover.ask_now(time.monotonic()):
+            emit("pill_hover")
+        return
+    try:
+        f = _rect(_idle_win.frame())
+        screen = _screen_at(f[0] + f[2] / 2.0, f[1] + f[3] / 2.0) or _cursor_screen()
+        if screen is None:
+            return
+        x, y = _ip.clamp_origin(f[0], f[1], f[2], f[3], _rect(screen.visibleFrame()))
+        _idle_win.setFrameOrigin_(NSMakePoint(x, y))
+        key = _screen_key_of(screen)
+        anchor = _ip.anchor_of(x, y, _ip.IDLE_W)
+        _saved_positions[key] = anchor
+        _hover.dropped()
+        emit("pill_moved", screen=key, cx=anchor["cx"], y=anchor["y"])
+        _dbg("idle.moved", screen=key, cx=anchor["cx"], y=anchor["y"])
+    except Exception as e:
+        _dbg("idle.drop.error", err=str(e)[:80])
+
+
+def _answer_pending_quit(yes: bool) -> bool:
+    """Answer a quit from outside that is waiting (NSTerminateLater). True if
+    there was one. Yes ends this process; no keeps it up."""
+    global _terminate_pending
+    if not _terminate_pending:
+        return False
+    _terminate_pending = False
+    _dbg("quit.answer", yes=yes)
+    NSApplication.sharedApplication().replyToApplicationShouldTerminate_(bool(yes))
+    return True
+
+
+class IdlePillView(NSView):
+    """The idle pill: a small, quiet golden capsule. Brighter under the
+    pointer. A drag moves it; a click opens the menu."""
+
+    def initWithFrame_(self, frame):
+        self = objc.super(IdlePillView, self).initWithFrame_(frame)
+        if self:
+            self._hot = False
+        return self
+
+    def isOpaque(self):
+        return False
+
+    def isFlipped(self):
+        return True
+
+    def acceptsFirstMouse_(self, event):
+        return True
+
+    @objc.python_method
+    def set_hot(self, hot):
+        hot = bool(hot)
+        if hot != self._hot:
+            self._hot = hot
+            self.setNeedsDisplay_(True)
+
+    def drawRect_(self, rect):
+        b = self.bounds()
+        NSColor.clearColor().set()
+        NSBezierPath.fillRect_(b)
+        # A fully clear pixel lets the click through to the window behind;
+        # this all-but-invisible fill keeps the whole window a target.
+        NSColor.colorWithCalibratedWhite_alpha_(0.0, 0.01).set()
+        NSBezierPath.fillRect_(b)
+        alpha = 1.0 if self._hot else 0.7
+        x = (_ip.IDLE_W - IDLE_CAPSULE_W) / 2.0
+        y = (_ip.IDLE_H - IDLE_CAPSULE_H) / 2.0
+        r = IDLE_CAPSULE_H / 2.0
+        path = NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
+            NSMakeRect(x, y, IDLE_CAPSULE_W, IDLE_CAPSULE_H), r, r)
+        hex_to_ns_color(WAFFLE_BODY).colorWithAlphaComponent_(alpha).set()
+        path.fill()
+        hex_to_ns_color(WAFFLE_RIM).colorWithAlphaComponent_(alpha).set()
+        path.setLineWidth_(1)
+        path.stroke()
+        # Three pockets, so it still reads as Waffler's.
+        hex_to_ns_color(CELL_SHADOW).colorWithAlphaComponent_(alpha).set()
+        for i in (-1, 0, 1):
+            cx = _ip.IDLE_W / 2.0 + i * 7
+            NSBezierPath.fillRect_(NSMakeRect(cx - 1.5, _ip.IDLE_H / 2.0 - 1.5, 3, 3))
+
+    def mouseDown_(self, event):
+        _idle_guarded(_idle_press)
+
+    def mouseDragged_(self, event):
+        _idle_guarded(_idle_drag_to)
+
+    def mouseUp_(self, event):
+        _idle_guarded(_idle_release)
+
+
+class PillMenuView(NSView):
+    """The idle pill's menu: one line per item, the one under the pointer
+    lit. A click on an enabled line sends pill_action and closes the menu."""
+
+    def initWithFrame_(self, frame):
+        self = objc.super(PillMenuView, self).initWithFrame_(frame)
+        if self:
+            self._items = []
+            self._rows = []      # (top, height, item)
+            self._hot = -1
+        return self
+
+    def isOpaque(self):
+        return False
+
+    def isFlipped(self):
+        return True
+
+    def acceptsFirstMouse_(self, event):
+        return True
+
+    @objc.python_method
+    def set_items(self, items):
+        self._items = list(items)
+        self._rows = []
+        top = MENU_PAD
+        for it in self._items:
+            h = MENU_CAPTION_ITEM_H if it.get("caption") else MENU_ITEM_H
+            self._rows.append((top, h, it))
+            top += h
+        self.setNeedsDisplay_(True)
+
+    @objc.python_method
+    def _row_at(self, y):
+        for i, (top, h, _it) in enumerate(self._rows):
+            if top <= y < top + h:
+                return i
+        return -1
+
+    @objc.python_method
+    def track(self, global_loc):
+        """Light the line under the pointer (global coordinates)."""
+        try:
+            f = self.window().frame()
+            y = f.size.height - (global_loc.y - f.origin.y)
+            inside = 0 <= global_loc.x - f.origin.x < f.size.width
+            hot = self._row_at(y) if inside else -1
+        except Exception:
+            hot = -1
+        if hot != self._hot:
+            self._hot = hot
+            self.setNeedsDisplay_(True)
+
+    def drawRect_(self, rect):
+        try:
+            self._draw_menu()
+        except Exception as e:
+            print(f"[overlay_mac] PillMenuView.drawRect_ failed: {e}", file=sys.stderr, flush=True)
+
+    @objc.python_method
+    def _draw_menu(self):
+        b = self.bounds()
+        w, h = b.size.width, b.size.height
+        NSColor.clearColor().set()
+        NSBezierPath.fillRect_(b)
+        bg = NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
+            NSMakeRect(0.5, 0.5, w - 1, h - 1), 10, 10)
+        hex_to_ns_color(MENU_BG).colorWithAlphaComponent_(0.97).set()
+        bg.fill()
+        hex_to_ns_color(MENU_RING).set()
+        bg.setLineWidth_(1)
+        bg.stroke()
+        para = NSMutableParagraphStyle.alloc().init()
+        para.setLineBreakMode_(4)    # NSLineBreakByTruncatingTail
+        for i, (top, rh, it) in enumerate(self._rows):
+            on = bool(it.get("enabled", True))
+            if i == self._hot and on:
+                hot = NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
+                    NSMakeRect(MENU_PAD, top, w - 2 * MENU_PAD, rh), 6, 6)
+                hex_to_ns_color(MENU_HOT).set()
+                hot.fill()
+            text_top = top + (rh - 15) / 2.0
+            if it.get("caption"):
+                cap = {NSFontAttributeName: NSFont.systemFontOfSize_(9),
+                       NSForegroundColorAttributeName: hex_to_ns_color(MENU_CAPTION),
+                       NSParagraphStyleAttributeName: para}
+                NSAttributedString.alloc().initWithString_attributes_(
+                    str(it["caption"]), cap).drawInRect_(NSMakeRect(14, top + 4, w - 28, 12))
+                text_top = top + 16
+            attrs = {NSFontAttributeName: NSFont.systemFontOfSize_(12),
+                     NSForegroundColorAttributeName: hex_to_ns_color(MENU_TEXT if on else MENU_TEXT_OFF),
+                     NSParagraphStyleAttributeName: para}
+            NSAttributedString.alloc().initWithString_attributes_(
+                str(it["label"]), attrs).drawInRect_(NSMakeRect(14, text_top, w - 28, 16))
+
+    def mouseDown_(self, event):
+        loc = event.locationInWindow()
+        y = self.bounds().size.height - loc.y
+        i = self._row_at(y)
+        if i < 0:
+            return
+        it = self._rows[i][2]
+        if not it.get("enabled", True):
+            return
+        emit("pill_action", action=str(it["action"]))
+        _close_pill_menu()
 
 
 # ── Stdin reader (background thread) ─────────────────────────────────

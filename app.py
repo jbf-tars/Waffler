@@ -166,6 +166,7 @@ import mic_supervisor as _mic_supervisor
 import quiet_mic as _quiet_mic
 import audio_guard as _audio_guard
 import wedge_recovery as _wedge_recovery
+import idle_pill as _idle_pill
 from login_item import LoginItem, HIDDEN_FLAG as _HIDDEN_FLAG
 from user_messages import (
     CLIPBOARD_CHOICE_UNKNOWN,
@@ -1450,6 +1451,7 @@ class Api:
         from shortcut_settings import window_view as window_view_shortcuts
         from stats_insights import typing_wpm_of
         from mic_ranking import ranking_of as mic_ranking_of
+        from idle_pill import enabled as idle_pill_enabled
         stored = self._load_settings_file()
         key = os.getenv("OPENAI_API_KEY", "")
         groq_key = os.getenv("GROQ_API_KEY", "")
@@ -1539,6 +1541,9 @@ class Api:
             # Microphones (src/mic_ranking.py): the ranked list, best first, as
             # [{name, id?}]. Empty follows the system's microphone.
             "mic_ranking":           mic_ranking_of(stored),
+            # The pill between dictations, with its hover menu
+            # (src/idle_pill.py): off unless exactly true. Mac only.
+            "idle_pill":             idle_pill_enabled(stored),
             # Shortcuts (src/shortcut_settings.py): the Paste last and Copy last
             # shortcuts (none until set) and the cancel key (Esc until changed),
             # with the shortcuts as they are shown. The page itself is drawn
@@ -1612,6 +1617,12 @@ class Api:
             # each a name, none twice (src/mic_ranking.py).
             import mic_ranking as _mr
             problem = _mr.settings_problem(settings)
+            if problem:
+                return {"ok": False, "error": problem}
+            # Show the pill when idle (Settings, General): a true or a false
+            # (src/idle_pill.py).
+            import idle_pill as _ipl
+            problem = _ipl.settings_problem(settings)
             if problem:
                 return {"ok": False, "error": problem}
             # Paste last, Copy last, the cancel key (Settings, Shortcuts): each
@@ -1726,6 +1737,11 @@ class Api:
                     stored[_mr.SETTING] = _mr.merged(settings)
                     notes.append(f"Microphones: {len(stored[_mr.SETTING])} ranked")
 
+                # ── The pill between dictations: applied live below ───────────────
+                if _ipl.touches(settings):
+                    stored[_ipl.SETTING] = settings[_ipl.SETTING]
+                    notes.append(f"Show the pill when idle: {'on' if settings[_ipl.SETTING] else 'off'}")
+
                 # ── Shortcuts: Paste last, Copy last, the cancel key. Applied
                 # live below (the cancel key by making the hotkey listener
                 # again, since that is what listens for it).
@@ -1779,6 +1795,11 @@ class Api:
                     _pipeline.apply_double_tap()
                 except Exception as _e:
                     _log_to_file(f"[double-tap] setting not applied live: {type(_e).__name__}")
+            if _ipl.touches(settings) and _pipeline is not None:
+                try:
+                    _pipeline.apply_pill_settings()
+                except Exception as _e:
+                    _log_to_file(f"[pill] setting not applied live: {type(_e).__name__}")
             if _sc.touches(settings) and _pipeline is not None:
                 try:
                     if cancel_changed:
@@ -3088,6 +3109,21 @@ class Api:
         except Exception as e:
             _log_to_file(f"save_shortcut error: {type(e).__name__}")
             return {"ok": False, "error": "Couldn't save the shortcut. Please try again."}
+
+    def reset_pill_position(self) -> dict:
+        """Settings, General, "Reset pill position": forget where the pill was
+        dragged on every screen (pill_position.json, src/idle_pill.py), so the
+        idle pill and the recording pill sit where they always did."""
+        try:
+            import idle_pill as _ipl
+            _ipl.PillPositions(DATA_DIR / _ipl.POSITIONS_FILE).clear()
+            _log_to_file("[pill] position reset")
+            if _pipeline is not None:
+                _pipeline.apply_pill_settings()
+            return {"ok": True, "message": _user_messages.PILL_POSITION_RESET}
+        except Exception as e:
+            _log_to_file(f"[pill] position not reset: {type(e).__name__}")
+            return {"ok": False, "error": _user_messages.PILL_POSITION_NOT_RESET}
 
     def reset_shortcuts(self) -> dict:
         """Put every shortcut back: the dictation hotkey to its default, Esc to
@@ -4424,6 +4460,21 @@ def _set_tray_state(state: str):
 _MIN_TAP_SPEECH_S = 0.15
 
 
+def _store_setting(key, value):
+    """Set one key in settings.json from outside the window (the idle pill's
+    "Hide the pill"), with the same lock and the same care as
+    Api._editing_settings: an unreadable file is kept aside, not lost."""
+    with _settings_lock:
+        sf = DATA_DIR / "settings.json"
+        sf.parent.mkdir(parents=True, exist_ok=True)
+        stored, kept = read_json_for_update(sf, dict)
+        if kept is not None:
+            _log_to_file(f"[settings] settings.json could not be read; kept as {kept.name}")
+        if stored.get(key) != value or kept is not None:
+            stored[key] = value
+            write_json_atomic(sf, stored)
+
+
 def _read_settings_now() -> dict:
     """settings.json as it is on disk now ({} when missing or unreadable): what
     the recorder reads, at the moment it opens a stream, to choose a
@@ -4592,7 +4643,13 @@ class WafflerPipeline:
             on_cancel_request=self._on_overlay_cancel_request,
             on_toast_action=self._on_toast_action,
             on_quit_request=_on_overlay_quit_request,
+            on_pill_event=self._on_pill_event,
         )
+        # The pill between dictations and where the pill was dragged
+        # (src/idle_pill.py). Handed to the overlay before it starts; off with
+        # nothing saved, the overlay is told nothing at all.
+        self._pill_positions = _idle_pill.PillPositions(DATA_DIR / _idle_pill.POSITIONS_FILE)
+        self.apply_pill_settings()
         # Pre-start overlay subprocess so first recording has no delay
         threading.Thread(target=self.overlay.prestart, daemon=True).start()
         self._prev_window = None  # focused window before recording starts
@@ -5708,6 +5765,98 @@ class WafflerPipeline:
             except Exception as e:
                 _log_to_file(f"select_mic action failed: {e}")
             self.overlay.hide_toast()
+
+    # ── The pill between dictations and its hover menu (src/idle_pill.py) ─────
+    # Mac only. The overlay draws the idle pill and the menu; these answer it.
+
+    def apply_pill_settings(self):
+        """Tell the overlay whether the idle pill is on and where the pill was
+        dropped on each screen. Off with nothing saved, the overlay hears
+        nothing (RecordingOverlay.set_pill_config). Never raises."""
+        try:
+            if _platform.system() != "Darwin":
+                return
+            store = getattr(self, "_pill_positions", None)
+            positions = store.load() if store is not None else {}
+            self.overlay.set_pill_config(_idle_pill.enabled(self._read_settings()), positions)
+        except Exception as e:
+            _log_to_file(f"[pill] settings not applied: {type(e).__name__}")
+
+    def _pill_menu_items(self):
+        """The menu's lines now: Paste last and Copy last greyed while there is
+        nothing to paste, and the microphone the stream is on."""
+        try:
+            has_last = self._last_result.word_count() > 0
+        except Exception:
+            has_last = False
+        try:
+            mic = self.audio.opened_device()
+        except Exception:
+            mic = None
+        return _idle_pill.menu_items(has_last=has_last, mic_name=mic)
+
+    def _on_pill_event(self, name, data):
+        """The idle pill, on the overlay's reader thread: "hover" wants the
+        menu, "action" is a click on one of its lines, "moved" is a drop.
+        Anything that can wait (a paste, a file) goes on a thread of its own."""
+        data = data if isinstance(data, dict) else {}
+        if name == "hover":
+            self.overlay.show_pill_menu(self._pill_menu_items())
+        elif name == "action":
+            threading.Thread(target=self._run_pill_action, args=(str(data.get("action", "")),),
+                             daemon=True, name="PillAction").start()
+        elif name == "moved":
+            threading.Thread(target=self._save_pill_position,
+                             args=(data.get("screen"), data.get("cx"), data.get("y")),
+                             daemon=True, name="PillMoved").start()
+
+    def _run_pill_action(self, action):
+        """A line of the menu. Paste last, Copy last and Hide the pill leave the
+        app in front where it is (the menu never takes the focus); Open
+        Waffler and the microphone line bring the window forward, which is
+        what they are for."""
+        _log_to_file(f"[pill] menu: {action}")
+        try:
+            done = _idle_pill.route(
+                action,
+                paste_last=self._pill_paste_last,
+                copy_last=self.copy_last,
+                open_window=_tray_show_window,
+                open_microphones=self._open_microphone_settings,
+                hide_pill=self._hide_idle_pill,
+            )
+            if done is None:
+                _log_to_file(f"[pill] unknown menu action ignored: {action!r}")
+        except Exception as e:
+            _log_to_file(f"[pill] menu action failed: {type(e).__name__}: {e}")
+
+    def _pill_paste_last(self):
+        """Paste last from the menu: where the person is typing (the menu left
+        that app in front), unless a dictation or a transform is under way."""
+        if self._last_result_blocked():
+            _log_to_file("[pill] paste last refused: busy")
+            return
+        self.paste_last(aim_at_last_app=False)
+
+    def _open_microphone_settings(self):
+        """The microphone line: the window, on Settings at Microphones."""
+        _tray_show_window()
+        _post_js("if (window.waffler_show_microphone) { window.waffler_show_microphone(); }"
+                 " else if (typeof showPage === 'function') { showPage('settings'); }")
+
+    def _hide_idle_pill(self):
+        """Hide the pill: the setting goes off, as if switched off in Settings."""
+        _store_setting(_idle_pill.SETTING, False)
+        self.apply_pill_settings()
+        _post_js("window.waffler_pill_idle_changed && window.waffler_pill_idle_changed(false)")
+
+    def _save_pill_position(self, screen, cx, y):
+        try:
+            store = getattr(self, "_pill_positions", None)
+            if store is None or not store.save(screen, cx, y):
+                _log_to_file("[pill] position not kept (not readable)")
+        except Exception as e:
+            _log_to_file(f"[pill] position not saved: {type(e).__name__}")
 
     def _press_target(self, press_id):
         """The app that was in front when press ``press_id`` began, as an
@@ -8540,7 +8689,13 @@ def _quit_steps():
         _should_quit = True  # the closing handler now lets the window go
 
     def stop_tray():
-        if _tray_icon:
+        if not _tray_icon:
+            return
+        if _platform.system() == "Darwin":
+            # The Mac's menu bar item is an NSStatusItem, which has no stop()
+            # (that is pystray's, on Windows): it is taken out of the status bar.
+            _remove_mac_status_item(_tray_icon)
+        else:
             _tray_icon.stop()
 
     def end_app():
@@ -8558,6 +8713,15 @@ def _quit_steps():
             _window_ref.destroy()
 
     return [("mark quitting", mark_quitting), ("tray", stop_tray), ("end app", end_app)]
+
+
+def _remove_mac_status_item(item):
+    """Take the menu bar item out of the status bar, on the main thread (AppKit
+    objects are not touched from another), queued before the terminate that
+    follows it."""
+    from PyObjCTools import AppHelper
+    from AppKit import NSStatusBar
+    AppHelper.callAfter(lambda: NSStatusBar.systemStatusBar().removeStatusItem_(item))
 
 
 def _quit_app(reason):

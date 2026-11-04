@@ -4,6 +4,47 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+On a Mac the pill can now stay on screen between dictations, with a small
+menu when you rest the pointer on it, and it can be dragged where you want
+it. All of it is off until you turn it on.
+
+### Added
+- **Mac: Show the pill when idle.** A new switch in Settings, General, The
+  pill, off by default. On, a small, quiet pill stays on screen between
+  dictations, on every Space and over full-screen apps, and steps aside while
+  you dictate or a message is showing. Rest the pointer on it (or click it)
+  for a menu: Paste last, Copy last, Open Waffler, the microphone in use
+  (which opens Settings at Microphones) and Hide the pill (which turns the
+  switch off). The pill and its menu never take the keyboard: Paste last
+  pastes into the app you were typing in, and only Open Waffler and the
+  microphone line bring Waffler's window forward. Windows keeps the pill as
+  it was for now.
+- **Mac: the pill remembers where you put it.** Drag the idle pill anywhere;
+  where you drop it is kept for that screen and used for the recording pill
+  too, kept inside the screen and clear of the menu bar and the Dock. Each
+  screen has its own spot, and a screen that is unplugged or rearranged goes
+  back to the usual place. The spots are kept in `pill_position.json` in the
+  data folder (a display number, its size and a point, nothing you said),
+  which stays with your settings when you delete your data. Reset pill
+  position, under the switch, puts the pill back at the bottom of each
+  screen. With the switch off and nothing dragged, the pill appears exactly
+  where and how it did before: the code that shows, hides and keeps the
+  recording pill on the active Space is the code 3.16.5 shipped, and a test
+  now checks that it stays so.
+
+### Fixed
+- **Mac: quitting no longer logs "[quit] tray failed".** The shutdown called
+  stop() on the menu bar item, which only the Windows tray icon has. On a Mac
+  the item is now taken out of the menu bar instead.
+- **Mac: `osascript -e 'tell application "Waffler" to quit'` reports success.**
+  Since 3.16.5 it quit Waffler but printed "User canceled (-128)", because the
+  quit can reach the pill's process, which passed it to the app and answered
+  no. The pill now answers "later" and says yes once the app has told it to
+  quit, which AppleScript reports as success. If the app never does (it is
+  hung), the pill answers no after 5 seconds and stays up, as before.
+
 ## [3.16.5] - 2026-11-03
 
 Every way of quitting Waffler on a Mac now quits it, Windows says when your

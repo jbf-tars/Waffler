@@ -138,6 +138,7 @@ def test_mac_a_toast_with_no_recording_follows_the_cursors_screen_without_moving
     calls = []
     ns = _lift(MAC, "_toast_anchor", "_toast_origin",
                _waffle_x=100.0, _waffle_y=200.0, WAFFLE_W=96, WAFFLE_H=40, TOAST_W=320, TOAST_PAD=8,
+               _saved_positions={},     # nothing dragged (src/idle_pill.py): toasts as before
                _compute_overlay_position=lambda verbose=False: calls.append(1) or (1500, 40))
     anchor, origin = ns["_toast_anchor"], ns["_toast_origin"]
     assert anchor(False) == (100.0, 200.0) and calls == [], "an ordinary toast stays by the pill"

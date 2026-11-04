@@ -268,6 +268,26 @@
             </div>
           </div>
 
+          <!-- The pill between dictations (src/idle_pill.py, settings.json
+               "idle_pill"): off until asked for. Resting the pointer on it
+               opens a small menu; dragging it moves it, and where it is
+               dropped is kept per screen in pill_position.json, for the
+               recording pill too. Mac only for now: hidden on Windows by
+               renderPillRows. -->
+          <div id="pillGroup" hidden>
+            <h2 class="sh2">The pill</h2>
+            <div class="sheet">
+              <div class="row" id="pillIdleRow">
+                <div class="row-main"><div class="row-t"><label for="pillIdleToggle">Show the pill when idle</label></div><div class="row-d" id="pillIdleDesc">A small pill stays on screen between dictations. Rest the pointer on it for Paste last, Copy last and your microphone. Drag it wherever you like.</div></div>
+                <input type="checkbox" class="tog" role="switch" id="pillIdleToggle" aria-describedby="pillIdleDesc" onchange="setPillIdle(this.checked)">
+              </div>
+              <div class="row" id="pillResetRow">
+                <div class="row-main"><div class="row-t">Pill position</div><div class="row-d" id="pillResetDesc">Puts the pill back at the bottom of each screen, where it starts.</div></div>
+                <button type="button" class="btn btn-sec btn-sm" id="pillResetBtn" aria-describedby="pillResetDesc" onclick="resetPillPosition(this)">Reset pill position</button>
+              </div>
+            </div>
+          </div>
+
           <h2 class="sh2">Startup</h2>
           <div class="sheet">
             <!-- Start at sign-in: read from the operating system each time

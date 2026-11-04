@@ -420,6 +420,19 @@ def audio_wedged_message(platform: str, restarting: bool, kept=None):
 DOUBLE_TAP_UNKNOWN = "Waffler doesn't know that choice for double-tap. Use the switch."
 
 
+# Settings, General: the pill between dictations and its hover menu
+# (src/idle_pill.py). The menu lines are short: the menu is narrow.
+IDLE_PILL_UNKNOWN = "Waffler doesn't know that choice for the pill. Use the switch."
+PILL_MENU_PASTE = "Paste last"
+PILL_MENU_COPY = "Copy last"
+PILL_MENU_OPEN = "Open Waffler"
+PILL_MENU_MIC_CAPTION = "Microphone"
+PILL_MENU_MIC_SYSTEM = "The system's microphone"
+PILL_MENU_HIDE = "Hide the pill"
+PILL_POSITION_RESET = "The pill is back in its usual place."
+PILL_POSITION_NOT_RESET = "Waffler couldn't reset the pill's position. Try again."
+
+
 # Settings, Usage: how fast the person types, for the minutes-saved estimate.
 TYPING_SPEED_UNKNOWN = "Typing speed needs a whole number of words a minute, from 10 to 200."
 

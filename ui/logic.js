@@ -1345,6 +1345,22 @@
     return on ? DOUBLE_TAP_TEXT.on : DOUBLE_TAP_TEXT.off;
   }
 
+  // General, The pill: "Show the pill when idle" (settings.json "idle_pill",
+  // src/idle_pill.py), off until it is exactly true, and "Reset pill
+  // position". Mac only for now: the rows are hidden on Windows.
+  const PILL_TEXT = {
+    on: 'The pill stays on screen. Rest the pointer on it for Paste last and more.',
+    off: 'The pill shows only while you dictate.',
+    reset: 'The pill is back in its usual place.',
+  };
+  function pillView(settings, isMac) {
+    const s = settings || {};
+    return { visible: !!isMac, on: s.idle_pill === true };
+  }
+  function pillSaved(on) {
+    return on ? PILL_TEXT.on : PILL_TEXT.off;
+  }
+
   // What the window calls the key that cancels a recording: "Esc" until the
   // person chooses another, from get_hotkey_config or a Shortcuts row.
   function cancelLabel(name) {
@@ -2604,6 +2620,7 @@
     transformRuleCheck, transformOutlineView, transformShortcutLine, transformSaved, hotkeyDialogText,
     transformEntryView, SHORTCUT_TARGETS, shortcutIsTarget, captureKeyId, shortcutRows, shortcutRulesView,
     shortcutSaved, SHORTCUT_TEXT, cancelLabel, DOUBLE_TAP_TEXT, doubleTapView, doubleTapSaved,
+    PILL_TEXT, pillView, pillSaved,
     COMMAND_ENGINES, COMMAND_EXAMPLES, commandEngineLabel, commandView, commandShortcutLine, commandSaved,
     commandEntryView,
     clipboardAfterPasteView, clipboardAfterPasteSaved, feedbackView, feedbackSaved, METER_CELLS, micMeter,

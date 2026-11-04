@@ -106,8 +106,14 @@ def count_older(history: list, keep_days: int, now: datetime | None = None) -> i
 # vocab_stars.json (src/vocab_rank.py) is which Vocabulary words are starred:
 # it stays with the words list it belongs to, and goes in the logs bundle with
 # vocab.json (words, no sentences).
+# pill_position.json (src/idle_pill.py) is where the pill was dragged on each
+# screen: a display number, the screen's size and a point, no words. It is a
+# preference, like settings.json, so it stays; Settings, General has "Reset
+# pill position", and factory_reset removes it with the folder. Not in the logs
+# bundle.
 KEPT_FILES = (".env", "settings.json", "config.json", "setup_complete.json",
-              "vocab.json", "vocab_sounds.json", "vocab_stars.json", "snippets.json")
+              "vocab.json", "vocab_sounds.json", "vocab_stars.json", "snippets.json",
+              "pill_position.json")
 # notifications.json is which tips Waffler has shown, hidden or had closed
 # (src/notifier.py): counts and times only, no text. Deleting it brings the
 # tips back.

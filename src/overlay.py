@@ -42,7 +42,13 @@ class RecordingOverlay:
         end_working(result)   - "done" (short tick) or "quiet" (just hide)
         show_toast(...)       - show a floating toast popup above the pill
         hide_toast()          - dismiss the toast popup
+        set_pill_config(...)  - the idle pill and the saved positions (Mac)
+        show_pill_menu(items) - the idle pill's hover menu, when it asked
         stop()                - terminate subprocess
+
+    The idle pill (src/idle_pill.py) is opt-in. While it is off and no
+    position is saved, set_pill_config sends nothing, so the subprocess gets
+    exactly the commands it always did.
     """
 
     def _log(self, msg: str):
@@ -57,7 +63,7 @@ class RecordingOverlay:
             pass  # Don't crash if logging fails
 
     def __init__(self, on_cancel=None, on_stop=None, on_cancel_request=None,
-                 on_toast_action=None, on_quit_request=None):
+                 on_toast_action=None, on_quit_request=None, on_pill_event=None):
         """
         Args:
             on_cancel:         Callback when user clicks X (discard recording)
@@ -68,12 +74,22 @@ class RecordingOverlay:
                                quit from outside (AppleScript, Dock): it is the
                                same executable as the app, so a quit Apple
                                Event can reach it instead. The app quits.
+            on_pill_event:     Callback(name, data) for the idle pill: "hover"
+                               (it wants its menu), "action" (a menu item was
+                               clicked, data["action"]) and "moved" (it was
+                               dropped somewhere, data["screen"], ["cx"], ["y"]).
         """
         self._on_cancel = on_cancel
         self._on_stop   = on_stop
         self._on_cancel_request = on_cancel_request
         self._on_toast_action = on_toast_action
         self._on_quit_request = on_quit_request
+        self._on_pill_event = on_pill_event
+        # The idle pill and the saved positions (set_pill_config). None until
+        # set; the default (off, nothing saved) is never sent, so a child that
+        # was never told about them is exactly the overlay it always was.
+        self._pill_config = None
+        self._child_has_pill_config = False
         self._process   = None
         self._reader_thread = None
         self._visible   = False
@@ -282,6 +298,53 @@ class RecordingOverlay:
                 cmd["style"] = style
             self._send(cmd)
 
+    @staticmethod
+    def _pill_config_is_default(config) -> bool:
+        return not config or (not config.get("idle") and not config.get("positions"))
+
+    def set_pill_config(self, idle: bool, positions=None):
+        """The idle pill on or off, and where the pill was dropped on each
+        screen (src/idle_pill.py). Sent to the subprocess now if it is up, and
+        again to every new one. Nothing is sent while both are at their
+        default and the subprocess was never told otherwise."""
+        config = {"idle": bool(idle), "positions": dict(positions or {})}
+        self._pill_config = config
+        default = self._pill_config_is_default(config)
+        if not self._is_alive():
+            return
+        if default and not self._child_has_pill_config:
+            return
+        if self._send({"type": "pill_config", **config}):
+            self._child_has_pill_config = not default
+
+    def show_pill_menu(self, items):
+        """The idle pill's menu, in answer to its "hover" event: a list of
+        {action, label, enabled[, caption]}. The subprocess opens it only if
+        the pointer is still there."""
+        if self._is_alive():
+            self._send({"type": "pill_menu", "items": list(items or [])})
+
+    def _send_pill_config_to_new_child(self):
+        """A fresh subprocess starts with no idle pill and no saved position;
+        give it the current ones, unless they are the default. Written straight
+        to the new pipe (a few hundred bytes, which a fresh pipe always takes)
+        under the send lock, without _send's restart path, so a child that
+        dies at once cannot make this recurse."""
+        config = getattr(self, "_pill_config", None)
+        self._child_has_pill_config = False
+        if self._pill_config_is_default(config):
+            return
+        if not self._send_lock.acquire(timeout=_SEND_LOCK_TIMEOUT_S):
+            return
+        try:
+            self._process.stdin.write(json.dumps({"type": "pill_config", **config}) + "\n")
+            self._process.stdin.flush()
+            self._child_has_pill_config = True
+        except Exception as e:
+            self._log(f"[overlay] pill config not sent to the new subprocess: {type(e).__name__}")
+        finally:
+            self._send_lock.release()
+
     def stop(self):
         """Terminate the overlay subprocess."""
         process = self._process
@@ -401,6 +464,7 @@ class RecordingOverlay:
             )
             self._reader_thread.start()
             self._log(f"[overlay] Reader threads started")
+            self._send_pill_config_to_new_child()
 
         except Exception as e:
             self._log(f"[overlay] ✗ EXCEPTION starting subprocess: {e}")
@@ -611,6 +675,13 @@ class RecordingOverlay:
                     self._on_toast_action(data.get("action", ""))
                 elif event == "quit_request" and self._on_quit_request:
                     self._on_quit_request()
+                elif event in ("pill_hover", "pill_action", "pill_moved"):
+                    callback = getattr(self, "_on_pill_event", None)
+                    if callback:
+                        try:
+                            callback(event[len("pill_"):], data)
+                        except Exception as e:
+                            self._log(f"[overlay] {event} not handled: {type(e).__name__}: {e}")
             except json.JSONDecodeError:
                 pass
 
