@@ -200,4 +200,7 @@ def test_a_long_list_stays_quick():
     text = " ".join(["the quick brown fox jumps over a lazy dog and then"] * 30)
     start = time.perf_counter()
     apply_vocab_corrections(text, vocab)
-    assert time.perf_counter() - start < 2.0
+    # About 0.5 to 1 s on a Mac. The limit is there to catch a slowdown that
+    # grows with the list, not to time the machine: 2 s failed three times on
+    # a loaded Mac and once on GitHub's Windows runner (2.02 s).
+    assert time.perf_counter() - start < 5.0
