@@ -4,7 +4,7 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [3.16.6] - 2026-11-05
 
 On a Mac the pill can now stay on screen between dictations, with a small
 menu when you rest the pointer on it, and it can be dragged where you want
