@@ -4,6 +4,21 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.16.7] - 2026-11-06
+
+The Mac download for 3.16.6 could not be built, so this release brings the
+same changes to the Mac (the idle pill, its hover menu and a pill spot of
+your choosing, and the quit fixes): see 3.16.6 below.
+
+### Fixed
+- **The Mac app is built again.** GitHub retired the macOS 14 machines its
+  builds ran on on 2 November 2026, and turned 3.16.6's Mac build away
+  ("The configuration 'macos-14-arm64-us-default' is not supported"), so only
+  the Windows installer was published. The Mac build, the Mac tests and the
+  install check now run on macOS 15. Waffler still runs on macOS 14 and later:
+  the build checks every file it bundles against that minimum and stops if
+  one needs newer.
+
 ## [3.16.6] - 2026-11-05
 
 On a Mac the pill can now stay on screen between dictations, with a small
