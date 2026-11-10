@@ -1509,7 +1509,50 @@ Transcript: {transcript}"""
         text = self._strip_em_dashes(text)
         text = self._fix_mid_sentence_caps(text)
         text = self._strip_hallucinations(text, raw)
+        text = self._capitalise_opening(text, raw)
         return self._restore_censored_profanity(text, raw)
+
+    # A later sentence that starts with a capital: the answer is in sentence
+    # case. (A lone "I" is not a sign of it: "yeah i think. I will check".)
+    _LATER_SENTENCE_RE = re.compile(r"[.!?…][\"'”’)\]]*\s+[\"'“‘(\[]*(\w)(\w?)")
+    _OPENING_SKIP_RE = re.compile(r"[\s\"'“‘(\[¿¡]*")
+    _PLAIN_WORD_RE = re.compile(r"[^\W\d_]+(?:['’][^\W\d_]+)*")
+    # Commands that are written small wherever they stand.
+    _SMALL_OPENERS = frozenset(
+        "npm npx pnpm yarn git pip sudo curl wget ssh grep cd ls kubectl brew apt vim bash zsh "
+        "sed awk cron nginx".split())
+
+    def _capitalise_opening(self, text: str, raw: str) -> str:
+        """Give the answer's first word its capital when the model left it small.
+
+        The model takes an opening filler off ("And yeah the dog got out." ->
+        "the dog got out.") and leaves the next word as it was. The capital is
+        restored when the take itself began with one and its first word is no
+        longer the first, or when a later sentence of the answer starts with a
+        capital (the answer is in sentence case, so a small first letter is a
+        slip). A take the speaker kept in lower case throughout stays that
+        way, and so does a first word that is not a plain lower-case word
+        (iPhone, example.com, src/app.py, x-ray) or is a command (npm, git).
+        """
+        if not text:
+            return text
+        i = self._OPENING_SKIP_RE.match(text).end()
+        first = text[i:i + 1]
+        if not first.islower() or len(first.upper()) != 1:
+            return text
+        word = re.match(r"\S+", text[i:]).group(0).rstrip(".,;:!?…\"'”’)]")
+        if (not self._PLAIN_WORD_RE.fullmatch(word) or word != word.lower()
+                or word in self._SMALL_OPENERS):
+            return text
+        sentence_case = any(
+            m.group(1).isupper() and not (m.group(1) == "I" and not m.group(2).isalpha())
+            for m in self._LATER_SENTENCE_RE.finditer(text))
+        if not sentence_case:
+            raw_word = re.search(r"[^\W\d_]+", raw or "")
+            if not (raw_word and raw_word.group(0)[0].isupper()
+                    and raw_word.group(0).lower() != word):
+                return text
+        return text[:i] + first.upper() + text[i + 1:]
 
     def _style_groq(self, prompt: str, start_time: float):
         """Style using Groq — ~200-400ms."""
@@ -1901,6 +1944,59 @@ Transcript: {transcript}"""
 
         return text.strip()
 
+    _FILLER_PAUSE = r"(?:\.\.\.|[,;:…]|[-–—](?=\s))"
+    _NEVER_BEFORE_A_COMMA = frozenset(
+        "a an the my your our his her its their this that these those to of in on at for with "
+        "from by into and or but if is are was were be been am do does did can could will "
+        "would should may might must have has had i we you they he she it i'm we're you're "
+        "they're it's i'll we'll".split())
+
+    @classmethod
+    def _drop_fillers(cls, text: str, fillers) -> str:
+        """``text`` without the hesitations in ``fillers``, and without the
+        punctuation that set each one off: "Uh, yes." is "Yes." (it was
+        pasted as ", yes."), "I think so, um, yes." is "I think so, yes." and
+        "Yes, um." is "Yes.". A capital the filler carried moves to the word
+        after it. A filler joined to a word ("uh-huh") is part of that word.
+        Text with no filler in it comes back as it was."""
+        alt = "|".join(re.escape(f) for f in fillers)
+        word = rf"(?<![\w'’\-])(?P<f>{alt})(?![\w'’]|-\w)"
+        # At the start of the text or of a sentence.
+        lead = re.compile(rf"(?P<before>^\s*|[.!?…]\s+){word}(?:\s*{cls._FILLER_PAUSE})*\s*",
+                          re.IGNORECASE)
+        while True:
+            m = lead.search(text)
+            if not m:
+                break
+            rest = text[m.end():]
+            if m.group("f")[0].isupper() and rest[:1].islower() and len(rest[:1].upper()) == 1:
+                rest = rest[0].upper() + rest[1:]
+            before = m.group("before")
+            if not rest:
+                before = before.rstrip()
+            text = text[:m.start()] + before + rest
+        # Inside a sentence, or at its end.
+        inner = re.compile(rf"(?P<pre>[,;:]?)\s*{word}\s*(?P<post>\.\.\.|[,;:.!?…])?",
+                           re.IGNORECASE)
+
+        def _inner(m):
+            pre, post = m.group("pre"), m.group("post") or ""
+            at_end = not m.string[m.end():].strip()
+            if post in ("...", "…"):
+                post = post if at_end else ""
+            if post in (".", "!", "?", "...", "…") and post:
+                return post
+            # The commas around a hesitation are the hesitation's: after a
+            # word no clause can end on they go with it ("the, uh, updated
+            # numbers" is "the updated numbers", not "the, updated numbers").
+            before = re.search(r"([^\W\d_]+(?:['’][^\W\d_]+)?)\s*$", m.string[:m.start()])
+            if before and before.group(1).lower() in cls._NEVER_BEFORE_A_COMMA:
+                return " "
+            mark = post or pre
+            return mark if post else mark + " "
+
+        return inner.sub(_inner, text)
+
     def _basic_clean(self, text: str, language=None) -> str:
         """Fallback basic cleaning if API fails (or _is_simple bypassed the LLM).
         Only strips unambiguous fillers and collapses literal token-level
@@ -1919,14 +2015,7 @@ Transcript: {transcript}"""
             # and a silent deletion is worse than an uncorrected filler. Under
             # Auto-detect the language isn't known, so the same holds.
             hard_fillers = ['uh', 'erm', 'ah']
-        cleaned = text
-        for filler in hard_fillers:
-            escaped_filler = re.escape(filler)
-            # Handle multi-word fillers (don't use \b for spaces)
-            if ' ' in filler:
-                cleaned = re.sub(rf'(?<!\w){escaped_filler}(?!\w)', '', cleaned, flags=re.IGNORECASE)
-            else:
-                cleaned = re.sub(rf'\b{escaped_filler}\b', '', cleaned, flags=re.IGNORECASE)
+        cleaned = OpenAIStyler._drop_fillers(text, hard_fillers)
 
         # Collapse word-level stutters: "I I think" -> "I think", "the the
         # report" -> "the report", "we we need" -> "we need". Same word
