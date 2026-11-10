@@ -1918,12 +1918,13 @@ def _alternate_is_safe_replacement(original: str, alternate: str):
 
     missing_negations = {t for t in orig_set if t in _NEGATIONS} - alt_set
     if missing_negations:
-        return False, f"alternate drops negation {sorted(missing_negations)}"
+        # How many, never which: this reason goes in app.log.
+        return False, f"alternate drops {len(missing_negations)} negation(s)"
 
     orig_numbers = {t for t in orig_set if any(c.isdigit() for c in t)}
     missing_numbers = orig_numbers - alt_set
     if missing_numbers:
-        return False, f"alternate changes/drops number {sorted(missing_numbers)}"
+        return False, f"alternate changes or drops {len(missing_numbers)} number(s)"
 
     overlap = len(orig_set & alt_set) / len(orig_set)
     if overlap < _MIN_TOKEN_OVERLAP:
@@ -2855,7 +2856,7 @@ class WhisperTranscriber:
                   f"(was {words}) — using alternate transcript ({why})")
             return alt
         except Exception as e:
-            _wlog(f"[whisper] incomplete-transcript retry failed: {e}")
+            _wlog(f"[whisper] incomplete-transcript retry failed: {type(e).__name__}")
             return transcript
 
     def transcribe_sync(self, audio_bytes: bytes):
@@ -2959,7 +2960,7 @@ class WhisperTranscriber:
         except Exception:
             vocab = []
         if _is_vocab_echo(cleaned, vocab):
-            print(f"[whisper] Discarded vocab-echo hallucination: '{cleaned}'")
+            print(f"[whisper] Discarded vocab-echo hallucination ({len(cleaned)} chars)")
             self.last_asr_filtered = True
             return ""
 
@@ -2976,7 +2977,7 @@ class WhisperTranscriber:
                 _wlog(f"[whisper] boilerplate-shaped text kept: "
                       f"{_clip_speech_s:.1f}s of measured speech says it is real")
             else:
-                print(f"[whisper] Discarded boilerplate hallucination: '{cleaned}'")
+                print(f"[whisper] Discarded boilerplate hallucination ({len(cleaned)} chars)")
                 self.last_asr_filtered = True
                 return ""
 

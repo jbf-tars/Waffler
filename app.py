@@ -6751,11 +6751,13 @@ class WafflerPipeline:
                     transcript = _fixed
                     run.transcript = transcript
                     if _vocab_changes:
-                        _log_to_file("Vocabulary corrections applied: " + ", ".join(
-                            f"'{h}' → '{u}'" for h, u in _vocab_changes))
+                        # How many, never which: what was heard and the entry
+                        # it became are the person's words, and app.log goes
+                        # out with a bug report (the Journal entry keeps them).
+                        _log_to_file(f"Vocabulary corrections applied: {len(_vocab_changes)}")
             except Exception as e:
                 _vocab_changes = []
-                _log_to_file(f"Vocabulary step skipped ({type(e).__name__}: {e})")
+                _log_to_file(f"Vocabulary step skipped ({type(e).__name__})")
 
             # Record Whisper usage - calculate from audio bytes (works for all backends)
             # Audio is 16kHz, 16-bit mono = 32000 bytes/second
@@ -9003,8 +9005,8 @@ def main():
             from transcribe_whisper import restore_lost_corrections
             _added = restore_lost_corrections([DATA_DIR / "app.log", DATA_DIR / "app.log.1"])
             if _added:
-                _log_to_file("[vocab] kept earlier fixes as 'sounds like' spellings: " + ", ".join(
-                    f"{e} ({', '.join(v)})" for e, v in _added.items()))
+                # How many, never which: they are the person's words.
+                _log_to_file(f"[vocab] kept earlier fixes as 'sounds like' spellings: {len(_added)}")
             _vr_flag.write_text("3.15.1\n", encoding="utf-8")
         except Exception as _e:
             _log_to_file(f"[vocab] restoring earlier fixes failed: {type(_e).__name__}")
@@ -9014,7 +9016,11 @@ def main():
     # 5 MB; and apply the chosen history retention. Before anything else
     # writes to the log; the result is logged as counts only.
     try:
-        _tidy = _privacy.tidy_logs_at_start(DATA_DIR, DATA_DIR / "settings.json")
+        _tidy = _privacy.tidy_logs_at_start(DATA_DIR, DATA_DIR / "settings.json",
+                                            redact_vocab=_vr_flag.exists())
+        if _tidy.get("vocab_redacted"):
+            _log_to_file(f"[privacy] {_tidy['vocab_redacted']} old vocabulary line(s) in the logs "
+                         f"now give a count, not the words")
         if _tidy.get("scrubbed"):
             _log_to_file(f"[privacy] removed {_tidy['scrubbed']} old transcript line(s) from app.log")
         if _tidy.get("rotated"):
