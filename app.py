@@ -6006,7 +6006,7 @@ class WafflerPipeline:
             try:
                 self.overlay.show()
             except Exception as e:
-                print(f"[overlay] show failed: {e}")
+                _log_to_file(f"[overlay] show failed: {type(e).__name__}: {e}")
 
     def _start_audio(self, press_id) -> bool:
         """Start the recorder, bounded. True when it is recording.
@@ -6060,7 +6060,7 @@ class WafflerPipeline:
             try:
                 self.overlay.hide()
             except Exception as e:
-                print(f"[overlay] hide failed: {e}")
+                _log_to_file(f"[overlay] hide failed: {type(e).__name__}: {e}")
         notify_js_status("error")
         _set_tray_state(_tray_state.IDLE)
         listener = getattr(self, "hotkey_listener", None)
@@ -6203,7 +6203,7 @@ class WafflerPipeline:
             try:
                 self.overlay.hide()
             except Exception as e2:
-                print(f"[overlay] hide failed: {e2}")
+                _log_to_file(f"[overlay] hide failed: {type(e2).__name__}: {e2}")
             try:
                 _audio = self.audio.stop()
                 if _audio:

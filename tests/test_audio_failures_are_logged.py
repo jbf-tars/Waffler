@@ -101,3 +101,12 @@ def test_no_failure_line_of_the_recorder_is_only_printed():
     wrong = [p for p in printed if re.search(
         r"fail|INCOMPLETE|superseded|not applied|abandon", p)]
     assert wrong == [], wrong
+
+
+def test_a_pill_that_could_not_be_shown_or_hidden_is_logged_too():
+    """app.py printed "[overlay] show failed" and "hide failed": a recording
+    pill that did not appear left no trace in app.log."""
+    src = (ROOT / "app.py").read_text(encoding="utf-8")
+    assert 'print(f"[overlay]' not in src
+    assert src.count('_log_to_file(f"[overlay] show failed') == 1
+    assert src.count('_log_to_file(f"[overlay] hide failed') == 2
