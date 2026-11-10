@@ -340,3 +340,91 @@ def test_no_stream_is_not_delivering_and_no_stream_is_touched(sd):
     assert rec.is_delivering() is False
     assert fresh.is_delivering() is False
     assert sd.log == [] and sd.calls == before
+
+
+# ── one line for a night of wakes ────────────────────────────────────────────
+# A sleeping Mac wakes itself about every quarter of an hour. Each wake was a
+# line: 769 of them in twelve days on one Mac, a fifth of the lines in its log.
+# A wake that follows less than five minutes awake is now counted, and the
+# count is written once: when the person is back, or the Mac stays awake.
+
+def wake_lines(rig):
+    return [line for line in rig.lines if "woke up" in line]
+
+
+QUIET = adm.AudioDeviceMonitor.QUIET_WAKE_AWAKE_S
+
+
+def test_the_first_wake_is_logged_as_before():
+    rig = Rig()
+    rig.sleep(902)
+    assert wake_lines(rig) == ["[audio-monitor] the computer woke up after 902s"]
+
+
+def test_a_night_of_wakes_is_one_line_and_a_count():
+    rig = Rig()
+    for _ in range(30):
+        rig.sleep(900)
+        for _ in range(8):
+            rig.tick()                            # awake for 16 s, nobody there
+    assert len(wake_lines(rig)) == 1, "the first, and nothing since"
+    rig.sleep(900)                                # the lid is opened
+    for _ in range(4):
+        rig.tick()
+    rig.touch()
+    rig.tick()
+    assert len(rig.awake) == 1
+    lines = wake_lines(rig)
+    assert len(lines) == 2
+    assert lines[1] == ("[audio-monitor] the computer woke up 30 more times, each after less than "
+                        "5 minutes awake (asleep 27000s in all)")
+
+
+def test_the_count_is_written_when_the_mac_stays_awake_with_nobody_to_see():
+    """Where the idle time cannot be read (Windows) the person coming back is
+    never seen: the count is written once the Mac has stayed awake."""
+    rig = Rig(with_handler=False)
+    rig.sleep(900)
+    rig.tick()
+    rig.sleep(900)
+    rig.tick()
+    rig.sleep(900)
+    assert len(wake_lines(rig)) == 1
+    while rig.wall.t - 2.0 < 1_000_000.0 + 3 * 900 + 4 + QUIET:
+        rig.tick()
+    lines = wake_lines(rig)
+    assert len(lines) == 2 and "woke up 2 more times" in lines[1] and "1800s in all" in lines[1]
+    for _ in range(5):
+        rig.tick()
+    assert len(wake_lines(rig)) == 2, "written once"
+
+
+def test_one_more_time_is_singular():
+    rig = Rig(with_handler=False)
+    rig.sleep(900)
+    rig.tick()
+    rig.sleep(600)
+    for _ in range(int(QUIET // 2) + 3):
+        rig.tick()
+    assert wake_lines(rig)[1] == ("[audio-monitor] the computer woke up 1 more time, after less than "
+                                  "5 minutes awake (asleep 600s in all)")
+
+
+def test_a_wake_after_a_working_day_is_a_line_of_its_own():
+    rig = Rig()
+    rig.sleep(3600)
+    for _ in range(int(QUIET // 2) + 5):
+        rig.tick()                                # awake for over five minutes
+    rig.sleep(7200)
+    assert wake_lines(rig) == ["[audio-monitor] the computer woke up after 3600s",
+                               "[audio-monitor] the computer woke up after 7200s"]
+
+
+def test_every_wake_is_still_told_to_the_app():
+    rig = Rig()
+    woke = []
+    rig.m.on_wake = lambda: woke.append(1)
+    for _ in range(10):
+        rig.sleep(900)
+        rig.tick()
+    assert len(woke) == 10, "each one flags the stream, logged or counted"

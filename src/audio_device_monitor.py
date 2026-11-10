@@ -79,6 +79,11 @@ Where the time since the last input cannot be read (``seconds_since_input``
 answers None: not a Mac, or Quartz will not say) nothing is done, and the next
 press opens the stream, as before.
 
+A wake that follows less than ``QUIET_WAKE_AWAKE_S`` awake is one of a run and
+is not a line in the log: it is counted, and the count is written once, when
+the person is back or the Mac has stayed awake that long. ``on_wake`` is still
+told of every one.
+
 Limitations:
 - Polling has a 1–2 s window. Acceptable.
 - We deliberately don't restart the stream if a recording is in flight
@@ -142,6 +147,10 @@ class AudioDeviceMonitor:
     # called: CoreAudio is busiest as the Mac wakes, and three polls is long enough
     # to tell a Mac that stays awake from one that goes straight back to sleep.
     WAKE_SETTLE_S = 6.0
+    # A wake that follows less than this long awake is one of a run (a sleeping Mac
+    # wakes itself about every quarter of an hour, for seconds): counted, and the
+    # count logged once, where each used to be a line (769 in twelve days on one Mac).
+    QUIET_WAKE_AWAKE_S = 300.0
 
     def __init__(
         self,
@@ -187,6 +196,11 @@ class AudioDeviceMonitor:
         self.on_awake: Optional[Callable[[], None]] = None
         self._input_idle_s = input_idle_s
         self._woke_at: Optional[float] = None
+        # The run of wakes being counted: when the last wake was noticed, how
+        # many have not been logged, and the seconds asleep before them.
+        self._last_wake_at: Optional[float] = None
+        self._quiet_wakes = 0
+        self._quiet_asleep_s = 0.0
         self._source: Optional[str] = None      # "live" or "portaudio", once known
         # The inputs the poll now running read (None when it could not), for a
         # handler of ``on_change`` that needs to know who is here.
@@ -291,7 +305,13 @@ class AudioDeviceMonitor:
         last, self._last_tick_at = self._last_tick_at, now
         if last is None or now - last < self.WAKE_GAP_S:
             return
-        self._log(f"[audio-monitor] the computer woke up after {int(now - last)}s")
+        if self._last_wake_at is not None and last - self._last_wake_at < self.QUIET_WAKE_AWAKE_S:
+            self._quiet_wakes += 1              # one of a run: counted, logged later
+            self._quiet_asleep_s += now - last
+        else:
+            self._say_quiet_wakes()
+            self._log(f"[audio-monitor] the computer woke up after {int(now - last)}s")
+        self._last_wake_at = now
         self._woke_at = now
         if self.on_wake is not None:
             try:
@@ -299,12 +319,25 @@ class AudioDeviceMonitor:
             except Exception as e:
                 self._log(f"[audio-monitor] on_wake failed: {type(e).__name__}")
 
+    def _say_quiet_wakes(self) -> None:
+        """The one line for the wakes that were counted, if there are any."""
+        n, asleep = self._quiet_wakes, self._quiet_asleep_s
+        if not n:
+            return
+        self._quiet_wakes, self._quiet_asleep_s = 0, 0.0
+        times = "1 more time, after" if n == 1 else f"{n} more times, each after"
+        self._log(f"[audio-monitor] the computer woke up {times} less than "
+                  f"{int(self.QUIET_WAKE_AWAKE_S // 60)} minutes awake (asleep {int(asleep)}s in all)")
+
     def _look_for_the_person(self) -> None:
         """After a wake: once the Mac has been awake for WAKE_SETTLE_S and has
         been used since the wake was noticed, tell ``on_awake``, once. Input
         "since the wake" is an idle time shorter than the time since the wake:
         whatever clock the idle time is kept on, it is never shorter than that
         unless a key or the mouse was touched after it. Never raises."""
+        if self._quiet_wakes and self._last_wake_at is not None \
+                and self._wall() - self._last_wake_at >= self.QUIET_WAKE_AWAKE_S:
+            self._say_quiet_wakes()             # it stayed awake: the run is over
         if self._woke_at is None or self.on_awake is None:
             return
         since_wake = self._wall() - self._woke_at
@@ -320,6 +353,7 @@ class AudioDeviceMonitor:
         if idle >= since_wake:
             return                      # nobody has touched it since it woke
         self._woke_at = None
+        self._say_quiet_wakes()
         try:
             self.on_awake()
         except Exception as e:

@@ -500,6 +500,13 @@ def parse(lines: Iterable[str]) -> Report:
         if msg.startswith("[audio-monitor] device changed to") and "take" in msg:
             bump("  restart put off until the take ended")
             continue
+        if msg.startswith("[audio-monitor] the computer woke up") and "more time" in msg:
+            # Since 3.16.8 a run of wakes is one line with a count.
+            v = re.search(r"woke up (\d+) more time.*asleep (\d+)s in all", msg)
+            if v:
+                n = int(v.group(1))
+                rep.wake_gaps[version].extend([float(v.group(2)) / max(1, n)] * n)
+            continue
         if msg.startswith("[audio-monitor] the computer woke up after"):
             v = re.search(r"after (\d+)s", msg)
             if v:
@@ -607,7 +614,7 @@ def render(rep: Report, only: Optional[str] = None, list_rows: bool = False) -> 
             out.append(f"    takes with 30% digital silence or a 2 s dead run: {dead}")
         gaps = rep.wake_gaps.get(v) or []
         if gaps:
-            out.append(f"  \"the computer woke up\" lines: {len(gaps)} "
+            out.append(f"  times the computer woke up: {len(gaps)} "
                        f"(under 2 minutes asleep: {sum(1 for g in gaps if g < 120)})")
         skip = {"key presses", "starts"}
         rest = [(k, n) for k, n in sorted(c.items()) if k not in skip]
