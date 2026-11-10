@@ -4,6 +4,39 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+A pass over the words themselves: what the clean-up pastes, checked against
+real use.
+
+### Fixed
+- **A take that comes back without punctuation is punctuated.** Speech to
+  text sometimes writes a whole take in lower case with no full stops or
+  commas, most often a long one said quickly (about one take in four of
+  twelve words or more). The clean-up took the fillers out and pasted the
+  rest as one unbroken line, 200 words with no full stop. Such a take is now
+  given its full stops, commas, question marks and capitals. A take that
+  arrives punctuated is cleaned up exactly as before, and a short message
+  you say in lower case is left that way.
+- **The first letter is a capital.** When a take opened with a filler
+  ("And yeah the dog got out twice.") the clean-up removed it and left the
+  next word small ("the dog got out twice."). The first word now gets its
+  capital whenever the rest of the text is in sentence case. Words written
+  small on purpose (iPhone, npm) keep their spelling.
+- **No stray comma where an "um" was.** A short take is tidied without the
+  model, and deleting "um", "uh" or "er" left the punctuation around it:
+  "Uh, yes." was pasted as ", yes." and "the, uh, updated numbers" as
+  "the, , updated numbers". The punctuation goes with the filler and its
+  capital moves to the next word.
+
+### Added
+- **A regression set for the clean-up** (`scripts/cleanup_regression.py`):
+  71 invented dictations through the real clean-up, each checked with plain
+  rules, covering unpunctuated takes, dictations that read like an
+  instruction to a chatbot, fillers, self-corrections, numbers, lists, names,
+  British spelling, emails, and very short and very long takes. Unpunctuated
+  takes: 6 of 12 right before this change, 12 of 12 after.
+
 ## [3.16.7] - 2026-11-06
 
 The Mac download for 3.16.6 could not be built, so this release brings the
