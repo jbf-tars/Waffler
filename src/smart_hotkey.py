@@ -261,6 +261,10 @@ class SmartHotkeyListener:
             if dt is not None:
                 dt.reset()
             print("📌 Hotkey+Space → Sticky mode ON! Press hotkey+Space again to stop.")
+            # In app.log too, with the one below: without them a hands-free
+            # take reads as a release and a press that were both "IGNORED".
+            # Only these two presses of Space are logged, never Space itself.
+            _diag_log(f"[HOTKEY/{self._id}] → hotkey+Space: hands-free ON (fire_lock)")
             self._fire_visual_feedback("sticky_on")
             self._fire_lock()
         elif self._hotkey_held and self._recording and self._sticky:
@@ -271,6 +275,7 @@ class SmartHotkeyListener:
             if dt is not None:
                 dt.reset()
             print("🛑 Hotkey+Space → Sticky mode OFF")
+            _diag_log(f"[HOTKEY/{self._id}] → hotkey+Space: hands-free OFF (fire_release)")
             self._fire_visual_feedback("sticky_off_fn")
             self._fire_release()
 
