@@ -1940,6 +1940,45 @@
     return { ok: true, error: '' };
   }
 
+  // A "sounds like" that is one everyday word ("your" for a name) would
+  // change ordinary speech, so the page asks. What it says, in two places:
+  // before saving one (vocabEverydayAsk), and for one saved earlier that
+  // nobody has answered (vocabEverydayNotice). ``spellings`` are the ones the
+  // app called everyday (check_everyday_sounds).
+  function _quoted(list) {
+    const q = list.map((s) => `"${s}"`);
+    return q.length > 1 ? `${q.slice(0, -1).join(', ')} and ${q[q.length - 1]}` : (q[0] || '');
+  }
+  function vocabEverydayAsk(word, spellings) {
+    const list = (Array.isArray(spellings) ? spellings : []).filter(Boolean);
+    if (!list.length) return null;
+    const one = list.length === 1;
+    return {
+      title: `${_quoted(list)} ${one ? 'is an everyday word' : 'are everyday words'}.`,
+      detail: `If you use ${one ? 'it' : 'them'}, every ${_quoted(list)} you dictate becomes ${word}, in any sentence.`,
+      use: one ? 'Use it anyway' : 'Use them anyway',
+      cancel: 'Cancel',
+    };
+  }
+  function vocabEverydayNotice(item) {
+    const word = String((item && item.word) || '');
+    const s = String((item && item.spelling) || '');
+    if (!word || !s) return null;
+    return {
+      title: `"${s}" for ${word} is an everyday word.`,
+      detail: `For now Waffler changes it to ${word} only where it is written like a name, with a capital in the middle of a sentence. Keep it to change every "${s}" you dictate, or remove it.`,
+      keep: 'Keep',
+      remove: 'Remove',
+      keepLabel: `Keep "${s}" as a spelling of ${word}`,
+      removeLabel: `Remove "${s}" from ${word}`,
+    };
+  }
+  // The spellings typed now that were not there before (any capitals).
+  function vocabSoundsFresh(before, after) {
+    const had = (Array.isArray(before) ? before : []).map((x) => String(x).toLowerCase());
+    return (Array.isArray(after) ? after : []).filter((x) => !had.includes(String(x).toLowerCase()));
+  }
+
   // The table: busiest first, then A to Z; each bar against the busiest.
   // ``opts`` (S10): { sort, query } as vocabSortRows and vocabFilter take them.
   // The bars stay against the busiest word of the whole list, so searching
@@ -2592,7 +2631,7 @@
   }
 
   return {
-    vocabLastUsed, vocabRecentWhen, vocabSoundsParse, vocabSoundsCheck, vocabRows, vocabSummary,
+    vocabLastUsed, vocabRecentWhen, vocabSoundsParse, vocabSoundsCheck, vocabEverydayAsk, vocabEverydayNotice, vocabSoundsFresh, vocabRows, vocabSummary,
     VOCAB_SORTS, VOCAB_SORT_DEFAULT, vocabSortId, foldText, vocabMatches, vocabFilter, vocabSortRows,
     vocabSearchAnnouncement, vocabKeepSelected, vocabSelectedLabel, vocabBulkDone, vocabImportView,
     vocabImportDone, snippetImportView, snippetImportDone, listExportDone, bytesToBase64,

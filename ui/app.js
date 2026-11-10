@@ -2679,6 +2679,12 @@ let _vocabWords = [];
 let _vocabBook = { entries: [], total: 0, recent: [] };
 let _vocabAsk = null;      // { existing, word, sounds }: Replace PostHog with POSTHOG?
 let _vocabEditing = '';    // the word whose "sounds like" is open for editing
+// Everyday words as spellings: the saved ones nobody has answered
+// ([{word, spelling}], from the app), and the question before saving one
+// ({ word, spellings, go }: go() saves once the person says to use it).
+let _vocabEveryday = [];
+let _vocabEverydayAsk = null;
+let _vocabEverydaySaid = null;   // set by "Use it anyway" for the save that follows
 let _vocabUndoTimer = null;
 // S10: search, order, select. The order is remembered (a convenience only: the
 // page works without it).
@@ -2699,6 +2705,109 @@ function _vocabRows(pairs) {
 function _vocabError(msg) {
   const el = document.getElementById('vocabError');
   if (el) { el.textContent = msg || ''; el.hidden = !msg; }
+}
+
+// Which of these spellings are one everyday word, as the app judges it.
+// None when the app cannot be asked: the save goes ahead and the page asks
+// afterwards (the app lists it with the saved ones).
+async function _vocabEverydayOf(spellings) {
+  if (!spellings || !spellings.length) return [];
+  try {
+    const api = window.pywebview && pywebview.api;
+    if (!api || !api.check_everyday_sounds) return [];
+    const res = await api.check_everyday_sounds(spellings);
+    return res && res.ok && Array.isArray(res.everyday) ? res.everyday : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+// The person said to use them: each is kept, so it is not asked about again.
+async function _vocabKeepEveryday(word, spellings) {
+  for (const s of spellings) {
+    try {
+      const res = await pywebview.api.answer_everyday_sound(word, s, true);
+      if (res && res.ok && Array.isArray(res.pending)) _vocabEveryday = res.pending;
+    } catch (e) {
+      console.warn('answer_everyday_sound error:', e);
+    }
+  }
+}
+
+// Keep or Remove on a spelling saved earlier.
+async function answerVocabEveryday(word, spelling, keep) {
+  let res = null;
+  try { res = await pywebview.api.answer_everyday_sound(word, spelling, keep); } catch (e) { res = null; }
+  if (!res || !res.ok) {
+    _vocabError((res && res.error) || "Couldn't save your list. Try again.");
+    return;
+  }
+  _vocabError('');
+  _vocabEveryday = Array.isArray(res.pending) ? res.pending : [];
+  if (res.sounds_like) {
+    _vocabBook.entries.forEach((e) => { e.sounds_like = res.sounds_like[e.word] || []; });
+  }
+  renderVocab();
+  _vocabRunTry();
+  showToast(keep ? `Every "${spelling}" now becomes ${word}.` : `"${spelling}" no longer changes to ${word}.`, 'success');
+  const next = document.querySelector('#vocabEveryday button') || document.getElementById('vocabInput');
+  if (next) next.focus();
+}
+
+function renderVocabEveryday() {
+  const box = document.getElementById('vocabEveryday');
+  if (!box) return;
+  const rows = [];
+  if (_vocabEverydayAsk) {
+    const t = WL.vocabEverydayAsk(_vocabEverydayAsk.word, _vocabEverydayAsk.spellings);
+    if (t) {
+      rows.push(`<div class="ve-r ve-ask"><div class="ve-q"><b>${escHtml(t.title)}</b><span>${escHtml(t.detail)}</span></div>
+        <div class="ve-acts"><button type="button" class="btn btn-quiet btn-sm" data-act="cancel">${escHtml(t.cancel)}</button><button type="button" class="btn btn-sec btn-sm" data-act="use">${escHtml(t.use)}</button></div></div>`);
+    }
+  }
+  _vocabEveryday.forEach((item, i) => {
+    const t = WL.vocabEverydayNotice(item);
+    if (!t) return;
+    rows.push(`<div class="ve-r" data-i="${i}"><div class="ve-q"><b>${escHtml(t.title)}</b><span>${escHtml(t.detail)}</span></div>
+      <div class="ve-acts"><button type="button" class="btn btn-sec btn-sm" data-act="keep" aria-label="${escHtml(t.keepLabel)}">${escHtml(t.keep)}</button><button type="button" class="btn btn-pri btn-sm" data-act="remove" aria-label="${escHtml(t.removeLabel)}">${escHtml(t.remove)}</button></div></div>`);
+  });
+  box.innerHTML = rows.join('');
+  box.hidden = !rows.length;
+  const ask = box.querySelector('.ve-ask');
+  if (ask) {
+    ask.querySelector('[data-act="use"]').addEventListener('click', () => {
+      const go = _vocabEverydayAsk && _vocabEverydayAsk.go;
+      _vocabEverydayAsk = null;
+      renderVocabEveryday();
+      if (go) go();
+    });
+    ask.querySelector('[data-act="cancel"]').addEventListener('click', () => {
+      const back = _vocabEverydayAsk && _vocabEverydayAsk.back;
+      _vocabEverydayAsk = null;
+      renderVocabEveryday();
+      const el = back && document.getElementById(back);
+      if (el) el.focus();
+    });
+  }
+  box.querySelectorAll('.ve-r[data-i]').forEach((row) => {
+    const item = _vocabEveryday[Number(row.getAttribute('data-i'))];
+    row.querySelector('[data-act="keep"]').addEventListener('click', () => answerVocabEveryday(item.word, item.spelling, true));
+    row.querySelector('[data-act="remove"]').addEventListener('click', () => answerVocabEveryday(item.word, item.spelling, false));
+  });
+}
+
+// Before a save that adds spellings: when one is an everyday word and the
+// person has not said to use it, ask (and answer true: the save waits).
+async function _vocabAskEveryday(word, fresh, confirmed, go, back) {
+  if (confirmed) return [];
+  const everyday = await _vocabEverydayOf(fresh);
+  if (!everyday.length) return [];
+  _vocabError('');
+  _vocabEverydayAsk = { word, spellings: everyday, go: () => go(everyday), back };
+  renderVocabEveryday();
+  const use = document.querySelector('#vocabEveryday .ve-ask [data-act="cancel"]');
+  if (use) { use.scrollIntoView({ block: 'nearest' }); use.focus(); }
+  return everyday;
 }
 
 // The words and spellings as set_vocab takes them.
@@ -2724,6 +2833,7 @@ function _vocabTakeSaved(res, entries) {
   });
   _vocabBook.total = _vocabBook.entries.reduce((n, e) => n + (Number(e.count) || 0), 0);
   _vocabWords = res.words.slice();
+  if (res && Array.isArray(res.everyday)) _vocabEveryday = res.everyday;
 }
 
 function _vocabShowUndo(text, undo) {
@@ -2787,6 +2897,7 @@ async function _vocabReloadBook() {
         entries: (book.entries || []).map((e) => Object.assign({}, e, { starred: stars.has(String(e.word).toLowerCase()) })),
         total: book.total || 0, recent: book.recent || [],
       };
+      _vocabEveryday = Array.isArray(book.everyday) ? book.everyday : [];
     } else {
       const words = (await pywebview.api.get_vocab()) || [];
       _vocabBook = { entries: words.map((w) => ({ word: w, sounds_like: [], count: 0, last: '', starred: false })), total: 0, recent: [] };
@@ -2801,6 +2912,7 @@ function renderVocab() {
   const listEl = document.getElementById('vocabList');
   const inputEl = document.getElementById('vocabInput');
   if (!listEl) return;
+  renderVocabEveryday();
   const entries = _vocabBook.entries || [];
   if (inputEl) inputEl.placeholder = entries.length ? 'Word, as it should be written' : 'Word, as it should be written, like Sinéad';
 
@@ -2986,7 +3098,7 @@ function closeVocabSounds() {
   if (b) b.focus();
 }
 
-async function saveVocabSounds(word, input) {
+async function saveVocabSounds(word, input, confirmed) {
   const entries = _vocabBook.entries.map((e) => Object.assign({}, e));
   const entry = entries.find((e) => e.word === word);
   if (!entry) return;
@@ -2994,9 +3106,14 @@ async function saveVocabSounds(word, input) {
   const check = WL.vocabSoundsCheck(entries, word, spellings, WL.VOCAB_MAX_ENTRY_LEN);
   if (!check.ok) { _vocabError(check.error); return; }
   const before = entry.sounds_like.slice();
+  // An everyday word typed as a spelling: ask before it is saved.
+  const asked = await _vocabAskEveryday(word, WL.vocabSoundsFresh(before, spellings), confirmed,
+    (said) => saveVocabSounds(word, input, said));
+  if (asked.length) return;
   entry.sounds_like = spellings;
   const ok = await _vocabSave(entries);
   if (!ok) return;
+  if (confirmed && confirmed.length) await _vocabKeepEveryday(word, confirmed);
   _vocabError('');
   _vocabEditing = '';
   renderVocab();
@@ -3043,6 +3160,7 @@ async function respellVocabWord() {
   const before = _vocabBook.entries.map((e) => Object.assign({}, e));
   _vocabAsk = null;
   if (!(await _vocabSave(entries))) { renderVocab(); return; }
+  if (ask.said && ask.said.length) await _vocabKeepEveryday(ask.word, ask.said);
   const inputEl = document.getElementById('vocabInput');
   const soundsEl = document.getElementById('vocabSoundsInput');
   if (inputEl) inputEl.value = '';
@@ -3056,6 +3174,10 @@ async function respellVocabWord() {
 }
 
 async function addVocabWord() {
+  // The everyday spellings the person just said to use (the question's
+  // "Use it anyway" sets them and calls this again); none on a plain Add.
+  const confirmed = _vocabEverydaySaid;
+  _vocabEverydaySaid = null;
   const inputEl = document.getElementById('vocabInput');
   const soundsEl = document.getElementById('vocabSoundsInput');
   if (!inputEl) return;
@@ -3086,11 +3208,15 @@ async function addVocabWord() {
     _vocabError(`"${r.word}" is already in your list.`);
     return;
   }
+  // An everyday word typed as a spelling: ask before it is saved.
+  const asked = await _vocabAskEveryday(r.word, fresh, confirmed, (said) => { _vocabEverydaySaid = said; addVocabWord(); }, 'vocabSoundsInput');
+  if (asked.length) return;
   if (r.action === 'respell') {
     // The same word in other capitals: ask before changing it.
     _vocabError('');
     _vocabEditing = '';
     _vocabAsk = { existing: r.existing, word: r.word, sounds: fresh };
+    _vocabAsk.said = confirmed || [];
     renderVocab();
     const keep = document.querySelector('#vocabList .vt-ask [data-act="keep"]');
     if (keep) { keep.scrollIntoView({ block: 'nearest' }); keep.focus(); }
@@ -3110,7 +3236,8 @@ async function addVocabWord() {
       inputEl.focus();
       return;
     }
-    _vocabTakeSaved({ words: Array.isArray(res.words) ? res.words : p.words, sounds_like: res.sounds_like || p.sounds, starred: res.starred }, entries);
+    _vocabTakeSaved({ words: Array.isArray(res.words) ? res.words : p.words, sounds_like: res.sounds_like || p.sounds, starred: res.starred, everyday: res.everyday }, entries);
+    if (confirmed && confirmed.length) await _vocabKeepEveryday(r.action === 'add' ? r.word : r.existing, confirmed);
     inputEl.value = '';
     if (soundsEl) soundsEl.value = '';
     renderVocab();

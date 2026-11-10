@@ -1183,6 +1183,10 @@ class Api:
                 if "sounds_like" not in result:
                     result["sounds_like"] = load_sounds_like(result.get("words") or [])
                 result["starred"] = _vr.sync_quietly(result.get("words") or [], starred, _log_to_file)
+                # The everyday words among the saved spellings that nobody has
+                # answered yet: the page asks about them (Keep or Remove).
+                from transcribe_whisper import everyday_sounds_pending
+                result["everyday"] = everyday_sounds_pending(result.get("words") or [])
         return result
 
     def get_vocab_book(self) -> dict:
@@ -1204,11 +1208,33 @@ class Api:
                 rows.append({"word": w, "sounds_like": sounds.get(w, []),
                              "count": n, "last": u.get("last") or ""})
             import vocab_rank as _vr
+            from transcribe_whisper import everyday_sounds_pending
             return {"ok": True, "entries": rows, "total": total,
-                    "recent": usage["recent"], "starred": _vr.load_stars(words)}
+                    "recent": usage["recent"], "starred": _vr.load_stars(words),
+                    "everyday": everyday_sounds_pending(words)}
         except Exception as e:
             _log_to_file(f"[vocab] get_vocab_book failed: {type(e).__name__}: {e}")
             return {"ok": False, "entries": [], "total": 0, "recent": []}
+
+    def check_everyday_sounds(self, spellings) -> dict:
+        """Which of ``spellings`` are one everyday word ("your"): the page
+        asks before saving one, since it would change ordinary speech
+        (transcribe_whisper.is_everyday_spelling)."""
+        from transcribe_whisper import is_everyday_spelling
+        given = spellings if isinstance(spellings, list) else []
+        return {"ok": True, "everyday": [s for s in given if is_everyday_spelling(s)]}
+
+    def answer_everyday_sound(self, word, spelling, keep) -> dict:
+        """The answer to the Vocabulary page's question about an everyday
+        spelling: keep it (taken everywhere from then on) or remove it from
+        the word. Answers {ok, sounds_like, pending} or {ok: False, error}."""
+        from transcribe_whisper import answer_everyday_sound as _answer
+        import vocab_rank as _vr
+        with _vr.LOCK:
+            result = _answer(word, spelling, bool(keep))
+        _log_to_file(f"[vocab] everyday spelling {'kept' if keep else 'removed'}"
+                     f"{'' if result.get('ok') else ' (not saved)'}")
+        return result
 
     def try_vocab(self, text: str) -> dict:
         """Vocabulary, Try a sentence: what the saved Vocabulary makes of

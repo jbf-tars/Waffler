@@ -288,10 +288,136 @@ def _save_sounds_like(sounds_like, words) -> dict:
             from src.atomic_json import write_json_atomic
         if cleaned or VOCAB_SOUNDS_FILE.exists():
             write_json_atomic(VOCAB_SOUNDS_FILE, cleaned)
+        _forget_answers_without_a_spelling(cleaned)
         return {"sounds_like": cleaned}
     except Exception as e:
         return {"sounds_like": load_sounds_like(words),
                 "log": f"spellings not saved: {type(e).__name__}: {e}"}
+
+
+# ── A "sounds like" that is an everyday word ─────────────────────────────────
+# "your" given as what a name sounds like rewrites every "your" a person
+# dictates (in a review of real use, one such pair changed every "your" and
+# "our" in 13 of 192 takes, all wrongly). A one-word everyday spelling is
+# therefore asked about on the Vocabulary page. Kept: it is taken everywhere,
+# because the person said so. Removed: it comes off the entry. Until it is
+# answered it is neither dropped nor taken blindly: _written_like_a_name.
+# The answers live in their own file, shaped like vocab_sounds.json, so that
+# file stays what older versions read.
+
+def _sounds_kept_file():
+    return VOCAB_SOUNDS_FILE.with_name("vocab_sounds_kept.json")
+
+
+def is_everyday_spelling(spelling) -> bool:
+    """One everyday English word ("your", "mark", "posters"): a spelling
+    that would change ordinary speech. Several words ("waffle her"), a word
+    that is not everyday ("grok") or anything with symbols is not."""
+    if not isinstance(spelling, str):
+        return False
+    s = " ".join(spelling.split())
+    return bool(s) and bool(_WORD_RE.fullmatch(s)) and _is_everyday(s.lower())
+
+
+def _kept_pairs(raw, sounds) -> dict:
+    """{entry: [spellings]} of ``raw`` that are still saved spellings of
+    that entry and still everyday words."""
+    if not isinstance(raw, dict):
+        return {}
+    by_key = {k.casefold(): v for k, v in raw.items() if isinstance(k, str)}
+    out = {}
+    for entry, spellings in sounds.items():
+        answered = by_key.get(entry.casefold())
+        if not isinstance(answered, list):
+            continue
+        folded = {a.casefold() for a in answered if isinstance(a, str)}
+        kept = [s for s in spellings if s.casefold() in folded and is_everyday_spelling(s)]
+        if kept:
+            out[entry] = kept
+    return out
+
+
+def load_sounds_kept(words=None) -> dict:
+    """{entry: [spellings]}: the everyday spellings the person chose to keep.
+    A missing or unreadable file is no answers."""
+    try:
+        f = _sounds_kept_file()
+        if f.exists():
+            import json
+            raw = json.loads(f.read_text(encoding="utf-8-sig"))
+            return _kept_pairs(raw, load_sounds_like(words))
+    except Exception:
+        pass
+    return {}
+
+
+def _write_sounds_kept(kept: dict) -> None:
+    try:
+        from atomic_json import write_json_atomic
+    except ImportError:  # imported as src.transcribe_whisper
+        from src.atomic_json import write_json_atomic
+    f = _sounds_kept_file()
+    if kept or f.exists():
+        write_json_atomic(f, kept)
+
+
+def everyday_sounds_pending(words=None) -> list:
+    """[{"word", "spelling"}] for the saved everyday spellings nobody has
+    answered yet, in list order: what the Vocabulary page asks about."""
+    try:
+        sounds = load_sounds_like(words)
+        kept = load_sounds_kept(words)
+        return [{"word": entry, "spelling": s}
+                for entry, spellings in sounds.items() for s in spellings
+                if is_everyday_spelling(s)
+                and s.casefold() not in {k.casefold() for k in kept.get(entry, [])}]
+    except Exception:
+        return []
+
+
+def answer_everyday_sound(word, spelling, keep) -> dict:
+    """The person's answer about one everyday spelling: keep it (it is then
+    taken everywhere) or remove it from the entry. {"ok", "sounds_like",
+    "pending"} or {"ok": False, "error"}."""
+    try:
+        words = load_vocab()
+        sounds = load_sounds_like(words)
+        w = " ".join(str(word or "").split()).casefold()
+        sp = " ".join(str(spelling or "").split()).casefold()
+        entry = next((e for e in sounds if e.casefold() == w), None)
+        saved = next((s for s in sounds.get(entry, []) if s.casefold() == sp), None) if entry else None
+        if saved is None or not is_everyday_spelling(saved):
+            return {"ok": False, "error": "That spelling isn't in your list any more."}
+        if keep:
+            kept = load_sounds_kept(words)
+            if saved not in kept.get(entry, []):
+                kept.setdefault(entry, []).append(saved)
+            _write_sounds_kept(kept)
+        else:
+            sounds[entry] = [s for s in sounds[entry] if s != saved]
+            result = _save_sounds_like(sounds, words)
+            if result.get("log"):
+                return {"ok": False, "error": "Couldn't save your list. Try again."}
+        return {"ok": True, "sounds_like": load_sounds_like(words),
+                "pending": everyday_sounds_pending(words)}
+    except Exception:
+        return {"ok": False, "error": "Couldn't save your list. Try again."}
+
+
+def _forget_answers_without_a_spelling(sounds: dict) -> None:
+    """A kept answer goes when its spelling goes, so typing the spelling
+    again later is asked about again. Never fails the save."""
+    try:
+        f = _sounds_kept_file()
+        if not f.exists():
+            return
+        import json
+        raw = json.loads(f.read_text(encoding="utf-8-sig"))
+        kept = _kept_pairs(raw, sounds)
+        if kept != raw:
+            _write_sounds_kept(kept)
+    except Exception:
+        pass
 
 
 def load_settings() -> dict:
@@ -818,7 +944,7 @@ def restore_lost_corrections(log_paths, min_count: int = 3) -> dict:
 
 
 def apply_vocab_changes(transcribed: str, vocab: list[str],
-                        sounds_like=None) -> tuple[str, list[tuple[str, str]]]:
+                        sounds_like=None, kept=None) -> tuple[str, list[tuple[str, str]]]:
     """Apply vocabulary corrections to transcribed text.
 
     Returns (corrected_text, changes), where each change is (heard, used):
@@ -836,26 +962,41 @@ def apply_vocab_changes(transcribed: str, vocab: list[str],
     ``sounds_like`` ({entry: [spellings]}, see clean_sounds_like): an entry
     with spellings is matched by them and by its own spelling, never
     loosely. They are taken first; the loose matching runs on the text
-    between them.
+    between them. A spelling that is one everyday word ("your") is taken
+    everywhere only once the person has kept it (``kept``, read from
+    vocab_sounds_kept.json when None); until then, only where it is written
+    like a name (_written_like_a_name).
     """
-    text, changes, _spans = apply_vocab_marked(transcribed, vocab, sounds_like)
+    text, changes, _spans = apply_vocab_marked(transcribed, vocab, sounds_like, kept)
     return text, changes
 
 
-def apply_vocab_marked(transcribed: str, vocab: list[str], sounds_like=None):
+def _written_like_a_name(text: str, start: int, end: int) -> bool:
+    """Is the word at text[start:end] written as a name would be: a capital
+    first letter, not all capitals, and not the first word of a sentence or
+    line? "I asked Your about it" is; "your report", "Your report is late."
+    and "SEND YOUR REPORT" are not."""
+    heard = text[start:end]
+    if not heard[:1].isupper() or (len(heard) > 1 and heard.isupper()):
+        return False
+    before = text[:start].rstrip(" \t\"'“‘([")
+    return bool(before) and before[-1] not in ".!?…:;\n\r"
+
+
+def apply_vocab_marked(transcribed: str, vocab: list[str], sounds_like=None, kept=None):
     """apply_vocab_changes, plus where each replacement is in the result:
     (text, changes, spans), spans being (start, end) in the returned text.
     Vocabulary's "Try a sentence" marks the words it changed with them."""
     if not vocab or not transcribed:
         return transcribed, [], []
-    rules = _sounds_rules(vocab, sounds_like)
+    rules = _sounds_rules(vocab, sounds_like, kept)
     if not rules:
         return _apply_loose(transcribed, vocab)
-    ruled = {entry.casefold() for _p, entry, _own in rules}
+    ruled = {entry.casefold() for _p, entry, _own, _asked in rules}
     loose = [e for e in vocab if isinstance(e, str)
              and " ".join(e.split()).casefold() not in ruled]
     pattern = re.compile("|".join(
-        rf"(?<![^\W_])(?P<r{n}>{p})(?![^\W_])" for n, (p, _e, _own) in enumerate(rules)),
+        rf"(?<![^\W_])(?P<r{n}>{p})(?![^\W_])" for n, (p, _e, _own, _a) in enumerate(rules)),
         re.IGNORECASE)
     out, changes, spans = [], [], []
     length = 0
@@ -874,8 +1015,13 @@ def apply_vocab_marked(transcribed: str, vocab: list[str], sounds_like=None):
     for m in pattern.finditer(transcribed):
         add_loose(transcribed[pos:m.start()])
         heard = m.group(0)
-        _p, entry, own = rules[int(m.lastgroup[1:])]
-        if (own and heard.casefold() != entry.casefold()
+        _p, entry, own, asked = rules[int(m.lastgroup[1:])]
+        if asked and not _written_like_a_name(transcribed, m.start(), m.end()):
+            # An everyday word nobody has confirmed as a spelling yet: left
+            # as the speaker's own word.
+            out.append(heard)
+            length += len(heard)
+        elif (own and heard.casefold() != entry.casefold()
                 and not any(c == entry for _h, c in fuzzy_match_word(heard, [entry]))):
             # The entry's own spelling without its accents or with a letter
             # doubled ("Siobhan", "cobbie") is fixed only where the loose
@@ -922,19 +1068,25 @@ def _own_letters(token: str) -> str:
 _SOUNDS_SYMBOL_RE = re.compile(r"[^\w\s'’\-]|_")
 
 
-def _sounds_rules(vocab, sounds_like):
-    """(pattern, entry, own) for every spelling of the entries that have
+def _sounds_rules(vocab, sounds_like, kept=None):
+    """(pattern, entry, own, asked) for every spelling of the entries that have
     some, and for each such entry's own spelling (so "posthog" still
     becomes PostHog, and "Siobhan" Siobhán), longest first. ``own`` marks
     a letters-only entry's own spelling, which is checked against the loose
     matching (an entry with digits or symbols is matched whole, as
     _symbol_entries does). An own spelling made only of everyday words
     is left out, as everywhere else ("will" stays "will" with Will
-    listed)."""
+    listed). ``asked`` marks a spelling that is one everyday word and has
+    not been kept (``kept``, {entry: [spellings]}; the saved answers when
+    None): see _written_like_a_name."""
     if not sounds_like or not isinstance(vocab, list):
         return []
     words = clean_vocab(vocab[:VOCAB_MAX_ENTRIES])
     sounds = clean_sounds_like(sounds_like, words)
+    if kept is None:
+        kept = load_sounds_kept(words) if any(
+            is_everyday_spelling(s) for v in sounds.values() for s in v) else {}
+    kept = _kept_pairs(kept, sounds)
     rules = []
     for entry, spellings in sounds.items():
         if len(entry) > VOCAB_MAX_ENTRY_LEN:
@@ -947,7 +1099,8 @@ def _sounds_rules(vocab, sounds_like):
             else:
                 tokens = re.findall(r"[^\W_]+", s)
                 pat = _SOUNDS_SEP.join(re.escape(t) for t in tokens)
-            rules.append((pat, entry, False, len(s)))
+            asked = is_everyday_spelling(s) and s not in kept.get(entry, [])
+            rules.append((pat, entry, False, len(s), asked))
         letters = bool(_ENTRY_RE.fullmatch(entry))
         if letters:
             tokens = re.split(r"[\s'’\-]+", entry)
@@ -958,9 +1111,9 @@ def _sounds_rules(vocab, sounds_like):
             own = _symbol_pattern(entry)
             if not own:
                 continue
-        rules.append((own, entry, letters, len(entry)))
+        rules.append((own, entry, letters, len(entry), False))
     rules.sort(key=lambda r: -r[3])
-    return [(p, e, own) for p, e, own, _n in rules]
+    return [(p, e, own, asked) for p, e, own, _n, asked in rules]
 
 
 def _apply_loose(transcribed: str, vocab: list[str]):
