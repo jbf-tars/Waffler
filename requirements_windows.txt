@@ -11,6 +11,9 @@
 # ── Audio ──────────────────────────────────────────────────────────────
 sounddevice>=0.4.6
 numpy>=1.24.0
+# FLAC encoding of longer clips before upload (libsndfile ships in the
+# wheel's _soundfile_data; PyInstaller's soundfile hook bundles it).
+soundfile>=0.12.1
 
 # ── OpenAI (transcription + styling) ──────────────────────────────────
 openai>=1.0.0

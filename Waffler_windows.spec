@@ -29,6 +29,14 @@ a = Analysis(
         'sounddevice',
         'numpy',
         '_sounddevice_data',
+        # FLAC upload encoder: imported inside a function, so named here;
+        # pyinstaller-hooks-contrib's hook-soundfile collects the
+        # libsndfile library from _soundfile_data.
+        'soundfile',
+        '_soundfile',
+        '_soundfile_data',
+        'cffi',
+        '_cffi_backend',
         'winsound',   # src/sounds.py imports it by name, so PyInstaller cannot see it
         # ── UI ──
         'webview',
