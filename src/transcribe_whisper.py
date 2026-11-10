@@ -2796,21 +2796,33 @@ class WhisperTranscriber:
             # _MIN_UNCOVERED_VOICE_S). This can only hold back a retry the
             # rule above would send. A derailed ending is not judged so: its
             # invented segment sits over the voice it replaced.
+            # What that look found goes in the log line of a retry that is
+            # sent: on 3.16.3 a 56 s take was sent again and the log could not
+            # say whether voice lay outside the segments or there was nothing
+            # to check it against.
+            cover_note = ""
             if not tail_derailed:
                 uncovered = getattr(transcript, "uncovered_s", None)
-                if uncovered is None and getattr(transcript, "spans", None) is not None:
+                had_spans = uncovered is not None or getattr(transcript, "spans", None) is not None
+                if uncovered is None and had_spans:
                     uncovered = _uncovered_voice(audio_bytes, transcript.spans)
                 if uncovered is not None and uncovered < _MIN_UNCOVERED_VOICE_S:
                     _wlog(f"[whisper] {words} words for {speech_s:.1f}s of speech, but "
                           f"Groq's segments cover all but {uncovered:.1f}s of the clear "
                           f"voice: no retry")
                     return transcript
+                if uncovered is not None:
+                    cover_note = f"; {uncovered:.1f}s of clear voice is outside Groq's segments"
+                elif had_spans:
+                    cover_note = "; the audio could not be measured against Groq's segments"
+                else:
+                    cover_note = "; no segments to check it against"
             factor = _RETRY_IMPROVEMENT_FACTOR
             if tail_derailed:
                 factor = _TAIL_RETRY_IMPROVEMENT_FACTOR
                 why_suspect = "ends on a known decoder-derailment phrase"
             else:
-                why_suspect = f"{wps:.2f} w/s is below {_MIN_WORDS_PER_SPEECH_SEC}"
+                why_suspect = f"{wps:.2f} w/s is below {_MIN_WORDS_PER_SPEECH_SEC}{cover_note}"
             first_provider = getattr(self, "_last_cloud_provider", None)
             _wlog(f"[whisper] SUSPICIOUS transcript: {words} words for "
                   f"{speech_s:.1f}s of speech ({why_suspect}) via "

@@ -226,6 +226,47 @@ def test_a_skipped_retry_is_logged_without_words(monkeypatch):
     assert rig.t.last_retry_fired is False
 
 
+@pytest.mark.parametrize("label,transcript,audio,says", [
+    ("clear voice the segments missed", heard(words(SLOW), PHRASES[:3]), "clean",
+     "of clear voice is outside Groq's segments"),
+    ("plain text, no segments", words(SLOW), "clean", "no segments to check it against"),
+    ("segments with no times", heard(words(SLOW), None), "clean", "no segments to check it against"),
+    ("audio that cannot be measured", heard(words(SLOW), PHRASES), "odd",
+     "the audio could not be measured against Groq's segments"),
+])
+def test_a_retry_that_is_sent_says_what_the_segments_showed(monkeypatch, label, transcript, audio, says):
+    """On 3.16.3 a 56 s take logged "SUSPICIOUS transcript ... retrying" and
+    nothing about its segments, so the log could not say whether the check had
+    found voice outside them or had nothing to check. The line now says which."""
+    lines = []
+    monkeypatch.setattr(tw, "_wlog", lines.append)
+    rig = Rig(monkeypatch)
+    audio = CLEAN if audio == "clean" else b"not a wav at all"
+    rig.t._measured_speech = (audio, 30.0)
+    rig.t._retry_if_incomplete(audio, transcript)
+    assert rig.calls == ["groq"], label
+    suspicious = [line for line in lines if "SUSPICIOUS" in line]
+    assert len(suspicious) == 1 and says in suspicious[0], (label, suspicious)
+    assert not any("word word" in line for line in lines)
+
+
+def test_the_uncovered_seconds_are_in_the_retry_line(monkeypatch):
+    lines = []
+    monkeypatch.setattr(tw, "_wlog", lines.append)
+    Rig(monkeypatch).retry(heard(words(SLOW), PHRASES[:3]))
+    line = next(line for line in lines if "SUSPICIOUS" in line)
+    measured = tw._uncovered_voice(CLEAN, PHRASES[:3])
+    assert f"{measured:.1f}s of clear voice is outside Groq's segments" in line
+
+
+def test_a_derailed_ending_does_not_claim_a_segment_check(monkeypatch):
+    lines = []
+    monkeypatch.setattr(tw, "_wlog", lines.append)
+    Rig(monkeypatch).retry(heard(words(120) + ". And the rest of the team.", PHRASES))
+    line = next(line for line in lines if "SUSPICIOUS" in line)
+    assert "segments" not in line
+
+
 # ── where the spans come from ───────────────────────────────────────────────
 
 def seg(text, start, end, nsp=0.05):
