@@ -1522,6 +1522,16 @@ Transcript: {transcript}"""
         "npm npx pnpm yarn git pip sudo curl wget ssh grep cd ls kubectl brew apt vim bash zsh "
         "sed awk cron nginx".split())
 
+    @staticmethod
+    def _small_vocabulary() -> frozenset:
+        """The Vocabulary entries written in lower case ("pywebview"): the
+        spelling the person chose, at the start of a sentence too."""
+        try:
+            from transcribe_whisper import load_vocab
+            return frozenset(w for w in load_vocab() if isinstance(w, str) and w == w.lower())
+        except Exception:
+            return frozenset()
+
     def _capitalise_opening(self, text: str, raw: str) -> str:
         """Give the answer's first word its capital when the model left it small.
 
@@ -1532,7 +1542,8 @@ Transcript: {transcript}"""
         capital (the answer is in sentence case, so a small first letter is a
         slip). A take the speaker kept in lower case throughout stays that
         way, and so does a first word that is not a plain lower-case word
-        (iPhone, example.com, src/app.py, x-ray) or is a command (npm, git).
+        (iPhone, example.com, src/app.py, x-ray), or is a command (npm, git)
+        or a Vocabulary entry written small.
         """
         if not text:
             return text
@@ -1542,7 +1553,7 @@ Transcript: {transcript}"""
             return text
         word = re.match(r"\S+", text[i:]).group(0).rstrip(".,;:!?…\"'”’)]")
         if (not self._PLAIN_WORD_RE.fullmatch(word) or word != word.lower()
-                or word in self._SMALL_OPENERS):
+                or word in self._SMALL_OPENERS or word in self._small_vocabulary()):
             return text
         sentence_case = any(
             m.group(1).isupper() and not (m.group(1) == "I" and not m.group(2).isalpha())

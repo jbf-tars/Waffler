@@ -73,6 +73,20 @@ def test_everything_else_is_left_as_the_model_wrote_it(styled, raw):
     assert S._capitalise_opening(styled, raw) == styled
 
 
+def test_a_vocabulary_entry_written_small_keeps_its_spelling(monkeypatch):
+    import transcribe_whisper as tw
+    text = "pywebview crashes on launch. It worked yesterday."
+    monkeypatch.setattr(tw, "load_vocab", lambda: ["Waffler", "pywebview"])
+    assert S._capitalise_opening(text, text) == text
+    monkeypatch.setattr(tw, "load_vocab", lambda: ["Waffler"])
+    assert S._capitalise_opening(text, text) == "Pywebview crashes on launch. It worked yesterday."
+
+    def broken():
+        raise OSError("unreadable")
+    monkeypatch.setattr(tw, "load_vocab", broken)
+    assert S._capitalise_opening(text, text).startswith("Pywebview")
+
+
 def test_a_list_or_a_line_break_does_not_hide_the_first_word():
     assert S._capitalise_opening("the plan:\n\n1. Order the skip.\n2. Book the electrician.",
                                  "So the plan number one order the skip number two book the electrician"
