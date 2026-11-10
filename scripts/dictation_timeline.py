@@ -491,6 +491,9 @@ def parse(lines: Iterable[str]) -> Report:
             if rec is not None:
                 rec.flags.append("input changed during the take")
             continue
+        if msg.startswith("[audio-monitor] the stream stays on"):
+            bump("  stream left as it was (on the best ranked microphone)")
+            continue
         if msg.startswith("[audio-monitor] monitoring stream restarted"):
             bump("stream restarted for it while idle")
             continue

@@ -188,6 +188,9 @@ class AudioDeviceMonitor:
         self._input_idle_s = input_idle_s
         self._woke_at: Optional[float] = None
         self._source: Optional[str] = None      # "live" or "portaudio", once known
+        # The inputs the poll now running read (None when it could not), for a
+        # handler of ``on_change`` that needs to know who is here.
+        self.last_devices: Optional[list] = None
         self._baselined = False
         # What to try again on each poll until it works: (function, polls so far).
         self._deferred: Optional[list] = None
@@ -338,6 +341,7 @@ class AudioDeviceMonitor:
             devices = self._read_devices()
         except Exception as e:
             self._log(f"[audio-monitor] device list not read: {type(e).__name__}")
+        self.last_devices = devices
         default = _md.default_of(devices) if devices else None
         # A list given to the monitor (a test's) is the whole truth: ask the machine's
         # own default input only when the monitor is reading the machine's list itself.
@@ -381,9 +385,35 @@ class AudioDeviceMonitor:
             self._stop.wait(self.POLL_INTERVAL_S)
 
 
+def stream_can_stay(audio, devices, ranking) -> bool:
+    """The system's input changed: is the open stream still the right one, so
+    that it need not be stopped and started? Only when all of this is so: there
+    is a ranking; the stream is delivering audio and nothing has flagged it
+    stale; and the microphone it is on is, in ``devices`` (the inputs here
+    now), the best ranked one that is here. That is the microphone a new
+    stream would be opened on, so a restart would change nothing, and every
+    restart is a stop and a start inside macOS's audio (where the 3.16.2
+    deadlock was caught): AirPods coming and going cost one Mac 33 of them in
+    twelve days with the built-in microphone ranked first. Anything else, and
+    anything that cannot be asked, is False: restart, as before."""
+    try:
+        if audio is None or not devices or not ranking:
+            return False
+        if not audio.is_delivering() or not audio.stream_is_current():
+            return False
+        opened = audio.opened_device()
+        if not isinstance(opened, str) or not opened:
+            return False
+        best = _md.first_present(ranking, _md.distinct(devices))
+        return best is not None and _md.same_name(opened, best.name)
+    except Exception:
+        return False
+
+
 def restart_stream_when_idle(audio, monitor, new_name: str, log: Callable[[str], None],
                              busy: Optional[Callable[[], bool]] = None,
-                             system_input: bool = True) -> None:
+                             system_input: bool = True,
+                             keep: Optional[Callable[[], bool]] = None) -> None:
     """The system's default input changed: open the always-on stream again so it
     is on the microphone now in use. If a take is being recorded that would lose
     it, so the restart is tried again on each poll of ``monitor`` until the take
@@ -394,9 +424,26 @@ def restart_stream_when_idle(audio, monitor, new_name: str, log: Callable[[str],
     The line in the log names the microphone the stream was opened on. That is
     often not the system's new input (``new_name``): a ranked microphone wins,
     and a Bluetooth headset's is avoided. ``system_input=False`` when
-    ``new_name`` is not a device's name (a change of ranking)."""
+    ``new_name`` is not a device's name (a change of ranking).
+
+    ``keep``: asked first; True means the open stream is still the right one
+    (``stream_can_stay``), and then nothing is restarted or flagged. One that
+    raises is a restart."""
     if audio is None:
         return                                  # the pipeline is still starting
+    if keep is not None:
+        try:
+            staying = bool(keep())
+        except Exception:
+            staying = False
+        if staying:
+            try:
+                opened = audio.opened_device()
+            except Exception:
+                opened = None
+            log(f"[audio-monitor] the stream stays on {opened!r}, the best ranked microphone here; "
+                f"the system's input is now {new_name!r}")
+            return
     # Before anything that can fail or wait: if the restart below cannot run (a
     # take is under way, the stream cannot be opened) the next press opens it.
     flag = getattr(audio, "note_devices_changed", None)

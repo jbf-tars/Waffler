@@ -644,6 +644,11 @@ class AudioRecorder:
             "device": self._opened_device,
         }
 
+    def stream_is_current(self) -> bool:
+        """Nothing has flagged the open stream stale (a change of preference,
+        of devices, a wake): a press would record on it as it is."""
+        return self._stale_reason() is None
+
     def is_delivering(self) -> bool:
         """Is the open stream still handing over audio: did a block arrive in
         the last second? For the wedge recovery (src/wedge_recovery.py), which

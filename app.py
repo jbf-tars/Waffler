@@ -4221,10 +4221,12 @@ def _build_pipeline():
         # ``start_monitoring`` path on ``AudioRecorder``.
         try:
             from src.audio_device_monitor import (
-                AudioDeviceMonitor as _ADM, restart_stream_when_idle as _restart_stream_when_idle)
+                AudioDeviceMonitor as _ADM, restart_stream_when_idle as _restart_stream_when_idle,
+                stream_can_stay as _stream_can_stay)
         except ImportError:
             from audio_device_monitor import (
-                AudioDeviceMonitor as _ADM, restart_stream_when_idle as _restart_stream_when_idle)
+                AudioDeviceMonitor as _ADM, restart_stream_when_idle as _restart_stream_when_idle,
+                stream_can_stay as _stream_can_stay)
 
         def _on_default_input_changed(old_name: str, new_name: str) -> None:
             """Recreate the monitoring stream so the new device is used
@@ -4238,7 +4240,14 @@ def _build_pipeline():
             # again on every poll until it is over: it used to be logged as
             # deferred and never done, which left the stream on a microphone
             # that had stopped delivering (AirPods connecting mid-take).
-            _restart_stream_when_idle(_pipeline.audio, _device_monitor, new_name, _log_to_file)
+            # Not when the stream is already on the best ranked microphone that
+            # is here (AirPods coming and going beside a ranked built-in one):
+            # a restart would open the same microphone again.
+            def _stays() -> bool:
+                return _stream_can_stay(_pipeline.audio, _device_monitor.last_devices,
+                                        _mic_ranking.ranking_of(_pipeline._read_settings()))
+            _restart_stream_when_idle(_pipeline.audio, _device_monitor, new_name, _log_to_file,
+                                      keep=_stays)
 
         global _device_monitor
         _device_monitor = _ADM(
