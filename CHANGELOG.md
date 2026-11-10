@@ -4,7 +4,7 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [3.17.0] - 2026-11-10
 
 A polish pass over the whole app: what Waffler writes, the window, and how it
 holds up day to day.
