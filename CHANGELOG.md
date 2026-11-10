@@ -6,8 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
-A pass over twelve days of one Mac's logs (80 dictations on 3.16.3 and
-3.16.5), looking at every one that did not end in a paste.
+A polish pass over the whole app: what Waffler writes, the window, and how it
+holds up day to day.
 
 ### Changed
 - **`app.log` no longer holds any of your words.** Two lines put words from a
@@ -50,6 +50,33 @@ A pass over twelve days of one Mac's logs (80 dictations on 3.16.3 and
   in twelve days on one Mac, a fifth of its log on 3.16.5. A wake that
   follows less than five minutes awake is now counted, and the count is
   written once, when you are back or the Mac stays awake.
+- **One name for the Journal.** Settings called the same thing "History" in
+  five places ("History", "Export history", "Delete your history...?", "from
+  your own history", "Your keys and history stay"). They say Journal now, as
+  the page, the search and the export's own messages already did.
+- **"Redo this dictation".** It was "Redo this take", the only place the
+  window said take; the note under Recent recordings and the message when a
+  recording reaches its longest say dictation too.
+- **The Vocabulary's Word column is the widest.** A long name wrapped to four
+  lines beside half-empty columns; it takes three at the default window size
+  and two at the smallest.
+- **Setup's examples are signed Alex.**
+- **The stats row is shorter in a small window.** At the smallest window the
+  row above the Journal (today, this week, the streak) took 172 px of the
+  549 px under the top bar. It takes 101 px now, so the entries get the
+  rest: the week's bars are lower, and the sentence under them stays in the
+  wide margin and in Settings, Usage.
+- **Style says "new dictations" once.** The line under the title repeated the
+  note under the list.
+- **An everyday word as a "sounds like" is asked about first.** Giving
+  "your" as what a name sounds like made Waffler rewrite every "your" you
+  dictated. Typing a one-word everyday spelling on the Vocabulary page now
+  says so in plain words and saves it only if you choose Use it anyway. For
+  one you saved earlier, the page lists it once with Keep and Remove; until
+  you answer, it is changed only where it is written like a name (with a
+  capital in the middle of a sentence), so "your report" stays "your
+  report". Keep makes it change everywhere, as before. Spellings of two or
+  more words, and words that are not everyday ones, work as they did.
 
 ### Fixed
 - **Mac: the first dictation after the Mac wakes keeps its first words.**
@@ -107,61 +134,6 @@ A pass over twelve days of one Mac's logs (80 dictations on 3.16.3 and
   with nothing to say Space had locked it or ended it (62 of the 80 takes
   were hands-free). Only those two presses of Space are logged, never Space
   itself.
-
-### Added
-- **`scripts/dictation_timeline.py`** follows every dictation in `app.log`
-  from the key going down to the paste, and prints for each version of
-  Waffler how the recordings ended, how long each step took, what the
-  microphone was doing, provider failures and what the log is made of. It
-  prints counts and timings and never a line of the log, and it only reads.
-  On that Mac: 46 of 51 recordings on 3.16.3 and 22 of 29 on 3.16.5 ended in
-  a paste, the rest were taps, cancels and three short presses with no words;
-  key up to done was a median 1.9 s and 1.6 s; the pill was on screen 35 to
-  44 ms after the key.
-A pass over every page of the window, in light and dark and at its smallest
-and largest sizes, with invented data: a Journal of 5,000 entries, text in
-Arabic and Hebrew, every error and empty state, and Windows' wording as well
-as the Mac's. What it found is fixed below. Nothing about dictation changes.
-
-### Added
-- **Search shows where it matched.** Each match is marked in the Journal's
-  entries, in any case, beside the Vocabulary's own underline. Cmd+F (Ctrl+F
-  on Windows) goes to the search of the page that is open, the Journal's or
-  the Vocabulary's.
-- **A count beside the search, and our own clear button.** A search shows
-  "12 entries" beside the box ("50+ entries" until the last page is loaded).
-  The x that clears the Journal's and the Vocabulary's search is Waffler's own,
-  the same on Windows and Mac.
-- **Try again where a list did not load.** "Couldn't list your microphones" and
-  "Couldn't read your shortcuts" each have a Try again button.
-- **Enter saves a key.** In Settings, Keys and providers, Enter in a key's box
-  presses Save. The button says "Saving…" and is off until the key is saved or
-  refused, so a second click or Enter cannot send it twice (the Cerebras check
-  takes a moment over the network, and showed nothing while it ran).
-- **Try again in the update dialog.** When a check for updates fails, the
-  dialog has Try again beside Close.
-
-### Changed
-- **One name for the Journal.** Settings called the same thing "History" in
-  five places ("History", "Export history", "Delete your history...?", "from
-  your own history", "Your keys and history stay"). They say Journal now, as
-  the page, the search and the export's own messages already did.
-- **"Redo this dictation".** It was "Redo this take", the only place the
-  window said take; the note under Recent recordings and the message when a
-  recording reaches its longest say dictation too.
-- **The Vocabulary's Word column is the widest.** A long name wrapped to four
-  lines beside half-empty columns; it takes three at the default window size
-  and two at the smallest.
-- **Setup's examples are signed Alex.**
-- **The stats row is shorter in a small window.** At the smallest window the
-  row above the Journal (today, this week, the streak) took 172 px of the
-  549 px under the top bar. It takes 101 px now, so the entries get the
-  rest: the week's bars are lower, and the sentence under them stays in the
-  wide margin and in Settings, Usage.
-- **Style says "new dictations" once.** The line under the title repeated the
-  note under the list.
-
-### Fixed
 - **The Journal stays quick as it grows.** The list was laid out as a flex
   column, which measures every entry again whenever one is added or changes
   height. With 5,000 entries loaded, adding a page of older ones and opening
@@ -205,21 +177,6 @@ as the Mac's. What it found is fixed below. Nothing about dictation changes.
   "Made by one person / MIT licence, no account" wrapped to four.
 - **"Waffler is ready."** The message after setup had the window's only
   exclamation mark.
-A pass over the words themselves: what the clean-up pastes, checked against
-real use.
-
-### Changed
-- **An everyday word as a "sounds like" is asked about first.** Giving
-  "your" as what a name sounds like made Waffler rewrite every "your" you
-  dictated. Typing a one-word everyday spelling on the Vocabulary page now
-  says so in plain words and saves it only if you choose Use it anyway. For
-  one you saved earlier, the page lists it once with Keep and Remove; until
-  you answer, it is changed only where it is written like a name (with a
-  capital in the middle of a sentence), so "your report" stays "your
-  report". Keep makes it change everywhere, as before. Spellings of two or
-  more words, and words that are not everyday ones, work as they did.
-
-### Fixed
 - **A take that comes back without punctuation is punctuated.** Speech to
   text sometimes writes a whole take in lower case with no full stops or
   commas, most often a long one said quickly (about one take in four of
@@ -253,6 +210,31 @@ real use.
   and "finalise".
 
 ### Added
+- **`scripts/dictation_timeline.py`** follows every dictation in `app.log`
+  from the key going down to the paste, and prints for each version of
+  Waffler how the recordings ended, how long each step took, what the
+  microphone was doing, provider failures and what the log is made of. It
+  prints counts and timings and never a line of the log, and it only reads.
+  On that Mac: 46 of 51 recordings on 3.16.3 and 22 of 29 on 3.16.5 ended in
+  a paste, the rest were taps, cancels and three short presses with no words;
+  key up to done was a median 1.9 s and 1.6 s; the pill was on screen 35 to
+  44 ms after the key.
+- **Search shows where it matched.** Each match is marked in the Journal's
+  entries, in any case, beside the Vocabulary's own underline. Cmd+F (Ctrl+F
+  on Windows) goes to the search of the page that is open, the Journal's or
+  the Vocabulary's.
+- **A count beside the search, and our own clear button.** A search shows
+  "12 entries" beside the box ("50+ entries" until the last page is loaded).
+  The x that clears the Journal's and the Vocabulary's search is Waffler's own,
+  the same on Windows and Mac.
+- **Try again where a list did not load.** "Couldn't list your microphones" and
+  "Couldn't read your shortcuts" each have a Try again button.
+- **Enter saves a key.** In Settings, Keys and providers, Enter in a key's box
+  presses Save. The button says "Saving…" and is off until the key is saved or
+  refused, so a second click or Enter cannot send it twice (the Cerebras check
+  takes a moment over the network, and showed nothing while it ran).
+- **Try again in the update dialog.** When a check for updates fails, the
+  dialog has Try again beside Close.
 - **A regression set for the clean-up** (`scripts/cleanup_regression.py`):
   72 invented dictations through the real clean-up, each checked with plain
   rules, covering unpunctuated takes, dictations that read like an
