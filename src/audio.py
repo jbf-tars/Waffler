@@ -826,7 +826,7 @@ class AudioRecorder:
             if not done:
                 raise AudioWedged("PortAudio did not stop")
             if isinstance(value, Exception):
-                print(f"[audio] PortAudio stop failed before stream create: {value}")
+                self._say(f"[audio] PortAudio stop failed before stream create: {value}")
             done, value = self._bounded("sd._initialize", lambda: sd._initialize(),
                                         _INITIALIZE_TIMEOUT_S)
             if not done:
@@ -835,7 +835,7 @@ class AudioRecorder:
                 # Reinit failure (coreaudiod restarting, or PortAudio in a bad
                 # state). Fall through to InputStream creation against what
                 # there is; the next stream tries the restart again.
-                print(f"[audio] PortAudio reinit failed before stream create: {value}")
+                self._say(f"[audio] PortAudio reinit failed before stream create: {value}")
             # ``self._callback_active`` is set true BEFORE start() so the
             # very first callback that fires isn't dropped.
             self._callback_active = True
@@ -931,8 +931,8 @@ class AudioRecorder:
             try:
                 pick = self._device_resolver()
             except Exception as e:
-                print(f"[audio] microphone preference not applied ({type(e).__name__}) "
-                      f"— following the system")
+                self._say(f"[audio] microphone preference not applied ({type(e).__name__}) "
+                          f"— following the system")
                 pick = None
         return _resolve_input_device(pick)
 
@@ -995,7 +995,7 @@ class AudioRecorder:
             if not done:
                 return
             if isinstance(value, Exception):
-                print(f"audio._teardown_stream: stream.stop() failed: {value}")
+                self._say(f"audio._teardown_stream: stream.stop() failed: {value}")
             # 3. Drain — let any in-flight HAL callback complete. We hold
             # `stream` in this local scope for the entire sleep so the
             # InputStream (and its bound-method callback) can't be GC'd.
@@ -1006,7 +1006,7 @@ class AudioRecorder:
             # 4. Release C-level resources and the CFFI closure.
             done, value = self._bounded("stream.close", stream.close, _CLOSE_TIMEOUT_S, keep=stream)
             if done and isinstance(value, Exception):
-                print(f"audio._teardown_stream: stream.close() failed: {value}")
+                self._say(f"audio._teardown_stream: stream.close() failed: {value}")
             # 5. ``stream`` goes out of scope when this function returns —
             # the InputStream is GC-eligible only after the drain window
             # AND after close() has released the CFFI closure.
@@ -1147,7 +1147,7 @@ class AudioRecorder:
             # waited. Finalising now would resurrect a recording the user has
             # already ended, so drop this one instead.
             if self._session != my_session:
-                print("[audio] cold-start superseded during warm-up — not starting")
+                self._say("[audio] cold-start superseded during warm-up — not starting")
                 return
             # Splice pre-roll into the recording buffer FIRST so the first
             # syllable isn't lost.
@@ -1189,7 +1189,7 @@ class AudioRecorder:
                 self._last_chunk_at = time.monotonic()
                 return self._stream is not None
             except Exception as e:
-                print(f"[audio] reopening the stream failed ({type(e).__name__}): {e}")
+                self._say(f"[audio] reopening the stream failed ({type(e).__name__}): {e}")
                 return False
             finally:
                 self._reopening = False
@@ -1231,7 +1231,7 @@ class AudioRecorder:
             self._note_wedge("waiting for the stream lock to stop", _STOP_LOCK_WAIT_S)
         try:
             if locked and self._session != my_session:
-                print("[audio] stop superseded by a newer recording — leaving it alone")
+                self._say("[audio] stop superseded by a newer recording — leaving it alone")
                 return b""
             # Invalidate: no in-flight start() for this session may finalise.
             self._session += 1
@@ -1262,8 +1262,8 @@ class AudioRecorder:
 
         if self._capture_overflows or self._capture_errors:
             # Reported outside the real-time callback, where logging is safe.
-            print(f"[audio] CAPTURE INCOMPLETE: {self._capture_overflows} overflow(s), "
-                  f"{self._capture_errors} callback error(s) during this recording")
+            self._say(f"[audio] CAPTURE INCOMPLETE: {self._capture_overflows} overflow(s), "
+                      f"{self._capture_errors} callback error(s) during this recording")
 
         self.recording = np.concatenate(buf_snapshot, axis=0)
         duration = len(self.recording) / self.sample_rate
@@ -1323,7 +1323,7 @@ class AudioRecorder:
         t.start()
         t.join(timeout=2.0)  # 2.0 = 1.5 watchdog + 0.1 drain headroom + slack
         if t.is_alive():
-            print("audio.shutdown: teardown did not return in 2s — abandoning")
+            self._say("audio.shutdown: teardown did not return in 2s — abandoning")
 
     def start_monitoring(self):
         """Start audio stream for level monitoring only (no recording).

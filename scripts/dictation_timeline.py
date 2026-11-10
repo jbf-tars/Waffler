@@ -282,6 +282,20 @@ def parse(lines: Iterable[str]) -> Report:
                 rec.reopened_mic = msg.split(":", 1)[1].strip()
             bump("microphone opened again at a press")
             continue
+        if msg.startswith("[audio] CAPTURE INCOMPLETE"):
+            bump("takes that lost audio while recording (overflow)")
+            if newest() is not None:
+                newest().flags.append("audio dropped")
+            continue
+        if msg.startswith("[audio] CoreAudio did not answer"):
+            bump("CoreAudio did not answer in time")
+            continue
+        if msg.startswith("[wedge]"):
+            if "restarting Waffler" in msg:
+                bump("  Waffler restarted itself for it")
+            elif "answered again" in msg:
+                bump("  it answered after all: no restart")
+            continue
         if msg.startswith("[audio] opened the microphone again between presses"):
             bump("microphone opened again between presses")
             continue
