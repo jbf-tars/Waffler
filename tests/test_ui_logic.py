@@ -779,7 +779,7 @@ def test_settings_has_six_sections_and_privacy_says_what_is_kept():
     privacy = html[html.index('id="secPrivacy"'):]
     privacy = privacy[:privacy.index("</section>")]
     for part in ('id="recentAudioToggle"', 'onclick="deleteRecentAudio(this)"', 'id="unsentRow"',
-                 'onclick="downloadLogs(this)"', 'onclick="factoryReset()"'):
+                 'onclick="downloadLogs(this)"', 'onclick="factoryReset(this)"'):
         assert part in privacy, part
     app = code_only(read("app.js"))
     for call in ("get_recent_audio()", "set_recent_audio(", "delete_recent_audio()", "get_cleanup_pause()"):

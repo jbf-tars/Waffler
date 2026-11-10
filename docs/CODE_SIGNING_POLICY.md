@@ -122,7 +122,7 @@ keyboard and your clipboard. Specifically:
   sent, and the address of the page is never read.
 - **On your machine.** Your API keys, settings, dictation history and the most
   recent recordings are stored under `~/.waffler-hosted/` on your own computer.
-  Recordings are kept to diagnose transcription faults, to redo a take from
+  Recordings are kept to diagnose transcription faults, to redo a dictation from
   the Journal and to bring back a dictation that a crash cut short; they are
   capped at the last 10 (and about 300 MB in all), and can be switched off or deleted at any time in Settings,
   Privacy and data, which can also delete your history, usage and logs. Each

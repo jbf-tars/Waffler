@@ -118,6 +118,93 @@ A pass over twelve days of one Mac's logs (80 dictations on 3.16.3 and
   a paste, the rest were taps, cancels and three short presses with no words;
   key up to done was a median 1.9 s and 1.6 s; the pill was on screen 35 to
   44 ms after the key.
+A pass over every page of the window, in light and dark and at its smallest
+and largest sizes, with invented data: a Journal of 5,000 entries, text in
+Arabic and Hebrew, every error and empty state, and Windows' wording as well
+as the Mac's. What it found is fixed below. Nothing about dictation changes.
+
+### Added
+- **Search shows where it matched.** Each match is marked in the Journal's
+  entries, in any case, beside the Vocabulary's own underline. Cmd+F (Ctrl+F
+  on Windows) goes to the search of the page that is open, the Journal's or
+  the Vocabulary's.
+- **A count beside the search, and our own clear button.** A search shows
+  "12 entries" beside the box ("50+ entries" until the last page is loaded).
+  The x that clears the Journal's and the Vocabulary's search is Waffler's own,
+  the same on Windows and Mac.
+- **Try again where a list did not load.** "Couldn't list your microphones" and
+  "Couldn't read your shortcuts" each have a Try again button.
+- **Enter saves a key.** In Settings, Keys and providers, Enter in a key's box
+  presses Save. The button says "Saving…" and is off until the key is saved or
+  refused, so a second click or Enter cannot send it twice (the Cerebras check
+  takes a moment over the network, and showed nothing while it ran).
+- **Try again in the update dialog.** When a check for updates fails, the
+  dialog has Try again beside Close.
+
+### Changed
+- **One name for the Journal.** Settings called the same thing "History" in
+  five places ("History", "Export history", "Delete your history...?", "from
+  your own history", "Your keys and history stay"). They say Journal now, as
+  the page, the search and the export's own messages already did.
+- **"Redo this dictation".** It was "Redo this take", the only place the
+  window said take; the note under Recent recordings and the message when a
+  recording reaches its longest say dictation too.
+- **The Vocabulary's Word column is the widest.** A long name wrapped to four
+  lines beside half-empty columns; it takes three at the default window size
+  and two at the smallest.
+- **Setup's examples are signed Alex.**
+- **The stats row is shorter in a small window.** At the smallest window the
+  row above the Journal (today, this week, the streak) took 172 px of the
+  549 px under the top bar. It takes 101 px now, so the entries get the
+  rest: the week's bars are lower, and the sentence under them stays in the
+  wide margin and in Settings, Usage.
+- **Style says "new dictations" once.** The line under the title repeated the
+  note under the list.
+
+### Fixed
+- **The Journal stays quick as it grows.** The list was laid out as a flex
+  column, which measures every entry again whenever one is added or changes
+  height. With 5,000 entries loaded, adding a page of older ones and opening
+  "What you said" each took about 0.5 s; with 1,000, about 60 ms and 40 ms.
+  As a plain block they take about 60 ms and 50 ms at 5,000, and 11 ms and
+  6 ms at 1,000, and the entries sit exactly where they did.
+- **Enter on Later no longer restarts Waffler.** In the "Restart Waffler to use
+  it" dialog (after saving a key), Enter restarted whichever button had focus,
+  so Tab to Later, then Enter, restarted the app. Enter now belongs to the
+  button that has focus, and a second press cannot ask for two restarts.
+- **Windows: the tray, not the menu bar.** Transforms said "use Transform
+  selected text in the menu bar", "the menu bar item" (twice) and, in About,
+  "from Settings or the menu bar". On Windows these say tray.
+- **Windows: no mention of Accessibility.** Transforms and Privacy and data
+  said the selected text is read "with Accessibility or by copying it".
+  Accessibility is a Mac permission; on Windows it is read by copying it, and
+  the three sentences say so there.
+- **About says what is true on each computer.** "Paste that keeps your
+  clipboard, and Paste last (Mac)" read as if Paste last were the Mac's alone.
+  Windows has it, in the tray and as a shortcut, and says so; keeping your
+  clipboard is the Mac's.
+- **Arabic and Hebrew read right to left.** Dictations in a right-to-left
+  language were laid out left to right in the Journal, with the full stop or
+  question mark at the wrong end. Each text, each paragraph, the before and
+  after of a rewrite and the Edit text box now take their direction from
+  their own words, and start at the same left edge as every other entry.
+- **Copy only says "Copied" when it was.** If the clipboard refused the text,
+  the Journal's Copy button still turned to "Copied". It now says "Couldn't
+  copy that. Try again."
+- **"Vocabulary changed ..." keeps its mark.** At the default window size the
+  sentence was too long for its line, so it wrapped whole and left its honey
+  mark alone on the line above. The mark now stays beside the first line (and
+  the pencil beside "Edited by you").
+- **Delete everything cannot be sent twice.** The button is off while Waffler
+  deletes, like Delete my data beside it.
+- **Small text buttons are easier to hit.** "Delete them now", "Show other
+  devices", "How this is estimated", "Which shortcuts can I use?" and the other
+  underlined text buttons were 18 px tall; they answer a click 4 px above and
+  below the words too (24 px, WCAG 2.5.8) and look the same.
+- **Settings' colophon keeps to two lines.** In a window under 960 px wide,
+  "Made by one person / MIT licence, no account" wrapped to four.
+- **"Waffler is ready."** The message after setup had the window's only
+  exclamation mark.
 
 ## [3.16.7] - 2026-11-06
 

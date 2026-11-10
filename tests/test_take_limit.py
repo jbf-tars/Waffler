@@ -263,7 +263,7 @@ def test_at_twenty_minutes_it_stops_and_processes_as_if_the_key_were_let_go(tmp_
     toasts = rig.toasts()
     assert len(toasts) == 2
     assert toasts[1]["heading"] == "Recording stopped"
-    assert toasts[1]["body"] == ("That was 20 minutes, the longest one take can be. "
+    assert toasts[1]["body"] == ("That was 20 minutes, the longest one dictation can be. "
                                  "Waffler is cleaning up what you said.")
     assert rig.resets == [1]                           # a hands-free take does not linger in the hotkey
     assert rig.released == [1]                         # asked once

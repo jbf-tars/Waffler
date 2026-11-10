@@ -119,7 +119,7 @@ def test_privacy_says_what_the_tip_memory_is():
 
 def test_delete_all_my_data_says_it_takes_the_tip_memory_too():
     sec = _privacy()
-    assert "History, usage, recordings, logs and which tips you've seen. Your keys, words, snippets and settings stay." in sec
+    assert "Your Journal, usage, recordings, logs and which tips you've seen. Your keys, words, snippets and settings stay." in sec
 
 
 def test_the_policy_and_readme_say_the_same_thing():

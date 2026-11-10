@@ -60,9 +60,11 @@
         <h1 class="sr-only" id="journalTitle" tabindex="-1">Journal</h1>
         <div class="jhead" id="statStrip">
           <div class="jtitle" aria-hidden="true">Journal</div>
+          <span class="j-search-n" id="searchCount" aria-hidden="true"></span>
           <label class="j-search-wrap">
             <svg class="ic j-search-icon" aria-hidden="true"><use href="#i-search"/></svg>
             <input type="search" id="searchInput" class="j-search-input" placeholder="Search" aria-label="Search the Journal" aria-describedby="searchStatus" autocomplete="off" spellcheck="false" oninput="onSearchInput(this.value)">
+            <button type="button" class="rbtn j-search-clear" id="searchClear" aria-label="Clear the search" hidden onclick="clearSearch()"><svg class="ic" aria-hidden="true"><use href="#i-x"/></svg></button>
           </label>
           <span class="sr-only" id="searchStatus" role="status" aria-live="polite"></span>
         </div>
@@ -237,6 +239,7 @@
           <div class="sheet mic-sheet" id="micSheet">
             <div class="row row-mic" id="micNow">
               <div class="row-main"><div class="row-t" id="micNowTitle">Follow the system's microphone</div><div class="row-d" id="micNowDesc"></div></div>
+              <button type="button" class="btn btn-sec btn-sm" id="micRetry" hidden onclick="retryMicrophones(this)">Try again</button>
               <div class="mic-level" id="micLevel" hidden><span id="micLevelLabel">Say something</span><span class="meter" id="micMeter" aria-hidden="true"></span></div>
             </div>
             <ol class="mic-rank" id="micRank" aria-label="Your microphones, best first"></ol>
@@ -297,7 +300,7 @@
               <input type="checkbox" class="tog" role="switch" id="startAtLoginToggle" aria-label="Start Waffler when I turn on my computer" onchange="setStartAtLogin(this.checked)">
             </div>
             <div class="row">
-              <div class="row-main"><div class="row-t">Run setup again</div><div class="row-d">Your keys and history stay as they are.</div></div>
+              <div class="row-main"><div class="row-t">Run setup again</div><div class="row-d">Your keys and Journal stay as they are.</div></div>
               <button type="button" class="btn btn-sec btn-sm" onclick="runSetupAgain()">Run setup</button>
             </div>
           </div>
@@ -313,7 +316,7 @@
              one. -->
         <section class="s-sec" id="secStyle" data-sec="style" hidden>
           <h1 class="ptitle">Style</h1>
-          <p class="pdesc">How your words are finished, for each kind of app. It applies to new dictations.</p>
+          <p class="pdesc">How your words are finished, for each kind of app.</p>
 
           <h2 class="sh2">Clean-up</h2>
           <div class="sheet">
@@ -551,7 +554,7 @@
             <div class="key-editor" id="groqKeyEditor" data-provider="groq">
               <div class="key-editor-row">
                 <input type="password" id="groqKeyInput" class="input input-mono" placeholder="gsk_…" autocomplete="off" spellcheck="false" aria-label="Groq key">
-                <button type="button" class="btn btn-pri btn-sm" onclick="saveGroqKey()">Save</button>
+                <button type="button" class="btn btn-pri btn-sm" onclick="saveGroqKey(this)">Save</button>
                 <button type="button" class="btn btn-quiet btn-sm" onclick="closeKeyEditor(true)">Cancel</button>
               </div>
               <p class="key-help">Make one at <a class="link" href="#" onclick="openKeyPage('groq'); return false;">console.groq.com/keys</a>. Groq keys start with gsk_.</p>
@@ -559,7 +562,7 @@
             <div class="key-editor" id="apiKeyEditor" data-provider="openai">
               <div class="key-editor-row">
                 <input type="password" id="apiKeyInput" class="input input-mono" placeholder="sk-…" autocomplete="off" spellcheck="false" aria-label="OpenAI key">
-                <button type="button" class="btn btn-pri btn-sm" onclick="saveApiKey()">Save</button>
+                <button type="button" class="btn btn-pri btn-sm" onclick="saveApiKey(this)">Save</button>
                 <button type="button" class="btn btn-quiet btn-sm" onclick="closeKeyEditor(true)">Cancel</button>
               </div>
               <p class="key-help">Optional. Make one at <a class="link" href="#" onclick="openKeyPage('openai'); return false;">platform.openai.com/api-keys</a>. OpenAI keys start with sk-.</p>
@@ -567,7 +570,7 @@
             <div class="key-editor" id="cerebrasKeyEditor" data-provider="cerebras">
               <div class="key-editor-row">
                 <input type="password" id="cerebrasKeyInput" class="input input-mono" placeholder="csk-…" autocomplete="off" spellcheck="false" aria-label="Cerebras key">
-                <button type="button" class="btn btn-pri btn-sm" onclick="saveCerebrasKey()">Test and save</button>
+                <button type="button" class="btn btn-pri btn-sm" onclick="saveCerebrasKey(this)">Test and save</button>
                 <button type="button" class="btn btn-quiet btn-sm" onclick="closeKeyEditor(true)">Cancel</button>
               </div>
               <p class="key-help">Optional. Make one at <a class="link" href="#" onclick="openKeyPage('cerebras'); return false;">cloud.cerebras.ai/platform/api-keys</a>. Cerebras keys start with csk-, and Waffler checks it with Cerebras before saving.</p>
@@ -590,6 +593,7 @@
 
           <div class="sheet sc-list" id="shortcutsList" role="list" aria-label="Shortcuts"></div>
           <p class="s-error" id="shortcutsError" role="alert" hidden></p>
+          <button type="button" class="btn btn-sec btn-sm s-retry" id="shortcutsRetry" hidden onclick="retryShortcuts(this)">Try again</button>
 
           <div class="sc-tools">
             <button type="button" class="link-btn" id="shortcutsRulesBtn" aria-expanded="false" aria-controls="shortcutsRules" onclick="toggleShortcutRules()">Which shortcuts can I use?</button>
@@ -644,7 +648,7 @@
              plan is free. -->
         <section class="s-sec" id="secUsage" data-sec="usage" hidden>
           <h1 class="ptitle">Usage</h1>
-          <p class="pdesc">Counted on this computer, from your own history.</p>
+          <p class="pdesc">Counted on this computer, from your own Journal.</p>
 
           <div class="stage stage-plain u-hero" id="usageHero">
             <div class="u-top">
@@ -799,7 +803,7 @@
                  unless the user picks 30, 90 or 365 days. A shorter choice
                  that would delete dictations asks first, in the sheet. -->
             <div class="row" id="historyRow">
-              <div class="row-main"><div class="row-t"><label for="historyKeep">History</label></div><div class="row-d" id="privHistoryDesc">Your dictations, searchable in your Journal. Each notes the app you were in, the language and which services handled it. The app is kept with its kind (email, work chat, personal chat or other), on this computer only. Each also notes how loud your speech arrived, so Waffler can tell you if your microphone is set too low. If you correct a dictation with Edit text, your corrected version is kept with it, on this computer only, for as long as the dictation is.</div></div>
+              <div class="row-main"><div class="row-t"><label for="historyKeep">Journal</label></div><div class="row-d" id="privHistoryDesc">Your dictations, searchable in your Journal. Each notes the app you were in, the language and which services handled it. The app is kept with its kind (email, work chat, personal chat or other), on this computer only. Each also notes how loud your speech arrived, so Waffler can tell you if your microphone is set too low. If you correct a dictation with Edit text, your corrected version is kept with it, on this computer only, for as long as the dictation is.</div></div>
               <select id="historyKeep" class="select" onchange="onHistoryKeepChange(this)">
                 <option value="0">Keep forever</option>
                 <option value="365">Keep for a year</option>
@@ -816,7 +820,7 @@
                  shown in its folder. It is the user's own copy, so Delete all my
                  data does not touch it, and the row says so. -->
             <div class="row" id="exportRow">
-              <div class="row-main"><div class="row-t" id="exportTitle"><label for="exportFormat">Export history</label></div><div class="row-d">Save your Journal as a file on your Desktop. If iCloud or OneDrive backs up your Desktop, it backs this file up too. It never includes your keys. It's your own copy, so Delete all my data leaves it alone. Your Vocabulary and Snippets export from their own page, the same way.</div></div>
+              <div class="row-main"><div class="row-t" id="exportTitle"><label for="exportFormat">Export the Journal</label></div><div class="row-d">Save your Journal as a file on your Desktop. If iCloud or OneDrive backs up your Desktop, it backs this file up too. It never includes your keys. It's your own copy, so Delete all my data leaves it alone. Your Vocabulary and Snippets export from their own page, the same way.</div></div>
               <select id="exportFormat" class="select">
                 <option value="json">JSON</option>
                 <option value="csv">CSV</option>
@@ -827,7 +831,7 @@
             <!-- Owner decision D9: the last 10 recordings are kept, said
                  here, with a switch and "Delete them now" (src/recent_audio.py). -->
             <div class="row" id="recentAudioRow">
-              <div class="row-main"><div class="row-t"><label for="recentAudioToggle">Recent recordings</label></div><div class="row-d"><span id="recentAudioDesc">The audio of your last 10 dictations (fewer if they are very long, about 300 MB at most), so you can redo a take, get one back if Waffler stops, or look into a problem.</span> <button type="button" class="link-btn" id="recentAudioDelete" onclick="deleteRecentAudio(this)">Delete them now</button></div></div>
+              <div class="row-main"><div class="row-t"><label for="recentAudioToggle">Recent recordings</label></div><div class="row-d"><span id="recentAudioDesc">The audio of your last 10 dictations (fewer if they are very long, about 300 MB at most), so you can redo a dictation, get one back if Waffler stops, or look into a problem.</span> <button type="button" class="link-btn" id="recentAudioDelete" onclick="deleteRecentAudio(this)">Delete them now</button></div></div>
               <input type="checkbox" class="tog" role="switch" id="recentAudioToggle" checked onchange="setRecentAudio(this.checked)">
             </div>
             <!-- Recordings that were not turned into text (Journal "Not sent"
@@ -839,7 +843,7 @@
             <!-- Transforms (beta): selected text is read and sent only when a
                  transform is used, to the provider the person chose. -->
             <div class="row" id="transformsPrivacyRow">
-              <div class="row-main"><div class="row-t">Transforms</div><div class="row-d">Only when you use a transform, Waffler reads the text you selected, with Accessibility or by copying it, and sends it to your provider on your own key. The text before and after is kept in your Journal, and Delete all my data clears it with the rest.</div></div>
+              <div class="row-main"><div class="row-t">Transforms</div><div class="row-d" id="privTransformsDesc">Only when you use a transform, Waffler reads the text you selected, with Accessibility or by copying it, and sends it to your provider on your own key. The text before and after is kept in your Journal, and Delete all my data clears it with the rest.</div></div>
             </div>
             <!-- Command mode (beta): what is said, and the text near the cursor, are
                  sent only while the shortcut is held, to the provider the person chose. -->
@@ -888,7 +892,7 @@
               </div>
               <!-- Only when a transform is used (Settings, Transforms). -->
               <div class="row">
-                <div class="row-main"><div class="row-t">The text you selected</div><div class="row-d">Only when you use a transform: Waffler reads your selection, through Accessibility or by copying it and putting your clipboard back, and sends it to your provider on your own key. It never reads a password field.</div></div>
+                <div class="row-main"><div class="row-t">The text you selected</div><div class="row-d" id="privSelectedDesc">Only when you use a transform: Waffler reads your selection, through Accessibility or by copying it and putting your clipboard back, and sends it to your provider on your own key. It never reads a password field.</div></div>
               </div>
               <!-- Only when a command is given (Settings, Command mode). -->
               <div class="row">
@@ -915,18 +919,18 @@
                  snippets and settings; deleting those too is the full reset, which
                  asks again on its own. -->
             <div class="row" id="resetRow">
-              <div class="row-main"><div class="row-t" id="resetTitle">Delete all my data</div><div class="row-d">History, usage, recordings, logs and which tips you've seen. Your keys, words, snippets and settings stay.</div></div>
+              <div class="row-main"><div class="row-t" id="resetTitle">Delete all my data</div><div class="row-d">Your Journal, usage, recordings, logs and which tips you've seen. Your keys, words, snippets and settings stay.</div></div>
               <button type="button" class="btn btn-danger-solid btn-sm" id="resetAsk" aria-describedby="resetTitle" onclick="askFactoryReset(true)">Delete…</button>
             </div>
             <div class="row reset-confirm" id="resetConfirm" hidden>
-              <div class="row-main"><div class="row-t">Delete your history, usage, recordings and logs?</div><div class="row-d">This can't be undone. Waffler keeps running with your keys, words and snippets. <a class="link" href="#" id="resetKeysAsk" onclick="askFactoryResetKeys(true); return false;">Delete my keys and settings too</a></div></div>
+              <div class="row-main"><div class="row-t">Delete your Journal, usage, recordings and logs?</div><div class="row-d">This can't be undone. Waffler keeps running with your keys, words and snippets. <a class="link" href="#" id="resetKeysAsk" onclick="askFactoryResetKeys(true); return false;">Delete my keys and settings too</a></div></div>
               <button type="button" class="btn btn-sec btn-sm" id="resetNo" onclick="askFactoryReset(false)">Keep it</button>
               <button type="button" class="btn btn-danger-solid btn-sm" id="resetYes" onclick="deleteMyData(this)">Delete my data</button>
             </div>
             <div class="row reset-confirm" id="resetKeysConfirm" hidden>
               <div class="row-main"><div class="row-t">Delete everything, your keys too?</div><div class="row-d">This can't be undone. Your keys, words, snippets and settings go as well. Waffler closes, and setup starts the next time you open it.</div></div>
               <button type="button" class="btn btn-sec btn-sm" id="resetKeysNo" onclick="askFactoryResetKeys(false)">Keep my keys</button>
-              <button type="button" class="btn btn-danger-solid btn-sm" onclick="factoryReset()">Delete everything</button>
+              <button type="button" class="btn btn-danger-solid btn-sm" onclick="factoryReset(this)">Delete everything</button>
             </div>
           </div>
         </section>
@@ -1007,6 +1011,7 @@
             <label class="j-search-wrap vt-search">
               <svg class="ic j-search-icon" aria-hidden="true"><use href="#i-search"/></svg>
               <input type="search" id="vocabSearch" class="j-search-input" placeholder="Search words" aria-label="Search your words and what they sound like" aria-describedby="vocabSearchStatus" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" oninput="onVocabSearch(this.value)" onkeydown="onVocabSearchKey(event)">
+              <button type="button" class="rbtn j-search-clear" id="vocabSearchClear" aria-label="Clear the search" hidden onclick="clearVocabSearch()"><svg class="ic" aria-hidden="true"><use href="#i-x"/></svg></button>
             </label>
             <label class="vt-sort"><span class="vt-sort-k">Sort</span>
               <select id="vocabSort" class="select" onchange="onVocabSort(this.value)">
@@ -1263,9 +1268,9 @@
               <div><div class="ob-pl">You hold</div><span class="ob-hold-keys"><span class="keys" id="obExampleKeys"></span><span class="ob-hs">and talk</span></span></div>
             </div>
             <div class="ob-rule" aria-hidden="true"></div>
-            <div class="ob-said"><div class="ob-pl">What you said</div><div class="ob-tx">Hi, Sam. <del>Um, so, yeah,</del> for the review, can we do Thursday at two? I'll bring the <del>uh,</del> updated numbers. Cheers, James.</div></div>
+            <div class="ob-said"><div class="ob-pl">What you said</div><div class="ob-tx">Hi, Sam. <del>Um, so, yeah,</del> for the review, can we do Thursday at two? I'll bring the <del>uh,</del> updated numbers. Cheers, Alex.</div></div>
             <div class="ob-join"><span data-waffle="logo" data-size="18"></span><span>Waffler wrote</span></div>
-            <div class="ob-letter"><p>Hi Sam,</p><p>For the review, can we do Thursday at two? I'll bring the updated numbers.</p><p>Cheers,<br>James</p></div>
+            <div class="ob-letter"><p>Hi Sam,</p><p>For the review, can we do Thursday at two? I'll bring the updated numbers.</p><p>Cheers,<br>Alex</p></div>
           </div>
           <div class="ob-footnote">A real result from Waffler, with an example voice.</div>
         </div>
@@ -1356,7 +1361,7 @@
         <p class="sr-only" id="obTryAlert" role="alert"></p>
         <div class="panel ob-suggest">
           <div class="eyebrow">Try saying</div>
-          <p class="ob-suggest-t">“Send it to John, sorry, James, by Wednesday at three.”</p>
+          <p class="ob-suggest-t">“Send it to John, sorry, Alex, by Wednesday at three.”</p>
         </div>
         <div class="panel ob-microw">
           <svg class="ic ob-micicon" aria-hidden="true"><use href="#i-mic"/></svg>
@@ -1459,7 +1464,7 @@
             <div class="ob-notepad">
               <div class="ob-np-title"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg><span>Untitled - Notepad</span><span class="ob-np-ctl"><i>&#8211;</i><i>&#9633;</i><i>&#10005;</i></span></div>
               <div class="ob-np-menu"><span>File</span><span>Edit</span><span>View</span></div>
-              <div class="ob-np-body"><span class="ob-desk-text">Send it to James by Wednesday at three.</span><span class="ob-caret"></span></div>
+              <div class="ob-np-body"><span class="ob-desk-text">Send it to Alex by Wednesday at three.</span><span class="ob-caret"></span></div>
             </div>
             <span class="ob-chip ob-tray-arrow">Waffler<svg class="ic" aria-hidden="true"><use href="#i-arrow"/></svg></span>
             <div class="ob-trayflyout">
@@ -1474,7 +1479,7 @@
             <span class="ob-chip ob-menubar-arrow"><svg class="ic" aria-hidden="true"><use href="#i-chevron-up"/></svg>Waffler lives here</span>
             <div class="ob-textedit">
               <div class="ob-te-title"><span class="ob-dots ob-dots-mac"><i></i><i></i><i></i></span><span>Untitled</span></div>
-              <div class="ob-te-body"><span class="ob-desk-text">Send it to James by Wednesday at three.</span><span class="ob-caret"></span></div>
+              <div class="ob-te-body"><span class="ob-desk-text">Send it to Alex by Wednesday at three.</span><span class="ob-caret"></span></div>
             </div>
           </div>
         </div>

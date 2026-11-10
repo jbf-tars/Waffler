@@ -202,7 +202,7 @@
       : "Couldn't put that entry back. Try again.";
   }
 
-  // What "Redo this take" says when it did not change the entry.
+  // What "Redo this dictation" says when it did not change the entry.
   function redoFailedMessage(reason) {
     return {
       offline: "Couldn't connect, so this entry is unchanged. Check you're online and try again.",
@@ -932,7 +932,7 @@
   }
 
   // "You said", with the words the clean-up left out struck through, as on
-  // the website: "Send it to [John, sorry,] James, by Wednesday at three."
+  // the website: "Send it to [John, sorry,] Alex, by Wednesday at three."
   // A word-level longest common subsequence of the two texts, ignoring case
   // and punctuation. When the clean-up rewrote more than half the words,
   // striking most of the sentence would say nothing useful, so nothing is
@@ -1186,12 +1186,13 @@
     };
   }
 
-  // The line under the shortcut.
-  function transformShortcutLine(view) {
+  // The line under the shortcut. Waffler's menu is in the menu bar on a Mac
+  // and in the tray on Windows (a missing isMac reads as it always did).
+  function transformShortcutLine(view, isMac) {
     if (view && view.hotkey && view.hotkey.length) {
       return 'Select text in any app and press it. The key of the shortcut does not reach the app.';
     }
-    return 'Not set. Choose keys, or use "Transform selected text" in the menu bar.';
+    return `Not set. Choose keys, or use "Transform selected text" in the ${isMac === false ? 'tray' : 'menu bar'}.`;
   }
 
   // What the page says after a save.
@@ -1694,7 +1695,7 @@
   // the computer's own (also the empty state of the list).
   function micStatus(view) {
     if (!view || view.ok === false) {
-      return { title: 'Microphone', desc: "Couldn't list your microphones.", following: false };
+      return { title: 'Microphone', desc: "Couldn't list your microphones.", following: false, failed: true };
     }
     const rows = Array.isArray(view.ranking) ? view.ranking : [];
     const active = rows.find((r) => r.active);
@@ -1842,6 +1843,24 @@
     return heard ? `Heard ${hotkeyName(keys, isMac)}. That's working.` : 'Hold it now to test it.';
   }
 
+  // The sentences that name a part of the computer. index.html holds the
+  // Mac ones; on Windows app.js puts these in their place. Windows has a
+  // tray where a Mac has a menu bar, and no Accessibility permission: there
+  // the selected text is read by copying it (src/selection_copy.py).
+  function platformText(isMac) {
+    const menu = isMac ? 'menu bar' : 'tray';
+    const read = isMac ? 'with Accessibility or by copying it' : 'by copying it';
+    const through = isMac ? 'through Accessibility or by copying it' : 'by copying it';
+    return {
+      menu,
+      transformsDesc: `It is off until you turn it on. When you use a transform, the text you selected is read from the app in front, ${read}, and sent to the provider you chose in Keys and providers. Nothing is read or sent at any other time.`,
+      transformsRun: `The transform the shortcut and the ${menu} item use.`,
+      transformsOff: `Transforms is off, so the shortcut and the ${menu} item do nothing yet.`,
+      privacyTransforms: `Only when you use a transform, Waffler reads the text you selected, ${read}, and sends it to your provider on your own key. The text before and after is kept in your Journal, and Delete all my data clears it with the rest.`,
+      privacySelected: `Only when you use a transform: Waffler reads your selection, ${through} and putting your clipboard back, and sends it to your provider on your own key. It never reads a password field.`,
+    };
+  }
+
   // About: what is new in this version (each line is in CHANGELOG.md).
   const WHATS_NEW = {
     '3.15': [
@@ -1850,16 +1869,20 @@
       'Choose how long your history is kept, and delete it any time.',
     ],
     '3.16': [
-      'Paste that keeps your clipboard, and Paste last (Mac).',
+      // Keeping your clipboard is the Mac's; Paste last is on both.
+      { mac: 'Paste that keeps your clipboard, and Paste last.', win: 'Paste last, from the tray or a shortcut of your own.' },
       'A style for each kind of app, and Clean-up On or Off.',
       'Transforms and Command mode (beta): change text with a shortcut or your voice.',
-      'Check for updates in one click, from Settings or the menu bar.',
+      { mac: 'Check for updates in one click, from Settings or the menu bar.', win: 'Check for updates in one click, from Settings or the tray.' },
     ],
   };
-  function whatsNew(version) {
+  function whatsNew(version, isMac) {
     const m = String(version || '').match(/^(\d+)\.(\d+)/);
     const key = m ? `${m[1]}.${m[2]}` : '';
-    return WHATS_NEW[key] ? { title: `New in ${key}`, items: WHATS_NEW[key].slice() } : null;
+    if (!WHATS_NEW[key]) return null;
+    // A line that differs between a Mac and Windows holds both.
+    const items = WHATS_NEW[key].map((line) => (typeof line === 'string' ? line : (isMac === false ? line.win : line.mac)));
+    return { title: `New in ${key}`, items };
   }
 
   // ── Vocabulary (3.15, Atelier) ────────────────────────────────────────
@@ -2247,6 +2270,59 @@
     return markSegments(s, marks);
   }
 
+  // Where a search matched, inside the pieces markWords made: each piece is
+  // cut at every occurrence of the query (any case, as plain text, the way
+  // journal_data.matches compares), and keeps its own mark. [{text, mark, hit}].
+  function searchMarks(segments, query) {
+    const segs = (Array.isArray(segments) ? segments : []).filter((sg) => sg && typeof sg.text === 'string');
+    const q = String(query || '').trim().toLowerCase();
+    const out = [];
+    segs.forEach((sg) => {
+      const mark = !!sg.mark;
+      const low = sg.text.toLowerCase();
+      // A letter whose lower case is longer or shorter would shift the cut.
+      if (!q || low.length !== sg.text.length) { out.push({ text: sg.text, mark, hit: false }); return; }
+      let pos = 0;
+      for (let at = low.indexOf(q); at >= 0; at = low.indexOf(q, pos)) {
+        if (at > pos) out.push({ text: sg.text.slice(pos, at), mark, hit: false });
+        out.push({ text: sg.text.slice(at, at + q.length), mark, hit: true });
+        pos = at + q.length;
+      }
+      if (pos < sg.text.length || !sg.text.length) out.push({ text: sg.text.slice(pos), mark, hit: false });
+    });
+    return out;
+  }
+
+  // Beside the search box: how many entries are shown for the search. Only
+  // a page at a time is loaded, so until the last page it is "50+ entries".
+  function searchCount(query, count, done) {
+    if (!String(query || '').trim()) return '';
+    const n = Number(count) || 0;
+    if (!n) return '';                       // the page itself says "No entries match"
+    return `${formatCount(n)}${done ? '' : '+'} ${n === 1 && done ? 'entry' : 'entries'}`;
+  }
+
+  // Cmd+F on a Mac, Ctrl+F on Windows: go to the search of the open page.
+  // (Ctrl+F on a Mac moves the cursor forward, so it is left alone.)
+  function isFindKey(ev, isMac) {
+    if (!ev || String(ev.key || '').toLowerCase() !== 'f' || ev.shiftKey || ev.altKey) return false;
+    return isMac ? !!ev.metaKey && !ev.ctrlKey : !!ev.ctrlKey && !ev.metaKey;
+  }
+
+  // Enter in a dialog runs its main button, unless focus is on something
+  // with an Enter of its own: another button (Later), a link, a text box
+  // of several lines or a list. `tag` is the focused element's tagName.
+  function enterRunsDefault(tag) {
+    return !['BUTTON', 'A', 'TEXTAREA', 'SELECT'].includes(String(tag || '').toUpperCase());
+  }
+
+  // copy_item answers true or false (an older bridge answers nothing):
+  // "Copied" is only said when the text reached the clipboard.
+  function copyWorked(result) {
+    if (result === false) return false;
+    return !(result && typeof result === 'object' && result.ok === false);
+  }
+
   // ── Journal (3.15, Atelier) ───────────────────────────────────────────
   // A day's heading: "Today  Monday 5 October", "Friday  2 October".
   function dayHeading(key, today) {
@@ -2630,5 +2706,6 @@
     TYPING_WPM, TYPING_SPEED_PROBLEM, HEAT_LEVELS, formatMinutes, clockHour, hourRange, typingSpeedCheck,
     typingSpeedSaved, weekView, weekStreakView, wpmView, minutesSavedView, peakHourView, topAppsView,
     heatLevel, heatmapView, heatMove,
+    searchMarks, searchCount, isFindKey, enterRunsDefault, copyWorked, platformText,
   };
 });

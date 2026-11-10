@@ -218,6 +218,8 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('emptyEditorLabel').textContent =
     isMacPlatform ? 'Open TextEdit and try it' : 'Open Notepad and try it';
   document.getElementById('themeDesc').textContent = `follows ${isMacPlatform ? 'macOS' : 'Windows'}`;
+  _applyPlatformText();
+  document.addEventListener('keydown', _onFindKey);
 
   // Prevent Mac error sound when space is pressed in the app
   // (Space monitor observes at OS level, but we need to handle it in UI to avoid "bonk" sound)
@@ -236,6 +238,35 @@ document.addEventListener('DOMContentLoaded', () => {
   // announce itself early).
   setTimeout(boot, 300);
 });
+
+// index.html holds the Mac sentences; on Windows the ones that name the
+// menu bar or Accessibility are swapped for Windows' own (logic.js
+// platformText): Waffler's menu is in the tray there, and there is no
+// Accessibility permission.
+function _applyPlatformText() {
+  if (isMacPlatform) return;
+  const t = WL.platformText(false);
+  const put = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
+  put('transformsDesc', t.transformsDesc);
+  put('transformsRunDesc', t.transformsRun);
+  put('transformsOffNote', t.transformsOff);
+  put('privTransformsDesc', t.privacyTransforms);
+  put('privSelectedDesc', t.privacySelected);
+}
+
+// Cmd+F (Ctrl+F on Windows) goes to the search of the page that is open:
+// the Journal's or the Vocabulary's. Not while a dialog or setup is up, and
+// Settings has no search, so the key is left alone there.
+function _onFindKey(e) {
+  if (!WL.isFindKey(e, isMacPlatform)) return;
+  if (_openModalOverlay() || _wizardVisible()) return;
+  const id = _currentPage === 'home' ? 'searchInput' : _currentPage === 'vocabulary' ? 'vocabSearch' : '';
+  const box = id && document.getElementById(id);
+  if (!box || !box.getClientRects().length) return;
+  e.preventDefault();
+  box.focus();
+  box.select();
+}
 
 // A notice card (components.css .notice): an icon tile, a title, a line of
 // detail, actions and a close button. Used for the update notices and the
@@ -471,7 +502,10 @@ async function checkForUpdatesManual() {
   if (r && r.update_available) { openUpdateModalFromCheck(r); return; }
   // The backend's sentence as it is ("Couldn't check for updates. Try
   // again later."), never "GitHub API returned HTTP 403".
-  setUpdateModal(WL.updateCheckView(r));
+  const v = WL.updateCheckView(r);
+  // A check that failed can be made again from the dialog itself.
+  if (v.kind === 'error') { setUpdateModal({ ...v, primaryLabel: 'Try again', primaryHandler: checkForUpdatesManual }); return; }
+  setUpdateModal(v);
 }
 
 // Settings, About: "Up to date" or "3.15.1 available", after a check.
@@ -720,7 +754,7 @@ async function deleteMyData(btn) {
     const r = await pywebview.api.delete_my_data();
     if (r && r.ok) {
       askFactoryReset(false);
-      showToast('Deleted your history, usage, recordings and logs.', 'success', 5000);
+      showToast('Deleted your Journal, usage, recordings and logs.', 'success', 5000);
       await refreshAll();
       await loadSettings();
     } else {
@@ -754,21 +788,24 @@ async function exportHistory(btn) {
   }
 }
 
-async function factoryReset() {
+async function factoryReset(btn) {
   if (!window.pywebview || !window.pywebview.api) return;
+  // Off while it runs, so a second click cannot ask twice.
+  if (btn) btn.disabled = true;
   try {
     const result = await pywebview.api.factory_reset();
     if (result.ok) {
       showToast("Deleting your data. Waffler is closing.", "success");
       // App will quit automatically
-    } else {
-      console.warn('factory_reset failed:', result.error);
-      showToast("Couldn't delete your data. Try again.", "error");
+      return;
     }
+    console.warn('factory_reset failed:', result.error);
+    showToast("Couldn't delete your data. Try again.", "error");
   } catch (e) {
     console.error("factoryReset error:", e);
     showToast("Couldn't delete your data. Try again.", "error");
   }
+  if (btn) btn.disabled = false;
 }
 
 // ── Hotkey Config ────────────────────────────────────────────────────
@@ -1146,6 +1183,14 @@ function _scError(msg) {
   el.hidden = !msg;
 }
 
+// Try again, on "Couldn't read your shortcuts". When they come, the button
+// goes, so focus moves to the first shortcut's button.
+async function retryShortcuts(btn) {
+  if (btn) btn.disabled = true;
+  try { await loadShortcuts(); } finally { if (btn) btn.disabled = false; }
+  if (btn && btn.hidden) { const first = document.querySelector('#secHotkey .row button'); if (first) first.focus(); }
+}
+
 async function loadShortcuts() {
   const seq = ++_scSeq;
   let r = null;
@@ -1155,6 +1200,8 @@ async function loadShortcuts() {
     console.warn('get_shortcuts error:', e);
   }
   if (seq !== _scSeq) return;
+  const retry = document.getElementById('shortcutsRetry');
+  if (retry) retry.hidden = !!(r && r.ok) || !!_shortcuts;
   if (r && r.ok) {
     _shortcuts = r;
     _scError('');
@@ -1373,6 +1420,20 @@ async function renderFeed() {
   drawFeed();
   const said = document.getElementById('searchStatus');
   if (said) said.textContent = WL.searchAnnouncement(query, page.length, _histDone);
+  _updateSearchCount();
+}
+
+// "12 entries" beside the search box (the same count is spoken from
+// #searchStatus, so this one is hidden from screen readers).
+function _updateSearchCount() {
+  const n = document.getElementById('searchCount');
+  if (n) n.textContent = WL.searchCount(_searchText, history.length, _histDone);
+}
+
+// Our own clear button shows while its box holds text.
+function _syncSearchClear(id, value) {
+  const btn = document.getElementById(id);
+  if (btn) btn.hidden = !String(value || '').length;
 }
 
 // Draw `history` from scratch: first run, a search with no matches, or the
@@ -1443,6 +1504,7 @@ async function loadMoreEntries() {
   _histDone = page.length < PAGE_SIZE;
   _appendCards(page);
   _updateMore();
+  _updateSearchCount();
 }
 
 // Older entries load when the end of the list comes near.
@@ -1509,7 +1571,8 @@ function _removeCard(el) {
 async function copyItem(text, btnEl) {
   try {
     if (window.pywebview && window.pywebview.api) {
-      await window.pywebview.api.copy_item(text);
+      // copy_item answers false when the clipboard refused the text.
+      if (!WL.copyWorked(await window.pywebview.api.copy_item(text))) throw new Error('not copied');
     } else {
       await navigator.clipboard.writeText(text);
     }
@@ -1887,16 +1950,16 @@ function makeCard(item, isNew) {
   const qualityLine = (q.chip || q.asSaid || q.reasons.length)
     ? `<p class="j-meta card-reason">${qualityBadge(item)}<span>${escHtml(q.reasons.join(' '))}</span></p>`
     : '';
-  // Redo this take only while its recording is still among the last ten
+  // Redo this dictation only while its recording is still among the last ten
   // kept (get_history says so with can_redo).
   const redoButton = item.can_redo
-    ? `<button type="button" class="btn btn-quiet btn-sm card-redo" aria-label="${escHtml(when ? `Redo this take from ${when}` : 'Redo this take')}">${WI.icon('retry')}<span>Redo this take</span></button>`
+    ? `<button type="button" class="btn btn-quiet btn-sm card-redo" aria-label="${escHtml(when ? `Redo this dictation from ${when}` : 'Redo this dictation')}">${WI.icon('retry')}<span>Redo this dictation</span></button>`
     : '';
   div.innerHTML = `
     <div class="j-g"><div class="j-t">${escHtml(_clock(item.timestamp))}</div><div class="j-w">${WL.formatCount(words)} ${words === 1 ? 'word' : 'words'}</div></div>
     <div class="j-body">
       <div class="j-said-k" hidden>What you said</div>
-      <div class="card-text styled" id="${textId}">${_markedHtml(displayText, changes)}</div>
+      <div class="card-text styled" id="${textId}" dir="auto">${_markedHtml(displayText, changes)}</div>
       ${editedLine}${vocabLine}${qualityLine}
       <p class="j-status" role="status" aria-live="polite" hidden></p>
     </div>
@@ -1961,11 +2024,11 @@ function makeTransformCard(item, isNew) {
       <p class="j-meta tx-head"><span class="chip chip-honey">${WI.icon('pencil')}${escHtml(v.name)}</span><span>${escHtml(v.changesLabel)}</span></p>
       <div class="tx-pane">
         <div class="j-said-k" id="${kid}b">Before</div>
-        <div class="card-text styled tx-text tx-before" role="group" aria-labelledby="${kid}b">${paragraphs(v.beforePieces, 'del')}</div>
+        <div class="card-text styled tx-text tx-before" dir="auto" role="group" aria-labelledby="${kid}b">${paragraphs(v.beforePieces, 'del')}</div>
       </div>
       <div class="tx-pane">
         <div class="j-said-k" id="${kid}a">After</div>
-        <div class="card-text styled tx-text tx-after" role="group" aria-labelledby="${kid}a">${paragraphs(v.afterPieces, 'ins')}</div>
+        <div class="card-text styled tx-text tx-after" dir="auto" role="group" aria-labelledby="${kid}a">${paragraphs(v.afterPieces, 'ins')}</div>
       </div>
       ${v.status ? `<p class="j-meta tx-status">${escHtml(v.status)}</p>` : ''}
       <p class="j-status" role="status" aria-live="polite" hidden></p>
@@ -2025,23 +2088,23 @@ function makeCommandCard(item, isNew) {
     panes = `
       <div class="tx-pane">
         <div class="j-said-k" id="${kid}b">Before</div>
-        <div class="card-text styled tx-text tx-before" role="group" aria-labelledby="${kid}b">${paragraphs(v.beforePieces, 'del')}</div>
+        <div class="card-text styled tx-text tx-before" dir="auto" role="group" aria-labelledby="${kid}b">${paragraphs(v.beforePieces, 'del')}</div>
       </div>
       <div class="tx-pane">
         <div class="j-said-k" id="${kid}a">After</div>
-        <div class="card-text styled tx-text tx-after" role="group" aria-labelledby="${kid}a">${paragraphs(v.afterPieces, 'ins')}</div>
+        <div class="card-text styled tx-text tx-after" dir="auto" role="group" aria-labelledby="${kid}a">${paragraphs(v.afterPieces, 'ins')}</div>
       </div>`;
   } else if (v.action === 'draft') {
     panes = `
       <div class="tx-pane">
         <div class="j-said-k" id="${kid}a">Draft</div>
-        <div class="card-text styled tx-text tx-after" role="group" aria-labelledby="${kid}a"><p>${escHtml(v.after)}</p></div>
+        <div class="card-text styled tx-text tx-after" dir="auto" role="group" aria-labelledby="${kid}a"><p>${escHtml(v.after)}</p></div>
       </div>`;
   } else {
     panes = `
       <div class="tx-pane">
         <div class="j-said-k" id="${kid}q">Question</div>
-        <div class="card-text styled tx-text tx-after" role="group" aria-labelledby="${kid}q"><p>${escHtml(v.query)}</p></div>
+        <div class="card-text styled tx-text tx-after" dir="auto" role="group" aria-labelledby="${kid}q"><p>${escHtml(v.query)}</p></div>
       </div>`;
   }
   const copies = v.action === 'edit'
@@ -2102,7 +2165,7 @@ function beginEdit(item, card) {
   form.setAttribute('aria-label', when ? `Edit the text of the dictation from ${when}` : 'Edit the text of this dictation');
   const keys = isMacPlatform ? 'Cmd+Enter' : 'Ctrl+Enter';
   form.innerHTML = `
-    <textarea class="input j-edit-ta" rows="4" aria-label="Text of this dictation" aria-describedby="${textEl.id}-h" spellcheck="true"></textarea>
+    <textarea class="input j-edit-ta" dir="auto" rows="4" aria-label="Text of this dictation" aria-describedby="${textEl.id}-h" spellcheck="true"></textarea>
     <p class="j-edit-hint" id="${textEl.id}-h">Your version is kept with this dictation, on this computer. Esc cancels, ${keys} saves.</p>
     <p class="s-error j-edit-err" role="alert" hidden></p>
     <div class="j-edit-acts">${WL.isEdited(item) ? '<button type="button" class="btn btn-quiet btn-sm" data-act="reset">Use the pasted text</button>' : ''}<span class="j-edit-sp"></span><button type="button" class="btn btn-quiet btn-sm" data-act="cancel">Cancel</button><button type="submit" class="btn btn-pri btn-sm">Save</button></div>`;
@@ -2279,7 +2342,7 @@ function _suggestionAdded(card, box, row, v, before) {
 }
 
 // A new dictation keeps its recording and pushes the oldest kept one out, so
-// "Redo this take" goes from the entry that has just lost its recording.
+// "Redo this dictation" goes from the entry that has just lost its recording.
 function _trimRedo() {
   let n = 0;
   history.forEach((h) => { if (h.can_redo && ++n > WL.RECENT_AUDIO_KEEP) delete h.can_redo; });
@@ -2289,7 +2352,7 @@ function _trimRedo() {
 // ── Journal: delete, redo, undo ──────────────────────────────────────
 // Delete takes the entry (and the recording kept with it) off the disk at
 // once; what it removed stays in Waffler's memory for a few seconds, and the
-// card's place shows "Entry deleted. Undo" until then. Redo this take sends
+// card's place shows "Entry deleted. Undo" until then. Redo this dictation sends
 // the kept recording through speech to text and the clean-up again and puts
 // the new words in the same place, with an Undo line above it. Neither
 // pastes anything.
@@ -2372,7 +2435,7 @@ async function redoEntry(item, card) {
   try { r = await api.redo_history_item(...WL.entryRef(item)); } catch (e) { r = null; }
   if (!r || !r.ok || !r.item) {
     buttons.forEach((b) => { b.disabled = false; });
-    if (btn) btn.innerHTML = WI.icon('retry') + '<span>Redo this take</span>';
+    if (btn) btn.innerHTML = WI.icon('retry') + '<span>Redo this dictation</span>';
     _cardSay(card, WL.redoFailedMessage(r && r.reason));
     if (r && r.reason === 'missing') {
       // The recording has rotated out since the page was drawn: nothing to redo.
@@ -2388,7 +2451,7 @@ async function redoEntry(item, card) {
   if (at >= 0) history[at] = r.item;
   const fresh = makeCard(r.item, false);
   const when = formatTime(item.timestamp);
-  const row = _makeUndoRow('replaced', when ? `Undo redoing the dictation from ${when}` : 'Undo redoing this take', async () => {
+  const row = _makeUndoRow('replaced', when ? `Undo redoing the dictation from ${when}` : 'Undo redoing this dictation', async () => {
     let res = null;
     try { res = await api.undo_history_change(r.undo); } catch (e) { res = null; }
     if (!res || !res.ok || !res.item) { showToast(WL.undoFailedMessage(res && res.reason), 'error'); return false; }
@@ -2413,8 +2476,13 @@ async function redoEntry(item, card) {
 function _markedHtml(text, changes) {
   const used = (changes || []).map((c) => c.used);
   return String(text || '').split(/\n\s*\n/).map((para) => {
-    const segs = WL.markWords(para, used);
-    return `<p>${segs.map((sg) => (sg.mark ? `<span class="word-hl">${escHtml(sg.text)}</span>` : escHtml(sg.text))).join('')}</p>`;
+    // The Vocabulary's words underlined, and, during a search, where it matched.
+    const segs = WL.searchMarks(WL.markWords(para, used), _searchText);
+    // dir="auto": a paragraph in Arabic or Hebrew runs right to left.
+    return `<p dir="auto">${segs.map((sg) => {
+      const t = sg.hit ? `<mark class="search-hl">${escHtml(sg.text)}</mark>` : escHtml(sg.text);
+      return sg.mark ? `<span class="word-hl">${t}</span>` : t;
+    }).join('')}</p>`;
   }).join('');
 }
 
@@ -2530,6 +2598,14 @@ async function loadMicrophones(force) {
   renderMicrophones();
 }
 
+// Try again, on "Couldn't list your microphones". When the list comes, the
+// button goes, so focus moves to the section's heading.
+async function retryMicrophones(btn) {
+  if (btn) btn.disabled = true;
+  try { await loadMicrophones(true); } finally { if (btn) btn.disabled = false; }
+  if (btn && btn.hidden) { const h = document.getElementById('micHeading'); if (h) h.focus(); }
+}
+
 // Settings opens: the old name stays for loadSettings.
 async function loadAudioDevices() { await loadMicrophones(true); }
 
@@ -2542,6 +2618,8 @@ function renderMicrophones(focus) {
   const desc = document.getElementById('micNowDesc');
   if (title) title.textContent = status.title;
   if (desc) desc.textContent = status.desc;
+  const retry = document.getElementById('micRetry');
+  if (retry) retry.hidden = !status.failed;
   const host = document.getElementById('micRank');
   if (host) {
     host.innerHTML = WL.micRows(view).map((r) => `
@@ -3200,6 +3278,7 @@ function _renderVocabBulk(shown) {
 }
 
 function onVocabSearch(value) {
+  _syncSearchClear('vocabSearchClear', value);
   _vocabQuery = String(value || '');
   renderVocab();
 }
@@ -3207,6 +3286,7 @@ function onVocabSearch(value) {
 function clearVocabSearch() {
   const box = document.getElementById('vocabSearch');
   if (box) box.value = '';
+  _syncSearchClear('vocabSearchClear', '');
   _vocabQuery = '';
   renderVocab();
   if (box) box.focus();
@@ -4173,6 +4253,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const ed = document.getElementById(id);
     if (!ed) return;
     ed.addEventListener('keydown', (e) => {
+      // Enter in the key's box presses Save, as in any form.
+      if (e.key === 'Enter' && e.target && e.target.tagName === 'INPUT') {
+        e.preventDefault();
+        const save = ed.querySelector('.btn-pri');
+        if (save) save.click();
+        return;
+      }
       if (e.key !== 'Escape') return;
       e.preventDefault();
       e.stopPropagation();
@@ -4632,7 +4719,7 @@ function renderTransformsSection() {
     caps.setAttribute('aria-label', v.hotkey.length ? `Transform shortcut: ${v.hotkeyShown}` : '');
   }
   const desc = byId('transformsShortcutDesc');
-  if (desc) desc.textContent = WL.transformShortcutLine(v);
+  if (desc) desc.textContent = WL.transformShortcutLine(v, isMacPlatform);
   const remove = byId('transformsRemove');
   if (remove) remove.hidden = !v.hotkey.length;
 
@@ -5073,7 +5160,10 @@ function showRestartBanner(reason) {
     document.removeEventListener('keydown', onKey);
   };
 
+  let _restarting = false;
   const doRestart = async () => {
+    if (_restarting) return;
+    _restarting = true;
     const btn = document.getElementById('restartModalNow');
     if (btn) {
       btn.disabled = true;
@@ -5092,9 +5182,11 @@ function showRestartBanner(reason) {
     }
   };
 
+  // Enter restarts, unless focus is on a button of its own: Enter on Later
+  // used to restart Waffler.
   const onKey = (e) => {
     if (e.key === 'Escape') { e.preventDefault(); dismiss(); }
-    else if (e.key === 'Enter') { e.preventDefault(); doRestart(); }
+    else if (e.key === 'Enter' && WL.enterRunsDefault(e.target && e.target.tagName)) { e.preventDefault(); doRestart(); }
   };
 
   document.getElementById('restartModalNow').onclick = doRestart;
@@ -5124,12 +5216,31 @@ async function _afterKeySaved(inp, name) {
   await loadSettings();
 }
 
-async function saveGroqKey() {
+// While a key is being saved (Cerebras checks it over the network first):
+// the button is off and says so, and a second click or Enter sends nothing.
+// Answers a function that puts the button back, or null when a save is
+// already on its way.
+let _keySaving = false;
+function _keySaveBusy(inp, btn) {
+  if (_keySaving) return null;
+  _keySaving = true;
+  btn = btn || (inp && inp.parentElement && inp.parentElement.querySelector('.btn-pri'));
+  const label = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.setAttribute('aria-busy', 'true'); btn.textContent = 'Saving…'; }
+  return () => {
+    _keySaving = false;
+    if (btn) { btn.disabled = false; btn.removeAttribute('aria-busy'); btn.textContent = label; }
+  };
+}
+
+async function saveGroqKey(btn) {
   const inp = document.getElementById('groqKeyInput');
   if (!inp) return;
   const val = inp.value.trim();
   if (!val) { _keyError(inp, 'Paste your Groq key first.'); return; }
   if (!val.startsWith('gsk_')) { _keyError(inp, "That isn't a Groq key. Groq keys start with gsk_."); return; }
+  const done = _keySaveBusy(inp, btn);
+  if (!done) return;
   try {
     const r = await pywebview.api.save_settings({ groq_key: val });
     if (r.ok) await _afterKeySaved(inp, 'Groq');
@@ -5139,15 +5250,19 @@ async function saveGroqKey() {
     }
   } catch(e) {
     showToast("Couldn't save the key. Try again.", 'error');
+  } finally {
+    done();
   }
 }
 
-async function saveCerebrasKey() {
+async function saveCerebrasKey(btn) {
   const inp = document.getElementById('cerebrasKeyInput');
   if (!inp) return;
   const val = inp.value.trim();
   if (!val) { _keyError(inp, 'Paste your Cerebras key first.'); return; }
   if (!val.startsWith('csk-')) { _keyError(inp, "That isn't a Cerebras key. Cerebras keys start with csk-."); return; }
+  const done = _keySaveBusy(inp, btn);
+  if (!done) return;
   try {
     // validate_cerebras_key persists on success.
     const r = await pywebview.api.validate_cerebras_key(val);
@@ -5155,15 +5270,19 @@ async function saveCerebrasKey() {
     else showToast(r.error || "Couldn't check that key with Cerebras. Try again in a moment.", 'error', 6000);
   } catch(e) {
     showToast("Couldn't save the key. Try again.", 'error');
+  } finally {
+    done();
   }
 }
 
-async function saveApiKey() {
+async function saveApiKey(btn) {
   const inp = document.getElementById('apiKeyInput');
   if (!inp) return;
   const val = inp.value.trim();
   if (!val) { _keyError(inp, 'Paste your OpenAI key first.'); return; }
   if (!val.startsWith('sk-')) { _keyError(inp, "That isn't an OpenAI key. OpenAI keys start with sk-."); return; }
+  const done = _keySaveBusy(inp, btn);
+  if (!done) return;
   try {
     const r = await pywebview.api.save_settings({ api_key: val });
     if (r.ok) await _afterKeySaved(inp, 'OpenAI');
@@ -5173,6 +5292,8 @@ async function saveApiKey() {
     }
   } catch(e) {
     showToast("Couldn't save the key. Try again.", 'error');
+  } finally {
+    done();
   }
 }
 
@@ -5230,6 +5351,7 @@ let _searchText = '';  // as typed, for "No entries match "…""
 const _renderFeedSoon = WL.debounce(() => renderFeed(), WL.SEARCH_DEBOUNCE_MS);
 
 function onSearchInput(q) {
+  _syncSearchClear('searchClear', q);
   _searchText = String(q || '').trim();
   _searchQuery = _searchText.toLowerCase();
   _renderFeedSoon();
@@ -5240,6 +5362,7 @@ function onSearchInput(q) {
 function clearSearch() {
   const input = document.getElementById('searchInput');
   if (input) { input.value = ''; input.focus(); }
+  _syncSearchClear('searchClear', '');
   _searchText = '';
   _searchQuery = '';
   _renderFeedSoon.cancel();
@@ -6248,7 +6371,7 @@ async function wizCompleteSetup() {
     }
     const r = await pywebview.api.complete_setup();
     if (r.ok) {
-      showToast('Waffler is ready!', 'success');
+      showToast('Waffler is ready.', 'success');
       hideWizard();
       return;
     }
@@ -6407,8 +6530,8 @@ function _renderRecentAudio(s) {
   const now = n ? ` ${n === 1 ? '1 is' : `${n} are`} kept now.` : ' None are kept now.';
   if (desc) {
     desc.textContent = (s.enabled
-      ? `The audio of your last ${s.keep || 10} dictations (fewer if they are very long, about 300 MB at most), so you can redo a take, get one back if Waffler stops, or look into a problem.`
-      : "Off: new recordings are not kept, so a take can't be redone or recovered.") + now;
+      ? `The audio of your last ${s.keep || 10} dictations (fewer if they are very long, about 300 MB at most), so you can redo a dictation, get one back if Waffler stops, or look into a problem.`
+      : "Off: new recordings are not kept, so a dictation can't be redone or recovered.") + now;
   }
   if (del) { del.disabled = !n; del.hidden = !n; }
 }
@@ -6799,7 +6922,7 @@ async function loadAppVersion() {
     const nav = document.getElementById('snavVersion');
     if (nav) nav.textContent = `Version ${ver}`;
     // About: what is new in this version.
-    const news = WL.whatsNew(ver);
+    const news = WL.whatsNew(ver, isMacPlatform);
     const box = document.getElementById('aboutNew');
     if (box) box.hidden = !news;
     if (news) {

@@ -166,8 +166,8 @@ def test_a_card_has_a_labelled_delete_and_redo_only_when_there_is_a_recording():
     app = read("app.js")
     card = func(app, "makeCard")
     assert "const redoButton = item.can_redo" in card
-    assert 'class="btn btn-quiet btn-sm card-redo"' in card and "<span>Redo this take</span>" in card
-    assert "aria-label=\"${escHtml(when ? `Redo this take from ${when}` : 'Redo this take')}\"" in card
+    assert 'class="btn btn-quiet btn-sm card-redo"' in card and "<span>Redo this dictation</span>" in card
+    assert "aria-label=\"${escHtml(when ? `Redo this dictation from ${when}` : 'Redo this dictation')}\"" in card
     assert 'class="rbtn rbtn-sm card-del"' in card
     assert "aria-label=\"${escHtml(when ? `Delete the dictation from ${when}` : 'Delete this dictation')}\"" in card
     assert 'title="Delete"' in card and "WI.icon('trash')" in card
@@ -216,7 +216,7 @@ def test_redo_replaces_the_card_in_place_with_an_undo_above_it_and_says_why_when
     assert "_makeUndoRow('replaced'" in fn and "api.undo_history_change(r.undo)" in fn
     assert "_cardSay(card, WL.redoFailedMessage(r && r.reason))" in fn
     # The card is left as it was on a failure: buttons come back.
-    assert "b.disabled = false" in fn and "<span>Redo this take</span>" in fn
+    assert "b.disabled = false" in fn and "<span>Redo this dictation</span>" in fn
     assert re.search(r"\.j-status", read("style.css")) and 'class="j-status" role="status" aria-live="polite" hidden' in func(app, "makeCard")
 
 
@@ -239,7 +239,7 @@ def test_the_export_row_is_wired_to_the_backend():
     html = read("index.html")
     row = html[html.index('id="exportRow"'):]
     row = row[:row.index("</div>\n            <!--")]
-    assert '<label for="exportFormat">Export history</label>' in row
+    assert '<label for="exportFormat">Export the Journal</label>' in row
     assert 'onclick="exportHistory(this)"' in row and "<span>Export</span>" in row
     assert 'id="exportTitle"' in row and 'aria-describedby="exportTitle"' in row
     assert 'class="select"' in row and 'class="btn btn-sec btn-sm"' in row

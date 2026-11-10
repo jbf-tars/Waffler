@@ -343,7 +343,7 @@ def take_limit_warning():
 
 def take_limit_stopped(minutes: int):
     return ("Recording stopped",
-            f"That was {minutes} minutes, the longest one take can be. "
+            f"That was {minutes} minutes, the longest one dictation can be. "
             "Waffler is cleaning up what you said.")
 
 
