@@ -1875,6 +1875,12 @@
       'Transforms and Command mode (beta): change text with a shortcut or your voice.',
       { mac: 'Check for updates in one click, from Settings or the menu bar.', win: 'Check for updates in one click, from Settings or the tray.' },
     ],
+    '3.17': [
+      'Dictations that came out as one long run-on now get their punctuation.',
+      'Search the Journal: matches are marked, with a count.',
+      'Vocabulary asks before an everyday word becomes a spelling of a name.',
+      { mac: 'The first dictation after your Mac wakes no longer loses its start.', win: 'A tidier window, with the right words for Windows.' },
+    ],
   };
   function whatsNew(version, isMac) {
     const m = String(version || '').match(/^(\d+)\.(\d+)/);
