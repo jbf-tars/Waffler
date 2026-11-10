@@ -9,10 +9,10 @@ def test_the_policy_readme_and_changelog_say_the_same_thing():
     policy = " ".join((ROOT / "docs" / "CODE_SIGNING_POLICY.md").read_text(encoding="utf-8").split())
     for part in ("usage.jsonl", "inflight.json", "notifications.json", "delete any single entry",
                  "export your history", 'is not removed by "Delete all my data"', "the app you were in",
-                 "redo a take from the Journal"):
+                 "redo a dictation from the Journal"):
         assert part in policy, part
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    assert "Delete any entry (with an undo), redo a take" in readme and "JSON, CSV or plain text" in readme
+    assert "Delete any entry (with an undo), redo a dictation" in readme and "JSON, CSV or plain text" in readme
     log = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     unreleased = log[log.index("## [3.16.0]"):log.index("## [3.15.1]")]
     for headline in ("**Delete one entry, and undo it.**", "**Redo this take.**", "**Export history.**",

@@ -60,9 +60,11 @@
         <h1 class="sr-only" id="journalTitle" tabindex="-1">Journal</h1>
         <div class="jhead" id="statStrip">
           <div class="jtitle" aria-hidden="true">Journal</div>
+          <span class="j-search-n" id="searchCount" aria-hidden="true"></span>
           <label class="j-search-wrap">
             <svg class="ic j-search-icon" aria-hidden="true"><use href="#i-search"/></svg>
             <input type="search" id="searchInput" class="j-search-input" placeholder="Search" aria-label="Search the Journal" aria-describedby="searchStatus" autocomplete="off" spellcheck="false" oninput="onSearchInput(this.value)">
+            <button type="button" class="rbtn j-search-clear" id="searchClear" aria-label="Clear the search" hidden onclick="clearSearch()"><svg class="ic" aria-hidden="true"><use href="#i-x"/></svg></button>
           </label>
           <span class="sr-only" id="searchStatus" role="status" aria-live="polite"></span>
         </div>
@@ -237,6 +239,7 @@
           <div class="sheet mic-sheet" id="micSheet">
             <div class="row row-mic" id="micNow">
               <div class="row-main"><div class="row-t" id="micNowTitle">Follow the system's microphone</div><div class="row-d" id="micNowDesc"></div></div>
+              <button type="button" class="btn btn-sec btn-sm" id="micRetry" hidden onclick="retryMicrophones(this)">Try again</button>
               <div class="mic-level" id="micLevel" hidden><span id="micLevelLabel">Say something</span><span class="meter" id="micMeter" aria-hidden="true"></span></div>
             </div>
             <ol class="mic-rank" id="micRank" aria-label="Your microphones, best first"></ol>
@@ -590,6 +593,7 @@
 
           <div class="sheet sc-list" id="shortcutsList" role="list" aria-label="Shortcuts"></div>
           <p class="s-error" id="shortcutsError" role="alert" hidden></p>
+          <button type="button" class="btn btn-sec btn-sm s-retry" id="shortcutsRetry" hidden onclick="retryShortcuts(this)">Try again</button>
 
           <div class="sc-tools">
             <button type="button" class="link-btn" id="shortcutsRulesBtn" aria-expanded="false" aria-controls="shortcutsRules" onclick="toggleShortcutRules()">Which shortcuts can I use?</button>
@@ -827,7 +831,7 @@
             <!-- Owner decision D9: the last 10 recordings are kept, said
                  here, with a switch and "Delete them now" (src/recent_audio.py). -->
             <div class="row" id="recentAudioRow">
-              <div class="row-main"><div class="row-t"><label for="recentAudioToggle">Recent recordings</label></div><div class="row-d"><span id="recentAudioDesc">The audio of your last 10 dictations (fewer if they are very long, about 300 MB at most), so you can redo a take, get one back if Waffler stops, or look into a problem.</span> <button type="button" class="link-btn" id="recentAudioDelete" onclick="deleteRecentAudio(this)">Delete them now</button></div></div>
+              <div class="row-main"><div class="row-t"><label for="recentAudioToggle">Recent recordings</label></div><div class="row-d"><span id="recentAudioDesc">The audio of your last 10 dictations (fewer if they are very long, about 300 MB at most), so you can redo a dictation, get one back if Waffler stops, or look into a problem.</span> <button type="button" class="link-btn" id="recentAudioDelete" onclick="deleteRecentAudio(this)">Delete them now</button></div></div>
               <input type="checkbox" class="tog" role="switch" id="recentAudioToggle" checked onchange="setRecentAudio(this.checked)">
             </div>
             <!-- Recordings that were not turned into text (Journal "Not sent"
@@ -1007,6 +1011,7 @@
             <label class="j-search-wrap vt-search">
               <svg class="ic j-search-icon" aria-hidden="true"><use href="#i-search"/></svg>
               <input type="search" id="vocabSearch" class="j-search-input" placeholder="Search words" aria-label="Search your words and what they sound like" aria-describedby="vocabSearchStatus" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" oninput="onVocabSearch(this.value)" onkeydown="onVocabSearchKey(event)">
+              <button type="button" class="rbtn j-search-clear" id="vocabSearchClear" aria-label="Clear the search" hidden onclick="clearVocabSearch()"><svg class="ic" aria-hidden="true"><use href="#i-x"/></svg></button>
             </label>
             <label class="vt-sort"><span class="vt-sort-k">Sort</span>
               <select id="vocabSort" class="select" onchange="onVocabSort(this.value)">
@@ -1263,9 +1268,9 @@
               <div><div class="ob-pl">You hold</div><span class="ob-hold-keys"><span class="keys" id="obExampleKeys"></span><span class="ob-hs">and talk</span></span></div>
             </div>
             <div class="ob-rule" aria-hidden="true"></div>
-            <div class="ob-said"><div class="ob-pl">What you said</div><div class="ob-tx">Hi, Sam. <del>Um, so, yeah,</del> for the review, can we do Thursday at two? I'll bring the <del>uh,</del> updated numbers. Cheers, James.</div></div>
+            <div class="ob-said"><div class="ob-pl">What you said</div><div class="ob-tx">Hi, Sam. <del>Um, so, yeah,</del> for the review, can we do Thursday at two? I'll bring the <del>uh,</del> updated numbers. Cheers, Alex.</div></div>
             <div class="ob-join"><span data-waffle="logo" data-size="18"></span><span>Waffler wrote</span></div>
-            <div class="ob-letter"><p>Hi Sam,</p><p>For the review, can we do Thursday at two? I'll bring the updated numbers.</p><p>Cheers,<br>James</p></div>
+            <div class="ob-letter"><p>Hi Sam,</p><p>For the review, can we do Thursday at two? I'll bring the updated numbers.</p><p>Cheers,<br>Alex</p></div>
           </div>
           <div class="ob-footnote">A real result from Waffler, with an example voice.</div>
         </div>
@@ -1356,7 +1361,7 @@
         <p class="sr-only" id="obTryAlert" role="alert"></p>
         <div class="panel ob-suggest">
           <div class="eyebrow">Try saying</div>
-          <p class="ob-suggest-t">“Send it to John, sorry, James, by Wednesday at three.”</p>
+          <p class="ob-suggest-t">“Send it to John, sorry, Alex, by Wednesday at three.”</p>
         </div>
         <div class="panel ob-microw">
           <svg class="ic ob-micicon" aria-hidden="true"><use href="#i-mic"/></svg>
@@ -1459,7 +1464,7 @@
             <div class="ob-notepad">
               <div class="ob-np-title"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg><span>Untitled - Notepad</span><span class="ob-np-ctl"><i>&#8211;</i><i>&#9633;</i><i>&#10005;</i></span></div>
               <div class="ob-np-menu"><span>File</span><span>Edit</span><span>View</span></div>
-              <div class="ob-np-body"><span class="ob-desk-text">Send it to James by Wednesday at three.</span><span class="ob-caret"></span></div>
+              <div class="ob-np-body"><span class="ob-desk-text">Send it to Alex by Wednesday at three.</span><span class="ob-caret"></span></div>
             </div>
             <span class="ob-chip ob-tray-arrow">Waffler<svg class="ic" aria-hidden="true"><use href="#i-arrow"/></svg></span>
             <div class="ob-trayflyout">
@@ -1474,7 +1479,7 @@
             <span class="ob-chip ob-menubar-arrow"><svg class="ic" aria-hidden="true"><use href="#i-chevron-up"/></svg>Waffler lives here</span>
             <div class="ob-textedit">
               <div class="ob-te-title"><span class="ob-dots ob-dots-mac"><i></i><i></i><i></i></span><span>Untitled</span></div>
-              <div class="ob-te-body"><span class="ob-desk-text">Send it to James by Wednesday at three.</span><span class="ob-caret"></span></div>
+              <div class="ob-te-body"><span class="ob-desk-text">Send it to Alex by Wednesday at three.</span><span class="ob-caret"></span></div>
             </div>
           </div>
         </div>

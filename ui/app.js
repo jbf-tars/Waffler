@@ -1183,6 +1183,14 @@ function _scError(msg) {
   el.hidden = !msg;
 }
 
+// Try again, on "Couldn't read your shortcuts". When they come, the button
+// goes, so focus moves to the first shortcut's button.
+async function retryShortcuts(btn) {
+  if (btn) btn.disabled = true;
+  try { await loadShortcuts(); } finally { if (btn) btn.disabled = false; }
+  if (btn && btn.hidden) { const first = document.querySelector('#secHotkey .row button'); if (first) first.focus(); }
+}
+
 async function loadShortcuts() {
   const seq = ++_scSeq;
   let r = null;
@@ -1192,6 +1200,8 @@ async function loadShortcuts() {
     console.warn('get_shortcuts error:', e);
   }
   if (seq !== _scSeq) return;
+  const retry = document.getElementById('shortcutsRetry');
+  if (retry) retry.hidden = !!(r && r.ok) || !!_shortcuts;
   if (r && r.ok) {
     _shortcuts = r;
     _scError('');
@@ -1410,6 +1420,20 @@ async function renderFeed() {
   drawFeed();
   const said = document.getElementById('searchStatus');
   if (said) said.textContent = WL.searchAnnouncement(query, page.length, _histDone);
+  _updateSearchCount();
+}
+
+// "12 entries" beside the search box (the same count is spoken from
+// #searchStatus, so this one is hidden from screen readers).
+function _updateSearchCount() {
+  const n = document.getElementById('searchCount');
+  if (n) n.textContent = WL.searchCount(_searchText, history.length, _histDone);
+}
+
+// Our own clear button shows while its box holds text.
+function _syncSearchClear(id, value) {
+  const btn = document.getElementById(id);
+  if (btn) btn.hidden = !String(value || '').length;
 }
 
 // Draw `history` from scratch: first run, a search with no matches, or the
@@ -1480,6 +1504,7 @@ async function loadMoreEntries() {
   _histDone = page.length < PAGE_SIZE;
   _appendCards(page);
   _updateMore();
+  _updateSearchCount();
 }
 
 // Older entries load when the end of the list comes near.
@@ -1925,10 +1950,10 @@ function makeCard(item, isNew) {
   const qualityLine = (q.chip || q.asSaid || q.reasons.length)
     ? `<p class="j-meta card-reason">${qualityBadge(item)}<span>${escHtml(q.reasons.join(' '))}</span></p>`
     : '';
-  // Redo this take only while its recording is still among the last ten
+  // Redo this dictation only while its recording is still among the last ten
   // kept (get_history says so with can_redo).
   const redoButton = item.can_redo
-    ? `<button type="button" class="btn btn-quiet btn-sm card-redo" aria-label="${escHtml(when ? `Redo this take from ${when}` : 'Redo this take')}">${WI.icon('retry')}<span>Redo this take</span></button>`
+    ? `<button type="button" class="btn btn-quiet btn-sm card-redo" aria-label="${escHtml(when ? `Redo this dictation from ${when}` : 'Redo this dictation')}">${WI.icon('retry')}<span>Redo this dictation</span></button>`
     : '';
   div.innerHTML = `
     <div class="j-g"><div class="j-t">${escHtml(_clock(item.timestamp))}</div><div class="j-w">${WL.formatCount(words)} ${words === 1 ? 'word' : 'words'}</div></div>
@@ -2317,7 +2342,7 @@ function _suggestionAdded(card, box, row, v, before) {
 }
 
 // A new dictation keeps its recording and pushes the oldest kept one out, so
-// "Redo this take" goes from the entry that has just lost its recording.
+// "Redo this dictation" goes from the entry that has just lost its recording.
 function _trimRedo() {
   let n = 0;
   history.forEach((h) => { if (h.can_redo && ++n > WL.RECENT_AUDIO_KEEP) delete h.can_redo; });
@@ -2327,7 +2352,7 @@ function _trimRedo() {
 // ── Journal: delete, redo, undo ──────────────────────────────────────
 // Delete takes the entry (and the recording kept with it) off the disk at
 // once; what it removed stays in Waffler's memory for a few seconds, and the
-// card's place shows "Entry deleted. Undo" until then. Redo this take sends
+// card's place shows "Entry deleted. Undo" until then. Redo this dictation sends
 // the kept recording through speech to text and the clean-up again and puts
 // the new words in the same place, with an Undo line above it. Neither
 // pastes anything.
@@ -2410,7 +2435,7 @@ async function redoEntry(item, card) {
   try { r = await api.redo_history_item(...WL.entryRef(item)); } catch (e) { r = null; }
   if (!r || !r.ok || !r.item) {
     buttons.forEach((b) => { b.disabled = false; });
-    if (btn) btn.innerHTML = WI.icon('retry') + '<span>Redo this take</span>';
+    if (btn) btn.innerHTML = WI.icon('retry') + '<span>Redo this dictation</span>';
     _cardSay(card, WL.redoFailedMessage(r && r.reason));
     if (r && r.reason === 'missing') {
       // The recording has rotated out since the page was drawn: nothing to redo.
@@ -2426,7 +2451,7 @@ async function redoEntry(item, card) {
   if (at >= 0) history[at] = r.item;
   const fresh = makeCard(r.item, false);
   const when = formatTime(item.timestamp);
-  const row = _makeUndoRow('replaced', when ? `Undo redoing the dictation from ${when}` : 'Undo redoing this take', async () => {
+  const row = _makeUndoRow('replaced', when ? `Undo redoing the dictation from ${when}` : 'Undo redoing this dictation', async () => {
     let res = null;
     try { res = await api.undo_history_change(r.undo); } catch (e) { res = null; }
     if (!res || !res.ok || !res.item) { showToast(WL.undoFailedMessage(res && res.reason), 'error'); return false; }
@@ -2573,6 +2598,14 @@ async function loadMicrophones(force) {
   renderMicrophones();
 }
 
+// Try again, on "Couldn't list your microphones". When the list comes, the
+// button goes, so focus moves to the section's heading.
+async function retryMicrophones(btn) {
+  if (btn) btn.disabled = true;
+  try { await loadMicrophones(true); } finally { if (btn) btn.disabled = false; }
+  if (btn && btn.hidden) { const h = document.getElementById('micHeading'); if (h) h.focus(); }
+}
+
 // Settings opens: the old name stays for loadSettings.
 async function loadAudioDevices() { await loadMicrophones(true); }
 
@@ -2585,6 +2618,8 @@ function renderMicrophones(focus) {
   const desc = document.getElementById('micNowDesc');
   if (title) title.textContent = status.title;
   if (desc) desc.textContent = status.desc;
+  const retry = document.getElementById('micRetry');
+  if (retry) retry.hidden = !status.failed;
   const host = document.getElementById('micRank');
   if (host) {
     host.innerHTML = WL.micRows(view).map((r) => `
@@ -3243,6 +3278,7 @@ function _renderVocabBulk(shown) {
 }
 
 function onVocabSearch(value) {
+  _syncSearchClear('vocabSearchClear', value);
   _vocabQuery = String(value || '');
   renderVocab();
 }
@@ -3250,6 +3286,7 @@ function onVocabSearch(value) {
 function clearVocabSearch() {
   const box = document.getElementById('vocabSearch');
   if (box) box.value = '';
+  _syncSearchClear('vocabSearchClear', '');
   _vocabQuery = '';
   renderVocab();
   if (box) box.focus();
@@ -5314,6 +5351,7 @@ let _searchText = '';  // as typed, for "No entries match "…""
 const _renderFeedSoon = WL.debounce(() => renderFeed(), WL.SEARCH_DEBOUNCE_MS);
 
 function onSearchInput(q) {
+  _syncSearchClear('searchClear', q);
   _searchText = String(q || '').trim();
   _searchQuery = _searchText.toLowerCase();
   _renderFeedSoon();
@@ -5324,6 +5362,7 @@ function onSearchInput(q) {
 function clearSearch() {
   const input = document.getElementById('searchInput');
   if (input) { input.value = ''; input.focus(); }
+  _syncSearchClear('searchClear', '');
   _searchText = '';
   _searchQuery = '';
   _renderFeedSoon.cancel();
@@ -6491,8 +6530,8 @@ function _renderRecentAudio(s) {
   const now = n ? ` ${n === 1 ? '1 is' : `${n} are`} kept now.` : ' None are kept now.';
   if (desc) {
     desc.textContent = (s.enabled
-      ? `The audio of your last ${s.keep || 10} dictations (fewer if they are very long, about 300 MB at most), so you can redo a take, get one back if Waffler stops, or look into a problem.`
-      : "Off: new recordings are not kept, so a take can't be redone or recovered.") + now;
+      ? `The audio of your last ${s.keep || 10} dictations (fewer if they are very long, about 300 MB at most), so you can redo a dictation, get one back if Waffler stops, or look into a problem.`
+      : "Off: new recordings are not kept, so a dictation can't be redone or recovered.") + now;
   }
   if (del) { del.disabled = !n; del.hidden = !n; }
 }

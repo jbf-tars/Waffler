@@ -16,6 +16,12 @@ as the Mac's. What it found is fixed below. Nothing about dictation changes.
   entries, in any case, beside the Vocabulary's own underline. Cmd+F (Ctrl+F
   on Windows) goes to the search of the page that is open, the Journal's or
   the Vocabulary's.
+- **A count beside the search, and our own clear button.** A search shows
+  "12 entries" beside the box ("50+ entries" until the last page is loaded).
+  The x that clears the Journal's and the Vocabulary's search is Waffler's own,
+  the same on Windows and Mac.
+- **Try again where a list did not load.** "Couldn't list your microphones" and
+  "Couldn't read your shortcuts" each have a Try again button.
 - **Enter saves a key.** In Settings, Keys and providers, Enter in a key's box
   presses Save. The button says "Saving…" and is off until the key is saved or
   refused, so a second click or Enter cannot send it twice (the Cerebras check
@@ -28,6 +34,13 @@ as the Mac's. What it found is fixed below. Nothing about dictation changes.
   five places ("History", "Export history", "Delete your history...?", "from
   your own history", "Your keys and history stay"). They say Journal now, as
   the page, the search and the export's own messages already did.
+- **"Redo this dictation".** It was "Redo this take", the only place the
+  window said take; the note under Recent recordings and the message when a
+  recording reaches its longest say dictation too.
+- **The Vocabulary's Word column is the widest.** A long name wrapped to four
+  lines beside half-empty columns; it takes three at the default window size
+  and two at the smallest.
+- **Setup's examples are signed Alex.**
 - **The stats row is shorter in a small window.** At the smallest window the
   row above the Journal (today, this week, the streak) took 172 px of the
   549 px under the top bar. It takes 101 px now, so the entries get the
@@ -54,11 +67,15 @@ as the Mac's. What it found is fixed below. Nothing about dictation changes.
   said the selected text is read "with Accessibility or by copying it".
   Accessibility is a Mac permission; on Windows it is read by copying it, and
   the three sentences say so there.
+- **About says what is true on each computer.** "Paste that keeps your
+  clipboard, and Paste last (Mac)" read as if Paste last were the Mac's alone.
+  Windows has it, in the tray and as a shortcut, and says so; keeping your
+  clipboard is the Mac's.
 - **Arabic and Hebrew read right to left.** Dictations in a right-to-left
   language were laid out left to right in the Journal, with the full stop or
   question mark at the wrong end. Each text, each paragraph, the before and
   after of a rewrite and the Edit text box now take their direction from
-  their own words.
+  their own words, and start at the same left edge as every other entry.
 - **Copy only says "Copied" when it was.** If the clipboard refused the text,
   the Journal's Copy button still turned to "Copied". It now says "Couldn't
   copy that. Try again."

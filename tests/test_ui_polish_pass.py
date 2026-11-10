@@ -200,9 +200,22 @@ def test_windows_has_a_tray_not_a_menu_bar():
     news_mac, news_win = js("L.whatsNew('3.16.0', true)"), js("L.whatsNew('3.16.0', false)")
     assert news_mac["items"][3].endswith("from Settings or the menu bar.")
     assert news_win["items"][3].endswith("from Settings or the tray.")
-    assert news_mac["items"][:3] == news_win["items"][:3]
-    # Without a platform it reads as it always did.
+    assert news_mac["items"][1:3] == news_win["items"][1:3]
+    # Without a platform it reads as the Mac's.
     assert js("L.whatsNew('3.16.0')") == news_mac
+
+
+@needs_node
+def test_whats_new_says_what_is_true_on_each_computer():
+    """It said "Paste last (Mac)". Paste last is on Windows too (the tray and
+    a shortcut); keeping your clipboard is the Mac's."""
+    mac, win = js("L.whatsNew('3.16.0', true)")["items"][0], js("L.whatsNew('3.16.0', false)")["items"][0]
+    assert mac == "Paste that keeps your clipboard, and Paste last."
+    assert win == "Paste last, from the tray or a shortcut of your own."
+    assert "(Mac)" not in mac + win and "clipboard" not in win
+    app = (ROOT / "app.py").read_text(encoding="utf-8")
+    tray = app[app.index("menu = pystray.Menu("):]
+    assert "_paste_last_async()" in tray[:1500]          # the Windows tray pastes last
 
 
 @needs_node
@@ -296,3 +309,89 @@ def test_the_vocabulary_mark_stays_beside_its_sentence():
     rule = css_rule(css, ".j-meta.card-vocab, .j-meta.card-edited")
     assert "flex-wrap: nowrap" in rule and "align-items: flex-start" in rule
     assert "min-width: 0" in css_rule(css, ".j-meta.card-vocab > span:last-child, .j-meta.card-edited > span")
+
+
+# ── The second round ─────────────────────────────────────────────────────────
+
+def test_setup_uses_an_invented_name():
+    for name in ("index.html", "app.js", "logic.js"):
+        assert "James" not in read(name), name
+    html = visible_text(read("index.html"))
+    assert "Send it to John, sorry, Alex, by Wednesday at three." in html
+    assert html.count("Send it to Alex by Wednesday at three.") == 2
+    assert "Cheers, Alex" in html
+
+
+def test_a_list_that_did_not_load_can_be_asked_for_again():
+    html, app = read("index.html"), read("app.js")
+    assert 'id="micRetry" hidden onclick="retryMicrophones(this)">Try again</button>' in html
+    assert 'id="shortcutsRetry" hidden onclick="retryShortcuts(this)">Try again</button>' in html
+    assert "retry.hidden = !status.failed;" in func(app, "renderMicrophones")
+    assert "await loadMicrophones(true)" in func(app, "retryMicrophones")
+    assert "await loadShortcuts()" in func(app, "retryShortcuts")
+    load = func(app, "loadShortcuts")
+    assert "retry.hidden = !!(r && r.ok) || !!_shortcuts;" in load
+    # hidden really hides them (a .btn is inline-flex)
+    assert ".s-retry[hidden], #micRetry[hidden] { display: none; }" in read("style.css")
+
+
+@needs_node
+def test_only_a_failed_microphone_list_offers_try_again():
+    assert js("L.micStatus(null).failed") is True
+    assert js("L.micStatus({ok: false}).failed") is True
+    assert js("!!L.micStatus({ok: true, ranking: []}).failed") is False
+
+
+@needs_node
+def test_the_search_count_is_short_and_honest():
+    assert js("L.searchCount('kestrel', 12, true)") == "12 entries"
+    assert js("L.searchCount('kestrel', 1, true)") == "1 entry"
+    assert js("L.searchCount('the', 50, false)") == "50+ entries"      # more pages to come
+    assert js("L.searchCount('the', 1250, true)") == "1,250 entries"
+    assert js("L.searchCount('zzz', 0, true)") == ""                   # the page says No entries match
+    assert js("L.searchCount('', 50, false)") == "" and js("L.searchCount('  ', 5, true)") == ""
+
+
+def test_the_count_and_our_own_clear_button_are_on_the_page():
+    html, app, css = read("index.html"), read("app.js"), read("style.css")
+    assert '<span class="j-search-n" id="searchCount" aria-hidden="true"></span>' in html
+    for bid, call in (("searchClear", "clearSearch()"), ("vocabSearchClear", "clearVocabSearch()")):
+        assert f'class="rbtn j-search-clear" id="{bid}" aria-label="Clear the search" hidden onclick="{call}"' in html
+    # the browser's own is put away
+    assert "::-webkit-search-cancel-button" in css and ".j-search-clear[hidden] { display: none; }" in css
+    assert "_syncSearchClear('searchClear', q);" in func(app, "onSearchInput")
+    assert "_syncSearchClear('searchClear', '');" in func(app, "clearSearch")
+    assert "_syncSearchClear('vocabSearchClear', value);" in func(app, "onVocabSearch")
+    assert "_syncSearchClear('vocabSearchClear', '');" in func(app, "clearVocabSearch")
+    assert "WL.searchCount(_searchText, history.length, _histDone)" in func(app, "_updateSearchCount")
+    assert "_updateSearchCount();" in func(app, "renderFeed") and "_updateSearchCount();" in func(app, "loadMoreEntries")
+
+
+def test_the_word_has_the_widest_column_in_the_vocabulary():
+    css = read("style.css")
+    cols = "grid-template-columns: minmax(0, 1.9fr) minmax(0, 1.25fr) 96px 88px 60px;"
+    assert cols in css_rule(css, ".vt-h, .vt-r")
+    assert cols in css_rule(css, ".vt-r.vt-edit")        # a row keeps its columns while it is edited
+
+
+def test_right_to_left_entries_start_at_the_same_left_edge():
+    css = read("style.css")
+    assert "text-align: left" in css_rule(css, ".card-text")
+    assert "text-align: left" in css_rule(css, ".card-text p")
+
+
+def test_the_window_says_dictation_where_it_said_take():
+    for name in ("index.html", "app.js"):
+        text = code_free(read(name))
+        assert not re.search(r"\btakes? (can|from)\b|this take|a take\b", text), name
+    app = read("app.js")
+    assert "<span>Redo this dictation</span>" in app and "Undo redoing this dictation" in app
+    assert "so a dictation can't be redone or recovered" in app
+    msgs = (ROOT / "src" / "user_messages.py").read_text(encoding="utf-8")
+    assert "the longest one dictation can be" in msgs
+
+
+def code_free(src):
+    src = re.sub(r"/\*.*?\*/", "", src, flags=re.S)
+    src = re.sub(r"<!--.*?-->", "", src, flags=re.S)
+    return re.sub(r"(?m)^\s*//.*$", "", src)

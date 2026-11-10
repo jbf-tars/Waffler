@@ -202,7 +202,7 @@
       : "Couldn't put that entry back. Try again.";
   }
 
-  // What "Redo this take" says when it did not change the entry.
+  // What "Redo this dictation" says when it did not change the entry.
   function redoFailedMessage(reason) {
     return {
       offline: "Couldn't connect, so this entry is unchanged. Check you're online and try again.",
@@ -932,7 +932,7 @@
   }
 
   // "You said", with the words the clean-up left out struck through, as on
-  // the website: "Send it to [John, sorry,] James, by Wednesday at three."
+  // the website: "Send it to [John, sorry,] Alex, by Wednesday at three."
   // A word-level longest common subsequence of the two texts, ignoring case
   // and punctuation. When the clean-up rewrote more than half the words,
   // striking most of the sentence would say nothing useful, so nothing is
@@ -1695,7 +1695,7 @@
   // the computer's own (also the empty state of the list).
   function micStatus(view) {
     if (!view || view.ok === false) {
-      return { title: 'Microphone', desc: "Couldn't list your microphones.", following: false };
+      return { title: 'Microphone', desc: "Couldn't list your microphones.", following: false, failed: true };
     }
     const rows = Array.isArray(view.ranking) ? view.ranking : [];
     const active = rows.find((r) => r.active);
@@ -1869,18 +1869,19 @@
       'Choose how long your history is kept, and delete it any time.',
     ],
     '3.16': [
-      'Paste that keeps your clipboard, and Paste last (Mac).',
+      // Keeping your clipboard is the Mac's; Paste last is on both.
+      { mac: 'Paste that keeps your clipboard, and Paste last.', win: 'Paste last, from the tray or a shortcut of your own.' },
       'A style for each kind of app, and Clean-up On or Off.',
       'Transforms and Command mode (beta): change text with a shortcut or your voice.',
-      'Check for updates in one click, from Settings or the menu bar.',
+      { mac: 'Check for updates in one click, from Settings or the menu bar.', win: 'Check for updates in one click, from Settings or the tray.' },
     ],
   };
   function whatsNew(version, isMac) {
     const m = String(version || '').match(/^(\d+)\.(\d+)/);
     const key = m ? `${m[1]}.${m[2]}` : '';
     if (!WHATS_NEW[key]) return null;
-    // On Windows the menu is in the tray.
-    const items = WHATS_NEW[key].map((line) => (isMac === false ? line.replace('or the menu bar.', 'or the tray.') : line));
+    // A line that differs between a Mac and Windows holds both.
+    const items = WHATS_NEW[key].map((line) => (typeof line === 'string' ? line : (isMac === false ? line.win : line.mac)));
     return { title: `New in ${key}`, items };
   }
 
@@ -2292,6 +2293,15 @@
     return out;
   }
 
+  // Beside the search box: how many entries are shown for the search. Only
+  // a page at a time is loaded, so until the last page it is "50+ entries".
+  function searchCount(query, count, done) {
+    if (!String(query || '').trim()) return '';
+    const n = Number(count) || 0;
+    if (!n) return '';                       // the page itself says "No entries match"
+    return `${formatCount(n)}${done ? '' : '+'} ${n === 1 && done ? 'entry' : 'entries'}`;
+  }
+
   // Cmd+F on a Mac, Ctrl+F on Windows: go to the search of the open page.
   // (Ctrl+F on a Mac moves the cursor forward, so it is left alone.)
   function isFindKey(ev, isMac) {
@@ -2696,6 +2706,6 @@
     TYPING_WPM, TYPING_SPEED_PROBLEM, HEAT_LEVELS, formatMinutes, clockHour, hourRange, typingSpeedCheck,
     typingSpeedSaved, weekView, weekStreakView, wpmView, minutesSavedView, peakHourView, topAppsView,
     heatLevel, heatmapView, heatMove,
-    searchMarks, isFindKey, enterRunsDefault, copyWorked, platformText,
+    searchMarks, searchCount, isFindKey, enterRunsDefault, copyWorked, platformText,
   };
 });
