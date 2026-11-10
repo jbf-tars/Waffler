@@ -111,9 +111,12 @@ def count_older(history: list, keep_days: int, now: datetime | None = None) -> i
 # preference, like settings.json, so it stays; Settings, General has "Reset
 # pill position", and factory_reset removes it with the folder. Not in the logs
 # bundle.
+# vocab_sounds_kept.json (src/transcribe_whisper.py) is which everyday words
+# the person chose to keep as a "sounds like": words of the list, no
+# sentences. It stays with the list, like vocab_sounds.json.
 KEPT_FILES = (".env", "settings.json", "config.json", "setup_complete.json",
-              "vocab.json", "vocab_sounds.json", "vocab_stars.json", "snippets.json",
-              "pill_position.json")
+              "vocab.json", "vocab_sounds.json", "vocab_sounds_kept.json", "vocab_stars.json",
+              "snippets.json", "pill_position.json")
 # notifications.json is which tips Waffler has shown, hidden or had closed
 # (src/notifier.py): counts and times only, no text. Deleting it brings the
 # tips back.

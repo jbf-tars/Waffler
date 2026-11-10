@@ -196,7 +196,7 @@ def _dialect_instruction(settings: dict) -> str:
     """
     dialect = settings.get("dialect", "auto")
     if dialect == "en-GB":
-        text = "Use British English spelling (e.g. colour, organise, centre, behaviour, realise, programme, defence, licence, favour, catalogue)."
+        text = "Use British English spelling (e.g. colour, organise, analyse, centre, behaviour, realise, programme, defence, licence, favour, catalogue)."
     elif dialect == "en-US":
         text = "Use American English spelling (e.g. color, organize, center, behavior, realize, program, defense, license, favor, catalog)."
     else:
@@ -205,6 +205,43 @@ def _dialect_instruction(settings: dict) -> str:
     if isinstance(code, str) and _languages.is_valid(code):
         return _languages.language_instruction(code) or text
     return text
+
+
+# Speech to text sometimes writes a whole take in lower case with no
+# punctuation at all (about one take in four in a review of real use, most
+# often the long, fast ones). The prompt asks for punctuation "as the speech
+# flow dictates" and also for the speaker's register to be kept, and the model
+# read such a take as a lower-case register: fillers went, and 200 words were
+# pasted as one unbroken line. For those takes only, a note after the spelling
+# rule says what the missing punctuation is. A take that arrives punctuated is
+# sent exactly what it always was, and the note sits after everything the
+# provider caches, so the cached prompt is the same for both.
+_UNPUNCTUATED_MIN_WORDS = 12
+_UNPUNCTUATED_LONG_WORDS = 30
+_UNPUNCTUATED_MARKS_PER_WORD = 0.04
+_UNPUNCTUATED_NOTE = (
+    "PUNCTUATION NOTE: this transcript came from speech to text with little or no "
+    "punctuation and few capitals. That is a transcription artefact, not the speaker's "
+    "register. Add the full stops, commas and question marks the speech flow dictates, "
+    "and capitalise sentence starts, I, names, days and months. Every other rule above "
+    "still applies: keep every word that is not filler, in the order spoken."
+)
+
+
+def _looks_unpunctuated(transcript: str) -> bool:
+    """A take speech to text returned without its punctuation: fewer than one
+    mark in 25 words, and either long, or starting in lower case, or with no
+    full stop at its end. A short, properly written sentence with no comma in
+    it ("Can you check whether ... yet.") is not one."""
+    text = (transcript or "").strip()
+    words = len(text.split())
+    if words < _UNPUNCTUATED_MIN_WORDS:
+        return False
+    if len(re.findall(r"[.!?,;:]", text)) >= words * _UNPUNCTUATED_MARKS_PER_WORD:
+        return False
+    first = next((c for c in text if c.isalpha()), "")
+    return (words >= _UNPUNCTUATED_LONG_WORDS or first.islower()
+            or text[-1] not in ".!?…")
 
 
 def _style_deadline_for(word_count: int) -> float:
@@ -581,6 +618,97 @@ Transcript: {transcript}"""
         filler_count = sum(1 for w in words if w.lower().strip('.,!?') in hard_fillers)
         return len(words) <= 10 and filler_count / len(words) < 0.15
 
+    # ── Short takes that skip the model ────────────────────────────────────
+    # A take of ten words or fewer is not sent to the model, so nothing gives
+    # it punctuation: when speech to text wrote it in lower case with none,
+    # that is how it was pasted. _sentence_case_short_take gives such a take
+    # its capitals and, where the first words say what it is, a final mark.
+    # It acts only on plain lower-case English words with no punctuation at
+    # all, and never on what may be a command or code.
+    _SHORT_MIN_WORDS = 3
+    _SHORT_MAX_WORDS = 10
+    _SHORT_WORD_RE = re.compile(r"[a-z]+(?:-[a-z]+)*(?:['’](?:s|t|m|re|ve|ll|d))?")
+    # First words of a command line or of code: such a take is pasted as heard.
+    # (with _SMALL_OPENERS, further down).
+    _SHORT_NEVER = frozenset(
+        "pip3 python python3 node docker make cargo go java gcc clang cmake terraform ansible "
+        "helm systemctl chmod chown echo export source nano code tmux conda poetry uv bun deno "
+        "gh aws gcloud az psql mysql redis rm cp mv mkdir cat scp open run select insert update "
+        "delete drop import from def class return const let var function print for while".split())
+    _SHORT_PROPER = {w: w.capitalize() for w in (
+        "monday tuesday wednesday thursday friday saturday sunday january february april "
+        "june july september october november december").split()}
+    _SHORT_WH = frozenset("what when where why who whose which how".split())
+    _SHORT_WH_VERBS = frozenset(
+        "is are was were am do does did can could would should will shall has have had "
+        "about".split())
+    _SHORT_WH_PAIRS = frozenset({("what", "time"), ("how", "many"), ("how", "much"),
+                                 ("how", "long"), ("how", "often"), ("how", "far"), ("how", "old")})
+    _SHORT_PRONOUNS = frozenset("i you we they he she it".split())
+    # A verb before its subject is a question; which subjects each verb takes
+    # that way ("do the dishes" and "have the report ready" are orders).
+    _SHORT_SUBJECTS_3 = frozenset("he she it this that there the my your our their anyone "
+                                  "everyone someone".split())
+    _SHORT_SUBJECTS_ANY = _SHORT_SUBJECTS_3 | frozenset("i you we they these those".split())
+    _SHORT_INVERSIONS = {
+        **dict.fromkeys(("is", "was", "does", "has", "isn't", "wasn't", "doesn't"),
+                        _SHORT_SUBJECTS_3),
+        **dict.fromkeys(("are", "were", "aren't"),
+                        frozenset("you we they there the these those".split())),
+        **dict.fromkeys(("do", "have", "don't"), frozenset("you we they i".split())),
+        **dict.fromkeys(("did", "can", "could", "would", "should", "will", "shall", "must",
+                         "didn't", "can't", "couldn't", "wouldn't", "shouldn't", "won't"),
+                        _SHORT_SUBJECTS_ANY),
+        "am": frozenset({"i"}), "may": frozenset({"i", "we"}),
+    }
+    # Words a sentence does not end on (the take was cut), and endings that
+    # may make it a question ("you got the tickets right").
+    _SHORT_OPEN_ENDS = frozenset(
+        "and but or so because the a an to of with for in on at by from that if my your our "
+        "their is are was were right yeah yes no eh huh okay ok".split())
+
+    def _sentence_case_short_take(self, text: str) -> str:
+        """``text`` with a first capital, "I", days and months, and a final
+        "?" or "." when it is plainly a question or a statement. Only a take
+        of 3 to 10 plain lower-case English words with no punctuation at
+        all; otherwise ``text`` exactly as it came."""
+        try:
+            return self._sentence_cased(text)
+        except Exception:
+            return text
+
+    def _sentence_cased(self, text: str) -> str:
+        words = (text or "").split()
+        if not (self._SHORT_MIN_WORDS <= len(words) <= self._SHORT_MAX_WORDS):
+            return text
+        if text != " ".join(words) or _dictation_language() != "en":
+            return text
+        if not all(self._SHORT_WORD_RE.fullmatch(w) for w in words):
+            return text
+        plain = [w.replace("’", "'") for w in words]
+        if (plain[0] in self._SHORT_NEVER or plain[0] in self._SMALL_OPENERS
+                or self._small_vocabulary() & set(words)):
+            return text
+        first, second, last = plain[0], plain[1], plain[-1]
+        wh = first.split("'")[0] in self._SHORT_WH
+        if wh:
+            question = (first.endswith("'s") or second in self._SHORT_WH_VERBS
+                        or (first, second) in self._SHORT_WH_PAIRS
+                        or (first == "who" and second not in self._SHORT_PRONOUNS))
+        else:
+            question = second in self._SHORT_INVERSIONS.get(first, ())
+        opens_like_one = wh or first in self._SHORT_INVERSIONS
+        out = []
+        for w, p in zip(words, plain):
+            if p == "i" or p.startswith("i'"):
+                w = "I" + w[1:]
+            out.append(self._SHORT_PROPER.get(p, w))
+        out[0] = out[0][0].upper() + out[0][1:]
+        mark = ""
+        if last not in self._SHORT_OPEN_ENDS:
+            mark = "?" if question else ("" if opens_like_one else ".")
+        return " ".join(out) + mark
+
     def style(self, transcript: str, app_context=None):
         """Convert raw transcript to styled text. Returns (styled_text, usage_dict).
 
@@ -597,7 +725,7 @@ Transcript: {transcript}"""
         used to overwrite the first one's while it was still running.
         """
         if self._is_simple(transcript):
-            cleaned = self._basic_clean(transcript)
+            cleaned = self._sentence_case_short_take(self._basic_clean(transcript))
             return cleaned, {"input_tokens": 0, "output_tokens": 0, "api_used": False}
 
         start_time = time.time()
@@ -619,6 +747,9 @@ Transcript: {transcript}"""
             dialect_instruction = _dialect_instruction(load_settings())
         except Exception:
             pass
+
+        if _dictation_language() == "en" and _looks_unpunctuated(transcript):
+            dialect_instruction = f"{dialect_instruction}\n\n{_UNPUNCTUATED_NOTE}"
 
         # Build prompt from the template — transcript goes into the user message.
         prompt = self.prompt_template.format(
@@ -1469,7 +1600,61 @@ Transcript: {transcript}"""
         text = self._strip_em_dashes(text)
         text = self._fix_mid_sentence_caps(text)
         text = self._strip_hallucinations(text, raw)
+        text = self._capitalise_opening(text, raw)
         return self._restore_censored_profanity(text, raw)
+
+    # A later sentence that starts with a capital: the answer is in sentence
+    # case. (A lone "I" is not a sign of it: "yeah i think. I will check".)
+    _LATER_SENTENCE_RE = re.compile(r"[.!?…][\"'”’)\]]*\s+[\"'“‘(\[]*(\w)(\w?)")
+    _OPENING_SKIP_RE = re.compile(r"[\s\"'“‘(\[¿¡]*")
+    _PLAIN_WORD_RE = re.compile(r"[^\W\d_]+(?:['’][^\W\d_]+)*")
+    # Commands that are written small wherever they stand.
+    _SMALL_OPENERS = frozenset(
+        "npm npx pnpm yarn git pip sudo curl wget ssh grep cd ls kubectl brew apt vim bash zsh "
+        "sed awk cron nginx".split())
+
+    @staticmethod
+    def _small_vocabulary() -> frozenset:
+        """The Vocabulary entries written in lower case ("pywebview"): the
+        spelling the person chose, at the start of a sentence too."""
+        try:
+            from transcribe_whisper import load_vocab
+            return frozenset(w for w in load_vocab() if isinstance(w, str) and w == w.lower())
+        except Exception:
+            return frozenset()
+
+    def _capitalise_opening(self, text: str, raw: str) -> str:
+        """Give the answer's first word its capital when the model left it small.
+
+        The model takes an opening filler off ("And yeah the dog got out." ->
+        "the dog got out.") and leaves the next word as it was. The capital is
+        restored when the take itself began with one and its first word is no
+        longer the first, or when a later sentence of the answer starts with a
+        capital (the answer is in sentence case, so a small first letter is a
+        slip). A take the speaker kept in lower case throughout stays that
+        way, and so does a first word that is not a plain lower-case word
+        (iPhone, example.com, src/app.py, x-ray), or is a command (npm, git)
+        or a Vocabulary entry written small.
+        """
+        if not text:
+            return text
+        i = self._OPENING_SKIP_RE.match(text).end()
+        first = text[i:i + 1]
+        if not first.islower() or len(first.upper()) != 1:
+            return text
+        word = re.match(r"\S+", text[i:]).group(0).rstrip(".,;:!?…\"'”’)]")
+        if (not self._PLAIN_WORD_RE.fullmatch(word) or word != word.lower()
+                or word in self._SMALL_OPENERS or word in self._small_vocabulary()):
+            return text
+        sentence_case = any(
+            m.group(1).isupper() and not (m.group(1) == "I" and not m.group(2).isalpha())
+            for m in self._LATER_SENTENCE_RE.finditer(text))
+        if not sentence_case:
+            raw_word = re.search(r"[^\W\d_]+", raw or "")
+            if not (raw_word and raw_word.group(0)[0].isupper()
+                    and raw_word.group(0).lower() != word):
+                return text
+        return text[:i] + first.upper() + text[i + 1:]
 
     def _style_groq(self, prompt: str, start_time: float):
         """Style using Groq — ~200-400ms."""
@@ -1861,6 +2046,59 @@ Transcript: {transcript}"""
 
         return text.strip()
 
+    _FILLER_PAUSE = r"(?:\.\.\.|[,;:…]|[-–—](?=\s))"
+    _NEVER_BEFORE_A_COMMA = frozenset(
+        "a an the my your our his her its their this that these those to of in on at for with "
+        "from by into and or but if is are was were be been am do does did can could will "
+        "would should may might must have has had i we you they he she it i'm we're you're "
+        "they're it's i'll we'll".split())
+
+    @classmethod
+    def _drop_fillers(cls, text: str, fillers) -> str:
+        """``text`` without the hesitations in ``fillers``, and without the
+        punctuation that set each one off: "Uh, yes." is "Yes." (it was
+        pasted as ", yes."), "I think so, um, yes." is "I think so, yes." and
+        "Yes, um." is "Yes.". A capital the filler carried moves to the word
+        after it. A filler joined to a word ("uh-huh") is part of that word.
+        Text with no filler in it comes back as it was."""
+        alt = "|".join(re.escape(f) for f in fillers)
+        word = rf"(?<![\w'’\-])(?P<f>{alt})(?![\w'’]|-\w)"
+        # At the start of the text or of a sentence.
+        lead = re.compile(rf"(?P<before>^\s*|[.!?…]\s+){word}(?:\s*{cls._FILLER_PAUSE})*\s*",
+                          re.IGNORECASE)
+        while True:
+            m = lead.search(text)
+            if not m:
+                break
+            rest = text[m.end():]
+            if m.group("f")[0].isupper() and rest[:1].islower() and len(rest[:1].upper()) == 1:
+                rest = rest[0].upper() + rest[1:]
+            before = m.group("before")
+            if not rest:
+                before = before.rstrip()
+            text = text[:m.start()] + before + rest
+        # Inside a sentence, or at its end.
+        inner = re.compile(rf"(?P<pre>[,;:]?)\s*{word}\s*(?P<post>\.\.\.|[,;:.!?…])?",
+                           re.IGNORECASE)
+
+        def _inner(m):
+            pre, post = m.group("pre"), m.group("post") or ""
+            at_end = not m.string[m.end():].strip()
+            if post in ("...", "…"):
+                post = post if at_end else ""
+            if post in (".", "!", "?", "...", "…") and post:
+                return post
+            # The commas around a hesitation are the hesitation's: after a
+            # word no clause can end on they go with it ("the, uh, updated
+            # numbers" is "the updated numbers", not "the, updated numbers").
+            before = re.search(r"([^\W\d_]+(?:['’][^\W\d_]+)?)\s*$", m.string[:m.start()])
+            if before and before.group(1).lower() in cls._NEVER_BEFORE_A_COMMA:
+                return " "
+            mark = post or pre
+            return mark if post else mark + " "
+
+        return inner.sub(_inner, text)
+
     def _basic_clean(self, text: str, language=None) -> str:
         """Fallback basic cleaning if API fails (or _is_simple bypassed the LLM).
         Only strips unambiguous fillers and collapses literal token-level
@@ -1879,14 +2117,7 @@ Transcript: {transcript}"""
             # and a silent deletion is worse than an uncorrected filler. Under
             # Auto-detect the language isn't known, so the same holds.
             hard_fillers = ['uh', 'erm', 'ah']
-        cleaned = text
-        for filler in hard_fillers:
-            escaped_filler = re.escape(filler)
-            # Handle multi-word fillers (don't use \b for spaces)
-            if ' ' in filler:
-                cleaned = re.sub(rf'(?<!\w){escaped_filler}(?!\w)', '', cleaned, flags=re.IGNORECASE)
-            else:
-                cleaned = re.sub(rf'\b{escaped_filler}\b', '', cleaned, flags=re.IGNORECASE)
+        cleaned = OpenAIStyler._drop_fillers(text, hard_fillers)
 
         # Collapse word-level stutters: "I I think" -> "I think", "the the
         # report" -> "the report", "we we need" -> "we need". Same word

@@ -1000,6 +1000,10 @@
         </form>
         <p class="sr-only" id="vocabSoundsHint">What speech to text writes instead of the word. Separate more than one with commas.</p>
         <p class="s-error" id="vocabError" role="alert" hidden></p>
+        <!-- A "sounds like" that is an everyday word ("your"): asked about
+             before it is saved, and once for any saved earlier (Keep or
+             Remove). Filled by renderVocabEveryday. -->
+        <div class="v-everyday" id="vocabEveryday" role="group" aria-label="Everyday words used as spellings" aria-live="polite" hidden></div>
         <p class="v-undo" id="vocabUndo" role="status" aria-live="polite" hidden><span id="vocabUndoText"></span> <button type="button" class="link-btn" id="vocabUndoBtn">Undo</button></p>
 
         <!-- Find, order and select words, and move the list in and out as a

@@ -186,7 +186,10 @@ def test_defaults_never_read_the_field_and_read_the_vocabulary_once(tmp_path, sc
 def test_the_short_dictation_bypass_is_unchanged_at_defaults(tmp_path):
     p = pipe(tmp_path, MESSAGES, styler=OpenAIStyler())
     for said in ("ok so ship it", "yes", "um okay thanks", "Sounds good."):
-        want = OpenAIStyler()._basic_clean(said)
+        # What the clean-up's quick path gives by itself (the fillers out,
+        # and sentence case for a lower-case take): the Style section at its
+        # defaults adds nothing to it.
+        want = OpenAIStyler().style(said)[0]
         assert dictate(p, said)["styled"] == want
         assert p.clipboard.pastes[-1] == want
 

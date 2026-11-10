@@ -27,14 +27,20 @@ import style_openai  # noqa: E402
 import transcribe_whisper  # noqa: E402
 from _settings_fake import settings_api  # noqa: E402
 
-TEXT = ("bonjour je voudrais reserver une table pour ce soir s'il vous plait vraiment "
-        "merci beaucoup")
+# Punctuated: a take that arrives without punctuation gets a note of its own
+# after the spelling rule (tests/test_unpunctuated_takes.py), and these tests
+# are about the rule alone.
+TEXT = ("Bonjour, je voudrais reserver une table pour ce soir, s'il vous plait. Vraiment, "
+        "merci beaucoup.")
 
 # The sentences the prompt carried before the picker, spelled out here so that
 # a change to any of them fails a test instead of passing unnoticed.
 NEUTRAL = "Use the same spelling as the user. Do not change spelling conventions."
-BRITISH = ("Use British English spelling (e.g. colour, organise, centre, behaviour, realise, "
-           "programme, defence, licence, favour, catalogue).")
+# British gained "analyse" (the -yse words: "analyze" and "finalize" were left
+# American in 6 of 6 runs of scripts/cleanup_regression.py's BRIT-03 and
+# BRIT-04 without it, and corrected in 6 of 6 with it).
+BRITISH = ("Use British English spelling (e.g. colour, organise, analyse, centre, behaviour, "
+           "realise, programme, defence, licence, favour, catalogue).")
 AMERICAN = ("Use American English spelling (e.g. color, organize, center, behavior, realize, "
             "program, defense, license, favor, catalog).")
 
