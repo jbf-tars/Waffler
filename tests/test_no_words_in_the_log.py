@@ -2,7 +2,7 @@
 
 app.log is what Download Logs bundles and what people send with a bug report.
 Two lines put a person's words in it whatever their settings: "Vocabulary
-corrections applied: 'heard' → 'entry'" (241 lines in one Mac's log, with
+corrections applied: 'heard' → 'entry'" (19 lines in one Mac's logs, with
 Private mode on), and the "REJECTED" line of a second speech-to-text answer,
 which listed the negations and numbers it found in the take. Both say how
 many now. The one line that may carry text is "Styled text:", which is only

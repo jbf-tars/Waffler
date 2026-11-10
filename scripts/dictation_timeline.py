@@ -501,7 +501,7 @@ def parse(lines: Iterable[str]) -> Report:
             bump("  restart put off until the take ended")
             continue
         if msg.startswith("[audio-monitor] the computer woke up") and "more time" in msg:
-            # Since 3.16.8 a run of wakes is one line with a count.
+            # After 3.16.7 a run of wakes is one line with a count.
             v = re.search(r"woke up (\d+) more time.*asleep (\d+)s in all", msg)
             if v:
                 n = int(v.group(1))

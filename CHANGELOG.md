@@ -9,6 +9,48 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 A pass over twelve days of one Mac's logs (80 dictations on 3.16.3 and
 3.16.5), looking at every one that did not end in a paste.
 
+### Changed
+- **`app.log` no longer holds any of your words.** Two lines put words from a
+  dictation in the log whatever your settings, Private mode included. When a
+  vocabulary entry replaced a word, the log said which ("Vocabulary
+  corrections applied: 'waffle' → 'Waffler'"), and when a second
+  speech-to-text answer was refused, it listed the "not"s and the numbers it
+  had found in what you said. Both now say how many, and so does the line
+  written when earlier vocabulary fixes are kept at start-up. The lines
+  already in `app.log` and `app.log.1` are rewritten to counts the next time
+  Waffler starts, once (19 of them on one Mac). The Journal entry still shows
+  what a vocabulary entry changed. The only line that can carry text is
+  "Styled text:", which is written only if you set
+  `logging.log_transcripts: true` in config.yaml. A test now reads every
+  line the speech-to-text, vocabulary, clean-up, Transform and Command code
+  can log and fails if one of them is given words where a count would do.
+- **Mac: the pill's process rests while nothing is on screen.** The pill
+  runs as a second process, and it woke 20 times a second all day to see
+  whether the app had sent it anything: on one Mac it used 57 minutes of
+  processor time in 5.9 days, where Waffler itself used 16. With the
+  recording pill hidden and the idle pill off it now wakes once a second,
+  and a command from the app wakes it at once, so the pill appears no later
+  than before (measured on the real process: a fifth of the processor time
+  while hidden, and a command read after a quiet spell in 140 ms against
+  200 ms). With "Show the pill when idle" on, nothing changes. None of the
+  code that shows, hides, raises or moves the pill across Spaces was
+  touched: the test that pins it to what 3.16.5 shipped still passes.
+- **Mac: AirPods coming and going no longer restart the microphone when it
+  would only be opened on the same one.** With a microphone in your list
+  (Settings, General, Microphone), a change of your Mac's input stopped and
+  started Waffler's always-open microphone even when it was already on the
+  highest one in your list that is plugged in: 33 times in twelve days on
+  one Mac, each a call into the part of macOS's audio where the 3.16.2
+  deadlock was caught. It is now left as it is, and the log says so. It is
+  still restarted when your list is empty (Waffler then follows your Mac's
+  input), when a higher microphone in your list has appeared, when the one
+  in use has gone, and when it is not delivering sound.
+- **A night of wakes is one line in the log.** A sleeping Mac wakes itself
+  about every quarter of an hour, and each wake was a line in `app.log`: 769
+  in twelve days on one Mac, a fifth of its log on 3.16.5. A wake that
+  follows less than five minutes awake is now counted, and the count is
+  written once, when you are back or the Mac stays awake.
+
 ### Fixed
 - **Mac: the first dictation after the Mac wakes keeps its first words.**
   Since 3.16.2 a wake marks the always-open microphone as possibly dead, and

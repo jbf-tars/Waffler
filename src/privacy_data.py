@@ -296,10 +296,10 @@ def scrub_transcript_lines(lines: list):
 
 
 # ── Words in old vocabulary lines ────────────────────────────────────────────
-# Until 3.16.8 app.log said which words a vocabulary entry replaced
+# Up to 3.16.7 app.log said which words a vocabulary entry replaced
 # ("Vocabulary corrections applied: 'waffle' → 'Waffler'"), whatever the
-# settings: 241 such lines in one Mac's logs. New lines give the count. The old
-# ones are rewritten to a count, once, in app.log and app.log.1, after the
+# settings: 19 such lines in one Mac's logs. New lines give the count. The
+# old ones are rewritten to a count, once, in app.log and app.log.1, after the
 # one-time restore of earlier fixes (3.15.1) has read them.
 
 VOCAB_REDACT_SETTING = "log_vocab_words_redacted"

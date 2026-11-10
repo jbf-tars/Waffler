@@ -344,7 +344,7 @@ def test_no_stream_is_not_delivering_and_no_stream_is_touched(sd):
 
 # ── one line for a night of wakes ────────────────────────────────────────────
 # A sleeping Mac wakes itself about every quarter of an hour. Each wake was a
-# line: 769 of them in twelve days on one Mac, a fifth of the lines in its log.
+# line: 769 of them in twelve days on one Mac, a fifth of its log on 3.16.5.
 # A wake that follows less than five minutes awake is now counted, and the
 # count is written once: when the person is back, or the Mac stays awake.
 
