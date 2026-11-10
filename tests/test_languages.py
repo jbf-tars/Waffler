@@ -27,8 +27,11 @@ import style_openai  # noqa: E402
 import transcribe_whisper  # noqa: E402
 from _settings_fake import settings_api  # noqa: E402
 
-TEXT = ("bonjour je voudrais reserver une table pour ce soir s'il vous plait vraiment "
-        "merci beaucoup")
+# Punctuated: a take that arrives without punctuation gets a note of its own
+# after the spelling rule (tests/test_unpunctuated_takes.py), and these tests
+# are about the rule alone.
+TEXT = ("Bonjour, je voudrais reserver une table pour ce soir, s'il vous plait. Vraiment, "
+        "merci beaucoup.")
 
 # The sentences the prompt carried before the picker, spelled out here so that
 # a change to any of them fails a test instead of passing unnoticed.

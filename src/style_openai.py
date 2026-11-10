@@ -207,6 +207,43 @@ def _dialect_instruction(settings: dict) -> str:
     return text
 
 
+# Speech to text sometimes writes a whole take in lower case with no
+# punctuation at all (about one take in four in a review of real use, most
+# often the long, fast ones). The prompt asks for punctuation "as the speech
+# flow dictates" and also for the speaker's register to be kept, and the model
+# read such a take as a lower-case register: fillers went, and 200 words were
+# pasted as one unbroken line. For those takes only, a note after the spelling
+# rule says what the missing punctuation is. A take that arrives punctuated is
+# sent exactly what it always was, and the note sits after everything the
+# provider caches, so the cached prompt is the same for both.
+_UNPUNCTUATED_MIN_WORDS = 12
+_UNPUNCTUATED_LONG_WORDS = 30
+_UNPUNCTUATED_MARKS_PER_WORD = 0.04
+_UNPUNCTUATED_NOTE = (
+    "PUNCTUATION NOTE: this transcript came from speech to text with little or no "
+    "punctuation and few capitals. That is a transcription artefact, not the speaker's "
+    "register. Add the full stops, commas and question marks the speech flow dictates, "
+    "and capitalise sentence starts, I, names, days and months. Every other rule above "
+    "still applies: keep every word that is not filler, in the order spoken."
+)
+
+
+def _looks_unpunctuated(transcript: str) -> bool:
+    """A take speech to text returned without its punctuation: fewer than one
+    mark in 25 words, and either long, or starting in lower case, or with no
+    full stop at its end. A short, properly written sentence with no comma in
+    it ("Can you check whether ... yet.") is not one."""
+    text = (transcript or "").strip()
+    words = len(text.split())
+    if words < _UNPUNCTUATED_MIN_WORDS:
+        return False
+    if len(re.findall(r"[.!?,;:]", text)) >= words * _UNPUNCTUATED_MARKS_PER_WORD:
+        return False
+    first = next((c for c in text if c.isalpha()), "")
+    return (words >= _UNPUNCTUATED_LONG_WORDS or first.islower()
+            or text[-1] not in ".!?…")
+
+
 def _style_deadline_for(word_count: int) -> float:
     """Overall styling budget (seconds), scaled to transcript length."""
     scaled = _STYLE_DEADLINE_BASE_S + max(0, word_count) * _STYLE_DEADLINE_PER_WORD_S
@@ -619,6 +656,9 @@ Transcript: {transcript}"""
             dialect_instruction = _dialect_instruction(load_settings())
         except Exception:
             pass
+
+        if _dictation_language() == "en" and _looks_unpunctuated(transcript):
+            dialect_instruction = f"{dialect_instruction}\n\n{_UNPUNCTUATED_NOTE}"
 
         # Build prompt from the template — transcript goes into the user message.
         prompt = self.prompt_template.format(
