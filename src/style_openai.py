@@ -618,6 +618,97 @@ Transcript: {transcript}"""
         filler_count = sum(1 for w in words if w.lower().strip('.,!?') in hard_fillers)
         return len(words) <= 10 and filler_count / len(words) < 0.15
 
+    # ── Short takes that skip the model ────────────────────────────────────
+    # A take of ten words or fewer is not sent to the model, so nothing gives
+    # it punctuation: when speech to text wrote it in lower case with none,
+    # that is how it was pasted. _sentence_case_short_take gives such a take
+    # its capitals and, where the first words say what it is, a final mark.
+    # It acts only on plain lower-case English words with no punctuation at
+    # all, and never on what may be a command or code.
+    _SHORT_MIN_WORDS = 3
+    _SHORT_MAX_WORDS = 10
+    _SHORT_WORD_RE = re.compile(r"[a-z]+(?:-[a-z]+)*(?:['’](?:s|t|m|re|ve|ll|d))?")
+    # First words of a command line or of code: such a take is pasted as heard.
+    # (with _SMALL_OPENERS, further down).
+    _SHORT_NEVER = frozenset(
+        "pip3 python python3 node docker make cargo go java gcc clang cmake terraform ansible "
+        "helm systemctl chmod chown echo export source nano code tmux conda poetry uv bun deno "
+        "gh aws gcloud az psql mysql redis rm cp mv mkdir cat scp open run select insert update "
+        "delete drop import from def class return const let var function print for while".split())
+    _SHORT_PROPER = {w: w.capitalize() for w in (
+        "monday tuesday wednesday thursday friday saturday sunday january february april "
+        "june july september october november december").split()}
+    _SHORT_WH = frozenset("what when where why who whose which how".split())
+    _SHORT_WH_VERBS = frozenset(
+        "is are was were am do does did can could would should will shall has have had "
+        "about".split())
+    _SHORT_WH_PAIRS = frozenset({("what", "time"), ("how", "many"), ("how", "much"),
+                                 ("how", "long"), ("how", "often"), ("how", "far"), ("how", "old")})
+    _SHORT_PRONOUNS = frozenset("i you we they he she it".split())
+    # A verb before its subject is a question; which subjects each verb takes
+    # that way ("do the dishes" and "have the report ready" are orders).
+    _SHORT_SUBJECTS_3 = frozenset("he she it this that there the my your our their anyone "
+                                  "everyone someone".split())
+    _SHORT_SUBJECTS_ANY = _SHORT_SUBJECTS_3 | frozenset("i you we they these those".split())
+    _SHORT_INVERSIONS = {
+        **dict.fromkeys(("is", "was", "does", "has", "isn't", "wasn't", "doesn't"),
+                        _SHORT_SUBJECTS_3),
+        **dict.fromkeys(("are", "were", "aren't"),
+                        frozenset("you we they there the these those".split())),
+        **dict.fromkeys(("do", "have", "don't"), frozenset("you we they i".split())),
+        **dict.fromkeys(("did", "can", "could", "would", "should", "will", "shall", "must",
+                         "didn't", "can't", "couldn't", "wouldn't", "shouldn't", "won't"),
+                        _SHORT_SUBJECTS_ANY),
+        "am": frozenset({"i"}), "may": frozenset({"i", "we"}),
+    }
+    # Words a sentence does not end on (the take was cut), and endings that
+    # may make it a question ("you got the tickets right").
+    _SHORT_OPEN_ENDS = frozenset(
+        "and but or so because the a an to of with for in on at by from that if my your our "
+        "their is are was were right yeah yes no eh huh okay ok".split())
+
+    def _sentence_case_short_take(self, text: str) -> str:
+        """``text`` with a first capital, "I", days and months, and a final
+        "?" or "." when it is plainly a question or a statement. Only a take
+        of 3 to 10 plain lower-case English words with no punctuation at
+        all; otherwise ``text`` exactly as it came."""
+        try:
+            return self._sentence_cased(text)
+        except Exception:
+            return text
+
+    def _sentence_cased(self, text: str) -> str:
+        words = (text or "").split()
+        if not (self._SHORT_MIN_WORDS <= len(words) <= self._SHORT_MAX_WORDS):
+            return text
+        if text != " ".join(words) or _dictation_language() != "en":
+            return text
+        if not all(self._SHORT_WORD_RE.fullmatch(w) for w in words):
+            return text
+        plain = [w.replace("’", "'") for w in words]
+        if (plain[0] in self._SHORT_NEVER or plain[0] in self._SMALL_OPENERS
+                or self._small_vocabulary() & set(words)):
+            return text
+        first, second, last = plain[0], plain[1], plain[-1]
+        wh = first.split("'")[0] in self._SHORT_WH
+        if wh:
+            question = (first.endswith("'s") or second in self._SHORT_WH_VERBS
+                        or (first, second) in self._SHORT_WH_PAIRS
+                        or (first == "who" and second not in self._SHORT_PRONOUNS))
+        else:
+            question = second in self._SHORT_INVERSIONS.get(first, ())
+        opens_like_one = wh or first in self._SHORT_INVERSIONS
+        out = []
+        for w, p in zip(words, plain):
+            if p == "i" or p.startswith("i'"):
+                w = "I" + w[1:]
+            out.append(self._SHORT_PROPER.get(p, w))
+        out[0] = out[0][0].upper() + out[0][1:]
+        mark = ""
+        if last not in self._SHORT_OPEN_ENDS:
+            mark = "?" if question else ("" if opens_like_one else ".")
+        return " ".join(out) + mark
+
     def style(self, transcript: str, app_context=None):
         """Convert raw transcript to styled text. Returns (styled_text, usage_dict).
 
@@ -634,7 +725,7 @@ Transcript: {transcript}"""
         used to overwrite the first one's while it was still running.
         """
         if self._is_simple(transcript):
-            cleaned = self._basic_clean(transcript)
+            cleaned = self._sentence_case_short_take(self._basic_clean(transcript))
             return cleaned, {"input_tokens": 0, "output_tokens": 0, "api_used": False}
 
         start_time = time.time()

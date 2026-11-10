@@ -9,6 +9,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 A pass over the words themselves: what the clean-up pastes, checked against
 real use.
 
+### Changed
+- **An everyday word as a "sounds like" is asked about first.** Giving
+  "your" as what a name sounds like made Waffler rewrite every "your" you
+  dictated. Typing a one-word everyday spelling on the Vocabulary page now
+  says so in plain words and saves it only if you choose Use it anyway. For
+  one you saved earlier, the page lists it once with Keep and Remove; until
+  you answer, it is changed only where it is written like a name (with a
+  capital in the middle of a sentence), so "your report" stays "your
+  report". Keep makes it change everywhere, as before. Spellings of two or
+  more words, and words that are not everyday ones, work as they did.
+
 ### Fixed
 - **A take that comes back without punctuation is punctuated.** Speech to
   text sometimes writes a whole take in lower case with no full stops or
@@ -29,9 +40,22 @@ real use.
   "the, , updated numbers". The punctuation goes with the filler and its
   capital moves to the next word.
 
+- **Short takes get a capital and a full stop.** A take of ten words or
+  fewer is tidied without the model, so one that speech to text wrote in
+  lower case with no punctuation was pasted that way. "can you ring me back
+  when you are free" is now "Can you ring me back when you are free?" and
+  "sounds good see you there" is "Sounds good see you there." Only plain
+  lower-case words with no punctuation at all are touched: a command
+  ("git status"), anything with a number, a symbol or a capital, and one or
+  two words alone are pasted as heard, and when the first words do not say
+  whether it is a question, no final mark is guessed.
+- **British spelling covers "analyse".** With British spelling on,
+  "analyze" and "finalize" were pasted as dictated; they are now "analyse"
+  and "finalise".
+
 ### Added
 - **A regression set for the clean-up** (`scripts/cleanup_regression.py`):
-  71 invented dictations through the real clean-up, each checked with plain
+  72 invented dictations through the real clean-up, each checked with plain
   rules, covering unpunctuated takes, dictations that read like an
   instruction to a chatbot, fillers, self-corrections, numbers, lists, names,
   British spelling, emails, and very short and very long takes. Unpunctuated
