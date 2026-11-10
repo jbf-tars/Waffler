@@ -230,3 +230,179 @@ def test_a_command_or_transform_hold_also_keeps_the_restart_waiting(tmp_path):
     p._commands = types.SimpleNamespace(busy=lambda: False)
     m._tick()
     assert rebuilt == [1]
+
+
+# ── the log names the microphone that was opened, not only the system's ──────
+
+class NamedAudio(FakeAudio):
+    def __init__(self, opened, **kw):
+        super().__init__(**kw)
+        self._opened = opened
+
+    def opened_device(self):
+        return self._opened
+
+
+def test_the_line_names_the_microphone_opened_when_it_is_not_the_systems():
+    """With the built-in microphone first in the ranking, or AirPods avoided
+    to keep music in high quality, the stream is opened on the built-in one
+    when AirPods become the system's input. The log said "restarted on
+    'AirPods Pro'" 33 times in twelve days on a Mac that never recorded from
+    them."""
+    lines, m, audio = [], monitor(), NamedAudio("MacBook Pro Microphone")
+    adm.restart_stream_when_idle(audio, m, "AirPods Pro", lines.append)
+    assert audio.rebuilt == 1
+    assert any("restarted on 'MacBook Pro Microphone'" in line
+               and "the system's input is now 'AirPods Pro'" in line for line in lines)
+    assert not any("restarted on 'AirPods Pro'" in line for line in lines)
+
+
+def test_the_line_is_as_before_when_the_systems_microphone_was_opened():
+    lines, m, audio = [], monitor(), NamedAudio("AirPods Pro")
+    adm.restart_stream_when_idle(audio, m, "AirPods Pro", lines.append)
+    assert lines == ["[audio-monitor] monitoring stream restarted on 'AirPods Pro'"]
+
+
+def test_a_recorder_that_cannot_name_its_microphone_keeps_the_old_line():
+    class Unnamed(NamedAudio):
+        def opened_device(self):
+            raise RuntimeError("not now")
+
+    for audio in (NamedAudio(None), Unnamed(None)):
+        lines = []
+        adm.restart_stream_when_idle(audio, monitor(), "AirPods Pro", lines.append)
+        assert lines == ["[audio-monitor] monitoring stream restarted on 'AirPods Pro'"]
+
+
+def test_after_a_take_the_line_still_names_the_microphone_opened():
+    lines, m, audio = [], monitor(), NamedAudio("MacBook Pro Microphone", busy_for=1)
+    adm.restart_stream_when_idle(audio, m, "AirPods Pro", lines.append)
+    m._tick()
+    assert any("restarted on 'MacBook Pro Microphone'" in line and line.endswith("after the take")
+               for line in lines)
+
+
+def test_a_change_of_ranking_is_not_called_the_systems_input():
+    lines, m, audio = [], monitor(), NamedAudio("Yeti Stereo Microphone")
+    adm.restart_stream_when_idle(audio, m, "the microphone now chosen", lines.append,
+                                 system_input=False)
+    assert lines == ["[audio-monitor] monitoring stream restarted on 'Yeti Stereo Microphone'"]
+
+
+# ── a change of the system's input that leaves the ranked microphone alone ───
+# With the built-in microphone first in the list, AirPods connecting or leaving
+# changes the system's input and nothing about the stream: it is open on the
+# built-in one and would be opened on it again. On one Mac that was 33 stops and
+# starts of the stream in twelve days, each one a call into the part of macOS's
+# audio the 3.16.2 deadlock was caught in.
+
+from mic_devices import Device  # noqa: E402
+
+MACBOOK = Device(name="MacBook Pro Microphone", uid="BuiltInMicrophoneDevice", transport="built-in")
+AIRPODS = Device(name="AirPods Pro", uid="AA-BB", transport="bluetooth", is_default=True)
+YETI = Device(name="Yeti Stereo Microphone", uid="usb-1", transport="usb")
+RANK_MACBOOK = [{"name": "MacBook Pro Microphone", "id": "uid:BuiltInMicrophoneDevice"}]
+
+
+class LiveAudio(NamedAudio):
+    """A recorder whose stream is open, current and delivering."""
+
+    def __init__(self, opened, delivering=True, current=True, **kw):
+        super().__init__(opened, **kw)
+        self.delivering, self.current, self.flagged = delivering, current, 0
+
+    def is_delivering(self):
+        return self.delivering
+
+    def stream_is_current(self):
+        return self.current
+
+    def note_devices_changed(self):
+        self.flagged += 1
+
+
+def stays(audio, devices, ranking=RANK_MACBOOK):
+    return adm.stream_can_stay(audio, devices, ranking)
+
+
+def test_the_stream_stays_when_it_is_on_the_best_ranked_microphone_that_is_here():
+    assert stays(LiveAudio("MacBook Pro Microphone"), [MACBOOK, AIRPODS]) is True
+    assert stays(LiveAudio("MacBook Pro Microphone"), [MACBOOK]) is True          # the AirPods left
+
+
+def test_it_does_not_stay_without_a_ranking():
+    """Following the system: its input changed, so the stream must follow."""
+    assert stays(LiveAudio("MacBook Pro Microphone"), [MACBOOK, AIRPODS], ranking=[]) is False
+    assert stays(LiveAudio("MacBook Pro Microphone"), [MACBOOK, AIRPODS], ranking=None) is False
+
+
+def test_it_does_not_stay_when_a_better_ranked_microphone_is_here_now():
+    ranking = [{"name": "Yeti Stereo Microphone"}] + RANK_MACBOOK
+    assert stays(LiveAudio("MacBook Pro Microphone"), [MACBOOK, YETI], ranking) is False
+    assert stays(LiveAudio("Yeti Stereo Microphone"), [MACBOOK, YETI], ranking) is True
+
+
+def test_it_does_not_stay_when_the_microphone_it_is_on_has_gone():
+    ranking = [{"name": "Yeti Stereo Microphone"}] + RANK_MACBOOK
+    assert stays(LiveAudio("Yeti Stereo Microphone"), [MACBOOK], ranking) is False
+    assert stays(LiveAudio("Yeti Stereo Microphone"), [], ranking) is False
+    assert stays(LiveAudio("Yeti Stereo Microphone"), None, ranking) is False, "no list: cannot tell"
+
+
+def test_it_does_not_stay_when_no_ranked_microphone_is_here():
+    assert stays(LiveAudio("AirPods Pro"), [AIRPODS], RANK_MACBOOK) is False
+
+
+def test_it_does_not_stay_when_the_stream_is_not_running_or_is_already_stale():
+    assert stays(LiveAudio("MacBook Pro Microphone", delivering=False), [MACBOOK, AIRPODS]) is False
+    assert stays(LiveAudio("MacBook Pro Microphone", current=False), [MACBOOK, AIRPODS]) is False
+    assert stays(LiveAudio(None), [MACBOOK, AIRPODS]) is False
+    assert stays(None, [MACBOOK, AIRPODS]) is False
+
+
+def test_anything_it_cannot_ask_means_restart():
+    class Odd(LiveAudio):
+        def is_delivering(self):
+            raise RuntimeError("no")
+    assert stays(Odd("MacBook Pro Microphone"), [MACBOOK, AIRPODS]) is False
+    assert stays(NamedAudio("MacBook Pro Microphone"), [MACBOOK, AIRPODS]) is False, "an older recorder"
+    assert stays(LiveAudio("MacBook Pro Microphone"), [MACBOOK, AIRPODS], ranking="nonsense") is False
+
+
+def test_a_stream_that_stays_is_not_restarted_or_flagged_and_the_log_says_so():
+    lines, m, audio = [], monitor(), LiveAudio("MacBook Pro Microphone")
+    adm.restart_stream_when_idle(audio, m, "AirPods Pro", lines.append,
+                                 keep=lambda: adm.stream_can_stay(audio, [MACBOOK, AIRPODS], RANK_MACBOOK))
+    assert audio.rebuilt == 0 and audio.flagged == 0, "the next press must not open it again either"
+    assert lines == ["[audio-monitor] the stream stays on 'MacBook Pro Microphone', the best ranked "
+                     "microphone here; the system's input is now 'AirPods Pro'"]
+    m._tick()
+    assert audio.rebuilt == 0, "nothing was left to retry"
+
+
+def test_a_stream_that_cannot_stay_is_restarted_as_before():
+    lines, m, audio = [], monitor(), LiveAudio("MacBook Pro Microphone")
+    adm.restart_stream_when_idle(audio, m, "AirPods Pro", lines.append, keep=lambda: False)
+    assert audio.rebuilt == 1 and audio.flagged == 1
+
+    def boom():
+        raise RuntimeError("no")
+    audio = LiveAudio("MacBook Pro Microphone")
+    adm.restart_stream_when_idle(audio, m, "AirPods Pro", lines.append, keep=boom)
+    assert audio.rebuilt == 1 and audio.flagged == 1, "a check that fails is a restart"
+
+
+def test_the_monitor_keeps_the_list_it_read_for_the_handler():
+    seen = []
+    devices = [[MACBOOK], [MACBOOK, AIRPODS]]
+    m = adm.AudioDeviceMonitor(on_change=lambda o, n: seen.append(list(m.last_devices)),
+                               log_fn=lambda s: None, reader=lambda: devices.pop(0))
+    m._tick()
+    m._tick()
+    assert seen == [[MACBOOK, AIRPODS]], "the list of this poll, not the one before"
+
+
+def test_the_app_asks_before_it_restarts():
+    src = (ROOT / "app.py").read_text(encoding="utf-8")
+    body = src[src.index("def _on_default_input_changed"):src.index("global _device_monitor")]
+    assert "keep=" in body and "stream_can_stay(" in body and "last_devices" in body

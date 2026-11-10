@@ -664,3 +664,84 @@ def test_the_single_instance_lock_is_one_the_kernel_lets_go_when_the_process_end
     src = (ROOT / "src" / "single_instance.py").read_text(encoding="utf-8")
     assert "fcntl.flock" in src and "LOCK_EX | fcntl.LOCK_NB" in src
     assert "releases the lock when the holding process" in src
+
+
+# ── a slow list of devices while the microphone still works ──────────────────
+# 10 November 2026, 3.16.7, seven minutes after it was started and with nothing
+# being dictated: the device monitor's read of CoreAudio's list of microphones
+# did not answer for 9 s while iOS Simulators were booting (one 25 s before),
+# and Waffler said "Waffler is restarting" and restarted. In the deadlock this
+# recovery exists for, CoreAudio's own I/O thread is one of the two threads
+# stuck, so the microphone delivers nothing. While it still delivers audio a
+# dictation can be taken and nothing is lost by waiting, so a stuck call is
+# then given a minute in all, and the restart comes at once if the audio stops.
+
+def looks(seconds):
+    return int(seconds / wr.CONFIRM_POLL_S)
+
+
+def test_with_the_microphone_delivering_a_call_that_takes_twenty_seconds_is_not_a_restart(tmp_path):
+    r = Rig(tmp_path, stuck_for=looks(20.0))
+    r.rec._mic_alive = lambda: True
+    assert r.rec.handle("coreaudio device list") == wr.CLEARED
+    assert r.events == [], "no message, no helper, no exit"
+    assert r.cleared == 1 and r.restarts_on_disk() is None
+    waiting = [line for line in r.lines if "still delivering audio" in line]
+    assert len(waiting) == 1, "said once, not four times a second"
+
+
+def test_a_call_that_never_comes_back_is_still_a_restart_after_a_minute(tmp_path):
+    r = Rig(tmp_path)
+    r.rec._mic_alive = lambda: True
+    assert r.rec.handle("coreaudio device list") == wr.RESTART
+    assert wr.CONFIRM_ALIVE_S <= sum(s for s in r.sleeps if s == wr.CONFIRM_POLL_S) < wr.CONFIRM_ALIVE_S + 1
+    assert r.events[-2:] == ["spawn", "exit:0"]
+
+
+def test_the_restart_comes_at_once_when_the_audio_stops(tmp_path):
+    r = Rig(tmp_path)
+    alive = {"looks": looks(10.0) - looks(wr.CONFIRM_S)}      # delivering until 10 s in
+
+    def mic_alive():
+        alive["looks"] -= 1
+        return alive["looks"] >= 0
+    r.rec._mic_alive = mic_alive
+    assert r.rec.handle("coreaudio device list") == wr.RESTART
+    waited = sum(s for s in r.sleeps if s == wr.CONFIRM_POLL_S)
+    assert 10.0 <= waited <= 10.0 + 2 * wr.CONFIRM_POLL_S
+
+
+def test_a_microphone_that_delivers_nothing_is_restarted_after_six_seconds_as_before(tmp_path):
+    r = Rig(tmp_path)
+    asked = []
+    r.rec._mic_alive = lambda: asked.append(1) and False
+    assert r.rec.handle("stream.stop") == wr.RESTART
+    assert sum(s for s in r.sleeps if s == wr.CONFIRM_POLL_S) == wr.CONFIRM_S
+    assert asked == [1], "asked once, when the six seconds were up"
+    assert not any("still delivering" in line for line in r.lines)
+
+
+def test_a_check_of_the_microphone_that_raises_counts_as_not_delivering(tmp_path):
+    r = Rig(tmp_path)
+
+    def boom():
+        raise RuntimeError("no")
+    r.rec._mic_alive = boom
+    assert r.rec.handle("stream.stop") == wr.RESTART
+    assert sum(s for s in r.sleeps if s == wr.CONFIRM_POLL_S) == wr.CONFIRM_S
+
+
+def test_without_the_check_nothing_changed(tmp_path):
+    r = Rig(tmp_path)                       # no mic_alive given
+    assert r.rec.handle("stream.stop") == wr.RESTART
+    assert sum(s for s in r.sleeps if s == wr.CONFIRM_POLL_S) == wr.CONFIRM_S
+
+
+def test_the_longer_wait_is_a_minute():
+    assert wr.CONFIRM_ALIVE_S == 60.0 > wr.CONFIRM_S
+
+
+def test_the_app_tells_the_recovery_whether_the_microphone_delivers():
+    src = (ROOT / "app.py").read_text(encoding="utf-8")
+    body = src[src.index("return _wedge_recovery.WedgeRecovery("):src.index("def _clear_audio_wedge")]
+    assert "mic_alive=lambda: bool(self.audio.is_delivering())" in body

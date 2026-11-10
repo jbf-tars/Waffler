@@ -4221,10 +4221,12 @@ def _build_pipeline():
         # ``start_monitoring`` path on ``AudioRecorder``.
         try:
             from src.audio_device_monitor import (
-                AudioDeviceMonitor as _ADM, restart_stream_when_idle as _restart_stream_when_idle)
+                AudioDeviceMonitor as _ADM, restart_stream_when_idle as _restart_stream_when_idle,
+                stream_can_stay as _stream_can_stay)
         except ImportError:
             from audio_device_monitor import (
-                AudioDeviceMonitor as _ADM, restart_stream_when_idle as _restart_stream_when_idle)
+                AudioDeviceMonitor as _ADM, restart_stream_when_idle as _restart_stream_when_idle,
+                stream_can_stay as _stream_can_stay)
 
         def _on_default_input_changed(old_name: str, new_name: str) -> None:
             """Recreate the monitoring stream so the new device is used
@@ -4238,7 +4240,14 @@ def _build_pipeline():
             # again on every poll until it is over: it used to be logged as
             # deferred and never done, which left the stream on a microphone
             # that had stopped delivering (AirPods connecting mid-take).
-            _restart_stream_when_idle(_pipeline.audio, _device_monitor, new_name, _log_to_file)
+            # Not when the stream is already on the best ranked microphone that
+            # is here (AirPods coming and going beside a ranked built-in one):
+            # a restart would open the same microphone again.
+            def _stays() -> bool:
+                return _stream_can_stay(_pipeline.audio, _device_monitor.last_devices,
+                                        _mic_ranking.ranking_of(_pipeline._read_settings()))
+            _restart_stream_when_idle(_pipeline.audio, _device_monitor, new_name, _log_to_file,
+                                      keep=_stays)
 
         global _device_monitor
         _device_monitor = _ADM(
@@ -4257,6 +4266,18 @@ def _build_pipeline():
             if _pipeline is not None and getattr(_pipeline, "audio", None):
                 _pipeline.audio.note_devices_changed()
         _device_monitor.on_wake = _on_wake
+
+        def _on_awake() -> None:
+            """The person is back at a Mac that slept (it has been awake a few
+            seconds and a key or the mouse has been used since): open the
+            flagged stream again now, so the next press is on a warm one and
+            keeps its half second of pre-roll. Never while anything is using
+            the microphone or a paste is putting the clipboard back; a press
+            that got there first has opened it already."""
+            audio = getattr(_pipeline, "audio", None) if _pipeline is not None else None
+            if audio is not None and hasattr(audio, "reopen_if_stale"):
+                audio.reopen_if_stale(busy=lambda: bool(_update_would_interrupt(_pipeline)))
+        _device_monitor.on_awake = _on_awake
 
         def _on_poll_tick() -> None:
             """Windows: PortAudio's list of microphones is only as new as the
@@ -5042,7 +5063,7 @@ class WafflerPipeline:
             except ImportError:
                 from audio_device_monitor import restart_stream_when_idle as _restart_stream_when_idle
             _restart_stream_when_idle(self.audio, _device_monitor, "the microphone now chosen", _log_to_file,
-                                      busy=taking)
+                                      busy=taking, system_input=False)
 
         def taking():
             # Anything that holds the microphone or is about to be handed what
@@ -5994,7 +6015,7 @@ class WafflerPipeline:
             try:
                 self.overlay.show()
             except Exception as e:
-                print(f"[overlay] show failed: {e}")
+                _log_to_file(f"[overlay] show failed: {type(e).__name__}: {e}")
 
     def _start_audio(self, press_id) -> bool:
         """Start the recorder, bounded. True when it is recording.
@@ -6048,7 +6069,7 @@ class WafflerPipeline:
             try:
                 self.overlay.hide()
             except Exception as e:
-                print(f"[overlay] hide failed: {e}")
+                _log_to_file(f"[overlay] hide failed: {type(e).__name__}: {e}")
         notify_js_status("error")
         _set_tray_state(_tray_state.IDLE)
         listener = getattr(self, "hotkey_listener", None)
@@ -6118,6 +6139,7 @@ class WafflerPipeline:
             show=self._show_wedge_message,
             still_stuck=lambda: bool(self.audio.is_stuck()),
             on_cleared=self._clear_audio_wedge,
+            mic_alive=lambda: bool(self.audio.is_delivering()),
             log=_log_to_file,
         )
 
@@ -6190,7 +6212,7 @@ class WafflerPipeline:
             try:
                 self.overlay.hide()
             except Exception as e2:
-                print(f"[overlay] hide failed: {e2}")
+                _log_to_file(f"[overlay] hide failed: {type(e2).__name__}: {e2}")
             try:
                 _audio = self.audio.stop()
                 if _audio:
@@ -6738,11 +6760,13 @@ class WafflerPipeline:
                     transcript = _fixed
                     run.transcript = transcript
                     if _vocab_changes:
-                        _log_to_file("Vocabulary corrections applied: " + ", ".join(
-                            f"'{h}' → '{u}'" for h, u in _vocab_changes))
+                        # How many, never which: what was heard and the entry
+                        # it became are the person's words, and app.log goes
+                        # out with a bug report (the Journal entry keeps them).
+                        _log_to_file(f"Vocabulary corrections applied: {len(_vocab_changes)}")
             except Exception as e:
                 _vocab_changes = []
-                _log_to_file(f"Vocabulary step skipped ({type(e).__name__}: {e})")
+                _log_to_file(f"Vocabulary step skipped ({type(e).__name__})")
 
             # Record Whisper usage - calculate from audio bytes (works for all backends)
             # Audio is 16kHz, 16-bit mono = 32000 bytes/second
@@ -8990,8 +9014,8 @@ def main():
             from transcribe_whisper import restore_lost_corrections
             _added = restore_lost_corrections([DATA_DIR / "app.log", DATA_DIR / "app.log.1"])
             if _added:
-                _log_to_file("[vocab] kept earlier fixes as 'sounds like' spellings: " + ", ".join(
-                    f"{e} ({', '.join(v)})" for e, v in _added.items()))
+                # How many, never which: they are the person's words.
+                _log_to_file(f"[vocab] kept earlier fixes as 'sounds like' spellings: {len(_added)}")
             _vr_flag.write_text("3.15.1\n", encoding="utf-8")
         except Exception as _e:
             _log_to_file(f"[vocab] restoring earlier fixes failed: {type(_e).__name__}")
@@ -9001,7 +9025,11 @@ def main():
     # 5 MB; and apply the chosen history retention. Before anything else
     # writes to the log; the result is logged as counts only.
     try:
-        _tidy = _privacy.tidy_logs_at_start(DATA_DIR, DATA_DIR / "settings.json")
+        _tidy = _privacy.tidy_logs_at_start(DATA_DIR, DATA_DIR / "settings.json",
+                                            redact_vocab=_vr_flag.exists())
+        if _tidy.get("vocab_redacted"):
+            _log_to_file(f"[privacy] {_tidy['vocab_redacted']} old vocabulary line(s) in the logs "
+                         f"now give a count, not the words")
         if _tidy.get("scrubbed"):
             _log_to_file(f"[privacy] removed {_tidy['scrubbed']} old transcript line(s) from app.log")
         if _tidy.get("rotated"):

@@ -22,7 +22,14 @@ On a Mac, in the installed app, it:
      after all: a call that takes several seconds and returns (a Bluetooth
      headset changing profile) is slow, not deadlocked, and does not cost a
      restart. The recorder gives up on a call after 3 to 5 s so its locks are
-     let go; this decides whether it was a deadlock;
+     let go; this decides whether it was a deadlock. While the microphone
+     still delivers audio (``mic_alive``) it looks for ``CONFIRM_ALIVE_S`` in
+     all: CoreAudio's own I/O thread is one of the two threads in that
+     deadlock, so audio that still arrives is not it, a dictation can still be
+     taken, and nothing is lost by waiting. On 3.16.7 an idle Waffler restarted
+     when the device monitor's read of the list of microphones took over 9 s
+     while iOS Simulators were booting. The restart comes at once if the audio
+     stops;
   1. waits for a dictation that is being turned into text to finish (up to
      ``BUSY_WAIT_S``; it needs no audio), unless a take is being recorded;
   2. keeps what was being recorded, read from the recorder's buffer alone
@@ -85,6 +92,9 @@ FUTURE_SLACK_S = 60.0
 # and this much more is not coming back: the deadlock never returns.
 CONFIRM_S = 6.0
 CONFIRM_POLL_S = 0.25
+# The same, while the microphone is still delivering audio: nothing is lost by
+# waiting then, and a restart of an app that works is.
+CONFIRM_ALIVE_S = 60.0
 # The helper waits this long before it opens the app again: the process is
 # gone in milliseconds, but Launch Services and coreaudiod need a moment to
 # let go of it.
@@ -221,6 +231,8 @@ class WedgeRecovery:
     ``still_stuck()``       CoreAudio has still not answered (False once the
                             call that was given up on has come back)
     ``on_cleared()``        it did answer after all: forget the wedge
+    ``mic_alive()``         the microphone is still delivering audio (it asks
+                            nothing of CoreAudio): the wait is then longer
     """
 
     def __init__(self, *, platform: str, frozen: bool, executable: str, state_path,
@@ -231,6 +243,7 @@ class WedgeRecovery:
                  exit_now: Callable[[int], None] = exit_now,
                  still_stuck: Callable[[], bool] = lambda: True,
                  on_cleared: Callable[[], None] = lambda: None,
+                 mic_alive: Callable[[], bool] = lambda: False,
                  sleep: Callable[[float], None] = time.sleep,
                  clock: Callable[[], float] = time.time,
                  log: Callable[[str], None] = print,
@@ -248,6 +261,7 @@ class WedgeRecovery:
         self._exit = exit_now
         self._still_stuck = still_stuck
         self._on_cleared = on_cleared
+        self._mic_alive = mic_alive
         self._sleep = sleep
         self._clock = clock
         self._log = log
@@ -318,8 +332,12 @@ class WedgeRecovery:
     def _confirmed(self) -> bool:
         """Still stuck after CONFIRM_S more seconds? Looks first, so a call that
         has already come back costs no wait, and ends the wait as soon as it
-        does. A check that raises counts as stuck."""
+        does. A check that raises counts as stuck. After CONFIRM_S the wait
+        goes on, to CONFIRM_ALIVE_S in all, for as long as the microphone is
+        still delivering audio, and ends the moment it is not (a check of that
+        which raises counts as not delivering)."""
         waited = 0.0
+        said = False
         while True:
             try:
                 if not self._still_stuck():
@@ -327,7 +345,12 @@ class WedgeRecovery:
             except Exception:
                 pass
             if waited >= CONFIRM_S:
-                return True
+                if waited >= CONFIRM_ALIVE_S or not self._asked(self._mic_alive):
+                    return True
+                if not said:
+                    said = True
+                    self._say(f"[wedge] the microphone is still delivering audio: waiting up to "
+                              f"{CONFIRM_ALIVE_S:g}s in all for CoreAudio to answer before restarting")
             self._sleep(CONFIRM_POLL_S)
             waited += CONFIRM_POLL_S
 

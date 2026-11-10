@@ -1918,12 +1918,13 @@ def _alternate_is_safe_replacement(original: str, alternate: str):
 
     missing_negations = {t for t in orig_set if t in _NEGATIONS} - alt_set
     if missing_negations:
-        return False, f"alternate drops negation {sorted(missing_negations)}"
+        # How many, never which: this reason goes in app.log.
+        return False, f"alternate drops {len(missing_negations)} negation(s)"
 
     orig_numbers = {t for t in orig_set if any(c.isdigit() for c in t)}
     missing_numbers = orig_numbers - alt_set
     if missing_numbers:
-        return False, f"alternate changes/drops number {sorted(missing_numbers)}"
+        return False, f"alternate changes or drops {len(missing_numbers)} number(s)"
 
     overlap = len(orig_set & alt_set) / len(orig_set)
     if overlap < _MIN_TOKEN_OVERLAP:
@@ -2796,21 +2797,33 @@ class WhisperTranscriber:
             # _MIN_UNCOVERED_VOICE_S). This can only hold back a retry the
             # rule above would send. A derailed ending is not judged so: its
             # invented segment sits over the voice it replaced.
+            # What that look found goes in the log line of a retry that is
+            # sent: on 3.16.3 a 56 s take was sent again and the log could not
+            # say whether voice lay outside the segments or there was nothing
+            # to check it against.
+            cover_note = ""
             if not tail_derailed:
                 uncovered = getattr(transcript, "uncovered_s", None)
-                if uncovered is None and getattr(transcript, "spans", None) is not None:
+                had_spans = uncovered is not None or getattr(transcript, "spans", None) is not None
+                if uncovered is None and had_spans:
                     uncovered = _uncovered_voice(audio_bytes, transcript.spans)
                 if uncovered is not None and uncovered < _MIN_UNCOVERED_VOICE_S:
                     _wlog(f"[whisper] {words} words for {speech_s:.1f}s of speech, but "
                           f"Groq's segments cover all but {uncovered:.1f}s of the clear "
                           f"voice: no retry")
                     return transcript
+                if uncovered is not None:
+                    cover_note = f"; {uncovered:.1f}s of clear voice is outside Groq's segments"
+                elif had_spans:
+                    cover_note = "; the audio could not be measured against Groq's segments"
+                else:
+                    cover_note = "; no segments to check it against"
             factor = _RETRY_IMPROVEMENT_FACTOR
             if tail_derailed:
                 factor = _TAIL_RETRY_IMPROVEMENT_FACTOR
                 why_suspect = "ends on a known decoder-derailment phrase"
             else:
-                why_suspect = f"{wps:.2f} w/s is below {_MIN_WORDS_PER_SPEECH_SEC}"
+                why_suspect = f"{wps:.2f} w/s is below {_MIN_WORDS_PER_SPEECH_SEC}{cover_note}"
             first_provider = getattr(self, "_last_cloud_provider", None)
             _wlog(f"[whisper] SUSPICIOUS transcript: {words} words for "
                   f"{speech_s:.1f}s of speech ({why_suspect}) via "
@@ -2843,7 +2856,7 @@ class WhisperTranscriber:
                   f"(was {words}) — using alternate transcript ({why})")
             return alt
         except Exception as e:
-            _wlog(f"[whisper] incomplete-transcript retry failed: {e}")
+            _wlog(f"[whisper] incomplete-transcript retry failed: {type(e).__name__}")
             return transcript
 
     def transcribe_sync(self, audio_bytes: bytes):
@@ -2947,7 +2960,7 @@ class WhisperTranscriber:
         except Exception:
             vocab = []
         if _is_vocab_echo(cleaned, vocab):
-            print(f"[whisper] Discarded vocab-echo hallucination: '{cleaned}'")
+            print(f"[whisper] Discarded vocab-echo hallucination ({len(cleaned)} chars)")
             self.last_asr_filtered = True
             return ""
 
@@ -2964,7 +2977,7 @@ class WhisperTranscriber:
                 _wlog(f"[whisper] boilerplate-shaped text kept: "
                       f"{_clip_speech_s:.1f}s of measured speech says it is real")
             else:
-                print(f"[whisper] Discarded boilerplate hallucination: '{cleaned}'")
+                print(f"[whisper] Discarded boilerplate hallucination ({len(cleaned)} chars)")
                 self.last_asr_filtered = True
                 return ""
 

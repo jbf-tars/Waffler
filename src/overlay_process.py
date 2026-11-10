@@ -83,7 +83,7 @@ from AppKit import (
 )
 from Foundation import (
     NSObject, NSTimer, NSRunLoop, NSDefaultRunLoopMode, NSRunLoopCommonModes,
-    NSMakePoint, NSMakeRect,
+    NSMakePoint, NSMakeRect, NSDate,
 )
 
 try:
@@ -546,8 +546,81 @@ TOAST_BTN_KINDS = {
     'danger':    ('#3D1818', '#D94040', '#D94040'),
 }
 
+# ── The tick, while nothing shows ──────────────────────────────────────
+# One timer drives this process: every 50 ms animTick_ reads the commands
+# the app sent and moves the level bars on. It ran at that rate all day, pill
+# or no pill: on one Mac this process used 57 minutes of processor time in
+# 5.9 days, and Waffler itself 16. While the recording pill is hidden, its
+# bars are at rest, no command waits and the idle pill is off, each tick now
+# puts the next one IDLE_TICK_S away (_slow_when_idle, a decorator: not a
+# line of animTick_ changed). A command that arrives wakes the timer at once
+# on the main thread (_WakingQueue), so it is read no later than before; the
+# second is only how late a command could be if a wake were ever lost.
+IDLE_TICK_S = 1.0
+_tick_slowed = False     # the next tick is IDLE_TICK_S away: a command must wake it
+_tick_timer = None       # the timer, as animTick_ was last handed it
+
+
+def _nothing_to_animate(view) -> bool:
+    """The recording pill is hidden with its bars at rest, and there is no
+    idle pill (which is looked after on every tick)."""
+    return (not _visible) and _idle_win is None and list(view._bars) == list(view._targets)
+
+
+def _resume_tick():
+    """Main thread: fire the timer now; it then runs every 50 ms again."""
+    global _tick_slowed
+    _tick_slowed = False
+    timer = _tick_timer
+    if timer is not None:
+        timer.setFireDate_(NSDate.date())
+
+
+def _wake_tick():
+    """Any thread: ask the main thread to fire the timer now. Never raises."""
+    try:
+        view = _g_view
+        if view is not None:
+            view.performSelectorOnMainThread_withObject_waitUntilDone_(b"resumeTick:", None, False)
+    except Exception:
+        pass
+
+
+class _WakingQueue(queue.Queue):
+    """The command queue. A command put while the tick is slowed wakes it.
+    The command is queued first and the flag read after: see _slow_when_idle
+    for why none can be left waiting."""
+
+    def put(self, item, block=True, timeout=None):
+        queue.Queue.put(self, item, block, timeout)
+        if _tick_slowed:
+            _wake_tick()
+
+
+def _slow_when_idle(tick):
+    """Wrap animTick_: run it, then, with nothing to animate and no command
+    waiting, put the next tick IDLE_TICK_S away. The flag goes up before the
+    queue is looked at again, so a command put in between either sees the flag
+    (and wakes the timer) or is seen by that look (and nothing is slowed). Any
+    fault leaves the timer at its usual rate."""
+    def animTick_(self, timer):
+        global _tick_slowed, _tick_timer
+        tick(self, timer)
+        try:
+            _tick_timer = timer
+            if _nothing_to_animate(self):
+                _tick_slowed = True
+                if _cmd_queue.empty():
+                    timer.setFireDate_(NSDate.dateWithTimeIntervalSinceNow_(IDLE_TICK_S))
+                    return
+            _tick_slowed = False
+        except Exception:
+            _tick_slowed = False
+    return animTick_
+
+
 # ── Global state ───────────────────────────────────────────────────────
-_cmd_queue: queue.Queue = queue.Queue()
+_cmd_queue: queue.Queue = _WakingQueue()
 _bars:    list = [0.0] * NUM_CELLS
 _targets: list = [0.0] * NUM_CELLS
 _visible: bool = False
@@ -953,6 +1026,12 @@ class WaffleView(NSView):
 
     # ── Animation timer ───────────────────────────────────────────────
 
+    def resumeTick_(self, _sender):
+        """Main thread, asked for by _wake_tick: a command arrived while the
+        tick was slowed."""
+        _resume_tick()
+
+    @_slow_when_idle
     def animTick_(self, timer):
         global _visible
 

@@ -295,11 +295,46 @@ def scrub_transcript_lines(lines: list):
     return out, removed
 
 
-def scrub_log_file(path) -> int:
-    """Rewrite app.log without the old transcript lines. Returns how many
-    lines went (0 when there were none, and then the file is untouched).
-    The rewrite is atomic; on a locked file it raises and the log is left
-    as it was, to be tried again next start."""
+# ── Words in old vocabulary lines ────────────────────────────────────────────
+# Up to 3.16.7 app.log said which words a vocabulary entry replaced
+# ("Vocabulary corrections applied: 'waffle' → 'Waffler'"), whatever the
+# settings: 19 such lines in one Mac's logs. New lines give the count. The
+# old ones are rewritten to a count, once, in app.log and app.log.1, after the
+# one-time restore of earlier fixes (3.15.1) has read them.
+
+VOCAB_REDACT_SETTING = "log_vocab_words_redacted"
+
+_VOCAB_LINE = re.compile(r"^(\d\d:\d\d:\d\d  Vocabulary corrections applied: )(.*?)(\r?)$")
+_VOCAB_KEPT = re.compile(
+    r"^(\d\d:\d\d:\d\d  \[vocab\] kept earlier fixes as 'sounds like' spellings: )(.*?)(\r?)$")
+_COUNT_ONLY = re.compile(r"^\d+$")
+
+
+def redact_vocab_lines(lines: list):
+    """The old vocabulary lines with a count where the words were. Returns
+    (lines, how many were changed); a line that is already a count is left."""
+    out, changed = [], 0
+    for line in lines:
+        m = _VOCAB_LINE.match(line)
+        if m and not _COUNT_ONLY.match(m.group(2)):
+            out.append(f"{m.group(1)}{max(1, m.group(2).count(' → '))}{m.group(3)}")
+            changed += 1
+            continue
+        m = _VOCAB_KEPT.match(line)
+        if m and not _COUNT_ONLY.match(m.group(2)):
+            out.append(f"{m.group(1)}{max(1, m.group(2).count('), ') + 1)}{m.group(3)}")
+            changed += 1
+            continue
+        out.append(line)
+    return out, changed
+
+
+def scrub_log_file(path, rewrite=scrub_transcript_lines) -> int:
+    """Rewrite app.log without the old transcript lines (or as ``rewrite``
+    gives its lines back). Returns how many lines went or changed (0 when
+    there were none, and then the file is untouched). The rewrite is atomic;
+    on a locked file it raises and the log is left as it was, to be tried
+    again next start."""
     p = Path(path)
     if not p.exists():
         return 0
@@ -309,7 +344,7 @@ def scrub_log_file(path) -> int:
     lines = text.split("\n")
     if keep_end:
         lines = lines[:-1]
-    kept, removed = scrub_transcript_lines(lines)
+    kept, removed = rewrite(lines)
     if not removed:
         return 0
     body = "\n".join(kept) + ("\n" if keep_end and kept else "")
@@ -345,9 +380,12 @@ def rotate_log(path, max_bytes: int = LOG_MAX_BYTES) -> bool:
         return False
 
 
-def tidy_logs_at_start(data_dir, settings_path) -> dict:
+def tidy_logs_at_start(data_dir, settings_path, redact_vocab: bool = False) -> dict:
     """Start-up: the one-time scrub (marked done in settings.json), then
-    rotation. Never raises. Returns what happened, for one log line."""
+    rotation. Never raises. Returns what happened, for one log line.
+    ``redact_vocab``: the earlier vocabulary fixes have been read from the
+    logs (or never will be), so the words in the old vocabulary lines can go,
+    once, from app.log and app.log.1 (``vocab_redacted`` in the result)."""
     d = Path(data_dir)
     result = {"scrubbed": None, "rotated": False}
     sp = Path(settings_path)
@@ -365,5 +403,13 @@ def tidy_logs_at_start(data_dir, settings_path) -> dict:
             write_json_atomic(sp, settings)
         except Exception:
             result["scrubbed"] = None   # try again next start
+    if redact_vocab and settings is not None and not settings.get(VOCAB_REDACT_SETTING):
+        try:
+            result["vocab_redacted"] = sum(
+                scrub_log_file(d / name, redact_vocab_lines) for name in ("app.log", "app.log.1"))
+            settings[VOCAB_REDACT_SETTING] = True
+            write_json_atomic(sp, settings)
+        except Exception:
+            result.pop("vocab_redacted", None)      # try again next start
     result["rotated"] = rotate_log(d / "app.log")
     return result

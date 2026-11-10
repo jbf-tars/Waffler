@@ -202,10 +202,12 @@ def _lift_methods(path, cls, names, **ns):
 
 
 def test_the_mac_listener_calls_on_lock_once_when_space_locks_and_not_on_unlock():
+    logged = []
     ns = _lift_methods(ROOT / "src" / "smart_hotkey.py", "SmartHotkeyListener",
-                       ("_on_space_press", "_fire_lock"))
+                       ("_on_space_press", "_fire_lock"), _diag_log=logged.append)
     calls, done = [], threading.Event()
     ln = type("L", (), {})()
+    ln._id = "L01"
     ln._hotkey_held, ln._recording, ln._sticky = True, True, False
     ln._on_lock_cb = lambda: (calls.append("lock"), done.set())
     ln._fire_visual_feedback = lambda e: None
@@ -215,6 +217,8 @@ def test_the_mac_listener_calls_on_lock_once_when_space_locks_and_not_on_unlock(
     assert done.wait(2) and calls == ["lock"] and ln._sticky is True
     ns["_on_space_press"].__get__(ln)()          # Space again: unlock, not another lock
     assert calls == ["lock"] and ln._sticky is False
+    assert [line.split("→ ")[1] for line in logged] == [
+        "hotkey+Space: hands-free ON (fire_lock)", "hotkey+Space: hands-free OFF (fire_release)"]
 
 
 def test_a_listener_with_no_callback_locks_quietly():

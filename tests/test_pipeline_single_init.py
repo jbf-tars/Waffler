@@ -57,6 +57,7 @@ def _load(fake_pipeline_cls, monkeypatch):
     fake_mod = types.ModuleType("src.audio_device_monitor")
     fake_mod.AudioDeviceMonitor = FakeMonitor
     fake_mod.restart_stream_when_idle = lambda *a, **k: None
+    fake_mod.stream_can_stay = lambda *a, **k: False
     monkeypatch.setitem(sys.modules, "src.audio_device_monitor", fake_mod)
     monkeypatch.setitem(sys.modules, "audio_device_monitor", fake_mod)
 
