@@ -194,7 +194,10 @@ html, body {
 .j-live-time { font: 500 13px/1 var(--f-ui); color: var(--text); font-variant-numeric: tabular-nums; }
 
 /* ── Day rows and entries ─────────────────────────────────────────── */
-.j-feed { display: flex; flex-direction: column; }
+/* A plain block, not a flex column: a flex column measures every entry
+   again whenever one is added or changes height, which at 5,000 entries
+   made each older page, and each "What you said", take half a second. */
+.j-feed { display: block; }
 .j-date-divider {
   display: flex;
   align-items: baseline;
@@ -257,6 +260,9 @@ html, body {
 .card-text.styled p + p { margin-top: 8px; }
 .card-text.raw { color: var(--text-2); font-family: var(--f-serif); font-style: italic; font-size: 15px; }
 .word-hl { background: linear-gradient(transparent 62%, rgba(217, 164, 65, 0.38) 62%); }
+/* Where a search matched: a honey wash behind the letters, in the text's own
+   colour (a <mark>'s default is black on yellow, in both themes). */
+.search-hl { border-radius: 3px; background: rgba(217, 164, 65, 0.34); color: inherit; box-shadow: 0 0 0 1px rgba(196, 138, 46, 0.4); }
 .j-meta {
   display: flex;
   align-items: center;
@@ -270,6 +276,12 @@ html, body {
 .j-meta b { font-weight: 500; color: var(--text-2); }
 .j-meta > .ic { width: 14px; height: 14px; flex: none; }
 .j-vd { width: 6px; height: 6px; flex: none; border-radius: 2px; background: var(--honey); }
+/* The mark stays beside the first line of its sentence: when the sentence
+   was too long for the line, it wrapped whole and left the mark above it. */
+.j-meta.card-vocab, .j-meta.card-edited { flex-wrap: nowrap; align-items: flex-start; }
+.j-meta.card-vocab > span:last-child, .j-meta.card-edited > span { min-width: 0; }
+.j-meta.card-vocab > .j-vd { margin-top: 6px; }
+.j-meta.card-edited > .ic { margin-top: 2px; }
 .j-meta .chip { height: 22px; }
 .j-acts { display: flex; align-items: flex-start; gap: 4px; opacity: 0; transition: opacity var(--dur-fast) var(--ease); }
 .j-ent:hover .j-acts, .j-ent:focus-within .j-acts, .j-ent.is-raw .j-acts { opacity: 1; }
@@ -386,7 +398,13 @@ html, body {
     border-left: 0;
     border-bottom: 1px solid var(--line);
   }
+  /* The row is short, so the entries keep most of a small window: the
+     week's sentence (Settings, Usage has it) stays in the wide margin. */
+  .j-rail { align-items: center; padding: 12px 24px; }
   .j-week { width: 200px; }
+  .j-week .j-mk { margin-bottom: 6px; }
+  .j-spark { height: 30px; }
+  .j-weekline:not([hidden]) { display: none; }
   .j-streak { border: 0; padding: 0; align-self: center; }
   .j-notices { flex: 1 1 100%; }
   .j-teach { display: none; }
@@ -957,6 +975,7 @@ mark.hl {
 .btn-danger-solid { background: var(--danger-solid); color: #FFFFFF; }
 .btn-danger-solid:hover:not(:disabled) { background: var(--danger-solid-hover); }
 .link-btn {
+  position: relative;
   padding: 0;
   border: 0;
   background: none;
@@ -968,6 +987,9 @@ mark.hl {
   cursor: pointer;
 }
 .link-btn:hover { text-decoration-color: currentColor; }
+/* A line of text is 18 px tall: the button answers a click a little above
+   and below it too, so it is at least 24 px to aim at (WCAG 2.5.8). */
+.link-btn::after { content: ""; position: absolute; inset: -4px -2px; }
 .settings-panel .pill {
   display: inline-flex;
   align-items: center;
@@ -1620,6 +1642,8 @@ body[data-theme="dark"] .kc-xl.held {
 @media (max-width: 960px) {
   .j-search-input { width: 220px; }
   .settings-panel { grid-template-columns: 200px minmax(0, 1fr); }
+  /* The colophon's two lines stay two lines in the narrower menu. */
+  .snav-colophon { gap: 9px; padding-left: 4px; padding-right: 0; white-space: nowrap; }
   .scol { padding: 26px 28px 36px 30px; }
   .flow { padding: 14px 12px; }
   .fline { min-width: 8px; margin: 15px 4px 0; }

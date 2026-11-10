@@ -239,7 +239,7 @@ def test_the_export_row_is_wired_to_the_backend():
     html = read("index.html")
     row = html[html.index('id="exportRow"'):]
     row = row[:row.index("</div>\n            <!--")]
-    assert '<label for="exportFormat">Export history</label>' in row
+    assert '<label for="exportFormat">Export the Journal</label>' in row
     assert 'onclick="exportHistory(this)"' in row and "<span>Export</span>" in row
     assert 'id="exportTitle"' in row and 'aria-describedby="exportTitle"' in row
     assert 'class="select"' in row and 'class="btn btn-sec btn-sm"' in row

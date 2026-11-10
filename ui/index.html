@@ -297,7 +297,7 @@
               <input type="checkbox" class="tog" role="switch" id="startAtLoginToggle" aria-label="Start Waffler when I turn on my computer" onchange="setStartAtLogin(this.checked)">
             </div>
             <div class="row">
-              <div class="row-main"><div class="row-t">Run setup again</div><div class="row-d">Your keys and history stay as they are.</div></div>
+              <div class="row-main"><div class="row-t">Run setup again</div><div class="row-d">Your keys and Journal stay as they are.</div></div>
               <button type="button" class="btn btn-sec btn-sm" onclick="runSetupAgain()">Run setup</button>
             </div>
           </div>
@@ -313,7 +313,7 @@
              one. -->
         <section class="s-sec" id="secStyle" data-sec="style" hidden>
           <h1 class="ptitle">Style</h1>
-          <p class="pdesc">How your words are finished, for each kind of app. It applies to new dictations.</p>
+          <p class="pdesc">How your words are finished, for each kind of app.</p>
 
           <h2 class="sh2">Clean-up</h2>
           <div class="sheet">
@@ -551,7 +551,7 @@
             <div class="key-editor" id="groqKeyEditor" data-provider="groq">
               <div class="key-editor-row">
                 <input type="password" id="groqKeyInput" class="input input-mono" placeholder="gsk_…" autocomplete="off" spellcheck="false" aria-label="Groq key">
-                <button type="button" class="btn btn-pri btn-sm" onclick="saveGroqKey()">Save</button>
+                <button type="button" class="btn btn-pri btn-sm" onclick="saveGroqKey(this)">Save</button>
                 <button type="button" class="btn btn-quiet btn-sm" onclick="closeKeyEditor(true)">Cancel</button>
               </div>
               <p class="key-help">Make one at <a class="link" href="#" onclick="openKeyPage('groq'); return false;">console.groq.com/keys</a>. Groq keys start with gsk_.</p>
@@ -559,7 +559,7 @@
             <div class="key-editor" id="apiKeyEditor" data-provider="openai">
               <div class="key-editor-row">
                 <input type="password" id="apiKeyInput" class="input input-mono" placeholder="sk-…" autocomplete="off" spellcheck="false" aria-label="OpenAI key">
-                <button type="button" class="btn btn-pri btn-sm" onclick="saveApiKey()">Save</button>
+                <button type="button" class="btn btn-pri btn-sm" onclick="saveApiKey(this)">Save</button>
                 <button type="button" class="btn btn-quiet btn-sm" onclick="closeKeyEditor(true)">Cancel</button>
               </div>
               <p class="key-help">Optional. Make one at <a class="link" href="#" onclick="openKeyPage('openai'); return false;">platform.openai.com/api-keys</a>. OpenAI keys start with sk-.</p>
@@ -567,7 +567,7 @@
             <div class="key-editor" id="cerebrasKeyEditor" data-provider="cerebras">
               <div class="key-editor-row">
                 <input type="password" id="cerebrasKeyInput" class="input input-mono" placeholder="csk-…" autocomplete="off" spellcheck="false" aria-label="Cerebras key">
-                <button type="button" class="btn btn-pri btn-sm" onclick="saveCerebrasKey()">Test and save</button>
+                <button type="button" class="btn btn-pri btn-sm" onclick="saveCerebrasKey(this)">Test and save</button>
                 <button type="button" class="btn btn-quiet btn-sm" onclick="closeKeyEditor(true)">Cancel</button>
               </div>
               <p class="key-help">Optional. Make one at <a class="link" href="#" onclick="openKeyPage('cerebras'); return false;">cloud.cerebras.ai/platform/api-keys</a>. Cerebras keys start with csk-, and Waffler checks it with Cerebras before saving.</p>
@@ -644,7 +644,7 @@
              plan is free. -->
         <section class="s-sec" id="secUsage" data-sec="usage" hidden>
           <h1 class="ptitle">Usage</h1>
-          <p class="pdesc">Counted on this computer, from your own history.</p>
+          <p class="pdesc">Counted on this computer, from your own Journal.</p>
 
           <div class="stage stage-plain u-hero" id="usageHero">
             <div class="u-top">
@@ -799,7 +799,7 @@
                  unless the user picks 30, 90 or 365 days. A shorter choice
                  that would delete dictations asks first, in the sheet. -->
             <div class="row" id="historyRow">
-              <div class="row-main"><div class="row-t"><label for="historyKeep">History</label></div><div class="row-d" id="privHistoryDesc">Your dictations, searchable in your Journal. Each notes the app you were in, the language and which services handled it. The app is kept with its kind (email, work chat, personal chat or other), on this computer only. Each also notes how loud your speech arrived, so Waffler can tell you if your microphone is set too low. If you correct a dictation with Edit text, your corrected version is kept with it, on this computer only, for as long as the dictation is.</div></div>
+              <div class="row-main"><div class="row-t"><label for="historyKeep">Journal</label></div><div class="row-d" id="privHistoryDesc">Your dictations, searchable in your Journal. Each notes the app you were in, the language and which services handled it. The app is kept with its kind (email, work chat, personal chat or other), on this computer only. Each also notes how loud your speech arrived, so Waffler can tell you if your microphone is set too low. If you correct a dictation with Edit text, your corrected version is kept with it, on this computer only, for as long as the dictation is.</div></div>
               <select id="historyKeep" class="select" onchange="onHistoryKeepChange(this)">
                 <option value="0">Keep forever</option>
                 <option value="365">Keep for a year</option>
@@ -816,7 +816,7 @@
                  shown in its folder. It is the user's own copy, so Delete all my
                  data does not touch it, and the row says so. -->
             <div class="row" id="exportRow">
-              <div class="row-main"><div class="row-t" id="exportTitle"><label for="exportFormat">Export history</label></div><div class="row-d">Save your Journal as a file on your Desktop. If iCloud or OneDrive backs up your Desktop, it backs this file up too. It never includes your keys. It's your own copy, so Delete all my data leaves it alone. Your Vocabulary and Snippets export from their own page, the same way.</div></div>
+              <div class="row-main"><div class="row-t" id="exportTitle"><label for="exportFormat">Export the Journal</label></div><div class="row-d">Save your Journal as a file on your Desktop. If iCloud or OneDrive backs up your Desktop, it backs this file up too. It never includes your keys. It's your own copy, so Delete all my data leaves it alone. Your Vocabulary and Snippets export from their own page, the same way.</div></div>
               <select id="exportFormat" class="select">
                 <option value="json">JSON</option>
                 <option value="csv">CSV</option>
@@ -839,7 +839,7 @@
             <!-- Transforms (beta): selected text is read and sent only when a
                  transform is used, to the provider the person chose. -->
             <div class="row" id="transformsPrivacyRow">
-              <div class="row-main"><div class="row-t">Transforms</div><div class="row-d">Only when you use a transform, Waffler reads the text you selected, with Accessibility or by copying it, and sends it to your provider on your own key. The text before and after is kept in your Journal, and Delete all my data clears it with the rest.</div></div>
+              <div class="row-main"><div class="row-t">Transforms</div><div class="row-d" id="privTransformsDesc">Only when you use a transform, Waffler reads the text you selected, with Accessibility or by copying it, and sends it to your provider on your own key. The text before and after is kept in your Journal, and Delete all my data clears it with the rest.</div></div>
             </div>
             <!-- Command mode (beta): what is said, and the text near the cursor, are
                  sent only while the shortcut is held, to the provider the person chose. -->
@@ -888,7 +888,7 @@
               </div>
               <!-- Only when a transform is used (Settings, Transforms). -->
               <div class="row">
-                <div class="row-main"><div class="row-t">The text you selected</div><div class="row-d">Only when you use a transform: Waffler reads your selection, through Accessibility or by copying it and putting your clipboard back, and sends it to your provider on your own key. It never reads a password field.</div></div>
+                <div class="row-main"><div class="row-t">The text you selected</div><div class="row-d" id="privSelectedDesc">Only when you use a transform: Waffler reads your selection, through Accessibility or by copying it and putting your clipboard back, and sends it to your provider on your own key. It never reads a password field.</div></div>
               </div>
               <!-- Only when a command is given (Settings, Command mode). -->
               <div class="row">
@@ -915,18 +915,18 @@
                  snippets and settings; deleting those too is the full reset, which
                  asks again on its own. -->
             <div class="row" id="resetRow">
-              <div class="row-main"><div class="row-t" id="resetTitle">Delete all my data</div><div class="row-d">History, usage, recordings, logs and which tips you've seen. Your keys, words, snippets and settings stay.</div></div>
+              <div class="row-main"><div class="row-t" id="resetTitle">Delete all my data</div><div class="row-d">Your Journal, usage, recordings, logs and which tips you've seen. Your keys, words, snippets and settings stay.</div></div>
               <button type="button" class="btn btn-danger-solid btn-sm" id="resetAsk" aria-describedby="resetTitle" onclick="askFactoryReset(true)">Delete…</button>
             </div>
             <div class="row reset-confirm" id="resetConfirm" hidden>
-              <div class="row-main"><div class="row-t">Delete your history, usage, recordings and logs?</div><div class="row-d">This can't be undone. Waffler keeps running with your keys, words and snippets. <a class="link" href="#" id="resetKeysAsk" onclick="askFactoryResetKeys(true); return false;">Delete my keys and settings too</a></div></div>
+              <div class="row-main"><div class="row-t">Delete your Journal, usage, recordings and logs?</div><div class="row-d">This can't be undone. Waffler keeps running with your keys, words and snippets. <a class="link" href="#" id="resetKeysAsk" onclick="askFactoryResetKeys(true); return false;">Delete my keys and settings too</a></div></div>
               <button type="button" class="btn btn-sec btn-sm" id="resetNo" onclick="askFactoryReset(false)">Keep it</button>
               <button type="button" class="btn btn-danger-solid btn-sm" id="resetYes" onclick="deleteMyData(this)">Delete my data</button>
             </div>
             <div class="row reset-confirm" id="resetKeysConfirm" hidden>
               <div class="row-main"><div class="row-t">Delete everything, your keys too?</div><div class="row-d">This can't be undone. Your keys, words, snippets and settings go as well. Waffler closes, and setup starts the next time you open it.</div></div>
               <button type="button" class="btn btn-sec btn-sm" id="resetKeysNo" onclick="askFactoryResetKeys(false)">Keep my keys</button>
-              <button type="button" class="btn btn-danger-solid btn-sm" onclick="factoryReset()">Delete everything</button>
+              <button type="button" class="btn btn-danger-solid btn-sm" onclick="factoryReset(this)">Delete everything</button>
             </div>
           </div>
         </section>
