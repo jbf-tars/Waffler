@@ -5042,7 +5042,7 @@ class WafflerPipeline:
             except ImportError:
                 from audio_device_monitor import restart_stream_when_idle as _restart_stream_when_idle
             _restart_stream_when_idle(self.audio, _device_monitor, "the microphone now chosen", _log_to_file,
-                                      busy=taking)
+                                      busy=taking, system_input=False)
 
         def taking():
             # Anything that holds the microphone or is about to be handed what

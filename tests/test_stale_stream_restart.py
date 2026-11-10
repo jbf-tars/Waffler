@@ -230,3 +230,60 @@ def test_a_command_or_transform_hold_also_keeps_the_restart_waiting(tmp_path):
     p._commands = types.SimpleNamespace(busy=lambda: False)
     m._tick()
     assert rebuilt == [1]
+
+
+# ── the log names the microphone that was opened, not only the system's ──────
+
+class NamedAudio(FakeAudio):
+    def __init__(self, opened, **kw):
+        super().__init__(**kw)
+        self._opened = opened
+
+    def opened_device(self):
+        return self._opened
+
+
+def test_the_line_names_the_microphone_opened_when_it_is_not_the_systems():
+    """With the built-in microphone first in the ranking, or AirPods avoided
+    to keep music in high quality, the stream is opened on the built-in one
+    when AirPods become the system's input. The log said "restarted on
+    'AirPods Pro'" 33 times in twelve days on a Mac that never recorded from
+    them."""
+    lines, m, audio = [], monitor(), NamedAudio("MacBook Pro Microphone")
+    adm.restart_stream_when_idle(audio, m, "AirPods Pro", lines.append)
+    assert audio.rebuilt == 1
+    assert any("restarted on 'MacBook Pro Microphone'" in line
+               and "the system's input is now 'AirPods Pro'" in line for line in lines)
+    assert not any("restarted on 'AirPods Pro'" in line for line in lines)
+
+
+def test_the_line_is_as_before_when_the_systems_microphone_was_opened():
+    lines, m, audio = [], monitor(), NamedAudio("AirPods Pro")
+    adm.restart_stream_when_idle(audio, m, "AirPods Pro", lines.append)
+    assert lines == ["[audio-monitor] monitoring stream restarted on 'AirPods Pro'"]
+
+
+def test_a_recorder_that_cannot_name_its_microphone_keeps_the_old_line():
+    class Unnamed(NamedAudio):
+        def opened_device(self):
+            raise RuntimeError("not now")
+
+    for audio in (NamedAudio(None), Unnamed(None)):
+        lines = []
+        adm.restart_stream_when_idle(audio, monitor(), "AirPods Pro", lines.append)
+        assert lines == ["[audio-monitor] monitoring stream restarted on 'AirPods Pro'"]
+
+
+def test_after_a_take_the_line_still_names_the_microphone_opened():
+    lines, m, audio = [], monitor(), NamedAudio("MacBook Pro Microphone", busy_for=1)
+    adm.restart_stream_when_idle(audio, m, "AirPods Pro", lines.append)
+    m._tick()
+    assert any("restarted on 'MacBook Pro Microphone'" in line and line.endswith("after the take")
+               for line in lines)
+
+
+def test_a_change_of_ranking_is_not_called_the_systems_input():
+    lines, m, audio = [], monitor(), NamedAudio("Yeti Stereo Microphone")
+    adm.restart_stream_when_idle(audio, m, "the microphone now chosen", lines.append,
+                                 system_input=False)
+    assert lines == ["[audio-monitor] monitoring stream restarted on 'Yeti Stereo Microphone'"]

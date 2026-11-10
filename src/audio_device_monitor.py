@@ -309,13 +309,19 @@ class AudioDeviceMonitor:
 
 
 def restart_stream_when_idle(audio, monitor, new_name: str, log: Callable[[str], None],
-                             busy: Optional[Callable[[], bool]] = None) -> None:
+                             busy: Optional[Callable[[], bool]] = None,
+                             system_input: bool = True) -> None:
     """The system's default input changed: open the always-on stream again so it
     is on the microphone now in use. If a take is being recorded that would lose
     it, so the restart is tried again on each poll of ``monitor`` until the take
     is over. ``busy`` is the app's own "something is using the microphone" check
     (a Command or Transform hold, a take being turned into text), asked as well
-    as the recorder's own. Never raises."""
+    as the recorder's own. Never raises.
+
+    The line in the log names the microphone the stream was opened on. That is
+    often not the system's new input (``new_name``): a ranked microphone wins,
+    and a Bluetooth headset's is avoided. ``system_input=False`` when
+    ``new_name`` is not a device's name (a change of ranking)."""
     if audio is None:
         return                                  # the pipeline is still starting
     # Before anything that can fail or wait: if the restart below cannot run (a
@@ -327,12 +333,23 @@ def restart_stream_when_idle(audio, monitor, new_name: str, log: Callable[[str],
         except Exception as e:
             log(f"[audio-monitor] could not flag the change: {type(e).__name__}")
 
+    def opened_on() -> str:
+        try:
+            opened = audio.opened_device()
+        except Exception:
+            opened = None
+        if not isinstance(opened, str) or not opened:
+            return repr(new_name)
+        if system_input and opened != new_name:
+            return f"{opened!r}; the system's input is now {new_name!r}"
+        return repr(opened)
+
     def attempt(after_take: bool) -> bool:
         try:
             if busy is not None and busy():
                 return False
             if audio.rebuild_if_idle():
-                log(f"[audio-monitor] monitoring stream restarted on {new_name!r}"
+                log(f"[audio-monitor] monitoring stream restarted on {opened_on()}"
                     + (" after the take" if after_take else ""))
                 return True
         except Exception as e:
