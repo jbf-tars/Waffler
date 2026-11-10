@@ -196,7 +196,7 @@ def _dialect_instruction(settings: dict) -> str:
     """
     dialect = settings.get("dialect", "auto")
     if dialect == "en-GB":
-        text = "Use British English spelling (e.g. colour, organise, centre, behaviour, realise, programme, defence, licence, favour, catalogue)."
+        text = "Use British English spelling (e.g. colour, organise, analyse, centre, behaviour, realise, programme, defence, licence, favour, catalogue)."
     elif dialect == "en-US":
         text = "Use American English spelling (e.g. color, organize, center, behavior, realize, program, defense, license, favor, catalog)."
     else:

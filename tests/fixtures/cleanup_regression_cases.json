@@ -62,6 +62,7 @@
     {"id": "BRIT-01", "cat": "british", "text": "We need to optimize the color palette and organize the catalog before the program launches.", "has": ["optimise", "colour", "organise"], "lacks": ["optimize", "color palette", "organize"]},
     {"id": "BRIT-02", "cat": "british", "text": "I realise the neighbours were apologising, but the behaviour at the weekend was not acceptable.", "has": ["realise", "neighbours", "apologising", "behaviour"]},
     {"id": "BRIT-03", "cat": "british", "text": "Can you analyze the traveler numbers and tell me which center had the most canceled bookings?", "has": ["analyse", "centre"], "lacks": ["analyze", "center"], "ends_with": "?"},
+    {"id": "BRIT-04", "cat": "british", "text": "The team analyzed last quarter's numbers and will finalize the report once legal has finished analyzing the supplier contract.", "has": ["analysed", "finalise", "analysing"], "lacks": ["analyz", "finalize"]},
 
     {"id": "EMAIL-01", "cat": "email", "text": "Hi Priya, thanks for sending the drawings over, they look great. Could you add the dimensions for the back wall? Kind regards, Tom.", "re": ["\\AHi Priya,\\n\\n", "\\n\\nKind regards,\\nTom\\Z"], "has": ["dimensions for the back wall?"]},
     {"id": "EMAIL-02", "cat": "email", "text": "Hi team, quick update on the migration. The database moved over last night and everything is green so far.", "re": ["\\AHi team,\\n\\n"], "not_re": ["(?i)(regards|cheers|thanks|best),?\\s*\\Z", "\\[.*\\]"], "has": ["everything is green so far"]},
