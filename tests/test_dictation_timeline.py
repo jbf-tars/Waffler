@@ -136,7 +136,9 @@ def test_wakes_and_input_changes_are_counted_per_version():
         "12:30:05  [audio-monitor] the computer woke up after 27s",
         "12:31:00  [audio-monitor] default input changed: 'A' → 'B'",
         "12:31:00  [audio-monitor] monitoring stream restarted on 'B'",
+        "12:31:30  [audio] opened the microphone again between presses: the audio devices changed",
         "12:40:00  === Waffler starting === (v3.16.7, PROJECT_ROOT=/x)"))
+    assert rep.counts["3.16.5"]["microphone opened again between presses"] == 1
     assert rep.wake_gaps["3.16.5"] == [902.0, 27.0]
     assert rep.counts["3.16.5"]["system input changed"] == 1
     assert rep.counts["3.16.7"]["starts"] == 1

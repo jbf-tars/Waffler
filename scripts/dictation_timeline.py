@@ -282,6 +282,12 @@ def parse(lines: Iterable[str]) -> Report:
                 rec.reopened_mic = msg.split(":", 1)[1].strip()
             bump("microphone opened again at a press")
             continue
+        if msg.startswith("[audio] opened the microphone again between presses"):
+            bump("microphone opened again between presses")
+            continue
+        if msg.startswith("[audio] could not open the microphone again"):
+            bump("microphone could not be opened again between presses")
+            continue
         if msg.startswith("[pipeline] starting the recording took over") or \
                 msg.startswith("[pipeline] the recording did not start"):
             finish(rec, START_FAILED)

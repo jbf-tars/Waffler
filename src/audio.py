@@ -1361,6 +1361,46 @@ class AudioRecorder:
             self._create_stream()
             return True
 
+    def reopen_if_stale(self, busy=None) -> bool:
+        """Open the always-on stream again now, between presses, if it has been
+        flagged stale (the Mac woke up, the devices changed under it) and
+        nothing is using it; True when that was done. The next press then finds
+        a warm stream and keeps its pre-roll, where it would have taken the
+        stale one down and made a new one with the key held.
+
+        For the device monitor, once the person is back at a Mac that slept
+        (src/audio_device_monitor.py ``on_awake``). Exactly ``rebuild_if_idle``,
+        so never during a take, a stop's post-roll, a start's warm-up or a
+        reopen, and ``busy`` is the app's own check, asked first; one that
+        fails counts as busy. Nothing is opened where no stream is open, or
+        while the recorder is wedged. A reopen that fails leaves no stream, so
+        it is not tried again from here: the next press opens one, as it would
+        have. Never raises."""
+        if self._stream is None or self._wedged or audio_guard.wedged_op() is not None:
+            return False
+        if self._stale_reason() is None:
+            return False
+        if busy is not None:
+            try:
+                if busy():
+                    return False
+            except Exception:
+                return False
+        with self._stream_lock:
+            # Asked again under the lock: a press may have opened it since.
+            reason = self._stale_reason()
+            if self._stream is None or reason is None:
+                return False
+            try:
+                rebuilt = self.rebuild_if_idle()
+            except Exception as e:
+                self._say(f"[audio] could not open the microphone again between presses "
+                          f"({type(e).__name__}); the next press will try")
+                return False
+            if rebuilt:
+                self._say(f"[audio] opened the microphone again between presses: {reason}")
+            return rebuilt
+
     def _mark_active(self) -> None:
         """The microphone was used or opened just now: idle starts again, and
         so does the back-off of reopens while idle."""

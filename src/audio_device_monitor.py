@@ -65,6 +65,20 @@ between presses, at 30 s of quiet, 2 minutes, then every 5 (src/audio.py
 ``recycle_when_idle``), so the press keeps its pre-roll and PortAudio's list is
 new again.
 
+Back at a Mac that slept
+------------------------
+That press after a wake is a cold start: the stream is taken down and made
+again while the key is held, and the half second kept before the press is
+thrown away (on one Mac 7 of 80 takes began so, each 0.9 s short at its start,
+and 3 of the 7 did not end in a paste). So once the Mac has been awake for
+``WAKE_SETTLE_S`` and its keyboard, mouse or trackpad has been used since the
+wake was noticed, ``on_awake`` is called, once, and Waffler opens the stream
+again there, between presses (``AudioRecorder.reopen_if_stale``). A wake nobody
+is at opens nothing: Power Nap wakes a sleeping Mac every quarter of an hour.
+Where the time since the last input cannot be read (``seconds_since_input``
+answers None: not a Mac, or Quartz will not say) nothing is done, and the next
+press opens the stream, as before.
+
 Limitations:
 - Polling has a 1–2 s window. Acceptable.
 - We deliberately don't restart the stream if a recording is in flight
@@ -78,6 +92,7 @@ Limitations:
 
 from __future__ import annotations
 
+import sys
 import threading
 import time
 from typing import Callable, Optional
@@ -94,6 +109,23 @@ except ImportError:  # imported as src.audio_device_monitor
     from src import mic_devices as _md
 
 
+def seconds_since_input() -> Optional[float]:
+    """Seconds since the keyboard, the mouse or the trackpad was last used on
+    this Mac, or None where that cannot be told (not a Mac, no Quartz, a
+    failure). One read of a number the window server keeps; it needs no
+    permission and watches no key."""
+    if sys.platform != "darwin":
+        return None
+    try:
+        import Quartz
+        idle = Quartz.CGEventSourceSecondsSinceLastEventType(
+            Quartz.kCGEventSourceStateCombinedSessionState, Quartz.kCGAnyInputEventType)
+        idle = float(idle)
+        return idle if idle == idle and idle >= 0.0 else None
+    except Exception:
+        return None
+
+
 class AudioDeviceMonitor:
     """Background poll for default-input-device changes."""
 
@@ -106,6 +138,10 @@ class AudioDeviceMonitor:
     # A poll this much later than the last one means the Mac was asleep: more than
     # a poll (2 s) plus the longest a bounded CoreAudio call may take (3 s), with room.
     WAKE_GAP_S = 20.0
+    # After a wake, how long the Mac must have been awake before ``on_awake`` may be
+    # called: CoreAudio is busiest as the Mac wakes, and three polls is long enough
+    # to tell a Mac that stays awake from one that goes straight back to sleep.
+    WAKE_SETTLE_S = 6.0
 
     def __init__(
         self,
@@ -115,6 +151,7 @@ class AudioDeviceMonitor:
         reader: Optional[Callable[[], Optional[list]]] = None,
         on_wake: Optional[Callable[[], None]] = None,
         wall_clock: Callable[[], float] = time.time,
+        input_idle_s: Callable[[], Optional[float]] = seconds_since_input,
     ) -> None:
         """
         Args:
@@ -129,6 +166,8 @@ class AudioDeviceMonitor:
             on_wake: Called when a poll comes much later than due (the
                 computer was asleep). May also be set later.
             wall_clock: The time of day, for noticing that; a test's.
+            input_idle_s: Seconds since the keyboard or mouse was last used,
+                or None when that cannot be told; a test's.
         """
         self._on_change = on_change
         self._log = log_fn or print
@@ -142,6 +181,12 @@ class AudioDeviceMonitor:
         self.on_wake = on_wake
         self._wall = wall_clock
         self._last_tick_at: Optional[float] = None
+        # Called once after a wake, when the person is back (see the module
+        # docstring). Set later. ``_woke_at``: when the last wake was noticed,
+        # while that call is still owed.
+        self.on_awake: Optional[Callable[[], None]] = None
+        self._input_idle_s = input_idle_s
+        self._woke_at: Optional[float] = None
         self._source: Optional[str] = None      # "live" or "portaudio", once known
         self._baselined = False
         # What to try again on each poll until it works: (function, polls so far).
@@ -244,16 +289,44 @@ class AudioDeviceMonitor:
         if last is None or now - last < self.WAKE_GAP_S:
             return
         self._log(f"[audio-monitor] the computer woke up after {int(now - last)}s")
+        self._woke_at = now
         if self.on_wake is not None:
             try:
                 self.on_wake()
             except Exception as e:
                 self._log(f"[audio-monitor] on_wake failed: {type(e).__name__}")
 
+    def _look_for_the_person(self) -> None:
+        """After a wake: once the Mac has been awake for WAKE_SETTLE_S and has
+        been used since the wake was noticed, tell ``on_awake``, once. Input
+        "since the wake" is an idle time shorter than the time since the wake:
+        whatever clock the idle time is kept on, it is never shorter than that
+        unless a key or the mouse was touched after it. Never raises."""
+        if self._woke_at is None or self.on_awake is None:
+            return
+        since_wake = self._wall() - self._woke_at
+        if since_wake < self.WAKE_SETTLE_S:
+            return
+        try:
+            idle = self._input_idle_s()
+        except Exception:
+            idle = None
+        if idle is None:
+            self._woke_at = None        # cannot tell: the next press opens the stream, as before
+            return
+        if idle >= since_wake:
+            return                      # nobody has touched it since it woke
+        self._woke_at = None
+        try:
+            self.on_awake()
+        except Exception as e:
+            self._log(f"[audio-monitor] on_awake failed: {type(e).__name__}")
+
     def _tick(self) -> None:
         """One poll: the default input's name, and the list of inputs. The
         first one only learns the baseline (so nothing "changes" at startup)."""
         self._look_for_wake()
+        self._look_for_the_person()
         self._run_deferred()
         if self.on_tick is not None:
             try:

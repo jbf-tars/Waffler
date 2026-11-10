@@ -4258,6 +4258,18 @@ def _build_pipeline():
                 _pipeline.audio.note_devices_changed()
         _device_monitor.on_wake = _on_wake
 
+        def _on_awake() -> None:
+            """The person is back at a Mac that slept (it has been awake a few
+            seconds and a key or the mouse has been used since): open the
+            flagged stream again now, so the next press is on a warm one and
+            keeps its half second of pre-roll. Never while anything is using
+            the microphone or a paste is putting the clipboard back; a press
+            that got there first has opened it already."""
+            audio = getattr(_pipeline, "audio", None) if _pipeline is not None else None
+            if audio is not None and hasattr(audio, "reopen_if_stale"):
+                audio.reopen_if_stale(busy=lambda: bool(_update_would_interrupt(_pipeline)))
+        _device_monitor.on_awake = _on_awake
+
         def _on_poll_tick() -> None:
             """Windows: PortAudio's list of microphones is only as new as the
             stream, so an idle stream is opened again here, between presses
