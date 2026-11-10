@@ -4,6 +4,15 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+- **Long Journal entries are shown short.** An entry over 100 words shows its
+  first sixty or so, ending at a full stop where one is near, then "Show all
+  N words" to read the rest and "Show less" to fold it again. A search that
+  matches in the hidden part opens the entry, so every match is marked, and
+  Copy, Edit text and Redo always use the whole text.
+
 ## [3.17.0] - 2026-11-10
 
 A polish pass over the whole app: what Waffler writes, the window, and how it

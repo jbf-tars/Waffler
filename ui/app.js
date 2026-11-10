@@ -1936,6 +1936,10 @@ function makeCard(item, isNew) {
   const words       = (displayText.split(/\s+/).filter(Boolean)).length;
   const q           = WL.qualityView(item);
   const changes     = WL.vocabChanges(item);
+  // A long entry shows its first sixty words or so (logic.js collapseView);
+  // it opens in full when a search matches in the rest.
+  const fold        = WL.collapseView(displayText, _searchText);
+  let expanded      = fold.expanded;
 
   const when = formatTime(item.timestamp);
   const textId = `jt${++_cardSeq}`;
@@ -1959,7 +1963,8 @@ function makeCard(item, isNew) {
     <div class="j-g"><div class="j-t">${escHtml(_clock(item.timestamp))}</div><div class="j-w">${WL.formatCount(words)} ${words === 1 ? 'word' : 'words'}</div></div>
     <div class="j-body">
       <div class="j-said-k" hidden>What you said</div>
-      <div class="card-text styled" id="${textId}" dir="auto">${_markedHtml(displayText, changes)}</div>
+      <div class="card-text styled" id="${textId}" dir="auto">${_foldedHtml(fold, expanded, displayText, changes)}</div>
+      ${fold.collapse ? `<button type="button" class="link-btn j-fold" aria-controls="${textId}" aria-expanded="${expanded}">${escHtml(expanded ? fold.less : fold.more)}</button>` : ''}
       ${editedLine}${vocabLine}${qualityLine}
       <p class="j-status" role="status" aria-live="polite" hidden></p>
     </div>
@@ -1975,8 +1980,19 @@ function makeCard(item, isNew) {
   const textEl = div.querySelector('.card-text');
   div.querySelector('.btn-copy').addEventListener('click', function() {
     // Copies what is shown: the clean text, or the transcript when shown.
+    // Always the whole text, even while a long entry is shown short.
     copyItem(textEl.classList.contains('raw') ? rawText : displayText, this);
   });
+
+  const moreBtn = div.querySelector('.j-fold');
+  if (moreBtn) {
+    moreBtn.addEventListener('click', () => {
+      expanded = !expanded;
+      textEl.innerHTML = _foldedHtml(fold, expanded, displayText, changes);
+      moreBtn.textContent = expanded ? fold.less : fold.more;
+      moreBtn.setAttribute('aria-expanded', String(expanded));
+    });
+  }
 
   const toggleBtn = div.querySelector('.text-toggle');
   if (toggleBtn) {
@@ -1986,7 +2002,9 @@ function makeCard(item, isNew) {
       const k = div.querySelector('.j-said-k');
       if (k) k.hidden = !showing;
       div.classList.toggle('is-raw', showing);
-      if (!showing) textEl.innerHTML = _markedHtml(displayText, changes);
+      // "What you said" is shown whole; the short view comes back after.
+      if (moreBtn) moreBtn.hidden = showing;
+      if (!showing) textEl.innerHTML = _foldedHtml(fold, expanded, displayText, changes);
     });
   }
 
@@ -2471,18 +2489,26 @@ async function redoEntry(item, card) {
   _refreshStats();
 }
 
+// A dictation's text, whole or (a long one, folded) its start and "…". Only
+// what is drawn is built, so a folded entry costs less than a whole one.
+function _foldedHtml(fold, expanded, text, changes) {
+  if (!fold.collapse || expanded) return _markedHtml(text, changes);
+  return _markedHtml(fold.head, changes, `${fold.sentence ? ' ' : ''}<span class="j-ell" aria-hidden="true">\u2026</span>`);
+}
+
 // The clean text in its paragraphs, with the words the Vocabulary put in
-// marked.
-function _markedHtml(text, changes) {
+// marked. `tail` (HTML) ends the last paragraph: the "…" of a folded entry.
+function _markedHtml(text, changes, tail) {
   const used = (changes || []).map((c) => c.used);
-  return String(text || '').split(/\n\s*\n/).map((para) => {
+  const paras = String(text || '').split(/\n\s*\n/);
+  return paras.map((para, i) => {
     // The Vocabulary's words underlined, and, during a search, where it matched.
     const segs = WL.searchMarks(WL.markWords(para, used), _searchText);
     // dir="auto": a paragraph in Arabic or Hebrew runs right to left.
     return `<p dir="auto">${segs.map((sg) => {
       const t = sg.hit ? `<mark class="search-hl">${escHtml(sg.text)}</mark>` : escHtml(sg.text);
       return sg.mark ? `<span class="word-hl">${t}</span>` : t;
-    }).join('')}</p>`;
+    }).join('')}${tail && i === paras.length - 1 ? tail : ''}</p>`;
   }).join('');
 }
 

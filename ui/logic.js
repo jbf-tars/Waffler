@@ -2338,6 +2338,63 @@
     return out;
   }
 
+  // A long Journal entry is shown short: past COLLAPSE_OVER words, its first
+  // COLLAPSE_SHOW or so, cut at the end of a sentence when one falls between
+  // COLLAPSE_MIN and COLLAPSE_MAX words (else after a word), then "…" and
+  // "Show all N words". `head` is the start of `text` exactly (Copy, Edit and
+  // Redo always use the whole text; this is only what is drawn). When a
+  // search matches in the part that would be hidden, the entry opens
+  // expanded so every match is marked. A plain scan of the words, so a
+  // 5,000-entry feed pays almost nothing for it.
+  const COLLAPSE_OVER = 100;
+  const COLLAPSE_SHOW = 60;
+  const COLLAPSE_MIN = 40;
+  const COLLAPSE_MAX = 80;
+  const SENTENCE_END = /[.!?\u2026\u3002\uff01\uff1f\u061f\u06d4][\u0022\u0027\u201d\u2019)\]]*$/;
+
+  function collapseView(text, query) {
+    const s = String(text || '');
+    const re = /\S+/g;
+    const ends = [];                       // where each word ends, up to COLLAPSE_MAX
+    let words = 0, sentenceAt = -1, m;
+    while ((m = re.exec(s))) {
+      words++;
+      if (words <= COLLAPSE_MAX) {
+        ends.push(m.index + m[0].length);
+        if (words >= COLLAPSE_MIN && SENTENCE_END.test(m[0])
+            && (sentenceAt < 0 || Math.abs(words - COLLAPSE_SHOW) < Math.abs(sentenceAt - COLLAPSE_SHOW))) {
+          sentenceAt = words;
+        }
+      }
+    }
+    const noun = words === 1 ? 'word' : 'words';
+    const view = { collapse: false, expanded: true, words, head: s, sentence: false,
+      more: `Show all ${formatCount(words)} ${noun}`, less: 'Show less' };
+    if (words <= COLLAPSE_OVER) return view;
+    const cutWords = sentenceAt > 0 ? sentenceAt : COLLAPSE_SHOW;
+    let head = s.slice(0, ends[cutWords - 1]);
+    // Cut mid-sentence: a dangling comma or dash before the "…" reads badly.
+    if (sentenceAt < 0) head = head.replace(/[\s,;:\u2013\u2014-]+$/, '');
+    view.collapse = true;
+    view.head = head;
+    view.sentence = sentenceAt > 0;
+    const q = String(query || '').trim().toLowerCase();
+    let hidden = false;
+    if (q) {
+      const low = s.toLowerCase();
+      if (low.length !== s.length) hidden = low.includes(q);
+      else {
+        // Any match that ends past the cut is (partly) hidden.
+        for (let at = low.indexOf(q); at >= 0; at = low.indexOf(q, at + 1)) {
+          if (at + q.length > head.length) { hidden = true; break; }
+        }
+      }
+    }
+    view.expanded = hidden;
+    view.searchHit = hidden;
+    return view;
+  }
+
   // Beside the search box: how many entries are shown for the search. Only
   // a page at a time is loaded, so until the last page it is "50+ entries".
   function searchCount(query, count, done) {
@@ -2751,6 +2808,7 @@
     TYPING_WPM, TYPING_SPEED_PROBLEM, HEAT_LEVELS, formatMinutes, clockHour, hourRange, typingSpeedCheck,
     typingSpeedSaved, weekView, weekStreakView, wpmView, minutesSavedView, peakHourView, topAppsView,
     heatLevel, heatmapView, heatMove,
+    COLLAPSE_OVER, COLLAPSE_SHOW, COLLAPSE_MIN, COLLAPSE_MAX, collapseView,
     searchMarks, searchCount, isFindKey, enterRunsDefault, copyWorked, platformText,
   };
 });

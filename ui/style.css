@@ -276,6 +276,13 @@ html, body {
 .word-hl { background: linear-gradient(transparent 62%, rgba(217, 164, 65, 0.38) 62%); }
 /* Where a search matched: a honey wash behind the letters, in the text's own
    colour (a <mark>'s default is black on yellow, in both themes). */
+/* A long entry shown short (app.js _foldedHtml): "…" then "Show all N
+   words", a quiet text button under the words, at the start edge of the
+   line in either direction. */
+.j-ell { color: var(--muted); }
+.j-body .j-fold { display: block; margin-top: 4px; font: 500 12.5px/1.45 var(--f-ui); color: var(--text-2); text-align: start; }
+.j-body .j-fold:hover { color: var(--text); }
+.j-fold[hidden], .j-ent.is-editing .j-fold { display: none; }
 .search-hl { border-radius: 3px; background: rgba(217, 164, 65, 0.34); color: inherit; box-shadow: 0 0 0 1px rgba(196, 138, 46, 0.4); }
 .j-meta {
   display: flex;
