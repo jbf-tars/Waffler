@@ -81,6 +81,10 @@ _POSTROLL_MS = 150
 # Settings' microphone meter: a stream that has delivered nothing for this
 # long is not shown as live.
 _LEVEL_STALE_S = 0.5
+# For the wedge recovery: the microphone "still delivers audio" if a block came
+# within this long (a block is 64 ms). CoreAudio's I/O thread is one of the two
+# threads in the deadlock that recovery exists for, so blocks stop with it.
+_DELIVERING_WITHIN_S = 1.0
 
 # A microphone with a noise gate (Windows Voice Focus, a headset's own DSP, a
 # virtual filter) sends exact zeros whenever nobody is speaking, which looks
@@ -639,6 +643,17 @@ class AudioRecorder:
             "gated": bool(self._gated),
             "device": self._opened_device,
         }
+
+    def is_delivering(self) -> bool:
+        """Is the open stream still handing over audio: did a block arrive in
+        the last second? For the wedge recovery (src/wedge_recovery.py), which
+        waits longer for a stuck call while this is so. Reads two numbers and
+        asks nothing of PortAudio or CoreAudio, so it can be asked while they
+        do not answer; blocks of exact zeros count (it is the I/O thread
+        running that is asked about, not sound)."""
+        if self._stream is None or not self._callback_active:
+            return False
+        return time.monotonic() - self._last_chunk_at < _DELIVERING_WITHIN_S
 
     def opened_device(self) -> Optional[str]:
         """The name of the microphone the stream is on, or None."""

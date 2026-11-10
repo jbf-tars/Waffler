@@ -6130,6 +6130,7 @@ class WafflerPipeline:
             show=self._show_wedge_message,
             still_stuck=lambda: bool(self.audio.is_stuck()),
             on_cleared=self._clear_audio_wedge,
+            mic_alive=lambda: bool(self.audio.is_delivering()),
             log=_log_to_file,
         )
 

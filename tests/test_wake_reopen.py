@@ -314,3 +314,29 @@ def test_the_app_opens_the_stream_again_when_the_person_is_back():
     assert "_update_would_interrupt(_pipeline)" in body, "never while anything is using the microphone"
     wake = src[src.index("def _on_wake() -> None:"):src.index("_device_monitor.on_wake = _on_wake")]
     assert "note_devices_changed()" in wake, "the flag stays: a press before then still opens it"
+
+
+# ── is the microphone delivering audio? (for src/wedge_recovery.py) ──────────
+
+def test_a_stream_that_has_just_sent_a_chunk_is_delivering(sd):
+    rec = make(sd)
+    assert rec.is_delivering() is True
+
+
+def test_a_stream_that_has_sent_nothing_for_a_while_is_not(sd, monkeypatch):
+    rec = make(sd)
+    rec._last_chunk_at -= audio_mod._DELIVERING_WITHIN_S + 0.1
+    assert rec.is_delivering() is False
+    feed(rec, 0, 1)                                # exact zeros are still a chunk: the I/O thread runs
+    assert rec.is_delivering() is True
+
+
+def test_no_stream_is_not_delivering_and_no_stream_is_touched(sd):
+    rec = make(sd)
+    rec.stop_monitoring()
+    fresh = AudioRecorder()
+    sd.log.clear()
+    before = dict(sd.calls)
+    assert rec.is_delivering() is False
+    assert fresh.is_delivering() is False
+    assert sd.log == [] and sd.calls == before
