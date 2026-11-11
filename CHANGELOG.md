@@ -12,6 +12,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   N words" to read the rest and "Show less" to fold it again. A search that
   matches in the hidden part opens the entry, so every match is marked, and
   Copy, Edit text and Redo always use the whole text.
+- **Longer dictations come back sooner.** Takes of about 7 seconds or more are
+  now sent for transcription as FLAC instead of WAV: the same sound, nothing
+  lost, in a file about 40% smaller, so the transcript arrives sooner. Shorter
+  takes are sent as before. If FLAC is unavailable for any reason, Waffler
+  quietly sends WAV as it always has.
 
 ## [3.17.0] - 2026-11-10
 

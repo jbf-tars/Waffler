@@ -1958,6 +1958,75 @@ def _request_timeout(nbytes: int):
                                fallback=bool(getattr(_ATTEMPT, "fallback", False)),
                                size_mb=nbytes / (1024.0 * 1024.0))
 
+
+# ── Upload encoding ─────────────────────────────────────────────────────────
+# Clips of _FLAC_MIN_S or longer go up as FLAC rather than WAV. FLAC is
+# lossless (the provider decodes the very same samples) and about half the
+# size for speech, and measured against Groq's whisper-large-v3 the whole
+# request came back ~40% sooner on clips that long. Shorter clips stay WAV:
+# their upload is already quick, so there was nothing to gain. When soundfile
+# (libsndfile) cannot be loaded, or one clip will not encode, the clip goes up
+# as WAV exactly as before.
+_FLAC_MIN_S = 7.0
+_soundfile = None   # the module once loaded; False once it failed to load
+
+
+def _load_soundfile():
+    """The soundfile module, or None when it cannot be loaded (logged once)."""
+    global _soundfile
+    if _soundfile is None:
+        try:
+            import soundfile
+            _soundfile = soundfile
+        except Exception as e:   # ImportError, or OSError with no libsndfile
+            _soundfile = False
+            _wlog(f"[whisper] FLAC encoder unavailable ({type(e).__name__}); "
+                  f"uploading WAV")
+    return _soundfile or None
+
+
+def _wav_to_flac(audio_bytes: bytes):
+    """FLAC bytes for a 16-bit PCM WAV clip of at least _FLAC_MIN_S, or None
+    when the clip should go up as WAV (short, not 16-bit PCM WAV, no encoder,
+    or the encode failed)."""
+    import io
+    import wave
+    try:
+        with wave.open(io.BytesIO(audio_bytes), "rb") as w:
+            rate, channels = w.getframerate(), w.getnchannels()
+            width, nframes = w.getsampwidth(), w.getnframes()
+            if width != 2 or rate <= 0 or nframes / float(rate) < _FLAC_MIN_S:
+                return None
+            frames = w.readframes(nframes)
+    except Exception:
+        return None
+    sf = _load_soundfile()
+    if sf is None:
+        return None
+    try:
+        out = io.BytesIO()
+        with sf.SoundFile(out, "w", samplerate=rate, channels=channels,
+                          format="FLAC", subtype="PCM_16") as f:
+            f.buffer_write(frames, dtype="int16")
+        flac = out.getvalue()
+    except Exception as e:
+        _wlog(f"[whisper] FLAC encode failed ({type(e).__name__}); uploading WAV")
+        return None
+    if not flac or len(flac) >= len(audio_bytes):
+        return None
+    return flac
+
+
+def _upload_file(audio_bytes: bytes):
+    """The multipart ``file`` for one speech-to-text request, as a
+    ``(filename, content, mime type)`` tuple both SDKs accept: FLAC for a clip
+    of _FLAC_MIN_S or longer, otherwise the WAV as it is. The filename's
+    extension and the type always agree, since the providers go by them."""
+    flac = _wav_to_flac(audio_bytes)
+    if flac is not None:
+        return ("audio.flac", flac, "audio/flac")
+    return ("audio.wav", audio_bytes, "audio/wav")
+
 # Incomplete-transcript detector. Real dictation is never sustained below
 # ~1.5 words per second OF SPEECH. Recalibrated for the noise-floor-relative
 # ``_speech_seconds`` (v3.14.97): across 160 real recordings measured that way
@@ -3191,9 +3260,7 @@ class WhisperTranscriber:
         """Groq Whisper — same model, ~10-50x faster than OpenAI."""
         t0 = time.time()
         print("⚡ Groq Whisper API...")
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-            f.write(audio_bytes)
-            tmp = f.name
+        upload = _upload_file(audio_bytes)
         try:
             settings = load_settings()
             lang     = settings.get("language", "en")
@@ -3213,21 +3280,22 @@ class WhisperTranscriber:
                 hint = vocab_to_prompt(load_vocab())
 
             def ask(response_format):
-                with open(tmp, "rb") as af:
-                    kwargs = dict(
-                        model="whisper-large-v3",
-                        file=af,
-                        response_format=response_format,
-                    )
-                    if hint:
-                        kwargs["prompt"] = hint
-                    if lang and lang != "auto":
-                        kwargs["language"] = lang
-                    # Per-request timeout scaled to the upload size — the flat
-                    # 60s client default kills large uploads on slow uplinks —
-                    # and short to connect when OpenAI can take the clip instead.
-                    kwargs["timeout"] = _request_timeout(len(audio_bytes))
-                    return self._groq_client.audio.transcriptions.create(**kwargs)
+                kwargs = dict(
+                    model="whisper-large-v3",
+                    file=upload,
+                    response_format=response_format,
+                )
+                if hint:
+                    kwargs["prompt"] = hint
+                if lang and lang != "auto":
+                    kwargs["language"] = lang
+                # Per-request timeout scaled to the clip's size — the flat 60s
+                # client default kills large uploads on slow uplinks — and
+                # short to connect when OpenAI can take the clip instead. The
+                # WAV size is kept even when FLAC goes, so a FLAC upload only
+                # ever has more time than before, never less.
+                kwargs["timeout"] = _request_timeout(len(audio_bytes))
+                return self._groq_client.audio.transcriptions.create(**kwargs)
 
             # The words with their segments (3.16.3), so an ending Whisper
             # invented over no speech can be told and dropped (_groq_words).
@@ -3251,9 +3319,6 @@ class WhisperTranscriber:
         except Exception as e:
             print(f"❌ Groq Whisper error: {e}")
             raise
-        finally:
-            if os.path.exists(tmp):
-                os.unlink(tmp)
 
     # ── API fallback ─────────────────────────────────────────────────────────
 
@@ -3261,25 +3326,22 @@ class WhisperTranscriber:
         """OpenAI Whisper API — always works, needs internet."""
         t0 = time.time()
         print(f"📡 OpenAI Whisper API...")
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-            f.write(audio_bytes)
-            tmp = f.name
+        upload = _upload_file(audio_bytes)
         try:
             vocab    = load_vocab()
             hint     = vocab_prompt_hint(vocab)
             settings = load_settings()
             lang     = settings.get("language", "en")
-            with open(tmp, "rb") as af:
-                kwargs = dict(model=self.model, file=af, response_format="text")
-                if hint:
-                    kwargs["prompt"] = hint
-                if lang and lang != "auto":
-                    kwargs["language"] = lang
-                # Per-request timeout scaled to the upload size — the flat 60s
-                # client default kills large uploads on slow uplinks — and
-                # short to connect when Groq can take the clip instead.
-                kwargs["timeout"] = _request_timeout(len(audio_bytes))
-                response = self.client.audio.transcriptions.create(**kwargs)
+            kwargs = dict(model=self.model, file=upload, response_format="text")
+            if hint:
+                kwargs["prompt"] = hint
+            if lang and lang != "auto":
+                kwargs["language"] = lang
+            # Per-request timeout scaled to the clip's size — the flat 60s
+            # client default kills large uploads on slow uplinks — and short
+            # to connect when Groq can take the clip instead.
+            kwargs["timeout"] = _request_timeout(len(audio_bytes))
+            response = self.client.audio.transcriptions.create(**kwargs)
             text = response.strip()
             duration = time.time() - t0
             self._last_duration = duration  # Store for usage tracking
@@ -3296,7 +3358,4 @@ class WhisperTranscriber:
             _wlog(f"[whisper] OpenAI model {self.model!r} is gone, "
                   f"switching to {OPENAI_TRANSCRIBE_MODEL!r}")
             self.model = OPENAI_TRANSCRIBE_MODEL
-        finally:
-            if os.path.exists(tmp):
-                os.unlink(tmp)
         return self._transcribe_api(audio_bytes)
