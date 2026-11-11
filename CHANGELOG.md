@@ -4,7 +4,7 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [3.17.1] - 2026-11-11
 
 ### Changed
 - **Long Journal entries are shown short.** An entry over 100 words shows its
@@ -17,6 +17,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   lost, in a file about 40% smaller, so the transcript arrives sooner. Shorter
   takes are sent as before. If FLAC is unavailable for any reason, Waffler
   quietly sends WAV as it always has.
+
+### Fixed
+- **Windows builds report their own version.** The release build copied the
+  version number into the app only after the app had been built, so a build
+  could show the previous version and keep offering itself as an update. The
+  number is now set before the build.
 
 ## [3.17.0] - 2026-11-10
 
