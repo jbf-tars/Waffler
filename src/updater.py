@@ -57,6 +57,14 @@ _CREATE_NEW_PROCESS_GROUP = 0x00000200
 _CREATE_NO_WINDOW = 0x08000000
 UPDATE_BATCH_FLAGS = _CREATE_NEW_PROCESS_GROUP | _CREATE_NO_WINDOW
 
+
+def _no_window_flags() -> int:
+    """``creationflags`` that start a console program (PowerShell, cmd) with
+    no window on Windows, and 0 everywhere else, where the flag does not
+    exist. Waffler is a windowed program with no console, so any console
+    program it starts without this gets a new, visible terminal window."""
+    return _CREATE_NO_WINDOW if sys.platform.startswith("win") else 0
+
 # A real-browser UA — GitHub's release-assets CDN sometimes throttles or
 # 403s unidentified python-requests clients on signed-redirect URLs.
 _USER_AGENT = "Waffler-Updater/1.0 (+https://github.com/jbf-tars/waffler)"
@@ -590,10 +598,14 @@ def _log_windows_signature_status(exe_path: Path) -> None:
         "Write-Output $sig.Status"
     )
     try:
+        # No window: Waffler has no console of its own, so without this flag
+        # Windows opens a new terminal window for PowerShell, which flashed on
+        # screen for a second or two every time someone clicked Update.
         proc = subprocess.run(
             [powershell, "-NoProfile", "-NonInteractive",
              "-ExecutionPolicy", "Bypass", "-Command", ps_script],
             capture_output=True, text=True, timeout=120,
+            creationflags=_no_window_flags(),
         )
     except Exception as e:  # advisory only — never block the install
         _log(f"Authenticode status: unavailable ({type(e).__name__}: {e})")
