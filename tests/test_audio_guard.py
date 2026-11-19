@@ -56,9 +56,12 @@ def test_a_call_that_raises_hands_back_the_exception_as_done():
 
 def test_a_call_that_does_not_return_is_abandoned_within_the_bound():
     fn, gate = stuck()
-    t0 = time.monotonic()
+    # perf_counter, not monotonic: on Windows monotonic moves in ~16 ms
+    # ticks, so a full 0.15 s wait could read as 0.1399999 and fail the
+    # bound below (seen on the GitHub Windows runner, 18 Nov 2026).
+    t0 = time.perf_counter()
     done, value = ag.run_bounded(fn, 0.15, "AudioOutputUnitStop")
-    took = time.monotonic() - t0
+    took = time.perf_counter() - t0
     assert done is False and value is ag.WEDGED
     assert 0.14 <= took < 1.0, "it waited for the bound and no longer"
     gate.set()

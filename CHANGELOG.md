@@ -4,6 +4,20 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.17.2] - 2026-11-19
+
+### Fixed
+- **Clicking Update on Windows no longer flashes a terminal window.** Just
+  before installing, the updater asks PowerShell for the installer's
+  Authenticode status (for the log only). It started PowerShell without the
+  "no window" flag, and because Waffler is a windowed program with no
+  console of its own, Windows opened a new terminal window for it, which
+  stayed on screen for a second or two until the check finished (seen on the
+  3.17.0 to 3.17.1 update). PowerShell now starts with no window, as the
+  update helper already did. A new test lists every program Waffler starts
+  and fails if one that could open a console on Windows is added without
+  the flag.
+
 ## [3.17.1] - 2026-11-11
 
 ### Changed
