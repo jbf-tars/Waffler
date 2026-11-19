@@ -4,7 +4,7 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [3.17.2] - 2026-11-19
 
 ### Fixed
 - **Clicking Update on Windows no longer flashes a terminal window.** Just
