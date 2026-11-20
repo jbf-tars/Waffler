@@ -118,6 +118,7 @@
     try {
       const r = await a.meetings_toggle();
       if (!r || !r.ok) showToast((r && r.error) || 'The meeting couldn’t be recorded. Try again.', 'error');
+      else if (r.ignored) { /* a second press straight after the first */ }
       else if (r.started) showToast('Recording the meeting. Tap your hotkey twice to finish.', 'success');
       else if (r.note_id && document.body.dataset.page === 'meetings') openNote(r.note_id);
       else if (r.note_id) showToast('Meeting finished. The notes are being written.', 'success');

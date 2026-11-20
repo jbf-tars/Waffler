@@ -14,6 +14,7 @@ import threading
 import time
 
 _KEY_NAMES = ("GROQ_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY")
+TOGGLE_GAP_S = 1.5        # a second toggle sooner than this is the same gesture again
 
 
 def _share_waffler_keys() -> None:
@@ -43,6 +44,8 @@ class MeetingsController:
         self._lock = threading.Lock()
         self._service = None
         self._watching = False
+        self._toggle_lock = threading.Lock()
+        self._toggled_at = 0.0
 
     # ── the engine ──────────────────────────────────────────────────────────
     def _svc(self):
@@ -96,10 +99,24 @@ class MeetingsController:
         return {"ok": True, **self.state(), "note_id": note_id}
 
     def toggle(self) -> dict:
-        """Start a meeting, or finish the one running. `started` says which."""
-        if self.state()["recording"]:
-            return {**self.stop(), "started": False}
-        return {**self.start(), "started": True}
+        """Start a meeting, or finish the one running. `started` says which.
+
+        One at a time, and not twice in quick succession: a burst of double
+        taps (or a tap and a click) is one decision, not three. A toggle that
+        arrives within TOGGLE_GAP_S of the last is ignored (`ignored`: True)."""
+        if not self._toggle_lock.acquire(blocking=False):
+            return {"ok": True, "ignored": True, **self.state()}
+        try:
+            if time.time() - self._toggled_at < TOGGLE_GAP_S:
+                return {"ok": True, "ignored": True, **self.state()}
+            if self.state()["recording"]:
+                result = {**self.stop(), "started": False}
+            else:
+                result = {**self.start(), "started": True}
+            self._toggled_at = time.time()
+            return result
+        finally:
+            self._toggle_lock.release()
 
     def _watch(self, note_id: str) -> None:
         """Tell the page when the notes are written (or could not be)."""

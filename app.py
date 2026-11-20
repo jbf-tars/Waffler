@@ -86,6 +86,14 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 # its UI toolkit (Tk on Windows, AppKit on a Mac), but it used to import
 # pywebview, NumPy, sounddevice and the OpenAI and Groq SDKs first, which
 # cost it about a second of start-up and the same memory as the main process.
+# The meeting's microphone is a process of its own too (src/meeting_mic.py).
+if '--meeting-mic' in sys.argv:
+    try:
+        from src import meeting_mic as _meeting_mic
+    except ImportError:
+        import meeting_mic as _meeting_mic
+    sys.exit(_meeting_mic.main())
+
 if '--overlay' in sys.argv:
     import platform as _plat
     if _plat.system() == "Windows":
@@ -5396,7 +5404,9 @@ class WafflerPipeline:
         self._meeting_tap_at = time.time()          # keeps the "Don't tap, hold" tip away
         result = _get_meetings().toggle()
         key = self._hotkey_name()
-        if not result.get("ok"):
+        if result.get("ignored"):
+            _log_to_file("[meetings] a second toggle straight after the first: ignored")
+        elif not result.get("ok"):
             self._show_toast_safe("error", "The meeting couldn't be recorded",
                                   result.get("error") or "Try again.", timeout=8)
         elif result.get("started"):

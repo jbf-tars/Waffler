@@ -70,40 +70,84 @@ class _Resampler:
 
 
 class MicSource(Source):
+    """The microphone, read from a helper process (src/meeting_mic.py) so it
+    never shares an audio stream, or the audio library's state, with
+    dictation in the app. MEETINGS_MIC_COMMAND (tests) replaces the command."""
     name = "mic"
 
     def __init__(self, device: str | int | None = None):
         self.device = device if device not in ("", None) else None
         self._blocks: list[np.ndarray] = []
         self._lock = threading.Lock()
-        self._stream = None
+        self._proc = None
         self._resampler: _Resampler | None = None
 
-    def _callback(self, indata, frames, time_info, status):  # noqa: ARG002
-        with self._lock:
-            self._blocks.append(indata[:, 0].copy())
+    def _command(self) -> list[str]:
+        import os
+        import shlex
+        override = os.environ.get("MEETINGS_MIC_COMMAND")
+        if override:
+            return shlex.split(override)
+        dev = "" if self.device is None else str(self.device)
+        if getattr(sys, "frozen", False):
+            return [sys.executable, "--meeting-mic", dev]
+        from pathlib import Path
+        app_py = Path(__file__).resolve().parent.parent.parent / "app.py"
+        return [sys.executable, str(app_py), "--meeting-mic", dev]
 
     def start(self) -> None:
-        import sounddevice as sd
-        try:
-            self._stream = sd.InputStream(samplerate=RATE, channels=1, dtype="float32",
-                                          device=self.device, callback=self._callback)
-            self._resampler = _Resampler(RATE)
-        except Exception:
-            info = sd.query_devices(self.device, "input")
-            rate = int(info["default_samplerate"])
-            self._stream = sd.InputStream(samplerate=rate, channels=1, dtype="float32",
-                                          device=self.device, callback=self._callback)
-            self._resampler = _Resampler(rate)
-        self._stream.start()
+        import subprocess
+        proc = subprocess.Popen(self._command(), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE)
+        ready: dict = {}
+
+        def read_status():
+            for raw in proc.stderr:
+                line = raw.decode("utf-8", "replace").strip()
+                if line.startswith("ready ") and "rate" not in ready:
+                    try:
+                        ready["rate"] = int(line.split()[1])
+                    except (IndexError, ValueError):
+                        ready["rate"] = RATE
+        threading.Thread(target=read_status, daemon=True, name="meeting-mic-err").start()
+        deadline = time.time() + 8.0
+        while "rate" not in ready:
+            if proc.poll() is not None:
+                raise RuntimeError("The microphone couldn't be opened for the meeting.")
+            if time.time() > deadline:
+                proc.kill()
+                raise RuntimeError("The microphone took too long to open for the meeting.")
+            time.sleep(0.02)
+        self._resampler = _Resampler(ready["rate"])
+        self._proc = proc
+
+        def read_audio():
+            rest = b""
+            while True:
+                data = proc.stdout.read(4096)
+                if not data:
+                    return
+                data = rest + data
+                usable = len(data) - (len(data) % 2)
+                rest = data[usable:]
+                if usable:
+                    block = np.frombuffer(data[:usable], dtype="<i2").astype(np.float32) / 32768.0
+                    with self._lock:
+                        self._blocks.append(block)
+        threading.Thread(target=read_audio, daemon=True, name="meeting-mic").start()
 
     def stop(self) -> None:
-        if self._stream is not None:
+        proc, self._proc = self._proc, None
+        if proc is None:
+            return
+        try:
+            proc.stdin.close()                 # the helper stops when its stdin closes
+            proc.wait(timeout=3)
+        except Exception:
             try:
-                self._stream.stop()
-                self._stream.close()
-            finally:
-                self._stream = None
+                proc.kill()
+            except Exception:
+                pass
 
     def pull(self) -> np.ndarray:
         with self._lock:
