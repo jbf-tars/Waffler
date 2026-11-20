@@ -177,6 +177,7 @@
         <button type="button" class="snav-item" data-sec="transforms" onclick="showSettingsSection('transforms')">Transforms (beta)</button>
         <button type="button" class="snav-item" data-sec="command" onclick="showSettingsSection('command')">Command mode (beta)</button>
         <button type="button" class="snav-item" data-sec="keys" onclick="showSettingsSection('keys')">Keys and providers</button>
+        <button type="button" class="snav-item" data-sec="claude" onclick="showSettingsSection('claude')">Claude</button>
         <button type="button" class="snav-item" data-sec="hotkey" onclick="showSettingsSection('hotkey')">Shortcuts</button>
         <button type="button" class="snav-item" data-sec="usage" onclick="showSettingsSection('usage')">Usage</button>
         <button type="button" class="snav-item" data-sec="privacy" onclick="showSettingsSection('privacy')">Privacy and data</button>
@@ -621,6 +622,34 @@
           </div>
 
           <p class="s-foot">New to keys? <a class="link" href="#" onclick="openKeyPage('groq'); return false;">Get a free Groq key</a><svg class="ic ic-sm" aria-hidden="true"><use href="#i-external"/></svg></p>
+        </section>
+
+        <!-- Claude: one click lets Claude's desktop app read meetings and
+             dictations (claude.js; Api.claude_status / _connect / _disconnect;
+             src/claude_connector.py). Read-only. -->
+        <section class="s-sec" id="secClaude" data-sec="claude" hidden>
+          <h1 class="ptitle">Claude</h1>
+          <p class="pdesc">Let Claude read what you recorded and dictated, so you can ask it about any of it. Claude can only read. It cannot change or delete anything.</p>
+
+          <div class="sheet">
+            <div class="row" id="claudeRow">
+              <div class="row-main"><div class="row-t">Claude desktop app</div><div class="row-d" id="claudeState" role="status">Checking.</div></div>
+              <button type="button" class="btn btn-pri btn-sm" id="claudeConnect" hidden>Connect Claude</button>
+              <button type="button" class="btn btn-sec btn-sm" id="claudeDisconnect" hidden>Disconnect</button>
+            </div>
+            <div class="row" id="claudeDictRow">
+              <div class="row-main"><div class="row-t"><label for="claudeDictToggle">Include my dictations</label></div><div class="row-d" id="claudeDictDesc">On, Claude can read what you dictated as well as your meetings. Off, it reads meetings only.</div></div>
+              <input type="checkbox" class="tog" role="switch" id="claudeDictToggle" aria-describedby="claudeDictDesc">
+            </div>
+          </div>
+
+          <h2 class="sh2">Claude Code<span class="aside">optional</span></h2>
+          <div class="sheet">
+            <div class="row" id="claudeCodeRow">
+              <div class="row-main"><div class="row-t">Run this once in a terminal</div><div class="row-d cl-cmd" id="claudeCommand"></div></div>
+              <button type="button" class="btn btn-sec btn-sm" id="claudeCopy">Copy</button>
+            </div>
+          </div>
         </section>
 
         <!-- Shortcuts: every shortcut in one place (src/shortcut_settings.py). The
@@ -1566,5 +1595,6 @@
 <script src="app.js"></script>
 <script src="meetings.js"></script>
 <script src="howitruns.js"></script>
+<script src="claude.js"></script>
 </body>
 </html>

@@ -135,3 +135,6 @@ body:not([data-page="home"]) .j-ask { display: none; }
 .hir-bar i { display: block; height: 100%; width: 0; background: var(--honey); transition: width 0.3s var(--ease, ease); }
 .hir-note { grid-column: 1 / -1; margin: 0; font: 400 13px/1.45 var(--f-ui); color: var(--muted); }
 @media (max-width: 760px) { .hir { grid-template-columns: minmax(0, 1fr); } }
+
+/* Settings, Claude: the command for Claude Code, in the row's description. */
+.settings-panel .row-d.cl-cmd { font: 400 12px/1.5 var(--f-mono, ui-monospace, Menlo, Consolas, monospace); overflow-wrap: anywhere; user-select: text; -webkit-user-select: text; }

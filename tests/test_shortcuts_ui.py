@@ -275,9 +275,9 @@ def test_shortcuts_is_the_one_section_where_the_hotkey_page_was():
     nav = html[html.index('aria-label="Settings sections"'):html.index("</nav>", html.index('aria-label="Settings sections"'))]
     assert "data-sec=\"hotkey\" onclick=\"showSettingsSection('hotkey')\">Shortcuts</button>" in nav
     assert "Hotkey</button>" not in nav, "no second page for the same thing"
-    assert html.count('class="snav-item"') == 9
+    assert html.count('class="snav-item"') == 10
     assert '<h1 class="ptitle">Shortcuts</h1>' in section()
-    assert "'general', 'style', 'transforms', 'command', 'keys', 'hotkey', 'usage', 'privacy', 'about'" in read("app.js")
+    assert "'general', 'style', 'transforms', 'command', 'keys', 'claude', 'hotkey', 'usage', 'privacy', 'about'" in read("app.js")
 
 
 def test_the_page_has_the_list_the_rules_the_reset_and_the_dictation_hotkeys_test():

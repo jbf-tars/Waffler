@@ -34,7 +34,7 @@ def test_the_new_figures_live_in_usage_and_add_no_page_or_section():
     # Nothing to count yet: the page shows its empty card and none of these.
     assert usage.index('id="usageEmpty"') < usage.index('id="usageDetail"')
     html = read("index.html")
-    assert html.count('class="snav-item"') == 9           # the Settings sections are as they were
+    assert html.count('class="snav-item"') == 10          # the Settings sections are as they were
     assert html.count('<button type="button" id="nav') == 4  # and so are the four pages (Meetings joined in the one-app work)
 
 

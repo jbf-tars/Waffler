@@ -87,6 +87,15 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 # pywebview, NumPy, sounddevice and the OpenAI and Groq SDKs first, which
 # cost it about a second of start-up and the same memory as the main process.
 # The meeting's microphone is a process of its own too (src/meeting_mic.py).
+# So is the connector Claude starts to read meetings and dictations
+# (src/claude_connector.py): only protocol messages may reach its stdout.
+if '--mcp' in sys.argv:
+    try:
+        from src import claude_connector as _claude_connector
+    except ImportError:
+        import claude_connector as _claude_connector
+    sys.exit(_claude_connector.main())
+
 if '--meeting-mic' in sys.argv:
     try:
         from src import meeting_mic as _meeting_mic
@@ -735,8 +744,47 @@ def _dictations_for_ask(question: str) -> str:
         return ""
 
 
+def _claude_connector_mod():
+    try:
+        from src import claude_connector
+    except ImportError:
+        import claude_connector
+    return claude_connector
+
+
 class Api:
     """Exposed to JS via pywebview.api.*"""
+
+    # ── Claude (src/claude_connector.py) ────────────────────────────────────
+    def claude_status(self) -> dict:
+        """Whether Claude's desktop app is here and reads Waffler: {"ok",
+        "installed", "connected", "current", "dictations", "command",
+        "error"}. Never raises."""
+        try:
+            return {"ok": True, **_claude_connector_mod().status()}
+        except Exception as e:
+            _log_to_file(f"[claude] status failed: {type(e).__name__}")
+            return {"ok": False, "error": "Claude's settings couldn't be read."}
+
+    def claude_connect(self) -> dict:
+        """Add Waffler to the Claude desktop app's settings. Never raises."""
+        try:
+            out = _claude_connector_mod().connect()
+            _log_to_file(f"[claude] connect: {'ok' if out.get('ok') else 'refused'}")
+            return out
+        except Exception as e:
+            _log_to_file(f"[claude] connect failed: {type(e).__name__}")
+            return {"ok": False, "error": "Claude's settings couldn't be changed."}
+
+    def claude_disconnect(self) -> dict:
+        """Take Waffler out of the Claude desktop app's settings. Never raises."""
+        try:
+            out = _claude_connector_mod().disconnect()
+            _log_to_file(f"[claude] disconnect: {'ok' if out.get('ok') else 'refused'}")
+            return out
+        except Exception as e:
+            _log_to_file(f"[claude] disconnect failed: {type(e).__name__}")
+            return {"ok": False, "error": "Claude's settings couldn't be changed."}
 
     # ── Meetings ────────────────────────────────────────────────────────────
     def meetings_state(self) -> dict:
@@ -1826,6 +1874,8 @@ class Api:
             "double_tap_handsfree":  stored.get("double_tap_handsfree") is True,
             # Two taps of the hotkey record a meeting: on unless switched off.
             "meeting_double_tap":    stored.get("meeting_double_tap") is not False,
+            # Claude may read dictations as well as meetings: on unless switched off.
+            "claude_dictations":     stored.get("claude_dictations") is not False,
             # Microphones (src/mic_ranking.py): the ranked list, best first, as
             # [{name, id?}]. Empty follows the system's microphone.
             "mic_ranking":           mic_ranking_of(stored),
@@ -2036,6 +2086,11 @@ class Api:
                 if "meeting_double_tap" in settings:
                     stored["meeting_double_tap"] = bool(settings["meeting_double_tap"])
                     notes.append(f"Two taps for a meeting: {'on' if stored['meeting_double_tap'] else 'off'}")
+
+                # ── Claude reads dictations too: read by the connector on each call.
+                if "claude_dictations" in settings:
+                    stored["claude_dictations"] = bool(settings["claude_dictations"])
+                    notes.append(f"Claude reads dictations: {'on' if stored['claude_dictations'] else 'off'}")
 
                 # ── Microphones: the ranked list, applied live below ─────────────
                 if _mr.touches(settings):
