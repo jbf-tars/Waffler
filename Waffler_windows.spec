@@ -19,8 +19,26 @@ PROJECT_ROOT = os.path.abspath('.')
 #     (os.add_dll_directory), so they are collected into that folder. NVIDIA's
 #     CUDA libraries (about 2 GB) are not bundled: the CPU is used unless they
 #     are already on the machine (src/local_stt_ct2.py).
-# The helper tolerates a package that is not installed.
+# The helpers tolerate a package that is not installed.
+import importlib.util
 from PyInstaller.utils.hooks import collect_dynamic_libs
+
+
+def _stt_installed(package, *modules):
+    """`modules` when `package` is installed in the build's Python, else []."""
+    try:
+        found = importlib.util.find_spec(package) is not None
+    except (ImportError, ValueError):
+        found = False
+    if not found:
+        print(f"[spec] on-device speech to text: {package} is not installed, not bundled")
+    return list(modules) if found else []
+
+
+# The engine is imported inside functions, so it is named, with what it
+# imports as it loads.
+_STT_HIDDEN = _stt_installed('faster_whisper', 'faster_whisper', 'ctranslate2', 'tokenizers',
+                             'huggingface_hub', 'av')
 
 
 def _stt_libs(package):
@@ -47,12 +65,8 @@ a = Analysis(
         ('icon.ico', '.'),
     ],
     hiddenimports=[
-        # ── On-device speech to text (imported inside functions) ──
-        'faster_whisper',
-        'ctranslate2',
-        'tokenizers',
-        'huggingface_hub',
-        'av',
+        # ── On-device speech to text (see _STT_HIDDEN above) ──
+        *_STT_HIDDEN,
         # ── Audio ──
         'sounddevice',
         'numpy',

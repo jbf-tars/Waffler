@@ -247,6 +247,8 @@ def test_a_model_that_is_not_downloaded_keeps_the_recording_and_says_so(tmp_path
     assert entry["failed"] is True and entry["unsent_id"], "the recording is kept as a Not sent card"
     assert entry["provider_name"] == "" and entry["error"] == local_stt.NOT_DOWNLOADED[:200]
     assert p.clipboard.pastes == []
+    # The card is written first and the message shown after it: wait for it.
+    assert wait_for(lambda: bool(p.overlay.toasts()), timeout=10)
     toast = p.overlay.toasts()[-1]
     assert toast["heading"] == "Not sent"
     assert toast["body"] == local_stt.NOT_DOWNLOADED + " Your recording is saved in the Journal."

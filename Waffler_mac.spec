@@ -33,9 +33,33 @@ print(f"[spec] building Waffler.app version {_VERSION}")
 #     pywhispercpp reads its own version from its package metadata when it is
 #     imported, so the metadata is put in the bundle.
 #   Intel Mac (not a release target today): faster-whisper, if it is installed.
-# The helper tolerates a package that is not installed, so this spec builds
-# on either kind of Mac.
+# The helpers tolerate a package that is not installed, and only the engine
+# that is installed is named, so this spec builds on either kind of Mac
+# without "hidden import not found" lines for the other one.
+import importlib.util
 from PyInstaller.utils.hooks import copy_metadata
+
+
+def _stt_installed(package, *modules):
+    """`modules` when `package` is installed in the build's Python, else []."""
+    try:
+        found = importlib.util.find_spec(package) is not None
+    except (ImportError, ValueError):
+        found = False
+    if not found:
+        print(f"[spec] on-device speech to text: {package} is not installed, not bundled")
+    return list(modules) if found else []
+
+
+# Both engines are imported inside functions, so they are named.
+_STT_HIDDEN = (
+    # whisper.cpp (Apple Silicon)
+    _stt_installed('pywhispercpp', 'pywhispercpp', 'pywhispercpp.model', 'pywhispercpp.constants',
+                   'pywhispercpp.utils', '_pywhispercpp', 'platformdirs', 'tqdm')
+    # faster-whisper (Intel Mac)
+    + _stt_installed('faster_whisper', 'faster_whisper', 'ctranslate2', 'tokenizers',
+                     'huggingface_hub', 'av')
+)
 
 
 def _stt_metadata(package):
@@ -77,21 +101,8 @@ a = Analysis(
         '_soundfile_data',
         'cffi',
         '_cffi_backend',
-        # ── On-device speech to text (imported inside functions) ──
-        # whisper.cpp (Apple Silicon)
-        'pywhispercpp',
-        'pywhispercpp.model',
-        'pywhispercpp.constants',
-        'pywhispercpp.utils',
-        '_pywhispercpp',
-        'platformdirs',
-        'tqdm',
-        # faster-whisper (Intel Mac; skipped with a warning when not installed)
-        'faster_whisper',
-        'ctranslate2',
-        'tokenizers',
-        'huggingface_hub',
-        'av',
+        # ── On-device speech to text (see _STT_HIDDEN above) ──
+        *_STT_HIDDEN,
         # ── UI ──
         'webview',
         'webview.platforms.cocoa',
