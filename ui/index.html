@@ -57,6 +57,13 @@
        grouped by day, and more as you scroll (get_history pages); a new
        dictation is added at the top without redrawing the rest. -->
   <main class="journal" id="mainArea">
+    <!-- Record a meeting from the Journal (meetings.js). The round red button
+         from the mock-ups; while a meeting records it shows the time. -->
+    <button type="button" class="j-rec" id="jRecord" aria-label="Record a meeting" title="Record a meeting (or tap your hotkey twice)">
+      <svg class="j-rec-mic" width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="6" y="2" width="4" height="8" rx="2"/><path d="M3.5 8a4.5 4.5 0 0 0 9 0M8 12.5V14"/></svg>
+      <span class="j-rec-stop" aria-hidden="true"></span>
+      <span class="j-rec-clock" id="jRecordClock"></span>
+    </button>
     <div class="jr" id="journalLayout">
       <div class="j-col">
         <h1 class="sr-only" id="journalTitle" tabindex="-1">Journal</h1>

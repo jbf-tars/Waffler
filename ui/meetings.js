@@ -50,6 +50,12 @@
       $('mtSources').textContent = sys && mic ? 'Recording your microphone and the computer’s sound.' : mic ? 'Recording your microphone.' : 'Recording.';
       $('mtWarn').textContent = (s.warnings || []).join(' ');
     }
+    const jr = $('jRecord');
+    if (jr) {
+      jr.classList.toggle('is-on', !!s.recording);
+      jr.setAttribute('aria-label', s.recording ? 'Finish the meeting and write the notes' : 'Record a meeting');
+      $('jRecordClock').textContent = s.recording ? clock(s.elapsed_s) : '';
+    }
     window.clearInterval(timer);
     if (s.recording) timer = window.setInterval(refreshState, 1000);
   }
@@ -106,12 +112,15 @@
 
   async function toggle() {
     const a = api(); if (!a) { showToast('App not ready yet', 'error'); return; }
-    const btn = $('mtRecord'); btn.disabled = true;
+    const btns = [$('mtRecord'), $('jRecord')].filter(Boolean);
+    btns.forEach((b) => { b.disabled = true; });
     try {
       const r = await a.meetings_toggle();
       if (!r || !r.ok) showToast((r && r.error) || 'The meeting couldn’t be recorded. Try again.', 'error');
-      else if (!r.started && r.note_id) openNote(r.note_id);
-    } finally { btn.disabled = false; refreshState(); loadList(); }
+      else if (r.started) showToast('Recording the meeting. Tap your hotkey twice to finish.', 'success');
+      else if (r.note_id && document.body.dataset.page === 'meetings') openNote(r.note_id);
+      else if (r.note_id) showToast('Meeting finished. The notes are being written.', 'success');
+    } finally { btns.forEach((b) => { b.disabled = false; }); refreshState(); if (document.body.dataset.page === 'meetings') loadList(); }
   }
 
   async function copyNotes() {
@@ -161,6 +170,8 @@
   document.addEventListener('DOMContentLoaded', () => {
     if (!$('meetingsPanel')) return;
     $('mtRecord').addEventListener('click', toggle);
+    if ($('jRecord')) $('jRecord').addEventListener('click', toggle);
+    window.addEventListener('pywebviewready', refreshState);
     $('mtLiveFinish').addEventListener('click', toggle);
     $('mtBack').addEventListener('click', closeNote);
     $('mtCopy').addEventListener('click', copyNotes);
