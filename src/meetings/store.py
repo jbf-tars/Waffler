@@ -129,7 +129,7 @@ def _fts_query(q: str) -> str:
 
 class Store:
     def __init__(self, path: Path | str | None = None):
-        self.path = Path(path) if path else data_dir() / "natter.db"
+        self.path = Path(path) if path else data_dir() / "meetings.db"
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._local = threading.local()
         self._write = threading.RLock()

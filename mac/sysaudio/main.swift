@@ -131,7 +131,7 @@ Task {
         let text = error.localizedDescription
         let ns = error as NSError
         if ns.domain == SCStreamErrorDomain && ns.code == SCStreamError.userDeclined.rawValue {
-            status("error permission: allow Natter in System Settings → Privacy & Security → Screen & System Audio Recording")
+            status("error permission: allow Waffler in System Settings → Privacy & Security → Screen & System Audio Recording")
         } else {
             status("error \(text)")
         }
