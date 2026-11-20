@@ -69,8 +69,8 @@ def test_setup_moves_focus_to_the_new_step_and_to_what_a_state_shows():
     assert "!_wizFocusLost()" in rehome
     lost = func(app, "_wizFocusLost")
     assert "a.disabled" in lost and "closest('[hidden]')" in lost
-    # Finishing setup lands on the Journal, not on <body>.
-    assert '<h1 class="sr-only" id="journalTitle" tabindex="-1">Journal</h1>' in read("index.html")
+    # Finishing setup lands on Home (the page that was called Journal), not on <body>.
+    assert '<h1 class="sr-only" id="journalTitle" tabindex="-1">Home</h1>' in read("index.html")
     hide = app[app.index("function hideWizard("):app.index("function _setTopbarInert(")]
     assert "getElementById('journalTitle')" in hide
 

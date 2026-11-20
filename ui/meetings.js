@@ -176,14 +176,14 @@
       : String(n.preview || '').replace(/^#{1,4}\s+/gm, '').replace(/^[-*•]\s+/gm, '').replace(/\*\*/g, '').replace(/\s+/g, ' ').trim();
     const card = document.createElement('article');
     card.className = 'transcript-card j-ent j-meeting';
-    card.innerHTML = '<button type="button" class="mt-row mt-card">'
-      + '<span class="mt-time">' + esc(timeOf(n.created_at)) + '</span>'
+    // The same three columns as a dictation: the time and a figure, the words, nothing in the third.
+    card.innerHTML = '<div class="j-g"><div class="j-t">' + esc(timeOf(n.created_at)) + '</div>'
+      + '<div class="j-w">' + esc(n.duration_s ? length(n.duration_s) : 'Meeting') + '</div></div>'
+      + '<div class="j-body"><button type="button" class="mt-open">'
       + '<span class="mt-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>'
-      + '<span class="mt-body"><span class="mt-title">' + esc(n.title || (busy ? 'New meeting' : 'Untitled meeting'))
-      + (n.duration_s ? '<span class="mt-dur">' + esc(length(n.duration_s)) + '</span>' : '') + '</span>'
-      + (sub ? '<span class="mt-sum' + (busy ? ' mt-busy' : '') + '">' + esc(sub) + '</span>' : '')
-      + '<span class="mt-kind">Meeting</span></span></button>';
-    card.querySelector('button').addEventListener('click', () => { showPage('meetings'); openNote(n.id); });
+      + '<span class="mt-open-t">' + esc(n.title || (busy ? 'New meeting' : 'Untitled meeting')) + '</span></button>'
+      + (sub ? '<p class="mt-sum' + (busy ? ' mt-busy' : '') + '">' + esc(sub) + '</p>' : '') + '</div><div></div>';
+    card.addEventListener('click', () => { showPage('meetings'); openNote(n.id); });
     return card;
   };
 
