@@ -95,3 +95,9 @@ body:not([data-page="home"]) .j-rec { display: none; }
 /* The warmer night from the mock-ups (Natter's): a touch of brown in the black. */
 body[data-theme="dark"] { --bg: #12100E; --surface: #1A1714; --card: #1F1B18; --text: #F4F0EA; --text-2: #CFC7BB; --muted: #B3AA9E; }
 .jtitle { font-size: 34px; line-height: 1.1; }
+
+/* The Meetings page's own Record button is the red one, as on Home. */
+.mt-rec:not(.is-on) { background: var(--rec); color: #fff; }
+.mt-rec:not(.is-on):hover:not(:disabled) { background: var(--danger-solid); }
+.mt-rec:not(.is-on) .mt-dot { background: #fff; }
+.mt-setting { margin-top: 28px; padding: 14px 16px; border-radius: var(--r-card, 14px); background: var(--surface); display: flex; align-items: center; justify-content: space-between; gap: 16px; }

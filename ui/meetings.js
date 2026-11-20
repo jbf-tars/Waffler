@@ -187,8 +187,23 @@
     return card;
   };
 
+  // The switch for two taps of the hotkey (settings.json meeting_double_tap).
+  async function loadTapSetting() {
+    const a = api(), tog = $('mtTapToggle'); if (!a || !tog) return;
+    try { const s = await a.get_settings(); tog.checked = !s || s.meeting_double_tap !== false; } catch (e) { /* leave it as it is */ }
+  }
+  async function saveTapSetting() {
+    const a = api(), tog = $('mtTapToggle'); if (!a || !tog) return;
+    const on = tog.checked;
+    try {
+      const r = await a.save_settings({ meeting_double_tap: on });
+      if (r && r.ok) showToast(on ? 'Two taps of your hotkey record a meeting.' : 'Your hotkey only dictates now.', 'success', 3500);
+      else { tog.checked = !on; showToast('That couldn’t be saved. Try again.', 'error'); }
+    } catch (e) { tog.checked = !on; showToast('That couldn’t be saved. Try again.', 'error'); }
+  }
+
   // app.js's showPage calls this when the Meetings page opens.
-  window.loadMeetingsPage = function () { refreshState(); if (open) openNote(open.id); else loadList(); };
+  window.loadMeetingsPage = function () { refreshState(); loadTapSetting(); if (open) openNote(open.id); else loadList(); };
   // Python calls this when something changed (double tap, notes written).
   window.waffler_meetings_changed = function () {
     refreshState();
@@ -211,6 +226,7 @@
     let t = null;
     $('mtSearch').addEventListener('input', () => { window.clearTimeout(t); t = window.setTimeout(loadList, 180); });
     document.querySelectorAll('#mtTabs button').forEach((b) => b.addEventListener('click', () => { tab = b.dataset.tab; if (open) drawNote(open); }));
+    if ($('mtTapToggle')) $('mtTapToggle').addEventListener('change', saveTapSetting);
     wireAsk('mtAskAll', () => '');
     wireAsk('mtAskOne', () => (open ? open.id : ''));
   });

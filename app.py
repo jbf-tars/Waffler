@@ -1684,6 +1684,8 @@ class Api:
             # Shortcuts, double-tap to go hands-free (src/double_tap.py): off
             # unless exactly true.
             "double_tap_handsfree":  stored.get("double_tap_handsfree") is True,
+            # Two taps of the hotkey record a meeting: on unless switched off.
+            "meeting_double_tap":    stored.get("meeting_double_tap") is not False,
             # Microphones (src/mic_ranking.py): the ranked list, best first, as
             # [{name, id?}]. Empty follows the system's microphone.
             "mic_ranking":           mic_ranking_of(stored),
@@ -1878,6 +1880,11 @@ class Api:
                     stored[_dt.SETTING] = settings[_dt.SETTING]
                     notes.append(f"Double-tap to go hands-free: {'on' if settings[_dt.SETTING] else 'off'}")
 
+                # ── Two taps for a meeting: applied live below, no restart.
+                if "meeting_double_tap" in settings:
+                    stored["meeting_double_tap"] = bool(settings["meeting_double_tap"])
+                    notes.append(f"Two taps for a meeting: {'on' if stored['meeting_double_tap'] else 'off'}")
+
                 # ── Microphones: the ranked list, applied live below ─────────────
                 if _mr.touches(settings):
                     stored[_mr.SETTING] = _mr.merged(settings)
@@ -1936,6 +1943,8 @@ class Api:
                     _pipeline.apply_mic_preferences()
                 except Exception as _e:
                     _log_to_file(f"[mic] ranking not applied live: {type(_e).__name__}")
+            if "meeting_double_tap" in settings and _pipeline is not None:
+                _pipeline.apply_meeting_tap()          # never raises
             if _dt.touches(settings) and _pipeline is not None:
                 try:
                     _pipeline.apply_double_tap()
