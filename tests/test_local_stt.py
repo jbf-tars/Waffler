@@ -413,6 +413,7 @@ def test_only_one_download_runs_at_a_time(stt):
     results = []
     first = local_stt.start_download(done_cb=results.append)
     assert first["ok"] and first["started"] is True
+    assert first["state"] == "downloading", "the reply itself says so: no wait for the thread"
     assert entered.wait(5)
     assert local_stt.model_status()["state"] == "downloading"
     second = local_stt.download()

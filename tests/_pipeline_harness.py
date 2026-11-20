@@ -65,6 +65,7 @@ import unsent  # noqa: E402
 import user_messages  # noqa: E402
 import wedge_recovery  # noqa: E402
 import idle_pill  # noqa: E402
+import local_stt  # noqa: E402
 
 _TREE = ast.parse((ROOT / "app.py").read_text(encoding="utf-8"))
 _PIPELINE = next(n for n in _TREE.body
@@ -114,6 +115,8 @@ PIPELINE_METHODS = (
     # The longest take (src/take_limit.py): the recording loop's length check,
     # its warning and its stop; and the speech deadline's "on this computer".
     "_take_watch", "_level_loop", "_warn_take_limit", "_stop_at_take_limit", "_stt_is_local",
+    # On this computer with no key at all: the words go in as heard (src/local_stt.py).
+    "_no_cleanup_key",
     # Double-tap to go hands-free (src/double_tap.py): the setting handed to the listener.
     "apply_double_tap",
     # The microphone (src/mic_supervisor.py): what the supervisor needs from the
@@ -476,7 +479,7 @@ def make_pipeline(data_dir: Path, *, transcriber=None, styler=None, clipboard=No
 
     ns.update(
         json=json, os=os, time=time, threading=threading, datetime=datetime,
-        _pw=pw, _unsent=unsent, _tray_state=tray_state,
+        _pw=pw, _unsent=unsent, _tray_state=tray_state, _local_stt=local_stt,
         DATA_DIR=data_dir, HISTORY_FILE=data_dir / "history.json",
         _history_lock=threading.Lock(),
         write_json_atomic=lambda p, d: atomic_json.write_json_atomic(p, d, sleep=lambda s: None),

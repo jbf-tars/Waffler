@@ -80,7 +80,9 @@ def test_only_the_openai_and_local_paths_use_the_ranked_prompt_and_groq_still_se
         return {c.func.id for c in ast.walk(fn) if isinstance(c, ast.Call) and isinstance(c.func, ast.Name)}
 
     assert "vocab_prompt_hint" in calls("_transcribe_api")
-    assert "vocab_prompt_hint" in calls("_transcribe_mlx")
+    # The one local path (src/local_stt.py); it was "_transcribe_mlx" while
+    # there were two local engines wired in here.
+    assert "vocab_prompt_hint" in calls("_transcribe_local")
     groq = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == "_transcribe_groq")
     assert "vocab_prompt_hint" not in {c.func.id for c in ast.walk(groq)
                                        if isinstance(c, ast.Call) and isinstance(c.func, ast.Name)}

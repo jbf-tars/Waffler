@@ -417,27 +417,26 @@ def _fetch(f: ModelFile, folder: Path, note: Callable[[str, int], None],
     os.replace(part, final)
 
 
-def download(progress_cb: Optional[Callable[[int, int, int], None]] = None,
-             model: Optional[str] = None) -> dict:
-    """Download the model and wait for it. ``progress_cb(percent, bytes_done,
-    bytes_total)`` is called as the percentage moves.
-
-    Safe to call again after a failure or a cancel: files that arrived are
-    kept, and a file cut short carries on from where it stopped. Each file is
-    checked against its size and SHA-256 before it is used. Returns
-    model_status() with ``ok``; never raises."""
-    name = model or selected_model()
+def _begin_download(name: str) -> Optional[dict]:
+    """Mark the download as running. None when it is ours to run, else the
+    answer to give (another is running, or the model is not one we have)."""
     spec = MODELS.get(name)
     if spec is None:
         return {**model_status(), "ok": False, "error": NOT_INSTALLED}
     with _dl_lock:
         if _dl["active"]:
             return {**_status_locked(_dl["model"]), "ok": False, "error": DOWNLOAD_BUSY}
-        _dl.update(active=True, model=name, done=0, total=spec.size, error="", cancelled=False)
+        _dl.update(active=True, model=name, done=_dir_size(model_dir(name)), total=spec.size,
+                   error="", cancelled=False)
         _dl_cancel.clear()
+    return None
+
+
+def _run_download(name: str, progress_cb) -> dict:
+    """The download itself, after _begin_download. Never raises."""
     error, cancelled = "", False
     try:
-        _download(name, spec, progress_cb)
+        _download(name, MODELS[name], progress_cb)
     except _Cancelled:
         cancelled = True
     except LocalSTTError as e:
@@ -452,6 +451,22 @@ def download(progress_cb: Optional[Callable[[int, int, int], None]] = None,
     with _dl_lock:
         status = _status_locked(name)
     return {**status, "ok": status["state"] == "ready", "cancelled": cancelled}
+
+
+def download(progress_cb: Optional[Callable[[int, int, int], None]] = None,
+             model: Optional[str] = None) -> dict:
+    """Download the model and wait for it. ``progress_cb(percent, bytes_done,
+    bytes_total)`` is called as the percentage moves.
+
+    Safe to call again after a failure or a cancel: files that arrived are
+    kept, and a file cut short carries on from where it stopped. Each file is
+    checked against its size and SHA-256 before it is used. Returns
+    model_status() with ``ok``; never raises."""
+    name = model or selected_model()
+    refused = _begin_download(name)
+    if refused is not None:
+        return refused
+    return _run_download(name, progress_cb)
 
 
 def _download(name: str, spec: ModelSpec, progress_cb) -> None:
@@ -499,24 +514,30 @@ def _note_progress(done: int, total: int, progress_cb, last: list) -> None:
 
 
 def start_download(progress_cb=None, done_cb=None) -> dict:
-    """Start the download on a thread of its own and return at once.
-    ``done_cb(result)`` gets what download() returned."""
+    """Start the download on a thread of its own and return at once, with the
+    status already saying "downloading". ``done_cb(result)`` gets what
+    download() would have returned. ``started`` is False when one was running
+    already."""
     global _dl_thread
-    with _dl_lock:
-        if _dl["active"] or (_dl_thread is not None and _dl_thread.is_alive()):
-            return {**_status_locked(_dl["model"] or selected_model()), "ok": True, "started": False}
+    name = selected_model()
+    refused = _begin_download(name)
+    if refused is not None:
+        busy = refused.get("error") == DOWNLOAD_BUSY
+        return {**refused, "ok": busy, "started": False, "error": "" if busy else refused["error"]}
 
-        def run():
-            result = download(progress_cb)
-            if done_cb is not None:
-                try:
-                    done_cb(result)
-                except Exception:   # noqa: BLE001
-                    pass
-        _dl_thread = threading.Thread(target=run, daemon=True, name="LocalSTTDownload")
-        thread = _dl_thread
+    def run():
+        result = _run_download(name, progress_cb)
+        if done_cb is not None:
+            try:
+                done_cb(result)
+            except Exception:       # noqa: BLE001
+                pass
+    thread = threading.Thread(target=run, daemon=True, name="LocalSTTDownload")
+    with _dl_lock:
+        _dl_thread = thread
+        status = _status_locked(name)
     thread.start()
-    return {**model_status(), "ok": True, "started": True}
+    return {**status, "ok": True, "started": True}
 
 
 def cancel_download() -> bool:
