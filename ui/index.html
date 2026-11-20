@@ -565,6 +565,27 @@
           <h1 class="ptitle">Keys and providers</h1>
           <p class="pdesc">Waffler tries these in order and uses the first that answers. Drag to change the order; it applies to your next dictation.</p>
 
+          <!-- How speech becomes text: on this computer (no key) or with a key
+               (howitruns.js; Api.local_stt_*, transcription_mode). -->
+          <div class="hir" id="howItRuns" role="radiogroup" aria-label="How speech is turned into text">
+            <div class="hir-card" id="hirLocal" data-mode="local">
+              <label class="hir-pick"><input type="radio" name="hirMode" id="hirLocalRadio" value="local"><span class="hir-t">On this computer</span><span class="hir-price">Free</span></label>
+              <p class="hir-d">Your speech is turned into text on this computer. No key, and it works with the internet off.</p>
+              <div class="hir-model" id="hirModel">
+                <span class="hir-state" id="hirState" role="status"></span>
+                <span class="hir-bar" id="hirBar" hidden><i id="hirBarFill"></i></span>
+                <button type="button" class="btn btn-sm btn-pri" id="hirDownload" hidden>Download the speech model</button>
+                <button type="button" class="btn btn-sm btn-quiet" id="hirCancel" hidden>Stop the download</button>
+                <button type="button" class="btn btn-sm btn-quiet" id="hirRemove" hidden>Remove the model</button>
+              </div>
+            </div>
+            <div class="hir-card" id="hirCloud" data-mode="cloud">
+              <label class="hir-pick"><input type="radio" name="hirMode" id="hirCloudRadio" value="cloud"><span class="hir-t">With your own key</span><span class="hir-price">Faster</span></label>
+              <p class="hir-d">Your speech is sent to Groq or OpenAI with the key you add below. Quicker for long meetings.</p>
+            </div>
+            <p class="hir-note">This choice covers dictation and meetings. Writing a meeting's notes still needs a key, either way.</p>
+          </div>
+
           <div class="stage stage-plain flow" id="keysFlow" role="img" aria-label="Speech to text and clean-up"></div>
 
           <h2 class="sh2">In order<span class="aside">first that answers wins</span></h2>
@@ -1544,5 +1565,6 @@
 <script src="icons.js"></script>
 <script src="app.js"></script>
 <script src="meetings.js"></script>
+<script src="howitruns.js"></script>
 </body>
 </html>

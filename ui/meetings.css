@@ -118,3 +118,20 @@ body:not([data-page="home"]) .j-ask { display: none; }
 .mt-frame { flex: 1 1 auto; min-height: 0; width: 100%; border: 0; display: block; background: var(--bg); }
 .mt-foot { flex: none; display: flex; align-items: center; justify-content: flex-end; gap: 12px; padding: 8px 18px; border-top: 1px solid var(--line); background: var(--bg); }
 .mt-foot-l { font: 400 13px/1.4 var(--f-ui); color: var(--muted); }
+
+/* ── How it runs (Settings, Keys and providers; howitruns.js) ───────────── */
+.hir { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 18px 0 26px; }
+.hir-card { padding: 16px 18px; border-radius: var(--r-card, 14px); background: var(--card); box-shadow: inset 0 0 0 1px var(--ring); display: flex; flex-direction: column; gap: 8px; }
+.hir-card.is-on { box-shadow: inset 0 0 0 1.5px var(--text); }
+.hir-card.is-off { opacity: 0.6; }
+.hir-pick { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+.hir-pick input { accent-color: var(--text); width: 16px; height: 16px; margin: 0; }
+.hir-t { flex: 1 1 auto; font: 500 15px/20px var(--f-ui); color: var(--text); }
+.hir-price { font: 400 12px/1 var(--f-mono); color: var(--muted); }
+.hir-d { margin: 0; font: var(--t-desc); color: var(--muted); }
+.hir-model { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin-top: 2px; }
+.hir-state { flex: 1 1 100%; font: 400 13px/1.45 var(--f-ui); color: var(--text-2); }
+.hir-bar { flex: 1 1 100%; height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
+.hir-bar i { display: block; height: 100%; width: 0; background: var(--honey); transition: width 0.3s var(--ease, ease); }
+.hir-note { grid-column: 1 / -1; margin: 0; font: 400 13px/1.45 var(--f-ui); color: var(--muted); }
+@media (max-width: 760px) { .hir { grid-template-columns: minmax(0, 1fr); } }

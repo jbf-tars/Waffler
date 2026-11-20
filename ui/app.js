@@ -4199,6 +4199,7 @@ function showSettingsSection(sec) {
   // Who is plugged in may have changed since the list was last drawn.
   if (sec === 'general') loadMicrophones(false);
   _syncMicMeter();
+  if (sec === 'keys' && window.loadHowItRuns) window.loadHowItRuns();   // how speech becomes text (howitruns.js)
 }
 
 // ── The microphone meter (Settings, General) ─────────────────────────────
