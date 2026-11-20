@@ -3609,7 +3609,9 @@ class Api:
             # Keys come first: without one there is nothing to try.
             openai_key = os.getenv("OPENAI_API_KEY", "")
             groq_key = os.getenv("GROQ_API_KEY", "")
-            if not openai_key and not groq_key:
+            # (Unless speech is turned into text on this computer: then the
+            # practice needs no key, like every dictation after it.)
+            if not openai_key and not groq_key and not _local_stt.mode_is_local():
                 # Keys are the step before this one (step 2 of 3 on Windows,
                 # 3 of 4 on a Mac); this used to say "Complete Step 1".
                 return {"ok": False, "error": "No API key found. Go back a step and add your key."}
@@ -4389,8 +4391,17 @@ def _wizard_finish_practice(transcript: str, audio_seconds: float):
     styler = _wizard_styler
     # The practice honours the clean-up switch in Settings, as every dictation
     # does: with it Off no model is asked and the words come back as said.
+    # On this computer with no key at all there is no clean-up model either:
+    # that is the clean-up Off, as for every dictation (_no_cleanup_key), and
+    # the speech is counted as local, not as a provider's.
+    local_speech = False
     try:
-        cleanup_off = _style_layer.cleanup_is_off(_read_settings_now())
+        import local_stt as _lstt
+        _settings_now = _read_settings_now()
+        local_speech = _lstt.mode_is_local(_settings_now)
+        cleanup_off = _style_layer.cleanup_is_off(_settings_now) or (
+            local_speech and not any(os.getenv(k, "").strip() for k in (
+                "GROQ_API_KEY", "OPENAI_API_KEY", "CEREBRAS_API_KEY")))
     except Exception:
         cleanup_off = False
 
@@ -4409,7 +4420,7 @@ def _wizard_finish_practice(transcript: str, audio_seconds: float):
 
     result = _first_run.finish_practice(transcript, _style, _plain)
     usage = result["usage"]
-    provider = "groq" if os.getenv("GROQ_API_KEY") else "openai"
+    provider = "local" if local_speech else ("groq" if os.getenv("GROQ_API_KEY") else "openai")
     record_usage_safely("whisper", duration_seconds=audio_seconds, provider=provider)
     if usage.get("api_used"):
         record_usage_safely("gpt", input_tokens=usage.get("input_tokens", 0),

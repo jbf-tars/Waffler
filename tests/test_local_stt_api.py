@@ -308,3 +308,61 @@ def test_the_key_checks_all_allow_local_mode():
     assert "if not _config.has_api_key and not _local_stt.mode_is_local():" in _SRC
     assert "if (config.has_api_key or _local_stt.mode_is_local()) and _is_setup_complete():" in _SRC
     assert "and (config.has_api_key or _local_stt.mode_is_local())" in _SRC
+
+
+# ── setup's practice dictation ───────────────────────────────────────────────
+
+def _practice(settings, styler, monkeypatch, keys=()):
+    """app.py's own _wizard_finish_practice, run with fakes."""
+    import first_run
+    import style_layer
+    for name in ("GROQ_API_KEY", "OPENAI_API_KEY", "CEREBRAS_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    for name in keys:
+        monkeypatch.setenv(name, "test_not_a_real_key")
+    node = next(n for n in _TREE.body
+                if isinstance(n, ast.FunctionDef) and n.name == "_wizard_finish_practice")
+    pushed, usage = [], []
+    ns = {"_wizard_styler": styler, "_read_settings_now": lambda: settings, "_first_run": first_run,
+          "_style_layer": style_layer, "_push_wizard_js": lambda fn, payload: pushed.append((fn, payload)),
+          "record_usage_safely": lambda *a, **k: usage.append((a, k)),
+          "append_history_safely": lambda e: True, "_log_to_file": lambda m: None,
+          "os": os, "json": json}
+    exec(compile(ast.Module([node], []), "<app.py>", "exec"), ns)
+    ns["_wizard_finish_practice"]("so this is the practice", 3.0)
+    return dict(pushed)["wizOnPracticeResult"], usage
+
+
+class _Styler:
+    def __init__(self):
+        self.calls = []
+
+    def style(self, text):
+        self.calls.append(text)
+        return text.capitalize() + ".", {"input_tokens": 1, "output_tokens": 1, "api_used": True,
+                                         "provider": "groq"}
+
+
+def test_the_practice_in_local_mode_with_no_key_shows_the_words_and_counts_them_as_local(monkeypatch):
+    styler = _Styler()
+    result, usage = _practice({"transcription_mode": "local"}, styler, monkeypatch)
+    assert styler.calls == [] and result["wrote"] == "so this is the practice"
+    assert result["cleaned"] is True and result["note"] == "", "no failure to explain"
+    assert usage == [(("whisper",), {"duration_seconds": 3.0, "provider": "local"})]
+
+
+def test_the_practice_in_local_mode_with_a_key_still_gets_the_clean_up(monkeypatch):
+    styler = _Styler()
+    result, usage = _practice({"transcription_mode": "local"}, styler, monkeypatch, keys=("GROQ_API_KEY",))
+    assert styler.calls == ["so this is the practice"] and result["wrote"] == "So this is the practice."
+    assert usage[0] == (("whisper",), {"duration_seconds": 3.0, "provider": "local"})
+
+
+def test_the_practice_in_cloud_mode_is_counted_as_the_provider_as_before(monkeypatch):
+    _result, usage = _practice({}, _Styler(), monkeypatch, keys=("GROQ_API_KEY",))
+    assert usage[0] == (("whisper",), {"duration_seconds": 3.0, "provider": "groq"})
+
+
+def test_the_practice_asks_for_a_key_only_when_speech_is_not_local():
+    body = _SRC[_SRC.index("def wizard_start_hotkey_test"):_SRC.index("def wizard_stop_hotkey_test")]
+    assert "if not openai_key and not groq_key and not _local_stt.mode_is_local():" in body
