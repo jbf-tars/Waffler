@@ -93,7 +93,18 @@ class Service:
         if not note:
             return
         has_text = bool(self.store.segments(note_id))
-        if has_text and self.store.settings().get("auto_enhance", True):
+        settings = self.store.settings()
+        if has_text and settings.get("auto_enhance", True):
+            if self.llm_backend is None and not llm.can_write(settings):
+                # No key (Waffler used on this computer only, say): the
+                # meeting is finished with its transcript and one plain line
+                # where the notes would be. Nothing is asked, nothing fails,
+                # and no transcription error already noted is covered up.
+                note = self.store.get_note(note_id) or {}
+                self.store.update_note(note_id, status="ready",
+                                       error=note.get("error") or llm.NOTES_NEED_KEY)
+                self.sync_soon()
+                return
             self._enhance(note_id)
         else:
             self.store.update_note(note_id, status="ready")
@@ -187,7 +198,10 @@ class Service:
             sources = [{"id": n["id"], "title": n["title"]} for n in notes]
         if extra and not note_id:
             context = (context + "\n\n" + extra).strip()
-        answer = llm.ask(question, context, history or [], self.store.settings(),
+        settings = self.store.settings()
+        if self.llm_backend is None and not llm.can_write(settings):
+            raise llm.LLMError(llm.ASK_NEEDS_KEY, "no_key")
+        answer = llm.ask(question, context, history or [], settings,
                          backend=self.llm_backend)
         return {"answer": answer, "sources": sources}
 

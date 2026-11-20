@@ -1,19 +1,17 @@
-"""Whisper transcription — Groq (fastest) → local → OpenAI API (fallback).
+"""Whisper transcription: on this computer, or Groq (fastest) → OpenAI (fallback).
 
-Priority order:
-  1. Groq Whisper  (GROQ_API_KEY set) → ~100-300ms, needs internet
-  2. mlx-whisper   (Mac ARM + LOCAL_WHISPER=1) → ~0.2-0.5s, no internet
-  3. faster-whisper (Windows/Intel + LOCAL_WHISPER=1) → ~0.5-2s on CPU
-  4. OpenAI Whisper API (always available) → 2-5s, needs internet
+``transcription_mode`` in settings.json decides, read for every recording:
+  "local"  the model on this computer (src/local_stt.py): no key, no network,
+           and never a fall back to a provider
+  "cloud"  (or nothing saved) the providers, in the user's order:
+             Groq Whisper  (GROQ_API_KEY set) → ~100-300ms
+             OpenAI        (OPENAI_API_KEY set) → 2-5s
 """
 
 import functools
 import os
-import sys
 import threading
 import time
-import tempfile
-import platform
 import re
 
 from openai import OpenAI
@@ -41,35 +39,17 @@ try:
 except ImportError:  # imported as src.transcribe_whisper
     from src import net_health as _nh
 
-_USE_LOCAL = os.getenv("LOCAL_WHISPER", "0") == "1"
-_IS_MAC_ARM = sys.platform == "darwin" and platform.machine() == "arm64"
-_IS_WINDOWS  = sys.platform == "win32"
+# Speech to text on this computer (the model, its download, the engines). It
+# imports no engine until a transcription is asked of it.
+try:
+    import local_stt as _local_stt
+except ImportError:  # imported as src.transcribe_whisper
+    from src import local_stt as _local_stt
 
-# ── Try to load local backend ───────────────────────────────────────────────
-_mlx_whisper    = None
-_faster_whisper = None
-
-if _USE_LOCAL:
-    if _IS_MAC_ARM:
-        try:
-            import mlx_whisper as _mlx_whisper
-            print("🍎 mlx-whisper loaded — local transcription on Apple Silicon")
-        except ImportError:
-            print("⚠️  LOCAL_WHISPER=1 but mlx-whisper not installed.")
-            print("   Run: bash install_local_whisper.sh")
-    else:
-        # Windows or Intel Mac — use faster-whisper
-        try:
-            from faster_whisper import WhisperModel as _FasterWhisperModel
-            _faster_whisper = _FasterWhisperModel(
-                "base",
-                device="cpu",
-                compute_type="int8"   # fastest CPU mode
-            )
-            print("⚡ faster-whisper loaded — local transcription (CPU)")
-        except ImportError:
-            print("⚠️  LOCAL_WHISPER=1 but faster-whisper not installed.")
-            print("   Run: pip install faster-whisper")
+# What ``WhisperTranscriber._backend`` is while the model on this computer does
+# the work ("mlx" and "faster" are what two earlier local paths called it).
+BACKEND_LOCAL = "local"
+LOCAL_BACKENDS = (BACKEND_LOCAL, "mlx", "faster")
 
 
 try:
@@ -2647,12 +2627,13 @@ def _normalize_transcriber_order(order) -> list:
 
 
 class WhisperTranscriber:
-    """Transcribes audio via a configurable cloud provider order + local fallbacks.
+    """Transcribes audio on this computer, or via a configurable cloud provider order.
 
     Cloud transcribers (Groq Whisper, OpenAI Whisper) are tried in the user's
     configured ``provider_order`` (Cerebras is skipped — it has no speech-to-text
-    API). On-device backends (mlx / faster-whisper, gated by LOCAL_WHISPER=1)
-    take precedence when enabled. A cloud call may take 60 s or more to
+    API). When Settings says "on this computer" (``transcription_mode``, read
+    for every recording by _refresh_backend), the local model does the work
+    instead and no provider is asked. A cloud call may take 60 s or more to
     answer (_upload_timeout_s) but only a few seconds to connect while another
     provider is waiting (net_health.request_timeout).
     """
@@ -2696,19 +2677,33 @@ class WhisperTranscriber:
             )
             self._backend = "groq"
             print("⚡ Transcription: Groq Whisper (fastest)")
-        elif _USE_LOCAL and _mlx_whisper:
-            self._backend = "mlx"
-            print("⚡ Transcription: local mlx-whisper (no API calls)")
-        elif _USE_LOCAL and _faster_whisper:
-            self._backend = "faster"
-            print("⚡ Transcription: local faster-whisper (no API calls)")
         elif api_key:
             self._backend = "api"
-            if _USE_LOCAL:
-                print("⚠️  Falling back to OpenAI API (local model not loaded)")
         else:
             self._backend = "api"
-            print("⚠️  No transcription backend available")
+            if not _local_stt.mode_is_local():
+                print("⚠️  No transcription backend available")
+        # The provider backend, kept while the local model has the work, and
+        # the mode as Settings has it now.
+        self._cloud_backend = self._backend
+        self._refresh_backend()
+
+    def _refresh_backend(self) -> str:
+        """Set ``_backend`` to "local" when Settings says speech is turned into
+        text on this computer, and back to the provider backend when it no
+        longer does. Called for every recording, so the switch in Settings
+        applies to the next dictation without a restart."""
+        try:
+            local = _local_stt.mode_is_local()
+        except Exception:
+            local = False
+        current = getattr(self, "_backend", "api")
+        if local and current != BACKEND_LOCAL:
+            self._cloud_backend = current
+            self._backend = BACKEND_LOCAL
+        elif not local and current == BACKEND_LOCAL:
+            self._backend = getattr(self, "_cloud_backend", "api")
+        return self._backend
 
     def _call_with_transient_retries(self, prov: str, fn, audio_bytes: bytes,
                                      retry: bool) -> str:
@@ -2741,7 +2736,7 @@ class WhisperTranscriber:
     def _dispatch_one(self, audio_bytes: bytes, exclude: str = None) -> str:
         """Transcribe ONE already-padded/chunked WAV blob.
 
-        On-device backends (mlx / faster-whisper) take precedence when enabled.
+        On this computer when Settings says so (see _refresh_backend).
         Otherwise cloud transcribers (Groq Whisper, OpenAI Whisper) are tried in
         the user's configured order, each with its pause (a circuit-breaker that
         grows while it keeps failing: see _GROQ_AUTH_COOLDOWN_S) and, while
@@ -2759,11 +2754,10 @@ class WhisperTranscriber:
         Extracted from ``transcribe_sync`` so the long-recording chunk loop can
         call it per chunk without duplicating the fallback logic.
         """
-        # On-device backends are an explicit local choice — order doesn't apply.
-        if self._backend == "mlx":
-            return self._transcribe_mlx(audio_bytes)
-        if self._backend == "faster":
-            return self._transcribe_faster(audio_bytes)
+        # On this computer is an explicit choice: the order doesn't apply, and
+        # a failure is never retried with a provider (the audio stays here).
+        if getattr(self, "_backend", "") in LOCAL_BACKENDS:
+            return self._transcribe_local(audio_bytes)
 
         # Cloud path: walk the configured cloud order (groq / openai), honouring
         # each provider's pause, and fall through to the next available.
@@ -2985,7 +2979,7 @@ class WhisperTranscriber:
         keeps the original — this can only ever improve the result.
         """
         try:
-            if self._backend in ("mlx", "faster"):
+            if self._backend in LOCAL_BACKENDS:
                 return transcript  # no alternate provider to retry on
             if _is_unspaced(transcript):
                 # Chinese, Japanese and Thai are written without spaces, so
@@ -3082,6 +3076,8 @@ class WhisperTranscriber:
             return transcript
 
     def transcribe_sync(self, audio_bytes: bytes):
+        # On this computer or a provider, as Settings has it for this recording.
+        self._refresh_backend()
         # Provenance, reset per recording so a stale response from an earlier
         # dictation can never be attributed to this one. These are the
         # UNTOUCHED provider words: everything below (hallucination filter,
@@ -3210,49 +3206,23 @@ class WhisperTranscriber:
         """Return the duration of the last transcription in seconds (API only)."""
         return getattr(self, '_last_duration', 0.0)
 
-    # ── Local backends ───────────────────────────────────────────────────────
+    # ── On this computer ─────────────────────────────────────────────────────
 
-    def _transcribe_mlx(self, audio_bytes: bytes) -> str:
-        """Apple Silicon — mlx-whisper via Neural Engine."""
+    def _transcribe_local(self, audio_bytes: bytes) -> str:
+        """The model on this computer (src/local_stt.py): no key, no network.
+        The Vocabulary goes in as the words to listen for, as it does for the
+        providers. Raises local_stt.LocalSTTError (the model is not downloaded,
+        or could not run); the caller keeps the recording."""
         t0 = time.time()
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-            f.write(audio_bytes)
-            tmp = f.name
-        try:
-            vocab    = load_vocab()
-            hint     = vocab_prompt_hint(vocab)
-            settings = load_settings()
-            lang     = settings.get("language", "en")
-            kwargs   = dict(path_or_hf_repo="mlx-community/whisper-base-mlx")
-            if hint:
-                kwargs["initial_prompt"] = hint
-            if lang and lang != "auto":
-                kwargs["language"] = lang
-            result = _mlx_whisper.transcribe(tmp, **kwargs)
-            text = result["text"].strip()
-            print(f"⚡ mlx-whisper ({(time.time()-t0)*1000:.0f}ms, {len(text)} chars)")
-            return text
-        finally:
-            if os.path.exists(tmp):
-                os.unlink(tmp)
-
-    def _transcribe_faster(self, audio_bytes: bytes) -> str:
-        """Windows / Intel Mac — faster-whisper on CPU."""
-        t0 = time.time()
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-            f.write(audio_bytes)
-            tmp = f.name
-        try:
-            settings = load_settings()
-            lang     = settings.get("language", "en")
-            fw_lang  = lang if lang != "auto" else None
-            segments, _ = _faster_whisper.transcribe(tmp, beam_size=1, language=fw_lang)
-            text = " ".join(seg.text for seg in segments).strip()
-            print(f"⚡ faster-whisper ({(time.time()-t0)*1000:.0f}ms, {len(text)} chars)")
-            return text
-        finally:
-            if os.path.exists(tmp):
-                os.unlink(tmp)
+        vocab    = load_vocab()
+        hint     = vocab_prompt_hint(vocab)
+        settings = load_settings()
+        lang     = settings.get("language", "en")
+        language = lang if lang and lang != "auto" else None
+        text = _local_stt.transcribe(audio_bytes, language=language, prompt=hint or None)
+        self._last_cloud_provider = BACKEND_LOCAL
+        _wlog(f"[whisper] on this computer ({(time.time()-t0)*1000:.0f}ms, {len(text)} chars)")
+        return text
 
     # ── Groq (fastest cloud) ─────────────────────────────────────────────────
 

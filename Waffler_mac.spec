@@ -23,11 +23,60 @@ _m = _re.search(r'__version__\s*=\s*"([^"]+)"', _init_text)
 _VERSION = _m.group(1) if _m else '0.0.0'
 print(f"[spec] building Waffler.app version {_VERSION}")
 
+# ── On-device speech to text (src/local_stt.py) ──────────────────────────────
+# The ENGINE is bundled; the MODEL never is (about 0.6 GB): it is downloaded
+# once into the data folder from Settings.
+#   Apple Silicon: whisper.cpp through pywhispercpp. Its extension module links
+#     libwhisper and libggml-* (Metal among them) from pywhispercpp/.dylibs,
+#     and PyInstaller follows those links by itself (checked with a frozen
+#     probe: see docs/OFFLINE-TRANSCRIPTION.md), so no library is named here.
+#     pywhispercpp reads its own version from its package metadata when it is
+#     imported, so the metadata is put in the bundle.
+#   Intel Mac (not a release target today): faster-whisper, if it is installed.
+# The helpers tolerate a package that is not installed, and only the engine
+# that is installed is named, so this spec builds on either kind of Mac
+# without "hidden import not found" lines for the other one.
+import importlib.util
+from PyInstaller.utils.hooks import copy_metadata
+
+
+def _stt_installed(package, *modules):
+    """`modules` when `package` is installed in the build's Python, else []."""
+    try:
+        found = importlib.util.find_spec(package) is not None
+    except (ImportError, ValueError):
+        found = False
+    if not found:
+        print(f"[spec] on-device speech to text: {package} is not installed, not bundled")
+    return list(modules) if found else []
+
+
+# Both engines are imported inside functions, so they are named.
+_STT_HIDDEN = (
+    # whisper.cpp (Apple Silicon)
+    _stt_installed('pywhispercpp', 'pywhispercpp', 'pywhispercpp.model', 'pywhispercpp.constants',
+                   'pywhispercpp.utils', '_pywhispercpp', 'platformdirs', 'tqdm')
+    # faster-whisper (Intel Mac)
+    + _stt_installed('faster_whisper', 'faster_whisper', 'ctranslate2', 'tokenizers',
+                     'huggingface_hub', 'av')
+)
+
+
+def _stt_metadata(package):
+    try:
+        return copy_metadata(package)
+    except Exception as e:
+        print(f"[spec] no metadata for {package}: {e}")
+        return []
+
+
+_STT_DATAS = _stt_metadata('pywhispercpp')
+
 a = Analysis(
     ['app.py'],
     pathex=[PROJECT_ROOT, os.path.join(PROJECT_ROOT, 'src')],
     binaries=[],
-    datas=[
+    datas=_STT_DATAS + [
         ('ui', 'ui'),
         ('prompts', 'prompts'),
         ('src', 'src'),
@@ -52,6 +101,8 @@ a = Analysis(
         '_soundfile_data',
         'cffi',
         '_cffi_backend',
+        # ── On-device speech to text (see _STT_HIDDEN above) ──
+        *_STT_HIDDEN,
         # ── UI ──
         'webview',
         'webview.platforms.cocoa',
@@ -119,6 +170,9 @@ a = Analysis(
         'clr',
         'windows_hotkey',
         'overlay_process_windows',
+        # faster-whisper lists onnxruntime for its voice-activity filter,
+        # which Waffler never switches on (it has its own): about 85 MB saved.
+        'onnxruntime',
     ],
     noarchive=False,
 )

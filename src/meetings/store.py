@@ -101,7 +101,6 @@ DEFAULT_SETTINGS = {
     "llm_model": "",
     "custom_base_url": "",
     "local_thinking": False,
-    "local_whisper_model": "auto",
     "capture_system_audio": True,
     "mic_device": "",
     "keep_audio": True,

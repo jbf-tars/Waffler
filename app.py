@@ -159,6 +159,7 @@ import vocab_rank as _vocab_rank
 import snippets_io as _snippets_io
 import table_io as _table_io
 import transcribe_whisper as _transcribe_whisper
+import local_stt as _local_stt
 import take_marker as _take_marker
 import action_hotkeys as _action_hotkeys
 import transforms as _transforms
@@ -667,6 +668,16 @@ def _meetings_changed():
     except Exception:
         pass
     _meeting_menubar_sync()
+
+
+def _local_stt_changed():
+    """The model's download moved or ended: hand the page its new state."""
+    try:
+        status = _local_stt.model_status()
+        _post_js("window.waffler_local_stt_changed && window.waffler_local_stt_changed("
+                 + json.dumps(status) + ")")
+    except Exception:
+        pass
 
 
 _meeting_clock_thread = None
@@ -1621,6 +1632,88 @@ class Api:
             new_lines.append(f"{key}={value}")
         env_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
 
+    # ── Speech to text on this computer (src/local_stt.py) ──────────────────
+    def _apply_transcription_mode(self, mode) -> None:
+        """A saved transcription_mode, applied to what is running: the
+        transcriber is told now (it also looks for itself at every recording),
+        and a Waffler that was waiting for a key starts listening when the
+        choice is "on this computer". Never raises."""
+        try:
+            if _pipeline is not None:
+                _pipeline.transcriber._refresh_backend()
+                if mode == _local_stt.MODE_LOCAL:
+                    # Have the model in memory before the first dictation.
+                    threading.Thread(target=_local_stt.warm, daemon=True,
+                                     name="LocalSTTWarm").start()
+            elif mode == _local_stt.MODE_LOCAL and _is_setup_complete():
+                threading.Thread(target=_initialize_pipeline, daemon=True,
+                                 name="PipelineInit").start()
+        except Exception as _e:
+            _log_to_file(f"[local-stt] mode not applied live: {type(_e).__name__}")
+
+    def local_stt_status(self) -> dict:
+        """The model on this computer: {"ok", "mode", "available", "engine",
+        "model", "label", "state" ("not_downloaded" | "downloading" | "ready"),
+        "percent", "bytes_done", "bytes_total", "size_on_disk", "error",
+        "cancelled", "loaded", ...}. Cheap: the page may poll it."""
+        try:
+            stored = self._load_settings_file()
+            return {"ok": True, "mode": _local_stt.mode_of(stored),
+                    **_local_stt.model_status(stored)}
+        except Exception as e:
+            _log_to_file(f"[local-stt] status failed: {type(e).__name__}: {e}")
+            return {"ok": False, "error": "The speech model's state couldn't be read."}
+
+    def local_stt_download(self) -> dict:
+        """Start downloading the model and return at once. Progress: poll
+        local_stt_status(), or define window.waffler_local_stt_changed(status),
+        which is called as the percentage moves and when it ends."""
+        try:
+            if not _local_stt.is_available():
+                return {**_local_stt.model_status(self._load_settings_file()),
+                        "ok": False, "error": _local_stt.NOT_INSTALLED}
+
+            def tell(*_progress):
+                _local_stt_changed()
+
+            def done(result):
+                _log_to_file(f"[local-stt] download ended: {result.get('state')}"
+                             + (" (cancelled)" if result.get("cancelled") else "")
+                             + (" (failed)" if result.get("error") else ""))
+                _local_stt_changed()
+                if result.get("ok") and _local_stt.mode_is_local():
+                    _local_stt.warm()       # this is the download's own thread
+            result = _local_stt.start_download(tell, done)
+            if result.get("started"):
+                _log_to_file(f"[local-stt] download started: {result.get('model')} "
+                             f"({result.get('bytes_total', 0) / 1e6:.0f} MB)")
+            return result
+        except Exception as e:
+            _log_to_file(f"[local-stt] download not started: {type(e).__name__}: {e}")
+            return {"ok": False, "error": _local_stt.DOWNLOAD_FAILED}
+
+    def local_stt_cancel(self) -> dict:
+        """Stop the download. What arrived is kept, so downloading again
+        carries on from there."""
+        try:
+            return {"ok": True, "was_downloading": _local_stt.cancel_download()}
+        except Exception as e:
+            _log_to_file(f"[local-stt] cancel failed: {type(e).__name__}: {e}")
+            return {"ok": False, "error": "The download couldn't be stopped."}
+
+    def local_stt_remove(self) -> dict:
+        """Delete the model from this computer (and from memory). The mode is
+        left as it is: with "local" still chosen, dictations wait as Not sent
+        cards until the model is downloaded again."""
+        try:
+            result = _local_stt.remove_model()
+            _log_to_file(f"[local-stt] model removed ({result.get('freed_bytes', 0) / 1e6:.0f} MB)")
+            _local_stt_changed()
+            return result
+        except Exception as e:
+            _log_to_file(f"[local-stt] remove failed: {type(e).__name__}: {e}")
+            return {"ok": False, "error": "The speech model couldn't be removed."}
+
     def get_settings(self) -> dict:
         """Return current settings for the UI."""
         from style_layer import cleanup_mode, signature_settings, styles_by_category
@@ -1642,8 +1735,13 @@ class Api:
                 return "*" * len(k)
             return ""
 
-        local_whisper_active = _pipeline and hasattr(_pipeline.transcriber, "_backend") and \
-                               _pipeline.transcriber._backend in ("mlx", "faster")
+        # Speech to text on this computer (src/local_stt.py). The setting is
+        # the truth here, so the page is right the moment it is saved; the
+        # transcriber reads it again for every recording.
+        import local_stt as _lstt
+        import platform as _plat
+        local_mode = _lstt.mode_is_local(stored)
+        local_whisper_active = bool(_pipeline) and local_mode
         from style_openai import _normalize_provider_order
         transcription_backend = "unknown"
         styling_backend = "unknown"
@@ -1654,7 +1752,7 @@ class Api:
             # and ignored the order for speech.
             transcriber = _pipeline.transcriber
             transcription_backend = getattr(transcriber, "_backend", "api")
-            if transcription_backend not in ("mlx", "faster"):
+            if transcription_backend not in ("local", "mlx", "faster"):
                 has_stt = {"groq": bool(getattr(transcriber, "_groq_client", None)),
                            "openai": bool(getattr(transcriber, "client", None))}
                 first = next((p for p in (getattr(transcriber, "_cloud_order", None)
@@ -1666,6 +1764,12 @@ class Api:
                            "openai": bool(getattr(styler, "client", None))}
             order = _normalize_provider_order(getattr(styler, "_provider_order", None))
             styling_backend = next((p for p in order if has_cleanup.get(p)), "none")
+        if local_mode:
+            # The two names the page has for "on this Mac" and "on this
+            # computer" (ui/logic.js SPEECH_IDS). They were the names of two
+            # earlier local engines; they now only say where the work is done,
+            # so the page never names a provider that is not being sent audio.
+            transcription_backend = "mlx" if _plat.system() == "Darwin" else "faster"
         return {
             "api_key_set":           bool(key),
             "api_key_masked":        _mask(key),
@@ -1673,7 +1777,11 @@ class Api:
             "groq_key_masked":       _mask(groq_key),
             "cerebras_key_set":      bool(cerebras_key),
             "cerebras_key_masked":   _mask(cerebras_key),
-            "local_whisper":         os.getenv("LOCAL_WHISPER", "0") == "1",
+            # "cloud" or "local" (on this computer, no key). The model's
+            # state comes from local_stt_status().
+            "transcription_mode":    _lstt.mode_of(stored),
+            # The same two facts under their older names.
+            "local_whisper":         local_mode,
             "local_whisper_active":  local_whisper_active,
             "transcription_backend": transcription_backend,
             "styling_backend":       styling_backend,
@@ -1748,6 +1856,15 @@ class Api:
             if "clipboard_after_paste" in settings and \
                     settings["clipboard_after_paste"] not in ("restore", "keep"):
                 return {"ok": False, "error": CLIPBOARD_CHOICE_UNKNOWN}
+            # How speech is turned into text: "cloud" or "local" (on this
+            # computer). The cloud needs a key, one already saved or one in
+            # this same save (src/local_stt.py).
+            import local_stt as _lstt
+            problem = _lstt.settings_problem(settings, has_key=bool(
+                os.getenv("GROQ_API_KEY", "").strip() or os.getenv("OPENAI_API_KEY", "").strip()
+                or (settings.get("groq_key") or "").strip() or (settings.get("api_key") or "").strip()))
+            if problem:
+                return {"ok": False, "error": problem}
             # Sounds and tips are switches: a true or a false, nothing else
             # (a string "false" would otherwise count as on).
             if "sounds" in settings and not isinstance(settings["sounds"], bool):
@@ -1834,12 +1951,15 @@ class Api:
                     os.environ["GROQ_API_KEY"] = new_groq
                     notes.append("Groq API key updated — restart for speed boost")
 
-                # ── Local Whisper toggle ─────────────────────────────────────────
-                if "local_whisper" in settings:
-                    val = "1" if settings["local_whisper"] else "0"
-                    self._update_env_var("LOCAL_WHISPER", val)
-                    os.environ["LOCAL_WHISPER"] = val
-                    notes.append("Restart app for Whisper mode change")
+                # ── Speech to text: on this computer, or a provider ──────────────
+                # Read again for every recording (transcribe_whisper
+                # _refresh_backend), so no restart. The model itself is
+                # downloaded with local_stt_download().
+                if _lstt.touches(settings):
+                    stored[_lstt.MODE_SETTING] = settings[_lstt.MODE_SETTING]
+                    notes.append("Speech to text: " + (
+                        "on this computer" if settings[_lstt.MODE_SETTING] == _lstt.MODE_LOCAL
+                        else "cloud"))
 
                 # ── Language ─────────────────────────────────────────────────────
                 if "language" in settings:
@@ -1960,6 +2080,8 @@ class Api:
                             _log_to_file(f"provider_order live-apply failed: {_e}")
                     notes.append(f"Provider order: {' → '.join(order)}")
 
+            if _lstt.touches(settings):
+                self._apply_transcription_mode(settings[_lstt.MODE_SETTING])
             if "transforms" in settings and _pipeline is not None:
                 try:
                     _pipeline.apply_transform_settings()
@@ -2625,7 +2747,11 @@ class Api:
         groq_key = os.getenv("GROQ_API_KEY", "").strip()
         has_any_key = bool(openai_key or groq_key)
         setup_done = _is_setup_complete()
-        needs_setup = not setup_done or not has_any_key
+        # No key is needed when speech is turned into text on this computer
+        # (transcription_mode "local"): that person is not sent back to setup.
+        import local_stt as _lstt
+        can_transcribe = has_any_key or _lstt.mode_is_local(self._load_settings_file())
+        needs_setup = not setup_done or not can_transcribe
         # Where setup was left, so a Mac "Quit & Reopen" after a permission
         # carries on from the same screen. Only while setup is still needed.
         resume = ""
@@ -3515,7 +3641,9 @@ class Api:
             # Keys come first: without one there is nothing to try.
             openai_key = os.getenv("OPENAI_API_KEY", "")
             groq_key = os.getenv("GROQ_API_KEY", "")
-            if not openai_key and not groq_key:
+            # (Unless speech is turned into text on this computer: then the
+            # practice needs no key, like every dictation after it.)
+            if not openai_key and not groq_key and not _local_stt.mode_is_local():
                 # Keys are the step before this one (step 2 of 3 on Windows,
                 # 3 of 4 on a Mac); this used to say "Complete Step 1".
                 return {"ok": False, "error": "No API key found. Go back a step and add your key."}
@@ -4295,8 +4423,17 @@ def _wizard_finish_practice(transcript: str, audio_seconds: float):
     styler = _wizard_styler
     # The practice honours the clean-up switch in Settings, as every dictation
     # does: with it Off no model is asked and the words come back as said.
+    # On this computer with no key at all there is no clean-up model either:
+    # that is the clean-up Off, as for every dictation (_no_cleanup_key), and
+    # the speech is counted as local, not as a provider's.
+    local_speech = False
     try:
-        cleanup_off = _style_layer.cleanup_is_off(_read_settings_now())
+        import local_stt as _lstt
+        _settings_now = _read_settings_now()
+        local_speech = _lstt.mode_is_local(_settings_now)
+        cleanup_off = _style_layer.cleanup_is_off(_settings_now) or (
+            local_speech and not any(os.getenv(k, "").strip() for k in (
+                "GROQ_API_KEY", "OPENAI_API_KEY", "CEREBRAS_API_KEY")))
     except Exception:
         cleanup_off = False
 
@@ -4315,7 +4452,7 @@ def _wizard_finish_practice(transcript: str, audio_seconds: float):
 
     result = _first_run.finish_practice(transcript, _style, _plain)
     usage = result["usage"]
-    provider = "groq" if os.getenv("GROQ_API_KEY") else "openai"
+    provider = "local" if local_speech else ("groq" if os.getenv("GROQ_API_KEY") else "openai")
     record_usage_safely("whisper", duration_seconds=audio_seconds, provider=provider)
     if usage.get("api_used"):
         record_usage_safely("gpt", input_tokens=usage.get("input_tokens", 0),
@@ -4380,7 +4517,7 @@ def _build_pipeline():
 
     _config.reload_env()
 
-    if not _config.has_api_key:
+    if not _config.has_api_key and not _local_stt.mode_is_local():
         _log_to_file("Cannot initialize pipeline: no API key found")
         return
 
@@ -4751,7 +4888,10 @@ class WafflerPipeline:
         groq_key = config.groq_api_key or ""
         openai_key = config.openai_api_key or ""
 
-        if not groq_key and not openai_key:
+        # No key is fine when speech is turned into text on this computer
+        # (Settings, transcription_mode "local"; src/local_stt.py): the
+        # clean-up, Transforms and Command mode then wait for a key.
+        if not groq_key and not openai_key and not _local_stt.mode_is_local():
             raise ValueError("At least one API key is required (Groq or OpenAI)")
 
         # User-configurable provider fallback order (Settings → Provider
@@ -4775,6 +4915,10 @@ class WafflerPipeline:
             provider_order=_provider_order,
         )
         _log_to_file(f"Transcriber backend: {self.transcriber._backend}")
+        # On this computer: load the model now, in the background, so the
+        # first dictation does not wait for it (src/local_stt.py warm).
+        if self.transcriber._backend == "local":
+            threading.Thread(target=_local_stt.warm, daemon=True, name="LocalSTTWarm").start()
 
         # Styler: a fallback chain in the user's provider order (default
         # Groq gpt-oss-120b, then OpenAI gpt-6-luna, then Cerebras
@@ -5650,7 +5794,7 @@ class WafflerPipeline:
 
         def speech_usage(seconds, info):
             provider = (info or {}).get("backend") or getattr(self.transcriber, "_backend", "")
-            if provider in ("mlx", "faster"):
+            if provider in ("local", "mlx", "faster"):
                 provider = "local"
             elif provider == "api":
                 provider = "openai"
@@ -7012,7 +7156,7 @@ class WafflerPipeline:
             # Audio is 16kHz, 16-bit mono = 32000 bytes/second
             whisper_duration = len(audio_bytes) / 32000.0
             whisper_provider = _asr_info.get("backend") or self.transcriber._backend
-            if whisper_provider in ("mlx", "faster"):
+            if whisper_provider in ("local", "mlx", "faster"):
                 whisper_provider = "local"
             elif whisper_provider == "api":
                 whisper_provider = "openai"
@@ -7036,8 +7180,9 @@ class WafflerPipeline:
                 _sty = _pw.CallResult("ok", value=(_whole_snippet, {
                     "input_tokens": 0, "output_tokens": 0, "api_used": False,
                     "provider": "snippet"}))
-            elif _style_layer.cleanup_is_off(_settings):
-                # Clean-up is off: no model is asked. The words are what the
+            elif _style_layer.cleanup_is_off(_settings) or self._no_cleanup_key(_settings):
+                # Clean-up is off (or, on this computer with no key at all,
+                # there is no model to ask): no model is asked. The words are what the
                 # speech service heard (after the Vocabulary above and the
                 # Snippets below), with nothing taken out: not even the
                 # filler words the plain tidy-up removes. Its own provider
@@ -7635,12 +7780,31 @@ class WafflerPipeline:
     def _stt_is_local(self) -> bool:
         """Is speech to text done on this computer (the local model) rather
         than by a provider? It then gets a longer deadline."""
-        return getattr(getattr(self, "transcriber", None), "_backend", "") in ("mlx", "faster")
+        return getattr(getattr(self, "transcriber", None), "_backend", "") in ("local", "mlx", "faster")
+
+    def _no_cleanup_key(self, settings=None) -> bool:
+        """Speech is turned into text on this computer AND no clean-up
+        provider has a key (a Waffler used with no key at all)? The words then
+        go in as they were heard, exactly as with the clean-up switched off,
+        instead of a "no key" message and a flagged Journal card after every
+        dictation. With a provider chosen for speech nothing changes."""
+        try:
+            if not _local_stt.mode_is_local(settings if isinstance(settings, dict) else None):
+                return False
+            s = getattr(self, "styler", None)
+            return (s is not None and hasattr(s, "_use_groq") and hasattr(s, "_use_cerebras")
+                    and hasattr(s, "client")
+                    and not (s._use_groq or s._use_cerebras or s.client))
+        except Exception:
+            return False
 
     def _speech_provider_name(self) -> str:
-        """The speech-to-text provider a dictation goes to first, by name."""
+        """The speech-to-text provider a dictation goes to first, by name
+        ("" when the model on this computer does it: no provider is asked)."""
         t = getattr(self, "transcriber", None)
         if t is None:
+            return ""
+        if getattr(t, "_backend", "") in ("local", "mlx", "faster"):
             return ""
         for prov in (getattr(t, "_cloud_order", None) or ["groq", "openai"]):
             if prov == "groq" and getattr(t, "_groq_client", None) is not None:
@@ -7867,6 +8031,11 @@ class WafflerPipeline:
 
         if toast:
             heading, body = _unsent.toast_text(kind, provider, saved=bool(uid))
+            # The model on this computer says what it needs itself (it is not
+            # downloaded yet, say): no provider was asked, so none is named.
+            local_note = _local_stt.plain_reason(reason)
+            if local_note and uid:
+                body = f"{local_note} Your recording is saved in the Journal."
             buttons = None
             if uid:
                 buttons = [
@@ -8017,8 +8186,8 @@ class WafflerPipeline:
         if whole_snippet is not None:
             styled = whole_snippet
             cleanup = "snippet"
-        elif _style_layer.cleanup_is_off(settings):
-            # Off, as in _process: the words as heard, no model.
+        elif _style_layer.cleanup_is_off(settings) or self._no_cleanup_key(settings):
+            # Off (or no key at all), as in _process: the words as heard, no model.
             styled = transcript.strip()
             cleanup = _style_layer.PROVIDER_OFF
         elif style:
@@ -9447,7 +9616,8 @@ def main():
         _disable_input_source_shortcut()
 
     # Only auto-initialize pipeline if setup was already completed
-    if config.has_api_key and _is_setup_complete():
+    # On this computer (transcription_mode "local") needs no key.
+    if (config.has_api_key or _local_stt.mode_is_local()) and _is_setup_complete():
         _initialize_pipeline()
     else:
         _log_to_file("Skipping pipeline init (no key or setup incomplete)")
@@ -9489,7 +9659,8 @@ def main():
         if not _windows_tray_up:
             _log_to_file("No tray icon: the close button quits and the window opens at sign-in")
     can_hide = _windows_tray_up or _platform.system() == "Darwin"
-    start_hidden = (_HIDDEN_FLAG in sys.argv and config.has_api_key
+    start_hidden = (_HIDDEN_FLAG in sys.argv
+                    and (config.has_api_key or _local_stt.mode_is_local())
                     and _is_setup_complete() and can_hide)
     if start_hidden:
         _window_hidden = True

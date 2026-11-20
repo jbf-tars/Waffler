@@ -55,3 +55,6 @@ session.json
 
 # Claude Code agent session state (locks, scheduled-task metadata, etc.)
 .claude/
+
+# The worktree-local virtualenv used to develop on-device speech to text.
+.venv-offline/
