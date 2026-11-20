@@ -1403,6 +1403,34 @@ async function refreshAll() {
 // The first page for the current search, drawn from scratch. Searching
 // asks the backend (get_history's query), so a search covers the whole
 // Journal, not just what has been drawn.
+// Meetings sit in the Journal among the dictations, by time. `history` stays
+// dictations only (its counts and paging are untouched); the meetings are
+// woven in when a page is drawn. meetings.js makes their cards.
+let _feedMeetings = [];
+function _feedTime(x) {
+  const t = Date.parse((x && x.timestamp) || '');
+  return isNaN(t) ? 0 : t;
+}
+function _localStamp(iso) {                 // a meeting's time, written the way a dictation's is
+  const d = new Date(iso);
+  if (isNaN(d)) return '';
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+// `page` with the meetings that belong among it: those no older than its last
+// entry (all the rest too once the dictations have run out), and older than
+// `before` (the entry just above the page), so none is drawn twice.
+function _withMeetings(page, before, toTheEnd) {
+  if (!_feedMeetings.length) return page;
+  const floor = toTheEnd || !page.length ? -Infinity : _feedTime(page[page.length - 1]);
+  const roof = before ? _feedTime(before) : Infinity;
+  const meetings = _feedMeetings
+    .map((m) => ({ kind: 'meeting', timestamp: _localStamp(m.created_at), meeting: m }))
+    .filter((m) => { const t = _feedTime(m); return t >= floor && t < roof; });
+  if (!meetings.length) return page;
+  return page.concat(meetings).sort((a, b) => _feedTime(b) - _feedTime(a));
+}
+
 async function renderFeed() {
   const seq = ++_histSeq;
   const query = _searchText;
@@ -1413,6 +1441,11 @@ async function renderFeed() {
   } catch (e) {
     console.warn('get_history failed:', e);
   }
+  let meetings = [];
+  try {
+    meetings = (await window.pywebview.api.meetings_list(query || '')) || [];
+  } catch (e) { /* the Journal works without them */ }
+  if (seq === _histSeq) _feedMeetings = Array.isArray(meetings) ? meetings : [];
   if (seq !== _histSeq) return;          // a newer search took over
   _histLoading = false;
   history = page;
@@ -1442,7 +1475,8 @@ function _syncSearchClear(id, value) {
 function drawFeed() {
   _histTotal = Math.max(Number(stats.entries) || 0, history.length);
   const view = WL.feedView(_histTotal, _searchText, history.length);
-  $empty.hidden = view.kind !== 'empty';
+  const onlyMeetings = view.kind !== 'list' && _feedMeetings.length > 0;   // no dictations yet, but meetings
+  $empty.hidden = view.kind !== 'empty' || onlyMeetings;
   // First run: the title stays, the search has nothing to search, and the
   // first entry's row is under today's heading. The margin stays too, with
   // today's real numbers.
@@ -1457,14 +1491,14 @@ function drawFeed() {
     const key = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     if (day) day.textContent = WL.dayHeading(key, now).date;
   }
-  $noMatch.hidden = view.kind !== 'no_match';
+  $noMatch.hidden = view.kind !== 'no_match' || onlyMeetings;
   if (view.kind === 'no_match') {
     const label = document.getElementById('noMatchLabel');
     if (label && view.label) label.textContent = view.label;
   }
   $feed.textContent = '';
   _feedDays = { first: '', last: '' };
-  if (view.kind === 'list') _appendCards(history);
+  if (view.kind === 'list' || onlyMeetings) _appendCards(_withMeetings(history, null, _histDone));
   _updateMore();
   _updateSearchPlaceholder();
 }
@@ -1500,9 +1534,10 @@ async function loadMoreEntries() {
   }
   _histLoading = false;
   if (seq !== _histSeq) return;
+  const above = history.length ? history[history.length - 1] : null;
   history.push(...page);
   _histDone = page.length < PAGE_SIZE;
-  _appendCards(page);
+  _appendCards(_withMeetings(page, above, _histDone));
   _updateMore();
   _updateSearchCount();
 }
@@ -1927,6 +1962,7 @@ function makeCard(item, isNew) {
   if (item && item.failed) return makeNotSentCard(item, isNew);
   if (item && item.kind === 'transform') return makeTransformCard(item, isNew);
   if (item && item.kind === 'command') return makeCommandCard(item, isNew);
+  if (item && item.kind === 'meeting' && window.makeMeetingCard) return window.makeMeetingCard(item.meeting);
   const div = document.createElement('article');
   div.className = 'transcript-card j-ent' + (isNew ? ' new' : '');
 
@@ -4132,6 +4168,10 @@ function showPage(page) {
     loadVocabPage();
   } else if (page === 'meetings' && window.loadMeetingsPage) {
     window.loadMeetingsPage();
+  }
+  if (page === 'home' && window._journalStale) {       // a meeting was added or removed meanwhile
+    window._journalStale = false;
+    renderFeed();
   }
   _syncMicMeter();
 }

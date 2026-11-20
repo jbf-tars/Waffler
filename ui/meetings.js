@@ -125,14 +125,35 @@
     if (!open) return;
     const a = api(); if (!a) return;
     if (!window.confirm('Delete this meeting and its recording? This can’t be undone.')) return;
-    await a.meetings_delete(open.id); showToast('Meeting deleted', 'success'); closeNote();
+    await a.meetings_delete(open.id); window._journalStale = true; showToast('Meeting deleted', 'success'); closeNote();
   }
+
+  // A meeting among the dictations in the Journal (app.js _withMeetings, makeCard).
+  window.makeMeetingCard = function (n) {
+    const busy = n.status === 'processing' || n.status === 'recording';
+    const sub = n.status === 'recording' ? 'Recording now.' : n.status === 'processing' ? 'Writing the notes. This takes a moment.'
+      : String(n.preview || '').replace(/^#{1,4}\s+/gm, '').replace(/^[-*•]\s+/gm, '').replace(/\*\*/g, '').replace(/\s+/g, ' ').trim();
+    const card = document.createElement('article');
+    card.className = 'transcript-card j-ent j-meeting';
+    card.innerHTML = '<button type="button" class="mt-row mt-card">'
+      + '<span class="mt-time">' + esc(timeOf(n.created_at)) + '</span>'
+      + '<span class="mt-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>'
+      + '<span class="mt-body"><span class="mt-title">' + esc(n.title || (busy ? 'New meeting' : 'Untitled meeting'))
+      + (n.duration_s ? '<span class="mt-dur">' + esc(length(n.duration_s)) + '</span>' : '') + '</span>'
+      + (sub ? '<span class="mt-sum' + (busy ? ' mt-busy' : '') + '">' + esc(sub) + '</span>' : '')
+      + '<span class="mt-kind">Meeting</span></span></button>';
+    card.querySelector('button').addEventListener('click', () => { showPage('meetings'); openNote(n.id); });
+    return card;
+  };
 
   // app.js's showPage calls this when the Meetings page opens.
   window.loadMeetingsPage = function () { refreshState(); if (open) openNote(open.id); else loadList(); };
   // Python calls this when something changed (double tap, notes written).
   window.waffler_meetings_changed = function () {
     refreshState();
+    // The Journal shows meetings too: redraw it now, or when it is next opened (app.js showPage).
+    if (document.body.dataset.page === 'home' && typeof renderFeed === 'function') { renderFeed(); return; }
+    window._journalStale = true;
     if (document.body.dataset.page !== 'meetings') return;
     if (open) openNote(open.id); else loadList();
   };

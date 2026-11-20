@@ -46,3 +46,13 @@
 .mt-who { font: 500 13px var(--f-ui, Inter, system-ui, sans-serif); color: var(--muted); margin-right: 8px; }
 .meetings-panel.is-note .mt-home { display: none; }
 .meetings-panel.is-note .mt-note { display: flex; }
+
+/* A meeting among the dictations in the Journal. */
+.j-meeting { padding: 0; }
+.j-meeting .mt-card { border-top: 0; padding: 14px 16px; border-radius: inherit; align-items: flex-start; }
+.j-meeting .mt-card:hover { background: var(--surface); }
+.mt-mark { flex: none; width: 34px; height: 34px; border-radius: 10px; background: var(--surface); display: flex; align-items: center; justify-content: center; gap: 2.5px; }
+.mt-mark i { display: block; width: 2.5px; border-radius: 2px; background: var(--text); }
+.mt-mark i:nth-child(1) { height: 6px; } .mt-mark i:nth-child(2) { height: 14px; }
+.mt-mark i:nth-child(3) { height: 9px; background: var(--honey); } .mt-mark i:nth-child(4) { height: 4px; }
+.mt-kind { font-size: 12.5px; color: var(--muted); }
