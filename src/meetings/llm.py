@@ -27,10 +27,28 @@ _ollama_roots: dict[str, str | None] = {}
 _models_cache: dict[str, tuple[float, list[str]]] = {}
 
 
+# What a meeting says in place of its notes when no model can write them: the
+# transcript is there, and this is a plain line, not a failure. (Notes and
+# questions are written by a language model, which the speech model on this
+# computer is not.)
+NOTES_NEED_KEY = ("The transcript is saved. Writing notes needs an API key or Waffler Plus: "
+                  "add a key in Settings and the notes can be written then.")
+ASK_NEEDS_KEY = "Answering questions needs an API key or Waffler Plus. Add a key in Settings."
+
+
 class LLMError(Exception):
     def __init__(self, message: str, kind: str = "other"):
         super().__init__(message)
         self.kind = kind
+
+
+def can_write(settings: dict) -> bool:
+    """Is there a model to ask (a key, or a custom endpoint)? Asks nobody."""
+    try:
+        resolve_provider(settings)
+        return True
+    except LLMError:
+        return False
 
 
 def available_providers() -> list[str]:
@@ -49,7 +67,7 @@ def resolve_provider(settings: dict) -> str:
     for p in have:
         if p != "custom" or settings.get("custom_base_url"):
             return p
-    raise LLMError("Add an API key in Settings to write notes.", "no_key")
+    raise LLMError(NOTES_NEED_KEY, "no_key")
 
 
 def _openai_client(provider: str, settings: dict):
