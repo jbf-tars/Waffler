@@ -1,0 +1,96 @@
+"""Small audio helpers on float32 mono arrays: resampling, voice detection,
+choosing a quiet place to cut, FLAC encoding."""
+from __future__ import annotations
+
+import io
+
+import numpy as np
+
+RATE = 16000          # what the speech models want
+_WIN_S = 0.03
+
+
+def to_mono(frames: np.ndarray) -> np.ndarray:
+    a = np.asarray(frames, dtype=np.float32)
+    return a if a.ndim == 1 else a.mean(axis=1)
+
+
+def resample(audio: np.ndarray, src_rate: int, dst_rate: int = RATE) -> np.ndarray:
+    """Band-limited enough for speech: a windowed-sinc low-pass, then linear
+    interpolation onto the new sample grid."""
+    if src_rate == dst_rate or len(audio) == 0:
+        return audio.astype(np.float32, copy=False)
+    if src_rate > dst_rate:
+        cutoff = 0.5 * dst_rate / src_rate * 0.92
+        taps = 63
+        n = np.arange(taps) - (taps - 1) / 2
+        h = 2 * cutoff * np.sinc(2 * cutoff * n) * np.hamming(taps)
+        audio = np.convolve(audio, (h / h.sum()).astype(np.float32), mode="same")
+    out_len = int(round(len(audio) * dst_rate / src_rate))
+    x = np.linspace(0, len(audio) - 1, out_len)
+    return np.interp(x, np.arange(len(audio)), audio).astype(np.float32)
+
+
+def window_rms(audio: np.ndarray, rate: int = RATE) -> np.ndarray:
+    w = int(rate * _WIN_S)
+    n = len(audio) // w
+    if n == 0:
+        return np.zeros(0, dtype=np.float32)
+    return np.sqrt((audio[:n * w].reshape(n, w).astype(np.float64) ** 2).mean(axis=1))
+
+
+def voiced_mask(audio: np.ndarray, rate: int = RATE) -> np.ndarray:
+    """Per 30 ms window: is someone speaking? Voice is well above the take's
+    own noise floor and above an absolute floor (about -46 dBFS), so steady
+    room noise and digital silence both count as nothing."""
+    rms = window_rms(audio, rate)
+    if len(rms) == 0:
+        return np.zeros(0, dtype=bool)
+    floor = float(np.percentile(rms, 10))
+    return rms > max(floor * 3.0, 0.005)
+
+
+def voiced_seconds(audio: np.ndarray, rate: int = RATE) -> float:
+    return float(voiced_mask(audio, rate).sum()) * _WIN_S
+
+
+def voiced_between(mask: np.ndarray, start_s: float, end_s: float) -> float:
+    a, b = max(0, int(start_s / _WIN_S)), max(0, int(np.ceil(end_s / _WIN_S)))
+    return float(mask[a:b].sum()) * _WIN_S
+
+
+def quiet_cut(audio: np.ndarray, earliest_s: float, latest_s: float, rate: int = RATE) -> int:
+    """The sample index of the quietest 0.3 s between two times: where to
+    cut a chunk so a word is not split."""
+    rms = window_rms(audio, rate)
+    a, b = int(earliest_s / _WIN_S), min(len(rms), int(latest_s / _WIN_S))
+    span = 10
+    if b - a <= span:
+        return min(len(audio), int(latest_s * rate))
+    sums = np.convolve(rms[a:b], np.ones(span), mode="valid")
+    best = a + int(np.argmin(sums)) + span // 2
+    return int(best * _WIN_S * rate)
+
+
+def level(audio: np.ndarray) -> float:
+    """0..1 loudness for a meter (dBFS mapped -60..0)."""
+    if len(audio) == 0:
+        return 0.0
+    rms = float(np.sqrt(np.mean(audio.astype(np.float64) ** 2)))
+    if rms <= 1e-6:
+        return 0.0
+    return float(min(1.0, max(0.0, (20 * np.log10(rms) + 60) / 60)))
+
+
+def to_flac(audio: np.ndarray, rate: int = RATE) -> bytes:
+    import soundfile as sf
+    buf = io.BytesIO()
+    sf.write(buf, np.clip(audio, -1.0, 1.0), rate, format="FLAC", subtype="PCM_16")
+    return buf.getvalue()
+
+
+def read_audio(path) -> np.ndarray:
+    """Any file soundfile can read, as 16 kHz mono float32."""
+    import soundfile as sf
+    data, rate = sf.read(str(path), dtype="float32", always_2d=False)
+    return resample(to_mono(data), rate)
