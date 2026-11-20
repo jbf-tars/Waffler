@@ -732,6 +732,23 @@ class Api:
         return _get_meetings().state() if _meetings is not None else {
             "recording": False, "note_id": None, "elapsed_s": 0, "sources": [], "warnings": []}
 
+    def meetings_api(self, method: str, path: str, body=None) -> dict:
+        """One call from the Meetings page (ui/meetings-app, in a frame). Answers
+        {"status", "body"}; src/meetings_bridge.py holds the routes."""
+        try:
+            try:
+                from src import meetings_bridge
+            except ImportError:
+                import meetings_bridge
+            try:
+                theme = str(self._load_settings_file().get("theme") or "")
+            except Exception:
+                theme = ""
+            return meetings_bridge.handle(_get_meetings(), method, path, body, waffler_theme=theme)
+        except Exception as e:  # noqa: BLE001
+            _log_to_file(f"[meetings] page call failed: {type(e).__name__}: {e}")
+            return {"status": 500, "body": {"detail": "Something went wrong."}}
+
     def meetings_toggle(self) -> dict:
         """Start a meeting recording, or finish the one running."""
         try:
