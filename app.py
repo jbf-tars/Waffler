@@ -8856,6 +8856,10 @@ def _create_windows_tray_icon():
         # the menu: _refresh_tray_menu does that when the last result changes.
         menu = pystray.Menu(
             pystray.MenuItem("Show Waffler", _tray_show_window, default=True),
+            pystray.MenuItem("Start or finish a meeting",
+                             lambda icon=None, item=None: threading.Thread(
+                                 target=lambda: _pipeline and _pipeline._on_meeting_double_tap(),
+                                 daemon=True, name="MeetingMenu").start()),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem(lambda item=None: _last_transcript_menu()[0],
                              lambda icon=None, item=None: _paste_last_async(),

@@ -219,6 +219,11 @@ class WindowsHotkeyListener:
         # differently.
         self._double_tap = None
         self._clock = clock
+        # Two quick taps for a meeting (set_meeting_double_tap): while a
+        # callback is set, the second tap calls it instead of locking the take
+        # hands-free. ``_handsfree_tap`` keeps the person's own setting.
+        self._meeting_tap_cb = None
+        self._handsfree_tap = False
         if double_tap:
             self.set_double_tap(True)
 
@@ -282,12 +287,29 @@ class WindowsHotkeyListener:
         """Switch double-tap on or off while the listener runs (Settings,
         Shortcuts). A hands-free take it has already locked is left alone and
         can still be ended by pressing the keys again, as any can."""
-        if enabled:
+        self._handsfree_tap = bool(enabled)
+        self._sync_double_tap_gate()
+
+    def set_meeting_double_tap(self, callback):
+        """Two quick taps of the hotkey call ``callback`` (start or finish a
+        meeting) instead of locking a take hands-free. None switches it off
+        and gives double-tap back to the hands-free setting."""
+        self._meeting_tap_cb = callback
+        self._sync_double_tap_gate()
+
+    def _sync_double_tap_gate(self):
+        """One gate serves both uses of a double tap; it exists while either is on."""
+        if self._handsfree_tap or self._meeting_tap_cb is not None:
             if self._double_tap is None:
                 self._double_tap = double_tap.DoubleTapGate(
                     clock=self._clock or time.monotonic)
         else:
             self._double_tap = None
+
+    def _fire_meeting_tap(self):
+        cb = self._meeting_tap_cb
+        if cb is not None:
+            threading.Thread(target=cb, daemon=True, name="MeetingTap").start()
 
     @property
     def double_tap_enabled(self) -> bool:
@@ -450,6 +472,17 @@ class WindowsHotkeyListener:
         if self._state == _State.PUSH_TO_TALK:
             if not self._all_keys_held():
                 dt = self._double_tap
+                if dt is not None and self._meeting_tap_cb is not None and dt.release():
+                    # The second tap of two, with meetings on: end this take the
+                    # ordinary way (a tap that short is dropped, nothing is
+                    # pasted) and tell the app to start or finish the meeting.
+                    self._state = _State.IDLE
+                    self._double_tap_forget()
+                    _log("Double tap → meeting toggle")
+                    self._fire_release()
+                    self._fire_meeting_tap()
+                    self._clear_key_states()          # as a plain release does
+                    return
                 if dt is not None and dt.release():
                     # The second tap of two: keep recording and lock the take
                     # on, as Space does. The keys are not cleared: the take
@@ -575,7 +608,13 @@ class WindowsHotkeyListener:
                         self._poll_awaiting_release = True
                     elif not all_held:
                         dt = self._double_tap
-                        if dt is not None and dt.release():
+                        if dt is not None and self._meeting_tap_cb is not None and dt.release():
+                            self._state = _State.IDLE
+                            self._double_tap_forget()
+                            _log("[poll] double tap → meeting toggle")
+                            self._fire_release()
+                            self._fire_meeting_tap()
+                        elif dt is not None and dt.release():
                             self._state = _State.STICKY
                             _log("[poll] double tap → STICKY mode (recording locked)")
                             self._fire_lock()
