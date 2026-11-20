@@ -633,8 +633,42 @@ def append_history_safely(item: dict) -> bool:
 
 
 # ── PyWebView API ─────────────────────────────────────────────────────
+_meetings = None
+
+
+def _get_meetings():
+    """The Meetings feature (Natter's recorder and notes), made on first use."""
+    global _meetings
+    if _meetings is None:
+        try:
+            from src.meetings import Meetings
+        except ImportError:
+            from meetings import Meetings
+        _meetings = Meetings(log=_log_to_file)
+        atexit.register(_meetings.shutdown)
+    return _meetings
+
+
+def _open_meetings_from_menu():
+    """Menu bar / tray: open Meetings off the UI thread (starting the engine can take seconds)."""
+    def run():
+        try:
+            _get_meetings().open()
+        except Exception as e:  # noqa: BLE001
+            _log_to_file(f"[meetings] open failed: {e}")
+    threading.Thread(target=run, daemon=True, name="meetings-open").start()
+
+
 class Api:
     """Exposed to JS via pywebview.api.*"""
+
+    def open_meetings(self) -> dict:
+        """Open the Meetings window (record a meeting, read its notes)."""
+        try:
+            return _get_meetings().open()
+        except Exception as e:  # noqa: BLE001
+            _log_to_file(f"[meetings] open failed: {e}")
+            return {"ok": False, "error": "Meetings couldn't open. Try again."}
 
     def get_app_version(self) -> str:
         """Return the app version string."""
@@ -8507,6 +8541,9 @@ def _create_mac_menubar_icon():
                 except Exception as e:
                     _log_to_file(f"menu refresh failed: {type(e).__name__}")
 
+            def meetings_(self, _sender):  # noqa: N802
+                _open_meetings_from_menu()
+
             def factoryReset_(self, _sender):  # noqa: N802
                 _perform_factory_reset()
 
@@ -8531,6 +8568,12 @@ def _create_mac_menubar_icon():
         )
         item_show.setTarget_(target)
         menu.addItem_(item_show)
+
+        item_meetings = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            "Meetings", b"meetings:", ""
+        )
+        item_meetings.setTarget_(target)
+        menu.addItem_(item_meetings)
 
         menu.addItem_(NSMenuItem.separatorItem())
 
@@ -8648,6 +8691,7 @@ def _create_windows_tray_icon():
         # the menu: _refresh_tray_menu does that when the last result changes.
         menu = pystray.Menu(
             pystray.MenuItem("Show Waffler", _tray_show_window, default=True),
+            pystray.MenuItem("Meetings", lambda icon=None, item=None: _open_meetings_from_menu()),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem(lambda item=None: _last_transcript_menu()[0],
                              lambda icon=None, item=None: _paste_last_async(),
