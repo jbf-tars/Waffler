@@ -37,6 +37,39 @@ def _share_waffler_keys() -> None:
             os.environ[name] = value
 
 
+def dictations_material(history: list, question: str, limit_chars: int = 16000) -> str:
+    """The person's dictations as material for Ask: those that share a word
+    with the question first, then the most recent, newest first, up to a size
+    a model reads comfortably. Entries that were never sent, and transforms
+    and commands, are left out. Returns "" when there is nothing to give."""
+    import re
+    items = [h for h in (history or []) if isinstance(h, dict) and not h.get("failed")
+             and h.get("kind") not in ("transform", "command")]
+
+    def text_of(h):
+        return str(h.get("edited_text") or h.get("styled") or h.get("text") or "").strip()
+    words = set(re.findall(r"[a-z0-9']{4,}", (question or "").lower()))
+    recent = sorted(items, key=lambda h: str(h.get("timestamp") or ""), reverse=True)
+    hits = [h for h in recent if words and any(w in text_of(h).lower() for w in words)]
+    chosen, seen, used = [], set(), 0
+    for h in hits[:60] + recent[:80]:
+        body = text_of(h)
+        key = h.get("id") or (h.get("timestamp"), body[:40])
+        if key in seen or not body:
+            continue
+        where = f" in {h.get('app')}" if h.get("app") else ""
+        line = f"- {str(h.get('timestamp') or '')[:16].replace('T', ' ')}{where}: {body}"
+        if used + len(line) > limit_chars:
+            break
+        seen.add(key)
+        chosen.append(line)
+        used += len(line)
+    if not chosen:
+        return ""
+    return ("## Dictations (things the owner said and had typed, newest first)\n"
+            + "\n".join(chosen))
+
+
 class MeetingsController:
     def __init__(self, log=lambda msg: None, on_change=lambda: None):
         self._log = log
@@ -159,8 +192,9 @@ class MeetingsController:
         svc.delete_note(note_id)
         self._on_change()
 
-    def ask(self, question: str, note_id: str | None = None, history: list | None = None) -> dict:
-        return self._svc().ask(question, note_id, history or [])
+    def ask(self, question: str, note_id: str | None = None, history: list | None = None,
+            extra: str = "") -> dict:
+        return self._svc().ask(question, note_id, history or [], extra=extra)
 
     # ── quitting ────────────────────────────────────────────────────────────
     def shutdown(self) -> None:

@@ -712,6 +712,18 @@ def _meeting_clock():
         set_bar(False)
 
 
+def _dictations_for_ask(question: str) -> str:
+    """The person's dictations as material for Ask (src/meetings_ctl.py picks them)."""
+    try:
+        try:
+            from src.meetings_ctl import dictations_material
+        except ImportError:
+            from meetings_ctl import dictations_material
+        return dictations_material(load_history(), question)
+    except Exception:
+        return ""
+
+
 class Api:
     """Exposed to JS via pywebview.api.*"""
 
@@ -749,9 +761,12 @@ class Api:
         _get_meetings().delete(note_id)
         return {"ok": True}
 
-    def meetings_ask(self, question: str, note_id: str = "") -> dict:
+    def meetings_ask(self, question: str, note_id: str = "", everything: bool = False) -> dict:
+        """Ask about one meeting, about every meeting, or (`everything`) about
+        the meetings and the dictations together (Home's Ask)."""
         try:
-            return {"ok": True, **_get_meetings().ask(question, note_id or None)}
+            extra = _dictations_for_ask(question) if everything and not note_id else ""
+            return {"ok": True, **_get_meetings().ask(question, note_id or None, extra=extra)}
         except Exception as e:  # noqa: BLE001
             _log_to_file(f"[meetings] ask failed: {type(e).__name__}: {e}")
             return {"ok": False, "error": str(e) or "That couldn't be answered just now."}

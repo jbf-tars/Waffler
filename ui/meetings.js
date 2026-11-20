@@ -169,6 +169,30 @@
     });
   }
 
+  // Home's Ask: one question across the dictations and the meetings.
+  function wireHomeAsk() {
+    const form = $('jAskForm'); if (!form) return;
+    const input = $('jAskInput'), send = $('jAskSend'), box = $('jAskAnswer');
+    $('jAskClose').addEventListener('click', () => { box.hidden = true; });
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const q = input.value.trim(), a = api();
+      if (!q || !a) return;
+      input.value = ''; send.disabled = true; box.hidden = false;
+      $('jAskQ').textContent = q; $('jAskSrc').textContent = '';
+      const ans = $('jAskA'); ans.className = 'mt-a mt-busy'; ans.textContent = 'Thinking. This takes a moment.';
+      try {
+        const r = await a.meetings_ask(q, '', true);
+        if (r && r.ok) {
+          ans.className = 'mt-a mt-prose'; ans.innerHTML = prose(r.answer);
+          const from = (r.sources || []).filter((x) => x.title).slice(0, 3);
+          if (from.length) $('jAskSrc').textContent = 'Meetings looked at: ' + from.map((x) => x.title).join(' · ');
+        } else { ans.className = 'mt-a mt-warn'; ans.textContent = (r && r.error) || 'That couldn’t be answered just now.'; }
+      } catch (err) { ans.className = 'mt-a mt-warn'; ans.textContent = 'That couldn’t be answered just now.'; }
+      finally { send.disabled = false; }
+    });
+  }
+
   // A meeting among the dictations in the Journal (app.js _withMeetings, makeCard).
   window.makeMeetingCard = function (n) {
     const busy = n.status === 'processing' || n.status === 'recording';
@@ -227,6 +251,7 @@
     $('mtSearch').addEventListener('input', () => { window.clearTimeout(t); t = window.setTimeout(loadList, 180); });
     document.querySelectorAll('#mtTabs button').forEach((b) => b.addEventListener('click', () => { tab = b.dataset.tab; if (open) drawNote(open); }));
     if ($('mtTapToggle')) $('mtTapToggle').addEventListener('change', saveTapSetting);
+    wireHomeAsk();
     wireAsk('mtAskAll', () => '');
     wireAsk('mtAskOne', () => (open ? open.id : ''));
   });
