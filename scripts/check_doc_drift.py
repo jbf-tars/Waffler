@@ -75,7 +75,7 @@ INCLUDE_GLOBS = [
     "*.yaml",
 ]
 EXCLUDE_DIR_PARTS = {
-    ".git", "node_modules", "venv", "dist", "build", ".astro",
+    ".git", "node_modules", "venv", ".venv", ".venv-offline", "dist", "build", ".astro",
     "__pycache__", ".vscode",
 }
 

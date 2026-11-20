@@ -8,6 +8,16 @@ numpy>=1.24.0
 # wheel's _soundfile_data; PyInstaller's soundfile hook bundles it).
 soundfile>=0.12.1
 
+# ── Speech to text on this computer (src/local_stt.py) ────────────────
+# The engine only: the model (about 0.6 GB) is downloaded once, from
+# Settings, into the data folder. docs/OFFLINE-TRANSCRIPTION.md has the why.
+# Apple Silicon: whisper.cpp with Metal. Wheels: cp311 to cp314, macOS arm64.
+pywhispercpp>=1.5.1; platform_machine == "arm64"
+# Intel Macs: faster-whisper (CTranslate2). Not on Python 3.14 there: its
+# onnxruntime dependency has no macOS x86_64 wheel for 3.14, and without the
+# marker the whole install would fail. Waffler then says it has no engine.
+faster-whisper>=1.2.0; platform_machine != "arm64" and python_version < "3.14"
+
 # ── OpenAI (transcription + styling) ──────────────────────────────────
 openai>=1.0.0
 

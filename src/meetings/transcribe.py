@@ -1,7 +1,10 @@
 """Speech to text for one chunk of audio.
 
-Groq `whisper-large-v3` first (the pipeline Waffler uses: FLAC upload, verbose
-segments), OpenAI as the fallback. The end-of-audio rule is Waffler's: Whisper
+Waffler's one setting decides how (`transcription_mode` in settings.json,
+src/local_stt.py): "local" runs the model on this computer, the same one
+dictation uses, with no key and no network; otherwise Groq `whisper-large-v3`
+first (the pipeline Waffler uses: FLAC upload, verbose segments), OpenAI as the
+fallback. The end-of-audio rule is Waffler's: Whisper
 invents "Thank you." and channel outros over silence, so a segment that is
 only a thanks, a sign-off or an outro is dropped when the audio under it has
 no voice or the model itself says nothing was said. Real thanks, said aloud,
@@ -14,8 +17,13 @@ import time
 
 import numpy as np
 
-from . import keys, local_whisper
+from . import keys
 from .audioproc import RATE, to_flac, voiced_between, voiced_mask
+
+try:
+    import local_stt            # the app's own copy: src/ is on its path
+except ImportError:
+    from src import local_stt
 
 MIN_VOICED_S = 0.3              # less voice than this in a chunk: not uploaded
 _NO_SPEECH_PROB = 0.5
@@ -128,28 +136,31 @@ def _call_openai_compatible(audio: np.ndarray, api_key: str, base_url: str | Non
 
 def providers_available() -> list[str]:
     out = [p for p in ("groq", "openai") if keys.get_key(p)]
-    if local_whisper.available():
+    if local_stt.is_available():
         out.append("local")
     return out
 
 
+def uses_local(settings: dict | None = None) -> bool:
+    """Is this chunk for the model on this computer? Waffler's setting says so
+    (`transcription_mode` "local"), or the engine's own `transcribe_provider`."""
+    return (settings or {}).get("transcribe_provider") == "local" or local_stt.mode_is_local()
+
+
 def _transcribe_local(audio: np.ndarray, settings: dict, language: str, backend) -> list[dict]:
-    """On this machine only. A failure here is never retried in the cloud: the
-    user chose on-device so that the audio stays on the device."""
-    model = settings.get("local_whisper_model") or "auto"
+    """On this machine only, with the model dictation uses (src/local_stt.py).
+    A failure here is never retried in the cloud: the user chose on-device so
+    that the audio stays on the device. The audio is kept, so the transcript
+    can be made later (once the model is downloaded, say)."""
     if backend is not None:
-        return clean_segments(backend(audio, "local", model, language), audio)
-    no_local = TranscribeError(
-        "On-device transcription needs the faster-whisper package. Install it, or choose "
-        "Groq in Settings.", "no_local")
-    if not local_whisper.available():
-        raise no_local
+        return clean_segments(backend(audio, "local", local_stt.selected_model(), language), audio)
     try:
-        raw = local_whisper.transcribe_local(audio, model, language)
-    except ImportError as e:
-        raise no_local from e
-    except local_whisper.LocalWhisperError as e:
-        raise TranscribeError(str(e), "other") from e
+        # background: a dictation that arrives while a meeting is being
+        # written down goes first.
+        raw = local_stt.transcribe_segments(audio, language or None, background=True)
+    except local_stt.LocalSTTError as e:
+        kind = "no_local" if e.kind in ("unavailable", "not_downloaded") else "other"
+        raise TranscribeError(str(e), kind) from e
     except Exception as e:      # noqa: BLE001
         raise TranscribeError(
             f"On-device transcription failed ({type(e).__name__}). The audio is kept and "
@@ -161,8 +172,9 @@ def transcribe(audio: np.ndarray, settings: dict | None = None, backend=None) ->
     """16 kHz mono float32 → [{start_s, end_s, text}] (times within the chunk).
 
     Returns [] without calling anyone when the chunk holds no voice.
-    `transcribe_provider` "local" runs faster-whisper on this machine (model from
-    `local_whisper_model`): no key, no network, and no fallback to the cloud.
+    With Waffler's `transcription_mode` "local" (or `transcribe_provider`
+    "local") the model on this computer does it (src/local_stt.py): no key, no
+    network, and no fallback to the cloud.
     `backend(audio, provider, model, language)` replaces the network in tests.
     """
     settings = settings or {}
@@ -170,7 +182,7 @@ def transcribe(audio: np.ndarray, settings: dict | None = None, backend=None) ->
         return []
     language = settings.get("language") or ""
     preferred = settings.get("transcribe_provider") or "groq"
-    if preferred == "local":
+    if uses_local(settings):
         return _transcribe_local(audio, settings, language, backend)
     order = [preferred] + [p for p in ("groq", "openai") if p != preferred]
     if backend is None:

@@ -15,6 +15,13 @@ numpy>=1.24.0
 # wheel's _soundfile_data; PyInstaller's soundfile hook bundles it).
 soundfile>=0.12.1
 
+# ── Speech to text on this computer (src/local_stt.py) ────────────────
+# The engine only: the model is downloaded once, from Settings, into the
+# data folder. faster-whisper is CTranslate2: the CPU, or an NVIDIA card
+# when its CUDA libraries are already installed. Wheels for everything it
+# pulls in exist for Python 3.11 and 3.14 on Windows x64.
+faster-whisper>=1.2.0
+
 # ── OpenAI (transcription + styling) ──────────────────────────────────
 openai>=1.0.0
 

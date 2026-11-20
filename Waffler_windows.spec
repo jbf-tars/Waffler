@@ -11,10 +11,32 @@ import os
 block_cipher = None
 PROJECT_ROOT = os.path.abspath('.')
 
+# ── On-device speech to text (src/local_stt.py) ──────────────────────────────
+# The ENGINE is bundled; the MODEL never is (0.15 to 1.6 GB): it is downloaded
+# once into the data folder from Settings.
+#   Windows: faster-whisper, which is CTranslate2. ctranslate2 loads
+#     ctranslate2.dll and libiomp5md.dll from its own package folder
+#     (os.add_dll_directory), so they are collected into that folder. NVIDIA's
+#     CUDA libraries (about 2 GB) are not bundled: the CPU is used unless they
+#     are already on the machine (src/local_stt_ct2.py).
+# The helper tolerates a package that is not installed.
+from PyInstaller.utils.hooks import collect_dynamic_libs
+
+
+def _stt_libs(package):
+    try:
+        return collect_dynamic_libs(package)
+    except Exception as e:
+        print(f"[spec] no dynamic libraries collected for {package}: {e}")
+        return []
+
+
+_STT_BINARIES = _stt_libs('ctranslate2')
+
 a = Analysis(
     ['app.py'],
     pathex=[PROJECT_ROOT, os.path.join(PROJECT_ROOT, 'src')],
-    binaries=[],
+    binaries=_STT_BINARIES,
     datas=[
         ('ui', 'ui'),
         ('prompts', 'prompts'),
@@ -25,6 +47,12 @@ a = Analysis(
         ('icon.ico', '.'),
     ],
     hiddenimports=[
+        # ── On-device speech to text (imported inside functions) ──
+        'faster_whisper',
+        'ctranslate2',
+        'tokenizers',
+        'huggingface_hub',
+        'av',
         # ── Audio ──
         'sounddevice',
         'numpy',
@@ -109,6 +137,12 @@ a = Analysis(
         'Foundation',
         'rumps',
         'mlx_whisper',
+        # Apple Silicon's engine; Windows uses faster-whisper.
+        'pywhispercpp',
+        '_pywhispercpp',
+        # faster-whisper lists onnxruntime for its voice-activity filter,
+        # which Waffler never switches on (it has its own): about 85 MB saved.
+        'onnxruntime',
     ],
     noarchive=False,
 )
