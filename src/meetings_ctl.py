@@ -152,6 +152,8 @@ class MeetingsController:
 
     def delete(self, note_id: str) -> None:
         svc = self._svc()
+        if not svc.store.get_note(note_id):        # only a meeting that exists (an id is never a path)
+            return
         if svc.state().get("note_id") == note_id:
             svc.stop_recording()
         svc.delete_note(note_id)

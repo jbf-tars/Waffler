@@ -1,5 +1,6 @@
 """Where meetings are kept. Override with WAFFLER_MEETINGS_HOME (tests)."""
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -22,8 +23,18 @@ def data_dir() -> Path:
     return p
 
 
+def safe_note_id(note_id: str) -> str:
+    """A note id as it may be used in a path: letters, digits, '-' and '_'
+    only. Anything else (a '..', a slash, an empty string) is refused, because
+    the id becomes a folder name under audio/ and that folder is deleted with
+    the note: an id of '..' once pointed at the whole data folder."""
+    if not isinstance(note_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", note_id):
+        raise ValueError("not a note id")
+    return note_id
+
+
 def audio_dir(note_id: str) -> Path:
-    p = data_dir() / "audio" / note_id
+    p = data_dir() / "audio" / safe_note_id(note_id)
     p.mkdir(parents=True, exist_ok=True)
     return p
 

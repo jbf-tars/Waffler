@@ -13,7 +13,7 @@ import numpy as np
 
 from . import audioproc, llm
 from .audioproc import RATE
-from .paths import audio_dir
+from .paths import audio_dir, data_dir
 from .recorder import CHUNK_MAX_S, CHUNK_MIN_S, Recorder, _Job, retranscribe
 from .store import Store
 
@@ -210,7 +210,11 @@ class Service:
         return self.store.get_note(note_id)
 
     def delete_audio(self, note_id: str) -> None:
-        shutil.rmtree(audio_dir(note_id), ignore_errors=True)
+        folder = audio_dir(note_id)                # refuses anything that is not a plain id
+        root = (data_dir() / "audio").resolve()
+        if folder.resolve().parent != root:        # only ever a folder directly under audio/
+            raise ValueError("not a note's audio folder")
+        shutil.rmtree(folder, ignore_errors=True)
 
     def has_audio(self, note_id: str) -> bool:
         return any(audio_dir(note_id).glob("*.flac"))
