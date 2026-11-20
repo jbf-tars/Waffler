@@ -302,6 +302,16 @@ class RecordingOverlay:
     def _pill_config_is_default(config) -> bool:
         return not config or (not config.get("idle") and not config.get("positions"))
 
+    def set_meeting(self, on: bool, elapsed: float = 0.0):
+        """The meeting bar (Mac): shown with the time while a meeting records,
+        hidden when it ends. The app sends this every second, so a restarted
+        subprocess shows it again by itself. Never raises."""
+        try:
+            if self._is_alive():
+                self._send({"type": "meeting", "on": bool(on), "elapsed": float(elapsed)})
+        except Exception as e:
+            self._log(f"[overlay] meeting bar not updated: {type(e).__name__}")
+
     def set_pill_config(self, idle: bool, positions=None):
         """The idle pill on or off, and where the pill was dropped on each
         screen (src/idle_pill.py). Sent to the subprocess now if it is up, and
@@ -675,6 +685,13 @@ class RecordingOverlay:
                     self._on_toast_action(data.get("action", ""))
                 elif event == "quit_request" and self._on_quit_request:
                     self._on_quit_request()
+                elif event == "meeting_finish":
+                    callback = getattr(self, "_on_pill_event", None)
+                    if callback:
+                        try:
+                            callback("meeting_finish", data)
+                        except Exception as e:
+                            self._log(f"[overlay] meeting_finish not handled: {type(e).__name__}: {e}")
                 elif event in ("pill_hover", "pill_action", "pill_moved"):
                     callback = getattr(self, "_on_pill_event", None)
                     if callback:

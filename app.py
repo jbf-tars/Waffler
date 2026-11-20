@@ -687,14 +687,21 @@ def _meeting_clock():
             AppHelper.callAfter(lambda: item.button().setTitle_(text))
         except Exception:
             pass
+    def set_bar(on, seconds=0):
+        overlay = getattr(_pipeline, "overlay", None)
+        setter = getattr(overlay, "set_meeting", None)
+        if setter is not None:
+            setter(on, seconds)
     try:
         while _meetings is not None and _meetings.state()["recording"]:
             s = int(_meetings.state()["elapsed_s"])
             clock = f"{s // 3600}:{(s // 60) % 60:02d}:{s % 60:02d}" if s >= 3600 else f"{s // 60}:{s % 60:02d}"
             set_title(f" \u25cf {clock}")
+            set_bar(True, s)
             time.sleep(1.0)
     finally:
         set_title("")
+        set_bar(False)
 
 
 class Api:
@@ -5370,6 +5377,20 @@ class WafflerPipeline:
         except Exception as e:
             _log_to_file(f"[meetings] double tap not set ({type(e).__name__})")
 
+    def _finish_meeting_soon(self):
+        """Off the overlay's reader thread: finishing saves audio and can take a moment."""
+        threading.Thread(target=self._finish_meeting_from_bar, daemon=True,
+                         name="MeetingFinish").start()
+
+    def _finish_meeting_from_bar(self):
+        """Finish was clicked on the meeting bar. Only ever finishes: a stray
+        second click must not start a new meeting."""
+        try:
+            if _get_meetings().state()["recording"]:
+                self._on_meeting_double_tap()
+        except Exception as e:
+            _log_to_file(f"[meetings] finish from the bar failed: {type(e).__name__}")
+
     def _on_meeting_double_tap(self):
         """The hotkey was tapped twice: start a meeting, or finish it."""
         self._meeting_tap_at = time.time()          # keeps the "Don't tap, hold" tip away
@@ -5986,6 +6007,9 @@ class WafflerPipeline:
         menu, "action" is a click on one of its lines, "moved" is a drop.
         Anything that can wait (a paste, a file) goes on a thread of its own."""
         data = data if isinstance(data, dict) else {}
+        if name == "meeting_finish":               # Finish on the meeting bar
+            self._finish_meeting_soon()
+            return
         if name == "hover":
             self.overlay.show_pill_menu(self._pill_menu_items())
         elif name == "action":

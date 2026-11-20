@@ -29,6 +29,11 @@ Commands:  {"type": "show"}
                  their default, so without it this process is as it was.
            {"type": "pill_menu", "items": [{action, label, enabled}, ...]}
                  the idle pill's menu, in answer to "pill_hover"
+           {"type": "meeting", "on": bool, "elapsed": seconds}
+                 the meeting bar: a dark capsule at the top of the screen
+                 with a red dot, the time and Finish, shown for as long as a
+                 meeting records. The app sends it every second; "on": false
+                 hides it. A click on Finish sends the event meeting_finish.
            {"type": "quit"}
 
 Events:    {"event": "cancel_request"}
@@ -1690,6 +1695,9 @@ def _dispatch_cmd(cmd):
     elif ctype == "pill_menu":
         _idle_guarded(_open_pill_menu, cmd.get("items"))
 
+    elif ctype == "meeting":
+        _idle_guarded(_apply_meeting, cmd)
+
     elif ctype == "_quit_patience":
         _answer_pending_quit(False)
 
@@ -2243,6 +2251,113 @@ class IdlePillView(NSView):
 
     def mouseUp_(self, event):
         _idle_guarded(_idle_release)
+
+
+# ── The meeting bar ───────────────────────────────────────────────────
+# Its own small panel, apart from the dictation pill, so the two can be on
+# screen together: a meeting records while the hotkey still dictates.
+
+MEET_W, MEET_H = 178, 40
+MEET_FINISH_W = 66
+_meet_win = None
+_meet_view = None
+_meet_elapsed = 0
+
+
+def _meet_clock(seconds):
+    s = max(0, int(seconds))
+    if s >= 3600:
+        return f"{s // 3600}:{(s // 60) % 60:02d}:{s % 60:02d}"
+    return f"{s // 60}:{s % 60:02d}"
+
+
+class MeetingBarView(NSView):
+    """A dark capsule: red dot, the time, Finish."""
+
+    def isOpaque(self):
+        return False
+
+    def isFlipped(self):
+        return True
+
+    def acceptsFirstMouse_(self, event):
+        return True
+
+    def drawRect_(self, rect):
+        b = self.bounds()
+        NSColor.clearColor().set()
+        NSBezierPath.fillRect_(b)
+        r = MEET_H / 2.0
+        body = NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
+            NSMakeRect(0.5, 0.5, MEET_W - 1, MEET_H - 1), r, r)
+        hex_to_ns_color("#14110F").set()
+        body.fill()
+        NSColor.colorWithCalibratedWhite_alpha_(1.0, 0.14).set()
+        body.setLineWidth_(1)
+        body.stroke()
+        # the dot
+        hex_to_ns_color("#F0624F").set()
+        NSBezierPath.bezierPathWithOvalInRect_(NSMakeRect(16, MEET_H / 2.0 - 4.5, 9, 9)).fill()
+        # the time
+        try:
+            font = NSFont.monospacedDigitSystemFontOfSize_weight_(14, 0.0)
+        except Exception:
+            font = NSFont.systemFontOfSize_(14)
+        time_attrs = {NSFontAttributeName: font,
+                      NSForegroundColorAttributeName: hex_to_ns_color("#FDFCFB")}
+        text = NSAttributedString.alloc().initWithString_attributes_(_meet_clock(_meet_elapsed), time_attrs)
+        text.drawAtPoint_((34, (MEET_H - text.size().height) / 2.0))
+        # Finish
+        fx = MEET_W - MEET_FINISH_W - 6
+        pill = NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
+            NSMakeRect(fx, 6, MEET_FINISH_W, MEET_H - 12), (MEET_H - 12) / 2.0, (MEET_H - 12) / 2.0)
+        hex_to_ns_color("#F4F0EA").set()
+        pill.fill()
+        label_attrs = {NSFontAttributeName: NSFont.boldSystemFontOfSize_(12),
+                       NSForegroundColorAttributeName: hex_to_ns_color("#12100E")}
+        label = NSAttributedString.alloc().initWithString_attributes_("Finish", label_attrs)
+        label.drawAtPoint_((fx + (MEET_FINISH_W - label.size().width) / 2.0,
+                            (MEET_H - label.size().height) / 2.0))
+
+    def mouseDown_(self, event):
+        try:
+            x = self.convertPoint_fromView_(event.locationInWindow(), None).x
+            if x >= MEET_W - MEET_FINISH_W - 10:
+                emit("meeting_finish")
+        except Exception as e:
+            _dbg("meeting.click.error", err=str(e)[:80])
+
+
+def _meeting_origin():
+    """Top centre of the main screen, just under the menu bar."""
+    screen = NSScreen.mainScreen() or NSScreen.screens()[0]
+    vf = screen.visibleFrame()
+    return vf.origin.x + (vf.size.width - MEET_W) / 2.0, vf.origin.y + vf.size.height - MEET_H - 10
+
+
+def _apply_meeting(cmd):
+    global _meet_win, _meet_view, _meet_elapsed
+    on = bool(cmd.get("on"))
+    if not on:
+        if _meet_win is not None:
+            _meet_win.orderOut_(None)
+        return
+    _meet_elapsed = float(cmd.get("elapsed", 0.0) or 0.0)
+    if _meet_win is None:
+        _meet_win = _new_overlay_window(NSMakeRect(0, 0, MEET_W, MEET_H))
+        _meet_win.setLevel_(NSStatusWindowLevel)
+        _meet_win.setOpaque_(False)
+        _meet_win.setBackgroundColor_(NSColor.clearColor())
+        _meet_win.setHasShadow_(True)
+        _meet_win.setIgnoresMouseEvents_(False)
+        _meet_win.setCollectionBehavior_(_OVERLAY_COLLECTION_BEHAVIOR)
+        _meet_view = MeetingBarView.alloc().initWithFrame_(NSMakeRect(0, 0, MEET_W, MEET_H))
+        _meet_win.setContentView_(_meet_view)
+    if not _meet_win.isVisible():
+        x, y = _meeting_origin()
+        _meet_win.setFrameOrigin_((x, y))
+        _meet_win.orderFrontRegardless()
+    _meet_view.setNeedsDisplay_(True)
 
 
 class PillMenuView(NSView):
