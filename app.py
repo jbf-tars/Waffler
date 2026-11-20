@@ -633,8 +633,113 @@ def append_history_safely(item: dict) -> bool:
 
 
 # ── PyWebView API ─────────────────────────────────────────────────────
+# ── Meetings (src/meetings_ctl.py, src/meetings) ────────────────────────────
+_meetings = None
+_meetings_lock = threading.Lock()
+
+
+def _get_meetings():
+    """The meetings controller, made on first use."""
+    global _meetings
+    with _meetings_lock:
+        if _meetings is None:
+            try:
+                from src.meetings_ctl import MeetingsController
+            except ImportError:
+                from meetings_ctl import MeetingsController
+            _meetings = MeetingsController(log=_log_to_file, on_change=_meetings_changed)
+            atexit.register(_meetings.shutdown)
+        return _meetings
+
+
+def _meetings_changed():
+    """The list or the recording state changed: tell the page and the menu bar."""
+    try:
+        _post_js("window.waffler_meetings_changed && window.waffler_meetings_changed()")
+    except Exception:
+        pass
+    _meeting_menubar_sync()
+
+
+_meeting_clock_thread = None
+
+
+def _meeting_menubar_sync():
+    """While a meeting records, the menu bar icon carries a red dot and the
+    time, so it is always plain that Waffler is listening."""
+    global _meeting_clock_thread
+    if _platform.system() != "Darwin":
+        return
+    with _meetings_lock:
+        if _meeting_clock_thread is not None and _meeting_clock_thread.is_alive():
+            return
+        _meeting_clock_thread = threading.Thread(target=_meeting_clock, daemon=True, name="MeetingClock")
+        _meeting_clock_thread.start()
+
+
+def _meeting_clock():
+    def set_title(text):
+        item = _mac_menubar_status_item
+        if item is None:
+            return
+        try:
+            from PyObjCTools import AppHelper
+            AppHelper.callAfter(lambda: item.button().setTitle_(text))
+        except Exception:
+            pass
+    try:
+        while _meetings is not None and _meetings.state()["recording"]:
+            s = int(_meetings.state()["elapsed_s"])
+            clock = f"{s // 3600}:{(s // 60) % 60:02d}:{s % 60:02d}" if s >= 3600 else f"{s // 60}:{s % 60:02d}"
+            set_title(f" \u25cf {clock}")
+            time.sleep(1.0)
+    finally:
+        set_title("")
+
+
 class Api:
     """Exposed to JS via pywebview.api.*"""
+
+    # ── Meetings ────────────────────────────────────────────────────────────
+    def meetings_state(self) -> dict:
+        return _get_meetings().state() if _meetings is not None else {
+            "recording": False, "note_id": None, "elapsed_s": 0, "sources": [], "warnings": []}
+
+    def meetings_toggle(self) -> dict:
+        """Start a meeting recording, or finish the one running."""
+        try:
+            return _get_meetings().toggle()
+        except Exception as e:  # noqa: BLE001
+            _log_to_file(f"[meetings] toggle failed: {type(e).__name__}: {e}")
+            return {"ok": False, "error": "The meeting couldn't be recorded. Try again."}
+
+    def meetings_list(self, query: str = "") -> list:
+        try:
+            return _get_meetings().list(query)
+        except Exception as e:  # noqa: BLE001
+            _log_to_file(f"[meetings] list failed: {type(e).__name__}: {e}")
+            return []
+
+    def meetings_get(self, note_id: str):
+        try:
+            return _get_meetings().get(note_id)
+        except Exception as e:  # noqa: BLE001
+            _log_to_file(f"[meetings] get failed: {type(e).__name__}: {e}")
+            return None
+
+    def meetings_rename(self, note_id: str, title: str):
+        return _get_meetings().rename(note_id, title)
+
+    def meetings_delete(self, note_id: str) -> dict:
+        _get_meetings().delete(note_id)
+        return {"ok": True}
+
+    def meetings_ask(self, question: str, note_id: str = "") -> dict:
+        try:
+            return {"ok": True, **_get_meetings().ask(question, note_id or None)}
+        except Exception as e:  # noqa: BLE001
+            _log_to_file(f"[meetings] ask failed: {type(e).__name__}: {e}")
+            return {"ok": False, "error": str(e) or "That couldn't be answered just now."}
 
     def get_app_version(self) -> str:
         """Return the app version string."""
@@ -1832,6 +1937,7 @@ class Api:
                         self._restart_hotkey_listener()     # re-applies every shortcut when it is up
                     else:
                         _pipeline.apply_last_result_shortcuts()
+                        _pipeline.apply_meeting_tap()             # two taps: a meeting (the listener may be new)
                 except Exception as _e:
                     _log_to_file(f"[shortcut] settings not applied live: {type(_e).__name__}")
 
@@ -2992,6 +3098,7 @@ class Api:
                     _pipeline.apply_transform_settings()
                     _pipeline.apply_command_settings()
                     _pipeline.apply_last_result_shortcuts()
+                    _pipeline.apply_meeting_tap()             # two taps: a meeting (the listener may be new)
                 except Exception as _e:
                     _log_to_file(f"[shortcut] action shortcuts not re-attached: {type(_e).__name__}")
                 _log_to_file("New hotkey listener starting...")
@@ -4845,6 +4952,9 @@ class WafflerPipeline:
     def _hold_hint_later(self, processing_id: int):
         try:
             time.sleep(_hold_hint.SETTLE_S)
+            if time.time() - getattr(self, "_meeting_tap_at", 0.0) < 5.0:
+                _log_to_file("[hint] the taps were a meeting double tap: no hint")
+                return
             with self._processing_lock:
                 alone = processing_id == self._processing_id and not self.is_recording
             if not alone:
@@ -5247,6 +5357,35 @@ class WafflerPipeline:
             self._last_result_say(_user_messages.LAST_COPIED)
         else:
             self._last_result_say(_user_messages.LAST_COPY_FAILED)
+
+    def apply_meeting_tap(self):
+        """Two quick taps of the hotkey start or finish a meeting. On unless
+        settings.json says `meeting_double_tap` is false. Never raises."""
+        try:
+            listener = getattr(self, "hotkey_listener", None)
+            setter = getattr(listener, "set_meeting_double_tap", None)
+            if setter is not None:
+                on = self._read_settings().get("meeting_double_tap") is not False
+                setter(self._on_meeting_double_tap if on else None)
+        except Exception as e:
+            _log_to_file(f"[meetings] double tap not set ({type(e).__name__})")
+
+    def _on_meeting_double_tap(self):
+        """The hotkey was tapped twice: start a meeting, or finish it."""
+        self._meeting_tap_at = time.time()          # keeps the "Don't tap, hold" tip away
+        result = _get_meetings().toggle()
+        key = self._hotkey_name()
+        if not result.get("ok"):
+            self._show_toast_safe("error", "The meeting couldn't be recorded",
+                                  result.get("error") or "Try again.", timeout=8)
+        elif result.get("started"):
+            self._show_toast_safe("info", "Recording the meeting",
+                                  f"Tap {key} twice again to finish. You can still hold it to dictate.",
+                                  timeout=6)
+        else:
+            self._show_toast_safe("info", "Meeting finished",
+                                  "The notes are being written. They will be in Waffler in a moment.",
+                                  timeout=6)
 
     def apply_double_tap(self):
         """Give the running hotkey listener the double-tap setting as
@@ -8269,6 +8408,7 @@ class WafflerPipeline:
             self.apply_transform_settings()
             self.apply_command_settings()
             self.apply_last_result_shortcuts()
+            self.apply_meeting_tap()             # two taps: a meeting (the listener may be new)
             _log_to_file("Calling hotkey.start()...")
             self.hotkey_listener.start()
             if _platform.system() == "Darwin":
@@ -8507,6 +8647,10 @@ def _create_mac_menubar_icon():
                 except Exception as e:
                     _log_to_file(f"menu refresh failed: {type(e).__name__}")
 
+            def meeting_(self, _sender):  # noqa: N802
+                threading.Thread(target=lambda: _pipeline and _pipeline._on_meeting_double_tap(),
+                                 daemon=True, name="MeetingMenu").start()
+
             def factoryReset_(self, _sender):  # noqa: N802
                 _perform_factory_reset()
 
@@ -8531,6 +8675,12 @@ def _create_mac_menubar_icon():
         )
         item_show.setTarget_(target)
         menu.addItem_(item_show)
+
+        item_meeting = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            "Start or finish a meeting", b"meeting:", ""
+        )
+        item_meeting.setTarget_(target)
+        menu.addItem_(item_meeting)
 
         menu.addItem_(NSMenuItem.separatorItem())
 

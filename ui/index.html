@@ -11,6 +11,7 @@
   <link rel="stylesheet" href="components.css">
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="setup.css">
+  <link rel="stylesheet" href="meetings.css">
 </head>
 <body data-page="home">
 <div class="app">
@@ -28,6 +29,7 @@
          Plain buttons, not tabs: each opens a page. -->
     <nav class="topbar-nav" aria-label="Pages">
       <button type="button" id="navHome" class="active" aria-current="page" onclick="showPage('home')">Journal</button>
+      <button type="button" id="navMeetings" onclick="showPage('meetings')">Meetings</button>
       <button type="button" id="navVocab" onclick="showPage('vocabulary')">Vocabulary</button>
       <button type="button" id="navSettings" onclick="showPage('settings')">Settings</button>
     </nav>
@@ -980,6 +982,50 @@
        last did, from the corrections recorded in the Journal
        (get_vocab_book). Beside it, Try a sentence (try_vocab, the step a
        dictation runs) and the newest corrections. -->
+  <!-- Meetings (meetings.js, meetings.css): recorded meetings and their notes. -->
+  <div class="meetings-panel" id="meetingsPanel" style="display:none">
+    <div class="mt">
+      <div class="mt-home">
+        <div class="mt-head">
+          <div>
+            <h1 class="ptitle" id="meetingsTitle">Meetings</h1>
+            <p class="pdesc">Tap your hotkey twice to record a meeting. Tap twice again and the notes are written.</p>
+          </div>
+          <button type="button" class="btn btn-md btn-pri mt-rec" id="mtRecord"><span class="mt-dot" aria-hidden="true"></span><span id="mtRecordLabel">Record a meeting</span></button>
+        </div>
+        <div class="mt-live" id="mtLive" role="status">
+          <span class="mt-dot" aria-hidden="true"></span>
+          <span class="mt-clock" id="mtClock">0:00</span>
+          <span id="mtSources">Recording.</span>
+          <span class="mt-warn" id="mtWarn"></span>
+          <span style="flex:1 1 auto"></span>
+          <button type="button" class="btn btn-sm btn-sec" id="mtLiveFinish">Finish</button>
+        </div>
+        <label class="vocab-field" style="margin-top:16px">
+          <input type="search" id="mtSearch" class="vocab-input" placeholder="Search your meetings" aria-label="Search your meetings" autocomplete="off" spellcheck="false">
+        </label>
+        <div class="mt-list" id="mtList"></div>
+        <div class="mt-empty" id="mtEmpty" style="display:none"><strong>No meetings yet.</strong><br>Tap your hotkey twice, or press Record a meeting. Hold the key as usual to dictate.</div>
+      </div>
+      <div class="mt-note" id="mtNote">
+        <div class="mt-note-bar">
+          <button type="button" class="btn btn-sm btn-quiet" id="mtBack">Back to meetings</button>
+          <div class="mt-note-actions">
+            <button type="button" class="btn btn-sm btn-sec" id="mtCopy">Copy notes</button>
+            <button type="button" class="btn btn-sm btn-quiet" id="mtDelete">Delete</button>
+          </div>
+        </div>
+        <h1 id="mtTitle"></h1>
+        <div class="mt-chips" id="mtChips"></div>
+        <div class="seg" id="mtTabs" role="tablist" aria-label="Views" style="align-self:flex-start">
+          <button type="button" role="tab" data-tab="notes" aria-selected="true">Notes</button>
+          <button type="button" role="tab" data-tab="transcript" aria-selected="false">Transcript</button>
+        </div>
+        <div id="mtBody"></div>
+      </div>
+    </div>
+  </div>
+
   <div class="vocabulary-panel" id="vocabularyPanel" style="display:none">
     <div class="vp">
       <section class="vmain" aria-labelledby="vocabTitle">
@@ -1507,5 +1553,6 @@
 <script src="logic.js"></script>
 <script src="icons.js"></script>
 <script src="app.js"></script>
+<script src="meetings.js"></script>
 </body>
 </html>

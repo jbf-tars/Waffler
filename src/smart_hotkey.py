@@ -102,6 +102,12 @@ class SmartHotkeyListener:
         self._double_tap = None
         self._locked_by_double_tap = False
         self._clock = clock
+        # Double-tap for a meeting (set_meeting_double_tap): when a callback is
+        # set, two quick taps call it instead of locking a take hands-free.
+        # ``_handsfree_tap`` remembers whether the hands-free setting is on,
+        # so switching the meeting tap off gives the person their setting back.
+        self._meeting_tap_cb = None
+        self._handsfree_tap = False
 
         # v3.14.30 diagnostic: each listener gets an id so the log says
         # "L01 fired press" / "L02 fired press" — instantly answers the
@@ -232,6 +238,18 @@ class SmartHotkeyListener:
         self._hotkey_held = False
         if self._recording and not self._sticky:
             dt = self._double_tap
+            if dt is not None and self._meeting_tap_cb is not None and dt.release():
+                # The second tap of two, with meetings on: end this take the
+                # ordinary way (a tap that short is dropped as an accidental
+                # press, nothing is pasted) and tell the app to start or
+                # finish the meeting.
+                self._recording = False
+                self._double_tap_forget()
+                _diag_log(f"[HOTKEY/{self._id}] → double tap: meeting toggle")
+                self._fire_release()
+                threading.Thread(target=self._meeting_tap_cb, daemon=True,
+                                 name="MeetingTap").start()
+                return
             if dt is not None and dt.release():
                 # The second tap of two: keep the take recording and lock it
                 # on, as Space does (the lock cue, the hands-free pill).
@@ -322,7 +340,19 @@ class SmartHotkeyListener:
         """Switch double-tap on or off while the listener runs (Settings,
         Shortcuts). A hands-free take it has already locked is left alone
         and can still be ended by a press. Nothing else changes."""
-        if enabled:
+        self._handsfree_tap = bool(enabled)
+        self._sync_double_tap_gate()
+
+    def set_meeting_double_tap(self, callback):
+        """Two quick taps of the hotkey call ``callback`` (start or finish a
+        meeting) instead of locking a take hands-free. None switches it off
+        and gives double-tap back to the hands-free setting."""
+        self._meeting_tap_cb = callback
+        self._sync_double_tap_gate()
+
+    def _sync_double_tap_gate(self):
+        """One gate serves both uses of a double tap; it exists while either is on."""
+        if self._handsfree_tap or self._meeting_tap_cb is not None:
             if self._double_tap is None:
                 # The Fn key says its release 150 ms late (hold-quiet timer),
                 # so a tap is measured from when the finger left the key.
@@ -346,7 +376,8 @@ class SmartHotkeyListener:
         with double-tap on (or for a take it locked), and not when it is the
         last release bouncing."""
         dt = self._double_tap
-        if dt is None:
+        if dt is None or not self._handsfree_tap:
+            # Off, or the gate is only there for the meeting tap.
             return self._locked_by_double_tap
         return not dt.is_bounce()
 

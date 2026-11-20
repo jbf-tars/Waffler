@@ -35,7 +35,7 @@ def test_the_new_figures_live_in_usage_and_add_no_page_or_section():
     assert usage.index('id="usageEmpty"') < usage.index('id="usageDetail"')
     html = read("index.html")
     assert html.count('class="snav-item"') == 9           # the Settings sections are as they were
-    assert html.count('<button type="button" id="nav') == 3  # and so are the three pages
+    assert html.count('<button type="button" id="nav') == 4  # and so are the four pages (Meetings joined in the one-app work)
 
 
 def test_the_typing_speed_is_a_labelled_number_field_with_a_place_for_its_error():

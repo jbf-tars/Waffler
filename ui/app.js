@@ -4108,7 +4108,7 @@ function showPage(page) {
   // top bar does not repeat them.
   document.body.dataset.page = page;
 
-  [['navHome', 'home'], ['navVocab', 'vocabulary'], ['navSettings', 'settings']].forEach(([id, p]) => {
+  [['navHome', 'home'], ['navMeetings', 'meetings'], ['navVocab', 'vocabulary'], ['navSettings', 'settings']].forEach(([id, p]) => {
     const tab = document.getElementById(id);
     if (!tab) return;
     tab.classList.toggle('active', page === p);
@@ -4121,6 +4121,8 @@ function showPage(page) {
   if ($main) $main.style.display = page === 'home' ? 'flex' : 'none';
   if (sp) sp.style.display = page === 'settings' ? 'grid' : 'none';
   if (vp) vp.style.display = page === 'vocabulary' ? 'flex' : 'none';
+  const mp = document.getElementById('meetingsPanel');
+  if (mp) mp.style.display = page === 'meetings' ? 'flex' : 'none';
 
   if (page === 'settings') {
     showSettingsSection(_settingsSection);
@@ -4128,6 +4130,8 @@ function showPage(page) {
     refreshThemePicker();
   } else if (page === 'vocabulary') {
     loadVocabPage();
+  } else if (page === 'meetings' && window.loadMeetingsPage) {
+    window.loadMeetingsPage();
   }
   _syncMicMeter();
 }

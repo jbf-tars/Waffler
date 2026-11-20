@@ -120,7 +120,7 @@ def test_the_section_is_on_the_vocabulary_page_below_the_words_and_adds_no_page(
     panel = html[html.index('id="vocabularyPanel"'):html.index('<!-- Update dialog')]
     assert panel.index('id="vocabList"') < panel.index('id="snippetsSection"') < panel.index('id="vocabSide"')
     nav = html[html.index('<nav class="topbar-nav"'):html.index("</nav>")]
-    assert nav.count("<button") == 3, "no new page for snippets"
+    assert nav.count("<button") == 4, "no new page for snippets (Journal, Meetings, Vocabulary, Settings)"
     assert "snippet" not in nav.lower()
 
 

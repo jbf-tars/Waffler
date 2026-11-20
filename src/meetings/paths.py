@@ -7,9 +7,17 @@ from . import APP_NAME
 
 
 def data_dir() -> Path:
-    """Meetings live beside Waffler's own data (~/.waffler-hosted/meetings)."""
+    """Meetings live in a `meetings` folder inside Waffler's data folder
+    (src/data_paths.py, which WAFFLER_DATA_DIR moves for tests)."""
     override = os.environ.get("WAFFLER_MEETINGS_HOME") or os.environ.get("NATTER_HOME")
-    p = Path(override) if override else Path.home() / ".waffler-hosted" / "meetings"
+    if override:
+        p = Path(override)
+    else:
+        try:
+            from src.data_paths import data_dir as waffler_data_dir
+        except ImportError:
+            from data_paths import data_dir as waffler_data_dir
+        p = waffler_data_dir() / "meetings"
     p.mkdir(parents=True, exist_ok=True)
     return p
 
