@@ -238,7 +238,12 @@ class SmartHotkeyListener:
         self._hotkey_held = False
         if self._recording and not self._sticky:
             dt = self._double_tap
-            if dt is not None and self._meeting_tap_cb is not None and dt.release():
+            fused = False
+            if self._meeting_tap_cb is not None and self._fn_handler is not None:
+                # Two fast taps of Fn arrive as one press (mac_hotkey_monitor.FnHandler).
+                taker = getattr(self._fn_handler, "take_double_tap", None)
+                fused = bool(taker()) if taker is not None else False
+            if self._meeting_tap_cb is not None and (fused or (dt is not None and dt.release())):
                 # The second tap of two, with meetings on: end this take the
                 # ordinary way (a tap that short is dropped as an accidental
                 # press, nothing is pasted) and tell the app to start or

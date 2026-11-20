@@ -99,3 +99,91 @@ def test_switched_off_gives_double_tap_back_to_hands_free():
 def test_without_either_setting_nothing_changes():
     log, _ = isolated("print(json.dumps(run(['P', 0.08, 'R', 0.12, 'P', 0.08, 'R'], meeting=False)))")
     assert log == ["press", "release", "press", "release"]
+
+
+# ── Two FAST taps of Fn arrive as one press (mac_hotkey_monitor.FnHandler) ────
+# The second tap lands inside the 150 ms hold-quiet window, so the listener
+# never sees the first release. The handler recognises the shape instead.
+FN_RIG = """
+import json, types
+import mac_hotkey_monitor as m
+
+now = [50.0]
+m.time = types.SimpleNamespace(monotonic=lambda: now[0])
+m._fire = lambda cb: cb() if cb else None
+m.CGEventGetFlags = lambda flags: flags            # the 'event' is just its flags
+
+timers = []
+class Timer:
+    def __init__(self, delay, fn, args=()):
+        self.fn, self.args, self.dead, self.daemon = fn, args, False, True
+    def start(self): timers.append(self)
+    def cancel(self): self.dead = True
+m.threading = types.SimpleNamespace(Timer=Timer, Lock=__import__('threading').Lock,
+                                    current_thread=__import__('threading').current_thread)
+
+log = []
+h = m.FnHandler(on_press=lambda: log.append('press'),
+                on_release=lambda: log.append('release:' + ('double' if h.take_double_tap() else 'single')))
+DOWN, UP = m._FN_FLAG | 0x100, 0x100
+
+def run(steps):
+    # 'D' Fn down, 'U' Fn up, a number = seconds that pass (a pending release fires after 0.15 quiet)
+    for s in steps:
+        if isinstance(s, (int, float)):
+            end = now[0] + s
+            while timers and not timers[0].dead and now[0] + 0.15 <= end + 1e-9 and False:
+                pass
+            # fire the pending release if it has been quiet for 150 ms within this wait
+            live = [t for t in timers if not t.dead]
+            if live and s >= 0.15:
+                now[0] += 0.15
+                t = live[-1]; del timers[:]; t.fn(*t.args)
+                now[0] = end
+            else:
+                now[0] = end
+        else:
+            h.handle(m.kCGEventFlagsChanged, DOWN if s == 'D' else UP)
+    return log
+"""
+
+
+def fn_isolated(code):
+    code = f"import sys; sys.path.insert(0, {str(ROOT / 'src')!r})\n" + FN_RIG + code
+    done = subprocess.run([sys.executable, "-I", "-X", "utf8", "-c", code], capture_output=True, text=True,
+                          encoding="utf-8", errors="replace", env=dict(os.environ), timeout=120)
+    assert done.returncode == 0, done.stderr[-1500:]
+    return json.loads(done.stdout.strip().splitlines()[-1])
+
+
+@mac_only
+def test_two_fast_fn_taps_merged_into_one_press_are_seen_as_a_double_tap():
+    # down 90 ms, up 80 ms (inside the hold-quiet window), down 90 ms, up for good
+    assert fn_isolated("print(json.dumps(run(['D', 0.09, 'U', 0.08, 'D', 0.09, 'U', 0.3])))") == ["press", "release:double"]
+
+
+@mac_only
+def test_one_short_fn_tap_is_single():
+    assert fn_isolated("print(json.dumps(run(['D', 0.09, 'U', 0.3])))") == ["press", "release:single"]
+
+
+@mac_only
+def test_a_flicker_during_a_long_hold_is_not_a_double_tap():
+    # held 2 s, the OS drops the flag for 80 ms, held another 2 s
+    assert fn_isolated("print(json.dumps(run(['D', 2.0, 'U', 0.08, 'D', 2.0, 'U', 0.3])))") == ["press", "release:single"]
+
+
+@mac_only
+def test_a_flicker_at_the_start_of_a_hold_is_not_a_double_tap():
+    # a short first stretch, a dip, then a real hold: still one dictation
+    assert fn_isolated("print(json.dumps(run(['D', 0.1, 'U', 0.08, 'D', 1.5, 'U', 0.3])))") == ["press", "release:single"]
+
+
+@mac_only
+def test_a_few_millisecond_bounce_is_not_a_double_tap():
+    assert fn_isolated("print(json.dumps(run(['D', 0.09, 'U', 0.01, 'D', 0.09, 'U', 0.3])))") == ["press", "release:single"]
+
+
+@mac_only
+def test_three_dips_are_not_a_double_tap():
+    assert fn_isolated("print(json.dumps(run(['D', 0.09, 'U', 0.08, 'D', 0.09, 'U', 0.08, 'D', 0.09, 'U', 0.3])))") == ["press", "release:single"]

@@ -75,6 +75,10 @@ _FN_DEBOUNCE_S = 0.06
 # already adds 150 ms of trailing capture so nothing is lost. Long enough to
 # absorb the worst gap seen in the 18:07 log (~250 ms peak, ~60–120 ms typical).
 _FN_RELEASE_HOLD_S = 0.15
+# Two quick taps of Fn (see FnHandler): each tap at most this long, and the
+# gap between them at least this long (shorter is the key or the OS flickering).
+_FN_TAP_MAX_S = 0.30
+_FN_TAP_GAP_MIN_S = 0.03
 
 try:
     from log_util import log as _diag_log  # bundled-app path
@@ -225,6 +229,18 @@ class FnHandler:
         # thread (running ``handle()``) and the Timer thread (running
         # ``_maybe_fire_release()``).
         self._state_lock = threading.Lock()
+        # A quick double tap of Fn. The second tap usually lands inside the
+        # hold-quiet window, so it reaches the listener as ONE short press:
+        # down, a brief up that is cancelled as "re-asserted", down, up. That
+        # shape is remembered here and handed to the listener with the
+        # release (take_double_tap), which is how two fast taps are told from
+        # one press. The OS's own flicker differs: it happens during a hold,
+        # so one of the two down stretches is long.
+        self._down_at: float = 0.0          # this press began
+        self._up_at: float = 0.0            # the latest up edge
+        self._redown_at: float = 0.0        # the one re-assert that looked like a second tap (0: none)
+        self._dips: int = 0                 # up-then-down-again count in this press
+        self._double_tapped = False         # set with the release, read once
         # v3.14.30 diagnostic: unique id so the log can distinguish
         # multiple FnHandler instances if any are alive simultaneously.
         self._id = _next_handler_id("Fn")
@@ -301,11 +317,22 @@ class FnHandler:
                 return
             self._pressed = False
             self._pending_release = None
+            # Two quick taps: exactly one dip, and both down stretches short.
+            self._double_tapped = (
+                self._dips == 1 and self._redown_at > 0.0
+                and (self._up_at - self._redown_at) <= _FN_TAP_MAX_S)
         _diag_log(
             f"[HOTKEY/{self._id}] Fn release CONFIRMED "
             f"(hold-quiet {_FN_RELEASE_HOLD_S*1000:.0f}ms elapsed)"
+            + (" — two quick taps" if self._double_tapped else "")
         )
         _fire(self._on_release)
+
+    def take_double_tap(self) -> bool:
+        """Was the press that just ended two quick taps? True once, then False."""
+        with self._state_lock:
+            was, self._double_tapped = self._double_tapped, False
+            return was
 
     def handle(self, event_type, event) -> bool:
         # Laptop Fn — comes through as a modifier flag change.
@@ -329,6 +356,8 @@ class FnHandler:
                         return True
                     self._pressed = True
                     self._last_transition = now
+                    self._down_at, self._up_at, self._redown_at, self._dips = now, 0.0, 0.0, 0
+                    self._double_tapped = False
                     _diag_log(
                         f"[HOTKEY/{self._id}] Fn press fired "
                         f"(flagsChanged, flags=0x{flags:x}) "
@@ -340,6 +369,14 @@ class FnHandler:
                     # If a release timer was running this is OS oscillation
                     # mid-hold — cancel it, the user is still holding.
                     if self._pending_release is not None:
+                        self._dips += 1
+                        gap = now - self._up_at
+                        first = self._up_at - self._down_at
+                        # A second tap: a short first press, then a real gap (not a few-ms flicker).
+                        if self._dips == 1 and first <= _FN_TAP_MAX_S and gap >= _FN_TAP_GAP_MIN_S:
+                            self._redown_at = now
+                        else:
+                            self._redown_at = 0.0
                         self._cancel_release(f"Fn re-asserted, flags=0x{flags:x}")
                 elif not is_pressed and self._pressed:
                     # Trailing-edge candidate. Don't fire on_release yet —
@@ -347,6 +384,7 @@ class FnHandler:
                     # pending, leave it alone (we'd just be re-arming the
                     # same window).
                     if self._pending_release is None:
+                        self._up_at = now
                         self._schedule_release(flags)
                 # else: not_pressed → not_pressed (no-op).
 
