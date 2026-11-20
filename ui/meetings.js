@@ -105,6 +105,7 @@
     const a = api(); if (!a) return;
     const n = await a.meetings_get(id);
     if (!n) { open = null; $('meetingsPanel').classList.remove('is-note'); showToast('That meeting isn’t here any more.', 'error'); loadList(); return; }
+    if (!open || open.id !== n.id) { const l = $('mtAskOneLog'); if (l) l.textContent = ''; }
     open = n; $('meetingsPanel').classList.add('is-note'); drawNote(n);
   }
 
@@ -135,6 +136,36 @@
     const a = api(); if (!a) return;
     if (!window.confirm('Delete this meeting and its recording? This can’t be undone.')) return;
     await a.meetings_delete(open.id); window._journalStale = true; showToast('Meeting deleted', 'success'); closeNote();
+  }
+
+  // Ask: one box on the list (every meeting) and one on a meeting (that one).
+  function wireAsk(id, noteId) {
+    const form = $(id + 'Form'), input = $(id + 'Input'), log = $(id + 'Log'), send = $(id + 'Send');
+    if (!form) return;
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const q = input.value.trim(); const a = api();
+      if (!q || !a) return;
+      input.value = ''; send.disabled = true;
+      const item = document.createElement('div'); item.className = 'mt-qa';
+      item.innerHTML = '<p class="mt-q">' + esc(q) + '</p><div class="mt-a mt-busy">Thinking. This takes a moment.</div>';
+      log.prepend(item);
+      try {
+        const r = await a.meetings_ask(q, noteId() || '');
+        const ans = item.querySelector('.mt-a'); ans.classList.remove('mt-busy');
+        if (r && r.ok) {
+          ans.classList.add('mt-prose'); ans.innerHTML = prose(r.answer);
+          const from = (r.sources || []).filter((x) => x.title).slice(0, 4);
+          if (!noteId() && from.length) {
+            const src = document.createElement('p'); src.className = 'mt-src';
+            src.textContent = 'From: ' + from.map((x) => x.title).join(' · ');
+            item.appendChild(src);
+          }
+        } else { ans.classList.add('mt-warn'); ans.textContent = (r && r.error) || 'That couldn’t be answered just now.'; }
+      } catch (err) {
+        const ans = item.querySelector('.mt-a'); ans.className = 'mt-a mt-warn'; ans.textContent = 'That couldn’t be answered just now.';
+      } finally { send.disabled = false; input.focus(); }
+    });
   }
 
   // A meeting among the dictations in the Journal (app.js _withMeetings, makeCard).
@@ -179,5 +210,7 @@
     let t = null;
     $('mtSearch').addEventListener('input', () => { window.clearTimeout(t); t = window.setTimeout(loadList, 180); });
     document.querySelectorAll('#mtTabs button').forEach((b) => b.addEventListener('click', () => { tab = b.dataset.tab; if (open) drawNote(open); }));
+    wireAsk('mtAskAll', () => '');
+    wireAsk('mtAskOne', () => (open ? open.id : ''));
   });
 })();

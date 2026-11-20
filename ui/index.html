@@ -1011,6 +1011,13 @@
         <label class="vocab-field" style="margin-top:16px">
           <input type="search" id="mtSearch" class="vocab-input" placeholder="Search your meetings" aria-label="Search your meetings" autocomplete="off" spellcheck="false">
         </label>
+        <section class="mt-ask" aria-label="Ask anything about your meetings">
+          <div class="mt-ask-log" id="mtAskAllLog" aria-live="polite"></div>
+          <form class="mt-ask-box" id="mtAskAllForm">
+            <input type="text" id="mtAskAllInput" class="mt-ask-input" placeholder="Ask anything about your meetings" aria-label="Ask anything about your meetings" autocomplete="off">
+            <button type="submit" class="btn btn-sm btn-pri" id="mtAskAllSend">Ask</button>
+          </form>
+        </section>
         <div class="mt-list" id="mtList"></div>
         <div class="mt-empty" id="mtEmpty" style="display:none"><strong>No meetings yet.</strong><br>Tap your hotkey twice, or press Record a meeting. Hold the key as usual to dictate.</div>
       </div>
@@ -1029,6 +1036,13 @@
           <button type="button" role="tab" data-tab="transcript" aria-selected="false">Transcript</button>
         </div>
         <div id="mtBody"></div>
+        <section class="mt-ask" aria-label="Ask about this meeting">
+          <div class="mt-ask-log" id="mtAskOneLog" aria-live="polite"></div>
+          <form class="mt-ask-box" id="mtAskOneForm">
+            <input type="text" id="mtAskOneInput" class="mt-ask-input" placeholder="Ask about this meeting" aria-label="Ask about this meeting" autocomplete="off">
+            <button type="submit" class="btn btn-sm btn-pri" id="mtAskOneSend">Ask</button>
+          </form>
+        </section>
       </div>
     </div>
   </div>
