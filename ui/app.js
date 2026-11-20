@@ -7100,3 +7100,25 @@ const _ABOUT_LINKS = {
 function openAboutLink(which) {
   try { pywebview.api.open_url(_ABOUT_LINKS[which] || _ABOUT_LINKS.source); } catch (_) {}
 }
+
+// ── Meetings (Natter's recorder and notes, in a Waffler window) ───────────
+let _meetingsOpening = false;
+async function openMeetings() {
+  if (!window.pywebview || !window.pywebview.api) {
+    showToast("App not ready yet", "error");
+    return;
+  }
+  if (_meetingsOpening) return;
+  _meetingsOpening = true;
+  showToast("Opening Meetings…", "success");
+  try {
+    const result = await window.pywebview.api.open_meetings();
+    if (!result || !result.ok) {
+      showToast((result && result.error) || "Meetings couldn't open. Try again.", "error");
+    }
+  } catch (e) {
+    showToast("Meetings couldn't open. Try again.", "error");
+  } finally {
+    _meetingsOpening = false;
+  }
+}
