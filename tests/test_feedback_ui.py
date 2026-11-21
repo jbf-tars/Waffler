@@ -70,10 +70,15 @@ def test_each_row_is_a_labelled_switch_with_a_plain_description():
     for ident, handler in (("soundsToggle", "sounds"), ("tipsToggle", "tips")):
         assert re.search(r'<input type="checkbox" class="tog" role="switch" id="%s" '
                          r'onchange="setFeedback\(\'%s\', this.checked\)">' % (ident, handler), group), ident
-    assert ("Soft tones when recording starts and stops, and when hands-free locks. "
-            "The microphone ignores a fraction of a second around each one.") in group
-    assert ("An occasional hint, such as how to hold the key. "
-            "Each one can be hidden for good.") in group
+    # One short line a row; the rest is under General's "How it works".
+    assert '<div class="row-d" id="soundsDesc">Soft tones when recording starts and stops.</div>' in group
+    assert '<div class="row-d" id="tipsDesc">An occasional hint you can hide.</div>' in group
+    how = _general()
+    how = how[how.index('id="generalHow"'):]
+    assert ("Sounds are soft tones when recording starts and stops, and when hands-free locks. "
+            "The microphone ignores a fraction of a second around each one, so a tone is never recorded.") in how
+    assert ("A tip is an occasional hint, such as how to hold the key. "
+            "Each one can be hidden for good.") in how
     assert "—" not in group and "–" not in group
 
 

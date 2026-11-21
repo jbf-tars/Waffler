@@ -5325,6 +5325,8 @@ function renderClipboardRow() {
   tog.checked = v.checked;
   tog.disabled = v.disabled;
   if (desc && v.desc) desc.textContent = v.desc;
+  const said = document.getElementById('clipboardAfterPasteHow');   // its line under "How it works"
+  if (said) said.hidden = !v.visible;
 }
 
 // Settings, General: the Sounds and Show tips switches, from the last
@@ -5345,6 +5347,8 @@ function renderPillRows() {
   const tog = document.getElementById('pillIdleToggle');
   if (group) group.hidden = !v.visible;
   if (tog) tog.checked = v.on;
+  const said = document.getElementById('pillHow');     // its lines under "How it works"
+  if (said) said.hidden = !v.visible;
 }
 
 async function setPillIdle(on) {
@@ -7079,9 +7083,10 @@ async function loadStartAtLogin() {
     const s = await pywebview.api.get_start_at_login();
     tog.checked = !!s.enabled;
     tog.disabled = !s.supported && !s.enabled;
-    if (desc) desc.textContent = s.supported
-      ? `So the hotkey works after a restart. Waffler waits in the ${isMacPlatform ? 'menu bar' : 'tray'}.`
-      : s.reason;
+    if (desc) desc.textContent = s.supported ? 'So the hotkey works after a restart.' : s.reason;
+    // Where it waits is under "How it works": the menu bar on a Mac, the tray on Windows.
+    const where = document.getElementById('startAtLoginHow');
+    if (where) where.textContent = `Started with your computer, Waffler waits in the ${isMacPlatform ? 'menu bar' : 'tray'}.`;
   } catch (e) {
     console.warn('get_start_at_login failed:', e);
   }

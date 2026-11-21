@@ -111,8 +111,8 @@ def test_the_top_line_names_the_microphone_in_use():
 def test_the_empty_state_is_follow_the_systems_microphone():
     s = L("L.micStatus({ok: true, ranking: [], system: 'MacBook Pro Microphone'})")
     assert s["title"] == "Follow the system's microphone" and s["following"] is True
-    assert s["desc"] == ("Waffler uses your computer's microphone, MacBook Pro Microphone. "
-                         "Add one below to use it whenever it is plugged in.")
+    # One sentence: the row under it, Add a microphone, is how one is added.
+    assert s["desc"] == "Waffler uses your computer's microphone, MacBook Pro Microphone."
 
 
 @needs_node

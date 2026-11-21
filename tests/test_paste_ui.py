@@ -47,7 +47,7 @@ def test_with_paste_off_the_switch_is_fixed_on_and_says_why():
 @needs_node
 def test_the_description_is_a_plain_sentence_about_what_waffler_does():
     on = js("L.clipboardAfterPasteView(true, 'restore', true)")["desc"]
-    assert on == "Off, Waffler puts back what you had copied once it has pasted."
+    assert on == "Off, what you had copied comes back."
     assert js("L.clipboardAfterPasteSaved('keep')") == "Waffler leaves your text on the clipboard."
     assert js("L.clipboardAfterPasteSaved('restore')") == "Waffler puts back what you had copied."
 
@@ -70,11 +70,15 @@ def test_the_row_sits_under_paste_when_i_let_go_and_starts_hidden():
     assert auto < row < general.index('id="micSelect"')
     tag = general[general.rindex("<div", 0, row):general.index(">", row)]
     assert 'class="row"' in tag and "hidden" in tag, "hidden until a Mac says otherwise"
-    assert '<label for="keepClipboardToggle">Keep what I dictated on the clipboard</label>' in general
+    assert '<label for="keepClipboardToggle">Keep dictation on clipboard</label>' in general
     assert re.search(r'<input type="checkbox" class="tog" role="switch" id="keepClipboardToggle" '
                      r'onchange="setClipboardAfterPaste\(this.checked\)">', general)
     assert 'id="clipboardAfterPasteDesc"' in general
-    assert "Off, Waffler puts back what you had copied once it has pasted." in general
+    assert '<div class="row-d" id="clipboardAfterPasteDesc">Off, what you had copied comes back.</div>' in general
+    # In full under "How it works", on a Mac only, like the row.
+    assert ('<li id="clipboardAfterPasteHow" hidden>With Keep dictation on clipboard off, Waffler puts back '
+            "what you had copied once it has pasted.</li>") in general
+    assert "document.getElementById('clipboardAfterPasteHow')" in read("app.js")
 
 
 def test_the_window_reads_and_saves_the_choice():

@@ -1299,8 +1299,8 @@
   }
   // The line under "Language": what Waffler does with the words.
   function languageDesc(code, name) {
-    if (code === 'auto') return 'Waffler works out the language each time. It can be a little less sure on very short clips.';
-    return `Waffler writes what you say in ${name || code || 'English'} and never translates it.`;
+    if (code === 'auto') return 'Works out the language each time.';
+    return `Written in ${name || code || 'English'}, never translated.`;
   }
   // The toast after saving it.
   function languageSaved(code, name) {
@@ -1321,9 +1321,9 @@
   function clipboardAfterPasteView(autoPaste, mode, isMac) {
     if (!isMac) return { visible: false, checked: true, disabled: true, desc: '' };
     if (autoPaste === false) {
-      return { visible: true, checked: true, disabled: true, desc: 'Paste is off, so your text is only copied and stays on the clipboard.' };
+      return { visible: true, checked: true, disabled: true, desc: 'Paste is off, so your text stays on the clipboard.' };
     }
-    return { visible: true, checked: mode === 'keep', disabled: false, desc: 'Off, Waffler puts back what you had copied once it has pasted.' };
+    return { visible: true, checked: mode === 'keep', disabled: false, desc: 'Off, what you had copied comes back.' };
   }
   // The toast after changing it.
   function clipboardAfterPasteSaved(mode) {
@@ -2018,8 +2018,8 @@
     if (view.system_avoided) {
       desc += ' It looks like a Bluetooth headset, so Waffler listens through another microphone and your music stays in high quality.';
     }
-    desc += rows.length ? ' None of the microphones in your list is plugged in.'
-      : ' Add one below to use it whenever it is plugged in.';
+    // (The row below, Add a microphone, is how one is added: no sentence for it.)
+    if (rows.length) desc += ' None of the microphones in your list is plugged in.';
     return { title: "Follow the system's microphone", desc, following: true };
   }
   function _micOptionLabel(d) {

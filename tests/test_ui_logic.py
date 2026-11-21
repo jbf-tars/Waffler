@@ -983,14 +983,15 @@ def test_the_language_picker_drops_what_is_not_a_language_and_never_throws():
 
 @needs_node
 def test_the_language_line_says_what_happens_to_the_words():
-    assert js("L.languageDesc('es', 'Spanish')") == (
-        "Waffler writes what you say in Spanish and never translates it.")
-    assert js("L.languageDesc('en', 'English')") == (
-        "Waffler writes what you say in English and never translates it.")
-    auto = js("L.languageDesc('auto', 'Auto-detect')")
-    assert auto.startswith("Waffler works out the language each time.") and "short clips" in auto
+    assert js("L.languageDesc('es', 'Spanish')") == "Written in Spanish, never translated."
+    assert js("L.languageDesc('en', 'English')") == "Written in English, never translated."
+    assert js("L.languageDesc('auto', 'Auto-detect')") == "Works out the language each time."
     # A name that did not arrive: the code, rather than a hole.
-    assert js("L.languageDesc('xx', '')") == "Waffler writes what you say in xx and never translates it."
+    assert js("L.languageDesc('xx', '')") == "Written in xx, never translated."
+    # That short clips are harder to tell apart is under General's "How it works".
+    general = read("index.html")
+    general = general[general.index('id="generalHow"'):general.index('id="secStyle"')]
+    assert "never translates it" in general and "a little less sure on very short clips" in general
 
 
 @needs_node

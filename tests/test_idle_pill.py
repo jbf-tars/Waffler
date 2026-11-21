@@ -1305,7 +1305,14 @@ def test_settings_has_the_switch_and_the_reset_button_mac_only():
     general = html[html.index('id="secGeneral"'):html.index('id="secKeys"')]
     group = general[general.index('id="pillGroup"'):general.index('<h2 class="sh2">Startup</h2>')]
     assert '<div id="pillGroup" hidden>' in general
-    assert '<label for="pillIdleToggle">Show the pill when idle</label>' in group
+    assert '<label for="pillIdleToggle">Show pill when idle</label>' in group
+    assert '<div class="row-d" id="pillIdleDesc">A small pill stays on screen between dictations.</div>' in group
+    # What the pill offers, and what the reset does, are under "How it works",
+    # shown on a Mac only, like the rows (renderPillRows).
+    how = general[general.index('id="generalHow"'):]
+    assert ('<li id="pillHow" hidden>Rest the pointer on the pill for Paste last, Copy last and your microphone. '
+            'Drag it wherever you like. <span id="pillResetDesc">Reset pill position puts the pill back at the '
+            'bottom of each screen, where it starts.</span></li>') in how
     assert re.search(r'<input type="checkbox" class="tog" role="switch" id="pillIdleToggle" '
                      r'aria-describedby="pillIdleDesc" onchange="setPillIdle\(this.checked\)">', group)
     assert 'onclick="resetPillPosition(this)">Reset pill position</button>' in group
@@ -1315,6 +1322,7 @@ def test_settings_has_the_switch_and_the_reset_button_mac_only():
     assert "pywebview.api.reset_pill_position()" in js
     assert "window.waffler_pill_idle_changed = function" in js
     assert "renderPillRows();" in js[js.index("async function loadSettings"):]
+    assert "const said = document.getElementById('pillHow');" in js and "if (said) said.hidden = !v.visible;" in js
     logic = (ROOT / "ui" / "logic.js").read_text(encoding="utf-8")
     block = logic[logic.index("const PILL_TEXT"):logic.index("function pillSaved")]
     assert "—" not in block and "–" not in block

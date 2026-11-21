@@ -353,7 +353,7 @@
                  goes to speech to text and to the clean-up, which is told
                  to keep the spoken language. -->
             <div class="row" id="languageRow">
-              <div class="row-main"><div class="row-t"><label for="languageSelect">Language</label></div><div class="row-d" id="languageDesc">Waffler writes what you say in English and never translates it.</div></div>
+              <div class="row-main"><div class="row-t"><label for="languageSelect">Language</label></div><div class="row-d" id="languageDesc">Written in English, never translated.</div></div>
               <select id="languageSelect" class="select" onchange="onLanguageChange(this)">
                 <option value="en">English</option>
               </select>
@@ -367,14 +367,14 @@
               </select>
             </div>
             <div class="row">
-              <div class="row-main"><div class="row-t"><label for="autoPasteToggle">Paste when I let go</label></div><div class="row-d">Puts the text where you were typing. Off, it's only copied.</div></div>
+              <div class="row-main"><div class="row-t"><label for="autoPasteToggle">Paste when I finish</label></div><div class="row-d">Off, your text is only copied.</div></div>
               <input type="checkbox" class="tog" role="switch" id="autoPasteToggle" onchange="saveSetting('auto_paste', this.checked)">
             </div>
             <!-- What happens to the clipboard after a paste (src/pasteboard.py,
                  settings.json clipboard_after_paste). Mac only: Windows has
                  no restore, so the row stays hidden there (loadSettings). -->
             <div class="row" id="clipboardAfterPasteRow" hidden>
-              <div class="row-main"><div class="row-t"><label for="keepClipboardToggle">Keep what I dictated on the clipboard</label></div><div class="row-d" id="clipboardAfterPasteDesc">Off, Waffler puts back what you had copied once it has pasted.</div></div>
+              <div class="row-main"><div class="row-t"><label for="keepClipboardToggle">Keep dictation on clipboard</label></div><div class="row-d" id="clipboardAfterPasteDesc">Off, what you had copied comes back.</div></div>
               <input type="checkbox" class="tog" role="switch" id="keepClipboardToggle" onchange="setClipboardAfterPaste(this.checked)">
             </div>
           </div>
@@ -390,7 +390,6 @@
                (src/audio.py _PREROLL_MS; owner decision D5). The meter reads
                that same stream (app.py get_mic_level). -->
           <h2 class="sh2" id="micHeading" tabindex="-1">Microphone</h2>
-          <p class="s-note" id="micNote">Includes the half-second before you press, so your first word isn't clipped.</p>
           <div class="sheet mic-sheet" id="micSheet">
             <div class="row row-mic" id="micNow">
               <div class="row-main"><div class="row-t" id="micNowTitle">Follow the system's microphone</div><div class="row-d" id="micNowDesc"></div></div>
@@ -399,7 +398,7 @@
             </div>
             <ol class="mic-rank" id="micRank" aria-label="Your microphones, best first"></ol>
             <div class="row mic-add" id="micAddRow">
-              <div class="row-main"><div class="row-t"><label for="micSelect">Add a microphone</label></div><div class="row-d" id="micAddDesc">Waffler uses the first one in your list that is plugged in.</div></div>
+              <div class="row-main"><div class="row-t"><label for="micSelect">Add a microphone</label></div><div class="row-d" id="micAddDesc">The first one plugged in is used.</div></div>
               <div class="row-ctl-col">
                 <select id="micSelect" class="select" onchange="onMicAdd(this)"></select>
                 <button type="button" class="link-btn" id="micOtherToggle" aria-expanded="false" aria-controls="micSelect" onclick="toggleMicOther()" hidden>Show other devices</button>
@@ -415,13 +414,13 @@
                  in, so a tone is never sent to speech to text; the line says
                  so. -->
             <div class="row" id="soundsRow">
-              <div class="row-main"><div class="row-t"><label for="soundsToggle">Sounds</label></div><div class="row-d" id="soundsDesc">Soft tones when recording starts and stops, and when hands-free locks. The microphone ignores a fraction of a second around each one.</div></div>
+              <div class="row-main"><div class="row-t"><label for="soundsToggle">Sounds</label></div><div class="row-d" id="soundsDesc">Soft tones when recording starts and stops.</div></div>
               <input type="checkbox" class="tog" role="switch" id="soundsToggle" onchange="setFeedback('sounds', this.checked)">
             </div>
             <!-- Tips (src/notifier.py, settings.json "tips"): on until turned
                  off. Every tip has "Don't show again" of its own. -->
             <div class="row" id="tipsRow">
-              <div class="row-main"><div class="row-t"><label for="tipsToggle">Show tips</label></div><div class="row-d" id="tipsDesc">An occasional hint, such as how to hold the key. Each one can be hidden for good.</div></div>
+              <div class="row-main"><div class="row-t"><label for="tipsToggle">Show tips</label></div><div class="row-d" id="tipsDesc">An occasional hint you can hide.</div></div>
               <input type="checkbox" class="tog" role="switch" id="tipsToggle" onchange="setFeedback('tips', this.checked)">
             </div>
           </div>
@@ -436,11 +435,11 @@
             <h2 class="sh2">The pill</h2>
             <div class="sheet">
               <div class="row" id="pillIdleRow">
-                <div class="row-main"><div class="row-t"><label for="pillIdleToggle">Show the pill when idle</label></div><div class="row-d" id="pillIdleDesc">A small pill stays on screen between dictations. Rest the pointer on it for Paste last, Copy last and your microphone. Drag it wherever you like.</div></div>
+                <div class="row-main"><div class="row-t"><label for="pillIdleToggle">Show pill when idle</label></div><div class="row-d" id="pillIdleDesc">A small pill stays on screen between dictations.</div></div>
                 <input type="checkbox" class="tog" role="switch" id="pillIdleToggle" aria-describedby="pillIdleDesc" onchange="setPillIdle(this.checked)">
               </div>
               <div class="row" id="pillResetRow">
-                <div class="row-main"><div class="row-t">Pill position</div><div class="row-d" id="pillResetDesc">Puts the pill back at the bottom of each screen, where it starts.</div></div>
+                <div class="row-main"><div class="row-t">Pill position</div></div>
                 <button type="button" class="btn btn-sec btn-sm" id="pillResetBtn" aria-describedby="pillResetDesc" onclick="resetPillPosition(this)">Reset pill position</button>
               </div>
             </div>
@@ -451,12 +450,31 @@
             <!-- Start at sign-in: read from the operating system each time
                  Settings opens (app.py get_start_at_login). -->
             <div class="row" id="startAtLoginRow">
-              <div class="row-main"><div class="row-t"><label for="startAtLoginToggle">Start Waffler when I turn on my computer</label></div><div class="row-d" id="startAtLoginDesc">So the hotkey works after a restart.</div></div>
+              <div class="row-main"><div class="row-t"><label for="startAtLoginToggle">Start with my computer</label></div><div class="row-d" id="startAtLoginDesc">So the hotkey works after a restart.</div></div>
               <input type="checkbox" class="tog" role="switch" id="startAtLoginToggle" aria-label="Start Waffler when I turn on my computer" onchange="setStartAtLogin(this.checked)">
             </div>
             <div class="row">
               <div class="row-main"><div class="row-t">Run setup again</div><div class="row-d">Your keys and Journal stay as they are.</div></div>
               <button type="button" class="btn btn-sec btn-sm" onclick="runSetupAgain()">Run setup</button>
+            </div>
+          </div>
+
+          <!-- What a careful person may still want to know. One collapsed
+               disclosure (toggleHow). -->
+          <div class="how">
+            <button type="button" class="link-btn how-btn" id="generalHowBtn" aria-expanded="false" aria-controls="generalHow" onclick="toggleHow(this)">How it works<svg class="ic ic-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
+            <div class="sheet how-body" id="generalHow" hidden>
+              <ul class="sc-rule-list">
+                <li id="micNote">The microphone is kept ready, and each recording includes the half-second before you press, so your first word isn't clipped.</li>
+                <li>Waffler writes what you say in the language you choose and never translates it. Working out the language each time can be a little less sure on very short clips.</li>
+                <li>Paste when I finish puts the text where you were typing, when you let go of the keys. Off, it's only copied.</li>
+                <li id="clipboardAfterPasteHow" hidden>With Keep dictation on clipboard off, Waffler puts back what you had copied once it has pasted.</li>
+                <li>Waffler uses the first microphone in your list that is plugged in.</li>
+                <li>Sounds are soft tones when recording starts and stops, and when hands-free locks. The microphone ignores a fraction of a second around each one, so a tone is never recorded.</li>
+                <li>A tip is an occasional hint, such as how to hold the key. Each one can be hidden for good.</li>
+                <li id="pillHow" hidden>Rest the pointer on the pill for Paste last, Copy last and your microphone. Drag it wherever you like. <span id="pillResetDesc">Reset pill position puts the pill back at the bottom of each screen, where it starts.</span></li>
+                <li id="startAtLoginHow">Started with your computer, Waffler waits in the menu bar.</li>
+              </ul>
             </div>
           </div>
         </section>
