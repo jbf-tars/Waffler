@@ -174,6 +174,7 @@
         <div class="snav-sub"><b id="snavVersion">Waffler</b><br>Free and open source</div>
       </div>
       <nav class="snav-list" aria-label="Settings sections">
+        <button type="button" class="snav-item" data-sec="account" onclick="showSettingsSection('account')">Account</button>
         <button type="button" class="snav-item" data-sec="general" onclick="showSettingsSection('general')">General</button>
         <button type="button" class="snav-item" data-sec="style" onclick="showSettingsSection('style')">Style</button>
         <button type="button" class="snav-item" data-sec="transforms" onclick="showSettingsSection('transforms')">Transforms (beta)</button>
@@ -193,6 +194,80 @@
 
     <div class="scontent" id="settingsScroll">
       <div class="scol">
+
+        <!-- Account: sign in on each computer and the meetings stay in step
+             (account.js; Api.account_*; src/account.py). Three faces, one shown
+             at a time: no account service named yet (acctOff), the sign-in
+             fields (acctOut), the account (acctIn). The Claude link is copied,
+             never drawn: this window may be on a shared screen. -->
+        <section class="s-sec" id="secAccount" data-sec="account" hidden>
+          <h1 class="ptitle">Account</h1>
+          <p class="pdesc">Sign in on each of your computers and your meetings stay in step between them. Your dictations stay on this computer.</p>
+
+          <div id="acctOff" hidden>
+            <div class="sheet">
+              <div class="row">
+                <div class="row-main"><div class="row-t">Accounts are coming soon</div><div class="row-d">Until then everything stays on this computer, as it always has.</div></div>
+              </div>
+            </div>
+          </div>
+
+          <div id="acctOut" hidden>
+            <p class="s-note" id="acctNotice" role="status" hidden></p>
+            <div class="sheet">
+              <div class="row">
+                <div class="row-main">
+                  <div class="row-t"><label for="acctEmail">Your email</label></div>
+                  <div class="row-d" id="acctEmailDesc">We send you a 6-digit code to sign in. There is no password.</div>
+                  <form class="tx-add" id="acctEmailForm" novalidate>
+                    <input type="email" id="acctEmail" class="input" placeholder="you@example.com" aria-describedby="acctEmailDesc" autocomplete="email" autocapitalize="off" spellcheck="false">
+                    <button type="submit" class="btn btn-pri btn-sm" id="acctSend">Send code</button>
+                  </form>
+                </div>
+              </div>
+              <div class="row" id="acctCodeRow" hidden>
+                <div class="row-main">
+                  <div class="row-t"><label for="acctCode">The code from the email</label></div>
+                  <div class="row-d" id="acctCodeDesc" role="status"></div>
+                  <form class="tx-add" id="acctCodeForm" novalidate>
+                    <input type="text" id="acctCode" class="input input-mono" placeholder="123456" aria-describedby="acctCodeDesc" inputmode="numeric" autocomplete="one-time-code" spellcheck="false">
+                    <button type="submit" class="btn btn-pri btn-sm" id="acctSignIn">Sign in</button>
+                  </form>
+                </div>
+              </div>
+            </div>
+            <p class="s-error" id="acctError" role="alert" hidden></p>
+          </div>
+
+          <div id="acctIn" hidden>
+            <div class="sheet">
+              <div class="row">
+                <div class="row-main"><div class="row-t" id="acctWho"></div><div class="row-d" id="acctDevice"></div></div>
+                <button type="button" class="btn btn-sec btn-sm" id="acctSignOut">Sign out</button>
+              </div>
+              <div class="row">
+                <div class="row-main"><div class="row-t">Meetings</div><div class="row-d" id="acctSync" role="status"></div></div>
+                <button type="button" class="btn btn-sec btn-sm" id="acctSyncNow">Sync now</button>
+              </div>
+            </div>
+
+            <h2 class="sh2">Devices</h2>
+            <div class="sheet" id="acctDevices" role="list" aria-label="Devices signed in to your account"></div>
+
+            <h2 class="sh2">Claude</h2>
+            <div class="sheet">
+              <div class="row">
+                <div class="row-main"><div class="row-t">Claude</div><div class="row-d" id="acctClaudeState" role="status">Checking.</div></div>
+                <button type="button" class="btn btn-pri btn-sm" id="acctClaudeCreate" aria-describedby="acctClaudeNote" hidden>Create link</button>
+                <button type="button" class="btn btn-pri btn-sm" id="acctClaudeCopy" aria-describedby="acctClaudeNote" hidden>Copy</button>
+                <button type="button" class="btn btn-sec btn-sm" id="acctClaudeNew" aria-describedby="acctClaudeNote" hidden>New link</button>
+                <button type="button" class="btn btn-sec btn-sm" id="acctClaudeOff" hidden>Turn off</button>
+              </div>
+            </div>
+            <p class="s-note" id="acctClaudeNote">The link is a secret. Anyone who has it can read every meeting in your account, so paste it only into Claude.</p>
+            <p class="s-error" id="acctInError" role="alert" hidden></p>
+          </div>
+        </section>
 
         <!-- General -->
         <section class="s-sec" id="secGeneral" data-sec="general">
@@ -664,7 +739,7 @@
               <button type="button" class="btn btn-sec btn-sm" id="claudeOtherCopy">Copy</button>
             </div>
           </div>
-          <p class="s-note">These reach this computer only. Reading your meetings from every device needs an account, which is on its way.</p>
+          <p class="s-note">These reach this computer only. Reading your meetings from every device needs an <button type="button" class="link-btn" onclick="showSettingsSection('account')">account</button>.</p>
         </section>
 
         <!-- Shortcuts: every shortcut in one place (src/shortcut_settings.py). The
@@ -1611,5 +1686,6 @@
 <script src="meetings.js"></script>
 <script src="howitruns.js"></script>
 <script src="claude.js"></script>
+<script src="account.js"></script>
 </body>
 </html>

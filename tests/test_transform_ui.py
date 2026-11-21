@@ -263,7 +263,7 @@ def test_transforms_is_a_section_of_settings_marked_beta():
     assert "data-sec=\"transforms\" onclick=\"showSettingsSection('transforms')\">Transforms (beta)</button>" in html
     assert 'id="secTransforms" data-sec="transforms" hidden' in html
     assert '<h1 class="ptitle">Transforms (beta)</h1>' in section()
-    assert "const SETTINGS_SECTIONS = ['general', 'style', 'transforms'," in code_only(read("app.js"))
+    assert "const SETTINGS_SECTIONS = ['account', 'general', 'style', 'transforms'," in code_only(read("app.js"))
 
 
 def test_every_control_has_a_name_and_one_tab_stop():

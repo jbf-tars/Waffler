@@ -2769,6 +2769,67 @@
     return to < 0 || to > end ? at : to;
   }
 
+  // ── Account (Settings, Account; account.js) ──────────────────────────
+  // Which face the section shows: accounts not here yet ('off'), the
+  // sign-in fields ('out'), or the account ('in').
+  function accountView(status) {
+    if (!status || !status.ok || !status.available) return 'off';
+    return status.signed_in ? 'in' : 'out';
+  }
+
+  // The sign-in code as typed or pasted: its six digits. A whole email can
+  // be pasted ("... code is: 482913. It works for 10 minutes"), so a run of
+  // exactly six digits (a space or a hyphen may split it) is taken first.
+  function accountCode(text) {
+    const t = String(text == null ? '' : text);
+    const six = /(?:^|\D)(\d{3})[ -]?(\d{3})(?!\d)/.exec(t);
+    if (six) return six[1] + six[2];
+    return t.replace(/\D/g, '').slice(0, 6);
+  }
+  function accountCodeReady(code) { return /^\d{6}$/.test(String(code == null ? '' : code)); }
+
+  // "a minute ago". '' for no time, or one that cannot be read.
+  function accountAgo(iso, now) {
+    const t = Date.parse(iso);
+    if (!iso || isNaN(t)) return '';
+    const s = Math.max(0, ((now == null ? Date.now() : now) - t) / 1000);
+    if (s < 45) return 'just now';
+    if (s < 90) return 'a minute ago';
+    if (s < 3570) return Math.round(s / 60) + ' minutes ago';
+    if (s < 5400) return 'an hour ago';
+    if (s < 86400) return Math.round(s / 3600) + ' hours ago';
+    if (s < 172800) return 'yesterday';
+    return Math.round(s / 86400) + ' days ago';
+  }
+
+  // The line under "Meetings": Api.account_status().sync.
+  function accountSyncLine(sync, now) {
+    const s = sync || {};
+    const ago = accountAgo(s.last_synced_at, now);
+    if (s.syncing) return 'Syncing now.';
+    if (s.error) return 'Not syncing. ' + s.error + (ago ? ' Last synced ' + ago + '.' : '');
+    return ago ? 'Syncing: last synced ' + ago + '.' : 'Syncing: not synced yet.';
+  }
+
+  function accountDeviceLine(device, now) {
+    const d = device || {};
+    if (d.current) return 'This computer';
+    const ago = accountAgo(d.last_used_at, now);
+    return ago ? 'Last used ' + ago : 'Signed in';
+  }
+
+  // The Claude row: what it says and which buttons it offers. `link` is the
+  // link made a moment ago, which the window holds only until it is closed;
+  // the service shows a link once, so an older one can only be replaced.
+  function accountClaudeView(connector, link) {
+    const c = connector;
+    if (!c) return { text: 'Checking.', buttons: [] };
+    if (!c.ok) return { text: c.error || 'That didn’t work. Try again.', buttons: [] };
+    if (!c.exists) return { text: 'Off. Create a private link and Claude can read your meetings from any device.', buttons: ['create'] };
+    if (link) return { text: 'Your link is ready. Copy it, then in Claude open Settings, Connectors, and add it as a custom connector.', buttons: ['copy', 'new', 'off'] };
+    return { text: 'On. Claude reads your meetings through the link you made. To copy it again, make a new link; the old one stops working.', buttons: ['new', 'off'] };
+  }
+
   return {
     vocabLastUsed, vocabRecentWhen, vocabSoundsParse, vocabSoundsCheck, vocabEverydayAsk, vocabEverydayNotice, vocabSoundsFresh, vocabRows, vocabSummary,
     VOCAB_SORTS, VOCAB_SORT_DEFAULT, vocabSortId, foldText, vocabMatches, vocabFilter, vocabSortRows,
@@ -2810,5 +2871,6 @@
     heatLevel, heatmapView, heatMove,
     COLLAPSE_OVER, COLLAPSE_SHOW, COLLAPSE_MIN, COLLAPSE_MAX, collapseView,
     searchMarks, searchCount, isFindKey, enterRunsDefault, copyWorked, platformText,
+    accountView, accountCode, accountCodeReady, accountAgo, accountSyncLine, accountDeviceLine, accountClaudeView,
   };
 });

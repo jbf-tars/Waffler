@@ -4189,7 +4189,7 @@ function showPage(page) {
 }
 
 // Settings' side nav: one section at a time.
-const SETTINGS_SECTIONS = ['general', 'style', 'transforms', 'command', 'keys', 'claude', 'hotkey', 'usage', 'privacy', 'about'];
+const SETTINGS_SECTIONS = ['account', 'general', 'style', 'transforms', 'command', 'keys', 'claude', 'hotkey', 'usage', 'privacy', 'about'];
 let _settingsSection = 'general';
 
 function showSettingsSection(sec) {
@@ -4214,6 +4214,7 @@ function showSettingsSection(sec) {
   if (sec === 'keys' && window.loadHowItRuns) window.loadHowItRuns();   // how speech becomes text (howitruns.js)
   if (sec === 'transforms' || sec === 'command') _giveShortcutOnOpen(sec);  // on, but no shortcut: give it one
   if (sec === 'claude' && window.loadClaude) window.loadClaude();         // Claude reads meetings and dictations (claude.js)
+  if (sec === 'account' && window.loadAccount) window.loadAccount();     // sign in, sync, devices, the Claude link (account.js)
 }
 
 // ── The microphone meter (Settings, General) ─────────────────────────────
