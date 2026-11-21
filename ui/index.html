@@ -1375,7 +1375,7 @@
      (wizShowStep) shows one .ob-step at a time and sets data-state on it;
      elements with data-when="..." show only in those states. It follows the
      chosen theme like the rest of the window. -->
-<div class="wizard-overlay ob" id="wizardOverlay" role="dialog" aria-modal="true" aria-labelledby="obTitleConnect" style="display:none">
+<div class="wizard-overlay ob" id="wizardOverlay" role="dialog" aria-modal="true" aria-labelledby="obTitleChoose" style="display:none">
   <header class="ob-head">
     <div class="ob-brand">
       <span class="ob-mark" data-waffle="logo" data-size="26"></span>
@@ -1384,13 +1384,66 @@
     </div>
     <ol class="ob-stepper" id="obStepper" aria-label="Setup steps"></ol>
   </header>
+  <!-- The speech model's download, for screen readers: when it starts, each
+       quarter, and how it ends (logic.js setupDownloadSaid). -->
+  <p class="sr-only" id="obDlLive" role="status" aria-live="polite"></p>
 
   <div class="ob-main">
 
-    <!-- ── Connect your free Groq account ─────────────────────────────── -->
-    <section class="ob-step" id="obStepConnect" data-step="connect" data-state="start" style="display:none">
+    <!-- ── How it runs: on this computer (free, no key), or your own key ──
+         State "choose" is the two cards; choosing the key card goes on to
+         "start" and the Groq screens, which are as they were. data-rec is the
+         card recommended for this computer ("local" or "key", from
+         local_stt_status().suits_machine): parts marked data-rec show only
+         for that one, and app.js puts that card first. -->
+    <section class="ob-step" id="obStepConnect" data-step="connect" data-state="choose" data-rec="local" style="display:none">
       <div class="ob-left">
-        <p class="ob-kick" id="obKick" data-when="start">Step one</p>
+        <p class="ob-kick" id="obKick" data-when="choose start">Step one</p>
+        <h1 class="ob-title" id="obTitleChoose" tabindex="-1" data-when="choose"><span data-rec="local">Download the free model and get to work</span><span data-rec="key" hidden>Add a free key and get to work</span></h1>
+        <p class="ob-lede" data-when="choose"><span data-rec="local">Nothing to sign up for. One download, then hold <span class="ob-hk-name">Fn</span> and talk.</span><span data-rec="key" hidden>A free Groq key is the quick way to start on this computer.</span></p>
+
+        <div class="ob-ways" id="obWays" data-when="choose">
+          <div class="panel ob-way" id="obWayLocal" role="group" aria-labelledby="obWayLocalT" data-dl="idle">
+            <div class="ob-way-head">
+              <h2 class="ob-way-t" id="obWayLocalT">On this computer</h2>
+              <span class="ob-way-tag">Free</span>
+            </div>
+            <span class="chip chip-honey ob-way-rec" data-rec="local">Recommended for this computer</span>
+            <ul class="ob-way-list">
+              <li>One download<span id="obWaySize"></span>, then it works with no key, no account and no internet.</li>
+              <li>Your voice never leaves this computer.</li>
+            </ul>
+            <p class="ob-way-warn" id="obWaySlow" hidden>It will be slow on this computer, and less accurate. A key is the better choice here.</p>
+            <div class="ob-bar" id="obWayBar" role="progressbar" aria-label="Speech model download" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" hidden><i id="obWayBarFill"></i></div>
+            <p class="ob-way-state" id="obWayState" hidden></p>
+            <div class="ob-way-actions">
+              <button type="button" class="btn btn-pri btn-lg ob-way-btn" id="obWayLocalBtn" onclick="wizChooseLocal()">Download and start</button>
+              <button type="button" class="btn btn-quiet ob-way-stop" id="obWayStop" onclick="wizStopDownload()" hidden>Stop the download</button>
+            </div>
+          </div>
+          <div class="panel ob-way" id="obWayKey" role="group" aria-labelledby="obWayKeyT">
+            <div class="ob-way-head">
+              <h2 class="ob-way-t" id="obWayKeyT">With your own key</h2>
+              <span class="ob-way-tag">Faster</span>
+            </div>
+            <span class="chip chip-honey ob-way-rec" data-rec="key" hidden>Recommended for this computer</span>
+            <ul class="ob-way-list">
+              <li>Quicker, especially for long recordings.</li>
+              <li>Tidies your text and writes meeting notes.</li>
+              <li>A free Groq account. Your voice goes to Groq and nowhere else.</li>
+            </ul>
+            <div class="ob-way-actions">
+              <button type="button" class="btn btn-sec btn-lg ob-way-btn" id="obWayKeyBtn" onclick="wizChooseKey()">Use my own key</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="ob-tldr" data-when="choose">
+          <p><b>The short version.</b> Both type what you say, in any app. On this computer your words are typed as you said them, with punctuation.</p>
+          <p>The free way does not tidy them or write meeting notes (a meeting still gets its full transcript). Those, and the other things that rewrite text or answer questions, need a key.</p>
+          <p>You can change this any time in Settings.</p>
+        </div>
+
         <h1 class="ob-title" id="obTitleConnect" tabindex="-1" data-when="start waiting checking error">Connect your free <em>Groq</em> account</h1>
         <h1 class="ob-title" id="obTitleConnected" tabindex="-1" data-when="connected">Groq is connected</h1>
 
@@ -1436,6 +1489,7 @@
         <div class="group ob-services" data-when="connected">
           <div class="panel" id="obServices"></div>
         </div>
+        <p class="ob-small ob-after" data-when="connected">Rather not use a key? <a class="link" href="#" onclick="wizShowChoice(); return false;">Run it on this computer instead</a></p>
       </div>
 
       <div class="ob-stage">
@@ -1539,9 +1593,15 @@
         <p class="ob-lede">Say it however it comes out, then let go.</p>
         <p class="sr-only" id="obTryLive" role="status" aria-live="polite"></p>
         <p class="sr-only" id="obTryAlert" role="alert"></p>
+        <!-- On this computer, and the model is still on its way: Try it waits. -->
+        <div class="panel ob-modelwait ob-extra" data-when="model">
+          <p class="ob-modelwait-t" id="obModelLine">The speech model is still downloading.</p>
+          <div class="ob-bar" id="obModelBar" role="progressbar" aria-label="Speech model download" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="obModelBarFill"></i></div>
+          <button type="button" class="btn btn-sec btn-sm" id="obModelBtn" onclick="wizChooseLocal()" hidden>Carry on downloading</button>
+        </div>
         <div class="panel ob-suggest">
           <div class="eyebrow">Try saying</div>
-          <p class="ob-suggest-t">“Send it to John, sorry, Alex, by Wednesday at three.”</p>
+          <p class="ob-suggest-t" id="obTrySay">“Send it to John, sorry, Alex, by Wednesday at three.”</p>
         </div>
         <div class="panel ob-microw">
           <svg class="ic ob-micicon" aria-hidden="true"><use href="#i-mic"/></svg>
@@ -1563,7 +1623,7 @@
           </div>
         </div>
         <p class="ob-small ob-extra" data-when="rec">Let go when you're done.</p>
-        <p class="ob-small ob-extra" data-when="clean">Tidying it up.</p>
+        <p class="ob-small ob-extra" id="obTryWorking" data-when="clean">Tidying it up.</p>
         <div class="ob-callout ob-callout-ok ob-extra" data-when="done">
           <svg class="ic" aria-hidden="true"><use href="#i-check-circle"/></svg>
           <span><b>That's it.</b> In any other app, it's pasted where you were typing.<span id="obSavedLine"> This one is also saved in your Journal.</span></span>
@@ -1591,7 +1651,7 @@
               <span class="holdkey" id="obHoldKey">Win + Ctrl</span>
               <span class="ob-holdcap" id="obHoldCap">Hold to talk</span>
             </div>
-            <div class="ob-try-mid" data-when="wait">
+            <div class="ob-try-mid" data-when="wait model">
               <div class="ob-ghost"><span data-waffle="empty" data-size="76"></span></div>
               <span class="ob-ghostcap">This waffle appears while you talk</span>
             </div>
@@ -1600,12 +1660,12 @@
               <span class="ob-chip ob-recchip" data-when="rec"><i></i>Recording <span id="obRecTime">0:00</span></span>
               <span class="ob-chip ob-recchip ob-recchip-off" data-when="silent"><i></i>Nothing heard</span>
             </div>
-            <div class="ob-pair" data-when="wait">
+            <div class="ob-pair" data-when="wait model">
               <div class="ob-said-ph"><div class="ob-pl">What you said</div><div>Your words appear here.</div></div>
-              <div class="ob-wrote-ph"><div class="ob-pl">Waffler wrote</div><div>And the tidy version here.</div></div>
+              <div class="ob-wrote-ph"><div class="ob-pl">Waffler wrote</div><div id="obTryWrotePh">And the tidy version here.</div></div>
             </div>
             <div class="ob-pair" data-when="clean done">
-              <span class="ob-chip ob-recchip ob-recchip-honey" data-when="clean"><i></i>Cleaning up</span>
+              <span class="ob-chip ob-recchip ob-recchip-honey" data-when="clean"><i></i><span id="obTryChip">Cleaning up</span></span>
               <div class="ob-tape"><div class="ob-pl">What you said</div><div class="ob-tx" id="obSaid"></div></div>
               <div class="ob-wrote"><div class="ob-pl">Waffler wrote</div>
                 <div class="ob-skel" data-when="clean"><i></i><i></i></div>
@@ -1625,6 +1685,7 @@
         <p class="ob-lede">Click into any text box, in email, WhatsApp, Word or anywhere else, then hold <span class="keys" id="obAnyKeys"></span> and talk.</p>
         <button class="btn btn-sec btn-lg ob-editor-btn" id="obEditorBtn" onclick="wizOpenEditor()"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg><span id="obEditorLabel">Open Notepad and try it</span></button>
         <p class="ob-small ob-editor-err" id="obEditorErr" role="alert" hidden></p>
+        <p class="ob-small ob-anymodel" id="obAnyModel" role="status" hidden></p>
         <div class="group ob-anyrows"><div class="panel">
           <label class="row ob-loginrow" for="wizStartAtLogin">
             <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-power"/></svg></span>
@@ -1670,6 +1731,7 @@
   <nav class="wiz-nav ob-foot">
     <button class="btn btn-quiet ob-back" id="wizBtnBack" onclick="wizBack()" hidden>Back</button>
     <span class="ob-foot-left" id="obFootLeft"><span class="ob-small">Already have a key?</span><a class="link ob-small" href="#" onclick="wizPasteInstead(); return false;">Paste it here</a></span>
+    <span class="ob-dl" id="obDlFoot" hidden><span class="ob-bar ob-bar-sm" aria-hidden="true"><i id="obDlFootFill"></i></span><span class="ob-small" id="obDlFootText"></span></span>
     <span class="ob-sp"></span>
     <button class="btn btn-quiet ob-skip" id="wizBtnSkip" onclick="wizSkipTryIt()" hidden>Skip for now</button>
     <button class="btn btn-pri btn-lg ob-next" id="wizBtnNext" onclick="wizNext()" disabled><span id="wizBtnNextLabel">Continue</span><svg class="ic" aria-hidden="true"><use href="#i-arrow"/></svg></button>

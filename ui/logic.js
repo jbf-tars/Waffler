@@ -499,10 +499,17 @@
 
   // "Speech to text: Groq · Clean-up: Groq". It used to read
   // "STT: Groq Whisper · LLM: Groq gpt-oss-120b" under "Active Backends".
+  // On this computer with no key for the clean-up (the free way): the
+  // clean-up is off, which is a choice, not a key that is missing. Nothing
+  // on the page asks that person to add one.
+  function _freeWay(s, a) {
+    return !!s && s.transcription_mode === 'local' && !a.cleanup;
+  }
+
   function backendsLine(s) {
     const a = activeProviders(s);
     const speech = a.speech ? SPEECH_BY[a.speech] : 'no key yet';
-    const cleanup = a.cleanup ? PROVIDER_NAMES[a.cleanup] : 'no key yet';
+    const cleanup = a.cleanup ? PROVIDER_NAMES[a.cleanup] : (_freeWay(s, a) ? 'off' : 'no key yet');
     return `Speech to text: ${speech} · Clean-up: ${cleanup}`;
   }
 
@@ -599,7 +606,8 @@
         ? `${SPEECH_MODEL[a.speech]}, ${SPEECH_BY[a.speech]}`
         : `${SPEECH_MODEL[a.speech]} on ${SPEECH_BY[a.speech]}`)
       : 'No key yet';
-    const cleanup = a.cleanup ? `${CLEANUP_MODEL[a.cleanup]} on ${PROVIDER_NAMES[a.cleanup]}` : 'No key yet';
+    const cleanup = a.cleanup ? `${CLEANUP_MODEL[a.cleanup]} on ${PROVIDER_NAMES[a.cleanup]}`
+      : (_freeWay(s, a) ? 'no one: your words are typed as you said them' : 'No key yet');
     return { speech, cleanup };
   }
 
@@ -1003,6 +1011,182 @@
   // The steps of setup, in order. The Mac adds its permissions screen.
   function setupSteps(isMac) {
     return isMac ? ['connect', 'permissions', 'try', 'anywhere'] : ['connect', 'try', 'anywhere'];
+  }
+
+  // ══ Setup's first step: on this computer (free, no key), or a key ═══════
+  // The two cards of #obStepConnect in its "choose" state (app.js wiz*).
+  // `stt` is local_stt_status(); `way` is the card that was chosen: 'local',
+  // 'key', or '' while nothing is.
+
+  // Which way a saved setup is on. "On this computer" wins: someone who chose
+  // it and also has a key (for the clean-up) is still on the free way.
+  function setupWay(status) {
+    status = status || {};
+    if (status.transcription_mode === 'local') return 'local';
+    return status.has_key ? 'key' : '';
+  }
+
+  // The stepper. The first step is named for the way chosen (it was always
+  // "Connect Groq").
+  const SETUP_LABELS = { permissions: 'Permissions', try: 'Try it', anywhere: 'Use it anywhere' };
+  const SETUP_CONNECT_LABELS = { '': 'How it runs', local: 'On this computer', key: 'Connect Groq' };
+  function setupStepLabel(step, way) {
+    if (step === 'connect') return SETUP_CONNECT_LABELS[way] || SETUP_CONNECT_LABELS[''];
+    return SETUP_LABELS[step] || '';
+  }
+
+  // "574 MB", "1.6 GB": a download's size as people say it.
+  function modelSize(bytes) {
+    const n = Math.round((Number(bytes) || 0) / 1e6);
+    if (n <= 0) return '';
+    return n >= 1000 ? `${(n / 1000).toFixed(1)} GB` : `${n} MB`;
+  }
+
+  function _sttKnown(stt) {
+    return stt && stt.ok !== false && stt.available !== false && typeof stt.state === 'string' ? stt : null;
+  }
+
+  // The card that comes first and is marked "Recommended for this computer":
+  // the free one where the machine suits it (src/local_stt.py
+  // machine_verdict), else the key. Nothing known promises nothing.
+  function setupRecommended(stt) {
+    const s = _sttKnown(stt);
+    return s && s.suits_machine === true ? 'local' : 'key';
+  }
+
+  const SETUP_NO_ENGINE = "This copy of Waffler can't turn speech into text on this computer yet. Use your own key.";
+
+  // The free card: its state, the one line under it, and its one button.
+  // `done` is "the first step is complete this way": chosen, and the model is
+  // here or on its way (setup carries on while it downloads).
+  function setupLocalView(stt, way) {
+    const s = _sttKnown(stt);
+    const rec = setupRecommended(stt);
+    if (!s) {
+      return { rec, state: 'unavailable', percent: 0, size: '', slow: false, line: SETUP_NO_ENGINE,
+        button: '', canStop: false, canChoose: false, done: false };
+    }
+    const size = modelSize(s.bytes_total);
+    const percent = Math.max(0, Math.min(100, Math.round(Number(s.percent) || 0)));
+    const chosen = way === 'local';
+    let state = 'idle';
+    if (s.state === 'ready') state = 'ready';
+    else if (s.state === 'downloading') state = 'downloading';
+    else if (s.error) state = 'failed';
+    else if (Number(s.bytes_done) > 0) state = 'stopped';
+    const of = size ? ` of ${size}` : '';
+    const line = {
+      idle: '',
+      downloading: `Downloading: ${percent}%${of}. Carry on with setup while it arrives.`,
+      stopped: `Stopped at ${percent}%. It carries on from where it stopped.`,
+      failed: String(s.error || ''),
+      ready: chosen ? 'Downloaded and ready. No key, no account.'
+        : `Already downloaded${size ? ` (${size})` : ''}. Ready to use.`,
+    }[state];
+    const button = {
+      idle: 'Download and start', downloading: '', stopped: 'Carry on downloading', failed: 'Try again',
+      ready: chosen ? '' : 'Use this computer',
+    }[state];
+    return { rec, state, percent, size, slow: s.suits_machine === false, line, button,
+      canStop: state === 'downloading', canChoose: true,
+      done: chosen && (state === 'ready' || state === 'downloading') };
+  }
+
+  // Continue on the first step. On the two cards: the free way once it is
+  // downloading or ready, or a key that already passed its check. On the key
+  // screens: the key, as it always was.
+  function setupConnectDone(state, way, keyOk, stt) {
+    if (state !== 'choose') return !!keyOk;
+    if (way === 'key') return !!keyOk;
+    return setupLocalView(stt, way).done;
+  }
+
+  // Back, on the first step: from the key screens to the two cards. Not from
+  // "Groq is connected" (that screen has its own link) and not from the cards.
+  function setupCanGoBack(state) {
+    return ['start', 'waiting', 'checking', 'error'].includes(state);
+  }
+
+  // The transcription_mode to save now, or '' for nothing. "On this
+  // computer" is saved at once when there is no key (so a reopened setup
+  // knows the choice, and nothing else could work anyway); with a working
+  // key it waits for the model, so dictation never stops in between. A key
+  // chosen after the free way goes back to the cloud.
+  function setupModeToSave(way, stt, hasKey) {
+    const s = _sttKnown(stt);
+    if (!s) return '';
+    let want = '';
+    if (way === 'local' && (s.state === 'ready' || !hasKey)) want = 'local';
+    if (way === 'key' && hasKey) want = 'cloud';
+    return want && s.mode !== want ? want : '';
+  }
+
+  // Try it (and the last step) on the free way, while the model is not here:
+  // one plain line, the percentage, and a button when the download is not
+  // running. With a key nothing waits.
+  function setupModelWait(stt, way) {
+    const none = { waiting: false, percent: 100, line: '', steady: '', short: '', button: '' };
+    if (way !== 'local') return none;
+    const v = setupLocalView(stt, way);
+    if (v.state === 'ready') return none;
+    const of = v.size ? ` of ${v.size}` : '';
+    const line = {
+      downloading: `The speech model is still downloading: ${v.percent}%${of}. You can talk as soon as it's here.`,
+      stopped: `The speech model stopped downloading at ${v.percent}%. It carries on from where it stopped.`,
+      failed: v.line,
+      idle: "The speech model isn't downloaded yet.",
+      unavailable: v.line,
+    }[v.state];
+    // `steady` is the same news without the percentage, for a status region:
+    // it changes when the state does, not at every look.
+    const steady = v.state === 'downloading'
+      ? "The speech model is still downloading. You can talk as soon as it's here." : line;
+    return { waiting: true, percent: v.percent, line, steady,
+      short: v.state === 'downloading' ? `Speech model: ${v.percent}%` : 'Speech model: not downloaded yet',
+      button: v.button };
+  }
+
+  // What a screen reader is told about the download: when it starts, at each
+  // quarter, and how it ends. Never every tick. `prev` is {state, percent}
+  // from the time before (setupLocalView's), or null the first time.
+  function setupDownloadSaid(prev, stt) {
+    const v = setupLocalView(stt, 'local');
+    if (!prev) return '';
+    if (v.state === 'downloading') {
+      if (prev.state !== 'downloading') {
+        return prev.percent > 0 ? `Carrying on with the download from ${prev.percent}%.`
+          : `Downloading the speech model${v.size ? `, ${v.size}` : ''}.`;
+      }
+      const quarter = [75, 50, 25].find((q) => prev.percent < q && v.percent >= q);
+      return quarter ? `${quarter}% downloaded.` : '';
+    }
+    if (v.state === 'ready') return prev.state === 'ready' ? '' : 'The speech model is ready.';
+    if (v.state === 'failed') return prev.state === 'failed' ? '' : v.line;
+    return prev.state === 'downloading' ? `Download stopped at ${v.percent}%.` : '';
+  }
+
+  // Setup reopened on the free way with the model not here. Past the first
+  // step, the download was running when the app closed (a Mac "Quit &
+  // Reopen" after a permission; Continue is off while it is stopped), so it
+  // carries on by itself. On the first step it may have been stopped on
+  // purpose: the card offers "Carry on downloading".
+  function setupShouldResumeDownload(way, step, stt) {
+    const s = _sttKnown(stt);
+    return way === 'local' && !!s && step !== 'connect' && s.state === 'not_downloaded';
+  }
+
+  // Try it, in words that are true for the way chosen. With no key nothing
+  // is tidied: the words are typed as they were said (app.py
+  // _wizard_finish_practice), so the screen does not promise a tidy version,
+  // and the sentence to try has no slip of the tongue to take out.
+  function setupTryText(noCleanup) {
+    return noCleanup ? {
+      say: '“Hi Sam, can we do Thursday at two? I’ll bring the numbers.”',
+      working: 'Writing it down.', chip: 'Writing', wrote: 'And the same words, typed, here.',
+    } : {
+      say: '“Send it to John, sorry, Alex, by Wednesday at three.”',
+      working: 'Tidying it up.', chip: 'Cleaning up', wrote: 'And the tidy version here.',
+    };
   }
 
   // ══ Settings (3.15, the Atelier design) ════════════════════════════════
@@ -1809,7 +1993,8 @@
     const a = activeProviders(s);
     return {
       speech: a.speech ? { by: SPEECH_NODE[a.speech], model: SPEECH_MODEL[a.speech] } : null,
-      cleanup: a.cleanup ? { by: PROVIDER_NAMES[a.cleanup], model: CLEANUP_MODEL[a.cleanup] } : null,
+      cleanup: a.cleanup ? { by: PROVIDER_NAMES[a.cleanup], model: CLEANUP_MODEL[a.cleanup] }
+        : (_freeWay(s, a) ? { by: 'Off', model: 'typed as you said it' } : null),
       out: s && s.auto_paste === false ? 'Copied' : 'Pasted',
     };
   }
@@ -2838,6 +3023,8 @@
     finalText, isEdited, suggestionView, editFailedMessage, editSavedLine, learnSaved,
     VOCAB_MAX_SOUNDS, markSegments, markWords, dayHeading, weekBars, streakView,
     keyInputView, serviceRows, saidDiff, setupSteps, startupTheme,
+    setupWay, setupStepLabel, modelSize, setupRecommended, setupLocalView, setupConnectDone, setupCanGoBack,
+    setupModeToSave, setupModelWait, setupDownloadSaid, setupShouldResumeDownload, setupTryText,
     STATUS_VIEWS, STATUS_CLASSES, DONE_RESET_MS, statusView, statusResetMs, workingLabel, workingTime, recordingTime,
     notSentId, notSentView, retryFailedMessage, unsentSummary,
     RECENT_AUDIO_KEEP, entryRef, pageCursor, insertIndex, undoLine, deleteFailedMessage, undoFailedMessage,

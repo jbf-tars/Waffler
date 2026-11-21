@@ -2,8 +2,10 @@
 
 Setup was four or five screens that each opened "Welcome to Waffler",
 spent a whole step on the hotkey, offered a provider choice, and threw the
-practice dictation away. It is now three steps on Windows (Connect Groq,
-Try it, Use it anywhere) and four on a Mac (Permissions after Connect).
+practice dictation away. It is now three steps on Windows (How it runs,
+Try it, Use it anywhere) and four on a Mac (Permissions after the first).
+The first step is a choice: on this computer with no key, or a Groq key
+(tests/test_setup_free_way.py); the Groq screens checked here are the key's.
 These tests read ui/index.html, ui/app.js and ui/logic.js (logic.js runs in
 Node where it is installed) and check the decisions the plan asked for. No
 network; nothing is launched.
@@ -58,6 +60,7 @@ def test_every_step_says_its_task_and_nobody_is_welcomed_twice():
     html = setup_html()
     titles = re.findall(r'<h1 class="ob-title"[^>]*>(.*?)</h1>', html, flags=re.S)
     text = [re.sub(r"<[^>]+>", "", t).strip() for t in titles]
+    assert "Download the free model and get to work" in text[0]      # the first screen: two cards
     assert "Connect your free Groq account" in text
     assert "Groq is connected" in text
     assert "Let Waffler listen and type for you" in text

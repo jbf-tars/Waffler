@@ -42,8 +42,10 @@ def func(src, name):
 
 def test_setup_is_a_modal_dialog_named_by_its_step_title():
     html = read("index.html")
-    assert re.search(r'id="wizardOverlay" role="dialog" aria-modal="true" aria-labelledby="obTitleConnect"', html)
-    for step_title in ("obTitleConnect", "obTitleConnected", "obTitlePermissions", "obTitleTry", "obTitleAnywhere"):
+    # It opens on the two cards (on this computer, or a key), so that title names it first.
+    assert re.search(r'id="wizardOverlay" role="dialog" aria-modal="true" aria-labelledby="obTitleChoose"', html)
+    for step_title in ("obTitleChoose", "obTitleConnect", "obTitleConnected", "obTitlePermissions", "obTitleTry",
+                       "obTitleAnywhere"):
         assert re.search(rf'<h1 class="ob-title" id="{step_title}" tabindex="-1"', html), step_title
     app = read("app.js")
     assert "overlay.setAttribute('aria-labelledby', h.id)" in func(app, "_wizLabelDialog")

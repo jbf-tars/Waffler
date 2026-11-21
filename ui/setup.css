@@ -105,6 +105,68 @@
 .ob-next:disabled .ic { display: none; }
 .ob-back[hidden], .ob-skip[hidden], .ob-foot-left[hidden] { display: none; }
 
+/* ── The two ways (the first step's "choose" state) ────────────────────────
+   On this computer (free, no key) or your own key: two cards across the
+   whole step, the one recommended for this computer first, and three plain
+   lines under them. No picture on the right: the cards are the picture.
+   Every colour is a token, so the night theme needs no rules of its own, and
+   every text colour here is at least 4.5:1 on the card and on the page
+   (tests/test_setup_free_way.py). */
+.ob-step[data-step="connect"][data-state="choose"] { grid-template-columns: minmax(0, 1fr); }
+.ob-step[data-step="connect"][data-state="choose"] .ob-stage { display: none; }
+.ob-step[data-step="connect"][data-state="choose"] .ob-left { width: 100%; max-width: 900px; margin: 0 auto; padding-top: 22px; }
+.ob-ways { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 22px; }
+.ob-way { display: flex; flex-direction: column; padding: 18px 20px 20px; min-width: 0; }
+.ob-way.is-rec { box-shadow: 0 0 0 1.5px var(--honey), 0 18px 34px -26px var(--honey-deep); }
+.ob-way.is-on { box-shadow: 0 0 0 1.5px var(--text); }
+.ob-way.is-off .ob-way-list { color: var(--muted); }
+.ob-way-head { display: flex; align-items: baseline; gap: 10px; }
+.ob-way-t { flex: 1 1 auto; margin: 0; font: 500 19px/24px var(--f-ui); letter-spacing: -0.005em; color: var(--text); }
+.ob-way-tag { flex: none; font: 400 12px/1 var(--f-mono); color: var(--text-2); }
+.ob-way-rec { align-self: flex-start; margin-top: 10px; }
+.ob-way-list { margin: 14px 0 0; padding: 0; list-style: none; display: grid; gap: 7px; font: 400 14px/1.45 var(--f-ui); color: var(--text-2); }
+.ob-way-list li { position: relative; padding-left: 16px; }
+.ob-way-list li::before { content: ""; position: absolute; left: 2px; top: 0.58em; width: 5px; height: 5px; border-radius: 50%; background: var(--honey); }
+.ob-way-warn { margin: 12px 0 0; padding: 9px 12px; border-radius: 9px; background: var(--honey-tint); font: 400 13px/1.45 var(--f-ui); color: var(--text); }
+.ob-way-state { margin: 10px 0 0; font: 400 13px/1.45 var(--f-ui); color: var(--text-2); }
+.ob-way-state.is-ok { color: var(--text); font-weight: 500; }
+.ob-way-state.is-err { color: var(--danger); }
+.ob-way-actions { margin-top: auto; padding-top: 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; min-height: 60px; }
+.ob-way-btn:disabled { cursor: default; }
+/* The download: a bar with its percentage in words beside or under it. */
+.ob-bar { height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
+.ob-bar i { display: block; height: 100%; width: 0; border-radius: inherit; background: var(--honey); transition: width 0.3s var(--ease, ease); }
+.ob-way .ob-bar { margin-top: 14px; }
+.ob-bar-sm { width: 88px; height: 5px; flex: none; }
+.ob-tldr { margin-top: 18px; display: grid; gap: 4px; font: 400 13.5px/1.5 var(--f-ui); color: var(--text-2); }
+.ob-tldr p { margin: 0; }
+.ob-tldr b { font-weight: 500; color: var(--text); }
+/* The same download on the later steps: in the footer, on Try it (which
+   waits for it), and under the last step's button. */
+.ob-dl { display: inline-flex; align-items: center; gap: 10px; }
+.ob-dl[hidden] { display: none; }
+.ob-modelwait { margin-top: 18px; padding: 14px 16px 16px; display: grid; gap: 10px; }
+.ob-modelwait-t { margin: 0; font: 400 14px/1.45 var(--f-ui); color: var(--text); }
+.ob-modelwait .btn { justify-self: start; }
+.ob-anymodel { margin-top: 10px; }
+@media (max-width: 700px) {
+  .ob-ways { grid-template-columns: minmax(0, 1fr); }
+}
+/* A short window (the smallest is 601 px tall): the same screen, closer set,
+   so the cards and the three lines under them still fit without scrolling. */
+@media (max-height: 680px) {
+  .ob-step[data-step="connect"][data-state="choose"] .ob-left { padding: 8px 0; }
+  .ob-step[data-state="choose"] .ob-lede { margin-top: 8px; }
+  .ob-ways { margin-top: 14px; }
+  .ob-way { padding: 14px 18px 14px; }
+  .ob-way-list { margin-top: 10px; gap: 5px; }
+  .ob-way-actions { padding-top: 12px; min-height: 56px; }
+  .ob-tldr { margin-top: 12px; gap: 2px; font-size: 13px; line-height: 1.42; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ob-bar i { transition: none; }
+}
+
 /* ── Type ──────────────────────────────────────────────────────────────── */
 .ob-title {
   margin: 0;

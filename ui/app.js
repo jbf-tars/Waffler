@@ -4336,9 +4336,14 @@ async function onLanguageChange(sel) {
 }
 
 // Settings, General: Run setup again. Keys and history stay; setup opens at
-// "Groq is connected" and carries on from there.
-function runSetupAgain() {
-  showWizard({ has_key: true, resume_step: '' });
+// "Groq is connected" for someone on a key, and on the two cards (with "On
+// this computer" chosen) for someone on the free way.
+async function runSetupAgain() {
+  const s = _lastSettings || {};
+  let stt = null;
+  try { stt = await pywebview.api.local_stt_status(); } catch (_) {}
+  showWizard({ has_key: !!(s.groq_key_set || s.api_key_set),
+    transcription_mode: s.transcription_mode, resume_step: '' }, stt);
 }
 
 // ── Keys and providers ────────────────────────────────────────────────
@@ -5614,7 +5619,8 @@ function clearSearch() {
 // ── First-run setup (3.15) ───────────────────────────────────
 // ============================================================
 // Three steps on Windows, four on a Mac (logic.js setupSteps):
-//   connect      Connect your free Groq account
+//   connect      How it runs: on this computer (free, no key: one download),
+//                or Connect your free Groq account
 //   permissions  (Mac) Let Waffler listen and type for you
 //   try          Hold <hotkey> and talk: a full practice dictation
 //   anywhere     Now use it anywhere: Notepad or TextEdit, start at sign-in
@@ -5625,11 +5631,17 @@ function clearSearch() {
 // Existing users never see this: it opens only when setup is needed.
 
 const WIZ_STEPS = WL.setupSteps(isMacPlatform);
-const WIZ_LABELS = { connect: 'Connect Groq', permissions: 'Permissions', try: 'Try it', anywhere: 'Use it anywhere' };
 const WIZ_SECTIONS = { connect: 'obStepConnect', permissions: 'obStepPermissions', try: 'obStepTry', anywhere: 'obStepAnywhere' };
 let _wizardStep = '';
 let _wizardShown = false;
 let _wizKeyOk = false;          // a Groq key passed the check
+let _wizWay = '';               // the card chosen on the first step: 'local', 'key' or ''
+let _wizHasKey = false;         // a Groq or OpenAI key was already saved when setup opened
+let _wizStt = null;             // the last local_stt_status(): the model on this computer
+let _wizSttTimer = null;
+let _wizSttSaid = null;         // {state, percent} at the last look, for the spoken progress
+let _wizLabelDrawn = null;      // the way the stepper's first label was last drawn for
+let _wizTryStarting = false;    // Try it is setting itself up: nothing else starts the practice
 let _wizardMicTested = false;   // a practice dictation came back
 let _wizardHotkeyTestActive = false;
 let _wizDictationLive = false;  // the real hotkey is listening (Notepad/TextEdit)
@@ -5643,7 +5655,11 @@ async function checkOnboarding() {
     if (_wizardShown) return;
     const status = await pywebview.api.get_onboarding_status();
     if (status.needs_setup) {
-      showWizard(status);
+      // The model on this computer and whether the machine suits it, before
+      // the first screen is drawn: they decide which card comes first.
+      let stt = null;
+      try { stt = await pywebview.api.local_stt_status(); } catch (_) {}
+      showWizard(status, stt);
     } else {
       const main = document.getElementById('mainArea');
       if (main) main.style.display = '';
@@ -5654,9 +5670,10 @@ async function checkOnboarding() {
   }
 }
 
-function showWizard(status) {
+function showWizard(status, stt) {
   const overlay = document.getElementById('wizardOverlay');
   if (!overlay || _wizardShown) return;
+  status = status || {};
   _wizardShown = true;
   overlay.style.display = 'flex';
   // Hide main app UI
@@ -5674,16 +5691,29 @@ function showWizard(status) {
   wizRenderHotkey();
   wizRefreshHotkey();
 
-  // A key already saved (setup left part-way, or a Mac "Quit & Reopen")
-  // carries on where it was.
+  // The way already chosen (setup left part-way, or a Mac "Quit & Reopen")
+  // carries on where it was: a saved key at "Groq is connected", the free
+  // way on the two cards with its card chosen. Nothing chosen: the cards.
+  _wizHasKey = !!status.has_key;
+  _wizStt = stt || _wizStt;
+  _wizSttSaid = null;
+  _wizWay = WL.setupWay(status);
   let first = 'connect';
-  if (status && status.has_key) {
+  if (_wizHasKey) {
     _wizKeyOk = true;
-    wizSetState('connect', 'connected');
     wizRenderServices(null);
-    if (WIZ_STEPS.includes(status.resume_step)) first = status.resume_step;
   }
+  if (_wizWay === 'key') {
+    wizSetState('connect', 'connected');
+    if (WIZ_STEPS.includes(status.resume_step)) first = status.resume_step;
+  } else {
+    wizSetState('connect', 'choose');
+    if (_wizWay === 'local' && WIZ_STEPS.includes(status.resume_step)) first = status.resume_step;
+  }
+  wizDrawLocal();
   wizShowStep(first);
+  // The download was running when Waffler closed: it carries on by itself.
+  if (WL.setupShouldResumeDownload(_wizWay, first, _wizStt)) wizChooseLocal();
 }
 
 function hideWizard() {
@@ -5749,7 +5779,8 @@ function _wizFocus(el) {
 // status region, and silence, an error or no microphone as an alert. The
 // words are the ones on screen (the callouts), so there is one copy.
 const _WIZ_TRY_PROBLEMS = ['silent', 'error', 'nomic'];
-const _WIZ_TRY_PROGRESS = { rec: "Recording. Let go when you're done.", clean: 'Tidying it up.' };
+const _WIZ_TRY_PROGRESS = { rec: "Recording. Let go when you're done.", clean: 'Tidying it up.',
+  model: 'Waiting for the speech model. You can talk as soon as it is here.' };
 
 function _wizSay(id, text) {
   const el = document.getElementById(id);
@@ -5818,14 +5849,22 @@ function wizSetState(step, state) {
   }
 }
 
+// The first step's name in the stepper: the way on show. On the key screens
+// that is the key, whatever was chosen before; on the cards, the card chosen.
+function _wizLabelWay() {
+  const sec = _wizSection('connect');
+  return sec && sec.dataset.state !== 'choose' ? 'key' : _wizWay;
+}
+
 function wizRenderStepper() {
   const host = document.getElementById('obStepper');
   if (!host) return;
+  _wizLabelDrawn = _wizLabelWay();
   const cur = WIZ_STEPS.indexOf(_wizardStep);
   host.innerHTML = WIZ_STEPS.map((s, i) => {
     const cls = i < cur ? 'is-done' : i === cur ? 'is-on' : '';
     const n = i < cur ? '<svg class="ic" aria-hidden="true"><use href="#i-check"/></svg>' : String(i + 1);
-    return `<li class="${cls}"${i === cur ? ' aria-current="step"' : ''}><span class="ob-sn">${n}</span><span class="ob-slabel">${WIZ_LABELS[s]}</span></li>`;
+    return `<li class="${cls}"${i === cur ? ' aria-current="step"' : ''}><span class="ob-sn">${n}</span><span class="ob-slabel">${escHtml(WL.setupStepLabel(s, _wizLabelWay()))}</span></li>`;
   }).join('');
   // "Step one of three" (four on a Mac), above Connect's title.
   const kick = document.getElementById('obKick');
@@ -5880,7 +5919,7 @@ function wizUpdateNextButton() {
   const sec = _wizSection(step);
   const state = sec ? sec.dataset.state : '';
   let enabled = false;
-  if (step === 'connect') enabled = _wizKeyOk;
+  if (step === 'connect') enabled = WL.setupConnectDone(state, _wizWay, _wizKeyOk, _wizStt);
   if (step === 'permissions') enabled = _wizPermsAll();
   if (step === 'try') enabled = _wizardMicTested;
   if (step === 'anywhere') enabled = true;
@@ -5889,10 +5928,23 @@ function wizUpdateNextButton() {
   btn.title = !enabled && step === 'try' ? 'Hold the keys and talk once, or skip for now.' : '';
   // Back once the real hotkey is on would start a second listener.
   if (back) back.hidden = i <= 0 || (step === 'anywhere' && _wizDictationLive);
+  // On the first step Back returns from the key screens to the two cards.
+  if (back && step === 'connect') back.hidden = !WL.setupCanGoBack(state);
   // "Skip for now" is there until a practice dictation works, so a
   // microphone problem never strands anyone.
   if (skip) skip.hidden = !(step === 'try' && !_wizardMicTested);
   if (left) left.hidden = !(step === 'connect' && state === 'start');
+  // The speech model's download, on the steps that do not show it themselves
+  // (the cards and Try it do).
+  const foot = document.getElementById('obDlFoot');
+  if (foot) {
+    const wait = WL.setupModelWait(_wizStt, _wizWay);
+    foot.hidden = !(wait.waiting && step !== 'connect' && step !== 'try');
+    const text = document.getElementById('obDlFootText');
+    if (text && text.textContent !== wait.short) text.textContent = wait.short;
+    const fill = document.getElementById('obDlFootFill');
+    if (fill) fill.style.width = wait.percent + '%';
+  }
 }
 
 async function wizNext() {
@@ -5905,6 +5957,11 @@ async function wizNext() {
 
 function wizBack() {
   const i = WIZ_STEPS.indexOf(_wizardStep);
+  if (_wizardStep === 'connect') {
+    const sec = _wizSection('connect');
+    if (sec && WL.setupCanGoBack(sec.dataset.state)) wizShowChoice();
+    return;
+  }
   if (i > 0) wizShowStep(WIZ_STEPS[i - 1]);
 }
 
@@ -5992,12 +6049,233 @@ async function wizPasteKey() {
   }
 }
 
+// ── Step: How it runs. On this computer, or with your own key ────────────
+// Two cards (index.html, #obStepConnect in its "choose" state). "On this
+// computer" downloads one model and needs no key, no account and, after
+// that, no internet; "With your own key" is the Groq flow below, unchanged.
+// What each state shows is decided in logic.js (setupLocalView and friends);
+// this code fetches local_stt_status(), draws, and calls the same Api
+// methods as Settings, Keys and providers (howitruns.js): local_stt_download,
+// local_stt_cancel, and transcription_mode through save_settings.
+
+function _wizLocalView() {
+  return WL.setupLocalView(_wizStt, _wizWay);
+}
+
+// Which card is recommended for this computer: its parts show, it comes
+// first (in the page, so Tab follows what the eye sees) and its button is
+// the primary one.
+function wizApplyRec() {
+  const sec = _wizSection('connect');
+  const ways = document.getElementById('obWays');
+  const local = document.getElementById('obWayLocal');
+  const key = document.getElementById('obWayKey');
+  if (!sec || !ways || !local || !key) return;
+  const v = _wizLocalView();
+  sec.dataset.rec = v.rec;
+  sec.querySelectorAll('[data-rec]').forEach((el) => {
+    el.hidden = el.dataset.rec !== v.rec;
+  });
+  const first = v.rec === 'local' ? local : key;
+  if (ways.firstElementChild !== first) {
+    ways.insertBefore(first, ways.firstElementChild);
+  }
+  local.classList.toggle('is-rec', v.rec === 'local');
+  key.classList.toggle('is-rec', v.rec === 'key');
+  const localBtn = document.getElementById('obWayLocalBtn');
+  const keyBtn = document.getElementById('obWayKeyBtn');
+  if (localBtn) {
+    localBtn.classList.toggle('btn-pri', v.rec === 'local');
+    localBtn.classList.toggle('btn-sec', v.rec !== 'local');
+    localBtn.disabled = !v.canChoose;
+  }
+  if (keyBtn) {
+    keyBtn.classList.toggle('btn-pri', v.rec === 'key');
+    keyBtn.classList.toggle('btn-sec', v.rec !== 'key');
+    keyBtn.textContent = _wizKeyOk ? 'Carry on with my key' : 'Use my own key';
+  }
+}
+
+// Draw everything that shows the model on this computer: the free card, the
+// footer line on later steps, Try it while it waits, and the last step.
+function wizDrawLocal() {
+  const v = _wizLocalView();
+  const wait = WL.setupModelWait(_wizStt, _wizWay);
+  const el = (id) => document.getElementById(id);
+  const put = (id, text) => { const n = el(id); if (n && n.textContent !== text) n.textContent = text; };
+  const fill = (id, pct) => { const n = el(id); if (n) n.style.width = pct + '%'; };
+  wizApplyRec();
+
+  // The free card.
+  const card = el('obWayLocal');
+  if (card) {
+    const hadFocus = card.contains(document.activeElement);
+    card.dataset.dl = v.state;
+    card.classList.toggle('is-on', _wizWay === 'local' && v.done);
+    card.classList.toggle('is-off', v.state === 'unavailable');
+    put('obWaySize', v.size ? ` (${v.size})` : '');
+    const slow = el('obWaySlow');
+    if (slow) slow.hidden = !v.slow;
+    const bar = el('obWayBar');
+    if (bar) {
+      bar.hidden = !(v.state === 'downloading' || v.state === 'stopped' || v.state === 'failed');
+      bar.setAttribute('aria-valuenow', String(v.percent));
+    }
+    fill('obWayBarFill', v.percent);
+    const line = el('obWayState');
+    if (line) {
+      line.hidden = !v.line;
+      line.classList.toggle('is-ok', v.state === 'ready');
+      line.classList.toggle('is-err', v.state === 'failed');
+    }
+    put('obWayState', v.line);
+    const btn = el('obWayLocalBtn');
+    if (btn) {
+      // No engine in this build: the button stays, disabled, under the reason.
+      btn.hidden = !v.button && v.state !== 'unavailable';
+      if (v.button) btn.textContent = v.button;
+    }
+    const stop = el('obWayStop');
+    if (stop) stop.hidden = !v.canStop;
+    // The button that was pressed has gone (Download became Stop, or the
+    // other way round): focus goes to the one that took its place.
+    // With none left (the model is here), to Continue, which is what is next.
+    if (hadFocus && _wizardVisible() && _wizFocusLost()) {
+      wizUpdateNextButton();
+      _wizFocus([stop, btn, el('wizBtnNext')].find((b) => b && !b.hidden && !b.disabled) || el('obTitleChoose'));
+    }
+  }
+
+  // Try it, while it waits for the model.
+  put('obModelLine', wait.line);
+  fill('obModelBarFill', wait.percent);
+  const mbar = el('obModelBar');
+  if (mbar) mbar.setAttribute('aria-valuenow', String(wait.percent));
+  const mbtn = el('obModelBtn');
+  if (mbtn) { mbtn.hidden = !wait.button; if (wait.button) mbtn.textContent = wait.button; }
+  const trySec = _wizSection('try');
+  // Try it was waiting for the model and it is here: the practice starts.
+  if (_wizardStep === 'try' && trySec && trySec.dataset.state === 'model' && !wait.waiting) {
+    if (!_wizTryStarting) {
+      wizSetState('try', 'wait');
+      wizStartPractice();
+    }
+  }
+
+  // The last step: Notepad or TextEdit would have nothing to type with.
+  const any = el('obAnyModel');
+  if (any) any.hidden = !wait.waiting;
+  put('obAnyModel', wait.waiting ? wait.steady : '');     // a status region: no ticking percentage
+  const editor = el('obEditorBtn');
+  if (editor) editor.disabled = wait.waiting;
+
+  // Said, politely, at the start, the quarters and the end.
+  const said = WL.setupDownloadSaid(_wizSttSaid, _wizStt);
+  if (said) _wizSay('obDlLive', said);
+  _wizSttSaid = { state: v.state, percent: v.percent };
+
+  if (_wizardShown) {
+    if (_wizLabelWay() !== _wizLabelDrawn) wizRenderStepper();
+    wizUpdateNextButton();              // Continue, and the footer's download line
+  }
+}
+
+// Read the model's state and draw it. While it downloads this runs again
+// every 700 ms, as in Settings; it carries on after setup closes, so the
+// person is told when a download that outlived setup has arrived.
+async function wizRefreshLocal() {
+  clearTimeout(_wizSttTimer);
+  _wizSttTimer = null;
+  const before = _wizStt && _wizStt.state;
+  let s = null;
+  try { s = await pywebview.api.local_stt_status(); } catch (_) {}
+  if (s && s.ok !== false) _wizStt = s;
+  else if (!_wizStt) _wizStt = { ok: false };
+  await wizSyncMode();
+  wizDrawLocal();
+  if (_wizStt.state === 'downloading') _wizSttTimer = setTimeout(wizRefreshLocal, 700);
+  else if (before === 'downloading' && _wizStt.state === 'ready' && !_wizardShown && _wizWay === 'local') {
+    showToast(`The speech model is ready. Hold ${WL.hotkeyName(_currentHotkeyKeys, isMacPlatform)} and talk.`, 'success', 5000);
+    if (window.loadHowItRuns) window.loadHowItRuns();
+  }
+}
+
+// Save "on this computer" or "cloud" when the choice calls for it
+// (logic.js setupModeToSave says when), through save_settings like Settings.
+async function wizSyncMode() {
+  const want = WL.setupModeToSave(_wizWay, _wizStt, _wizHasKey || _wizKeyOk);
+  if (!want) return;
+  try {
+    const r = await pywebview.api.save_settings({ transcription_mode: want });
+    if (r && r.ok && _wizStt) _wizStt.mode = want;
+  } catch (_) { /* tried again at the next look */ }
+}
+
+// "Download and start" (and "Carry on downloading", "Try again", "Use this
+// computer"): the free way is chosen, and the model is fetched unless it is
+// already here or on its way.
+async function wizChooseLocal() {
+  const v = _wizLocalView();
+  if (!v.canChoose) return;
+  _wizWay = 'local';
+  if (v.state !== 'ready' && v.state !== 'downloading') {
+    try {
+      const r = await pywebview.api.local_stt_download();
+      if (r && r.ok === false && r.error) showToast(r.error, 'error', 5000);
+    } catch (e) {
+      showToast("The download couldn't start. Try again.", 'error');
+    }
+  }
+  await wizRefreshLocal();
+}
+
+// "Stop the download": what arrived is kept, and it carries on from there.
+async function wizStopDownload() {
+  try { await pywebview.api.local_stt_cancel(); } catch (_) { /* the next look says */ }
+  await wizRefreshLocal();
+}
+
+// "Use my own key": on to the Groq screens, exactly as they were. With a key
+// that already passed its check, straight to "Groq is connected".
+function wizChooseKey() {
+  wizSetState('connect', _wizKeyOk ? 'connected' : 'start');
+  if (_wizKeyOk) _wizChoseKey();
+  wizInitConnect();
+  wizRenderStepper();
+  _wizFocus(_wizVisibleTitle(_wizSection('connect')));
+}
+
+// A key is the way: a download of the free model stops (what arrived stays
+// on disk), and speech goes to the key again if it had been set to this
+// computer.
+function _wizChoseKey() {
+  const wasLocal = _wizWay === 'local';
+  _wizWay = 'key';
+  if (wasLocal && _wizStt && _wizStt.state === 'downloading') {
+    try { pywebview.api.local_stt_cancel(); } catch (_) {}
+  }
+  wizSyncMode().then(wizRefreshLocal);
+}
+
+// Back to the two cards (Back on the key screens, and the link under "Groq
+// is connected").
+function wizShowChoice() {
+  stopWizClipboardWatch();
+  wizSetState('connect', 'choose');
+  wizRefreshLocal();
+  _wizFocus(_wizVisibleTitle(_wizSection('connect')));
+}
+
 // ── Step: Connect your free Groq account ─────────────────────────────────
 
 let _wizKeyListenerAttached = false;
 let _wizKeyRetries = 0;
 
 function wizInitConnect() {
+  // On the two cards nothing looks at the clipboard: that starts when the
+  // key card is chosen (wizChooseKey calls this again).
+  const sec = _wizSection('connect');
+  if (sec && sec.dataset.state === 'choose') { wizRefreshLocal(); return; }
   startWizClipboardWatch();
   if (_wizKeyListenerAttached) return;
   _wizKeyListenerAttached = true;
@@ -6101,6 +6379,7 @@ async function wizValidateGroqKey(key, fromClipboard) {
     wizRenderServices(r.services);
     wizSetState('connect', 'connected');
     stopWizClipboardWatch();
+    _wizChoseKey();
     return;
   }
   _wizKeyOk = false;
@@ -6280,11 +6559,38 @@ async function wizInitTryItStep() {
   wizRefreshHotkey();
   wizCheckFnKey();
   wizSetMeter(0);
+  wizApplyTryText();
   const sec = _wizSection('try');
+  if (_wizWay === 'local') {
+    // On this computer: the practice needs the model. Until it is here the
+    // step says so, with the progress, and starts by itself when it arrives
+    // (wizDrawLocal). The mode is saved first, so the practice needs no key.
+    _wizTryStarting = true;
+    try { await wizRefreshLocal(); } finally { _wizTryStarting = false; }
+    if (_wizardStep !== 'try') return;
+    if (WL.setupModelWait(_wizStt, _wizWay).waiting) {
+      wizSetState('try', 'model');
+      await wizLoadMicDevices();
+      return;
+    }
+  }
   if (_wizardMicTested && sec && sec.dataset.state === 'done') wizSetState('try', 'done');
   else wizSetState('try', 'wait');
   await wizLoadMicDevices();
   await wizStartPractice();
+}
+
+// Try it's words for the way chosen: with no key nothing is tidied, so the
+// screen does not say it will be (logic.js setupTryText).
+function wizApplyTryText() {
+  const noCleanup = _wizWay === 'local' && !(_wizHasKey || _wizKeyOk);
+  const t = WL.setupTryText(noCleanup);
+  const put = (id, text) => { const n = document.getElementById(id); if (n) n.textContent = text; };
+  put('obTrySay', t.say);
+  put('obTryWorking', t.working);
+  put('obTryChip', t.chip);
+  put('obTryWrotePh', t.wrote);
+  _WIZ_TRY_PROGRESS.clean = t.working;
 }
 
 // The practice records from the microphone Waffler would use (the ranking, or
@@ -6294,6 +6600,9 @@ async function wizInitTryItStep() {
 let _wizMicPicked = false;
 
 async function wizStartPractice() {
+  // On this computer with the model not here yet: nothing to practise with.
+  // Try it starts the practice itself when the model arrives (wizDrawLocal).
+  if (WL.setupModelWait(_wizStt, _wizWay).waiting) return;
   const sel = document.getElementById('wizMicSelect');
   const idx = _wizMicPicked && sel && sel.value !== '' ? Number(sel.value) : null;
   try {
@@ -6612,7 +6921,11 @@ async function wizCompleteSetup() {
     }
     const r = await pywebview.api.complete_setup();
     if (r.ok) {
-      showToast('Waffler is ready.', 'success');
+      // On this computer with the model still on its way: say what to expect.
+      const wait = WL.setupModelWait(_wizStt, _wizWay);
+      if (!wait.waiting) showToast('Waffler is ready.', 'success');
+      else if (_wizStt && _wizStt.state === 'downloading') showToast('Waffler starts listening as soon as the speech model is here.', 'info', 6000);
+      else showToast(`${wait.line} Finish the download in Settings, Keys and providers.`, 'info', 8000);
       hideWizard();
       return;
     }
