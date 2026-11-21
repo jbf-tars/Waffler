@@ -271,7 +271,7 @@ def test_transforms_is_a_section_of_settings_marked_beta():
     assert '<h1 class="ptitle">Transforms<span class="beta-tag">Beta</span></h1>' in section()
     nav = html[html.index('aria-label="Settings sections"'):html.index("</nav>", html.index('aria-label="Settings sections"'))]
     assert "beta" not in nav.lower()
-    assert "const SETTINGS_SECTIONS = ['account', 'general', 'style', 'transforms'," in code_only(read("app.js"))
+    assert "const SETTINGS_SECTIONS = ['account', 'general', 'style', 'words', 'transforms'," in code_only(read("app.js"))
 
 
 def test_every_control_has_a_name_and_one_tab_stop():

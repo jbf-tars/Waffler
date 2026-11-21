@@ -680,7 +680,7 @@ def command_searching_message(engine_label: str):
 # ── Vocabulary and Snippets: import, export, edits ───────────────────────────
 
 LEARN_FROM_EDITS_UNKNOWN = "Waffler doesn't know that choice for learning from edits. Use the switch."
-VOCAB_EXPORT_EMPTY = "Your Vocabulary is empty, so there is nothing to export."
+VOCAB_EXPORT_EMPTY = "You have no words yet, so there is nothing to export."
 SNIPPETS_EXPORT_EMPTY = "You have no snippets yet, so there is nothing to export."
 EXPORT_FORMAT_UNKNOWN = "Pick CSV or JSON."
 EXPORT_FAILED = "Couldn't save the file. Try again."

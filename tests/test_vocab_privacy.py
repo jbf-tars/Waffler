@@ -116,7 +116,7 @@ def test_the_privacy_copy_says_where_an_edit_is_kept_and_that_exports_are_the_pe
     # (Said in full under the Privacy section's "How it works"; the row itself is one short line.)
     history = re.search(r'id="privHowJournal">(.*?)</li>', html, re.S).group(1)
     assert "Edit text" in history and "on this computer" in history
-    assert "Vocabulary and Snippets export from their own page" in html
+    assert "Your words and Snippets export from Words, the same way." in html
     assert "Delete all my data leaves it alone" in html
 
 

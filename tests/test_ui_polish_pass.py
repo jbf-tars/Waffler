@@ -310,13 +310,15 @@ def test_a_text_button_is_tall_enough_to_aim_at():
     assert "position: relative" in css_rule(css, ".link-btn")
 
 
-def test_the_vocabulary_mark_stays_beside_its_sentence():
-    """At the default window size "Vocabulary changed ..." was too long for
-    the line, so it wrapped whole and left its honey mark alone above it."""
+def test_the_edited_mark_stays_beside_its_sentence():
+    """At the default window size a line under a card that was too long for
+    the line wrapped whole and left its mark alone above it. (The rule was
+    written for "Vocabulary changed ...", which a card no longer says; the
+    "Edited by you" line still needs it.)"""
     css = read("style.css")
-    rule = css_rule(css, ".j-meta.card-vocab, .j-meta.card-edited")
+    rule = css_rule(css, ".j-meta.card-edited")
     assert "flex-wrap: nowrap" in rule and "align-items: flex-start" in rule
-    assert "min-width: 0" in css_rule(css, ".j-meta.card-vocab > span:last-child, .j-meta.card-edited > span")
+    assert "min-width: 0" in css_rule(css, ".j-meta.card-edited > span")
 
 
 # ── The second round ─────────────────────────────────────────────────────────

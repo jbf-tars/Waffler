@@ -120,20 +120,15 @@ def test_the_pipeline_keeps_the_changes_with_the_journal_entry():
     assert "apply_vocab_corrections(" not in src
 
 
-@needs_node
-def test_the_card_line_names_each_change():
-    assert js("L.vocabChangesLine({vocab_changes: [['Malek', 'Malak']]})") == \
-        "Your Vocabulary changed Malek to Malak."
-    assert js("L.vocabChangesLine({vocab_changes: [['Malek', 'Malak'], ['cobie', 'COBie'], "
-              "['kobi qc', 'COBieQC']]})") == \
-        "Your Vocabulary changed Malek to Malak, cobie to COBie and kobi qc to COBieQC."
-    assert js("L.vocabChangesLine({})") == ""
-    assert js("L.vocabChangesLine({vocab_changes: [['x', 3], 'bad', null]})") == ""
-
-
-def test_the_journal_card_shows_the_line():
+def test_the_journal_card_no_longer_says_it():
+    """A card used to say "Vocabulary changed Malek to Malak" under the text.
+    The change is still kept with the entry (above) and counted in Settings,
+    Words; the card says nothing, a correction is simply made
+    (tests/test_words_section.py)."""
     src = (ROOT / "ui" / "app.js").read_text(encoding="utf-8")
-    assert re.search(r"WL\.vocabChangesLine\(item\)", src)
+    logic = (ROOT / "ui" / "logic.js").read_text(encoding="utf-8")
+    assert "vocabChangesLine" not in src and "function vocabChangesLine" not in logic
+    assert "Vocabulary changed" not in src and "Vocabulary changed" not in logic
 
 
 # ── the page's Add ───────────────────────────────────────────────────────────

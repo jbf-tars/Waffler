@@ -30,7 +30,6 @@
     <nav class="topbar-nav" aria-label="Pages">
       <button type="button" id="navHome" class="active" aria-current="page" onclick="showPage('home')">Home</button>
       <button type="button" id="navMeetings" onclick="showPage('meetings')">Meetings</button>
-      <button type="button" id="navVocab" onclick="showPage('vocabulary')">Vocabulary</button>
       <button type="button" id="navSettings" onclick="showPage('settings')">Settings</button>
     </nav>
 
@@ -103,7 +102,7 @@
 
         <!-- First run: how to make the first entry, laid out as the first
              entry of today, where it will appear. The margin shows today's
-             real numbers (nothing yet) and the link to the Vocabulary. -->
+             real numbers (nothing yet). -->
         <section class="j-first" id="emptyState" aria-labelledby="emptyTitle" hidden>
           <div class="j-date-divider" aria-hidden="true"><span class="j-date-month">Today</span><span class="j-date-day" id="emptyDay"></span><span class="j-date-line"></span></div>
           <div class="j-first-ent">
@@ -113,7 +112,6 @@
               <p class="j-first-text">Click into any text box, hold <span class="keys" id="emptyKeys"></span> and talk. When you let go, the text is pasted there and kept here, with the time and how many words.</p>
               <div class="j-first-acts">
                 <button type="button" class="btn btn-pri btn-sm" onclick="openPracticeEditor(this)"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg><span id="emptyEditorLabel">Open Notepad and try it</span></button>
-                <a class="link" href="#" onclick="showPage('vocabulary'); return false;">Teach it your words</a>
               </div>
               <p class="j-first-err" id="emptyEditorErr" role="alert" hidden></p>
             </div>
@@ -156,7 +154,6 @@
           <div><b id="streakTitle"></b><div class="j-msub" id="streakSub"></div></div>
         </div>
         <div class="j-notices" id="journalNotices"></div>
-        <p class="j-teach">Names coming out wrong? <a class="link" href="#" onclick="showPage('vocabulary'); return false;">Teach it your words</a></p>
       </aside>
     </div>
   </main>
@@ -177,6 +174,7 @@
         <button type="button" class="snav-item" data-sec="account" onclick="showSettingsSection('account')">Account</button>
         <button type="button" class="snav-item" data-sec="general" onclick="showSettingsSection('general')">General</button>
         <button type="button" class="snav-item" data-sec="style" onclick="showSettingsSection('style')">Style</button>
+        <button type="button" class="snav-item" data-sec="words" onclick="showSettingsSection('words')">Words</button>
         <button type="button" class="snav-item" data-sec="transforms" onclick="showSettingsSection('transforms')">Transforms</button>
         <button type="button" class="snav-item" data-sec="command" onclick="showSettingsSection('command')">Command mode</button>
         <button type="button" class="snav-item" data-sec="keys" onclick="showSettingsSection('keys')">Keys and providers</button>
@@ -564,11 +562,192 @@
             <button type="button" class="link-btn how-btn" id="styleHowBtn" aria-expanded="false" aria-controls="styleHow" onclick="toggleHow(this)">How it works<svg class="ic ic-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
             <div class="sheet how-body" id="styleHow" hidden>
               <ul class="sc-rule-list">
-                <li>Clean-up takes out ums and false starts, adds punctuation and tidies the sentence. With it off, Waffler pastes exactly what it heard, with your Vocabulary and Snippets. Nothing is sent for clean-up. Styles aren't used, but an email signature still is.</li>
+                <li>Clean-up takes out ums and false starts, adds punctuation and tidies the sentence. With it off, Waffler pastes exactly what it heard, with your words and Snippets. Nothing is sent for clean-up. Styles aren't used, but an email signature still is.</li>
                 <li id="styleNote">Applies to new dictations. Works in English and other Latin-script languages.</li>
-                <li>Automatic: Waffler writes as it does today. Nothing is changed. Formal: capital letters and full stops, as Waffler writes them. Casual: takes the full stop off a one-sentence message. Very casual: lower case, and no last full stop. Names in your Vocabulary and acronyms keep their capitals. Excited: ends short statements with an exclamation mark.</li>
+                <li>Automatic: Waffler writes as it does today. Nothing is changed. Formal: capital letters and full stops, as Waffler writes them. Casual: takes the full stop off a one-sentence message. Very casual: lower case, and no last full stop. Names in your words and acronyms keep their capitals. Excited: ends short statements with an exclamation mark.</li>
                 <li id="signatureDesc">Your signature is added in Mail, Outlook and other email apps, when you start with a greeting or say ten words or more. Where the app allows it, Waffler looks at the text before your cursor, only to check your signature isn't already there. It isn't kept or logged.</li>
               </ul>
+            </div>
+          </div>
+        </section>
+
+        <!-- Words (the Vocabulary: src/transcribe_whisper.py). It was a page
+             of its own with a place in the top bar; it is one section here,
+             and nothing on Home or in the Journal points at it. In view: the
+             words, a box to add one, a cross to remove one, and the list in
+             and out as a file. Everything else (what a word sounds like,
+             stars, search and sort, how often each was used, Try a sentence,
+             the suggestions switch, Snippets) is under the one collapsed
+             "How it works" (toggleWordsHow), as in the other sections. -->
+        <section class="s-sec" id="secWords" data-sec="words" hidden>
+          <h1 class="ptitle" id="vocabTitle" tabindex="-1">Words</h1>
+          <p class="pdesc">Names and unusual words Waffler should spell your way.</p>
+          <form class="vadd" onsubmit="addVocabWord(); return false;">
+            <label class="vocab-field">
+              <svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg>
+              <input type="text" id="vocabInput" class="vocab-input" placeholder="Word, as it should be written" aria-label="Word, as it should be written" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" value="">
+            </label>
+            <label class="vocab-field vocab-field-sl" id="vocabSoundsField" hidden>
+              <input type="text" id="vocabSoundsInput" class="vocab-input" placeholder="It sounds like (optional)" aria-label="What speech to text writes for it, optional" aria-describedby="vocabSoundsHint" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" value="">
+            </label>
+            <button type="submit" class="btn btn-pri vocab-add-btn">Add</button>
+          </form>
+          <p class="sr-only" id="vocabSoundsHint">What speech to text writes instead of the word. Separate more than one with commas.</p>
+          <p class="s-error" id="vocabError" role="alert" hidden></p>
+          <!-- "Replace PostHog with POSTHOG?": asked when a word is added that
+               is already listed in other capitals (renderWordsList). -->
+          <div class="w-ask" id="wordsAsk" role="group" aria-label="A word already in your list" hidden></div>
+          <p class="v-undo" id="vocabUndo" role="status" aria-live="polite" hidden><span id="vocabUndoText"></span> <button type="button" class="link-btn" id="vocabUndoBtn">Undo</button></p>
+          <ul class="w-list" id="wordsList" aria-label="Your words"></ul>
+          <div class="vtools" id="vocabTools">
+            <div class="vtools-file">
+              <button type="button" class="btn btn-quiet btn-sm" id="vocabImportBtn" aria-expanded="false" aria-controls="vocabImport" onclick="toggleVocabImport()"><svg class="ic" aria-hidden="true"><use href="#i-upload"/></svg><span>Import</span></button>
+              <button type="button" class="btn btn-quiet btn-sm" id="vocabExportBtn" onclick="exportVocab(this)"><svg class="ic" aria-hidden="true"><use href="#i-download"/></svg><span>Export</span></button>
+            </div>
+          </div>
+
+          <!-- Import (src/dictionary.py plan_import): choose a CSV file or paste
+               rows, look at what would change, then add. It only adds: no word
+               or spelling is ever removed or renamed. A file picker may not be
+               offered by every web view, so pasting always works. -->
+          <div class="vimport" id="vocabImport" role="region" aria-labelledby="vocabImportTitle" hidden>
+            <h2 class="vimport-t" id="vocabImportTitle">Import words</h2>
+            <p class="vimport-d" id="vocabImportHelp">A CSV file from Excel, Numbers or Google Sheets, or rows pasted here: a word, then what speech to text writes for it (more than one with semicolons). Columns named word, sounds_like and starred also work.</p>
+            <div class="vimport-in">
+              <button type="button" class="btn btn-sec btn-sm" id="vocabImportPick" onclick="pickVocabFile()"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg><span>Choose a file</span></button>
+              <input type="file" id="vocabImportFile" hidden accept=".csv,.tsv,.txt,text/csv,text/plain" onchange="onVocabFile(this)">
+              <span class="vimport-name" id="vocabImportName" aria-live="polite"></span>
+            </div>
+            <label class="vimport-lbl" for="vocabImportText">Or paste rows here</label>
+            <textarea id="vocabImportText" class="input vimport-ta" rows="5" spellcheck="false" autocomplete="off" autocapitalize="off" aria-describedby="vocabImportHelp" placeholder="word,sounds_like&#10;Waffler,waffle; wafler&#10;PostHog,post hog" oninput="onVocabImportText()" onkeydown="onVocabImportKey(event)"></textarea>
+            <p class="s-error" id="vocabImportError" role="alert" hidden></p>
+            <div class="vimport-prev" id="vocabImportPreview" aria-live="polite" hidden></div>
+            <div class="vimport-acts">
+              <button type="button" class="btn btn-quiet btn-sm" onclick="closeVocabImport(true)">Cancel</button>
+              <button type="button" class="btn btn-pri btn-sm" id="vocabImportGo" onclick="applyVocabImport()" disabled>Add to my words</button>
+            </div>
+          </div>
+
+          <div class="how">
+            <button type="button" class="link-btn how-btn" id="wordsHowBtn" aria-expanded="false" aria-controls="wordsHow" onclick="toggleWordsHow(this)">How it works<svg class="ic ic-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
+            <div class="how-body w-adv" id="wordsHow" hidden>
+              <ul class="sc-rule-list">
+                <li>Waffler fixes these words after speech to text and before the clean-up.</li>
+                <li>A word is fixed when it is heard as written, in a close spelling, or as one of the spellings you give it under Sounds like. Everyday words are left as you said them.</li>
+                <li id="wordsStarsNote" hidden>A star keeps a word in the hint Waffler gives the speech service when your list is too long to send whole.</li>
+              </ul>
+              <!-- A "sounds like" that is an everyday word ("your"): asked about
+                   before it is saved, and once for any saved earlier (Keep or
+                   Remove). Filled by renderVocabEveryday. -->
+              <div class="v-everyday" id="vocabEveryday" role="group" aria-label="Everyday words used as spellings" aria-live="polite" hidden></div>
+
+              <!-- Every word with what it sounds like, how many dictations it
+                   corrected and when it last did (get_vocab_book): find, sort,
+                   select, star (only while the speech service is sent the
+                   words: "prompt_used") and change a spelling. -->
+              <div class="w-adv-head">
+                <h3 class="vk">Every word</h3>
+                <p class="vsum" id="vocabSummary"></p>
+              </div>
+              <div class="vtools">
+                <div class="vtools-find" id="vocabFind" hidden>
+                  <label class="j-search-wrap vt-search">
+                    <svg class="ic j-search-icon" aria-hidden="true"><use href="#i-search"/></svg>
+                    <input type="search" id="vocabSearch" class="j-search-input" placeholder="Search words" aria-label="Search your words and what they sound like" aria-describedby="vocabSearchStatus" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" oninput="onVocabSearch(this.value)" onkeydown="onVocabSearchKey(event)">
+                    <button type="button" class="rbtn j-search-clear" id="vocabSearchClear" aria-label="Clear the search" hidden onclick="clearVocabSearch()"><svg class="ic" aria-hidden="true"><use href="#i-x"/></svg></button>
+                  </label>
+                  <label class="vt-sort"><span class="vt-sort-k">Sort</span>
+                    <select id="vocabSort" class="select" onchange="onVocabSort(this.value)">
+                      <option value="used">Most used</option>
+                      <option value="recent">Recently used</option>
+                      <option value="az">A to Z</option>
+                    </select>
+                  </label>
+                  <button type="button" class="btn btn-sec btn-sm" id="vocabSelectBtn" aria-pressed="false" onclick="toggleVocabSelect()">Select</button>
+                </div>
+              </div>
+              <span class="sr-only" id="vocabSearchStatus" role="status" aria-live="polite"></span>
+              <div class="vbulk" id="vocabBulk" role="group" aria-label="Change the selected words" hidden>
+                <span class="vbulk-n" id="vocabBulkCount" aria-live="polite">0 selected</span>
+                <button type="button" class="btn btn-quiet btn-sm" id="vocabSelectAll" onclick="selectAllVocab()">Select all shown</button>
+                <span class="vbulk-sp"></span>
+                <button type="button" class="btn btn-sec btn-sm" id="vocabBulkStar" hidden onclick="bulkStarVocab(true)">Star</button>
+                <button type="button" class="btn btn-sec btn-sm" id="vocabBulkUnstar" hidden onclick="bulkStarVocab(false)">Unstar</button>
+                <button type="button" class="btn btn-danger btn-sm" id="vocabBulkRemove" onclick="bulkRemoveVocab()">Remove</button>
+              </div>
+              <div id="vocabList" class="vocab-list"></div>
+
+              <div class="vside-try" id="vocabTryBox">
+                <h3 class="vk"><label for="vocabTryInput">Try a sentence</label></h3>
+                <div class="vtry">
+                  <textarea id="vocabTryInput" class="vtry-in" rows="2" placeholder="Type what speech to text might write" spellcheck="false" oninput="onVocabTryInput()"></textarea>
+                  <div class="vtry-out" id="vocabTryOut" aria-live="polite"><span class="vtry-k">Your words make it</span><span class="vtry-t" id="vocabTryText"></span></div>
+                </div>
+              </div>
+              <div class="vside-recent" id="vocabRecentBox">
+                <h3 class="vk">Recently corrected</h3>
+                <ul class="vrc" id="vocabRecent"></ul>
+              </div>
+              <div class="vlearn" id="vocabLearn">
+                <input type="checkbox" class="tog" role="switch" id="learnToggle" aria-describedby="learnDesc" onchange="setLearnFromEdits(this.checked)">
+                <div class="vlearn-main"><label class="vlearn-t" for="learnToggle">Suggest words from my edits</label><p class="vlearn-d" id="learnDesc">When you correct a dictation in the Journal, Waffler offers to add a name it got wrong. It only offers. It never adds a word by itself.</p></div>
+              </div>
+
+              <!-- Snippets (src/snippets.py): a phrase you say and the text Waffler
+                   pastes for it. Saying only the phrase pastes exactly the text and
+                   skips the clean-up; inside a sentence it is swapped in.
+                   get_snippets / set_snippets save the whole list on every change,
+                   and a removal or a change can be undone, as on the words. -->
+              <div class="snips" id="snippetsSection" role="region" aria-labelledby="snipTitle">
+                <h3 class="sh2" id="snipTitle">Snippets<span class="aside" id="snipSummary" aria-hidden="true"></span></h3>
+                <p class="snip-desc">Say a short phrase and Waffler pastes longer text in its place. Say only the phrase and you get exactly that text. Say it inside a sentence and it's swapped in.</p>
+                <form class="snip-add" id="snipForm" onsubmit="addSnippet(); return false;">
+                  <label class="vocab-field snip-f-t">
+                    <svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg>
+                    <input type="text" id="snipTrigger" class="vocab-input" placeholder="When you say" aria-label="When you say" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" value="">
+                  </label>
+                  <label class="vocab-field snip-f-x">
+                    <textarea id="snipText" class="vocab-input snip-ta" rows="2" placeholder="Waffler pastes this" aria-label="Waffler pastes" aria-describedby="snipCounter" autocomplete="off" spellcheck="false"></textarea>
+                  </label>
+                  <button type="submit" class="btn btn-pri vocab-add-btn">Add</button>
+                </form>
+                <p class="snip-counter" id="snipCounter"></p>
+                <p class="s-error" id="snipError" role="alert" hidden></p>
+                <p class="v-undo" id="snipUndo" role="status" aria-live="polite" hidden><span id="snipUndoText"></span> <button type="button" class="link-btn" id="snipUndoBtn">Undo</button></p>
+
+                <!-- Import and export (src/snippets_io.py): a CSV (trigger, expansion)
+                     or JSON file. An import only adds; a phrase that is already a
+                     snippet keeps its text. -->
+                <div class="vtools snip-tools" id="snipTools">
+                  <div class="vtools-file">
+                    <button type="button" class="btn btn-quiet btn-sm" id="snipImportBtn" aria-expanded="false" aria-controls="snipImport" onclick="toggleSnipImport()"><svg class="ic" aria-hidden="true"><use href="#i-upload"/></svg><span>Import</span></button>
+                    <label class="sr-only" for="snipExportFormat">Export as</label>
+                    <select id="snipExportFormat" class="select snip-fmt">
+                      <option value="csv">CSV</option>
+                      <option value="json">JSON</option>
+                    </select>
+                    <button type="button" class="btn btn-quiet btn-sm" id="snipExportBtn" onclick="exportSnippets(this)"><svg class="ic" aria-hidden="true"><use href="#i-download"/></svg><span>Export</span></button>
+                  </div>
+                </div>
+                <div class="vimport" id="snipImport" role="region" aria-labelledby="snipImportTitle" hidden>
+                  <h3 class="vimport-t" id="snipImportTitle">Import snippets</h3>
+                  <p class="vimport-d" id="snipImportHelp">A file you exported from Waffler, a CSV from a spreadsheet, or rows pasted here: the phrase you say, then the text to paste. A text with commas or line breaks goes in quotes. A phrase you already have keeps its text.</p>
+                  <div class="vimport-in">
+                    <button type="button" class="btn btn-sec btn-sm" id="snipImportPick" onclick="pickSnipFile()"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg><span>Choose a file</span></button>
+                    <input type="file" id="snipImportFile" hidden accept=".csv,.tsv,.txt,.json,text/csv,text/plain,application/json" onchange="onSnipFile(this)">
+                    <span class="vimport-name" id="snipImportName" aria-live="polite"></span>
+                  </div>
+                  <label class="vimport-lbl" for="snipImportText">Or paste rows here</label>
+                  <textarea id="snipImportText" class="input vimport-ta" rows="5" spellcheck="false" autocomplete="off" autocapitalize="off" aria-describedby="snipImportHelp" placeholder="trigger,expansion&#10;my email,jane@example.com" oninput="onSnipImportText()" onkeydown="onSnipImportKey(event)"></textarea>
+                  <p class="s-error" id="snipImportError" role="alert" hidden></p>
+                  <div class="vimport-prev" id="snipImportPreview" aria-live="polite" hidden></div>
+                  <div class="vimport-acts">
+                    <button type="button" class="btn btn-quiet btn-sm" onclick="closeSnipImport(true)">Cancel</button>
+                    <button type="button" class="btn btn-pri btn-sm" id="snipImportGo" onclick="applySnipImport()" disabled>Add snippets</button>
+                  </div>
+                </div>
+                <div id="snipList" class="snip-list"></div>
+              </div>
             </div>
           </div>
         </section>
@@ -1263,7 +1442,7 @@
               <ul class="sc-rule-list">
                 <li>Everything stays on this computer, except what you say while you hold the keys, and the half-second before. That goes straight to the providers you set up, on your own key.</li>
                 <li id="privHowJournal"><b>Journal.</b> Your dictations, searchable in your Journal. Each notes the app you were in, the language and which services handled it. The app is kept with its kind (email, work chat, personal chat or other), on this computer only. Each also notes how loud your speech arrived, so Waffler can tell you if your microphone is set too low. If you correct a dictation with Edit text, your corrected version is kept with it, on this computer only, for as long as the dictation is.</li>
-                <li id="privHowExport"><b>Export the Journal.</b> Save your Journal as a file on your Desktop. If iCloud or OneDrive backs up your Desktop, it backs this file up too. It never includes your keys. It's your own copy, so Delete all my data leaves it alone. Your Vocabulary and Snippets export from their own page, the same way.</li>
+                <li id="privHowExport"><b>Export the Journal.</b> Save your Journal as a file on your Desktop. If iCloud or OneDrive backs up your Desktop, it backs this file up too. It never includes your keys. It's your own copy, so Delete all my data leaves it alone. Your words and Snippets export from Words, the same way.</li>
                 <li id="privHowRecent"><b>Recent recordings.</b> The audio of your last 10 dictations (fewer if they are very long, about 300 MB at most), so you can redo a dictation, get one back if Waffler stops, or look into a problem. Off, new recordings are not kept, so a dictation can't be redone or recovered.</li>
                 <!-- Transforms (beta): selected text is read and sent only when a
                      transform is used, to the provider the person chose. -->
@@ -1355,12 +1534,6 @@
     </div>
   </div>
 
-  <!-- ── Vocabulary ──────────────────────────────────────────────────────
-       The Atelier design (3.15): the words as a table, each with what it
-       sounds like (optional), how many dictations it corrected and when it
-       last did, from the corrections recorded in the Journal
-       (get_vocab_book). Beside it, Try a sentence (try_vocab, the step a
-       dictation runs) and the newest corrections. -->
   <!-- Meetings: the meetings interface (ui/meetings-app, built from Natter's:
        folders, the list, a meeting's notes and transcript, Ask) in a frame.
        It talks to the engine through Api.meetings_api; meetings.js keeps it
@@ -1372,170 +1545,6 @@
     <div class="mt-foot">
       <label class="mt-foot-l" for="mtTapToggle">Double-tap hotkey to record</label>
       <input type="checkbox" class="tog" role="switch" id="mtTapToggle" checked>
-    </div>
-  </div>
-
-  <div class="vocabulary-panel" id="vocabularyPanel" style="display:none">
-    <div class="vp">
-      <section class="vmain" aria-labelledby="vocabTitle">
-        <div class="vhead">
-          <h1 class="ptitle" id="vocabTitle">Vocabulary</h1>
-          <p class="vsum" id="vocabSummary"></p>
-        </div>
-        <p class="pdesc">Names and words Waffler should spell your way. Say what it hears, if you know, and it stops guessing.</p>
-        <form class="vadd" onsubmit="addVocabWord(); return false;">
-          <label class="vocab-field">
-            <svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg>
-            <input type="text" id="vocabInput" class="vocab-input" placeholder="Word, as it should be written" aria-label="Word, as it should be written" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" value="">
-          </label>
-          <label class="vocab-field vocab-field-sl">
-            <input type="text" id="vocabSoundsInput" class="vocab-input" placeholder="It sounds like (optional)" aria-label="What speech to text writes for it, optional" aria-describedby="vocabSoundsHint" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" value="">
-          </label>
-          <button type="submit" class="btn btn-pri vocab-add-btn">Add</button>
-        </form>
-        <p class="sr-only" id="vocabSoundsHint">What speech to text writes instead of the word. Separate more than one with commas.</p>
-        <p class="s-error" id="vocabError" role="alert" hidden></p>
-        <!-- A "sounds like" that is an everyday word ("your"): asked about
-             before it is saved, and once for any saved earlier (Keep or
-             Remove). Filled by renderVocabEveryday. -->
-        <div class="v-everyday" id="vocabEveryday" role="group" aria-label="Everyday words used as spellings" aria-live="polite" hidden></div>
-        <p class="v-undo" id="vocabUndo" role="status" aria-live="polite" hidden><span id="vocabUndoText"></span> <button type="button" class="link-btn" id="vocabUndoBtn">Undo</button></p>
-
-        <!-- Find, order and select words, and move the list in and out as a
-             CSV (src/dictionary.py). Search, Sort and Select show once there
-             are words; Import is there from the start, because it is how a
-             list gets here. A star only changes the order. -->
-        <div class="vtools" id="vocabTools">
-          <div class="vtools-find" id="vocabFind" hidden>
-            <label class="j-search-wrap vt-search">
-              <svg class="ic j-search-icon" aria-hidden="true"><use href="#i-search"/></svg>
-              <input type="search" id="vocabSearch" class="j-search-input" placeholder="Search words" aria-label="Search your words and what they sound like" aria-describedby="vocabSearchStatus" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" oninput="onVocabSearch(this.value)" onkeydown="onVocabSearchKey(event)">
-              <button type="button" class="rbtn j-search-clear" id="vocabSearchClear" aria-label="Clear the search" hidden onclick="clearVocabSearch()"><svg class="ic" aria-hidden="true"><use href="#i-x"/></svg></button>
-            </label>
-            <label class="vt-sort"><span class="vt-sort-k">Sort</span>
-              <select id="vocabSort" class="select" onchange="onVocabSort(this.value)">
-                <option value="used">Most used</option>
-                <option value="recent">Recently used</option>
-                <option value="starred">Starred first</option>
-                <option value="az">A to Z</option>
-              </select>
-            </label>
-            <button type="button" class="btn btn-sec btn-sm" id="vocabSelectBtn" aria-pressed="false" onclick="toggleVocabSelect()">Select</button>
-          </div>
-          <div class="vtools-file">
-            <button type="button" class="btn btn-quiet btn-sm" id="vocabImportBtn" aria-expanded="false" aria-controls="vocabImport" onclick="toggleVocabImport()"><svg class="ic" aria-hidden="true"><use href="#i-upload"/></svg><span>Import</span></button>
-            <button type="button" class="btn btn-quiet btn-sm" id="vocabExportBtn" onclick="exportVocab(this)"><svg class="ic" aria-hidden="true"><use href="#i-download"/></svg><span>Export</span></button>
-          </div>
-        </div>
-        <span class="sr-only" id="vocabSearchStatus" role="status" aria-live="polite"></span>
-        <div class="vbulk" id="vocabBulk" role="group" aria-label="Change the selected words" hidden>
-          <span class="vbulk-n" id="vocabBulkCount" aria-live="polite">0 selected</span>
-          <button type="button" class="btn btn-quiet btn-sm" id="vocabSelectAll" onclick="selectAllVocab()">Select all shown</button>
-          <span class="vbulk-sp"></span>
-          <button type="button" class="btn btn-sec btn-sm" id="vocabBulkStar" onclick="bulkStarVocab(true)">Star</button>
-          <button type="button" class="btn btn-sec btn-sm" id="vocabBulkUnstar" onclick="bulkStarVocab(false)">Unstar</button>
-          <button type="button" class="btn btn-danger btn-sm" id="vocabBulkRemove" onclick="bulkRemoveVocab()">Remove</button>
-        </div>
-
-        <!-- Import (src/dictionary.py plan_import): choose a CSV file or paste
-             rows, look at what would change, then add. It only adds: no word
-             or spelling is ever removed or renamed. A file picker may not be
-             offered by every web view, so pasting always works. -->
-        <section class="vimport" id="vocabImport" aria-labelledby="vocabImportTitle" hidden>
-          <h2 class="vimport-t" id="vocabImportTitle">Import words</h2>
-          <p class="vimport-d" id="vocabImportHelp">A CSV file from Excel, Numbers or Google Sheets, or rows pasted here: a word, then what speech to text writes for it (more than one with semicolons). Columns named word, sounds_like and starred also work.</p>
-          <div class="vimport-in">
-            <button type="button" class="btn btn-sec btn-sm" id="vocabImportPick" onclick="pickVocabFile()"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg><span>Choose a file</span></button>
-            <input type="file" id="vocabImportFile" hidden accept=".csv,.tsv,.txt,text/csv,text/plain" onchange="onVocabFile(this)">
-            <span class="vimport-name" id="vocabImportName" aria-live="polite"></span>
-          </div>
-          <label class="vimport-lbl" for="vocabImportText">Or paste rows here</label>
-          <textarea id="vocabImportText" class="input vimport-ta" rows="5" spellcheck="false" autocomplete="off" autocapitalize="off" aria-describedby="vocabImportHelp" placeholder="word,sounds_like&#10;Waffler,waffle; wafler&#10;PostHog,post hog" oninput="onVocabImportText()" onkeydown="onVocabImportKey(event)"></textarea>
-          <p class="s-error" id="vocabImportError" role="alert" hidden></p>
-          <div class="vimport-prev" id="vocabImportPreview" aria-live="polite" hidden></div>
-          <div class="vimport-acts">
-            <button type="button" class="btn btn-quiet btn-sm" onclick="closeVocabImport(true)">Cancel</button>
-            <button type="button" class="btn btn-pri btn-sm" id="vocabImportGo" onclick="applyVocabImport()" disabled>Add to my Vocabulary</button>
-          </div>
-        </section>
-
-        <div id="vocabList" class="vocab-list"></div>
-
-        <!-- Snippets (src/snippets.py): a phrase you say and the text Waffler
-             pastes for it, below the words on the same page. Saying only the
-             phrase pastes exactly the text and skips the clean-up; inside a
-             sentence it is swapped in. get_snippets / set_snippets save the
-             whole list on every change, and a removal or a change can be
-             undone, as on the words above. -->
-        <section class="snips" id="snippetsSection" aria-labelledby="snipTitle">
-          <h2 class="sh2" id="snipTitle">Snippets<span class="aside" id="snipSummary" aria-hidden="true"></span></h2>
-          <p class="snip-desc">Say a short phrase and Waffler pastes longer text in its place. Say only the phrase and you get exactly that text. Say it inside a sentence and it's swapped in.</p>
-          <form class="snip-add" id="snipForm" onsubmit="addSnippet(); return false;">
-            <label class="vocab-field snip-f-t">
-              <svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg>
-              <input type="text" id="snipTrigger" class="vocab-input" placeholder="When you say" aria-label="When you say" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" value="">
-            </label>
-            <label class="vocab-field snip-f-x">
-              <textarea id="snipText" class="vocab-input snip-ta" rows="2" placeholder="Waffler pastes this" aria-label="Waffler pastes" aria-describedby="snipCounter" autocomplete="off" spellcheck="false"></textarea>
-            </label>
-            <button type="submit" class="btn btn-pri vocab-add-btn">Add</button>
-          </form>
-          <p class="snip-counter" id="snipCounter"></p>
-          <p class="s-error" id="snipError" role="alert" hidden></p>
-          <p class="v-undo" id="snipUndo" role="status" aria-live="polite" hidden><span id="snipUndoText"></span> <button type="button" class="link-btn" id="snipUndoBtn">Undo</button></p>
-
-          <!-- Import and export (src/snippets_io.py): a CSV (trigger, expansion)
-               or JSON file. An import only adds; a phrase that is already a
-               snippet keeps its text. -->
-          <div class="vtools snip-tools" id="snipTools">
-            <div class="vtools-file">
-              <button type="button" class="btn btn-quiet btn-sm" id="snipImportBtn" aria-expanded="false" aria-controls="snipImport" onclick="toggleSnipImport()"><svg class="ic" aria-hidden="true"><use href="#i-upload"/></svg><span>Import</span></button>
-              <label class="sr-only" for="snipExportFormat">Export as</label>
-              <select id="snipExportFormat" class="select snip-fmt">
-                <option value="csv">CSV</option>
-                <option value="json">JSON</option>
-              </select>
-              <button type="button" class="btn btn-quiet btn-sm" id="snipExportBtn" onclick="exportSnippets(this)"><svg class="ic" aria-hidden="true"><use href="#i-download"/></svg><span>Export</span></button>
-            </div>
-          </div>
-          <section class="vimport" id="snipImport" aria-labelledby="snipImportTitle" hidden>
-            <h3 class="vimport-t" id="snipImportTitle">Import snippets</h3>
-            <p class="vimport-d" id="snipImportHelp">A file you exported from Waffler, a CSV from a spreadsheet, or rows pasted here: the phrase you say, then the text to paste. A text with commas or line breaks goes in quotes. A phrase you already have keeps its text.</p>
-            <div class="vimport-in">
-              <button type="button" class="btn btn-sec btn-sm" id="snipImportPick" onclick="pickSnipFile()"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg><span>Choose a file</span></button>
-              <input type="file" id="snipImportFile" hidden accept=".csv,.tsv,.txt,.json,text/csv,text/plain,application/json" onchange="onSnipFile(this)">
-              <span class="vimport-name" id="snipImportName" aria-live="polite"></span>
-            </div>
-            <label class="vimport-lbl" for="snipImportText">Or paste rows here</label>
-            <textarea id="snipImportText" class="input vimport-ta" rows="5" spellcheck="false" autocomplete="off" autocapitalize="off" aria-describedby="snipImportHelp" placeholder="trigger,expansion&#10;my email,jane@example.com" oninput="onSnipImportText()" onkeydown="onSnipImportKey(event)"></textarea>
-            <p class="s-error" id="snipImportError" role="alert" hidden></p>
-            <div class="vimport-prev" id="snipImportPreview" aria-live="polite" hidden></div>
-            <div class="vimport-acts">
-              <button type="button" class="btn btn-quiet btn-sm" onclick="closeSnipImport(true)">Cancel</button>
-              <button type="button" class="btn btn-pri btn-sm" id="snipImportGo" onclick="applySnipImport()" disabled>Add snippets</button>
-            </div>
-          </section>
-          <div id="snipList" class="snip-list"></div>
-        </section>
-      </section>
-      <aside class="vside" id="vocabSide" aria-label="Try your Vocabulary">
-        <div class="vside-try" id="vocabTryBox">
-          <h2 class="vk"><label for="vocabTryInput">Try a sentence</label></h2>
-          <div class="vtry">
-            <textarea id="vocabTryInput" class="vtry-in" rows="2" placeholder="Type what speech to text might write" spellcheck="false" oninput="onVocabTryInput()"></textarea>
-            <div class="vtry-out" id="vocabTryOut" aria-live="polite"><span class="vtry-k">Your Vocabulary makes it</span><span class="vtry-t" id="vocabTryText"></span></div>
-          </div>
-        </div>
-        <div class="vside-recent" id="vocabRecentBox">
-          <h2 class="vk">Recently corrected</h2>
-          <ul class="vrc" id="vocabRecent"></ul>
-        </div>
-        <div class="vlearn" id="vocabLearn">
-          <input type="checkbox" class="tog" role="switch" id="learnToggle" aria-describedby="learnDesc" onchange="setLearnFromEdits(this.checked)">
-          <div class="vlearn-main"><label class="vlearn-t" for="learnToggle">Suggest words from my edits</label><p class="vlearn-d" id="learnDesc">When you correct a dictation in the Journal, Waffler offers to add a name it got wrong. It only offers. It never adds a word by itself.</p></div>
-        </div>
-        <p class="vhow">Waffler fixes these after speech to text and before the clean-up. Without a "sounds like", it matches loosely, so close spellings change too. Give more than one with commas.</p>
-      </aside>
     </div>
   </div>
 

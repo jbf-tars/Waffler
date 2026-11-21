@@ -112,7 +112,7 @@ def test_the_descriptions_say_what_off_means():
     # The rest of what Off means is under the section's "How it works".
     html = read("index.html")
     how = html[html.index('id="styleHow"'):html.index('id="secTransforms"')]
-    for said in ("With it off, Waffler pastes exactly what it heard, with your Vocabulary and Snippets.",
+    for said in ("With it off, Waffler pastes exactly what it heard, with your words and Snippets.",
                  "Nothing is sent for clean-up.", "Styles aren't used, but an email signature still is."):
         assert said in how, said
     for text in (on["desc"], on["note"], off["desc"], off["note"]):
@@ -175,11 +175,11 @@ def test_style_is_a_section_of_settings_between_general_and_keys():
     nav = html[start:html.index("</nav>", start)]
     order = re.findall(r'data-sec="(\w+)"', nav)
     # Transforms (beta, S7) follows it: both shape the text. Command mode (beta, S8) comes next.
-    assert order == ["account", "general", "style", "transforms", "command", "keys", "claude", "hotkey", "usage",
+    assert order == ["account", "general", "style", "words", "transforms", "command", "keys", "claude", "hotkey", "usage",
                      "privacy", "about"]
     assert 'id="secStyle" data-sec="style" hidden' in html
     app = code_only(read("app.js"))
-    assert "const SETTINGS_SECTIONS = ['account', 'general', 'style', 'transforms', 'command', 'keys', 'claude', 'hotkey', 'usage', 'privacy', 'about'];" in app
+    assert "const SETTINGS_SECTIONS = ['account', 'general', 'style', 'words', 'transforms', 'command', 'keys', 'claude', 'hotkey', 'usage', 'privacy', 'about'];" in app
 
 
 def test_every_control_has_a_name_and_a_tab_stop():

@@ -96,8 +96,12 @@ def test_the_html_offers_exactly_those_choices():
     html = (UI / "index.html").read_text(encoding="utf-8")
     sel = html[html.index('id="vocabSort"'):]
     sel = sel[:sel.index("</select>")]
+    # As written, without "Starred first": stars are shown only while the
+    # speech service is sent the words (L.vocabSortsFor, tests/test_words_section.py),
+    # and the page adds that choice then.
     assert re.findall(r'<option value="(\w+)">([^<]+)</option>', sel) == [
-        (c["id"], c["label"]) for c in js("L.VOCAB_SORTS")]
+        (c["id"], c["label"]) for c in js("L.vocabSortsFor(false)")]
+    assert js("L.vocabSortsFor(true)") == js("L.VOCAB_SORTS")
 
 
 # ── search ───────────────────────────────────────────────────────────────────
@@ -186,7 +190,7 @@ def test_the_preview_names_what_would_change_and_offers_to_add_only_when_somethi
     v = js(f"L.vocabImportView({view(rows=7, new=3, updated=1, already=2, skipped=1)})")
     assert [p["text"] for p in v["parts"]] == [
         "3 new words", "1 word gains a spelling or a star", "2 already there", "1 left out"]
-    assert v["canApply"] is True and v["button"] == "Add to my Vocabulary"
+    assert v["canApply"] is True and v["button"] == "Add to my words"
     assert "Nothing is saved until you add it" in v["headline"]
 
 
@@ -285,7 +289,7 @@ def test_what_you_said_is_still_offered_for_an_edited_dictation():
 @needs_node
 def test_a_suggestion_says_what_to_add_and_what_speech_to_text_wrote():
     v = js("L.suggestionView({word: 'Waffler', sounds_like: ['waffle']})")
-    assert v["question"] == 'Add "Waffler" to your Vocabulary?'
+    assert v["question"] == 'Add "Waffler" to your words?'
     assert v["detail"] == 'Speech to text wrote "waffle".'
     assert v["added"] == 'Added "Waffler".' and v["sounds"] == ["waffle"]
     v = js("L.suggestionView({word: 'Waffler', sounds_like: ['waffle', 'wafler', 'waffler']})")

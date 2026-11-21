@@ -112,21 +112,31 @@ def test_the_summary_and_the_counter_and_the_undo_line():
 
 def _section():
     html = read("index.html")
-    return html[html.index('<section class="snips"'):html.index('<aside class="vside"')]
+    # Snippets are the last thing in the "How it works" box of Settings, Words.
+    start = html.index('<div class="snips" id="snippetsSection" role="region"')
+    return html[start:html.index("</section>", start)]
 
 
-def test_the_section_is_on_the_vocabulary_page_below_the_words_and_adds_no_page():
+def test_the_section_is_with_the_words_in_settings_and_adds_no_page():
+    """Snippets were below the words on the Vocabulary page. That page is
+    Settings, Words now, and Snippets went with it: under "How it works",
+    after the table of words."""
     html = read("index.html")
-    panel = html[html.index('id="vocabularyPanel"'):html.index('<!-- Update dialog')]
-    assert panel.index('id="vocabList"') < panel.index('id="snippetsSection"') < panel.index('id="vocabSide"')
+    start = html.index('id="secWords"')
+    words = html[start:html.index("</section>", start)]
+    how = words[words.index('id="wordsHow"'):]
+    assert how.index('id="vocabList"') < how.index('id="snippetsSection"')
+    assert 'id="snippetsSection"' not in words[:words.index('id="wordsHow"')]
     nav = html[html.index('<nav class="topbar-nav"'):html.index("</nav>")]
-    assert nav.count("<button") == 4, "no new page for snippets (Journal, Meetings, Vocabulary, Settings)"
+    assert nav.count("<button") == 3, "no page for snippets (Home, Meetings, Settings)"
     assert "snippet" not in nav.lower()
+    side = html[html.index('aria-label="Settings sections"'):]
+    assert "snippet" not in side[:side.index("</nav>")].lower()
 
 
 def test_the_section_is_labelled_and_every_control_has_a_name():
     sec = _section()
-    assert 'aria-labelledby="snipTitle"' in sec and '<h2 class="sh2" id="snipTitle">Snippets' in sec
+    assert 'aria-labelledby="snipTitle"' in sec and '<h3 class="sh2" id="snipTitle">Snippets' in sec
     assert 'aria-label="When you say"' in sec and 'aria-label="Waffler pastes"' in sec
     assert 'onsubmit="addSnippet(); return false;"' in sec
     assert '<button type="submit" class="btn btn-pri vocab-add-btn">Add</button>' in sec
@@ -236,7 +246,7 @@ def test_the_section_reflows_and_the_controls_are_not_hover_only():
     assert "animation:" in snips and "infinite" not in snips
     narrow = css[css.index("@media (max-width: 640px) {"):]
     narrow = narrow[:narrow.index("\n}\n")]
-    assert ".vadd, .snip-add { grid-template-columns: 1fr; }" in narrow
+    assert ".vadd, .vadd.has-sl, .snip-add { grid-template-columns: 1fr; }" in narrow
     assert ".sn-r { grid-template-columns: minmax(0, 1fr) auto;" in narrow
 
 

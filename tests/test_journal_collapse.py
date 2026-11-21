@@ -167,7 +167,7 @@ def test_copy_and_edit_use_the_whole_text():
 
 def test_the_short_view_draws_only_the_head_and_an_ellipsis():
     src = func(read("app.js"), "_foldedHtml")
-    assert "_markedHtml(fold.head, changes" in src
+    assert "_markedHtml(fold.head, `" in src
     assert 'class="j-ell" aria-hidden="true"' in src
 
 

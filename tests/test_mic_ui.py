@@ -212,7 +212,7 @@ def test_the_microphone_sheet_is_in_general_with_its_controls():
     assert general.index('id="micSelect"') < general.index('<h2 class="sh2">Feedback</h2>')
     assert "the half-second before you press" in general
     # Still nine sections: the microphone is a sheet of General, not a tenth page.
-    assert html.count('class="snav-item"') == 11
+    assert html.count('class="snav-item"') == 12
 
 
 def test_the_toggle_for_other_devices_says_what_it_controls():

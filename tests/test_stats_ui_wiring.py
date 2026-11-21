@@ -34,8 +34,8 @@ def test_the_new_figures_live_in_usage_and_add_no_page_or_section():
     # Nothing to count yet: the page shows its empty card and none of these.
     assert usage.index('id="usageEmpty"') < usage.index('id="usageDetail"')
     html = read("index.html")
-    assert html.count('class="snav-item"') == 11          # the Settings sections are as they were
-    assert html.count('<button type="button" id="nav') == 4  # and so are the four pages (Meetings joined in the one-app work)
+    assert html.count('class="snav-item"') == 12          # the Settings sections are as they were (Words came later)
+    assert html.count('<button type="button" id="nav') == 3  # three pages: Meetings joined, then Vocabulary became Settings, Words
 
 
 def test_the_typing_speed_is_a_labelled_number_field_with_a_place_for_its_error():

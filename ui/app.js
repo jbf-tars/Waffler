@@ -256,12 +256,14 @@ function _applyPlatformText() {
 }
 
 // Cmd+F (Ctrl+F on Windows) goes to the search of the page that is open:
-// the Journal's or the Vocabulary's. Not while a dialog or setup is up, and
-// Settings has no search, so the key is left alone there.
+// the Journal's, or the word search in Settings, Words while it is on screen
+// (it is under How it works). Not while a dialog or setup is up, and the rest
+// of Settings has no search, so the key is left alone there.
 function _onFindKey(e) {
   if (!WL.isFindKey(e, isMacPlatform)) return;
   if (_openModalOverlay() || _wizardVisible()) return;
-  const id = _currentPage === 'home' ? 'searchInput' : _currentPage === 'vocabulary' ? 'vocabSearch' : '';
+  const id = _currentPage === 'home' ? 'searchInput'
+    : (_currentPage === 'settings' && _settingsSection === 'words') ? 'vocabSearch' : '';
   const box = id && document.getElementById(id);
   if (!box || !box.getClientRects().length) return;
   e.preventDefault();
@@ -1496,7 +1498,6 @@ function drawFeed() {
   // today's real numbers.
   const search = document.querySelector('#statStrip .j-search-wrap');
   if (search) search.hidden = view.kind === 'empty';
-  // The first-entry row has its own Teach it your words link.
   const layout = document.getElementById('journalLayout');
   if (layout) layout.classList.toggle('is-first', view.kind === 'empty');
   if (view.kind === 'empty') {
@@ -1997,7 +1998,6 @@ function makeCard(item, isNew) {
   const hasStyled   = WL.hasOriginal(item);
   const words       = (displayText.split(/\s+/).filter(Boolean)).length;
   const q           = WL.qualityView(item);
-  const changes     = WL.vocabChanges(item);
   // A long entry shows its first sixty words or so (logic.js collapseView);
   // it opens in full when a search matches in the rest.
   const fold        = WL.collapseView(displayText, _searchText);
@@ -2005,10 +2005,6 @@ function makeCard(item, isNew) {
 
   const when = formatTime(item.timestamp);
   const textId = `jt${++_cardSeq}`;
-  // What the Vocabulary changed: "Vocabulary changed post hog to PostHog".
-  const vocabLine = changes.length
-    ? `<p class="j-meta card-vocab" aria-label="${escHtml(WL.vocabChangesLine(item))}"><span class="j-vd" aria-hidden="true"></span><span aria-hidden="true">Vocabulary changed ${changes.map((c, i) => `${i ? (i === changes.length - 1 ? ' and ' : ', ') : ''}<b>${escHtml(c.heard)}</b> to <b>${escHtml(c.used)}</b>`).join('')}</span></p>`
-    : '';
   // Edited by the person in the Journal (Edit text): Copy and Paste last use it.
   const editedLine = WL.isEdited(item)
     ? `<p class="j-meta card-edited">${WI.icon('pencil')}<span>Edited by you. Copy and Paste last use your text.</span></p>`
@@ -2025,9 +2021,9 @@ function makeCard(item, isNew) {
     <div class="j-g"><div class="j-t">${escHtml(_clock(item.timestamp))}</div><div class="j-w">${WL.formatCount(words)} ${words === 1 ? 'word' : 'words'}</div></div>
     <div class="j-body">
       <div class="j-said-k" hidden>What you said</div>
-      <div class="card-text styled" id="${textId}" dir="auto">${_foldedHtml(fold, expanded, displayText, changes)}</div>
+      <div class="card-text styled" id="${textId}" dir="auto">${_foldedHtml(fold, expanded, displayText)}</div>
       ${fold.collapse ? `<button type="button" class="link-btn j-fold" aria-controls="${textId}" aria-expanded="${expanded}">${escHtml(expanded ? fold.less : fold.more)}</button>` : ''}
-      ${editedLine}${vocabLine}${qualityLine}
+      ${editedLine}${qualityLine}
       <p class="j-status" role="status" aria-live="polite" hidden></p>
     </div>
     <div class="j-acts card-actions">
@@ -2050,7 +2046,7 @@ function makeCard(item, isNew) {
   if (moreBtn) {
     moreBtn.addEventListener('click', () => {
       expanded = !expanded;
-      textEl.innerHTML = _foldedHtml(fold, expanded, displayText, changes);
+      textEl.innerHTML = _foldedHtml(fold, expanded, displayText);
       moreBtn.textContent = expanded ? fold.less : fold.more;
       moreBtn.setAttribute('aria-expanded', String(expanded));
     });
@@ -2066,7 +2062,7 @@ function makeCard(item, isNew) {
       div.classList.toggle('is-raw', showing);
       // "What you said" is shown whole; the short view comes back after.
       if (moreBtn) moreBtn.hidden = showing;
-      if (!showing) textEl.innerHTML = _foldedHtml(fold, expanded, displayText, changes);
+      if (!showing) textEl.innerHTML = _foldedHtml(fold, expanded, displayText);
     });
   }
 
@@ -2321,7 +2317,7 @@ function showSuggestions(card, list) {
   const box = document.createElement('div');
   box.className = 'j-sug';
   box.setAttribute('role', 'group');
-  box.setAttribute('aria-label', 'Words to add to your Vocabulary');
+  box.setAttribute('aria-label', 'Words to add to your list');
   items.forEach((v) => box.appendChild(_suggestionRow(card, box, v)));
   body.appendChild(box);
 }
@@ -2330,7 +2326,7 @@ function _suggestionRow(card, box, v) {
   const row = document.createElement('div');
   row.className = 'j-sug-r';
   row.innerHTML = `<div class="j-sug-t"><b>${escHtml(v.question)}</b><span>${escHtml(v.detail)}</span></div>
-    <div class="j-sug-b"><button type="button" class="btn btn-quiet btn-sm" data-act="dismiss" aria-label="${escHtml(`Don't add ${v.word}`)}">Dismiss</button><button type="button" class="btn btn-sec btn-sm" data-act="add" aria-label="${escHtml(`Add ${v.word} to your Vocabulary`)}">Add</button></div>
+    <div class="j-sug-b"><button type="button" class="btn btn-quiet btn-sm" data-act="dismiss" aria-label="${escHtml(`Don't add ${v.word}`)}">Dismiss</button><button type="button" class="btn btn-sec btn-sm" data-act="add" aria-label="${escHtml(`Add ${v.word} to your words`)}">Add</button></div>
     <p class="s-error j-sug-err" role="alert" hidden></p>`;
   row.querySelector('[data-act="dismiss"]').addEventListener('click', () => _dropSuggestion(card, box, row));
   row.querySelector('[data-act="add"]').addEventListener('click', () => addSuggestedWord(card, box, row, v));
@@ -2363,13 +2359,13 @@ async function addSuggestedWord(card, box, row, v) {
   const entries = _vocabBook.entries.map((e) => Object.assign({}, e, { sounds_like: (e.sounds_like || []).slice() }));
   const r = WL.vocabAdd(_vocabWords, v.word, WL.VOCAB_MAX_ENTRY_LEN);
   if (r.action === 'same' || r.action === 'respell') {
-    say(`"${v.word}" is already in your Vocabulary.`);
+    say(`"${v.word}" is already in your words.`);
     back();
     return;
   }
   if (r.action !== 'add') { say("That can't be added."); back(); return; }
   if (entries.length >= 500) {
-    say('Your Vocabulary is full (500 words). Remove one you no longer need first.');
+    say('Your list is full (500 words). Remove one you no longer need first.');
     back();
     return;
   }
@@ -2553,24 +2549,19 @@ async function redoEntry(item, card) {
 
 // A dictation's text, whole or (a long one, folded) its start and "…". Only
 // what is drawn is built, so a folded entry costs less than a whole one.
-function _foldedHtml(fold, expanded, text, changes) {
-  if (!fold.collapse || expanded) return _markedHtml(text, changes);
-  return _markedHtml(fold.head, changes, `${fold.sentence ? ' ' : ''}<span class="j-ell" aria-hidden="true">\u2026</span>`);
+function _foldedHtml(fold, expanded, text) {
+  if (!fold.collapse || expanded) return _markedHtml(text);
+  return _markedHtml(fold.head, `${fold.sentence ? ' ' : ''}<span class="j-ell" aria-hidden="true">\u2026</span>`);
 }
-
-// The clean text in its paragraphs, with the words the Vocabulary put in
-// marked. `tail` (HTML) ends the last paragraph: the "…" of a folded entry.
-function _markedHtml(text, changes, tail) {
-  const used = (changes || []).map((c) => c.used);
+// The clean text in its paragraphs, with where a search matched marked. `tail`
+// (HTML) ends the last paragraph: the "…" of a folded entry. (The words the
+// Vocabulary put in were underlined here; a correction is simply made now.)
+function _markedHtml(text, tail) {
   const paras = String(text || '').split(/\n\s*\n/);
   return paras.map((para, i) => {
-    // The Vocabulary's words underlined, and, during a search, where it matched.
-    const segs = WL.searchMarks(WL.markWords(para, used), _searchText);
+    const segs = WL.searchMarks([{ text: para, mark: false }], _searchText);
     // dir="auto": a paragraph in Arabic or Hebrew runs right to left.
-    return `<p dir="auto">${segs.map((sg) => {
-      const t = sg.hit ? `<mark class="search-hl">${escHtml(sg.text)}</mark>` : escHtml(sg.text);
-      return sg.mark ? `<span class="word-hl">${t}</span>` : t;
-    }).join('')}${tail && i === paras.length - 1 ? tail : ''}</p>`;
+    return `<p dir="auto">${segs.map((sg) => (sg.hit ? `<mark class="search-hl">${escHtml(sg.text)}</mark>` : escHtml(sg.text))).join('')}${tail && i === paras.length - 1 ? tail : ''}</p>`;
   }).join('');
 }
 
@@ -3046,11 +3037,85 @@ async function loadVocabPage() {
   if (sortEl) sortEl.value = _vocabSort;
 
   _vocabImport.close(false);
+  _setWordsHow(false);
   await _vocabReloadBook();
   renderVocab();
   _vocabRunTry();
   loadSnippets();
   loadLearnSwitch();
+}
+
+// Settings, Words: "How it works" holds everything but the list (what a word
+// sounds like, stars, search, Try a sentence, the suggestions switch,
+// Snippets). Open, the box to add a word also takes what it sounds like.
+function _setWordsHow(open) {
+  const btn = document.getElementById('wordsHowBtn');
+  const box = document.getElementById('wordsHow');
+  if (!btn || !box) return;
+  box.hidden = !open;
+  btn.setAttribute('aria-expanded', String(!!open));
+  const field = document.getElementById('vocabSoundsField');
+  if (field) field.hidden = !open;
+  const form = field && field.closest('.vadd');
+  if (form) form.classList.toggle('has-sl', !!open);
+  if (!open) {
+    // What is out of sight is not saved with the next word.
+    const sounds = document.getElementById('vocabSoundsInput');
+    if (sounds) sounds.value = '';
+  }
+}
+
+function toggleWordsHow(btn) {
+  const box = btn && document.getElementById(btn.getAttribute('aria-controls'));
+  if (box) _setWordsHow(box.hidden);
+}
+
+// Stars only order the words sent to the speech service as a prompt. While
+// none is sent (Groq), every control about them is out of the page: the star
+// on each row (renderVocab), Star and Unstar for a selection, "Starred first"
+// in Sort, and the line that explains them.
+function _syncVocabStars(stars) {
+  ['vocabBulkStar', 'vocabBulkUnstar', 'wordsStarsNote'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.hidden = !stars;
+  });
+  const sortEl = document.getElementById('vocabSort');
+  if (!sortEl) return;
+  const sorts = WL.vocabSortsFor(stars);
+  if (sortEl.options.length !== sorts.length) {
+    sortEl.innerHTML = sorts.map((o) => `<option value="${escHtml(o.id)}">${escHtml(o.label)}</option>`).join('');
+  }
+  sortEl.value = WL.vocabSortFor(_vocabSort, stars);
+}
+
+// The list in view: each word and a cross to remove it. Nothing else. A word
+// typed in other capitals than the one listed is asked about here too
+// ("Replace PostHog with POSTHOG?"), since the table that asked is out of sight.
+function renderWordsList() {
+  const ul = document.getElementById('wordsList');
+  if (!ul) return;
+  const entries = _vocabBook.entries || [];
+  ul.hidden = !entries.length;
+  ul.innerHTML = entries.map((e) => {
+    const w = escHtml(e.word);
+    return `<li class="w-i" data-word="${w}"><span class="w-w">${w}</span><button type="button" class="rbtn w-x" data-word="${w}" aria-label="Remove ${w}" title="Remove">${WI.icon('x')}</button></li>`;
+  }).join('');
+  ul.querySelectorAll('.w-x').forEach((b) => {
+    b.addEventListener('click', () => deleteVocabWord(b.getAttribute('data-word')));
+  });
+  const ask = document.getElementById('wordsAsk');
+  if (!ask) return;
+  ask.hidden = !_vocabAsk;
+  if (!_vocabAsk) { ask.innerHTML = ''; return; }
+  ask.innerHTML = `<div class="ve-q">Replace <b>${escHtml(_vocabAsk.existing)}</b> with <b>${escHtml(_vocabAsk.word)}</b>?<span>It's already in your list in other capitals.</span></div>
+    <div class="ve-acts"><button type="button" class="btn btn-sec btn-sm" data-act="keep">Keep ${escHtml(_vocabAsk.existing)}</button><button type="button" class="btn btn-pri btn-sm" data-act="replace">Replace</button></div>`;
+  ask.querySelector('[data-act="keep"]').addEventListener('click', () => {
+    _vocabAsk = null;
+    renderVocab();
+    const i = document.getElementById('vocabInput');
+    if (i) { i.focus(); i.select(); }
+  });
+  ask.querySelector('[data-act="replace"]').addEventListener('click', () => respellVocabWord());
 }
 
 // The words from the app, each with its counts, spellings and star.
@@ -3062,11 +3127,14 @@ async function _vocabReloadBook() {
       _vocabBook = {
         entries: (book.entries || []).map((e) => Object.assign({}, e, { starred: stars.has(String(e.word).toLowerCase()) })),
         total: book.total || 0, recent: book.recent || [],
+        // Whether the words reach the speech service as a prompt: stars are
+        // shown only then (they order that prompt and do nothing else).
+        promptUsed: book.prompt_used === true,
       };
       _vocabEveryday = Array.isArray(book.everyday) ? book.everyday : [];
     } else {
       const words = (await pywebview.api.get_vocab()) || [];
-      _vocabBook = { entries: words.map((w) => ({ word: w, sounds_like: [], count: 0, last: '', starred: false })), total: 0, recent: [] };
+      _vocabBook = { entries: words.map((w) => ({ word: w, sounds_like: [], count: 0, last: '', starred: false })), total: 0, recent: [], promptUsed: false };
     }
     _vocabWords = _vocabBook.entries.map((e) => e.word);
   } catch (e) {
@@ -3079,7 +3147,10 @@ function renderVocab() {
   const inputEl = document.getElementById('vocabInput');
   if (!listEl) return;
   renderVocabEveryday();
+  renderWordsList();
   const entries = _vocabBook.entries || [];
+  const stars = _vocabBook.promptUsed === true;
+  _syncVocabStars(stars);
   if (inputEl) inputEl.placeholder = entries.length ? 'Word, as it should be written' : 'Word, as it should be written, like Sinéad';
 
   const sum = WL.vocabSummary(entries.length, _vocabBook.total);
@@ -3089,12 +3160,10 @@ function renderVocab() {
       ? `<b>${escHtml(sum.words)}</b>${sum.corrections ? ` &middot; <b>${escHtml(sum.corrections)}</b> ${escHtml(sum.correctionsLabel)}` : ''}`
       : '';
   }
-  const side = document.getElementById('vocabSide');
   const tryBox = document.getElementById('vocabTryBox');
   const recentBox = document.getElementById('vocabRecentBox');
   if (tryBox) tryBox.hidden = !entries.length;
   if (recentBox) recentBox.hidden = !entries.length;
-  if (side) side.classList.toggle('is-empty', !entries.length);
   _renderVocabRecent();
 
   // Search, Sort and Select are for a list; Export needs a word to save.
@@ -3128,7 +3197,7 @@ function renderVocab() {
     return;
   }
 
-  const rows = WL.vocabRows(entries, new Date(), { sort: _vocabSort, query: _vocabQuery });
+  const rows = WL.vocabRows(entries, new Date(), { sort: WL.vocabSortFor(_vocabSort, stars), query: _vocabQuery });
   const shown = rows.map((r) => r.word);
   _vocabSelected = new Set(WL.vocabKeepSelected([..._vocabSelected], shown));
   const status = document.getElementById('vocabSearchStatus');
@@ -3158,13 +3227,13 @@ function renderVocab() {
     }
     const sl = r.sounds.length
       ? r.sounds.map((s) => `<span class="vt-chip">${escHtml(s)}</span>`).join('')
-      : '<span class="vt-none">Matched loosely</span>';
+      : '<span class="vt-none">None</span>';
     const check = pick
       ? `<span class="vt-c" role="cell"><input type="checkbox" class="vt-sel" data-word="${w}" aria-label="Select ${w}"${_vocabSelected.has(r.word) ? ' checked' : ''}></span>`
       : '';
-    return `<div class="vt-r${r.starred ? ' is-starred' : ''}" role="row" data-word="${w}">
+    return `<div class="vt-r${stars && r.starred ? ' is-starred' : ''}" role="row" data-word="${w}">
       ${check}
-      <span class="vt-w" role="cell"><button type="button" class="rbtn vt-star" data-word="${w}" aria-pressed="${r.starred ? 'true' : 'false'}" aria-label="Star ${w}" title="${r.starred ? 'Starred: kept first when a list is long' : 'Star it'}">${WI.icon('star')}</button><span class="vt-wt">${w}</span></span>
+      <span class="vt-w" role="cell">${stars ? `<button type="button" class="rbtn vt-star" data-word="${w}" aria-pressed="${r.starred ? 'true' : 'false'}" aria-label="Star ${w}" title="${r.starred ? 'Starred: kept first when a list is long' : 'Star it'}">${WI.icon('star')}</button>` : ''}<span class="vt-wt">${w}</span></span>
       <span class="vt-sl" role="cell">${sl}</span>
       <span class="vt-u" role="cell"><span class="vt-n">${WL.formatCount(r.count)}</span><span class="vt-b" aria-hidden="true"><i style="width:${r.bar}%"></i></span></span>
       <span class="vt-l" role="cell">${escHtml(r.last)}</span>
@@ -3209,7 +3278,7 @@ function _renderVocabRecent() {
   if (!ul) return;
   const recent = _vocabBook.recent || [];
   if (!recent.length) {
-    ul.innerHTML = '<li class="vrc-none">Nothing yet. When your Vocabulary changes a word in a dictation, it shows here.</li>';
+    ul.innerHTML = '<li class="vrc-none">Nothing yet. When one of your words is fixed in a dictation, it shows here.</li>';
     return;
   }
   const now = new Date();
@@ -3287,7 +3356,7 @@ async function saveVocabSounds(word, input, confirmed) {
   const b = [...document.querySelectorAll('#vocabList .vt-edit-btn')].find((x) => x.getAttribute('data-word') === word);
   if (b) b.focus();
   if (before.join('|') !== spellings.join('|')) {
-    _vocabShowUndo(spellings.length ? `${word} now matches ${spellings.join(', ')}.` : `${word} is matched loosely again.`, async () => {
+    _vocabShowUndo(spellings.length ? `${word} now matches ${spellings.join(', ')}.` : `${word} has no spellings now.`, async () => {
       const back = _vocabBook.entries.map((e) => Object.assign({}, e, e.word === word ? { sounds_like: before } : {}));
       if (await _vocabSave(back)) { renderVocab(); _vocabRunTry(); }
     });
@@ -3384,7 +3453,8 @@ async function addVocabWord() {
     _vocabAsk = { existing: r.existing, word: r.word, sounds: fresh };
     _vocabAsk.said = confirmed || [];
     renderVocab();
-    const keep = document.querySelector('#vocabList .vt-ask [data-act="keep"]');
+    const keep = document.querySelector('#wordsAsk [data-act="keep"]')
+      || document.querySelector('#vocabList .vt-ask [data-act="keep"]');
     if (keep) { keep.scrollIntoView({ block: 'nearest' }); keep.focus(); }
     return;
   }
@@ -3424,8 +3494,12 @@ async function deleteVocabWord(word) {
   const before = _vocabBook.entries.map((e) => Object.assign({}, e));
   const entries = before.filter((e) => e.word !== word);
   const next = entries.map((e) => e.word);
-  // Where the removed row was among the rows on screen.
-  const btns = [...document.querySelectorAll('#vocabList .vt-del')];
+  // Where the removed row was among the rows on screen: the list in view,
+  // or the table under How it works when the cross pressed was there.
+  const inTable = !!(document.activeElement && document.activeElement.closest
+    && document.activeElement.closest('#vocabList'));
+  const crosses = inTable ? '#vocabList .vt-del' : '#wordsList .w-x';
+  const btns = [...document.querySelectorAll(crosses)];
   const at = btns.findIndex((b) => b.getAttribute('data-word') === word);
   const hadFocus = btns.includes(document.activeElement);
   try {
@@ -3442,7 +3516,7 @@ async function deleteVocabWord(word) {
     // Focus went with the row; put it on the next word's remove button,
     // the previous one, or the box when the list is empty.
     if (hadFocus || document.activeElement === document.body) {
-      const left = [...document.querySelectorAll('#vocabList .vt-del')];
+      const left = [...document.querySelectorAll(crosses)];
       const to = WL.focusAfterRemove(at, left.length);
       const target = to >= 0 ? left[to] : document.getElementById('vocabInput');
       if (target) target.focus();
@@ -3826,9 +3900,9 @@ async function loadLearnSwitch() {
   try {
     // Just this one switch, not every page's settings and the key list.
     const s = await pywebview.api.get_learn_from_edits();
-    t.checked = !(s && s.on === false);
+    t.checked = WL.learnSwitchOn(s);
   } catch (_) {
-    t.checked = true;
+    t.checked = false;
   }
 }
 
@@ -4165,12 +4239,15 @@ async function openPracticeEditor(btn) {
 let _currentPage = 'home';
 
 function showPage(page) {
+  // The Vocabulary was a page of its own; it is Settings, Words now. Anything
+  // that still asks for the page gets the section.
+  if (page === 'vocabulary') { _settingsSection = 'words'; page = 'settings'; }
   _currentPage = page;
   // CSS reads it: on the Journal the live strip shows the seconds, so the
   // top bar does not repeat them.
   document.body.dataset.page = page;
 
-  [['navHome', 'home'], ['navMeetings', 'meetings'], ['navVocab', 'vocabulary'], ['navSettings', 'settings']].forEach(([id, p]) => {
+  [['navHome', 'home'], ['navMeetings', 'meetings'], ['navSettings', 'settings']].forEach(([id, p]) => {
     const tab = document.getElementById(id);
     if (!tab) return;
     tab.classList.toggle('active', page === p);
@@ -4179,10 +4256,8 @@ function showPage(page) {
   });
 
   const sp = document.getElementById('settingsPanel');
-  const vp = document.getElementById('vocabularyPanel');
   if ($main) $main.style.display = page === 'home' ? 'flex' : 'none';
   if (sp) sp.style.display = page === 'settings' ? 'grid' : 'none';
-  if (vp) vp.style.display = page === 'vocabulary' ? 'flex' : 'none';
   const mp = document.getElementById('meetingsPanel');
   if (mp) mp.style.display = page === 'meetings' ? 'flex' : 'none';
 
@@ -4190,8 +4265,6 @@ function showPage(page) {
     showSettingsSection(_settingsSection);
     loadSettings();
     refreshThemePicker();
-  } else if (page === 'vocabulary') {
-    loadVocabPage();
   } else if (page === 'meetings' && window.loadMeetingsPage) {
     window.loadMeetingsPage();
   }
@@ -4203,7 +4276,7 @@ function showPage(page) {
 }
 
 // Settings' side nav: one section at a time.
-const SETTINGS_SECTIONS = ['account', 'general', 'style', 'transforms', 'command', 'keys', 'claude', 'hotkey', 'usage', 'privacy', 'about'];
+const SETTINGS_SECTIONS = ['account', 'general', 'style', 'words', 'transforms', 'command', 'keys', 'claude', 'hotkey', 'usage', 'privacy', 'about'];
 let _settingsSection = 'general';
 
 function showSettingsSection(sec) {
@@ -4224,6 +4297,8 @@ function showSettingsSection(sec) {
   if (sec === 'hotkey') { _hotkeyHeard = false; _renderHotkeyTest(); loadShortcuts(); }
   // Who is plugged in may have changed since the list was last drawn.
   if (sec === 'general') loadMicrophones(false);
+  // The words as they are saved now (Words: the Vocabulary, once a page).
+  if (sec === 'words') loadVocabPage();
   _syncMicMeter();
   if (sec === 'keys' && window.loadHowItRuns) window.loadHowItRuns();   // how speech becomes text (howitruns.js)
   if (sec === 'transforms' || sec === 'command') {
@@ -5716,8 +5791,6 @@ function showWizard(status, stt) {
   if (main) main.style.display = 'none';
   const settings = document.getElementById('settingsPanel');
   if (settings) settings.style.display = 'none';
-  const vocab = document.getElementById('vocabularyPanel');
-  if (vocab) vocab.style.display = 'none';
   // Setup covers the top bar: keep it out of Tab and out of screen readers
   // until setup closes.
   _setTopbarInert(true);

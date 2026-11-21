@@ -673,25 +673,10 @@
     return out;
   }
 
-  // What the Vocabulary changed in a dictation: history.json's
-  // "vocab_changes", [[heard, used], ...], saved since 3.15. Shown under the
-  // Journal card, so a change Waffler made is never invisible.
+  // (What the Vocabulary did to a dictation is still kept with the entry,
+  // history.json's "vocab_changes", and counted in Settings, Words. The
+  // Journal card no longer says it: a correction is simply made.)
   const VOCAB_MAX_ENTRY_LEN = 60;   // transcribe_whisper.VOCAB_MAX_ENTRY_LEN
-
-  function vocabChanges(item) {
-    const list = item && Array.isArray(item.vocab_changes) ? item.vocab_changes : [];
-    return list
-      .filter((p) => Array.isArray(p) && typeof p[0] === 'string' && typeof p[1] === 'string' && p[0] && p[1])
-      .map(([heard, used]) => ({ heard, used }));
-  }
-
-  function vocabChangesLine(item) {
-    const parts = vocabChanges(item).map((c) => `${c.heard} to ${c.used}`);
-    if (!parts.length) return '';
-    const joined = parts.length === 1 ? parts[0]
-      : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
-    return `Your Vocabulary changed ${joined}.`;
-  }
 
   // The words to show behind "Show what you said" on a Journal card. Since
   // 3.14.97 an entry keeps Whisper's own words in asr_text and a filtered
@@ -1860,7 +1845,7 @@
     auto: 'Waffler writes as it does today. Nothing is changed.',
     formal: 'Capital letters and full stops, as Waffler writes them.',
     casual: 'Takes the full stop off a one-sentence message.',
-    very_casual: 'Lower case, and no last full stop. Names in your Vocabulary and acronyms keep their capitals.',
+    very_casual: 'Lower case, and no last full stop. Names in your words and acronyms keep their capitals.',
     excited: 'Ends short statements with an exclamation mark.',
   };
   const STYLE_NOTE = 'Applies to new dictations. Works in English and other Latin-script languages.';
@@ -2312,7 +2297,7 @@
     if (!word || !s) return null;
     return {
       title: `"${s}" for ${word} is an everyday word.`,
-      detail: `For now Waffler changes it to ${word} only where it is written like a name, with a capital in the middle of a sentence. Keep it to change every "${s}" you dictate, or remove it.`,
+      detail: `Waffler leaves it alone until you choose. Keep it to change every "${s}" you dictate to ${word}, or remove it.`,
       keep: 'Keep',
       remove: 'Remove',
       keepLabel: `Keep "${s}" as a spelling of ${word}`,
@@ -2360,6 +2345,25 @@
 
   function vocabSortId(id) {
     return VOCAB_SORTS.some((s) => s.id === id) ? id : VOCAB_SORT_DEFAULT;
+  }
+
+  // A star only orders the words sent to the speech service as a prompt, and
+  // Groq is sent none (get_vocab_book's "prompt_used"). While it is not used,
+  // the page shows no stars, so "Starred first" is not an order to offer, and
+  // one remembered from before falls back to the default.
+  function vocabSortsFor(promptUsed) {
+    return VOCAB_SORTS.filter((s) => promptUsed === true || s.id !== 'starred');
+  }
+  function vocabSortFor(id, promptUsed) {
+    const sort = vocabSortId(id);
+    return sort === 'starred' && promptUsed !== true ? VOCAB_SORT_DEFAULT : sort;
+  }
+
+  // "Suggest words from my edits" is on only when the app says exactly so
+  // (get_learn_from_edits: {on: true}). Anything else, a failed call
+  // included, is off: the switch was once ticked by an error.
+  function learnSwitchOn(answer) {
+    return !!(answer && answer.on === true);
   }
 
   // Lower case with the accents off, so "sinead" finds Sinéad.
@@ -2466,8 +2470,8 @@
   function vocabImportButton(counts) {
     const c = counts || {};
     const n = (Number(c.new) || 0) + (Number(c.updated) || 0);
-    if (!n) return 'Add to my Vocabulary';
-    return Number(c.new) && !Number(c.updated) ? `Add ${_plural(c.new, 'word', 'words')}` : 'Add to my Vocabulary';
+    if (!n) return 'Add to my words';
+    return Number(c.new) && !Number(c.updated) ? `Add ${_plural(c.new, 'word', 'words')}` : 'Add to my words';
   }
 
   function vocabImportDone(view) {
@@ -2553,7 +2557,7 @@
     return {
       word,
       sounds: heard,
-      question: `Add "${word}" to your Vocabulary?`,
+      question: `Add "${word}" to your words?`,
       detail: heard.length ? `Speech to text wrote ${_listed(heard)}.` : 'Its capitals will be kept.',
       added: `Added "${word}".`,
     };
@@ -2607,32 +2611,7 @@
     return out;
   }
 
-  // The Journal marks the words the Vocabulary put in: each whole-word
-  // occurrence of an entry it used, as written.
-  function markWords(text, words) {
-    const s = String(text || '');
-    const ws = [...new Set((Array.isArray(words) ? words : []).filter((w) => typeof w === 'string' && w.trim()))]
-      .sort((a, b) => b.length - a.length);
-    if (!ws.length) return markSegments(s, []);
-    const esc = (w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    // No look-behind: older Mac web views (before Safari 16.4) lack it.
-    const re = new RegExp(`(?:${ws.map(esc).join('|')})`, 'gu');
-    const wordChar = /[\p{L}\p{N}]/u;
-    const marks = [];
-    let m;
-    while ((m = re.exec(s))) {
-      const a = m.index, b = a + m[0].length;
-      if (!m[0].length) { re.lastIndex++; continue; }
-      if ((a > 0 && wordChar.test(s[a - 1])) || (b < s.length && wordChar.test(s[b]))) {
-        re.lastIndex = a + 1;
-        continue;
-      }
-      marks.push([a, b]);
-    }
-    return markSegments(s, marks);
-  }
-
-  // Where a search matched, inside the pieces markWords made: each piece is
+  // Where a search matched, inside the pieces of a text (markSegments): each piece is
   // cut at every occurrence of the query (any case, as plain text, the way
   // journal_data.matches compares), and keeps its own mark. [{text, mark, hit}].
   function searchMarks(segments, query) {
@@ -3221,11 +3200,11 @@
 
   return {
     vocabLastUsed, vocabRecentWhen, vocabSoundsParse, vocabSoundsCheck, vocabEverydayAsk, vocabEverydayNotice, vocabSoundsFresh, vocabRows, vocabSummary,
-    VOCAB_SORTS, VOCAB_SORT_DEFAULT, vocabSortId, foldText, vocabMatches, vocabFilter, vocabSortRows,
+    VOCAB_SORTS, VOCAB_SORT_DEFAULT, vocabSortId, vocabSortsFor, vocabSortFor, learnSwitchOn, foldText, vocabMatches, vocabFilter, vocabSortRows,
     vocabSearchAnnouncement, vocabKeepSelected, vocabSelectedLabel, vocabBulkDone, vocabImportView,
     vocabImportDone, snippetImportView, snippetImportDone, listExportDone, bytesToBase64,
     finalText, isEdited, suggestionView, editFailedMessage, editSavedLine, learnSaved,
-    VOCAB_MAX_SOUNDS, markSegments, markWords, dayHeading, weekBars, streakView,
+    VOCAB_MAX_SOUNDS, markSegments, dayHeading, weekBars, streakView,
     keyInputView, serviceRows, saidDiff, setupSteps, startupTheme,
     setupWay, setupStepLabel, modelSize, setupRecommended, setupLocalView, setupConnectDone, setupCanGoBack,
     writingOffered, writingRowView, howItRunsNote, setupExtraView, WRITING_TITLE, WRITING_ABOUT, WRITING_HOW,
@@ -3240,7 +3219,7 @@
     DEFAULT_PROVIDER_ORDER, PROVIDER_NAMES, providerHasKey, normalizeProviderOrder,
     providerOrderRows, activeProviders, backendsLine, aboutLine,
     USAGE_NOTE, formatCount, usageView, usageProviderRows, usesView, keyRows,
-    qualityView, dayKey, dayLabel, statNumber, vocabChanges, vocabChangesLine, originalText, hasOriginal, vocabAdd, VOCAB_MAX_ENTRY_LEN,
+    qualityView, dayKey, dayLabel, statNumber, originalText, hasOriginal, vocabAdd, VOCAB_MAX_ENTRY_LEN,
     SEARCH_DEBOUNCE_MS, debounce, feedView, searchAnnouncement, savingGate, SAVE_FAILED, saveFailedMessage, radioMove, focusAfterRemove,
     SNIPPET_MAX_TRIGGER, SNIPPET_MAX_EXPANSION, SNIPPET_MAX_COUNT, snippetTrigger, snippetCheck,
     snippetSummary, snippetCounter, snippetDone,

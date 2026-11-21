@@ -113,15 +113,11 @@ def test_try_a_sentence_marks_what_changed():
 
 # ── Journal ──────────────────────────────────────────────────────────────────
 
-@needs_node
-def test_the_journal_marks_the_words_the_vocabulary_put_in_as_whole_words():
-    segs = js("L.markWords('Push PostHog and Siobhán, not PostHogs or xPostHog.', ['PostHog', 'Siobhán'])")
-    assert [s["text"] for s in segs if s["mark"]] == ["PostHog", "Siobhán"]
-    assert js("L.markWords('plain', [])") == [{"text": "plain", "mark": False}]
-    # No look-behind in the pattern: older Mac web views lack it.
-    src = read("logic.js")
-    body = src[src.index("function markWords("):src.index("// ── Journal (3.15, Atelier)")]
-    assert "(?<" not in body
+def test_the_journal_no_longer_marks_the_words_the_vocabulary_put_in():
+    """They were underlined on the card (L.markWords). A correction is simply
+    made now, so the function and the underline are gone."""
+    assert "function markWords(" not in read("logic.js")
+    assert "markWords" not in read("app.js") and "word-hl" not in read("app.js")
 
 
 @needs_node
@@ -167,14 +163,14 @@ def test_the_vocabulary_page_reads_real_counts_and_saves_the_spellings():
     assert app.count("_vocabShowUndo(") >= 4
 
 
-def test_the_journal_draws_the_margin_from_get_stats_and_the_marks_from_vocab_changes():
+def test_the_journal_draws_the_margin_from_get_stats_and_no_marks_for_vocab_changes():
     app = read("app.js")
     stats = app[app.index("function renderStats("):]
     stats = stats[:stats.index("\n}\n")]
     assert "WL.weekBars(stats.daily_words, stats.daily_start)" in stats
     assert "WL.streakView(stats.streak_days, stats.longest_streak_days)" in stats
     card = app[app.index("function makeCard("):app.index("function toggleRawHandler(")]
-    assert "WL.vocabChanges(item)" in card and "WL.markWords(" in card
+    assert "vocabChanges" not in card and "markWords" not in card
     # "Show what you said" is still offered whenever the words differ.
     assert "hasStyled ?" in card and "WL.hasOriginal(item)" in card
     html = read("index.html")

@@ -27,8 +27,12 @@ def func(src, name):
 
 
 def panel():
+    """Settings, Words: where the Vocabulary page's markup lives now
+    (tests/test_words_section.py says what is in view and what is under
+    "How it works")."""
     html = read("index.html")
-    return html[html.index('id="vocabularyPanel"'):html.index("<!-- Update dialog")]
+    start = html.index('id="secWords"')
+    return html[start:html.index("</section>", start)]
 
 
 APP = read("app.js")
@@ -124,7 +128,7 @@ def test_each_row_has_a_star_that_keeps_one_name_and_says_whether_it_is_pressed(
     render = func(APP, "renderVocab")
     assert 'aria-pressed="${r.starred ? \'true\' : \'false\'}" aria-label="Star ${w}"' in render
     assert 'aria-label="Select ${w}"' in render
-    assert "WL.vocabRows(entries, new Date(), { sort: _vocabSort, query: _vocabQuery })" in render
+    assert "WL.vocabRows(entries, new Date(), { sort: WL.vocabSortFor(_vocabSort, stars), query: _vocabQuery })" in render
     assert "WL.vocabKeepSelected(" in render and "WL.vocabSearchAnnouncement(" in render
 
 
@@ -281,9 +285,9 @@ def test_add_goes_the_pages_own_way_with_its_checks_and_an_undo():
 
 def test_the_suggestions_group_is_named_and_each_button_says_which_word():
     show = func(APP, "showSuggestions")
-    assert "box.setAttribute('aria-label', 'Words to add to your Vocabulary')" in show
+    assert "box.setAttribute('aria-label', 'Words to add to your list')" in show
     row = func(APP, "_suggestionRow")
-    assert "`Add ${v.word} to your Vocabulary`" in row and "`Don't add ${v.word}`" in row
+    assert "`Add ${v.word} to your words`" in row and "`Don't add ${v.word}`" in row
 
 
 def test_the_dictation_form_is_wide_enough_and_the_actions_get_out_of_its_way():

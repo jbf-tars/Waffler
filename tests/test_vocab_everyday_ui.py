@@ -59,8 +59,10 @@ def test_nothing_everyday_is_nothing_to_ask():
 def test_a_saved_one_says_what_happens_meanwhile_and_names_both_buttons():
     t = js('L.vocabEverydayNotice({word: "Noor", spelling: "your"})')
     assert t["title"] == '"your" for Noor is an everyday word.'
-    assert "only where it is written like a name" in t["detail"]
-    assert 'Keep it to change every "your" you dictate, or remove it.' in t["detail"]
+    # Until it is answered it is never used as a match (tests/test_vocab_everyday_sounds.py).
+    assert "Waffler leaves it alone until you choose." in t["detail"]
+    assert "written like a name" not in t["detail"]
+    assert 'Keep it to change every "your" you dictate to Noor, or remove it.' in t["detail"]
     assert (t["keep"], t["remove"]) == ("Keep", "Remove")
     assert t["keepLabel"] == 'Keep "your" as a spelling of Noor'
     assert t["removeLabel"] == 'Remove "your" from Noor'

@@ -35,7 +35,7 @@ def test_account_is_the_first_section_in_the_list():
     items = re.findall(r'<button type="button" class="snav-item" data-sec="(\w+)" '
                        r"onclick=\"showSettingsSection\('(\w+)'\)\">([^<]+)</button>", nav)
     assert items[0] == ("account", "account", "Account")
-    assert len(items) == html.count('class="snav-item"') == 11
+    assert len(items) == html.count('class="snav-item"') == 12
     assert all(a == b for a, b, _ in items)
     sections = re.findall(r'<section class="s-sec" id="sec\w+" data-sec="(\w+)"', html)
     assert sections[0] == "account" and sections == [a for a, _, _ in items]
@@ -45,7 +45,7 @@ def test_account_is_the_first_section_in_the_list():
 
 def test_the_window_knows_the_section_and_loads_it_when_opened():
     app = code_only(read("app.js"))
-    assert ("const SETTINGS_SECTIONS = ['account', 'general', 'style', 'transforms', 'command', 'keys', "
+    assert ("const SETTINGS_SECTIONS = ['account', 'general', 'style', 'words', 'transforms', 'command', 'keys', "
             "'claude', 'hotkey', 'usage', 'privacy', 'about'];") in app
     assert "if (sec === 'account' && window.loadAccount) window.loadAccount();" in app
     html = read("index.html")

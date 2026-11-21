@@ -29,7 +29,7 @@ import shortcut_settings as ss  # noqa: E402
 from test_ui_logic import js, needs_node, read  # noqa: E402
 
 VOID = {"input", "br", "img", "use", "hr", "meta", "link"}
-SECTIONS = ("secAccount", "secGeneral", "secStyle", "secTransforms", "secCommand", "secKeys", "secClaude",
+SECTIONS = ("secAccount", "secGeneral", "secStyle", "secWords", "secTransforms", "secCommand", "secKeys", "secClaude",
             "secHotkey", "secUsage", "secPrivacy", "secAbout")
 STEPS = ("obStepConnect", "obStepPermissions", "obStepTry", "obStepAnywhere", "obStepAccount")
 # Shown only after "Delete…" is pressed: each says exactly what goes and what stays.
@@ -101,8 +101,8 @@ def test_a_section_has_at_most_one_sentence_under_its_title():
             seen.add(home_of(el))
             assert len(sentences(el["text"])) == 1, el["text"]
             assert len(words(el["text"])) <= 15, el["text"]
-    assert {"secAccount", "secGeneral", "secStyle", "secTransforms", "secCommand", "secKeys", "secClaude",
-            "secHotkey", "secUsage"} <= seen
+    assert {"secAccount", "secGeneral", "secStyle", "secWords", "secTransforms", "secCommand", "secKeys",
+            "secClaude", "secHotkey", "secUsage"} <= seen
 
 
 def test_a_note_under_a_heading_is_one_short_sentence():
@@ -185,6 +185,9 @@ def test_what_was_taken_out_of_view_is_still_said_in_full():
         # AI apps
         "It can only read. It cannot change or delete anything.",
         "These reach this computer only.",
+        # Words (the Vocabulary, once a page of its own)
+        "Waffler fixes these words after speech to text and before the clean-up.",
+        "Everyday words are left as you said them.",
         # Shortcuts
         "The key of a shortcut doesn't reach the app in front, so it never types a letter or runs that app's "
         "own shortcut.",
@@ -209,7 +212,7 @@ def test_the_navigation_says_names_only():
     nav = html[html.index('aria-label="Settings sections"'):]
     nav = nav[:nav.index("</nav>")]
     labels = re.findall(r">([^<]+)</button>", nav)
-    assert labels == ["Account", "General", "Style", "Transforms", "Command mode", "Keys and providers", "AI apps",
+    assert labels == ["Account", "General", "Style", "Words", "Transforms", "Command mode", "Keys and providers", "AI apps",
                       "Shortcuts", "Usage", "Privacy and data", "About"], "the same sections in the same order"
     assert "beta" not in nav.lower()
     assert html.count('<span class="beta-tag">Beta</span>') == 2

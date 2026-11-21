@@ -951,7 +951,7 @@ def test_settings_pages_are_wired_to_real_data():
     assert "WL.usageChart(st.daily_words, st.daily_start)" in app
     assert "_onGripKey" in app and "'ArrowUp'" in app and "saveProviderOrder(order)" in app
     html = read("index.html")
-    settings = html[html.index('id="settingsPanel"'):html.index("── Vocabulary")]
+    settings = html[html.index('id="settingsPanel"'):html.index("<!-- Meetings: the meetings interface")]
     # The mock-ups' NEW badges are notes for the owner, not part of the app.
     assert "newtag" not in settings and ">New<" not in settings
     for part in ('id="themeSeg" role="radiogroup"', 'id="micMeter"', 'id="keysFlow"', 'id="hkTest"',
