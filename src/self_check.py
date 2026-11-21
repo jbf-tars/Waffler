@@ -10,10 +10,18 @@ object on stdout.
     Waffler.app/Contents/MacOS/Waffler --self-check
     python app.py --self-check --complete
 
-Exit code 0 when every required part is there, 1 when one is not. The engines
-and the computer-sound helper are optional in a build (a build without them
-simply does not offer them), so they are reported and do not fail the check
-unless `--complete` is given, which is what a release build should pass.
+Exit code 0 when every required part is there, 1 when one is not. The engines,
+the computer-sound helper and the two libraries meetings import only when they
+are needed (anthropic, and imageio-ffmpeg with its ffmpeg program) are
+optional in a build: a build without one simply cannot do that one thing. So
+they are reported, and fail the check only when `--complete` is given, which
+is what a release build should pass.
+
+    Waffler --self-check --audio memo.m4a
+
+also puts one audio file through "Import audio" (src/meetings/service.py
+load_any_audio) and says how many seconds came out and whether ffmpeg was
+needed: the proof that a voice memo can be imported by this build.
 
 It opens no window, registers no shortcut, makes no connection, and never
 reads or writes the person's data: app.py runs it before it opens crash.log,
@@ -125,6 +133,54 @@ def check_writing() -> dict:
     return out
 
 
+def check_libraries() -> dict:
+    """The libraries meetings import inside functions, which a build leaves
+    out without a word unless they are installed and named in the spec."""
+    out = {}
+    try:
+        import anthropic
+        out["anthropic"] = {"present": True, "version": getattr(anthropic, "__version__", "")}
+    except Exception as e:
+        out["anthropic"] = {"present": False, "error": f"{type(e).__name__}: {e}"}
+    try:
+        import imageio_ffmpeg
+        exe = imageio_ffmpeg.get_ffmpeg_exe()       # the wheel's own program; raises when it is not there
+        out["ffmpeg"] = {"present": os.path.isfile(exe) and os.access(exe, os.X_OK), "path": str(exe)}
+    except Exception as e:
+        out["ffmpeg"] = {"present": False, "error": f"{type(e).__name__}: {e}"}
+    return out
+
+
+def check_meeting_keys() -> dict:
+    """Where a meeting's keys are kept. keyring is left out of the build on
+    purpose (requirements.txt), so this should say there is none: keys then
+    come from the environment the app sets, and are held in memory only."""
+    try:
+        keys = _import("meetings.keys")
+        return {"keyring": bool(keys._keyring()), "store": keys.store_kind()}
+    except Exception as e:
+        return {"error": f"{type(e).__name__}: {e}"}
+
+
+def check_audio(path) -> dict:
+    """One audio file through "Import audio", as the app would read it."""
+    out = {"file": os.path.basename(str(path)), "decoded": False}
+    try:
+        service = _import("meetings.service")
+        try:
+            _import("meetings.audioproc").read_audio(path)
+            out["needed_ffmpeg"] = False
+        except Exception:
+            out["needed_ffmpeg"] = True              # soundfile cannot read it (m4a)
+        out["ffmpeg_on_path"] = shutil.which("ffmpeg") or ""
+        audio = service.load_any_audio(Path(path))
+        out["seconds"] = round(len(audio) / service.RATE, 2)
+        out["decoded"] = len(audio) > 0
+    except Exception as e:
+        out["error"] = f"{type(e).__name__}: {e}"
+    return out
+
+
 def check_computer_sound() -> dict:
     """The helper that records what the computer is playing in a meeting (a
     Mac needs one; Windows does not). It is looked for, never started:
@@ -138,20 +194,25 @@ def check_computer_sound() -> dict:
         return {"needed": True, "present": False, "error": f"{type(e).__name__}: {e}"}
 
 
-def run(root: Path, complete: bool = False) -> dict:
+def run(root: Path, complete: bool = False, audio=None) -> dict:
     """The whole check, as the object that is printed."""
     names = MODULES + (MAC_MODULES if sys.platform == "darwin" else ())
     missing_modules = check_modules(names)
     missing_files = check_files(root)
     speech, writing, sound = check_speech(), check_writing(), check_computer_sound()
+    libraries = check_libraries()
+    imported = check_audio(audio) if audio else None
     try:
         version = _import("__init__").__version__      # src/__init__.py, by either name
     except Exception:
         version = ""
     optional_missing = [what for what, there in (
         ("speech engine", speech["runs"]), ("writing engine", writing["runs"]),
-        ("computer-sound helper", sound["present"] or not sound["needed"])) if not there]
-    ok = not missing_modules and not missing_files and not (complete and optional_missing)
+        ("computer-sound helper", sound["present"] or not sound["needed"]),
+        ("anthropic", libraries["anthropic"]["present"]),
+        ("ffmpeg for Import audio", libraries["ffmpeg"]["present"])) if not there]
+    ok = (not missing_modules and not missing_files and not (complete and optional_missing)
+          and (imported is None or imported["decoded"]))
     return {
         "ok": ok,
         "version": version,
@@ -162,6 +223,9 @@ def run(root: Path, complete: bool = False) -> dict:
         "files": {"checked": len(FILES), "missing": missing_files},
         "engines": {"speech": speech, "writing": writing},
         "computer_sound_helper": sound,
+        "libraries": libraries,
+        "meeting_keys": check_meeting_keys(),
+        **({"audio": imported} if imported is not None else {}),
         "optional_missing": optional_missing,
         "complete_required": bool(complete),
     }
@@ -185,7 +249,8 @@ def main(argv=None, root: Path | None = None) -> int:
         own_data = tempfile.mkdtemp(prefix="waffler-self-check-")
         os.environ["WAFFLER_DATA_DIR"] = own_data
     try:
-        result = run(root, complete="--complete" in argv)
+        audio = argv[argv.index("--audio") + 1] if "--audio" in argv[:-1] else None
+        result = run(root, complete="--complete" in argv, audio=audio)
     except Exception as e:                           # the check itself must still answer
         result = {"ok": False, "error": f"{type(e).__name__}: {e}"}
     finally:

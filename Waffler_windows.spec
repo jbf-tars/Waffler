@@ -83,6 +83,12 @@ a = Analysis(
         # Meetings: the computer's sound through WASAPI loopback, imported
         # inside functions in src/meetings/recorder.py (SystemSource).
         'pyaudiowpatch',
+        # Meetings, also imported inside functions. Import audio that
+        # soundfile cannot read (m4a): the wheel's own ffmpeg program, which
+        # pyinstaller-hooks-contrib's hook-imageio_ffmpeg collects from
+        # imageio_ffmpeg/binaries. And meeting notes by Anthropic's models.
+        'imageio_ffmpeg',
+        'anthropic',
         # ── UI ──
         'webview',
         'webview.platforms.edgechromium',

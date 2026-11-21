@@ -3,13 +3,16 @@
 
     python scripts/check_built_app.py dist/Waffler.app
 
-Two things, both through the built app's own executable, in a data folder made
-for this run (never the person's):
+Three things, all through the built app's own executable, in a data folder
+made for this run (never the person's):
 
   1. `--self-check --complete`: every part the build needs is inside it, the
-     two on-device engines and the computer-sound helper among them
-     (src/self_check.py);
-  2. `--mcp`: the connector Claude starts answers `initialize`, `tools/list`
+     two on-device engines, the computer-sound helper, anthropic and the
+     ffmpeg program for Import audio among them (src/self_check.py);
+  2. on a Mac, `--self-check --audio`: a two-second .m4a made here with
+     afconvert (what an iPhone voice memo is) goes through Import audio, with
+     no ffmpeg on the PATH, so it is the build's own ffmpeg that reads it;
+  3. `--mcp`: the connector Claude starts answers `initialize`, `tools/list`
      and `tools/call` over a meeting and three dictations put there first.
 
 No window, no shortcut, no connection, so it is safe on a build machine and
@@ -52,6 +55,22 @@ def seed(data: Path) -> str:
     return note["id"]
 
 
+def voice_memo(folder: Path) -> Path:
+    """Two seconds of a 440 Hz tone as AAC in an .m4a, made with afconvert."""
+    import math
+    import struct
+    import wave
+    wav, m4a = folder / "tone.wav", folder / "memo.m4a"
+    with wave.open(str(wav), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(44100)
+        w.writeframes(b"".join(struct.pack("<h", int(12000 * math.sin(2 * math.pi * 440 * i / 44100)))
+                               for i in range(2 * 44100)))
+    subprocess.run(["/usr/bin/afconvert", "-f", "m4af", "-d", "aac", str(wav), str(m4a)], check=True)
+    return m4a
+
+
 def main() -> int:
     if len(sys.argv) != 2:
         print(__doc__)
@@ -82,9 +101,32 @@ def main() -> int:
               engine.get("error") or engine.get("detail", "")[:60])
     check("self-check: the computer-sound helper is in the app",
           bool((answer.get("computer_sound_helper") or {}).get("present")) or sys.platform != "darwin")
+    libraries = answer.get("libraries") or {}
+    check("self-check: anthropic imports", bool((libraries.get("anthropic") or {}).get("present")),
+          (libraries.get("anthropic") or {}).get("version", ""))
+    check("self-check: the ffmpeg program for Import audio is in the app",
+          bool((libraries.get("ffmpeg") or {}).get("present")), (libraries.get("ffmpeg") or {}).get("path", ""))
+    keys = answer.get("meeting_keys") or {}
+    check("self-check: meetings keep keys without keyring", keys.get("keyring") is False, json.dumps(keys))
     check("self-check wrote nothing in the data folder", list(data.iterdir()) == [])
 
-    # 2. the connector answers over seeded data
+    # 2. a voice memo goes through Import audio with the build's own ffmpeg
+    if sys.platform == "darwin":
+        scratch = Path(tempfile.mkdtemp(prefix="waffler-built-check-audio-"))
+        memo = voice_memo(scratch)
+        bare = dict(env, PATH="/usr/bin:/bin")       # no ffmpeg of the person's own
+        done = subprocess.run([str(exe), "--self-check", "--audio", str(memo)], env=bare,
+                              capture_output=True, text=True, timeout=180)
+        try:
+            audio = json.loads(done.stdout).get("audio") or {}
+        except ValueError:
+            audio = {}
+        check("Import audio: an .m4a is decoded by the build's own ffmpeg",
+              audio.get("decoded") is True and audio.get("needed_ffmpeg") is True
+              and audio.get("ffmpeg_on_path") == "" and 1.8 <= audio.get("seconds", 0) <= 2.3,
+              json.dumps(audio))
+
+    # 3. the connector answers over seeded data
     note_id = seed(data)
     messages = [
         {"jsonrpc": "2.0", "id": 1, "method": "initialize",

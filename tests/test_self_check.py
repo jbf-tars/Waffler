@@ -56,15 +56,86 @@ def test_a_module_that_does_not_import_is_named_with_the_reason():
     assert "ModuleNotFoundError" in missing["no_such_part_of_waffler"]
 
 
-def test_complete_fails_when_an_optional_part_is_absent(tmp_path, monkeypatch):
+def _all_there(monkeypatch):
     monkeypatch.setattr(self_check, "check_modules", lambda names: {})
     monkeypatch.setattr(self_check, "check_files", lambda root: [])
     monkeypatch.setattr(self_check, "check_speech", lambda: {"present": True, "runs": True})
-    monkeypatch.setattr(self_check, "check_writing", lambda: {"present": False, "runs": False})
+    monkeypatch.setattr(self_check, "check_writing", lambda: {"present": True, "runs": True})
     monkeypatch.setattr(self_check, "check_computer_sound", lambda: {"needed": True, "present": True})
+    monkeypatch.setattr(self_check, "check_libraries",
+                        lambda: {"anthropic": {"present": True}, "ffmpeg": {"present": True}})
+
+
+def test_complete_fails_when_an_optional_part_is_absent(tmp_path, monkeypatch):
+    _all_there(monkeypatch)
+    assert self_check.run(tmp_path, complete=True)["ok"] is True
+    monkeypatch.setattr(self_check, "check_writing", lambda: {"present": False, "runs": False})
+    monkeypatch.setattr(self_check, "check_libraries",
+                        lambda: {"anthropic": {"present": False}, "ffmpeg": {"present": False}})
     assert self_check.run(tmp_path)["ok"] is True                    # optional: reported only
     strict = self_check.run(tmp_path, complete=True)
-    assert strict["ok"] is False and strict["optional_missing"] == ["writing engine"]
+    assert strict["ok"] is False
+    assert strict["optional_missing"] == ["writing engine", "anthropic", "ffmpeg for Import audio"]
+
+
+def test_the_two_meeting_libraries_are_reported_as_they_are_here():
+    import importlib.util
+    libraries = self_check.check_libraries()
+    assert libraries["anthropic"]["present"] is (importlib.util.find_spec("anthropic") is not None)
+    assert libraries["ffmpeg"]["present"] is (importlib.util.find_spec("imageio_ffmpeg") is not None)
+    if libraries["ffmpeg"]["present"]:
+        assert os.access(libraries["ffmpeg"]["path"], os.X_OK)
+
+
+def test_meeting_keys_are_reported_without_keyring(monkeypatch):
+    # keyring is left out of the build on purpose; this is the path that ships.
+    monkeypatch.setenv("NATTER_NO_KEYRING", "1")
+    monkeypatch.delenv("NATTER_KEYS_FILE", raising=False)
+    assert self_check.check_meeting_keys() == {"keyring": False, "store": "memory"}
+
+
+def test_an_audio_file_is_put_through_import_audio(tmp_path, monkeypatch):
+    import wave
+    _all_there(monkeypatch)
+    clip = tmp_path / "clip.wav"
+    with wave.open(str(clip), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(16000)
+        w.writeframes(b"\x00\x01" * 16000)
+    answer = self_check.run(tmp_path, audio=str(clip))
+    assert answer["audio"]["decoded"] is True and answer["audio"]["needed_ffmpeg"] is False
+    assert answer["audio"]["seconds"] == 1.0 and answer["ok"] is True
+    (tmp_path / "broken.m4a").write_bytes(b"not audio")
+    monkeypatch.setenv("PATH", str(tmp_path))                        # no ffmpeg of the person's own
+    broken = self_check.run(tmp_path, audio=str(tmp_path / "broken.m4a"))
+    assert broken["audio"]["decoded"] is False and "error" in broken["audio"]
+    assert broken["ok"] is False                                     # a file that was asked for must decode
+
+
+# ── the build installs and names what meetings import inside functions ──────
+
+def _names(requirements_file):
+    import re
+    text = (ROOT / requirements_file).read_text(encoding="utf-8")
+    lines = [line.strip() for line in text.splitlines()
+             if line.strip() and not line.strip().startswith("#")]
+    return {re.split(r"[<>=;\s\[]", line, maxsplit=1)[0].lower() for line in lines}
+
+
+def test_both_requirements_install_ffmpeg_and_anthropic_and_leave_keyring_out():
+    for name in ("requirements.txt", "requirements_windows.txt"):
+        names = _names(name)
+        assert {"imageio-ffmpeg", "anthropic"} <= names, name
+        assert "keyring" not in names, name
+
+
+def test_both_specs_name_them_among_the_hidden_imports():
+    for name in ("Waffler_mac.spec", "Waffler_windows.spec"):
+        spec = (ROOT / name).read_text(encoding="utf-8")
+        hidden = spec[spec.index("hiddenimports=["):spec.index("excludes=[")]
+        assert "'imageio_ffmpeg'," in hidden and "'anthropic'," in hidden, name
+        assert "keyring" not in hidden, name
 
 
 def test_built_app_finds_the_sound_helper_where_the_build_puts_it(tmp_path, monkeypatch):

@@ -151,6 +151,13 @@ a = Analysis(
         *_STT_HIDDEN,
         # ── The writing model's engine, when installed (see _LLM_HIDDEN) ──
         *_LLM_HIDDEN,
+        # ── Meetings: imported inside functions (src/meetings) ──
+        # Import audio that soundfile cannot read (m4a): the wheel's own
+        # ffmpeg program, which pyinstaller-hooks-contrib's hook-imageio_ffmpeg
+        # collects from imageio_ffmpeg/binaries.
+        'imageio_ffmpeg',
+        # Meeting notes by Anthropic's models, when the person chooses them.
+        'anthropic',
         # ── UI ──
         'webview',
         'webview.platforms.cocoa',
