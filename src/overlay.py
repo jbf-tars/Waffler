@@ -302,13 +302,16 @@ class RecordingOverlay:
     def _pill_config_is_default(config) -> bool:
         return not config or (not config.get("idle") and not config.get("positions"))
 
-    def set_meeting(self, on: bool, elapsed: float = 0.0):
+    def set_meeting(self, on: bool, elapsed: float = 0.0, done: bool = False):
         """The meeting bar (Mac): shown with the time while a meeting records,
-        hidden when it ends. The app sends this every second, so a restarted
-        subprocess shows it again by itself. Never raises."""
+        hidden when it ends. `done` is the few seconds after Finish, when it
+        reads "Writing the notes" in place of the time. The app sends this
+        every second, so a restarted subprocess shows it again by itself.
+        Never raises."""
         try:
             if self._is_alive():
-                self._send({"type": "meeting", "on": bool(on), "elapsed": float(elapsed)})
+                self._send({"type": "meeting", "on": bool(on), "elapsed": float(elapsed),
+                            "done": bool(done)})
         except Exception as e:
             self._log(f"[overlay] meeting bar not updated: {type(e).__name__}")
 

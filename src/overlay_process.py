@@ -29,7 +29,7 @@ Commands:  {"type": "show"}
                  their default, so without it this process is as it was.
            {"type": "pill_menu", "items": [{action, label, enabled}, ...]}
                  the idle pill's menu, in answer to "pill_hover"
-           {"type": "meeting", "on": bool, "elapsed": seconds}
+           {"type": "meeting", "on": bool, "elapsed": seconds, "done": bool}
                  the meeting bar: a dark capsule at the top of the screen
                  with a red dot, the time and Finish, shown for as long as a
                  meeting records. The app sends it every second; "on": false
@@ -2262,6 +2262,7 @@ MEET_FINISH_W = 66
 _meet_win = None
 _meet_view = None
 _meet_elapsed = 0
+_meet_done = False          # just finished: the bar reads "Writing the notes"
 
 
 def _meet_clock(seconds):
@@ -2295,6 +2296,22 @@ class MeetingBarView(NSView):
         NSColor.colorWithCalibratedWhite_alpha_(1.0, 0.14).set()
         body.setLineWidth_(1)
         body.stroke()
+        if _meet_done:
+            # Finished: a gold tick and "Writing the notes", nothing to press.
+            tick = NSBezierPath.bezierPath()
+            tick.moveToPoint_((17, MEET_H / 2.0 + 0.5))
+            tick.lineToPoint_((21, MEET_H / 2.0 + 4.5))
+            tick.lineToPoint_((28, MEET_H / 2.0 - 4))
+            tick.setLineWidth_(1.8)
+            tick.setLineCapStyle_(1)
+            tick.setLineJoinStyle_(1)
+            hex_to_ns_color("#E8C86C").set()
+            tick.stroke()
+            done_attrs = {NSFontAttributeName: NSFont.systemFontOfSize_(13),
+                          NSForegroundColorAttributeName: hex_to_ns_color("#FDFCFB")}
+            said = NSAttributedString.alloc().initWithString_attributes_("Writing the notes", done_attrs)
+            said.drawAtPoint_((38, (MEET_H - said.size().height) / 2.0))
+            return
         # the dot
         hex_to_ns_color("#F0624F").set()
         NSBezierPath.bezierPathWithOvalInRect_(NSMakeRect(16, MEET_H / 2.0 - 4.5, 9, 9)).fill()
@@ -2322,7 +2339,7 @@ class MeetingBarView(NSView):
     def mouseDown_(self, event):
         try:
             x = self.convertPoint_fromView_(event.locationInWindow(), None).x
-            if x >= MEET_W - MEET_FINISH_W - 10:
+            if not _meet_done and x >= MEET_W - MEET_FINISH_W - 10:
                 emit("meeting_finish")
         except Exception as e:
             _dbg("meeting.click.error", err=str(e)[:80])
@@ -2336,8 +2353,9 @@ def _meeting_origin():
 
 
 def _apply_meeting(cmd):
-    global _meet_win, _meet_view, _meet_elapsed
+    global _meet_win, _meet_view, _meet_elapsed, _meet_done
     on = bool(cmd.get("on"))
+    _meet_done = on and bool(cmd.get("done"))
     if not on:
         if _meet_win is not None:
             _meet_win.orderOut_(None)

@@ -261,3 +261,32 @@ def test_windows_meeting_tap_wins_over_hands_free_and_gives_it_back_when_off():
 def test_windows_without_either_setting_nothing_changes():
     log, _ = win_isolated("print(json.dumps(run(['P', 0.08, 'R', 0.12, 'P', 0.08, 'R'], meeting=False)))")
     assert log == ["press", "release", "press", "release"]
+
+
+# ── Finishing a meeting: the bar says so, and no pop-up comes up ─────────────
+
+def test_the_bar_is_told_when_a_meeting_has_just_finished():
+    from src.overlay import RecordingOverlay as _Overlay
+    sent = []
+    o = _Overlay.__new__(_Overlay)
+    o._is_alive = lambda: True
+    o._send = sent.append
+    o._log = lambda *a, **k: None
+    o.set_meeting(True, 12)
+    o.set_meeting(True, 0, done=True)
+    o.set_meeting(False)
+    assert [(m["on"], m["done"]) for m in sent] == [(True, False), (True, True), (False, False)]
+    assert all(m["type"] == "meeting" for m in sent)
+
+
+def test_on_a_mac_starting_and_finishing_a_meeting_raise_no_pop_up():
+    from pathlib import Path as _P
+    root = _P(__file__).resolve().parent.parent
+    app = (root / "app.py").read_text(encoding="utf-8")
+    body = app[app.index("    def _on_meeting_double_tap(self):"):app.index("    def apply_double_tap(self):")]
+    mac = body.index('elif _platform.system() == "Darwin":')
+    assert body.index('"The meeting couldn\'t be recorded"') < mac      # an error is still said
+    assert mac < body.index('"Recording the meeting"') and mac < body.index('"Meeting finished"')
+    bar = (root / "src" / "overlay_process.py").read_text(encoding="utf-8")
+    assert '"Writing the notes"' in bar and "if not _meet_done and x >=" in bar
+    assert "set_bar(True, 0, done=True)" in app and "MEETING_DONE_SECONDS" in app

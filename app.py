@@ -690,6 +690,7 @@ def _local_stt_changed():
 
 
 _meeting_clock_thread = None
+MEETING_DONE_SECONDS = 3.0      # how long the bar reads "Writing the notes" after Finish
 
 
 def _meeting_menubar_sync():
@@ -715,18 +716,35 @@ def _meeting_clock():
             AppHelper.callAfter(lambda: item.button().setTitle_(text))
         except Exception:
             pass
-    def set_bar(on, seconds=0):
+    def set_bar(on, seconds=0, done=False):
         overlay = getattr(_pipeline, "overlay", None)
         setter = getattr(overlay, "set_meeting", None)
         if setter is not None:
-            setter(on, seconds)
+            setter(on, seconds, done=done)
+
+    def recording():
+        return _meetings is not None and _meetings.state()["recording"]
     try:
-        while _meetings is not None and _meetings.state()["recording"]:
-            s = int(_meetings.state()["elapsed_s"])
-            clock = f"{s // 3600}:{(s // 60) % 60:02d}:{s % 60:02d}" if s >= 3600 else f"{s // 60}:{s % 60:02d}"
-            set_title(f" \u25cf {clock}")
-            set_bar(True, s)
-            time.sleep(1.0)
+        while True:
+            ran = False
+            while recording():
+                ran = True
+                s = int(_meetings.state()["elapsed_s"])
+                clock = f"{s // 3600}:{(s // 60) % 60:02d}:{s % 60:02d}" if s >= 3600 else f"{s // 60}:{s % 60:02d}"
+                set_title(f" \u25cf {clock}")
+                set_bar(True, s)
+                time.sleep(1.0)
+            set_title("")
+            if not ran:
+                break
+            # Finished: the bar itself says the notes are coming, for three
+            # seconds, and then goes. No pop-up to dismiss.
+            until = time.time() + MEETING_DONE_SECONDS
+            while time.time() < until and not recording():
+                set_bar(True, 0, done=True)
+                time.sleep(0.25)
+            if not recording():
+                break
     finally:
         set_title("")
         set_bar(False)
@@ -5675,6 +5693,11 @@ class WafflerPipeline:
         elif not result.get("ok"):
             self._show_toast_safe("error", "The meeting couldn't be recorded",
                                   result.get("error") or "Try again.", timeout=8)
+        elif _platform.system() == "Darwin":
+            # The meeting bar says both: it appears with the time when a
+            # meeting starts, and reads "Writing the notes" when it is
+            # finished. A pop-up on top of that is one thing too many.
+            pass
         elif result.get("started"):
             self._show_toast_safe("info", "Recording the meeting",
                                   f"Tap {key} twice again to finish. You can still hold it to dictate.",
