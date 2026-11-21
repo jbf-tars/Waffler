@@ -3,6 +3,11 @@
 Providers: Anthropic (Claude), OpenAI, Groq, or any OpenAI-compatible
 endpoint (OpenRouter, a local Ollama, ...). "auto" picks the first provider
 that has a key, Claude first.
+
+And "local": the writing model on this computer (src/local_llm.py), an
+optional download in Waffler's Settings. It writes when it is here and there
+is no key, or when the person chose it over their key. Nothing is sent
+anywhere, and a failure there is never passed to a provider.
 """
 from __future__ import annotations
 
@@ -12,6 +17,11 @@ import time
 from . import keys
 from .transcribe import GROQ_BASE_URL
 
+try:
+    import local_llm            # the app's own copy: src/ is on its path
+except ImportError:
+    from src import local_llm
+
 ANTHROPIC_DEFAULT_MODEL = "claude-opus-5-5"
 _GROQ_PREFERRED = ("openai/gpt-oss-120b", "llama-3.3-70b-versatile", "moonshotai/kimi-k2",
                    "qwen/qwen3-32b", "llama-3.1-8b-instant")
@@ -19,7 +29,9 @@ _OPENAI_PREFERRED = ("gpt-5-mini", "gpt-4.1-mini", "gpt-4o-mini", "gpt-4o")
 # How much transcript one request may carry. Groq's free tier limits tokens
 # per minute, so long transcripts go through in parts there.
 # "custom" is sized for a local model served with a 16k-token window.
-_PART_CHARS = {"groq": 16000, "anthropic": 600000, "openai": 300000, "custom": 36000}
+# "local" is the model on this computer, opened with a 16k-token window too.
+_PART_CHARS = {"groq": 16000, "anthropic": 600000, "openai": 300000, "custom": 36000,
+               "local": 36000}
 _LOCAL_PREFERRED = ("gemma4:e2b", "gemma4:e4b")     # measured best for notes at their size
 _OLLAMA_CTX_STEPS = (4096, 8192, 16384)             # few distinct sizes = few model reloads
 _ollama_roots: dict[str, str | None] = {}
@@ -58,16 +70,38 @@ def available_providers() -> list[str]:
 def resolve_provider(settings: dict) -> str:
     want = settings.get("llm_provider") or "auto"
     have = available_providers()
+    if want == "custom" and settings.get("custom_base_url"):
+        return "custom"          # a local endpoint may need no key
+    # The writing model on this computer, when the person chose it over
+    # their key (Waffler's Settings; src/local_llm.py).
+    if local_llm.should_use(has_key=True):
+        return "local"
     if want != "auto":
-        if want == "custom" and settings.get("custom_base_url"):
-            return "custom"      # a local endpoint may need no key
         if want in have:
             return want
+        if local_llm.should_use(has_key=False):
+            return "local"       # that key has gone, and the model is here
         raise LLMError(f"No {want} key is set. Add one in Settings.", "no_key")
     for p in have:
         if p != "custom" or settings.get("custom_base_url"):
             return p
+    if local_llm.should_use(has_key=False):
+        return "local"           # no key at all, and the model is here
     raise LLMError(NOTES_NEED_KEY, "no_key")
+
+
+def _local_complete(system: str, messages: list[dict], max_tokens: int, background: bool,
+                    on_text=None) -> str:
+    """One reply from the model on this computer. Asked once: a failure is
+    its own plain sentence, and nobody else is asked instead. ``background``
+    is for notes, which give way to a dictation."""
+    try:
+        reply = local_llm.chat(system, messages, max_tokens=min(max_tokens, 3000),
+                               temperature=LOCAL_TEMPERATURE, background=background,
+                               on_text=on_text)
+    except local_llm.LocalLLMError as e:
+        raise LLMError(str(e), "local") from e
+    return strip_thinking(reply.get("text") or "")
 
 
 def _openai_client(provider: str, settings: dict):
@@ -239,14 +273,19 @@ def strip_thinking(text: str) -> str:
 
 
 def complete(system: str, messages: list[dict], settings: dict, max_tokens: int = 16000,
-             backend=None, effort: str | None = None, on_text=None) -> str:
+             backend=None, effort: str | None = None, on_text=None,
+             background: bool = False) -> str:
     """One model reply. `backend(system, messages)` replaces the network in tests.
     `effort` is how hard a thinking model should think (Ask passes "low").
     `on_text(words so far)` is called as the reply is written, where the
-    provider can do that; the whole reply is still what comes back."""
+    provider can do that; the whole reply is still what comes back.
+    `background` says nobody is waiting on it (notes): the model on this
+    computer then lets a dictation go first."""
     if backend is not None:
         return backend(system, messages)
     provider = resolve_provider(settings)
+    if provider == "local":
+        return _local_complete(system, messages, max_tokens, background, on_text)
     model = resolve_model(provider, settings)
     last: Exception | None = None
     for attempt in range(4):
@@ -300,6 +339,48 @@ labels at the start of bullets, no tables.
 
 Output format, exactly: a first line `TITLE: <a specific title, at most 8 words, no quotes>`, a \
 blank line, then the notes."""
+
+
+# What the model on this computer is told besides (src/local_llm.py). Measured
+# on a 1,400-word meeting: without these two rules it wrote "28 January" for
+# "the twenty-eighth" in three runs of seven and gave actions to "Owner" or to
+# the wrong person; with them, nothing invented in three runs of three. They
+# go among the rules, before the output format. Providers are sent NOTES_SYSTEM
+# as it is.
+LOCAL_NOTES_RULES = (
+    "- Never add a month, year or weekday that was not said: write a date only as far as the "
+    "transcript gives it.\n"
+    "- In an action, name who will do it only when the transcript makes that certain (\"Me\" for "
+    "the owner of the recording, otherwise the person's name); if it is not certain, write the "
+    "action with no name. Never use \"Owner\", \"Them\" or \"Speaker\" as a name.")
+# No chance in the choice of words: the same meeting gives the same notes.
+LOCAL_TEMPERATURE = 0.0
+_FORMAT_MARK = "\n\nOutput format"
+
+
+def notes_system(provider: str) -> str:
+    """NOTES_SYSTEM, with LOCAL_NOTES_RULES among its rules for the model on
+    this computer."""
+    if provider != "local" or _FORMAT_MARK not in NOTES_SYSTEM:
+        return NOTES_SYSTEM
+    return NOTES_SYSTEM.replace(_FORMAT_MARK, "\n" + LOCAL_NOTES_RULES + _FORMAT_MARK, 1)
+
+
+def _local_title(notes: str, settings: dict) -> str:
+    """A title for notes the model on this computer wrote without one (it
+    left the TITLE line out for one meeting in three when measured). One
+    short question more; anything that is not a title is no title."""
+    try:
+        reply = complete("You give notes a title. Reply with the title only: specific, at most "
+                         "8 words, no quotes, no full stop.",
+                         [{"role": "user", "content": notes[:6000]}], settings, max_tokens=32,
+                         background=True)
+    except LLMError:
+        return ""
+    lines = [ln for ln in reply.strip().splitlines() if ln.strip()]
+    title = lines[0].strip().strip('"').strip("*#").strip() if len(lines) == 1 else ""
+    title = re.sub(r"^(?:TITLE|Title)\s*:\s*", "", title).rstrip(".")
+    return title if 0 < len(title.split()) <= 10 else ""
 
 
 def _split_parts(text: str, size: int) -> list[str]:
@@ -388,7 +469,7 @@ def write_notes(transcript: str, my_notes: str, template_prompt: str, settings: 
                 "Condense this part of a transcript into detailed bullet points. Keep every fact, "
                 "figure, name, decision, request and action, and who said it (Me/Them). No preamble.",
                 [{"role": "user", "content": f"Part {i} of {len(parts)}:\n\n{part}"}],
-                settings, max_tokens=4000, backend=backend))
+                settings, max_tokens=4000, backend=backend, background=True))
         transcript = "\n\n".join(f"[Part {i}]\n{c}" for i, c in enumerate(condensed, 1))
         source = "Detailed digest of the transcript (it was too long to send whole)"
     else:
@@ -400,9 +481,12 @@ def write_notes(transcript: str, my_notes: str, template_prompt: str, settings: 
     if my_notes.strip():
         user.append(f"The owner's own typed notes:\n<my_notes>\n{my_notes.strip()}\n</my_notes>")
     user.append(f"{source}:\n<transcript>\n{transcript}\n</transcript>")
-    reply = complete(NOTES_SYSTEM, [{"role": "user", "content": "\n\n".join(user)}], settings,
-                     backend=backend)
-    return parse_notes(reply)
+    reply = complete(notes_system(provider), [{"role": "user", "content": "\n\n".join(user)}],
+                     settings, backend=backend, background=True)
+    title, notes = parse_notes(reply)
+    if not title and notes and provider == "local":
+        title = _local_title(notes, settings)
+    return title, notes
 
 
 ASK_SYSTEM = """You answer questions about the user's own recorded meetings and voice notes, using \

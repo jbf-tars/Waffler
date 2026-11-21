@@ -470,6 +470,11 @@ def _load_engine(name: str):
     return mod.LlamaCppEngine(model_dir(name) / MODELS[name].files[0].name)
 
 
+def is_loaded() -> bool:
+    """Is the model in memory now?"""
+    return _engine is not None
+
+
 def _release(why: str) -> bool:
     """Give the model's memory back. Holds _gate."""
     global _engine, _engine_key, _primed

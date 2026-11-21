@@ -169,6 +169,7 @@ import snippets_io as _snippets_io
 import table_io as _table_io
 import transcribe_whisper as _transcribe_whisper
 import local_stt as _local_stt
+import local_llm as _local_llm
 import take_marker as _take_marker
 import action_hotkeys as _action_hotkeys
 import transforms as _transforms
@@ -685,6 +686,16 @@ def _local_stt_changed():
     try:
         status = _local_stt.model_status()
         _post_js("window.waffler_local_stt_changed && window.waffler_local_stt_changed("
+                 + json.dumps(status) + ")")
+    except Exception:
+        pass
+
+
+def _local_llm_changed():
+    """The writing model's download moved or ended: hand the page its state."""
+    try:
+        status = _local_llm.model_status()
+        _post_js("window.waffler_local_llm_changed && window.waffler_local_llm_changed("
                  + json.dumps(status) + ")")
     except Exception:
         pass
@@ -1955,6 +1966,68 @@ class Api:
             _log_to_file(f"[local-stt] remove failed: {type(e).__name__}: {e}")
             return {"ok": False, "error": "The speech model couldn't be removed."}
 
+    # ── Tidying text and writing notes on this computer (src/local_llm.py) ──
+    def local_llm_status(self) -> dict:
+        """The writing model on this computer: {"ok", "mode" ("local" when the
+        person chose it over their key, else "cloud"), "available", "model",
+        "label", "state" ("not_downloaded" | "downloading" | "ready"),
+        "percent", "bytes_done", "bytes_total", "size_on_disk", "error",
+        "cancelled", "loaded", "suits_machine", "machine_reason" ("apple_silicon"
+        | "low_memory" | "not_measured")}. Cheap: the page may poll it.
+
+        ``suits_machine``: only an Apple Silicon Mac with 16 GB or more is
+        offered the download (src/local_llm.py machine_verdict)."""
+        try:
+            return {"ok": True, "mode": _local_llm.mode_of(self._load_settings_file()),
+                    **_local_llm.model_status()}
+        except Exception as e:
+            _log_to_file(f"[local-llm] status failed: {type(e).__name__}: {e}")
+            return {"ok": False, "error": "The writing model's state couldn't be read."}
+
+    def local_llm_download(self) -> dict:
+        """Start downloading the writing model and return at once. Progress:
+        poll local_llm_status(), or define window.waffler_local_llm_changed."""
+        try:
+            def tell(*_progress):
+                _local_llm_changed()
+
+            def done(result):
+                _log_to_file(f"[local-llm] download ended: {result.get('state')}"
+                             + (" (cancelled)" if result.get("cancelled") else "")
+                             + (" (failed)" if result.get("error") else ""))
+                _local_llm_changed()
+                if result.get("ok"):
+                    _local_llm.warm()       # this is the download's own thread
+            result = _local_llm.start_download(tell, done)
+            if result.get("started"):
+                _log_to_file(f"[local-llm] download started: {result.get('model')} "
+                             f"({result.get('bytes_total', 0) / 1e6:.0f} MB)")
+            return result
+        except Exception as e:
+            _log_to_file(f"[local-llm] download not started: {type(e).__name__}: {e}")
+            return {"ok": False, "error": _local_llm.DOWNLOAD_FAILED}
+
+    def local_llm_cancel(self) -> dict:
+        """Stop the download. What arrived is kept, so downloading again
+        carries on from there."""
+        try:
+            return {"ok": True, "was_downloading": _local_llm.cancel_download()}
+        except Exception as e:
+            _log_to_file(f"[local-llm] cancel failed: {type(e).__name__}: {e}")
+            return {"ok": False, "error": "The download couldn't be stopped."}
+
+    def local_llm_remove(self) -> dict:
+        """Delete the writing model from this computer (and from memory).
+        Tidying and notes then need a key again, as before it was added."""
+        try:
+            result = _local_llm.remove_model()
+            _log_to_file(f"[local-llm] model removed ({result.get('freed_bytes', 0) / 1e6:.0f} MB)")
+            _local_llm_changed()
+            return result
+        except Exception as e:
+            _log_to_file(f"[local-llm] remove failed: {type(e).__name__}: {e}")
+            return {"ok": False, "error": "The writing model couldn't be removed."}
+
     def get_settings(self) -> dict:
         """Return current settings for the UI."""
         from style_layer import cleanup_mode, signature_settings, styles_by_category
@@ -2011,6 +2084,12 @@ class Api:
             # earlier local engines; they now only say where the work is done,
             # so the page never names a provider that is not being sent audio.
             transcription_backend = "mlx" if _plat.system() == "Darwin" else "faster"
+        # Tidying on this computer (src/local_llm.py): when the writing model
+        # is here and there is no key, or the person chose it, it is what
+        # cleans up, and the page says so instead of naming a provider.
+        import local_llm as _lllm
+        if _lllm.should_use(has_key=bool(key or groq_key or cerebras_key), stored=stored):
+            styling_backend = _lllm.PROVIDER
         return {
             "api_key_set":           bool(key),
             "api_key_masked":        _mask(key),
@@ -2021,6 +2100,9 @@ class Api:
             # "cloud" or "local" (on this computer, no key). The model's
             # state comes from local_stt_status().
             "transcription_mode":    _lstt.mode_of(stored),
+            # "local" when the person chose the writing model on this
+            # computer over their key, else "cloud" (src/local_llm.py).
+            "writing_mode":          _lllm.mode_of(stored),
             # The same two facts under their older names.
             "local_whisper":         local_mode,
             "local_whisper_active":  local_whisper_active,
@@ -2106,6 +2188,12 @@ class Api:
             problem = _lstt.settings_problem(settings, has_key=bool(
                 os.getenv("GROQ_API_KEY", "").strip() or os.getenv("OPENAI_API_KEY", "").strip()
                 or (settings.get("groq_key") or "").strip() or (settings.get("api_key") or "").strip()))
+            if problem:
+                return {"ok": False, "error": problem}
+            # Who tidies text and writes notes when there is a key too:
+            # "cloud" (the key) or "local" (the model on this computer).
+            import local_llm as _lllm
+            problem = _lllm.settings_problem(settings)
             if problem:
                 return {"ok": False, "error": problem}
             # Sounds and tips are switches: a true or a false, nothing else
@@ -2203,6 +2291,15 @@ class Api:
                     notes.append("Speech to text: " + (
                         "on this computer" if settings[_lstt.MODE_SETTING] == _lstt.MODE_LOCAL
                         else "cloud"))
+
+                # ── Tidying and notes: this computer or the key ──────────────
+                # Read for every dictation and every note (src/local_llm.py
+                # should_use), so no restart.
+                if _lllm.MODE_SETTING in settings:
+                    stored[_lllm.MODE_SETTING] = settings[_lllm.MODE_SETTING]
+                    notes.append("Tidying and notes: " + (
+                        "on this computer" if settings[_lllm.MODE_SETTING] == _lllm.MODE_LOCAL
+                        else "with the key"))
 
                 # ── Language ─────────────────────────────────────────────────────
                 if "language" in settings:
@@ -2330,6 +2427,9 @@ class Api:
 
             if _lstt.touches(settings):
                 self._apply_transcription_mode(settings[_lstt.MODE_SETTING])
+            if settings.get(_lllm.MODE_SETTING) == _lllm.MODE_LOCAL:
+                # Chosen over the key: have it in memory before the next dictation.
+                threading.Thread(target=_lllm.warm, daemon=True, name="LocalLLMWarm").start()
             if "transforms" in settings and _pipeline is not None:
                 try:
                     _pipeline.apply_transform_settings()
@@ -5214,6 +5314,14 @@ class WafflerPipeline:
             cerebras_api_key=cerebras_key,
             provider_order=_provider_order,
         )
+        # The writing model on this computer, when it is the one that tidies
+        # (no key, or chosen): loaded now, in the background, with the
+        # clean-up's long prompt read (src/local_llm.py warm).
+        try:
+            if self.styler._local_cleanup():
+                threading.Thread(target=_local_llm.warm, daemon=True, name="LocalLLMWarm").start()
+        except Exception:
+            pass
         _log_to_file(
             f"Styler chain: cerebras={'yes' if self.styler._use_cerebras else 'no'}"
             f" groq={'yes' if self.styler._use_groq else 'no'}"
@@ -6589,6 +6697,11 @@ class WafflerPipeline:
         # silent recording or a paste that goes nowhere.
         if not self.is_recording and self._permissions_block_recording():
             return
+        # The writing model on this computer is released after five idle
+        # minutes: start loading it again now, while the person is talking.
+        _warm = getattr(self, "_warm_writing_model", None)
+        if _warm is not None:
+            _warm()
         # Claim the recording slot + open a new generation atomically. Doing
         # the is_recording check+flip and the id bump under one lock closes
         # two races: (a) two near-simultaneous presses both starting a
@@ -8067,20 +8180,41 @@ class WafflerPipeline:
         return getattr(getattr(self, "transcriber", None), "_backend", "") in ("local", "mlx", "faster")
 
     def _no_cleanup_key(self, settings=None) -> bool:
-        """Speech is turned into text on this computer AND no clean-up
-        provider has a key (a Waffler used with no key at all)? The words then
-        go in as they were heard, exactly as with the clean-up switched off,
-        instead of a "no key" message and a flagged Journal card after every
-        dictation. With a provider chosen for speech nothing changes."""
+        """Speech is turned into text on this computer AND there is nothing
+        to clean up with: no provider has a key, and the writing model for
+        this computer is not downloaded (a Waffler used with no key at all)?
+        The words then go in as they were heard, exactly as with the clean-up
+        switched off, instead of a "no key" message and a flagged Journal
+        card after every dictation. With a provider chosen for speech nothing
+        changes, and with the writing model here it does the clean-up
+        (src/local_llm.py)."""
         try:
             if not _local_stt.mode_is_local(settings if isinstance(settings, dict) else None):
                 return False
             s = getattr(self, "styler", None)
-            return (s is not None and hasattr(s, "_use_groq") and hasattr(s, "_use_cerebras")
+            if not (s is not None and hasattr(s, "_use_groq") and hasattr(s, "_use_cerebras")
                     and hasattr(s, "client")
-                    and not (s._use_groq or s._use_cerebras or s.client))
+                    and not (s._use_groq or s._use_cerebras or s.client)):
+                return False
+            import local_llm as _lllm
+            return not _lllm.should_use(has_key=False)
         except Exception:
             return False
+
+    def _warm_writing_model(self) -> None:
+        """Load the writing model on this computer if it is the one that
+        tidies and it is not in memory (it is released when idle), on a
+        thread: called as a recording starts, so it is back by the time the
+        words are. Never raises, never waits."""
+        try:
+            if _local_llm.is_loaded():
+                return
+            s = getattr(self, "styler", None)
+            if s is None or not s._local_cleanup():
+                return
+            threading.Thread(target=_local_llm.warm, daemon=True, name="LocalLLMWarm").start()
+        except Exception:
+            pass
 
     def _speech_provider_name(self) -> str:
         """The speech-to-text provider a dictation goes to first, by name
