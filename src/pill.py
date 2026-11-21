@@ -1,0 +1,533 @@
+"""The one small pill every pop-up is now.
+
+Waffler's pop-up was a 380 x 210 card: a waffle, a heading, three lines of
+body and up to three buttons. It is now one dark capsule, 40 points high and
+as wide as its words: the waffle mark, a sign of what kind of message it is,
+ONE line of six words at most, at most ONE button, and a small cross when it
+does not go away by itself. It belongs to the same family as the meeting bar.
+
+The five kinds
+--------------
+``done``     a gold tick. No button. Two seconds. A click opens the entry it
+             is about, when there is one (what "Show in Journal" did).
+``working``  three dots. It stays until the work ends, then becomes its Done
+             or Problem pill in place (``after_work``).
+``ask``      "Your call": one button and a cross. Doing nothing is always
+             safe: the pill never answers for the person.
+``problem``  a red dot. Six seconds; with a button it stays until its button
+             or its cross is used.
+``tip``      quieter ink. Its cross counts as a dismissal, as "Got it" did.
+
+Where the words come from
+-------------------------
+Nothing that raises a message changed: the app still says what happened in a
+heading, a sentence and its buttons (src/user_messages.py, src/unsent.py,
+src/pasteboard.py and the lines in app.py). ``pill_for`` turns that into the
+pill, from the table below, which is the approved board row by row. The long
+sentence is kept as the pill's ``description``: VoiceOver reads it and the log
+keeps it; it is never drawn.
+
+A message that is not in the table still becomes a pill (``_unlisted``): a
+Problem for a warning or an error, Done for a notice, its heading cut to six
+words.
+
+This module draws nothing and imports nothing of the platform's, so the Mac
+overlay, the Windows overlay and the tests all read the same sizes, colours
+and rules from it.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+from typing import Callable, NamedTuple, Optional, Tuple
+
+DONE, WORKING, ASK, PROBLEM, TIP = "done", "working", "ask", "problem", "tip"
+KINDS = (DONE, WORKING, ASK, PROBLEM, TIP)
+
+MAX_WORDS = 6
+
+# How long each kind stays, in seconds. None: until answered, withdrawn or
+# replaced.
+DONE_S = 2.0
+PROBLEM_S = 6.0
+TIP_S = 10.0
+# A Working pill whose work never reports its end (the app could not restart
+# itself, say) is taken down after this long, so it cannot sit there for good.
+WORKING_CAP_S = 30.0
+
+# Actions a click can send that the old card did not have (app.py
+# _on_toast_action). The others are the old buttons' own.
+DISMISS_ACTION = "dismiss"
+RESTART_ACTION = "restart_app"
+KEYS_ACTION = "open_keys"
+MIC_ACTION = "select_mic"
+JOURNAL_ACTION = "open_journal"
+
+# ── The look (the design's numbers; both overlays draw from these) ───────────
+HEIGHT = 40
+FILL = "#14110F"
+HAIRLINE_ALPHA = 0.14           # a 1 pt line of white at 14%
+INK = "#F4F0EA"
+INK_QUIET = "#CEC6BB"           # a tip's words
+GOLD = "#E8C267"                # the tick, the first dot
+DOTS = ("#E8C267", "#8A7437", "#4D4226")
+RED = "#F0624F"
+CROSS = "#B3AA9E"
+BUTTON_FILL = "#F4F0EA"
+BUTTON_INK = "#12100E"
+TEXT_PT = 14                    # medium
+BUTTON_PT = 12                  # semibold
+MARK = 22                       # the waffle mark
+PAD_LEFT = 9
+PAD_RIGHT = 16                  # with nothing to press
+PAD_RIGHT_PRESS = 6             # after a button or a cross
+ITEM_GAP = 10
+TICK = 14
+DOT, DOT_GAP = 4, 3
+RED_DOT = 8
+BUTTON_H = 28
+BUTTON_PAD = 12
+BUTTON_LEAD = 2                 # a little more air before the button
+CLOSE = 28
+CLOSE_LEAD = -4                 # the cross sits close to what is before it
+CROSS_ARM = 3                   # the cross is 6 x 6 in the middle of its 28
+# The tick, in its 14 x 14 box, y downwards.
+TICK_POINTS = ((2.5, 7.5), (5.5, 10.5), (11.5, 3.5))
+
+GAP = 8                         # between the pill and the dictation pill or the meeting bar
+RISE = 6                        # how far it rises as it appears
+FADE_S = 0.18
+
+
+@dataclass(frozen=True)
+class Pill:
+    kind: str
+    text: str
+    button: Optional[dict] = None       # {"label", "action"}
+    close: Optional[str] = None         # what the cross sends; None: no cross
+    click: Optional[str] = None         # what a click on the pill itself sends
+    seconds: Optional[float] = None     # None: it stays
+    description: str = ""               # the long sentence: VoiceOver and the log
+
+    def as_dict(self) -> dict:
+        return {"kind": self.kind, "text": self.text,
+                "button": dict(self.button) if self.button else None,
+                "close": self.close, "click": self.click, "seconds": self.seconds,
+                "description": self.description}
+
+
+def from_dict(raw) -> Optional[Pill]:
+    """The pill a command carries, or None when it is not one."""
+    try:
+        if not isinstance(raw, dict) or raw.get("kind") not in KINDS:
+            return None
+        text = str(raw.get("text") or "").strip()
+        if not text:
+            return None
+        button = raw.get("button")
+        if isinstance(button, dict) and button.get("label") and button.get("action"):
+            button = {"label": str(button["label"]), "action": str(button["action"])}
+        else:
+            button = None
+        seconds = raw.get("seconds")
+        seconds = float(seconds) if isinstance(seconds, (int, float)) and seconds > 0 else None
+        return Pill(raw["kind"], text, button,
+                    str(raw["close"]) if raw.get("close") else None,
+                    str(raw["click"]) if raw.get("click") else None,
+                    seconds, str(raw.get("description") or ""))
+    except Exception:
+        return None
+
+
+# ── From the old message to the pill ─────────────────────────────────────────
+
+def _real_buttons(buttons) -> list:
+    out = []
+    for b in buttons or ():
+        if isinstance(b, dict) and b.get("label") and b.get("action"):
+            out.append(b)
+    return out
+
+
+def _action(buttons, *prefixes) -> Optional[str]:
+    """The action of the old card's first button that starts with one of
+    ``prefixes`` (any that does something, with none given)."""
+    for b in _real_buttons(buttons):
+        action = str(b["action"])
+        if prefixes:
+            if action.startswith(prefixes):
+                return action
+        elif action != DISMISS_ACTION and not action.startswith(("tip_dismiss:", "tip_mute:")):
+            return action
+    return None
+
+
+def _keys(body: str) -> str:
+    return "Ctrl+V" if "Ctrl+V" in body else "Cmd+V"
+
+
+def _six(text: str) -> str:
+    words = str(text or "").split()
+    return " ".join(words[:MAX_WORDS])
+
+
+class _Row(NamedTuple):
+    old: object                     # the old heading, or a compiled pattern for it
+    kind: Optional[str]             # None: this one is not a pop-up any more
+    text: object = ""               # the line, or a function (match, body) -> line
+    label: Optional[str] = None     # the one button
+    action: object = None           # its action: an id, or a function (buttons) -> id
+    when: Optional[Callable[[str], bool]] = None    # only when the old body says so
+    close: object = None            # for "Your call": what the cross sends
+
+
+def _from_caller(*prefixes, default=None):
+    return lambda buttons: _action(buttons, *prefixes) or default
+
+
+def _mic_name(match, _body) -> str:
+    name = " ".join(match.group(1).split())
+    if len(name.split()) > MAX_WORDS - 1 or len(name) > 28:
+        return "New microphone connected"
+    return f"{name} connected"
+
+
+def _hold(_match, body) -> str:
+    found = re.search(r"Hold (.+?) while you speak", body)
+    key = " ".join(found.group(1).split()) if found else ""
+    if not key or len(key.split()) > MAX_WORDS - 3:
+        return "Hold the key to talk"
+    return f"Hold {key} to talk"
+
+
+_ALLOW = _from_caller("open_", default="open_ax_settings")
+
+# The board, row by row. The first row that fits is used, so a row with a
+# ``when`` comes before the plain row for the same heading.
+TABLE = (
+    # ── Gone ──
+    _Row(re.compile(r"^Used .+ instead$"), None),
+
+    # ── Done ──
+    _Row("Polish done", DONE, "Polished"),
+    _Row(re.compile(r"^.+ done$"), DONE, "Done"),
+    _Row("Text edited", DONE, "Edited"),
+    _Row("Draft added", DONE, "Draft added"),
+    _Row(re.compile(r"^Searching .+$"), DONE, "Searching"),
+    _Row("Result copied", DONE, "Copied"),
+    _Row("Draft copied", DONE, "Draft copied"),
+    _Row("Copied", DONE, "Copied"),
+    _Row("Result not pasted", PROBLEM, "Saved, not pasted", "Open",
+         _from_caller("show_", "open_journal", default=JOURNAL_ACTION),
+         when=lambda body: "couldn't be copied" in body),
+    _Row("Result not pasted", DONE, lambda m, body: f"Copied. Press {_keys(body)}"),
+    _Row("Copied, not pasted", DONE, "Copied. Paste it yourself"),
+    _Row("Transform cancelled", DONE, "Cancelled"),
+    _Row("Command cancelled", DONE, "Cancelled"),
+    _Row("Cancelled", PROBLEM, "Cancelled. Not saved", when=lambda body: "couldn't save" in body),
+    _Row("Cancelled", DONE, "Cancelled"),
+    _Row("Your text already looks good", DONE, "Nothing to change"),
+    _Row("Nothing to change", DONE, "Nothing to change"),
+    _Row("Saved for later", DONE, "Saved for later"),
+    _Row("Recovered", DONE, "Recovered"),
+    _Row("Recording the meeting", DONE, "Recording the meeting"),
+    _Row("Meeting finished", DONE, "Meeting finished"),
+
+    # ── Working ──
+    _Row("Waffler is busy", WORKING, "One moment"),
+    _Row("Still working", WORKING, "One moment"),
+    _Row("A transform is running", WORKING, "One moment"),
+    _Row("A command is running", WORKING, "One moment"),
+    _Row("Not ready yet", WORKING, "One moment"),
+    _Row("Waffler is restarting", WORKING, "Restarting"),
+    _Row("Recording stopped", WORKING, "Tidying"),
+
+    # ── Your call ──
+    _Row("Still working on it", ASK, "Still working", "Send later",
+         _from_caller("send_later", default="send_later"),
+         close=_from_caller("cancel_processing", default="cancel_processing")),
+    _Row("Still cleaning up", ASK, "Still tidying", "Paste as is",
+         _from_caller("paste_raw", default="paste_raw"),
+         close=_from_caller("cancel_processing", default="cancel_processing")),
+    _Row(re.compile(r"^(.+) detected$"), ASK, _mic_name, "Use it", _from_caller("mic_use:"),
+         close=_from_caller("mic_later:", default=DISMISS_ACTION)),
+    _Row("Long recording", ASK, "One minute left"),
+
+    # ── Problem ──
+    _Row("We couldn't hear you", PROBLEM, "Didn’t hear you", "Mic", MIC_ACTION),
+    _Row("Waffler can't hear your microphone", PROBLEM, "Can’t hear your mic", "Choose",
+         _from_caller("choose_microphone", default=MIC_ACTION)),
+    _Row("Mic reset", PROBLEM, "Mic cut out. Say it again"),
+    _Row("Mic dropped out", PROBLEM, "Mic cut out. Say it again"),
+    _Row("Your mic was slow to stop", PROBLEM, "Mic cut out. Say it again"),
+    _Row("Your microphone was disconnected", PROBLEM, "Mic disconnected"),
+    _Row("Your microphone is stuck", PROBLEM, "Mic is stuck", "Restart", RESTART_ACTION),
+    _Row("Microphone is off", PROBLEM, "Microphone is off", "Allow",
+         _from_caller("open_", default="open_mic_settings")),
+    _Row("Microphone is restricted", PROBLEM, "Microphone is blocked", "Open",
+         _from_caller("open_", default="open_mic_settings")),
+    _Row("Accessibility is off", PROBLEM, "Can’t read text yet", "Allow", _ALLOW,
+         when=lambda body: "read selected text" in body),
+    _Row("Accessibility is off", PROBLEM, "Can’t paste yet", "Allow", _ALLOW),
+    _Row("Waffler can't hear your shortcut", PROBLEM, "Can’t hear your shortcut", "Allow",
+         _from_caller("open_", default="open_input_settings")),
+    _Row("Couldn't paste", PROBLEM, lambda m, body: f"Copied. Press {_keys(body)}", "Allow", _ALLOW,
+         when=lambda body: "needs Accessibility" in body),
+    _Row("Couldn't paste", PROBLEM, lambda m, body: f"Copied. Press {_keys(body)}"),
+    _Row("Not pasted", PROBLEM, lambda m, body: f"Copied. Press {_keys(body)}"),
+    _Row("Couldn't copy to the clipboard", PROBLEM, "Saved, not pasted", "Open", JOURNAL_ACTION),
+    _Row("Couldn't copy", PROBLEM, "Couldn’t copy"),
+    _Row("Not sent", PROBLEM, "Not sent. Say it again", when=lambda body: "couldn't be saved" in body),
+    _Row("Not sent", PROBLEM, "Not sent. Saved", "Open", JOURNAL_ACTION),
+    _Row("That took too long", PROBLEM, "Took too long. Saved", when=lambda body: "is saved" in body),
+    _Row("That took too long", PROBLEM, "Took too long"),
+    _Row("Pasted without the clean-up", PROBLEM, "Pasted as said", "Add key", KEYS_ACTION,
+         when=lambda body: "No key is set up" in body),
+    _Row("Pasted without the clean-up", PROBLEM, "Pasted as said"),
+    _Row(re.compile(r"^Clean-up paused .+$"), PROBLEM, "Pasted as said"),
+    _Row("Limit reached", PROBLEM, "Limit reached"),
+    _Row("Connection failed", PROBLEM, "No connection"),
+    _Row("Access denied", PROBLEM, "Key refused", "Settings", KEYS_ACTION),
+    _Row("Couldn't rewrite", PROBLEM, "Couldn’t do that"),
+    _Row("Couldn't run that", PROBLEM, "Couldn’t do that"),
+    _Row("Took too long", PROBLEM, "Couldn’t do that"),
+    _Row("Couldn't hear the command", PROBLEM, "Didn’t catch that"),
+    _Row("Nothing was replaced", PROBLEM, "Left as it was"),
+    _Row("Select some text first", PROBLEM, "Select some text first"),
+    _Row("Too much text", PROBLEM, "Too much at once"),
+    _Row("That's a long instruction", PROBLEM, "Too much at once"),
+    _Row("Can't read this field", PROBLEM, "Can’t read that here"),
+    _Row("Clipboard is busy", PROBLEM, "Can’t read that here"),
+    _Row("Can't copy from here", PROBLEM, "Can’t read that here"),
+    _Row("Can't copy right now", PROBLEM, "Can’t read that here"),
+    _Row("Couldn't read the selection", PROBLEM, "Can’t read that here"),
+    _Row("Nothing to paste yet", PROBLEM, "Nothing to paste yet"),
+    _Row("Nothing to copy yet", PROBLEM, "Nothing to copy yet"),
+    _Row("The meeting couldn't be recorded", PROBLEM, "Couldn’t record", "Mic", MIC_ACTION),
+    _Row("Couldn't record", PROBLEM, "Couldn’t record", "Mic", MIC_ACTION),
+    _Row("Something went wrong", PROBLEM, "Something went wrong",
+         when=lambda body: "didn't go through" in body),
+    _Row("Something went wrong", PROBLEM, "Something went wrong. Saved"),
+    _Row("Not saved to History", PROBLEM, "Pasted, not saved"),
+    _Row("Couldn't open your browser", PROBLEM, "Couldn’t open your browser"),
+
+    # ── Tip ──
+    _Row("Don't tap, hold", TIP, _hold),
+    _Row("Your Mac's lid is closed", TIP, "Lid closed. Mic is muffled", "Choose",
+         _from_caller("choose_microphone", default=MIC_ACTION)),
+    _Row("Your microphone is set low", TIP, "Mic is set low", "Fix",
+         _from_caller("open_sound", default="open_sound_input")),
+)
+
+
+def _find(heading: str, body: str):
+    for row in TABLE:
+        if isinstance(row.old, str):
+            match = heading == row.old
+        else:
+            match = row.old.match(heading)
+        if match and (row.when is None or row.when(body)):
+            return row, match
+    return None, None
+
+
+def _seconds(kind: str, has_button: bool, timeout) -> Optional[float]:
+    try:
+        given = float(timeout) if timeout and float(timeout) > 0 else None
+    except (TypeError, ValueError):
+        given = None
+    if kind == DONE:
+        return DONE_S
+    if kind == WORKING:
+        return None
+    if kind == ASK:
+        return given
+    if kind == PROBLEM:
+        return None if has_button else PROBLEM_S
+    return given or TIP_S
+
+
+def _describe(heading: str, body: str) -> str:
+    heading, body = heading.strip(), body.strip()
+    if heading and body:
+        return f"{heading}. {body}" if heading[-1:] not in ".?!" else f"{heading} {body}"
+    return heading or body
+
+
+def _build(kind, text, label, action, close, buttons, timeout, heading, body) -> Pill:
+    button = {"label": label, "action": action} if label and action else None
+    click = None
+    if kind == DONE:
+        # A click opens the entry it is about, when there is one.
+        click = _action(buttons, "show_", "open_journal")
+        button, close = None, None
+    elif kind == WORKING:
+        button, close = None, None
+    elif kind == ASK:
+        close = (close or DISMISS_ACTION) if button else None
+    elif kind == PROBLEM:
+        close = DISMISS_ACTION if button else None
+    elif kind == TIP:
+        # The cross is "Got it": two of them and the tip stays away.
+        close = _action(buttons, "tip_dismiss:") or DISMISS_ACTION
+    return Pill(kind, text, button, close, click, _seconds(kind, bool(button), timeout),
+                _describe(heading, body))
+
+
+def _unlisted(style, heading, body, buttons, timeout) -> Optional[Pill]:
+    text = _six(heading) or _six(body)
+    if not text:
+        return None
+    if style == "cancel":
+        return _build(ASK, text, "Discard", "confirm", DISMISS_ACTION, buttons, None, heading, body)
+    kind = PROBLEM if style in ("error", "warn") else DONE
+    label = action = None
+    if kind == PROBLEM:
+        for b in _real_buttons(buttons):
+            if str(b["action"]) != DISMISS_ACTION:
+                label, action = " ".join(str(b["label"]).split()[:3]), str(b["action"])
+                break
+    return _build(kind, text, label, action, None, buttons, timeout, heading, body)
+
+
+def pill_for(style, heading, body, buttons=None, timeout=None) -> Optional[Pill]:
+    """The pill for an old pop-up, or None when it is not a pop-up any more
+    ("Used another service instead"). Never raises."""
+    try:
+        heading = heading if isinstance(heading, str) else ""
+        body = body if isinstance(body, str) else ""
+        buttons = buttons if isinstance(buttons, (list, tuple)) else None
+        row, match = _find(heading.strip(), body)
+        if row is None:
+            return _unlisted(style, heading, body, buttons, timeout)
+        if row.kind is None:
+            return None
+        text = row.text(match, body) if callable(row.text) else row.text
+        action = row.action(buttons) if callable(row.action) else row.action
+        close = row.close(buttons) if callable(row.close) else row.close
+        return _build(row.kind, _six(text), row.label, action, close, buttons, timeout, heading, body)
+    except Exception:
+        return None
+
+
+def after_work(pill: Optional[Pill], result: str) -> Optional[Pill]:
+    """The work a Working pill stood for has ended with no message of its
+    own: it becomes "Done" in place, or goes (``result`` "quiet"). Any other
+    pill is left as it is."""
+    if pill is None or pill.kind != WORKING:
+        return pill
+    if result == "done":
+        return Pill(DONE, "Done", seconds=DONE_S, description="Done.")
+    return None
+
+
+# ── Its size, and where a click landed ───────────────────────────────────────
+
+class Layout(NamedTuple):
+    width: float
+    height: float
+    mark_x: float
+    glyph_x: Optional[float]        # the tick, the dots or the red dot
+    glyph_w: float
+    text_x: float
+    text_w: float
+    button: Optional[Tuple[float, float, float, float]]     # x, y, w, h (y from the top)
+    close: Optional[Tuple[float, float, float, float]]
+
+
+_GLYPH_W = {DONE: TICK, WORKING: DOT * 3 + DOT_GAP * 2, PROBLEM: RED_DOT}
+
+
+def layout(pill: Pill, measure: Callable[[str, float, str], float]) -> Layout:
+    """Where everything sits. ``measure(text, points, weight)`` is the
+    platform's own text width; weight is "medium" or "semibold"."""
+    x = float(PAD_LEFT)
+    mark_x = x
+    x += MARK
+    glyph_x, glyph_w = None, float(_GLYPH_W.get(pill.kind, 0))
+    if glyph_w:
+        x += ITEM_GAP
+        glyph_x = x
+        x += glyph_w
+    x += ITEM_GAP
+    text_x = x
+    text_w = float(measure(pill.text, TEXT_PT, "medium"))
+    x += text_w
+    button = close = None
+    top = (HEIGHT - BUTTON_H) / 2.0
+    if pill.button:
+        x += ITEM_GAP + BUTTON_LEAD
+        w = float(measure(pill.button["label"], BUTTON_PT, "semibold")) + 2 * BUTTON_PAD
+        button = (x, top, w, float(BUTTON_H))
+        x += w
+    if pill.close:
+        x += ITEM_GAP + CLOSE_LEAD
+        close = (x, (HEIGHT - CLOSE) / 2.0, float(CLOSE), float(CLOSE))
+        x += CLOSE
+    x += PAD_RIGHT_PRESS if (button or close) else PAD_RIGHT
+    return Layout(x, float(HEIGHT), mark_x, glyph_x, glyph_w, text_x, text_w, button, close)
+
+
+def _inside(box, x, y) -> bool:
+    return box is not None and box[0] <= x <= box[0] + box[2] and box[1] <= y <= box[1] + box[3]
+
+
+def hit(lay: Layout, x: float, y: float) -> Optional[str]:
+    """"button", "close" or "body" for a point (y from the top), else None."""
+    if not (0 <= x <= lay.width and 0 <= y <= lay.height):
+        return None
+    if _inside(lay.button, x, y):
+        return "button"
+    if _inside(lay.close, x, y):
+        return "close"
+    return "body"
+
+
+def action_for(pill: Pill, where: Optional[str]) -> Optional[str]:
+    """What a click sends, or None when it does nothing and the pill stays.
+    A "Your call" pill and a tip are only ever answered by their button or
+    their cross; a click on a Done or a Problem with nothing to press closes
+    it."""
+    if where == "button":
+        return pill.button["action"] if pill.button else None
+    if where == "close":
+        return pill.close
+    if where != "body":
+        return None
+    if pill.click:
+        return pill.click
+    if pill.kind == DONE or (pill.kind == PROBLEM and not pill.button):
+        return DISMISS_ACTION
+    return None
+
+
+# ── Where it goes ────────────────────────────────────────────────────────────
+# Rectangles are (x, y, w, h). ``origin_above`` is for a screen whose y grows
+# upwards (the Mac); the Windows overlay mirrors it.
+
+def origin_above(anchor, anchor_size, width: float) -> Tuple[float, float]:
+    """Centred over the dictation pill, a small gap above it."""
+    ax, ay = anchor
+    aw, ah = anchor_size
+    return ax + (aw - width) / 2.0, ay + ah + GAP
+
+
+def overlaps(a, b) -> bool:
+    return (a[0] < b[0] + b[2] and b[0] < a[0] + a[2]
+            and a[1] < b[1] + b[3] and b[1] < a[1] + a[3])
+
+
+def clear_of(rect, other, screen):
+    """``rect`` moved so it does not cover ``other`` (the meeting bar): beside
+    it on the same line when there is room on the screen, else under it."""
+    if other is None or not overlaps(rect, other):
+        return rect
+    x, y, w, h = rect
+    ox, oy, ow, oh = other
+    sx, sy, sw, sh = screen
+    if ox + ow + GAP + w <= sx + sw:
+        return (ox + ow + GAP, oy, w, h)
+    if ox - GAP - w >= sx:
+        return (ox - GAP - w, oy, w, h)
+    return (x, oy - GAP - h, w, h)
