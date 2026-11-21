@@ -147,6 +147,17 @@ def uses_local(settings: dict | None = None) -> bool:
     return (settings or {}).get("transcribe_provider") == "local" or local_stt.mode_is_local()
 
 
+def local_ready(settings: dict | None = None) -> bool:
+    """Can a meeting be written down on this computer now, with no key? Only
+    when on-device is the way chosen and its model is downloaded, in a build
+    that has the engine. Reads file sizes; loads nothing. Never raises."""
+    try:
+        return bool(uses_local(settings) and local_stt.is_available()
+                    and local_stt._is_ready(local_stt.selected_model()))
+    except Exception:           # noqa: BLE001
+        return False
+
+
 def _transcribe_local(audio: np.ndarray, settings: dict, language: str, backend) -> list[dict]:
     """On this machine only, with the model dictation uses (src/local_stt.py).
     A failure here is never retried in the cloud: the user chose on-device so

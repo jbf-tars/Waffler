@@ -63,6 +63,16 @@ def can_write(settings: dict) -> bool:
         return False
 
 
+def local_ready() -> bool:
+    """Would the writing model on this computer write the notes now? Only
+    when it is downloaded and is the one to ask: there is no key, or the
+    person chose it over their key. Loads nothing. Never raises."""
+    try:
+        return bool(local_llm.should_use(has_key=bool(available_providers())))
+    except Exception:           # noqa: BLE001
+        return False
+
+
 def available_providers() -> list[str]:
     return [p for p in ("anthropic", "openai", "groq", "custom") if keys.get_key(p)]
 
