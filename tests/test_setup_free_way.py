@@ -379,10 +379,10 @@ def test_the_first_screen_is_two_cards_and_a_short_explainer():
     assert "Download the free model and get to work" in text
     for words in ("On this computer", "Free", "With your own key", "Faster",
                   "Recommended for this computer", "Download and start", "Use my own key",
-                  "then it works with no key, no account and no internet.",
+                  "No key, account or internet.",
                   "Your voice never leaves this computer.",
-                  "Quicker, especially for long recordings.",
-                  "Tidies your text and writes meeting notes.",
+                  "Quicker. Tidies text and writes meeting notes.",
+                  "A free Groq account. Your voice goes to Groq and nowhere else.",
                   "You can change this any time in Settings."):
         assert words in text, words
     assert html.count("Download and start") == 1

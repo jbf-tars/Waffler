@@ -221,7 +221,7 @@ def test_three_allow_rows_call_the_real_prompts():
     tick = tick[:tick.index("\n}")]
     assert "microphone: !!r.mic_granted" in tick
     assert "wizNext()" in tick                          # moves on by itself
-    assert "Your Mac may ask you to quit and reopen Waffler. That's normal." in html
+    assert "If your Mac asks you to reopen Waffler, that's normal." in html
 
 
 def test_the_fn_key_warning_is_shown_never_fixed():

@@ -1619,7 +1619,7 @@
       <div class="ob-left">
         <p class="ob-kick" id="obKick" data-when="choose start">Step one</p>
         <h1 class="ob-title" id="obTitleChoose" tabindex="-1" data-when="choose"><span data-rec="local">Download the free model and get to work</span><span data-rec="key" hidden>Add a free key and get to work</span></h1>
-        <p class="ob-lede" data-when="choose"><span data-rec="local">Nothing to sign up for. One download, then hold <span class="ob-hk-name">Fn</span> and talk.</span><span data-rec="key" hidden>A free Groq key is the quick way to start on this computer.</span></p>
+        <p class="ob-lede" data-when="choose"><span data-rec="local">One download, then hold <span class="ob-hk-name">Fn</span> and talk.</span><span data-rec="key" hidden>A free Groq key is the quick way to start on this computer.</span></p>
 
         <div class="ob-ways" id="obWays" data-when="choose">
           <div class="panel ob-way" id="obWayLocal" role="group" aria-labelledby="obWayLocalT" data-dl="idle">
@@ -1629,7 +1629,7 @@
             </div>
             <span class="chip chip-honey ob-way-rec" data-rec="local">Recommended for this computer</span>
             <ul class="ob-way-list">
-              <li>One download<span id="obWaySize"></span>, then it works with no key, no account and no internet.</li>
+              <li>One download<span id="obWaySize"></span>. No key, account or internet.</li>
               <li>Your voice never leaves this computer.</li>
             </ul>
             <p class="ob-way-warn" id="obWaySlow" hidden>It will be slow on this computer, and less accurate. A key is the better choice here.</p>
@@ -1655,8 +1655,7 @@
             </div>
             <span class="chip chip-honey ob-way-rec" data-rec="key" hidden>Recommended for this computer</span>
             <ul class="ob-way-list">
-              <li>Quicker, especially for long recordings.</li>
-              <li>Tidies your text and writes meeting notes.</li>
+              <li>Quicker. Tidies text and writes meeting notes.</li>
               <li>A free Groq account. Your voice goes to Groq and nowhere else.</li>
             </ul>
             <div class="ob-way-actions">
@@ -1665,17 +1664,22 @@
           </div>
         </div>
 
-        <div class="ob-tldr" data-when="choose">
-          <p><b>The short version.</b> Both type what you say, in any app. On this computer your words are typed as you said them, with punctuation.</p>
-          <p>The free download does not tidy them or write meeting notes (a meeting still gets its full transcript). Those need a key<span id="obTldrExtra" hidden>, or the optional second download offered on the free card</span>. Transforms and Command mode need a key.</p>
-          <p>You can change this any time in Settings.</p>
+        <!-- What each way does and does not do, in full. One collapsed
+             disclosure (toggleHow). -->
+        <div class="how ob-how" data-when="choose">
+          <button type="button" class="link-btn how-btn" id="obHowChooseBtn" aria-expanded="false" aria-controls="obHowChoose" onclick="toggleHow(this)">How it works<svg class="ic ic-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
+          <div class="ob-tldr how-body" id="obHowChoose" hidden>
+            <p><b>The short version.</b> Both type what you say, in any app. On this computer your words are typed as you said them, with punctuation.</p>
+            <p>The free download does not tidy them or write meeting notes (a meeting still gets its full transcript). Those need a key<span id="obTldrExtra" hidden>, or the optional second download offered on the free card</span>. Transforms and Command mode need a key.</p>
+            <p>You can change this any time in Settings.</p>
+          </div>
         </div>
 
         <h1 class="ob-title" id="obTitleConnect" tabindex="-1" data-when="start waiting checking error">Connect your free <em>Groq</em> account</h1>
         <h1 class="ob-title" id="obTitleConnected" tabindex="-1" data-when="connected">Groq is connected</h1>
 
-        <p class="ob-lede" data-when="start">Groq, a free AI service, turns your voice into tidy text. It's your own account, so your words go from this computer to Groq and nowhere else.</p>
-        <p class="ob-lede" data-when="waiting checking error">Groq opened in your browser. Follow these, then come back to this window.</p>
+        <p class="ob-lede" data-when="start">Groq, a free AI service, turns your voice into tidy text.</p>
+        <p class="ob-lede" data-when="waiting checking error">Follow these in your browser, then come back.</p>
         <p class="ob-lede" data-when="connected">Waffler checked your key with Groq. You won't need it again: it stays on this computer.</p>
 
         <div data-when="start">
@@ -1693,15 +1697,19 @@
           <li><span class="ob-n">4</span><span>Click <b>Copy</b>, then come back here</span></li>
         </ol>
 
-        <div class="ob-tip" data-when="start">
-          <svg class="ic" aria-hidden="true"><use href="#i-info"/></svg>
-          <span>Groq shows the key once. Click Copy before you close that box.</span>
+        <div class="how ob-how" data-when="start">
+          <button type="button" class="link-btn how-btn" id="obHowKeyBtn" aria-expanded="false" aria-controls="obHowKey" onclick="toggleHow(this)">How it works<svg class="ic ic-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
+          <div class="ob-tldr how-body" id="obHowKey" hidden>
+            <p>It's your own account, so your words go from this computer to Groq and nowhere else.</p>
+            <p>Groq shows the key once. Click Copy before you close that box.</p>
+            <p>When you come back to this window, Waffler picks the key up on its own.</p>
+          </div>
         </div>
 
         <div class="panel ob-keybox" data-when="waiting checking error">
           <div class="ob-keystate" id="obKeyState" role="status" aria-live="polite">
             <span class="ob-pulse" aria-hidden="true"></span>
-            <span>Waiting for your key. Waffler picks it up when you come back.</span>
+            <span>Waiting for your key.</span>
           </div>
           <div class="dots-h ob-keysep"></div>
           <label class="ob-small ob-pastelabel" for="wizGroqKeyInput">Or paste it here</label>
@@ -1775,7 +1783,7 @@
     <section class="ob-step" id="obStepPermissions" data-step="permissions" data-state="asking" style="display:none">
       <div class="ob-left">
         <h1 class="ob-title" id="obTitlePermissions" tabindex="-1">Let Waffler listen and type for you</h1>
-        <p class="ob-lede">Your Mac asks once for each. Allow all three and setup carries on by itself.</p>
+        <p class="ob-lede">Allow all three and setup carries on by itself.</p>
         <p class="sr-only" id="obPermLive" role="status" aria-live="polite"></p>
         <div class="group ob-perms"><div class="panel">
           <div class="row ob-perm" id="obPermMic">
@@ -1794,7 +1802,7 @@
             <span class="ob-perm-ctl"><button class="btn btn-sm btn-sec" aria-label="Allow typing for you" onclick="wizAllow('accessibility')">Allow</button></span>
           </div>
         </div></div>
-        <p class="ob-small ob-after">Your Mac may ask you to quit and reopen Waffler. That's normal. Setup carries on from here.</p>
+        <p class="ob-small ob-after">If your Mac asks you to reopen Waffler, that's normal.</p>
       </div>
       <div class="ob-stage">
         <div class="ob-art ob-art-cream">
@@ -1909,19 +1917,19 @@
     <section class="ob-step" id="obStepAnywhere" data-step="anywhere" data-state="ready" style="display:none">
       <div class="ob-left">
         <h1 class="ob-title" id="obTitleAnywhere" tabindex="-1">Now use it anywhere</h1>
-        <p class="ob-lede">Click into any text box, in email, WhatsApp, Word or anywhere else, then hold <span class="keys" id="obAnyKeys"></span> and talk.</p>
+        <p class="ob-lede">Click into any text box, then hold <span class="keys" id="obAnyKeys"></span> and talk.</p>
         <button class="btn btn-sec btn-lg ob-editor-btn" id="obEditorBtn" onclick="wizOpenEditor()"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg><span id="obEditorLabel">Open Notepad and try it</span></button>
         <p class="ob-small ob-editor-err" id="obEditorErr" role="alert" hidden></p>
         <p class="ob-small ob-anymodel" id="obAnyModel" role="status" hidden></p>
         <div class="group ob-anyrows"><div class="panel">
           <label class="row ob-loginrow" for="wizStartAtLogin">
             <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-power"/></svg></span>
-            <span class="row-main"><span class="row-t">Start Waffler when I turn on my computer</span><span class="row-d" id="obLoginDesc">So the hotkey works after a restart.</span></span>
+            <span class="row-main"><span class="row-t">Start with my computer</span><span class="row-d" id="obLoginDesc">So the hotkey works after a restart.</span></span>
             <input type="checkbox" class="tog" role="switch" id="wizStartAtLogin" checked onchange="wizLoginToggled(this.checked)">
           </label>
           <div class="row">
             <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-chevron-up"/></svg></span>
-            <div class="row-main"><div class="row-t" id="obTrayTitle">Waffler waits in the tray</div><div class="row-d" id="obTrayDesc">Under the ^ by the clock. Closing this window doesn't stop it.</div></div>
+            <div class="row-main"><div class="row-t" id="obTrayTitle">Waits in the tray</div><div class="row-d" id="obTrayDesc">Closing this window doesn't stop it.</div></div>
           </div>
         </div></div>
       </div>
@@ -1969,11 +1977,7 @@
         <h1 class="ob-title" id="obTitleAccountCode" tabindex="-1" data-when="code">Enter the 6-digit code</h1>
         <h1 class="ob-title" id="obTitleAccountDone" tabindex="-1" data-when="done">You're in</h1>
 
-        <ul class="ob-acct-list ob-way-list" data-when="offer">
-          <li>Your meetings on every device you sign in on.</li>
-          <li>Ask Claude about any of them.</li>
-          <li>Nothing changes if you skip this.</li>
-        </ul>
+        <p class="ob-lede ob-acct-list" data-when="offer">Your meetings on every device, and in Claude.</p>
         <div class="ob-acct-actions" data-when="offer">
           <button type="button" class="btn btn-pri btn-lg ob-acct-btn" id="obAcctYes" onclick="wizAccountStart()">Create account or sign in</button>
           <button type="button" class="btn btn-sec btn-lg ob-acct-btn" id="obAcctNo" onclick="wizAccountSkip()">Not now</button>
@@ -1985,11 +1989,7 @@
             <input type="email" id="obAcctEmail" class="input" placeholder="you@example.com" aria-describedby="obAcctEmailDesc" autocomplete="email" autocapitalize="off" spellcheck="false">
             <button type="submit" class="btn btn-pri" id="obAcctSend">Email me a code</button>
           </form>
-          <ul class="ob-acct-how ob-way-list" id="obAcctEmailDesc">
-            <li>New here? This creates your free account.</li>
-            <li>Already have one? This signs you in.</li>
-            <li>No password. We email you a 6-digit code.</li>
-          </ul>
+          <p class="ob-small ob-acct-how" id="obAcctEmailDesc">No password. We email you a 6-digit code.</p>
         </div>
 
         <div data-when="code">
@@ -2006,7 +2006,7 @@
         </div>
 
         <p class="ob-small ob-acct-err" id="obAcctError" role="alert" hidden></p>
-        <p class="ob-lede" id="obAcctDone" data-when="done">Your meetings sync from this computer from now on. Your devices, the Claude link and Sign out are in Settings, Account.</p>
+        <p class="ob-lede" id="obAcctDone" data-when="done">Your meetings now sync from this computer.</p>
         <p class="ob-acct-out" data-when="email code"><button type="button" class="btn btn-quiet" onclick="wizAccountSkip()">Not now</button></p>
       </div>
       <div class="ob-stage">

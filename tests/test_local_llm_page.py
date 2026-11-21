@@ -392,7 +392,7 @@ def test_the_first_screen_says_what_the_free_way_now_does_and_offers_the_extra_a
     assert card.count("btn-pri") == 1, "still one main button: the extra is a quiet one"
     # The free card's own two promises are untouched: they are still true.
     text = visible_text(step)
-    assert "then it works with no key, no account and no internet." in text
+    assert "No key, account or internet." in text
     assert "Your voice never leaves this computer." in text
     # The short version, as it is now.
     tldr = text[text.index("The short version."):]

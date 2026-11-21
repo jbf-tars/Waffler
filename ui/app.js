@@ -6981,9 +6981,9 @@ async function wizInitAnywhere() {
   wizRenderHotkey();
   const put = (id, t) => { const el = document.getElementById(id); if (el) el.textContent = t; };
   put('obEditorLabel', isMacPlatform ? 'Open TextEdit and try it' : 'Open Notepad and try it');
-  put('obTrayTitle', isMacPlatform ? 'Waffler waits in the menu bar' : 'Waffler waits in the tray');
-  put('obTrayDesc', isMacPlatform ? "Look for the waffle at the top right. Closing this window doesn't stop it."
-                                  : "Under the ^ by the clock. Closing this window doesn't stop it.");
+  // (Where it waits is drawn beside this, on the picture of the desktop.)
+  put('obTrayTitle', isMacPlatform ? 'Waits in the menu bar' : 'Waits in the tray');
+  put('obTrayDesc', "Closing this window doesn't stop it.");
   if (_wizLastWrote) document.querySelectorAll('#obDesk .ob-desk-text').forEach((el) => { el.textContent = _wizLastWrote; });
   const tog = document.getElementById('wizStartAtLogin');
   const desc = document.getElementById('obLoginDesc');

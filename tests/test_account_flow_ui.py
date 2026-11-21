@@ -85,10 +85,10 @@ def test_setup_offers_an_account_only_where_one_can_be_made():
 def test_the_setup_step_says_what_an_account_gives_and_how_to_skip_it():
     step = wizard_step()
     offer = step[step.index('data-when="offer"'):]
-    lines = re.findall(r"<li>(.*?)</li>", step[step.index('<ul class="ob-acct-list '):step.index("</ul>")])
-    assert lines == ["Your meetings on every device you sign in on.",
-                     "Ask Claude about any of them.",
-                     "Nothing changes if you skip this."]
+    # One sentence says what it gives; "Optional" above it and Not now beside
+    # the main button say it can be skipped.
+    assert '<p class="ob-lede ob-acct-list" data-when="offer">Your meetings on every device, and in Claude.</p>' in step
+    assert "<li>" not in offer[:offer.index("obAcctNo")]
     yes = re.search(r'<button type="button" class="btn (btn-\w+) btn-lg ob-acct-btn" id="obAcctYes"[^>]*>'
                     r"Create account or sign in</button>", step)
     no = re.search(r'<button type="button" class="btn (btn-\w+) btn-lg ob-acct-btn" id="obAcctNo"[^>]*>'
