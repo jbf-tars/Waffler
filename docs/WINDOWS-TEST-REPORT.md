@@ -28,6 +28,10 @@ by other programs during the test, so speech ran on the processor), Python
 - **On both platforms:** three libraries are imported but installed by neither
   requirements file: keyring, imageio-ffmpeg and anthropic. Each has a fallback;
   details in section 5.
+- **Pop-ups (`one-app` 672d27d):** the Windows drawing runs. Every kind draws
+  at 40 px with nothing clipped, never takes focus, and shows one at a time
+  above the dictation pill. An ignored "Your call" pill stays up. The left end
+  matches the design spacing exactly, so nothing was changed. See "Pop-ups".
 
 ## 1. Test suite
 
@@ -126,3 +130,76 @@ Dictation by voice, setup's practice step, a full 30-second meeting with a
 video playing, notes after it, the Meetings tab, the double tap, signing in and
 syncing. The test copy is open on the PC with the model downloaded, ready for
 these. Nothing on the Mac side was touched.
+
+## Pop-ups
+
+Checked on `one-app` at 672d27d, the merge of `popups`. There,
+`src/overlay_process_windows.py`, `src/pill.py`, `src/overlay.py` and
+`src/user_messages.py` are the same as on `popups` (a3e6f89), which was
+checked first with the same results.
+
+**How.** The real Windows helper (`app.py --overlay`) was started on its own,
+with a data folder of its own, and sent the app's own messages the way
+`src/overlay.py` sends them. For each pill, the window's size, styles and place
+were read, the foreground window was noted before and after, and the window's
+own pixels were saved. That was PrintWindow on the helper's window, not a
+screen capture. Buttons were pressed with the helper's `_toast_click` command.
+The pictures are in `docs/windows-test/`; on screen the black corners are
+transparent.
+
+**1. Drawing.** Every kind draws: 40 px high, with the width set by its words
+(132 to 269 px). The waffle mark, the badge, the words, the button and the
+cross sit on one line, and nothing is clipped. The badge is a tick for Done, a
+red dot for a Problem, and three dots for Working.
+
+Measured from the pictures: the mark starts 14 px from the left edge and is
+22 px wide (28 px with its badge). The words start 14 px after it. Those are
+`PAD_LEFT`, `MARK` and `MARK_GAP` in `src/pill.py` exactly, so the left end is
+no tighter on Windows than in the design, and nothing was changed.
+
+Scaling: this PC is at 100%, and the scaling was not changed (it is a system
+setting). Neither `Waffler.exe` nor `python.exe` declares itself DPI-aware in
+its manifest, and the helper does not ask for it. So at 125% or 150% Windows
+stretches the helper's windows as pictures: the same layout with nothing
+clipped, but slightly soft edges and text. Making it sharp would mean
+declaring DPI awareness and scaling every pixel size in `pill.py` by the
+display's scale. It was left as is, like the dictation pill.
+
+**2. Each kind.** These were sent as the app sends them. The live events still
+need James at the PC: a real dictation, a Transform, a muted microphone, the
+network off, and a tap of the hotkey.
+
+| Message sent | Pill on Windows | What it did |
+|---|---|---|
+| Transform done (Polish), with Show in Journal | Done, "Polished", tick | Went by itself after 2 s |
+| `take_limit_stopped(20)` | Working, "Tidying", three dots | Became Done in place on `working_end` |
+| Still working on it (Keep waiting, Send later, Cancel) | Your call, "Still working", button "Send later", cross | Stayed up when ignored (still there after 3 s, nothing sent); the button sent `send_later` |
+| We couldn't hear you | Problem, "Didn't hear you", red dot, button "Mic" | Stayed until taken down |
+| Couldn't reach Groq | Problem, "Couldn't reach Groq", red dot, no button | Stayed until taken down |
+| `hold_hint_message("Win + Ctrl")` | Tip, "Hold Win + Ctrl to talk", cross | Stayed until taken down |
+| Recording the meeting | Done, "Recording the meeting", tick | Went after 2 s |
+| Meeting finished | Done, "Meeting finished", tick | Went after 2 s |
+
+**3. Focus, place, one at a time.**
+- Every pill window has `WS_EX_NOACTIVATE`, along with `TOPMOST`,
+  `TOOLWINDOW` and `LAYERED`. Showing a pill never moved the foreground.
+- With the dictation pill up, the message pill sits 8 px above it, centred on
+  it, and does not overlap it.
+- Two messages back to back left one pill window: the second replaced the
+  first.
+- Found on the way, and older than the pills: when the helper starts, its
+  hidden dictation-pill window takes the foreground if Windows lets it, and
+  keeps it until the dictation pill is next shown and hidden. The old cards on
+  the `windows` branch did exactly the same in the same test, so it is not from
+  this change. It is worth a separate look, because keys typed in that moment
+  go to an invisible window.
+
+**4. Ignoring "Your call".** It is safe at the helper: the pill stays and sends
+nothing until a button is pressed. The app's side (it keeps waiting, and
+nothing that saves the recording or the words is lost) is covered by
+`tests/test_pill_keeps_words.py` and `tests/test_pill_table.py`. Both pass on
+Windows; the suite result is below.
+
+**5. Spacing.** As measured in 1, it matches the design. No change was made.
+
+**Suite on `one-app` 672d27d, on Windows:** **8,453 passed, 86 skipped, 0 failed** in 7 min 1 s (8,516 pass on the Mac; the 86 skipped are the Mac-only and POSIX-shell tests, as before).
