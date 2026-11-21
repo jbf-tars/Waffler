@@ -1701,13 +1701,13 @@ class Api:
 
     def get_learn_from_edits(self) -> dict:
         """Whether "suggest words from my edits" is on (settings.json
-        ``learn_from_edits``, on unless exactly false): the one switch the
+        ``learn_from_edits``, off unless exactly true): the one switch the
         Vocabulary page shows, read without get_settings' work (keys, models,
         every page's settings)."""
         try:
-            return {"ok": True, "on": self._load_settings_file().get("learn_from_edits") is not False}
+            return {"ok": True, "on": self._load_settings_file().get("learn_from_edits") is True}
         except Exception:
-            return {"ok": True, "on": True}
+            return {"ok": True, "on": False}
 
     def export_vocabulary(self) -> dict:
         """Save the Vocabulary as a CSV on the Desktop (word, sounds_like,
@@ -2178,9 +2178,10 @@ class Api:
             # estimate (src/stats_insights.py). 40 until set; 10 to 200.
             "typing_wpm":            typing_wpm_of(stored),
             # Vocabulary: suggest words from the edits made in the Journal
-            # (src/learn_words.py). On unless exactly false; suggestions only,
-            # nothing is added without a click.
-            "learn_from_edits":      stored.get("learn_from_edits") is not False,
+            # (src/learn_words.py). Off unless exactly true (it was on by
+            # default until the owner's review); suggestions only, nothing is
+            # added without a click.
+            "learn_from_edits":      stored.get("learn_from_edits") is True,
             # Shortcuts, double-tap to go hands-free (src/double_tap.py): off
             # unless exactly true.
             "double_tap_handsfree":  stored.get("double_tap_handsfree") is True,

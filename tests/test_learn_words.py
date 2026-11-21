@@ -220,10 +220,10 @@ def test_an_apostrophe_or_hyphen_inside_a_name_stays_in_it():
 # ── the setting ──────────────────────────────────────────────────────────────
 
 @pytest.mark.parametrize("stored, want", [
-    ({}, True), ({"learn_from_edits": True}, True), ({"learn_from_edits": False}, False),
-    ({"learn_from_edits": "no"}, True), ({"learn_from_edits": 0}, True), (None, True), ("x", True),
+    ({}, False), ({"learn_from_edits": True}, True), ({"learn_from_edits": False}, False),
+    ({"learn_from_edits": "yes"}, False), ({"learn_from_edits": 1}, False), (None, False), ("x", False),
 ])
-def test_it_is_on_unless_the_setting_is_exactly_false(stored, want):
+def test_it_is_off_unless_the_setting_is_exactly_true(stored, want):
     assert L.enabled(stored) is want
 
 

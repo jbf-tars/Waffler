@@ -71,9 +71,11 @@ _SENTENCE_END = re.compile(r"[.!?…][\"'’”)\]]*\s*$")
 
 
 def enabled(stored) -> bool:
-    """Whether suggestions are made: on unless settings.json says exactly
-    false."""
-    return not (isinstance(stored, dict) and stored.get(SETTING) is False)
+    """Whether suggestions are made: only when settings.json says exactly
+    true. Off for a new install and for anyone who never touched the switch
+    (it was on by default; on real use the rows were offered, unasked, for
+    ordinary corrections such as "dashboard" and "merged")."""
+    return isinstance(stored, dict) and stored.get(SETTING) is True
 
 
 def settings_problem(payload) -> str:
