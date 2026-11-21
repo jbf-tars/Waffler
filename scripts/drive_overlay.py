@@ -11,7 +11,10 @@ said back:
   1. a Done pill ("Polished"), which goes by itself after two seconds;
   2. a "Your call" ("Still working", Send later), whose button is pressed;
   3. a Problem with a button ("Didn't hear you", Mic), whose button is pressed;
-  4. a Working pill ("Tidying") that becomes "Done" in place when the work ends.
+  4. a Working pill ("Tidying") that becomes "Done" in place when the work ends;
+  5. a Problem in the resting place, which ends when the dictation pill needs
+     the place; the same Problem above a dictation pill that is showing, which
+     comes down into the resting place when that pill goes.
 
 The buttons are pressed with the helper's "_toast_click" command, so the
 person's mouse is never touched. The pills do appear on screen for a moment,
@@ -120,6 +123,16 @@ def main():
     time.sleep(1.5)
     send({"type": "working_end", "result": "done"})
     time.sleep(2.8)
+
+    print("--- 5. Where it sits: resting, above a dictation pill, then down when that pill goes")
+    show("warn", "Connection failed", "Check your internet or VPN.")       # no pill: the resting place
+    time.sleep(1.0)
+    send({"type": "working", "elapsed_seconds": 1.0})                      # the pill needs its place back
+    time.sleep(0.8)
+    show("warn", "Connection failed", "Check your internet or VPN.")       # pill showing: above it
+    time.sleep(1.0)
+    send({"type": "working_end", "result": "quiet"})                       # the pill goes: it comes down
+    time.sleep(1.2)
 
     send({"type": "quit"})
     try:

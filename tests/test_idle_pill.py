@@ -209,6 +209,12 @@ def _h(text):
 # becomes "Done" in place). Nothing that shows, hides, raises or moves the
 # dictation pill across Spaces was touched. The by-hand check on full-screen
 # Spaces still has to be done before this ships.
+#
+# Changed again, on purpose, when the message was moved down into the
+# dictation pill's resting place: _enter_working (a message resting there
+# gives the place back before the pill comes up), _end_working and the
+# _done_expire branch (a message left above where the pill was comes down).
+# Each only calls into the message's own code after the pill's own lines.
 def _pinned():
     out = {name: _h(_src(_fn(name))) for name in (
         "_refresh_overlay_space_membership", "_reassert_overlay_window", "_schedule_show_retry",
@@ -232,8 +238,8 @@ _PINNED_ALL = {
     "_refresh_overlay_space_membership": "09814e34a7d5bdff",
     "_reassert_overlay_window": "e8048dc954b9e0a5",
     "_schedule_show_retry": "434860787c12aadf",
-    "_enter_working": "55d11f8bdb8a2662",
-    "_end_working": "2cbfdc2adf28e018",
+    "_enter_working": "8f7fcf76847c4329",
+    "_end_working": "8604f885f023eff5",
     "_show_toast": "ea391abd1a673413",
     "_hide_toast": "d351f32b9c5dd6c3",
     "_stdin_reader": "bef313db64d0e162",
@@ -243,7 +249,7 @@ _PINNED_ALL = {
     "branch:hide": "c364151869d7862b",
     "branch:working": "1f2eb78babb0ecc2",
     "branch:working_end": "2141d5d27b16df42",
-    "branch:_done_expire": "61fafa6a456d3ad7",
+    "branch:_done_expire": "fe3976855ef81d07",
     "branch:level": "cf29fd6daace6e32",
     "branch:show_toast": "abf797df7f7d592a",
     "branch:hide_toast": "e7ed868605522736",
@@ -877,6 +883,7 @@ _MAC_CONSTS = ("OUTER_RIM", "INNER_PAD", "GRID_ROWS", "GRID_COLS", "CELL_SIZE", 
                "_NS_TERMINATE_LATER")
 _MAC_FUNCS = ("_idle_guarded", "_compute_overlay_position", "_rect", "_point_in", "_screen_key_of", "_screen_at",
               "_cursor_screen", "_saved_origin_on", "_idle_target_origin", "_toast_origin",
+              "_toast_make_way", "_toast_settle", "_clear_of_meeting",
               "_apply_pill_config", "_idle_place", "_idle_show", "_idle_hide", "_idle_tick",
               "_idle_on_space_changed", "_open_pill_menu", "_close_pill_menu", "_idle_press",
               "_idle_drag_to", "_idle_release", "_answer_pending_quit", "_dispatch_cmd")
@@ -939,7 +946,8 @@ def mac(screens=(LAPTOP, MONITOR), mouse=(700, 500)):
         _cmd_queue=queue.Queue(),
         _saved_positions={}, _idle_enabled=False, _idle_win=None, _idle_view=None,
         _idle_shown=False, _idle_drag=None, _idle_ticks=0, _menu_win=None, _menu_view=None,
-        _hover=ip.HoverMenu(), _visible=False, _toast_win=None, _waffle_x=0.0, _waffle_y=0.0,
+        _hover=ip.HoverMenu(), _visible=False, _toast_win=None, _toast_pill=None, _meet_win=None,
+        _waffle_x=0.0, _waffle_y=0.0,
         _terminate_pending=False, _parent_asked_quit=False, _show_gen=0, _done_gen=0,
         _mode="recording", _g_window=None, _g_view=None,
     )
@@ -983,15 +991,131 @@ def test_a_saved_spot_is_kept_inside_the_screen_it_is_used_on():
     assert ns["_compute_overlay_position"]() == (1512 - 69, 945 - 97)
 
 
-def test_a_message_sits_above_the_pill_and_goes_under_it_when_the_pill_was_moved_to_the_top():
-    """The message is the small pill now (40 high, as wide as its words), a
-    gap above the whole of the dictation pill's window, so neither covers the
-    other. With a spot saved near the top of the screen it goes under."""
+# Where a message goes: as low and out of the way as it can be (src/pill.py
+# place). LAPTOP is 1512 x 982 with nothing at the bottom; the dictation pill
+# is 69 x 97 at (721.5, 16), 16 pt above the bottom of the visible frame.
+
+def test_with_the_dictation_pill_hidden_a_message_rests_in_its_place():
     ns = mac()
-    assert ns["_toast_origin"]((700.0, 16.0), 160) == (700 + (69 - 160) / 2.0, 16 + 97 + pill.GAP)
-    ns["_saved_positions"].update({ip.screen_key(1, (0, 0, 1512, 982)): {"cx": 734.5, "y": 870.0}})
-    tx, ty = ns["_toast_origin"]((700.0, 870.0), 160)
-    assert ty == 870 - pill.GAP - 40 and tx == 700 + (69 - 160) / 2.0
+    ns.update(_waffle_x=721.5, _waffle_y=16.0, _visible=False)
+    assert ns["_toast_origin"](None, 160) == (721.5 + (69 - 160) / 2.0, 16.0), \
+        "centred on the dictation pill's spot, its bottom edge 16 pt above the bottom"
+    # A message with no recording behind it: the same, on the cursor's screen.
+    assert ns["_toast_origin"]((2757.5, 86.0), 160) == (2757.5 + (69 - 160) / 2.0, 86.0)
+
+
+def test_with_the_dictation_pill_showing_a_message_sits_8_pt_above_the_waffle():
+    ns = mac()
+    ns.update(_waffle_x=721.5, _waffle_y=16.0, _visible=True)
+    tx, ty = ns["_toast_origin"](None, 160)
+    assert (tx, ty) == (721.5 + (69 - 160) / 2.0, 16 + 97 + pill.GAP)
+    assert not pill.overlaps((tx, ty, 160, 40), (721.5, 16.0, 69, 97))
+    # On the other screen the dictation pill is not in the way: it rests.
+    assert ns["_toast_origin"]((2757.5, 86.0), 160) == (2757.5 + (69 - 160) / 2.0, 86.0)
+
+
+def test_a_dragged_spot_is_used_the_same_way_and_kept_on_the_screen():
+    ns = mac()
+    ns["_saved_positions"].update({ip.screen_key(1, (0, 0, 1512, 982)): {"cx": 34.5, "y": 500.0}})
+    ns.update(_waffle_x=0.0, _waffle_y=500.0, _visible=False)       # dragged to the left edge
+    assert ns["_toast_origin"](None, 160) == (0.0, 500.0), "rests there, pushed in from the edge"
+    ns["_visible"] = True
+    assert ns["_toast_origin"](None, 160) == (0.0, 500 + 97 + pill.GAP)
+    # Dragged to the top: no room above the dictation pill, so under it.
+    ns.update(_waffle_x=700.0, _waffle_y=840.0)
+    assert ns["_toast_origin"](None, 160) == (700 + (69 - 160) / 2.0, 840 - pill.GAP - 40)
+    ns["_visible"] = False
+    assert ns["_toast_origin"](None, 160) == (700 + (69 - 160) / 2.0, 840.0)
+
+
+def test_on_a_small_screen_a_wide_message_stays_on_it():
+    small = FakeScreen(7, (0, 0, 320, 480), (0, 40, 320, 420))
+    ns = mac(screens=(small,))
+    ns.update(_waffle_x=(320 - 69) / 2.0, _waffle_y=56.0, _visible=False)
+    tx, ty = ns["_toast_origin"](None, 300)
+    assert (tx, ty) == (10.0, 56.0) and tx + 300 <= 320
+    assert ns["_toast_origin"](None, 348) == (0.0, 56.0), "wider than the screen: from its left edge"
+    ns["_visible"] = True
+    assert ns["_toast_origin"](None, 300) == (10.0, 56 + 97 + pill.GAP)
+
+
+def test_a_message_never_rests_on_the_meeting_bar():
+    """The bar is at the top centre. A dictation pill dragged up there would
+    bring a resting message under it: it steps beside the bar instead."""
+    ns = mac()
+    ns["_saved_positions"].update({ip.screen_key(1, (0, 0, 1512, 982)): {"cx": 756.0, "y": 880.0}})
+    ns.update(_waffle_x=721.5, _waffle_y=880.0, _visible=False)
+    tx, ty = ns["_toast_origin"](None, 160)
+    bar = FakeWindow(((1512 - 178) / 2.0, 945 - 40 - 10, 178, 40))
+    bar.isVisible = lambda: True
+    bar.screen = lambda: LAPTOP
+    ns["_meet_win"] = bar
+    assert pill.overlaps((tx, ty, 160, 40), tuple(bar.f)), "it would have covered the bar"
+    cx, cy = ns["_clear_of_meeting"](tx, ty, 160)
+    assert not pill.overlaps((cx, cy, 160, 40), tuple(bar.f))
+    assert (cx, cy) == (bar.f[0] + 178 + pill.GAP, bar.f[1]), "beside it, on the same line"
+    # In the usual resting place, at the bottom, nothing moves.
+    ns.update(_waffle_x=721.5, _waffle_y=16.0)
+    low = ns["_toast_origin"](None, 160)
+    assert ns["_clear_of_meeting"](*low, 160) == low
+
+
+def _message(ns, frame, kind_of):
+    win = FakeWindow(frame)
+    ns["_toast_win"] = win
+    ns["_toast_pill"] = pill.pill_for(*kind_of)
+    return win
+
+
+def test_a_new_dictation_pill_takes_its_place_back_from_a_resting_message():
+    """Point 3: the message ends; it does not jump out of the way."""
+    ns = mac()
+    hidden = []
+    ns.update(_waffle_x=721.5, _waffle_y=16.0, _visible=False, _hide_toast=lambda *a: hidden.append(1))
+    _message(ns, (676.0, 16.0, 160, 40), ("warn", "Connection failed", "b"))
+    ns["_toast_make_way"]()
+    assert hidden == [1]
+    # One that is clear of the dictation pill (above it, or on another screen) stays.
+    _message(ns, (676.0, 121.0, 160, 40), ("warn", "Connection failed", "b"))
+    ns["_toast_make_way"]()
+    _message(ns, (2700.0, 86.0, 160, 40), ("warn", "Connection failed", "b"))
+    ns["_toast_make_way"]()
+    ns["_toast_win"] = None
+    ns["_toast_make_way"]()
+    assert hidden == [1]
+
+
+def test_when_the_dictation_pill_goes_a_problem_comes_down_and_a_done_stays():
+    ns = mac()
+    moved = []
+    ns.update(_waffle_x=721.5, _waffle_y=16.0, _visible=False, _meet_win=None,
+              _toast_move_to=lambda x, y: moved.append((x, y)))
+    _message(ns, (676.0, 121.0, 160, 40), ("warn", "Connection failed", "b"))
+    ns["_toast_settle"]()
+    assert moved == [(676.0, 16.0)], "into the resting place, whole points"
+    _message(ns, (676.0, 121.0, 160, 40), ("info", "Polish done", "b"))
+    ns["_toast_settle"]()
+    assert moved == [(676.0, 16.0)], "a two-second Done is not moved"
+    # Nothing moves while the dictation pill is still up, or with no message.
+    ns["_visible"] = True
+    _message(ns, (676.0, 121.0, 160, 40), ("warn", "Connection failed", "b"))
+    ns["_toast_settle"]()
+    ns.update(_visible=False, _toast_win=None)
+    ns["_toast_settle"]()
+    assert len(moved) == 1
+
+
+def test_the_dictation_pill_coming_and_going_calls_those_two():
+    working = ast.get_source_segment(MAC_SRC, _fn("_enter_working"))
+    assert "if not _visible:" in working and "_toast_make_way()" in working
+    assert working.index("_toast_make_way()") < working.index("_visible = True")
+    ending = ast.get_source_segment(MAC_SRC, _fn("_end_working"))
+    assert ending.rstrip().endswith("_toast_settle()")
+    assert ending.index("_g_window.orderOut_(None)") < ending.rindex("_toast_settle()")
+    branches = _dispatch_branches()
+    assert "_toast_settle()" in _body_src(branches["_done_expire"])
+    # A new recording takes every message down, as it always did.
+    assert "_hide_toast()" in _body_src(branches["show"])
 
 
 def _idle_on(ns):

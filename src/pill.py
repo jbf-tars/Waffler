@@ -528,14 +528,69 @@ def action_for(pill: Pill, where: Optional[str]) -> Optional[str]:
 
 
 # ── Where it goes ────────────────────────────────────────────────────────────
-# Rectangles are (x, y, w, h). ``origin_above`` is for a screen whose y grows
-# upwards (the Mac); the Windows overlay mirrors it.
+# As low and out of the way as it can be. Rectangles are (x, y, w, h).
+#
+# The dictation pill's window sits at the bottom centre of the screen (or
+# where the person dragged it), a small distance above the Dock or taskbar.
+#   * While the dictation pill is NOT on screen (the usual case: a message
+#     comes after the dictation has finished), the message rests in that same
+#     place: centred on it, its bottom edge level with the bottom of the
+#     dictation pill's window.
+#   * While the dictation pill IS on screen and the resting place would cover
+#     it, the message sits directly above it with a small gap. The top of the
+#     dictation pill's window is the top of the waffle itself, so that is the
+#     top of what the person sees. When the dictation pill then goes, a
+#     Done stays where it is for its two seconds (nothing jumps); any other
+#     message comes down into the resting place (``settles``), so a Problem
+#     is not left floating over nothing.
+# A message in the resting place gives it back when the dictation pill needs
+# it (a new dictation, or the working pill): it ends, it does not move.
+#
+# ``y_down`` is for a screen whose y grows downwards (Windows), where a
+# window's (x, y) is its top-left; without it y grows upwards (the Mac) and
+# (x, y) is the bottom-left.
 
-def origin_above(anchor, anchor_size, width: float) -> Tuple[float, float]:
+def origin_above(anchor, anchor_size, width: float, y_down: bool = False) -> Tuple[float, float]:
     """Centred over the dictation pill, a small gap above it."""
     ax, ay = anchor
     aw, ah = anchor_size
+    if y_down:
+        return ax + (aw - width) / 2.0, ay - GAP - HEIGHT
     return ax + (aw - width) / 2.0, ay + ah + GAP
+
+
+def origin_resting(anchor, anchor_size, width: float, y_down: bool = False) -> Tuple[float, float]:
+    """In the dictation pill's own resting place: centred on it, bottom edges
+    level."""
+    ax, ay = anchor
+    aw, ah = anchor_size
+    if y_down:
+        return ax + (aw - width) / 2.0, ay + ah - HEIGHT
+    return ax + (aw - width) / 2.0, ay
+
+
+def place(anchor, anchor_size, width: float, shown=None, y_down: bool = False) -> Tuple[float, float]:
+    """Where a message ``width`` wide goes. ``anchor`` is where the dictation
+    pill's window is, or would be; ``shown`` is that window's rectangle while
+    the dictation pill is on screen, else None."""
+    x, y = origin_resting(anchor, anchor_size, width, y_down)
+    if shown is not None and overlaps((x, y, width, HEIGHT), shown):
+        return origin_above((shown[0], shown[1]), (shown[2], shown[3]), width, y_down)
+    return x, y
+
+
+def settles(pill, rect, left, y_down: bool = False) -> bool:
+    """The dictation pill, whose window was ``left``, has gone from the
+    screen. Does the message at ``rect`` come down into the resting place?
+    Only one that was sitting above that pill, and never a Done: it has two
+    seconds, and a jump would be more to look at than the message."""
+    if pill is None or pill.kind == DONE:
+        return False
+    x, y, w, h = rect
+    lx, ly, lw, lh = left
+    if not (x < lx + lw and lx < x + w):
+        return False                    # not over that pill: another screen
+    return (y + h <= ly) if y_down else (y >= ly + lh)
 
 
 def overlaps(a, b) -> bool:

@@ -1402,6 +1402,10 @@ def _enter_working(elapsed_seconds: float):
         _done_gen += 1           # cancels a pending tick
         _mode = "working"
         _clear_progress()
+    if not _visible:
+        # The pill comes up with no recording before it (a transform from
+        # the menu): a message resting in its place gives the place back.
+        _toast_make_way()
     _visible = True
     if _g_view is not None:
         _g_view.setNeedsDisplay_(True)
@@ -1440,6 +1444,8 @@ def _end_working(result: str):
     _reset_cells(0.0)
     if _g_window is not None:
         _g_window.orderOut_(None)
+    # A message left above where the pill was comes down into its place.
+    _toast_settle()
 
 
 def _dispatch_cmd(cmd):
@@ -1547,6 +1553,7 @@ def _dispatch_cmd(cmd):
             _reset_cells(0.0)
             if _g_window is not None:
                 _g_window.orderOut_(None)
+            _toast_settle()
 
     elif ctype == "level":
         if _mode != "recording":
@@ -1647,18 +1654,74 @@ def _toast_anchor(reposition: bool):
 
 def _toast_origin(anchor=None, width=0):
     """Window origin of a pill ``width`` wide for an anchor (default: the
-    dictation pill's): centred over the dictation pill, a small gap above
-    its window, so the two never cover each other."""
+    dictation pill's). As low as it can be (src/pill.py place): in the
+    dictation pill's own resting place while that pill is not on screen,
+    directly above it with a small gap while it is. Kept inside the screen's
+    visible frame, so a wide message on a small screen, or one by a dictation
+    pill that was dragged to an edge, never hangs off it."""
     ax, ay = anchor if anchor else (_waffle_x, _waffle_y)
-    tx, ty = _pl.origin_above((ax, ay), (WIN_W, WIN_H), width)
-    if _saved_positions:
-        # The pill may have been dragged near the top or an edge: keep the
-        # toast on the screen. With no saved spot, toasts are where they were.
-        screen = _screen_at(ax + WIN_W / 2.0, ay + 1.0)
-        if screen is not None:
-            tx, ty = _ip.toast_origin_inside(tx, ty, width, TOAST_H, ay,
-                                             _rect(screen.visibleFrame()), TOAST_PAD)
+    shown = (_waffle_x, _waffle_y, WIN_W, WIN_H) if _visible else None
+    tx, ty = _pl.place((ax, ay), (WIN_W, WIN_H), width, shown)
+    screen = _screen_at(ax + WIN_W / 2.0, ay + 1.0)
+    if screen is not None:
+        # Above a dictation pill that was dragged near the top there is no
+        # room: it goes under that pill instead. Then inside the frame.
+        tx, ty = _ip.toast_origin_inside(tx, ty, width, TOAST_H, ay,
+                                         _rect(screen.visibleFrame()), TOAST_PAD)
     return tx, ty
+
+
+def _toast_make_way():
+    """The dictation pill is about to appear. A message that is resting in
+    its place gives the place back: it ends, it does not jump out of the
+    way. A message that is already clear of the dictation pill stays."""
+    try:
+        if _toast_win is None:
+            return
+        if _pl.overlaps(_rect(_toast_win.frame()), (_waffle_x, _waffle_y, WIN_W, WIN_H)):
+            _dbg("pill.make_way")
+            _hide_toast()
+    except Exception as e:
+        _dbg("pill.make_way.error", err=str(e)[:80])
+
+
+def _toast_move_to(tx, ty):
+    """Move the message that is up, with the same quick ease it appears
+    with; with Reduce Motion it is simply there."""
+    f = _toast_win.frame()
+    rect = NSMakeRect(tx, ty, f.size.width, f.size.height)
+    if _reduce_motion():
+        _toast_win.setFrame_display_(rect, True)
+        return
+    try:
+        ctx = AppKit.NSAnimationContext
+        ctx.beginGrouping()
+        ctx.currentContext().setDuration_(_pl.FADE_S)
+        _toast_win.animator().setFrame_display_(rect, True)
+        ctx.endGrouping()
+    except Exception as e:
+        _dbg("pill.move.error", err=str(e)[:80])
+        _toast_win.setFrame_display_(rect, True)
+
+
+def _toast_settle():
+    """The dictation pill has just left the screen. A message that was
+    sitting above it comes down into the resting place, unless it is a Done
+    (two seconds: it stays where it is)."""
+    try:
+        if _toast_win is None or _visible:
+            return
+        f = _rect(_toast_win.frame())
+        if not _pl.settles(_toast_pill, f, (_waffle_x, _waffle_y, WIN_W, WIN_H)):
+            return
+        tx, ty = _toast_origin(None, f[2])
+        tx, ty = _clear_of_meeting(tx, ty, f[2])
+        tx, ty = float(round(tx)), float(round(ty))
+        if (tx, ty) != (f[0], f[1]):
+            _dbg("pill.settle", x=tx, y=ty)
+            _toast_move_to(tx, ty)
+    except Exception as e:
+        _dbg("pill.settle.error", err=str(e)[:80])
 
 
 def _clear_of_meeting(tx, ty, width):

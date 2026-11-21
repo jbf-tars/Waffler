@@ -120,6 +120,24 @@ def test_toasts_and_the_hotkey_dialog_sit_above_the_wizard():
     assert shown and "pointer-events: auto" in shown[0]
 
 
+def test_on_home_a_message_sits_just_above_the_ask_bar_and_record_a_meeting():
+    """Both are 54 px high and 26 px up from the bottom of the window
+    (meetings.css), where the message used to sit on top of them."""
+    meetings = {}
+    for sel, body in _css_rules_of("meetings.css"):
+        meetings.setdefault(sel, body)          # the first rule, not a narrow window's
+    for sel in (".j-rec", ".j-ask"):
+        assert "position: fixed" in meetings[sel] and "bottom: 26px" in meetings[sel], sel
+    assert "height: 54px" in meetings[".j-rec"] and "height: 54px" in meetings[".j-ask-box"]
+    rule = [body for sel, body in _css_rules() if sel == 'body[data-page="home"] .toast:not(.over-wizard)']
+    assert rule, "no placement for a message on Home"
+    up = int(re.search(r"bottom:\s*(\d+)px", rule[0]).group(1))
+    assert up >= 26 + 54 + 8, "clear of the row"
+    assert up <= 26 + 54 + 16, "and no higher than it needs to be"
+    assert '<body data-page="home">' in read("index.html")
+    assert "document.body.dataset.page = page;" in read("app.js")
+
+
 def test_a_message_over_the_wizard_sits_clear_of_its_buttons():
     """Bottom right, "Sent! That's how dictation works in any app." covered
     96% of Finish Setup, so the first click only closed the message (and
