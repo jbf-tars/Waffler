@@ -1658,33 +1658,43 @@ body[data-theme="dark"] .kc-xl.held {
 .hk-preset-list .btn[aria-pressed="true"] { box-shadow: inset 0 0 0 1.5px var(--text); }
 
 /* ── Toast ─────────────────────────────────────────────────────────────
-   An ink pill at the bottom centre, with an icon; no emoji, one sentence. */
+   The same small capsule as the pop-ups outside the window (src/pill.py):
+   dark, 40 px high, fully rounded, a hairline of white at 14% and a soft
+   shadow; the waffle mark, a gold tick or a red dot, then the message. The
+   colours are the pill's own in both themes. A message too long for one
+   line wraps instead of being cut: these texts are not six words yet. */
 .toast {
   position: fixed;
   left: 50%;
   bottom: 22px;
   display: inline-flex;
   align-items: center;
-  gap: 9px;
+  gap: 10px;
   max-width: min(560px, calc(100vw - 48px));
-  min-height: 38px;
-  padding: 9px 16px 9px 13px;
-  border-radius: 19px;
-  background: var(--text);
-  color: var(--bg);
-  font: 400 13.5px/18px var(--f-ui);
-  box-shadow: 0 10px 24px -10px rgba(12, 10, 9, 0.5);
+  min-height: 40px;
+  box-sizing: border-box;
+  padding: 9px 16px 9px 9px;
+  border-radius: 20px;
+  background: #14110F;
+  color: #F4F0EA;
+  font: 500 14px/18px var(--f-ui);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.14), 0 14px 30px -12px rgba(0, 0, 0, 0.7);
   /* Above the setup wizard (9999) and the dialogs (10001): at 200 every
      message shown during setup was hidden behind the wizard. */
   z-index: 10002;
   opacity: 0;
   transform: translate(-50%, 6px);
-  transition: opacity 0.2s var(--ease), transform 0.2s var(--ease);
+  transition: opacity 0.18s var(--ease), transform 0.18s var(--ease);
   pointer-events: none;
 }
-.toast .ic { width: 15px; height: 15px; flex: none; }
-.toast.error .ic { color: var(--on-ink-err); }
-.toast.success .ic { color: var(--on-ink-ok); }
+.toast .toast-mark { display: inline-flex; width: 22px; height: 22px; flex: none; }
+.toast .toast-mark svg { width: 22px; height: 22px; display: block; }
+.toast .toast-tick { flex: none; fill: none; stroke: #E8C267; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.toast .toast-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: #F0624F; }
+.toast .toast-text { min-width: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .toast, .toast.over-wizard { transform: translate(-50%, 0); transition: none; }
+}
 
 .toast.visible {
   opacity: 1;

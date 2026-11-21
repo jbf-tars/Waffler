@@ -2611,15 +2611,21 @@ function formatTime(ts) {
 }
 
 // ── Toast ───────────────────────────────────────────────────────────────
-// An ink pill at the bottom centre, with an icon and one sentence. The
-// timer pauses while the pointer is over it, and a click dismisses it.
+// The same small capsule as the pop-ups outside the window (src/pill.py): the
+// waffle mark, a gold tick when it worked or a red dot when it did not, and
+// the message. The timer pauses while the pointer is over it, and a click
+// dismisses it.
 let _toastHoverBound = false;
 let _toastTimeoutMs = 2500;
-const _TOAST_ICONS = { success: 'check', error: 'alert-circle', info: 'info' };
+const _TOAST_SIGNS = {
+  success: '<svg class="toast-tick" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" focusable="false"><path d="M2.5 7.5 5.5 10.5 11.5 3.5"/></svg>',
+  error: '<span class="toast-dot" aria-hidden="true"></span>',
+};
 
 function showToast(msg, type, ms) {
   clearTimeout(toastTimer);
-  $toast.innerHTML = WI.icon(_TOAST_ICONS[type] || 'info') + `<span>${escHtml(msg)}</span>`;
+  $toast.innerHTML = `<span class="toast-mark" aria-hidden="true">${WI.waffle({ levels: 'empty', size: 22 })}</span>`
+    + (_TOAST_SIGNS[type] || '') + `<span class="toast-text">${escHtml(msg)}</span>`;
   // Over the setup wizard a message goes to the top centre: at the bottom it
   // sat on the wizard's Next and Finish Setup buttons, so the first click
   // only closed the message (and hovering there kept it up).
