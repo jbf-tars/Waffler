@@ -4472,15 +4472,24 @@ async function runSetupAgain() {
 }
 
 // ── Keys and providers ────────────────────────────────────────────────
-// The keys and the order are one list (they were two sections). The rows
-// are drawn in the order Waffler tries them (logic.js keyRows); the order
-// is saved with save_settings({provider_order}) and applies on the next
-// dictation. A provider without a key is quieter: Waffler skips it.
+// In view: the key of one provider at a time, in the "Your own key" card
+// (renderKeyCard; logic.js keyCardView). Under Advanced: the keys and the
+// order as one list, drawn in the order Waffler tries them (logic.js
+// keyRows); the order is saved with save_settings({provider_order}) and
+// applies on the next dictation. A provider without a key is quieter:
+// Waffler skips it.
 // The starting order is the engine's own (logic.js DEFAULT_PROVIDER_ORDER).
 let _providerOrder = WL.DEFAULT_PROVIDER_ORDER.slice();
 // The last get_settings() answer: which keys are set, and what is in use.
 let _lastSettings = null;
+// Whose key box is showing in the card. Until the person picks one it is the
+// first provider in their order that has a key (logic.js keyCardPick).
 let _openKeyEditor = '';
+let _keyPicked = false;
+// What each provider said when its key was last checked in this window:
+// {ok: true}, or {ok: false, line}. Never the key itself.
+const _keyVerdicts = {};
+let _keyChecking = '';
 
 const _KEY_EDITORS = { groq: 'groqKeyEditor', openai: 'apiKeyEditor', cerebras: 'cerebrasKeyEditor' };
 const _KEY_PAGES = {
@@ -4496,9 +4505,7 @@ function openKeyPage(provider) {
 function renderProviderOrder() {
   const host = document.getElementById('providerOrderList');
   if (!host) return;
-  // Park the key editors before the rows are redrawn.
-  const park = document.querySelector('.key-editors');
-  Object.values(_KEY_EDITORS).forEach((id) => { const el = document.getElementById(id); if (el && park) park.appendChild(el); });
+  renderKeyCard();
   const rows = WL.keyRows(_providerOrder, _lastSettings);
   host.innerHTML = rows.map((r) => {
     const p = WL.providerPill(r);
@@ -4519,8 +4526,36 @@ function renderProviderOrder() {
     g.addEventListener('keydown', _onGripKey);
     g.addEventListener('pointerdown', _onGripDown);
   });
-  if (_openKeyEditor) openKeyEditor(_openKeyEditor, true);
 }
+
+// The "Your own key" card: the picked provider's box and one line under it,
+// "Working", "In use", or why the key was not taken.
+function renderKeyCard() {
+  const sel = document.getElementById('keyProvider');
+  if (!sel) return;
+  if (!_keyPicked) _openKeyEditor = WL.keyCardPick(_providerOrder, _lastSettings);
+  const v = WL.keyCardView(_openKeyEditor, _providerOrder, _lastSettings, _keyVerdicts[_openKeyEditor], _keyChecking === _openKeyEditor);
+  _openKeyEditor = v.id;
+  sel.value = v.id;
+  Object.entries(_KEY_EDITORS).forEach(([id, box]) => {
+    const ed = document.getElementById(box);
+    if (!ed) return;
+    ed.hidden = id !== v.id;
+    const input = ed.querySelector('input');
+    if (input && id === v.id) input.placeholder = v.placeholder;
+  });
+  const card = document.getElementById('keyCard');
+  if (card) card.classList.toggle('has-key', v.hasKey);
+  const state = document.getElementById('keyState');
+  if (state) {
+    state.textContent = v.state;
+    state.className = 'key-state' + (v.cls ? ' is-' + v.cls : '');
+    state.hidden = !v.state;
+  }
+}
+
+// The picker: another provider's box, and the focus stays on the picker.
+function pickKeyProvider(provider) { openKeyEditor(provider, true); }
 
 // The handle and the arrow keys: one place up or down, saved at once.
 async function _onGripKey(e) {
@@ -4571,16 +4606,12 @@ async function _onGripUp() {
   await saveProviderOrder(order);
 }
 
-// "Replace the Groq key", "Add an OpenAI key": each row's button says
-// whose key it is (three buttons all called "Replace" told a screen reader
-// nothing).
+// "Replace the Groq key", "Add an OpenAI key": each row's button (under
+// Advanced) says whose key it is (three buttons all called "Replace" told a
+// screen reader nothing).
 function _keyButtonName(r) {
   if (r.hasKey) return `Replace the ${r.name} key`;
   return `Add ${/^[AEIOU]/.test(r.name) ? 'an' : 'a'} ${r.name} key`;
-}
-
-function _keyButton(provider) {
-  return document.querySelector(`#providerOrderList .po-btn-key[data-provider="${provider}"]`);
 }
 
 function _syncKeyButtons() {
@@ -4589,12 +4620,18 @@ function _syncKeyButtons() {
   });
 }
 
-// Esc in an open key box closes it and goes back to its button, as Cancel
-// does.
+// Esc in a key box drops what was typed and goes back to the picker, as
+// Cancel does. Typing again takes a "not accepted" line away.
 document.addEventListener('DOMContentLoaded', () => {
-  Object.values(_KEY_EDITORS).forEach((id) => {
+  Object.entries(_KEY_EDITORS).forEach(([provider, id]) => {
     const ed = document.getElementById(id);
     if (!ed) return;
+    ed.addEventListener('input', (e) => {
+      if (!_keyVerdicts[provider] || _keyVerdicts[provider].ok) return;
+      delete _keyVerdicts[provider];
+      if (e.target && e.target.removeAttribute) e.target.removeAttribute('aria-invalid');
+      renderKeyCard();
+    });
     ed.addEventListener('keydown', (e) => {
       // Enter in the key's box presses Save, as in any form.
       if (e.key === 'Enter' && e.target && e.target.tagName === 'INPUT') {
@@ -4611,33 +4648,38 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
-// Replace or Add key: that provider's box opens under its row.
+// The picker, or Replace / Add key on a row under Advanced: that provider's
+// box is the one in the card. keep: the focus stays where it is.
 function openKeyEditor(provider, keep) {
   const ed = document.getElementById(_KEY_EDITORS[provider]);
-  const row = document.querySelector(`#providerOrderList [data-provider="${provider}"]`);
-  if (!ed || !row) return;
-  if (_openKeyEditor === provider && !keep) { closeKeyEditor(); return; }
-  if (_openKeyEditor && _openKeyEditor !== provider) closeKeyEditor();
-  row.after(ed);
+  if (!ed) return;
+  if (_openKeyEditor !== provider) closeKeyEditor();     // what was typed for another provider is dropped
   _openKeyEditor = provider;
+  _keyPicked = true;
+  renderKeyCard();
   _syncKeyButtons();
   const input = ed.querySelector('input');
-  if (input && !keep) { input.value = ''; input.focus(); }
+  if (input && !keep) {
+    input.value = '';
+    if (input.scrollIntoView) input.scrollIntoView({ block: 'center' });
+    input.focus();
+  }
 }
 
-// refocus: Esc or Cancel, so the focus goes back to the row's button.
+// Cancel, Esc, another provider or another section: what was typed is
+// dropped, and with it a "not accepted" line about it. The picked provider's
+// box stays in the card. refocus: Esc or Cancel, so the focus goes back to
+// the picker.
 function closeKeyEditor(refocus) {
-  const was = _openKeyEditor;
-  const park = document.querySelector('.key-editors');
-  Object.values(_KEY_EDITORS).forEach((id) => {
+  Object.entries(_KEY_EDITORS).forEach(([provider, id]) => {
     const el = document.getElementById(id);
-    if (el && park && el.parentElement !== park) park.appendChild(el);
     const input = el && el.querySelector('input');
-    if (input) input.value = '';
+    if (input) { input.value = ''; input.removeAttribute('aria-invalid'); }
+    if (_keyVerdicts[provider] && !_keyVerdicts[provider].ok) delete _keyVerdicts[provider];
   });
-  _openKeyEditor = '';
+  renderKeyCard();
   _syncKeyButtons();
-  if (refocus === true && was) { const b = _keyButton(was); if (b) b.focus(); }
+  if (refocus === true) { const b = document.getElementById('keyProvider'); if (b) b.focus(); }
 }
 
 async function moveProvider(name, delta) {
@@ -5584,9 +5626,37 @@ function showRestartBanner(reason) {
   });
 }
 
+// A key that cannot be right as typed (empty, or another provider's): the
+// one line under the box, and the whole sentence in a toast.
 function _keyError(inp, msg) {
   if (inp) { inp.setAttribute('aria-invalid', 'true'); inp.focus(); }
+  const ed = inp && inp.closest('.key-editor');
+  if (ed) { _keyVerdicts[ed.dataset.provider] = { ok: false, line: WL.keyRefusedLine(msg) }; renderKeyCard(); }
   showToast(msg, 'error', 5000);
+}
+
+// The provider is asked about a key before it is saved (the app's own
+// validate_groq_key / validate_api_key / validate_cerebras_key, as setup
+// asks): "Working", or the one line that says why not, with the whole
+// sentence in a toast. Answers what the app said when the key was taken,
+// else null.
+async function _keyChecked(provider, inp, ask) {
+  _keyChecking = provider;
+  renderKeyCard();
+  let r = null;
+  try { r = await ask(); } catch (_) { r = null; }
+  _keyChecking = '';
+  if (r && r.ok) {
+    _keyVerdicts[provider] = { ok: true };
+    renderKeyCard();
+    return r;
+  }
+  const msg = (r && r.error) || `Couldn't check that key with ${WL.PROVIDER_NAMES[provider]}. Try again in a moment.`;
+  if (inp) inp.setAttribute('aria-invalid', 'true');
+  _keyVerdicts[provider] = { ok: false, line: WL.keyRefusedLine(msg) };
+  renderKeyCard();
+  showToast(msg, 'error', 6000);
+  return null;
 }
 
 async function _afterKeySaved(inp, name) {
@@ -5597,7 +5667,7 @@ async function _afterKeySaved(inp, name) {
   await loadSettings();
 }
 
-// While a key is being saved (Cerebras checks it over the network first):
+// While a key is being checked and saved (each provider is asked first):
 // the button is off and says so, and a second click or Enter sends nothing.
 // Answers a function that puts the button back, or null when a save is
 // already on its way.
@@ -5623,6 +5693,7 @@ async function saveGroqKey(btn) {
   const done = _keySaveBusy(inp, btn);
   if (!done) return;
   try {
+    if (!(await _keyChecked('groq', inp, () => pywebview.api.validate_groq_key(val)))) return;
     const r = await pywebview.api.save_settings({ groq_key: val });
     if (r.ok) await _afterKeySaved(inp, 'Groq');
     else {
@@ -5646,9 +5717,7 @@ async function saveCerebrasKey(btn) {
   if (!done) return;
   try {
     // validate_cerebras_key persists on success.
-    const r = await pywebview.api.validate_cerebras_key(val);
-    if (r.ok) await _afterKeySaved(inp, 'Cerebras');
-    else showToast(r.error || "Couldn't check that key with Cerebras. Try again in a moment.", 'error', 6000);
+    if (await _keyChecked('cerebras', inp, () => pywebview.api.validate_cerebras_key(val))) await _afterKeySaved(inp, 'Cerebras');
   } catch(e) {
     showToast("Couldn't save the key. Try again.", 'error');
   } finally {
@@ -5665,6 +5734,7 @@ async function saveApiKey(btn) {
   const done = _keySaveBusy(inp, btn);
   if (!done) return;
   try {
+    if (!(await _keyChecked('openai', inp, () => pywebview.api.validate_api_key(val)))) return;
     const r = await pywebview.api.save_settings({ api_key: val });
     if (r.ok) await _afterKeySaved(inp, 'OpenAI');
     else {

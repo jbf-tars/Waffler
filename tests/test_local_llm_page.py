@@ -79,7 +79,7 @@ def llm(**over):
 def test_the_row_offers_the_download_with_its_real_size_and_one_honest_line():
     v = js(f"L.writingRowView({json.dumps(llm())}, false)")
     assert v["show"] is True and v["title"] == TITLE
-    assert v["download"] == "Download the writing model (5.2 GB)"
+    assert v["download"] == "Download (5.2 GB)", "under its own title, so the button need not name it again"
     assert v["about"] == ABOUT and v["how"] == HOW
     assert (v["bar"], v["stop"], v["remove"], v["choice"]) == (False, False, False, False)
     # The size is the model's own, not a number written on the page.
@@ -90,11 +90,11 @@ def test_the_row_offers_the_download_with_its_real_size_and_one_honest_line():
 @needs_node
 def test_the_row_while_it_downloads_stopped_part_way_and_after_a_failure():
     v = js(f"L.writingRowView({json.dumps(llm(state='downloading', percent=41, bytes_done=2100000000))}, false)")
-    assert v["state"] == "Downloading the writing model: 41% of 5.2 GB. You can carry on meanwhile."
+    assert v["state"] == "Downloading, 41% of 5.2 GB"
     assert v["bar"] and v["stop"] and v["percent"] == 41 and not v["download"]
     v = js(f"L.writingRowView({json.dumps(llm(bytes_done=900000000, cancelled=True))}, false)")
-    assert v["state"] == "The download was stopped part-way. It carries on from where it got to."
-    assert v["download"] == "Download the writing model (5.2 GB)"
+    assert v["state"] == "Stopped part-way. It carries on from there."
+    assert v["download"] == "Download (5.2 GB)"
     v = js(f"L.writingRowView({json.dumps(llm(error=local_llm.DOWNLOAD_FAILED))}, false)")
     assert v["state"] == local_llm.DOWNLOAD_FAILED and v["download"]
 
@@ -103,13 +103,13 @@ def test_the_row_while_it_downloads_stopped_part_way_and_after_a_failure():
 def test_once_ready_with_no_key_it_is_in_use_and_with_a_key_the_person_chooses():
     ready = llm(state="ready", percent=100, bytes_done=GB5, size_on_disk=GB5 + 90)
     v = js(f"L.writingRowView({json.dumps(ready)}, false)")
-    assert v["state"] == "The writing model is ready (5.2 GB). Text is tidied and notes are written on this computer."
+    assert v["state"] == "Ready, 5.2 GB"
     assert v["remove"] and not v["choice"] and not v["download"]
     v = js(f"L.writingRowView({json.dumps(ready)}, true)")
     assert v["choice"] is True and v["chosen"] is False
-    assert v["state"].endswith("Your key is still doing the tidying and the notes.")
+    assert v["state"] == "Ready, 5.2 GB. Your key still does the writing."
     v = js(f"L.writingRowView({json.dumps({**ready, 'mode': 'local'})}, true)")
-    assert v["chosen"] is True and "on this computer." in v["state"]
+    assert v["chosen"] is True and v["state"] == "Ready, 5.2 GB"
 
 
 @needs_node
@@ -152,12 +152,13 @@ def test_the_row_is_in_the_free_card_hidden_until_the_page_knows():
     how = html[html.index('id="keysHow"'):html.index('id="secClaude"')]
     assert f'<li id="hirLlmHow" hidden>{HOW}</li>' in how, "said in full, once the row is offered"
     assert '<span class="hir-state" id="hirLlmState" role="status" hidden></span>' in card
-    for button in ('id="hirLlmDownload" hidden>Download the writing model</button>',
-                   'id="hirLlmCancel" hidden>Stop the download</button>',
-                   'id="hirLlmRemove" hidden>Remove the writing model</button>'):
+    # One word on each button; a screen reader is still told which download it is.
+    for button in ('id="hirLlmDownload" aria-label="Download the writing model" hidden>Download</button>',
+                   'id="hirLlmCancel" aria-label="Stop the download" hidden>Stop</button>',
+                   'id="hirLlmRemove" aria-label="Remove the writing model" hidden>Remove</button>'):
         assert button in card, button
     assert '<input type="checkbox" id="hirLlmChoice">' in card
-    assert "Use this computer for tidying and notes, not my key" in visible_text(card)
+    assert "Use it, not my key" in visible_text(card)
     assert '<li class="hir-note" id="hirNote">' in how, "the line about what the choice covers is there too"
     css = read("meetings.css")
     for rule in (".hir-extra {", ".hir-extra-t {", ".hir-extra-d {", ".hir-extra-pick {"):
@@ -248,22 +249,22 @@ def _row(status, settings=None):
 def test_the_settings_row_drawn_for_real_from_download_to_remove():
     seen = _row(llm())
     first = seen["first"]
-    assert first["shown"] and first["download"] == "Download the writing model (5.2 GB)"
+    assert first["shown"] and first["download"] == "Download (5.2 GB)"
     assert first["about"] == ABOUT and first["stateHidden"] and not first["bar"] and not first["remove"]
     assert first["how"] == HOW, "what it needs and how long it takes, under How it works"
     assert first["note"].endswith("need a key, or the second download.")
     down = seen["downloading"]
     assert down["bar"] and down["stop"] and down["width"] == "3%" and not down["download"]
-    assert down["state"].startswith("Downloading the writing model: 3% of 5.2 GB.")
-    assert seen["stopped"]["state"] == "The download was stopped part-way. It carries on from where it got to."
+    assert down["state"] == "Downloading, 3% of 5.2 GB"
+    assert seen["stopped"]["state"] == "Stopped part-way. It carries on from there."
     ready = seen["ready"]
     assert ready["remove"] and not ready["pick"] and not ready["download"]
     assert ready["note"].endswith("Text is tidied and meeting notes are written on this computer too.")
     with_key = seen["readyWithKey"]
     assert with_key["pick"] and with_key["ticked"] is False
-    assert with_key["state"].endswith("Your key is still doing the tidying and the notes.")
+    assert with_key["state"].endswith("Your key still does the writing.")
     assert seen["chosen"]["ticked"] is True and seen["chosen"]["note"].endswith("on this computer too.")
-    assert seen["removed"]["download"] == "Download the writing model (5.2 GB)"
+    assert seen["removed"]["download"] == "Download (5.2 GB)"
     assert seen["calls"].count("download") == 1 and "cancel" in seen["calls"] and "remove" in seen["calls"]
     assert {"writing_mode": "local"} in seen["calls"]
     assert "loadSettings" in seen["calls"], "the rest of Settings is told who tidies now"

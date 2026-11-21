@@ -111,27 +111,29 @@ body:not([data-page="home"]) .j-ask { display: none; }
 .mt-frame { flex: 1 1 auto; min-height: 0; width: 100%; border: 0; display: block; background: var(--bg); }
 
 /* ── How it runs (Settings, Keys and providers; howitruns.js) ───────────── */
-.hir { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 18px 0 26px; }
-.hir-card { padding: 16px 18px; border-radius: var(--r-card, 14px); background: var(--card); box-shadow: inset 0 0 0 1px var(--ring); display: flex; flex-direction: column; gap: 8px; }
-.hir-card.is-on { box-shadow: inset 0 0 0 1.5px var(--text); }
+.hir { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; margin: 22px 0 0; }
+.hir-card { padding: 15px 18px 16px; border-radius: var(--r-card, 14px); box-shadow: inset 0 0 0 1px var(--ring); display: flex; flex-direction: column; gap: 9px; }
+/* The chosen way: a filled card with a dark ring. The other is an outline. */
+.hir-card.is-on { background: var(--card); box-shadow: inset 0 0 0 2px var(--text); }
 .hir-card.is-off { opacity: 0.6; }
 .hir-pick { display: flex; align-items: center; gap: 10px; cursor: pointer; }
 .hir-pick input { accent-color: var(--text); width: 16px; height: 16px; margin: 0; }
 .hir-t { flex: 1 1 auto; font: 500 15px/20px var(--f-ui); color: var(--text); }
 .hir-price { font: 400 12px/1 var(--f-mono); color: var(--muted); }
-.hir-d { margin: 0; font: var(--t-desc); color: var(--muted); }
-.hir-model { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin-top: 2px; }
-.hir-state { flex: 1 1 100%; font: 400 13px/1.45 var(--f-ui); color: var(--text-2); }
-.hir-bar { flex: 1 1 100%; height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
+.hir-d { margin: -5px 0 0 26px; font: var(--t-desc); color: var(--muted); }
+/* A state and the one button that fits, on one line; the bar under them. */
+.hir-model { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; min-height: 28px; margin-left: 26px; }
+.hir-state { flex: 1 1 0; min-width: 0; font: 400 13px/1.45 var(--f-ui); color: var(--text-2); }
+.hir-model .btn { flex: none; margin-left: auto; }
+.hir-bar { order: 5; flex: 1 1 100%; height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
 .hir-bar i { display: block; height: 100%; width: 0; background: var(--honey); transition: width 0.3s var(--ease, ease); }
-/* The optional second download, under the speech model in the same card. */
-.hir-extra { margin-top: 8px; padding-top: 12px; border-top: 1px solid var(--line); }
-.hir-extra-t { flex: 1 1 100%; font: 500 14px/20px var(--f-ui); color: var(--text); }
-.hir-extra-d { flex: 1 1 100%; font: var(--t-desc); color: var(--muted); }
-.hir-extra-pick { flex: 1 1 100%; display: flex; align-items: center; gap: 8px; font: 400 13px/1.45 var(--f-ui); color: var(--text-2); cursor: pointer; }
+/* The optional writing model: a second, quieter row under the speech model. */
+.hir-extra { margin-top: 4px; padding-top: 12px; border-top: 1px solid var(--line); }
+.hir-extra-t { flex: 1 1 100%; font: 500 13.5px/20px var(--f-ui); color: var(--text); }
+.hir-extra-d { flex: 1 1 100%; margin-top: -6px; font: var(--t-desc); color: var(--muted); }
+.hir-extra-pick { order: 6; flex: 1 1 100%; display: flex; align-items: center; gap: 8px; font: 400 13px/1.45 var(--f-ui); color: var(--text-2); cursor: pointer; }
 .hir-extra-pick input { accent-color: var(--text); width: 15px; height: 15px; margin: 0; }
-.hir-note { grid-column: 1 / -1; margin: 0; font: 400 13px/1.45 var(--f-ui); color: var(--muted); }
-@media (max-width: 760px) { .hir { grid-template-columns: minmax(0, 1fr); } }
+.hir-note { margin: 0; font: 400 13px/1.45 var(--f-ui); color: var(--muted); }
 
 /* Settings, Claude: the command for Claude Code, in the row's description. */
 .settings-panel .row-d.cl-cmd { font: 400 12px/1.5 var(--f-mono, ui-monospace, Menlo, Consolas, monospace); overflow-wrap: anywhere; user-select: text; -webkit-user-select: text; }

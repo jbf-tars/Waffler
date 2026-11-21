@@ -9,12 +9,17 @@ The rules for the words in Settings and the first-run screens:
      conditions) is not deleted: it is under one small, collapsed "How it
      works" at the bottom of the section.
   4. The navigation does not say "(beta)".
+  5. Keys and providers, the last section brought under these rules, is two
+     choices and nothing more: a choice's name is 4 words at most, a line under
+     it 9 at most, no paragraph, no jargon. Everything else on it is under one
+     collapsed "Advanced", which also holds what "How it works" holds elsewhere.
 
 The page is read as written (ui/index.html); the lines the page's code writes
 over it are checked where they are made (ui/logic.js, src/shortcut_settings.py).
 A row that asks "are you sure?" before deleting something is the exception:
 it appears only when asked for, and says exactly what goes.
 """
+import json
 import re
 import sys
 from html.parser import HTMLParser
@@ -160,6 +165,9 @@ def test_how_it_works_is_one_collapsed_disclosure_at_the_bottom_of_a_section():
         if ident == "secUsage":
             assert sec.count(">How it works<") == 0     # numbers; its estimate has its own "How this is estimated"
             continue
+        if ident == "secKeys":                           # its one disclosure is "Advanced" (below)
+            assert sec.count(">How it works<") == 0
+            continue
         assert sec.count(">How it works<") == 1, ident
         button = sec[sec.rindex("<button", 0, sec.index(">How it works<")):sec.index(">How it works<")]
         assert 'aria-expanded="false"' in button and "link-btn how-btn" in button, ident
@@ -182,6 +190,11 @@ def test_what_was_taken_out_of_view_is_still_said_in_full():
         # Keys and providers
         "your speech is sent to Groq or OpenAI with the key you add.",
         "Waffler tries your keys in order and uses the first that answers.",
+        "No key, and it works with the internet off.",
+        "Quicker, especially for long meetings.",
+        "This choice covers dictation and meetings.",
+        "Groq keys start with gsk_, OpenAI keys with sk-, Cerebras keys with csk-.",
+        "Drag to change the order; it applies to your next dictation.",
         # AI apps
         "It can only read. It cannot change or delete anything.",
         "These reach this computer only.",
@@ -216,6 +229,128 @@ def test_the_navigation_says_names_only():
                       "Shortcuts", "Usage", "Privacy and data", "About"], "the same sections in the same order"
     assert "beta" not in nav.lower()
     assert html.count('<span class="beta-tag">Beta</span>') == 2
+
+
+# ── Keys and providers: two choices, and the rest under Advanced ─────────────
+
+JARGON = ("endpoint", "inference", "stt", "llm", "api", "model", "backend", "token")
+
+
+def keys_section():
+    html = read("index.html")
+    start = html.index('id="secKeys"')
+    return html[start:html.index("</section>", start)]
+
+
+def keys_in_view():
+    """The section as written, without what is under Advanced."""
+    sec = keys_section()
+    return sec[:sec.index('<div class="how">')]
+
+
+def said(html):
+    html = re.sub(r"<!--.*?-->", " ", html, flags=re.S)
+    html = re.sub(r"<(svg|select)[^>]*>.*?</\1>", " ", html, flags=re.S)
+    return " ".join(re.sub(r"<[^>]+>", " ", html).split())
+
+
+def test_keys_has_one_collapsed_advanced_at_the_bottom_and_nothing_after_it():
+    sec = keys_section()
+    assert len(re.findall(r"<button[^>]*how-btn", sec)) == 1, "one disclosure, not two"
+    button = sec[sec.rindex("<button", 0, sec.index(">Advanced<")):sec.index(">Advanced<")]
+    assert 'aria-expanded="false"' in button and "link-btn how-btn" in button and 'onclick="toggleHow(this)"' in button
+    box = re.search(r'aria-controls="(\w+)"', button).group(1)
+    assert re.search(rf'<div class="[^"]*how-body[^"]*" id="{box}" hidden>', sec)
+    # Everything that was the page is inside it, and it is the last thing in the section.
+    inside = [el for el in elements() if box in el["in_ids"]]
+    for ident in ("keysFlow", "providerOrderList", "providerOrderLive", "keysHow", "hirNote", "hirLlmHow"):
+        assert [el for el in inside if el["id"] == ident], ident
+    tail = sec[sec.index(f'id="{box}"'):]
+    assert tail.rstrip().endswith("</div>\n          </div>") and tail.count("<h2") == 1 and ">In order<" in tail
+
+
+def test_keys_is_two_choices_named_in_four_words_with_nine_under_them():
+    found = [el for el in elements() if home_of(el) == "secKeys" and in_view(el)]
+    names = [el["text"] for el in found if "hir-t" in el["classes"]]
+    assert names == ["On this computer", "Your own key"], "two ways, and room in the stack for a third"
+    assert [el["text"] for el in found if "hir-price" in el["classes"]] == ["Free", "Faster"]
+    labels = [el for el in found if set(el["classes"]) & {"hir-t", "hir-extra-t", "row-t"}]
+    lines = [el for el in found if set(el["classes"]) & {"hir-d", "hir-extra-d", "hir-extra-pick", "key-help", "row-d"}]
+    assert len(labels) == 3 and len(lines) == 6
+    for el in labels:
+        assert len(words(el["text"])) <= 4, el["text"]
+    for el in lines:
+        assert len(words(el["text"])) <= 9, el["text"]
+    for el in found:
+        if el["tag"] == "button":
+            assert len(words(el["text"])) <= 2, el["text"]
+    # No paragraph: under the title, a <p> is one of those short lines and nothing else.
+    for el in found:
+        if el["tag"] == "p" and "pdesc" not in el["classes"]:
+            assert set(el["classes"]) & {"hir-d", "key-help"}, el["text"]
+    pdesc = next(el["text"] for el in found if "pdesc" in el["classes"])
+    assert pdesc == "Run Waffler on this computer or with your own key."
+
+
+def test_keys_says_little_and_none_of_it_is_jargon():
+    view = said(keys_in_view())
+    # Every word written above Advanced, the alternatives a state swaps between
+    # included (three key boxes, three buttons a row). It was about 190.
+    assert len(words(view)) <= 85, len(words(view))
+    for word in JARGON:
+        assert not re.search(rf"\b{word}s?\b", view, flags=re.I), word
+    assert "provider" not in view.lower().replace("keys and providers", ""), "only the title says it"
+    # A paid plan is not built and not mentioned, in view or under Advanced.
+    whole = said(keys_section()).lower()
+    for word in ("subscription", "upgrade", "per month", "pricing", "waffler pro", "paid plan"):
+        assert word not in whole, word
+    assert keys_in_view().count('class="hir-card"') == 2
+
+
+@needs_node
+def test_the_lines_keys_writes_are_nine_words_at_most():
+    stt = {"available": True, "state": "not_downloaded", "bytes_total": 574041195}
+    llm = {"ok": True, "available": True, "suits_machine": True, "state": "not_downloaded", "bytes_total": 5154941280}
+    speech = [js(f"L.speechRowView({json.dumps({**stt, **over})})") for over in (
+        {}, {"state": "downloading", "percent": 42}, {"state": "ready", "size_on_disk": 574041195},
+        {"bytes_done": 9000000}, {"available": False})]
+    assert [v["state"] for v in speech] == ["Not downloaded", "Downloading, 42% of 574 MB", "Ready, 574 MB",
+                                            "Stopped part-way. It carries on from there.",
+                                            "Not available on this computer yet."]
+    # The one button that fits each state.
+    assert [(v["download"], v["stop"], v["remove"]) for v in speech] == [
+        ("Download (574 MB)", False, False), ("", True, False), ("", False, True),
+        ("Download (574 MB)", False, False), ("", False, False)]
+    writing = [js(f"L.writingRowView({json.dumps({**llm, **over})}, {key})") for over, key in (
+        ({}, "false"), ({"state": "downloading", "percent": 41}, "false"), ({"state": "ready"}, "false"),
+        ({"state": "ready"}, "true"), ({"bytes_done": 9000000}, "false"),
+        ({"suits_machine": False, "machine_reason": "low_memory"}, "false"))]
+    keys = [js(f"L.keyCardView('groq', null, {json.dumps(st)}, {json.dumps(verdict)}, {busy})") for st, verdict, busy in (
+        ({}, None, "false"), ({}, None, "true"), ({"groq_key_set": True}, {"ok": True}, "false"),
+        ({"groq_key_set": True, "transcription_backend": "groq"}, None, "false"),
+        ({"groq_key_set": True, "transcription_backend": "api", "styling_backend": "openai"}, None, "false"))]
+    assert [v["state"] for v in keys] == ["", "Checking…", "Working", "In use", "Saved"]
+    lines = ([v["state"] for v in speech] + [v["download"] for v in speech]
+             + [v["state"] for v in writing] + [v["about"] for v in writing] + [v["download"] for v in writing]
+             + [v["state"] for v in keys] + [v["placeholder"] for v in keys])
+    for line in lines:
+        assert len(words(line)) <= 9, line
+        assert not re.search(r"\b(model|endpoint|inference|STT|LLM|API)\b", line), line
+
+
+@needs_node
+def test_why_a_key_was_not_taken_is_one_line_of_nine_words_at_most():
+    import user_messages as um
+    for kind, sentence in um._KEY_MESSAGES.items():
+        for name in ("Groq", "OpenAI", "Cerebras"):
+            line = js(f"L.keyRefusedLine({json.dumps(sentence.format(p=name))}, {json.dumps(name)})")
+            assert line and len(sentences(line)) == 1 and len(words(line)) <= 9, (kind, line)
+            assert sentence.format(p=name).startswith(line), "the app's own reason, cut at its first full stop"
+    for typed in ("Paste your Groq key first.", "That isn't a Groq key. Groq keys start with gsk_."):
+        assert len(words(js(f"L.keyRefusedLine({json.dumps(typed)}, 'Groq')"))) <= 9
+    assert js("L.keyRefusedLine('', 'Groq')") == "Couldn't check that key with Groq."
+    shown = js("L.keyCardView('groq', null, {groq_key_set: true}, {ok: false, line: 'Groq didn\\'t accept that key.'}, false)")
+    assert (shown["state"], shown["cls"]) == ("Groq didn't accept that key.", "bad")
 
 
 # ── the lines the code writes ────────────────────────────────────────────────

@@ -1,37 +1,31 @@
-// Settings, Keys and providers: how speech becomes text. "On this computer"
-// (one model, downloaded once, shared by dictation and meetings) or "with your
-// own key". Python: Api.local_stt_status / _download / _cancel / _remove, and
-// transcription_mode through save_settings (docs/OFFLINE-TRANSCRIPTION.md).
-// Under it, where the computer is offered it, the optional writing model.
+// Settings, Keys and providers: the ways Waffler runs, one chosen. "On this
+// computer" (one model, downloaded once, shared by dictation and meetings) or
+// "Your own key" (the key itself is app.js renderKeyCard). Python:
+// Api.local_stt_status / _download / _cancel / _remove, and transcription_mode
+// through save_settings (docs/OFFLINE-TRANSCRIPTION.md). Under the first,
+// where the computer is offered it, the optional writing model.
 (function () {
   const $ = (id) => document.getElementById(id);
   const api = () => (window.pywebview && window.pywebview.api) || null;
   let poll = null;
 
-  const mb = (bytes) => { const n = Math.round((bytes || 0) / 1e6); return n >= 1000 ? (n / 1000).toFixed(1) + ' GB' : n + ' MB'; };
-
+  // What the first row says and offers is decided in logic.js (speechRowView).
   function draw(s) {
-    if (!$('howItRuns') || !s) return;
+    const L = window.WafflerLogic;
+    if (!$('howItRuns') || !s || !L) return;
     const local = s.mode === 'local';
     $('hirLocalRadio').checked = local; $('hirCloudRadio').checked = !local;
     $('hirLocal').classList.toggle('is-on', local); $('hirCloud').classList.toggle('is-on', !local);
-    const state = $('hirState'), bar = $('hirBar'), dl = $('hirDownload'), cancel = $('hirCancel'), remove = $('hirRemove');
-    const downloading = s.state === 'downloading', ready = s.state === 'ready';
-    bar.hidden = !downloading; cancel.hidden = !downloading; dl.hidden = downloading || ready || !s.available; remove.hidden = !ready;
-    $('hirLocalRadio').disabled = !s.available;
-    $('hirLocal').classList.toggle('is-off', !s.available);
-    if (!s.available) state.textContent = 'Not available on this computer yet.';
-    else if (downloading) {
-      const pct = Math.max(0, Math.min(100, Math.round(s.percent || 0)));
-      $('hirBarFill').style.width = pct + '%';
-      state.textContent = 'Downloading the speech model: ' + pct + '%' + (s.bytes_total ? ' of ' + mb(s.bytes_total) : '') + '.';
-    } else if (ready) state.textContent = 'The speech model is ready (' + mb(s.size_on_disk || s.bytes_total) + ' on this computer).';
-    else {
-      dl.textContent = 'Download the speech model' + (s.bytes_total ? ' (' + mb(s.bytes_total) + ')' : '');
-      state.textContent = s.error ? s.error : (s.bytes_done ? 'The download was stopped part-way. It carries on from where it got to.' : 'One download, used for dictation and meetings.');
-    }
+    const v = L.speechRowView(s);
+    const dl = $('hirDownload');
+    $('hirBar').hidden = !v.bar; $('hirBarFill').style.width = v.percent + '%';
+    $('hirCancel').hidden = !v.stop; $('hirRemove').hidden = !v.remove;
+    dl.hidden = !v.download; if (v.download) dl.textContent = v.download;
+    $('hirLocalRadio').disabled = v.off;
+    $('hirLocal').classList.toggle('is-off', v.off);
+    $('hirState').textContent = v.state;
     window.clearTimeout(poll);
-    if (downloading) poll = window.setTimeout(refresh, 700);
+    if (v.bar) poll = window.setTimeout(refresh, 700);
   }
 
   async function refresh() {

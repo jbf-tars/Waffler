@@ -642,6 +642,34 @@
     });
   }
 
+  // "Your own key": one provider at a time, the others behind the picker.
+  // `verdict` is what that provider said when its key was last checked in
+  // this window ({ok: true}, or {ok: false, line}); `checking` while it is
+  // being asked. A saved key nobody has checked since the window opened says
+  // what the list says: "In use" or "Saved".
+  const KEY_PLACEHOLDER = 'Paste your key';
+  function keyCardPick(order, settings) {
+    const rows = keyRows(order, settings);
+    return (rows.find((r) => r.hasKey) || rows[0]).id;
+  }
+  function keyCardView(provider, order, settings, verdict, checking) {
+    const rows = keyRows(order, settings);
+    const row = rows.find((r) => r.id === provider) || rows[0];
+    const v = { id: row.id, name: row.name, hasKey: row.hasKey, placeholder: row.masked || KEY_PLACEHOLDER,
+      state: '', cls: '' };
+    if (checking) return { ...v, state: 'Checking\u2026' };
+    if (verdict && verdict.ok === false) return { ...v, state: String(verdict.line || ''), cls: 'bad' };
+    if (!row.hasKey) return v;
+    if (verdict && verdict.ok) return { ...v, state: 'Working', cls: 'ok' };
+    return { ...v, state: row.status, cls: row.status === 'In use' ? 'ok' : '' };
+  }
+  // Why a key was not taken, in one line: the first sentence of the app's
+  // own reason (src/user_messages.py). The rest is in the toast.
+  function keyRefusedLine(msg, name) {
+    const m = splitMessage(msg || `Couldn't check that key with ${name || 'the provider'}. Try again in a moment.`);
+    return m.title ? `${m.title}.` : '';
+  }
+
   // ── Journal cards ─────────────────────────────────────────────────────
   // The pipeline attaches item.quality only when a recording looks suspect,
   // so a clean dictation shows nothing. The chip says how sure, and the
@@ -1041,7 +1069,7 @@
   const WRITING_ABOUT = 'Optional. Tidies text and writes notes with no key.';
   // One honest line, under "How it works": measured on an M5 with 16 GB (docs/OFFLINE-TRANSCRIPTION.md).
   const WRITING_HOW = 'The writing model is for an Apple Silicon Mac with 16 GB of memory or more: about two seconds to tidy a dictation, a minute or two for a long meeting\u2019s notes. A key is quicker, and better with long meetings.';
-  const WRITING_LOW_MEMORY = 'Not offered here: it needs 16 GB of memory. A key does the same job.';
+  const WRITING_LOW_MEMORY = 'Not offered here: it needs 16 GB of memory.';
 
   function _llmKnown(llm) {
     return llm && llm.ok !== false && typeof llm.state === 'string' ? llm : null;
@@ -1071,17 +1099,35 @@
     const view = { ...none, show: true, about: WRITING_ABOUT, how: WRITING_HOW, percent };
     if (s.state === 'downloading') {
       return { ...view, bar: true, stop: true,
-        state: `Downloading the writing model: ${percent}%${size ? ` of ${size}` : ''}. You can carry on meanwhile.` };
+        state: `Downloading, ${percent}%${size ? ` of ${size}` : ''}` };
     }
     if (s.state === 'ready') {
       const chosen = s.mode === 'local';
       return { ...view, remove: true, choice: !!hasKey, chosen,
-        state: hasKey && !chosen
-          ? `The writing model is ready (${modelSize(s.size_on_disk || s.bytes_total)} on this computer). Your key is still doing the tidying and the notes.`
-          : `The writing model is ready (${modelSize(s.size_on_disk || s.bytes_total)}). Text is tidied and notes are written on this computer.` };
+        state: `Ready, ${modelSize(s.size_on_disk || s.bytes_total)}${hasKey && !chosen ? '. Your key still does the writing.' : ''}` };
     }
-    return { ...view, download: `Download the writing model${size ? ` (${size})` : ''}`,
-      state: s.error ? s.error : (s.bytes_done ? 'The download was stopped part-way. It carries on from where it got to.' : '') };
+    return { ...view, download: `Download${size ? ` (${size})` : ''}`,
+      state: s.error ? s.error : (s.bytes_done ? DOWNLOAD_STOPPED : '') };
+  }
+
+  // The first row under "On this computer": the speech model's state in a
+  // word or two, and the one button that fits. `s` is local_stt_status().
+  const DOWNLOAD_STOPPED = 'Stopped part-way. It carries on from there.';
+  function speechRowView(s) {
+    const none = { off: false, state: '', percent: 0, bar: false, download: '', stop: false, remove: false };
+    if (!s) return none;
+    if (!s.available) return { ...none, off: true, state: 'Not available on this computer yet.' };
+    const size = modelSize(s.bytes_total);
+    const percent = Math.max(0, Math.min(100, Math.round(Number(s.percent) || 0)));
+    if (s.state === 'downloading') {
+      return { ...none, bar: true, stop: true, percent, state: `Downloading, ${percent}%${size ? ` of ${size}` : ''}` };
+    }
+    if (s.state === 'ready') {
+      const here = modelSize(s.size_on_disk || s.bytes_total);
+      return { ...none, remove: true, percent: 100, state: `Ready${here ? `, ${here}` : ''}` };
+    }
+    return { ...none, download: `Download${size ? ` (${size})` : ''}`,
+      state: s.error ? s.error : (s.bytes_done ? DOWNLOAD_STOPPED : 'Not downloaded') };
   }
 
   // The line under the two cards. It said notes need a key "either way",
@@ -3272,6 +3318,7 @@
     DEFAULT_PROVIDER_ORDER, PROVIDER_NAMES, providerHasKey, normalizeProviderOrder,
     providerOrderRows, activeProviders, backendsLine, aboutLine,
     USAGE_NOTE, formatCount, usageView, usageProviderRows, usesView, keyRows,
+    keyCardPick, keyCardView, keyRefusedLine, speechRowView, KEY_PLACEHOLDER,
     qualityView, dayKey, dayLabel, statNumber, originalText, hasOriginal, vocabAdd, VOCAB_MAX_ENTRY_LEN,
     SEARCH_DEBOUNCE_MS, debounce, feedView, searchAnnouncement, savingGate, SAVE_FAILED, saveFailedMessage, radioMove, focusAfterRemove,
     SNIPPET_MAX_TRIGGER, SNIPPET_MAX_EXPANSION, SNIPPET_MAX_COUNT, snippetTrigger, snippetCheck,

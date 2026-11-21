@@ -1027,8 +1027,6 @@ mark.hl {
 .settings-panel .pill.honey { background: var(--honey-wash); color: var(--accent-ink); }
 .settings-panel .pill.honey i { background: var(--honey); }
 .s-error { margin-top: 8px; font: var(--t-desc); color: var(--danger); }
-.s-foot { display: flex; align-items: center; gap: 6px; margin-top: 14px; font: 400 12.5px/1.4 var(--f-ui); color: var(--muted); }
-.s-foot .ic { color: var(--muted); }
 
 /* The warm band behind a page's main thing, ruled like squared paper. */
 .stage {
@@ -1318,14 +1316,36 @@ mark.hl {
 .provider-order-item.po-nokey { color: var(--text-2); }
 .provider-order-item.po-nokey .row-t { color: var(--text-2); }
 .provider-order-item.po-nokey .po-rank { color: var(--faint); }
-/* A key's editor opens under its row, as a drawer. */
-.key-editor { margin: 0 12px 12px 74px; padding: 14px; border-radius: 9px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); }
-.settings-panel .key-editor + .row { border-top: 1px solid var(--line); }
-.key-editor-row { display: flex; align-items: center; gap: 8px; }
-.key-editor .input { flex: 1; height: 36px; }
-.key-editor .btn-sm { height: 36px; }
-.key-help { margin-top: 10px; font: 400 12px/1.45 var(--f-ui); color: var(--muted); }
+/* "Your own key": the picker, the picked provider's box and Save on one line;
+   under them one line, what the provider said or where to get a key. The
+   boxes are laid out as the card's own children. */
+.key-card { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin-left: 26px; }
+.settings-panel .key-card .select { flex: none; min-width: 124px; max-width: none; height: 34px; }
+.key-editors, .key-editor { display: contents; }
+.key-editor[hidden] { display: none; }
+.key-editor-row { flex: 1 1 240px; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.key-editor .input { flex: 1; min-width: 0; height: 34px; }
+.settings-panel .key-editor .btn-sm { flex: none; height: 34px; }
+/* Cancel is for something typed. */
+.key-editor .input:placeholder-shown ~ .btn-quiet { display: none; }
+.key-state, .key-help { display: inline-flex; align-items: center; gap: 6px; margin: 0; font: 400 12.75px/1.45 var(--f-ui); color: var(--muted); }
+.key-state { order: 2; }
+.key-state[hidden] { display: none; }
+.key-state::before { content: ""; flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
+.key-state.is-ok { color: var(--ok); }
+.key-state.is-ok::before { background: var(--ok); }
+/* Why a key was not taken has the line to itself. */
+.key-state.is-bad { flex: 1 1 100%; color: var(--danger); }
+.key-state.is-bad::before { background: var(--danger); }
+.key-help { order: 3; flex: 1 1 100%; }
 .key-help .link { color: var(--text-2); }
+.key-help .ic { color: var(--muted); }
+/* With a key saved the line is its state, not where to get one. */
+.key-card.has-key .key-help { display: none; }
+/* Advanced: the old page, put away. */
+.adv-body { margin-top: 4px; padding: 0; }
+.adv-body .flow { margin-top: 12px; }
+.adv-how { margin-top: 22px; padding: 14px 18px 12px; }
 
 /* ── Hotkey ──────────────────────────────────────────────────────────── */
 .hk-stage { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; height: 198px; margin-top: 22px; }

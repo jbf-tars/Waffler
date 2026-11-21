@@ -974,26 +974,29 @@
           </div>
         </section>
 
-        <!-- Keys and providers: what a dictation goes through, then the
-             keys in the order Waffler tries them (logic.js keyRows). Drag a
-             row by its handle, or focus the handle and use the arrow keys;
-             each key's editor opens under its row. -->
+        <!-- Keys and providers: the ways Waffler runs, one chosen, and nothing
+             more in view. "On this computer" shows the download's state and
+             the one button that fits (howitruns.js); "Your own key" shows one
+             provider at a time, a masked field, and what the provider said
+             (app.js renderKeyCard; logic.js keyCardView). Everything else,
+             unchanged, is under the one "Advanced" (toggleHow): what each step
+             uses, the order the keys are tried in, and the small print. -->
         <section class="s-sec" id="secKeys" data-sec="keys" hidden>
           <h1 class="ptitle">Keys and providers</h1>
-          <p class="pdesc">Drag to set which service Waffler tries first.</p>
+          <p class="pdesc">Run Waffler on this computer or with your own key.</p>
 
-          <!-- How speech becomes text: on this computer (no key) or with a key
-               (howitruns.js; Api.local_stt_*, transcription_mode). -->
-          <div class="hir" id="howItRuns" role="radiogroup" aria-label="How speech is turned into text">
+          <!-- One way is chosen (Api.local_stt_*, transcription_mode). A
+               third way would be one more .hir-card in this stack. -->
+          <div class="hir" id="howItRuns" role="radiogroup" aria-label="How Waffler runs">
             <div class="hir-card" id="hirLocal" data-mode="local">
               <label class="hir-pick"><input type="radio" name="hirMode" id="hirLocalRadio" value="local"><span class="hir-t">On this computer</span><span class="hir-price">Free</span></label>
-              <p class="hir-d">No key. Works with the internet off.</p>
+              <p class="hir-d">Private. One download.</p>
               <div class="hir-model" id="hirModel">
                 <span class="hir-state" id="hirState" role="status"></span>
                 <span class="hir-bar" id="hirBar" hidden><i id="hirBarFill"></i></span>
-                <button type="button" class="btn btn-sm btn-pri" id="hirDownload" hidden>Download the speech model</button>
-                <button type="button" class="btn btn-sm btn-quiet" id="hirCancel" hidden>Stop the download</button>
-                <button type="button" class="btn btn-sm btn-quiet" id="hirRemove" hidden>Remove the model</button>
+                <button type="button" class="btn btn-sm btn-pri" id="hirDownload" aria-label="Download the speech model" hidden>Download</button>
+                <button type="button" class="btn btn-sm btn-quiet" id="hirCancel" aria-label="Stop the download" hidden>Stop</button>
+                <button type="button" class="btn btn-sm btn-quiet" id="hirRemove" aria-label="Remove the speech model" hidden>Remove</button>
               </div>
               <!-- The optional second download: a language model that tidies
                    text and writes notes here too (howitruns.js;
@@ -1004,67 +1007,80 @@
                 <span class="hir-extra-d" id="hirLlmAbout">Optional. Tidies text and writes notes with no key.</span>
                 <span class="hir-state" id="hirLlmState" role="status" hidden></span>
                 <span class="hir-bar" id="hirLlmBar" hidden><i id="hirLlmBarFill"></i></span>
-                <button type="button" class="btn btn-sm btn-sec" id="hirLlmDownload" hidden>Download the writing model</button>
-                <button type="button" class="btn btn-sm btn-quiet" id="hirLlmCancel" hidden>Stop the download</button>
-                <button type="button" class="btn btn-sm btn-quiet" id="hirLlmRemove" hidden>Remove the writing model</button>
-                <label class="hir-extra-pick" id="hirLlmPick" hidden><input type="checkbox" id="hirLlmChoice"><span>Use this computer for tidying and notes, not my key</span></label>
+                <button type="button" class="btn btn-sm btn-sec" id="hirLlmDownload" aria-label="Download the writing model" hidden>Download</button>
+                <button type="button" class="btn btn-sm btn-quiet" id="hirLlmCancel" aria-label="Stop the download" hidden>Stop</button>
+                <button type="button" class="btn btn-sm btn-quiet" id="hirLlmRemove" aria-label="Remove the writing model" hidden>Remove</button>
+                <label class="hir-extra-pick" id="hirLlmPick" hidden><input type="checkbox" id="hirLlmChoice"><span>Use it, not my key</span></label>
               </div>
             </div>
             <div class="hir-card" id="hirCloud" data-mode="cloud">
-              <label class="hir-pick"><input type="radio" name="hirMode" id="hirCloudRadio" value="cloud"><span class="hir-t">With your own key</span><span class="hir-price">Faster</span></label>
-              <p class="hir-d">Quicker, especially for long meetings.</p>
+              <label class="hir-pick"><input type="radio" name="hirMode" id="hirCloudRadio" value="cloud"><span class="hir-t">Your own key</span><span class="hir-price">Faster</span></label>
+              <!-- Groq, OpenAI, then Cerebras: one shown at a time, picked
+                   here or from its row under Advanced. The field never shows
+                   a key: it is a password box, and a saved key is only its
+                   masked form (get_settings). -->
+              <div class="key-card" id="keyCard">
+                <select id="keyProvider" class="select" aria-label="Provider" onchange="pickKeyProvider(this.value)">
+                  <option value="groq">Groq</option>
+                  <option value="openai">OpenAI</option>
+                  <option value="cerebras">Cerebras</option>
+                </select>
+                <div class="key-editors">
+                  <div class="key-editor" id="groqKeyEditor" data-provider="groq">
+                    <div class="key-editor-row">
+                      <input type="password" id="groqKeyInput" class="input input-mono" placeholder="Paste your key" autocomplete="off" spellcheck="false" aria-label="Groq key" aria-describedby="keyState">
+                      <button type="button" class="btn btn-pri btn-sm" onclick="saveGroqKey(this)">Save</button>
+                      <button type="button" class="btn btn-quiet btn-sm" onclick="closeKeyEditor(true)">Cancel</button>
+                    </div>
+                    <p class="key-help"><a class="link" href="#" onclick="openKeyPage('groq'); return false;">Get a free Groq key</a><svg class="ic ic-sm" aria-hidden="true"><use href="#i-external"/></svg></p>
+                  </div>
+                  <div class="key-editor" id="apiKeyEditor" data-provider="openai" hidden>
+                    <div class="key-editor-row">
+                      <input type="password" id="apiKeyInput" class="input input-mono" placeholder="Paste your key" autocomplete="off" spellcheck="false" aria-label="OpenAI key" aria-describedby="keyState">
+                      <button type="button" class="btn btn-pri btn-sm" onclick="saveApiKey(this)">Save</button>
+                      <button type="button" class="btn btn-quiet btn-sm" onclick="closeKeyEditor(true)">Cancel</button>
+                    </div>
+                    <p class="key-help">Optional. <a class="link" href="#" onclick="openKeyPage('openai'); return false;">Get an OpenAI key</a><svg class="ic ic-sm" aria-hidden="true"><use href="#i-external"/></svg></p>
+                  </div>
+                  <div class="key-editor" id="cerebrasKeyEditor" data-provider="cerebras" hidden>
+                    <div class="key-editor-row">
+                      <input type="password" id="cerebrasKeyInput" class="input input-mono" placeholder="Paste your key" autocomplete="off" spellcheck="false" aria-label="Cerebras key" aria-describedby="keyState">
+                      <button type="button" class="btn btn-pri btn-sm" onclick="saveCerebrasKey(this)">Save</button>
+                      <button type="button" class="btn btn-quiet btn-sm" onclick="closeKeyEditor(true)">Cancel</button>
+                    </div>
+                    <p class="key-help">Optional. <a class="link" href="#" onclick="openKeyPage('cerebras'); return false;">Get a Cerebras key</a><svg class="ic ic-sm" aria-hidden="true"><use href="#i-external"/></svg></p>
+                  </div>
+                </div>
+                <span class="key-state" id="keyState" role="status" hidden></span>
+              </div>
             </div>
           </div>
 
-          <div class="stage stage-plain flow" id="keysFlow" role="img" aria-label="Speech to text and clean-up"></div>
-
-          <h2 class="sh2">In order<span class="aside">first that answers wins</span></h2>
-          <div class="sheet provider-order-list" id="providerOrderList"></div>
-          <p class="sr-only" id="providerOrderLive" role="status" aria-live="polite"></p>
-
-          <!-- Groq, OpenAI, then Cerebras (optional). -->
-          <div class="key-editors" hidden>
-            <div class="key-editor" id="groqKeyEditor" data-provider="groq">
-              <div class="key-editor-row">
-                <input type="password" id="groqKeyInput" class="input input-mono" placeholder="gsk_…" autocomplete="off" spellcheck="false" aria-label="Groq key">
-                <button type="button" class="btn btn-pri btn-sm" onclick="saveGroqKey(this)">Save</button>
-                <button type="button" class="btn btn-quiet btn-sm" onclick="closeKeyEditor(true)">Cancel</button>
-              </div>
-              <p class="key-help">Make one at <a class="link" href="#" onclick="openKeyPage('groq'); return false;">console.groq.com/keys</a>. Groq keys start with gsk_.</p>
-            </div>
-            <div class="key-editor" id="apiKeyEditor" data-provider="openai">
-              <div class="key-editor-row">
-                <input type="password" id="apiKeyInput" class="input input-mono" placeholder="sk-…" autocomplete="off" spellcheck="false" aria-label="OpenAI key">
-                <button type="button" class="btn btn-pri btn-sm" onclick="saveApiKey(this)">Save</button>
-                <button type="button" class="btn btn-quiet btn-sm" onclick="closeKeyEditor(true)">Cancel</button>
-              </div>
-              <p class="key-help">Optional. Make one at <a class="link" href="#" onclick="openKeyPage('openai'); return false;">platform.openai.com/api-keys</a>. OpenAI keys start with sk-.</p>
-            </div>
-            <div class="key-editor" id="cerebrasKeyEditor" data-provider="cerebras">
-              <div class="key-editor-row">
-                <input type="password" id="cerebrasKeyInput" class="input input-mono" placeholder="csk-…" autocomplete="off" spellcheck="false" aria-label="Cerebras key">
-                <button type="button" class="btn btn-pri btn-sm" onclick="saveCerebrasKey(this)">Test and save</button>
-                <button type="button" class="btn btn-quiet btn-sm" onclick="closeKeyEditor(true)">Cancel</button>
-              </div>
-              <p class="key-help">Optional. Make one at <a class="link" href="#" onclick="openKeyPage('cerebras'); return false;">cloud.cerebras.ai/platform/api-keys</a>. Cerebras keys start with csk-, and Waffler checks it with Cerebras before saving.</p>
-            </div>
-          </div>
-
-          <p class="s-foot">New to keys? <a class="link" href="#" onclick="openKeyPage('groq'); return false;">Get a free Groq key</a><svg class="ic ic-sm" aria-hidden="true"><use href="#i-external"/></svg></p>
-
-          <!-- What a careful person may still want to know. One collapsed
-               disclosure (toggleHow). -->
+          <!-- Everything else, as it was: what each step uses (logic.js
+               flowView), the keys in the order Waffler tries them (logic.js
+               keyRows; drag a row by its handle, or focus the handle and use
+               the arrow keys), and what a careful person may still want to
+               know. One collapsed disclosure (toggleHow). -->
           <div class="how">
-            <button type="button" class="link-btn how-btn" id="keysHowBtn" aria-expanded="false" aria-controls="keysHow" onclick="toggleHow(this)">How it works<svg class="ic ic-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
-            <div class="sheet how-body" id="keysHow" hidden>
-              <ul class="sc-rule-list">
-                <li>On this computer: your speech is turned into text on this computer. No key, and it works with the internet off.</li>
-                <li>With your own key: your speech is sent to Groq or OpenAI with the key you add. Quicker for long meetings.</li>
-                <li class="hir-note" id="hirNote">This choice covers dictation and meetings. Writing a meeting’s notes still needs a key, either way.</li>
-                <li id="hirLlmHow" hidden>The writing model is for an Apple Silicon Mac with 16 GB of memory or more: about two seconds to tidy a dictation, a minute or two for a long meeting’s notes. A key is quicker, and better with long meetings.</li>
-                <li>Waffler tries your keys in order and uses the first that answers. Drag to change the order; it applies to your next dictation.</li>
-                <li>Groq is free for roughly 30 cleaned dictations a day.</li>
-              </ul>
+            <button type="button" class="link-btn how-btn" id="keysAdvBtn" aria-expanded="false" aria-controls="keysAdv" onclick="toggleHow(this)">Advanced<svg class="ic ic-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
+            <div class="how-body adv-body" id="keysAdv" hidden>
+              <div class="stage stage-plain flow" id="keysFlow" role="img" aria-label="Speech to text and clean-up"></div>
+
+              <h2 class="sh2">In order<span class="aside">first that answers wins</span></h2>
+              <div class="sheet provider-order-list" id="providerOrderList"></div>
+              <p class="sr-only" id="providerOrderLive" role="status" aria-live="polite"></p>
+
+              <div class="sheet adv-how">
+                <ul class="sc-rule-list" id="keysHow">
+                  <li>On this computer: your speech is turned into text on this computer, after one download. No key, and it works with the internet off.</li>
+                  <li>Your own key: your speech is sent to Groq or OpenAI with the key you add. Quicker, especially for long meetings.</li>
+                  <li class="hir-note" id="hirNote">This choice covers dictation and meetings. Writing a meeting’s notes still needs a key, either way.</li>
+                  <li id="hirLlmHow" hidden>The writing model is for an Apple Silicon Mac with 16 GB of memory or more: about two seconds to tidy a dictation, a minute or two for a long meeting’s notes. A key is quicker, and better with long meetings.</li>
+                  <li>Waffler checks a key with its provider before saving it. Groq keys start with gsk_, OpenAI keys with sk-, Cerebras keys with csk-.</li>
+                  <li>Waffler tries your keys in order and uses the first that answers. Drag to change the order; it applies to your next dictation.</li>
+                  <li>Groq is free for roughly 30 cleaned dictations a day.</li>
+                </ul>
+              </div>
             </div>
           </div>
         </section>
