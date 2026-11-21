@@ -40,6 +40,7 @@ class FakeAccountServer:
         self.max_push_bytes = max_push_bytes
         self.mailbox: dict[str, str] = {}        # email -> the code "sent"
         self.users: dict[str, str] = {}          # email -> user id
+        self.user_created: dict[str, str] = {}   # user id -> when the account was made
         self.sessions: dict[str, dict] = {}      # token -> {"user", "email", "device"}
         self.connectors: dict[str, dict] = {}    # user id -> {"token", "created_at"}
         self.rows: dict[str, dict] = {}          # user id -> {(kind, id): (seq, row)}
@@ -50,6 +51,11 @@ class FakeAccountServer:
         self.sync_too_many = False               # 429 on sync
         self.over_allowance = False              # 402 on a push
         self.disabled: set[str] = set()          # emails of disabled accounts
+        self.signups_closed = False              # 403 signups_closed for an address with no account
+        self.email_off: int | None = None        # 503 on start; the number is Retry-After (0: none sent)
+        self.server_full = False                 # 507 server_full on a push
+        self.model_calls_cap = False             # 402 model_calls_cap on a signed request
+        self.deleted: list[str] = []             # emails of accounts that were deleted
         self.fail_pushes_after: int | None = None   # connection lost after this many pushes
         self.pushes = 0                          # pushes accepted
         self.accepted_sizes: list[int] = []      # ... and how large each was
@@ -106,6 +112,10 @@ class FakeAccountServer:
             email = str(body.get("email", "")).strip().lower()
             if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
                 return self._refuse(400, "That is not an email address.")
+            if self.email_off is not None:
+                return self._refuse(503, "The server has sent as many sign-in emails as it may for now. "
+                                         "Try again later.",
+                                    headers={"Retry-After": str(self.email_off)} if self.email_off else None)
             self.mailbox[email] = f"{secrets.randbelow(10 ** 6):06d}"
             return self._json(200, {"ok": True, "expires_in": 600})
 
@@ -119,13 +129,17 @@ class FakeAccountServer:
             if not code or self.mailbox.get(email) != code:
                 return self._refuse(401, "That code is wrong or has expired.")
             del self.mailbox[email]                          # a code works once
+            if email not in self.users and self.signups_closed:
+                return self._refuse(403, "This server is not taking new accounts at the moment.",
+                                    "signups_closed")
             user = self.users.setdefault(email, secrets.token_hex(16))
+            made = self.user_created.setdefault(user, _now())
             token = "natter_" + secrets.token_urlsafe(32)
             device = {"id": secrets.token_hex(8), "name": str(body.get("device_name") or "A device")[:80],
                       "created_at": _now(), "last_used_at": _now()}
             self.sessions[token] = {"user": user, "email": email, "device": device}
             return self._json(200, {"token": token,
-                                    "user": {"id": user, "email": email, "created_at": _now()},
+                                    "user": {"id": user, "email": email, "created_at": made},
                                     "device": self._device_view(device, True)})
 
         token, session = self._who(request)
@@ -135,9 +149,24 @@ class FakeAccountServer:
             return self._refuse(403, "This account is disabled.", "account_disabled")
         user = session["user"]
 
+        if self.model_calls_cap:
+            return self._refuse(402, "Today's questions and rewrites are used up. The count starts again "
+                                     "tomorrow (midnight UTC).", "model_calls_cap")
+
         if path == "/auth/logout" and method == "POST":
             del self.sessions[token]
             return self._json(200, {"ok": True})
+
+        if path == "/account" and method == "DELETE":        # every device, the link, the notes, the address
+            for t, s in list(self.sessions.items()):
+                if s["user"] == user:
+                    del self.sessions[t]
+            self.connectors.pop(user, None)
+            self.rows.pop(user, None)
+            self.users.pop(session["email"], None)
+            self.user_created.pop(user, None)
+            self.deleted.append(session["email"])
+            return self._json(200, {"deleted": True})
 
         if path == "/account/devices" and method == "GET":
             return self._json(200, {"devices": [
@@ -183,6 +212,9 @@ class FakeAccountServer:
             if len(request.content) > self.max_push_bytes:
                 self.too_large += 1
                 return self._refuse(413, "That is too much for one sync. Send fewer notes at a time.")
+            if self.server_full:
+                return self._refuse(507, "The server is full at the moment. Try again later.", "server_full",
+                                    headers={"Retry-After": "3600"})
             if self.over_allowance:
                 return self._refuse(402, "Your account's storage is full. Delete some notes to make room.",
                                     "storage_cap")

@@ -905,16 +905,37 @@ class Api:
     # "error"}.
     def account_status(self) -> dict:
         """{"ok", "available", "signed_in", "email", "device_name",
-        "device_id", "notice", "sync"}. Read from this computer; nothing is
-        contacted. `available` is False until an account service is named."""
-        return _account_call("status", sync=True)
+        "device_id", "notice", "sync", "offer_dismissed"}. Read from this
+        computer; nothing is contacted. `available` is False until an account
+        service is named. `offer_dismissed`: Home's card offering an account
+        was put away for good (account_offer_dismiss)."""
+        out = _account_call("status", sync=True)
+        try:
+            out["offer_dismissed"] = self._load_settings_file().get("account_offer_dismissed") is True
+        except Exception:  # noqa: BLE001
+            out["offer_dismissed"] = False
+        return out
+
+    def account_offer_dismiss(self) -> dict:
+        """Home's card offering an account is not shown again, on this
+        computer, ever (settings.json: the page's own storage does not
+        survive a restart). Settings, Account is where accounts stay."""
+        try:
+            with self._editing_settings() as stored:
+                stored["account_offer_dismissed"] = True
+            return {"ok": True}
+        except Exception as e:  # noqa: BLE001
+            _log_to_file(f"[account] offer not dismissed: {type(e).__name__}")
+            return {"ok": False, "error": "That didn't work. Try again.", "reason": "failed"}
 
     def account_start(self, email: str = "") -> dict:
         """Send the 6-digit code: {"ok", "email", "expires_in"}."""
         return _account_call("start", email)
 
     def account_verify(self, email: str = "", code: str = "") -> dict:
-        """Sign in with the code: the status shape. Syncing starts at once."""
+        """Sign in with the code: the status shape, plus "new_account" (True
+        when this sign-in made the account, False when it already existed,
+        None when the service did not say). Syncing starts at once."""
         out = _account_call("verify", email, code, sync=True)
         if out.get("ok") and out.get("signed_in"):
             _account_begin_sync()
@@ -931,6 +952,22 @@ class Api:
                 out["sync"] = _account_sync_state()
         except Exception as e:  # noqa: BLE001
             _log_to_file(f"[account] sign_out: {type(e).__name__}")
+        return out
+
+    def account_delete(self, confirm: str = "") -> dict:
+        """Delete the account: everything the service holds for it, for every
+        device signed in to it. `confirm` is the word the person typed, and
+        must be DELETE. Then this computer is signed out. The meetings on
+        this computer are not touched. The status shape plus "deleted"; a
+        refusal means nothing was deleted."""
+        out = _account_call("delete_account", confirm)
+        try:
+            if out.get("ok"):
+                if _meetings is not None:
+                    _meetings.account_signed_out()
+                out["sync"] = _account_sync_state()
+        except Exception as e:  # noqa: BLE001
+            _log_to_file(f"[account] delete_account: {type(e).__name__}")
         return out
 
     def account_devices(self) -> dict:

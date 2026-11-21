@@ -31,6 +31,7 @@ import math
 import os
 import platform
 import re
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -54,6 +55,14 @@ BAD_EMAIL = "That doesn't look like an email address."
 BAD_CODE = "Enter the 6-digit code from the email."
 WRONG_CODE = "That code is wrong or has expired. Check it, or send a new one."
 CODE_NOT_SENT = "The code couldn't be sent just now. Try again in a moment."
+EMAILS_USED_UP = "Waffler has sent all the sign-in emails it can for now. Try again in {wait}."
+SIGNUPS_CLOSED = "Waffler accounts are invite-only for now."
+MODEL_CALLS_CAP = "Today's questions and rewrites are used up. There are more tomorrow."
+SERVER_FULL = ("The account service is full just now. Nothing is lost: your meetings stay on this "
+               "computer and sync when there is room.")
+TYPE_DELETE = "Type DELETE to confirm."
+NOT_DELETED = "Your account was not deleted. "
+ACCOUNT_DELETED = "Your account is deleted. The meetings on this computer are still here."
 OVER_ALLOWANCE = "Your account is over its allowance. Nothing more can be added until there is room."
 DISABLED = "This account has been disabled."
 SIGNED_OUT = "This computer was signed out of the account. Sign in again."
@@ -185,11 +194,26 @@ def http_client(server: str, timeout: float = TIMEOUT_S):
                         headers={"Accept": "application/json"})
 
 
-def _wait_sentence(headers) -> str:
+def _retry_after(headers) -> float:
     try:
-        seconds = float((headers or {}).get("retry-after") or 0)
+        return float((headers or {}).get("retry-after") or 0)
     except (TypeError, ValueError):
-        seconds = 0
+        return 0
+
+
+def _not_sent_sentence(headers) -> str:
+    """The sign-in email was not sent (503). A short wait, or none given: it
+    failed, try again. A long one: the service's emails for the hour are gone."""
+    seconds = _retry_after(headers)
+    if seconds <= 90:
+        return CODE_NOT_SENT
+    if seconds >= 2400:
+        return EMAILS_USED_UP.format(wait="an hour")
+    return EMAILS_USED_UP.format(wait=f"{math.ceil(seconds / 60)} minutes")
+
+
+def _wait_sentence(headers) -> str:
+    seconds = _retry_after(headers)
     if seconds <= 90:
         return "Too many tries. Wait a minute, then try again."
     if seconds >= 3600:
@@ -229,8 +253,12 @@ def _refusal(status: int, body, headers, *, signed: bool, what: str,
             return AccountError(SIGNED_OUT, "signed_out")
         return AccountError(FAILED)
     if status == 402:
+        if code == "model_calls_cap":
+            return AccountError(MODEL_CALLS_CAP, "model_calls_cap")
         return AccountError(_detail(body) or OVER_ALLOWANCE, "over_allowance")
     if status == 403:
+        if code == "signups_closed":
+            return AccountError(SIGNUPS_CLOSED, "signups_closed")
         return AccountError(DISABLED, "disabled") if code == "account_disabled" else AccountError(FAILED)
     if status == 429:
         return AccountError(_wait_sentence(headers), "too_many")
@@ -239,8 +267,10 @@ def _refusal(status: int, body, headers, *, signed: bool, what: str,
             else AccountError(_detail(body) or FAILED, "refused")
     if status == 404 and what == "remove_device":
         return AccountError(DEVICE_GONE, "gone")
+    if status == 507:
+        return AccountError(SERVER_FULL, "server_full")
     if status >= 500:
-        return AccountError(CODE_NOT_SENT if what == "start" else BUSY, "busy")
+        return AccountError(_not_sent_sentence(headers) if what == "start" else BUSY, "busy")
     return AccountError(FAILED)
 
 
@@ -342,7 +372,19 @@ def verify(email, code, device_name: str | None = None) -> dict:
     if before and before["token"] != token:           # signed in twice: the earlier session is not left behind
         with contextlib.suppress(Exception):
             _request("POST", "/auth/logout", token=before["token"])
-    return status()
+    return {**status(), "new_account": _made_just_now(user, device)}
+
+
+def _made_just_now(user: dict, device: dict) -> bool | None:
+    """Whether this sign-in made the account, read from the service's answer:
+    a new account and its first device are made in the same moment. None when
+    the answer does not carry both times, so the page does not guess."""
+    try:
+        made = datetime.fromisoformat(str(user["created_at"]))
+        here = datetime.fromisoformat(str(device["created_at"]))
+        return abs((here - made).total_seconds()) <= 5
+    except (KeyError, TypeError, ValueError):
+        return None
 
 
 def sign_out() -> dict:
@@ -362,6 +404,29 @@ def sign_out() -> dict:
     forget()
     _notice = ""
     return {**status(), "told_service": told, "note": "" if told else SIGNED_OUT_OFFLINE}
+
+
+def delete_account(confirm="") -> dict:
+    """Delete the account and everything the service holds for it, for every
+    device signed in to it, then forget the session here. Nothing on this
+    computer is removed. Only with the word DELETE, which the person typed.
+    Any refusal means nothing was deleted, and the sentence says so."""
+    global _notice
+    try:
+        if not isinstance(confirm, str) or confirm.strip().upper() != "DELETE":
+            raise AccountError(TYPE_DELETE, "unconfirmed")
+        answer = _request("DELETE", "/account")
+        if answer.get("deleted") is not True:
+            raise AccountError(FAILED)
+    except AccountError as e:
+        if e.reason in ("unconfirmed", "signed_out"):
+            return {"ok": False, "error": e.sentence, "reason": e.reason}
+        return {"ok": False, "error": NOT_DELETED + e.sentence, "reason": e.reason}
+    except Exception:  # noqa: BLE001
+        return {"ok": False, "error": NOT_DELETED + FAILED, "reason": "failed"}
+    forget()
+    _notice = ACCOUNT_DELETED
+    return {**status(), "deleted": True}
 
 
 # ── devices ─────────────────────────────────────────────────────────────────
@@ -448,9 +513,11 @@ def sync_refusal(status: int | None, detail: str = "", code: str = "", token: st
     if status == 429:
         return SYNC_TOO_OFTEN
     if status == 402:
-        return detail or OVER_ALLOWANCE
+        return MODEL_CALLS_CAP if code == "model_calls_cap" else detail or OVER_ALLOWANCE
     if status == 403:
         return DISABLED if code == "account_disabled" else FAILED
     if status in (400, 413):
         return detail or FAILED
+    if status == 507:
+        return SERVER_FULL
     return BUSY if status >= 500 else FAILED
