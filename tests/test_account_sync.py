@@ -367,6 +367,7 @@ def test_a_computer_removed_from_the_account_is_refused_and_forgets_its_token(ct
     assert not (ctl.data / account.SESSION_FILE).exists()
     s = account.status()
     assert s["signed_in"] is False and s["notice"] == account.SIGNED_OUT
+    assert ctl.logged[-1] == "[account] sync refused (answer 401): this computer is no longer signed in"
     fake.requests.clear()
     ctl.sync_now()
     assert fake.requests == [], "signed out, the next round contacts nothing"

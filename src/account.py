@@ -35,8 +35,10 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 try:
+    from src.atomic_json import replace_with_retry
     from src.data_paths import data_file
 except ImportError:                                   # run from inside src/
+    from atomic_json import replace_with_retry
     from data_paths import data_file
 
 SERVER_ENV = "WAFFLER_ACCOUNT_SERVER"
@@ -144,7 +146,7 @@ def _write_session(data: dict) -> None:
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as out:
         json.dump(data, out)
-    os.replace(tmp, path)
+    replace_with_retry(tmp, path)                     # Windows: the file may be briefly held open
 
 
 def forget() -> None:
@@ -203,13 +205,19 @@ def _detail(body) -> str:
     return ""
 
 
-def _signed_out_by_service() -> None:
+def _signed_out_by_service(token: str | None = None) -> None:
+    """The service no longer accepts `token`. Forget it, unless this computer
+    has signed in again since that request was sent."""
     global _notice
+    now = _read_session()
+    if token and now and now["token"] != token:
+        return
     forget()
     _notice = SIGNED_OUT
 
 
-def _refusal(status: int, body, headers, *, signed: bool, what: str) -> AccountError:
+def _refusal(status: int, body, headers, *, signed: bool, what: str,
+             token: str | None = None) -> AccountError:
     """An answer that is not 200, as a sentence. A signed request that is
     answered 401 means this device was removed: the token is forgotten."""
     code = body.get("code") if isinstance(body, dict) else ""
@@ -217,7 +225,7 @@ def _refusal(status: int, body, headers, *, signed: bool, what: str) -> AccountE
         if what == "verify":
             return AccountError(WRONG_CODE, "wrong_code")
         if signed:
-            _signed_out_by_service()
+            _signed_out_by_service(token)
             return AccountError(SIGNED_OUT, "signed_out")
         return AccountError(FAILED)
     if status == 402:
@@ -261,7 +269,7 @@ def _request(method: str, path: str, *, body=None, signed: bool = True, what: st
     except ValueError:
         answer = None
     if r.status_code != 200:
-        raise _refusal(r.status_code, answer, r.headers, signed=signed, what=what)
+        raise _refusal(r.status_code, answer, r.headers, signed=signed, what=what, token=token)
     if not isinstance(answer, dict):
         raise AccountError(FAILED)
     return answer
@@ -428,13 +436,14 @@ def connector_off() -> dict:
 
 # ── sync (src/meetings/sync.py does the work) ───────────────────────────────
 
-def sync_refusal(status: int | None, detail: str = "", code: str = "") -> str:
+def sync_refusal(status: int | None, detail: str = "", code: str = "", token: str | None = None) -> str:
     """Why a sync round did not go through, as one sentence. A 401 means
-    this device was removed from the account: the token is forgotten."""
+    this device was removed from the account: the token (the one the round
+    used) is forgotten."""
     if status is None:
         return NO_INTERNET
     if status == 401:
-        _signed_out_by_service()
+        _signed_out_by_service(token)
         return SIGNED_OUT
     if status == 429:
         return SYNC_TOO_OFTEN

@@ -233,6 +233,18 @@ def test_a_computer_removed_from_elsewhere_finds_out_and_forgets_its_token(serve
     assert account.status()["notice"] == "", "asking for a new code clears the notice"
 
 
+def test_a_refusal_of_an_old_token_does_not_sign_out_a_newer_session(server):
+    """A sync that began before signing out and in again comes back refused:
+    it is the old token that is dead, not the one in use now."""
+    sign_in(server)
+    old = token_on_disk(server)
+    sign_in(server)
+    assert account.sync_refusal(401, token=old) == account.SIGNED_OUT
+    assert account.status()["signed_in"] is True and token_on_disk(server) != old
+    assert account.sync_refusal(401, token=token_on_disk(server)) == account.SIGNED_OUT
+    assert account.status()["signed_in"] is False
+
+
 def test_signing_in_again_signs_the_earlier_session_out(server):
     sign_in(server)
     first = token_on_disk(server)
@@ -367,7 +379,7 @@ def api(server):
     exec(compile(ast.Module(helpers + methods, []), "<app.py account>", "exec"), ns)
     Api = type("Api", (), {n.name: ns[n.name] for n in methods})
     api = Api()
-    api.logged, api.meetings, api.server = logged, meetings, server
+    api.logged, api.meetings, api.server, api.ns = logged, meetings, server, ns
     return api
 
 
@@ -434,3 +446,22 @@ def test_status_while_off_needs_no_engine(api, monkeypatch):
     assert out["ok"] and out["available"] is False and out["signed_in"] is False
     assert api.account_sync_now() == {"ok": False, "error": account.NOT_AVAILABLE, "reason": "unavailable"}
     assert not api.meetings.started.is_set()
+
+
+def test_when_waffler_opens_sync_starts_only_if_signed_in(api):
+    """app.py main() calls _account_begin_sync: signed out, the meetings
+    engine is not even made; signed in, syncing starts."""
+    engines = []
+    api.ns["_get_meetings"] = lambda: engines.append(1) or api.meetings
+    api.ns["_account_begin_sync"]()
+    for t in threading.enumerate():
+        if t.name == "AccountSync":
+            t.join(5)
+    assert engines == [] and not api.meetings.started.is_set() and api.server.requests == []
+    sign_in(api.server)
+    api.ns["_account_begin_sync"]()
+    assert api.meetings.started.wait(5) and engines == [1]
+    app_py = (ROOT / "app.py").read_text(encoding="utf-8")
+    main = app_py[app_py.index("\ndef main():"):]
+    assert main.index("_account_begin_sync(delay_s=5.0)") < main.index("webview.start(debug=False)")
+    assert "on_account_change=_account_changed" in app_py

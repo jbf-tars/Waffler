@@ -180,8 +180,10 @@ class MeetingsController:
                 if out["pulled"]:
                     self._on_change()                  # meetings from another device are in the list
             except sync.SyncError as e:
-                error = acct.sync_refusal(e.status, e.detail, e.code)
-                if error != before:                    # said once, not every two minutes
+                error = acct.sync_refusal(e.status, e.detail, e.code, cred["token"])
+                if e.status == 401:                    # removed from the account: the token is forgotten
+                    self._log("[account] sync refused (answer 401): this computer is no longer signed in")
+                elif error != before:                  # said once, not every two minutes
                     answer = f"answer {e.status}" if e.status else "no answer"
                     self._log(f"[account] sync did not go through ({answer}); it will be tried again")
         except Exception as e:  # noqa: BLE001
