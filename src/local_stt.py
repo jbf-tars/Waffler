@@ -422,9 +422,10 @@ def _bytes_here(folder: Path, f: ModelFile) -> int:
 
 
 def _fetch(f: ModelFile, folder: Path, note: Callable[[str, int], None],
-           cancel: threading.Event) -> None:
+           cancel: threading.Event, get=None) -> None:
     """Bring one file here: resumed from its part-file, checked, then given its
-    name. A file already here at full size was checked when it arrived."""
+    name. A file already here at full size was checked when it arrived.
+    ``get`` is the streamed GET to use (src/local_llm.py passes its own)."""
     final = folder / f.name
     part = folder / (f.name + _PART)
     try:
@@ -440,7 +441,7 @@ def _fetch(f: ModelFile, folder: Path, note: Callable[[str, int], None],
     note(f.name, have)
     if have < f.size:
         try:
-            resp = _http_get(f.url, {"Range": f"bytes={have}-"} if have else {})
+            resp = (get or _http_get)(f.url, {"Range": f"bytes={have}-"} if have else {})
         except Exception as e:      # noqa: BLE001 - offline, DNS, TLS: one sentence for all
             raise LocalSTTError(DOWNLOAD_FAILED, "download") from e
         try:
@@ -724,6 +725,11 @@ class _Gate:
         with self._cond:
             self._busy = False
             self._cond.notify_all()
+
+    def foreground_waiting(self) -> bool:
+        """Is a foreground caller waiting for its turn right now?"""
+        with self._cond:
+            return self._foreground_waiting > 0
 
 
 _gate = _Gate()
