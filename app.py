@@ -594,6 +594,21 @@ def record_usage_safely(*args, **kwargs):
         return None
 
 
+def _own_window_in_front() -> bool:
+    """Is the app in front Waffler itself? A transform or a command run on text
+    in Waffler's own window (Settings, "Try it here", with the box's text
+    selected and the real shortcut pressed) puts its result in the box and
+    says nothing more: no message over the window, nothing in the Journal
+    (src/transform_action.py, src/command_action.py). Never raises; when it
+    cannot be told, no."""
+    try:
+        front = _text_context.front_pid()
+        return bool(front) and front == os.getpid()
+    except Exception as e:
+        _log_to_file(f"[context] could not tell whose window is in front: {type(e).__name__}")
+        return False
+
+
 def _words_kept_message(on_clipboard: bool, in_journal: bool, pasted: bool = False) -> str:
     """The error toast's sentence, from where the words really are. After a
     paste that went in, the clipboard is the user's own again (it is put
@@ -6190,6 +6205,7 @@ class WafflerPipeline:
                 allow_copy_fallback=(method == _text_context.METHOD_COPY), timeout=0.9),
             front_app=lambda: _text_context.frontmost_app(),
             window=lambda: self.clipboard.get_focused_window(),
+            own_window=_own_window_in_front,
             refocus=refocus,
             chat=lambda *a, **k: self.styler._chat(*a, **k),
             dashes=lambda text: self.styler._strip_em_dashes(text),
@@ -6364,6 +6380,7 @@ class WafflerPipeline:
             record_speech=speech_usage,
             save_history=append_history_safely,
             announce_item=notify_js_new_item,
+            own_window=_own_window_in_front,
             open_url=open_url,
             cue=lambda name: self._play_cue(name),
             no_audio=no_audio,

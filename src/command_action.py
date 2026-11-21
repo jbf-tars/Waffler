@@ -144,6 +144,7 @@ class Hooks:
     speech_provider: Callable[[], str] = lambda: ""
     front_app: Callable[[], Any] = lambda: text_context.UNKNOWN
     window: Callable[[], Any] = lambda: None                    # Windows: the target window
+    own_window: Callable[[], bool] = lambda: False              # the app in front is Waffler's own window
     reread_selection: Callable[[str], Any] = lambda method: None    # the selection again, read the way it was first
     dashes: Optional[Callable[[str], str]] = None               # the styler's own helpers
     profanity: Optional[Callable[[str, str], str]] = None
@@ -768,6 +769,12 @@ class CommandRunner:
             h.log(f"[command] paste outcome not read: {type(e).__name__}")
             went_in = True
         label = history_meta.paste_label(pasted, went_in)
+        if went_in and self._in_own_window():
+            # The text was in Waffler's own window (Settings, "Try it here"):
+            # the result is in the box, and that is the whole of it. No
+            # message over the window, and nothing kept in the Journal.
+            h.log("[command] done in Waffler's own window: no message, not kept in the Journal")
+            return pw.DONE
         if not went_in:
             h.remember(after)               # so the failed-paste message's "Copy again" copies the result
         entry = self._save(action, run, instruction, reply, started, label, before=before, after=after,
@@ -778,6 +785,15 @@ class CommandRunner:
         return pw.DONE if went_in else pw.ERROR
 
     # ── the parts ─────────────────────────────────────────────────────────
+
+    def _in_own_window(self) -> bool:
+        """Is the app in front Waffler itself? When it cannot be told, no: a
+        change in someone's own app is always said and always kept."""
+        try:
+            return self.h.own_window() is True
+        except Exception as e:      # noqa: BLE001
+            self.h.log(f"[command] could not tell whose window is in front: {type(e).__name__}")
+            return False
 
     def _cancelled(self) -> str:
         self._say(RESULT, "info", um.COMMAND_CANCELLED, timeout=NOTICE_S)

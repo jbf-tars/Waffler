@@ -85,6 +85,7 @@ class Hooks:
     window: Callable[[], Any] = lambda: None                    # Windows: the target window
     reread_selection: Callable[[str], Any] = lambda method: None    # the selection again, read the way it was first
     refocus: Callable[[], None] = _noop                         # Windows tray: back to the last app
+    own_window: Callable[[], bool] = lambda: False              # the app in front is Waffler's own window
     dashes: Optional[Callable[[str], str]] = None               # the styler's own helpers
     profanity: Optional[Callable[[str, str], str]] = None
     remember: Callable[[str], None] = _noop                     # "Copy again" must copy the rewrite
@@ -312,6 +313,12 @@ class TransformRunner:
             h.log(f"[transform] paste outcome not read: {type(e).__name__}")
             went_in = True
         label = history_meta.paste_label(pasted, went_in)
+        if went_in and self._in_own_window():
+            # The text was in Waffler's own window (Settings, "Try it here"):
+            # the rewrite is in the box, and that is the whole of it. No
+            # message over the window, and nothing kept in the Journal.
+            h.log("[transform] done in Waffler's own window: no message, not kept in the Journal")
+            return pw.DONE
         if not went_in:
             h.remember(after)               # so the failed-paste message's "Copy again" copies the rewrite
         entry = self._save(spec, ctx, text, after, reply, started, label, stored)
@@ -322,6 +329,15 @@ class TransformRunner:
         return pw.DONE if went_in else pw.ERROR
 
     # ── the parts ─────────────────────────────────────────────────────────
+
+    def _in_own_window(self) -> bool:
+        """Is the app in front Waffler itself? When it cannot be told, no: a
+        rewrite in someone's own app is always said and always kept."""
+        try:
+            return self.h.own_window() is True
+        except Exception as e:      # noqa: BLE001
+            self.h.log(f"[transform] could not tell whose window is in front: {type(e).__name__}")
+            return False
 
     def _front(self):
         try:

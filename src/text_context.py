@@ -549,6 +549,16 @@ def frontmost_app(read_title: Optional[bool] = None) -> AppContext:
         return UNKNOWN
 
 
+def front_pid() -> int:
+    """The process id of the app in front, or 0 when it cannot be told. Cheap,
+    no subprocess, never raises. (Is the window in front Waffler's own?)"""
+    try:
+        front = _default_reader()._front()
+        return int(getattr(front, "pid", 0) or 0)
+    except Exception:      # noqa: BLE001
+        return 0
+
+
 def read_selection(allow_copy_fallback: bool = False,
                    timeout: float = DEFAULT_TIMEOUT_S) -> SelectionResult:
     """``get_selected_text`` with the reason an empty answer is empty."""
