@@ -35,8 +35,12 @@ def test_a_stray_value_is_off_as_the_engine_reads_it():
 def test_the_label_and_the_sentence_say_what_the_tap_does():
     v = js("L.doubleTapView({})")
     assert v["label"] == "Double-tap to go hands-free"
-    assert v["desc"] == ("Tap your dictation hotkey twice, quickly, to keep recording without holding it. "
-                         "Tap it once to finish. Holding the hotkey works as it always did.")
+    assert v["desc"] == "Tap the hotkey twice to keep recording. Once to finish."
+    # In full, and that holding is unchanged, under the page's "How it works".
+    full = js("L.DOUBLE_TAP_TEXT.how")
+    assert full == ("Double-tap: tap your dictation hotkey twice, quickly, to keep recording without holding it. "
+                    "Tap it once to finish. Holding the hotkey works as it always did.")
+    assert f'<li id="shortcutsHowDoubleTap">{full}</li>' in read("index.html")
 
 
 @needs_node

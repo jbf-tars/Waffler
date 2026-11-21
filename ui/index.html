@@ -950,20 +950,11 @@
              always had them. -->
         <section class="s-sec" id="secHotkey" data-sec="hotkey" hidden>
           <h1 class="ptitle">Shortcuts</h1>
-          <p class="pdesc">Every shortcut in one place. The key of a shortcut doesn't reach the app in front, so it never types a letter or runs that app's own shortcut.</p>
+          <p class="pdesc">Every shortcut in one place.</p>
 
           <div class="sheet sc-list" id="shortcutsList" role="list" aria-label="Shortcuts"></div>
           <p class="s-error" id="shortcutsError" role="alert" hidden></p>
           <button type="button" class="btn btn-sec btn-sm s-retry" id="shortcutsRetry" hidden onclick="retryShortcuts(this)">Try again</button>
-
-          <div class="sc-tools">
-            <button type="button" class="link-btn" id="shortcutsRulesBtn" aria-expanded="false" aria-controls="shortcutsRules" onclick="toggleShortcutRules()">Which shortcuts can I use?</button>
-          </div>
-          <div class="sheet sc-rules" id="shortcutsRules" hidden>
-            <ul class="sc-rule-list" id="shortcutsRuleLines"></ul>
-            <h3 class="tx-h3" id="shortcutsReservedTitle">Refused, because your computer or most apps use them</h3>
-            <ul class="sc-rule-list sc-reserved" id="shortcutsReserved" aria-labelledby="shortcutsReservedTitle"></ul>
-          </div>
 
           <div class="sheet sc-reset">
             <div class="row" id="shortcutsResetRow">
@@ -1001,6 +992,24 @@
 
           <h2 class="sh2">Presets</h2>
           <div class="presets" id="hotkeyPresetCards" role="radiogroup" aria-label="Hotkey presets"></div>
+
+          <!-- What a careful person may still want to know, and which
+               shortcuts can be used (the rules and the refused combinations
+               are the app's: get_shortcuts). One collapsed disclosure. -->
+          <div class="how sc-tools">
+            <button type="button" class="link-btn how-btn" id="shortcutsRulesBtn" aria-expanded="false" aria-controls="shortcutsRules" onclick="toggleShortcutRules()">How it works<svg class="ic ic-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
+          </div>
+          <div class="sheet sc-rules how-body" id="shortcutsRules" hidden>
+            <ul class="sc-rule-list">
+              <li>The key of a shortcut doesn't reach the app in front, so it never types a letter or runs that app's own shortcut.</li>
+              <li id="shortcutsHowHandsFree">Hands-free: while you hold the dictation hotkey, tap Space to keep recording without holding. To finish, press the hotkey and Space together.</li>
+              <li id="shortcutsHowDoubleTap">Double-tap: tap your dictation hotkey twice, quickly, to keep recording without holding it. Tap it once to finish. Holding the hotkey works as it always did.</li>
+            </ul>
+            <h3 class="tx-h3" id="shortcutsRulesTitle">Which shortcuts can I use?</h3>
+            <ul class="sc-rule-list" id="shortcutsRuleLines" aria-labelledby="shortcutsRulesTitle"></ul>
+            <h3 class="tx-h3" id="shortcutsReservedTitle">Refused, because your computer or most apps use them</h3>
+            <ul class="sc-rule-list sc-reserved" id="shortcutsReserved" aria-labelledby="shortcutsReservedTitle"></ul>
+          </div>
         </section>
 
         <!-- Usage: the words first, from the Journal, with the last 30

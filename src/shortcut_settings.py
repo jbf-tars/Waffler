@@ -182,8 +182,10 @@ _DICTATION_BLURB = "Hold it while you speak, then let go to paste."
 # True with double-tap off or on, on a Mac and on Windows: a bare press of the
 # hotkey ends a hands-free take on Windows, and on a Mac only when double-tap is
 # on, but the hotkey pressed together with Space ends it everywhere.
-_HANDS_FREE_BLURB = ("While you hold the dictation hotkey, tap Space to keep recording without "
-                     "holding. To finish, press the hotkey and Space together.")
+_HANDS_FREE_BLURB = "Tap Space while holding. Press hotkey and Space to finish."
+# In full, for the page's "How it works" (ui/index.html shortcutsHowHandsFree).
+HANDS_FREE_HOW = ("Hands-free: while you hold the dictation hotkey, tap Space to keep recording without "
+                  "holding. To finish, press the hotkey and Space together.")
 _CANCEL_BLURB = "Stops a recording. Nothing is pasted."
 
 

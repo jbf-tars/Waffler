@@ -297,9 +297,14 @@ def test_the_light_call_never_raises():
 
 def test_the_hands_free_blurb_does_not_promise_a_bare_press():
     blurb = ss._HANDS_FREE_BLURB
-    assert "press the hotkey and Space together" in blurb
+    assert blurb == "Tap Space while holding. Press hotkey and Space to finish."
     assert "Tap the hotkey again" not in blurb
     assert "—" not in blurb and "–" not in blurb and blurb.endswith(".")
+    # In full under the page's "How it works", and it promises no bare press either.
+    full = ss.HANDS_FREE_HOW
+    assert "press the hotkey and Space together" in full and "Tap the hotkey again" not in full
+    page = (ROOT / "ui" / "index.html").read_text(encoding="utf-8")
+    assert f'<li id="shortcutsHowHandsFree">{full}</li>' in page
     for platform in (ss.ah.MAC, ss.ah.WINDOWS):
         row = next(r for r in ss.rows({}, platform) if r["id"] == "hands_free")
         assert row["description"] == blurb

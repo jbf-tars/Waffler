@@ -1611,7 +1611,9 @@
   // it. The sentence says what the tap does and that holding is unchanged.
   const DOUBLE_TAP_TEXT = {
     label: 'Double-tap to go hands-free',
-    desc: 'Tap your dictation hotkey twice, quickly, to keep recording without holding it. Tap it once to finish. Holding the hotkey works as it always did.',
+    desc: 'Tap the hotkey twice to keep recording. Once to finish.',
+    // In full, under "How it works" (index.html shortcutsHowDoubleTap).
+    how: 'Double-tap: tap your dictation hotkey twice, quickly, to keep recording without holding it. Tap it once to finish. Holding the hotkey works as it always did.',
     on: 'Waffler will keep recording when you double-tap.',
     off: 'Double-tap is off.',
   };

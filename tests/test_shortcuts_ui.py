@@ -294,6 +294,11 @@ def test_the_page_has_the_list_the_rules_the_reset_and_the_dictation_hotkeys_tes
     assert '<p class="s-error" id="shortcutsError" role="alert" hidden></p>' in sec
     assert 'id="shortcutsRulesBtn" aria-expanded="false" aria-controls="shortcutsRules"' in sec
     assert 'id="shortcutsRules" hidden' in sec and 'id="shortcutsReserved"' in sec
+    # The rules are the section's one disclosure, "How it works", at the bottom.
+    assert sec.index('id="hotkeyPresetCards"') < sec.index('id="shortcutsRulesBtn"')
+    assert sec.count(">How it works<") == 1 and '<h3 class="tx-h3" id="shortcutsRulesTitle">Which shortcuts can I use?</h3>' in sec
+    assert ("The key of a shortcut doesn't reach the app in front, so it never types a letter or runs that "
+            "app's own shortcut.") in sec[sec.index('id="shortcutsRules"'):]
     assert 'onclick="askShortcutsReset(true)"' in sec and 'onclick="resetShortcuts(this)"' in sec
     assert 'id="shortcutsResetConfirm" hidden' in sec
     # What the Hotkey page had stays: the keys, big, the test, the Fn notice, the presets.
