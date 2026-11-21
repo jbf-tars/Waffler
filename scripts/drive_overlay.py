@@ -2,6 +2,7 @@
 """Run the overlay helper by itself and put three pills through it.
 
     venv/bin/python scripts/drive_overlay.py
+    venv/bin/python scripts/drive_overlay.py --app dist/Waffler.app    # a built app's helper
 
 It starts `app.py --overlay` as its own process (never the running app's),
 sends it the same JSON lines src/overlay.py sends, and prints what the helper
@@ -43,7 +44,13 @@ def main():
     # it starts, and this run must not write in the person's real one.
     env = dict(os.environ)
     env["WAFFLER_DATA_DIR"] = tempfile.mkdtemp(prefix="waffler-overlay-drive-")
-    proc = subprocess.Popen([sys.executable, str(ROOT / "app.py"), "--overlay"], cwd=str(ROOT),
+    command = [sys.executable, str(ROOT / "app.py"), "--overlay"]
+    if "--app" in sys.argv:                 # a built app: its own executable draws
+        app = Path(sys.argv[sys.argv.index("--app") + 1]).resolve()
+        exe = app / "Contents" / "MacOS" / "Waffler" if app.suffix == ".app" else app
+        command = [str(exe), "--overlay"]
+    print(f"--- helper: {' '.join(command)}", flush=True)
+    proc = subprocess.Popen(command, cwd=str(ROOT),
                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                             text=True, bufsize=1, env=env)
     events, log = [], []
