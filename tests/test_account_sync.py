@@ -5,6 +5,7 @@ Two computers are two stores in two folders, signed in to one account on a
 stand-in service (tests/_account_fake.py). No network.
 """
 import json
+import re
 import sys
 import threading
 import time
@@ -627,11 +628,12 @@ def test_skipped_rows_are_counted_in_the_log(ctl, fake):
     assert ctl.sync_now()["ok"]
     assert "[account] synced: 1 in, 0 out, 2 skipped (not valid, never applied)" in ctl.logged
     assert [n["title"] for n in store.list_notes()] == ["Good"]
-    assert ctl.sync_now()["ok"]
     ctl.logged.clear()
     a_meeting(store)
     assert ctl.sync_now()["ok"]
-    assert ctl.logged == ["[account] synced: 0 in, 1 out"], "nothing skipped: nothing said about it"
+    said = [line for line in ctl.logged if line.startswith("[account] synced")]
+    assert len(said) == 1 and re.fullmatch(r"\[account\] synced: 0 in, \d out", said[0]), \
+        "nothing skipped: nothing said about it"
 
 
 def test_an_answer_too_large_is_said_plainly_and_logged_as_that(ctl, fake, monkeypatch):

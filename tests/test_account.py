@@ -521,3 +521,48 @@ def test_a_service_on_this_computer_may_answer_with_its_own_plain_address(server
     for other in ("http://127.0.0.1:9999/connect/natterc_abc/mcp", "http://evil.example/connect/natterc_abc/mcp",
                   "https://127.0.0.1:8765/connect/natterc_abc/mcp", "http://localhost:8765/connect/natterc_abc/mcp"):
         assert answer(other)["reason"] == "bad_link", other
+
+
+def test_the_session_file_is_the_owners_alone_before_the_token_is_written(server, monkeypatch):
+    seen = []
+
+    def restrict(path, *a, **k):
+        seen.append((path.name, path.read_bytes(), path.stat().st_mode & 0o777))
+        return True
+    monkeypatch.setattr(account, "_owner_only", restrict)
+    sign_in(server)
+    assert [(name, held) for name, held, _ in seen] == [("account.json.tmp", b"")], "restricted while still empty"
+    if os.name != "nt":
+        assert seen[0][2] == 0o600
+        assert ((server.data / account.SESSION_FILE).stat().st_mode & 0o777) == 0o600
+    assert token_on_disk(server).startswith("natter_")
+    assert not (server.data / (account.SESSION_FILE + ".tmp")).exists()
+
+
+def test_on_windows_the_file_is_granted_to_the_current_user_then_inheritance_is_dropped(tmp_path, monkeypatch):
+    import subprocess
+    ran, answers = [], []
+
+    def run(cmd, **kw):
+        ran.append(cmd)
+        return subprocess.CompletedProcess(cmd, answers.pop(0) if answers else 0, b"", b"")
+    monkeypatch.setattr(subprocess, "run", run)
+    monkeypatch.setenv("USERNAME", "ada")
+    monkeypatch.setenv("USERDOMAIN", "ADAS-PC")
+    path = tmp_path / "account.json.tmp"
+    assert account._owner_only(path, windows=True) is True
+    assert ran == [["icacls", str(path), "/grant:r", "ADAS-PC\\ada:F"], ["icacls", str(path), "/inheritance:r"]]
+    # If the grant did not work, inheritance is left alone: the file is never left with nobody allowed in.
+    ran.clear()
+    answers[:] = [1332]
+    assert account._owner_only(path, windows=True) is False and len(ran) == 1 and "/grant:r" in ran[0]
+    # No user name to grant to, or no icacls at all: nothing is changed and nothing is raised.
+    ran.clear()
+    monkeypatch.delenv("USERNAME")
+    assert account._owner_only(path, windows=True) is False and ran == []
+    monkeypatch.setenv("USERNAME", "ada")
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(FileNotFoundError("icacls")))
+    assert account._owner_only(path, windows=True) is False
+    # Anywhere else the mode already does it, and nothing is run.
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: 1 / 0)
+    assert account._owner_only(path, windows=False) is True

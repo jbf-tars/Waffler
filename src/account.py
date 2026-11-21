@@ -16,9 +16,11 @@ development), because the session token travels with every request.
 
 The session token is a secret. Waffler has no credential-store code (its
 keys live in a file in the data folder), so the token is kept the same way:
-`account.json` in the data folder, readable by its owner only (mode 600). It
-is never written to settings.json or a log and never handed to the page, and
-it is only ever sent to the service that issued it.
+`account.json` in the data folder, readable by its owner only (mode 600; on
+Windows, where a mode means nothing, by an access list naming the current
+user alone: `_owner_only`). It is never written to settings.json or a log and
+never handed to the page, and it is only ever sent to the service that issued
+it.
 
 Every function here answers a dict and never raises: {"ok": True, ...} or
 {"ok": False, "error": <one plain sentence>, "reason": <a word>}.
@@ -159,14 +161,44 @@ def _read_session() -> dict | None:
     return data
 
 
+def _owner_only(path: Path, windows: bool = os.name == "nt") -> bool:
+    """Windows: make `path` readable by the current user alone. A mode of
+    600 does nothing there: a new file takes the permissions of its folder,
+    which inside a profile also let SYSTEM and the Administrators group in.
+    Two calls to icacls, which ships with Windows: grant the current user
+    full control, then (only if that worked, so the file is never left with
+    nobody allowed in) drop every inherited permission. An administrator can
+    still take ownership of any file; nothing a program does prevents that.
+    Never raises; False means the file kept its folder's permissions (it is
+    still inside the person's own profile). Written from the documentation:
+    not yet run on a Windows computer."""
+    if not windows:
+        return True
+    try:
+        import subprocess
+        user, domain = os.environ.get("USERNAME", ""), os.environ.get("USERDOMAIN", "")
+        if not user:
+            return False
+        who = f"{domain}\\{user}" if domain else user
+        for change in (["/grant:r", f"{who}:F"], ["/inheritance:r"]):
+            done = subprocess.run(["icacls", str(path), *change], capture_output=True, timeout=15,
+                                  creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            if done.returncode != 0:
+                return False
+        return True
+    except Exception:  # noqa: BLE001 — signing in never fails over this
+        return False
+
+
 def _write_session(data: dict) -> None:
     path = _session_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
     with contextlib.suppress(OSError):
         tmp.unlink()                                  # a leftover would keep whatever mode it had
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as out:
+    os.close(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600))   # made empty, and the owner's alone
+    _owner_only(tmp)                                  # Windows: the same, before the token is in it
+    with open(tmp, "w", encoding="utf-8") as out:
         json.dump(data, out)
     replace_with_retry(tmp, path)                     # Windows: the file may be briefly held open
 
