@@ -353,6 +353,10 @@ def _texts(items):
     return [(kw["text"], kw["fill"], kw["font"]) for kind, _c, kw in items if kind == "text"]
 
 
+def _ovals(items):
+    return [(c, kw["fill"]) for kind, c, kw in items if kind == "oval"]
+
+
 def test_windows_draws_the_same_capsule_colours_and_sizes():
     pl, pill, lay, items = _drawn(("info", "Polish done", "b", None, None))
     kind, pts, kw = items[0]
@@ -360,28 +364,40 @@ def test_windows_draws_the_same_capsule_colours_and_sizes():
     assert kw["outline"] == "#353231", "white at 14% on the fill, as one colour"
     assert max(pts[1::2]) == 39 and max(pts[0::2]) == int(lay.width) - 1, "40 high, as wide as its words"
     assert _texts(items) == [("Polished", "#F4F0EA", ("Segoe UI", -14))]
-    [tick] = [i for i in items if i[0] == "line"]
-    assert tick[2]["fill"] == "#E8C267" and tick[2]["width"] == 2
-    assert tick[1] == (lay.glyph_x + 2.5, 13 + 7.5, lay.glyph_x + 5.5, 13 + 10.5,
-                       lay.glyph_x + 11.5, 13 + 3.5)
     # The waffle mark: the body and sixteen pockets, in 22 pixels.
     assert items[1][2]["fill"] == "#D4A843" and len([i for i in items if i[0] == "rectangle"]) == 16
 
 
-def test_windows_draws_three_dots_that_take_turns():
+def test_windows_the_tick_is_a_cream_badge_on_the_marks_corner():
+    pl, pill, lay, items = _drawn(("info", "Polish done", "b", None, None))
+    bx, by, bd = lay.badge
+    ring, badge = _ovals(items)
+    assert ring == ((bx - 2, by - 2, bx + bd + 2, by + bd + 2), "#14110F"), "the ring, in the pill's colour"
+    assert badge == ((bx, by, bx + bd, by + bd), "#F4F0EA") and bd == 14
+    [tick] = [i for i in items if i[0] == "line"]
+    assert tick[2]["fill"] == "#14110F"
+    assert tick[1] == (bx + 3 + 1.5, by + 3 + 4.2, bx + 3 + 3.3, by + 3 + 6.0, bx + 3 + 6.5, by + 3 + 2.2)
+    # And the words come after it, with the same air as on the Mac.
+    [(coords, _fill, _font)] = [(c, kw["fill"], kw["font"]) for kind, c, kw in items if kind == "text"]
+    assert coords[0] == lay.text_x == bx + bd + 14
+
+
+def test_windows_draws_three_dots_that_trail_the_words_and_take_turns():
     pl, pill, lay, items = _drawn(("info", "Waffler is busy", "b", None, None))
-    dots = [kw["fill"] for kind, _c, kw in items if kind == "oval"]
-    assert dots == ["#E8C267", "#8A7437", "#4D4226"]
+    dots = _ovals(items)
+    assert [fill for _c, fill in dots] == ["#E8C267", "#8A7437", "#4D4226"]
+    assert dots[0][0][0] == lay.dots_x > lay.text_x + lay.text_w, "after the words, not on the left"
     _pl2, _p, _l, later = _drawn(("info", "Waffler is busy", "b", None, None), phase=1)
-    assert [kw["fill"] for kind, _c, kw in later if kind == "oval"] == ["#4D4226", "#E8C267", "#8A7437"]
+    assert [fill for _c, fill in _ovals(later)] == ["#4D4226", "#E8C267", "#8A7437"]
     assert _texts(items) == [("One moment", "#F4F0EA", ("Segoe UI", -14))]
 
 
-def test_windows_draws_a_problem_with_its_red_dot_one_button_and_a_cross():
+def test_windows_draws_a_problem_with_its_red_badge_one_button_and_a_cross():
     pl, pill, lay, items = _drawn(("error", "We couldn't hear you", "b", None, None))
-    [dot] = [i for i in items if i[0] == "oval"]
-    assert dot[2]["fill"] == "#F0624F" and dot[1][2] - dot[1][0] == 8
-    assert _texts(items) == [("Didn’t hear you", "#F4F0EA", ("Segoe UI", -14)),
+    bx, by, bd = lay.badge
+    ring, badge = _ovals(items)
+    assert ring[1] == "#14110F" and badge == ((bx, by, bx + bd, by + bd), "#F0624F") and bd == 12
+    assert _texts(items) == [("Didn\u2019t hear you", "#F4F0EA", ("Segoe UI", -14)),
                              ("Mic", "#12100E", ("Segoe UI Semibold", -12))]
     button = [i for i in items if i[0] == "polygon" and i[2]["fill"] == "#F4F0EA"]
     assert len(button) == 1
@@ -391,11 +407,21 @@ def test_windows_draws_a_problem_with_its_red_dot_one_button_and_a_cross():
     assert len(cross) == 2
 
 
-def test_windows_a_tip_is_quieter_and_has_no_glyph():
+def test_windows_a_tip_is_quieter_and_has_the_plain_mark():
     pl, pill, lay, items = _drawn(("info", "Don't tap, hold", "Hold fn while you speak, then let go.",
                                    [{"label": "Got it", "action": "tip_dismiss:hold_hint"}], 10))
     assert _texts(items) == [("Hold fn to talk", "#CEC6BB", ("Segoe UI", -14))]
-    assert not [i for i in items if i[0] == "oval"]
+    assert not _ovals(items)
+
+
+def test_mac_draws_the_badge_and_the_trailing_dots_from_the_same_layout():
+    src = MAC.read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    draw = ast.unparse(next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "_draw_pill"))
+    assert "if lay.badge is not None:" in draw and "if lay.dots_x is not None:" in draw
+    assert "_pl.BADGE_FILL if pill.kind == _pl.DONE else _pl.RED" in draw
+    assert "_pl.BADGE_RING" in draw and "_pl.BADGE_TICK_PT" in draw and "_pl.BADGE_INK" in draw
+    assert "glyph" not in src, "nothing sits between the mark and the words any more"
 
 
 def test_windows_a_click_is_decided_by_the_same_rules_as_the_mac():

@@ -216,7 +216,12 @@ TIP_DISMISS, TIP_MUTE = "tip_dismiss", "tip_mute"
 
 
 def tip_buttons(kind_id: str) -> list:
-    """The buttons every tip carries: close it, or "Don't show again"."""
+    """What every tip can be answered with: close it, or "Don't show again".
+    The small pill (src/pill.py) shows neither as a button: its cross sends
+    the first one ("Got it": two of them and the tip stays away), which is
+    where it reads this list for the action. "Don't show again" is still
+    understood (app.py _on_toast_action) though nothing on screen sends it;
+    Settings, Show tips turns them all off."""
     return [{"label": "Got it", "action": f"{TIP_DISMISS}:{kind_id}", "kind": "primary"},
             {"label": "Don't show again", "action": f"{TIP_MUTE}:{kind_id}", "kind": "secondary"}]
 

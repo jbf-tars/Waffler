@@ -2612,20 +2612,21 @@ function formatTime(ts) {
 
 // ── Toast ───────────────────────────────────────────────────────────────
 // The same small capsule as the pop-ups outside the window (src/pill.py): the
-// waffle mark, a gold tick when it worked or a red dot when it did not, and
-// the message. The timer pauses while the pointer is over it, and a click
-// dismisses it.
+// waffle mark, with a small badge on its corner (a cream tick when it worked,
+// a red dot when it did not), and the message. The timer pauses while the
+// pointer is over it, and a click dismisses it.
 let _toastHoverBound = false;
 let _toastTimeoutMs = 2500;
-const _TOAST_SIGNS = {
-  success: '<svg class="toast-tick" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" focusable="false"><path d="M2.5 7.5 5.5 10.5 11.5 3.5"/></svg>',
-  error: '<span class="toast-dot" aria-hidden="true"></span>',
+const _TOAST_BADGES = {
+  success: '<span class="toast-badge is-ok"><svg width="8" height="8" viewBox="0 0 8 8" aria-hidden="true" focusable="false"><path d="M1.5 4.2 3.3 6 6.5 2.2"/></svg></span>',
+  error: '<span class="toast-badge is-err"></span>',
 };
 
 function showToast(msg, type, ms) {
   clearTimeout(toastTimer);
-  $toast.innerHTML = `<span class="toast-mark" aria-hidden="true">${WI.waffle({ levels: 'empty', size: 22 })}</span>`
-    + (_TOAST_SIGNS[type] || '') + `<span class="toast-text">${escHtml(msg)}</span>`;
+  const badge = _TOAST_BADGES[type] || '';
+  $toast.innerHTML = `<span class="toast-mark${badge ? ' has-badge' : ''}" aria-hidden="true">${WI.waffle({ levels: 'empty', size: 22 })}${badge}</span>`
+    + `<span class="toast-text">${escHtml(msg)}</span>`;
   // Over the setup wizard a message goes to the top centre: at the bottom it
   // sat on the wizard's Next and Finish Setup buttons, so the first click
   // only closed the message (and hovering there kept it up).

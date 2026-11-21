@@ -28,6 +28,7 @@ from _pipeline_harness import (ROOT, FakeAudio, FakeClipboard, FakeStyler, FakeT
                                speech_wav, wait_for)
 import pasteboard
 import pipeline_watchdog as pw
+from _pipeline_harness import as_pill as _as_pill
 
 
 # ── the limits ───────────────────────────────────────────────────────────────
@@ -402,7 +403,13 @@ def test_a_provider_that_hangs_gets_the_offer_then_cancel_stops_it_without_pasti
     assert wait_for(lambda: p.overlay.toasts(), timeout=2)
     offer = p.overlay.toasts()[0]
     assert offer["style"] == "info" and offer["heading"] == "Still working on it"
-    assert [b["label"] for b in offer["buttons"]] == ["Keep waiting", "Send later", "Cancel"]
+    # One button and a cross now: "Send later", and Cancel as the cross.
+    # Keeping waiting is what leaving the pill alone does.
+    assert [b["label"] for b in offer["buttons"]] == ["Send later", "Cancel"]
+    shown = _as_pill(offer)
+    assert (shown.kind, shown.text) == ("ask", "Still working")
+    assert shown.button == {"label": "Send later", "action": pw.SEND_LATER}
+    assert shown.close == "cancel_processing" and shown.seconds is None
     assert time.monotonic() - t0 >= pw.OFFER_MIN_S * 0.9
     assert wait_for(lambda: p.hotkey_listener.processing[:1] == [True], timeout=1)
 
@@ -465,6 +472,10 @@ def test_a_provider_that_never_answers_is_stopped_at_the_deadline_and_kept_as_no
     toast = p.overlay.toasts()[-1]
     assert toast["heading"] == "Not sent" and "Journal" in toast["body"]
     assert [b["action"] for b in toast["buttons"]] == ["open_journal", "dismiss"]
+    # On screen: "Not sent. Saved", and one button that opens the Journal.
+    shown = _as_pill(toast)
+    assert (shown.kind, shown.text) == ("problem", "Not sent. Saved")
+    assert shown.button == {"label": "Open", "action": "open_journal"} and shown.seconds is None
 
 
 def test_send_later_keeps_the_recording_for_later(tmp_path, limits):
@@ -479,9 +490,57 @@ def test_send_later_keeps_the_recording_for_later(tmp_path, limits):
     [entry] = history(p)
     assert entry["failed"] and entry["not_sent_reason"] == "later"
     assert p.overlay.toasts()[-1]["heading"] == "Saved for later"
+    assert len(list((tmp_path / "unsent").glob("recording-*.wav"))) == 1, "the recording is kept"
+    shown = _as_pill(p.overlay.toasts()[-1])
+    assert (shown.kind, shown.text, shown.click) == ("done", "Saved for later", "open_journal")
 
 
-def test_keep_waiting_keeps_waiting_and_the_dictation_then_finishes(tmp_path, limits):
+def test_left_alone_the_offer_keeps_waiting_and_the_dictation_then_finishes(tmp_path, limits):
+    """ "Keep waiting" is no longer a button: it is what doing nothing does.
+    The pill is not answered at all here."""
+    hang = Hang(30)
+    p = make_pipeline(tmp_path, transcriber=FakeTranscriber(hang=hang))
+    worker = run_process(p)
+    assert wait_for(lambda: p.overlay.toasts(), timeout=2)
+    assert _as_pill(p.overlay.toasts()[0]).seconds is None, "it never goes, or answers, by itself"
+    time.sleep(0.3)
+    assert worker.is_alive()
+    hang.release.set()
+    worker.join(2)
+    assert p.clipboard.pastes == ["Ok so ship it on monday."]
+    assert p.page.statuses[-1] == "done"
+    assert ("end_working", ("done",), {}) in p.overlay.calls
+    assert history(p)[0].get("failed") is not True
+
+
+def test_left_alone_a_slow_clean_up_is_waited_for_and_pasted_cleaned(tmp_path, limits):
+    hang = Hang(30)
+    p = make_pipeline(tmp_path, styler=FakeStyler(hang=hang))
+    worker = run_process(p)
+    assert wait_for(lambda: p.overlay.toasts(), timeout=2)
+    time.sleep(0.3)
+    assert worker.is_alive() and p.clipboard.pastes == []
+    hang.release.set()
+    worker.join(2)
+    assert not worker.is_alive()
+    assert len(p.clipboard.pastes) == 1, "the words went in once the clean-up answered"
+    assert history(p), "and they are in the Journal"
+
+
+def test_the_cross_on_the_offer_cancels_and_keeps_nothing_it_did_not_keep_before(tmp_path, limits):
+    """The cross is the old Cancel button, with the old Cancel's action."""
+    hang = Hang(30)
+    p = make_pipeline(tmp_path, transcriber=FakeTranscriber(hang=hang))
+    worker = run_process(p)
+    assert wait_for(lambda: p.overlay.toasts(), timeout=2)
+    p._on_toast_action(_as_pill(p.overlay.toasts()[0]).close)
+    worker.join(2)
+    hang.release.set()
+    assert not worker.is_alive() and p.clipboard.pastes == []
+    assert p.page.statuses[-1] == "cancelled"
+
+
+def test_the_old_keep_waiting_answer_is_still_understood(tmp_path, limits):
     hang = Hang(30)
     p = make_pipeline(tmp_path, transcriber=FakeTranscriber(hang=hang))
     worker = run_process(p)
@@ -503,7 +562,11 @@ def test_a_slow_clean_up_offers_paste_as_is_which_pastes_the_words_as_said(tmp_p
     assert wait_for(lambda: p.overlay.toasts(), timeout=2)
     offer = p.overlay.toasts()[0]
     assert offer["heading"] == "Still cleaning up"
-    assert [b["label"] for b in offer["buttons"]] == ["Paste as is", "Keep waiting", "Cancel"]
+    assert [b["label"] for b in offer["buttons"]] == ["Paste as is", "Cancel"]
+    shown = _as_pill(offer)
+    assert (shown.kind, shown.text) == ("ask", "Still tidying")
+    assert shown.button == {"label": "Paste as is", "action": pw.PASTE_RAW}
+    assert shown.close == "cancel_processing" and shown.seconds is None
     p._on_toast_action(pw.PASTE_RAW)
     worker.join(2)
     hang.release.set()

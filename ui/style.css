@@ -1660,20 +1660,23 @@ body[data-theme="dark"] .kc-xl.held {
 /* ── Toast ─────────────────────────────────────────────────────────────
    The same small capsule as the pop-ups outside the window (src/pill.py):
    dark, 40 px high, fully rounded, a hairline of white at 14% and a soft
-   shadow; the waffle mark, a gold tick or a red dot, then the message. The
-   colours are the pill's own in both themes. A message too long for one
-   line wraps instead of being cut: these texts are not six words yet. */
+   shadow. One thing on the left: the waffle mark, with a small round badge
+   on its bottom-right corner (a cream tick, or a red dot), ringed in the
+   capsule's own colour. 14 px to the mark, 14 from the mark and its badge
+   to the words, 20 after them. The colours are the pill's own in both
+   themes. A message too long for one line wraps instead of being cut:
+   these texts are not six words yet. */
 .toast {
   position: fixed;
   left: 50%;
   bottom: 22px;
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 14px;
   max-width: min(560px, calc(100vw - 48px));
   min-height: 40px;
   box-sizing: border-box;
-  padding: 9px 16px 9px 9px;
+  padding: 9px 20px 9px 14px;
   border-radius: 20px;
   background: #14110F;
   color: #F4F0EA;
@@ -1687,10 +1690,21 @@ body[data-theme="dark"] .kc-xl.held {
   transition: opacity 0.18s var(--ease), transform 0.18s var(--ease);
   pointer-events: none;
 }
-.toast .toast-mark { display: inline-flex; width: 22px; height: 22px; flex: none; }
-.toast .toast-mark svg { width: 22px; height: 22px; display: block; }
-.toast .toast-tick { flex: none; fill: none; stroke: #E8C267; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.toast .toast-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: #F0624F; }
+.toast .toast-mark { position: relative; display: inline-flex; width: 22px; height: 22px; flex: none; }
+/* The badge hangs 6 px past the mark, and the air is measured from it. */
+.toast .toast-mark.has-badge { margin-right: 6px; }
+.toast .toast-mark svg.waffle { width: 22px; height: 22px; display: block; }
+.toast .toast-badge {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px #14110F;
+}
+.toast .toast-badge.is-ok { right: -6px; bottom: -6px; width: 14px; height: 14px; background: #F4F0EA; }
+.toast .toast-badge.is-ok svg { fill: none; stroke: #14110F; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.toast .toast-badge.is-err { right: -5px; bottom: -5px; width: 12px; height: 12px; background: #F0624F; }
 .toast .toast-text { min-width: 0; }
 @media (prefers-reduced-motion: reduce) {
   .toast, .toast.over-wizard { transform: translate(-50%, 0); transition: none; }

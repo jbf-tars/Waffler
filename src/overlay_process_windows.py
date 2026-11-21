@@ -461,30 +461,38 @@ def _draw_pill(canvas, pill, lay, phase=0):
     canvas.delete('all')
     _rounded_rect(canvas, 0, 0, w - 1, h - 1, h // 2, fill=_pl.FILL,
                   outline=_blend(_pl.FILL, '#FFFFFF', _pl.HAIRLINE_ALPHA), width=1)
-    _draw_waffle_mark(canvas, int(lay.mark_x), (h - _pl.MARK) // 2)
+    _draw_waffle_mark(canvas, int(lay.mark_x), int(lay.mark_y))
 
-    if lay.glyph_x is not None:
-        gx = lay.glyph_x
+    # One thing on the left: the tick and the red dot are badges on the
+    # mark's bottom-right corner, ringed in the pill's own colour so they
+    # look cut out of it.
+    if lay.badge is not None:
+        bx, by, bd = lay.badge
+        ring = _pl.BADGE_RING
+        canvas.create_oval(bx - ring, by - ring, bx + bd + ring, by + bd + ring,
+                           fill=_pl.FILL, outline=_pl.FILL)
+        colour = _pl.BADGE_FILL if pill.kind == _pl.DONE else _pl.RED
+        canvas.create_oval(bx, by, bx + bd, by + bd, fill=colour, outline=colour)
         if pill.kind == _pl.DONE:
-            top = (h - _pl.TICK) / 2.0
+            ox = bx + (bd - _pl.TICK_BOX) / 2.0
+            oy = by + (bd - _pl.TICK_BOX) / 2.0
             pts = []
             for px, py in _pl.TICK_POINTS:
-                pts += [gx + px, top + py]
-            canvas.create_line(*pts, fill=_pl.GOLD, width=2, capstyle='round', joinstyle='round')
-        elif pill.kind == _pl.WORKING:
-            top = (h - _pl.DOT) / 2.0
-            for i in range(3):
-                x0 = gx + i * (_pl.DOT + _pl.DOT_GAP)
-                colour = _pl.DOTS[(i - phase) % 3]
-                canvas.create_oval(x0, top, x0 + _pl.DOT, top + _pl.DOT, fill=colour, outline=colour,
-                                   tags=(f'dot{i}',))
-        elif pill.kind == _pl.PROBLEM:
-            top = (h - _pl.RED_DOT) / 2.0
-            canvas.create_oval(gx, top, gx + _pl.RED_DOT, top + _pl.RED_DOT, fill=_pl.RED, outline=_pl.RED)
+                pts += [ox + px, oy + py]
+            canvas.create_line(*pts, fill=_pl.BADGE_INK, width=2, capstyle='round', joinstyle='round')
 
     ink = _pl.INK_QUIET if pill.kind == _pl.TIP else _pl.INK
-    canvas.create_text(lay.text_x, h // 2, text=pill.text, fill=ink, anchor='w',
+    canvas.create_text(lay.text_x, h // 2 + _pl.TEXT_NUDGE, text=pill.text, fill=ink, anchor='w',
                        font=_pill_font(_pl.TEXT_PT, 'medium'))
+
+    # A Working pill's three dots trail its words.
+    if lay.dots_x is not None:
+        top = (h - _pl.DOT) / 2.0 + _pl.TEXT_NUDGE
+        for i in range(3):
+            x0 = lay.dots_x + i * (_pl.DOT + _pl.DOT_GAP)
+            colour = _pl.DOTS[(i - phase) % 3]
+            canvas.create_oval(x0, top, x0 + _pl.DOT, top + _pl.DOT, fill=colour, outline=colour,
+                               tags=(f'dot{i}',))
 
     if lay.button is not None:
         bx, by, bw, bh = (int(v) for v in lay.button)
@@ -606,7 +614,11 @@ def _put_pill(pill, style, in_place=False):
             if n < 4:
                 win.after(int(_pl.FADE_S * 1000 / 4), lambda: _step(n + 1))
         except Exception:
-            pass
+            # Whatever went wrong, the pill must not be left see-through.
+            try:
+                win.attributes('-alpha', 1.0)
+            except Exception:
+                pass
 
     if rise:
         _step(1)

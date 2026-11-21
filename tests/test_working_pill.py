@@ -167,7 +167,7 @@ def test_both_platforms_draw_the_pill_from_the_same_numbers():
     for path in (WIN, MAC):
         src = path.read_text(encoding="utf-8")
         assert "TOAST_BTN_KINDS" not in src
-        for name in ("_pl.FILL", "_pl.HAIRLINE_ALPHA", "_pl.GOLD", "_pl.DOTS", "_pl.RED", "_pl.INK_QUIET",
+        for name in ("_pl.FILL", "_pl.HAIRLINE_ALPHA", "_pl.BADGE_FILL", "_pl.DOTS", "_pl.RED", "_pl.INK_QUIET",
                      "_pl.BUTTON_FILL", "_pl.BUTTON_INK", "_pl.CROSS", "_pl.TICK_POINTS", "_pl.MARK"):
             assert name in src, f"{path.name} does not use {name}"
 

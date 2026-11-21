@@ -8445,18 +8445,21 @@ class WafflerPipeline:
             heading = "Still working on it"
             body = (f"{provider} is slow to answer. Your recording is safe: "
                     f"keep waiting, or let Waffler send it later.")
+            # One button now, and a cross (src/pill.py): "Send later" is the
+            # button and Cancel is the cross. "Keep waiting" needs no button:
+            # it is what happens when the pill is left alone.
             buttons = [
-                {"label": "Keep waiting", "action": _pw.KEEP_WAITING, "kind": "primary"},
-                {"label": "Send later", "action": _pw.SEND_LATER, "kind": "secondary"},
+                {"label": "Send later", "action": _pw.SEND_LATER, "kind": "primary"},
                 {"label": "Cancel", "action": "cancel_processing", "kind": "danger"},
             ]
         elif stage == _pw.STYLING:
             heading = "Still cleaning up"
             body = ("The clean-up is slow. You can paste your words as you "
                     "said them instead.")
+            # "Paste as is" is the button, Cancel the cross; left alone, the
+            # clean-up is waited for.
             buttons = [
                 {"label": "Paste as is", "action": _pw.PASTE_RAW, "kind": "primary"},
-                {"label": "Keep waiting", "action": _pw.KEEP_WAITING, "kind": "secondary"},
                 {"label": "Cancel", "action": "cancel_processing", "kind": "danger"},
             ]
         else:

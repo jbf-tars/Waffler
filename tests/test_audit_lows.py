@@ -93,8 +93,13 @@ def test_an_info_toasts_heading_is_not_logged_but_a_warnings_is():
     o.show_toast("error", "Couldn't hear you", "Try again.")
     text = "\n".join(logged)
     assert "Acme" not in text and "Siobhan" not in text
-    assert "heading='Not pasted'" in text and "heading='Couldn't hear you'" in text
-    assert "style=info" in text
+    # A warning's own words are Waffler's: the long sentence is kept in the
+    # log, with the short line the small pill shows for it (src/pill.py).
+    assert "said='Not pasted. The text is on your clipboard.'" in text
+    assert "said='Couldn't hear you. Try again.'" in text
+    assert "pill=problem 'Copied. Press Cmd+V'" in text
+    assert "style=info, pill=done, said=(26 characters)" in text
+    assert "style=info, pill=ask, said=(26 characters)" in text
 
 
 def test_the_logs_bundle_drops_the_identifiers_of_the_ranked_microphones():

@@ -572,27 +572,77 @@ def test_the_design_numbers():
     assert (pill.BUTTON_FILL, pill.BUTTON_INK, pill.BUTTON_H) == ("#F4F0EA", "#12100E", 28)
     assert (pill.TEXT_PT, pill.BUTTON_PT) == (14, 12)
     assert pill.HAIRLINE_ALPHA == 0.14
+    # More air on the left, and one thing there, not two.
+    assert (pill.PAD_LEFT, pill.MARK_GAP, pill.PAD_RIGHT, pill.PAD_RIGHT_PRESS) == (14, 14, 20, 6)
+    assert (pill.BADGE_TICK, pill.BADGE_DOT, pill.BADGE_RING) == (14, 12, 2)
+    assert (pill.BADGE_FILL, pill.BADGE_INK, pill.BADGE_TICK_PT) == ("#F4F0EA", "#14110F", 1.6)
 
 
 def test_layout_of_a_done_pill():
     p = pill.pill_for("info", "Copied", "x", None, None)
     lay = pill.layout(p, _measure)
-    # 9 | mark 22 | 10 | tick 14 | 10 | text | 16
-    assert lay.mark_x == 9 and lay.glyph_x == 41 and lay.text_x == 65
-    assert lay.width == 65 + 7 * len("Copied") + 16
-    assert lay.button is None and lay.close is None and lay.height == 40
+    # 14 | mark 22, its badge hanging 6 past it | 14 | words | 20
+    assert (lay.mark_x, lay.mark_y) == (14, 9)
+    assert lay.text_x == 14 + 22 + 6 + 14
+    assert lay.width == lay.text_x + 7 * len("Copied") + 20
+    assert lay.button is None and lay.close is None and lay.dots_x is None and lay.height == 40
+
+
+def test_the_tick_is_a_badge_on_the_marks_corner():
+    """A 14 pt circle hanging 6 past the mark's right and bottom edges, so it
+    covers about a third of the mark and stays inside the pill."""
+    lay = pill.layout(pill.pill_for("info", "Copied", "x", None, None), _measure)
+    x, y, d = lay.badge
+    assert d == 14
+    assert (x + d, y + d) == (lay.mark_x + 22 + 6, lay.mark_y + 22 + 6)
+    assert x < lay.mark_x + 22 and y < lay.mark_y + 22, "it overlaps the mark"
+    assert (lay.mark_x + 22 - x) / 22 == pytest.approx(8 / 22), "by about a third"
+    assert y + d + pill.BADGE_RING <= pill.HEIGHT, "ring and all, inside the pill"
+    assert lay.text_x - (x + d) == 14, "the air is measured from the badge"
+
+
+def test_the_red_dot_is_a_badge_too():
+    lay = pill.layout(pill.pill_for("warn", "Connection failed", "x", None, None), _measure)
+    x, y, d = lay.badge
+    assert d == 12 and (x + d, y + d) == (lay.mark_x + 22 + 5, lay.mark_y + 22 + 5)
+    assert lay.text_x == 14 + 22 + 5 + 14
+
+
+def test_your_call_and_a_tip_have_the_plain_mark():
+    ask = pill.layout(pill.pill_for("info", "Still working on it", "x", STILL_WORKING, None), _measure)
+    tip = pill.layout(pill.pill_for("info", *um.hold_hint_message("fn"),
+                                    notifier.tip_buttons("hold_hint"), 10), _measure)
+    assert ask.badge is None and tip.badge is None
+    assert ask.text_x == tip.text_x == 14 + 22 + 14
+
+
+def test_a_working_pills_dots_trail_its_words():
+    lay = pill.layout(pill.pill_for("info", "Waffler is busy", "x", None, None), _measure)
+    text_end = lay.text_x + 7 * len("One moment")
+    assert lay.badge is None and lay.text_x == 14 + 22 + 14
+    assert lay.dots_x == text_end + 10, "after the words, a little closer than the other items"
+    assert lay.width == lay.dots_x + pill.DOTS_W + 20
+    assert pill.DOTS_W == 18
 
 
 def test_layout_with_a_button_and_a_cross():
     p = pill.pill_for("info", "Still working on it", "x", STILL_WORKING, None)
     lay = pill.layout(p, _measure)
-    # Your call has no glyph: 9 | mark 22 | 10 | text | 10+2 | button | 10-4 | cross 28 | 6
+    # 14 | mark 22 | 14 | words | 14+2 | button | 14-4 | cross 28 | 6
     text_w = 7 * len("Still working")
     button_w = 7 * len("Send later") + 24
-    assert lay.glyph_x is None and lay.text_x == 41
-    assert lay.button == (41 + text_w + 12, 6, button_w, 28)
-    assert lay.close == (41 + text_w + 12 + button_w + 6, 6, 28, 28)
+    assert lay.text_x == 50
+    assert lay.button == (50 + text_w + 16, 6, button_w, 28)
+    assert lay.close == (50 + text_w + 16 + button_w + 10, 6, 28, 28)
     assert lay.width == lay.close[0] + 28 + 6
+
+
+def test_a_button_alone_is_six_from_the_edge():
+    p = pill.pill_for("info", *um.mic_detected_message("AirPods"), None, 20)
+    assert p.button is None      # nothing to press without the caller's action
+    p = pill.pill_for("warn", "Access denied", "x", None, None)
+    lay = pill.layout(p, _measure)
+    assert lay.close is not None and lay.width == lay.close[0] + 28 + 6
 
 
 def test_layout_hit_testing():

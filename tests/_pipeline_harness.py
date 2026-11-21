@@ -587,6 +587,13 @@ def run_process(p, generation=1):
     return t
 
 
+def as_pill(toast):
+    """What a message the pipeline raised (the keyword arguments it gave
+    overlay.show_toast) shows on screen: its small pill (src/pill.py)."""
+    return pill.pill_for(toast.get("style"), toast.get("heading"), toast.get("body"),
+                         toast.get("buttons"), toast.get("timeout"))
+
+
 def wait_for(predicate, timeout=5.0, step=0.02):
     end = time.monotonic() + timeout
     while time.monotonic() < end:

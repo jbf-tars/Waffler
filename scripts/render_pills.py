@@ -4,7 +4,8 @@
     venv/bin/python scripts/render_pills.py <folder>
 
 One picture for each kind (Done, Working, Your call, Problem with and without
-a button, Tip), the longest line, and a pill beside the meeting bar. It draws
+a button, Tip), the shortest and the longest line, close-ups of the badge,
+and a pill beside the meeting bar. It draws
 the real views of src/overlay_process.py into a bitmap, at 2x, on the grey the
 design board uses, so the result can be laid next to the design. Mac only.
 Nothing is shown on screen and nothing of the running app is touched.
@@ -27,9 +28,9 @@ MARGIN = 20
 BOARD = "#2A2622"
 
 
-def _bitmap(w, h):
+def _bitmap(w, h, scale=SCALE):
     rep = NSBitmapImageRep.alloc().initWithBitmapDataPlanes_pixelsWide_pixelsHigh_bitsPerSample_samplesPerPixel_hasAlpha_isPlanar_colorSpaceName_bytesPerRow_bitsPerPixel_(
-        None, int(w * SCALE), int(h * SCALE), 8, 4, True, False, AppKit.NSCalibratedRGBColorSpace, 0, 0)
+        None, int(w * scale), int(h * scale), 8, 4, True, False, AppKit.NSCalibratedRGBColorSpace, 0, 0)
     rep.setSize_((w, h))
     return rep
 
@@ -60,11 +61,16 @@ def _pill_view(p):
     return view
 
 
-def render(path, views, gap=pl.GAP):
-    """``views`` side by side on one line, as they sit on screen."""
+def render(path, views, gap=pl.GAP, scale=SCALE, crop_w=None, guide=False):
+    """``views`` side by side on one line, as they sit on screen. ``crop_w``
+    keeps only that many points from the left (a close-up of the left end);
+    ``guide`` draws a faint line through the middle of the pill's height, to
+    judge whether the words sit on it."""
     w = sum(v.frame().size.width for v in views) + gap * (len(views) - 1) + 2 * MARGIN
+    if crop_w:
+        w = MARGIN + crop_w
     h = max(v.frame().size.height for v in views) + 2 * MARGIN
-    rep = _bitmap(w, h)
+    rep = _bitmap(w, h, scale)
     NSGraphicsContext.saveGraphicsState()
     NSGraphicsContext.setCurrentContext_(NSGraphicsContext.graphicsContextWithBitmapImageRep_(rep))
     op.hex_to_ns_color(BOARD).set()
@@ -73,6 +79,9 @@ def render(path, views, gap=pl.GAP):
     for v in views:
         _draw_view(v, rep, x, MARGIN, h)
         x += v.frame().size.width + gap
+    if guide:
+        NSColor.colorWithCalibratedRed_green_blue_alpha_(0.3, 0.8, 1.0, 0.55).set()
+        NSBezierPath.fillRect_(NSMakeRect(0, h / 2.0 - 0.125, w, 0.25))
     NSGraphicsContext.restoreGraphicsState()
     data = rep.representationUsingType_properties_(AppKit.NSBitmapImageFileTypePNG, {})
     data.writeToFile_atomically_(str(path), True)
@@ -106,6 +115,18 @@ def main(out):
     for name, p in SHOTS:
         size = render(out / f"{name}.png", [_pill_view(p)])
         print(f"{name}: {p.kind} '{p.text}' {size[0] - 2 * MARGIN}x{size[1] - 2 * MARGIN}")
+    # The shortest pill, for balance against the longest.
+    shortest = pl.pill_for("info", *um.LAST_COPIED, None, 3)
+    size = render(out / "shortest.png", [_pill_view(shortest)])
+    print(f"shortest: '{shortest.text}' {size[0] - 2 * MARGIN}x{size[1] - 2 * MARGIN}")
+    # Close-ups of the left end, twice the size again, to judge the badge;
+    # and the same with a line through the middle of the pill, to judge
+    # whether the words sit on the mark's centre line.
+    for name in ("done", "problem"):
+        p = dict(SHOTS)[name]
+        render(out / f"{name}-left-closeup.png", [_pill_view(p)], scale=SCALE * 2, crop_w=110)
+        render(out / f"{name}-left-closeup-guide.png", [_pill_view(p)], scale=SCALE * 4, crop_w=110,
+               guide=True)
     # A pill beside the meeting bar, with the gap they keep.
     op._meet_elapsed, op._meet_done = 754, False
     bar = op.MeetingBarView.alloc().initWithFrame_(NSMakeRect(0, 0, op.MEET_W, op.MEET_H))

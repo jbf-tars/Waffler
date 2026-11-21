@@ -2,20 +2,21 @@
 
 Waffler's pop-up was a 380 x 210 card: a waffle, a heading, three lines of
 body and up to three buttons. It is now one dark capsule, 40 points high and
-as wide as its words: the waffle mark, a sign of what kind of message it is,
-ONE line of six words at most, at most ONE button, and a small cross when it
-does not go away by itself. It belongs to the same family as the meeting bar.
+as wide as its words: the waffle mark (with a small badge on its corner when
+the message is Done or a Problem), ONE line of six words at most, at most ONE
+button, and a small cross when it does not go away by itself. It belongs to the same family as the meeting bar.
 
 The five kinds
 --------------
-``done``     a gold tick. No button. Two seconds. A click opens the entry it
-             is about, when there is one (what "Show in Journal" did).
-``working``  three dots. It stays until the work ends, then becomes its Done
-             or Problem pill in place (``after_work``).
+``done``     a small cream badge with a tick on the mark's corner. No button.
+             Two seconds. A click opens the entry it is about, when there is
+             one (what "Show in Journal" did).
+``working``  three dots after the words. It stays until the work ends, then
+             becomes its Done or Problem pill in place (``after_work``).
 ``ask``      "Your call": one button and a cross. Doing nothing is always
              safe: the pill never answers for the person.
-``problem``  a red dot. Six seconds; with a button it stays until its button
-             or its cross is used.
+``problem``  a small red badge on the mark's corner. Six seconds; with a
+             button it stays until its button or its cross is used.
 ``tip``      quieter ink. Its cross counts as a dismissal, as "Got it" did.
 
 Where the words come from
@@ -70,7 +71,7 @@ FILL = "#14110F"
 HAIRLINE_ALPHA = 0.14           # a 1 pt line of white at 14%
 INK = "#F4F0EA"
 INK_QUIET = "#CEC6BB"           # a tip's words
-GOLD = "#E8C267"                # the tick, the first dot
+GOLD = "#E8C267"                # the first of the three dots
 DOTS = ("#E8C267", "#8A7437", "#4D4226")
 RED = "#F0624F"
 CROSS = "#B3AA9E"
@@ -79,21 +80,38 @@ BUTTON_INK = "#12100E"
 TEXT_PT = 14                    # medium
 BUTTON_PT = 12                  # semibold
 MARK = 22                       # the waffle mark
-PAD_LEFT = 9
-PAD_RIGHT = 16                  # with nothing to press
-PAD_RIGHT_PRESS = 6             # after a button or a cross
-ITEM_GAP = 10
-TICK = 14
+PAD_LEFT = 14                   # from the pill's left edge to the mark
+MARK_GAP = 14                   # from the mark (its badge included) to the words
+PAD_RIGHT = 20                  # from the end of the words (or the dots) to the edge
+PAD_RIGHT_PRESS = 6             # from a button or the cross to the edge
+ITEM_GAP = 14                   # between the words, the button and the cross
+# One thing on the left, not two: the tick and the red dot are small round
+# badges on the mark's bottom-right corner, overlapping it by about a third,
+# each with a ring in the pill's own colour so it looks cut out of the mark.
+BADGE_TICK = 14                 # a cream circle with a dark tick: Done
+BADGE_TICK_OUT = 6              # how far it hangs past the mark, right and down
+BADGE_DOT = 12                  # a red circle: Problem
+BADGE_DOT_OUT = 5
+BADGE_RING = 2
+BADGE_FILL = "#F4F0EA"
+BADGE_INK = "#14110F"
+BADGE_TICK_PT = 1.6             # the tick's stroke
+# The tick, in an 8 x 8 box in the middle of its badge, y downwards.
+TICK_BOX = 8
+TICK_POINTS = ((1.5, 4.2), (3.3, 6.0), (6.5, 2.2))
+# A Working pill's three dots trail its words.
 DOT, DOT_GAP = 4, 3
-RED_DOT = 8
+DOTS_LEAD = -4                  # they sit a little closer to the words
 BUTTON_H = 28
 BUTTON_PAD = 12
 BUTTON_LEAD = 2                 # a little more air before the button
 CLOSE = 28
 CLOSE_LEAD = -4                 # the cross sits close to what is before it
 CROSS_ARM = 3                   # the cross is 6 x 6 in the middle of its 28
-# The tick, in its 14 x 14 box, y downwards.
-TICK_POINTS = ((2.5, 7.5), (5.5, 10.5), (11.5, 3.5))
+# The words are placed so that the middle of a capital letter is the middle of
+# the pill, which is also the mark's centre line; this is added after that
+# (down is positive), in half points, if the renders show them high or low.
+TEXT_NUDGE = 0.0
 
 GAP = 8                         # between the pill and the dictation pill or the meeting bar
 RISE = 6                        # how far it rises as it appears
@@ -428,32 +446,39 @@ class Layout(NamedTuple):
     width: float
     height: float
     mark_x: float
-    glyph_x: Optional[float]        # the tick, the dots or the red dot
-    glyph_w: float
+    mark_y: float
+    badge: Optional[Tuple[float, float, float]]     # x, y (from the top), diameter
     text_x: float
     text_w: float
+    dots_x: Optional[float]         # a Working pill's three dots, after the words
     button: Optional[Tuple[float, float, float, float]]     # x, y, w, h (y from the top)
     close: Optional[Tuple[float, float, float, float]]
 
 
-_GLYPH_W = {DONE: TICK, WORKING: DOT * 3 + DOT_GAP * 2, PROBLEM: RED_DOT}
+_BADGES = {DONE: (BADGE_TICK, BADGE_TICK_OUT), PROBLEM: (BADGE_DOT, BADGE_DOT_OUT)}
+DOTS_W = DOT * 3 + DOT_GAP * 2
 
 
 def layout(pill: Pill, measure: Callable[[str, float, str], float]) -> Layout:
     """Where everything sits. ``measure(text, points, weight)`` is the
     platform's own text width; weight is "medium" or "semibold"."""
     x = float(PAD_LEFT)
-    mark_x = x
+    mark_x, mark_y = x, (HEIGHT - MARK) / 2.0
     x += MARK
-    glyph_x, glyph_w = None, float(_GLYPH_W.get(pill.kind, 0))
-    if glyph_w:
-        x += ITEM_GAP
-        glyph_x = x
-        x += glyph_w
-    x += ITEM_GAP
+    badge = None
+    if pill.kind in _BADGES:
+        size, out = _BADGES[pill.kind]
+        badge = (mark_x + MARK + out - size, mark_y + MARK + out - size, float(size))
+        x += out                    # the air is measured from the badge's edge
+    x += MARK_GAP
     text_x = x
     text_w = float(measure(pill.text, TEXT_PT, "medium"))
     x += text_w
+    dots_x = None
+    if pill.kind == WORKING:
+        x += ITEM_GAP + DOTS_LEAD
+        dots_x = x
+        x += DOTS_W
     button = close = None
     top = (HEIGHT - BUTTON_H) / 2.0
     if pill.button:
@@ -466,7 +491,7 @@ def layout(pill: Pill, measure: Callable[[str, float, str], float]) -> Layout:
         close = (x, (HEIGHT - CLOSE) / 2.0, float(CLOSE), float(CLOSE))
         x += CLOSE
     x += PAD_RIGHT_PRESS if (button or close) else PAD_RIGHT
-    return Layout(x, float(HEIGHT), mark_x, glyph_x, glyph_w, text_x, text_w, button, close)
+    return Layout(x, float(HEIGHT), mark_x, mark_y, badge, text_x, text_w, dots_x, button, close)
 
 
 def _inside(box, x, y) -> bool:

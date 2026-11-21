@@ -1181,6 +1181,24 @@ def _pill_measure(text, points, weight):
     return math.ceil(_pill_text(text, points, weight, _pl.INK).size().width)
 
 
+def _pill_text_top(height, points, weight):
+    """Where a line's box starts so that its letters sit in the optical middle
+    of ``height``: the middle between the top of a capital and the baseline,
+    not the middle of the font's line box, which leaves the words high or low
+    depending on the font's own leading. To the nearest half point."""
+    font = _pill_font(points, weight)
+    try:
+        ascender, cap = float(font.ascender()), float(font.capHeight())
+        line = float(_pill_text("Ag", points, weight, _pl.INK).size().height)
+        descender = abs(float(font.descender()))
+        # In a flipped view the baseline is (line - descender) below the top.
+        baseline = line - descender
+        top = (height + cap) / 2.0 - baseline
+        return round(top * 2) / 2.0
+    except Exception:
+        return (height - _pill_text("Ag", points, weight, _pl.INK).size().height) / 2.0
+
+
 def _pill_layout(pill):
     return _pl.layout(pill, _pill_measure)
 
@@ -1199,36 +1217,44 @@ def _draw_pill(pill, lay, phase=0):
     body.setLineWidth_(1)
     body.stroke()
 
-    _draw_waffle_mark(lay.mark_x, (h - _pl.MARK) / 2.0, _pl.MARK)
+    _draw_waffle_mark(lay.mark_x, lay.mark_y, _pl.MARK)
 
-    if lay.glyph_x is not None:
-        gx = lay.glyph_x
+    # One thing on the left: the tick and the red dot are badges on the
+    # mark's bottom-right corner, ringed in the pill's own colour so they
+    # look cut out of it.
+    if lay.badge is not None:
+        bx, by, bd = lay.badge
+        ring = _pl.BADGE_RING
+        hex_to_ns_color(_pl.FILL).set()
+        NSBezierPath.bezierPathWithOvalInRect_(
+            NSMakeRect(bx - ring, by - ring, bd + 2 * ring, bd + 2 * ring)).fill()
+        hex_to_ns_color(_pl.BADGE_FILL if pill.kind == _pl.DONE else _pl.RED).set()
+        NSBezierPath.bezierPathWithOvalInRect_(NSMakeRect(bx, by, bd, bd)).fill()
         if pill.kind == _pl.DONE:
-            top = (h - _pl.TICK) / 2.0
+            ox = bx + (bd - _pl.TICK_BOX) / 2.0
+            oy = by + (bd - _pl.TICK_BOX) / 2.0
             tick = NSBezierPath.bezierPath()
             (x0, y0), (x1, y1), (x2, y2) = _pl.TICK_POINTS
-            tick.moveToPoint_((gx + x0, top + y0))
-            tick.lineToPoint_((gx + x1, top + y1))
-            tick.lineToPoint_((gx + x2, top + y2))
-            tick.setLineWidth_(2)
+            tick.moveToPoint_((ox + x0, oy + y0))
+            tick.lineToPoint_((ox + x1, oy + y1))
+            tick.lineToPoint_((ox + x2, oy + y2))
+            tick.setLineWidth_(_pl.BADGE_TICK_PT)
             tick.setLineCapStyle_(1)
             tick.setLineJoinStyle_(1)
-            hex_to_ns_color(_pl.GOLD).set()
+            hex_to_ns_color(_pl.BADGE_INK).set()
             tick.stroke()
-        elif pill.kind == _pl.WORKING:
-            top = (h - _pl.DOT) / 2.0
-            for i in range(3):
-                hex_to_ns_color(_pl.DOTS[(i - phase) % 3]).set()
-                NSBezierPath.bezierPathWithOvalInRect_(
-                    NSMakeRect(gx + i * (_pl.DOT + _pl.DOT_GAP), top, _pl.DOT, _pl.DOT)).fill()
-        elif pill.kind == _pl.PROBLEM:
-            hex_to_ns_color(_pl.RED).set()
-            NSBezierPath.bezierPathWithOvalInRect_(
-                NSMakeRect(gx, (h - _pl.RED_DOT) / 2.0, _pl.RED_DOT, _pl.RED_DOT)).fill()
 
     ink = _pl.INK_QUIET if pill.kind == _pl.TIP else _pl.INK
     said = _pill_text(pill.text, _pl.TEXT_PT, "medium", ink)
-    said.drawAtPoint_((lay.text_x, (h - said.size().height) / 2.0))
+    said.drawAtPoint_((lay.text_x, _pill_text_top(h, _pl.TEXT_PT, "medium") + _pl.TEXT_NUDGE))
+
+    # A Working pill's three dots trail its words.
+    if lay.dots_x is not None:
+        top = (h - _pl.DOT) / 2.0 + _pl.TEXT_NUDGE
+        for i in range(3):
+            hex_to_ns_color(_pl.DOTS[(i - phase) % 3]).set()
+            NSBezierPath.bezierPathWithOvalInRect_(
+                NSMakeRect(lay.dots_x + i * (_pl.DOT + _pl.DOT_GAP), top, _pl.DOT, _pl.DOT)).fill()
 
     if lay.button is not None:
         bx, by, bw, bh = lay.button
@@ -1238,7 +1264,7 @@ def _draw_pill(pill, lay, phase=0):
         cap.fill()
         label = _pill_text(pill.button["label"], _pl.BUTTON_PT, "semibold", _pl.BUTTON_INK)
         label.drawAtPoint_((bx + (bw - label.size().width) / 2.0,
-                            by + (bh - label.size().height) / 2.0))
+                            by + _pill_text_top(bh, _pl.BUTTON_PT, "semibold")))
 
     if lay.close is not None:
         cx, cy, cw, ch = lay.close
@@ -1743,6 +1769,9 @@ def _put_pill(pill, style, anchor=None, in_place=False):
     else:
         tx, ty = _toast_origin(anchor, w)
         tx, ty = _clear_of_meeting(tx, ty, w)
+
+    # Whole points: on a display that is not Retina a half point blurs it.
+    tx, ty = float(round(tx)), float(round(ty))
 
     _dbg("pill.show", kind=pill.kind, style=str(style), width=w, x=tx, y=ty,
          replacing=replacing, seconds=_toast_seconds(pill))
