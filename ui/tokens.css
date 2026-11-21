@@ -156,7 +156,10 @@ body {
   --ok-tint:     #E7F1E4;
   --danger:      #B42318;
   --danger-tint: #FBEAE7;
-  --rec:         #D94040;              /* the recording dot, never text */
+  --rec:         #D94040;              /* recording: the waffle record mark while it records, never text */
+  --rec-grid:    #96201F;              /* that mark's pockets */
+  --waffle:      #E8C267;              /* the waffle record mark at rest: press to record */
+  --waffle-grid: #B8892F;              /* its pockets */
   --on-ink-ok:   #8BC78E;              /* icons on the ink toast */
   --on-ink-err:  #F29B8F;
 

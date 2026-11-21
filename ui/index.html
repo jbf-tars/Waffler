@@ -57,8 +57,9 @@
        dictation is added at the top without redrawing the rest. -->
   <main class="journal" id="mainArea">
     <!-- Record a meeting from Home (meetings.js). The button says what it
-         does, so it is never taken for dictation; while a meeting records it
-         turns red, shows the time and says Finish. -->
+         does, so it is never taken for dictation. Its mark is the waffle
+         record mark (components.css .wrec): gold to start; while a meeting
+         records the waffle is red, with the time and Finish. -->
     <!-- Ask anything you said or heard: dictations and meetings together. -->
     <section class="j-ask" id="jAsk" aria-label="Ask anything you said or heard">
       <div class="j-ask-answer" id="jAskAnswer" role="status" hidden>
@@ -73,8 +74,7 @@
       </form>
     </section>
     <button type="button" class="j-rec" id="jRecord" aria-label="Record a meeting" title="Record a meeting (or tap your hotkey twice)">
-      <span class="j-rec-dot" aria-hidden="true"></span>
-      <span class="j-rec-stop" aria-hidden="true"></span>
+      <span class="wrec j-rec-mark" aria-hidden="true"></span>
       <span class="j-rec-clock" id="jRecordClock"></span>
       <span class="j-rec-label" id="jRecordLabel">Record a meeting</span>
     </button>

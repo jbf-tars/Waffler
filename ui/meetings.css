@@ -4,16 +4,6 @@
 .mt { width: 100%; max-width: 760px; display: flex; flex-direction: column; gap: 20px; }
 .mt-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 14px; }
 .mt-head .pdesc { margin: 6px 0 0; }
-.mt-rec { display: inline-flex; align-items: center; gap: 9px; }
-.mt-rec .mt-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--rec); }
-.mt-rec.is-on { background: var(--danger-solid); color: #fff; }
-.mt-rec.is-on:hover:not(:disabled) { background: var(--danger-solid-hover); }
-.mt-rec.is-on .mt-dot { background: #fff; }
-.mt-live { display: none; align-items: center; gap: 10px; padding: 12px 14px; border-radius: var(--r-card, 14px);
-  background: var(--danger-tint); color: var(--text); font-size: 14px; }
-.mt-live.is-on { display: flex; }
-.mt-live .mt-dot { flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--rec); }
-.mt-live .mt-clock { font-family: var(--f-mono, "Geist Mono", monospace); }
 .mt-warn { color: var(--danger); font-size: 13px; }
 .mt-day { margin: 10px 0 0; font-family: var(--f-serif, "Source Serif 4", serif); font-style: italic; font-size: 15px; color: var(--muted); }
 .mt-list { display: flex; flex-direction: column; }
@@ -67,23 +57,20 @@
    Page titles in the serif (Source Serif 4), as Natter's were. */
 .ptitle, .jtitle, .mt-note h1 { font-family: var(--f-serif); font-weight: 400; letter-spacing: -0.015em; }
 
-/* Home's "Record a meeting": a pill that says what it does. Red, with the
-   time and "Finish", while a meeting records. */
+/* Home's "Record a meeting": a pill that says what it does, with the waffle
+   record mark (components.css .wrec). Gold: press to record. While a meeting
+   records the same waffle is red and breathes, beside the time and "Finish":
+   press to stop. The pill itself does not change colour. */
 .journal { position: relative; }
 .j-rec { position: fixed; right: calc(248px + 30px); bottom: 26px; z-index: 5; display: inline-flex; align-items: center; justify-content: center; gap: 10px;
-  min-width: 186px; height: 54px; padding: 0 22px 0 20px; border: 0; border-radius: 999px; background: var(--btn-pri-bg); color: var(--btn-pri-fg); cursor: pointer;
+  min-width: 186px; height: 54px; padding: 0 22px 0 12px; border: 0; border-radius: 999px; background: var(--btn-pri-bg); color: var(--btn-pri-fg); cursor: pointer;
   box-shadow: var(--shadow-pop); font: 500 15px var(--f-display, "Geist", system-ui, sans-serif); white-space: nowrap; }
 .j-rec:hover:not(:disabled) { background: var(--btn-pri-hover); }
 .j-rec:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
 .j-rec:disabled { opacity: 0.7; }
-.j-rec-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--rec); }
-.j-rec-stop { display: none; width: 12px; height: 12px; border-radius: 3px; background: #fff; }
+.j-rec .wrec { width: 30px; height: 30px; }
 .j-rec-clock { font: 500 14px var(--f-mono, "Geist Mono", monospace); }
 .j-rec-clock:empty { display: none; }
-.j-rec.is-on { background: var(--danger-solid); color: #fff; box-shadow: 0 10px 24px -8px rgba(216, 65, 47, 0.55); }
-.j-rec.is-on:hover:not(:disabled) { background: var(--danger-solid-hover); }
-.j-rec.is-on .j-rec-dot { display: none; }
-.j-rec.is-on .j-rec-stop { display: block; }
 body:not([data-page="home"]) .j-rec { display: none; }
 
 /* Ask. */
@@ -105,10 +92,6 @@ body:not([data-page="home"]) .j-rec { display: none; }
 body[data-theme="dark"] { --bg: #12100E; --surface: #1A1714; --card: #1F1B18; --text: #F4F0EA; --text-2: #CFC7BB; --muted: #B3AA9E; }
 .jtitle { font-size: 34px; line-height: 1.1; }
 
-/* The Meetings page's own Record button is the red one, as on Home. */
-.mt-rec:not(.is-on) { background: var(--rec); color: #fff; }
-.mt-rec:not(.is-on):hover:not(:disabled) { background: var(--danger-solid); }
-.mt-rec:not(.is-on) .mt-dot { background: #fff; }
 .mt-setting { margin-top: 28px; padding: 14px 16px; border-radius: var(--r-card, 14px); background: var(--surface); display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 
 /* Home's Ask: a bar at the foot of the main column, beside the record button. */
@@ -121,7 +104,7 @@ body[data-theme="dark"] { --bg: #12100E; --surface: #1A1714; --card: #1F1B18; --
 body:not([data-page="home"]) .j-ask { display: none; }
 .journal { padding-bottom: 96px; }
 @media (max-width: 860px) { .j-ask { right: calc(26px + 186px + 16px); left: 20px; } }
-@media (max-width: 620px) { .j-rec { min-width: 54px; padding: 0 17px; } .j-rec-label { display: none; } .j-ask { right: calc(26px + 54px + 16px); } }
+@media (max-width: 620px) { .j-rec { min-width: 54px; padding: 0 12px; } .j-rec-label { display: none; } .j-ask { right: calc(26px + 54px + 16px); } }
 
 /* ── The Meetings tab is the meetings interface in a frame ───────────────── */
 .meetings-panel { flex: 1 1 auto; min-height: 0; padding: 0; overflow: hidden; flex-direction: column; justify-content: flex-start; }

@@ -196,7 +196,8 @@ html, body {
 .j-live-t { font: italic 400 15px/1.45 var(--f-serif); color: var(--text-2); }
 .j-live-r { display: flex; align-items: center; gap: 10px; font: 400 12px/1 var(--f-ui); color: var(--muted); white-space: nowrap; }
 .j-live-r .kc { margin-right: 4px; }
-.j-live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--rec); box-shadow: 0 0 0 4px rgba(217, 64, 64, 0.18); }
+/* While it records the dot is the red waffle record mark (components.css). */
+.j-live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
 .j-live[data-state="processing"] .j-live-dot { background: var(--honey); box-shadow: 0 0 0 4px rgba(217, 164, 65, 0.22); }
 .j-live[data-state="paused"] .j-live-dot { background: var(--muted); box-shadow: none; }
 .j-live-time { font: 500 13px/1 var(--f-ui); color: var(--text); font-variant-numeric: tabular-nums; }

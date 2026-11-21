@@ -466,7 +466,8 @@
 .ob-ghost { opacity: 0.5; filter: saturate(0.7); }
 .ob-ghostcap { font: italic 400 13.5px/18px var(--f-serif); color: var(--muted); }
 .ob-bigwaffle { filter: drop-shadow(0 10px 16px rgba(78, 50, 23, 0.24)); }
-.ob-recchip i { width: 7px; height: 7px; border-radius: 50%; background: var(--rec); }
+/* "Recording" wears the red waffle record mark (components.css). */
+.ob-recchip i { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
 .ob-recchip-honey i { background: var(--honey); }
 .ob-recchip-off i { background: var(--faint); }
 .ob-pair { width: 100%; display: grid; gap: 10px; }

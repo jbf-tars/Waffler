@@ -55,6 +55,7 @@
     '--bg', '--surface', '--surface-2', '--card', '--line', '--ring', '--ring-strong', '--ring-ctl', '--tog-on-ring',
     '--dots', '--text', '--text-2', '--muted', '--faint', '--honey', '--honey-light', '--honey-deep', '--honey-tint',
     '--honey-wash', '--accent-ink', '--focus', '--tape', '--ok', '--ok-tint', '--danger', '--danger-tint', '--rec',
+    '--rec-grid', '--waffle', '--waffle-grid',
     '--on-ink-ok', '--on-ink-err', '--btn-pri-bg', '--btn-pri-fg', '--btn-pri-hover', '--btn-sec-bg', '--btn-sec-hover',
     '--kc-fg', '--kc-bg', '--kc-shadow', '--scrim', '--stage', '--stage-line', '--stage-grid', '--stage-edge',
     '--heat-0', '--heat-1', '--heat-2', '--heat-3', '--heat-4', '--danger-solid', '--danger-solid-hover',

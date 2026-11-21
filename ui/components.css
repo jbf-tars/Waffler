@@ -6,7 +6,7 @@
  * class (or a class and a modifier) so a screen never restyles it.
  *
  * Motion: hover changes colour only. The only thing that moves on its own is
- * the recording dot, and only while Waffler is recording.
+ * the red waffle record mark, and only while Waffler is recording.
  */
 
 /* ── Icons ─────────────────────────────────────────────────────────────── */
@@ -385,7 +385,6 @@
 .chip-err   { background: var(--danger-tint); color: var(--danger); }
 .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--faint); flex: none; }
 .dot-ok { background: var(--ok); }
-.dot-rec { background: var(--rec); }
 .dot-honey { background: var(--honey); }
 .dot-err { background: var(--danger); }
 
@@ -432,22 +431,78 @@ body[data-page="home"] .status.processing .status-t { display: none; }
 
 .status.idle .status-dot,
 .status.done .status-dot { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-tint); }
-.status.listening .status-dot,
-.status.recording .status-dot { background: var(--rec); }
 .status.paused .status-dot,
 .status.processing .status-dot,
 .status.not-sent .status-dot { background: var(--honey); }
 .status.error .status-dot { background: var(--danger); }
-/* The one thing that moves: a soft ring round the dot while recording. */
+/* ── The waffle record mark ────────────────────────────────────────────────
+   Waffler's own record button, in place of a red dot: a round-cornered
+   waffle, sixteen pockets. Gold: press to record. The same waffle in red,
+   breathing slowly: recording now, press to stop. One drawing, any size (set
+   width and height); the pockets are 3 of 24 wide, 2 apart, 3 from the edge.
+   The dictation's own signs of recording (the status, Home's live strip, the
+   setup's chip) are the red one too. src/pill.py has the same numbers for
+   the meeting bar, and the Meetings tab's stylesheet repeats this rule. */
+.wrec,
+.dot-rec,
 .status.listening .status-dot,
-.status.recording .status-dot {
-  box-shadow: 0 0 0 3px rgba(217, 64, 64, 0.18);
-  animation: status-rec 1.6s var(--ease) infinite;
+.status.recording .status-dot,
+.j-live[data-state="listening"] .j-live-dot,
+.ob-recchip:not(.ob-recchip-honey):not(.ob-recchip-off) i {
+  --wrec-body: var(--waffle);
+  --wrec-cell: var(--waffle-grid);
+  --wrec-c: linear-gradient(var(--wrec-cell), var(--wrec-cell));
+  display: inline-block;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 27%;
+  background:
+    var(--wrec-c) 14.29% 14.29% / 12.5% 12.5% no-repeat,
+    var(--wrec-c) 38.10% 14.29% / 12.5% 12.5% no-repeat,
+    var(--wrec-c) 61.90% 14.29% / 12.5% 12.5% no-repeat,
+    var(--wrec-c) 85.71% 14.29% / 12.5% 12.5% no-repeat,
+    var(--wrec-c) 14.29% 38.10% / 12.5% 12.5% no-repeat,
+    var(--wrec-c) 38.10% 38.10% / 12.5% 12.5% no-repeat,
+    var(--wrec-c) 61.90% 38.10% / 12.5% 12.5% no-repeat,
+    var(--wrec-c) 85.71% 38.10% / 12.5% 12.5% no-repeat,
+    var(--wrec-c) 14.29% 61.90% / 12.5% 12.5% no-repeat,
+    var(--wrec-c) 38.10% 61.90% / 12.5% 12.5% no-repeat,
+    var(--wrec-c) 61.90% 61.90% / 12.5% 12.5% no-repeat,
+    var(--wrec-c) 85.71% 61.90% / 12.5% 12.5% no-repeat,
+    var(--wrec-c) 14.29% 85.71% / 12.5% 12.5% no-repeat,
+    var(--wrec-c) 38.10% 85.71% / 12.5% 12.5% no-repeat,
+    var(--wrec-c) 61.90% 85.71% / 12.5% 12.5% no-repeat,
+    var(--wrec-c) 85.71% 85.71% / 12.5% 12.5% no-repeat,
+    var(--wrec-body);
+  box-shadow: inset 0 0 0 1px var(--wrec-cell);
 }
-@keyframes status-rec {
-  0%, 100% { box-shadow: 0 0 0 3px rgba(217, 64, 64, 0.18); }
-  50%      { box-shadow: 0 0 0 5px rgba(217, 64, 64, 0.06); }
+.wrec.is-rec,
+.is-on > .wrec,
+.dot-rec,
+.status.listening .status-dot,
+.status.recording .status-dot,
+.j-live[data-state="listening"] .j-live-dot,
+.ob-recchip:not(.ob-recchip-honey):not(.ob-recchip-off) i {
+  --wrec-body: var(--rec);
+  --wrec-cell: var(--rec-grid);
+  animation: wrec-pulse 2.4s ease-in-out infinite;
 }
+/* The one thing that moves: the red waffle breathes while Waffler records.
+   (Still for people who ask for less motion: style.css, Motion.) */
+@keyframes wrec-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.72; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wrec, .dot-rec, .status-dot, .j-live-dot, .ob-recchip i { animation: none; }
+}
+/* The small signs: 14 px is the least at which the pockets still show. */
+.dot-rec,
+.status.listening .status-dot,
+.status.recording .status-dot,
+.j-live[data-state="listening"] .j-live-dot,
+.ob-recchip:not(.ob-recchip-honey):not(.ob-recchip-off) i { width: 14px; height: 14px; }
 
 /* ── Notice card ───────────────────────────────────────────────────────────
    One card for things the window has to say: an update, a failed update, a
