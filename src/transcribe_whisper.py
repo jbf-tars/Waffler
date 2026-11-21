@@ -950,9 +950,9 @@ def apply_vocab_changes(transcribed: str, vocab: list[str],
     spoken "Postgres" when tested on real audio.
 
     ``sounds_like`` ({entry: [spellings]}, see clean_sounds_like): an entry
-    with spellings is matched by them and by its own spelling, never
-    loosely. They are taken first; the loose matching runs on the text
-    between them. A spelling that is one everyday word ("your") is taken
+    with spellings is matched by them and by its own spelling, and loosely
+    like any other entry. The spellings are taken first; the loose matching
+    runs on the text between them. A spelling that is one everyday word ("your") is taken
     only once the person has kept it (``kept``, read from
     vocab_sounds_kept.json when None); until then it is not a match at all,
     whatever the spellings file says.
@@ -970,9 +970,11 @@ def apply_vocab_marked(transcribed: str, vocab: list[str], sounds_like=None, kep
     rules = _sounds_rules(vocab, sounds_like, kept)
     if not rules:
         return _apply_loose(transcribed, vocab)
-    ruled = {entry.casefold() for _p, entry, _own in rules}
-    loose = [e for e in vocab if isinstance(e, str)
-             and " ".join(e.split()).casefold() not in ruled]
+    # Every entry is matched loosely too, with or without spellings: a
+    # spelling adds a match and takes none away. (At first an entry with
+    # spellings left the loose matching, and "Wuffler" stayed "Wuffler"
+    # because Waffler had "waffle" and "woffler".)
+    loose = [e for e in vocab if isinstance(e, str)]
     pattern = re.compile("|".join(
         rf"(?<![^\W_])(?P<r{n}>{p})(?![^\W_])" for n, (p, _e, _own) in enumerate(rules)),
         re.IGNORECASE)
