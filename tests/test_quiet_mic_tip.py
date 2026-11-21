@@ -548,10 +548,13 @@ def _flat(path):
 def test_privacy_says_the_level_and_the_volume_are_kept_here():
     level = ("Each also notes how loud your speech arrived, so Waffler can tell you if your "
              "microphone is set too low.")
-    assert level in _flat("ui/index.html") and level in _flat("ui/app.js")
+    # (Said in full under the Privacy section's "How it works"; the row itself is one short line.)
     html = _flat("ui/index.html")
+    journal = html[html.index('id="privHowJournal"'):]
+    assert level in journal[:journal.index("</li>")]
+    assert level not in _flat("ui/app.js"), "the script writes only the count over the row's line"
     row = html[html.index('id="micVolumeRow"'):]
-    row = row[:row.index("</div> </div> </div>")]
+    row = row[:row.index("</li>")]
     assert "Microphone volume" in row
     assert "at most once a day" in row and "never changes it" in row
     assert "Delete all my data clears them" in row

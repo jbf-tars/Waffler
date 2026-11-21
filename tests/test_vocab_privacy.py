@@ -113,7 +113,8 @@ def test_the_export_files_are_outside_the_data_folder_and_named_so_nothing_delet
 
 def test_the_privacy_copy_says_where_an_edit_is_kept_and_that_exports_are_the_persons_own():
     html = (ROOT / "ui" / "index.html").read_text(encoding="utf-8")
-    history = re.search(r'id="privHistoryDesc">(.*?)</div>', html, re.S).group(1)
+    # (Said in full under the Privacy section's "How it works"; the row itself is one short line.)
+    history = re.search(r'id="privHowJournal">(.*?)</li>', html, re.S).group(1)
     assert "Edit text" in history and "on this computer" in history
     assert "Vocabulary and Snippets export from their own page" in html
     assert "Delete all my data leaves it alone" in html

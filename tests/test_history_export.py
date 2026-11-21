@@ -331,8 +331,9 @@ def test_the_export_is_the_users_own_copy_so_delete_my_data_does_not_chase_it():
     assert not any(n.startswith("waffler-history") for n in privacy_data.DATA_FILES)
     assert not any("waffler-history" in g for g in privacy_data.DATA_GLOBS)
     html = (ROOT / "ui" / "index.html").read_text(encoding="utf-8")
-    row = html[html.index('id="exportRow"'):]
-    row = row[:row.index("</div>\n            <!--")]
+    # (Said in full under the Privacy section's "How it works"; the row itself is one short line.)
+    row = html[html.index('id="privHowExport"'):]
+    row = row[:row.index("</li>")]
     assert "It never includes your keys." in row
     assert "Delete all my data leaves it alone." in row
 

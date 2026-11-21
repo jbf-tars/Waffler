@@ -364,8 +364,13 @@ def test_switched_off_nothing_is_kept_or_pruned(tmp_path):
 def test_the_promise_in_settings_mentions_the_size():
     html = (ROOT / "ui" / "index.html").read_text(encoding="utf-8")
     js_src = (ROOT / "ui" / "app.js").read_text(encoding="utf-8")
-    assert "fewer if they are very long" in html and "300 MB" in html
-    assert "fewer if they are very long" in js_src
+    # (Said in full under the Privacy section's "How it works"; the row itself is one short line.)
+    how = html[html.index('id="privHowRecent"'):]
+    how = how[:how.index("</li>")]
+    assert "fewer if they are very long" in how and "300 MB" in how
+    # The page's script only adds the count now: it does not write a second copy over the promise.
+    assert "fewer if they are very long" not in js_src
+    assert "`The audio of your last ${s.keep || 10} dictations.`" in js_src
     assert recent_audio.MAX_TOTAL_BYTES == 300 * 1024 * 1024
     assert recent_audio.summary(Path("/nonexistent"), {})["keep"] == 10
 

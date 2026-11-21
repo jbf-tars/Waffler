@@ -62,8 +62,9 @@ def test_clear_history_still_clears_when_the_shelf_cannot_be():
 
 def test_the_export_row_says_a_backed_up_desktop_takes_the_file_too():
     html = (ROOT / "ui" / "index.html").read_text(encoding="utf-8")
-    row = html[html.index('id="exportTitle"'):]
-    row = row[:row.index("</div></div>")]
+    # (Said in full under the Privacy section's "How it works"; the row itself is one short line.)
+    row = html[html.index('id="privHowExport"'):]
+    row = row[:row.index("</li>")]
     assert "iCloud" in row and "OneDrive" in row and "backs up" in row
     assert "—" not in row and "–" not in row
 

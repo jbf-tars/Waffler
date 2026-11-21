@@ -690,7 +690,7 @@
             <div class="tx-new-foot"><span class="snip-counter" id="transformsFormCount"></span><button type="submit" class="btn btn-sec btn-sm" id="transformAdd">Add transform</button></div>
           </form>
           <p class="s-error" id="transformFormError" role="alert" hidden></p>
-          <p class="s-note" id="transformsFull" hidden>You have 5 transforms, the most you can keep. Delete one to add another.</p>
+          <p class="s-note" id="transformsFull" hidden>Delete one to add another.</p>
 
           <!-- What a careful person may still want to know: what is sent where,
                limits and conditions. One collapsed disclosure (toggleHow). -->
@@ -1034,7 +1034,7 @@
           <div class="stage u-empty" id="usageEmpty" hidden>
             <span class="u-empty-mark" data-waffle="empty" data-size="64"></span>
             <div class="u-empty-t">Nothing counted yet</div>
-            <p class="u-empty-d">Hold <span id="usageEmptyKeys">Win + Ctrl</span> in any text box and talk. Your words, a 30-day chart and a map of your weeks appear here.</p>
+            <p class="u-empty-d">Hold <span id="usageEmptyKeys">Win + Ctrl</span> in any text box and talk.</p>
           </div>
 
           <div id="usageDetail">
@@ -1082,7 +1082,7 @@
               <div class="row" id="typingWpmRow">
                 <div class="row-main">
                   <div class="row-t"><label for="typingWpm">Your typing speed</label></div>
-                  <div class="row-d" id="typingWpmDesc">Words a minute. It only sets the estimate above and changes nothing else.</div>
+                  <div class="row-d" id="typingWpmDesc">Words a minute, for the estimate above.</div>
                   <div class="row-err" id="typingWpmErr" role="alert" hidden></div>
                 </div>
                 <input id="typingWpm" class="input input-wpm" type="number" inputmode="numeric" min="10" max="200" step="1" value="40" aria-describedby="typingWpmDesc" onchange="onTypingSpeedChange(this)">
@@ -1139,18 +1139,22 @@
           </div>
         </section>
 
-        <!-- Privacy and data -->
+        <!-- Privacy and data: what is kept and what can be deleted, as
+             controls. What each thing holds, and what Waffler reads and
+             sends and when, is said in full under "How it works" at the
+             bottom of the section. -->
         <section class="s-sec" id="secPrivacy" data-sec="privacy" hidden>
           <h1 class="ptitle">Privacy and data</h1>
 
-          <!-- Owner decision D5: the microphone stream stays open and the
-               half-second before the keys go down is part of each recording
-               (src/audio.py _PREROLL_MS). Said as it is. The provider on the
-               right is the one in use (logic.js privacyFlow). -->
+          <!-- The provider on the right is the one in use (logic.js
+               privacyFlow). Owner decision D5 (the microphone stream stays
+               open and the half-second before the keys go down is part of each
+               recording, src/audio.py _PREROLL_MS) is said as it is under
+               "How it works". -->
           <div class="stage stage-plain pv-hero">
             <div>
               <div class="pv-head">Everything stays on <em>this computer.</em></div>
-              <p class="pv-sub" id="privIntro">Except what you say while you hold the keys, and the half-second before. That goes straight to the providers you set up, on your own key.</p>
+              <p class="pv-sub" id="privIntro">Except what you say while you hold the keys.</p>
             </div>
             <div class="pv-diag" aria-hidden="true">
               <div class="pv-pc">
@@ -1173,7 +1177,7 @@
                  unless the user picks 30, 90 or 365 days. A shorter choice
                  that would delete dictations asks first, in the sheet. -->
             <div class="row" id="historyRow">
-              <div class="row-main"><div class="row-t"><label for="historyKeep">Journal</label></div><div class="row-d" id="privHistoryDesc">Your dictations, searchable in your Journal. Each notes the app you were in, the language and which services handled it. The app is kept with its kind (email, work chat, personal chat or other), on this computer only. Each also notes how loud your speech arrived, so Waffler can tell you if your microphone is set too low. If you correct a dictation with Edit text, your corrected version is kept with it, on this computer only, for as long as the dictation is.</div></div>
+              <div class="row-main"><div class="row-t"><label for="historyKeep">Journal</label></div><div class="row-d" id="privHistoryDesc">Your dictations, searchable in your Journal.</div></div>
               <select id="historyKeep" class="select" onchange="onHistoryKeepChange(this)">
                 <option value="0">Keep forever</option>
                 <option value="365">Keep for a year</option>
@@ -1188,9 +1192,9 @@
             </div>
             <!-- Export history (src/history_export.py): a file on the Desktop,
                  shown in its folder. It is the user's own copy, so Delete all my
-                 data does not touch it, and the row says so. -->
+                 data does not touch it ("How it works" says so). -->
             <div class="row" id="exportRow">
-              <div class="row-main"><div class="row-t" id="exportTitle"><label for="exportFormat">Export the Journal</label></div><div class="row-d">Save your Journal as a file on your Desktop. If iCloud or OneDrive backs up your Desktop, it backs this file up too. It never includes your keys. It's your own copy, so Delete all my data leaves it alone. Your Vocabulary and Snippets export from their own page, the same way.</div></div>
+              <div class="row-main"><div class="row-t" id="exportTitle"><label for="exportFormat">Export the Journal</label></div><div class="row-d">Saves a file on your Desktop.</div></div>
               <select id="exportFormat" class="select">
                 <option value="json">JSON</option>
                 <option value="csv">CSV</option>
@@ -1201,43 +1205,16 @@
             <!-- Owner decision D9: the last 10 recordings are kept, said
                  here, with a switch and "Delete them now" (src/recent_audio.py). -->
             <div class="row" id="recentAudioRow">
-              <div class="row-main"><div class="row-t"><label for="recentAudioToggle">Recent recordings</label></div><div class="row-d"><span id="recentAudioDesc">The audio of your last 10 dictations (fewer if they are very long, about 300 MB at most), so you can redo a dictation, get one back if Waffler stops, or look into a problem.</span> <button type="button" class="link-btn" id="recentAudioDelete" onclick="deleteRecentAudio(this)">Delete them now</button></div></div>
+              <div class="row-main"><div class="row-t"><label for="recentAudioToggle">Recent recordings</label></div><div class="row-d"><span id="recentAudioDesc">The audio of your last 10 dictations.</span> <button type="button" class="link-btn" id="recentAudioDelete" onclick="deleteRecentAudio(this)">Delete them now</button></div></div>
               <input type="checkbox" class="tog" role="switch" id="recentAudioToggle" checked onchange="setRecentAudio(this.checked)">
             </div>
             <!-- Recordings that were not turned into text (Journal "Not sent"
                  cards). Waffler sends them by itself when the speech service
                  answers; this is the count, Try again for all of them, and
                  Delete, which asks first. -->
-            <!-- Which tips have been shown, hidden or closed (src/notifier.py,
-                 notifications.json): counts and times, nothing anyone said. -->
-            <!-- Transforms (beta): selected text is read and sent only when a
-                 transform is used, to the provider the person chose. -->
-            <div class="row" id="transformsPrivacyRow">
-              <div class="row-main"><div class="row-t">Transforms</div><div class="row-d" id="privTransformsDesc">Only when you use a transform, Waffler reads the text you selected, with Accessibility or by copying it, and sends it to your provider on your own key. The text before and after is kept in your Journal, and Delete all my data clears it with the rest.</div></div>
-            </div>
-            <!-- Command mode (beta): what is said, and the text near the cursor, are
-                 sent only while the shortcut is held, to the provider the person chose. -->
-            <div class="row" id="commandPrivacyRow">
-              <div class="row-main"><div class="row-t">Command mode</div><div class="row-d">Only while you hold your Command shortcut, Waffler records what you say, turns it into text with your speech provider, and sends that with the text you selected (or up to 500 characters before your cursor) to your provider on your own key. A question opens your browser with only your spoken question. The recording is not kept. What you said and the text before and after are kept in your Journal, and Delete all my data clears them with the rest.</div></div>
-            </div>
-            <div class="row" id="tipsMemoryRow">
-              <div class="row-main"><div class="row-t">Tips seen</div><div class="row-d">Which tips Waffler has shown, and which you hid, so it doesn't repeat them. Counts and times only.</div></div>
-            </div>
-            <!-- Which new microphones Waffler has asked about (src/mic_hotplug.py,
-                 mic_devices.json): names and answers, deleted with my data. -->
-            <div class="row" id="micMemoryRow">
-              <div class="row-main"><div class="row-t">Microphones seen</div><div class="row-d">Which new microphones Waffler has asked you about, and what you answered, so it asks once for each. Names and answers only, and Delete all my data clears them.</div></div>
-            </div>
-            <!-- The input volume (src/quiet_mic.py, mic_volume.json): read at most
-                 once a day, only while dictations arrive very quiet, for the tip
-                 that suggests turning it up; on Windows with the microphone's
-                 name. Never changed by Waffler. -->
-            <div class="row" id="micVolumeRow">
-              <div class="row-main"><div class="row-t">Microphone volume</div><div class="row-d">When your dictations keep arriving very quiet, Waffler reads your microphone's input volume at most once a day, to suggest turning it up, and on Windows its name, so the tip can say which microphone. It never changes it. The reading and when it was taken stay on this computer, and Delete all my data clears them.</div></div>
-            </div>
             <div class="row" id="unsentRow">
               <span class="chk" id="unsentIcon" aria-hidden="true"><svg class="ic"><use href="#i-check"/></svg></span>
-              <div class="row-main"><div class="row-t" id="unsentTitle">Nothing waiting to be sent</div><div class="row-d" id="unsentSummary">Every recording has been turned into text.</div></div>
+              <div class="row-main"><div class="row-t" id="unsentTitle">Nothing waiting</div><div class="row-d" id="unsentSummary">Every recording has been turned into text.</div></div>
               <button type="button" class="btn btn-sec btn-sm" id="unsentDelete" aria-describedby="unsentTitle" onclick="askDeleteUnsent(true)" hidden>Delete</button>
               <button type="button" class="btn btn-sec btn-sm" id="unsentSendNow" onclick="sendUnsentNow(this)" hidden><svg class="ic" aria-hidden="true"><use href="#i-retry"/></svg><span>Try again</span></button>
             </div>
@@ -1248,37 +1225,10 @@
             </div>
           </div>
 
-          <!-- What Waffler reads on a Mac while it pastes (src/pasteboard.py,
-               src/mac_input.py): said as it is. Shown on a Mac only
-               (loadSettings). -->
-          <div id="privPasteReads" hidden>
-            <h2 class="sh2">While it pastes</h2>
-            <div class="sheet">
-              <div class="row">
-                <div class="row-main"><div class="row-t">Your clipboard</div><div class="row-d">Unless you keep your text there, Waffler holds what you had copied in memory for about a second, then puts it back. It never stores or logs it.</div></div>
-              </div>
-              <div class="row">
-                <div class="row-main"><div class="row-t">The text field you paste into</div><div class="row-d">To confirm a paste landed, Waffler reads whether that field changed. It never stores or logs what is in it.</div></div>
-              </div>
-              <!-- Only when a transform is used (Settings, Transforms). -->
-              <div class="row">
-                <div class="row-main"><div class="row-t">The text you selected</div><div class="row-d" id="privSelectedDesc">Only when you use a transform: Waffler reads your selection, through Accessibility or by copying it and putting your clipboard back, and sends it to your provider on your own key. It never reads a password field.</div></div>
-              </div>
-              <!-- Only when a command is given (Settings, Command mode). -->
-              <div class="row">
-                <div class="row-main"><div class="row-t">The text near your cursor (Command mode)</div><div class="row-d">Only while you hold your Command shortcut with nothing selected: Waffler reads up to 500 characters before your cursor, to give your command some context, and sends them to your provider on your own key. It never reads a password field.</div></div>
-              </div>
-              <!-- Only with the email signature on (Settings, Style). -->
-              <div class="row">
-                <div class="row-main"><div class="row-t">The text before your cursor</div><div class="row-d">Only if you turn on an email signature, in an email app: Waffler reads the text before your cursor to check your signature isn't already there. It never stores or logs it.</div></div>
-              </div>
-            </div>
-          </div>
-
           <h2 class="sh2">Help</h2>
           <div class="sheet">
             <div class="row">
-              <div class="row-main"><div class="row-t" id="logsTitle">Logs</div><div class="row-d">A zip on your Desktop with no keys, no transcripts and no signature text. Handy for a bug report.</div></div>
+              <div class="row-main"><div class="row-t" id="logsTitle">Logs</div><div class="row-d">A zip on your Desktop, for a bug report.</div></div>
               <button type="button" class="btn btn-sec btn-sm" id="logsBtn" aria-describedby="logsTitle" onclick="downloadLogs(this)"><svg class="ic" aria-hidden="true"><use href="#i-folder"/></svg><span>Show in folder</span></button>
             </div>
           </div>
@@ -1289,7 +1239,7 @@
                  snippets and settings; deleting those too is the full reset, which
                  asks again on its own. -->
             <div class="row" id="resetRow">
-              <div class="row-main"><div class="row-t" id="resetTitle">Delete all my data</div><div class="row-d">Your Journal, usage, recordings, logs and which tips you've seen. Your keys, words, snippets and settings stay.</div></div>
+              <div class="row-main"><div class="row-t" id="resetTitle">Delete all my data</div><div class="row-d">Your keys, words, snippets and settings stay.</div></div>
               <button type="button" class="btn btn-danger-solid btn-sm" id="resetAsk" aria-describedby="resetTitle" onclick="askFactoryReset(true)">Delete…</button>
             </div>
             <div class="row reset-confirm" id="resetConfirm" hidden>
@@ -1301,6 +1251,56 @@
               <div class="row-main"><div class="row-t">Delete everything, your keys too?</div><div class="row-d">This can't be undone. Your keys, words, snippets and settings go as well. Waffler closes, and setup starts the next time you open it.</div></div>
               <button type="button" class="btn btn-sec btn-sm" id="resetKeysNo" onclick="askFactoryResetKeys(false)">Keep my keys</button>
               <button type="button" class="btn btn-danger-solid btn-sm" onclick="factoryReset(this)">Delete everything</button>
+            </div>
+          </div>
+
+          <!-- Everything this page used to say in its rows, word for word:
+               what each thing holds, what is read and sent and when, and what
+               Delete all my data clears. One collapsed disclosure (toggleHow). -->
+          <div class="how">
+            <button type="button" class="link-btn how-btn" id="privHowBtn" aria-expanded="false" aria-controls="privHow" onclick="toggleHow(this)">How it works<svg class="ic ic-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
+            <div class="sheet how-body" id="privHow" hidden>
+              <ul class="sc-rule-list">
+                <li>Everything stays on this computer, except what you say while you hold the keys, and the half-second before. That goes straight to the providers you set up, on your own key.</li>
+                <li id="privHowJournal"><b>Journal.</b> Your dictations, searchable in your Journal. Each notes the app you were in, the language and which services handled it. The app is kept with its kind (email, work chat, personal chat or other), on this computer only. Each also notes how loud your speech arrived, so Waffler can tell you if your microphone is set too low. If you correct a dictation with Edit text, your corrected version is kept with it, on this computer only, for as long as the dictation is.</li>
+                <li id="privHowExport"><b>Export the Journal.</b> Save your Journal as a file on your Desktop. If iCloud or OneDrive backs up your Desktop, it backs this file up too. It never includes your keys. It's your own copy, so Delete all my data leaves it alone. Your Vocabulary and Snippets export from their own page, the same way.</li>
+                <li id="privHowRecent"><b>Recent recordings.</b> The audio of your last 10 dictations (fewer if they are very long, about 300 MB at most), so you can redo a dictation, get one back if Waffler stops, or look into a problem. Off, new recordings are not kept, so a dictation can't be redone or recovered.</li>
+                <!-- Transforms (beta): selected text is read and sent only when a
+                     transform is used, to the provider the person chose. -->
+                <li id="transformsPrivacyRow"><b>Transforms.</b> <span id="privTransformsDesc">Only when you use a transform, Waffler reads the text you selected, with Accessibility or by copying it, and sends it to your provider on your own key. The text before and after is kept in your Journal, and Delete all my data clears it with the rest.</span></li>
+                <!-- Command mode (beta): what is said, and the text near the cursor, are
+                     sent only while the shortcut is held, to the provider the person chose. -->
+                <li id="commandPrivacyRow"><b>Command mode.</b> Only while you hold your Command shortcut, Waffler records what you say, turns it into text with your speech provider, and sends that with the text you selected (or up to 500 characters before your cursor) to your provider on your own key. A question opens your browser with only your spoken question. The recording is not kept. What you said and the text before and after are kept in your Journal, and Delete all my data clears them with the rest.</li>
+                <!-- Which tips have been shown, hidden or closed (src/notifier.py,
+                     notifications.json): counts and times, nothing anyone said. -->
+                <li id="tipsMemoryRow"><b>Tips seen.</b> Which tips Waffler has shown, and which you hid, so it doesn't repeat them. Counts and times only.</li>
+                <!-- Which new microphones Waffler has asked about (src/mic_hotplug.py,
+                     mic_devices.json): names and answers, deleted with my data. -->
+                <li id="micMemoryRow"><b>Microphones seen.</b> Which new microphones Waffler has asked you about, and what you answered, so it asks once for each. Names and answers only, and Delete all my data clears them.</li>
+                <!-- The input volume (src/quiet_mic.py, mic_volume.json): read at most
+                     once a day, only while dictations arrive very quiet, for the tip
+                     that suggests turning it up; on Windows with the microphone's
+                     name. Never changed by Waffler. -->
+                <li id="micVolumeRow"><b>Microphone volume.</b> When your dictations keep arriving very quiet, Waffler reads your microphone's input volume at most once a day, to suggest turning it up, and on Windows its name, so the tip can say which microphone. It never changes it. The reading and when it was taken stay on this computer, and Delete all my data clears them.</li>
+                <li><b>Logs.</b> A zip on your Desktop with no keys, no transcripts and no signature text. Handy for a bug report.</li>
+                <li><b>Delete all my data.</b> Your Journal, usage, recordings, logs and which tips you've seen. Your keys, words, snippets and settings stay.</li>
+              </ul>
+              <!-- What Waffler reads on a Mac while it pastes (src/pasteboard.py,
+                   src/mac_input.py): said as it is. Shown on a Mac only
+                   (loadSettings). -->
+              <div id="privPasteReads" hidden>
+                <h3 class="tx-h3">While it pastes</h3>
+                <ul class="sc-rule-list">
+                  <li><b>Your clipboard.</b> Unless you keep your text there, Waffler holds what you had copied in memory for about a second, then puts it back. It never stores or logs it.</li>
+                  <li><b>The text field you paste into.</b> To confirm a paste landed, Waffler reads whether that field changed. It never stores or logs what is in it.</li>
+                  <!-- Only when a transform is used (Settings, Transforms). -->
+                  <li><b>The text you selected.</b> <span id="privSelectedDesc">Only when you use a transform: Waffler reads your selection, through Accessibility or by copying it and putting your clipboard back, and sends it to your provider on your own key. It never reads a password field.</span></li>
+                  <!-- Only when a command is given (Settings, Command mode). -->
+                  <li><b>The text near your cursor (Command mode).</b> Only while you hold your Command shortcut with nothing selected: Waffler reads up to 500 characters before your cursor, to give your command some context, and sends them to your provider on your own key. It never reads a password field.</li>
+                  <!-- Only with the email signature on (Settings, Style). -->
+                  <li><b>The text before your cursor.</b> Only if you turn on an email signature, in an email app: Waffler reads the text before your cursor to check your signature isn't already there. It never stores or logs it.</li>
+                </ul>
+              </div>
             </div>
           </div>
         </section>

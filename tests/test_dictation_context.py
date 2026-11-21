@@ -339,8 +339,13 @@ def _flat(path):
 def test_the_privacy_page_says_the_app_and_its_kind_are_kept_here():
     sentence = ("Each notes the app you were in, the language and which services handled it. "
                 "The app is kept with its kind (email, work chat, personal chat or other), on this computer only.")
-    assert sentence in _flat("ui/index.html")
-    assert sentence in _flat("ui/app.js")
+    # (Said in full under the Privacy section's "How it works"; the row itself is one short line.)
+    html = _flat("ui/index.html")
+    how = html[html.index('id="privHowJournal"'):]
+    assert sentence in how[:how.index("</li>")]
+    # The script only writes the count over the row's short line, never over this.
+    assert "Each notes the app" not in _flat("ui/app.js")
+    assert "searchable in your Journal.`;" in _flat("ui/app.js")
 
 
 def test_the_new_privacy_sentences_have_no_dashes_and_no_jargon():

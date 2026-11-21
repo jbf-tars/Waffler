@@ -60,7 +60,8 @@ def test_the_policy_says_what_is_read_and_that_it_is_dropped():
 
 def test_the_privacy_page_says_it_too_on_a_mac():
     html = " ".join((ROOT / "ui" / "index.html").read_text(encoding="utf-8").split())
-    block = html[html.index('id="privPasteReads"'):html.index('<h2 class="sh2">Help</h2>')]
+    # (Under the Privacy section's "How it works", on a Mac only.)
+    block = html[html.index('id="privPasteReads"'):html.index('id="secAbout"')]
     assert "The text before your cursor" in block
     assert ("Only if you turn on an email signature, in an email app: Waffler reads the text before your "
             "cursor to check your signature isn't already there. It never stores or logs it.") in block

@@ -7129,7 +7129,7 @@ async function loadUnsentSummary() {
     const v = WL.unsentSummary(await pywebview.api.get_unsent_summary());
     desc.textContent = v.label;
     const title = document.getElementById('unsentTitle');
-    if (title) title.textContent = v.canSend ? 'Waiting to be sent' : 'Nothing waiting to be sent';
+    if (title) title.textContent = v.canSend ? 'Waiting to be sent' : 'Nothing waiting';
     const icon = document.getElementById('unsentIcon');
     if (icon) {
       icon.classList.toggle('is-wait', v.canSend);
@@ -7203,9 +7203,10 @@ function _renderRecentAudio(s) {
   const n = Number(s.count) || 0;
   const now = n ? ` ${n === 1 ? '1 is' : `${n} are`} kept now.` : ' None are kept now.';
   if (desc) {
+    // (Why they are kept, and how much room they take, is under "How it works".)
     desc.textContent = (s.enabled
-      ? `The audio of your last ${s.keep || 10} dictations (fewer if they are very long, about 300 MB at most), so you can redo a dictation, get one back if Waffler stops, or look into a problem.`
-      : "Off: new recordings are not kept, so a dictation can't be redone or recovered.") + now;
+      ? `The audio of your last ${s.keep || 10} dictations.`
+      : 'Off: new recordings are not kept.') + now;
   }
   if (del) { del.disabled = !n; del.hidden = !n; }
 }
@@ -7216,7 +7217,8 @@ async function loadRecentAudio() {
   // History: how many dictations the Journal holds.
   const h = document.getElementById('privHistoryDesc');
   const n = Number(stats.total_count) || 0;
-  if (h) h.textContent = `${WL.formatCount(n)} ${n === 1 ? 'dictation' : 'dictations'}, searchable in your Journal. Each notes the app you were in, the language and which services handled it. The app is kept with its kind (email, work chat, personal chat or other), on this computer only. Each also notes how loud your speech arrived, so Waffler can tell you if your microphone is set too low.`;
+  // (What each entry notes is under "How it works".)
+  if (h) h.textContent = `${WL.formatCount(n)} ${n === 1 ? 'dictation' : 'dictations'}, searchable in your Journal.`;
 }
 
 async function setRecentAudio(on) {

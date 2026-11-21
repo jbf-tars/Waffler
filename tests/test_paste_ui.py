@@ -117,8 +117,10 @@ def _privacy():
 
 def test_privacy_says_what_is_read_while_it_pastes():
     sec = _privacy()
-    block = sec[sec.index('id="privPasteReads"'):sec.index('<h2 class="sh2">Help</h2>')]
-    assert '<h2 class="sh2">While it pastes</h2>' in block
+    # (Under the Privacy section's "How it works", on a Mac only.)
+    assert sec.index('id="privHow"') < sec.index('id="privPasteReads"')
+    block = sec[sec.index('id="privPasteReads"'):]
+    assert '<h3 class="tx-h3">While it pastes</h3>' in block
     assert ("To confirm a paste landed, Waffler reads whether that field changed. "
             "It never stores or logs what is in it.") in block
     assert "The text field you paste into" in block
@@ -129,7 +131,7 @@ def test_privacy_says_what_is_read_while_it_pastes():
 
 def test_privacy_copy_has_no_em_dash():
     block = _privacy()
-    block = block[block.index('id="privPasteReads"'):block.index('<h2 class="sh2">Help</h2>')]
+    block = block[block.index('id="privPasteReads"'):]
     assert "—" not in block and "–" not in block
 
 

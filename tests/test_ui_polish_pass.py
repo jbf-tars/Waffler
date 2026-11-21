@@ -394,7 +394,8 @@ def test_the_window_says_dictation_where_it_said_take():
         assert not re.search(r"\btakes? (can|from)\b|this take|a take\b", text), name
     app = read("app.js")
     assert "<span>Redo this dictation</span>" in app and "Undo redoing this dictation" in app
-    assert "so a dictation can't be redone or recovered" in app
+    # (That sentence is now under the Privacy section's "How it works".)
+    assert "so a dictation can't be redone or recovered" in read("index.html")
     msgs = (ROOT / "src" / "user_messages.py").read_text(encoding="utf-8")
     assert "the longest one dictation can be" in msgs
 

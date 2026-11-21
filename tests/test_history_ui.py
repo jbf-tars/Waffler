@@ -254,8 +254,10 @@ def test_the_export_row_is_wired_to_the_backend():
 
 def test_privacy_says_what_each_entry_notes_and_what_the_export_is():
     html = read("index.html")
-    assert "Each notes the app you were in, the language and which services handled it." in html
-    assert "Each notes the app you were in, the language and which services handled it." in read("app.js")
+    # (Said in full under the Privacy section's "How it works"; the row itself is one short line.)
+    how = html[html.index('id="privHowJournal"'):]
+    assert "Each notes the app you were in, the language and which services handled it." in how[:how.index("</li>")]
+    assert "Each notes the app" not in read("app.js"), "the script writes only the count over the row's line"
     for text in re.findall(r'id="exportRow".*?</div>\s*</div>', html, flags=re.S):
         assert "\u2014" not in text and "\u2013" not in text
 
