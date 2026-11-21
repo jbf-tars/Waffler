@@ -126,7 +126,8 @@ def test_no_requirements_file_installs_the_writing_models_engine():
 def test_the_mac_spec_bundles_the_writing_models_engine_only_when_it_is_installed(monkeypatch):
     import local_llm
     text = _text("Waffler_mac.spec")
-    assert "*_LLM_HIDDEN," in text and "binaries=_LLM_BINARIES," in text
+    # (The computer-sound helper is passed in the same list, after them.)
+    assert "*_LLM_HIDDEN," in text and "binaries=_LLM_BINARIES + _SYSAUDIO_BINARIES," in text
     for model in local_llm.MODELS.values():
         for f in model.files:
             assert f.name not in text and ".gguf" not in text, "the model is never bundled"
