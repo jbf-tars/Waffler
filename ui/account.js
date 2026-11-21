@@ -378,7 +378,7 @@
     go.type = 'button'; go.className = 'btn btn-sec btn-sm'; go.textContent = 'Create account or sign in';
     go.addEventListener('click', openAccount);
     const card = makeNotice({ icon: 'info', title: 'Your meetings on every device',
-      desc: 'A free account keeps them in step. Nothing changes if you don’t.', actions: [go], id: 'acctOffer' });
+      desc: 'A free account keeps them in step.', actions: [go], id: 'acctOffer' });
     const x = card.querySelector('.dismiss');
     x.setAttribute('aria-label', 'Don’t show this again');
     x.title = 'Don’t show this again';

@@ -1318,7 +1318,7 @@
             </div>
           </div>
 
-          <p class="ab-statement">A free, open-source dictation app for Mac and Windows. No account, no subscription and no Waffler server: your voice goes from this computer to the provider you set up, on your own key, and comes back as tidy text.</p>
+          <p class="ab-statement">A free, open-source dictation app for Mac and Windows.</p>
 
           <div class="sheet facts">
             <div><div class="k">Licence</div><div class="v">MIT, free for ever</div></div>
@@ -1338,6 +1338,17 @@
           </div>
 
           <p class="ab-credits"><span id="aboutUses">Speech by <span id="aboutSpeech">No key yet</span> and clean-up by <span id="aboutCleanup">No key yet</span>. </span>Set in Inter, Geist and Source Serif 4. Icons by Lucide.</p>
+
+          <!-- What a careful person may still want to know. One collapsed
+               disclosure (toggleHow). -->
+          <div class="how">
+            <button type="button" class="link-btn how-btn" id="aboutHowBtn" aria-expanded="false" aria-controls="aboutHow" onclick="toggleHow(this)">How it works<svg class="ic ic-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
+            <div class="sheet how-body" id="aboutHow" hidden>
+              <ul class="sc-rule-list">
+                <li>No account, no subscription and no Waffler server: your voice goes from this computer to the provider you set up, on your own key, and comes back as tidy text.</li>
+              </ul>
+            </div>
+          </div>
         </section>
 
       </div>
@@ -1359,7 +1370,7 @@
     <h1 class="sr-only" id="meetingsTitle" tabindex="-1">Meetings</h1>
     <iframe class="mt-frame" id="mtFrame" title="Meetings" data-src="meetings-app/index.html?embed=1"></iframe>
     <div class="mt-foot">
-      <label class="mt-foot-l" for="mtTapToggle">Tap your hotkey twice to record a meeting</label>
+      <label class="mt-foot-l" for="mtTapToggle">Double-tap hotkey to record</label>
       <input type="checkbox" class="tog" role="switch" id="mtTapToggle" checked>
     </div>
   </div>
