@@ -2753,14 +2753,13 @@ class WhisperTranscriber:
         self._cloud_backend = self._backend
         self._refresh_backend()
 
-    def _refresh_backend(self, plus: bool = False) -> str:
+    def _refresh_backend(self) -> str:
         """Set ``_backend`` to "local" when Settings says speech is turned into
         text on this computer, and back to the provider backend when it no
         longer does. Called for every recording, so the switch in Settings
-        applies to the next dictation without a restart.
-
-        ``plus``: this recording is a dictation, which goes through Waffler
-        Plus ("plus") when that is the chosen way and the account has it."""
+        applies to the next dictation without a restart. (A dictation then
+        goes through Waffler Plus, "plus", when that is the chosen way:
+        _choose_plus, from transcribe_sync.)"""
         try:
             local = _local_stt.mode_is_local()
         except Exception:
@@ -2773,8 +2772,6 @@ class WhisperTranscriber:
             self._backend = BACKEND_LOCAL
         elif not local and current == BACKEND_LOCAL:
             self._backend = getattr(self, "_cloud_backend", "api")
-        if plus:
-            self._choose_plus()
         return self._backend
 
     # ── Waffler Plus ─────────────────────────────────────────────────────────
@@ -3253,7 +3250,9 @@ class WhisperTranscriber:
         # recording; or, for a dictation, Waffler Plus when it is chosen.
         self.last_plus = None
         self.last_plus_gone = ""
-        self._refresh_backend(plus=bool(getattr(self, "plus_allowed", False)))
+        self._refresh_backend()
+        if getattr(self, "plus_allowed", False):
+            self._choose_plus()
         # Provenance, reset per recording so a stale response from an earlier
         # dictation can never be attributed to this one. These are the
         # UNTOUCHED provider words: everything below (hallucination filter,

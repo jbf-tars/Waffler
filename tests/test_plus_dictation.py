@@ -355,5 +355,7 @@ def test_the_branch_sits_where_on_this_computer_sits():
     app = (ROOT / "app.py").read_text(encoding="utf-8")
     process = app[app.index("            _whole_snippet = self._whole_snippet(transcript)"):]
     process = process[:process.index("_sty = run.call(self.styler.style")]
-    assert process.index("cleanup_is_off(_settings)") < process.index("self._plus_words(") \
-        < process.index("self._no_cleanup_key(_settings)")
+    assert process.index("self._plus_words(") < process.index(
+        "_style_layer.cleanup_is_off(_settings) or self._no_cleanup_key(_settings)")
+    words = app[app.index("    def _plus_words("):app.index("    def _plus_gone(")]
+    assert "_style_layer.cleanup_is_off(settings)" in words, "clean-up Off stays Off through Plus"

@@ -7933,14 +7933,11 @@ class WafflerPipeline:
                 _sty = _pw.CallResult("ok", value=(_whole_snippet, {
                     "input_tokens": 0, "output_tokens": 0, "api_used": False,
                     "provider": "snippet"}))
-            elif _style_layer.cleanup_is_off(_settings):
-                # Clean-up is off: no model is asked (below).
-                _sty = _pw.CallResult("ok", value=(transcript.strip(), _style_layer.off_usage()))
-            elif (_plus := self._plus_words(transcript, _asr_info)) is not None:
+            elif (_plus := self._plus_words(transcript, _asr_info, _settings)) is not None:
                 # Waffler Plus heard it and tidied it in one request: its
                 # text is the clean-up, and no model is asked here.
                 _sty = _pw.CallResult("ok", value=_plus)
-            elif self._no_cleanup_key(_settings):
+            elif _style_layer.cleanup_is_off(_settings) or self._no_cleanup_key(_settings):
                 # Clean-up is off (or, on this computer with no key at all,
                 # there is no model to ask): no model is asked. The words are what the
                 # speech service heard (after the Vocabulary above and the
@@ -8533,15 +8530,17 @@ class WafflerPipeline:
         except Exception:
             return transcript
 
-    def _plus_words(self, transcript: str, info):
+    def _plus_words(self, transcript: str, info, settings=None):
         """The clean-up step of a dictation that went through Waffler Plus:
-        (words to paste, usage), or None for any other dictation. The service
+        (words to paste, usage), or None for any other dictation (and for one
+        with the clean-up switched off: the service was asked for no tidying,
+        and the words go in as heard like any other with it off). The service
         tidied the text in the same request, so no model is asked here.
         ``cleaned`` False with a ``code`` (today's allowance is used, or its
         model could not be reached) is the "pasted without the clean-up"
         case: the words as said, and the reason for the message."""
         plus = (info or {}).get("last_plus")
-        if not isinstance(plus, dict):
+        if not isinstance(plus, dict) or _style_layer.cleanup_is_off(settings):
             return None
         usage = {"input_tokens": 0, "output_tokens": 0, "api_used": False, "provider": "plus"}
         # Words this computer took out of what was heard (a made-up ending,
@@ -9015,13 +9014,10 @@ class WafflerPipeline:
         if whole_snippet is not None:
             styled = whole_snippet
             cleanup = "snippet"
-        elif _style_layer.cleanup_is_off(settings):
-            styled = transcript.strip()
-            cleanup = _style_layer.PROVIDER_OFF
-        elif style and (plus := self._plus_words(transcript, info)) is not None:
+        elif style and (plus := self._plus_words(transcript, info, settings)) is not None:
             # Through Waffler Plus, as in _process: its text is the clean-up.
             styled, cleanup = plus[0], "plus"
-        elif self._no_cleanup_key(settings):
+        elif _style_layer.cleanup_is_off(settings) or self._no_cleanup_key(settings):
             # Off (or no key at all), as in _process: the words as heard, no model.
             styled = transcript.strip()
             cleanup = _style_layer.PROVIDER_OFF

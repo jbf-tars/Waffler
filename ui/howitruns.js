@@ -49,10 +49,13 @@
     const L = window.WafflerLogic;
     if (!$('howItRuns') || !s || !L) return;
     last = s;
-    const plus = drawPlus();
-    const local = !plus && s.mode === 'local', cloud = !plus && s.mode !== 'local';
-    $('hirLocalRadio').checked = local; $('hirCloudRadio').checked = cloud;
-    $('hirLocal').classList.toggle('is-on', local); $('hirCloud').classList.toggle('is-on', cloud);
+    const local = s.mode === 'local';
+    $('hirLocalRadio').checked = local; $('hirCloudRadio').checked = !local;
+    $('hirLocal').classList.toggle('is-on', local); $('hirCloud').classList.toggle('is-on', !local);
+    if (drawPlus()) {       // the third way is the one chosen: neither of these two is
+      $('hirLocalRadio').checked = false; $('hirCloudRadio').checked = false;
+      $('hirLocal').classList.toggle('is-on', false); $('hirCloud').classList.toggle('is-on', false);
+    }
     const v = L.speechRowView(s);
     const dl = $('hirDownload');
     $('hirBar').hidden = !v.bar; $('hirBarFill').style.width = v.percent + '%';
