@@ -1649,9 +1649,16 @@ class Api:
                              "count": n, "last": u.get("last") or ""})
             import vocab_rank as _vr
             from transcribe_whisper import everyday_sounds_pending
+            # Stars only order the words sent as a prompt, and Groq is sent
+            # none: the page hides them while they would change nothing.
+            try:
+                prompt_used = bool(_pipeline.transcriber.takes_vocab_prompt())
+            except Exception:
+                prompt_used = False      # setup is still up, or nobody listens yet
             return {"ok": True, "entries": rows, "total": total,
                     "recent": usage["recent"], "starred": _vr.load_stars(words),
-                    "everyday": everyday_sounds_pending(words)}
+                    "everyday": everyday_sounds_pending(words),
+                    "prompt_used": prompt_used}
         except Exception as e:
             _log_to_file(f"[vocab] get_vocab_book failed: {type(e).__name__}: {e}")
             return {"ok": False, "entries": [], "total": 0, "recent": []}

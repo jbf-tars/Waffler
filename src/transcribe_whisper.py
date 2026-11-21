@@ -2846,6 +2846,24 @@ class WhisperTranscriber:
 
     # ── Which cloud provider failed, and for how long to leave it alone ──────
 
+    def takes_vocab_prompt(self) -> bool:
+        """Whether a dictation made now would carry the Vocabulary as its
+        prompt: the model on this computer and OpenAI are given it
+        (vocab_prompt_hint), Groq is not (see _transcribe_groq) unless the
+        owner's switch is set. It is the first provider in the order that
+        has a key that counts, as that one hears a dictation. The Vocabulary
+        page asks, to hide the stars while they would change nothing."""
+        try:
+            if self._refresh_backend() in LOCAL_BACKENDS:
+                return True
+            order = getattr(self, "_cloud_order", None) or ["groq", "openai"]
+            first = next((p for p in order if self._has_client(p)), None)
+            if first == "groq":
+                return os.environ.get("WAFFLER_WHISPER_PROMPT") == "1"
+            return first == "openai"
+        except Exception:
+            return False
+
     def _has_client(self, prov: str) -> bool:
         if prov == "groq":
             return getattr(self, "_groq_client", None) is not None

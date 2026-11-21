@@ -88,3 +88,74 @@ def test_only_the_openai_and_local_paths_use_the_ranked_prompt_and_groq_still_se
                                        if isinstance(c, ast.Call) and isinstance(c.func, ast.Name)}
     # Groq's prompt is still off unless the owner's switch is set.
     assert 'os.environ.get("WAFFLER_WHISPER_PROMPT") == "1"' in ast.get_source_segment(src, groq)
+
+
+# ── does the words-as-a-prompt reach the speech service at all? ──────────────
+# Stars and the ranking only decide what goes into the prompt. Groq is sent no
+# prompt, so with Groq doing the listening they change nothing, and the page
+# hides them rather than show controls that do nothing (get_vocab_book,
+# "prompt_used").
+
+def _t(backend="groq", order=("groq", "openai"), groq=True, openai=True):
+    t = object.__new__(tw.WhisperTranscriber)
+    t._backend = backend
+    t._cloud_order = list(order)
+    t._groq_client = object() if groq else None
+    t.client = object() if openai else None
+    return t
+
+
+@pytest.mark.parametrize("kwargs, want", [
+    (dict(), False),                                              # Groq first: no prompt
+    (dict(openai=False), False),                                  # Groq only
+    (dict(order=("openai", "groq")), True),                       # OpenAI first
+    (dict(groq=False, backend="api"), True),                      # OpenAI only
+    (dict(order=("groq", "openai"), groq=False), True),           # Groq listed first but no key for it
+    (dict(backend="local"), True),                                # the model on this computer
+    (dict(backend="local", groq=False, openai=False), True),
+    (dict(groq=False, openai=False, backend="api"), False),       # nobody to send it to
+])
+def test_whether_the_prompt_reaches_whoever_listens(monkeypatch, kwargs, want):
+    monkeypatch.delenv("WAFFLER_WHISPER_PROMPT", raising=False)
+    monkeypatch.setattr(tw.WhisperTranscriber, "_refresh_backend", lambda self: self._backend)
+    assert _t(**kwargs).takes_vocab_prompt() is want
+
+
+def test_the_owners_switch_sends_it_to_groq_too(monkeypatch):
+    monkeypatch.setattr(tw.WhisperTranscriber, "_refresh_backend", lambda self: self._backend)
+    monkeypatch.setenv("WAFFLER_WHISPER_PROMPT", "1")
+    assert _t().takes_vocab_prompt() is True
+
+
+def _book(ns_extra):
+    tree = ast.parse((ROOT / "app.py").read_text(encoding="utf-8"))
+    api = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "Api")
+    node = next(n for n in api.body if isinstance(n, ast.FunctionDef) and n.name == "get_vocab_book")
+
+    class Cache:
+        def vocab_usage(self):
+            return {"by_entry": {}, "recent": []}
+
+    ns = {"_history_cache": Cache(), "_log_to_file": lambda m: None, **ns_extra}
+    exec(compile(ast.Module([node], []), "<app.py>", "exec"), ns)
+    return ns["get_vocab_book"](None)
+
+
+@pytest.mark.parametrize("takes", [True, False])
+def test_the_page_is_told(tmp_path, monkeypatch, takes):
+    monkeypatch.setattr(tw, "VOCAB_FILE", tmp_path / "vocab.json")
+    monkeypatch.setattr(tw, "VOCAB_SOUNDS_FILE", tmp_path / "vocab_sounds.json")
+    monkeypatch.setenv("WAFFLER_DATA_DIR", str(tmp_path))
+    import types
+    pipeline = types.SimpleNamespace(transcriber=types.SimpleNamespace(takes_vocab_prompt=lambda: takes))
+    book = _book({"_pipeline": pipeline})
+    assert book["ok"] and book["prompt_used"] is takes
+
+
+def test_before_the_app_is_listening_the_answer_is_no(tmp_path, monkeypatch):
+    monkeypatch.setattr(tw, "VOCAB_FILE", tmp_path / "vocab.json")
+    monkeypatch.setattr(tw, "VOCAB_SOUNDS_FILE", tmp_path / "vocab_sounds.json")
+    monkeypatch.setenv("WAFFLER_DATA_DIR", str(tmp_path))
+    assert _book({"_pipeline": None})["prompt_used"] is False       # during setup
+    assert _book({})["prompt_used"] is False
+    assert _book({})["ok"] is True
