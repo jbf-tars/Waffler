@@ -67,11 +67,11 @@
     const a = api(); if (!a) { showToast('App not ready yet', 'error'); return; }
     const btn = $('jRecord'); if (btn) btn.disabled = true;
     try {
-      const r = await a.meetings_toggle();
-      if (!r || !r.ok) showToast((r && r.error) || 'The meeting couldn’t be recorded. Try again.', 'error');
-      else if (r.ignored) { /* a second press straight after the first */ }
-      else if (r.started) showToast('Recording the meeting. Tap your hotkey twice to finish.', 'success');
-      else if (r.note_id) showToast('Meeting finished. The notes are being written.', 'success');
+      // Nothing is said here: the meeting bar shows that a meeting is being
+      // recorded and when its notes are being written, and one that could
+      // not be recorded is said once, by the small pill (app.py
+      // _say_meeting_failed).
+      await a.meetings_toggle();
     } finally { if (btn) btn.disabled = false; refreshState(); tell({ type: 'meetings-refresh' }); }
   }
 

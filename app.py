@@ -151,6 +151,7 @@ import mac_permissions as _mac_perms
 import snippets as _snippets
 import style_layer as _style_layer
 import notifier as _notifier
+import pill as _pill
 import sounds as _sound_cues
 import hold_hint as _hold_hint
 import take_limit as _take_limit
@@ -1036,10 +1037,18 @@ class Api:
     def meetings_toggle(self) -> dict:
         """Start a meeting recording, or finish the one running."""
         try:
-            return _get_meetings().toggle()
+            result = _get_meetings().toggle()
         except Exception as e:  # noqa: BLE001
             _log_to_file(f"[meetings] toggle failed: {type(e).__name__}: {e}")
-            return {"ok": False, "error": "The meeting couldn't be recorded. Try again."}
+            result = {"ok": False, "error": "Try again."}
+        # A meeting that could not be recorded is said once, by the small
+        # pill, however it was started (the window no longer says it too).
+        try:
+            if not result.get("ok") and not result.get("ignored") and _pipeline is not None:
+                _pipeline._say_meeting_failed(result)
+        except Exception as e:  # noqa: BLE001
+            _log_to_file(f"[meetings] failure not said: {type(e).__name__}")
+        return result
 
     def meetings_list(self, query: str = "") -> list:
         try:
@@ -6099,13 +6108,14 @@ class WafflerPipeline:
         if result.get("ignored"):
             _log_to_file("[meetings] a second toggle straight after the first: ignored")
         elif not result.get("ok"):
-            self._show_toast_safe("error", "The meeting couldn't be recorded",
-                                  result.get("error") or "Try again.", timeout=8)
+            self._say_meeting_failed(result)
         elif _platform.system() == "Darwin":
             # The meeting bar says both: it appears with the time when a
             # meeting starts, and reads "Writing the notes" when it is
             # finished. A pop-up on top of that is one thing too many.
             pass
+        # Windows has no meeting bar, so there the two lines stay, as the
+        # small pill: a tick and three words, two seconds.
         elif result.get("started"):
             self._show_toast_safe("info", "Recording the meeting",
                                   f"Tap {key} twice again to finish. You can still hold it to dictate.",
@@ -6608,6 +6618,15 @@ class WafflerPipeline:
             run.close_offer()
         elif action == "open_journal":
             self._show_journal()
+        elif action == _pill.KEYS_ACTION:
+            # "Add key" and "Settings" on a pill: Settings, Keys and providers.
+            self._show_settings_section("keys")
+        elif action == _pill.RESTART_ACTION:
+            # "Restart" on "Mic is stuck": quit and open Waffler again, which
+            # is what the old message asked the person to do by hand. Off the
+            # overlay's reader thread.
+            threading.Thread(target=self._restart_from_pill, daemon=True,
+                             name="RestartFromPill").start()
         elif action.startswith("show_transform"):
             # A transform's "Show in Journal": the Journal opens on its entry,
             # with the before and after (ui/app.js waffler_show_transform).
@@ -6679,6 +6698,35 @@ class WafflerPipeline:
             except Exception as e:
                 _log_to_file(f"select_mic action failed: {e}")
             self.overlay.hide_toast()
+
+    def _show_settings_section(self, section: str):
+        """Bring the window forward at a section of Settings. Never raises."""
+        try:
+            if _window is None:
+                _log_to_file("[pill] no window to show Settings in")
+                return
+            _window.show()
+            if hasattr(_window, "restore"):
+                _window.restore()
+            _window.evaluate_js(
+                "if (typeof showPage === 'function') { showPage('settings'); }"
+                f" if (typeof showSettingsSection === 'function') {{ showSettingsSection({json.dumps(section)}); }}")
+        except Exception as e:
+            _log_to_file(f"[pill] Settings not shown: {type(e).__name__}")
+
+    def _restart_from_pill(self):
+        try:
+            _log_to_file("[pill] restarting Waffler: the person pressed Restart")
+            Api().restart_app()
+        except Exception as e:
+            _log_to_file(f"[pill] restart failed: {type(e).__name__}")
+
+    def _say_meeting_failed(self, result):
+        """The one message for a meeting that could not be recorded, whether
+        it was started with two taps of the hotkey or from the window."""
+        self._show_toast_safe("error", "The meeting couldn't be recorded",
+                              (result or {}).get("error") or "Try again.", timeout=8,
+                              reposition=True)
 
     # ── The pill between dictations and its hover menu (src/idle_pill.py) ─────
     # Mac only. The overlay draws the idle pill and the menu; these answer it.
@@ -7227,19 +7275,14 @@ class WafflerPipeline:
                 return
             if not self._toast_allowed("no_audio"):
                 return
+            # "Didn't hear you", with one button for the microphone. It has a
+            # button, so it stays until that or its cross is used; the next
+            # press of the hotkey takes it down as well.
             self.overlay.show_toast(
                 style="error",
                 heading="We couldn't hear you",
                 body="Check your mic is connected and not muted.",
             )
-            # Auto-hide after 4 seconds. show_toast also has a per-style
-            # auto-dismiss timer in the subprocess; this is a belt-and-braces
-            # cleanup if the user never dismisses and that timer fails.
-            import time as _t
-            _t.sleep(4)
-            # Only this style, so a newer message or offer is left alone.
-            self.overlay.hide_toast(style="error")
-            self._notifier.release("no_audio")
         except Exception as e:
             _log_to_file(f"[overlay] no-audio toast failed: {e}")
 
@@ -8261,30 +8304,20 @@ class WafflerPipeline:
         return text, info
 
     def _announce_failover(self, run, asr_info, gpt_usage):
-        """Say, in one plain sentence, that another provider did the work
-        because the first could not be reached from this network (usually a
-        VPN). The transcriber and the styler only RECORD it
-        (``last_failovers``, the clean-up's ``failovers``); this is called once
-        the words are pasted, so no toast ever sits on the hot path. The
-        notifier lets one through per provider per half hour
-        (src/notifier.py ``failover_*``), and not while a newer recording has
-        the pill. Never raises."""
+        """Another provider did the work because the first could not be
+        reached from this network (usually a VPN). It used to be said in a
+        pop-up ("Used OpenAI instead"); it is not a pop-up any more: it just
+        happens, and one line in the log says so. The transcriber and the
+        styler only RECORD it (``last_failovers``, the clean-up's
+        ``failovers``). Never raises."""
         try:
-            if not self._run_is_current(run):
-                return
             events = list((asr_info or {}).get("last_failovers") or ())
             events += list((gpt_usage or {}).get("failovers") or ())
             for event in _net_health.notice_candidates(events):
-                if not self._toast_allowed(_net_health.FAILOVER_KINDS[event["provider"]]):
-                    continue
-                heading, body = _user_messages.failover_message(
-                    event["provider"], event["used"], event["kind"])
-                self._show_toast_safe("info", heading, body, timeout=8)
-                _log_to_file(f"[net] told the person: {event['provider']} {event['kind']}, "
-                             f"{event['used']} used for the {event['stage']}")
-                break
+                _log_to_file(f"[net] {event['provider']} {event['kind']}: {event['used']} used "
+                             f"for the {event['stage']} (no message: it just happens)")
         except Exception as _e:
-            _log_to_file(f"[net] notice skipped ({type(_e).__name__})")
+            _log_to_file(f"[net] note skipped ({type(_e).__name__})")
 
     def _unstyled(self, transcript: str) -> str:
         """The words as said, with only the regex tidy-up the styler falls

@@ -13,9 +13,13 @@ What a kind carries
 ``min_gap_s`` the least time between two showings.
 ``category``  tips of one family (the user can hide a whole family).
 ``sound``     a cue to play with it, if the person has sounds on.
-``hold_s``    how long it holds the one toast slot (the overlay hides a toast
-              after about 6 s on a Mac and 9 s on Windows; None means "until
-              it is answered or withdrawn").
+``hold_s``    how long it holds the one toast slot. Every message is the small
+              pill now (src/pill.py): Done goes after 2 s, a Problem after 6,
+              and a Problem with a button stays until its button or its cross
+              is used, which is what None means here ("until it is answered
+              or withdrawn"). The kinds whose pill always has a button
+              (a permission, "Didn't hear you", "Not sent. Saved") hold the
+              slot that way.
 
 The rules
 ---------
@@ -112,16 +116,16 @@ _HOUR = 3600.0
 # every ten minutes). Where each is raised: app.py, by its id.
 _REGISTRY = (
     # Permissions (src/mac_permissions.py asks at key-down, and while idle).
-    Kind("permission_microphone", ERROR, min_gap_s=60, hold_s=12),
-    Kind("permission_accessibility", ERROR, min_gap_s=60, hold_s=12),
-    Kind("permission_accessibility_idle", ERROR, min_gap_s=math.inf, hold_s=12),
-    Kind("permission_keyboard", ERROR, min_gap_s=600, hold_s=12),
+    Kind("permission_microphone", ERROR, min_gap_s=60, hold_s=None),
+    Kind("permission_accessibility", ERROR, min_gap_s=60, hold_s=None),
+    Kind("permission_accessibility_idle", ERROR, min_gap_s=math.inf, hold_s=None),
+    Kind("permission_keyboard", ERROR, min_gap_s=600, hold_s=None),
     # Pasting.
     Kind("paste_failed", ERROR, min_gap_s=30),
     Kind("paste_timed_out", ERROR),
-    Kind("clipboard_copy_failed", ERROR),
+    Kind("clipboard_copy_failed", ERROR, hold_s=None),
     # The microphone and the recording.
-    Kind("no_audio", ERROR),
+    Kind("no_audio", ERROR, hold_s=None),
     Kind("mic_reset", ERROR),
     Kind("mic_dropped_out", ERROR),
     Kind("mic_slow_to_stop", ERROR),
@@ -136,11 +140,11 @@ _REGISTRY = (
     # Waiting on a provider.
     Kind("still_working", INFO, hold_s=None),
     Kind("pipeline_stuck", ERROR),
-    Kind("not_sent", ERROR),
+    Kind("not_sent", ERROR, hold_s=None),
     Kind("cleanup_skipped", ERROR),
     Kind("limit_reached", ERROR),
     Kind("connection_failed", ERROR),
-    Kind("access_denied", ERROR),
+    Kind("access_denied", ERROR, hold_s=None),
     Kind("pipeline_error", ERROR),
     # A provider could not be reached from this network (a VPN is the usual
     # reason) and another one did the work: said once per provider per half
@@ -174,7 +178,7 @@ _REGISTRY = (
     # new to Waffler is asked about once for each device (src/mic_hotplug.py
     # keeps that), and the closed-lid hint is said once a day.
     Kind("mic_disconnected", ERROR, hold_s=8),
-    Kind("mic_cant_hear", ERROR, min_gap_s=60, hold_s=12),
+    Kind("mic_cant_hear", ERROR, min_gap_s=60, hold_s=None),
     Kind("mic_detected", TIP, category="hints", hold_s=20),
     Kind("lid_closed", TIP, min_gap_s=24 * _HOUR, category="hints", hold_s=10),
     # Tips. The hint stays up 10 s (src/hold_hint.py HINT_SECONDS).
