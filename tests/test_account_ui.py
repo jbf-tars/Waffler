@@ -90,7 +90,8 @@ def test_the_section_follows_the_settings_look():
     flow = flow[:flow.index("\n  }\n")]
     assert "const el = (name) => $(p + name);" in flow and "signInFlow('acct'," in page
     for ident in ids:
-        if ident != "secAccount" and ident not in named:
+        # (acctHowBtn is the "How it works" disclosure: app.js toggleHow opens it.)
+        if ident not in ("secAccount", "acctHowBtn") and ident not in named:
             assert f"'{ident}'" in page or f"el('{ident.removeprefix('acct')}')" in flow, \
                 f"{ident} is in the page but account.js never uses it"
     for ident in named:
@@ -143,8 +144,11 @@ def test_signed_in_shows_who_sync_devices_claude_and_sign_out():
                          ("acctSignOut", "Sign out")):
         assert re.search(rf'<button type="button" class="btn btn-\w+ btn-sm" id="{ident}"[^>]*>{label}</button>',
                          inn), ident
-    assert ('<p class="s-note" id="acctClaudeNote">The link is a secret. Anyone who has it can read every '
-            'meeting in your account, so paste it only into Claude.</p>') in inn
+    assert '<p class="s-note" id="acctClaudeNote">Keep the link secret, and paste it only into Claude.</p>' in inn
+    # Why, in full, is under "How it works".
+    how = inn[inn.index('id="acctHow"'):]
+    assert ("The Claude link is a secret. Anyone who has it can read every meeting in your account, so paste "
+            "it only into Claude.") in how
     assert '<p class="s-error" id="acctInError" role="alert" hidden></p>' in inn
 
 

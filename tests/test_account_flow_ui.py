@@ -142,19 +142,21 @@ def test_setup_shows_the_step_only_when_offered_and_never_blocks_finishing():
 
 # ── Settings, signed out: one clear flow ────────────────────────────────────
 
-def test_signed_out_is_one_heading_one_field_one_button_and_three_plain_lines():
+def test_signed_out_is_one_heading_one_field_one_button_and_one_plain_line():
     sec = section()
     out = sec[sec.index('id="acctOut"'):sec.index('id="acctIn"')]
     assert '<h2 class="acct-title" id="acctOutTitle">Create your account or sign in</h2>' in out
     email = out[out.index('id="acctEmailRow"'):out.index('id="acctCodeRow"')]
     assert email.count("<input") == 1 and email.count("<button") == 1
     assert '<button type="submit" class="btn btn-pri btn-sm" id="acctSend">Email me a code</button>' in email
-    lines = re.findall(r"<li>(.*?)</li>", email)
-    assert lines == ["New here? This creates your free account.",
-                     "Already have one? This signs you in.",
-                     "No password. We email you a 6-digit code."]
+    # One line under the field (the heading already says it creates or signs in).
+    assert re.findall(r"<li>(.*?)</li>", email) == []
+    assert '<div class="row-d acct-how" id="acctEmailDesc">No password. We email you a 6-digit code.</div>' in email
     assert re.search(r'<input type="email" id="acctEmail"[^>]*aria-describedby="acctEmailDesc"', email)
-    assert '<ul class="acct-how" id="acctEmailDesc">' in email
+    # That one address does both is said in full under "How it works".
+    how = text_of(sec[sec.index('id="acctHow"'):])
+    assert ("New here? Your email creates your free account. Already have one? It signs you in. "
+            "There is no password: we email you a 6-digit code.") in how
     assert "password" not in text_of(out).replace("No password.", "").lower()
 
 
@@ -256,8 +258,15 @@ def test_signed_in_shows_sign_out_and_delete_with_what_each_leaves():
     sec = section()
     inn = sec[sec.index('id="acctIn"'):]
     assert '<p class="s-note" id="acctWelcome" role="status" hidden></p>' in inn
-    assert ('<div class="row-t">Sign out</div><div class="row-d" id="acctSignOutDesc">Your meetings and '
-            "dictations stay on this computer. They stop syncing until you sign in again.</div>") in inn
+    assert ('<div class="row-t">Sign out</div><div class="row-d" id="acctSignOutDesc">Everything stays on '
+            "this computer.</div>") in inn
+    assert ('<div class="row-t">Delete my account</div><div class="row-d" id="acctDeleteDesc">For good. '
+            "Meetings on this computer stay.</div>") in inn
+    how = text_of(inn[inn.index('id="acctHow"'):])
+    assert ("When you sign out, your meetings and dictations stay on this computer. They stop syncing until "
+            "you sign in again.") in how
+    assert ("Delete my account removes the account and everything stored in it, for good. Meetings already on "
+            "this computer stay.") in how
     assert re.search(r'<button type="button" class="btn btn-sec btn-sm" id="acctSignOut" '
                      r'aria-describedby="acctSignOutDesc">Sign out</button>', inn)
     assert re.search(r'<button type="button" class="btn btn-danger btn-sm" id="acctDelete" '

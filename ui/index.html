@@ -204,12 +204,12 @@
              a shared screen. -->
         <section class="s-sec" id="secAccount" data-sec="account" hidden>
           <h1 class="ptitle">Account</h1>
-          <p class="pdesc">One free account keeps your meetings in step on every device you sign in on. Your dictations stay on this computer.</p>
+          <p class="pdesc">Your meetings, on every device you sign in on.</p>
 
           <div id="acctOff" hidden>
             <div class="sheet">
               <div class="row">
-                <div class="row-main"><div class="row-t">Accounts are coming soon</div><div class="row-d">Until then everything stays on this computer, as it always has.</div></div>
+                <div class="row-main"><div class="row-t">Accounts are coming soon</div><div class="row-d">For now, everything stays on this computer.</div></div>
               </div>
             </div>
           </div>
@@ -225,11 +225,7 @@
                     <input type="email" id="acctEmail" class="input" placeholder="you@example.com" aria-describedby="acctEmailDesc" autocomplete="email" autocapitalize="off" spellcheck="false">
                     <button type="submit" class="btn btn-pri btn-sm" id="acctSend">Email me a code</button>
                   </form>
-                  <ul class="acct-how" id="acctEmailDesc">
-                    <li>New here? This creates your free account.</li>
-                    <li>Already have one? This signs you in.</li>
-                    <li>No password. We email you a 6-digit code.</li>
-                  </ul>
+                  <div class="row-d acct-how" id="acctEmailDesc">No password. We email you a 6-digit code.</div>
                 </div>
               </div>
               <div class="row" id="acctCodeRow" hidden>
@@ -282,16 +278,16 @@
                 <button type="button" class="btn btn-danger btn-sm" id="acctClaudeYes"></button>
               </div>
             </div>
-            <p class="s-note" id="acctClaudeNote">The link is a secret. Anyone who has it can read every meeting in your account, so paste it only into Claude.</p>
+            <p class="s-note" id="acctClaudeNote">Keep the link secret, and paste it only into Claude.</p>
 
             <h2 class="sh2">Sign out or delete</h2>
             <div class="sheet">
               <div class="row">
-                <div class="row-main"><div class="row-t">Sign out</div><div class="row-d" id="acctSignOutDesc">Your meetings and dictations stay on this computer. They stop syncing until you sign in again.</div></div>
+                <div class="row-main"><div class="row-t">Sign out</div><div class="row-d" id="acctSignOutDesc">Everything stays on this computer.</div></div>
                 <button type="button" class="btn btn-sec btn-sm" id="acctSignOut" aria-describedby="acctSignOutDesc">Sign out</button>
               </div>
               <div class="row">
-                <div class="row-main"><div class="row-t">Delete my account</div><div class="row-d" id="acctDeleteDesc">The account and everything stored in it, for good. Meetings already on this computer stay.</div></div>
+                <div class="row-main"><div class="row-t">Delete my account</div><div class="row-d" id="acctDeleteDesc">For good. Meetings on this computer stay.</div></div>
                 <button type="button" class="btn btn-danger btn-sm" id="acctDelete" aria-describedby="acctDeleteDesc" aria-expanded="false" aria-controls="acctDeleteConfirm">Delete my account…</button>
               </div>
               <!-- Says exactly what goes and what stays, and needs the word
@@ -310,6 +306,21 @@
               </div>
             </div>
             <p class="s-error" id="acctInError" role="alert" hidden></p>
+          </div>
+
+          <!-- What a careful person may still want to know. One collapsed
+               disclosure (toggleHow). -->
+          <div class="how">
+            <button type="button" class="link-btn how-btn" id="acctHowBtn" aria-expanded="false" aria-controls="acctHow" onclick="toggleHow(this)">How it works<svg class="ic ic-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
+            <div class="sheet how-body" id="acctHow" hidden>
+              <ul class="sc-rule-list">
+                <li>One free account keeps your meetings in step on every device you sign in on. Your dictations stay on this computer.</li>
+                <li>New here? Your email creates your free account. Already have one? It signs you in. There is no password: we email you a 6-digit code.</li>
+                <li>The Claude link is a secret. Anyone who has it can read every meeting in your account, so paste it only into Claude.</li>
+                <li>When you sign out, your meetings and dictations stay on this computer. They stop syncing until you sign in again.</li>
+                <li>Delete my account removes the account and everything stored in it, for good. Meetings already on this computer stay.</li>
+              </ul>
+            </div>
           </div>
         </section>
 
