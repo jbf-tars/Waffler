@@ -75,7 +75,12 @@ def test_the_shortcuts_page_carries_it_and_its_rows_are_as_they_were(tmp_path):
     assert answer["ok"] is True and answer["double_tap_handsfree"] is True
     assert [r["id"] for r in answer["rows"]] == ["dictation", "hands_free", "cancel", "transform",
                                                  "command", "paste_last", "copy_last"]
-    assert set(answer) == {"ok", "platform", "rows", "rules", "double_tap_handsfree"}
+    # (And the other use of two taps, "Double-tap to record a meeting", the row
+    # under this one: on unless switched off.)
+    assert set(answer) == {"ok", "platform", "rows", "rules", "double_tap_handsfree", "meeting_double_tap"}
+    assert answer["meeting_double_tap"] is True
+    api, _save, _get, page = methods(tmp_path, {"meeting_double_tap": False})
+    assert page(api)["meeting_double_tap"] is False and page(api)["double_tap_handsfree"] is False
 
 
 # ── writing ──────────────────────────────────────────────────────────────────
