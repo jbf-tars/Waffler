@@ -30,7 +30,7 @@ PYTHON=.build-env/venv/bin/python WAFFLER_BUILD_NO_COPY=1 ./build_mac.sh
 |---|---|
 | `Waffler --self-check --complete` in the built app | passes: 25 modules, 17 files and the meetings page's own scripts, whisper.cpp and llama.cpp both answer with Metal, the computer-sound helper, anthropic and ffmpeg are inside |
 | `Waffler --mcp` over a seeded meeting and three dictations | `initialize`, `tools/list` (8 tools), `get_latest_meeting`, `search_dictations` all answer; stdout is protocol only |
-| `Waffler --overlay`, driven by `scripts/drive_overlay.py --app` | drew Done, Your call, Problem, Working then Done; its log has a `pill:` line for each; both buttons answered |
+| `Waffler --overlay`, driven by `scripts/drive_overlay.py --app` | drew Done, Your call, Problem, Working then Done, and the Problem in its resting place and above a dictation pill; its log has a `pill:` line for each; both buttons answered |
 | `Waffler --self-check --audio memo.m4a`, no ffmpeg on the PATH | a 2.0 s `.m4a` made with `afconvert` is decoded by the app's own ffmpeg |
 | DMG mounts; `codesign --verify --deep --strict` on the app inside | valid; the app copied out of the DMG passes the same three checks |
 | `scripts/check_macos_minos.py dist/Waffler.app` | OK against the declared 14.0.0 |
@@ -206,15 +206,15 @@ and nothing about the release. All of this needs the Developer ID build:
 |---|---|---|
 | The last release, per RELEASE.md | | about 24 MB |
 | This branch, engines and helper, before ffmpeg and anthropic | 99 MB | 49,561,243 bytes (49.6 MB) |
-| This branch as it is now | 153 MB | 76,960,629 bytes (77.0 MB) |
+| This branch as it is now | 154 MB | 77,461,258 bytes (77.5 MB) |
 
-So `imageio-ffmpeg` and `anthropic` together add about 54 MB to the app and
-about 27 MB to the download. (The DMG's size moves by a megabyte or so from
-one build of the same code to the next; three builds gave 77.0 to 78.8 MB.)
+So `imageio-ffmpeg` and `anthropic` together add about 55 MB to the app and
+about 28 MB to the download. (The DMG's size moves by a megabyte or so from
+one build of the same code to the next; four builds gave 77.0 to 78.8 MB.)
 Almost all of it is the ffmpeg program (49 MB on disk); anthropic is Python
 source and compresses to very little.
 
-Where the 153 MB goes: ffmpeg 49 MB, llama.cpp 35 MB, Python itself 16 MB,
+Where the 154 MB goes: ffmpeg 49 MB, llama.cpp 35 MB, Python itself 16 MB,
 NumPy 7 MB, the rest small. The llama.cpp figure is three times what it needs
 to be: pip installs each library under three names (`libllama.dylib`,
 `libllama.1.dylib`, `libllama.1.0.0.dylib`) as three real files, and
@@ -321,15 +321,17 @@ model (5.2 GB) are downloaded from Settings.
 
 - The whole suite, in the environment the tests are normally run in
   (`/Users/james/waffler/venv`, Python 3.14.4), after the last change:
-  **8,530 passed, 18 skipped, 0 failed** (8,516 passed before this branch;
-  the 14 more are 11 in `tests/test_self_check.py` and 3 that came with the
-  merge of `one-app`).
+  **8,547 passed, 18 skipped, 0 failed**. 8,516 passed before this branch;
+  of the 31 more, 11 are in `tests/test_self_check.py` and 20 came with the
+  two merges of `one-app` (the Windows computer-sound packaging tests and
+  the lower pop-ups).
 - The whole suite once in the build environment too (Python 3.11.14 with the
   versions a clean release build installs, openai 3.57.0 among them):
   8,517 passed, 21 skipped, 1 failed. The one failure was a packaging test
   that reads `Waffler_mac.spec` for an exact line this branch had changed; it
   was corrected and that file then passed in both environments. The full
-  suite was not run a second time in the build environment.
+  suite was not run a second time in the build environment, and that run
+  was before the second merge of `one-app`.
 - `scripts/check_doc_drift.py` is clean. It had one finding on `one-app`
   (the meetings' OpenAI model preference list in `src/meetings/llm.py`),
   settled the way the guard asks, with `# doc-drift-ok` on that line.
