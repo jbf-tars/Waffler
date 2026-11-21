@@ -78,7 +78,10 @@ def test_ending_work_says_done_or_quiet_and_nothing_else():
     assert o._visible is False
 
 
-def test_toasts_can_carry_up_to_three_buttons_and_be_withdrawn_by_style():
+def test_the_offer_is_one_button_and_a_cross_and_is_withdrawn_by_style():
+    """The offer had three buttons. It is the small pill now: "Send later" is
+    its one button, the cross is the old Cancel, and "Keep waiting" is what
+    leaving it alone does (src/pill.py)."""
     o = _overlay()
     o.show_toast("info", "Still working on it", "Slow.", buttons=[
         {"label": "Keep waiting", "action": "keep_waiting", "kind": "primary"},
@@ -89,17 +92,21 @@ def test_toasts_can_carry_up_to_three_buttons_and_be_withdrawn_by_style():
     o.hide_toast(style="info")
     o.hide_toast()
     toast, hide_info, hide_any = o._process.stdin.lines
-    assert [b["label"] for b in toast["buttons"]] == ["Keep waiting", "Send later", "Cancel"]
-    assert toast["buttons"][1]["kind"] == "secondary"
+    assert toast["pill"]["button"] == {"label": "Send later", "action": "send_later"}
+    assert toast["pill"]["close"] == "cancel_processing"
+    assert toast["pill"]["seconds"] is None, "it stays until answered or withdrawn"
+    assert "buttons" not in toast
     assert hide_info == {"type": "hide_toast", "style": "info"}
     assert hide_any == {"type": "hide_toast"}
 
 
-def test_a_toast_without_buttons_is_sent_as_before():
+def test_a_message_nobody_listed_is_still_one_small_pill():
     o = _overlay()
     o.show_toast("warn", "Heading", "Body")
     assert o._process.stdin.lines == [
-        {"type": "show_toast", "style": "warn", "heading": "Heading", "body": "Body"}]
+        {"type": "show_toast", "style": "warn", "pill": {
+            "kind": "problem", "text": "Heading", "button": None, "close": None, "click": None,
+            "seconds": 6.0, "description": "Heading. Body"}}]
 
 
 # ── both overlay processes speak the same commands ──────────────────────────
@@ -154,13 +161,15 @@ def test_the_ripple_and_the_elapsed_time_match_on_both_platforms():
     assert all(win["elapsed_text"](s) == pw.elapsed_label(s) for s in (0, 9, 61, 3600))
 
 
-def test_both_platforms_use_the_same_toast_button_colours():
-    def kinds(path):
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        node = next(n for n in tree.body if isinstance(n, ast.Assign)
-                    and getattr(n.targets[0], "id", "") == "TOAST_BTN_KINDS")
-        return ast.literal_eval(node.value)
-    assert kinds(WIN) == kinds(MAC)
+def test_both_platforms_draw_the_pill_from_the_same_numbers():
+    """The old card had its button colours written out twice. The pill's
+    sizes and colours are in src/pill.py, and both overlays read them there."""
+    for path in (WIN, MAC):
+        src = path.read_text(encoding="utf-8")
+        assert "TOAST_BTN_KINDS" not in src
+        for name in ("_pl.FILL", "_pl.HAIRLINE_ALPHA", "_pl.GOLD", "_pl.DOTS", "_pl.RED", "_pl.INK_QUIET",
+                     "_pl.BUTTON_FILL", "_pl.BUTTON_INK", "_pl.CROSS", "_pl.TICK_POINTS", "_pl.MARK"):
+            assert name in src, f"{path.name} does not use {name}"
 
 
 # ── the Windows overlay, for real (Tk) ───────────────────────────────────────
@@ -243,12 +252,18 @@ def test_windows_pill_skips_the_tick_when_a_message_is_up_and_leaves_the_message
     ow._handle_cmd({"type": "working_end", "result": "done"})
     assert ow._mode == "recording" and not ow._visible
     assert ow._toast_win is not None, "ending the work must not close the message"
+    assert ow._toast_pill.kind == "problem", "and a Problem is not turned into Done"
     # Withdrawing an offer ("info") leaves a different message alone.
     ow._handle_cmd({"type": "hide_toast", "style": "info"})
     assert ow._toast_win is not None
 
 
-def test_windows_offer_toast_shows_its_own_buttons(tk_overlay):
+def _pill_texts(ow):
+    c = ow._toast_win.winfo_children()[0]
+    return [c.itemcget(i, "text") for i in c.find_all() if c.type(i) == "text"]
+
+
+def test_windows_the_offer_is_one_small_pill_with_one_button(tk_overlay):
     ow, root, canvas, emitted = tk_overlay
     ow._handle_cmd({"type": "working", "elapsed_seconds": 9})
     ow._show_toast("info", "Still working on it", "Slow.", buttons=[
@@ -256,10 +271,35 @@ def test_windows_offer_toast_shows_its_own_buttons(tk_overlay):
         {"label": "Send later", "action": "send_later", "kind": "secondary"},
         {"label": "Cancel", "action": "cancel_processing", "kind": "danger"},
     ])
-    c = ow._toast_win.winfo_children()[0]
-    labels = [c.itemcget(i, "text") for i in c.find_all() if c.type(i) == "text"]
-    assert labels[-3:] == ["Keep waiting", "Send later", "Cancel"]
-    assert "Select mic" not in labels
+    assert _pill_texts(ow) == ["Still working", "Send later"]
+    assert int(ow._toast_win.winfo_children()[0].cget("height")) == 40
+
+
+def test_windows_a_message_does_not_hide_the_dictation_pill(tk_overlay):
+    ow, root, canvas, emitted = tk_overlay
+    ow._handle_cmd({"type": "show"})
+    ow._handle_cmd({"type": "show_toast", "style": "warn", "heading": "Long recording",
+                    "body": "One minute left, then Waffler will stop and clean up what you said.",
+                    "timeout": 6})
+    root.update()
+    assert root.state() != "withdrawn", "the two sit one above the other now"
+    assert _pill_texts(ow) == ["One minute left"]
+
+
+def test_windows_one_pill_at_a_time_and_a_working_one_becomes_done_in_place(tk_overlay):
+    ow, root, canvas, emitted = tk_overlay
+    ow._handle_cmd({"type": "working", "elapsed_seconds": 1})
+    ow._show_toast("info", "Waffler is busy", "Finish what Waffler is doing first, then try again.")
+    first = ow._toast_win
+    assert _pill_texts(ow) == ["One moment"]
+    ow._handle_cmd({"type": "working_end", "result": "done"})
+    assert ow._toast_win is first, "the same window: it does not appear all over again"
+    assert _pill_texts(ow) == ["Done"]
+    ow._show_toast("warn", "Connection failed", "b")
+    assert ow._toast_win is first and _pill_texts(ow) == ["No connection"]
+    ow._handle_cmd({"type": "show_toast", "style": "info", "heading": "Waffler is busy", "body": "b"})
+    ow._handle_cmd({"type": "working_end", "result": "quiet"})
+    assert ow._toast_win is None, "nothing to say: the Working pill just goes"
 
 
 # ── A click on the pill or a toast never takes the focus (review of Round A) ──
@@ -287,15 +327,17 @@ def test_windows_pill_and_toast_take_clicks_without_taking_the_focus(tk_overlay)
     toast.attributes('-topmost', True)
     toast.update()
     assert _ex_style_has_no_activate(ow, toast)
-    # The click still reaches the button.
+    # The click still reaches the button ("Send later", the pill's one).
     c = toast.winfo_children()[0]
-    tag = next(t for i in c.find_all() for t in c.gettags(i) if t.startswith("btn_keep_waiting"))
-    x0, y0, x1, y1 = c.bbox(tag)
-    c.event_generate("<Motion>", x=(x0 + x1) // 2, y=(y0 + y1) // 2)
-    c.event_generate("<Button-1>", x=(x0 + x1) // 2, y=(y0 + y1) // 2)
+    bx, by, bw, bh = ow._toast_lay.button
+    # A click on the words does nothing: only the button and the cross answer.
+    c.event_generate("<Button-1>", x=int(ow._toast_lay.text_x) + 4, y=20)
+    assert "toast_action" not in emitted and ow._toast_win is toast
+    c.event_generate("<Motion>", x=int(bx + bw / 2), y=int(by + bh / 2))
+    c.event_generate("<Button-1>", x=int(bx + bw / 2), y=int(by + bh / 2))
     assert "toast_action" in emitted
-    assert ow._toast_win is None, "the toast closes itself on a click"
-    assert _ex_style_has_no_activate(ow, root), "the pill that comes back keeps it too"
+    assert ow._toast_win is None, "the pill closes itself on a click"
+    assert _ex_style_has_no_activate(ow, root), "the dictation pill keeps it too"
 
 
 def test_mac_pill_and_toast_are_non_activating_panels():

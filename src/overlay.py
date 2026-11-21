@@ -15,8 +15,10 @@ import platform
 
 try:
     from data_paths import data_dir as _data_dir
+    import pill as _pill
 except ImportError:  # imported as src.overlay
     from src.data_paths import data_dir as _data_dir
+    from src import pill as _pill
 
 _PLATFORM = platform.system()  # "Darwin", "Windows", "Linux"
 
@@ -40,8 +42,8 @@ class RecordingOverlay:
         update_level(float)   - push RMS level 0.0-1.0 for VU animation
         show_working(secs)    - after release: working look, elapsed, X
         end_working(result)   - "done" (short tick) or "quiet" (just hide)
-        show_toast(...)       - show a floating toast popup above the pill
-        hide_toast()          - dismiss the toast popup
+        show_toast(...)       - show a message as the small pill (src/pill.py)
+        hide_toast()          - take the small pill down
         set_pill_config(...)  - the idle pill and the saved positions (Mac)
         show_pill_menu(items) - the idle pill's hover menu, when it asked
         stop()                - terminate subprocess
@@ -237,23 +239,40 @@ class RecordingOverlay:
     def show_toast(self, style: str, heading: str, body: str, buttons=None,
                    timeout: float = None, reposition: bool = False):
         """
-        Show a floating toast popup above the pill overlay.
+        Show a message as the small pill (src/pill.py).
+
+        The caller still says what happened the long way, and the pill is
+        worked out from it here, in one place:
         style: "cancel" | "error" | "warn" | "info"
-        buttons: optional list of {"label", "action", "kind"} (kind is
-            "primary", "secondary" or "danger"), up to three. Without it
-            each style keeps its usual buttons. "info" toasts stay until
-            answered or withdrawn with hide_toast(style="info").
-        timeout: seconds before the toast hides itself, instead of its
-            style's usual time. For a toast whose button needs a moment.
-        reposition: place the toast on the screen the cursor is on now, not
-            where the pill last was. For a toast with no recording behind it.
+        heading, body: the old card's words. They are the pill's description
+            (VoiceOver reads it, the log keeps it); the pill itself shows the
+            one short line the table in src/pill.py gives for them.
+        buttons: the old card's buttons, a list of {"label", "action",
+            "kind"}. At most one survives, as the table says; their actions
+            are where the pill's button, cross and click get theirs.
+        timeout: seconds, used where the pill's kind keeps the caller's time
+            (a tip, a "Your call" that may go by itself).
+        reposition: place the pill on the screen the cursor is on now, not
+            where the dictation pill last was. For a message with no
+            recording behind it.
+
+        A message the table says is no longer a pop-up is logged and not
+        sent.
         """
-        # The heading is logged for the warnings and errors, whose wording is
-        # Waffler's own. An "info" toast can carry something the person named
+        made = _pill.pill_for(style, heading, body, buttons, timeout)
+        # The words are logged for the warnings and errors, whose wording is
+        # Waffler's own. An "info" message can carry something the person named
         # (a Transform of theirs is done, "Siobhan's AirPods detected"), and
         # the log goes into the bundle they may send for a bug report.
-        shown = f"heading='{heading}'" if style in ("error", "warn", "cancel") else f"heading=({len(str(heading))} characters)"
-        self._log(f"[overlay.py] show_toast: style={style}, {shown}")
+        if style in ("error", "warn", "cancel"):
+            said = f"'{made.description if made else heading}'"
+            shown = f"pill={made.kind} '{made.text}'" if made else "not a pop-up any more"
+        else:
+            said = f"({len(str(heading))} characters)"
+            shown = f"pill={made.kind}" if made else "not a pop-up any more"
+        self._log(f"[overlay.py] show_toast: style={style}, {shown}, said={said}")
+        if made is None:
+            return
         # Auto-restart if the subprocess died since the last interaction —
         # otherwise toasts would silently drop (was hit in the wild when
         # errors fired after the overlay had crashed). Toasts AFTER a pipeline
@@ -268,21 +287,13 @@ class RecordingOverlay:
             # anchor point; prior show() state is lost when the subprocess dies.
             if self._visible:
                 self._send({"type": "show"})
+        # The style still travels: hide_toast(style=...) withdraws by it.
         cmd = {
             "type": "show_toast",
             "style": style,
-            "heading": heading,
-            "body": body,
+            "pill": made.as_dict(),
         }
-        if buttons:
-            cmd["buttons"] = [
-                {"label": str(b.get("label", "")), "action": str(b.get("action", "")),
-                 "kind": str(b.get("kind", "secondary"))}
-                for b in list(buttons)[:3]
-            ]
-        # Sent only when set, so every other toast is the message it always was.
-        if timeout:
-            cmd["timeout"] = float(timeout)
+        # Sent only when set.
         if reposition:
             cmd["reposition"] = True
         self._send(cmd)
