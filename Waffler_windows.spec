@@ -80,6 +80,9 @@ a = Analysis(
         'cffi',
         '_cffi_backend',
         'winsound',   # src/sounds.py imports it by name, so PyInstaller cannot see it
+        # Meetings: the computer's sound through WASAPI loopback, imported
+        # inside functions in src/meetings/recorder.py (SystemSource).
+        'pyaudiowpatch',
         # ── UI ──
         'webview',
         'webview.platforms.edgechromium',
