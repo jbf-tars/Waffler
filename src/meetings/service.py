@@ -2,8 +2,10 @@
 drive this."""
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 from datetime import datetime
@@ -274,6 +276,18 @@ def load_any_audio(path: Path) -> np.ndarray:
     try:
         return audioproc.read_audio(path)
     except Exception:
+        # A Mac converts m4a and the rest itself (afconvert is part of macOS),
+        # so it never needs ffmpeg for a voice memo.
+        afconvert = "/usr/bin/afconvert"
+        if sys.platform == "darwin" and os.path.exists(afconvert):
+            try:
+                with tempfile.TemporaryDirectory() as tmp:
+                    out = Path(tmp) / "a.wav"
+                    subprocess.run([afconvert, "-f", "WAVE", "-d", f"LEI16@{RATE}", "-c", "1",
+                                    str(path), str(out)], check=True, capture_output=True, timeout=600)
+                    return audioproc.read_audio(out)
+            except Exception:
+                pass                               # fall through to ffmpeg, if there is one
         ffmpeg = shutil.which("ffmpeg")
         if not ffmpeg:
             try:                                   # a server without ffmpeg: the pip-bundled one
