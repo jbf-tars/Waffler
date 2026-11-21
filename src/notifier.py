@@ -142,6 +142,8 @@ _REGISTRY = (
     Kind("pipeline_stuck", ERROR),
     Kind("not_sent", ERROR, hold_s=None),
     Kind("cleanup_skipped", ERROR),
+    # Waffler Plus was the chosen way and is gone: said once, with what is used now.
+    Kind("plus_gone", ERROR),
     Kind("limit_reached", ERROR),
     Kind("connection_failed", ERROR),
     Kind("access_denied", ERROR, hold_s=None),

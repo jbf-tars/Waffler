@@ -314,6 +314,12 @@ MODEL_RATES = {
                     "verified": True,
                     "source": "developers.openai.com/api/docs/pricing"},
     },
+    # Waffler Plus: the account service does the work, on the plan. Nothing
+    # is spent on the person's own keys.
+    "plus": {
+        "whisper": {"model": "waffler-plus", "per_minute": 0.0, "verified": True,
+                    "source": "the account's plan"},
+    },
     "cerebras": {
         # Cerebras now publishes its gpt-oss-120b rate: $0.35 in, $0.75 out
         # (inference-docs.cerebras.ai/models/openai-oss, checked 2026-10-29).
@@ -6444,7 +6450,7 @@ class WafflerPipeline:
             start_audio=lambda: self.audio.start(),
             stop_audio=lambda: self.audio.stop(),
             level=lambda: self.audio.get_level(),
-            transcribe=lambda audio: self._transcribe_with_provenance(audio),
+            transcribe=lambda audio: self._transcribe_with_provenance(audio, plus=False),
             apply_vocab=apply_vocab,
             classify_speech_error=lambda error: _unsent.classify_reason(str(error)),
             speech_provider=self._speech_provider_name,
@@ -7738,6 +7744,11 @@ class WafflerPipeline:
                 _outcome = _pw.CANCELLED
                 return
             if not _asr.ok:
+                # Plus was chosen, is gone, and there was nothing to use
+                # instead: it stops being the chosen way (the message below
+                # says why the recording was kept).
+                if _asr.status == "error":
+                    self._plus_gone(getattr(self.transcriber, "last_plus_gone", ""))
                 # No transcription engine could turn the audio into text: a
                 # failure (often a VPN exit IP that Groq blocks), the
                 # deadline, the user chose "Send later", or Esc while the
@@ -7770,6 +7781,9 @@ class WafflerPipeline:
             transcript, _asr_info = _asr.value
             _t_transcribe = (time.time() - _t0) * 1000
             _log_to_file(f"[pipeline] transcription: {_t_transcribe:.0f}ms")
+            # Waffler Plus was the chosen way and was not there: this
+            # dictation went through the key or this computer. Said once.
+            self._plus_gone(_asr_info.get("last_plus_gone"), _asr_info.get("backend") or "api")
             if not transcript:
                 _log_to_file("Empty transcription result")
                 # Only show error toast if recording was held for > 1 second
@@ -7835,7 +7849,14 @@ class WafflerPipeline:
                 _sty = _pw.CallResult("ok", value=(_whole_snippet, {
                     "input_tokens": 0, "output_tokens": 0, "api_used": False,
                     "provider": "snippet"}))
-            elif _style_layer.cleanup_is_off(_settings) or self._no_cleanup_key(_settings):
+            elif _style_layer.cleanup_is_off(_settings):
+                # Clean-up is off: no model is asked (below).
+                _sty = _pw.CallResult("ok", value=(transcript.strip(), _style_layer.off_usage()))
+            elif (_plus := self._plus_words(transcript, _asr_info)) is not None:
+                # Waffler Plus heard it and tidied it in one request: its
+                # text is the clean-up, and no model is asked here.
+                _sty = _pw.CallResult("ok", value=_plus)
+            elif self._no_cleanup_key(_settings):
                 # Clean-up is off (or, on this computer with no key at all,
                 # there is no model to ask): no model is asked. The words are what the
                 # speech service heard (after the Vocabulary above and the
@@ -8378,19 +8399,25 @@ class WafflerPipeline:
 
     # ── Steps the watchdog runs on worker threads ────────────────────────
 
-    def _transcribe_with_provenance(self, audio_bytes: bytes):
+    def _transcribe_with_provenance(self, audio_bytes: bytes, plus: bool = True):
         """transcribe_sync, plus a snapshot of what it recorded about itself,
         taken on the same thread the moment it returns. A request the
         watchdog gave up on can finish later in the background and overwrite
         the transcriber's attributes; the snapshot keeps each dictation's
-        provenance and quality signals its own."""
+        provenance and quality signals its own.
+
+        ``plus``: a dictation may go through Waffler Plus when that is the
+        chosen way (src/transcribe_whisper.py _choose_plus). Command mode
+        says False: it keeps using what it used before."""
         t = self.transcriber
+        t.plus_allowed = bool(plus)
         text = t.transcribe_sync(audio_bytes)
         info = {name: getattr(t, name, default) for name, default in (
             ("last_asr_response", ""), ("last_asr_filtered", False),
             ("last_speech_seconds", 0.0), ("last_retry_fired", False),
             ("last_retry_rejected", False), ("_last_cloud_provider", ""),
             ("last_failovers", ()), ("_backend", ""), ("last_speech_dbfs", None),
+            ("last_plus", None), ("last_plus_gone", ""),
         )}
         info["backend"] = info.pop("_backend")
         # A copy: a request the watchdog gave up on can still finish later and
@@ -8421,6 +8448,48 @@ class WafflerPipeline:
             return self.styler._format_email_layout(self.styler._basic_clean(transcript))
         except Exception:
             return transcript
+
+    def _plus_words(self, transcript: str, info):
+        """The clean-up step of a dictation that went through Waffler Plus:
+        (words to paste, usage), or None for any other dictation. The service
+        tidied the text in the same request, so no model is asked here.
+        ``cleaned`` False with a ``code`` (today's allowance is used, or its
+        model could not be reached) is the "pasted without the clean-up"
+        case: the words as said, and the reason for the message."""
+        plus = (info or {}).get("last_plus")
+        if not isinstance(plus, dict):
+            return None
+        usage = {"input_tokens": 0, "output_tokens": 0, "api_used": False, "provider": "plus"}
+        # Words this computer took out of what was heard (a made-up ending,
+        # say) are still in the service's text: then the words as heard go in.
+        if plus.get("cleaned") and plus.get("text") and not info.get("last_asr_filtered"):
+            return plus["text"], usage
+        if plus.get("code"):
+            usage["fallback_reason"] = f"PLUS|{plus['code']}"
+        return self._unstyled(transcript), usage
+
+    def _plus_gone(self, why: str, backend: str = "") -> None:
+        """Waffler Plus was the chosen way and is not there any more (the
+        account is free again: "ended"; or this computer was signed out).
+        The dictation in hand went the way it would have before; Plus stops
+        being the chosen way, so this is said once, in a small pill, with
+        what is used now. ``backend`` is what did the work ("" when nothing
+        could: the Not sent message says why). Never raises."""
+        if not why:
+            return
+        try:
+            local = backend in ("local", "mlx", "faster")
+            _store_setting(_account_mod().PLUS_SETTING, False)
+            if local:
+                _store_setting(_local_stt.MODE_SETTING, _local_stt.MODE_LOCAL)
+            _log_to_file(f"[plus] no longer there ({why}); using {backend or 'nothing'}")
+            if not backend:
+                return
+            heading, body = _user_messages.plus_gone_message(why, local)
+            if self._toast_allowed("plus_gone"):
+                self.overlay.show_toast(style="warn", heading=heading, body=body)
+        except Exception as e:
+            _log_to_file(f"[plus] fallback not noted: {type(e).__name__}")
 
     def _stt_is_local(self) -> bool:
         """Is speech to text done on this computer (the local model) rather
@@ -8472,6 +8541,8 @@ class WafflerPipeline:
             return ""
         if getattr(t, "_backend", "") in ("local", "mlx", "faster"):
             return ""
+        if getattr(t, "_backend", "") == "plus":
+            return "Waffler Plus"
         for prov in (getattr(t, "_cloud_order", None) or ["groq", "openai"]):
             if prov == "groq" and getattr(t, "_groq_client", None) is not None:
                 return "Groq"
@@ -8703,6 +8774,11 @@ class WafflerPipeline:
             # The model on this computer says what it needs itself (it is not
             # downloaded yet, say): no provider was asked, so none is named.
             local_note = _local_stt.plain_reason(reason)
+            try:
+                # So does Waffler Plus (src/account.py): one sentence of its own.
+                local_note = local_note or _account_mod().plus_sentence(reason)
+            except Exception:
+                pass
             if local_note and uid:
                 body = f"{local_note} Your recording is saved in the Journal."
             buttons = None
@@ -8855,7 +8931,13 @@ class WafflerPipeline:
         if whole_snippet is not None:
             styled = whole_snippet
             cleanup = "snippet"
-        elif _style_layer.cleanup_is_off(settings) or self._no_cleanup_key(settings):
+        elif _style_layer.cleanup_is_off(settings):
+            styled = transcript.strip()
+            cleanup = _style_layer.PROVIDER_OFF
+        elif style and (plus := self._plus_words(transcript, info)) is not None:
+            # Through Waffler Plus, as in _process: its text is the clean-up.
+            styled, cleanup = plus[0], "plus"
+        elif self._no_cleanup_key(settings):
             # Off (or no key at all), as in _process: the words as heard, no model.
             styled = transcript.strip()
             cleanup = _style_layer.PROVIDER_OFF

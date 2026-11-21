@@ -171,6 +171,28 @@ def _rate_limit_parts(reason: str):
     return provider, _seconds_in(wait), daily
 
 
+PLUS_CLEANUP_USED = ("Today's Waffler Plus clean-ups are used up, so your words went in as "
+                     "you said them. There are more tomorrow.")
+PLUS_CLEANUP_FAILED = ("Waffler Plus couldn't do the clean-up this time, so your words went "
+                       "in as you said them.")
+
+
+def plus_gone_message(why: str, local: bool):
+    """(heading, body) for the one small pill that says Waffler Plus is no
+    longer the way a dictation runs, and what is used now. ``why`` is
+    "ended" (the account no longer has Plus) or "signed_out"; ``local``:
+    the model on this computer did the work, not a key. The heading is the
+    pill's line: six words at most."""
+    using = "this computer" if local else "your key"
+    if why == "signed_out":
+        return (f"Signed out. Using {using}.",
+                f"This computer is signed out of your account, so this dictation used {using}. "
+                f"Your words were pasted as usual.")
+    return (f"Plus ended. Using {using}.",
+            f"This account no longer has Waffler Plus, so this dictation used {using}. "
+            f"Your words were pasted as usual.")
+
+
 def cleanup_skipped_message(reason: str):
     """(heading, body) for the pill after the words were pasted without the
     clean-up. ``reason`` is the styler's fallback_reason; it stays in the
@@ -191,6 +213,11 @@ def cleanup_skipped_message(reason: str):
         return (f"Clean-up paused {when}",
                 f"{who} says you've reached your limit for now. Your words were "
                 f"pasted as you said them.")
+    if "PLUS|" in text:
+        # Waffler Plus heard the words but could not tidy them (the day's
+        # allowance is used, or its model could not be reached). No provider
+        # of the person's own was asked, so none is named and no key advice.
+        return (CLEANUP_SKIPPED, PLUS_CLEANUP_USED if "_cap" in text else PLUS_CLEANUP_FAILED)
     if "MODEL_UNAVAILABLE" in text:
         # The provider has retired the clean-up model (or this key can't reach
         # it). Not a limit, so no "paused" and no Journal banner: it lasts
