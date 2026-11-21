@@ -136,6 +136,7 @@ _toast_canvas   = None
 _toast_style    = None
 _toast_pill     = None     # the src/pill.py Pill that is up
 _toast_lay      = None     # and where its parts are
+_toast_rect     = None     # where it is on the screen: (x, y, w, h)
 _toast_gen      = 0        # goes up with every pill shown or hidden
 _toast_phase    = 0        # which of a Working pill's dots is the bright one
 
@@ -520,8 +521,45 @@ def _toast_ms(pill):
 
 
 def _toast_origin(width):
-    """Centred over the dictation pill, a small gap above its window."""
-    return int(_waffle_x + (WAFFLE_W - width) // 2), int(_waffle_y - TOAST_H - TOAST_PAD)
+    """Top-left of a pill ``width`` wide. As low as it can be (src/pill.py
+    place): in the dictation pill's own resting place while that pill is not
+    on screen, directly above it with a small gap while it is. Kept on the
+    screen from side to side."""
+    shown = (_waffle_x, _waffle_y, WIN_W, WIN_H) if _visible else None
+    x, y = _pl.place((_waffle_x, _waffle_y), (WIN_W, WIN_H), width, shown, y_down=True)
+    try:
+        x = max(0, min(x, _root.winfo_screenwidth() - width))
+    except Exception:
+        pass
+    return int(x), int(y)
+
+
+def _toast_make_way():
+    """The dictation pill is about to appear. A message that is resting in
+    its place gives the place back: it ends, it does not jump out of the
+    way. A message that is already clear of the dictation pill stays."""
+    if _toast_win is None or _toast_rect is None:
+        return
+    if _pl.overlaps(_toast_rect, (_waffle_x, _waffle_y, WIN_W, WIN_H)):
+        _hide_toast()
+
+
+def _toast_settle():
+    """The dictation pill has just left the screen. A message that was
+    sitting above it comes down into the resting place, unless it is a Done
+    (two seconds: it stays where it is)."""
+    global _toast_rect
+    try:
+        if _toast_win is None or _toast_rect is None or _visible:
+            return
+        if not _pl.settles(_toast_pill, _toast_rect, (_waffle_x, _waffle_y, WIN_W, WIN_H), y_down=True):
+            return
+        _x, _y, tw, th = _toast_rect
+        tx, ty = _toast_origin(tw)
+        _toast_rect = (tx, ty, tw, th)
+        _toast_win.geometry(f"{tw}x{th}+{tx}+{ty}")
+    except Exception:
+        pass
 
 
 def _reduce_motion() -> bool:
@@ -554,13 +592,21 @@ def _show_toast(style: str, heading: str, body: str, buttons=None, timeout=None,
 
 def _put_pill(pill, style, in_place=False):
     """Put ``pill`` up. There is one pill at a time: a second one takes the
-    first one's window, without appearing all over again."""
+    first one's window, in the same place when ``in_place`` (a Working pill
+    becoming its Done), without appearing all over again."""
     global _toast_win, _toast_canvas, _toast_style, _toast_pill, _toast_lay, _toast_gen, _toast_phase
+    global _toast_rect
     _toast_gen += 1
     gen = _toast_gen
     lay = _pl.layout(pill, _pill_measure)
     tw, th = int(math.ceil(lay.width)), TOAST_H
-    tx, ty = _toast_origin(tw)
+    if in_place and _toast_rect is not None:
+        # A Working pill becoming Done: where it is, centred on the same spot.
+        ox, oy, ow, _oh = _toast_rect
+        tx, ty = int(ox + (ow - tw) // 2), oy
+    else:
+        tx, ty = _toast_origin(tw)
+    _toast_rect = (tx, ty, tw, th)
     still = _reduce_motion()
 
     replacing = _toast_win is not None
@@ -610,7 +656,8 @@ def _put_pill(pill, style, in_place=False):
             return
         try:
             win.attributes('-alpha', min(1.0, n / 4.0))
-            win.geometry(f"{tw}x{th}+{tx}+{ty + rise - int(rise * n / 4.0)}")
+            if _toast_rect == (tx, ty, tw, th):     # not moved since (see _toast_settle)
+                win.geometry(f"{tw}x{th}+{tx}+{ty + rise - int(rise * n / 4.0)}")
             if n < 4:
                 win.after(int(_pl.FADE_S * 1000 / 4), lambda: _step(n + 1))
         except Exception:
@@ -701,7 +748,7 @@ def _hide_toast(style=None):
     with that style goes (the pipeline withdraws its "still working" offer
     this way without touching a message that has replaced it). The dictation
     pill is not touched: neither hides the other now."""
-    global _toast_win, _toast_canvas, _toast_style, _toast_pill, _toast_lay, _toast_gen
+    global _toast_win, _toast_canvas, _toast_style, _toast_pill, _toast_lay, _toast_gen, _toast_rect
     if style and _toast_style != style:
         return
     _toast_gen += 1
@@ -710,7 +757,7 @@ def _hide_toast(style=None):
             _toast_win.destroy()
         except Exception:
             pass
-    _toast_win = _toast_canvas = _toast_style = _toast_pill = _toast_lay = None
+    _toast_win = _toast_canvas = _toast_style = _toast_pill = _toast_lay = _toast_rect = None
 
 
 def _toast_work_ended(result: str):
@@ -826,6 +873,7 @@ def _finish_done():
     _reset_cells()
     if _root:
         _root.withdraw()
+    _toast_settle()
 
 
 def _enter_working(elapsed_seconds: float):
@@ -836,6 +884,10 @@ def _enter_working(elapsed_seconds: float):
         _cancel_done_timer()
         _mode = "working"
         _clear_progress()
+    if not _visible:
+        # The pill comes up with no recording before it: a message resting
+        # in its place gives the place back.
+        _toast_make_way()
     _visible = True
     if _root:
         _draw_waffle()
@@ -867,6 +919,8 @@ def _end_working(result: str):
     _reset_cells()
     if _root:
         _root.withdraw()
+    # A message left above where the pill was comes down into its place.
+    _toast_settle()
 
 
 def _handle_cmd(cmd: dict):

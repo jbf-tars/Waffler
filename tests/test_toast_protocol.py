@@ -175,19 +175,25 @@ def test_mac_a_pill_stays_its_own_time_and_a_working_one_is_capped():
 def test_mac_a_toast_with_no_recording_follows_the_cursors_screen_without_moving_the_pill():
     pl = _pill_module()
     calls = []
+    import idle_pill
     ns = _lift(MAC, "_toast_anchor", "_toast_origin",
                _waffle_x=100.0, _waffle_y=200.0, WIN_W=69, WIN_H=97, TOAST_H=40, TOAST_PAD=8, _pl=pl,
-               _saved_positions={},     # nothing dragged (src/idle_pill.py): toasts as before
+               _ip=idle_pill, _visible=False, _screen_at=lambda x, y: None, _rect=None,
                _compute_overlay_position=lambda verbose=False: calls.append(1) or (1500, 40))
     anchor, origin = ns["_toast_anchor"], ns["_toast_origin"]
     assert anchor(False) == (100.0, 200.0) and calls == [], "an ordinary toast stays by the pill"
     assert anchor(True) == (1500.0, 40.0), "a toast with nothing recorded uses the pill's screen choice"
     assert (ns["_waffle_x"], ns["_waffle_y"]) == (100.0, 200.0), \
         "the pill's own position is left alone: the next show compares against it"
-    # Centred over the dictation pill, a small gap above the whole of its
-    # window (waffle and buttons), so neither covers the other.
-    assert origin((1500.0, 40.0), 160) == (1500.0 + (69 - 160) / 2.0, 40.0 + 97 + 8)
-    assert origin(None, 160) == origin((100.0, 200.0), 160)
+    # No dictation pill on screen: the message rests in that pill's place,
+    # centred on it, bottom edges level.
+    assert origin((1500.0, 40.0), 160) == (1500.0 + (69 - 160) / 2.0, 40.0)
+    assert origin(None, 160) == origin((100.0, 200.0), 160) == (100.0 + (69 - 160) / 2.0, 200.0)
+    # The dictation pill on screen: a small gap above the top of the waffle.
+    ns["_visible"] = True
+    assert origin(None, 160) == (100.0 + (69 - 160) / 2.0, 200.0 + 97 + 8)
+    assert origin((1500.0, 40.0), 160) == (1500.0 + (69 - 160) / 2.0, 40.0), \
+        "on another screen the dictation pill is not in the way"
 
 
 def test_mac_an_anchor_that_cannot_be_worked_out_falls_back_to_the_pill():
@@ -295,13 +301,56 @@ def test_windows_one_pill_at_a_time_and_it_never_hides_the_dictation_pill():
     assert "_no_activate(_toast_win)" in put, "a click on it must leave the user's app in front"
 
 
-def test_windows_the_pill_sits_above_the_dictation_pill_with_the_same_gap_as_the_mac():
+def _windows_origin(visible, screen_w=1920):
     pl = _pill_module()
-    ns = _lift(WIN, "_toast_origin", _waffle_x=600, _waffle_y=900, WAFFLE_W=69, TOAST_H=40,
-               TOAST_PAD=pl.GAP)
+    root = type("Root", (), {"winfo_screenwidth": lambda self: screen_w})()
+    return pl, _lift(WIN, "_toast_origin", "_toast_make_way", "_toast_settle", _waffle_x=925, _waffle_y=880,
+                     WIN_W=69, WIN_H=97, TOAST_H=40, _pl=pl, _visible=visible, _root=root)
+
+
+def test_windows_with_the_dictation_pill_hidden_a_message_rests_in_its_place():
+    pl, ns = _windows_origin(False)
     x, y = ns["_toast_origin"](160)
-    assert (x, y) == (600 + (69 - 160) // 2, 900 - 40 - 8)
-    assert y + 40 + pl.GAP == 900, "its bottom edge is one gap above the dictation pill's top"
+    assert (x, y) == (925 + (69 - 160) // 2, 880 + 97 - 40)
+    assert y + 40 == 880 + 97, "its bottom edge is level with the bottom of the dictation pill's window"
+
+
+def test_windows_with_the_dictation_pill_showing_a_message_sits_8_px_above_it():
+    pl, ns = _windows_origin(True)
+    x, y = ns["_toast_origin"](160)
+    assert (x, y) == (925 + (69 - 160) // 2, 880 - 40 - 8)
+    assert y + 40 + pl.GAP == 880, "its bottom edge is one gap above the dictation pill's top"
+
+
+def test_windows_on_a_small_screen_a_wide_message_stays_on_it():
+    pl, ns = _windows_origin(False, screen_w=300)
+    ns.update(_waffle_x=115)
+    assert ns["_toast_origin"](280)[0] == 9 and 9 + 280 <= 300
+    assert ns["_toast_origin"](348)[0] == 0
+
+
+def test_windows_a_resting_message_gives_the_place_back_and_one_above_comes_down():
+    pl, ns = _windows_origin(False)
+    hidden, moves = [], []
+    win = type("Win", (), {"geometry": lambda self, g: moves.append(g)})()
+    ns.update(_hide_toast=lambda *a: hidden.append(1), _toast_win=win,
+              _toast_pill=pl.pill_for("warn", "Connection failed", "b"))
+    ns["_toast_rect"] = (879, 937, 160, 40)             # resting
+    ns["_toast_make_way"]()
+    assert hidden == [1]
+    ns["_toast_rect"] = (879, 832, 160, 40)             # above the dictation pill, which has gone
+    ns["_toast_make_way"]()
+    assert hidden == [1], "clear of the pill: it stays"
+    ns["_toast_settle"]()
+    assert moves == ["160x40+879+937"] and ns["_toast_rect"] == (879, 937, 160, 40)
+    ns.update(_toast_pill=pl.pill_for("info", "Polish done", "b"), _toast_rect=(879, 832, 160, 40))
+    ns["_toast_settle"]()
+    assert len(moves) == 1, "a two-second Done is not moved"
+    tree = ast.parse(WIN.read_text(encoding="utf-8"))
+    fns = {n.name: ast.unparse(n) for n in tree.body if isinstance(n, ast.FunctionDef)}
+    assert "if not _visible:\n        _toast_make_way()" in fns["_enter_working"]
+    assert fns["_end_working"].rstrip().endswith("_toast_settle()")
+    assert fns["_finish_done"].rstrip().endswith("_toast_settle()")
 
 
 class _Canvas:

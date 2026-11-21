@@ -8,6 +8,12 @@ a button, Tip), the shortest and the longest line, close-ups of the badge,
 and a pill beside the meeting bar. It draws
 the real views of src/overlay_process.py into a bitmap, at 2x, on the grey the
 design board uses, so the result can be laid next to the design. Mac only.
+
+    venv/bin/python scripts/render_pills.py <folder> positions
+
+draws where a message sits instead: the bottom strip of a 1512 x 982 screen
+with the Dock marked, once with the message alone in the resting place and
+once above a dictation pill that is on screen.
 Nothing is shown on screen and nothing of the running app is touched.
 """
 import sys
@@ -135,5 +141,94 @@ def main(out):
     return 0
 
 
+# ── Where it sits: the bottom strip of a 1512 x 982 screen ──────────────
+
+SCREEN_W, STRIP_H, DOCK_H = 1512, 240, 58
+
+
+class _Screen:
+    """A 1512 x 982 screen with a 58 pt Dock and the menu bar."""
+
+    def frame(self):
+        return NSMakeRect(0, 0, SCREEN_W, 982)
+
+    def visibleFrame(self):
+        return NSMakeRect(0, DOCK_H, SCREEN_W, 982 - DOCK_H - 25)
+
+
+def _label(text, x, y_top, size=11, colour="#B3AA9E"):
+    AppKit.NSAttributedString.alloc().initWithString_attributes_(text, {
+        AppKit.NSFontAttributeName: AppKit.NSFont.systemFontOfSize_(size),
+        AppKit.NSForegroundColorAttributeName: op.hex_to_ns_color(colour)}).drawAtPoint_((x, y_top))
+
+
+def render_position(path, p, pill_showing):
+    """The whole bottom strip of the screen, the Dock marked, with the
+    message where the overlay's own _toast_origin puts it."""
+    screen = _Screen()
+    op._screen_at = lambda x, y: screen
+    op._saved_positions = {}
+    op._waffle_x, op._waffle_y = (SCREEN_W - op.WIN_W) / 2.0, DOCK_H + 16.0    # where the pill goes
+    op._visible = bool(pill_showing)
+    view = _pill_view(p)
+    w = view.frame().size.width
+    tx, ty = op._toast_origin(None, w)
+    tx, ty = round(tx), round(ty)
+
+    rep = _bitmap(SCREEN_W, STRIP_H, SCALE)
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.setCurrentContext_(NSGraphicsContext.graphicsContextWithBitmapImageRep_(rep))
+    op.hex_to_ns_color("#3A4652").set()                     # a desktop
+    NSBezierPath.fillRect_(NSMakeRect(0, 0, SCREEN_W, STRIP_H))
+    op.hex_to_ns_color("#1E2227").set()                     # the Dock's strip
+    NSBezierPath.fillRect_(NSMakeRect(0, 0, SCREEN_W, DOCK_H))
+    op.hex_to_ns_color("#6B7785").set()
+    NSBezierPath.fillRect_(NSMakeRect(0, DOCK_H - 0.5, SCREEN_W, 1))
+    # the Dock itself, as a plain rounded bar
+    op.hex_to_ns_color("#30363E").set()
+    NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
+        NSMakeRect(SCREEN_W / 2.0 - 330, 5, 660, DOCK_H - 10), 14, 14).fill()
+    if pill_showing:
+        op._mode, op._work_elapsed = "working", 3
+        waffle = op.WaffleView.alloc().initWithFrame_(NSMakeRect(0, 0, op.WIN_W, op.WIN_H))
+        waffle.reset_cells(0.5)
+        _draw_view(waffle, rep, op._waffle_x, STRIP_H - (op._waffle_y + op.WIN_H), STRIP_H)
+        op._mode = "recording"
+    _draw_view(view, rep, tx, STRIP_H - (ty + pl.HEIGHT), STRIP_H)
+    # what is what, in a flipped context so the words are the right way up
+    base = NSGraphicsContext.currentContext()
+    flipped = NSGraphicsContext.graphicsContextWithCGContext_flipped_(base.CGContext(), True)
+    NSGraphicsContext.setCurrentContext_(flipped)
+    t = AppKit.NSAffineTransform.transform()
+    t.translateXBy_yBy_(0, STRIP_H)
+    t.scaleXBy_yBy_(1.0, -1.0)
+    t.concat()
+    _label("Dock area (58 pt)", 24, STRIP_H - DOCK_H + 20, 12)
+    _label("bottom of the visible frame", 24, STRIP_H - DOCK_H - 18)
+    gap = ty - DOCK_H
+    _label(f"message: bottom edge {gap:g} pt above the Dock, top edge {gap + pl.HEIGHT:g} pt",
+           tx + w + 16, STRIP_H - (ty + pl.HEIGHT) + 12, 12, "#F4F0EA")
+    if pill_showing:
+        _label(f"dictation pill: 16 pt above the Dock; the message is {ty - (op._waffle_y + op.WIN_H):g} pt "
+               "above the waffle", op._waffle_x + op.WIN_W + 16, STRIP_H - (op._waffle_y + 60), 12, "#F4F0EA")
+    _label("1512 x 982 screen, bottom 240 pt", SCREEN_W - 230, 10)
+    NSGraphicsContext.restoreGraphicsState()
+    rep.representationUsingType_properties_(AppKit.NSBitmapImageFileTypePNG, {}).writeToFile_atomically_(
+        str(path), True)
+    return tx, ty, w
+
+
+def main_positions(out):
+    out = Path(out)
+    out.mkdir(parents=True, exist_ok=True)
+    AppKit.NSApplication.sharedApplication()
+    problem = pl.pill_for("warn", "Connection failed", "Check your internet or VPN.")
+    for name, showing in (("position-resting", False), ("position-above-pill", True)):
+        tx, ty, w = render_position(out / f"{name}.png", problem, showing)
+        print(f"{name}: message {w:g} wide at x={tx:g}, bottom edge {ty - DOCK_H:g} pt above the Dock")
+
+
 if __name__ == "__main__":
+    if len(sys.argv) > 2 and sys.argv[2] == "positions":
+        sys.exit(main_positions(sys.argv[1]) or 0)
     sys.exit(main(sys.argv[1] if len(sys.argv) > 1 else "pills"))

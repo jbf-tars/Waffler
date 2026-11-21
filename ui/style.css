@@ -1679,6 +1679,10 @@ body[data-theme="dark"] .kc-xl.held {
   transition: opacity 0.18s var(--ease), transform 0.18s var(--ease);
   pointer-events: none;
 }
+/* On Home the bottom of the window is the Ask bar and "Record a meeting"
+   (meetings.css: 54 px high, 26 px up). The message sits just above that
+   row, as low as it can without covering either. */
+body[data-page="home"] .toast:not(.over-wizard) { bottom: 92px; }
 .toast .toast-mark { position: relative; display: inline-flex; width: 22px; height: 22px; flex: none; }
 /* The badge hangs 6 px past the mark, and the air is measured from it. */
 .toast .toast-mark.has-badge { margin-right: 6px; }

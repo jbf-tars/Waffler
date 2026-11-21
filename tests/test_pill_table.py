@@ -671,12 +671,75 @@ def test_what_a_click_sends():
 
 # ── Never on top of the dictation pill or the meeting bar ───────────────
 
-def test_the_pill_sits_above_the_dictation_pill_with_a_gap():
-    # the dictation pill's window is 69 x 97 at (500, 100); screen coordinates grow upwards
-    x, y = pill.origin_above(anchor=(500, 100), anchor_size=(69, 97), width=160)
-    assert y == 100 + 97 + pill.GAP
-    assert x == 500 + (69 - 160) / 2.0
-    assert not pill.overlaps((x, y, 160, pill.HEIGHT), (500, 100, 69, 97))
+PILL_WINDOW = (69, 97)      # the dictation pill's window: the waffle, then its buttons
+
+
+def test_with_no_dictation_pill_on_screen_the_message_rests_in_its_place():
+    """As low as it can be: centred where the dictation pill sits, its bottom
+    edge level with the bottom of that pill's window (16 pt above the Dock)."""
+    x, y = pill.place(anchor=(721.5, 74), anchor_size=PILL_WINDOW, width=160, shown=None)
+    assert (x, y) == (721.5 + (69 - 160) / 2.0, 74)
+    assert x + 160 / 2.0 == 721.5 + 69 / 2.0, "the same centre line"
+
+
+def test_while_the_dictation_pill_is_on_screen_the_message_sits_just_above_it():
+    shown = (721.5, 74, 69, 97)
+    x, y = pill.place((721.5, 74), PILL_WINDOW, 160, shown)
+    assert y == 74 + 97 + pill.GAP, "8 pt above the top of the waffle, which is the top of its window"
+    assert x == 721.5 + (69 - 160) / 2.0
+    assert not pill.overlaps((x, y, 160, pill.HEIGHT), shown)
+
+
+def test_a_dictation_pill_on_another_screen_does_not_lift_the_message():
+    """A message with no recording behind it goes to the cursor's screen. The
+    dictation pill showing somewhere else is not in its way."""
+    assert pill.place((2700, 86), PILL_WINDOW, 160, shown=(721.5, 74, 69, 97)) == (2700 + (69 - 160) / 2.0, 86)
+
+
+def test_a_dragged_spot_is_rested_in_the_same_way():
+    x, y = pill.place((300, 500), PILL_WINDOW, 200, None)
+    assert (x, y) == (300 + (69 - 200) / 2.0, 500)
+    above = pill.place((300, 500), PILL_WINDOW, 200, (300, 500, 69, 97))
+    assert above == (300 + (69 - 200) / 2.0, 500 + 97 + 8)
+
+
+def test_the_same_rule_where_y_grows_downwards():
+    """Windows: a window's (x, y) is its top-left."""
+    rest = pill.place((925, 880), PILL_WINDOW, 160, None, y_down=True)
+    assert rest == (925 + (69 - 160) / 2.0, 880 + 97 - 40), "bottom edges level"
+    above = pill.place((925, 880), PILL_WINDOW, 160, (925, 880, 69, 97), y_down=True)
+    assert above == (925 + (69 - 160) / 2.0, 880 - 8 - 40)
+    assert not pill.overlaps((above[0], above[1], 160, 40), (925, 880, 69, 97))
+
+
+def test_when_the_dictation_pill_goes_a_done_stays_and_anything_else_comes_down():
+    left = (721.5, 74, 69, 97)
+    above = (676.0, 179.0, 160, 40)
+    done = pill.pill_for("info", "Polish done", "b")
+    problem = pill.pill_for("warn", "Connection failed", "b")
+    ask = pill.pill_for("info", "Still working on it", "b")
+    assert pill.settles(done, above, left) is False, "two seconds: it stays where it is"
+    assert pill.settles(problem, above, left) is True
+    assert pill.settles(ask, above, left) is True
+    assert pill.settles(problem, (676.0, 74.0, 160, 40), left) is False, "already resting"
+    assert pill.settles(problem, (2700.0, 300.0, 160, 40), left) is False, "not over that pill"
+    assert pill.settles(None, above, left) is False
+    # Windows
+    assert pill.settles(problem, (880, 832, 160, 40), (925, 880, 69, 97), y_down=True) is True
+    assert pill.settles(problem, (880, 937, 160, 40), (925, 880, 69, 97), y_down=True) is False
+
+
+def test_the_resting_message_clear_of_a_meeting_bar_in_its_way():
+    """The meeting bar is at the top of the screen; only a dictation pill
+    dragged up there can bring a message under it. Then it steps beside."""
+    screen = (0, 0, 1512, 945)
+    meeting = ((1512 - 178) / 2.0, 945 - 40 - 10, 178, 40)
+    x, y = pill.place((721.5, 880), PILL_WINDOW, 160, None)
+    moved = pill.clear_of((x, y, 160, 40), meeting, screen)
+    assert not pill.overlaps(moved, meeting) and moved[1] == meeting[1]
+    # At the bottom of the screen, where it usually rests, the bar is far away.
+    low = (*pill.place((721.5, 16), PILL_WINDOW, 160, None), 160, 40)
+    assert pill.clear_of(low, meeting, screen) == low
 
 
 def test_the_pill_moves_beside_the_meeting_bar_when_they_would_touch():
