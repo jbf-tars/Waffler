@@ -81,7 +81,7 @@ def _run_block(spec, monkeypatch, installed):
     real = importlib.util.find_spec
     monkeypatch.setattr(importlib.util, "find_spec",
                         lambda name, *a: object() if name in installed else
-                        (None if name in ("pywhispercpp", "faster_whisper") else real(name, *a)))
+                        (None if name in ("pywhispercpp", "faster_whisper", "llama_cpp") else real(name, *a)))
     ns = {}
     exec(compile(block, spec, "exec"), ns)
     return ns
@@ -107,3 +107,38 @@ def test_a_build_machine_without_the_engine_still_builds(spec, monkeypatch):
     ns = _run_block(spec, monkeypatch, set())
     assert ns["_STT_HIDDEN"] == []
     assert ns.get("_STT_DATAS", []) == [] and ns.get("_STT_BINARIES", []) == []
+
+
+# ── the writing model's engine (src/local_llm.py): optional, never the model ─
+
+def test_no_requirements_file_installs_the_writing_models_engine():
+    """PyPI has no binary wheel for it: listed, it would make every install
+    compile llama.cpp, and fail where there is no compiler. The command for a
+    release build is written beside it instead."""
+    for name in ("requirements.txt", "requirements_windows.txt"):
+        names = {re.split(r"[<>=;\s]", line, maxsplit=1)[0].lower() for line in _requirements(name)}
+        assert "llama-cpp-python" not in names, name
+    text = _text("requirements.txt")
+    assert 'pip install "llama-cpp-python==0.3.37" --no-binary llama-cpp-python' in text
+    assert "MACOSX_DEPLOYMENT_TARGET=14.0" in text and "-DGGML_METAL=on" in text
+
+
+def test_the_mac_spec_bundles_the_writing_models_engine_only_when_it_is_installed(monkeypatch):
+    import local_llm
+    text = _text("Waffler_mac.spec")
+    assert "*_LLM_HIDDEN," in text and "binaries=_LLM_BINARIES," in text
+    for model in local_llm.MODELS.values():
+        for f in model.files:
+            assert f.name not in text and ".gguf" not in text, "the model is never bundled"
+    ns = _run_block("Waffler_mac.spec", monkeypatch, {"pywhispercpp", "llama_cpp"})
+    assert {"llama_cpp", "llama_cpp.llama_chat_format"} <= set(ns["_LLM_HIDDEN"])
+    # It opens its libraries by path from llama_cpp/lib: they are collected there.
+    assert ns["_LLM_BINARIES"] == [("/site/llama_cpp/lib.dll", "llama_cpp")]
+    ns = _run_block("Waffler_mac.spec", monkeypatch, {"pywhispercpp"})
+    assert ns["_LLM_HIDDEN"] == [] and ns["_LLM_BINARIES"] == [], "a build without it still builds"
+
+
+def test_the_windows_build_does_not_carry_it():
+    """Not measured on Windows, and not offered there (src/local_llm.py
+    machine_verdict): nothing in that build names it."""
+    assert "llama_cpp" not in _text("Waffler_windows.spec")

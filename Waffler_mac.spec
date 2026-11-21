@@ -72,10 +72,40 @@ def _stt_metadata(package):
 
 _STT_DATAS = _stt_metadata('pywhispercpp')
 
+# ── The writing model's engine (src/local_llm.py), optional ─────────────────
+# llama.cpp through llama-cpp-python: it tidies text and writes meeting notes
+# on this computer. As with speech, the ENGINE is bundled and the MODEL never
+# is (5.2 GB, downloaded from Settings into the data folder).
+#   It is bundled only if it is installed in the build's Python, and
+#   requirements.txt does not install it (PyPI has no binary wheel: pip
+#   compiles it; the exact command is in requirements.txt). A build without
+#   it works as before and simply does not offer the second download.
+#   llama_cpp is imported inside a function, so it is named. It opens its
+#   libraries (libllama, libggml-* with Metal among them, libmtmd) by path
+#   with ctypes from llama_cpp/lib, which PyInstaller cannot see, so they are
+#   collected into that same folder.
+from PyInstaller.utils.hooks import collect_dynamic_libs
+
+_LLM_HIDDEN = _stt_installed('llama_cpp', 'llama_cpp', 'llama_cpp.llama_chat_format', 'jinja2',
+                             'diskcache')
+
+
+def _llm_libs():
+    if not _LLM_HIDDEN:
+        return []
+    try:
+        return collect_dynamic_libs('llama_cpp')
+    except Exception as e:
+        print(f"[spec] the writing model's engine: its libraries were not collected: {e}")
+        return []
+
+
+_LLM_BINARIES = _llm_libs()
+
 a = Analysis(
     ['app.py'],
     pathex=[PROJECT_ROOT, os.path.join(PROJECT_ROOT, 'src')],
-    binaries=[],
+    binaries=_LLM_BINARIES,
     datas=_STT_DATAS + [
         ('ui', 'ui'),
         ('prompts', 'prompts'),
@@ -103,6 +133,8 @@ a = Analysis(
         '_cffi_backend',
         # ── On-device speech to text (see _STT_HIDDEN above) ──
         *_STT_HIDDEN,
+        # ── The writing model's engine, when installed (see _LLM_HIDDEN) ──
+        *_LLM_HIDDEN,
         # ── UI ──
         'webview',
         'webview.platforms.cocoa',

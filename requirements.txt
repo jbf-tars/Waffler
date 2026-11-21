@@ -18,6 +18,20 @@ pywhispercpp>=1.5.1; platform_machine == "arm64"
 # marker the whole install would fail. Waffler then says it has no engine.
 faster-whisper>=1.2.0; platform_machine != "arm64" and python_version < "3.14"
 
+# ── Tidying and notes on this computer (src/local_llm.py), optional ───
+# llama.cpp through llama-cpp-python. NOT installed by this file: PyPI has
+# no binary wheel for it, so pip compiles it (CMake comes with the build;
+# Xcode's compiler must be there), and a Waffler without it simply does not
+# offer the second download. To put it in a Mac release build, in the build's
+# Python, before PyInstaller runs:
+#   MACOSX_DEPLOYMENT_TARGET=14.0 \
+#   CMAKE_ARGS="-DGGML_METAL=on -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0" \
+#     pip install "llama-cpp-python==0.3.37" --no-binary llama-cpp-python
+# 0.3.37 is the version measured with the model (Gemma 4 E4B). Without the
+# deployment target its libraries are built for the build machine's macOS
+# only, and scripts/check_macos_minos.py fails the build. The model (5.2 GB)
+# is never bundled. docs/OFFLINE-TRANSCRIPTION.md has the rest.
+
 # ── OpenAI (transcription + styling) ──────────────────────────────────
 openai>=1.0.0
 

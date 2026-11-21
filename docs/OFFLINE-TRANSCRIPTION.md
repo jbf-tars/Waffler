@@ -328,6 +328,10 @@ reads "Off, typed as you said it".
 
 ## Without a key
 
+With the writing model downloaded as well (the optional second download, below)
+none of the limits in this section apply: dictations are tidied, and notes and
+questions are answered, on this computer. Without it:
+
 What works with `transcription_mode: "local"` and no key at all:
 
 - Dictation. The words are pasted as the model heard them (Whisper already
@@ -352,64 +356,98 @@ What does not, and what the person sees:
 "Waffler Plus" is only a name in those two sentences. Nothing here implements
 it.
 
-## Could the notes be written on this computer too?
+## Tidying and notes on this computer
 
-Not built. An assessment, with what is and is not measured.
+Built, as an optional second download: `src/local_llm.py` (the module),
+`src/local_llm_llamacpp.py` (the engine), and the clean-up, notes and Ask
+wired to it. Off until downloaded. Measured on 21 November 2026 on an M5 with
+16 GB; nothing else was measured.
 
-What notes ask of a model is harder than transcription: read up to an hour of
-transcript (about 9,000 words, 12,000 tokens), keep every figure and name
-right, invent nothing, and write a structured page. Small models are worst at
-exactly the two things the notes prompt insists on (no invented facts, correct
-numbers), and a long transcript must be condensed in parts first
-(`llm._split_parts` already does this for small context windows), which
-multiplies the time.
+**What it does.** With the writing model downloaded and no key: a dictation is
+tidied by it (the app's own prompt and guards, inside the clean-up's own
+deadline; too slow and the words are pasted as said, as with a provider), and
+meeting notes and Ask are written by it. With a key nothing changes unless
+`writing_mode: "local"` is saved (a tick box in Settings once both are
+there); then the model here is asked alone, and a failure is never passed to
+the key. Transforms and Command mode still need a key.
 
-Candidates that fit a laptop (4-bit GGUF or MLX weights; sizes are download
-sizes, speeds are typical published figures for Apple Silicon, **not measured
-here**):
+**The runtime: llama.cpp, through `llama-cpp-python`.** One runtime and one
+model format (GGUF) for the Mac (Metal) and Windows, inside the app's own
+process, with nothing for the person to install. MLX is Apple Silicon only
+and brings the dependencies that ruled out mlx-whisper. The cost: PyPI has no
+binary wheel (it is compiled; see the release section), and the project's own
+wheel index served three Metal wheels that would not unzip (0.3.34 to 0.3.36,
+"bad zipfile offset"), so the source build is the only one that worked.
 
-| model | size | rough speed, M-series | fit for notes |
-| --- | --- | --- | --- |
-| Gemma 3n / Gemma 4 "e2b" class (2 B effective) | 2 to 4 GB | 40 to 80 tokens/s | The meetings engine already prefers `gemma4:e2b`, then `gemma4:e4b`, for a local endpoint, with a comment that they measured best for notes at their size. Usable for a short meeting; drops detail on a long one. |
-| Gemma 4 "e4b" class (4 B effective) | 5 to 10 GB | 20 to 40 tokens/s | Noticeably better notes; needs 16 GB of RAM to sit beside everything else. |
-| Qwen 3 4B, Phi-4-mini (3.8 B) | 2.5 to 3 GB | 30 to 60 tokens/s | Similar class; structured output is good, faithfulness on long input is the weak point. |
-| Llama 3.2 3B | 2 GB | 40 to 70 tokens/s | Fast, the weakest of these at keeping figures straight. |
-| 7 to 8 B models (Llama 3.1 8B, Qwen 3 8B) | 4.5 to 5 GB | 15 to 30 tokens/s | The first size that is dependable for notes; too heavy for an 8 GB Mac. |
+**The model: Google's own 4-bit build of Gemma 4 E4B** (`google/gemma-4-E4B-
+it-qat-q4_0-gguf`, Apache 2.0, 5.15 GB), pinned to a commit with its size and
+SHA-256. Three were tried, each over the same 28 dictations (rambling, lists
+said aloud, an email, names and numbers, swearing, one-liners; 27 go to the
+model, the short one never does) and three transcripts (258, 1,418 and 5,441
+words, written for this test, with 15, 26 and 60 facts, decisions and actions
+to find). Everything was read by hand as well as counted.
 
-At 30 tokens/s, 500 tokens of notes take about 17 s to write, after the model
-has read the transcript: about 12,000 tokens for an hour, at a few hundred
-tokens per second, so one to two minutes more, and several minutes on an 8 GB
-machine or a CPU-only Windows laptop. That is acceptable for notes (they are
-written after the meeting, in the background) and not for anything live.
+| model | download | memory, loaded | a 60-word dictation | notes: 258 / 1,418 / 5,441 words | found | verdict |
+| --- | --- | --- | --- | --- | --- | --- |
+| Gemma 4 E4B, 4-bit | 5.15 GB | 3.6 GB | 1.8 to 2.0 s | 11 / 22 / 84 s | 15 / 26 / 54 | **Chosen.** |
+| Gemma 4 E2B, 4-bit | 3.35 GB | 1.9 GB | 1.4 to 2.0 s | 7 / 19 / 39 s | 15 / 25 / 47 | Added a sign-off nobody said ("Thanks.", "Thanks again, James") to 24 of 27 dictations; notes gave a date that was not said and actions to the wrong people. |
+| LFM3 1.7B, 4-bit | 1.10 GB | 1.6 GB | never finished one | 5 / 9 / 41 s | 15 / 23 / 46 | Wrote its reasoning in place of the text; notes added years and swapped owners. |
 
-How it would be bundled, and why none of the three ways is free:
+Memory is the process's resident size with a 16k-token window (the model's
+file is mapped, about 2.4 GB of it; 1.2 GB is its own). Loading takes about
+2.5 s with the file in the disk cache, and reading the clean-up's long prompt
+once takes 3.5 s; both are done ahead of time (`warm()` at start-up, after
+the download, and again as a recording starts if the model was released).
 
-1. **The person's own Ollama** (no bundling). The meetings engine already
-   speaks to an OpenAI-compatible endpoint and to Ollama's own API
-   (`llm_provider: "custom"`, `custom_base_url`, context sizes, thinking off),
-   and this change keeps that path working. What is missing is only a way to
-   set those two values from Waffler. A few hours of work. The cost is that
-   the person installs and runs Ollama themselves.
-2. **llama.cpp inside Waffler** (`llama-cpp-python`). PyPI has no binary
-   wheels for it on any of our platforms (checked: macOS arm64 and Windows x64,
-   Python 3.11 and 3.14), so the release workflows would have to compile it
-   (CMake, Metal on the Mac, MSVC on Windows) or take wheels from the
-   project's own index. Then a second model download of 2 to 5 GB, memory
-   management next to the speech model, and the same download, verify and
-   remove flow built here. Days of work plus a new thing to keep building.
-3. **MLX** (`mlx-lm`): Apple Silicon only, and it brings the same heavy
-   dependencies that ruled out mlx-whisper.
+**What the measurements changed.** Each of these is in the code with its
+reason:
 
-**Recommendation.** Do not bundle a local LLM now. Ship local transcription
-with the honest line above, and let Waffler Plus (or a free Groq key) write
-the notes: a hosted model is better at this job than anything that fits in 4
-GB, and notes are the part of the product where a wrong figure costs trust.
-If notes with no account matter, do option 1 first (a "local model address"
-field: small, already half built, and it lets the result be judged on real
-meetings with `gemma4:e4b`, which is on this Mac already). Bundle llama.cpp
-only if that trial shows the notes are good enough to put the Waffler name
-on. Whatever is chosen, measure it on real meeting transcripts before
-deciding: the numbers in the table above are not ours.
+- *Clean-up, E4B, the app's prompt unchanged:* nothing invented and no
+  meaning changed in the 27. Three flaws, all with lists: one came back
+  numbered 3, 2, 3; one was written along one line (at temperature 0.1 only);
+  and the sentence leading into a list ("Right, three things for today.") was
+  left out in 3 list dictations of 10. So: temperature 0 on this computer
+  (the same text in any order, which 0.1 did not give), a numbered list that
+  does not count up is renumbered, inline items go on their own lines, and a
+  dropped lead-in is put back from the speaker's own words
+  (`OpenAIStyler._tidy_numbered_list`, `_restore_list_lead_in`; on-device
+  answers only). Still not done by it: "I need eggs, milk, bread and apples"
+  stays a sentence where the prompt asks for bullets, and a counted list
+  ("the three things are ...") comes back as lines without the dashes.
+- *Notes, E4B, the app's prompt unchanged:* not good enough. On the
+  1,418-word meeting, "the twenty-eighth" became "28 January" in 3 runs of 7,
+  and actions were given to "Owner", "Speaker" or the wrong person in most.
+  Two rules more for this model only (`LOCAL_NOTES_RULES` in
+  `src/meetings/llm.py`: no month, year or weekday that was not said; name who
+  does an action only when it is certain) and temperature 0: 3 runs of 3 with
+  nothing invented, 26 of 26 found, owners right. Providers are sent the
+  prompt they always were.
+- It left the `TITLE:` line out for that meeting every time, so a title is
+  asked for in one short question more.
+- llama.cpp aborts the process if it ends with a model open and a request
+  running; `_release_at_exit` stops the request and closes the model first.
+
+**What is still wrong with it, plainly.** The 5,441-word meeting: 54 of 60
+found in 84 to 96 s, and before the two rules six actions went to the wrong
+person; after them the owner's own actions were right, and others were given
+to "Speaker" or to nobody. Two small misreadings recurred on the 1,418-word
+one ("goes down most weeks" read as a price that varies; a decision already
+made listed as still to make). A key is better at long meetings, and the
+Settings row says so. A dictation of more than about 750 words would outrun
+the clean-up's deadline (arithmetic from its measured 26 words a second, not
+tried) and be pasted as said.
+
+**Which computers.** `local_llm.machine_verdict`: an Apple Silicon Mac with
+16 GB or more is offered it; one with less is told why not (it would take
+half of an 8 GB machine); Windows and Intel Macs are not shown it at all
+(nothing was measured there, and those builds do not carry the engine).
+
+**One request at a time.** A dictation goes ahead of notes, and notes already
+being written stop at the next word and are written again afterwards
+(measured: a dictation tidied in 7 s while a meeting's notes were under way,
+notes 40 s in all instead of 27). After notes or a question the clean-up's
+prompt is read again in the background. The model is released after five
+idle minutes (`WAFFLER_LOCAL_LLM_IDLE_S`).
 
 ## What a release build needs
 
@@ -439,6 +477,32 @@ by following the extension module's links. The libraries' minimum macOS is
 requirements and runs both specs' on-device blocks with PyInstaller's helpers
 replaced.
 
+The writing model's engine (`llama-cpp-python`), added to `Waffler_mac.spec`
+and **not built or run frozen**:
+
+- It is not in `requirements.txt`, because PyPI has no binary wheel and every
+  install would compile it. The release workflow must install it into the
+  build's Python before PyInstaller runs, with the app's minimum macOS set
+  (built without it here, the libraries came out needing macOS 26):
+  `MACOSX_DEPLOYMENT_TARGET=14.0 CMAKE_ARGS="-DGGML_METAL=on
+  -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0" pip install "llama-cpp-python==0.3.37"
+  --no-binary llama-cpp-python` (about five minutes; CMake comes with the
+  build, the compiler must be on the runner).
+- `Waffler_mac.spec` then names `llama_cpp` (it is imported inside a function)
+  and collects `llama_cpp/lib/*.dylib` into `llama_cpp/lib`
+  (`collect_dynamic_libs`): the package opens `libllama`, `libggml-*` and
+  `libmtmd` by path with ctypes, which PyInstaller cannot follow. With the
+  package absent the spec builds as before and the app does not offer the
+  download. pyinstaller-hooks-contrib 2026.4 has no hook for it.
+- The installed package is 37 MB, 35 MB of it libraries, each present three
+  times (the wheel turns `libllama.dylib -> libllama.1.dylib` links into
+  copies). About 23 MB could be saved by collecting one name of each.
+- Not in `Waffler_windows.spec` or `requirements_windows.txt`: not offered on
+  Windows.
+- To check on the first real build: that the frozen app finds the libraries
+  and runs on Metal under the hardened runtime, `scripts/check_macos_minos.py`,
+  and the first-use time of a signed build.
+
 Not checked, and worth a look before a release:
 
 - The real `Waffler_mac.spec` build, on Python 3.11, signed and notarised
@@ -461,6 +525,14 @@ Not checked, and worth a look before a release:
   `tests/test_local_dictation.py`, `tests/test_local_meetings.py`,
   `tests/test_local_stt_api.py`, `tests/test_local_stt_packaging.py`. Nothing
   in them downloads or loads a model, and they pass with no engine installed.
+- `tests/test_local_llm.py` (the module, with the engine and network
+  replaced), `tests/test_local_cleanup.py`, `tests/test_local_notes.py`,
+  `tests/test_local_llm_page.py`, and the packaging tests above.
+  `scripts/local_llm_check.py` is the real thing for the writing model: the
+  5.2 GB download with a cancel and a resume, then, with the network switched
+  off and no key, dictations tidied through `OpenAIStyler.style`, a meeting's
+  notes through `write_notes`, a dictation during notes, the idle unload and
+  removal. Not part of the suite.
 - `scripts/local_stt_check.py`: the real thing. Downloads the model into a
   temporary data folder, cancels and resumes, transcribes two spoken clips,
   runs two callers at once, waits for the idle unload, removes the model.
@@ -477,7 +549,14 @@ Not checked, and worth a look before a release:
 - Any test on Windows, on an Intel Mac, with an NVIDIA card, or of a real
   release build.
 - Accuracy on real speech. Only synthetic speech was measured.
-- A local LLM for notes (assessed above, not built).
+- The writing model on anything but one M5 with 16 GB: no 8 GB Mac (it is
+  not offered there), no other Apple Silicon chip, no Intel Mac, no Windows,
+  no frozen build. Its speed on an M1 or M2 with 16 GB is not known; the
+  verdict offers it there on memory alone.
+- The writing model on real dictations and real meetings: the 28 dictations
+  and three transcripts were written for the test, in English.
+- The writing model's rows in Settings and at first run were not driven in
+  the real app window; their logic is tested in Node and the markup as text.
 - A way to pick a different model from the page (`local_stt_model` works but
   nothing sets it), and cleaning up a model left behind when the selection
   changes: `local_stt_remove()` removes the selected one only.
