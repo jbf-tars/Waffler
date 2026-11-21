@@ -83,10 +83,13 @@ def test_the_page_has_the_four_methods_and_they_never_raise(monkeypatch):
 def test_status_is_the_models_state_plus_the_mode(monkeypatch):
     seen = []
     monkeypatch.setattr(local_stt, "model_status", lambda stored=None: seen.append(stored) or dict(STATUS))
+    monkeypatch.setattr(local_stt, "machine_verdict", lambda: {"suits": True, "reason": "apple_silicon"})
     ns = _api("local_stt_status")
     this = types.SimpleNamespace(_load_settings_file=lambda: {"transcription_mode": "local"})
     r = ns["local_stt_status"](this)
-    assert r == {"ok": True, "mode": "local", **STATUS}
+    # ... and whether this computer suits it, for setup's first screen.
+    assert r == {"ok": True, "mode": "local", **STATUS,
+                 "suits_machine": True, "machine_reason": "apple_silicon"}
     assert seen == [{"transcription_mode": "local"}]
     this = types.SimpleNamespace(_load_settings_file=lambda: {})
     assert ns["local_stt_status"](this)["mode"] == "cloud"

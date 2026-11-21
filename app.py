@@ -1883,11 +1883,24 @@ class Api:
         """The model on this computer: {"ok", "mode", "available", "engine",
         "model", "label", "state" ("not_downloaded" | "downloading" | "ready"),
         "percent", "bytes_done", "bytes_total", "size_on_disk", "error",
-        "cancelled", "loaded", ...}. Cheap: the page may poll it."""
+        "cancelled", "loaded", ..., "suits_machine", "machine_reason"}. Cheap:
+        the page may poll it.
+
+        ``suits_machine``: is this computer a good one for it (Apple Silicon,
+        an NVIDIA card with room, or 8+ cores and 12+ GB)? Setup's first
+        screen recommends "on this computer" when it is and a key when it is
+        not (src/local_stt.py machine_verdict; read once)."""
         try:
             stored = self._load_settings_file()
+            try:
+                verdict = _local_stt.machine_verdict()
+            except Exception as e:
+                _log_to_file(f"[local-stt] machine not read: {type(e).__name__}")
+                verdict = {"suits": False, "reason": "unknown"}
             return {"ok": True, "mode": _local_stt.mode_of(stored),
-                    **_local_stt.model_status(stored)}
+                    **_local_stt.model_status(stored),
+                    "suits_machine": bool(verdict.get("suits")),
+                    "machine_reason": str(verdict.get("reason") or "")}
         except Exception as e:
             _log_to_file(f"[local-stt] status failed: {type(e).__name__}: {e}")
             return {"ok": False, "error": "The speech model's state couldn't be read."}
@@ -3002,6 +3015,9 @@ class Api:
             "has_groq_key": bool(groq_key),
             "setup_complete": setup_done,
             "resume_step": resume,
+            # "local": the free way was chosen (on this computer, no key), so
+            # setup opens on that and not on "add a key". Else "cloud".
+            "transcription_mode": _lstt.mode_of(self._load_settings_file()),
         }
 
     # ── First-run setup (3.15) ──────────────────────────────────────────

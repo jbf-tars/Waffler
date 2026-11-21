@@ -266,6 +266,74 @@ def default_model() -> str:
     return _default_cache[engine]
 
 
+# ── does this computer suit it? ──────────────────────────────────────────────
+
+class Machine(NamedTuple):
+    """What decides whether speech to text on this computer is a good idea."""
+    system: str                     # platform.system(): "Darwin", "Windows", "Linux"
+    arch: str                       # platform.machine(): "arm64", "x86_64", "AMD64"
+    cores: int                      # logical cores
+    ram_gb: Optional[float]         # total memory; None when it could not be read
+    nvidia: bool = False            # a usable NVIDIA card with room for the large model
+
+
+SUITS_APPLE_SILICON = "apple_silicon"
+SUITS_NVIDIA = "nvidia"
+SUITS_CPU = "cpu"
+SMALL_MACHINE = "small_machine"
+
+_machine_cache: list = []
+
+
+def describe_machine() -> Machine:
+    """This computer, read once (the NVIDIA check loads libraries). Apple
+    Silicon is not probed at all: its answer does not depend on the rest."""
+    if _machine_cache:
+        return _machine_cache[0]
+    system, arch = platform.system(), platform.machine()
+    cores = os.cpu_count() or 1
+    ram, nvidia = None, False
+    if not (system == "Darwin" and arch == "arm64"):
+        try:
+            ram = _ct2()._total_ram_gb()
+        except Exception:           # noqa: BLE001 - unknown memory promises nothing
+            ram = None
+        try:
+            # default_model() has already asked the card (CUDA libraries and
+            # free memory, src/local_stt_ct2.py auto_model): the large model
+            # is its answer only when the card can take it.
+            nvidia = engine_name() == ENGINE_CT2 and default_model() == _ct2().AUTO_GPU_MODEL
+        except Exception:           # noqa: BLE001
+            nvidia = False
+    machine = Machine(system, arch, cores, ram, bool(nvidia))
+    _machine_cache.append(machine)
+    return machine
+
+
+def machine_verdict(machine: Optional[Machine] = None) -> dict:
+    """Does this computer suit speech to text on it? ``{"suits", "reason"}``,
+    by the table in docs/OFFLINE-TRANSCRIPTION.md ("The models"):
+
+    * Apple Silicon: yes (whisper.cpp on the GPU; ``"apple_silicon"``).
+    * Windows with an NVIDIA card that has room for the large model: yes
+      (``"nvidia"``). A card is no help to a Mac.
+    * Windows or an Intel Mac on the processor: yes with 8+ logical cores and
+      12+ GB of memory, where the ``small`` model runs (``"cpu"``).
+    * Anything smaller, or a machine that could not be read: it works, with
+      the ``base`` model, slowly and less accurately (``"small_machine"``).
+      The setup screen then puts the key first and says so.
+
+    Pure when given a Machine; with none it describes this one."""
+    m = machine or describe_machine()
+    if m.system == "Darwin" and m.arch == "arm64":
+        return {"suits": True, "reason": SUITS_APPLE_SILICON}
+    if m.nvidia and m.system != "Darwin":
+        return {"suits": True, "reason": SUITS_NVIDIA}
+    if _ct2().cpu_model_for(m.cores, m.ram_gb) == "small":
+        return {"suits": True, "reason": SUITS_CPU}
+    return {"suits": False, "reason": SMALL_MACHINE}
+
+
 def selected_model(stored=None) -> str:
     """The one model in use: the one settings.json names (when this machine's
     engine has it), else one that is already downloaded, else default_model()."""

@@ -180,11 +180,17 @@ def _total_ram_gb() -> float | None:
         return None
 
 
+def cpu_model_for(cores: int, ram_gb: float | None) -> str:
+    """The CPU model for a machine of this size: `small` with 8+ logical cores
+    and 12+ GB of RAM, else `base`. Pure, so src/local_stt.py's verdict on a
+    machine (machine_verdict) and the model chosen for it are one rule."""
+    # 12 GB machines report a little under 12 (firmware reserves some).
+    return "small" if (cores or 1) >= 8 and ram_gb is not None and ram_gb >= 11.5 else "base"
+
+
 def _cpu_auto_model() -> str:
     """`small` on a machine with 8+ logical cores and 12+ GB of RAM, else `base`."""
-    ram = _total_ram_gb()
-    # 12 GB machines report a little under 12 (firmware reserves some).
-    return "small" if (os.cpu_count() or 1) >= 8 and ram is not None and ram >= 11.5 else "base"
+    return cpu_model_for(os.cpu_count() or 1, _total_ram_gb())
 
 
 def _fit(model_name: str, free_mb: int | None) -> str | None:
