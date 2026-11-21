@@ -175,8 +175,10 @@ class MeetingsController:
                 at = _engine("store").now_iso()
                 store.set_settings({ACCOUNT_LAST_SYNCED: {"scope": cred["scope"], "at": at}})
                 done = {"last_synced_at": at}
-                if out["pulled"] or out["pushed"] or before:
-                    self._log(f"[account] synced: {out['pulled']} in, {out['pushed']} out")
+                skipped = out.get("skipped") or 0      # rows from the service that did not pass the checks
+                if out["pulled"] or out["pushed"] or skipped or before:
+                    self._log(f"[account] synced: {out['pulled']} in, {out['pushed']} out"
+                              + (f", {skipped} skipped (not valid, never applied)" if skipped else ""))
                 if out["pulled"]:
                     self._on_change()                  # meetings from another device are in the list
             except sync.SyncError as e:
@@ -184,7 +186,8 @@ class MeetingsController:
                 if e.status == 401:                    # removed from the account: the token is forgotten
                     self._log("[account] sync refused (answer 401): this computer is no longer signed in")
                 elif error != before:                  # said once, not every two minutes
-                    answer = f"answer {e.status}" if e.status else "no answer"
+                    answer = f"answer {e.status}" if e.status else (
+                        "an answer too large to accept" if e.code == sync.PAGE_TOO_LARGE else "no answer")
                     self._log(f"[account] sync did not go through ({answer}); it will be tried again")
         except Exception as e:  # noqa: BLE001
             error = acct.FAILED

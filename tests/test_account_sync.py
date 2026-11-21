@@ -8,6 +8,7 @@ import json
 import sys
 import threading
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import httpx
@@ -20,7 +21,7 @@ sys.path.insert(0, str(ROOT / "tests"))
 from src import account, meetings_ctl                    # noqa: E402
 from src.meetings import sync                             # noqa: E402
 from src.meetings.service import Service                  # noqa: E402
-from src.meetings.store import Store, wait_until          # noqa: E402
+from src.meetings.store import Store, new_id, wait_until  # noqa: E402
 from _account_fake import FakeAccountServer               # noqa: E402
 
 SERVER = "https://notes.example.test"
@@ -87,7 +88,7 @@ def two(fake, tmp_path, monkeypatch):
 def test_a_meeting_made_on_one_computer_arrives_on_the_other(two, fake):
     one, other = two
     nid = one.note("Call with the supplier", "the quote arrives on Tuesday")
-    assert one.sync() == {"pulled": 0, "pushed": 1}
+    assert one.sync() == {"pulled": 0, "pushed": 1, "skipped": 0}
     assert other.sync()["pulled"] == 1
     got = other.store.get_note(nid, with_segments=True)
     assert got["title"] == "Call with the supplier" and got["status"] == "ready"
@@ -128,7 +129,7 @@ def test_the_client_keeps_fetching_while_the_service_says_there_is_more(two, fak
     assert cursors[0] == "" and len(set(cursors)) == 3, "each page asks from where the last one ended"
     assert other.titles() == [f"Meeting {i}" for i in range(7)]
     fake.requests.clear()
-    assert other.sync() == {"pulled": 0, "pushed": 0}
+    assert other.sync() == {"pulled": 0, "pushed": 0, "skipped": 0}
     assert len(fake.calls("GET", "/api/sync/changes")) == 1 and fake.calls("POST", "/api/sync/push") == []
 
 
@@ -138,7 +139,7 @@ def test_a_service_that_says_more_forever_does_not_hang_the_client(two, fake, mo
     def forever(request):
         return httpx.Response(200, json={"notes": [], "folders": [], "templates": [], "now": "same", "more": True})
     monkeypatch.setattr(account, "_transport", httpx.MockTransport(forever))
-    assert one.sync() == {"pulled": 0, "pushed": 0}
+    assert one.sync() == {"pulled": 0, "pushed": 0, "skipped": 0}
 
 
 def test_a_large_first_sync_is_sent_in_batches_the_service_accepts(two, fake):
@@ -236,7 +237,7 @@ def test_the_older_hub_setting_still_works_and_keeps_its_own_cursors(fake, tmp_p
         assert [n["id"] for n in json.loads(request.content)["notes"]] == [nid]
         return httpx.Response(200, json={"applied": 1})
     with httpx.Client(base_url="http://hub.test", transport=httpx.MockTransport(hub)) as client:
-        assert sync.sync_with_hub(store, client) == {"pulled": 0, "pushed": 1}
+        assert sync.sync_with_hub(store, client) == {"pulled": 0, "pushed": 1, "skipped": 0}
     assert seen == [("GET", "/api/sync/changes", "Bearer hub-token"),
                     ("POST", "/api/sync/push", "Bearer hub-token")]
     cursors = store.settings()["sync_cursors"]
@@ -284,6 +285,10 @@ def ctl(fake, tmp_path, monkeypatch):
     assert account.verify(EMAIL, fake.mailbox[EMAIL], "This Mac")["ok"]
     c.token = json.loads((data / account.SESSION_FILE).read_text())["token"]
     yield c
+    if c._service is not None:
+        # start_sync's loop is a daemon thread that is never stopped. Left as it is, it goes on
+        # syncing this test's store with whichever account the next test signs in to.
+        c._service.account_sync = None
     c.shutdown()
 
 
@@ -445,3 +450,253 @@ def test_the_last_sync_time_survives_a_restart(ctl, fake, monkeypatch):
         assert out["ok"] is False and out["sync"]["last_synced_at"] == at, "offline at start: the old time stands"
     finally:
         again.shutdown()
+
+
+# ── what the service sends is checked before it is applied ──────────────────
+# Only matters if the service has been taken over, or is wrong: a row that
+# fails a check is skipped and counted, and never reaches the store.
+
+def a_row(_=None, title="From the service"):
+    """A note as the service would send it (the shape Store.export_changes gives)."""
+    nid, now = new_id(), hours_from_now(0)
+    return {"id": nid, "title": title, "title_locked": 0, "my_notes": "", "summary": "", "template_id": "general",
+            "folder_id": None, "status": "ready", "error": "", "duration_s": 2.0, "created_at": now,
+            "updated_at": now, "deleted": 0, "sessions": [],
+            "segments": [{"id": new_id(), "note_id": nid, "session_n": 1, "source": "mic", "start_s": 0.0,
+                          "end_s": 2.0, "text": "we ship on Friday", "created_at": now}]}
+
+
+def test_the_rows_these_tests_plant_have_the_shape_a_real_one_has(two, fake):
+    one, _ = two
+    one.note("Real")
+    real = one.store.export_changes("")["notes"][0]
+    assert set(a_row()) == set(real) and set(a_row()["segments"][0]) == set(real["segments"][0])
+    assert sync.valid_rows(one.store.export_changes("")) == ({"notes": [real], "folders": [], "templates": []}, 0)
+
+
+def plant(fake, kind, row, email=EMAIL):
+    """Put a row straight into the service, as if the service itself had made it."""
+    user = fake.users[email]
+    fake.seq[user] = fake.seq.get(user, 0) + 1
+    fake.rows.setdefault(user, {})[(kind, str(row.get("id")) if isinstance(row, dict) else repr(row))] = (
+        fake.seq[user], row)
+
+
+def hours_from_now(h):
+    return (datetime.now(timezone.utc) + timedelta(hours=h)).isoformat(timespec="milliseconds")
+
+
+def _bad_id(r): r["id"] = "../../settings"
+def _bad_id_slash(r): r["id"] = "a/b"
+def _long_id(r): r["id"] = "a" * 65
+def _no_id(r): del r["id"]
+def _id_not_text(r): r["id"] = 7
+def _far_future(r): r["updated_at"] = hours_from_now(25)
+def _made_in_future(r): r["created_at"] = hours_from_now(24 * 365)
+def _time_unreadable(r): r["updated_at"] = "zzzz"
+def _time_missing(r): r["updated_at"] = None
+def _huge_title(r): r["title"] = "t" * (sync.MAX_NAME + 1)
+def _huge_summary(r): r["summary"] = "s" * (sync.MAX_TEXT + 1)
+def _huge_notes(r): r["my_notes"] = "n" * (sync.MAX_TEXT + 1)
+def _title_not_text(r): r["title"] = {"a": 1}
+def _bad_folder(r): r["folder_id"] = "../x"
+def _segment_bad_id(r): r["segments"][0]["id"] = "x y"
+def _segment_of_another_note(r): r["segments"][0]["note_id"] = "0" * 32
+def _segment_huge(r): r["segments"][0]["text"] = "w" * (sync.MAX_TEXT + 1)
+def _segment_in_future(r): r["segments"][0]["created_at"] = hours_from_now(48)
+def _segment_time_not_a_number(r): r["segments"][0]["start_s"] = "soon"
+def _segments_not_a_list(r): r["segments"] = "all of them"
+def _session_of_another_note(r):
+    r["sessions"] = [{"id": "b" * 32, "note_id": "0" * 32, "n": 1, "offset_s": 0.0,
+                      "started_at": r["created_at"], "ended_at": None}]
+def _session_in_future(r):
+    r["sessions"] = [{"id": "b" * 32, "note_id": r["id"], "n": 1, "offset_s": 0.0,
+                      "started_at": hours_from_now(30), "ended_at": None}]
+
+
+@pytest.mark.parametrize("spoil", [
+    _bad_id, _bad_id_slash, _long_id, _no_id, _id_not_text, _far_future, _made_in_future, _time_unreadable,
+    _time_missing, _huge_title, _huge_summary, _huge_notes, _title_not_text, _bad_folder, _segment_bad_id,
+    _segment_of_another_note, _segment_huge, _segment_in_future, _segment_time_not_a_number, _segments_not_a_list,
+    _session_of_another_note, _session_in_future], ids=lambda f: f.__name__.strip("_"))
+def test_a_note_that_fails_a_check_is_skipped_and_counted_never_applied(two, fake, spoil):
+    one, _ = two
+    good, bad = a_row(one, "A good one"), a_row(one, "A bad one")
+    spoil(bad)
+    plant(fake, "notes", bad)
+    plant(fake, "notes", good)
+    before = one.store.db.execute("SELECT count(*) FROM segments").fetchone()[0]
+    assert one.sync() == {"pulled": 1, "pushed": 0, "skipped": 1}
+    assert one.titles() == ["A good one"], "the good row on the same page still arrives"
+    assert one.store.db.execute("SELECT count(*) FROM notes").fetchone()[0] == 1
+    assert one.store.db.execute("SELECT count(*) FROM segments").fetchone()[0] == before + 1
+    assert one.store.db.execute("SELECT count(*) FROM sessions").fetchone()[0] == 0
+    assert not (one.folder / "settings").exists()
+    assert one.sync() == {"pulled": 0, "pushed": 0, "skipped": 0}, "it is not asked for again"
+
+
+def test_things_that_are_not_rows_at_all_are_skipped(two, fake):
+    one, _ = two
+    for i, junk in enumerate(("a string", 7, None, ["a", "list"])):
+        plant(fake, "notes", junk)
+    plant(fake, "notes", a_row(one, "Real"))
+    assert one.sync() == {"pulled": 1, "pushed": 0, "skipped": 4}
+    assert one.titles() == ["Real"]
+
+
+def test_a_clock_a_few_hours_out_is_not_a_reason_to_skip(two, fake):
+    one, _ = two
+    row = a_row(one, "From a computer whose clock is fast")
+    row["updated_at"] = hours_from_now(23)
+    plant(fake, "notes", row)
+    assert one.sync()["skipped"] == 0 and one.titles() == ["From a computer whose clock is fast"]
+
+
+def test_a_time_far_in_the_future_cannot_win_every_merge_from_then_on(two, fake):
+    one, other = two
+    nid = one.note("Mine")
+    one.sync()
+    forged = dict(fake.notes_of(EMAIL)[nid], title="Taken over", updated_at=hours_from_now(24 * 3650))
+    plant(fake, "notes", forged)
+    assert one.sync()["skipped"] == 1
+    assert one.titles() == ["Mine"]
+    time.sleep(0.01)
+    one.store.update_note(nid, title="Still mine to edit")
+    assert one.sync()["pushed"] == 1 and one.titles() == ["Still mine to edit"]
+
+
+def test_folders_and_templates_are_checked_too(two, fake):
+    one, _ = two
+    now = hours_from_now(0)
+    for kind, row in (
+            ("folders", {"id": "f" * 32, "name": "Clients", "updated_at": now, "deleted": 0}),
+            ("folders", {"id": "../f", "name": "Bad id", "updated_at": now, "deleted": 0}),
+            ("folders", {"id": "e" * 32, "name": "From the future", "updated_at": hours_from_now(100), "deleted": 0}),
+            ("folders", {"id": "d" * 32, "name": "n" * (sync.MAX_NAME + 1), "updated_at": now, "deleted": 0}),
+            ("templates", {"id": "t" * 32, "name": "Standup", "prompt": "Summarise.", "updated_at": now, "deleted": 0}),
+            ("templates", {"id": "u" * 32, "name": "Huge", "prompt": "p" * (sync.MAX_TEXT + 1), "updated_at": now}),
+            ("templates", {"id": "v v", "name": "Bad id", "prompt": "x", "updated_at": now}),
+            ("templates", {"id": "w" * 32, "name": "No prompt", "updated_at": now})):
+        plant(fake, kind, row)
+    assert one.sync() == {"pulled": 0, "pushed": 0, "skipped": 6}
+    assert [f["name"] for f in one.store.folders()] == ["Clients"]
+    assert "Standup" in [t["name"] for t in one.store.templates()]
+    assert not {"Huge", "Bad id", "No prompt"} & {t["name"] for t in one.store.templates()}
+
+
+def test_an_answer_with_more_rows_than_any_real_page_stops_the_round_and_applies_nothing(two, fake, monkeypatch):
+    one, _ = two
+    for i in range(4):
+        plant(fake, "notes", a_row(one, f"Note {i}"))
+    monkeypatch.setattr(sync, "MAX_PAGE_ROWS", 3)
+    with pytest.raises(sync.SyncError) as e:
+        one.sync()
+    assert (e.value.status, e.value.code) == (None, sync.PAGE_TOO_LARGE)
+    assert one.titles() == [] and not one.store.settings().get(meetings_ctl.ACCOUNT_CURSORS)
+    fake.page_rows = 3                                     # in pages of a size it accepts, all of it arrives
+    assert one.sync() == {"pulled": 4, "pushed": 0, "skipped": 0}
+
+
+def test_an_answer_of_more_bytes_than_any_real_page_stops_the_round(two, fake, monkeypatch):
+    one, _ = two
+    plant(fake, "notes", a_row(one, "x" * 1500))
+    monkeypatch.setattr(sync, "MAX_PAGE_BYTES", 1000)
+    with pytest.raises(sync.SyncError) as e:
+        one.sync()
+    assert e.value.code == sync.PAGE_TOO_LARGE and one.titles() == []
+    assert sync.MAX_PAGE_ROWS >= 1000 and sync.MAX_TEXT >= 1_000_000, "generous: nothing real is near these"
+
+
+def test_an_answer_that_is_not_an_object_changes_nothing(two, fake, monkeypatch):
+    one, _ = two
+    monkeypatch.setattr(account, "_transport", httpx.MockTransport(
+        lambda request: httpx.Response(200, json=["not", "an", "object"])))
+    with pytest.raises(sync.SyncError):
+        one.sync()
+    assert one.titles() == []
+
+
+def test_skipped_rows_are_counted_in_the_log(ctl, fake):
+    store = ctl._svc().store
+    bad = a_row(None, "Bad")
+    bad["id"] = "../../x"
+    worse = a_row(None, "Worse")
+    worse["updated_at"] = hours_from_now(999)
+    for row in (bad, worse, a_row(None, "Good")):
+        plant(fake, "notes", row)
+    assert ctl.sync_now()["ok"]
+    assert "[account] synced: 1 in, 0 out, 2 skipped (not valid, never applied)" in ctl.logged
+    assert [n["title"] for n in store.list_notes()] == ["Good"]
+    assert ctl.sync_now()["ok"]
+    ctl.logged.clear()
+    a_meeting(store)
+    assert ctl.sync_now()["ok"]
+    assert ctl.logged == ["[account] synced: 0 in, 1 out"], "nothing skipped: nothing said about it"
+
+
+def test_an_answer_too_large_is_said_plainly_and_logged_as_that(ctl, fake, monkeypatch):
+    for i in range(3):
+        plant(fake, "notes", a_row(None, f"Note {i}"))
+    monkeypatch.setattr(sync, "MAX_PAGE_ROWS", 2)
+    out = ctl.sync_now()
+    assert out["ok"] is False and out["error"] == \
+        "The account service sent more than Waffler accepts in one answer, so nothing was changed."
+    assert [line for line in ctl.logged if line.startswith("[account]")] == [
+        "[account] sync did not go through (an answer too large to accept); it will be tried again"]
+    assert ctl._svc().store.list_notes() == [] and account.status()["signed_in"]
+
+
+# ── a meeting deleted somewhere else never takes this computer's audio ──────
+# There is no trash for meetings: a deleted one is kept, marked deleted, and
+# hidden. Only this computer's own Delete removes a recording's audio.
+
+def record_audio(computer, nid):
+    computer.use()
+    from src.meetings.paths import audio_dir
+    path = audio_dir(nid) / "session-1-mic.flac"
+    path.write_bytes(b"fLaC" + b"the only copy of what was said" * 100)
+    return path
+
+
+def test_a_meeting_deleted_on_another_computer_keeps_the_audio_recorded_on_this_one(two, fake):
+    one, other = two
+    nid = one.note("Recorded here")
+    audio = record_audio(one, nid)
+    kept = audio.read_bytes()
+    one.sync()
+    other.sync()
+    time.sleep(0.01)
+    other.store.delete_note(nid)                           # deleted on the other computer
+    other.sync()
+    assert one.sync()["pulled"] == 1
+    assert one.titles() == [], "the meeting is gone from the list here too"
+    note = one.store.get_note(nid, with_segments=True)
+    assert note["deleted"] == 1 and note["title"] == "Recorded here", "kept, marked deleted"
+    assert [s["text"] for s in note["segments"]] == ["hello there"]
+    assert audio.exists() and audio.read_bytes() == kept, "the audio this computer recorded is untouched"
+    one.sync()
+    one.sync()
+    assert audio.read_bytes() == kept
+
+
+def test_a_service_that_says_a_meeting_is_deleted_cannot_remove_its_audio(ctl, fake):
+    svc = ctl._svc()
+    nid = a_meeting(svc.store, "Recorded here")
+    from src.meetings.paths import audio_dir
+    audio = audio_dir(nid) / "session-1-mic.flac"
+    audio.write_bytes(b"fLaC" + b"\x00" * 4096)
+    assert ctl.sync_now()["ok"]
+    forged = dict(fake.notes_of(EMAIL)[nid], deleted=1, updated_at=hours_from_now(1))
+    plant(fake, "notes", forged)
+    assert ctl.sync_now()["ok"]
+    assert ctl.get(nid) is None and ctl.list() == [], "hidden, as a deleted meeting is"
+    assert svc.store.get_note(nid)["deleted"] == 1
+    assert audio.exists() and audio.stat().st_size == 4100 and svc.has_audio(nid)
+
+
+def test_nothing_in_the_pull_path_can_reach_the_code_that_removes_audio():
+    engine = Path(sync.__file__).resolve().parent
+    for name in ("sync.py", "store.py"):
+        source = (engine / name).read_text(encoding="utf-8")
+        for word in ("rmtree", "unlink", "delete_audio", "os.remove", "audio_dir"):
+            assert word not in source, f"{name} must never touch audio files ({word})"

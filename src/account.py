@@ -82,6 +82,7 @@ BAD_LINK = ("The account service answered with a link that is not its own, so Wa
 DEVICE_GONE = "That device is no longer signed in."
 BUSY = "The account service is busy. Try again in a moment."
 SYNC_TOO_OFTEN = "The account service asked Waffler to wait. It will try again shortly."
+SYNC_TOO_LARGE = "The account service sent more than Waffler accepts in one answer, so nothing was changed."
 FAILED = "That didn't work. Try again."
 
 DIGITS_OLD = 6               # a service that does not say how long its codes are
@@ -632,9 +633,10 @@ def connector_off() -> dict:
 def sync_refusal(status: int | None, detail: str = "", code: str = "", token: str | None = None) -> str:
     """Why a sync round did not go through, as one sentence. A 401 means
     this device was removed from the account: the token (the one the round
-    used) is forgotten."""
+    used) is forgotten. With no status, `code` is the sync client's own
+    word for why it stopped."""
     if status is None:
-        return NO_INTERNET
+        return SYNC_TOO_LARGE if code == "page_too_large" else NO_INTERNET
     if status == 401:
         _signed_out_by_service(token)
         return SIGNED_OUT

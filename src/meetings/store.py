@@ -405,7 +405,13 @@ class Store:
 
     def import_changes(self, changes: dict) -> dict:
         """Merge another device's changes: a note's fields from whichever side
-        edited it last, its segments and sessions from both."""
+        edited it last, its segments and sessions from both.
+
+        A note deleted somewhere else arrives marked `deleted`: it is kept
+        here, marked and hidden (there is no trash for meetings). Nothing in
+        this file or in sync.py touches audio: the recording this computer
+        made stays on its disk, and only this computer's own Delete
+        (Service.delete_note) removes it. tests/test_account_sync.py pins it."""
         applied = 0
         with self._write:
             for n in changes.get("notes", []):

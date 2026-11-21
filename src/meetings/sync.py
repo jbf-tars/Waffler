@@ -12,20 +12,36 @@ things an account needs, which a hub does not mind:
 
 * the service answers a pull in pages (`more`): keep asking until it is done;
 * the service refuses a push over 16 MB: a large first sync goes in batches.
+
+What is pulled is checked before it is applied (`valid_rows`): the other side
+is trusted to hold the meetings, not to be right. A row with an id that is
+not an id, a time more than a day in the future (it would win every merge
+from then on), or a text field larger than any real one is skipped and
+counted, never applied; an answer larger than any real page stops the round.
 """
 from __future__ import annotations
 
 import contextlib
 import json
-from datetime import datetime, timedelta
+import math
+from datetime import datetime, timedelta, timezone
 
 from . import keys
+from .paths import safe_note_id
 from .store import Store, now_iso
 
 keys.PROVIDERS.setdefault("hub", "NATTER_HUB_TOKEN")
 
 PUSH_BYTES = 4 * 1024 * 1024      # one push stays well under the service's 16 MB
 MAX_PAGES = 2000                  # a pull that never ends is stopped here
+MAX_AHEAD = timedelta(hours=24)   # a pulled row's times: no later than this from now
+MAX_TEXT = 4_000_000              # characters in one pulled text field (notes, a summary, a transcript line)
+MAX_NAME = 2_000                  # ... and in a title, a name or a word such as the status
+MAX_PARTS = 100_000               # sessions or transcript lines in one pulled note
+MAX_PAGE_ROWS = 5_000             # notes, folders and templates in one answer (the service sends 200)
+MAX_PAGE_BYTES = 512 * 1024 * 1024
+PAGE_TOO_LARGE = "page_too_large"  # SyncError.code when an answer is over those two
+KINDS = ("notes", "folders", "templates")
 
 
 class SyncError(Exception):
@@ -35,6 +51,98 @@ class SyncError(Exception):
     def __init__(self, message: str, status: int | None = None, detail: str = "", code: str = ""):
         super().__init__(message)
         self.status, self.detail, self.code = status, detail, code
+
+
+# ── what is pulled is checked before it is applied ──────────────────────────
+
+def _id_ok(value) -> bool:
+    """The pattern an id already has to match to name a note's audio folder."""
+    try:
+        safe_note_id(value)
+        return True
+    except ValueError:
+        return False
+
+
+def _when_ok(value, latest: datetime, needed: bool = True) -> bool:
+    """A time that can be read and is not after `latest`."""
+    if value is None or value == "":
+        return not needed
+    if not isinstance(value, str) or len(value) > 40:
+        return False
+    try:
+        when = datetime.fromisoformat(value)
+    except ValueError:
+        return False
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return when <= latest
+
+
+def _text_ok(row: dict, limit: int, *fields) -> bool:
+    """Each of these is text, and no longer than `limit`."""
+    return all(isinstance(row.get(f), str) and len(row[f]) <= limit for f in fields)
+
+
+def _number_ok(value, needed: bool = True) -> bool:
+    if value is None:
+        return not needed
+    return isinstance(value, (int, float)) and math.isfinite(value)
+
+
+def _note_ok(n, latest: datetime) -> bool:
+    if not isinstance(n, dict) or not _id_ok(n.get("id")):
+        return False
+    if not _when_ok(n.get("updated_at"), latest) or not _when_ok(n.get("created_at"), latest):
+        return False
+    if not _id_ok(n.get("template_id")) or (n.get("folder_id") is not None and not _id_ok(n["folder_id"])):
+        return False
+    if not _text_ok(n, MAX_NAME, "title", "status") or not _text_ok(n, MAX_TEXT, "my_notes", "summary", "error"):
+        return False
+    if not all(_number_ok(n.get(k)) for k in ("duration_s", "title_locked", "deleted")):
+        return False
+    sessions, segments = n.get("sessions", []), n.get("segments", [])
+    if not isinstance(sessions, list) or not isinstance(segments, list) \
+            or len(sessions) > MAX_PARTS or len(segments) > MAX_PARTS:
+        return False
+    for s in sessions:                                # each belongs to this note and no other
+        if not isinstance(s, dict) or not _id_ok(s.get("id")) or s.get("note_id") != n["id"] \
+                or not _when_ok(s.get("started_at"), latest) \
+                or not _when_ok(s.get("ended_at"), latest, needed=False) \
+                or not _number_ok(s.get("n")) or not _number_ok(s.get("offset_s")):
+            return False
+    for s in segments:
+        if not isinstance(s, dict) or not _id_ok(s.get("id")) or s.get("note_id", n["id"]) != n["id"] \
+                or not _text_ok(s, MAX_TEXT, "text") or not _text_ok({"source": "mic", **s}, MAX_NAME, "source") \
+                or not _when_ok(s.get("created_at"), latest, needed=False) \
+                or not _number_ok(s.get("start_s")) or not _number_ok(s.get("end_s")) \
+                or not _number_ok(s.get("session_n"), needed=False):
+            return False
+    return True
+
+
+def _named_ok(row, latest: datetime, *long_text) -> bool:
+    """A folder or a template."""
+    return isinstance(row, dict) and _id_ok(row.get("id")) and _when_ok(row.get("updated_at"), latest) \
+        and _text_ok(row, MAX_NAME, "name") and _text_ok(row, MAX_TEXT, *long_text) \
+        and _number_ok(row.get("deleted"), needed=False)
+
+
+def valid_rows(remote, size: int = 0, now: datetime | None = None) -> tuple[dict, int]:
+    """One answer to a pull, as it may be applied: (the rows that passed,
+    how many were skipped). Raises SyncError (code PAGE_TOO_LARGE) for an
+    answer that is not an object or is larger than any real page: then
+    nothing in it is applied and the round stops where it was."""
+    if not isinstance(remote, dict):
+        raise SyncError("The other side's answer could not be read.")
+    rows = {k: remote.get(k) if isinstance(remote.get(k), list) else [] for k in KINDS}
+    if size > MAX_PAGE_BYTES or sum(len(v) for v in rows.values()) > MAX_PAGE_ROWS:
+        raise SyncError("The other side sent more than fits in one answer.", code=PAGE_TOO_LARGE)
+    latest = (now or datetime.now(timezone.utc)) + MAX_AHEAD
+    clean = {"notes": [n for n in rows["notes"] if _note_ok(n, latest)],
+             "folders": [f for f in rows["folders"] if _named_ok(f, latest)],
+             "templates": [t for t in rows["templates"] if _named_ok(t, latest, "prompt")]}
+    return clean, sum(len(rows[k]) - len(clean[k]) for k in KINDS)
 
 
 def _just_before(iso: str) -> str:
@@ -120,17 +228,19 @@ def sync_with_hub(store: Store, client=None, token: str | None = None, *, url: s
         # Stored outside DEFAULT_SETTINGS filtering: this is internal state.
         store.set_settings({cursors_key: {"pulled": pulled_to, "pushed": pushed_to,
                                           **({"scope": scope} if scope else {})}})
-    pulled = pushed = 0
+    pulled = pushed = skipped = 0
     try:
         local, taken = None, ""
         for _ in range(MAX_PAGES):
             r = client.get("/api/sync/changes", params={"since": pulled_to}, headers=headers)
             r.raise_for_status()
             remote = r.json()
+            rows, bad = valid_rows(remote, len(getattr(r, "content", b"") or b""))
+            skipped += bad                            # never applied; the count goes to the log
             if local is None:                         # before importing: only our own edits
                 taken = _just_before(now_iso())       # read first: an edit made meanwhile is sent twice, not missed
                 local = store.export_changes(pushed_to)
-            pulled += store.import_changes(remote)["applied"]
+            pulled += store.import_changes(rows)["applied"]
             stuck = remote.get("now", pulled_to) == pulled_to
             pulled_to = remote.get("now", pulled_to)
             remember()
@@ -166,4 +276,4 @@ def sync_with_hub(store: Store, client=None, token: str | None = None, *, url: s
         if made:
             with contextlib.suppress(Exception):
                 client.close()
-    return {"pulled": pulled, "pushed": pushed}
+    return {"pulled": pulled, "pushed": pushed, "skipped": skipped}
