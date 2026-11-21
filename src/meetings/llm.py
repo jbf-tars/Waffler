@@ -135,7 +135,8 @@ def _anthropic_complete(system: str, messages: list[dict], model: str, max_token
 
 
 def _openai_complete(provider: str, settings: dict, system: str, messages: list[dict],
-                     model: str, max_tokens: int) -> str:
+                     model: str, max_tokens: int, effort: str | None = None,
+                     on_text=None) -> str:
     client = _openai_client(provider, settings)
     kwargs = dict(model=model, messages=[{"role": "system", "content": system}, *messages])
     if provider == "custom":
@@ -159,8 +160,31 @@ def _openai_complete(provider: str, settings: dict, system: str, messages: list[
                     raise
         resp = client.chat.completions.create(max_tokens=min(max_tokens, 3000), **kwargs)
         return strip_thinking(resp.choices[0].message.content or "")
-    resp = client.chat.completions.create(max_completion_tokens=max_tokens, **kwargs)
-    return (resp.choices[0].message.content or "").strip()
+    def create(**more) -> str:
+        if on_text is None:
+            resp = client.chat.completions.create(max_completion_tokens=max_tokens, **more, **kwargs)
+            return (resp.choices[0].message.content or "").strip()
+        # `on_text(the words so far)` as they are written, so a long answer
+        # is read while it arrives instead of waited for.
+        text = ""
+        for chunk in client.chat.completions.create(max_completion_tokens=max_tokens, stream=True,
+                                                    **more, **kwargs):
+            piece = chunk.choices[0].delta.content if chunk.choices else None
+            if piece:
+                text += piece
+                on_text(text)
+        return text.strip()
+
+    if effort and provider == "openai":
+        # A model that thinks before it answers takes ten seconds and more over
+        # a plain question; told not to deliberate it takes three or four. A
+        # model that doesn't know the setting is asked again without it.
+        try:
+            return create(reasoning_effort=effort)
+        except Exception as e:  # noqa: BLE001
+            if getattr(e, "status_code", None) not in (400, 422):
+                raise
+    return create()
 
 
 def ollama_root(base_url: str) -> str | None:
@@ -215,8 +239,11 @@ def strip_thinking(text: str) -> str:
 
 
 def complete(system: str, messages: list[dict], settings: dict, max_tokens: int = 16000,
-             backend=None) -> str:
-    """One model reply. `backend(system, messages)` replaces the network in tests."""
+             backend=None, effort: str | None = None, on_text=None) -> str:
+    """One model reply. `backend(system, messages)` replaces the network in tests.
+    `effort` is how hard a thinking model should think (Ask passes "low").
+    `on_text(words so far)` is called as the reply is written, where the
+    provider can do that; the whole reply is still what comes back."""
     if backend is not None:
         return backend(system, messages)
     provider = resolve_provider(settings)
@@ -227,7 +254,7 @@ def complete(system: str, messages: list[dict], settings: dict, max_tokens: int 
             if provider == "anthropic":
                 return _anthropic_complete(system, messages, model, max_tokens)
             return _openai_complete(provider, settings, system, messages, model,
-                                    min(max_tokens, 8000))
+                                    min(max_tokens, 8000), effort=effort, on_text=on_text)
         except LLMError:
             raise
         except Exception as e:  # noqa: BLE001
@@ -381,15 +408,24 @@ def write_notes(transcript: str, my_notes: str, template_prompt: str, settings: 
 ASK_SYSTEM = """You answer questions about the user's own recorded meetings and voice notes, using \
 only the material provided. "Me" in a transcript is the user. Be direct and specific; quote short \
 phrases when wording matters. If the material doesn't contain the answer, say so plainly. When \
-several notes are provided, name the note (title and date) each point comes from. Plain Markdown, \
-no headings unless the answer is long."""
+several notes are provided, name the note (title and date) each point comes from. Keep it short: \
+the answer first, in a few lines, and more only when the question asks for detail. Plain Markdown, \
+no headings."""
 
 
-def ask(question: str, context: str, history: list[dict], settings: dict, backend=None) -> str:
+def ask(question: str, context: str, history: list[dict], settings: dict, backend=None,
+        extra: str = "", on_text=None) -> str:
+    """`extra` is more material besides the notes (Waffler's dictations). It
+    keeps up to half the room, so long notes never push it out."""
     provider = "custom" if backend else resolve_provider(settings)
     size = _PART_CHARS.get(provider, 60000)
-    if len(context) > size:
-        context = context[:size] + "\n[...material cut here: it was too long to send whole...]"
+    cut = "\n[...material cut here: it was too long to send whole...]"
+    extra = (extra or "")[:size // 2]
+    room = size - len(extra)
+    if len(context) > room:
+        context = context[:room] + cut
+    if extra:
+        context = (context + "\n\n" + extra).strip()
     messages = [{"role": "user", "content": f"<material>\n{context}\n</material>\n\n"
                                             "Use this material to answer my questions."},
                 {"role": "assistant", "content": "Understood."}]
@@ -397,4 +433,5 @@ def ask(question: str, context: str, history: list[dict], settings: dict, backen
         if h.get("role") in ("user", "assistant") and h.get("content"):
             messages.append({"role": h["role"], "content": str(h["content"])})
     messages.append({"role": "user", "content": question})
-    return complete(ASK_SYSTEM, messages, settings, max_tokens=4000, backend=backend)
+    return complete(ASK_SYSTEM, messages, settings, max_tokens=4000, backend=backend, effort="low",
+                    on_text=on_text)

@@ -1634,6 +1634,18 @@ async function _refreshStats() {
   } catch (_) {}
 }
 
+// A window left open overnight went on showing yesterday's count as Today.
+// When it is looked at again on a new day, the numbers are read again.
+let _statsDay = new Date().toDateString();
+function _refreshStatsOnNewDay() {
+  const day = new Date().toDateString();
+  if (day === _statsDay) return;
+  _statsDay = day;
+  _refreshStats();
+}
+window.addEventListener('focus', _refreshStatsOnNewDay);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) _refreshStatsOnNewDay(); });
+
 // ── Called by Python after each transcription ─────────────────────────
 // The new entry is added at the top; nothing else is redrawn (every card
 // used to be rebuilt, about half a second at 3,300 entries).

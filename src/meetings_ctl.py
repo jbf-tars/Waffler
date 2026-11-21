@@ -193,8 +193,8 @@ class MeetingsController:
         self._on_change()
 
     def ask(self, question: str, note_id: str | None = None, history: list | None = None,
-            extra: str = "") -> dict:
-        return self._svc().ask(question, note_id, history or [], extra=extra)
+            extra: str = "", on_text=None) -> dict:
+        return self._svc().ask(question, note_id, history or [], extra=extra, on_text=on_text)
 
     # ── quitting ────────────────────────────────────────────────────────────
     def shutdown(self) -> None:

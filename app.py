@@ -744,6 +744,28 @@ def _dictations_for_ask(question: str) -> str:
         return ""
 
 
+def _ask_listener(stream_id: str):
+    """An answer is shown while it is written: hand the page the words so
+    far, a dozen times a second at most. Never raises; the whole answer is
+    still what meetings_ask returns."""
+    sid = "".join(c for c in str(stream_id) if c.isalnum() or c in "-_")[:40]
+    if not sid:
+        return None
+    last = [0.0]
+
+    def on_text(text: str) -> None:
+        now = time.time()
+        if now - last[0] < 0.08:
+            return
+        last[0] = now
+        try:
+            _post_js("window.waffler_ask_text && window.waffler_ask_text("
+                     + json.dumps(sid) + "," + json.dumps(text) + ")")
+        except Exception:
+            pass
+    return on_text
+
+
 def _claude_connector_mod():
     try:
         from src import claude_connector
@@ -837,12 +859,16 @@ class Api:
         _get_meetings().delete(note_id)
         return {"ok": True}
 
-    def meetings_ask(self, question: str, note_id: str = "", everything: bool = False) -> dict:
+    def meetings_ask(self, question: str, note_id: str = "", everything: bool = False,
+                     stream_id: str = "") -> dict:
         """Ask about one meeting, about every meeting, or (`everything`) about
-        the meetings and the dictations together (Home's Ask)."""
+        the meetings and the dictations together (Home's Ask). With a
+        `stream_id` the page is also handed the answer as it is written
+        (window.waffler_ask_text(stream_id, words so far))."""
         try:
             extra = _dictations_for_ask(question) if everything and not note_id else ""
-            return {"ok": True, **_get_meetings().ask(question, note_id or None, extra=extra)}
+            return {"ok": True, **_get_meetings().ask(question, note_id or None, extra=extra,
+                                                      on_text=_ask_listener(stream_id))}
         except Exception as e:  # noqa: BLE001
             _log_to_file(f"[meetings] ask failed: {type(e).__name__}: {e}")
             return {"ok": False, "error": str(e) or "That couldn't be answered just now."}

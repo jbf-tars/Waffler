@@ -56,6 +56,8 @@
       jr.classList.toggle('is-on', !!s.recording);
       jr.setAttribute('aria-label', s.recording ? 'Finish the meeting and write the notes' : 'Record a meeting');
       $('jRecordClock').textContent = s.recording ? clock(s.elapsed_s) : '';
+      if ($('jRecordLabel')) $('jRecordLabel').textContent = s.recording ? 'Finish' : 'Record a meeting';
+      jr.title = s.recording ? 'Finish the meeting and write the notes (or tap your hotkey twice)' : 'Record a meeting (or tap your hotkey twice)';
     }
     window.clearInterval(timer);
     if (s.recording) timer = window.setInterval(refreshState, 1000);
@@ -78,30 +80,53 @@
     const form = $('jAskForm'); if (!form) return;
     const input = $('jAskInput'), send = $('jAskSend'), box = $('jAskAnswer');
     $('jAskClose').addEventListener('click', () => { box.hidden = true; });
+    // The answer is drawn as it is written (app.py _ask_listener): `asking`
+    // is the question on screen, so a late piece of an old answer is ignored.
+    let asking = '';
+    window.waffler_ask_text = function (id, text) {
+      if (!id || id !== asking) return;
+      const ans = $('jAskA'); ans.className = 'mt-a mt-prose'; ans.innerHTML = prose(text);
+      box.scrollTop = box.scrollHeight;
+    };
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const q = input.value.trim(), a = api();
       if (!q || !a) return;
       input.value = ''; send.disabled = true; box.hidden = false;
       $('jAskQ').textContent = q; $('jAskSrc').textContent = '';
-      const ans = $('jAskA'); ans.className = 'mt-a mt-busy'; ans.textContent = 'Thinking. This takes a moment.';
+      const ans = $('jAskA'); ans.className = 'mt-a mt-busy'; ans.textContent = 'Thinking';
+      const mine = asking = 'ask' + Date.now();
       try {
-        const r = await a.meetings_ask(q, '', true);
+        const r = await a.meetings_ask(q, '', true, mine);
+        if (mine !== asking) return;               // a newer question took the box
+        asking = '';
         if (r && r.ok) {
           ans.className = 'mt-a mt-prose'; ans.innerHTML = prose(r.answer);
           const from = (r.sources || []).filter((x) => x.title).slice(0, 3);
           if (from.length) $('jAskSrc').textContent = 'Meetings looked at: ' + from.map((x) => x.title).join(' · ');
         } else { ans.className = 'mt-a mt-warn'; ans.textContent = (r && r.error) || 'That couldn’t be answered just now.'; }
       } catch (err) { ans.className = 'mt-a mt-warn'; ans.textContent = 'That couldn’t be answered just now.'; }
-      finally { send.disabled = false; }
+      finally { if (mine === asking) asking = ''; send.disabled = false; }
     });
   }
+
+  // What a meeting was about, in a line or two for Home: the points of the
+  // notes without their headings (the title already says the first one), and
+  // without a "Next steps" that only says there are none.
+  function gist(preview) {
+    const lines = String(preview || '').split(/\r?\n/).map((l) => l.trim())
+      .filter((l) => l && !/^#{1,4}\s/.test(l))
+      .map((l) => l.replace(/^[-*•]\s+/, '').replace(/\*\*/g, '').replace(/^\[[ xX]\]\s*/, ''))
+      .filter((l) => l && !/^(none\.?|no (clear |specific )?(actions?|action items?|next steps?|follow[- ]?ups?)\b.{0,30})$/i.test(l));
+    return lines.join(' ').replace(/\s+/g, ' ').trim();
+  }
+  window._meetingGist = gist;
 
   // ── a meeting among the dictations on Home (app.js _withMeetings, makeCard) ─
   window.makeMeetingCard = function (n) {
     const busy = n.status === 'processing' || n.status === 'recording';
     const sub = n.status === 'recording' ? 'Recording now.' : n.status === 'processing' ? 'Writing the notes. This takes a moment.'
-      : String(n.preview || '').replace(/^#{1,4}\s+/gm, '').replace(/^[-*•]\s+/gm, '').replace(/\*\*/g, '').replace(/\s+/g, ' ').trim();
+      : gist(n.preview);
     const card = document.createElement('article');
     card.className = 'transcript-card j-ent j-meeting';
     // The same three columns as a dictation: the time and a figure, the words, nothing in the third.

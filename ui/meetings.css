@@ -27,6 +27,10 @@
 .mt-dur { font-family: var(--f-mono, "Geist Mono", monospace); font-size: 12px; font-weight: 400; color: var(--muted); }
 .mt-sum { color: var(--muted); line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .mt-busy { color: var(--accent-ink); }
+/* Thinking, with three dots that come and go, so a wait is seen to be alive. */
+.mt-a.mt-busy::after { content: "..."; display: inline-block; overflow: hidden; vertical-align: bottom; width: 0; animation: mt-dots 1.2s steps(4, end) infinite; }
+@keyframes mt-dots { to { width: 1.1em; } }
+@media (prefers-reduced-motion: reduce) { .mt-a.mt-busy::after { animation: none; width: auto; } }
 .mt-empty { padding: 36px 20px; border-radius: var(--r-card, 14px); background: var(--surface); color: var(--muted); line-height: 1.6; text-align: center; }
 .mt-empty strong { color: var(--text); font-weight: 500; }
 
@@ -63,17 +67,22 @@
    Page titles in the serif (Source Serif 4), as Natter's were. */
 .ptitle, .jtitle, .mt-note h1 { font-family: var(--f-serif); font-weight: 400; letter-spacing: -0.015em; }
 
-/* The round red record button on the Journal. */
+/* Home's "Record a meeting": a pill that says what it does. Red, with the
+   time and "Finish", while a meeting records. */
 .journal { position: relative; }
 .j-rec { position: fixed; right: calc(248px + 30px); bottom: 26px; z-index: 5; display: inline-flex; align-items: center; justify-content: center; gap: 10px;
-  min-width: 54px; height: 54px; padding: 0 17px; border: 0; border-radius: 999px; background: var(--rec); color: #fff; cursor: pointer;
-  box-shadow: 0 10px 24px -8px rgba(216, 65, 47, 0.55); font: 500 14px var(--f-mono, "Geist Mono", monospace); }
-.j-rec:hover:not(:disabled) { background: var(--danger-solid); }
+  min-width: 186px; height: 54px; padding: 0 22px 0 20px; border: 0; border-radius: 999px; background: var(--btn-pri-bg); color: var(--btn-pri-fg); cursor: pointer;
+  box-shadow: var(--shadow-pop); font: 500 15px var(--f-display, "Geist", system-ui, sans-serif); white-space: nowrap; }
+.j-rec:hover:not(:disabled) { background: var(--btn-pri-hover); }
 .j-rec:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
 .j-rec:disabled { opacity: 0.7; }
-.j-rec-stop { display: none; width: 14px; height: 14px; border-radius: 4px; background: #fff; }
+.j-rec-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--rec); }
+.j-rec-stop { display: none; width: 12px; height: 12px; border-radius: 3px; background: #fff; }
+.j-rec-clock { font: 500 14px var(--f-mono, "Geist Mono", monospace); }
 .j-rec-clock:empty { display: none; }
-.j-rec.is-on .j-rec-mic { display: none; }
+.j-rec.is-on { background: var(--danger-solid); color: #fff; box-shadow: 0 10px 24px -8px rgba(216, 65, 47, 0.55); }
+.j-rec.is-on:hover:not(:disabled) { background: var(--danger-solid-hover); }
+.j-rec.is-on .j-rec-dot { display: none; }
 .j-rec.is-on .j-rec-stop { display: block; }
 body:not([data-page="home"]) .j-rec { display: none; }
 
@@ -103,7 +112,7 @@ body[data-theme="dark"] { --bg: #12100E; --surface: #1A1714; --card: #1F1B18; --
 .mt-setting { margin-top: 28px; padding: 14px 16px; border-radius: var(--r-card, 14px); background: var(--surface); display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 
 /* Home's Ask: a bar at the foot of the main column, beside the record button. */
-.j-ask { position: fixed; left: 40px; right: calc(248px + 30px + 54px + 16px); bottom: 26px; z-index: 5; max-width: 620px; display: flex; flex-direction: column; gap: 10px; }
+.j-ask { position: fixed; left: 40px; right: calc(248px + 30px + 186px + 16px); bottom: 26px; z-index: 5; max-width: 620px; display: flex; flex-direction: column; gap: 10px; }
 .j-ask-box { display: flex; align-items: center; gap: 8px; height: 54px; padding: 0 10px 0 22px; border-radius: 999px; background: var(--card); box-shadow: var(--shadow-pop); }
 .j-ask-box:focus-within { outline: 2px solid var(--focus); outline-offset: 2px; }
 .j-ask-answer { position: relative; max-height: min(52vh, 420px); overflow-y: auto; padding: 16px 44px 16px 18px; border-radius: 16px; background: var(--card); box-shadow: var(--shadow-pop); display: flex; flex-direction: column; gap: 8px; }
@@ -111,7 +120,8 @@ body[data-theme="dark"] { --bg: #12100E; --surface: #1A1714; --card: #1F1B18; --
 .j-ask-close { position: absolute; top: 8px; right: 8px; }
 body:not([data-page="home"]) .j-ask { display: none; }
 .journal { padding-bottom: 96px; }
-@media (max-width: 860px) { .j-ask { right: calc(26px + 54px + 16px); left: 20px; } }
+@media (max-width: 860px) { .j-ask { right: calc(26px + 186px + 16px); left: 20px; } }
+@media (max-width: 620px) { .j-rec { min-width: 54px; padding: 0 17px; } .j-rec-label { display: none; } .j-ask { right: calc(26px + 54px + 16px); } }
 
 /* ── The Meetings tab is the meetings interface in a frame ───────────────── */
 .meetings-panel { flex: 1 1 auto; min-height: 0; padding: 0; overflow: hidden; flex-direction: column; justify-content: flex-start; }

@@ -179,7 +179,7 @@ class Service:
             self.sync_soon()
 
     def ask(self, question: str, note_id: str | None = None, history: list | None = None,
-            extra: str = "") -> dict:
+            extra: str = "", on_text=None) -> dict:
         """`extra`: more material to answer from, besides the notes (Waffler
         passes the person's dictations when they ask across everything)."""
         if note_id:
@@ -196,13 +196,12 @@ class Service:
             notes = [self.store.get_note(h["id"]) for h in hits]
             context = "\n\n".join(self._note_material(n, transcript=len(notes) <= 3) for n in notes)
             sources = [{"id": n["id"], "title": n["title"]} for n in notes]
-        if extra and not note_id:
-            context = (context + "\n\n" + extra).strip()
         settings = self.store.settings()
         if self.llm_backend is None and not llm.can_write(settings):
             raise llm.LLMError(llm.ASK_NEEDS_KEY, "no_key")
         answer = llm.ask(question, context, history or [], settings,
-                         backend=self.llm_backend)
+                         backend=self.llm_backend, extra="" if note_id else extra,
+                         on_text=on_text)
         return {"answer": answer, "sources": sources}
 
     def _note_material(self, note: dict, transcript: bool = True) -> str:
