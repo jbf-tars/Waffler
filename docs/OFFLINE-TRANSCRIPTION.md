@@ -477,8 +477,14 @@ by following the extension module's links. The libraries' minimum macOS is
 requirements and runs both specs' on-device blocks with PyInstaller's helpers
 replaced.
 
-The writing model's engine (`llama-cpp-python`), added to `Waffler_mac.spec`
-and **not built or run frozen**:
+The writing model's engine (`llama-cpp-python`), added to `Waffler_mac.spec`.
+Checked with a small frozen program only (PyInstaller 6.20, Python 3.14,
+macOS arm64, unsigned): a throwaway spec made of the writing-model block
+copied out of `Waffler_mac.spec`, around a script that only imports
+`src/local_llm.py`. It collected the 21 library files into `llama_cpp/lib`,
+found the downloaded model, answered on Metal and closed cleanly. The first
+load in that new build took 16 s (macOS checks the libraries once per build),
+against 2.5 s afterwards. The real spec was not built:
 
 - It is not in `requirements.txt`, because PyPI has no binary wheel and every
   install would compile it. The release workflow must install it into the
@@ -499,9 +505,10 @@ and **not built or run frozen**:
   copies). About 23 MB could be saved by collecting one name of each.
 - Not in `Waffler_windows.spec` or `requirements_windows.txt`: not offered on
   Windows.
-- To check on the first real build: that the frozen app finds the libraries
-  and runs on Metal under the hardened runtime, `scripts/check_macos_minos.py`,
-  and the first-use time of a signed build.
+- To check on the first real build: Metal under the hardened runtime in the
+  signed, notarised app, `scripts/check_macos_minos.py` (the probe's libraries
+  were built for macOS 26: see the command above), and the first-use time of
+  a signed build.
 
 Not checked, and worth a look before a release:
 
