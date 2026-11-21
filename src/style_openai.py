@@ -441,6 +441,11 @@ _CLEANUP_SYSTEM_OPENAI = (
     "Output ONLY the final cleaned text. No meta-commentary."
 )
 _CLEANUP_TEMPERATURE = 0.1
+# The model on this computer (src/local_llm.py) takes its likeliest word every
+# time. At 0.1 the same dictation came back differently depending on what had
+# been tidied before it (a list on one line, then on three); at 0 it was the
+# same text in every order tried, and no worse.
+_LOCAL_CLEANUP_TEMPERATURE = 0.0
 
 
 class OpenAIStyler:
@@ -1775,7 +1780,8 @@ Transcript: {transcript}"""
         the model on this computer, then the same guards."""
         call = self._current_call()
         reply = _local_llm().chat(_CLEANUP_SYSTEM, [{"role": "user", "content": prompt}],
-                                  max_tokens=call.max_tokens, temperature=_CLEANUP_TEMPERATURE,
+                                  max_tokens=call.max_tokens,
+                                  temperature=_LOCAL_CLEANUP_TEMPERATURE,
                                   deadline=call.deadline_at, kind="cleanup")
         text = (reply.get("text") or "").strip()
         if not text:
@@ -1785,7 +1791,81 @@ Transcript: {transcript}"""
                  # No provider was paid, so nothing is counted as one's tokens.
                  "api_used": False, "provider": _local_llm().PROVIDER,
                  "finish_reason": reply.get("finish_reason")}
-        return self._finish_cleanup(text, call.raw), usage
+        styled = self._tidy_numbered_list(self._finish_cleanup(text, call.raw))
+        return self._restore_list_lead_in(styled, call.raw), usage
+
+    # A list item at the start of a line, and one written inline after the
+    # end of a sentence ("... for today. 1. Chase the invoice. 2. Sort ...").
+    _LIST_LINE_RE = re.compile(r"^(\d{1,2})\. (?=\S)")
+    _LIST_INLINE_RE = re.compile(r"(?:^|(?<=[.!?:] ))(\d{1,2})\. (?=[^\W\d_])")
+
+    @classmethod
+    def _tidy_numbered_list(cls, text: str) -> str:
+        """Put right the two ways the model on this computer was measured to
+        get a dictated list wrong, and nothing else: items written along one
+        line (each goes on its own line, when they count 1, 2, 3 ...), and a
+        run of numbered lines that does not count up by one ("3. 2. 3.":
+        renumbered from 1). A run that does count up (2, 3) is the speaker's
+        own numbering and is left alone. Only numbers move; no word does."""
+        if not text or not re.search(r"\d\. ", text):
+            return text
+        lines = []
+        for line in text.split("\n"):
+            marks = list(cls._LIST_INLINE_RE.finditer(line))
+            if len(marks) >= 2 and [int(m.group(1)) for m in marks] == list(range(1, len(marks) + 1)):
+                cuts = [m.start() for m in marks] + [len(line)]
+                if line[:cuts[0]].strip():
+                    lines.append(line[:cuts[0]].rstrip())
+                lines.extend(line[a:b].rstrip() for a, b in zip(cuts, cuts[1:]))
+            else:
+                lines.append(line)
+        out, i = [], 0
+        while i < len(lines):
+            j = i
+            while j < len(lines) and cls._LIST_LINE_RE.match(lines[j]):
+                j += 1
+            run = lines[i:j]
+            numbers = [int(cls._LIST_LINE_RE.match(x).group(1)) for x in run]
+            if len(run) >= 2 and numbers != list(range(numbers[0], numbers[0] + len(run))):
+                run = [cls._LIST_LINE_RE.sub(f"{n}. ", x, count=1) for n, x in enumerate(run, 1)]
+            out.extend(run or [lines[i]])
+            i = max(j, i + 1)
+        return "\n".join(out)
+
+    # The first counted item of a dictated list, at the start of a sentence
+    # or after a comma: "First,", "Firstly", "First of all", "Number one",
+    # "One,". ("a quick one." is not it: it does not start a clause.)
+    _FIRST_ITEM_RE = re.compile(
+        r"(?:^|(?<=[.!?:,] ))(?:(?i:and |so )?(?i:first of all|firstly|first|number one)\b|One,)")
+    _LEAD_IN_MAX_WORDS = 25
+
+    def _restore_list_lead_in(self, styled: str, raw: str) -> str:
+        """Put back the sentence that led into a dictated list ("Right, three
+        things for today.") when the answer starts straight at "1." without
+        it. The model on this computer was measured to leave it out in three
+        list dictations of ten; the prompt says lead-ins are kept. The words
+        are the speaker's own, tidied by the plain tidy-up; a lead-in that
+        ended on a comma gets a colon. Nothing else is touched."""
+        try:
+            if not styled or not self._LIST_LINE_RE.match(styled) or not styled.startswith("1. "):
+                return styled
+            first = self._FIRST_ITEM_RE.search(raw or "")
+            lead = (raw[:first.start()] if first else "").strip()
+            words = lead.split()
+            if not (2 <= len(words) <= self._LEAD_IN_MAX_WORDS):
+                return styled
+
+            def plain(text):
+                return " ".join(re.findall(r"[^\W_]+", text.lower()))
+            kept = plain(self._basic_clean(lead))
+            if not kept or kept in plain(styled):
+                return styled
+            line = self._basic_clean(lead).strip()
+            if line.endswith(","):
+                line = line[:-1].rstrip() + ":"
+            return f"{line}\n{styled}"
+        except Exception:
+            return styled
 
     @staticmethod
     def _local_failure_reason(exc) -> str:

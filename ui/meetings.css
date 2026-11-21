@@ -143,6 +143,12 @@ body:not([data-page="home"]) .j-ask { display: none; }
 .hir-state { flex: 1 1 100%; font: 400 13px/1.45 var(--f-ui); color: var(--text-2); }
 .hir-bar { flex: 1 1 100%; height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
 .hir-bar i { display: block; height: 100%; width: 0; background: var(--honey); transition: width 0.3s var(--ease, ease); }
+/* The optional second download, under the speech model in the same card. */
+.hir-extra { margin-top: 8px; padding-top: 12px; border-top: 1px solid var(--line); }
+.hir-extra-t { flex: 1 1 100%; font: 500 14px/20px var(--f-ui); color: var(--text); }
+.hir-extra-d { flex: 1 1 100%; font: var(--t-desc); color: var(--muted); }
+.hir-extra-pick { flex: 1 1 100%; display: flex; align-items: center; gap: 8px; font: 400 13px/1.45 var(--f-ui); color: var(--text-2); cursor: pointer; }
+.hir-extra-pick input { accent-color: var(--text); width: 15px; height: 15px; margin: 0; }
 .hir-note { grid-column: 1 / -1; margin: 0; font: 400 13px/1.45 var(--f-ui); color: var(--muted); }
 @media (max-width: 760px) { .hir { grid-template-columns: minmax(0, 1fr); } }
 

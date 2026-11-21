@@ -6105,6 +6105,7 @@ function wizDrawLocal() {
   const put = (id, text) => { const n = el(id); if (n && n.textContent !== text) n.textContent = text; };
   const fill = (id, pct) => { const n = el(id); if (n) n.style.width = pct + '%'; };
   wizApplyRec();
+  wizDrawExtra();                       // the optional extra shows once this way is chosen
 
   // The free card.
   const card = el('obWayLocal');
@@ -6211,6 +6212,53 @@ async function wizSyncMode() {
   } catch (_) { /* tried again at the next look */ }
 }
 
+// ── The optional extra: tidy text and write notes on this computer too ────
+// A second, larger download (src/local_llm.py), offered under the free card
+// once that way is chosen, and only where the computer suits it. What it
+// shows is decided in logic.js (setupExtraView). Nothing in setup waits for
+// it: it carries on after setup closes, and Settings shows it too.
+let _wizLlm = null;             // the last local_llm_status()
+let _wizLlmTimer = null;
+
+function wizDrawExtra() {
+  const box = document.getElementById('obWayExtra');
+  if (!box) return;
+  const v = WL.setupExtraView(_wizLlm);
+  const under = _wizLlm && (_wizLlm.state === 'downloading' || _wizLlm.state === 'ready');
+  box.hidden = !(v.show && (_wizWay === 'local' || under));
+  const more = document.getElementById('obTldrExtra');
+  if (more) more.hidden = !v.show;
+  const line = document.getElementById('obWayExtraLine');
+  if (line && line.textContent !== v.line) line.textContent = v.line;
+  const btn = document.getElementById('obWayExtraBtn');
+  if (btn) { btn.hidden = !v.button; if (v.button) btn.textContent = v.button; }
+}
+
+async function wizRefreshExtra() {
+  clearTimeout(_wizLlmTimer);
+  _wizLlmTimer = null;
+  let s = null;
+  try { s = await pywebview.api.local_llm_status(); } catch (_) {}
+  if (s && s.ok !== false) _wizLlm = s;
+  wizDrawExtra();
+  if (_wizLlm && _wizLlm.state === 'downloading') _wizLlmTimer = setTimeout(wizRefreshExtra, 700);
+}
+
+// "Add it", "Carry on" and "Stop".
+async function wizExtra() {
+  const v = WL.setupExtraView(_wizLlm);
+  try {
+    if (v.stop) await pywebview.api.local_llm_cancel();
+    else {
+      const r = await pywebview.api.local_llm_download();
+      if (r && r.ok === false && r.error) showToast(r.error, 'error', 6000);
+    }
+  } catch (_) {
+    showToast("The download couldn't start. Try again.", 'error');
+  }
+  await wizRefreshExtra();
+}
+
 // "Download and start" (and "Carry on downloading", "Try again", "Use this
 // computer"): the free way is chosen, and the model is fetched unless it is
 // already here or on its way.
@@ -6227,6 +6275,7 @@ async function wizChooseLocal() {
     }
   }
   await wizRefreshLocal();
+  wizRefreshExtra();
 }
 
 // "Stop the download": what arrived is kept, and it carries on from there.
@@ -6254,7 +6303,11 @@ function _wizChoseKey() {
   if (wasLocal && _wizStt && _wizStt.state === 'downloading') {
     try { pywebview.api.local_stt_cancel(); } catch (_) {}
   }
-  wizSyncMode().then(wizRefreshLocal);
+  // The optional extra was for the free way: with a key it would sit unused.
+  if (wasLocal && _wizLlm && _wizLlm.state === 'downloading') {
+    try { pywebview.api.local_llm_cancel(); } catch (_) {}
+  }
+  wizSyncMode().then(wizRefreshLocal).then(wizRefreshExtra);
 }
 
 // Back to the two cards (Back on the key screens, and the link under "Groq
@@ -6263,6 +6316,7 @@ function wizShowChoice() {
   stopWizClipboardWatch();
   wizSetState('connect', 'choose');
   wizRefreshLocal();
+  wizRefreshExtra();
   _wizFocus(_wizVisibleTitle(_wizSection('connect')));
 }
 
@@ -6275,7 +6329,7 @@ function wizInitConnect() {
   // On the two cards nothing looks at the clipboard: that starts when the
   // key card is chosen (wizChooseKey calls this again).
   const sec = _wizSection('connect');
-  if (sec && sec.dataset.state === 'choose') { wizRefreshLocal(); return; }
+  if (sec && sec.dataset.state === 'choose') { wizRefreshLocal(); wizRefreshExtra(); return; }
   startWizClipboardWatch();
   if (_wizKeyListenerAttached) return;
   _wizKeyListenerAttached = true;

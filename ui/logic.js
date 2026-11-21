@@ -476,7 +476,10 @@
   // computer), "none" when no key can do that stage, or "unknown" while
   // Waffler is starting; then it's worked out from the keys and the order.
   const SPEECH_IDS = ['groq', 'api', 'mlx', 'faster'];
-  const CLEANUP_IDS = ['groq', 'cerebras', 'openai'];
+  // "ondevice" is the writing model on this computer (src/local_llm.py): no
+  // provider and no key. It has no row in the provider list.
+  const ONDEVICE = 'ondevice';
+  const CLEANUP_IDS = ['groq', 'cerebras', 'openai', ONDEVICE];
 
   function activeProviders(s) {
     s = s || {};
@@ -495,7 +498,7 @@
 
   const SPEECH_BY = { groq: 'Groq', api: 'OpenAI', mlx: 'on this Mac', faster: 'on this computer' };
   const SPEECH_MODEL = { groq: 'Whisper large v3', api: 'gpt-transcribe', mlx: 'Whisper', faster: 'Whisper' };
-  const CLEANUP_MODEL = { groq: 'gpt-oss-120b', cerebras: 'gpt-oss-120b', openai: 'gpt-6-luna' };
+  const CLEANUP_MODEL = { groq: 'gpt-oss-120b', cerebras: 'gpt-oss-120b', openai: 'gpt-6-luna', ondevice: 'Gemma 4' };
 
   // "Speech to text: Groq · Clean-up: Groq". It used to read
   // "STT: Groq Whisper · LLM: Groq gpt-oss-120b" under "Active Backends".
@@ -509,7 +512,8 @@
   function backendsLine(s) {
     const a = activeProviders(s);
     const speech = a.speech ? SPEECH_BY[a.speech] : 'no key yet';
-    const cleanup = a.cleanup ? PROVIDER_NAMES[a.cleanup] : (_freeWay(s, a) ? 'off' : 'no key yet');
+    const cleanup = a.cleanup === ONDEVICE ? 'on this computer'
+      : a.cleanup ? PROVIDER_NAMES[a.cleanup] : (_freeWay(s, a) ? 'off' : 'no key yet');
     return `Speech to text: ${speech} · Clean-up: ${cleanup}`;
   }
 
@@ -606,8 +610,9 @@
         ? `${SPEECH_MODEL[a.speech]}, ${SPEECH_BY[a.speech]}`
         : `${SPEECH_MODEL[a.speech]} on ${SPEECH_BY[a.speech]}`)
       : 'No key yet';
-    const cleanup = a.cleanup ? `${CLEANUP_MODEL[a.cleanup]} on ${PROVIDER_NAMES[a.cleanup]}`
-      : (_freeWay(s, a) ? 'no one: your words are typed as you said them' : 'No key yet');
+    const cleanup = a.cleanup === ONDEVICE ? `${CLEANUP_MODEL[ONDEVICE]}, on this computer`
+      : a.cleanup ? `${CLEANUP_MODEL[a.cleanup]} on ${PROVIDER_NAMES[a.cleanup]}`
+        : (_freeWay(s, a) ? 'no one: your words are typed as you said them' : 'No key yet');
     return { speech, cleanup };
   }
 
@@ -1040,6 +1045,86 @@
     const n = Math.round((Number(bytes) || 0) / 1e6);
     if (n <= 0) return '';
     return n >= 1000 ? `${(n / 1000).toFixed(1)} GB` : `${n} MB`;
+  }
+
+  // ══ The writing model on this computer (src/local_llm.py) ═══════════════
+  // An optional second download that tidies text and writes meeting notes
+  // with no key. `llm` is local_llm_status(). It is shown only where it is
+  // offered: this build has the engine, and the computer is an Apple Silicon
+  // Mac with 16 GB of memory or more (or it is here already).
+  const WRITING_TITLE = 'Tidy text and write notes on this computer too';
+  // One honest line: measured on an M5 with 16 GB (docs/OFFLINE-TRANSCRIPTION.md).
+  const WRITING_ABOUT = 'Optional. For an Apple Silicon Mac with 16 GB of memory or more: about two seconds to tidy a dictation, a minute or two for a long meeting\u2019s notes. A key is quicker, and better with long meetings.';
+  const WRITING_LOW_MEMORY = 'Not offered on this Mac: the writing model needs 16 GB of memory or more. A key does the same job.';
+
+  function _llmKnown(llm) {
+    return llm && llm.ok !== false && typeof llm.state === 'string' ? llm : null;
+  }
+
+  // Is the writing model offered on this computer at all?
+  function writingOffered(llm) {
+    const s = _llmKnown(llm);
+    return !!s && s.available === true && (s.suits_machine === true || s.state === 'ready');
+  }
+
+  // The row in Settings, Keys and providers, under "On this computer".
+  // `hasKey`: is any provider's key saved? Then, and only then, the person
+  // is asked which of the two to use.
+  function writingRowView(llm, hasKey) {
+    const s = _llmKnown(llm);
+    const none = { show: false, title: WRITING_TITLE, about: '', state: '', percent: 0, bar: false,
+      download: '', stop: false, remove: false, choice: false, chosen: false };
+    if (!s || s.available !== true) return none;
+    if (!writingOffered(llm)) {
+      // A Mac it is too big for is told why; anything else is not shown it.
+      return s.machine_reason === 'low_memory'
+        ? { ...none, show: true, about: WRITING_LOW_MEMORY } : none;
+    }
+    const size = modelSize(s.bytes_total);
+    const percent = Math.max(0, Math.min(100, Math.round(Number(s.percent) || 0)));
+    const view = { ...none, show: true, about: WRITING_ABOUT, percent };
+    if (s.state === 'downloading') {
+      return { ...view, bar: true, stop: true,
+        state: `Downloading the writing model: ${percent}%${size ? ` of ${size}` : ''}. You can carry on meanwhile.` };
+    }
+    if (s.state === 'ready') {
+      const chosen = s.mode === 'local';
+      return { ...view, remove: true, choice: !!hasKey, chosen,
+        state: hasKey && !chosen
+          ? `The writing model is ready (${modelSize(s.size_on_disk || s.bytes_total)} on this computer). Your key is still doing the tidying and the notes.`
+          : `The writing model is ready (${modelSize(s.size_on_disk || s.bytes_total)}). Text is tidied and notes are written on this computer.` };
+    }
+    return { ...view, download: `Download the writing model${size ? ` (${size})` : ''}`,
+      state: s.error ? s.error : (s.bytes_done ? 'The download was stopped part-way. It carries on from where it got to.' : '') };
+  }
+
+  // The line under the two cards. It said notes need a key "either way",
+  // which stops being true the moment the writing model is here.
+  function howItRunsNote(llm, hasKey) {
+    const s = _llmKnown(llm);
+    const covers = 'This choice covers dictation and meetings.';
+    if (s && s.available === true && s.state === 'ready' && (!hasKey || s.mode === 'local')) {
+      return `${covers} Text is tidied and meeting notes are written on this computer too.`;
+    }
+    if (writingOffered(llm)) return `${covers} Tidying text and writing a meeting\u2019s notes need a key, or the second download.`;
+    return `${covers} Writing a meeting\u2019s notes still needs a key, either way.`;
+  }
+
+  // Setup's first screen: the optional extra under the free card. One line
+  // and one button; nothing waits for it, and setup carries on without it.
+  function setupExtraView(llm) {
+    const s = _llmKnown(llm);
+    if (!writingOffered(llm)) return { show: false, line: '', button: '', stop: false };
+    const size = modelSize(s.bytes_total);
+    const percent = Math.max(0, Math.min(100, Math.round(Number(s.percent) || 0)));
+    if (s.state === 'ready') {
+      return { show: true, line: 'Added: your text is tidied and meeting notes are written on this computer too.', button: '', stop: false };
+    }
+    if (s.state === 'downloading') {
+      return { show: true, line: `Fetching the optional extra: ${percent}%${size ? ` of ${size}` : ''}. Nothing waits for it.`, button: 'Stop', stop: true };
+    }
+    const what = `Optional extra${size ? ` (${size})` : ''}: tidy your text and write meeting notes on this computer too. It suits this Mac; it can also be added later in Settings.`;
+    return { show: true, line: s.error ? s.error : what, button: s.bytes_done ? 'Carry on' : 'Add it', stop: false };
   }
 
   function _sttKnown(stt) {
@@ -1993,8 +2078,9 @@
     const a = activeProviders(s);
     return {
       speech: a.speech ? { by: SPEECH_NODE[a.speech], model: SPEECH_MODEL[a.speech] } : null,
-      cleanup: a.cleanup ? { by: PROVIDER_NAMES[a.cleanup], model: CLEANUP_MODEL[a.cleanup] }
-        : (_freeWay(s, a) ? { by: 'Off', model: 'typed as you said it' } : null),
+      cleanup: a.cleanup === ONDEVICE ? { by: 'This computer', model: CLEANUP_MODEL[ONDEVICE] }
+        : a.cleanup ? { by: PROVIDER_NAMES[a.cleanup], model: CLEANUP_MODEL[a.cleanup] }
+          : (_freeWay(s, a) ? { by: 'Off', model: 'typed as you said it' } : null),
       out: s && s.auto_paste === false ? 'Copied' : 'Pasted',
     };
   }
@@ -2016,7 +2102,7 @@
       const id = a.speech === 'api' ? 'openai' : 'groq';
       return { id, name: PROVIDER_NAMES[id], mark: PROVIDER_MARKS[id], what: 'your voice, while you hold' };
     }
-    if (a.cleanup) {
+    if (a.cleanup && a.cleanup !== ONDEVICE) {      // tidied on this computer: nothing goes anywhere
       return { id: a.cleanup, name: PROVIDER_NAMES[a.cleanup], mark: PROVIDER_MARKS[a.cleanup], what: 'your words, for the clean-up' };
     }
     return null;
@@ -3024,6 +3110,7 @@
     VOCAB_MAX_SOUNDS, markSegments, markWords, dayHeading, weekBars, streakView,
     keyInputView, serviceRows, saidDiff, setupSteps, startupTheme,
     setupWay, setupStepLabel, modelSize, setupRecommended, setupLocalView, setupConnectDone, setupCanGoBack,
+    writingOffered, writingRowView, howItRunsNote, setupExtraView, WRITING_TITLE, WRITING_ABOUT,
     setupModeToSave, setupModelWait, setupDownloadSaid, setupShouldResumeDownload, setupTryText,
     STATUS_VIEWS, STATUS_CLASSES, DONE_RESET_MS, statusView, statusResetMs, workingLabel, workingTime, recordingTime,
     notSentId, notSentView, retryFailedMessage, unsentSummary,

@@ -149,6 +149,7 @@ def llm(monkeypatch):
     monkeypatch.setattr(local_llm, "_engine_key", None)
     monkeypatch.setattr(local_llm, "_primer", None)
     monkeypatch.setattr(local_llm, "_primed", False)
+    monkeypatch.setattr(local_llm, "_exiting", threading.Event())
     monkeypatch.setattr(local_llm, "_idle_unload_s", 0.0)
     monkeypatch.setattr(local_llm, "_idle_timer", None)
     monkeypatch.setattr(local_llm, "_dl", {"active": False, "model": "", "done": 0, "total": 0,
@@ -498,14 +499,42 @@ def test_the_model_is_released_after_the_idle_period_and_loads_again(llm):
     assert llm.loads == ["test", "test"]
 
 
-def test_unload_on_request_and_at_exit(llm):
+def test_unload_on_request(llm):
     _ready(llm)
     local_llm.chat("s", MSG)
     assert local_llm.unload() is True and _engine().closed
     assert local_llm.unload() is False
     local_llm.chat("s", MSG)
+    assert llm.loads == ["test", "test"]
+
+
+def test_as_the_program_ends_a_running_request_is_stopped_and_the_model_closed(llm):
+    """llama.cpp aborts the process if its GPU device goes while a model is
+    open, so quitting in the middle of a meeting's notes must close it."""
+    _ready(llm)
+    local_llm.chat("s", MSG)
+    engine = _engine()
+    engine.tokens, engine.step = 500, 0.02          # ten seconds if left alone
+    out = {}
+
+    def notes():
+        try:
+            local_llm.chat("notes", MSG, background=True)
+        except local_llm.LocalLLMError as e:
+            out["error"] = e
+    t = threading.Thread(target=notes)
+    t.start()
+    time.sleep(0.1)
+    t0 = time.monotonic()
     local_llm._release_at_exit()
-    assert _engine().closed
+    assert time.monotonic() - t0 < 1.0
+    t.join(5)
+    assert engine.closed and local_llm.is_loaded() is False
+    assert str(out["error"]) == local_llm.FAILED
+    # And nothing loads it again on the way out.
+    with pytest.raises(local_llm.LocalLLMError):
+        local_llm.chat("s", MSG)
+    assert llm.loads == ["test"]
 
 
 # ── the real engine's wrapper, with llama.cpp replaced ───────────────────────

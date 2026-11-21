@@ -77,7 +77,9 @@ def test_it_is_sent_the_apps_own_prompt_and_system_message(here):
     expected = styler.prompt_template.format(
         transcript=RAW, dialect_instruction=style_openai._dialect_instruction({}))
     assert message["content"] == expected, "the prompt every provider gets, to the byte"
-    assert call["temperature"] == style_openai._CLEANUP_TEMPERATURE
+    # No chance in the choice of words: measured to give the same text for
+    # the same dictation whatever came before it, which 0.1 did not.
+    assert call["temperature"] == style_openai._LOCAL_CLEANUP_TEMPERATURE == 0.0
     assert call["max_tokens"] >= 2048
 
 
@@ -189,3 +191,91 @@ def test_the_long_prompt_it_reads_ahead_is_the_start_of_every_clean_up(here, mon
             break
         shared = i + 1
     assert shared > 0.95 * len(sent[:sent.index("Transcript: ")]), "all the rules are shared"
+
+
+# ── a list it numbered wrongly or left on one line ───────────────────────────
+
+@pytest.mark.parametrize("wrote, pasted", [
+    # Measured: "three things ... first ..." came back numbered 3, 2, 3.
+    ("3. Chase the invoice.\n2. Sort out the VAT return.\n3. Book the van.",
+     "1. Chase the invoice.\n2. Sort out the VAT return.\n3. Book the van."),
+    # Measured: the list written along one line.
+    ("Right, three things for today. 1. Chase the invoice. 2. Sort out the VAT return. 3. Book the van.",
+     "Right, three things for today.\n1. Chase the invoice.\n2. Sort out the VAT return.\n3. Book the van."),
+    ("Here's the plan:\n\n1. Fix it.\n2. Ship it.", "Here's the plan:\n\n1. Fix it.\n2. Ship it."),
+])
+def test_a_numbered_list_is_put_right(wrote, pasted):
+    assert OpenAIStyler._tidy_numbered_list(wrote) == pasted
+
+
+@pytest.mark.parametrize("text", [
+    "2. Sort out the VAT return.\n3. Book the van.",                 # items two and three of something: theirs
+    "Number three, we'll just skip that at the moment.",
+    "We had 1,240 sign-ups and the p95 on v3.12.5 is 230ms.",
+    "It is version 3. 12 people have it. 2 of them complained.",
+    "1. Only one item.",
+    "The meeting is at 3. Bring the 2 reports.",
+    "",
+])
+def test_nothing_that_is_not_a_broken_list_is_touched(text):
+    assert OpenAIStyler._tidy_numbered_list(text) == text
+
+
+def test_the_list_is_put_right_only_for_the_model_here(here, monkeypatch):
+    raw = ("Right, three things for today. First, chase the Hartley invoice because it is late. Second, sort "
+           "out the VAT return. And third, book the van for Saturday.")
+    here.text = ("3. Chase the Hartley invoice because it is late.\n2. Sort out the VAT return.\n"
+                 "3. Book the van for Saturday.")
+    styled, usage = OpenAIStyler().style(raw)
+    assert usage["provider"] == "ondevice" and styled.splitlines()[1].startswith("1. Chase")
+    # A provider's answer goes through what it always did.
+    styler = OpenAIStyler(groq_api_key="gsk_test")
+    monkeypatch.setattr(styler, "_chat_groq", lambda *a, **k: style_openai.ChatReply(
+        text=here.text, provider="groq", finish_reason="stop"))
+    styled, usage = styler.style(raw)
+    assert usage["provider"] == "groq" and styled.splitlines()[0].startswith("3. Chase")
+
+
+# ── the sentence before a list, which it was measured to leave out ───────────
+
+LIST = "1. Chase the Hartley invoice.\n2. Sort out the VAT return.\n3. Book the van."
+
+
+@pytest.mark.parametrize("raw, lead", [
+    ("Right, three things for today. First, chase the Hartley invoice. Second, um, sort out the VAT return. "
+     "And third, book the van.", "Right, three things for today."),
+    ("A few things for tomorrow. Number one, chase the Hartley invoice. Number two, sort out the VAT return. "
+     "Number three, book the van.", "A few things for tomorrow."),
+    ("So for the trip, first, chase the Hartley invoice. Second, sort out the VAT return. Third, book the van.",
+     "So for the trip:"),
+    ("Just a quick one. Firstly, chase the Hartley invoice. Secondly, sort out the VAT return. Thirdly, book "
+     "the van.", "Just a quick one."),
+])
+def test_the_sentence_that_led_into_a_list_is_put_back(raw, lead):
+    styler = OpenAIStyler()
+    assert styler._restore_list_lead_in(LIST, raw) == lead + "\n" + LIST
+
+
+@pytest.mark.parametrize("styled, raw", [
+    # It kept the lead-in: nothing to do.
+    ("Three things.\n" + LIST, "Three things. First, chase the Hartley invoice. Second, sort out the VAT "
+                              "return. Third, book the van."),
+    # The dictation began with the list.
+    (LIST, "First, chase the Hartley invoice. Second, sort out the VAT return. Third, book the van."),
+    # Not a list at all.
+    ("First we tried the old approach, but it didn't work.", "First we tried the old approach, but it didn't work."),
+    # A long opening is not a lead-in: if that went missing, the truncation guard is what catches it.
+    (LIST, " ".join(["word"] * 40) + ". First, chase the Hartley invoice. Second, sort out the VAT return."),
+])
+def test_nothing_is_put_back_where_nothing_was_left_out(styled, raw):
+    assert OpenAIStyler()._restore_list_lead_in(styled, raw) == styled
+
+
+def test_the_lead_in_comes_back_in_a_dictation_tidied_here(here):
+    raw = ("Right, three things for today. First, chase the Hartley invoice because it is late. Second, sort "
+           "out the VAT return. And third, book the van for Saturday.")
+    here.text = ("3. Chase the Hartley invoice because it is late.\n2. Sort out the VAT return.\n"
+                 "3. Book the van for Saturday.")
+    styled, _usage = OpenAIStyler().style(raw)
+    assert styled == ("Right, three things for today.\n1. Chase the Hartley invoice because it is late.\n"
+                      "2. Sort out the VAT return.\n3. Book the van for Saturday.")

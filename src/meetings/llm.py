@@ -371,8 +371,9 @@ def _local_title(notes: str, settings: dict) -> str:
     left the TITLE line out for one meeting in three when measured). One
     short question more; anything that is not a title is no title."""
     try:
-        reply = complete("You give notes a title. Reply with the title only: specific, at most "
-                         "8 words, no quotes, no full stop.",
+        reply = complete("You name a set of notes. Reply with one title and nothing else: what it "
+                         "was about, naming the project, client or subject, in at most 8 words. No "
+                         "quotes, no full stop.",
                          [{"role": "user", "content": notes[:6000]}], settings, max_tokens=32,
                          background=True)
     except LLMError:

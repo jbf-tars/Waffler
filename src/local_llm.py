@@ -499,13 +499,29 @@ def unload() -> bool:
         _gate.release()
 
 
+# Set as the program ends: whatever is being written stops at the next word.
+_exiting = threading.Event()
+_EXIT_WAIT_S = 20.0
+
+
 def _release_at_exit() -> None:
+    """Close the model before the program ends, whatever it is doing.
+    llama.cpp aborts the whole process if its Metal device is torn down with
+    a model still open (measured: quitting while a request ran ended in a
+    crash report). So a running request is told to stop, which it does at
+    the next word, and this waits for its turn; reading a long prompt cannot
+    be interrupted and takes a few seconds at most."""
+    _exiting.set()
     _cancel_idle_timer()
-    if _gate.acquire(background=False, blocking=False):
-        try:
-            _release("exit")
-        finally:
-            _gate.release()
+    end = time.monotonic() + _EXIT_WAIT_S
+    while not _gate.acquire(background=False, blocking=False):
+        if time.monotonic() >= end:
+            return
+        time.sleep(0.02)
+    try:
+        _release("exit")
+    finally:
+        _gate.release()
 
 
 atexit.register(_release_at_exit)
@@ -595,7 +611,7 @@ def _prime() -> bool:
         return False
     _gate.acquire(background=True)
     try:
-        if _engine is None or _primed:
+        if _engine is None or _primed or _exiting.is_set():
             return _primed
         system, user = primer()
         _engine.chat(system, [{"role": "user", "content": user}], 1, 0.0)
@@ -676,6 +692,9 @@ def chat(system: str, messages: list, max_tokens: int = 1024, temperature: float
         why: list = []
 
         def should_stop() -> bool:
+            if _exiting.is_set():
+                why.append("exit")
+                return True
             if late():
                 why.append("deadline")
                 return True
@@ -686,6 +705,8 @@ def chat(system: str, messages: list, max_tokens: int = 1024, temperature: float
 
         _gate.acquire(background=background)
         try:
+            if _exiting.is_set():
+                raise LocalLLMError(FAILED, "failed")
             if late():                      # the turn came too late
                 raise LocalLLMError(TOO_SLOW, "deadline")
             _ensure_engine(name)
@@ -706,6 +727,8 @@ def chat(system: str, messages: list, max_tokens: int = 1024, temperature: float
             _gate.release()
             _arm_idle_timer()
         if reply.get("finish_reason") == "stopped":
+            if "exit" in why:
+                raise LocalLLMError(FAILED, "failed")
             if "deadline" in why:
                 raise LocalLLMError(TOO_SLOW, "deadline")
             continue                        # gave way to a dictation: write it again

@@ -656,12 +656,26 @@
                 <button type="button" class="btn btn-sm btn-quiet" id="hirCancel" hidden>Stop the download</button>
                 <button type="button" class="btn btn-sm btn-quiet" id="hirRemove" hidden>Remove the model</button>
               </div>
+              <!-- The optional second download: a language model that tidies
+                   text and writes notes here too (howitruns.js;
+                   Api.local_llm_*, writing_mode). Hidden unless this
+                   computer is offered it (logic.js writingRowView). -->
+              <div class="hir-model hir-extra" id="hirLlm" role="group" aria-labelledby="hirLlmT" hidden>
+                <span class="hir-extra-t" id="hirLlmT">Tidy text and write notes on this computer too</span>
+                <span class="hir-extra-d" id="hirLlmAbout">Optional. For an Apple Silicon Mac with 16 GB of memory or more: about two seconds to tidy a dictation, a minute or two for a long meeting’s notes. A key is quicker, and better with long meetings.</span>
+                <span class="hir-state" id="hirLlmState" role="status" hidden></span>
+                <span class="hir-bar" id="hirLlmBar" hidden><i id="hirLlmBarFill"></i></span>
+                <button type="button" class="btn btn-sm btn-sec" id="hirLlmDownload" hidden>Download the writing model</button>
+                <button type="button" class="btn btn-sm btn-quiet" id="hirLlmCancel" hidden>Stop the download</button>
+                <button type="button" class="btn btn-sm btn-quiet" id="hirLlmRemove" hidden>Remove the writing model</button>
+                <label class="hir-extra-pick" id="hirLlmPick" hidden><input type="checkbox" id="hirLlmChoice"><span>Use this computer for tidying and notes, not my key</span></label>
+              </div>
             </div>
             <div class="hir-card" id="hirCloud" data-mode="cloud">
               <label class="hir-pick"><input type="radio" name="hirMode" id="hirCloudRadio" value="cloud"><span class="hir-t">With your own key</span><span class="hir-price">Faster</span></label>
               <p class="hir-d">Your speech is sent to Groq or OpenAI with the key you add below. Quicker for long meetings.</p>
             </div>
-            <p class="hir-note">This choice covers dictation and meetings. Writing a meeting's notes still needs a key, either way.</p>
+            <p class="hir-note" id="hirNote">This choice covers dictation and meetings. Writing a meeting’s notes still needs a key, either way.</p>
           </div>
 
           <div class="stage stage-plain flow" id="keysFlow" role="img" aria-label="Speech to text and clean-up"></div>
@@ -1420,6 +1434,14 @@
               <button type="button" class="btn btn-pri btn-lg ob-way-btn" id="obWayLocalBtn" onclick="wizChooseLocal()">Download and start</button>
               <button type="button" class="btn btn-quiet ob-way-stop" id="obWayStop" onclick="wizStopDownload()" hidden>Stop the download</button>
             </div>
+            <!-- A clearly optional extra, shown once this way is chosen and
+                 only where the computer is offered it (logic.js
+                 setupExtraView; Api.local_llm_*). Nothing in setup waits
+                 for it. -->
+            <div class="ob-way-extra" id="obWayExtra" hidden>
+              <p class="ob-way-extra-line" id="obWayExtraLine" role="status"></p>
+              <button type="button" class="btn btn-quiet btn-sm" id="obWayExtraBtn" onclick="wizExtra()" hidden>Add it</button>
+            </div>
           </div>
           <div class="panel ob-way" id="obWayKey" role="group" aria-labelledby="obWayKeyT">
             <div class="ob-way-head">
@@ -1440,7 +1462,7 @@
 
         <div class="ob-tldr" data-when="choose">
           <p><b>The short version.</b> Both type what you say, in any app. On this computer your words are typed as you said them, with punctuation.</p>
-          <p>The free way does not tidy them or write meeting notes (a meeting still gets its full transcript). Those, and the other things that rewrite text or answer questions, need a key.</p>
+          <p>The free download does not tidy them or write meeting notes (a meeting still gets its full transcript). Those need a key<span id="obTldrExtra" hidden>, or the optional second download offered on the free card</span>. Transforms and Command mode need a key.</p>
           <p>You can change this any time in Settings.</p>
         </div>
 

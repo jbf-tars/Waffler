@@ -2,6 +2,7 @@
 // (one model, downloaded once, shared by dictation and meetings) or "with your
 // own key". Python: Api.local_stt_status / _download / _cancel / _remove, and
 // transcription_mode through save_settings (docs/OFFLINE-TRANSCRIPTION.md).
+// Under it, where the computer is offered it, the optional writing model.
 (function () {
   const $ = (id) => document.getElementById(id);
   const api = () => (window.pywebview && window.pywebview.api) || null;
@@ -67,9 +68,86 @@
     refresh();
   }
 
-  window.loadHowItRuns = refresh;
+  // ── The writing model: tidy text and write notes on this computer too ──
+  // Python: Api.local_llm_status / _download / _cancel / _remove, and
+  // writing_mode through save_settings. What the row shows is decided in
+  // logic.js (writingRowView, howItRunsNote).
+  let pollLlm = null;
+  let hasKey = false;
+
+  function drawLlm(s) {
+    const box = $('hirLlm'), L = window.WafflerLogic;
+    if (!box || !L || !s) return;
+    const v = L.writingRowView(s, hasKey);
+    const note = $('hirNote');
+    if (note) note.textContent = L.howItRunsNote(s, hasKey);
+    box.hidden = !v.show;
+    window.clearTimeout(pollLlm);
+    if (!v.show) return;
+    $('hirLlmAbout').textContent = v.about;
+    const state = $('hirLlmState');
+    state.textContent = v.state; state.hidden = !v.state;
+    $('hirLlmBar').hidden = !v.bar;
+    $('hirLlmBarFill').style.width = v.percent + '%';
+    const dl = $('hirLlmDownload');
+    dl.hidden = !v.download; if (v.download) dl.textContent = v.download;
+    $('hirLlmCancel').hidden = !v.stop;
+    $('hirLlmRemove').hidden = !v.remove;
+    $('hirLlmPick').hidden = !v.choice;
+    $('hirLlmChoice').checked = v.chosen;
+    if (v.bar) pollLlm = window.setTimeout(() => refreshLlm(true), 700);
+  }
+
+  // `ticking`: a look while it downloads, which does not ask for the keys again.
+  async function refreshLlm(ticking) {
+    const a = api(); if (!a || !a.local_llm_status) return;
+    try {
+      if (!ticking && a.get_settings) {
+        const st = await a.get_settings();
+        hasKey = !!(st && (st.groq_key_set || st.api_key_set || st.cerebras_key_set));
+      }
+      const s = await a.local_llm_status();
+      const wasReady = drawLlm.ready;
+      drawLlm.ready = !!(s && s.state === 'ready');
+      drawLlm(s);
+      // It arrived, or it went: the rest of the page says who tidies now.
+      if (wasReady !== undefined && wasReady !== drawLlm.ready && window.loadSettings) window.loadSettings();
+    } catch (e) { /* the page stays as it is */ }
+  }
+
+  async function downloadLlm() {
+    const a = api(); if (!a) return;
+    try { const r = await a.local_llm_download(); if (r && r.ok === false && r.error) showToast(r.error, 'error', 6000); } catch (e) { showToast('The download couldn’t start. Try again.', 'error'); }
+    refreshLlm(true);
+  }
+  async function cancelLlm() { const a = api(); if (!a) return; try { await a.local_llm_cancel(); } catch (e) { /* refresh says */ } refreshLlm(true); }
+  async function removeLlm() {
+    const a = api(); if (!a) return;
+    if (!window.confirm('Remove the writing model from this computer? Tidying and notes will need a key again. You can download it again later.')) return;
+    try { await a.local_llm_remove(); } catch (e) { showToast('The writing model couldn’t be removed.', 'error'); }
+    refreshLlm(false);
+  }
+  async function chooseLlm(on) {
+    const a = api(); if (!a) return;
+    try {
+      const r = await a.save_settings({ writing_mode: on ? 'local' : 'cloud' });
+      if (r && r.ok) showToast(on ? 'Text is tidied and notes are written on this computer now.' : 'Your key tidies text and writes notes again.', 'success', 3500);
+      else showToast((r && r.error) || 'That couldn’t be saved. Try again.', 'error', 5000);
+    } catch (e) { showToast('That couldn’t be saved. Try again.', 'error'); }
+    await refreshLlm(false);
+    if (window.loadSettings) window.loadSettings();
+  }
+  window.waffler_local_llm_changed = (s) => { if (s && s.state !== 'downloading') refreshLlm(false); };
+
+  window.loadHowItRuns = () => { refresh(); refreshLlm(false); };
   document.addEventListener('DOMContentLoaded', () => {
     if (!$('howItRuns')) return;
+    if ($('hirLlm')) {
+      $('hirLlmDownload').addEventListener('click', downloadLlm);
+      $('hirLlmCancel').addEventListener('click', cancelLlm);
+      $('hirLlmRemove').addEventListener('click', removeLlm);
+      $('hirLlmChoice').addEventListener('change', (e) => chooseLlm(e.target.checked));
+    }
     $('hirLocalRadio').addEventListener('change', () => setMode('local'));
     $('hirCloudRadio').addEventListener('change', () => setMode('cloud'));
     $('hirDownload').addEventListener('click', download);

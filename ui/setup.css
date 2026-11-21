@@ -133,6 +133,9 @@
 .ob-way-state.is-err { color: var(--danger); }
 .ob-way-actions { margin-top: auto; padding-top: 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; min-height: 60px; }
 .ob-way-btn:disabled { cursor: default; }
+/* The optional second download: one quiet line and a small button. */
+.ob-way-extra { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.ob-way-extra-line { flex: 1 1 220px; margin: 0; font: 400 13px/1.45 var(--f-ui); color: var(--text-2); }
 /* The download: a bar with its percentage in words beside or under it. */
 .ob-bar { height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
 .ob-bar i { display: block; height: 100%; width: 0; border-radius: inherit; background: var(--honey); transition: width 0.3s var(--ease, ease); }
