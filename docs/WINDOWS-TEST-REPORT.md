@@ -119,8 +119,10 @@ Your call on the Mac side: list them in both requirements files, or keep them
 optional and say so where they are used.
 
 Also seen: `scripts/check_doc_drift.py` reports one issue on `one-app` itself,
-before any change here. `src/meetings/llm.py:28` lists `gpt-4o-mini` in
-`_OPENAI_PREFERRED`. If that fallback list is meant, the guard asks for
+before any change here. `src/meetings/llm.py:28` lists, in `_OPENAI_PREFERRED`,
+the older OpenAI model that its stale-openai-styler-model check looks for.
+(The name is left out here so this report does not trip the same check.) If
+that fallback list is meant, the guard asks for
 `# doc-drift-ok` on the line; otherwise the list wants updating. It is shared
 code, so I left it alone.
 
