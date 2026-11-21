@@ -891,7 +891,7 @@
              src/claude_connector.py). Read-only. -->
         <section class="s-sec" id="secClaude" data-sec="claude" hidden>
           <h1 class="ptitle">Claude and other AI apps</h1>
-          <p class="pdesc">Let Claude, or another AI app, read what you recorded and dictated, so you can ask it about any of it. It can only read. It cannot change or delete anything.</p>
+          <p class="pdesc">Ask Claude about anything you recorded or dictated.</p>
 
           <div class="sheet">
             <div class="row" id="claudeRow">
@@ -900,7 +900,7 @@
               <button type="button" class="btn btn-sec btn-sm" id="claudeDisconnect" hidden>Disconnect</button>
             </div>
             <div class="row" id="claudeDictRow">
-              <div class="row-main"><div class="row-t"><label for="claudeDictToggle">Include my dictations</label></div><div class="row-d" id="claudeDictDesc">On, Claude can read what you dictated as well as your meetings. Off, it reads meetings only.</div></div>
+              <div class="row-main"><div class="row-t"><label for="claudeDictToggle">Include my dictations</label></div><div class="row-d" id="claudeDictDesc">Off, Claude reads meetings only.</div></div>
               <input type="checkbox" class="tog" role="switch" id="claudeDictToggle" aria-describedby="claudeDictDesc">
             </div>
           </div>
@@ -908,7 +908,7 @@
           <h2 class="sh2">Claude Code<span class="aside">optional</span></h2>
           <div class="sheet">
             <div class="row" id="claudeCodeRow">
-              <div class="row-main"><div class="row-t">Run this once in a terminal</div><div class="row-d cl-cmd" id="claudeCommand"></div></div>
+              <div class="row-main"><div class="row-t">Run once in Terminal</div><div class="row-d cl-cmd" id="claudeCommand"></div></div>
               <button type="button" class="btn btn-sec btn-sm" id="claudeCopy">Copy</button>
             </div>
           </div>
@@ -916,15 +916,29 @@
           <h2 class="sh2">Other AI apps<span class="aside">optional</span></h2>
           <div class="sheet">
             <div class="row" id="claudeCodexRow">
-              <div class="row-main"><div class="row-t">Codex</div><div class="row-d">Add these lines to the file <span class="cl-file">~/.codex/config.toml</span>, then start Codex again.</div><div class="row-d cl-cmd cl-block" id="claudeCodex"></div></div>
+              <div class="row-main"><div class="row-t">Codex</div><div class="row-d">Add to <span class="cl-file">~/.codex/config.toml</span>, then restart Codex.</div><div class="row-d cl-cmd cl-block" id="claudeCodex"></div></div>
               <button type="button" class="btn btn-sec btn-sm" id="claudeCodexCopy">Copy</button>
             </div>
             <div class="row" id="claudeOtherRow">
-              <div class="row-main"><div class="row-t">Cursor and the rest</div><div class="row-d">Most AI apps take this in their MCP settings. Paste it there.</div><div class="row-d cl-cmd cl-block" id="claudeOther"></div></div>
+              <div class="row-main"><div class="row-t">Cursor and the rest</div><div class="row-d">Paste into the app's MCP settings.</div><div class="row-d cl-cmd cl-block" id="claudeOther"></div></div>
               <button type="button" class="btn btn-sec btn-sm" id="claudeOtherCopy">Copy</button>
             </div>
           </div>
-          <p class="s-note">These reach this computer only. Reading your meetings from every device needs an <button type="button" class="link-btn" onclick="showSettingsSection('account')">account</button>.</p>
+
+          <!-- What a careful person may still want to know. One collapsed
+               disclosure (toggleHow). -->
+          <div class="how">
+            <button type="button" class="link-btn how-btn" id="claudeHowBtn" aria-expanded="false" aria-controls="claudeHow" onclick="toggleHow(this)">How it works<svg class="ic ic-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
+            <div class="sheet how-body" id="claudeHow" hidden>
+              <ul class="sc-rule-list">
+                <li>Claude, or another AI app, can read what you recorded and dictated, so you can ask it about any of it. It can only read. It cannot change or delete anything.</li>
+                <li>With Include my dictations on, Claude can read what you dictated as well as your meetings. Off, it reads meetings only.</li>
+                <li>After you connect or disconnect, quit Claude and open it again.</li>
+                <li>Most AI apps take the last block in their MCP settings.</li>
+                <li>These reach this computer only. Reading your meetings from every device needs an <button type="button" class="link-btn" onclick="showSettingsSection('account')">account</button>.</li>
+              </ul>
+            </div>
+          </div>
         </section>
 
         <!-- Shortcuts: every shortcut in one place (src/shortcut_settings.py). The

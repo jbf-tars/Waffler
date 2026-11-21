@@ -13,10 +13,10 @@
     off.hidden = !s.connected;
     on.textContent = stale ? 'Connect again' : 'Connect Claude';
     if (s.error) state.textContent = s.error;
-    else if (!s.installed) state.textContent = 'The Claude desktop app is not on this computer yet. Install it, open it once, then come back here.';
-    else if (stale) state.textContent = 'Claude is connected to a different copy of Waffler. Connect again to point it at this one.';
-    else if (s.connected) state.textContent = 'Connected. Claude can read your meetings' + (s.dictations ? ' and dictations' : '') + '. If you just connected, quit Claude and open it again.';
-    else state.textContent = 'Not connected. One click, then quit Claude and open it again.';
+    else if (!s.installed) state.textContent = 'Install the Claude app and open it once.';
+    else if (stale) state.textContent = 'Connected to another copy of Waffler.';
+    else if (s.connected) state.textContent = 'Connected. Claude reads your meetings' + (s.dictations ? ' and dictations' : '') + '.';
+    else state.textContent = 'Not connected.';
     $('claudeDictToggle').checked = s.dictations !== false;
     $('claudeCommand').textContent = s.command || '';
     $('claudeCodeRow').hidden = !s.command;
