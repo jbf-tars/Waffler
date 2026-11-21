@@ -1,15 +1,15 @@
-"""The plain sentence that says another provider did the work.
+"""Another provider did the work: it just happens, and the log says so.
 
 When speech to text or the clean-up had to use a different provider than the
 first choice because the first could not be reached from this network (a
 block, or no connection; not a rate limit, which has its own message), the
-person is told once, after the paste: "Groq can't be reached from this
-network, so Waffler used OpenAI instead. A VPN is often the reason."
+person used to be told once, after the paste: "Used OpenAI instead. Groq can't
+be reached from this network...". That is no longer a pop-up: the dictation
+goes through and nothing is put on screen.
 
 The transcriber and the styler only RECORD the fact (`last_failovers`, the
-clean-up's `failovers`); app.py shows it once the words are pasted, through the
-notifier, one kind per provider with a 30 minute gap. No toast on the hot
-path, no raw error, no text from the dictation.
+clean-up's `failovers`); app.py writes one line in the log for it. No raw
+error, no text from the dictation.
 """
 import re
 import sys
@@ -175,84 +175,63 @@ def notices(p):
     return [t for t in p.overlay.toasts() if t.get("style") == "info"]
 
 
-def test_a_dictation_that_needed_another_provider_says_so_once_after_the_paste(tmp_path, limits):
+# "Used another service instead" is not a pop-up any more (the approved board:
+# "Gone ... The first just happens"). The dictation goes through with the
+# other provider, nothing is put on screen, and one line in the log says what
+# happened. The wording above is kept: the table in src/pill.py still knows
+# the old heading, so that it can never come back as a pop-up by accident.
+
+def test_a_dictation_that_needed_another_provider_just_happens(tmp_path, limits):
     clip = H.FakeClipboard()
     p = H.make_pipeline(tmp_path, transcriber=FailedOverTranscriber([speech_event()]),
                         clipboard=clip)
-    when_shown = []
-    original = p.overlay.show_toast
-
-    def spy(**kw):
-        when_shown.append(len(clip.pastes))
-        return original(**kw)
-    p.overlay.show_toast = spy
     dictate(p)
-    [toast] = notices(p)
-    assert toast == {"style": "info", "heading": "Used OpenAI instead",
-                     "body": "Groq can't be reached from this network, so Waffler used OpenAI "
-                             "instead. A VPN is often the reason.", "buttons": None,
-                     "timeout": 8, "reposition": False}
-    assert when_shown == [1], "shown after the words were pasted, never before"
-    assert p._notifier.snapshot()["failover_groq"]["shown"] == 1
-    assert any("[net] told the person: groq unreachable, openai used for the speech" in x
+    assert clip.pastes == ["Ok so ship it on monday."], "the words went in"
+    assert p.overlay.toasts() == [], "and nothing was said about who did the work"
+    assert "failover_groq" not in p._notifier.snapshot(), "no message was asked for, so none is counted"
+    assert any("[net] groq unreachable: openai used for the speech (no message: it just happens)" in x
                for x in p.logged)
 
 
-def test_a_block_is_worded_as_a_block(tmp_path, limits):
+def test_a_block_is_logged_as_a_block(tmp_path, limits):
     p = H.make_pipeline(tmp_path, transcriber=FailedOverTranscriber([speech_event(kind="blocked")]))
     dictate(p)
-    [toast] = notices(p)
-    assert toast["body"].startswith("Groq is blocking this network, so Waffler used OpenAI instead")
+    assert p.overlay.toasts() == []
+    assert any("[net] groq blocked: openai used for the speech" in x for x in p.logged)
 
 
 def test_the_cleanup_can_be_the_one_that_failed_over(tmp_path, limits):
     p = H.make_pipeline(tmp_path, styler=FailedOverStyler([cleanup_event("cerebras", "groq")]))
     dictate(p)
-    [toast] = notices(p)
-    assert toast["body"].startswith("Cerebras can't be reached from this network, so Waffler used Groq")
-    assert "failover_cerebras" in p._notifier.snapshot()
+    assert p.overlay.toasts() == []
+    assert any("[net] cerebras unreachable: groq used for the cleanup" in x for x in p.logged)
 
 
-def test_speech_and_cleanup_failing_over_for_the_same_provider_is_one_notice(tmp_path, limits):
-    p = H.make_pipeline(tmp_path, transcriber=FailedOverTranscriber([speech_event()]),
-                        styler=FailedOverStyler([cleanup_event()]))
-    dictate(p)
-    assert len(notices(p)) == 1
+def test_the_old_message_can_never_reach_the_screen():
+    """Even if something raised it again, the overlay would not send it."""
+    import pill
+    from overlay import RecordingOverlay
+    import threading
 
+    class _Stdin:
+        lines = []
 
-def test_two_dictations_in_a_row_say_it_once(tmp_path, limits):
-    p = H.make_pipeline(tmp_path, transcriber=FailedOverTranscriber([speech_event()]))
-    dictate(p, 1)
-    next_press(p, 2)
-    dictate(p, 2)
-    assert len(notices(p)) == 1
-    assert any("failover_groq not shown (gap)" in x for x in p.logged)
+        def write(self, data):
+            self.lines.append(data)
 
+        def flush(self):
+            pass
 
-def test_half_an_hour_later_it_is_said_again(tmp_path, limits):
-    now = [10_000.0]
-    p = H.make_pipeline(tmp_path, transcriber=FailedOverTranscriber([speech_event()]))
-    p._notifier = N.Notifier(store=N.MemoryStore(), clock=lambda: now[0],
-                             context=p._notifier_context, log=p.logged.append)
-    dictate(p, 1)
-    now[0] += HALF_HOUR - 5
-    next_press(p, 2)
-    dictate(p, 2)
-    assert len(notices(p)) == 1
-    now[0] += 10
-    next_press(p, 3)
-    dictate(p, 3)
-    assert len(notices(p)) == 2
-
-
-def test_another_provider_failing_gets_its_own_notice(tmp_path, limits):
-    p = H.make_pipeline(tmp_path, transcriber=FailedOverTranscriber([speech_event("groq", "openai")]))
-    dictate(p, 1)
-    p.transcriber.events = [speech_event("openai", "groq")]
-    next_press(p, 2)
-    dictate(p, 2)
-    heads = [t["heading"] for t in notices(p)]
-    assert heads == ["Used OpenAI instead", "Used Groq instead"]
+    o = object.__new__(RecordingOverlay)
+    o._process = type("P", (), {"stdin": _Stdin(), "poll": lambda self: None})()
+    o._send_lock = threading.Lock()
+    o._visible = False
+    o._log = lambda *a, **k: None
+    for provider, used, kind in (("groq", "openai", "unreachable"), ("openai", "groq", "blocked")):
+        heading, body = um.failover_message(provider, used, kind)
+        assert pill.pill_for("info", heading, body, None, 8) is None
+        o.show_toast("info", heading, body, timeout=8)
+    assert o._process.stdin.lines == []
 
 
 def test_a_dictation_that_needed_nobody_else_says_nothing(tmp_path, limits):
@@ -285,33 +264,20 @@ def test_a_notifier_that_breaks_does_not_break_the_dictation(tmp_path, limits):
     assert p.clipboard.pastes == ["Ok so ship it on monday."]
 
 
-def test_the_notice_never_carries_the_words(tmp_path, limits):
+def test_the_log_line_never_carries_the_words(tmp_path, limits):
     p = H.make_pipeline(tmp_path, transcriber=FailedOverTranscriber([speech_event()]))
     dictate(p)
-    [toast] = notices(p)
-    shown = f"{toast['heading']} {toast['body']} " + " ".join(p.logged)
+    shown = " ".join(p.logged)
+    assert "[net] groq unreachable" in shown
     assert "monday" not in shown.lower() and "ship it" not in shown.lower()
 
 
-def test_a_newer_recording_has_the_pill_so_no_notice_is_put_over_it(tmp_path):
+def test_a_note_that_fails_is_swallowed(tmp_path):
     p = H.make_pipeline(tmp_path)
     run = type("Run", (), {"generation": 1})()
-    p._processing_id = 2                                # a newer dictation has begun
-    p._announce_failover(run, {"last_failovers": [speech_event()]}, {})
+    p._announce_failover(run, {"last_failovers": object()}, {})
+    assert any("[net] note skipped (TypeError)" in x for x in p.logged)
     assert p.overlay.toasts() == []
-    assert "failover_groq" not in p._notifier.snapshot(), "not counted as said"
-    p._processing_id = 1
-    p.is_recording = True                               # or the key is down again
-    p._announce_failover(run, {"last_failovers": [speech_event()]}, {})
-    assert p.overlay.toasts() == []
-
-
-def test_a_notice_that_fails_to_show_is_swallowed(tmp_path):
-    p = H.make_pipeline(tmp_path)
-    run = type("Run", (), {"generation": 1})()
-    p._show_toast_safe = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("overlay gone"))
-    p._announce_failover(run, {"last_failovers": [speech_event()]}, {})
-    assert any("[net] notice skipped (RuntimeError)" in x for x in p.logged)
 
 
 def test_malformed_events_are_ignored(tmp_path):

@@ -26,6 +26,7 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "tests"))
 
 import idle_pill as ip  # noqa: E402
+import pill  # noqa: E402
 import privacy_data  # noqa: E402
 import user_messages as um  # noqa: E402
 from overlay import RecordingOverlay  # noqa: E402
@@ -93,19 +94,24 @@ def _a_dictation(o):
     o.hide_toast()
 
 
-# Recorded from 3.16.5's src/overlay.py (origin/main) with the same calls.
+# Recorded from 3.16.5's src/overlay.py (origin/main) with the same calls. The
+# two messages are the one thing that changed since: each is sent as its small
+# pill (src/pill.py) instead of the old card's heading, body and buttons.
 _DICTATION_3_16_5 = [
     {"type": "show", "gen": 1}, {"type": "level", "value": 0.3}, {"type": "level", "value": 1.0},
     {"type": "state", "value": "paused"}, {"type": "state", "value": "recording"},
     {"type": "working", "elapsed_seconds": 0.0},
     {"type": "progress", "label": "Transcribing", "elapsed_seconds": 1.2},
     {"type": "working", "elapsed_seconds": 1.0},
-    {"type": "show_toast", "style": "info", "heading": "Still working on it", "body": "Slow.",
-     "buttons": [{"label": "Keep waiting", "action": "keep_waiting", "kind": "primary"}],
-     "timeout": 4.0},
+    {"type": "show_toast", "style": "info", "pill": {
+        "kind": "ask", "text": "Still working", "button": {"label": "Send later", "action": "send_later"},
+        "close": "cancel_processing", "click": None, "seconds": 4.0,
+        "description": "Still working on it. Slow."}},
     {"type": "hide_toast", "style": "info"}, {"type": "working_end", "result": "done"},
     {"type": "hide"},
-    {"type": "show_toast", "style": "warn", "heading": "Not pasted", "body": "b", "reposition": True},
+    {"type": "show_toast", "style": "warn", "pill": {
+        "kind": "problem", "text": "Copied. Press Cmd+V", "button": None, "close": None, "click": None,
+        "seconds": 6.0, "description": "Not pasted. b"}, "reposition": True},
     {"type": "hide_toast"},
 ]
 
@@ -194,6 +200,15 @@ def _h(text):
 # is changed on purpose, update the hash here, and test the pill by hand on
 # full-screen Spaces (swipe through three or more while dictating, Fn + Space,
 # a silent take's toast) before shipping: that is what 3.14.68 and 3.14.69 fixed.
+#
+# Changed on purpose for the small pill (src/pill.py), and the hashes updated:
+# _show_toast and _hide_toast (they draw the pill, and no longer hide the
+# dictation pill for a message or bring it back after one), the show_toast
+# branch (it passes the pill on), _enter_working (the dictation pill comes up
+# whether or not a message is showing) and _end_working (a Working pill
+# becomes "Done" in place). Nothing that shows, hides, raises or moves the
+# dictation pill across Spaces was touched. The by-hand check on full-screen
+# Spaces still has to be done before this ships.
 def _pinned():
     out = {name: _h(_src(_fn(name))) for name in (
         "_refresh_overlay_space_membership", "_reassert_overlay_window", "_schedule_show_retry",
@@ -217,10 +232,10 @@ _PINNED_ALL = {
     "_refresh_overlay_space_membership": "09814e34a7d5bdff",
     "_reassert_overlay_window": "e8048dc954b9e0a5",
     "_schedule_show_retry": "434860787c12aadf",
-    "_enter_working": "b35664a5679cdda4",
-    "_end_working": "6f6456037b7416cc",
-    "_show_toast": "7cbece8d27ab4a36",
-    "_hide_toast": "aacea7c55d7b13cc",
+    "_enter_working": "55d11f8bdb8a2662",
+    "_end_working": "2cbfdc2adf28e018",
+    "_show_toast": "ea391abd1a673413",
+    "_hide_toast": "d351f32b9c5dd6c3",
     "_stdin_reader": "bef313db64d0e162",
     "main": "4d024bfd03f120ed",
     "branch:show": "983e75fa71656d6f",
@@ -230,7 +245,7 @@ _PINNED_ALL = {
     "branch:working_end": "2141d5d27b16df42",
     "branch:_done_expire": "61fafa6a456d3ad7",
     "branch:level": "cf29fd6daace6e32",
-    "branch:show_toast": "e66251d9e064f7c9",
+    "branch:show_toast": "abf797df7f7d592a",
     "branch:hide_toast": "e7ed868605522736",
     "branch:progress": "55b50d5ada5a1ef9",
     "branch:_space_changed:visible": "40668b9fd8a0c078",
@@ -856,7 +871,7 @@ class FakeApp:
 
 
 _MAC_CONSTS = ("OUTER_RIM", "INNER_PAD", "GRID_ROWS", "GRID_COLS", "CELL_SIZE", "GRID_GAP",
-               "WAFFLE_W", "WAFFLE_H", "BTN_R", "BTN_GAP", "WIN_W", "WIN_H", "TOAST_W", "TOAST_H",
+               "WAFFLE_W", "WAFFLE_H", "BTN_R", "BTN_GAP", "WIN_W", "WIN_H", "TOAST_H",
                "TOAST_PAD", "IDLE_CAPSULE_W", "IDLE_CAPSULE_H", "MENU_W", "MENU_PAD", "MENU_ITEM_H",
                "MENU_CAPTION_ITEM_H", "_NS_TERMINATE_CANCEL", "_NS_TERMINATE_NOW",
                "_NS_TERMINATE_LATER")
@@ -893,7 +908,7 @@ def mac(screens=(LAPTOP, MONITOR), mouse=(700, 500)):
     """overlay_process.py's idle-pill pieces in a namespace of fakes."""
     import queue
     clock = _Clock()
-    ns = {"_ip": ip, "sys": sys, "queue": queue, "time": clock, "clock": clock}
+    ns = {"_ip": ip, "_pl": pill, "sys": sys, "queue": queue, "time": clock, "clock": clock}
     nodes = [n for n in MAC_TREE.body
              if (isinstance(n, ast.FunctionDef) and n.name in _MAC_FUNCS)
              or (isinstance(n, ast.Assign) and getattr(n.targets[0], "id", "") in _MAC_CONSTS)]
@@ -968,12 +983,15 @@ def test_a_saved_spot_is_kept_inside_the_screen_it_is_used_on():
     assert ns["_compute_overlay_position"]() == (1512 - 69, 945 - 97)
 
 
-def test_toasts_are_where_they_were_unless_a_spot_is_saved():
+def test_a_message_sits_above_the_pill_and_goes_under_it_when_the_pill_was_moved_to_the_top():
+    """The message is the small pill now (40 high, as wide as its words), a
+    gap above the whole of the dictation pill's window, so neither covers the
+    other. With a spot saved near the top of the screen it goes under."""
     ns = mac()
-    assert ns["_toast_origin"]((700.0, 16.0)) == (700 + (69 - 380) // 2, 16 + 69 + 12)
-    ns["_saved_positions"].update({ip.screen_key(1, (0, 0, 1512, 982)): {"cx": 734.5, "y": 840.0}})
-    tx, ty = ns["_toast_origin"]((700.0, 840.0))
-    assert ty == 840 - 12 - 210 and tx == 700 + (69 - 380) // 2
+    assert ns["_toast_origin"]((700.0, 16.0), 160) == (700 + (69 - 160) / 2.0, 16 + 97 + pill.GAP)
+    ns["_saved_positions"].update({ip.screen_key(1, (0, 0, 1512, 982)): {"cx": 734.5, "y": 870.0}})
+    tx, ty = ns["_toast_origin"]((700.0, 870.0), 160)
+    assert ty == 870 - pill.GAP - 40 and tx == 700 + (69 - 160) / 2.0
 
 
 def _idle_on(ns):

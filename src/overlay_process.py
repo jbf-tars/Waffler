@@ -13,16 +13,24 @@ Commands:  {"type": "show"}
                  time shows and one X cancels
            {"type": "working_end", "result": "done"|"quiet"}
                  "done" shows a short tick, then hides; "quiet" just hides.
-                 Neither touches a toast.
+                 A Working pill that is up becomes "Done" in place, or goes;
+                 any other message is left alone.
            {"type": "show_toast", "style": "cancel"|"error"|"warn"|"info",
-            "heading": "...", "body": "...",
-            "buttons": [{"label", "action", "kind"}, ...],   (buttons optional)
-            "timeout": seconds, "reposition": true}          (both optional)
-                 timeout replaces the style's usual time on screen;
-                 reposition puts the toast on the cursor's screen, for a
-                 toast with no recording (and so no pill) behind it
+            "pill": {"kind", "text", "button", "close", "click", "seconds",
+                     "description"},
+            "reposition": true}                              (optional)
+                 every message is one small pill (src/pill.py): the waffle
+                 mark, a tick, three dots or a red dot, one line, at most one
+                 button and a cross. The app sends the pill ready made; the
+                 style still travels so hide_toast can withdraw by it.
+                 reposition puts the pill on the cursor's screen, for a
+                 message with no recording (and so no dictation pill) behind
+                 it. A command with the old card's fields instead
+                 ("heading", "body",
+                 "buttons": [{"label", "action", "kind"}, ...], "timeout")
+                 becomes its pill here, by the same table.
            {"type": "hide_toast", "style": "info"}   (style optional: only
-                 a toast of that style is hidden)
+                 a pill raised with that style is taken down)
            {"type": "pill_config", "idle": bool, "positions": {key: {cx, y}}}
                  the idle pill on or off, and where the pill was dropped on
                  each screen (src/idle_pill.py). Never sent while both are at
@@ -94,9 +102,11 @@ from Foundation import (
 try:
     from quit_flow import overlay_terminate_decision, OVERLAY_FORWARD_PATIENCE_S
     import idle_pill as _ip
+    import pill as _pl
 except ImportError:  # imported as src.overlay_process
     from src.quit_flow import overlay_terminate_decision, OVERLAY_FORWARD_PATIENCE_S
     from src import idle_pill as _ip
+    from src import pill as _pl
 
 
 # Bundle of collection-behavior flags that make a window appear on every
@@ -538,18 +548,11 @@ BADGE_RING    = '#C8A256'
 BADGE_TEXT    = '#F0E0C0'
 DONE_TICK_S   = 0.9        # how long the tick shows before the pill goes
 
-# Toast constants
-TOAST_W     = 380
-TOAST_H     = 210  # tall enough for 3-line body text
-TOAST_PAD   = 12           # gap above waffle
-
-# Custom toast buttons, by kind: (fill, outline, text). Same colours as the
-# fixed buttons, and as overlay_process_windows.TOAST_BTN_KINDS.
-TOAST_BTN_KINDS = {
-    'primary':   ('#C8A256', '#D4A843', '#2A1F0E'),
-    'secondary': ('#3D2E14', '#5A4520', '#A89070'),
-    'danger':    ('#3D1818', '#D94040', '#D94040'),
-}
+# The small pill every message is now (src/pill.py has its sizes, colours and
+# rules; this file only draws it). It sits a small gap above the dictation
+# pill's window and is as wide as its words.
+TOAST_H     = _pl.HEIGHT   # 40
+TOAST_PAD   = _pl.GAP      # between it and the dictation pill
 
 # ── The tick, while nothing shows ──────────────────────────────────────
 # One timer drives this process: every 50 ms animTick_ reads the commands
@@ -632,8 +635,12 @@ _visible: bool = False
 _g_window       = None
 _g_view         = None
 _toast_win      = None
+_toast_view     = None
 _toast_style    = None
+_toast_pill     = None     # the src/pill.py Pill that is up
+_toast_gen      = 0        # goes up with every pill shown or hidden
 _toast_auto_hide_timer = None
+_toast_dots_timer = None   # moves a Working pill's three dots
 _space_observer = None  # NSObject — strong ref so it isn't GC'd; see main()
 
 # Progress text shown over the pill during the slow post-recording stages
@@ -711,6 +718,131 @@ def hex_to_ns_color(hex_str):
 
 # ── Custom NSView ──────────────────────────────────────────────────────
 
+def _fill_rounded_rect(x, y, w, h, r, fill=None, outline=None, width=1):
+    path = NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(NSMakeRect(x, y, w, h), r, r)
+    if fill:
+        hex_to_ns_color(fill).set()
+        path.fill()
+    if outline:
+        hex_to_ns_color(outline).set()
+        path.setLineWidth_(width)
+        path.stroke()
+
+
+def _draw_waffle_body(bars):
+    """The waffle: body, rim and its sixteen pockets, each filled with syrup
+    to its level in ``bars``. Drawn at (0, 0), WAFFLE_W x WAFFLE_H, in a
+    flipped view. The dictation pill draws it full size; the small pill
+    draws the same thing at 22 points (_draw_waffle_mark)."""
+    # 2. Waffle body — rounded rectangle (the raised ridges / crust)
+    _fill_rounded_rect(0, 0, WAFFLE_W, WAFFLE_H, CORNER_R,
+                            fill=WAFFLE_BODY, outline=WAFFLE_RIM, width=2)
+
+    # 3. Outer rim highlight — subtle light line along top edge for 3D
+    # Top-left arc (with flipped coords: top is Y=0)
+    arc_path = NSBezierPath.bezierPath()
+    arc_path.appendBezierPathWithArcWithCenter_radius_startAngle_endAngle_(
+        NSMakePoint(CORNER_R, CORNER_R), CORNER_R - 1, 90, 180
+    )
+    hex_to_ns_color(CELL_HILITE).set()
+    arc_path.setLineWidth_(1)
+    arc_path.stroke()
+
+    # Top edge line
+    top_line = NSBezierPath.bezierPath()
+    top_line.moveToPoint_(NSMakePoint(CORNER_R, 2))
+    top_line.lineToPoint_(NSMakePoint(WAFFLE_W - CORNER_R, 2))
+    hex_to_ns_color(CELL_HILITE).set()
+    top_line.setLineWidth_(1)
+    top_line.stroke()
+
+    # 4. Draw cells (pockets) with 3D depth effect
+    for row in range(GRID_ROWS):
+        for col in range(GRID_COLS):
+            i = row * GRID_COLS + col
+            cx = GRID_OX + col * (CELL_SIZE + GRID_GAP)
+            # With isFlipped=True, Y=0 is at top, so no coordinate flip needed
+            cy = GRID_OY + row * (CELL_SIZE + GRID_GAP)
+
+            # Cell pocket background
+            cell_rect = NSMakeRect(cx, cy, CELL_SIZE, CELL_SIZE)
+            hex_to_ns_color(CELL_BG).set()
+            NSBezierPath.fillRect_(cell_rect)
+
+            # 3D depth: highlight on top & left edges (pocket rim catching light)
+            # Top edge (with flipped coords: cy is top)
+            top = NSBezierPath.bezierPath()
+            top.moveToPoint_(NSMakePoint(cx, cy))
+            top.lineToPoint_(NSMakePoint(cx + CELL_SIZE, cy))
+            hex_to_ns_color(CELL_HILITE).set()
+            top.setLineWidth_(1)
+            top.stroke()
+
+            # Left edge
+            left = NSBezierPath.bezierPath()
+            left.moveToPoint_(NSMakePoint(cx, cy))
+            left.lineToPoint_(NSMakePoint(cx, cy + CELL_SIZE))
+            hex_to_ns_color(CELL_HILITE).set()
+            left.setLineWidth_(1)
+            left.stroke()
+
+            # 3D depth: shadow on bottom & right edges (pocket depth)
+            # Bottom edge (with flipped coords: cy + CELL_SIZE is bottom)
+            bottom = NSBezierPath.bezierPath()
+            bottom.moveToPoint_(NSMakePoint(cx, cy + CELL_SIZE))
+            bottom.lineToPoint_(NSMakePoint(cx + CELL_SIZE, cy + CELL_SIZE))
+            hex_to_ns_color(CELL_SHADOW).set()
+            bottom.setLineWidth_(1)
+            bottom.stroke()
+
+            # Right edge
+            right = NSBezierPath.bezierPath()
+            right.moveToPoint_(NSMakePoint(cx + CELL_SIZE, cy))
+            right.lineToPoint_(NSMakePoint(cx + CELL_SIZE, cy + CELL_SIZE))
+            hex_to_ns_color(CELL_SHADOW).set()
+            right.setLineWidth_(1)
+            right.stroke()
+
+            # Syrup fill from bottom up (with flipped coords: bottom = cy + CELL_SIZE)
+            lvl = max(0.0, min(1.0, bars[i]))
+            fill_h = int(lvl * CELL_SIZE)
+            if fill_h > 0:
+                # Syrup color darkens as it fills more
+                color = SYRUP_COLOR if lvl > 0.6 else SYRUP_LIGHT
+                sy_bottom = cy + CELL_SIZE  # Bottom edge of cell (higher Y with flipped coords)
+                sy_top = sy_bottom - fill_h  # Top of syrup layer
+                syrup_rect = NSMakeRect(cx + 1, sy_top, CELL_SIZE - 2, fill_h)
+                hex_to_ns_color(color).set()
+                NSBezierPath.fillRect_(syrup_rect)
+
+                # Tiny sheen highlight on syrup surface (1px line at top of syrup)
+                if fill_h > 3:
+                    sheen = NSBezierPath.bezierPath()
+                    sheen.moveToPoint_(NSMakePoint(cx + 2, sy_top + 1))
+                    sheen.lineToPoint_(NSMakePoint(cx + CELL_SIZE - 2, sy_top + 1))
+                    hex_to_ns_color(SYRUP_SHEEN).set()
+                    sheen.setLineWidth_(1)
+                    sheen.stroke()
+
+
+_MARK_BARS = [0.0] * NUM_CELLS
+
+
+def _draw_waffle_mark(x, y, size):
+    """The app's own waffle, small and at rest: the same drawing as the
+    dictation pill's, scaled to ``size`` points."""
+    ctx = AppKit.NSGraphicsContext.currentContext()
+    ctx.saveGraphicsState()
+    try:
+        t = AppKit.NSAffineTransform.transform()
+        t.translateXBy_yBy_(x, y)
+        t.scaleBy_(float(size) / float(WAFFLE_W))
+        t.concat()
+        _draw_waffle_body(_MARK_BARS)
+    finally:
+        ctx.restoreGraphicsState()
+
+
 class WaffleView(NSView):
     """Draws the square waffle overlay with 4x4 grid and syrup filling effect."""
 
@@ -744,95 +876,8 @@ class WaffleView(NSView):
         NSColor.clearColor().set()
         NSBezierPath.fillRect_(b)
 
-        # 2. Waffle body — rounded rectangle (the raised ridges / crust)
-        self._draw_rounded_rect(0, 0, WAFFLE_W, WAFFLE_H, CORNER_R,
-                                fill=WAFFLE_BODY, outline=WAFFLE_RIM, width=2)
-
-        # 3. Outer rim highlight — subtle light line along top edge for 3D
-        # Top-left arc (with flipped coords: top is Y=0)
-        arc_path = NSBezierPath.bezierPath()
-        arc_path.appendBezierPathWithArcWithCenter_radius_startAngle_endAngle_(
-            NSMakePoint(CORNER_R, CORNER_R), CORNER_R - 1, 90, 180
-        )
-        hex_to_ns_color(CELL_HILITE).set()
-        arc_path.setLineWidth_(1)
-        arc_path.stroke()
-
-        # Top edge line
-        top_line = NSBezierPath.bezierPath()
-        top_line.moveToPoint_(NSMakePoint(CORNER_R, 2))
-        top_line.lineToPoint_(NSMakePoint(WAFFLE_W - CORNER_R, 2))
-        hex_to_ns_color(CELL_HILITE).set()
-        top_line.setLineWidth_(1)
-        top_line.stroke()
-
-        # 4. Draw cells (pockets) with 3D depth effect
-        for row in range(GRID_ROWS):
-            for col in range(GRID_COLS):
-                i = row * GRID_COLS + col
-                cx = GRID_OX + col * (CELL_SIZE + GRID_GAP)
-                # With isFlipped=True, Y=0 is at top, so no coordinate flip needed
-                cy = GRID_OY + row * (CELL_SIZE + GRID_GAP)
-
-                # Cell pocket background
-                cell_rect = NSMakeRect(cx, cy, CELL_SIZE, CELL_SIZE)
-                hex_to_ns_color(CELL_BG).set()
-                NSBezierPath.fillRect_(cell_rect)
-
-                # 3D depth: highlight on top & left edges (pocket rim catching light)
-                # Top edge (with flipped coords: cy is top)
-                top = NSBezierPath.bezierPath()
-                top.moveToPoint_(NSMakePoint(cx, cy))
-                top.lineToPoint_(NSMakePoint(cx + CELL_SIZE, cy))
-                hex_to_ns_color(CELL_HILITE).set()
-                top.setLineWidth_(1)
-                top.stroke()
-
-                # Left edge
-                left = NSBezierPath.bezierPath()
-                left.moveToPoint_(NSMakePoint(cx, cy))
-                left.lineToPoint_(NSMakePoint(cx, cy + CELL_SIZE))
-                hex_to_ns_color(CELL_HILITE).set()
-                left.setLineWidth_(1)
-                left.stroke()
-
-                # 3D depth: shadow on bottom & right edges (pocket depth)
-                # Bottom edge (with flipped coords: cy + CELL_SIZE is bottom)
-                bottom = NSBezierPath.bezierPath()
-                bottom.moveToPoint_(NSMakePoint(cx, cy + CELL_SIZE))
-                bottom.lineToPoint_(NSMakePoint(cx + CELL_SIZE, cy + CELL_SIZE))
-                hex_to_ns_color(CELL_SHADOW).set()
-                bottom.setLineWidth_(1)
-                bottom.stroke()
-
-                # Right edge
-                right = NSBezierPath.bezierPath()
-                right.moveToPoint_(NSMakePoint(cx + CELL_SIZE, cy))
-                right.lineToPoint_(NSMakePoint(cx + CELL_SIZE, cy + CELL_SIZE))
-                hex_to_ns_color(CELL_SHADOW).set()
-                right.setLineWidth_(1)
-                right.stroke()
-
-                # Syrup fill from bottom up (with flipped coords: bottom = cy + CELL_SIZE)
-                lvl = max(0.0, min(1.0, self._bars[i]))
-                fill_h = int(lvl * CELL_SIZE)
-                if fill_h > 0:
-                    # Syrup color darkens as it fills more
-                    color = SYRUP_COLOR if lvl > 0.6 else SYRUP_LIGHT
-                    sy_bottom = cy + CELL_SIZE  # Bottom edge of cell (higher Y with flipped coords)
-                    sy_top = sy_bottom - fill_h  # Top of syrup layer
-                    syrup_rect = NSMakeRect(cx + 1, sy_top, CELL_SIZE - 2, fill_h)
-                    hex_to_ns_color(color).set()
-                    NSBezierPath.fillRect_(syrup_rect)
-
-                    # Tiny sheen highlight on syrup surface (1px line at top of syrup)
-                    if fill_h > 3:
-                        sheen = NSBezierPath.bezierPath()
-                        sheen.moveToPoint_(NSMakePoint(cx + 2, sy_top + 1))
-                        sheen.lineToPoint_(NSMakePoint(cx + CELL_SIZE - 2, sy_top + 1))
-                        hex_to_ns_color(SYRUP_SHEEN).set()
-                        sheen.setLineWidth_(1)
-                        sheen.stroke()
+        # 2-4. The waffle itself: body, rim and the sixteen pockets.
+        _draw_waffle_body(self._bars)
 
         if _mode == "done":
             # The tick replaces the buttons: there is nothing left to stop.
@@ -1110,338 +1155,198 @@ class WaffleView(NSView):
         self._targets = [float(level)] * NUM_CELLS
 
 
-# ── Toast View (Error/Warning Popups) ─────────────────────────────────
+# ── The small pill (every message) ────────────────────────────────────
+# One dark capsule, the meeting bar's family: the waffle mark, a sign of its
+# kind (a gold tick, three dots, a red dot, or nothing), one line, at most one
+# cream button and a cross. What it says, how long it stays and what a click
+# sends all come from src/pill.py; this only draws it and reports clicks.
 
-class ToastView(NSView):
-    """Toast notification popup matching Windows design."""
+_PILL_FONT_WEIGHTS = {"medium": 0.23, "semibold": 0.3}      # NSFontWeightMedium, Semibold
 
-    def initWithFrame_style_heading_body_(self, frame, style, heading, body):
-        self = objc.super(ToastView, self).initWithFrame_(frame)
+
+def _pill_font(points, weight):
+    try:
+        return NSFont.systemFontOfSize_weight_(points, _PILL_FONT_WEIGHTS.get(weight, 0.0))
+    except Exception:
+        return NSFont.boldSystemFontOfSize_(points) if weight == "semibold" else NSFont.systemFontOfSize_(points)
+
+
+def _pill_text(text, points, weight, colour):
+    return NSAttributedString.alloc().initWithString_attributes_(
+        text or "", {NSFontAttributeName: _pill_font(points, weight),
+                     NSForegroundColorAttributeName: hex_to_ns_color(colour)})
+
+
+def _pill_measure(text, points, weight):
+    return math.ceil(_pill_text(text, points, weight, _pl.INK).size().width)
+
+
+def _pill_text_top(height, points, weight):
+    """Where a line's box starts so that its letters sit in the optical middle
+    of ``height``: the middle between the top of a capital and the baseline,
+    not the middle of the font's line box, which leaves the words high or low
+    depending on the font's own leading. To the nearest half point."""
+    font = _pill_font(points, weight)
+    try:
+        ascender, cap = float(font.ascender()), float(font.capHeight())
+        line = float(_pill_text("Ag", points, weight, _pl.INK).size().height)
+        descender = abs(float(font.descender()))
+        # In a flipped view the baseline is (line - descender) below the top.
+        baseline = line - descender
+        top = (height + cap) / 2.0 - baseline
+        return round(top * 2) / 2.0
+    except Exception:
+        return (height - _pill_text("Ag", points, weight, _pl.INK).size().height) / 2.0
+
+
+def _pill_layout(pill):
+    return _pl.layout(pill, _pill_measure)
+
+
+def _draw_pill(pill, lay, phase=0):
+    """Draw ``pill`` at (0, 0) in a flipped view, ``lay.width`` x 40."""
+    w, h = lay.width, lay.height
+    NSColor.clearColor().set()
+    NSBezierPath.fillRect_(NSMakeRect(0, 0, w, h))
+    r = h / 2.0
+    body = NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
+        NSMakeRect(0.5, 0.5, w - 1, h - 1), r, r)
+    hex_to_ns_color(_pl.FILL).set()
+    body.fill()
+    NSColor.colorWithCalibratedWhite_alpha_(1.0, _pl.HAIRLINE_ALPHA).set()
+    body.setLineWidth_(1)
+    body.stroke()
+
+    _draw_waffle_mark(lay.mark_x, lay.mark_y, _pl.MARK)
+
+    # One thing on the left: the tick and the red dot are badges on the
+    # mark's bottom-right corner, ringed in the pill's own colour so they
+    # look cut out of it.
+    if lay.badge is not None:
+        bx, by, bd = lay.badge
+        ring = _pl.BADGE_RING
+        hex_to_ns_color(_pl.FILL).set()
+        NSBezierPath.bezierPathWithOvalInRect_(
+            NSMakeRect(bx - ring, by - ring, bd + 2 * ring, bd + 2 * ring)).fill()
+        hex_to_ns_color(_pl.BADGE_FILL if pill.kind == _pl.DONE else _pl.RED).set()
+        NSBezierPath.bezierPathWithOvalInRect_(NSMakeRect(bx, by, bd, bd)).fill()
+        if pill.kind == _pl.DONE:
+            ox = bx + (bd - _pl.TICK_BOX) / 2.0
+            oy = by + (bd - _pl.TICK_BOX) / 2.0
+            tick = NSBezierPath.bezierPath()
+            (x0, y0), (x1, y1), (x2, y2) = _pl.TICK_POINTS
+            tick.moveToPoint_((ox + x0, oy + y0))
+            tick.lineToPoint_((ox + x1, oy + y1))
+            tick.lineToPoint_((ox + x2, oy + y2))
+            tick.setLineWidth_(_pl.BADGE_TICK_PT)
+            tick.setLineCapStyle_(1)
+            tick.setLineJoinStyle_(1)
+            hex_to_ns_color(_pl.BADGE_INK).set()
+            tick.stroke()
+
+    ink = _pl.INK_QUIET if pill.kind == _pl.TIP else _pl.INK
+    said = _pill_text(pill.text, _pl.TEXT_PT, "medium", ink)
+    said.drawAtPoint_((lay.text_x, _pill_text_top(h, _pl.TEXT_PT, "medium") + _pl.TEXT_NUDGE))
+
+    # A Working pill's three dots trail its words.
+    if lay.dots_x is not None:
+        top = (h - _pl.DOT) / 2.0 + _pl.TEXT_NUDGE
+        for i in range(3):
+            hex_to_ns_color(_pl.DOTS[(i - phase) % 3]).set()
+            NSBezierPath.bezierPathWithOvalInRect_(
+                NSMakeRect(lay.dots_x + i * (_pl.DOT + _pl.DOT_GAP), top, _pl.DOT, _pl.DOT)).fill()
+
+    if lay.button is not None:
+        bx, by, bw, bh = lay.button
+        cap = NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
+            NSMakeRect(bx, by, bw, bh), bh / 2.0, bh / 2.0)
+        hex_to_ns_color(_pl.BUTTON_FILL).set()
+        cap.fill()
+        label = _pill_text(pill.button["label"], _pl.BUTTON_PT, "semibold", _pl.BUTTON_INK)
+        label.drawAtPoint_((bx + (bw - label.size().width) / 2.0,
+                            by + _pill_text_top(bh, _pl.BUTTON_PT, "semibold")))
+
+    if lay.close is not None:
+        cx, cy, cw, ch = lay.close
+        mx, my, arm = cx + cw / 2.0, cy + ch / 2.0, _pl.CROSS_ARM
+        cross = NSBezierPath.bezierPath()
+        cross.moveToPoint_((mx - arm, my - arm))
+        cross.lineToPoint_((mx + arm, my + arm))
+        cross.moveToPoint_((mx + arm, my - arm))
+        cross.lineToPoint_((mx - arm, my + arm))
+        cross.setLineWidth_(1.6)
+        cross.setLineCapStyle_(1)
+        hex_to_ns_color(_pl.CROSS).set()
+        cross.stroke()
+
+
+class MessagePillView(NSView):
+    """The small pill. It takes clicks without taking the keyboard."""
+
+    def initWithFrame_(self, frame):
+        self = objc.super(MessagePillView, self).initWithFrame_(frame)
         if self:
-            self._style = style
-            self._heading = heading
-            self._body = body
-            self._button_zones = []
-            # Optional custom buttons, set by _show_toast after init.
-            self._buttons = None
+            self._pill = None
+            self._lay = None
+            self._phase = 0
         return self
 
     def isOpaque(self):
         return False
 
     def isFlipped(self):
-        return True  # Use top-left origin like Windows
-
-    def acceptsFirstResponder(self):
         return True
 
     def acceptsFirstMouse_(self, event):
-        # Borderless floating toast windows don't become key — without this,
-        # the first click is swallowed as a "window activation" and the
-        # Dismiss button appears unresponsive. Returning True routes the
-        # click straight to mouseDown_.
+        # The pill's window never becomes key: without this the first click
+        # is swallowed as a "window activation" and the button seems dead.
         return True
 
+    @objc.python_method
+    def set_pill(self, pill, lay):
+        self._pill, self._lay, self._phase = pill, lay, 0
+        self.setNeedsDisplay_(True)
+
+    # VoiceOver: one element that reads the long sentence.
+    def isAccessibilityElement(self):
+        return True
+
+    def accessibilityRole(self):
+        return getattr(AppKit, "NSAccessibilityStaticTextRole", "AXStaticText")
+
+    def accessibilityLabel(self):
+        pill = self._pill
+        return _pill_spoken(pill) if pill is not None else ""
+
     def drawRect_(self, rect):
-        """Draw toast with dark panel, golden border, waffle icon, text, and buttons."""
         try:
-            self._drawToastContent()
+            if self._pill is not None and self._lay is not None:
+                _draw_pill(self._pill, self._lay, self._phase)
         except Exception as e:
-            print(f"[overlay_mac] ToastView.drawRect_ FAILED: {e}", file=sys.stderr, flush=True)
-            import traceback
-            traceback.print_exc(file=sys.stderr)
+            print(f"[overlay_mac] MessagePillView.drawRect_ FAILED: {e}", file=sys.stderr, flush=True)
 
-    def _drawToastContent(self):
-        b = self.bounds()
-        w = TOAST_W
-        h = TOAST_H
-
-        # Clear background
-        NSColor.clearColor().set()
-        NSBezierPath.fillRect_(b)
-
-        # Warm dark background with golden accent border
-        bg_path = NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
-            NSMakeRect(1, 1, w - 2, h - 2), 14, 14
-        )
-
-        # Dark fill #2A1F0E
-        NSColor.colorWithCalibratedRed_green_blue_alpha_(
-            0x2A/255.0, 0x1F/255.0, 0x0E/255.0, 1.0
-        ).set()
-        bg_path.fill()
-
-        # Golden border #C8A256
-        NSColor.colorWithCalibratedRed_green_blue_alpha_(
-            0xC8/255.0, 0xA2/255.0, 0x56/255.0, 1.0
-        ).set()
-        bg_path.setLineWidth_(2)
-        bg_path.stroke()
-
-        # Icon — sad waffle centred at top
-        icon_cx = w // 2
-        icon_cy = 36  # With isFlipped=True, Y=0 is at top
-        self._draw_sad_waffle(icon_cx, icon_cy, self._style)
-
-        # ── Heading text ──
-        # Pale gold (#F0E0C0) — matches Windows heading colour for brand parity.
-        heading_y = 80
-        heading_font = NSFont.boldSystemFontOfSize_(14)
-        heading_color = NSColor.colorWithCalibratedRed_green_blue_alpha_(
-            0xF0/255.0, 0xE0/255.0, 0xC0/255.0, 1.0
-        )
-
-        # Create paragraph style for centering
-        para_style = NSMutableParagraphStyle.alloc().init()
-        para_style.setAlignment_(NSCenterTextAlignment)
-
-        heading_attrs = {
-            NSFontAttributeName: heading_font,
-            NSForegroundColorAttributeName: heading_color,
-            NSParagraphStyleAttributeName: para_style,
-        }
-
-        heading_rect = NSMakeRect(20, heading_y, w - 40, 30)
-        heading_text = self._heading or ""
-        NSAttributedString.alloc().initWithString_attributes_(
-            heading_text, heading_attrs
-        ).drawInRect_(heading_rect)
-
-        # ── Body text ──
-        # Warm tan (#A89070) — matches Windows body colour. Flat gray looked
-        # off-theme against the dark-brown fill + gold border.
-        body_y = 105
-        body_font = NSFont.systemFontOfSize_(11)
-        body_color = NSColor.colorWithCalibratedRed_green_blue_alpha_(
-            0xA8/255.0, 0x90/255.0, 0x70/255.0, 1.0
-        )
-
-        body_attrs = {
-            NSFontAttributeName: body_font,
-            NSForegroundColorAttributeName: body_color,
-            NSParagraphStyleAttributeName: para_style,
-        }
-
-        body_rect = NSMakeRect(20, body_y, w - 40, 60)  # 60 px = ~3 lines
-        body_text = self._body or ""
-        NSAttributedString.alloc().initWithString_attributes_(
-            body_text, body_attrs
-        ).drawInRect_(body_rect)
-
-        # ── Buttons ──
-        self._button_zones = []  # Clear and rebuild button zones
-
-        btn_h = 32
-        btn_y = h - btn_h - 18
-
-        # Colours kept in lockstep with overlay_process_windows.py — if you
-        # change one, change the other. Users get the same waffle-gold theme
-        # on both platforms.
-        custom = [b for b in (self._buttons or [])
-                  if isinstance(b, dict) and b.get('label')][:3]
-        if custom:
-            gap = 10
-            btn_w = min(118, (w - 40 - gap * (len(custom) - 1)) // len(custom))
-            sx = (w - (btn_w * len(custom) + gap * (len(custom) - 1))) // 2
-            for i, b in enumerate(custom):
-                fill, outline, text_clr = TOAST_BTN_KINDS.get(
-                    b.get('kind'), TOAST_BTN_KINDS['secondary'])
-                self._draw_toast_button(sx + i * (btn_w + gap), btn_y, btn_w, btn_h,
-                                        fill, outline, str(b['label']), text_clr,
-                                        str(b.get('action') or 'dismiss'))
-        elif self._style == 'cancel':
-            btn1_w, btn2_w = 110, 120
-            btn_gap = 14
-            total = btn1_w + btn_gap + btn2_w
-            sx = (w - total) // 2
-            self._draw_toast_button(sx, btn_y, btn1_w, btn_h,
-                                   '#3D1818', '#D94040', 'Discard', '#D94040', 'confirm')
-            self._draw_toast_button(sx + btn1_w + btn_gap, btn_y, btn2_w, btn_h,
-                                   '#C8A256', '#D4A843', 'Keep going', '#2A1F0E', 'dismiss')
-        elif self._style in ('warn', 'info'):
-            btn_w = 120
-            self._draw_toast_button((w - btn_w) // 2, btn_y, btn_w, btn_h,
-                                   '#3D2E14', '#5A4520', 'Dismiss', '#A89070', 'dismiss')
-        else:
-            btn1_w, btn2_w = 120, 100
-            btn_gap = 14
-            total = btn1_w + btn_gap + btn2_w
-            sx = (w - total) // 2
-            self._draw_toast_button(sx, btn_y, btn1_w, btn_h,
-                                   '#C8A256', '#D4A843', 'Select mic', '#2A1F0E', 'select_mic')
-            self._draw_toast_button(sx + btn1_w + btn_gap, btn_y, btn2_w, btn_h,
-                                   '#3D2E14', '#5A4520', 'Dismiss', '#A89070', 'dismiss')
-
-    def _draw_toast_button(self, x, y, w, h, fill, outline, text, text_color, action):
-        """Draw a rounded button with text and track its click zone."""
-        r = h // 2
-
-        # Draw rounded rectangle button
-        btn_rect = NSMakeRect(x, y, w, h)
-        btn_path = NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
-            btn_rect, r, r
-        )
-
-        # Fill
-        hex_to_ns_color(fill).set()
-        btn_path.fill()
-
-        # Outline
-        hex_to_ns_color(outline).set()
-        btn_path.setLineWidth_(1.5)
-        btn_path.stroke()
-
-        # Button text
-        btn_font = NSFont.boldSystemFontOfSize_(11)
-        btn_text_color = hex_to_ns_color(text_color)
-
-        para_style = NSMutableParagraphStyle.alloc().init()
-        para_style.setAlignment_(NSCenterTextAlignment)
-
-        btn_attrs = {
-            NSFontAttributeName: btn_font,
-            NSForegroundColorAttributeName: btn_text_color,
-            NSParagraphStyleAttributeName: para_style,
-        }
-
-        # Center text vertically and horizontally
-        text_y = y + (h - 14) // 2  # Approximate vertical center
-        text_rect = NSMakeRect(x, text_y, w, h)
-        NSAttributedString.alloc().initWithString_attributes_(
-            text or "", btn_attrs
-        ).drawInRect_(text_rect)
-
-        # Store button zone for click detection
-        self._button_zones.append({
-            'x': x,
-            'y': y,
-            'w': w,
-            'h': h,
-            'action': action
-        })
-
-    def _draw_sad_waffle(self, cx, cy, style):
-        """Draw a sad waffle icon with expressive face."""
-        s = 44
-        x0 = cx - s // 2
-        y0 = cy - s // 2
-
-        body_clr = WAFFLE_BODY  # Always use same golden color
-        rim_clr  = WAFFLE_RIM if style != 'cancel' else '#904030'
-        cell_clr = CELL_BG if style != 'cancel' else '#A06040'
-        hilite   = CELL_HILITE
-        shadow   = CELL_SHADOW if style != 'cancel' else '#703020'
-
-        # Waffle body
-        body_path = NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
-            NSMakeRect(x0, y0, s, s), 7, 7
-        )
-        hex_to_ns_color(body_clr).set()
-        body_path.fill()
-        hex_to_ns_color(rim_clr).set()
-        body_path.setLineWidth_(2)
-        body_path.stroke()
-
-        # 3x3 grid of cells
-        pad = 5
-        gap = 3
-        cell = (s - 2 * pad - 2 * gap) // 3  # ~9px
-        for r in range(3):
-            for col in range(3):
-                px = x0 + pad + col * (cell + gap)
-                py = y0 + pad + r * (cell + gap)
-
-                # Cell background
-                cell_rect = NSMakeRect(px, py, cell, cell)
-                hex_to_ns_color(cell_clr).set()
-                NSBezierPath.fillRect_(cell_rect)
-
-                # Highlight top edge
-                top = NSBezierPath.bezierPath()
-                top.moveToPoint_(NSMakePoint(px, py))
-                top.lineToPoint_(NSMakePoint(px + cell, py))
-                hex_to_ns_color(hilite).set()
-                top.setLineWidth_(1)
-                top.stroke()
-
-                # Highlight left edge
-                left = NSBezierPath.bezierPath()
-                left.moveToPoint_(NSMakePoint(px, py))
-                left.lineToPoint_(NSMakePoint(px, py + cell))
-                hex_to_ns_color(hilite).set()
-                left.setLineWidth_(1)
-                left.stroke()
-
-                # Shadow bottom edge
-                bottom = NSBezierPath.bezierPath()
-                bottom.moveToPoint_(NSMakePoint(px, py + cell))
-                bottom.lineToPoint_(NSMakePoint(px + cell, py + cell))
-                hex_to_ns_color(shadow).set()
-                bottom.setLineWidth_(1)
-                bottom.stroke()
-
-                # Shadow right edge
-                right = NSBezierPath.bezierPath()
-                right.moveToPoint_(NSMakePoint(px + cell, py))
-                right.lineToPoint_(NSMakePoint(px + cell, py + cell))
-                hex_to_ns_color(shadow).set()
-                right.setLineWidth_(1)
-                right.stroke()
-
-        if style == 'info':
-            # "Still working" is not bad news: a plain waffle, no sad face.
-            return
-
-        # ── Sad face ── (mirrors overlay_process_windows.py exactly)
-        face_clr = hex_to_ns_color('#5C2E0E')  # dark syrup
-        face_clr.set()
-
-        # Eyes — tilted inward, worried
-        for eye_dx in (-8, 8):
-            eye = NSBezierPath.bezierPathWithOvalInRect_(
-                NSMakeRect(cx + eye_dx - 2, cy - 5 - 2, 4, 4)
-            )
-            eye.fill()
-
-        # Frown — downward arc below the eyes
-        mouth = NSBezierPath.bezierPath()
-        mouth.setLineWidth_(1.6)
-        mouth.setLineCapStyle_(1)  # kCGLineCapRound
-        mouth.moveToPoint_(NSMakePoint(cx - 6, cy + 7))
-        mouth.curveToPoint_controlPoint1_controlPoint2_(
-            NSMakePoint(cx + 6, cy + 7),
-            NSMakePoint(cx - 2, cy + 3),
-            NSMakePoint(cx + 2, cy + 3),
-        )
-        mouth.stroke()
-
-        # Single syrup tear from the left eye
-        tear = NSBezierPath.bezierPathWithOvalInRect_(
-            NSMakeRect(cx - 11, cy - 1, 3, 5)
-        )
-        hex_to_ns_color('#7A3E14').set()
-        tear.fill()
+    def dotsTick_(self, timer):
+        """The three dots of a Working pill take turns being the bright one."""
+        self._phase = (self._phase + 1) % 3
+        self.setNeedsDisplay_(True)
 
     def mouseDown_(self, event):
-        """Handle button clicks in toast."""
-        # Get click location in window coordinates
-        loc = event.locationInWindow()
-        x = loc.x
-        y_window = loc.y
-
-        # Convert to view coordinates (with isFlipped=True, Y=0 is at top)
-        # Window: Y=0 at bottom, Y=TOAST_H at top
-        # View:   Y=0 at top, Y=TOAST_H at bottom
-        y = TOAST_H - y_window  # Flip Y coordinate
-
-        # Check if click is inside any button zone
-        for zone in self._button_zones:
-            if (zone['x'] <= x <= zone['x'] + zone['w'] and
-                zone['y'] <= y <= zone['y'] + zone['h']):
-                # Emit toast_action event and hide toast
-                emit("toast_action", action=zone['action'])
-                _hide_toast()
+        try:
+            pill, lay = self._pill, self._lay
+            if pill is None or lay is None:
                 return
+            pt = self.convertPoint_fromView_(event.locationInWindow(), None)
+            _toast_clicked(_pl.hit(lay, pt.x, pt.y))
+        except Exception as e:
+            _dbg("pill.click.error", err=str(e)[:80])
+
+
+def _pill_spoken(pill) -> str:
+    """What VoiceOver says: the long sentence, then the button."""
+    said = pill.description or pill.text
+    if pill.button:
+        said = f"{said} Button: {pill.button['label']}."
+    return said
 
 
 # ── Progress label helpers ─────────────────────────────────────────────
@@ -1500,9 +1405,8 @@ def _enter_working(elapsed_seconds: float):
     _visible = True
     if _g_view is not None:
         _g_view.setNeedsDisplay_(True)
-    # A toast (the "still working" offer, or a message) hides the pill while
-    # it is up; _hide_toast brings the pill back afterwards.
-    if first and _toast_win is None and _g_window is not None:
+    # A message no longer hides the pill: the small pill sits above it.
+    if first and _g_window is not None:
         _reassert_overlay_window()
 
 
@@ -1511,6 +1415,10 @@ def _end_working(result: str):
     Never touches a toast, so a message that is already up stays readable."""
     global _visible, _mode, _done_gen
     _done_gen += 1
+    # A Working pill ("Tidying", "One moment") becomes "Done" in place, or
+    # goes. Then, as before, the waffle's own tick is skipped while a message
+    # is up: one sign that it is done is enough.
+    _toast_work_ended(result)
     if result == "done" and _toast_win is None and _visible and _g_window is not None:
         _mode = "done"
         _reset_cells(1.0)        # a full waffle behind the tick
@@ -1681,10 +1589,22 @@ def _dispatch_cmd(cmd):
             buttons=cmd.get("buttons"),
             timeout=cmd.get("timeout"),
             anchor=_toast_anchor(True) if cmd.get("reposition") else None,
+            pill=cmd.get("pill"),
         )
 
     elif ctype == "hide_toast":
         _hide_toast(cmd.get("style"))
+
+    elif ctype == "_toast_click":
+        # A click, said rather than made: scripts/drive_overlay.py uses it to
+        # press the pill's button without touching the person's mouse. The
+        # app never sends it.
+        _toast_clicked(cmd.get("where"))
+
+    elif ctype == "_toast_expire":
+        # The pill's time is up. Ignored if another pill has taken its place.
+        if int(cmd.get("gen", -1)) == _toast_gen:
+            _hide_toast()
 
     elif ctype == "progress":
         _show_progress(cmd.get("label", ""), float(cmd.get("elapsed_seconds", 0.0)))
@@ -1709,15 +1629,7 @@ def _dispatch_cmd(cmd):
             NSApplication.sharedApplication().terminate_(None)
 
 
-# ── Toast Functions ──────────────────────────────────────────────────
-
-# How long before a toast auto-dismisses, by style. cancel stays until the
-# user picks one of its action buttons — all others disappear on their own.
-_TOAST_AUTO_HIDE_SECS = {
-    "warn": 6.0,
-    "error": 6.0,
-}
-
+# ── The small pill: showing and hiding ───────────────────────────────
 
 def _toast_anchor(reposition: bool):
     """(x, y) a toast is placed relative to: where the pill last was, or, for
@@ -1733,126 +1645,272 @@ def _toast_anchor(reposition: bool):
     return _waffle_x, _waffle_y
 
 
-def _toast_origin(anchor=None):
-    """Window origin of the toast for an anchor (default: the pill's)."""
+def _toast_origin(anchor=None, width=0):
+    """Window origin of a pill ``width`` wide for an anchor (default: the
+    dictation pill's): centred over the dictation pill, a small gap above
+    its window, so the two never cover each other."""
     ax, ay = anchor if anchor else (_waffle_x, _waffle_y)
-    tx, ty = ax + (WAFFLE_W - TOAST_W) // 2, ay + WAFFLE_H + TOAST_PAD
+    tx, ty = _pl.origin_above((ax, ay), (WIN_W, WIN_H), width)
     if _saved_positions:
         # The pill may have been dragged near the top or an edge: keep the
         # toast on the screen. With no saved spot, toasts are where they were.
         screen = _screen_at(ax + WIN_W / 2.0, ay + 1.0)
         if screen is not None:
-            tx, ty = _ip.toast_origin_inside(tx, ty, TOAST_W, TOAST_H, ay,
+            tx, ty = _ip.toast_origin_inside(tx, ty, width, TOAST_H, ay,
                                              _rect(screen.visibleFrame()), TOAST_PAD)
     return tx, ty
 
 
-def _toast_seconds(style: str, timeout=None):
-    """How long a toast stays: ``timeout`` when it is a positive number,
-    else the style's usual time (None: until answered)."""
+def _clear_of_meeting(tx, ty, width):
+    """The origin moved, if it must be, so the pill does not cover the
+    meeting bar: beside it, or under it when there is no room beside."""
     try:
-        if timeout and float(timeout) > 0:
-            return float(timeout)
-    except (TypeError, ValueError):
-        pass
-    return _TOAST_AUTO_HIDE_SECS.get(style)
+        if _meet_win is None or not _meet_win.isVisible():
+            return tx, ty
+        screen = _meet_win.screen() or NSScreen.mainScreen()
+        x, y, _w, _h = _pl.clear_of((tx, ty, width, TOAST_H), _rect(_meet_win.frame()),
+                                    _rect(screen.visibleFrame()))
+        return x, y
+    except Exception as e:
+        _dbg("pill.meeting.error", err=str(e)[:80])
+        return tx, ty
 
 
-def _show_toast(style: str, heading: str, body: str, buttons=None, timeout=None, anchor=None):
-    """Show a warm Waffler-branded toast above the waffle.
+def _reduce_motion() -> bool:
+    """The person asked macOS for less motion: the pill just appears and
+    disappears, and its dots stand still."""
+    try:
+        return bool(NSWorkspace.sharedWorkspace().accessibilityDisplayShouldReduceMotion())
+    except Exception:
+        return False
 
-    ``buttons`` (optional) replaces the style's usual buttons: a list of up
-    to three {"label", "action", "kind"} dicts, kind being "primary",
-    "secondary" or "danger". ``timeout`` and ``anchor`` are described in
-    the module docstring and _toast_anchor.
+
+def _announce(pill):
+    """VoiceOver says a Problem and a "Your call" aloud: the long sentence,
+    not the three words on the pill."""
+    if pill.kind not in (_pl.PROBLEM, _pl.ASK):
+        return
+    try:
+        AppKit.NSAccessibilityPostNotificationWithUserInfo(
+            NSApplication.sharedApplication(),
+            AppKit.NSAccessibilityAnnouncementRequestedNotification,
+            {AppKit.NSAccessibilityAnnouncementKey: _pill_spoken(pill),
+             AppKit.NSAccessibilityPriorityKey: AppKit.NSAccessibilityPriorityHigh})
+    except Exception as e:
+        _dbg("pill.announce.error", err=str(e)[:80])
+
+
+def _toast_seconds(pill):
+    """How long a pill stays: its own time, or, for a Working pill, the cap
+    after which it goes even if nobody said the work had ended. None: until
+    it is answered, withdrawn or replaced."""
+    if pill.seconds:
+        return float(pill.seconds)
+    if pill.kind == _pl.WORKING:
+        return _pl.WORKING_CAP_S
+    return None
+
+
+def _stop_toast_timers():
+    global _toast_auto_hide_timer, _toast_dots_timer
+    if _toast_auto_hide_timer is not None:
+        try:
+            # threading.Timer cancels via .cancel(); .invalidate() is
+            # NSTimer-only and would raise AttributeError.
+            _toast_auto_hide_timer.cancel()
+        except Exception:
+            pass
+        _toast_auto_hide_timer = None
+    if _toast_dots_timer is not None:
+        try:
+            _toast_dots_timer.invalidate()
+        except Exception:
+            pass
+        _toast_dots_timer = None
+
+
+def _show_toast(style: str, heading: str, body: str, buttons=None, timeout=None, anchor=None,
+                pill=None):
+    """Show a message as the small pill.
+
+    ``pill`` is what the app worked out (src/pill.py Pill.as_dict()). A
+    command without one is the old card's (heading, body, buttons, timeout),
+    and becomes its pill here by the same table, so there is only ever one
+    look. ``anchor`` is described at _toast_anchor.
     """
-    global _toast_win, _toast_style, _toast_auto_hide_timer
     try:
-        _hide_toast()
-        _toast_style = style
-
-        # Hide the pill while the toast is visible — otherwise you get two
-        # waffle icons fighting for attention right next to each other (the
-        # toast has its own sad waffle). _hide_toast puts the pill back.
-        if _g_window:
-            _g_window.orderOut_(None)
-
-        # Centre toast where the pill used to sit, plus the TOAST_PAD gap.
-        tx, ty = _toast_origin(anchor)
-
-        print(f"[overlay_mac] _show_toast: style={style}, pos=({tx},{ty})", file=sys.stderr, flush=True)
-
-        # Create toast window
-        # A non-activating panel: its buttons ("Keep waiting", "Paste as
-        # is") come just before a paste, which must reach the user's app.
-        _toast_win = _new_overlay_window(NSMakeRect(tx, ty, TOAST_W, TOAST_H))
-        # Match the pill's level/behavior so toasts also appear over
-        # full-screen apps (+1 keeps the toast above the pill).
-        _toast_win.setLevel_(NSStatusWindowLevel + 1)
-        _toast_win.setOpaque_(False)
-        _toast_win.setBackgroundColor_(NSColor.clearColor())
-        _toast_win.setCollectionBehavior_(
-            NSWindowCollectionBehaviorCanJoinAllSpaces
-            | NSWindowCollectionBehaviorStationary
-            | NSWindowCollectionBehaviorFullScreenAuxiliary
-            | NSWindowCollectionBehaviorIgnoresCycle
-        )
-
-        # Create toast view
-        toast_view = ToastView.alloc().initWithFrame_style_heading_body_(
-            NSMakeRect(0, 0, TOAST_W, TOAST_H), style, heading, body
-        )
-        toast_view._buttons = list(buttons) if buttons else None
-        _toast_win.setContentView_(toast_view)
-        # Not makeKeyAndOrderFront_: the toast must never take the keyboard
-        # from the app the user is typing in.
-        _toast_win.orderFrontRegardless()  # FORCE window to front!
-        _toast_win.display()  # FORCE immediate render!
-        toast_view.setNeedsDisplay_(True)  # TRIGGER view to draw!
-        print(f"[overlay_mac] toast window created and displayed", file=sys.stderr, flush=True)
-
-        # Auto-dismiss after the per-style timeout via a threading.Timer that
-        # enqueues a hide_toast command; the main-thread dispatcher picks it
-        # up. Using the queue avoids NSTimer target-selector plumbing.
-        secs = _toast_seconds(style, timeout)
-        if secs:
-            def _enqueue_hide():
-                try:
-                    _cmd_queue.put({"type": "hide_toast"})
-                except Exception:
-                    pass
-            _toast_auto_hide_timer = threading.Timer(secs, _enqueue_hide)
-            _toast_auto_hide_timer.daemon = True
-            _toast_auto_hide_timer.start()
+        made = _pl.from_dict(pill) or _pl.pill_for(style, heading, body, buttons, timeout)
+        if made is None:
+            return
+        _put_pill(made, style, anchor)
     except Exception as e:
         print(f"[overlay_mac] _show_toast FAILED: {e}", file=sys.stderr, flush=True)
         import traceback
         traceback.print_exc(file=sys.stderr)
 
 
+def _put_pill(pill, style, anchor=None, in_place=False):
+    """Put ``pill`` up. There is one pill at a time: a second one takes the
+    first one's window, in the same place when ``in_place`` (a Working pill
+    becoming its Done), without appearing all over again."""
+    global _toast_win, _toast_view, _toast_style, _toast_pill, _toast_gen
+    global _toast_auto_hide_timer, _toast_dots_timer
+    _stop_toast_timers()
+    _toast_gen += 1
+    gen = _toast_gen
+    lay = _pill_layout(pill)
+    w = float(math.ceil(lay.width))
+    still = _reduce_motion()
+
+    replacing = _toast_win is not None
+    if replacing and in_place:
+        f = _toast_win.frame()
+        tx, ty = f.origin.x + (f.size.width - w) / 2.0, f.origin.y
+    else:
+        tx, ty = _toast_origin(anchor, w)
+        tx, ty = _clear_of_meeting(tx, ty, w)
+
+    # Whole points: on a display that is not Retina a half point blurs it.
+    tx, ty = float(round(tx)), float(round(ty))
+
+    _dbg("pill.show", kind=pill.kind, style=str(style), width=w, x=tx, y=ty,
+         replacing=replacing, seconds=_toast_seconds(pill))
+    print(f"[overlay_mac] pill: kind={pill.kind}, style={style}, pos=({tx},{ty}), width={w}",
+          file=sys.stderr, flush=True)
+
+    if not replacing:
+        # A non-activating panel: its button ("Send later", "Paste as is")
+        # comes just before a paste, which must reach the user's app.
+        _toast_win = _new_overlay_window(NSMakeRect(tx, ty, w, TOAST_H))
+        # Match the dictation pill's level and behaviour so it also appears
+        # over full-screen apps (+1 keeps it above the dictation pill).
+        _toast_win.setLevel_(NSStatusWindowLevel + 1)
+        _toast_win.setOpaque_(False)
+        _toast_win.setBackgroundColor_(NSColor.clearColor())
+        _toast_win.setHasShadow_(True)
+        _toast_win.setCollectionBehavior_(
+            NSWindowCollectionBehaviorCanJoinAllSpaces
+            | NSWindowCollectionBehaviorStationary
+            | NSWindowCollectionBehaviorFullScreenAuxiliary
+            | NSWindowCollectionBehaviorIgnoresCycle
+        )
+        _toast_view = MessagePillView.alloc().initWithFrame_(NSMakeRect(0, 0, w, TOAST_H))
+        _toast_win.setContentView_(_toast_view)
+
+    _toast_style, _toast_pill = style, pill
+    _toast_view.setFrame_(NSMakeRect(0, 0, w, TOAST_H))
+    _toast_view.set_pill(pill, lay)
+
+    if replacing or still:
+        # In place, or with Reduce Motion: it is simply there.
+        _toast_win.setFrame_display_(NSMakeRect(tx, ty, w, TOAST_H), True)
+        _toast_win.setAlphaValue_(1.0)
+        # Not makeKeyAndOrderFront_: it must never take the keyboard from
+        # the app the user is typing in.
+        _toast_win.orderFrontRegardless()
+    else:
+        # A quick fade and a slight rise.
+        _toast_win.setFrame_display_(NSMakeRect(tx, ty - _pl.RISE, w, TOAST_H), True)
+        _toast_win.setAlphaValue_(0.0)
+        _toast_win.orderFrontRegardless()
+        try:
+            ctx = AppKit.NSAnimationContext
+            ctx.beginGrouping()
+            ctx.currentContext().setDuration_(_pl.FADE_S)
+            _toast_win.animator().setAlphaValue_(1.0)
+            _toast_win.animator().setFrame_display_(NSMakeRect(tx, ty, w, TOAST_H), True)
+            ctx.endGrouping()
+        except Exception as e:
+            _dbg("pill.fade_in.error", err=str(e)[:80])
+            _toast_win.setFrame_display_(NSMakeRect(tx, ty, w, TOAST_H), True)
+            _toast_win.setAlphaValue_(1.0)
+    _toast_win.display()
+    try:
+        _toast_win.invalidateShadow()       # its shape follows its words
+    except Exception:
+        pass
+
+    _announce(pill)
+
+    if pill.kind == _pl.WORKING and not still:
+        _toast_dots_timer = NSTimer.timerWithTimeInterval_target_selector_userInfo_repeats_(
+            0.45, _toast_view, b"dotsTick:", None, True)
+        NSRunLoop.mainRunLoop().addTimer_forMode_(_toast_dots_timer, NSRunLoopCommonModes)
+
+    # It goes by itself after its time, through the command queue: the
+    # main-thread dispatcher takes it down. The generation keeps a timer that
+    # fired late from taking down the pill that replaced its own.
+    secs = _toast_seconds(pill)
+    if secs:
+        def _expire():
+            try:
+                _cmd_queue.put({"type": "_toast_expire", "gen": gen})
+            except Exception:
+                pass
+        _toast_auto_hide_timer = threading.Timer(secs, _expire)
+        _toast_auto_hide_timer.daemon = True
+        _toast_auto_hide_timer.start()
+
+
 def _hide_toast(style=None):
-    """Destroy the toast popup if visible. With ``style``, only a toast of
-    that style goes (the pipeline withdraws its "still working" offer this
-    way without touching a message that has replaced it)."""
-    global _toast_win, _toast_style, _toast_auto_hide_timer
+    """Take the pill down, if one is up. With ``style``, only a pill raised
+    with that style goes (the pipeline withdraws its "still working" offer
+    this way without touching a message that has replaced it). The dictation
+    pill is not touched: the two are side by side now, neither hides the
+    other."""
+    global _toast_win, _toast_view, _toast_style, _toast_pill, _toast_gen
     if style and _toast_style != style:
         return
-    if _toast_auto_hide_timer is not None:
-        try:
-            # threading.Timer (created in _show_toast) cancels via .cancel();
-            # .invalidate() is NSTimer-only and would raise AttributeError,
-            # leaving a stale timer to fire hide_toast into a fresh toast.
-            _toast_auto_hide_timer.cancel()
-        except Exception:
-            pass
-        _toast_auto_hide_timer = None
-    if _toast_win:
-        _toast_win.orderOut_(None)
-        _toast_win = None
-        _toast_style = None
-    # Restore the pill if it was meant to be visible (show_toast hides it).
-    if _visible and _g_window:
-        _g_window.orderFront_(None)
+    _stop_toast_timers()
+    _toast_gen += 1
+    win = _toast_win
+    _toast_win = _toast_view = _toast_style = _toast_pill = None
+    if win is None:
+        return
+    _dbg("pill.hide")
+    if _reduce_motion():
+        win.orderOut_(None)
+        return
+    try:
+        # Fade the window that was let go of; a pill shown meanwhile has a
+        # window of its own.
+        def _fade(ctx):
+            ctx.setDuration_(_pl.FADE_S)
+            win.animator().setAlphaValue_(0.0)
+        AppKit.NSAnimationContext.runAnimationGroup_completionHandler_(
+            _fade, lambda: win.orderOut_(None))
+    except Exception as e:
+        _dbg("pill.fade_out.error", err=str(e)[:80])
+        win.orderOut_(None)
+
+
+def _toast_clicked(where):
+    """A click landed on the pill that is up: on its "button", its "close"
+    cross or its "body". The answer is sent, then the pill goes. A click that
+    sends nothing (the words of a "Your call") leaves it exactly as it is."""
+    pill = _toast_pill
+    if pill is None:
+        return
+    action = _pl.action_for(pill, where)
+    _dbg("pill.click", where=str(where), kind=pill.kind, sent=bool(action))
+    print(f"[overlay_mac] pill click: where={where}, kind={pill.kind}, "
+          f"sent={action if action else 'nothing'}", file=sys.stderr, flush=True)
+    if action:
+        emit("toast_action", action=action)
+        _hide_toast()
+
+
+def _toast_work_ended(result: str):
+    """The work ended. A Working pill that is still up becomes "Done" where
+    it is, or goes; any other pill (a Problem that replaced it) stays."""
+    pill = _toast_pill
+    if pill is None or pill.kind != _pl.WORKING:
+        return
+    after = _pl.after_work(pill, result)
+    if after is None:
+        _hide_toast()
+    else:
+        _put_pill(after, _toast_style, in_place=True)
 
 
 
@@ -2375,6 +2433,12 @@ def _apply_meeting(cmd):
         x, y = _meeting_origin()
         _meet_win.setFrameOrigin_((x, y))
         _meet_win.orderFrontRegardless()
+        # A message that is up where the bar has just appeared steps aside.
+        if _toast_win is not None:
+            f = _toast_win.frame()
+            tx, ty = _clear_of_meeting(f.origin.x, f.origin.y, f.size.width)
+            if (tx, ty) != (f.origin.x, f.origin.y):
+                _toast_win.setFrameOrigin_((tx, ty))
     _meet_view.setNeedsDisplay_(True)
 
 

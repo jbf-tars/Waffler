@@ -285,7 +285,18 @@ def test_on_a_mac_starting_and_finishing_a_meeting_raise_no_pop_up():
     app = (root / "app.py").read_text(encoding="utf-8")
     body = app[app.index("    def _on_meeting_double_tap(self):"):app.index("    def apply_double_tap(self):")]
     mac = body.index('elif _platform.system() == "Darwin":')
-    assert body.index('"The meeting couldn\'t be recorded"') < mac      # an error is still said
+    assert body.index("self._say_meeting_failed(result)") < mac          # an error is still said
+    said = app[app.index("    def _say_meeting_failed(self, result):"):]
+    said = said[:said.index("\n    # ──")]
+    assert '"The meeting couldn\'t be recorded"' in said and "_show_toast_safe(" in said
+    # ...once, by the small pill, however the meeting was started: the window
+    # no longer says it as well, nor that a meeting started or finished.
+    toggle = app[app.index("    def meetings_toggle(self) -> dict:"):]
+    toggle = toggle[:toggle.index("\n    def ", 10)]
+    assert "_pipeline._say_meeting_failed(result)" in toggle
+    page = (root / "ui" / "meetings.js").read_text(encoding="utf-8")
+    for gone in ("Recording the meeting", "Meeting finished", "couldn’t be recorded"):
+        assert gone not in page, gone
     assert mac < body.index('"Recording the meeting"') and mac < body.index('"Meeting finished"')
     bar = (root / "src" / "overlay_process.py").read_text(encoding="utf-8")
     assert '"Writing the notes"' in bar and "if not _meet_done and x >=" in bar

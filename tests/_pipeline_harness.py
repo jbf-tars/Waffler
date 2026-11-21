@@ -65,6 +65,7 @@ import unsent  # noqa: E402
 import user_messages  # noqa: E402
 import wedge_recovery  # noqa: E402
 import idle_pill  # noqa: E402
+import pill  # noqa: E402
 import local_stt  # noqa: E402
 
 _TREE = ast.parse((ROOT / "app.py").read_text(encoding="utf-8"))
@@ -503,7 +504,7 @@ def make_pipeline(data_dir: Path, *, transcriber=None, styler=None, clipboard=No
         _snippets=snippets, _style_layer=style_layer,
         _set_cleanup_pause=page.pauses.append,
         _pasteboard=pasteboard, _mac_perms=mac_permissions,
-        _notifier=notifier, _sound_cues=sounds, _hold_hint=hold_hint,
+        _notifier=notifier, _pill=pill, _sound_cues=sounds, _hold_hint=hold_hint,
         hold_hint_message=user_messages.hold_hint_message,
         _history_ids=history_ids, _history_meta=history_meta, _history_ops=history_ops,
         _take_marker=take_marker, _take_limit=take_limit, _double_tap=double_tap,
@@ -585,6 +586,13 @@ def run_process(p, generation=1):
     t = threading.Thread(target=p._process, args=(generation,), daemon=True)
     t.start()
     return t
+
+
+def as_pill(toast):
+    """What a message the pipeline raised (the keyword arguments it gave
+    overlay.show_toast) shows on screen: its small pill (src/pill.py)."""
+    return pill.pill_for(toast.get("style"), toast.get("heading"), toast.get("body"),
+                         toast.get("buttons"), toast.get("timeout"))
 
 
 def wait_for(predicate, timeout=5.0, step=0.02):

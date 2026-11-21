@@ -13,16 +13,24 @@ Commands:  {"type": "show"}
                  time shows and one X cancels
            {"type": "working_end", "result": "done"|"quiet"}
                  "done" shows a short tick, then hides; "quiet" just hides.
-                 Neither touches a toast.
+                 A Working pill that is up becomes "Done" in place, or goes;
+                 any other message is left alone.
            {"type": "show_toast", "style": "cancel"|"error"|"warn"|"info",
-            "heading": "...", "body": "...",
-            "buttons": [{"label", "action", "kind"}, ...],   (buttons optional)
-            "timeout": seconds, "reposition": true}          (both optional)
-                 timeout replaces the style's usual time on screen;
-                 reposition is accepted and ignored: the pill and its toasts
-                 always sit at the bottom centre of the main screen here
+            "pill": {"kind", "text", "button", "close", "click", "seconds",
+                     "description"},
+            "reposition": true}                              (optional)
+                 every message is one small pill (src/pill.py): the waffle
+                 mark, a tick, three dots or a red dot, one line, at most one
+                 button and a cross. The app sends the pill ready made; the
+                 style still travels so hide_toast can withdraw by it.
+                 reposition is accepted and ignored: the dictation pill and
+                 its messages always sit at the bottom centre of the main
+                 screen here. A command with the old card's fields instead
+                 ("heading", "body",
+                 "buttons": [{"label", "action", "kind"}, ...], "timeout")
+                 becomes its pill here, by the same table.
            {"type": "hide_toast", "style": "info"}   (style optional: only
-                 a toast of that style is hidden)
+                 a pill raised with that style is taken down)
            {"type": "quit"}
 
 Events:    {"event": "cancel_request"}
@@ -30,7 +38,8 @@ Events:    {"event": "cancel_request"}
            {"event": "ready"}
            {"event": "toast_action", "action": "confirm"|"dismiss"|"select_mic"|...}
 
-All imports are Python stdlib or tkinter (built into CPython on Windows).
+All imports are Python stdlib or tkinter (built into CPython on Windows),
+and src/pill.py, which is stdlib only.
 """
 
 import sys
@@ -41,6 +50,12 @@ import time
 import random
 import queue
 import tkinter as tk
+import tkinter.font as tkfont
+
+try:
+    import pill as _pl
+except ImportError:  # imported as src.overlay_process_windows
+    from src import pill as _pl
 
 # ── Constants ──────────────────────────────────────────────────────────
 TRANSPARENT  = '#010101'   # Magic colour used for window-level transparency
@@ -103,17 +118,11 @@ BADGE_RING    = '#C8A256'
 BADGE_TEXT    = '#F0E0C0'
 DONE_TICK_MS  = 900        # how long the tick shows before the pill goes
 
-# Toast constants
-TOAST_W     = 380
-TOAST_H     = 210  # tall enough for 3-line body text
-TOAST_PAD   = 12           # gap above waffle
-
-# Custom toast buttons, by kind (same colours as the fixed ones below)
-TOAST_BTN_KINDS = {
-    'primary':   ('#C8A256', '#D4A843', '#2A1F0E'),
-    'secondary': ('#3D2E14', '#5A4520', '#A89070'),
-    'danger':    ('#3D1818', '#D94040', '#D94040'),
-}
+# The small pill every message is now (src/pill.py has its sizes, colours and
+# rules; this file only draws it). It sits a small gap above the dictation
+# pill's window and is as wide as its words. Same numbers as the Mac's.
+TOAST_H     = _pl.HEIGHT   # 40
+TOAST_PAD   = _pl.GAP      # between it and the dictation pill
 
 # ── Global state ───────────────────────────────────────────────────────
 _cmd_queue: queue.Queue = queue.Queue()
@@ -123,7 +132,12 @@ _visible: bool = False
 _root           = None
 _canvas         = None
 _toast_win      = None
+_toast_canvas   = None
 _toast_style    = None
+_toast_pill     = None     # the src/pill.py Pill that is up
+_toast_lay      = None     # and where its parts are
+_toast_gen      = 0        # goes up with every pill shown or hidden
+_toast_phase    = 0        # which of a Working pill's dots is the bright one
 
 # Progress text shown over the pill during the slow post-recording stages
 # (transcribing, styling). Cleared when recording starts again or pill hides.
@@ -338,87 +352,6 @@ def _rounded_rect(canvas, x1, y1, x2, y2, r, **kwargs):
     return canvas.create_polygon(pts, smooth=True, **kwargs)
 
 
-def _draw_sad_waffle(canvas, cx, cy, style='error'):
-    """Draw a larger sad waffle icon with expressive face and syrup tear."""
-    s = 44
-    x0 = cx - s // 2
-    y0 = cy - s // 2
-
-    body_clr = '#D4A843' if style != 'cancel' else '#C07040'
-    rim_clr  = '#B08530' if style != 'cancel' else '#904030'
-    cell_clr = '#C49838' if style != 'cancel' else '#A06040'
-    hilite   = '#E8C86C'
-    shadow   = '#9A7825' if style != 'cancel' else '#703020'
-
-    # Waffle body
-    _rounded_rect(canvas, x0, y0, x0 + s, y0 + s, 7,
-                  fill=body_clr, outline=rim_clr, width=2)
-
-    # 3x3 grid of cells
-    pad = 5
-    gap = 3
-    cell = (s - 2 * pad - 2 * gap) // 3  # ~9px
-    for r in range(3):
-        for col in range(3):
-            px = x0 + pad + col * (cell + gap)
-            py = y0 + pad + r * (cell + gap)
-            canvas.create_rectangle(px, py, px + cell, py + cell,
-                                    fill=cell_clr, outline=cell_clr)
-            # Highlight top-left edge
-            canvas.create_line(px, py, px + cell, py, fill=hilite, width=1)
-            canvas.create_line(px, py, px, py + cell, fill=hilite, width=1)
-            # Shadow bottom-right edge
-            canvas.create_line(px, py + cell, px + cell, py + cell, fill=shadow, width=1)
-            canvas.create_line(px + cell, py, px + cell, py + cell, fill=shadow, width=1)
-
-    if style == 'info':
-        # "Still working" is not bad news: a plain waffle, no sad face.
-        return
-
-    # Sad face drawn in dark syrup colour
-    face = '#5C2E0E'
-
-    # Eyes — tilted inward (worried/sad brows)
-    # Left eye
-    lex, ley = cx - 8, cy - 5
-    canvas.create_oval(lex - 2, ley - 2, lex + 2, ley + 2, fill=face, outline=face)
-    # Left brow — angled down toward centre
-    canvas.create_line(lex - 4, ley - 5, lex + 3, ley - 3,
-                       fill=face, width=1.5, capstyle=tk.ROUND)
-
-    # Right eye
-    rex, rey = cx + 8, cy - 5
-    canvas.create_oval(rex - 2, rey - 2, rex + 2, rey + 2, fill=face, outline=face)
-    # Right brow — angled down toward centre
-    canvas.create_line(rex + 4, rey - 5, rex - 3, rey - 3,
-                       fill=face, width=1.5, capstyle=tk.ROUND)
-
-    # Sad mouth — wide frown arc
-    my = cy + 7
-    canvas.create_arc(cx - 8, my - 4, cx + 8, my + 6,
-                      start=0, extent=180, style=tk.ARC,
-                      outline=face, width=2)
-
-    # Syrup tear — dripping from right eye
-    tear_clr = '#5C2E0E'
-    tear_hi  = '#7A3F14'
-    tx, ty = rex, rey + 4
-    # Teardrop shape: oval body + pointed top
-    canvas.create_polygon(
-        tx, ty - 2,       # top point
-        tx - 3, ty + 4,   # left bulge
-        tx, ty + 7,       # bottom
-        tx + 3, ty + 4,   # right bulge
-        smooth=True, fill=tear_clr, outline=tear_clr)
-    # Tiny glossy highlight on tear
-    canvas.create_oval(tx - 1, ty + 1, tx + 1, ty + 3,
-                       fill=tear_hi, outline=tear_hi)
-
-
-# How long before a toast auto-dismisses (ms), per style. `cancel` stays
-# until the user answers — everything else disappears on its own.
-_TOAST_AUTO_HIDE_MS = {"warn": 9000, "error": 9000}
-
 # ── Clicks that never take the focus ───────────────────────────────────
 # A click on a normal window makes it the active one. So clicking the
 # pill's ■ or a toast's "Keep waiting" / "Paste as is" made this overlay
@@ -477,109 +410,186 @@ def _no_activate(win) -> bool:
         return False
 
 
-def _toast_ms(style: str, timeout=None):
-    """How long a toast stays, in ms: ``timeout`` seconds when it is a
-    positive number, else the style's usual time (None: until answered)."""
+# ── The small pill (every message) ────────────────────────────────────
+# One dark capsule, the meeting bar's family, drawn the same as the Mac's
+# (overlay_process.py _draw_pill) as far as a Tk canvas can: no soft shadow
+# and no smoothed edges, because the window is cut out with one colour key.
+
+PILL_FONT = 'Segoe UI'
+PILL_FONT_SEMIBOLD = 'Segoe UI Semibold'
+
+
+def _blend(under: str, over: str, alpha: float) -> str:
+    """``over`` at ``alpha`` on ``under``, as one colour: Tk has no see-through
+    lines, so the hairline (white at 14%) is worked out here."""
+    u = [int(under[i:i + 2], 16) for i in (1, 3, 5)]
+    o = [int(over[i:i + 2], 16) for i in (1, 3, 5)]
+    return '#' + ''.join(f'{round(a + (b - a) * alpha):02X}' for a, b in zip(u, o))
+
+
+def _pill_font(points, weight):
+    """A Tk font spec. Negative sizes are pixels, which is what the pill is
+    laid out in."""
+    return (PILL_FONT_SEMIBOLD if weight == 'semibold' else PILL_FONT, -int(points))
+
+
+def _pill_measure(text, points, weight):
     try:
-        if timeout and float(timeout) > 0:
-            return int(float(timeout) * 1000)
-    except (TypeError, ValueError):
-        pass
-    return _TOAST_AUTO_HIDE_MS.get(style)
+        return tkfont.Font(font=_pill_font(points, weight)).measure(text or '')
+    except Exception:
+        return int(len(text or '') * points * 0.56)      # no display: a fair guess
 
 
-def _show_toast(style: str, heading: str, body: str, buttons=None, timeout=None):
-    """Show a warm Waffler-branded toast above the waffle.
+def _draw_waffle_mark(canvas, x, y):
+    """The app's own waffle, small and at rest: the dictation pill's body,
+    rim and sixteen pockets in 22 pixels."""
+    size = _pl.MARK
+    _rounded_rect(canvas, x, y, x + size, y + size, 4,
+                  fill=WAFFLE_BODY, outline=WAFFLE_RIM, width=1)
+    cell, gap, pad = 3, 2, 2            # 2 + 4 * 3 + 3 * 2 + 2 = 22
+    for row in range(GRID_ROWS):
+        for col in range(GRID_COLS):
+            cx = x + pad + col * (cell + gap)
+            cy = y + pad + row * (cell + gap)
+            canvas.create_rectangle(cx, cy, cx + cell, cy + cell, fill=CELL_BG, outline=CELL_BG)
 
-    ``buttons`` (optional) replaces the style's usual buttons: a list of up
-    to three {"label", "action", "kind"} dicts, kind being "primary",
-    "secondary" or "danger". ``timeout`` is in seconds.
-    """
-    global _toast_win, _toast_style
-    _hide_toast()
-    _toast_style = style
 
-    # ── Create the Toplevel BEFORE withdrawing the root pill. ──
-    # Tkinter on Windows doesn't reliably render a Toplevel whose master
-    # is currently withdrawn — this is the root cause of "rate-limit
-    # toasts never appear on Windows" while they show fine on macOS.
-    # Build the toast first, then hide the pill.
-    _toast_win = tk.Toplevel(_root)
-    _toast_win.overrideredirect(True)
-    _toast_win.attributes('-topmost', True)
-    _toast_win.configure(bg=TRANSPARENT)
-    _toast_win.attributes('-transparentcolor', TRANSPARENT)
+def _draw_pill(canvas, pill, lay, phase=0):
+    """Draw ``pill`` on ``canvas`` (``lay.width`` x 40). The Mac's
+    _draw_pill, item for item."""
+    w, h = int(lay.width), int(lay.height)
+    canvas.delete('all')
+    _rounded_rect(canvas, 0, 0, w - 1, h - 1, h // 2, fill=_pl.FILL,
+                  outline=_blend(_pl.FILL, '#FFFFFF', _pl.HAIRLINE_ALPHA), width=1)
+    _draw_waffle_mark(canvas, int(lay.mark_x), int(lay.mark_y))
 
-    tw, th = TOAST_W, TOAST_H
-    # Centre toast above the waffle
-    tx = _waffle_x + (WAFFLE_W - tw) // 2
-    ty = _waffle_y - th - TOAST_PAD
-    _toast_win.geometry(f"{tw}x{th}+{tx}+{ty}")
+    # One thing on the left: the tick and the red dot are badges on the
+    # mark's bottom-right corner, ringed in the pill's own colour so they
+    # look cut out of it.
+    if lay.badge is not None:
+        bx, by, bd = lay.badge
+        ring = _pl.BADGE_RING
+        canvas.create_oval(bx - ring, by - ring, bx + bd + ring, by + bd + ring,
+                           fill=_pl.FILL, outline=_pl.FILL)
+        colour = _pl.BADGE_FILL if pill.kind == _pl.DONE else _pl.RED
+        canvas.create_oval(bx, by, bx + bd, by + bd, fill=colour, outline=colour)
+        if pill.kind == _pl.DONE:
+            ox = bx + (bd - _pl.TICK_BOX) / 2.0
+            oy = by + (bd - _pl.TICK_BOX) / 2.0
+            pts = []
+            for px, py in _pl.TICK_POINTS:
+                pts += [ox + px, oy + py]
+            canvas.create_line(*pts, fill=_pl.BADGE_INK, width=2, capstyle='round', joinstyle='round')
 
-    # Hide the pill now that the toast Toplevel exists and is configured.
+    ink = _pl.INK_QUIET if pill.kind == _pl.TIP else _pl.INK
+    canvas.create_text(lay.text_x, h // 2 + _pl.TEXT_NUDGE, text=pill.text, fill=ink, anchor='w',
+                       font=_pill_font(_pl.TEXT_PT, 'medium'))
+
+    # A Working pill's three dots trail its words.
+    if lay.dots_x is not None:
+        top = (h - _pl.DOT) / 2.0 + _pl.TEXT_NUDGE
+        for i in range(3):
+            x0 = lay.dots_x + i * (_pl.DOT + _pl.DOT_GAP)
+            colour = _pl.DOTS[(i - phase) % 3]
+            canvas.create_oval(x0, top, x0 + _pl.DOT, top + _pl.DOT, fill=colour, outline=colour,
+                               tags=(f'dot{i}',))
+
+    if lay.button is not None:
+        bx, by, bw, bh = (int(v) for v in lay.button)
+        _rounded_rect(canvas, bx, by, bx + bw, by + bh, bh // 2,
+                      fill=_pl.BUTTON_FILL, outline=_pl.BUTTON_FILL)
+        canvas.create_text(bx + bw // 2, by + bh // 2, text=pill.button['label'], fill=_pl.BUTTON_INK,
+                           font=_pill_font(_pl.BUTTON_PT, 'semibold'))
+
+    if lay.close is not None:
+        cx, cy, cw, ch = lay.close
+        mx, my, arm = cx + cw / 2.0, cy + ch / 2.0, _pl.CROSS_ARM
+        canvas.create_line(mx - arm, my - arm, mx + arm, my + arm, fill=_pl.CROSS, width=2, capstyle='round')
+        canvas.create_line(mx + arm, my - arm, mx - arm, my + arm, fill=_pl.CROSS, width=2, capstyle='round')
+
+
+def _toast_ms(pill):
+    """How long a pill stays, in ms: its own time, or, for a Working pill, the
+    cap after which it goes even if nobody said the work had ended. None:
+    until it is answered, withdrawn or replaced."""
+    if pill.seconds:
+        return int(float(pill.seconds) * 1000)
+    if pill.kind == _pl.WORKING:
+        return int(_pl.WORKING_CAP_S * 1000)
+    return None
+
+
+def _toast_origin(width):
+    """Centred over the dictation pill, a small gap above its window."""
+    return int(_waffle_x + (WAFFLE_W - width) // 2), int(_waffle_y - TOAST_H - TOAST_PAD)
+
+
+def _reduce_motion() -> bool:
+    """Windows' "Show animations" is off: the pill just appears and
+    disappears, and its dots stand still."""
     try:
-        _root.withdraw()
+        import ctypes
+        on = ctypes.c_int(1)
+        SPI_GETCLIENTAREAANIMATION = 0x1042
+        if ctypes.windll.user32.SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, ctypes.byref(on), 0):
+            return not bool(on.value)
     except Exception:
         pass
+    return False
 
-    c = tk.Canvas(_toast_win, width=tw, height=th, bg=TRANSPARENT,
-                  highlightthickness=0)
-    c.pack()
 
-    # Warm dark background with golden accent border
-    _rounded_rect(c, 1, 1, tw - 1, th - 1, 14,
-                  fill='#2A1F0E', outline='#C8A256', width=2)
+def _show_toast(style: str, heading: str, body: str, buttons=None, timeout=None, pill=None):
+    """Show a message as the small pill.
 
-    # Icon — sad waffle centred at top
-    icon_cx = tw // 2
-    icon_cy = 36
-    _draw_sad_waffle(c, icon_cx, icon_cy, style)
+    ``pill`` is what the app worked out (src/pill.py Pill.as_dict()). A
+    command without one is the old card's (heading, body, buttons, timeout),
+    and becomes its pill here by the same table, so there is only ever one
+    look.
+    """
+    made = _pl.from_dict(pill) or _pl.pill_for(style, heading, body, buttons, timeout)
+    if made is None:
+        return
+    _put_pill(made, style)
 
-    # Heading — centred below icon
-    c.create_text(tw // 2, icon_cy + 30, text=heading, fill='#F0E0C0',
-                  anchor='n', font=('Segoe UI', 10, 'bold'))
 
-    # Body — centred below heading
-    c.create_text(tw // 2, icon_cy + 50, text=body, fill='#A89070',
-                  anchor='n', font=('Segoe UI', 9), width=tw - 40)
+def _put_pill(pill, style, in_place=False):
+    """Put ``pill`` up. There is one pill at a time: a second one takes the
+    first one's window, without appearing all over again."""
+    global _toast_win, _toast_canvas, _toast_style, _toast_pill, _toast_lay, _toast_gen, _toast_phase
+    _toast_gen += 1
+    gen = _toast_gen
+    lay = _pl.layout(pill, _pill_measure)
+    tw, th = int(math.ceil(lay.width)), TOAST_H
+    tx, ty = _toast_origin(tw)
+    still = _reduce_motion()
 
-    # Buttons row — centred
-    btn_h = 28
-    btn_y = th - btn_h - 12
-    btn_gap = 14
-    custom = [b for b in (buttons or []) if isinstance(b, dict) and b.get('label')][:3]
-    if custom:
-        gap = 10
-        btn_w = min(118, (tw - 40 - gap * (len(custom) - 1)) // len(custom))
-        sx = (tw - (btn_w * len(custom) + gap * (len(custom) - 1))) // 2
-        for i, b in enumerate(custom):
-            fill, outline, text_clr = TOAST_BTN_KINDS.get(
-                b.get('kind'), TOAST_BTN_KINDS['secondary'])
-            _draw_toast_btn(c, sx + i * (btn_w + gap), btn_y, btn_w, btn_h,
-                            fill, outline, str(b['label']), text_clr,
-                            str(b.get('action') or 'dismiss'))
-    elif style == 'cancel':
-        btn1_w, btn2_w = 100, 110
-        total = btn1_w + btn_gap + btn2_w
-        sx = (tw - total) // 2
-        _draw_toast_btn(c, sx, btn_y, btn1_w, btn_h,
-                        '#3D1818', '#D94040', 'Discard', '#D94040', 'confirm')
-        _draw_toast_btn(c, sx + btn1_w + btn_gap, btn_y, btn2_w, btn_h,
-                        '#C8A256', '#D4A843', 'Keep going', '#2A1F0E', 'dismiss')
-    elif style in ('warn', 'info'):
-        btn_w = 110
-        _draw_toast_btn(c, (tw - btn_w) // 2, btn_y, btn_w, btn_h,
-                        '#3D2E14', '#5A4520', 'Dismiss', '#A89070', 'dismiss')
-    else:
-        btn1_w, btn2_w = 110, 90
-        total = btn1_w + btn_gap + btn2_w
-        sx = (tw - total) // 2
-        _draw_toast_btn(c, sx, btn_y, btn1_w, btn_h,
-                        '#C8A256', '#D4A843', 'Select mic', '#2A1F0E', 'select_mic')
-        _draw_toast_btn(c, sx + btn1_w + btn_gap, btn_y, btn2_w, btn_h,
-                        '#3D2E14', '#5A4520', 'Dismiss', '#A89070', 'dismiss')
+    replacing = _toast_win is not None
+    if not replacing:
+        _toast_win = tk.Toplevel(_root)
+        _toast_win.overrideredirect(True)
+        _toast_win.attributes('-topmost', True)
+        _toast_win.configure(bg=TRANSPARENT)
+        _toast_win.attributes('-transparentcolor', TRANSPARENT)
+        _toast_canvas = tk.Canvas(_toast_win, width=tw, height=th, bg=TRANSPARENT,
+                                  highlightthickness=0)
+        _toast_canvas.pack()
+        # One handler for the whole pill: where the click landed decides.
+        _toast_canvas.bind('<Button-1>', _on_pill_click)
 
-    # ── Force the toast to actually paint and stay on top. ──
+    _toast_style, _toast_pill, _toast_lay, _toast_phase = style, pill, lay, 0
+    _toast_canvas.configure(width=tw, height=th)
+    _draw_pill(_toast_canvas, pill, lay, 0)
+
+    rise = 0 if (replacing or still) else _pl.RISE
+    _toast_win.geometry(f"{tw}x{th}+{tx}+{ty + rise}")
+    if rise:
+        # A quick fade and a slight rise, in four steps.
+        try:
+            _toast_win.attributes('-alpha', 0.0)
+        except Exception:
+            rise = 0
+
+    # ── Force the pill to actually paint and stay on top. ──
     # Windows likes to demote -topmost when the active app reclaims focus,
     # and Tkinter sometimes lazily defers paint. Force both: paint now,
     # lift above z-stack, and re-assert topmost a few times in the first
@@ -589,67 +599,131 @@ def _show_toast(style: str, heading: str, body: str, buttons=None, timeout=None)
         _toast_win.lift()
     except Exception:
         pass
-    # Its buttons ("Keep waiting", "Paste as is") come just before a paste:
-    # clicking them must leave the user's app in front.
+    # Its button ("Send later", "Paste as is") comes just before a paste:
+    # clicking it must leave the user's app in front.
     _no_activate(_toast_win)
 
-    def _reassert_topmost():
-        if _toast_win is None:
+    win = _toast_win
+
+    def _step(n):
+        if _toast_gen != gen or _toast_win is not win:
             return
         try:
-            _toast_win.attributes('-topmost', True)
-            _toast_win.lift()
+            win.attributes('-alpha', min(1.0, n / 4.0))
+            win.geometry(f"{tw}x{th}+{tx}+{ty + rise - int(rise * n / 4.0)}")
+            if n < 4:
+                win.after(int(_pl.FADE_S * 1000 / 4), lambda: _step(n + 1))
+        except Exception:
+            # Whatever went wrong, the pill must not be left see-through.
+            try:
+                win.attributes('-alpha', 1.0)
+            except Exception:
+                pass
+
+    if rise:
+        _step(1)
+    else:
+        try:
+            win.attributes('-alpha', 1.0)
         except Exception:
             pass
-        _no_activate(_toast_win)
+
+    def _reassert_topmost():
+        if _toast_win is not win:
+            return
+        try:
+            win.attributes('-topmost', True)
+            win.lift()
+        except Exception:
+            pass
+        _no_activate(win)
 
     # Re-assert topmost at 100/400/1200ms — covers the typical window
-    # in which Windows can demote the toast behind a refocusing app.
+    # in which Windows can demote the pill behind a refocusing app.
     for delay_ms in (100, 400, 1200):
         try:
-            _toast_win.after(delay_ms, _reassert_topmost)
+            win.after(delay_ms, _reassert_topmost)
         except Exception:
             pass
 
-    # Auto-dismiss after the per-style timeout; cancel stays until answered.
-    # Bumped warn/error from 6 s -> 9 s so users have time to actually read
-    # the rate-limit guidance before it disappears.
-    ms = _toast_ms(style, timeout)
+    if pill.kind == _pl.WORKING and not still:
+        win.after(450, lambda: _dots_tick(gen))
+
+    # It goes by itself after its time. The generation keeps a timer that
+    # fires late from taking down the pill that replaced its own.
+    ms = _toast_ms(pill)
     if ms:
-        _toast_win.after(ms, _hide_toast)
+        win.after(ms, lambda: _toast_expire(gen))
 
 
-def _draw_toast_btn(canvas, x, y, w, h, fill, outline, text, text_color, action):
-    """Draw a clickable pill-shaped button on the toast canvas."""
-    tag = f'btn_{action}_{x}'
-    _rounded_rect(canvas, x, y, x + w, y + h, h // 2,
-                         fill=fill, outline=outline, width=1, tags=tag)
-    canvas.create_text(x + w // 2, y + h // 2, text=text, fill=text_color,
-                       font=('Segoe UI', 8, 'bold'), tags=tag)
-    canvas.tag_bind(tag, '<Button-1>', lambda e: _on_toast_action(action))
+def _dots_tick(gen):
+    """The three dots of a Working pill take turns being the bright one."""
+    global _toast_phase
+    if gen != _toast_gen or _toast_canvas is None:
+        return
+    _toast_phase = (_toast_phase + 1) % 3
+    try:
+        for i in range(3):
+            colour = _pl.DOTS[(i - _toast_phase) % 3]
+            _toast_canvas.itemconfigure(f'dot{i}', fill=colour, outline=colour)
+        _toast_win.after(450, lambda: _dots_tick(gen))
+    except Exception:
+        pass
+
+
+def _toast_expire(gen):
+    if gen == _toast_gen:
+        _hide_toast()
+
+
+def _on_pill_click(event):
+    """A click on the pill: its button, its cross, or the pill itself. A
+    click that sends nothing (the words of a "Your call") leaves it up."""
+    pill, lay = _toast_pill, _toast_lay
+    if pill is None or lay is None:
+        return
+    _toast_clicked(_pl.hit(lay, event.x, event.y))
+
+
+def _toast_clicked(where):
+    """A click landed on the pill that is up: on its "button", its "close"
+    cross or its "body". The answer is sent, then the pill goes."""
+    pill = _toast_pill
+    if pill is None:
+        return
+    action = _pl.action_for(pill, where)
+    if action:
+        _on_toast_action(action)
 
 
 def _hide_toast(style=None):
-    """Destroy the toast popup if visible. With ``style``, only a toast of
-    that style goes (the pipeline withdraws its "still working" offer this
-    way without touching a message that has replaced it)."""
-    global _toast_win, _toast_style
+    """Take the pill down, if one is up. With ``style``, only a pill raised
+    with that style goes (the pipeline withdraws its "still working" offer
+    this way without touching a message that has replaced it). The dictation
+    pill is not touched: neither hides the other now."""
+    global _toast_win, _toast_canvas, _toast_style, _toast_pill, _toast_lay, _toast_gen
     if style and _toast_style != style:
         return
+    _toast_gen += 1
     if _toast_win:
         try:
             _toast_win.destroy()
         except Exception:
             pass
-        _toast_win = None
-        _toast_style = None
-    # Restore the pill if it was meant to be visible (show_toast hides it).
-    if _visible:
-        try:
-            _root.deiconify()
-        except Exception:
-            pass
-        _no_activate(_root)
+    _toast_win = _toast_canvas = _toast_style = _toast_pill = _toast_lay = None
+
+
+def _toast_work_ended(result: str):
+    """The work ended. A Working pill that is still up becomes "Done" where
+    it is, or goes; any other pill (a Problem that replaced it) stays."""
+    pill = _toast_pill
+    if pill is None or pill.kind != _pl.WORKING:
+        return
+    after = _pl.after_work(pill, result)
+    if after is None:
+        _hide_toast()
+    else:
+        _put_pill(after, _toast_style, in_place=True)
 
 
 def _clear_progress():
@@ -765,9 +839,8 @@ def _enter_working(elapsed_seconds: float):
     _visible = True
     if _root:
         _draw_waffle()
-        # A toast (the "still working" offer, or a message) hides the pill
-        # while it is up; _hide_toast brings the pill back afterwards.
-        if first and _toast_win is None:
+        # A message no longer hides the pill: the small pill sits above it.
+        if first:
             _root.deiconify()
             _root.lift()
             _root.attributes('-topmost', True)
@@ -779,6 +852,10 @@ def _end_working(result: str):
     Never touches a toast, so a message that is already up stays readable."""
     global _visible, _mode, _done_after_id
     _cancel_done_timer()
+    # A Working pill ("Tidying", "One moment") becomes "Done" in place, or
+    # goes. Then, as before, the waffle's own tick is skipped while a message
+    # is up: one sign that it is done is enough.
+    _toast_work_ended(result)
     if result == "done" and _toast_win is None and _visible and _root:
         _mode = "done"
         _reset_cells(1.0)       # a full waffle behind the tick
@@ -858,19 +935,23 @@ def _handle_cmd(cmd: dict):
                 _targets[i] = max(0.0, min(1.0, cell_level * wobble))
 
     elif ctype == "show_toast":
-        # Hide the waffle grid so only the toast popup is visible
-        if _root:
-            _root.withdraw()
+        # The dictation pill stays where it is: the small pill sits above it.
         _show_toast(
             style=cmd.get("style", "error"),
             heading=cmd.get("heading", ""),
             body=cmd.get("body", ""),
             buttons=cmd.get("buttons"),
             timeout=cmd.get("timeout"),
+            pill=cmd.get("pill"),
         )
 
     elif ctype == "hide_toast":
         _hide_toast(cmd.get("style"))
+
+    elif ctype == "_toast_click":
+        # A click, said rather than made (scripts/drive_overlay.py). The app
+        # never sends it.
+        _toast_clicked(cmd.get("where"))
 
     elif ctype == "progress":
         _show_progress(cmd.get("label", ""), float(cmd.get("elapsed_seconds", 0.0)))
