@@ -1609,6 +1609,28 @@
     return on ? DOUBLE_TAP_TEXT.on : DOUBLE_TAP_TEXT.off;
   }
 
+  // Shortcuts, under that row: "Double-tap to record a meeting" (settings.json
+  // "meeting_double_tap"; app.py apply_meeting_tap). On unless switched off,
+  // as the engine reads it. While it is on, two taps record a meeting and
+  // not a hands-free dictation. The answer of get_shortcuts() says it; an
+  // app that has not been restarted yet says it in get_settings().
+  const MEETING_TAP_TEXT = {
+    label: 'Double-tap to record a meeting',
+    desc: 'Tap the hotkey twice to start. Twice to finish.',
+    // In full, under "How it works" (index.html shortcutsHowMeetingTap).
+    how: 'Double-tap to record a meeting: tap your dictation hotkey twice, quickly, to start recording a meeting, and twice again to finish. While this is on, two taps record a meeting, not a hands-free dictation.',
+    on: 'Two taps of your hotkey record a meeting.',
+    off: 'Two taps no longer record a meeting.',
+  };
+  function meetingTapView(data, settings) {
+    const said = [data, settings].map((x) => (x && typeof x.meeting_double_tap === 'boolean' ? x.meeting_double_tap : null))
+      .find((x) => x !== null);
+    return { on: said !== false, label: MEETING_TAP_TEXT.label, desc: MEETING_TAP_TEXT.desc };
+  }
+  function meetingTapSaved(on) {
+    return on ? MEETING_TAP_TEXT.on : MEETING_TAP_TEXT.off;
+  }
+
   // General, The pill: "Show the pill when idle" (settings.json "idle_pill",
   // src/idle_pill.py), off until it is exactly true, and "Reset pill
   // position". Mac only for now: the rows are hidden on Windows.
@@ -3225,6 +3247,7 @@
     transformRuleCheck, transformOutlineView, transformShortcutLine, transformSaved, hotkeyDialogText,
     transformEntryView, SHORTCUT_TARGETS, shortcutIsTarget, captureKeyId, shortcutRows, shortcutRulesView,
     shortcutSaved, SHORTCUT_TEXT, cancelLabel, DOUBLE_TAP_TEXT, doubleTapView, doubleTapSaved,
+    MEETING_TAP_TEXT, meetingTapView, meetingTapSaved,
     PILL_TEXT, pillView, pillSaved,
     COMMAND_ENGINES, COMMAND_EXAMPLES, commandEngineLabel, commandView, commandShortcutLine, commandSaved,
     TRY_SAMPLE, TRY_ASK, tryItNeeds, tryItResult, transformHowShortcut,

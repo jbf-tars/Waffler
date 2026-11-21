@@ -65,7 +65,8 @@ def _app():
 
 def test_the_row_is_drawn_right_under_hands_free_and_nowhere_else():
     app = read("app.js")
-    assert "r.id === 'hands_free' ? _doubleTapRowHtml() : ''" in app
+    # (Followed by the other use of two taps: "Double-tap to record a meeting".)
+    assert "r.id === 'hands_free' ? _doubleTapRowHtml() + _meetingTapRowHtml() : ''" in app
     assert "double_tap" not in read("index.html").replace("Double-tap", "")      # no static copy to drift
 
 

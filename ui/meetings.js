@@ -1,7 +1,8 @@
 // Meetings in Waffler's window. The Meetings tab is the meetings interface in a
 // frame (ui/meetings-app); this file keeps the rest of the window in step with
-// it: the record button and Ask on Home, a meeting's card among the dictations,
-// and the switch for two taps of the hotkey. Python: Api.meetings_* (app.py).
+// it: the record button and Ask on Home, and a meeting's card among the
+// dictations. Python: Api.meetings_* (app.py). (The switch for two taps of the
+// hotkey is a row in Settings, Shortcuts: app.js _meetingTapRowHtml.)
 (function () {
   const $ = (id) => document.getElementById(id);
   const api = () => (window.pywebview && window.pywebview.api) || null;
@@ -140,23 +141,8 @@
     return card;
   };
 
-  // ── the switch for two taps of the hotkey (settings.json meeting_double_tap) ─
-  async function loadTapSetting() {
-    const a = api(), tog = $('mtTapToggle'); if (!a || !tog) return;
-    try { const s = await a.get_settings(); tog.checked = !s || s.meeting_double_tap !== false; } catch (e) { /* leave it as it is */ }
-  }
-  async function saveTapSetting() {
-    const a = api(), tog = $('mtTapToggle'); if (!a || !tog) return;
-    const on = tog.checked;
-    try {
-      const r = await a.save_settings({ meeting_double_tap: on });
-      if (r && r.ok) showToast(on ? 'Two taps of your hotkey record a meeting.' : 'Your hotkey only dictates now.', 'success', 3500);
-      else { tog.checked = !on; showToast('That couldn’t be saved. Try again.', 'error'); }
-    } catch (e) { tog.checked = !on; showToast('That couldn’t be saved. Try again.', 'error'); }
-  }
-
   // app.js's showPage calls this when the Meetings page opens.
-  window.loadMeetingsPage = function () { frame(); refreshState(); loadTapSetting(); tell({ type: 'meetings-refresh' }); };
+  window.loadMeetingsPage = function () { frame(); refreshState(); tell({ type: 'meetings-refresh' }); };
   // Python calls this when something changed (the hotkey, the bar, notes written).
   window.waffler_meetings_changed = function () {
     refreshState();
@@ -168,7 +154,6 @@
 
   document.addEventListener('DOMContentLoaded', () => {
     if ($('jRecord')) $('jRecord').addEventListener('click', toggle);
-    if ($('mtTapToggle')) $('mtTapToggle').addEventListener('change', saveTapSetting);
     window.addEventListener('pywebviewready', refreshState);
     wireHomeAsk();
   });

@@ -3872,6 +3872,8 @@ class Api:
             # The switch for double-tap to go hands-free sits under the
             # Hands-free row (src/double_tap.py): off unless exactly true.
             page["double_tap_handsfree"] = stored.get("double_tap_handsfree") is True
+            # Under it, "Double-tap to record a meeting": on unless switched off.
+            page["meeting_double_tap"] = stored.get("meeting_double_tap") is not False
             return page
         except Exception as e:
             _log_to_file(f"get_shortcuts error: {type(e).__name__}")

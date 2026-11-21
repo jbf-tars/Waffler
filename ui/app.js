@@ -1262,12 +1262,37 @@ async function setDoubleTap(on) {
   }
 }
 
+// "Double-tap to record a meeting", the row under that one (it was a strip
+// at the foot of the Meetings tab). Two taps of the hotkey start a meeting
+// and two more finish it; app.py applies it without a restart.
+function _meetingTapRowHtml() {
+  const v = WL.meetingTapView(_shortcuts, _lastSettings);
+  return `<div class="row sc-row sc-dt" role="listitem" data-id="meeting_tap">
+    <div class="row-main">
+      <div class="row-t"><label for="meetingTapToggle">${escHtml(v.label)}</label></div>
+      <div class="row-d" id="meetingTapDesc">${escHtml(v.desc)}</div>
+    </div>
+    <input type="checkbox" class="tog" role="switch" id="meetingTapToggle" aria-describedby="meetingTapDesc"${v.on ? ' checked' : ''}>
+  </div>`;
+}
+
+async function setMeetingTap(on) {
+  const ok = await saveSetting('meeting_double_tap', !!on);
+  if (ok) {
+    if (_shortcuts) _shortcuts.meeting_double_tap = !!on;
+    if (_lastSettings) _lastSettings.meeting_double_tap = !!on;
+  } else {
+    const tog = document.getElementById('meetingTapToggle');
+    if (tog) tog.checked = !on;
+  }
+}
+
 function renderShortcuts() {
   const list = document.getElementById('shortcutsList');
   if (!list) return;
   const rows = WL.shortcutRows(_shortcuts, isMacPlatform);
   list.hidden = !rows.length;
-  list.innerHTML = rows.map((r) => _shortcutRowHtml(r) + (r.id === 'hands_free' ? _doubleTapRowHtml() : '')).join('');
+  list.innerHTML = rows.map((r) => _shortcutRowHtml(r) + (r.id === 'hands_free' ? _doubleTapRowHtml() + _meetingTapRowHtml() : '')).join('');
   if (_scFocus) {
     const target = list.querySelector(`[data-act="change"][data-id="${_scFocus}"]:not(:disabled)`)
       || list.querySelector(`[data-act="enable"][data-id="${_scFocus}"]`);
@@ -1300,6 +1325,7 @@ function renderShortcuts() {
   });
   list.addEventListener('change', (e) => {
     if (e.target && e.target.id === 'doubleTapToggle') setDoubleTap(e.target.checked);
+    if (e.target && e.target.id === 'meetingTapToggle') setMeetingTap(e.target.checked);
   });
 })();
 
@@ -5671,6 +5697,8 @@ async function saveSetting(key, value) {
         showToast(WL.learnSaved(value), 'success', 3500);
       } else if (key === 'double_tap_handsfree') {
         showToast(WL.doubleTapSaved(value), 'success', 3500);
+      } else if (key === 'meeting_double_tap') {
+        showToast(WL.meetingTapSaved(value), 'success', 3500);
       } else if (key === 'idle_pill') {
         showToast(WL.pillSaved(value), 'success', 3500);
       } else if (key === 'language') {
