@@ -797,14 +797,14 @@
              each key's editor opens under its row. -->
         <section class="s-sec" id="secKeys" data-sec="keys" hidden>
           <h1 class="ptitle">Keys and providers</h1>
-          <p class="pdesc">Waffler tries these in order and uses the first that answers. Drag to change the order; it applies to your next dictation.</p>
+          <p class="pdesc">Drag to set which service Waffler tries first.</p>
 
           <!-- How speech becomes text: on this computer (no key) or with a key
                (howitruns.js; Api.local_stt_*, transcription_mode). -->
           <div class="hir" id="howItRuns" role="radiogroup" aria-label="How speech is turned into text">
             <div class="hir-card" id="hirLocal" data-mode="local">
               <label class="hir-pick"><input type="radio" name="hirMode" id="hirLocalRadio" value="local"><span class="hir-t">On this computer</span><span class="hir-price">Free</span></label>
-              <p class="hir-d">Your speech is turned into text on this computer. No key, and it works with the internet off.</p>
+              <p class="hir-d">No key. Works with the internet off.</p>
               <div class="hir-model" id="hirModel">
                 <span class="hir-state" id="hirState" role="status"></span>
                 <span class="hir-bar" id="hirBar" hidden><i id="hirBarFill"></i></span>
@@ -817,8 +817,8 @@
                    Api.local_llm_*, writing_mode). Hidden unless this
                    computer is offered it (logic.js writingRowView). -->
               <div class="hir-model hir-extra" id="hirLlm" role="group" aria-labelledby="hirLlmT" hidden>
-                <span class="hir-extra-t" id="hirLlmT">Tidy text and write notes on this computer too</span>
-                <span class="hir-extra-d" id="hirLlmAbout">Optional. For an Apple Silicon Mac with 16 GB of memory or more: about two seconds to tidy a dictation, a minute or two for a long meeting’s notes. A key is quicker, and better with long meetings.</span>
+                <span class="hir-extra-t" id="hirLlmT">Writing on this computer</span>
+                <span class="hir-extra-d" id="hirLlmAbout">Optional. Tidies text and writes notes with no key.</span>
                 <span class="hir-state" id="hirLlmState" role="status" hidden></span>
                 <span class="hir-bar" id="hirLlmBar" hidden><i id="hirLlmBarFill"></i></span>
                 <button type="button" class="btn btn-sm btn-sec" id="hirLlmDownload" hidden>Download the writing model</button>
@@ -829,9 +829,8 @@
             </div>
             <div class="hir-card" id="hirCloud" data-mode="cloud">
               <label class="hir-pick"><input type="radio" name="hirMode" id="hirCloudRadio" value="cloud"><span class="hir-t">With your own key</span><span class="hir-price">Faster</span></label>
-              <p class="hir-d">Your speech is sent to Groq or OpenAI with the key you add below. Quicker for long meetings.</p>
+              <p class="hir-d">Quicker, especially for long meetings.</p>
             </div>
-            <p class="hir-note" id="hirNote">This choice covers dictation and meetings. Writing a meeting’s notes still needs a key, either way.</p>
           </div>
 
           <div class="stage stage-plain flow" id="keysFlow" role="img" aria-label="Speech to text and clean-up"></div>
@@ -869,6 +868,22 @@
           </div>
 
           <p class="s-foot">New to keys? <a class="link" href="#" onclick="openKeyPage('groq'); return false;">Get a free Groq key</a><svg class="ic ic-sm" aria-hidden="true"><use href="#i-external"/></svg></p>
+
+          <!-- What a careful person may still want to know. One collapsed
+               disclosure (toggleHow). -->
+          <div class="how">
+            <button type="button" class="link-btn how-btn" id="keysHowBtn" aria-expanded="false" aria-controls="keysHow" onclick="toggleHow(this)">How it works<svg class="ic ic-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
+            <div class="sheet how-body" id="keysHow" hidden>
+              <ul class="sc-rule-list">
+                <li>On this computer: your speech is turned into text on this computer. No key, and it works with the internet off.</li>
+                <li>With your own key: your speech is sent to Groq or OpenAI with the key you add. Quicker for long meetings.</li>
+                <li class="hir-note" id="hirNote">This choice covers dictation and meetings. Writing a meeting’s notes still needs a key, either way.</li>
+                <li id="hirLlmHow" hidden>The writing model is for an Apple Silicon Mac with 16 GB of memory or more: about two seconds to tidy a dictation, a minute or two for a long meeting’s notes. A key is quicker, and better with long meetings.</li>
+                <li>Waffler tries your keys in order and uses the first that answers. Drag to change the order; it applies to your next dictation.</li>
+                <li>Groq is free for roughly 30 cleaned dictations a day.</li>
+              </ul>
+            </div>
+          </div>
         </section>
 
         <!-- Claude: one click lets Claude's desktop app read meetings and

@@ -462,7 +462,10 @@ def test_each_provider_row_says_its_role_its_key_and_its_state():
         ("groq", "Recommended", "In use", "Replace", "gsk_4f9a…7Qe2"),
         ("openai", "Optional", "Saved", "Replace", "sk-proj-…0jUe"),
         ("cerebras", "Optional", "Not set", "Add key", "")]
-    assert rows[0]["desc"].endswith("Free for roughly 30 cleaned dictations a day.")
+    assert rows[0]["desc"] == "Speech to text and clean-up. Free plan."
+    # How much the free plan covers is under the section's "How it works".
+    keys = read("index.html")
+    assert "Groq is free for roughly 30 cleaned dictations a day." in keys[keys.index('id="keysHow"'):keys.index('id="secClaude"')]
     assert "Prepaid" in rows[1]["desc"] and rows[2]["desc"] == "Clean-up only. No speech to text."
     # The order is the user's, and nothing claims a key before settings load.
     assert [r["id"] for r in js("L.keyRows(['cerebras','groq'], null)")] == ["cerebras", "groq", "openai"]

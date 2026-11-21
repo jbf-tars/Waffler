@@ -32,9 +32,12 @@ from _settings_fake import settings_api  # noqa: E402
 NODE = shutil.which("node")
 needs_node = pytest.mark.skipif(NODE is None, reason="needs Node.js to run ui/logic.js")
 GB5 = 5154941280
-ABOUT = ("Optional. For an Apple Silicon Mac with 16 GB of memory or more: about two seconds to tidy a "
-         "dictation, a minute or two for a long meeting’s notes. A key is quicker, and better with long "
-         "meetings.")
+ABOUT = "Optional. Tidies text and writes notes with no key."
+# What it needs and how long it takes, measured: under the section's "How it works".
+HOW = ("The writing model is for an Apple Silicon Mac with 16 GB of memory or more: about two seconds to tidy a "
+       "dictation, a minute or two for a long meeting’s notes. A key is quicker, and better with long "
+       "meetings.")
+TITLE = "Writing on this computer"
 
 
 def read(name):
@@ -75,9 +78,9 @@ def llm(**over):
 @needs_node
 def test_the_row_offers_the_download_with_its_real_size_and_one_honest_line():
     v = js(f"L.writingRowView({json.dumps(llm())}, false)")
-    assert v["show"] is True and v["title"] == "Tidy text and write notes on this computer too"
+    assert v["show"] is True and v["title"] == TITLE
     assert v["download"] == "Download the writing model (5.2 GB)"
-    assert v["about"] == ABOUT
+    assert v["about"] == ABOUT and v["how"] == HOW
     assert (v["bar"], v["stop"], v["remove"], v["choice"]) == (False, False, False, False)
     # The size is the model's own, not a number written on the page.
     spec = local_llm.MODELS[local_llm.DEFAULT_MODEL]
@@ -114,6 +117,7 @@ def test_a_computer_that_is_not_offered_it_does_not_see_a_download():
     low = llm(suits_machine=False, machine_reason="low_memory")
     v = js(f"L.writingRowView({json.dumps(low)}, false)")
     assert v["show"] is True and v["download"] == "" and "16 GB" in v["about"] and "Not offered" in v["about"]
+    assert v["how"] == "", "nothing about how long it takes where it is not offered"
     for other in (llm(suits_machine=False, machine_reason="not_measured"), llm(available=False),
                   {"ok": False}, None):
         assert js(f"L.writingRowView({json.dumps(other)}, false)")["show"] is False
@@ -143,8 +147,10 @@ def test_the_row_is_in_the_free_card_hidden_until_the_page_knows():
     card = html[html.index('<div class="hir-card" id="hirLocal"'):html.index('<div class="hir-card" id="hirCloud"')]
     assert card.index('id="hirModel"') < card.index('id="hirLlm"'), "second, under the speech model"
     assert re.search(r'<div class="hir-model hir-extra" id="hirLlm" role="group" aria-labelledby="hirLlmT" hidden>', card)
-    assert '<span class="hir-extra-t" id="hirLlmT">Tidy text and write notes on this computer too</span>' in card
-    assert ABOUT in visible_text(card)
+    assert f'<span class="hir-extra-t" id="hirLlmT">{TITLE}</span>' in card
+    assert ABOUT in visible_text(card) and HOW not in visible_text(card)
+    how = html[html.index('id="keysHow"'):html.index('id="secClaude"')]
+    assert f'<li id="hirLlmHow" hidden>{HOW}</li>' in how, "said in full, once the row is offered"
     assert '<span class="hir-state" id="hirLlmState" role="status" hidden></span>' in card
     for button in ('id="hirLlmDownload" hidden>Download the writing model</button>',
                    'id="hirLlmCancel" hidden>Stop the download</button>',
@@ -152,7 +158,7 @@ def test_the_row_is_in_the_free_card_hidden_until_the_page_knows():
         assert button in card, button
     assert '<input type="checkbox" id="hirLlmChoice">' in card
     assert "Use this computer for tidying and notes, not my key" in visible_text(card)
-    assert '<p class="hir-note" id="hirNote">' in html
+    assert '<li class="hir-note" id="hirNote">' in how, "the line about what the choice covers is there too"
     css = read("meetings.css")
     for rule in (".hir-extra {", ".hir-extra-t {", ".hir-extra-d {", ".hir-extra-pick {"):
         assert rule in css, rule
@@ -160,8 +166,8 @@ def test_the_row_is_in_the_free_card_hidden_until_the_page_knows():
 
 @needs_node
 def test_the_words_on_the_page_are_the_ones_the_logic_uses():
-    assert js("L.WRITING_ABOUT") == ABOUT
-    assert js("L.WRITING_TITLE") == "Tidy text and write notes on this computer too"
+    assert js("L.WRITING_ABOUT") == ABOUT and js("L.WRITING_HOW") == HOW
+    assert js("L.WRITING_TITLE") == TITLE
 
 
 def test_settings_calls_the_bridge_and_saves_the_choice_like_any_setting():
@@ -184,7 +190,7 @@ const el = (id) => els[id] || (els[id] = { id, hidden: false, textContent: '', c
   style: {}, classList: { toggle() {} }, listeners: {}, addEventListener(t, f) { this.listeners[t] = f; } });
 ['howItRuns','hirLocalRadio','hirCloudRadio','hirLocal','hirCloud','hirState','hirBar','hirBarFill','hirDownload',
  'hirCancel','hirRemove','hirLlm','hirLlmAbout','hirLlmState','hirLlmBar','hirLlmBarFill','hirLlmDownload',
- 'hirLlmCancel','hirLlmRemove','hirLlmPick','hirLlmChoice','hirNote'].forEach(el);
+ 'hirLlmCancel','hirLlmRemove','hirLlmPick','hirLlmChoice','hirNote','hirLlmHow'].forEach(el);
 const ready = [];
 const calls = [], toasts = [];
 global.document = { getElementById: (id) => els[id] || null, addEventListener: (t, f) => ready.push(f) };
@@ -212,7 +218,7 @@ const shot = () => ({ shown: !els.hirLlm.hidden, about: els.hirLlmAbout.textCont
   stateHidden: els.hirLlmState.hidden, bar: !els.hirLlmBar.hidden, width: els.hirLlmBarFill.style.width,
   download: els.hirLlmDownload.hidden ? '' : els.hirLlmDownload.textContent, stop: !els.hirLlmCancel.hidden,
   remove: !els.hirLlmRemove.hidden, pick: !els.hirLlmPick.hidden, ticked: els.hirLlmChoice.checked,
-  note: els.hirNote.textContent });
+  note: els.hirNote.textContent, how: els.hirLlmHow.hidden ? '' : els.hirLlmHow.textContent });
 (async () => {
   const out = {};
   window.loadHowItRuns(); await settle(); out.first = shot();
@@ -244,6 +250,7 @@ def test_the_settings_row_drawn_for_real_from_download_to_remove():
     first = seen["first"]
     assert first["shown"] and first["download"] == "Download the writing model (5.2 GB)"
     assert first["about"] == ABOUT and first["stateHidden"] and not first["bar"] and not first["remove"]
+    assert first["how"] == HOW, "what it needs and how long it takes, under How it works"
     assert first["note"].endswith("need a key, or the second download.")
     down = seen["downloading"]
     assert down["bar"] and down["stop"] and down["width"] == "3%" and not down["download"]
@@ -267,11 +274,11 @@ def test_the_settings_row_drawn_for_real_from_download_to_remove():
 def test_the_settings_row_stays_hidden_where_it_is_not_offered():
     for status in (llm(available=False), llm(suits_machine=False, machine_reason="not_measured"), {"ok": False}):
         first = _row(status)["first"]
-        assert first["shown"] is False, status
+        assert first["shown"] is False and first["how"] == "", status
         assert first["note"] in ("This choice covers dictation and meetings. Writing a meeting’s notes still "
                                  "needs a key, either way.", ""), "nothing is promised"
     low = _row(llm(suits_machine=False, machine_reason="low_memory"))["first"]
-    assert low["shown"] and low["download"] == "" and "needs 16 GB of memory or more" in low["about"]
+    assert low["shown"] and low["download"] == "" and "needs 16 GB of memory" in low["about"] and low["how"] == ""
 
 
 # Setup's extra, drawn for real: the three functions lifted out of app.js.

@@ -622,7 +622,7 @@
   // are the ones checked for setup (Groq's free plan allows about 30
   // cleaned dictations a day; OpenAI's API is prepaid).
   const PROVIDER_INFO = {
-    groq: { chip: 'Recommended', chipCls: 'chip-honey', desc: 'Speech to text and clean-up. Free for roughly 30 cleaned dictations a day.' },
+    groq: { chip: 'Recommended', chipCls: 'chip-honey', desc: 'Speech to text and clean-up. Free plan.' },
     openai: { chip: 'Optional', chipCls: '', desc: 'Speech to text and clean-up. Prepaid: you buy credit first.' },
     cerebras: { chip: 'Optional', chipCls: '', desc: 'Clean-up only. No speech to text.' },
   };
@@ -1052,10 +1052,11 @@
   // with no key. `llm` is local_llm_status(). It is shown only where it is
   // offered: this build has the engine, and the computer is an Apple Silicon
   // Mac with 16 GB of memory or more (or it is here already).
-  const WRITING_TITLE = 'Tidy text and write notes on this computer too';
-  // One honest line: measured on an M5 with 16 GB (docs/OFFLINE-TRANSCRIPTION.md).
-  const WRITING_ABOUT = 'Optional. For an Apple Silicon Mac with 16 GB of memory or more: about two seconds to tidy a dictation, a minute or two for a long meeting\u2019s notes. A key is quicker, and better with long meetings.';
-  const WRITING_LOW_MEMORY = 'Not offered on this Mac: the writing model needs 16 GB of memory or more. A key does the same job.';
+  const WRITING_TITLE = 'Writing on this computer';
+  const WRITING_ABOUT = 'Optional. Tidies text and writes notes with no key.';
+  // One honest line, under "How it works": measured on an M5 with 16 GB (docs/OFFLINE-TRANSCRIPTION.md).
+  const WRITING_HOW = 'The writing model is for an Apple Silicon Mac with 16 GB of memory or more: about two seconds to tidy a dictation, a minute or two for a long meeting\u2019s notes. A key is quicker, and better with long meetings.';
+  const WRITING_LOW_MEMORY = 'Not offered here: it needs 16 GB of memory. A key does the same job.';
 
   function _llmKnown(llm) {
     return llm && llm.ok !== false && typeof llm.state === 'string' ? llm : null;
@@ -1072,7 +1073,7 @@
   // is asked which of the two to use.
   function writingRowView(llm, hasKey) {
     const s = _llmKnown(llm);
-    const none = { show: false, title: WRITING_TITLE, about: '', state: '', percent: 0, bar: false,
+    const none = { show: false, title: WRITING_TITLE, about: '', how: '', state: '', percent: 0, bar: false,
       download: '', stop: false, remove: false, choice: false, chosen: false };
     if (!s || s.available !== true) return none;
     if (!writingOffered(llm)) {
@@ -1082,7 +1083,7 @@
     }
     const size = modelSize(s.bytes_total);
     const percent = Math.max(0, Math.min(100, Math.round(Number(s.percent) || 0)));
-    const view = { ...none, show: true, about: WRITING_ABOUT, percent };
+    const view = { ...none, show: true, about: WRITING_ABOUT, how: WRITING_HOW, percent };
     if (s.state === 'downloading') {
       return { ...view, bar: true, stop: true,
         state: `Downloading the writing model: ${percent}%${size ? ` of ${size}` : ''}. You can carry on meanwhile.` };
@@ -3225,7 +3226,7 @@
     VOCAB_MAX_SOUNDS, markSegments, markWords, dayHeading, weekBars, streakView,
     keyInputView, serviceRows, saidDiff, setupSteps, startupTheme,
     setupWay, setupStepLabel, modelSize, setupRecommended, setupLocalView, setupConnectDone, setupCanGoBack,
-    writingOffered, writingRowView, howItRunsNote, setupExtraView, WRITING_TITLE, WRITING_ABOUT,
+    writingOffered, writingRowView, howItRunsNote, setupExtraView, WRITING_TITLE, WRITING_ABOUT, WRITING_HOW,
     setupModeToSave, setupModelWait, setupDownloadSaid, setupShouldResumeDownload, setupTryText,
     STATUS_VIEWS, STATUS_CLASSES, DONE_RESET_MS, statusView, statusResetMs, workingLabel, workingTime, recordingTime,
     notSentId, notSentView, retryFailedMessage, unsentSummary,

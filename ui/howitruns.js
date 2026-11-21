@@ -82,6 +82,8 @@
     const note = $('hirNote');
     if (note) note.textContent = L.howItRunsNote(s, hasKey);
     box.hidden = !v.show;
+    const how = $('hirLlmHow');        // what it needs and how long it takes, under "How it works"
+    if (how) { how.textContent = v.how || how.textContent; how.hidden = !v.how; }
     window.clearTimeout(pollLlm);
     if (!v.show) return;
     $('hirLlmAbout').textContent = v.about;
