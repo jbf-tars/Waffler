@@ -14,6 +14,10 @@ numpy>=1.24.0
 # FLAC encoding of longer clips before upload (libsndfile ships in the
 # wheel's _soundfile_data; PyInstaller's soundfile hook bundles it).
 soundfile>=0.12.1
+# Meetings: what the computer plays (src/meetings/recorder.py SystemSource),
+# through WASAPI loopback of the default output. Without it a meeting on
+# Windows records the microphone only (SystemSource.supported() is False).
+PyAudioWPatch>=0.2.12
 
 # ── Speech to text on this computer (src/local_stt.py) ────────────────
 # The engine only: the model is downloaded once, from Settings, into the
