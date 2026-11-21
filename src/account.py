@@ -77,6 +77,8 @@ SIGNED_OUT = "This computer was signed out of the account. Sign in again."
 SIGNED_OUT_OFFLINE = ("Signed out on this computer. The account service couldn't be reached, so "
                       "remove this computer from another of your devices to finish.")
 REMOVE_SELF = "To remove this computer, use Sign out."
+BAD_LINK = ("The account service answered with a link that is not its own, so Waffler did not keep it. "
+            "Try again.")
 DEVICE_GONE = "That device is no longer signed in."
 BUSY = "The account service is busy. Try again in a moment."
 SYNC_TOO_OFTEN = "The account service asked Waffler to wait. It will try again shortly."
@@ -574,14 +576,39 @@ def connector() -> dict:
     return _connector(_request("GET", "/account/connector"))
 
 
+def _own_link(url: str) -> bool:
+    """Whether a link the service answered with is on the service's own
+    address: https, the same host and the same port, and no name or password
+    in it. (A service on this computer, for development, is http: then the
+    link must be at exactly that address.) A service that has been taken
+    over could otherwise hand out a link to anywhere, to be pasted into
+    Claude as if it were the person's own."""
+    try:
+        got, mine = urlsplit(url), urlsplit(server_url())
+        ports = got.port or 0, mine.port or 0         # a port that is not a number raises
+    except ValueError:
+        return False
+    if not got.hostname or not mine.hostname or got.username or got.password:
+        return False
+    if got.scheme != mine.scheme or got.scheme not in ("https", "http"):
+        return False                                  # "http" only ever matches a service on this computer
+    usual = 443 if got.scheme == "https" else 80
+    return got.hostname.lower() == mine.hostname.lower() and (ports[0] or usual) == (ports[1] or usual)
+
+
 @_answers
 def connector_create() -> dict:
     """Make the Claude link, or replace it (the old one stops working at
     once). `url` is a secret: whoever has it can read every meeting in the
-    account. It is handed to the page to be copied, and kept nowhere."""
+    account. It is handed to the page to be copied, and kept nowhere. A link
+    that is not on the service's own address is refused (_own_link); the
+    refusal is logged as a word (app.py _account_call), never with the link."""
     answer = _request("POST", "/account/connector")
     url = answer.get("url")
-    if not isinstance(url, str) or not url.startswith(("https://", "http://")):
+    if isinstance(url, str) and url:
+        if not _own_link(url):
+            raise AccountError(BAD_LINK, "bad_link")
+    else:
         path = answer.get("path")
         if not isinstance(path, str) or not re.fullmatch(r"/connect/[A-Za-z0-9_-]+/mcp", path):
             raise AccountError(FAILED)

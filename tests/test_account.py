@@ -467,3 +467,57 @@ def test_when_waffler_opens_sync_starts_only_if_signed_in(api):
     main = app_py[app_py.index("\ndef main():"):]
     assert main.index("_account_begin_sync(delay_s=5.0)") < main.index("webview.start(debug=False)")
     assert "on_account_change=_account_changed" in app_py
+
+
+# ── hardening: a service that has been taken over ───────────────────────────
+
+@pytest.mark.parametrize("url", [
+    "https://evil.example/connect/natterc_abc/mcp",                       # another host
+    "http://notes.example.test/connect/natterc_abc/mcp",                  # not encrypted
+    "https://notes.example.test.evil.example/connect/natterc_abc/mcp",    # a look-alike
+    "https://notes.example.test@evil.example/connect/natterc_abc/mcp",    # the host is what follows the @
+    "https://user:pw@notes.example.test/connect/natterc_abc/mcp",
+    "https://notes.example.test:8443/connect/natterc_abc/mcp",            # another port
+    "https://notes.example.test:x/connect/natterc_abc/mcp",
+    "//notes.example.test/connect/natterc_abc/mcp", "javascript:alert(1)", "ftp://notes.example.test/x",
+    "/connect/natterc_abc/mcp", "notes.example.test/connect/natterc_abc/mcp",
+])
+def test_a_claude_link_that_is_not_on_the_services_own_address_is_refused(api, monkeypatch, url):
+    sign_in(api.server)
+    monkeypatch.setattr(account, "_transport", httpx.MockTransport(
+        lambda request: httpx.Response(200, json={"exists": True, "url": url, "path": "/connect/natterc_abc/mcp"})))
+    out = api.account_connector_create()
+    assert out == {"ok": False, "reason": "bad_link",
+                   "error": "The account service answered with a link that is not its own, so Waffler did "
+                            "not keep it. Try again."}
+    assert api.account_connector_rotate() == out
+    # Logged as a word, never with the link.
+    assert api.logged[-1] == "[account] connector_rotate: refused (bad_link)"
+    assert "[account] connector_create: refused (bad_link)" in api.logged
+    logged = "\n".join(api.logged)
+    assert "natterc_" not in logged and "evil" not in logged and "connect/" not in logged
+
+
+@pytest.mark.parametrize("url", ["https://notes.example.test/connect/natterc_abc/mcp",
+                                 "https://NOTES.example.test:443/connect/natterc_abc/mcp"])
+def test_a_claude_link_on_the_services_own_address_is_kept(server, monkeypatch, url):
+    sign_in(server)
+    monkeypatch.setattr(account, "_transport", httpx.MockTransport(
+        lambda request: httpx.Response(200, json={"exists": True, "url": url})))
+    assert account.connector_create()["url"] == url
+
+
+def test_a_service_on_this_computer_may_answer_with_its_own_plain_address(server, monkeypatch):
+    sign_in(server)
+    token = token_on_disk(server)
+    monkeypatch.setenv(account.SERVER_ENV, "http://127.0.0.1:8765")
+    account._write_session({"server": "http://127.0.0.1:8765", "token": token})
+
+    def answer(url):
+        monkeypatch.setattr(account, "_transport", httpx.MockTransport(
+            lambda request: httpx.Response(200, json={"exists": True, "url": url})))
+        return account.connector_create()
+    assert answer("http://127.0.0.1:8765/connect/natterc_abc/mcp")["ok"]
+    for other in ("http://127.0.0.1:9999/connect/natterc_abc/mcp", "http://evil.example/connect/natterc_abc/mcp",
+                  "https://127.0.0.1:8765/connect/natterc_abc/mcp", "http://localhost:8765/connect/natterc_abc/mcp"):
+        assert answer(other)["reason"] == "bad_link", other
