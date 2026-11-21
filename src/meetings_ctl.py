@@ -6,15 +6,43 @@ costs nothing until someone records or opens the Meetings page.
 
 Tap the hotkey twice: `toggle()` starts a recording, or finishes the one
 running. Dictation is untouched and still works while a meeting records.
+
+Signed in to an account (src/account.py), the meetings sync with it: soon
+after a meeting's notes are written, when Waffler opens, and every couple of
+minutes. The engine's own sync does the work (its sync_soon and
+start_auto_sync); `_account_round` is what it runs. Sync is always on a
+thread of its own, so a recording or a dictation never waits on it, and a
+round that fails is logged in a word and tried again at the next one.
 """
 from __future__ import annotations
 
+import importlib
 import os
 import threading
 import time
 
 _KEY_NAMES = ("GROQ_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY")
 TOGGLE_GAP_S = 1.5        # a second toggle sooner than this is the same gesture again
+SYNC_EVERY_S = 120.0      # signed in: how often the meetings sync with the account
+ACCOUNT_CURSORS = "account_sync_cursors"      # the engine's settings: how far sync has got, per account
+ACCOUNT_LAST_SYNCED = "account_last_synced"   # ... and when it last went through
+SYNC_BUSY = "A sync is still running. Try again in a moment."
+
+
+def _account():
+    try:
+        from src import account
+    except ImportError:
+        import account
+    return account
+
+
+def _engine(name: str):
+    """A module of the meetings engine, the same copy the Service came from."""
+    try:
+        return importlib.import_module(f"src.meetings.{name}")
+    except ImportError:
+        return importlib.import_module(f"meetings.{name}")
 
 
 def _share_waffler_keys() -> None:
@@ -71,9 +99,15 @@ def dictations_material(history: list, question: str, limit_chars: int = 16000) 
 
 
 class MeetingsController:
-    def __init__(self, log=lambda msg: None, on_change=lambda: None):
+    def __init__(self, log=lambda msg: None, on_change=lambda: None,
+                 on_account_change=lambda: None):
         self._log = log
         self._on_change = on_change        # called when the list or the recording state changes
+        self._on_account_change = on_account_change   # sync started, ended, or the account signed this computer out
+        self._sync = {"syncing": False, "last_synced_at": "", "error": ""}
+        self._sync_scope = ""              # the account `last_synced_at` belongs to
+        self._sync_lock = threading.Lock()
+        self._auto_sync = False
         self._lock = threading.Lock()
         self._service = None
         self._watching = False
@@ -94,8 +128,95 @@ class MeetingsController:
                     from meetings.service import Service
                 t = time.time()
                 self._service = Service()
+                self._service.account_sync = self._account_round
                 self._log(f"[meetings] engine ready in {time.time() - t:.1f}s")
             return self._service
+
+    # ── the account: the meetings sync with it ──────────────────────────────
+    def _set_sync(self, **changes) -> None:
+        with self._sync_lock:
+            self._sync.update(changes)
+        try:
+            self._on_account_change()
+        except Exception:  # noqa: BLE001
+            pass
+
+    def sync_state(self) -> dict:
+        """{"syncing", "last_synced_at", "error"} for the Account page."""
+        with self._sync_lock:
+            return dict(self._sync)
+
+    def _account_round(self, store) -> None:
+        """One sync with the account this computer is signed in to. The
+        engine calls this (sync_soon, start_auto_sync, sync_now), one round at
+        a time, never on a thread that records. Signed out, it does nothing.
+        Never raises; the log gets a word about a failure, never a secret."""
+        acct = _account()
+        cred = acct.sync_credentials()
+        if not cred:
+            return
+        if self._sync_scope != cred["scope"]:          # the first round, or another account
+            last = store.settings().get(ACCOUNT_LAST_SYNCED) or {}
+            self._sync_scope = cred["scope"]
+            with self._sync_lock:
+                self._sync["last_synced_at"] = last.get("at", "") if last.get("scope") == cred["scope"] else ""
+        before = self.sync_state()["error"]
+        self._set_sync(syncing=True)
+        error, done = "", {}
+        try:
+            sync = _engine("sync")
+            try:
+                client = acct.http_client(cred["server"], acct.SYNC_TIMEOUT_S)
+                try:
+                    out = sync.sync_with_hub(store, client=client, token=cred["token"],
+                                             cursors_key=ACCOUNT_CURSORS, scope=cred["scope"])
+                finally:
+                    client.close()
+                at = _engine("store").now_iso()
+                store.set_settings({ACCOUNT_LAST_SYNCED: {"scope": cred["scope"], "at": at}})
+                done = {"last_synced_at": at}
+                if out["pulled"] or out["pushed"] or before:
+                    self._log(f"[account] synced: {out['pulled']} in, {out['pushed']} out")
+                if out["pulled"]:
+                    self._on_change()                  # meetings from another device are in the list
+            except sync.SyncError as e:
+                error = acct.sync_refusal(e.status, e.detail, e.code)
+                if error != before:                    # said once, not every two minutes
+                    answer = f"answer {e.status}" if e.status else "no answer"
+                    self._log(f"[account] sync did not go through ({answer}); it will be tried again")
+        except Exception as e:  # noqa: BLE001
+            error = acct.FAILED
+            if error != before:
+                self._log(f"[account] sync failed: {type(e).__name__}")
+        finally:
+            self._set_sync(syncing=False, error=error, **done)
+
+    def start_sync(self, every_s: float = SYNC_EVERY_S) -> None:
+        """Signed in: sync now and every couple of minutes from here on.
+        Asked again (signed in a second time), it syncs now and leaves the
+        one loop running."""
+        svc = self._svc()
+        with self._sync_lock:
+            running, self._auto_sync = self._auto_sync, True
+        if running:
+            svc.sync_soon()
+        else:
+            svc.start_auto_sync(every_s)
+
+    def sync_now(self) -> dict:
+        """ "Sync now": a round, waited for. {"ok", "sync"}, with "error"
+        (one sentence) when it did not go through."""
+        if not self._svc().sync_now():
+            return {"ok": False, "error": SYNC_BUSY, "reason": "busy", "sync": self.sync_state()}
+        state = self.sync_state()
+        if state["error"]:
+            return {"ok": False, "error": state["error"], "reason": "sync", "sync": state}
+        return {"ok": True, "sync": state}
+
+    def account_signed_out(self) -> None:
+        """Signed out: nothing is left to say about syncing."""
+        self._sync_scope = ""
+        self._set_sync(syncing=False, last_synced_at="", error="")
 
     # ── recording ───────────────────────────────────────────────────────────
     def state(self) -> dict:

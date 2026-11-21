@@ -37,23 +37,50 @@ class Service:
         self._enhancing: set[str] = set()
         self._lock = threading.Lock()
         self._sync_lock = threading.Lock()
+        # Waffler's account (src/meetings_ctl.py): a function given the store
+        # that syncs with the signed-in account, and does nothing when nobody
+        # is signed in. The hub setting below is separate and still works.
+        self.account_sync = None
 
     # ── sync ────────────────────────────────────────────────────────────────
-    def sync_soon(self) -> None:
-        """Sync with the hub in the background, if one is set up. Never raises."""
-        def run():
-            from . import keys, sync
-            if not (self.store.settings().get("hub_url") and keys.get_key("hub")):
-                return
-            if not self._sync_lock.acquire(blocking=False):
-                return
+    def _sync_round(self) -> None:
+        """One round with the account and with the hub, whichever is set up.
+        Call with _sync_lock held. Never raises."""
+        account = self.account_sync
+        if account is not None:
             try:
-                sync.sync_with_hub(self.store)
+                account(self.store)
             except Exception:
-                pass                       # offline or hub down: the next round will catch up
+                pass                       # it keeps its own record of what went wrong
+        try:
+            from . import keys, sync
+            if self.store.settings().get("hub_url") and keys.get_key("hub"):
+                sync.sync_with_hub(self.store)
+        except Exception:
+            pass                           # offline or hub down: the next round will catch up
+
+    def sync_soon(self) -> None:
+        """Sync in the background with the account and the hub, whichever is
+        set up. Returns at once and never raises: recording never waits on it."""
+        def run():
+            if not self._sync_lock.acquire(blocking=False):
+                return                     # a round is running: it will carry this change, or the next will
+            try:
+                self._sync_round()
             finally:
                 self._sync_lock.release()
         threading.Thread(target=run, daemon=True, name="natter-sync").start()
+
+    def sync_now(self, wait_s: float = 90.0) -> bool:
+        """A round now, on the caller's thread ("Sync now"). False when a
+        round already running did not finish in `wait_s`."""
+        if not self._sync_lock.acquire(timeout=wait_s):
+            return False
+        try:
+            self._sync_round()
+        finally:
+            self._sync_lock.release()
+        return True
 
     def start_auto_sync(self, every_s: float = 120.0) -> None:
         def loop():

@@ -665,7 +665,8 @@ def _get_meetings():
                 from src.meetings_ctl import MeetingsController
             except ImportError:
                 from meetings_ctl import MeetingsController
-            _meetings = MeetingsController(log=_log_to_file, on_change=_meetings_changed)
+            _meetings = MeetingsController(log=_log_to_file, on_change=_meetings_changed,
+                                           on_account_change=_account_changed)
             atexit.register(_meetings.shutdown)
         return _meetings
 
@@ -792,6 +793,66 @@ def _claude_connector_mod():
     return claude_connector
 
 
+# ── The account (src/account.py): sign in, meetings sync, the Claude link ────
+def _account_mod():
+    try:
+        from src import account
+    except ImportError:
+        import account
+    return account
+
+
+def _account_sync_state() -> dict:
+    """Where sync stands, for the page. Does not make the meetings engine."""
+    if _meetings is None:
+        return {"syncing": False, "last_synced_at": "", "error": ""}
+    return _meetings.sync_state()
+
+
+def _account_call(what: str, *args, sync: bool = False) -> dict:
+    """One of src/account.py's functions, for the page: never raises. The log
+    gets the outcome as a word, never what was typed or what came back (an
+    address, a code, a token and the Claude link are all kept out of it).
+    Plain reads that worked are not logged: the page asks often."""
+    try:
+        out = getattr(_account_mod(), what)(*args)
+        if not out.get("ok"):
+            _log_to_file(f"[account] {what}: refused ({out.get('reason') or 'failed'})")
+        elif what not in ("status", "devices", "connector"):
+            _log_to_file(f"[account] {what}: ok")
+        if sync and out.get("ok"):
+            out["sync"] = _account_sync_state()
+        return out
+    except Exception as e:  # noqa: BLE001
+        _log_to_file(f"[account] {what} failed: {type(e).__name__}")
+        return {"ok": False, "error": "That didn't work. Try again.", "reason": "failed"}
+
+
+def _account_begin_sync(delay_s: float = 0.0) -> None:
+    """Signed in: sync the meetings now, and every couple of minutes from
+    here on (src/meetings_ctl.py start_sync). In the background, because the
+    meetings engine is made here if nothing has made it yet. Signed out, or
+    with no account service named, this does nothing at all."""
+    def run():
+        try:
+            if delay_s:
+                time.sleep(delay_s)
+            if _account_mod().status().get("signed_in"):
+                _get_meetings().start_sync()
+        except Exception as e:  # noqa: BLE001
+            _log_to_file(f"[account] sync not started: {type(e).__name__}")
+    threading.Thread(target=run, daemon=True, name="AccountSync").start()
+
+
+def _account_changed():
+    """Sync started, finished or failed, or this computer was signed out:
+    the Account page redraws itself (ui/account.js)."""
+    try:
+        _post_js("window.waffler_account_changed && window.waffler_account_changed()")
+    except Exception:
+        pass
+
+
 class Api:
     """Exposed to JS via pywebview.api.*"""
 
@@ -825,6 +886,81 @@ class Api:
         except Exception as e:
             _log_to_file(f"[claude] disconnect failed: {type(e).__name__}")
             return {"ok": False, "error": "Claude's settings couldn't be changed."}
+
+    # ── Account (src/account.py; the page is ui/account.js) ─────────────────
+    # Every method answers {"ok": bool, ...} and never raises; a refusal is
+    # {"ok": False, "error": <one sentence>, "reason": <a word>}. The session
+    # token is never in an answer. `sync` is {"syncing", "last_synced_at",
+    # "error"}.
+    def account_status(self) -> dict:
+        """{"ok", "available", "signed_in", "email", "device_name",
+        "device_id", "notice", "sync"}. Read from this computer; nothing is
+        contacted. `available` is False until an account service is named."""
+        return _account_call("status", sync=True)
+
+    def account_start(self, email: str = "") -> dict:
+        """Send the 6-digit code: {"ok", "email", "expires_in"}."""
+        return _account_call("start", email)
+
+    def account_verify(self, email: str = "", code: str = "") -> dict:
+        """Sign in with the code: the status shape. Syncing starts at once."""
+        out = _account_call("verify", email, code, sync=True)
+        if out.get("ok") and out.get("signed_in"):
+            _account_begin_sync()
+        return out
+
+    def account_sign_out(self) -> dict:
+        """The status shape, plus "told_service" and "note" (what is left to
+        do when the service could not be reached)."""
+        out = _account_call("sign_out")
+        try:
+            if out.get("ok"):
+                if _meetings is not None:
+                    _meetings.account_signed_out()
+                out["sync"] = _account_sync_state()
+        except Exception as e:  # noqa: BLE001
+            _log_to_file(f"[account] sign_out: {type(e).__name__}")
+        return out
+
+    def account_devices(self) -> dict:
+        """{"ok", "devices": [{"id", "name", "created_at", "last_used_at",
+        "signed_in_with", "current"}]}."""
+        return _account_call("devices")
+
+    def account_remove_device(self, device_id: str = "") -> dict:
+        """Sign another device out: the devices shape, as it is afterwards."""
+        return _account_call("remove_device", device_id)
+
+    def account_connector(self) -> dict:
+        """{"ok", "exists", "created_at", "last_used_at"}. Never the link."""
+        return _account_call("connector")
+
+    def account_connector_create(self) -> dict:
+        """Make the Claude link: the connector shape plus "url", this once."""
+        return _account_call("connector_create")
+
+    def account_connector_rotate(self) -> dict:
+        """A new Claude link (the old one stops working): as create."""
+        return _account_call("connector_rotate")
+
+    def account_connector_off(self) -> dict:
+        """Take the Claude link away: the connector shape, exists False."""
+        return _account_call("connector_off")
+
+    def account_sync_now(self) -> dict:
+        """Sync the meetings with the account now, and wait for it:
+        {"ok", "sync"}, with "error" when it did not go through."""
+        try:
+            acct = _account_mod()
+            status = acct.status()
+            if not status.get("signed_in"):
+                if not status.get("available"):
+                    return {"ok": False, "error": acct.NOT_AVAILABLE, "reason": "unavailable"}
+                return {"ok": False, "error": acct.NOT_SIGNED_IN, "reason": "signed_out"}
+            return _get_meetings().sync_now()
+        except Exception as e:  # noqa: BLE001
+            _log_to_file(f"[account] sync_now failed: {type(e).__name__}")
+            return {"ok": False, "error": "That didn't work. Try again.", "reason": "failed"}
 
     # ── Meetings ────────────────────────────────────────────────────────────
     def meetings_state(self) -> dict:
@@ -9916,6 +10052,11 @@ def main():
         window.events.minimized += _on_minimized
     if getattr(window.events, "restored", None) is not None:
         window.events.restored += _on_restored
+
+    # Signed in to an account: the meetings sync a few seconds after the app
+    # opens, then every couple of minutes. Signed out (or no account service
+    # named), nothing is started and nothing is contacted.
+    _account_begin_sync(delay_s=5.0)
 
     print("Waffler window launching...")
     # Start webview — this blocks until window is closed
