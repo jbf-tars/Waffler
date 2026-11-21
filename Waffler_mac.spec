@@ -102,10 +102,26 @@ def _llm_libs():
 
 _LLM_BINARIES = _llm_libs()
 
+# ── The computer-sound helper for meetings (mac/sysaudio), optional ─────────
+# A meeting records the other people from what the Mac is playing, through a
+# small Swift program (ScreenCaptureKit) that src/meetings/recorder.py starts.
+# mac/build_sysaudio.sh builds it into mac/build/natter-sysaudio; build_mac.sh
+# and the release workflow run that before this spec. It is bundled as a
+# binary, so it lands in Contents/Frameworks and is inside the app's
+# signature. Without it the build still works and a meeting records the
+# microphone only, which is why its absence is said out loud here.
+_SYSAUDIO = os.path.join(PROJECT_ROOT, 'mac', 'build', 'natter-sysaudio')
+if os.path.isfile(_SYSAUDIO):
+    _SYSAUDIO_BINARIES = [(_SYSAUDIO, '.')]
+else:
+    print("[spec] meetings: mac/build/natter-sysaudio is not built (run mac/build_sysaudio.sh), "
+          "not bundled: meetings will record the microphone only")
+    _SYSAUDIO_BINARIES = []
+
 a = Analysis(
     ['app.py'],
     pathex=[PROJECT_ROOT, os.path.join(PROJECT_ROOT, 'src')],
-    binaries=_LLM_BINARIES,
+    binaries=_LLM_BINARIES + _SYSAUDIO_BINARIES,
     datas=_STT_DATAS + [
         ('ui', 'ui'),
         ('prompts', 'prompts'),
