@@ -486,16 +486,21 @@ body[data-page="home"] .status.processing .status-t { display: none; }
 .ob-recchip:not(.ob-recchip-honey):not(.ob-recchip-off) i {
   --wrec-body: var(--rec);
   --wrec-cell: var(--rec-grid);
-  animation: wrec-pulse 2.4s ease-in-out infinite;
 }
-/* The one thing that moves: the red waffle breathes while Waffler records.
-   (Still for people who ask for less motion: style.css, Motion.) */
+/* The one thing that moves: the red waffle breathes while Waffler records,
+   and only for people who have not asked their computer for less motion. */
+@media (prefers-reduced-motion: no-preference) {
+  .wrec.is-rec,
+  .is-on > .wrec,
+  .dot-rec,
+  .status.listening .status-dot,
+  .status.recording .status-dot,
+  .j-live[data-state="listening"] .j-live-dot,
+  .ob-recchip:not(.ob-recchip-honey):not(.ob-recchip-off) i { animation: wrec-pulse 2.4s ease-in-out infinite; }
+}
 @keyframes wrec-pulse {
   0%, 100% { opacity: 1; }
   50%      { opacity: 0.72; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .wrec, .dot-rec, .status-dot, .j-live-dot, .ob-recchip i { animation: none; }
 }
 /* The small signs: 14 px is the least at which the pockets still show. */
 .dot-rec,

@@ -84,16 +84,25 @@ def test_recording_is_the_same_waffle_in_red_breathing_slowly():
     assert ".is-on > .wrec" in sel
     assert "--wrec-body: var(--rec);" in decls and "--wrec-cell: var(--rec-grid);" in decls
     assert "background" not in decls and "border-radius" not in decls     # the same drawing, only its colours
-    assert "animation: wrec-pulse 2.4s ease-in-out infinite" in decls
     css = code_only(read("components.css"))
     frames = css[css.index("@keyframes wrec-pulse"):]
     frames = frames[:frames.index("}\n}") + 3]
     assert "opacity: 1" in frames and "opacity: 0.72" in frames and "transform" not in frames
-    # Still for people who ask for less motion: here by name, and by the page's one rule.
-    still = css[css.index("@media (prefers-reduced-motion: reduce)", css.index("@keyframes wrec-pulse")):]
-    assert ".wrec" in still[:still.index("}")] and "animation: none" in still[:still.index("}") + 1]
-    assert "animation-iteration-count: 1 !important" in code_only(read("style.css"))
     assert "status-rec" not in css                                        # the old ring round the dot
+
+
+def test_it_breathes_only_for_people_who_have_not_asked_for_less_motion():
+    css = code_only(read("components.css"))
+    moving = [(s, d) for s, d in _css_rules_of("components.css") if "wrec-pulse" in d]
+    (sel, decls), = moving
+    assert decls.strip() == "animation: wrec-pulse 2.4s ease-in-out infinite;"      # slow
+    # ...the very marks that are red, and inside the media rule, nowhere else.
+    (red_sel, _), = [(s, d) for s, d in _rules("components.css", ".wrec.is-rec") if "--wrec-body" in d]
+    assert sel == red_sel
+    media = css[css.index("@media (prefers-reduced-motion: no-preference)"):]
+    assert media.index("wrec-pulse 2.4s") < media.index("@keyframes wrec-pulse")
+    assert css.count("animation: wrec-pulse") == 1
+    assert "animation-iteration-count: 1 !important" in code_only(read("style.css"))   # and the page's one rule
 
 
 def test_no_plain_red_circle_is_left_on_the_page():
@@ -342,3 +351,73 @@ def test_the_menu_bar_still_shows_the_time_if_the_mark_cannot_be_drawn():
     bare = _Button(image=None)
     _menubar(lambda: "red-waffle")["_menubar_show_recording"](_Item(bare), True, "0:09")
     assert bare.image() is None and bare.title == " 0:09"
+
+
+# ── the Meetings tab (ui/meetings-app, built from natter-notes ui/) ──────────
+
+def _built(kind):
+    (one,) = sorted((ROOT / "ui" / "meetings-app" / "assets").glob(f"*.{kind}"))
+    return one.read_text(encoding="utf-8")
+
+
+def _built_rules():
+    css = re.sub(r"/\*.*?\*/", "", _built("css"), flags=re.S)
+    return [(" ".join(s.split()), d) for s, d in re.findall(r"([^{}@;]+)\{([^{}]*)\}", css)]
+
+
+def _built_rule(selector):
+    found = [d for s, d in _built_rules() if s == selector]
+    assert found, selector
+    return ";".join(found)
+
+
+def test_the_meetings_tab_draws_the_same_waffle():
+    """The frame has its own stylesheet, so the rule is repeated there: the
+    same sixteen pockets, the same tokens, the same breath."""
+    theirs = _built_rule(".in-waffler .wrec")
+    (_, ours), = [(s, d) for s, d in _rules("components.css", ".wrec") if "--wrec-c:" in d]
+    assert _pockets(theirs) == _pockets(ours) and len(_pockets(theirs)) == 16
+    flat = theirs.replace(" ", "")
+    assert "--wrec-body:var(--waffle)" in flat and "--wrec-cell:var(--waffle-grid)" in flat
+    assert "border-radius:27%" in flat and "box-shadow:inset0001pxvar(--wrec-cell)" in flat
+    red = _built_rule(".in-waffler .wrec.is-rec").replace(" ", "")
+    assert "--wrec-body:var(--rec)" in red and "--wrec-cell:var(--rec-grid)" in red
+    # It breathes only inside the rule for people who have not asked for less motion.
+    css = _built("css")
+    tight = css.replace(" ", "")
+    assert tight.count("animation:wrec-pulse") == 1
+    assert ("@media(prefers-reduced-motion:no-preference){.in-waffler.wrec.is-rec"
+            "{animation:wrec-pulse2.4sease-in-outinfinite}}") in tight
+    frames = css[css.index("@keyframes wrec-pulse"):][:120].replace(" ", "")
+    assert "opacity:1" in frames and "opacity:.72" in frames
+    # The three tokens it needs are handed to the frame.
+    sent = code_only(read("meetings.js"))
+    for name in ("'--rec'", "'--rec-grid'", "'--waffle'", "'--waffle-grid'"):
+        assert name in sent, name
+
+
+def test_every_record_control_in_the_meetings_tab_wears_it():
+    js_ = _built("js")
+    # One component: the waffle inside Waffler, the old dot in stand-alone Natter.
+    assert '"wrec is-rec":"wrec"' in js_ and '"dot live":"dot"' in js_
+    # The live dot beside the timer is drawn only outside Waffler (the phone's page,
+    # which Waffler never shows, keeps its own).
+    assert re.search(r'!\w+&&\w+\.jsx\("span",\{className:"dot live"\}\),\w+\.jsx\("span",\{className:"timer"', js_)
+    for words in ("New recording", "Add more", "Finish", "Ctrl N"):
+        assert words in js_, words
+    assert "Finish recording and write the notes" in js_               # the stop control's title, as it was
+    sizes = {".in-waffler .rail .record .wrec": "18px", ".in-waffler .welcome .record .wrec": "20px",
+             ".in-waffler .item .t .wrec": "14px"}
+    for selector, px in sizes.items():
+        assert f"width:{px};height:{px}" in _built_rule(selector).replace(" ", ""), selector
+    assert "opacity:.45" in _built_rule(".in-waffler .record:disabled .wrec").replace(" ", "").replace("0.45", ".45")
+
+
+def test_finish_in_the_meetings_tab_is_the_ordinary_button_with_the_red_waffle():
+    stop = _built_rule(".in-waffler .stop").replace(" ", "")
+    assert "background:var(--btn-pri-bg)" in stop and "color:var(--btn-pri-fg)" in stop
+    assert "danger-solid" not in stop, "not a red button: the red waffle would not show on it"
+    assert "background: var(--btn-pri-bg)" in [d for s, d in _css_rules_of("meetings.css") if s == ".j-rec"][0]
+    for selector, decls in _built_rules():
+        if ".in-waffler" in selector:
+            assert not ("var(--rec)" in decls and "--wrec-body" not in decls), f"{selector}: a red of its own"

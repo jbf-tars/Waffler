@@ -9,7 +9,7 @@ pill, other fonts, and a strip under it with a switch. Now:
     resolved it (ui/meetings.js wafflerTokens), and the frame's own stylesheet
     for Waffler is written only in those names;
   * the frame has no brand header, and "New recording" is an ordinary control
-    the height of the search field under it;
+    the height of the search field under it, with the waffle record mark;
   * the strip is gone: its switch is a row in Settings, Shortcuts;
   * Settings' side menu has no footer, and About does not say who made it.
 
@@ -168,14 +168,21 @@ def test_inside_waffler_every_colour_font_and_radius_is_a_waffler_token():
     for name, value in re.findall(r"(--[a-z0-9-]+)\s*:\s*([^;]+)", mapping):
         used = set(re.findall(r"var\((--[a-z0-9-]+)", value))
         assert used and used <= sent, f"{name} must be made of Waffler's tokens: {value}"
+    # The waffle record mark's own three names, each made of tokens in its own rule
+    # (tests/test_waffle_record.py has the mark).
+    mark = {"--wrec-body", "--wrec-cell", "--wrec-c"}
     for selector, decls in rules:
+        for name, value in re.findall(r"(--wrec-[a-z]+)\s*:\s*([^;]+)", decls):
+            used = set(re.findall(r"var\((--[a-z0-9-]+)", value))
+            assert name in mark and used and used <= sent | mark, f"{selector}: {name}: {value}"
         for name in re.findall(r"var\((--[a-z0-9-]+)", decls):
-            assert name in sent or name in mapped, f"{selector}: {name} is not a token of tokens.css"
-        # No colour of its own: white on the solid red "Finish" (as on Home), and the
-        # three faint tints Waffler's own stylesheets write in the same parts (the
-        # shadow under the open tab, the glow of a field with the keyboard, the toast's).
+            assert name in sent or name in mapped or name in mark, f"{selector}: {name} is not a token of tokens.css"
+        # No colour of its own (Finish is the ordinary button with the red waffle now,
+        # not white on solid red): only the three faint tints Waffler's own stylesheets
+        # write in the same parts (the shadow under the open tab, the glow of a field
+        # with the keyboard, the toast's).
         colours = [c.lower() for c in re.findall(r"#[0-9A-Fa-f]{3,8}\b", decls)] + sorted(_tints(decls))
-        assert set(colours) <= {"#fff", "#ffffff"} | _wafflers_own_tints(), f"{selector}: {colours}"
+        assert set(colours) <= _wafflers_own_tints(), f"{selector}: {colours}"
         assert "rgb(" not in decls and "hsl" not in decls, f"{selector}: {decls}"
         families = re.findall(r"font(?:-family)?\s*:[^;]*?([\"'][A-Za-z ]+[\"'])", decls)
         assert not families, f"{selector}: a font is named by hand: {families}"
@@ -241,7 +248,9 @@ def test_new_recording_is_an_ordinary_control_the_height_of_the_search_field():
     assert "inset0001pxvar(--ring-ctl)" in search                                                  # Home's search field
     js_ = _built("js")
     assert "New recording" in js_ and "Ctrl N" in js_           # it still says its shortcut
-    assert "var(--rec)" in _rule(".in-waffler .dot")            # and keeps the small red dot
+    # Its mark is the gold waffle record mark, not a red dot (tests/test_waffle_record.py).
+    assert "width:18px;height:18px" in _rule(".in-waffler .rail .record .wrec").replace(" ", "")
+    assert not [s for s, _ in _waffler_rules() if s == ".in-waffler .dot"]
 
 
 # ── the strip under the Meetings tab is a row in Settings, Shortcuts ─────────
