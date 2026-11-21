@@ -205,3 +205,79 @@ Windows; the suite result is below.
 **5. Spacing.** As measured in 1, it matches the design. No change was made.
 
 **Suite on `one-app` 672d27d, on Windows:** **8,453 passed, 86 skipped, 0 failed** in 7 min 1 s (8,516 pass on the Mac; the 86 skipped are the Mac-only and POSIX-shell tests, as before).
+
+## Re-check on `one-app` 139fe11
+
+`windows` is now `one-app` 139fe11 (which already held the earlier Windows
+commits), plus this report and its pictures.
+
+**Suite:** **8,623 passed, 89 skipped, 0 failed** in 7 min 43 s on Windows (86 were skipped last time, and all of those were Mac-only or POSIX-shell tests) (the Mac has 8,689 passed, 18 skipped).
+
+**1. Account file lock (icacls).** The account tests pass on Windows (they are
+in the suite). On a real file in a temporary data folder, with a made-up
+session and no server contacted:
+
+- `_write_session` wrote `account.json`, and no `.tmp` file was left behind.
+- `icacls` then listed one entry: the current user, with full control (F). No
+  SYSTEM, no Administrators, nothing inherited.
+- Reading it back gave the same session.
+- A second write worked and kept the same single entry.
+- `sync_credentials()` returned the token, and `forget()` removed the file.
+
+So the icacls path works on Windows as written.
+
+**2. The waffle record mark (Home, Meetings, top bar).** The pictures come from
+the app's own WebView2, on a test copy run from source, taken through its
+DevTools port. Nothing on James's screen was captured and nothing was recorded.
+
+- In light and dark: `home-idle-*`, `home-recording-*`, `meetings-idle-*`.
+- The recording look was made with the states the app pushes:
+  `waffler_status('listening')` for the top bar and the live strip, and the Home
+  button's `is-on` state with its clock and "Finish", which is what
+  `ui/meetings.js` sets from `meetings_state`.
+- Nothing is clipped, and the marks are sharp at 100%. They are CSS, so WebView2
+  scales them itself at 125% or 150%.
+- Not shown: the Meetings tab's own record control while recording. Its state
+  comes from the native bridge and changes only in a real meeting, which needs
+  James.
+- On this test copy (speech on this computer, no key), the Meetings tab shows
+  "Add a key in Waffler's Settings to begin" instead of a record button. The
+  Advanced text says notes need a key either way, so this looks intended.
+  Flagging it in case recording without a key, with notes later, was meant to
+  work.
+
+**3. Settings > Keys and providers.** It renders in light and dark
+(`settings-keys-*`):
+
+- The two choices are one radio group.
+- "On this computer" reads "Free", "Private. One download.", "Ready, 486 MB"
+  and has a Remove button. That state is right: `small` is downloaded in this
+  test folder.
+- "Your own key" reads "Faster" and has the provider picker (Groq, OpenAI,
+  Cerebras), the key box, Save, and "Get a free Groq key".
+- Advanced opens (`aria-expanded` true; `settings-keys-advanced-*`), showing the
+  flow, the provider order and the notes.
+- The picker is a native select, so its open list cannot be pictured; its
+  options are Groq, OpenAI and Cerebras. No key was typed anywhere.
+
+One bug found here:
+- With Advanced open, `P#providerOrderLive.sr-only` (absolute, 1 px) sits at
+  y=806 in a 741 px window. It is placed against the page instead of the
+  settings pane, so the page itself becomes 65 px taller than the window and can
+  scroll: by scroll chaining past the end of the pane, by the keyboard, or by
+  `scrollIntoView`.
+- In dark mode `html` keeps its light background (rgb 253, 252, 252, while
+  `body` is rgb 18, 16, 14). So that scroll shows a 65 px light strip at the
+  bottom; `settings-keys-advanced-dark.png` shows it.
+- Likely fixes: keep `.sr-only` elements inside the pane (`position: relative`
+  on `#settingsScroll`, or `top: 0; left: 0` on `.sr-only`), and give `html`
+  the theme's background.
+- It is shared CSS, so I left it for the Mac side. It is probably the same in
+  WKWebView.
+
+**4. Sync.** Covered by the sync tests in the suite, which pass on Windows. It
+was not run against the server, because signing in needs the code from James's
+email.
+
+**Still needs James at the PC:** signing in and a sync, a real meeting (the
+Meetings tab's record control while recording), and dictation by voice.
