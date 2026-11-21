@@ -7,9 +7,10 @@ in a review of real use one such pair changed every "your" and "our" in 13 of
   * a one-word everyday spelling is ASKED about (the Vocabulary page), and
     only a spelling the person confirmed is taken everywhere ("because you
     said so" now means that confirmation);
-  * until it is answered it is neither dropped nor applied blindly: it is
-    taken only where the word is written like a name, with a capital in the
-    middle of a sentence;
+  * until it is answered it stays saved (so the page can ask) and is never
+    used as a match, not even where the word is written like a name. At first
+    it was taken where it had a capital in the middle of a sentence,
+    which still rewrote "Your" in a heading or a quoted label;
   * Remove takes the spelling off the entry; nothing else about it changes.
 
 A spelling of several words ("waffle her") or one that is not an everyday
@@ -50,7 +51,7 @@ def test_anything_else_is_not(spelling):
     assert not tw.is_everyday_spelling(spelling)
 
 
-# ── unanswered: only where it is written like a name ─────────────────────────
+# ── unanswered: never used as a match ────────────────────────────────────────
 
 @pytest.mark.parametrize("text", [
     "I looked at your website and our plan for it.",
@@ -59,15 +60,26 @@ def test_anything_else_is_not(spelling):
     "He said: Your turn.\nOur turn next.",
     "\"Your call,\" she said.",
     "SEND YOUR REPORT NOW",
+    "I asked Your about it, and then Our rang back.",
+    "the page says BBB Your Data, Your Gym, Our Plan",
 ])
 def test_ordinary_speech_is_never_rewritten(files, text):
     assert tw.apply_vocab_changes(text, WORDS, SOUNDS) == (text, [])
 
 
-def test_a_capital_in_the_middle_of_a_sentence_is_a_name(files):
-    text, changes = tw.apply_vocab_changes("I asked Your about it, and then Our rang back.", WORDS, SOUNDS)
-    assert text == "I asked Noor about it, and then Noor rang back."
-    assert changes == [("Your", "Noor"), ("Our", "Noor")]
+def test_whatever_the_spellings_file_says(files):
+    """A spellings file written by an older version (or by hand) cannot turn
+    an everyday word into a name: only the person's own Keep can."""
+    (files / "vocab.json").write_text(json.dumps(["Nour"]), encoding="utf-8")
+    (files / "vocab_sounds.json").write_text(json.dumps({"Nour": ["your", "our", "Your"]}), encoding="utf-8")
+    words, sounds = tw.load_vocab(), tw.load_sounds_like()
+    assert sounds == {"Nour": ["your", "our"]}          # still saved, still asked about
+    for text in ("at your website", "start our own repo", "I looked at Your website today",
+                 "BBB Your data, Your gym"):
+        assert tw.apply_vocab_changes(text, words, sounds) == (text, [])
+        assert tw.apply_vocab_marked(text, words, sounds) == (text, [], [])
+    # The name itself, said and heard as the name, still gets its capital.
+    assert tw.apply_vocab_changes("ask nour about your plan", words, sounds)[0] == "ask Nour about your plan"
 
 
 def test_the_other_spellings_of_the_same_list_are_taken_as_before(files):
@@ -82,7 +94,10 @@ def test_the_entrys_own_spelling_still_gets_its_capital(files):
 
 def test_try_a_sentence_marks_only_what_changed(files):
     text, changes, spans = tw.apply_vocab_marked("your friend Your is here", WORDS, SOUNDS)
-    assert text == "your friend Noor is here" and spans == [(12, 16)]
+    assert (text, changes, spans) == ("your friend Your is here", [], [])
+    text, changes, spans = tw.apply_vocab_marked("your friend Your is here", WORDS, SOUNDS,
+                                                 kept={"Noor": ["your"]})
+    assert text == "Noor friend Noor is here" and spans == [(0, 4), (12, 16)]
 
 
 # ── the question and its two answers ─────────────────────────────────────────

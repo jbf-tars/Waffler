@@ -1,10 +1,14 @@
 """Setting: "learn_from_edits", whether the Journal's Edit text offers words for
 the Vocabulary (Vocabulary page, "Suggest words from my edits").
 
-On until it is exactly false; it only produces suggestions, and nothing is ever
-added without a click. Read with get_settings, written by save_settings, which
-refuses anything but a true or a false and saves nothing from a payload it
-refuses.
+Off until it is exactly true: a new install, and anyone who has never touched
+the switch, gets no suggestion rows under an edit. (It was on until switched
+off. A review of real use found the rows offered for ordinary corrections,
+"dashboard" and "merged" among them, to someone who had never asked for them.)
+Turning it on works as before: it only produces suggestions, and nothing is
+ever added without a click. Read with get_settings, written by save_settings,
+which refuses anything but a true or a false and saves nothing from a payload
+it refuses.
 """
 import ast
 import json
@@ -45,18 +49,28 @@ def methods(tmp_path, initial=None):
     return api, _lift("save_settings", **ns), _lift("get_settings", **ns)
 
 
-def test_it_is_on_until_set(tmp_path):
+def test_it_is_off_until_set(tmp_path):
     api, _save, get = methods(tmp_path)
-    assert get(api)["learn_from_edits"] is True
+    assert get(api)["learn_from_edits"] is False
+    # Someone with other settings saved, who never touched this switch.
+    api, _save, get = methods(tmp_path, {"dialect": "en-GB", "theme": "dark"})
+    assert get(api)["learn_from_edits"] is False
 
 
 @pytest.mark.parametrize("stored, want", [
     ({"learn_from_edits": True}, True), ({"learn_from_edits": False}, False),
-    ({"learn_from_edits": "false"}, True), ({"learn_from_edits": 0}, True), ({"learn_from_edits": None}, True),
+    ({"learn_from_edits": "true"}, False), ({"learn_from_edits": 1}, False), ({"learn_from_edits": None}, False),
 ])
-def test_only_a_real_false_turns_it_off(tmp_path, stored, want):
+def test_only_a_real_true_turns_it_on(tmp_path, stored, want):
     api, _save, get = methods(tmp_path, stored)
     assert get(api)["learn_from_edits"] is want is learn_words.enabled(stored)
+
+
+def test_turning_it_on_from_nothing_works(tmp_path):
+    api, save, get = methods(tmp_path)
+    assert save(api, {"learn_from_edits": True})["ok"] is True
+    assert api.data == {"learn_from_edits": True}
+    assert get(api)["learn_from_edits"] is True and learn_words.enabled(api.data) is True
 
 
 @pytest.mark.parametrize("value", [True, False])

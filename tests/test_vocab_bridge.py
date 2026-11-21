@@ -54,7 +54,9 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr(tw, "VOCAB_FILE", data / "vocab.json")
     monkeypatch.setattr(tw, "VOCAB_SOUNDS_FILE", data / "vocab_sounds.json")
     logged, revealed, cache_calls, swaps = [], [], [], []
-    settings = settings_api(data)
+    # "Suggest words from my edits" is off until someone turns it on; here
+    # it has been, so the edit tests below say what it then offers.
+    settings = settings_api(data, {"learn_from_edits": True})
 
     ns = {
         "json": json, "_log_to_file": logged.append, "DATA_DIR": data,
@@ -496,10 +498,24 @@ def test_the_setting_turns_suggestions_off_but_the_edit_is_still_kept(env):
     assert r["ok"] and r["suggestions"] == [] and history(env)[0]["edited_text"] == "Use Waffler daily."
 
 
-def test_a_setting_that_is_not_exactly_false_leaves_suggestions_on(env):
-    env.settings._save_settings_file({"learn_from_edits": "no"})
+def test_nobody_gets_suggestions_without_turning_them_on(env):
+    env.settings._save_settings_file({})
     write_history(env, [entry(id=1)])
-    assert env.api.edit_history_text(1, "", "", "Use Waffler daily.")["suggestions"]
+    r = env.api.edit_history_text(1, "", "", "Use Waffler daily.")
+    assert r["ok"] and r["suggestions"] == [] and history(env)[0]["edited_text"] == "Use Waffler daily."
+
+
+def test_a_setting_that_is_not_exactly_true_leaves_suggestions_off(env):
+    env.settings._save_settings_file({"learn_from_edits": "yes"})
+    write_history(env, [entry(id=1)])
+    assert env.api.edit_history_text(1, "", "", "Use Waffler daily.")["suggestions"] == []
+
+
+def test_turned_on_they_are_made_as_before(env):
+    env.settings._save_settings_file({"learn_from_edits": True})
+    write_history(env, [entry(id=1)])
+    assert env.api.edit_history_text(1, "", "", "Use Waffler daily.")["suggestions"] == [
+        {"word": "Waffler", "sounds_like": ["waffle"]}]
 
 
 def test_suggestions_never_put_words_in_the_log(env):

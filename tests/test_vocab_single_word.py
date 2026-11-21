@@ -123,6 +123,29 @@ def test_the_closest_entry_wins_not_the_first_listed():
     assert fuzzy_match_word("cobiec", ["COBie", "COBieQC"]) == [("cobiec", "COBieQC")]
 
 
+@pytest.mark.parametrize("heard, expected", [
+    ("Run the cobie qc check.", "Run the COBieQC check."),
+    ("Run the COBie QC check.", "Run the COBieQC check."),
+    ("Run the Cobie-QC check.", "Run the COBieQC check."),
+    ("The cobie qc and the cobie file.", "The COBieQC and the COBie file."),
+])
+def test_two_words_that_spell_a_longer_entry_are_that_entry(heard, expected):
+    """"cobie qc" was written "COBie qc": its first word is an entry too
+    (COBie), and that match was taken before the pair was ever joined. A pair
+    that spells an entry letter for letter is that entry, whichever is listed
+    first."""
+    for vocab in (OWNER, ["COBie", "COBieQC"], ["COBieQC", "COBie"]):
+        assert apply_vocab_corrections(heard, vocab)[0] == expected
+
+
+def test_that_does_not_reach_a_pair_of_everyday_words():
+    # "Mark" listed: "mark" is claimed as the everyday word it is, as before,
+    # so "mark down" is not joined into Markdown behind the speaker's back.
+    vocab = ["Mark", "Markdown", "Club", "Clubcard"]
+    for text in ("mark down the price", "show your club card"):
+        assert apply_vocab_corrections(text, vocab) == (text, [])
+
+
 def test_an_accent_only_difference_is_corrected_even_for_a_short_entry():
     assert apply_vocab_corrections("zoe rang", ["Zoë"])[0] == "Zoë rang"
 

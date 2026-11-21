@@ -123,6 +123,19 @@ def test_entries_no_longer_listed_are_ignored(vocab_home):
     assert tw.restore_lost_corrections([log]) == {}
 
 
+def test_an_everyday_word_is_never_restored_as_a_spelling(vocab_home):
+    """Real use, 2026-10: the old matcher had turned "your" and "our" into the
+    name Nour often enough to count as "relied on", so this step saved both as
+    spellings of Nour, and 13 later dictations had "your" pasted as "Nour"."""
+    (vocab_home / "vocab.json").write_text(json.dumps(["Nour", "Waffler"]), encoding="utf-8")
+    log = log_with(vocab_home, [("your", "Nour", 10), ("our", "Nour", 3), ("Your", "Nour", 4),
+                                ("waffle", "Waffler", 16)])
+    assert tw.restore_lost_corrections([log]) == {"Waffler": ["waffle"]}
+    assert tw.load_sounds_like() == {"Waffler": ["waffle"]}
+    for text in ("I looked at your website", "is this our app", "I looked at Your website today"):
+        assert tw.apply_vocab_changes(text, tw.load_vocab(), tw.load_sounds_like()) == (text, [])
+
+
 def test_missing_log_is_harmless(vocab_home):
     assert tw.restore_lost_corrections([vocab_home / "nope.log"]) == {}
 

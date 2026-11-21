@@ -143,7 +143,7 @@ Days and hours come from the entry's stamp (local wall-clock time) and every ste
 
 ### S10 Vocabulary and Snippets v2
 
-One key in `settings.json`, `learn_from_edits`, a bool. It is read as on unless it is exactly `false` (`learn_words.enabled(stored)`) and written through `save_settings({"learn_from_edits": bool})`, which refuses anything else (`user_messages.LEARN_FROM_EDITS_UNKNOWN`) before saving any of the payload. `get_settings()["learn_from_edits"]` is the same bool. It only decides whether `edit_history_text` computes suggestions; nothing is ever added without a click. It is not secret and goes into the logs bundle as it is.
+One key in `settings.json`, `learn_from_edits`, a bool. It is read as off unless it is exactly `true` (`learn_words.enabled(stored)`; it was on unless exactly `false` until 2026-11-21, when a review of real use found the rows offered unasked for ordinary corrections) and written through `save_settings({"learn_from_edits": bool})`, which refuses anything else (`user_messages.LEARN_FROM_EDITS_UNKNOWN`) before saving any of the payload. `get_settings()["learn_from_edits"]` is the same bool. It only decides whether `edit_history_text` computes suggestions; nothing is ever added without a click. It is not secret and goes into the logs bundle as it is.
 
 Meaning: the Vocabulary page's "Suggest words from my edits", default `true`. Off: `edit_history_text` still keeps the edit and returns no suggestions.
 

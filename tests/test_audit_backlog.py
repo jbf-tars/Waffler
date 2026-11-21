@@ -268,9 +268,9 @@ def test_the_vocabulary_page_asks_for_its_switch_not_for_every_setting():
     assert "get_learn_from_edits()" in body and "get_settings" not in body
 
 
-@pytest.mark.parametrize("stored,want", [({}, True), ({"learn_from_edits": True}, True),
-                                         ({"learn_from_edits": False}, False), ({"learn_from_edits": "false"}, True),
-                                         ({"learn_from_edits": 0}, True), ({"learn_from_edits": None}, True)])
+@pytest.mark.parametrize("stored,want", [({}, False), ({"learn_from_edits": True}, True),
+                                         ({"learn_from_edits": False}, False), ({"learn_from_edits": "true"}, False),
+                                         ({"learn_from_edits": 1}, False), ({"learn_from_edits": None}, False)])
 def test_the_light_call_reads_the_switch_as_get_settings_does(stored, want):
     node = next(n for n in _API.body if isinstance(n, ast.FunctionDef) and n.name == "get_learn_from_edits")
     ns = {}
@@ -290,7 +290,8 @@ def test_the_light_call_never_raises():
     class Api:
         def _load_settings_file(self):
             raise OSError("disk")
-    assert ns["get_learn_from_edits"](Api()) == {"ok": True, "on": True}
+    # Settings that cannot be read are settings nobody changed: off.
+    assert ns["get_learn_from_edits"](Api()) == {"ok": True, "on": False}
 
 
 # ── 9. the Hands-free blurb ──────────────────────────────────────────────────

@@ -4,8 +4,10 @@ it corrected something, and Try a sentence.
 * "Sounds like": the spellings speech to text writes for an entry ("grok"
   for Groq). Saved beside vocab.json in vocab_sounds.json, so vocab.json
   stays the plain list older versions read. An entry with spellings is
-  matched by them and by its own spelling, never loosely: naming what it
-  hears stops the guessing. Entries without any match as before.
+  matched by them, by its own spelling and loosely, as an entry without any
+  is. (At first a spelling stopped the loose matching for its word; on real
+  use that left "Wuffler" unfixed for Waffler, whose spellings were "waffle"
+  and "woffler", so a spelling now only ever adds a match.)
 * The counts come from the corrections recorded with each Journal entry
   ("vocab_changes"), never from anything else.
 * Try a sentence runs the same step a dictation runs, through the bridge.
@@ -112,14 +114,43 @@ def test_a_spelling_of_everyday_words_is_taken_because_you_said_so():
         "ask Waffler and Waffler"
 
 
-def test_an_entry_with_spellings_stops_guessing():
-    # Tailscale has none: a near miss is still fixed loosely.
+def test_an_entry_with_spellings_is_still_matched_loosely():
+    # Tailscale has none: a near miss is fixed loosely.
     assert tw.apply_vocab_changes("try tailscail", WORDS, SOUNDS)[0] == "try Tailscale"
-    # With a spelling, only that spelling and its own are taken.
+    # With a spelling it still is: a spelling adds a match, it takes none away.
     s = dict(SOUNDS, Tailscale=["tail scale"])
-    assert tw.apply_vocab_changes("try tailscail", WORDS, s)[0] == "try tailscail"
+    assert tw.apply_vocab_changes("try tailscail", WORDS, s) == \
+        ("try Tailscale", [("tailscail", "Tailscale")])
     assert tw.apply_vocab_changes("try tail scale, tailscale", WORDS, s)[0] == \
         "try Tailscale, Tailscale"
+
+
+def test_a_near_miss_of_a_word_with_spellings_is_fixed():
+    """Real use, 2026-11-21: "Wuffler" was heard for Waffler and left alone,
+    because Waffler had spellings ("waffle", "woffler") and so was no longer
+    matched loosely."""
+    words, sounds = ["Waffler", "Groq"], {"Waffler": ["waffle", "woffler"], "Groq": ["grog"]}
+    assert tw.apply_vocab_changes("If Wuffler works, open waffle and woffler", words, sounds) == (
+        "If Waffler works, open Waffler and Waffler",
+        [("Wuffler", "Waffler"), ("waffle", "Waffler"), ("woffler", "Waffler")])
+    # Exactly what the same word gets with no spellings at all, and no more:
+    # the loose matching's own limits still hold for it.
+    for text in ("If Wuffler works", "wafler", "stop waffling", "he waffled on", "two waffles"):
+        loose = tw.apply_vocab_changes(text, words)
+        assert tw.apply_vocab_changes(text, words, {"Groq": ["grog"]}) == loose
+        if "waffl" in text:
+            assert loose == (text, [])
+            assert tw.apply_vocab_changes(text, words, sounds) == (text, [])
+    # A short entry is matched exactly whether or not it has spellings.
+    assert tw.apply_vocab_changes("grok and grop", words, sounds) == ("grok and grop", [])
+
+
+def test_the_marks_stay_right_when_both_kinds_of_match_are_in_one_sentence():
+    words, sounds = ["Waffler"], {"Waffler": ["woffler"]}
+    text, changes, spans = tw.apply_vocab_marked("a Wuffler, a woffler, a wuffler", words, sounds)
+    assert text == "a Waffler, a Waffler, a Waffler"
+    assert [text[a:b] for a, b in spans] == ["Waffler"] * 3
+    assert changes == [("Wuffler", "Waffler"), ("woffler", "Waffler"), ("wuffler", "Waffler")]
 
 
 def test_its_own_spelling_still_fixes_the_capitals_and_is_not_reported_when_right():
