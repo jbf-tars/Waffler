@@ -3082,6 +3082,11 @@ class WhisperTranscriber:
         # caller stores both so a filtering mistake stays recoverable.
         self.last_asr_response = ""
         self.last_asr_filtered = False
+        # Whether any request for this recording carried the Vocabulary as
+        # its prompt (set where one is sent: OpenAI, the local model, Groq
+        # only with the owner's switch). Only then can a transcript be an
+        # echo of the prompt: see the vocab-echo discard below.
+        self._prompt_sent = False
         # Measured speech and whether a cross-provider retry fired. Surfaced so
         # the quality signals are computed from evidence, not guesses.
         self.last_speech_seconds = 0.0
@@ -3170,14 +3175,22 @@ class WhisperTranscriber:
 
         # Whisper sometimes echoes the vocab prompt verbatim on silence —
         # discard rather than pasting the user's vocabulary list as output.
-        try:
-            vocab = load_vocab()
-        except Exception:
-            vocab = []
-        if _is_vocab_echo(cleaned, vocab):
-            print(f"[whisper] Discarded vocab-echo hallucination ({len(cleaned)} chars)")
-            self.last_asr_filtered = True
-            return ""
+        # Only when a prompt was sent for this recording: _is_vocab_echo goes
+        # by the words alone (a short transcript made mostly of Vocabulary
+        # words), which is also what "Open Waffler." or "Use Claude" is. Groq
+        # is sent no prompt, so nothing it returns is an echo, and before
+        # this check those dictations came back as nothing.
+        if getattr(self, "_prompt_sent", False):
+            try:
+                vocab = load_vocab()
+            except Exception:
+                vocab = []
+            if _is_vocab_echo(cleaned, vocab):
+                # In app.log, not only on the console: a dictation thrown
+                # away must be findable afterwards. A length, never the words.
+                _wlog(f"[whisper] Discarded vocab-echo hallucination ({len(cleaned)} chars)")
+                self.last_asr_filtered = True
+                return ""
 
         # Discard known boilerplate Whisper produces on silence / near-silence
         # ("Thanks for watching!", "Please subscribe", etc.) — but ONLY when the
@@ -3216,6 +3229,8 @@ class WhisperTranscriber:
         settings = load_settings()
         lang     = settings.get("language", "en")
         language = lang if lang and lang != "auto" else None
+        if hint:
+            self._prompt_sent = True
         text = _local_stt.transcribe(audio_bytes, language=language, prompt=hint or None)
         self._last_cloud_provider = BACKEND_LOCAL
         _wlog(f"[whisper] on this computer ({(time.time()-t0)*1000:.0f}ms, {len(text)} chars)")
@@ -3254,6 +3269,7 @@ class WhisperTranscriber:
                 )
                 if hint:
                     kwargs["prompt"] = hint
+                    self._prompt_sent = True
                 if lang and lang != "auto":
                     kwargs["language"] = lang
                 # Per-request timeout scaled to the clip's size — the flat 60s
@@ -3302,6 +3318,7 @@ class WhisperTranscriber:
             kwargs = dict(model=self.model, file=upload, response_format="text")
             if hint:
                 kwargs["prompt"] = hint
+                self._prompt_sent = True
             if lang and lang != "auto":
                 kwargs["language"] = lang
             # Per-request timeout scaled to the clip's size — the flat 60s
