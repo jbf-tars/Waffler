@@ -135,8 +135,12 @@ def test_a_first_run_step_has_one_short_sentence_under_its_title():
     for el in ledes:
         if el["id"] == "obAcctCodeDesc":      # written by the page: which address the code went to
             continue
-        # (On the first screen two alternatives share one element, one shown at a time: 7 and 12 words.)
-        assert len(words(el["text"])) <= 19, el["text"]
+        # (On the first screen two alternatives share one element, one shown at a
+        # time, so each sentence is counted on its own.)
+        said = sentences(el["text"])
+        assert len(said) <= 2, el["text"]
+        for one in said:
+            assert len(words(one)) <= 15, one
     first = read("index.html")
     for said in ('<span data-rec="local">One download, then hold <span class="ob-hk-name">Fn</span> and talk.</span>',
                  '<span data-rec="key" hidden>A free Groq key is the quick way to start on this computer.</span>',
