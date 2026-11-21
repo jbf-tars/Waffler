@@ -301,3 +301,117 @@ def test_the_delete_question_explains_then_emails_a_code_then_deletes():
     # A pasted code fills the field; only the button deletes.
     assert "$('acctDeleteCode').addEventListener('paste'" not in page
     assert page.count("deleteAccount)") == 1 and "addEventListener('submit', (e) => { e.preventDefault(); busy($('acctDeleteYes'), deleteAccount); })" in page
+
+
+# ── the newer refusals, each as one plain sentence ──────────────────────────
+
+def test_too_many_wrong_codes_says_to_wait_and_ask_for_a_new_code(new):
+    account.start(EMAIL)
+    code = new.mailbox[EMAIL]
+    wrong = "00000000" if code != "00000000" else "11111111"
+    for _ in range(new.wrong_limit):
+        assert account.verify(EMAIL, wrong)["reason"] == "wrong_code"
+    out = account.verify(EMAIL, code)
+    assert out == {"ok": False, "reason": "too_many_wrong_codes",
+                   "error": "Too many wrong codes for this address. Wait up to an hour, then ask for a new code."}
+    assert not account.status()["signed_in"]
+    said = account._refusal(429, {"error": "too_many_wrong_codes"}, {"retry-after": "1500"},
+                            signed=False, what="verify")
+    assert said.sentence == "Too many wrong codes for this address. Wait 25 minutes, then ask for a new code."
+
+
+def test_too_many_wrong_delete_codes_says_the_account_was_not_deleted(new):
+    sign_in(new)
+    account.delete_start()
+    code = new.delete_codes[EMAIL]
+    wrong = "00000000" if code != "00000000" else "11111111"
+    for _ in range(new.wrong_limit):
+        assert account.delete_account("", wrong)["reason"] == "wrong_code"
+    out = account.delete_account("", code)
+    assert out == {"ok": False, "reason": "too_many_wrong_codes",
+                   "error": "Your account was not deleted. Too many wrong codes for this address. "
+                            "Wait up to an hour, then ask for a new code."}
+    assert new.deleted == [] and account.status()["signed_in"]
+
+
+def test_too_many_codes_requested_says_when_to_try_again_if_the_service_does(new):
+    for _ in range(new.codes_limit):
+        assert account.start(EMAIL)["ok"]
+    out = account.start(EMAIL)
+    assert out == {"ok": False, "reason": "too_many_codes",
+                   "error": "Too many codes have been requested for this address. Try again in 25 minutes."}
+    new.codes_retry_after = None                           # the service does not say when
+    assert account.start(EMAIL)["error"] == \
+        "Too many codes have been requested for this address. Try again later."
+    new.codes_retry_after = 3600
+    assert account.start(EMAIL)["error"].endswith("Try again in an hour.")
+    new.codes_retry_after = 9000
+    assert account.start(EMAIL)["error"].endswith("Try again in 3 hours.")
+
+
+def test_too_many_delete_codes_requested(new):
+    sign_in(new)                                           # one code asked for already
+    for _ in range(new.codes_limit - 1):
+        assert account.delete_start()["ok"]
+    assert account.delete_start() == {
+        "ok": False, "reason": "too_many_codes",
+        "error": "Too many codes have been requested for this address. Try again in 25 minutes."}
+
+
+def test_an_older_services_too_many_tries_is_said_as_before(old):
+    old.too_many = True
+    assert account.start(EMAIL) == {"ok": False, "reason": "too_many",
+                                    "error": "Too many tries. Wait 10 minutes, then try again."}
+
+
+def test_material_too_large_for_a_question_or_a_rewrite():
+    for body in ({"error": "too_large"}, {"detail": "Request body too large"}, {}, None):
+        said = account._refusal(413, body, {}, signed=True, what="")
+        assert (said.sentence, said.reason) == ("That is too long to send in one go. Try it with less text.",
+                                                "too_large")
+
+
+def test_the_days_writing_allowance_used_up(new):
+    sign_in(new)
+    new.writing_cap = True
+    out = account.devices()
+    assert out == {"ok": False, "reason": "writing_cap",
+                   "error": "Today's writing allowance is used up. There is more tomorrow."}
+    assert account.status()["signed_in"], "not a sign-out"
+    assert account.sync_refusal(402, "Today's writing is used up.", "writing_cap") == account.WRITING_CAP
+
+
+def test_a_402_shows_the_services_reason_only_when_it_is_a_known_one():
+    def said(body):
+        return account._refusal(402, body, {}, signed=True, what="").sentence
+    assert said({"error": "model_calls_cap"}) == said({"code": "model_calls_cap"}) == account.MODEL_CALLS_CAP
+    assert said({"error": "daily_writing_cap", "detail": "anything at all"}) == account.WRITING_CAP
+    # Storage: the service's own sentence, as before.
+    assert said({"error": "storage_cap", "detail": "Your account's storage is full."}) == \
+        "Your account's storage is full."
+    assert said({"code": "storage_cap", "detail": "Your account's storage is full."}) == \
+        "Your account's storage is full."
+    # A reason this Waffler does not know: a general sentence, never the service's text.
+    assert said({"error": "something_new", "detail": "Visit http://elsewhere.example to carry on"}) == \
+        "Your account's allowance is used up for now. Try again tomorrow."
+    assert said({}) == account.OVER_ALLOWANCE
+
+
+@pytest.mark.parametrize("status, body, headers, what", [
+    (429, {"error": "too_many_wrong_codes"}, {}, "verify"), (429, {"error": "too_many_attempts"}, {}, "delete"),
+    (429, {"error": "too_many_codes"}, {"retry-after": "nonsense"}, "start"),
+    (429, {"error": "too_many_codes"}, {"retry-after": "inf"}, "delete_start"),
+    (429, {"error": "too_many_codes"}, {"retry-after": "nan"}, "start"),
+    (429, {"error": "rate_limited"}, {"retry-after": "-5"}, "start"),
+    (429, {"error": "rate_limited"}, {"retry-after": "nan"}, "start"), (503, {}, {"retry-after": "inf"}, "start"),
+    (413, {"error": "too_large"}, {}, ""), (402, {"error": "writing_cap"}, {}, ""),
+    (402, {"error": "who_knows"}, {}, ""), (403, {"error": "code_required"}, {}, "delete"),
+    (403, {"error": "wrong_code"}, {}, "delete"), (404, {}, {}, "delete_start"),
+    (403, {"error": 7}, {}, ""), (429, {"error": ["x"]}, {}, "verify"), (402, "not json", {}, ""),
+])
+def test_every_newer_refusal_is_a_sentence_a_person_can_read(status, body, headers, what):
+    said = account._refusal(status, body, headers, signed=True, what=what, token="not-the-one-on-disk")
+    assert said.sentence and said.sentence[0].isupper() and said.sentence.endswith(".")
+    assert said.reason and re.fullmatch(r"[a-z_]+", said.reason)
+    for raw in ("HTTP", str(status), "detail", "{", "_", "error", "inf", "nan"):
+        assert raw not in said.sentence, raw

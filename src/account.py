@@ -60,6 +60,11 @@ CODE_NOT_SENT = "The code couldn't be sent just now. Try again in a moment."
 EMAILS_USED_UP = "Waffler has sent all the sign-in emails it can for now. Try again in {wait}."
 SIGNUPS_CLOSED = "Waffler accounts are invite-only for now."
 MODEL_CALLS_CAP = "Today's questions and rewrites are used up. There are more tomorrow."
+WRITING_CAP = "Today's writing allowance is used up. There is more tomorrow."
+ALLOWANCE_USED = "Your account's allowance is used up for now. Try again tomorrow."
+TOO_LARGE = "That is too long to send in one go. Try it with less text."
+TOO_MANY_WRONG_CODES = "Too many wrong codes for this address. Wait {wait}, then ask for a new code."
+TOO_MANY_CODES = "Too many codes have been requested for this address. Try again {when}."
 SERVER_FULL = ("The account service is full just now. Nothing is lost: your meetings stay on this "
                "computer and sync when there is room.")
 TYPE_DELETE = "Type DELETE to confirm."
@@ -201,9 +206,10 @@ def http_client(server: str, timeout: float = TIMEOUT_S):
 
 def _retry_after(headers) -> float:
     try:
-        return float((headers or {}).get("retry-after") or 0)
+        seconds = float((headers or {}).get("retry-after") or 0)
     except (TypeError, ValueError):
         return 0
+    return seconds if math.isfinite(seconds) else 0
 
 
 def _not_sent_sentence(headers) -> str:
@@ -224,6 +230,19 @@ def _wait_sentence(headers) -> str:
     if seconds >= 3600:
         return "Too many tries. Wait an hour, then try again."
     return f"Too many tries. Wait {math.ceil(seconds / 60)} minutes, then try again."
+
+
+def _wait(headers) -> str:
+    """How long the service said to wait (Retry-After), in words: "a
+    minute", "25 minutes", "an hour", "3 hours". "" when it did not say."""
+    seconds = _retry_after(headers)
+    if not 0 < seconds <= 86400:                      # nothing, nonsense, or longer than a day
+        return ""
+    if seconds <= 90:
+        return "a minute"
+    if seconds < 3300:
+        return f"{math.ceil(seconds / 60)} minutes"
+    return "an hour" if seconds <= 3900 else f"{math.ceil(seconds / 3600)} hours"
 
 
 def _detail(body) -> str:
@@ -270,6 +289,10 @@ def _refusal(status: int, body, headers, *, signed: bool, what: str,
     if status == 402:
         if code == "model_calls_cap":
             return AccountError(MODEL_CALLS_CAP, "model_calls_cap")
+        if "writing" in code:
+            return AccountError(WRITING_CAP, "writing_cap")
+        if isinstance(body, dict) and isinstance(body.get("error"), str) and code != "storage_cap":
+            return AccountError(ALLOWANCE_USED, "over_allowance")   # a newer reason this Waffler does not know
         return AccountError(_detail(body) or OVER_ALLOWANCE, "over_allowance")
     if status == 403:
         if code == "signups_closed":
@@ -280,7 +303,17 @@ def _refusal(status: int, body, headers, *, signed: bool, what: str,
             return AccountError(WRONG_CODE, "wrong_code")
         return AccountError(DISABLED, "disabled") if code == "account_disabled" else AccountError(FAILED)
     if status == 429:
+        # A newer service says which limit it was. Wrong codes for this
+        # address this hour; or too many codes asked for, for this address.
+        if "wrong" in code or ("attempt" in code and what in ("verify", "delete")):
+            return AccountError(TOO_MANY_WRONG_CODES.format(wait=_wait(headers) or "up to an hour"),
+                                "too_many_wrong_codes")
+        if "code" in code:
+            wait = _wait(headers)
+            return AccountError(TOO_MANY_CODES.format(when=f"in {wait}" if wait else "later"), "too_many_codes")
         return AccountError(_wait_sentence(headers), "too_many")
+    if status == 413:
+        return AccountError(TOO_LARGE, "too_large")
     if status == 400:
         return AccountError(BAD_EMAIL, "bad_email") if what == "start" \
             else AccountError(_detail(body) or FAILED, "refused")
@@ -581,6 +614,8 @@ def sync_refusal(status: int | None, detail: str = "", code: str = "", token: st
     if status == 429:
         return SYNC_TOO_OFTEN
     if status == 402:
+        if "writing" in (code or ""):
+            return WRITING_CAP
         return MODEL_CALLS_CAP if code == "model_calls_cap" else detail or OVER_ALLOWANCE
     if status == 403:
         return DISABLED if code == "account_disabled" else FAILED

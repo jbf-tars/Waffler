@@ -154,8 +154,9 @@ def sync_with_hub(store: Store, client=None, token: str | None = None, *, url: s
             body = response.json()
             if isinstance(body.get("detail"), str):
                 detail = body["detail"]
-            if isinstance(body.get("code"), str):
-                code = body["code"]
+            for key in ("code", "error"):             # the service's word for it: "error" from a newer one
+                if isinstance(body.get(key), str):
+                    code = body[key]
         if status == 401:
             raise SyncError("The hub refused the token.", status, detail, code) from None
         if status in (400, 402, 403, 413) and detail:   # a hosted account says why in a plain sentence
