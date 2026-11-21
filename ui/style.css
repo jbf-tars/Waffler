@@ -948,6 +948,7 @@ mark.hl {
 
 /* ── The column ──────────────────────────────────────────────────────── */
 .scontent {
+  position: relative;   /* holds its .sr-only notes, so they scroll with it and never stretch the page */
   min-width: 0;
   overflow-y: auto;
   scrollbar-width: thin;
