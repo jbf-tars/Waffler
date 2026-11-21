@@ -9,3 +9,12 @@ folder's contents with `ui/dist/` (keep this README).
 
 Inside Waffler the page has no web server to talk to: each call goes through
 `window.parent.pywebview.api.meetings_api` (app.py) to `src/meetings_bridge.py`.
+
+Inside Waffler the page wears Waffler's look, so Home, Meetings and Settings
+are one app: `ui/meetings.js` hands it every token of `ui/tokens.css` as the
+window has resolved it (`window.wafflerTokens()`, and a `meetings-tokens`
+message whenever the theme changes) and the address of `tokens.css` for the
+font files; the source's `ui/src/waffler.ts` sets them on `<body>` and
+`ui/src/waffler.css` draws every part in those names. A token added to
+`tokens.css` is added to the list in `meetings.js` (tests/test_one_look.py
+keeps the two the same).

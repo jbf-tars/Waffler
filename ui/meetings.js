@@ -41,6 +41,38 @@
     const f = $('mtFrame');
     try { if (f && f.contentWindow && f.getAttribute('src')) f.contentWindow.postMessage(message, '*'); } catch (e) { /* not loaded yet */ }
   }
+  // ── one look: the frame wears this window's own tokens ───────────────────
+  // The meetings interface is a page of its own, with its own stylesheet. So
+  // that Home, Meetings and Settings are one app, it is handed every token of
+  // tokens.css as this window has resolved it (the theme chosen, and anything
+  // a later stylesheet changed), and the address of tokens.css for the font
+  // files. It asks for them as it starts (window.parent.wafflerTokens(), or a
+  // 'meetings-tokens-wanted' message), and is told again whenever the theme
+  // changes. The names are tokens.css's: tests/test_one_look.py keeps the two
+  // lists the same.
+  const TOKENS = [
+    // colours, shadows (the light and night themes)
+    '--bg', '--surface', '--surface-2', '--card', '--line', '--ring', '--ring-strong', '--ring-ctl', '--tog-on-ring',
+    '--dots', '--text', '--text-2', '--muted', '--faint', '--honey', '--honey-light', '--honey-deep', '--honey-tint',
+    '--honey-wash', '--accent-ink', '--focus', '--tape', '--ok', '--ok-tint', '--danger', '--danger-tint', '--rec',
+    '--on-ink-ok', '--on-ink-err', '--btn-pri-bg', '--btn-pri-fg', '--btn-pri-hover', '--btn-sec-bg', '--btn-sec-hover',
+    '--kc-fg', '--kc-bg', '--kc-shadow', '--scrim', '--stage', '--stage-line', '--stage-grid', '--stage-edge',
+    '--heat-0', '--heat-1', '--heat-2', '--heat-3', '--heat-4', '--danger-solid', '--danger-solid-hover',
+    '--shadow-btn', '--shadow-bubble', '--shadow-panel', '--shadow-pop', '--shadow-window',
+    // type, space, shape, motion (the same in both themes)
+    '--f-display', '--f-ui', '--f-mono', '--f-serif', '--t-title', '--t-heading', '--t-stat', '--t-body-lg', '--t-body',
+    '--t-desc', '--t-mono', '--t-label', '--t-accent', '--s1', '--s2', '--s3', '--s4', '--s5', '--s6', '--s8', '--s10',
+    '--s12', '--gutter', '--column', '--bar-h', '--r-pill', '--r-input', '--r-tile', '--r-media', '--r-card-sm',
+    '--r-card', '--r-card-lg', '--ease', '--ease-out', '--dur-fast', '--dur-ui', '--dur-enter',
+  ];
+  window.wafflerTokens = function () {
+    const css = window.getComputedStyle(document.body), tokens = {};
+    TOKENS.forEach((name) => { const v = css.getPropertyValue(name).trim(); if (v) tokens[name] = v; });
+    const sheet = document.querySelector('link[rel="stylesheet"][href$="tokens.css"]');
+    return { type: 'meetings-tokens', theme: document.body.dataset.theme || '', sheet: sheet ? sheet.href : '', tokens };
+  };
+  function sendTokens() { tell(window.wafflerTokens()); }
+
   function openMeeting(id) {
     pendingOpen = id;
     showPage('meetings');
@@ -142,7 +174,7 @@
   };
 
   // app.js's showPage calls this when the Meetings page opens.
-  window.loadMeetingsPage = function () { frame(); refreshState(); tell({ type: 'meetings-refresh' }); };
+  window.loadMeetingsPage = function () { frame(); refreshState(); sendTokens(); tell({ type: 'meetings-refresh' }); };
   // Python calls this when something changed (the hotkey, the bar, notes written).
   window.waffler_meetings_changed = function () {
     refreshState();
@@ -156,5 +188,18 @@
     if ($('jRecord')) $('jRecord').addEventListener('click', toggle);
     window.addEventListener('pywebviewready', refreshState);
     wireHomeAsk();
+    // The frame's look follows this window's: when it has loaded, when it
+    // asks, and when the theme changes (app.js sets body[data-theme]; System
+    // follows the computer's own light and dark).
+    if ($('mtFrame')) $('mtFrame').addEventListener('load', sendTokens);
+    window.addEventListener('message', (e) => {
+      const f = $('mtFrame');
+      if (f && e.source === f.contentWindow && e.data && e.data.type === 'meetings-tokens-wanted') sendTokens();
+    });
+    new MutationObserver(sendTokens).observe(document.body, { attributes: true, attributeFilter: ['data-theme'] });
+    if (window.matchMedia) {
+      const os = window.matchMedia('(prefers-color-scheme: dark)');
+      if (os.addEventListener) os.addEventListener('change', () => window.setTimeout(sendTokens, 0));
+    }
   });
 })();
