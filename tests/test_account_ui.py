@@ -117,7 +117,7 @@ def test_signed_out_is_an_email_then_a_code_and_enter_works():
     assert '<button type="submit" class="btn btn-pri btn-sm" id="acctSend">Email me a code</button>' in email
     code = out[out.index('<form class="tx-add" id="acctCodeForm"'):]
     code = code[:code.index("</form>")]
-    assert '<label for="acctCode">' in out
+    assert '<label for="acctCode" id="acctCodeLabel">' in out
     assert re.search(r'<input type="text" id="acctCode" class="input input-mono"[^>]*inputmode="numeric"'
                      r'[^>]*autocomplete="one-time-code"', code)
     assert "maxlength" not in code, "a pasted '123 456' must not be cut short before it is cleaned"

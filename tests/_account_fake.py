@@ -5,6 +5,14 @@ the service's own reference gives (sign-in by emailed code, devices, the
 Claude connector link, and sync with its opaque cursor, paging and push size
 limit). `transport()` is an httpx transport: every request the client makes
 arrives at `handle`, and is kept in `requests` for the tests to read.
+
+It speaks two contracts. `FakeAccountServer()` is the service as deployed
+today ("old"): a 6-digit code, no "digits" in the answer, and DELETE /account
+needs nothing but the session. `FakeAccountServer(contract="new")` is the
+hardened one: `"digits"` (8) from /auth/email/start, a fresh emailed code to
+delete the account (POST /account/delete/start, then DELETE /account with
+{"code"}), a count of wrong codes and of codes asked for per address, and
+refusals named in "error".
 """
 from __future__ import annotations
 
@@ -35,7 +43,18 @@ class Seen:
 
 
 class FakeAccountServer:
-    def __init__(self, page_rows: int = 200, max_push_bytes: int = 16 * 1024 * 1024):
+    def __init__(self, page_rows: int = 200, max_push_bytes: int = 16 * 1024 * 1024,
+                 contract: str = "old"):
+        assert contract in ("old", "new")
+        self.new = contract == "new"
+        self.digits = 8 if self.new else 6       # how long a code is
+        self.delete_codes: dict[str, str] = {}   # email -> the code "sent" to delete the account (new)
+        self.wrong: dict[str, int] = {}          # email -> wrong codes so far this hour (new)
+        self.wrong_limit = 5
+        self.codes_asked: dict[str, int] = {}    # email -> codes asked for (new)
+        self.codes_limit = 5
+        self.codes_retry_after: int | None = 1500   # Retry-After when that limit is hit (None: not said)
+        self.writing_cap = False                 # 402, the day's writing is used up (new)
         self.page_rows = page_rows
         self.max_push_bytes = max_push_bytes
         self.mailbox: dict[str, str] = {}        # email -> the code "sent"
@@ -93,6 +112,20 @@ class FakeAccountServer:
         user = self.users.get(email, "")
         return {key[1]: row for key, (_, row) in self.rows.get(user, {}).items() if key[0] == "notes"}
 
+    def _code(self) -> str:
+        return f"{secrets.randbelow(10 ** self.digits):0{self.digits}d}"
+
+    def _may_ask(self, email: str) -> bool:
+        self.codes_asked[email] = self.codes_asked.get(email, 0) + 1
+        return self.codes_asked[email] <= self.codes_limit
+
+    def _too_many_codes(self) -> httpx.Response:
+        headers = {"Retry-After": str(self.codes_retry_after)} if self.codes_retry_after else None
+        return self._json(429, {"error": "too_many_codes"}, headers)
+
+    def _too_many_wrong(self) -> httpx.Response:
+        return self._json(429, {"error": "too_many_wrong_codes"})
+
     def calls(self, method: str, path: str) -> list[Seen]:
         return [r for r in self.requests if r.method == method and r.path == path]
 
@@ -103,7 +136,7 @@ class FakeAccountServer:
             raise httpx.ConnectError("no route to host", request=request)
         method, path = request.method, request.url.path
         body = {}
-        if request.content and method in ("POST", "PUT", "PATCH"):
+        if request.content and method in ("POST", "PUT", "PATCH", "DELETE"):
             body = json.loads(request.content)
 
         if path == "/auth/email/start" and method == "POST":
@@ -116,8 +149,11 @@ class FakeAccountServer:
                 return self._refuse(503, "The server has sent as many sign-in emails as it may for now. "
                                          "Try again later.",
                                     headers={"Retry-After": str(self.email_off)} if self.email_off else None)
-            self.mailbox[email] = f"{secrets.randbelow(10 ** 6):06d}"
-            return self._json(200, {"ok": True, "expires_in": 600})
+            if self.new and not self._may_ask(email):
+                return self._too_many_codes()
+            self.mailbox[email] = self._code()
+            return self._json(200, {"ok": True, "expires_in": 600,
+                                    **({"digits": self.digits} if self.new else {})})
 
         if path == "/auth/email/verify" and method == "POST":
             if self.too_many:
@@ -126,7 +162,10 @@ class FakeAccountServer:
             code = re.sub(r"[\s-]", "", str(body.get("code", "")))
             if email in self.disabled:
                 return self._refuse(403, "This account is disabled.", "account_disabled")
+            if self.new and self.wrong.get(email, 0) >= self.wrong_limit:
+                return self._too_many_wrong()
             if not code or self.mailbox.get(email) != code:
+                self.wrong[email] = self.wrong.get(email, 0) + 1
                 return self._refuse(401, "That code is wrong or has expired.")
             del self.mailbox[email]                          # a code works once
             if email not in self.users and self.signups_closed:
@@ -157,7 +196,28 @@ class FakeAccountServer:
             del self.sessions[token]
             return self._json(200, {"ok": True})
 
+        if self.writing_cap:
+            return self._json(402, {"error": "writing_cap", "detail": "Today's writing is used up."})
+
+        if path == "/account/delete/start" and method == "POST" and self.new:
+            email = session["email"]
+            if not self._may_ask(email):
+                return self._too_many_codes()
+            self.delete_codes[email] = self._code()
+            return self._json(200, {"ok": True, "digits": self.digits, "expires_in": 600})
+
         if path == "/account" and method == "DELETE":        # every device, the link, the notes, the address
+            if self.new:
+                email = session["email"]
+                code = re.sub(r"[\s-]", "", str(body.get("code") or ""))
+                if not code:
+                    return self._json(403, {"error": "code_required"})
+                if self.wrong.get(email, 0) >= self.wrong_limit:
+                    return self._too_many_wrong()
+                if self.delete_codes.get(email) != code:
+                    self.wrong[email] = self.wrong.get(email, 0) + 1
+                    return self._json(403, {"error": "wrong_code"})
+                del self.delete_codes[email]
             for t, s in list(self.sessions.items()):
                 if s["user"] == user:
                     del self.sessions[t]

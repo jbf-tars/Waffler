@@ -219,15 +219,15 @@
                     <input type="email" id="acctEmail" class="input" placeholder="you@example.com" aria-describedby="acctEmailDesc" autocomplete="email" autocapitalize="off" spellcheck="false">
                     <button type="submit" class="btn btn-pri btn-sm" id="acctSend">Email me a code</button>
                   </form>
-                  <div class="row-d acct-how" id="acctEmailDesc">No password. We email you a 6-digit code.</div>
+                  <div class="row-d acct-how" id="acctEmailDesc">No password. We email you a code.</div>
                 </div>
               </div>
               <div class="row" id="acctCodeRow" hidden>
                 <div class="row-main">
-                  <div class="row-t"><label for="acctCode">Enter the 6-digit code</label></div>
+                  <div class="row-t"><label for="acctCode" id="acctCodeLabel">Enter the code</label></div>
                   <div class="row-d" id="acctCodeDesc" role="status"></div>
                   <form class="tx-add" id="acctCodeForm" novalidate>
-                    <input type="text" id="acctCode" class="input input-mono" placeholder="123456" aria-describedby="acctCodeDesc" inputmode="numeric" autocomplete="one-time-code" spellcheck="false">
+                    <input type="text" id="acctCode" class="input input-mono" aria-describedby="acctCodeDesc" inputmode="numeric" autocomplete="one-time-code" spellcheck="false">
                     <button type="submit" class="btn btn-pri btn-sm" id="acctSignIn">Continue</button>
                   </form>
                   <div class="acct-more">
@@ -309,7 +309,7 @@
             <div class="sheet how-body" id="acctHow" hidden>
               <ul class="sc-rule-list">
                 <li>One free account keeps your meetings in step on every device you sign in on. Your dictations stay on this computer.</li>
-                <li>New here? Your email creates your free account. Already have one? It signs you in. There is no password: we email you a 6-digit code.</li>
+                <li>New here? Your email creates your free account. Already have one? It signs you in. There is no password: we email you a code.</li>
                 <li>The Claude link is a secret. Anyone who has it can read every meeting in your account, so paste it only into Claude.</li>
                 <li>When you sign out, your meetings and dictations stay on this computer. They stop syncing until you sign in again.</li>
                 <li>Delete my account removes the account and everything stored in it, for good. Meetings already on this computer stay.</li>
@@ -1975,7 +1975,7 @@
         <p class="ob-kick" data-when="offer email code">Optional</p>
         <h1 class="ob-title" id="obTitleAccount" tabindex="-1" data-when="offer">A free account, if you want one</h1>
         <h1 class="ob-title" id="obTitleAccountEmail" tabindex="-1" data-when="email">Create your account or sign in</h1>
-        <h1 class="ob-title" id="obTitleAccountCode" tabindex="-1" data-when="code">Enter the 6-digit code</h1>
+        <h1 class="ob-title" id="obTitleAccountCode" tabindex="-1" data-when="code">Enter the code</h1>
         <h1 class="ob-title" id="obTitleAccountDone" tabindex="-1" data-when="done">You're in</h1>
 
         <p class="ob-lede ob-acct-list" data-when="offer">Your meetings on every device, and in Claude.</p>
@@ -1990,14 +1990,14 @@
             <input type="email" id="obAcctEmail" class="input" placeholder="you@example.com" aria-describedby="obAcctEmailDesc" autocomplete="email" autocapitalize="off" spellcheck="false">
             <button type="submit" class="btn btn-pri" id="obAcctSend">Email me a code</button>
           </form>
-          <p class="ob-small ob-acct-how" id="obAcctEmailDesc">No password. We email you a 6-digit code.</p>
+          <p class="ob-small ob-acct-how" id="obAcctEmailDesc">No password. We email you a code.</p>
         </div>
 
         <div data-when="code">
           <p class="ob-lede" id="obAcctCodeDesc" role="status"></p>
           <label class="ob-small ob-acct-label" for="obAcctCode">The code from the email</label>
           <form class="ob-acct-form" id="obAcctCodeForm" novalidate>
-            <input type="text" id="obAcctCode" class="input input-mono" placeholder="123456" aria-describedby="obAcctCodeDesc" inputmode="numeric" autocomplete="one-time-code" spellcheck="false">
+            <input type="text" id="obAcctCode" class="input input-mono" aria-describedby="obAcctCodeDesc" inputmode="numeric" autocomplete="one-time-code" spellcheck="false">
             <button type="submit" class="btn btn-pri" id="obAcctSignIn">Continue</button>
           </form>
           <div class="ob-acct-more">

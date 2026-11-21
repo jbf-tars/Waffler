@@ -30,6 +30,7 @@ EMAIL = "ada@example.com"
 @pytest.fixture(autouse=True)
 def _nothing_left_over(monkeypatch):
     monkeypatch.setattr(account, "_notice", "")
+    monkeypatch.setattr(account, "_digits", {})
 
 
 @pytest.fixture

@@ -1,5 +1,6 @@
 // Accounts in the window. Settings, Account: create an account or sign in
-// (the same two steps: an email, then the 6-digit code sent to it), and then
+// (the same two steps: an email, then the code sent to it: 8 digits, or 6
+// from an older service; the service says which and the page follows), and then
 // the account itself: when the meetings last synced, the devices signed in,
 // the private link that lets Claude read the meetings, Sign out and Delete my
 // account. The same sign-in fields are the optional last screen of first-run
@@ -41,10 +42,12 @@
   // ── create an account or sign in ──────────────────────────────────────────
   // One flow, in two places: Settings (ids that begin 'acct') and setup's
   // last screen ('obAcct'). `hooks.show(step)` puts 'email' or 'code' on
-  // screen; `hooks.done(answer)` is called once the code has worked.
+  // screen; `hooks.done(answer)` is called once the code has worked;
+  // `hooks.title` is what names the code field (it says how many digits).
   function signInFlow(p, hooks) {
     const el = (name) => $(p + name);
     let email = '';         // the address the code was asked for
+    let digits = null;      // how long that code is, once the service has said
     let sentAt = 0;         // when, for "Send it again"
     let timer = null;
     const error = (text) => { el('Error').textContent = text || ''; el('Error').hidden = !text; };
@@ -57,15 +60,18 @@
       if (had && button.disabled) el('Code').focus();
       if (v.ready && timer) { window.clearInterval(timer); timer = null; }
     }
-    function sent(address) {
-      email = address;
+    function sent(r) {
+      email = r.email;
+      digits = L.accountDigits(r.digits);
       sentAt = Date.now();
-      el('CodeDesc').textContent = L.accountCodeLine(email);
+      hooks.title.textContent = L.accountCodeLabel(digits);
+      el('Code').placeholder = L.accountCodeExample(digits);
+      el('CodeDesc').textContent = L.accountCodeLine(email, digits);
       if (!timer) timer = window.setInterval(drawResend, 1000);
       drawResend();
     }
     function reset() {
-      email = ''; sentAt = 0;
+      email = ''; sentAt = 0; digits = null;
       if (timer) { window.clearInterval(timer); timer = null; }
       el('Code').value = '';
       error('');
@@ -75,7 +81,7 @@
       error('');
       const r = await call('account_start', el('Email').value);
       if (!r.ok) { error(r.error || FAILED); el('Email').focus(); return; }
-      sent(r.email);
+      sent(r);
       el('Code').value = '';
       hooks.show('code');
       el('Code').focus();
@@ -86,14 +92,14 @@
       button.disabled = true;
       error('');
       const r = await call('account_start', email);
-      if (r.ok) { sent(r.email); showToast('Sent again.', 'success', 3000); } else { error(r.error || FAILED); drawResend(); }
+      if (r.ok) { sent(r); showToast('Sent again.', 'success', 3000); } else { error(r.error || FAILED); drawResend(); }
       el('Code').focus();
     }
     async function verify() {
       error('');
-      const code = L.accountCode(el('Code').value);
+      const code = L.accountCode(el('Code').value, digits);
       el('Code').value = code;
-      if (!L.accountCodeReady(code)) { error('Enter the 6-digit code from the email.'); el('Code').focus(); return; }
+      if (!L.accountCodeReady(code, digits)) { error(L.accountBadCode(digits)); el('Code').focus(); return; }
       const r = await call('account_verify', email || el('Email').value, code);
       if (!r.ok) { error(r.error || FAILED); el('Code').focus(); el('Code').select(); return; }
       el('Email').value = '';
@@ -104,14 +110,14 @@
     // Enter in a field submits its form; the button is the form's own.
     el('EmailForm').addEventListener('submit', (e) => { e.preventDefault(); busy(el('Send'), send); });
     el('CodeForm').addEventListener('submit', (e) => { e.preventDefault(); busy(el('SignIn'), verify); });
-    // A pasted code (or the whole email) becomes its six digits, and goes.
+    // A pasted code (or the whole email) becomes its digits, and goes.
     el('Code').addEventListener('paste', (e) => {
       const text = (e.clipboardData || window.clipboardData).getData('text');
       e.preventDefault();
-      el('Code').value = L.accountCode(text);
-      if (L.accountCodeReady(el('Code').value)) busy(el('SignIn'), verify);
+      el('Code').value = L.accountCode(text, digits);
+      if (L.accountCodeReady(el('Code').value, digits)) busy(el('SignIn'), verify);
     });
-    el('Code').addEventListener('input', () => { el('Code').value = L.accountCode(el('Code').value); });
+    el('Code').addEventListener('input', () => { el('Code').value = L.accountCode(el('Code').value, digits); });
     el('Resend').addEventListener('click', again);
     el('Other').addEventListener('click', () => { reset(); el('Email').focus(); el('Email').select(); });
     return { reset, focus: () => el('Email').focus() };
@@ -392,12 +398,14 @@
   document.addEventListener('DOMContentLoaded', function () {
     if (!$('secAccount')) return;
     settingsFlow = signInFlow('acct', {
+      title: $('acctCodeLabel'),
       show(step) { $('acctEmailRow').hidden = step !== 'email'; $('acctCodeRow').hidden = step !== 'code'; },
       done(r) { signedIn(r); $('acctSyncNow').focus(); },
     });
     // The last, optional screen of first-run setup: the same fields.
     if ($('obStepAccount')) {
       signInFlow('obAcct', {
+        title: $('obTitleAccountCode'),
         show(step) { if (typeof wizSetState === 'function') wizSetState('account', step); },
         done(r) {
           signedIn(r);

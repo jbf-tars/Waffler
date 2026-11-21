@@ -3095,16 +3095,39 @@
     return status.signed_in ? 'in' : 'out';
   }
 
-  // The sign-in code as typed or pasted: its six digits. A whole email can
-  // be pasted ("... code is: 482913. It works for 10 minutes"), so a run of
-  // exactly six digits (a space or a hyphen may split it) is taken first.
-  function accountCode(text) {
-    const t = String(text == null ? '' : text);
-    const six = /(?:^|\D)(\d{3})[ -]?(\d{3})(?!\d)/.exec(t);
-    if (six) return six[1] + six[2];
-    return t.replace(/\D/g, '').slice(0, 6);
+  // How long a code is: what the service said when the code was asked for
+  // (Api.account_start().digits: 8), or 6 from an older service that does
+  // not say. Every line, field and check below follows this number.
+  const ACCOUNT_DIGITS_OLD = 6;
+  function accountDigits(n) {
+    return Number.isInteger(n) && n >= 4 && n <= 12 ? n : ACCOUNT_DIGITS_OLD;
   }
-  function accountCodeReady(code) { return /^\d{6}$/.test(String(code == null ? '' : code)); }
+
+  // A code as typed or pasted: its digits. A whole email can be pasted
+  // ("... code is: 48291357. It works for 10 minutes"), so a run of exactly
+  // that many digits (a space or a hyphen may split it in the middle) is
+  // taken first.
+  function accountCode(text, digits) {
+    const n = accountDigits(digits), half = Math.ceil(n / 2);
+    const t = String(text == null ? '' : text);
+    const run = new RegExp('(?:^|\\D)(\\d{' + half + '})[ -]?(\\d{' + (n - half) + '})(?!\\d)').exec(t);
+    if (run) return run[1] + run[2];
+    return t.replace(/\D/g, '').slice(0, n);
+  }
+  function accountCodeReady(code, digits) {
+    return new RegExp('^\\d{' + accountDigits(digits) + '}$').test(String(code == null ? '' : code));
+  }
+  // The field's label, its example, and what is said when the code typed is
+  // not one. `digits` unknown (no code asked for yet): no number is named.
+  function accountCodeLabel(digits) {
+    return digits == null ? 'Enter the code' : 'Enter the ' + accountDigits(digits) + '-digit code';
+  }
+  function accountCodeExample(digits) {
+    return digits == null ? '' : '123456789012'.slice(0, accountDigits(digits));
+  }
+  function accountBadCode(digits) {
+    return 'Enter the ' + accountDigits(digits) + '-digit code from the email.';
+  }
 
   // "a minute ago". '' for no time, or one that cannot be read.
   function accountAgo(iso, now) {
@@ -3142,8 +3165,10 @@
   // Under the code field, once a code was asked for. It does not say an
   // email was sent: where the owner keeps a list of who may sign up, an
   // address that is not on it is answered the same and sent nothing.
-  function accountCodeLine(email) {
-    return 'Check ' + (email || 'your email') + ' for a 6-digit code. It works for 10 minutes.';
+  function accountCodeLine(email, digits) {
+    const n = accountDigits(digits);
+    return 'Check ' + (email || 'your email') + ' for ' + (n === 8 || n === 11 ? 'an ' : 'a ') + n
+      + '-digit code. It works for 10 minutes.';
   }
 
   // "Send it again" can be pressed 30 seconds after a code was asked for.
@@ -3261,7 +3286,7 @@
     heatLevel, heatmapView, heatMove,
     COLLAPSE_OVER, COLLAPSE_SHOW, COLLAPSE_MIN, COLLAPSE_MAX, collapseView,
     searchMarks, searchCount, isFindKey, enterRunsDefault, copyWorked, platformText,
-    accountView, accountCode, accountCodeReady, accountAgo, accountSyncLine, accountDeviceLine, accountClaudeView,
+    accountView, accountDigits, accountCode, accountCodeReady, accountCodeLabel, accountCodeExample, accountBadCode, accountAgo, accountSyncLine, accountDeviceLine, accountClaudeView,
     ACCOUNT_RESEND_S, accountCodeLine, accountResendView, accountSignedInLine,
     accountSetupOffered, accountOfferView, accountDeleteReady, accountConfirm,
   };

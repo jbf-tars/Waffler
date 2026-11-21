@@ -36,6 +36,7 @@ APP_HELPERS = ("_account_mod", "_account_sync_state", "_account_call", "_account
 @pytest.fixture(autouse=True)
 def _nothing_left_over(monkeypatch):
     monkeypatch.setattr(account, "_notice", "")
+    monkeypatch.setattr(account, "_digits", {})
 
 
 @pytest.fixture
@@ -107,7 +108,7 @@ def test_only_an_encrypted_address_or_this_computer_is_accepted(monkeypatch, add
 def test_sign_in_with_the_emailed_code(server):
     assert account.status()["signed_in"] is False
     sent = account.start("  Ada@Example.com ")
-    assert sent == {"ok": True, "email": EMAIL, "expires_in": 600}
+    assert sent == {"ok": True, "email": EMAIL, "expires_in": 600, "digits": 6}, "an older service: 6"
     code = server.mailbox[EMAIL]
     out = account.verify(EMAIL, f"{code[:3]} {code[3:]}")          # as people type it
     assert out["ok"] and out["signed_in"] and out["email"] == EMAIL and out["device_name"] == "Ada's Mac"
@@ -142,7 +143,8 @@ def test_a_wrong_code_says_so_plainly_and_signs_nobody_in(server):
 def test_a_code_that_is_not_six_digits_is_never_sent(server):
     account.start(EMAIL)
     for bad in ("", "12345", "1234567", "abcdef", None):
-        assert account.verify(EMAIL, bad) == {"ok": False, "error": account.BAD_CODE, "reason": "bad_code"}
+        assert account.verify(EMAIL, bad) == {"ok": False, "error": "Enter the 6-digit code from the email.",
+                                              "reason": "bad_code"}
     assert server.calls("POST", "/auth/email/verify") == []
 
 
@@ -330,7 +332,7 @@ def test_what_the_service_sends_back_never_raises(server, monkeypatch):
                   httpx.Response(200, json={"devices": "many"})):
         monkeypatch.setattr(account, "_transport", httpx.MockTransport(lambda request, r=reply: r))
         for out in (account.start(EMAIL), account.verify(EMAIL, "123456")):
-            assert out["ok"] is False or out == {"ok": True, "email": EMAIL, "expires_in": 600}
+            assert out["ok"] is False or out == {"ok": True, "email": EMAIL, "expires_in": 600, "digits": 6}
             if not out["ok"]:
                 assert isinstance(out["error"], str) and out["error"].endswith(".")
         assert account.status()["signed_in"] is False

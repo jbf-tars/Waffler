@@ -151,19 +151,19 @@ def test_signed_out_is_one_heading_one_field_one_button_and_one_plain_line():
     assert '<button type="submit" class="btn btn-pri btn-sm" id="acctSend">Email me a code</button>' in email
     # One line under the field (the heading already says it creates or signs in).
     assert re.findall(r"<li>(.*?)</li>", email) == []
-    assert '<div class="row-d acct-how" id="acctEmailDesc">No password. We email you a 6-digit code.</div>' in email
+    assert '<div class="row-d acct-how" id="acctEmailDesc">No password. We email you a code.</div>' in email
     assert re.search(r'<input type="email" id="acctEmail"[^>]*aria-describedby="acctEmailDesc"', email)
     # That one address does both is said in full under "How it works".
     how = text_of(sec[sec.index('id="acctHow"'):])
     assert ("New here? Your email creates your free account. Already have one? It signs you in. "
-            "There is no password: we email you a 6-digit code.") in how
+            "There is no password: we email you a code.") in how
     assert "password" not in text_of(out).replace("No password.", "").lower()
 
 
 def test_the_code_step_takes_a_paste_enter_a_resend_and_a_change_of_address():
     sec = section()
     code = sec[sec.index('id="acctCodeRow"'):sec.index('id="acctError"')]
-    assert '<label for="acctCode">Enter the 6-digit code</label>' in code
+    assert '<label for="acctCode" id="acctCodeLabel">Enter the code</label>' in code
     assert re.search(r'<form class="tx-add" id="acctCodeForm" novalidate>\s*<input type="text" id="acctCode"', code)
     assert '<button type="submit" class="btn btn-pri btn-sm" id="acctSignIn">Continue</button>' in code
     assert '<button type="button" class="link-btn" id="acctResend" disabled>Send it again</button>' in code
@@ -195,9 +195,11 @@ def test_send_it_again_waits_thirty_seconds():
 
 @needs_node
 def test_what_the_page_says_at_each_point():
+    assert js("L.accountCodeLine('ada@example.com', 8)") == \
+        "Check ada@example.com for an 8-digit code. It works for 10 minutes."
     assert js("L.accountCodeLine('ada@example.com')") == \
-        "Check ada@example.com for a 6-digit code. It works for 10 minutes."
-    assert js("L.accountCodeLine('')") == "Check your email for a 6-digit code. It works for 10 minutes."
+        "Check ada@example.com for a 6-digit code. It works for 10 minutes.", "an older service does not say"
+    assert js("L.accountCodeLine('', 6)") == "Check your email for a 6-digit code. It works for 10 minutes."
     assert js("L.accountSignedInLine(true)") == "Your account is ready."
     assert js("L.accountSignedInLine(false)") == "You’re signed in."
     assert js("L.accountSignedInLine(null)") == "You’re in."

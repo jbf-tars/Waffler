@@ -68,6 +68,7 @@ class Computer:
 def fake(monkeypatch):
     fake = FakeAccountServer()
     monkeypatch.setenv(account.SERVER_ENV, SERVER)
+    monkeypatch.setattr(account, "_digits", {})
     monkeypatch.setenv("NATTER_NO_KEYRING", "1")
     monkeypatch.delenv("NATTER_HUB_TOKEN", raising=False)
     monkeypatch.setattr(account, "_transport", fake.transport())

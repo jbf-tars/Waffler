@@ -956,7 +956,8 @@ class Api:
             return {"ok": False, "error": "That didn't work. Try again.", "reason": "failed"}
 
     def account_start(self, email: str = "") -> dict:
-        """Send the 6-digit code: {"ok", "email", "expires_in"}."""
+        """Email the sign-in code: {"ok", "email", "expires_in", "digits"}.
+        `digits` is how long the code is (8; 6 from an older service)."""
         return _account_call("start", email)
 
     def account_verify(self, email: str = "", code: str = "") -> dict:

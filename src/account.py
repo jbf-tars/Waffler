@@ -2,7 +2,8 @@
 
 The client for the account service (another program; its reference is
 docs/HOSTED.md in that project). A person types their email, is sent a
-six-digit code, and this computer becomes one of the account's devices. From
+code (as many digits as the service says: 8, or 6 from an older service that
+does not say), and this computer becomes one of the account's devices. From
 then on the meetings sync with the account (src/meetings/sync.py, driven by
 src/meetings_ctl.py), and the account can hand Claude a private link to read
 them.
@@ -52,7 +53,8 @@ NOT_AVAILABLE = "Accounts are coming soon."
 NOT_SIGNED_IN = "Sign in first."
 NO_INTERNET = "Waffler couldn't reach the account service. Check your internet connection and try again."
 BAD_EMAIL = "That doesn't look like an email address."
-BAD_CODE = "Enter the 6-digit code from the email."
+BAD_CODE = "Enter the {n}-digit code from the email."
+BAD_CODE_ANY = "Enter the code from the email."       # no code was asked for since Waffler opened
 WRONG_CODE = "That code is wrong or has expired. Check it, or send a new one."
 CODE_NOT_SENT = "The code couldn't be sent just now. Try again in a moment."
 EMAILS_USED_UP = "Waffler has sent all the sign-in emails it can for now. Try again in {wait}."
@@ -74,7 +76,9 @@ BUSY = "The account service is busy. Try again in a moment."
 SYNC_TOO_OFTEN = "The account service asked Waffler to wait. It will try again shortly."
 FAILED = "That didn't work. Try again."
 
+DIGITS_OLD = 6               # a service that does not say how long its codes are
 _LOCAL_HOSTS = ("127.0.0.1", "localhost", "::1")
+_digits: dict[str, int] = {}  # the address a code was asked for -> how many digits the service said
 _transport = None            # the tests put a stand-in service here (an httpx transport)
 _notice = ""                 # why this computer is no longer signed in, until the next sign-in
 
@@ -320,6 +324,24 @@ def _answers(fn):
 
 # ── signing in and out ──────────────────────────────────────────────────────
 
+def _digits_of(answer: dict) -> int:
+    """How long the code is: the service's "digits", or 6 from a service
+    that does not say (or says something that is not a sensible length)."""
+    n = answer.get("digits")
+    return n if isinstance(n, int) and not isinstance(n, bool) and 4 <= n <= 12 else DIGITS_OLD
+
+
+def _typed_code(typed, asked_for: str) -> str:
+    """The code as it is sent: digits only, and as many as the service said
+    when the code was asked for. Anything else is refused here: it is not
+    worth one of the few tries the service allows."""
+    code = re.sub(r"[\s-]", "", typed) if isinstance(typed, str) else ""
+    n = _digits.get(asked_for)
+    if not re.fullmatch(r"\d{%d}" % n if n else r"\d{6,8}", code):
+        raise AccountError(BAD_CODE.format(n=n) if n else BAD_CODE_ANY, "bad_code")
+    return code
+
+
 def status() -> dict:
     """What the page draws first. Read from this computer: nothing is contacted."""
     available = bool(server_url())
@@ -343,7 +365,9 @@ def start(email) -> dict:
     answer = _request("POST", "/auth/email/start", body={"email": email}, signed=False, what="start")
     _notice = ""
     expires = answer.get("expires_in")
-    return {"ok": True, "email": email, "expires_in": expires if isinstance(expires, int) else 600}
+    _digits[email] = _digits_of(answer)
+    return {"ok": True, "email": email, "expires_in": expires if isinstance(expires, int) else 600,
+            "digits": _digits[email]}
 
 
 @_answers
@@ -353,9 +377,7 @@ def verify(email, code, device_name: str | None = None) -> dict:
     if not server_url():
         raise AccountError(NOT_AVAILABLE, "unavailable")
     email = email.strip().lower() if isinstance(email, str) else ""
-    code = re.sub(r"[\s-]", "", code) if isinstance(code, str) else ""
-    if not re.fullmatch(r"\d{6}", code):
-        raise AccountError(BAD_CODE, "bad_code")      # not worth one of the five tries
+    code = _typed_code(code, email)
     name = (device_name or default_device_name()).strip()[:80]
     before = _session()
     answer = _request("POST", "/auth/email/verify", signed=False, what="verify",
