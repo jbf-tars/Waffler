@@ -176,6 +176,163 @@ def test_settings_calls_the_bridge_and_saves_the_choice_like_any_setting():
     assert "window.confirm('Remove the writing model from this computer?" in hir
 
 
+# The row drawn for real: howitruns.js run in Node against a stand-in page and
+# a stand-in bridge, so a slip in the script is caught and not only its text.
+_ROW_HARNESS = r"""
+const els = {};
+const el = (id) => els[id] || (els[id] = { id, hidden: false, textContent: '', checked: false, disabled: false,
+  style: {}, classList: { toggle() {} }, listeners: {}, addEventListener(t, f) { this.listeners[t] = f; } });
+['howItRuns','hirLocalRadio','hirCloudRadio','hirLocal','hirCloud','hirState','hirBar','hirBarFill','hirDownload',
+ 'hirCancel','hirRemove','hirLlm','hirLlmAbout','hirLlmState','hirLlmBar','hirLlmBarFill','hirLlmDownload',
+ 'hirLlmCancel','hirLlmRemove','hirLlmPick','hirLlmChoice','hirNote'].forEach(el);
+const ready = [];
+const calls = [], toasts = [];
+global.document = { getElementById: (id) => els[id] || null, addEventListener: (t, f) => ready.push(f) };
+global.showToast = (m) => toasts.push(m);
+global.window = global;
+window.setTimeout = () => 0; window.clearTimeout = () => {};
+window.confirm = () => true;
+window.WafflerLogic = require(LOGIC);
+window.loadSettings = () => calls.push('loadSettings');
+let llm = LLM, settings = SETTINGS;
+window.pywebview = { api: {
+  local_stt_status: async () => ({ ok: true, mode: 'local', available: true, state: 'ready', bytes_total: 574041195, size_on_disk: 574041195 }),
+  get_settings: async () => settings,
+  local_llm_status: async () => llm,
+  local_llm_download: async () => { calls.push('download'); llm = { ...llm, state: 'downloading', percent: 3 }; return { ok: true, started: true }; },
+  local_llm_cancel: async () => { calls.push('cancel'); llm = { ...llm, state: 'not_downloaded', bytes_done: 9e8 }; return { ok: true }; },
+  local_llm_remove: async () => { calls.push('remove'); llm = { ...llm, state: 'not_downloaded', bytes_done: 0 }; return { ok: true }; },
+  save_settings: async (p) => { calls.push(p); llm = { ...llm, mode: p.writing_mode }; return { ok: true }; },
+} };
+require(HIR);
+ready.forEach((f) => f());
+const tick = () => new Promise((r) => setImmediate(r));
+const settle = async () => { for (let i = 0; i < 12; i++) await tick(); };
+const shot = () => ({ shown: !els.hirLlm.hidden, about: els.hirLlmAbout.textContent, state: els.hirLlmState.textContent,
+  stateHidden: els.hirLlmState.hidden, bar: !els.hirLlmBar.hidden, width: els.hirLlmBarFill.style.width,
+  download: els.hirLlmDownload.hidden ? '' : els.hirLlmDownload.textContent, stop: !els.hirLlmCancel.hidden,
+  remove: !els.hirLlmRemove.hidden, pick: !els.hirLlmPick.hidden, ticked: els.hirLlmChoice.checked,
+  note: els.hirNote.textContent });
+(async () => {
+  const out = {};
+  window.loadHowItRuns(); await settle(); out.first = shot();
+  els.hirLlmDownload.listeners.click(); await settle(); out.downloading = shot();
+  els.hirLlmCancel.listeners.click(); await settle(); out.stopped = shot();
+  llm = { ...llm, state: 'ready', percent: 100, size_on_disk: 5154941370 };
+  window.waffler_local_llm_changed(llm); await settle(); out.ready = shot();
+  settings = { groq_key_set: true };
+  window.loadHowItRuns(); await settle(); out.readyWithKey = shot();
+  els.hirLlmChoice.listeners.change({ target: { checked: true } }); await settle(); out.chosen = shot();
+  els.hirLlmRemove.listeners.click(); await settle(); out.removed = shot();
+  out.calls = calls; out.toasts = toasts;
+  process.stdout.write(JSON.stringify(out));
+})();
+"""
+
+
+def _row(status, settings=None):
+    code = (f"const LOGIC = {json.dumps(str(UI / 'logic.js'))}, HIR = {json.dumps(str(UI / 'howitruns.js'))};\n"
+            f"const LLM = {json.dumps(status)}, SETTINGS = {json.dumps(settings or {})};\n" + _ROW_HARNESS)
+    out = subprocess.run([NODE, "-e", code], capture_output=True, text=True, timeout=60, encoding="utf-8")
+    assert out.returncode == 0, out.stderr
+    return json.loads(out.stdout)
+
+
+@needs_node
+def test_the_settings_row_drawn_for_real_from_download_to_remove():
+    seen = _row(llm())
+    first = seen["first"]
+    assert first["shown"] and first["download"] == "Download the writing model (5.2 GB)"
+    assert first["about"] == ABOUT and first["stateHidden"] and not first["bar"] and not first["remove"]
+    assert first["note"].endswith("need a key, or the second download.")
+    down = seen["downloading"]
+    assert down["bar"] and down["stop"] and down["width"] == "3%" and not down["download"]
+    assert down["state"].startswith("Downloading the writing model: 3% of 5.2 GB.")
+    assert seen["stopped"]["state"] == "The download was stopped part-way. It carries on from where it got to."
+    ready = seen["ready"]
+    assert ready["remove"] and not ready["pick"] and not ready["download"]
+    assert ready["note"].endswith("Text is tidied and meeting notes are written on this computer too.")
+    with_key = seen["readyWithKey"]
+    assert with_key["pick"] and with_key["ticked"] is False
+    assert with_key["state"].endswith("Your key is still doing the tidying and the notes.")
+    assert seen["chosen"]["ticked"] is True and seen["chosen"]["note"].endswith("on this computer too.")
+    assert seen["removed"]["download"] == "Download the writing model (5.2 GB)"
+    assert seen["calls"].count("download") == 1 and "cancel" in seen["calls"] and "remove" in seen["calls"]
+    assert {"writing_mode": "local"} in seen["calls"]
+    assert "loadSettings" in seen["calls"], "the rest of Settings is told who tidies now"
+    assert seen["toasts"] == ["Text is tidied and notes are written on this computer now."]
+
+
+@needs_node
+def test_the_settings_row_stays_hidden_where_it_is_not_offered():
+    for status in (llm(available=False), llm(suits_machine=False, machine_reason="not_measured"), {"ok": False}):
+        first = _row(status)["first"]
+        assert first["shown"] is False, status
+        assert first["note"] in ("This choice covers dictation and meetings. Writing a meeting’s notes still "
+                                 "needs a key, either way.", ""), "nothing is promised"
+    low = _row(llm(suits_machine=False, machine_reason="low_memory"))["first"]
+    assert low["shown"] and low["download"] == "" and "needs 16 GB of memory or more" in low["about"]
+
+
+# Setup's extra, drawn for real: the three functions lifted out of app.js.
+_EXTRA_HARNESS = r"""
+const els = {};
+['obWayExtra','obTldrExtra','obWayExtraLine','obWayExtraBtn'].forEach((id) => { els[id] = { hidden: true, textContent: '' }; });
+global.document = { getElementById: (id) => els[id] || null };
+const WL = require(LOGIC);
+const toasts = [], calls = [];
+const showToast = (m) => toasts.push(m);
+const setTimeout = () => 0, clearTimeout = () => {};
+let llm = LLM;
+const pywebview = { api: {
+  local_llm_status: async () => llm,
+  local_llm_download: async () => { calls.push('download'); llm = { ...llm, state: 'downloading', percent: 7 }; return { ok: true }; },
+  local_llm_cancel: async () => { calls.push('cancel'); llm = { ...llm, state: 'not_downloaded', bytes_done: 4e8 }; return { ok: true }; },
+} };
+let _wizWay = '';
+FUNCS
+const shot = () => ({ shown: !els.obWayExtra.hidden, line: els.obWayExtraLine.textContent,
+  button: els.obWayExtraBtn.hidden ? '' : els.obWayExtraBtn.textContent, more: !els.obTldrExtra.hidden });
+(async () => {
+  const out = {};
+  await wizRefreshExtra(); out.beforeChoosing = shot();
+  _wizWay = 'local'; wizDrawExtra(); out.chosen = shot();
+  await wizExtra(); out.downloading = shot();
+  await wizExtra(); out.stopped = shot();
+  _wizWay = 'key'; wizDrawExtra(); out.keyWay = shot();
+  out.calls = calls;
+  process.stdout.write(JSON.stringify(out));
+})();
+"""
+
+
+def _extra(status):
+    app = read("app.js")
+    start = app.index("let _wizLlm = null;")
+    funcs = app[start:app.index("// \"Download and start\"", start)]
+    code = (f"const LOGIC = {json.dumps(str(UI / 'logic.js'))};\nconst LLM = {json.dumps(status)};\n"
+            + _EXTRA_HARNESS.replace("FUNCS", funcs))
+    out = subprocess.run([NODE, "-e", code], capture_output=True, text=True, timeout=60, encoding="utf-8")
+    assert out.returncode == 0, out.stderr
+    return json.loads(out.stdout)
+
+
+@needs_node
+def test_setups_extra_drawn_for_real():
+    seen = _extra(llm())
+    assert seen["beforeChoosing"]["shown"] is False, "not until the free way is chosen"
+    assert seen["beforeChoosing"]["more"] is True, "the short version says it exists, where it is offered"
+    chosen = seen["chosen"]
+    assert chosen["shown"] and chosen["button"] == "Add it" and chosen["line"].startswith("Optional extra (5.2 GB):")
+    assert seen["downloading"]["button"] == "Stop" and "7% of 5.2 GB" in seen["downloading"]["line"]
+    assert seen["stopped"]["button"] == "Carry on"
+    assert seen["keyWay"]["shown"] is False
+    assert seen["calls"] == ["download", "cancel"]
+    # A computer that is not offered it sees nothing, and nothing is said about it.
+    nowhere = _extra(llm(suits_machine=False, machine_reason="low_memory"))
+    assert nowhere["chosen"] == {"shown": False, "line": "", "button": "", "more": False}
+
+
 # ── who the page says tidies ─────────────────────────────────────────────────
 
 FREE_PLUS = {"transcription_mode": "local", "transcription_backend": "mlx", "styling_backend": "ondevice"}
