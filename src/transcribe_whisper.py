@@ -765,7 +765,8 @@ def fuzzy_match_word(transcribed: str, vocab: list[str], threshold: float = 0.75
          of words heard in a row, each spelt as the entry's word or passing
          the single-word rule, and at least one spelt exactly. Before 3.15
          these entries were never matched at all.
-      1. Single words (rule above ``_ENGLISH_ENDINGS``).
+      1. Single words (rule above ``_ENGLISH_ENDINGS``), after any two
+         words in a row that spell a single-word entry exactly.
       2. **Bigram collapse** match: when Whisper splits a compound name into
          two words ("Ashkan" → "Nash can", "Ashcan", "Ash can"), pass 1
          can't find it. We glue every adjacent bigram together
@@ -814,6 +815,22 @@ def fuzzy_match_word(transcribed: str, vocab: list[str], threshold: float = 0.75
     exact = {}
     for vword, entry in singles:
         exact.setdefault(vword, entry)
+
+    # Before the single words: two words in a row that spell a single-word
+    # entry letter for letter are that entry ("cobie qc" -> COBieQC). Pass 2
+    # has always taken such a join, but only after pass 1, and when the first
+    # word was an entry too (COBie) pass 1 had claimed it: "COBie qc". Not
+    # for a pair of everyday words ("mark down" with Mark and Markdown
+    # listed): pass 1 claims an everyday word that is an entry as the word
+    # the speaker said, and that is left as it was.
+    for i in range(len(words) - 1):
+        if i in used or i + 1 in used:
+            continue
+        a, b = words[i], words[i + 1]
+        entry = exact.get(a + b)
+        if entry is None or len(a + b) < 4 or (_is_everyday(a) and _is_everyday(b)):
+            continue
+        emit(f"{a} {b}", entry, (i, i + 1))
 
     # Pass 1: single words.
     for i, word in enumerate(words):
