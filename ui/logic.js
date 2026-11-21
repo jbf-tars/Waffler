@@ -1893,8 +1893,8 @@
     return {
       on: !off,
       desc: off
-        ? "Off, Waffler pastes exactly what it heard, with your Vocabulary and Snippets. Nothing is sent for clean-up. Styles aren't used, but an email signature still is."
-        : 'Takes out ums and false starts, adds punctuation and tidies the sentence.',
+        ? 'Off, Waffler pastes exactly what it heard.'
+        : 'Removes ums, adds punctuation and tidies sentences.',
       note: off ? STYLE_OFF_NOTE : '',
     };
   }

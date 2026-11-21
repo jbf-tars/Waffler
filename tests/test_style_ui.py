@@ -107,10 +107,14 @@ def test_clean_up_is_on_unless_saved_as_off():
 def test_the_descriptions_say_what_off_means():
     on, off = js("L.cleanupView({})"), js("L.cleanupView({cleanup: 'off'})")
     assert on["note"] == "" and off["note"]
-    assert "exactly what it heard" in off["desc"] and "Vocabulary" in off["desc"] and "Snippets" in off["desc"]
-    assert "Styles aren't used" in off["desc"] and "styles" in off["note"]
-    assert "an email signature still is" in off["desc"]
-    assert "Nothing is sent for clean-up" in off["desc"]
+    assert on["desc"] == "Removes ums, adds punctuation and tidies sentences."
+    assert off["desc"] == "Off, Waffler pastes exactly what it heard." and "styles" in off["note"]
+    # The rest of what Off means is under the section's "How it works".
+    html = read("index.html")
+    how = html[html.index('id="styleHow"'):html.index('id="secTransforms"')]
+    for said in ("With it off, Waffler pastes exactly what it heard, with your Vocabulary and Snippets.",
+                 "Nothing is sent for clean-up.", "Styles aren't used, but an email signature still is."):
+        assert said in how, said
     for text in (on["desc"], on["note"], off["desc"], off["note"]):
         assert "—" not in text and "–" not in text
 
