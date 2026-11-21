@@ -231,3 +231,51 @@ def test_with_neither_a_key_nor_the_model_the_page_is_told_so(machine, ctl):
     machine.key("GROQ_API_KEY")                                # their own key instead
     info = call(ctl, "GET", "/app")["body"]
     assert info["keys"]["groq"]["set"] is True and info["local"]["speech"] is False
+# ── the page itself (ui/meetings-app, built from natter-notes ui/) ───────────
+
+def _page():
+    (one,) = sorted((ROOT / "ui" / "meetings-app" / "assets").glob("*.js"))
+    return one.read_text(encoding="utf-8")
+
+
+def _words(text):
+    return len(re.findall(r"[A-Za-z']+", text))
+
+
+def test_the_page_reads_what_it_is_told():
+    """A meeting can be recorded with speech here or a speech key; notes and
+    Ask with the writing model here or a writing key. A page that is told
+    nothing (stand-alone Natter) is as it was."""
+    page = _page()
+    assert re.search(r"\?\.local\b", page)
+    assert re.search(r'=!([\w$]+)\|\|\1\.speech\|\|[\w$]+\("groq","openai"\)', page)
+    assert re.search(r'=!([\w$]+)\|\|\1\.writing\|\|[\w$]+\("anthropic","openai","groq","custom"\)', page)
+
+
+def test_state_3_offers_the_free_model_first_and_a_key_second():
+    page = _page()
+    assert '"Download the free model"' in page and '"Use your own key"' in page
+    assert "Add a key in Waffler's Settings to begin" not in page, "a key is not the only way in"
+    # Both open Settings at Keys and providers (app.js showSettingsSection('keys')).
+    assert re.search(r'showSettingsSection[^;]{0,80}', page) and '"settings","keys"' in page
+    app = (ROOT / "ui" / "app.js").read_text(encoding="utf-8")
+    assert "function showSettingsSection(sec)" in app and "'keys'" in app
+
+
+def test_state_2_is_one_quiet_line_and_one_link_of_nine_words_at_most():
+    page = _page()
+    at = page.index('"Notes need a key. "')
+    found = re.match(r'[\w$]+&&[\w$]+\.jsxs\("p",\{className:"quiet",children:\["Notes need a key\. ",'
+                     r'[\w$]+\.jsx\("button",\{className:"link",onClick:[\w$]+\.openSettings,children:"Open Settings"\}\)\]\}\)',
+                     page[page.rindex(",", 0, at - 40) + 1:])
+    assert found, "one paragraph in the quiet style (not the problem style), one link, nothing else"
+    assert _words("Notes need a key.") + _words("Open Settings") <= 9
+    assert page.count("Notes need a key.") == 1
+    # Nothing that would only fail is offered in that state: Write notes and
+    # Ask about this note are drawn only when there is something to write with.
+    assert re.search(r'[\w$]+&&[\w$]+\.jsxs\("button",\{className:"ghost",disabled:[\w$]+,onClick:[^}]+enhance', page)
+    assert re.search(r'[\w$]+&&[\w$]+\.jsxs\("button",\{className:"askbar"', page)
+
+
+def test_the_stand_alone_page_keeps_its_own_words():
+    assert '"Add your API key to begin"' in _page()
