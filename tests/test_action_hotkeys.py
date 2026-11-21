@@ -518,3 +518,58 @@ def test_the_windows_watcher_is_not_started_anywhere_else():
     if sys.platform != "win32":
         assert r.start() is False
     r.stop()
+
+
+# ── a shortcut is suggested when a feature is on and has none ────────────────
+
+def test_a_fresh_mac_is_offered_control_option_shortcuts():
+    import action_hotkeys as _ah
+    assert _ah.suggest("transform", _ah.MAC, {})["keys"] == _ah.validate("transform", ["ctrl", "option", "t"], _ah.MAC, {})["keys"]
+    hold = _ah.suggest("command", _ah.MAC, {})
+    assert hold["ok"] and hold["display"] == "Control + Option"
+
+
+def test_a_fresh_windows_machine_is_offered_windows_alt_shortcuts():
+    import action_hotkeys as _ah
+    assert _ah.suggest("transform", _ah.WINDOWS, {})["display"] == "Win + Alt + T"
+    assert _ah.suggest("command", _ah.WINDOWS, {})["display"] == "Win + Alt + C"
+
+
+def test_a_suggestion_never_clashes_with_what_is_saved():
+    import action_hotkeys as _ah
+    for platform in (_ah.MAC, _ah.WINDOWS):
+        first = _ah.suggest("transform", platform, {})
+        saved = {"transforms": {"enabled": True, "hotkey": first["keys"]}}
+        second = _ah.suggest("command", platform, saved)
+        assert second["ok"] and second["keys"] != first["keys"]
+        assert _ah.validate("command", second["keys"], platform, saved)["ok"]
+        # and the other way round
+        hold = _ah.suggest("command", platform, {})
+        saved = {"command_mode": {"enabled": True, "hotkey": hold["keys"]}}
+        press = _ah.suggest("transform", platform, saved)
+        assert press["ok"] and _ah.validate("transform", press["keys"], platform, saved)["ok"]
+
+
+def test_every_listed_suggestion_is_a_legal_shortcut_on_its_own_platform():
+    import action_hotkeys as _ah
+    for action_id, by_platform in _ah.SUGGESTIONS.items():
+        for platform, candidates in by_platform.items():
+            for keys in candidates:
+                assert _ah.validate(action_id, list(keys), platform, {})["ok"], (action_id, platform, keys)
+
+
+def test_an_unknown_action_or_platform_is_offered_nothing():
+    import action_hotkeys as _ah
+    assert _ah.suggest("paste_last", _ah.MAC, {}) == {"ok": False}
+    assert _ah.suggest("transform", "Linux", {}) == {"ok": False}
+
+
+def test_the_page_gives_a_shortcut_when_a_feature_is_switched_on_or_opened_without_one():
+    from pathlib import Path as _P
+    root = _P(__file__).resolve().parent.parent
+    app = (root / "app.py").read_text(encoding="utf-8")
+    page = (root / "ui" / "app.js").read_text(encoding="utf-8")
+    assert "def suggest_transform_hotkey(self)" in app and "def suggest_command_hotkey(self)" in app
+    assert "_action_hotkeys.feature_on(stored, action_id)" in app      # never for a feature that is off
+    assert "_giveShortcut('suggest_transform_hotkey'" in page and "_giveShortcut('suggest_command_hotkey'" in page
+    assert "_giveShortcutOnOpen(sec)" in page

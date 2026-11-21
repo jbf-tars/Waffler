@@ -3418,6 +3418,34 @@ class Api:
             _log_to_file(f"save_transform_hotkey error: {type(e).__name__}")
             return {"ok": False, "error": "Couldn't save the shortcut. Please try again."}
 
+    def suggest_transform_hotkey(self) -> dict:
+        """Transforms is on and has no shortcut: give it the first free one of
+        a short list for this kind of computer (src/action_hotkeys.py
+        SUGGESTIONS). Returns {"ok", "set": True, "keys", "display"} when it
+        set one, {"ok": True, "set": False} when there was nothing to do
+        (off, a shortcut already, or none free). Never raises."""
+        return self._suggest_action_hotkey("transform", self.save_transform_hotkey)
+
+    def suggest_command_hotkey(self) -> dict:
+        """The same for Command mode's hold-to-talk shortcut."""
+        return self._suggest_action_hotkey("command", self.save_command_hotkey)
+
+    def _suggest_action_hotkey(self, action_id: str, save) -> dict:
+        try:
+            stored = self._load_settings_file()
+            if not _action_hotkeys.feature_on(stored, action_id) or _action_hotkeys.stored_keys(stored, action_id):
+                return {"ok": True, "set": False}
+            pick = _action_hotkeys.suggest(action_id, _platform.system(), stored)
+            if not pick.get("ok"):
+                return {"ok": True, "set": False}
+            out = save(pick["keys"])
+            if out.get("ok"):
+                _log_to_file(f"[shortcuts] {action_id}: no shortcut was set, so it was given one")
+            return {**out, "set": bool(out.get("ok"))}
+        except Exception as e:
+            _log_to_file(f"[shortcuts] suggest {action_id} failed: {type(e).__name__}")
+            return {"ok": False, "set": False}
+
     def save_command_hotkey(self, keys) -> dict:
         """Set the Command shortcut (Settings, Command mode), the keys held
         while speaking an instruction, or clear it with an empty list. The

@@ -179,7 +179,7 @@
         <button type="button" class="snav-item" data-sec="transforms" onclick="showSettingsSection('transforms')">Transforms (beta)</button>
         <button type="button" class="snav-item" data-sec="command" onclick="showSettingsSection('command')">Command mode (beta)</button>
         <button type="button" class="snav-item" data-sec="keys" onclick="showSettingsSection('keys')">Keys and providers</button>
-        <button type="button" class="snav-item" data-sec="claude" onclick="showSettingsSection('claude')">Claude</button>
+        <button type="button" class="snav-item" data-sec="claude" onclick="showSettingsSection('claude')">AI apps</button>
         <button type="button" class="snav-item" data-sec="hotkey" onclick="showSettingsSection('hotkey')">Shortcuts</button>
         <button type="button" class="snav-item" data-sec="usage" onclick="showSettingsSection('usage')">Usage</button>
         <button type="button" class="snav-item" data-sec="privacy" onclick="showSettingsSection('privacy')">Privacy and data</button>
@@ -630,8 +630,8 @@
              dictations (claude.js; Api.claude_status / _connect / _disconnect;
              src/claude_connector.py). Read-only. -->
         <section class="s-sec" id="secClaude" data-sec="claude" hidden>
-          <h1 class="ptitle">Claude</h1>
-          <p class="pdesc">Let Claude read what you recorded and dictated, so you can ask it about any of it. Claude can only read. It cannot change or delete anything.</p>
+          <h1 class="ptitle">Claude and other AI apps</h1>
+          <p class="pdesc">Let Claude, or another AI app, read what you recorded and dictated, so you can ask it about any of it. It can only read. It cannot change or delete anything.</p>
 
           <div class="sheet">
             <div class="row" id="claudeRow">
@@ -652,6 +652,19 @@
               <button type="button" class="btn btn-sec btn-sm" id="claudeCopy">Copy</button>
             </div>
           </div>
+
+          <h2 class="sh2">Other AI apps<span class="aside">optional</span></h2>
+          <div class="sheet">
+            <div class="row" id="claudeCodexRow">
+              <div class="row-main"><div class="row-t">Codex</div><div class="row-d">Add these lines to the file <span class="cl-file">~/.codex/config.toml</span>, then start Codex again.</div><div class="row-d cl-cmd cl-block" id="claudeCodex"></div></div>
+              <button type="button" class="btn btn-sec btn-sm" id="claudeCodexCopy">Copy</button>
+            </div>
+            <div class="row" id="claudeOtherRow">
+              <div class="row-main"><div class="row-t">Cursor and the rest</div><div class="row-d">Most AI apps take this in their MCP settings. Paste it there.</div><div class="row-d cl-cmd cl-block" id="claudeOther"></div></div>
+              <button type="button" class="btn btn-sec btn-sm" id="claudeOtherCopy">Copy</button>
+            </div>
+          </div>
+          <p class="s-note">These reach this computer only. Reading your meetings from every device needs an account, which is on its way.</p>
         </section>
 
         <!-- Shortcuts: every shortcut in one place (src/shortcut_settings.py). The

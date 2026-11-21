@@ -20,6 +20,10 @@
     $('claudeDictToggle').checked = s.dictations !== false;
     $('claudeCommand').textContent = s.command || '';
     $('claudeCodeRow').hidden = !s.command;
+    $('claudeCodex').textContent = s.codex || '';
+    $('claudeCodexRow').hidden = !s.codex;
+    $('claudeOther').textContent = s.other || '';
+    $('claudeOtherRow').hidden = !s.other;
   }
 
   async function refresh() {
@@ -47,8 +51,8 @@
     } catch (e) { tog.checked = !on; showToast('That could not be saved. Try again.', 'error'); }
   }
 
-  async function copyCommand() {
-    const a = api(), text = $('claudeCommand').textContent; if (!text) return;
+  async function copyCommand(from) {
+    const a = api(), text = $(typeof from === 'string' ? from : 'claudeCommand').textContent; if (!text) return;
     try {
       if (a && a.copy_item) { if ((await a.copy_item(text)) === false) throw new Error('not copied'); }
       else await navigator.clipboard.writeText(text);
@@ -61,7 +65,9 @@
     $('claudeConnect').addEventListener('click', () => act('claude_connect', 'Connected. Quit Claude and open it again to finish.'));
     $('claudeDisconnect').addEventListener('click', () => act('claude_disconnect', 'Disconnected. Claude can no longer read Waffler.'));
     $('claudeDictToggle').addEventListener('change', saveDictations);
-    $('claudeCopy').addEventListener('click', copyCommand);
+    $('claudeCopy').addEventListener('click', () => copyCommand('claudeCommand'));
+    $('claudeCodexCopy').addEventListener('click', () => copyCommand('claudeCodex'));
+    $('claudeOtherCopy').addEventListener('click', () => copyCommand('claudeOther'));
   });
 
   window.loadClaude = refresh;

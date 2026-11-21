@@ -4212,6 +4212,7 @@ function showSettingsSection(sec) {
   if (sec === 'general') loadMicrophones(false);
   _syncMicMeter();
   if (sec === 'keys' && window.loadHowItRuns) window.loadHowItRuns();   // how speech becomes text (howitruns.js)
+  if (sec === 'transforms' || sec === 'command') _giveShortcutOnOpen(sec);  // on, but no shortcut: give it one
   if (sec === 'claude' && window.loadClaude) window.loadClaude();         // Claude reads meetings and dictations (claude.js)
 }
 
@@ -4828,7 +4829,10 @@ function renderCommandSection() {
 
 async function setCommandEnabled(on) {
   const ok = await saveCommandMode({ enabled: !!on });
-  if (ok) showToast(WL.commandSaved('enabled', !!on), 'success', 3500);
+  if (!ok) return;
+  const picked = on ? await _giveShortcut('suggest_command_hotkey', refreshCommandSettings) : '';
+  if (picked) showToast(`Command mode is on. Hold ${picked} and say what you want done.`, 'success', 7000);
+  else showToast(WL.commandSaved('enabled', !!on), 'success', 3500);
 }
 
 async function onCommandEngineChange(sel) {
@@ -5024,7 +5028,32 @@ function renderCustomTransforms(v) {
 
 async function setTransformsEnabled(on) {
   const ok = await saveTransforms({ enabled: !!on });
-  if (ok) showToast(WL.transformSaved('enabled', !!on), 'success', 3500);
+  if (!ok) return;
+  const picked = on ? await _giveShortcut('suggest_transform_hotkey', refreshTransformSettings) : '';
+  if (picked) showToast(`Transforms is on. Its shortcut is ${picked}. Change it here any time.`, 'success', 7000);
+  else showToast(WL.transformSaved('enabled', !!on), 'success', 3500);
+}
+
+// A feature that is on with no shortcut does nothing, and nobody should have
+// to invent a free key combination: the app picks one that clashes with
+// nothing saved (Api.suggest_*_hotkey) and says which. Returns its name, or
+// '' when there was nothing to set.
+async function _giveShortcut(method, refresh) {
+  try {
+    const r = await window.pywebview.api[method]();
+    if (r && r.ok && r.set) { await refresh(); return r.display || ''; }
+  } catch (e) { /* the row still offers Change… */ }
+  return '';
+}
+// Opening the section of a feature that is on but has no shortcut gives it one.
+async function _giveShortcutOnOpen(sec) {
+  if (sec === 'transforms') {
+    const picked = await _giveShortcut('suggest_transform_hotkey', refreshTransformSettings);
+    if (picked) showToast(`Transforms had no shortcut, so it now uses ${picked}. Change it here any time.`, 'success', 7000);
+  } else if (sec === 'command') {
+    const picked = await _giveShortcut('suggest_command_hotkey', refreshCommandSettings);
+    if (picked) showToast(`Command mode had no shortcut, so it now uses ${picked}. Hold it and speak.`, 'success', 7000);
+  }
 }
 
 async function onTransformRunChange(sel) {

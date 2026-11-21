@@ -148,3 +148,5 @@ body:not([data-page="home"]) .j-ask { display: none; }
 
 /* Settings, Claude: the command for Claude Code, in the row's description. */
 .settings-panel .row-d.cl-cmd { font: 400 12px/1.5 var(--f-mono, ui-monospace, Menlo, Consolas, monospace); overflow-wrap: anywhere; user-select: text; -webkit-user-select: text; }
+.settings-panel .row-d.cl-block { white-space: pre-wrap; margin-top: 8px; padding: 10px 12px; border-radius: 10px; background: var(--surface); }
+.cl-file { font-family: var(--f-mono, "Geist Mono", monospace); font-size: 12px; }

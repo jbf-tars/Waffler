@@ -270,7 +270,7 @@ def test_settings_has_a_claude_section_wired_to_the_app():
     js = (ROOT / "ui" / "claude.js").read_text(encoding="utf-8")
     app_js = (ROOT / "ui" / "app.js").read_text(encoding="utf-8")
     app_py = (ROOT / "app.py").read_text(encoding="utf-8")
-    assert 'data-sec="claude" onclick="showSettingsSection(\'claude\')">Claude</button>' in html
+    assert 'data-sec="claude" onclick="showSettingsSection(\'claude\')">AI apps</button>' in html
     assert '<section class="s-sec" id="secClaude" data-sec="claude" hidden>' in html
     assert '<script src="claude.js"></script>' in html
     for ident in ("claudeState", "claudeConnect", "claudeDisconnect", "claudeDictToggle", "claudeCommand"):
@@ -280,3 +280,36 @@ def test_settings_has_a_claude_section_wired_to_the_app():
         assert f"def {method}(self)" in app_py and method in js
     assert "claude_dictations" in app_py and "claude_dictations" in js
     assert app_py.index("'--mcp' in sys.argv") < app_py.index("import webview")   # before the heavy imports
+
+
+def test_other_ai_apps_are_given_the_same_server_in_their_own_form(monkeypatch):
+    import json as _json
+    import tomllib
+    from src import claude_connector as cc
+    monkeypatch.setattr(cc, "launcher", lambda: ["/Applications/Waffler.app/Contents/MacOS/Waffler", "--mcp"])
+    codex = tomllib.loads(cc.codex_config())
+    assert codex["mcp_servers"]["waffler"]["command"].endswith("/Waffler")
+    assert codex["mcp_servers"]["waffler"]["args"] == ["--mcp"]
+    other = _json.loads(cc.generic_config())
+    assert other["mcpServers"]["waffler"]["command"] == codex["mcp_servers"]["waffler"]["command"]
+    assert other["mcpServers"]["waffler"]["args"] == ["--mcp"]
+    st = cc.status()
+    assert st["codex"] == cc.codex_config() and st["other"] == cc.generic_config()
+
+
+def test_a_windows_path_survives_both_forms(monkeypatch):
+    import json as _json
+    import tomllib
+    from src import claude_connector as cc
+    path = "C:\\Program Files\\Waffler\\Waffler.exe"
+    monkeypatch.setattr(cc, "launcher", lambda: [path, "--mcp"])
+    assert tomllib.loads(cc.codex_config())["mcp_servers"]["waffler"]["command"] == path
+    assert _json.loads(cc.generic_config())["mcpServers"]["waffler"]["command"] == path
+
+
+def test_the_page_offers_codex_and_the_rest():
+    from pathlib import Path as _P
+    html = (_P(__file__).resolve().parent.parent / "ui" / "index.html").read_text(encoding="utf-8")
+    js = (_P(__file__).resolve().parent.parent / "ui" / "claude.js").read_text(encoding="utf-8")
+    for ident in ("claudeCodex", "claudeCodexCopy", "claudeOther", "claudeOtherCopy"):
+        assert f'id="{ident}"' in html and ident in js

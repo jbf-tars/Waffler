@@ -463,8 +463,27 @@ def claude_code_command() -> str:
     return f"claude mcp add --scope user {NAME} -- {quoted}"
 
 
+def codex_config() -> str:
+    """The lines for Codex's ~/.codex/config.toml. A TOML basic string takes
+    the same escapes as a JSON one, so json.dumps writes each value."""
+    cmd = launcher()
+    lines = [f"[mcp_servers.{NAME}]", f"command = {json.dumps(cmd[0])}",
+             "args = [" + ", ".join(json.dumps(c) for c in cmd[1:]) + "]"]
+    env = _entry().get("env")
+    if env:
+        lines.append("env = { " + ", ".join(f"{k} = {json.dumps(v)}" for k, v in env.items()) + " }")
+    return "\n".join(lines)
+
+
+def generic_config() -> str:
+    """The JSON most other apps take (Cursor, Windsurf, VS Code and the rest
+    that read an "mcpServers" list)."""
+    return json.dumps({"mcpServers": {NAME: _entry()}}, indent=2)
+
+
 def status() -> dict:
-    """{"installed", "connected", "current", "dictations", "command", "error"}.
+    """{"installed", "connected", "current", "dictations", "command",
+    "codex", "other", "error"}.
     installed: the Claude desktop app has been run on this computer.
     current: the entry points at this copy of Waffler. Never raises."""
     path = desktop_config_path()
@@ -472,7 +491,8 @@ def status() -> dict:
     entry = ((data or {}).get("mcpServers") or {}).get(NAME)
     return {"installed": path.parent.is_dir(), "connected": isinstance(entry, dict),
             "current": entry == _entry(), "dictations": dictations_allowed(),
-            "command": claude_code_command(), "error": problem}
+            "command": claude_code_command(), "codex": codex_config(),
+            "other": generic_config(), "error": problem}
 
 
 def connect() -> dict:

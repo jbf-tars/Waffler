@@ -591,6 +591,32 @@ def validate(action_id: str, keys, platform: str, settings=None, *, dictation_ho
     return check(keys, platform, ptt, others, hold=spec.kind == HOLD, cancel_key=cancel_key_of(settings))
 
 
+# A shortcut to offer when a feature is switched on with none set. In order of
+# preference; `suggest` takes the first that passes every rule against what is
+# saved now, so a suggestion never clashes with the dictation hotkey, the
+# cancel key or another action. Chosen to type nothing and to be nobody's
+# shortcut on a stock system: Control + Option on a Mac, the Windows key with
+# Alt on Windows (Ctrl + Alt is AltGr there).
+SUGGESTIONS: Dict[str, Dict[str, Tuple[List[str], ...]]] = {
+    "transform": {MAC: (["ctrl", "option", "t"], ["ctrl", "cmd", "t"], ["ctrl", "option", "r"]),
+                  WINDOWS: (["win", "alt", "t"], ["win", "alt", "w"], ["win", "shift", "t"])},
+    "command": {MAC: (["ctrl", "option"], ["ctrl", "option", "c"], ["ctrl", "cmd", "c"]),
+                WINDOWS: (["win", "alt", "c"], ["win", "alt", "x"], ["win", "shift", "c"])},
+}
+
+
+def suggest(action_id: str, platform: str, settings=None) -> dict:
+    """The shortcut to give an action that has none: ``{"ok": True, "keys",
+    "display"}`` for the first of SUGGESTIONS that ``validate`` accepts
+    against ``settings``, or ``{"ok": False}`` when none is free (or the
+    action or the platform has no list). Saves nothing."""
+    for keys in SUGGESTIONS.get(action_id, {}).get(platform, ()):
+        verdict = validate(action_id, list(keys), platform, settings)
+        if verdict.get("ok"):
+            return verdict
+    return {"ok": False}
+
+
 def cancel_problem(value, platform: str, settings=None, *, dictation_hotkey=None) -> Optional[str]:
     """A sentence for why ``value`` cannot be the cancel key, else None. One
     key: Esc, or an F key. Not a key of the dictation hotkey, not the key of a
