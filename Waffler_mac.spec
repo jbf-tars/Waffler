@@ -23,6 +23,22 @@ _m = _re.search(r'__version__\s*=\s*"([^"]+)"', _init_text)
 _VERSION = _m.group(1) if _m else '0.0.0'
 print(f"[spec] building Waffler.app version {_VERSION}")
 
+# ── The computer-sound helper for meetings (mac/sysaudio), optional ─────────
+# A meeting records the other people from what the Mac is playing, through a
+# small Swift program (ScreenCaptureKit) that src/meetings/recorder.py starts.
+# mac/build_sysaudio.sh builds it into mac/build/natter-sysaudio; build_mac.sh
+# and the release workflow run that before this spec. It is bundled as a
+# binary, so it lands in Contents/Frameworks and is inside the app's
+# signature. Without it the build still works and a meeting records the
+# microphone only, which is why its absence is said out loud here.
+_SYSAUDIO = os.path.join(PROJECT_ROOT, 'mac', 'build', 'natter-sysaudio')
+if os.path.isfile(_SYSAUDIO):
+    _SYSAUDIO_BINARIES = [(_SYSAUDIO, '.')]
+else:
+    print("[spec] meetings: mac/build/natter-sysaudio is not built (run mac/build_sysaudio.sh), "
+          "not bundled: meetings will record the microphone only")
+    _SYSAUDIO_BINARIES = []
+
 # ── On-device speech to text (src/local_stt.py) ──────────────────────────────
 # The ENGINE is bundled; the MODEL never is (about 0.6 GB): it is downloaded
 # once into the data folder from Settings.
@@ -105,7 +121,7 @@ _LLM_BINARIES = _llm_libs()
 a = Analysis(
     ['app.py'],
     pathex=[PROJECT_ROOT, os.path.join(PROJECT_ROOT, 'src')],
-    binaries=_LLM_BINARIES,
+    binaries=_LLM_BINARIES + _SYSAUDIO_BINARIES,
     datas=_STT_DATAS + [
         ('ui', 'ui'),
         ('prompts', 'prompts'),
@@ -135,6 +151,13 @@ a = Analysis(
         *_STT_HIDDEN,
         # ── The writing model's engine, when installed (see _LLM_HIDDEN) ──
         *_LLM_HIDDEN,
+        # ── Meetings: imported inside functions (src/meetings) ──
+        # Import audio that soundfile cannot read (m4a): the wheel's own
+        # ffmpeg program, which pyinstaller-hooks-contrib's hook-imageio_ffmpeg
+        # collects from imageio_ffmpeg/binaries.
+        'imageio_ffmpeg',
+        # Meeting notes by Anthropic's models, when the person chooses them.
+        'anthropic',
         # ── UI ──
         'webview',
         'webview.platforms.cocoa',

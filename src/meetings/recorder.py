@@ -243,7 +243,11 @@ def _mac_helper_path():
     import os
     from pathlib import Path
     if getattr(sys, "frozen", False):
-        return Path(sys.executable).with_name("natter-sysaudio")
+        # Beside the executable, or where PyInstaller puts the binaries it
+        # bundles (Contents/Frameworks in a Mac .app; Waffler_mac.spec).
+        beside = Path(sys.executable).with_name("natter-sysaudio")
+        bundled = Path(getattr(sys, "_MEIPASS", beside.parent)) / "natter-sysaudio"
+        return bundled if bundled.is_file() and not beside.is_file() else beside
     override = os.environ.get("NATTER_SYSAUDIO")
     if override:
         return Path(override)

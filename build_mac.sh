@@ -1,7 +1,7 @@
 #!/bin/bash
 # ============================================
 # Waffler — macOS Build Script
-# Produces: dist/Waffler.app + Waffler.dmg
+# Produces: dist/Waffler.app + dist-installer/Waffler-<version>-mac.dmg
 # ============================================
 
 set -e
@@ -13,24 +13,24 @@ echo "  Waffler — macOS Build"
 echo "============================================"
 echo ""
 
+# The Python that builds. The release is built with Python 3.11
+# (.github/workflows/macos-release.yml); name another with PYTHON=, for
+# example a virtualenv's: PYTHON=.build-env/venv/bin/python ./build_mac.sh
+PYTHON="${PYTHON:-python3}"
+
 # Step 1: Check Python
 echo "[1/7] Checking Python..."
-python3 --version || { echo "ERROR: Python3 not found!"; exit 1; }
+"$PYTHON" --version || { echo "ERROR: $PYTHON not found!"; exit 1; }
 
 # Step 2: Install dependencies
+# The same list the release workflow installs. (This step used to carry a
+# list of its own, which had fallen behind requirements.txt: no soundfile and
+# no on-device speech engine.) The writing engine, llama-cpp-python, is not in
+# requirements.txt on purpose: the pip line that compiles it is written there.
 echo ""
 echo "[2/7] Installing dependencies..."
-python3 -m pip install --upgrade pip -q
-python3 -m pip install -q \
-    pyinstaller \
-    sounddevice numpy pyperclip \
-    requests pyyaml python-dotenv \
-    openai groq \
-    httpx httpcore anyio sniffio \
-    certifi h11 idna charset_normalizer urllib3 \
-    pywebview rumps \
-    pyobjc-core pyobjc-framework-Cocoa pyobjc-framework-Quartz pyobjc-framework-AVFoundation \
-    2>&1
+"$PYTHON" -m pip install --upgrade pip -q
+"$PYTHON" -m pip install -q -r requirements.txt pyinstaller 2>&1
 echo "  Done."
 
 # Step 3: Create .icns icon if missing
@@ -74,7 +74,13 @@ echo ""
 echo "[5/7] Building Waffler.app..."
 echo "  This may take a few minutes..."
 echo ""
-python3 -m PyInstaller Waffler_mac.spec --noconfirm 2>&1
+# The helper that records what the Mac is playing in a meeting: the spec
+# bundles mac/build/natter-sysaudio when it is there.
+sh mac/build_sysaudio.sh
+"$PYTHON" -m PyInstaller Waffler_mac.spec --noconfirm 2>&1
+# Every part the build needs, asked of the built app itself (no window).
+dist/Waffler.app/Contents/MacOS/Waffler --self-check > dist/self-check.json \
+    || { echo "ERROR: the built app is missing a part:"; cat dist/self-check.json; exit 1; }
 
 # Step 6: Code sign the app (ad-hoc signature for local distribution)
 echo ""
@@ -88,24 +94,13 @@ else
     echo "  WARNING: Waffler.app not found — skipping code signing"
 fi
 
-# Step 7: Create DMG with Applications symlink
+# Step 7: Create the DMG (dmg-assets/create-dmg.sh: the app, a link to
+# Applications and the release's background, filled at a mount point of its
+# own so a Waffler disk that is already open is left alone).
 echo ""
-echo "[7/7] Creating Waffler.dmg..."
+echo "[7/7] Creating the DMG..."
 if [ -d "dist/Waffler.app" ]; then
-    # Create a staging folder with .app + Applications symlink
-    DMG_STAGE="dist/dmg-stage"
-    rm -rf "$DMG_STAGE"
-    mkdir -p "$DMG_STAGE"
-    cp -R dist/Waffler.app "$DMG_STAGE/"
-    ln -s /Applications "$DMG_STAGE/Applications"
-
-    rm -f dist/Waffler.dmg
-    hdiutil create -volname "Waffler" \
-        -srcfolder "$DMG_STAGE" \
-        -ov -format UDZO \
-        dist/Waffler.dmg 2>&1
-
-    rm -rf "$DMG_STAGE"
+    bash dmg-assets/create-dmg.sh
     echo "  Done."
 else
     echo "  WARNING: Waffler.app not found — skipping DMG"
@@ -115,7 +110,7 @@ echo ""
 echo "============================================"
 echo "  BUILD SUCCESSFUL!"
 echo "  App:  dist/Waffler.app"
-echo "  DMG:  dist/Waffler.dmg"
+echo "  DMG:  dist-installer/Waffler-<version>-mac.dmg"
 echo "============================================"
 echo ""
 
@@ -124,12 +119,11 @@ if [ -d "dist/Waffler.app" ]; then
     echo "  Waffler.app size:"
     du -sh "dist/Waffler.app"
 fi
-if [ -f "dist/Waffler.dmg" ]; then
-    echo "  Waffler.dmg size:"
-    du -sh "dist/Waffler.dmg"
-fi
 
-# Copy to Desktop for easy access
+# Copy to Desktop for easy access (WAFFLER_BUILD_NO_COPY=1 leaves the Desktop alone)
+if [ -n "$WAFFLER_BUILD_NO_COPY" ]; then
+    exit 0
+fi
 if [ -d "dist/Waffler.app" ]; then
     echo ""
     echo "  Copying Waffler.app to Desktop..."
@@ -137,7 +131,9 @@ if [ -d "dist/Waffler.app" ]; then
     cp -R dist/Waffler.app "$HOME/Desktop/Waffler.app"
     echo "  Done — double-click Waffler.app on your Desktop to launch!"
 fi
-if [ -f "dist/Waffler.dmg" ]; then
-    cp dist/Waffler.dmg "$HOME/Desktop/Waffler.dmg"
-    echo "  Waffler.dmg also copied to Desktop."
-fi
+for dmg in dist-installer/Waffler-*-mac.dmg; do
+    if [ -f "$dmg" ]; then
+        cp "$dmg" "$HOME/Desktop/"
+        echo "  $(basename "$dmg") also copied to Desktop."
+    fi
+done

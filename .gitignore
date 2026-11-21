@@ -58,3 +58,6 @@ session.json
 
 # The worktree-local virtualenv used to develop on-device speech to text.
 .venv-offline/
+
+# The worktree-local Python 3.11 and virtualenv used for a local Mac build.
+.build-env/

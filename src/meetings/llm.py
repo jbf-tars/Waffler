@@ -25,7 +25,7 @@ except ImportError:
 ANTHROPIC_DEFAULT_MODEL = "claude-opus-5-5"
 _GROQ_PREFERRED = ("openai/gpt-oss-120b", "llama-3.3-70b-versatile", "moonshotai/kimi-k2",
                    "qwen/qwen3-32b", "llama-3.1-8b-instant")
-_OPENAI_PREFERRED = ("gpt-5-mini", "gpt-4.1-mini", "gpt-4o-mini", "gpt-4o")
+_OPENAI_PREFERRED = ("gpt-5-mini", "gpt-4.1-mini", "gpt-4o-mini", "gpt-4o")  # doc-drift-ok
 # How much transcript one request may carry. Groq's free tier limits tokens
 # per minute, so long transcripts go through in parts there.
 # "custom" is sized for a local model served with a 16k-token window.

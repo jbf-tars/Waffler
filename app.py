@@ -19,6 +19,16 @@ for _var in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS",
              "VECLIB_MAXIMUM_THREADS"):
     os.environ.setdefault(_var, "1")
 
+# ── Self-check ────────────────────────────────────────────────────────
+# `--self-check` asks a build whether every part it needs is inside it
+# (src/self_check.py) and prints the answer as JSON. It is handled here, before
+# crash.log is opened and before any window, shortcut or connection exists, so
+# it can be run against a built app while the person's own Waffler is running.
+if '--self-check' in sys.argv:
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "src"))
+    import self_check as _self_check
+    sys.exit(_self_check.main(sys.argv, root=os.path.dirname(os.path.abspath(__file__))))
+
 import io
 import json
 import queue
