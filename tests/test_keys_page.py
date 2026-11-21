@@ -246,7 +246,8 @@ def test_the_two_ways_are_a_stack_with_the_chosen_one_marked():
     on = re.search(r"\.hir-card\.is-on \{([^}]*)\}", css).group(1)
     assert "background: var(--card)" in on and "inset 0 0 0 2px var(--text)" in on
     hir = read("howitruns.js")
-    assert "$('hirLocal').classList.toggle('is-on', local); $('hirCloud').classList.toggle('is-on', !local);" in hir
+    # (`cloud` is "not local", and neither is the one when the third way, Waffler Plus, is: tests/test_plus_page.py.)
+    assert "$('hirLocal').classList.toggle('is-on', local); $('hirCloud').classList.toggle('is-on', cloud);" in hir
     assert "const v = L.speechRowView(s);" in hir
     style = read("style.css")
     for rule in (".key-card {", ".key-editor[hidden] { display: none; }", ".key-state.is-ok {", ".key-state.is-bad {",

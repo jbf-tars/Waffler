@@ -944,6 +944,43 @@ def _account_begin_sync(delay_s: float = 0.0) -> None:
     threading.Thread(target=run, daemon=True, name="AccountSync").start()
 
 
+def _account_plan_soon() -> None:
+    """Signed in, and the plan has not been read lately: ask the account
+    service what it is (GET /account), in the background, and have the page
+    redraw if it changed. A Plus that ended, or one the owner has just
+    given, is seen within a few minutes. Never raises."""
+    try:
+        acct = _account_mod()
+        if not acct.plan_due():
+            return
+
+        def run():
+            try:
+                before = acct.plan()
+                out = acct.refresh_plan()
+                if not out.get("ok"):
+                    _log_to_file(f"[account] plan not read ({out.get('reason') or 'failed'})")
+                if acct.plan() != before:
+                    _account_changed()
+            except Exception as e:  # noqa: BLE001
+                _log_to_file(f"[account] plan: {type(e).__name__}")
+        threading.Thread(target=run, daemon=True, name="AccountPlan").start()
+    except Exception as e:  # noqa: BLE001
+        _log_to_file(f"[account] plan not asked for: {type(e).__name__}")
+
+
+def _plus_chosen_here() -> bool:
+    """Is Waffler Plus the way dictation runs, on a computer signed in to an
+    account? Then, as with "on this computer", no key is needed to start:
+    the account service turns speech into text. Read from this computer;
+    nothing is contacted. Never raises."""
+    try:
+        acct = _account_mod()
+        return bool(acct.plus_chosen() and acct.status().get("signed_in"))
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def _account_changed():
     """Sync started, finished or failed, or this computer was signed out:
     the Account page redraws itself (ui/account.js)."""
@@ -994,15 +1031,26 @@ class Api:
     # "error"}.
     def account_status(self) -> dict:
         """{"ok", "available", "signed_in", "email", "device_name",
-        "device_id", "notice", "sync", "offer_dismissed"}. Read from this
+        "device_id", "notice", "sync", "offer_dismissed", "plan",
+        "plus_until", "plus_state", "plus_chosen"}. Read from this
         computer; nothing is contacted. `available` is False until an account
         service is named. `offer_dismissed`: Home's card offering an account
-        was put away for good (account_offer_dismiss)."""
+        was put away for good (account_offer_dismiss).
+
+        `plan` is "free" or "plus" (Waffler Plus) and `plus_until` when a
+        Plus ends, as the service last said; `plus_state` is where Plus
+        stands ("ready", "offline", "signed_out", "ended", "unknown") and
+        `plus_chosen` whether it is the way dictation runs. The plan is
+        asked for again in the background when it is a few minutes old."""
         out = _account_call("status", sync=True)
         try:
             out["offer_dismissed"] = self._load_settings_file().get("account_offer_dismissed") is True
         except Exception:  # noqa: BLE001
             out["offer_dismissed"] = False
+        try:
+            _account_plan_soon()
+        except Exception:  # noqa: BLE001
+            pass
         return out
 
     def account_offer_dismiss(self) -> dict:
@@ -2251,6 +2299,9 @@ class Api:
             # "cloud" or "local" (on this computer, no key). The model's
             # state comes from local_stt_status().
             "transcription_mode":    _lstt.mode_of(stored),
+            # Waffler Plus is the way dictation runs (src/account.py
+            # PLUS_SETTING; only an account that has Plus can set it).
+            "dictation_plus":        stored.get("dictation_plus") is True,
             # "local" when the person chose the writing model on this
             # computer over their key, else "cloud" (src/local_llm.py).
             "writing_mode":          _lllm.mode_of(stored),
@@ -2342,6 +2393,16 @@ class Api:
                 or (settings.get("groq_key") or "").strip() or (settings.get("api_key") or "").strip()))
             if problem:
                 return {"ok": False, "error": problem}
+            # Waffler Plus as the way dictation runs ("dictation_plus",
+            # src/account.py PLUS_SETTING): a true or a false, and true only
+            # on a computer signed in to an account that has Plus.
+            if "dictation_plus" in settings:
+                _acct = _account_mod()
+                if not isinstance(settings["dictation_plus"], bool):
+                    return {"ok": False, "error": _acct.FAILED}
+                _has = _acct.status()
+                if settings["dictation_plus"] and not (_has.get("signed_in") and _has.get("plan") == "plus"):
+                    return {"ok": False, "error": _acct.PLUS_REQUIRED}
             # Who tidies text and writes notes when there is a key too:
             # "cloud" (the key) or "local" (the model on this computer).
             import local_llm as _lllm
@@ -2443,6 +2504,18 @@ class Api:
                     notes.append("Speech to text: " + (
                         "on this computer" if settings[_lstt.MODE_SETTING] == _lstt.MODE_LOCAL
                         else "cloud"))
+                    # One way is chosen: picking this one unpicks Waffler Plus.
+                    stored.pop("dictation_plus", None)
+
+                # ── Dictation through Waffler Plus (checked above) ───────────
+                # Read for every dictation (transcribe_whisper _choose_plus),
+                # so no restart. What ran before stays in transcription_mode:
+                # it is what a dictation falls back to if Plus goes.
+                if settings.get("dictation_plus") is True:
+                    stored["dictation_plus"] = True
+                    notes.append("Dictation: Waffler Plus")
+                elif "dictation_plus" in settings:
+                    stored.pop("dictation_plus", None)
 
                 # ── Tidying and notes: this computer or the key ──────────────
                 # Read for every dictation and every note (src/local_llm.py
@@ -2579,6 +2652,10 @@ class Api:
 
             if _lstt.touches(settings):
                 self._apply_transcription_mode(settings[_lstt.MODE_SETTING])
+            if settings.get("dictation_plus") is True and _pipeline is None and _is_setup_complete():
+                # No key and no model here: Waffler was waiting. It can listen now.
+                threading.Thread(target=_initialize_pipeline, daemon=True,
+                                 name="PipelineInit").start()
             if settings.get(_lllm.MODE_SETTING) == _lllm.MODE_LOCAL:
                 # Chosen over the key: have it in memory before the next dictation.
                 threading.Thread(target=_lllm.warm, daemon=True, name="LocalLLMWarm").start()
@@ -3251,6 +3328,12 @@ class Api:
         # (transcription_mode "local"): that person is not sent back to setup.
         import local_stt as _lstt
         can_transcribe = has_any_key or _lstt.mode_is_local(self._load_settings_file())
+        if not can_transcribe:
+            # Nor when Waffler Plus is the way dictation runs (src/account.py).
+            try:
+                can_transcribe = _plus_chosen_here()
+            except Exception:  # noqa: BLE001
+                pass
         needs_setup = not setup_done or not can_transcribe
         # Where setup was left, so a Mac "Quit & Reopen" after a permission
         # carries on from the same screen. Only while setup is still needed.
@@ -5124,7 +5207,7 @@ def _build_pipeline():
 
     _config.reload_env()
 
-    if not _config.has_api_key and not _local_stt.mode_is_local():
+    if not _config.has_api_key and not _local_stt.mode_is_local() and not _plus_chosen_here():
         _log_to_file("Cannot initialize pipeline: no API key found")
         return
 
@@ -5498,7 +5581,8 @@ class WafflerPipeline:
         # No key is fine when speech is turned into text on this computer
         # (Settings, transcription_mode "local"; src/local_stt.py): the
         # clean-up, Transforms and Command mode then wait for a key.
-        if not groq_key and not openai_key and not _local_stt.mode_is_local():
+        # Nor is one needed when Waffler Plus is the way dictation runs.
+        if not groq_key and not openai_key and not _local_stt.mode_is_local() and not _plus_chosen_here():
             raise ValueError("At least one API key is required (Groq or OpenAI)")
 
         # User-configurable provider fallback order (Settings → Provider
@@ -10368,7 +10452,7 @@ def main():
 
     # Only auto-initialize pipeline if setup was already completed
     # On this computer (transcription_mode "local") needs no key.
-    if (config.has_api_key or _local_stt.mode_is_local()) and _is_setup_complete():
+    if (config.has_api_key or _local_stt.mode_is_local() or _plus_chosen_here()) and _is_setup_complete():
         _initialize_pipeline()
     else:
         _log_to_file("Skipping pipeline init (no key or setup incomplete)")
@@ -10411,7 +10495,7 @@ def main():
             _log_to_file("No tray icon: the close button quits and the window opens at sign-in")
     can_hide = _windows_tray_up or _platform.system() == "Darwin"
     start_hidden = (_HIDDEN_FLAG in sys.argv
-                    and (config.has_api_key or _local_stt.mode_is_local())
+                    and (config.has_api_key or _local_stt.mode_is_local() or _plus_chosen_here())
                     and _is_setup_complete() and can_hide)
     if start_hidden:
         _window_hidden = True

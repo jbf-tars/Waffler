@@ -4,18 +4,55 @@
 // Api.local_stt_status / _download / _cancel / _remove, and transcription_mode
 // through save_settings (docs/OFFLINE-TRANSCRIPTION.md). Under the first,
 // where the computer is offered it, the optional writing model.
+//
+// A third way, above the two, only for an account that has it: Waffler Plus
+// (the account service does the dictation: no key, no download). The card is
+// made here and exists for a signed-in Plus account alone (logic.js
+// plusCardView, from Api.account_status); for anyone else there is no such
+// element in the page. Chosen through save_settings({ dictation_plus: true });
+// choosing either other way unchooses it.
 (function () {
   const $ = (id) => document.getElementById(id);
   const api = () => (window.pywebview && window.pywebview.api) || null;
   let poll = null;
+  let acct = null;        // the last Api.account_status()
+  let last = null;        // the last Api.local_stt_status()
+
+  // The Plus card: made, kept up to date, or taken away. True when it is
+  // the chosen way.
+  function drawPlus() {
+    const L = window.WafflerLogic, v = L ? L.plusCardView(acct) : null;
+    let card = $('hirPlus');
+    if (!v) { if (card) card.remove(); return false; }
+    if (!card) {
+      const el = (tag, cls, text) => { const e = document.createElement(tag); e.className = cls; if (text) e.textContent = text; return e; };
+      card = el('div', 'hir-card'); card.id = 'hirPlus'; card.dataset.mode = 'plus';
+      const pick = el('label', 'hir-pick');
+      const radio = document.createElement('input');
+      radio.type = 'radio'; radio.name = 'hirMode'; radio.id = 'hirPlusRadio'; radio.value = 'plus';
+      radio.addEventListener('change', choosePlus);
+      pick.append(radio, el('span', 'hir-t', v.label));
+      const model = el('div', 'hir-model');
+      const state = el('span', 'hir-state'); state.id = 'hirPlusState'; state.setAttribute('role', 'status');
+      model.append(state);
+      card.append(pick, el('p', 'hir-d', v.helper), model);
+      $('howItRuns').prepend(card);
+    }
+    $('hirPlusState').textContent = v.state;
+    $('hirPlusRadio').checked = v.chosen;
+    card.classList.toggle('is-on', v.chosen);
+    return v.chosen;
+  }
 
   // What the first row says and offers is decided in logic.js (speechRowView).
   function draw(s) {
     const L = window.WafflerLogic;
     if (!$('howItRuns') || !s || !L) return;
-    const local = s.mode === 'local';
-    $('hirLocalRadio').checked = local; $('hirCloudRadio').checked = !local;
-    $('hirLocal').classList.toggle('is-on', local); $('hirCloud').classList.toggle('is-on', !local);
+    last = s;
+    const plus = drawPlus();
+    const local = !plus && s.mode === 'local', cloud = !plus && s.mode !== 'local';
+    $('hirLocalRadio').checked = local; $('hirCloudRadio').checked = cloud;
+    $('hirLocal').classList.toggle('is-on', local); $('hirCloud').classList.toggle('is-on', cloud);
     const v = L.speechRowView(s);
     const dl = $('hirDownload');
     $('hirBar').hidden = !v.bar; $('hirBarFill').style.width = v.percent + '%';
@@ -30,8 +67,21 @@
 
   async function refresh() {
     const a = api(); if (!a || !a.local_stt_status) return;
+    try { if (a.account_status) acct = await a.account_status(); } catch (e) { /* as it was last known */ }
     try { draw(await a.local_stt_status()); } catch (e) { /* the page stays as it is */ }
   }
+
+  async function choosePlus() {
+    const a = api(); if (!a) return;
+    try {
+      const r = await a.save_settings({ dictation_plus: true });
+      if (r && r.ok) showToast('Dictation runs on Waffler Plus now.', 'success', 3500);
+      else showToast((r && r.error) || 'That couldn’t be saved. Try again.', 'error', 5000);
+    } catch (e) { showToast('That couldn’t be saved. Try again.', 'error'); }
+    refresh();
+  }
+  // The account changed (signed in or out, the plan read again): account.js says so.
+  window.wafflerPlusChanged = (status) => { acct = status; if (last) draw(last); };
 
   async function setMode(mode) {
     const a = api(); if (!a) return;

@@ -3189,6 +3189,33 @@
     return Math.round(s / 86400) + ' days ago';
   }
 
+  // ══ Waffler Plus ═════════════════════════════════════════════════════════
+  // `acct` is Api.account_status(). Plus is given to an account by hand and
+  // is never offered here: an account that does not have it (free, signed
+  // out, or on a service from before Plus) sees nothing of it anywhere.
+  function accountHasPlus(acct) {
+    return accountView(acct) === 'in' && acct.plan === 'plus';
+  }
+
+  // Settings, Account: one quiet line, or '' (no line at all).
+  const PLAN_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  function accountPlanLine(acct, now) {
+    if (!accountHasPlus(acct)) return '';
+    const end = acct.plus_until ? new Date(acct.plus_until) : null;
+    if (!end || isNaN(end.getTime())) return 'Waffler Plus';
+    const far = end.getTime() - (now == null ? Date.now() : now) > 330 * 86400000;
+    return `Waffler Plus until ${end.getDate()} ${PLAN_MONTHS[end.getMonth()]}${far ? ' ' + end.getFullYear() : ''}`;
+  }
+
+  // Keys and providers: the third way (howitruns.js), or null when this
+  // account has no such card. `state` is the one line under it.
+  const PLUS_STATES = { offline: 'Can\u2019t reach the service', signed_out: 'Signed out', ended: 'Plan ended' };
+  function plusCardView(acct) {
+    if (!accountHasPlus(acct)) return null;
+    return { label: 'Waffler Plus', helper: 'No key. No download.',
+      state: PLUS_STATES[acct.plus_state] || 'Ready', chosen: acct.plus_chosen === true };
+  }
+
   // The line under "Meetings": Api.account_status().sync.
   function accountSyncLine(sync, now) {
     const s = sync || {};
@@ -3344,6 +3371,7 @@
     heatLevel, heatmapView, heatMove,
     COLLAPSE_OVER, COLLAPSE_SHOW, COLLAPSE_MIN, COLLAPSE_MAX, collapseView,
     searchMarks, searchCount, isFindKey, enterRunsDefault, copyWorked, platformText,
+    accountHasPlus, accountPlanLine, plusCardView,
     accountView, accountDigits, accountCode, accountCodeReady, accountCodeLabel, accountCodeExample, accountBadCode, accountAgo, accountSyncLine, accountDeviceLine, accountClaudeView,
     ACCOUNT_RESEND_S, accountCodeLine, accountResendView, accountSignedInLine,
     accountSetupOffered, accountOfferView, accountDeleteStep, accountDeleteReady, accountConfirm,

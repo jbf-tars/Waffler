@@ -142,7 +142,24 @@
       $('acctDevice').textContent = s.device_name ? 'Signed in on ' + s.device_name + '.' : 'Signed in on this computer.';
       drawSync();
     }
+    drawPlan(s);
+    if (window.wafflerPlusChanged) window.wafflerPlusChanged(s);   // Keys and providers: its third card
     drawOffer();
+  }
+
+  // Waffler Plus: one quiet line beside who is signed in, for an account
+  // that has it (logic.js accountPlanLine). For any other account there is
+  // no such line in the page at all: it is made here, and taken away.
+  function drawPlan(s) {
+    const line = L.accountPlanLine(s);
+    let plan = $('acctPlan');
+    if (!line) { if (plan) plan.remove(); return; }
+    if (!plan) {
+      plan = document.createElement('div'); plan.id = 'acctPlan'; plan.className = 'row-d acct-plan';
+      plan.setAttribute('role', 'status');
+      $('acctWho').closest('.row').append(plan);
+    }
+    plan.textContent = line;
   }
 
   function drawSync() {
