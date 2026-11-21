@@ -201,6 +201,15 @@ def cleanup_skipped_message(reason: str):
     if "no styling providers configured" in lower:
         return (CLEANUP_SKIPPED, "No key is set up for the clean-up yet. Add a free Groq "
                                  "key in Settings to turn it on.")
+    if "LOCAL|" in text:
+        # The model on this computer could not do it (src/local_llm.py). No
+        # provider was asked, so none is named and no key or network advice
+        # is given.
+        if "LOCAL|too_long" in text:
+            return (CLEANUP_SKIPPED, "That was too long to tidy on this computer, so your words "
+                                     "went in as you said them.")
+        return (CLEANUP_SKIPPED, "The clean-up on this computer didn't work this time, so your "
+                                 "words went in as you said them. Nothing was sent anywhere.")
     if "TIMEOUT|" in text:
         # The clean-up ran out of time (its own budget, or the watchdog's).
         # Nothing is wrong with the connection, so it does not say so.

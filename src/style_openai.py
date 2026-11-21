@@ -348,6 +348,21 @@ def _pauses_provider(exc, error_msg: str, purpose: str) -> bool:
 _PROVIDER_LABELS = {"groq": "Groq", "cerebras": "Cerebras", "openai": "OpenAI"}
 
 
+def _local_llm():
+    """src/local_llm.py: the optional language model on this computer."""
+    try:
+        import local_llm
+    except ImportError:  # imported as src.style_openai
+        from src import local_llm
+    return local_llm
+
+
+# The clean-up's name for the model on this computer in a failure, and in the
+# provider order when it is the one to ask.
+_LOCAL = "local"
+_LOCAL_LABEL = "This computer"
+
+
 @dataclass(frozen=True)
 class ChatReply:
     """What a provider answered: the text exactly as it came (stripped), who
@@ -549,6 +564,12 @@ class OpenAIStyler:
 
         # Load prompt template
         self.prompt_template = self._load_prompt_template()
+        # The model on this computer, when there is one, reads the long
+        # prompt ahead of the first dictation (src/local_llm.py warm).
+        try:
+            _local_llm().set_primer(self._local_primer)
+        except Exception:
+            pass
 
     def _load_prompt_template(self) -> str:
         """Load the prompt template based on style setting"""
@@ -866,9 +887,25 @@ Transcript: {transcript}"""
                 _failed("openai", "OpenAI", e, started)
                 return None
 
-        _dispatch = {"groq": _try_groq, "cerebras": _try_cerebras, "openai": _try_openai}
+        def _try_local():
+            # The model on this computer (src/local_llm.py). It stops itself
+            # at the deadline; a failure is recorded like a provider's, and
+            # no provider is then asked in its place.
+            try:
+                _styled, _usage = self._style_local(prompt, start_time)
+                return self._guard_truncation(_styled, _usage, transcript)
+            except Exception as e:
+                self._log_provider_failure(_LOCAL_LABEL, e)
+                failures.append((_LOCAL_LABEL, self._local_failure_reason(e)))
+                return None
+
+        _dispatch = {"groq": _try_groq, "cerebras": _try_cerebras, "openai": _try_openai,
+                     _LOCAL: _try_local}
+        # On this computer when the model is here and there is no key, or the
+        # person chose it over their key: then it alone is asked.
+        _order = [_LOCAL] if self._local_cleanup() else self._provider_order
         with _active_call(call):
-            for _name in self._provider_order:
+            for _name in _order:
                 _fn = _dispatch.get(_name)
                 if _fn is None:
                     continue
@@ -1710,6 +1747,56 @@ Transcript: {transcript}"""
         except Exception:
             pass
         return styled, reply.usage
+
+    # ── The clean-up on this computer (src/local_llm.py) ────────────────────
+
+    def _has_cloud_provider(self) -> bool:
+        return bool(getattr(self, "_use_groq", False) or getattr(self, "_use_cerebras", False)
+                    or getattr(self, "client", None))
+
+    def _local_cleanup(self) -> bool:
+        """Is the model on this computer the one to tidy this dictation? Yes
+        when it is downloaded and there is no key at all, or the person chose
+        it in Settings. With a key and no such choice, nothing changes."""
+        try:
+            return bool(_local_llm().should_use(has_key=self._has_cloud_provider()))
+        except Exception:
+            return False
+
+    def _local_primer(self):
+        """(system, user) of a clean-up of one word: everything the model can
+        read before a dictation exists. The rules come first in the prompt
+        and the transcript last, so this is the start of every clean-up."""
+        return _CLEANUP_SYSTEM, self.prompt_template.format(
+            transcript="Hello.", dialect_instruction=_dialect_instruction({}))
+
+    def _style_local(self, prompt: str, start_time: float):
+        """The same prompt and system message the providers get, answered by
+        the model on this computer, then the same guards."""
+        call = self._current_call()
+        reply = _local_llm().chat(_CLEANUP_SYSTEM, [{"role": "user", "content": prompt}],
+                                  max_tokens=call.max_tokens, temperature=_CLEANUP_TEMPERATURE,
+                                  deadline=call.deadline_at, kind="cleanup")
+        text = (reply.get("text") or "").strip()
+        if not text:
+            raise RuntimeError("EMPTY: the model on this computer returned no text")
+        usage = {"input_tokens": reply.get("input_tokens", 0),
+                 "output_tokens": reply.get("output_tokens", 0),
+                 # No provider was paid, so nothing is counted as one's tokens.
+                 "api_used": False, "provider": _local_llm().PROVIDER,
+                 "finish_reason": reply.get("finish_reason")}
+        return self._finish_cleanup(text, call.raw), usage
+
+    @staticmethod
+    def _local_failure_reason(exc) -> str:
+        """The reason the pipeline is handed when the model here could not do
+        it: out of time (said like any clean-up that ran out of time), or
+        ``LOCAL|<kind>`` (src/user_messages.py has the sentence). The model's
+        own message stays in the log."""
+        kind = getattr(exc, "kind", "") or "failed"
+        if kind == "deadline":
+            return "TIMEOUT|the model on this computer ran out of time - pasted raw"
+        return f"LOCAL|{kind}"
 
     def _strip_em_dashes(self, text: str) -> str:
         """Em-dashes (—) and en-dashes (–) are the loudest 'AI wrote this'
