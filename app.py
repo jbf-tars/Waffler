@@ -176,6 +176,7 @@ import transforms as _transforms
 import transform_action as _transform_action
 import command_mode as _command_mode
 import command_action as _command_action
+import try_it as _try_it
 import user_messages as _user_messages
 import net_health as _net_health
 import mic_devices as _mic_devices
@@ -3759,6 +3760,80 @@ class Api:
         except Exception as e:
             _log_to_file(f"save_command_hotkey error: {type(e).__name__}")
             return {"ok": False, "error": "Couldn't save the shortcut. Please try again."}
+
+    # ── Try it here (Settings, Transforms and Command mode; src/try_it.py) ────
+
+    def _try_it_hooks(self, purpose: str) -> dict:
+        """The styler's own model call and helpers, the ones a transform and a
+        command use (WafflerPipeline._transform_hooks), for src/try_it.py."""
+        styler = _pipeline.styler
+
+        def usage(reply):
+            record_usage_safely("gpt", input_tokens=reply.input_tokens,
+                                output_tokens=reply.output_tokens, provider=reply.provider,
+                                purpose=purpose)
+
+        return dict(chat=lambda *a, **k: styler._chat(*a, **k),
+                    dashes=lambda text: styler._strip_em_dashes(text),
+                    profanity=lambda styled, raw: styler._restore_censored_profanity(styled, raw),
+                    record_usage=usage, log=_log_to_file)
+
+    def try_it_status(self) -> dict:
+        """Can "Try it here" run? {"ok": True, "ready": bool, "needs": "" |
+        "key"}: it needs a provider the styler can ask, which is what a
+        transform and a command need. Never raises."""
+        try:
+            return _try_it.status(getattr(_pipeline, "styler", None))
+        except Exception as e:
+            _log_to_file(f"[try-it] status failed: {type(e).__name__}")
+            return {"ok": True, "ready": False, "needs": "key"}
+
+    def try_transform(self, text="") -> dict:
+        """Settings, Transforms, "Polish it": run Polish on the text typed into
+        the page's box, the way the shortcut does once it has read a selection
+        (src/try_it.py). The text goes to the person's provider and the call is
+        counted in Usage; nothing is read from an app, pasted or kept in the
+        Journal. {"ok": True, "changed", "text"} or {"ok": False, "error": one
+        sentence}. Never raises."""
+        try:
+            if not _try_it.ready(getattr(_pipeline, "styler", None)):
+                return {"ok": False, "error": _try_it.NEEDS_KEY}
+            return _try_it.transform(text, stored=self._load_settings_file(),
+                                     **self._try_it_hooks("transform"))
+        except Exception as e:
+            _log_to_file(f"[try-it] transform failed: {type(e).__name__}")
+            return {"ok": False, "error": _try_it.FAILED}
+
+    def try_command(self, text="", instruction="") -> dict:
+        """Settings, Command mode, "Do it": carry out the typed instruction on
+        the text in the page's box, the way a spoken command is once it has
+        been heard (src/try_it.py). {"ok": True, "action": "edit" | "draft",
+        "changed", "text"}; a question is {"ok": True, "action": "ask",
+        "query", "engine", "url"} and opens nothing; or {"ok": False, "error":
+        one sentence}. Never raises."""
+        try:
+            if not _try_it.ready(getattr(_pipeline, "styler", None)):
+                return {"ok": False, "error": _try_it.NEEDS_KEY}
+            return _try_it.command(text, instruction, stored=self._load_settings_file(),
+                                   **self._try_it_hooks("command"))
+        except Exception as e:
+            _log_to_file(f"[try-it] command failed: {type(e).__name__}")
+            return {"ok": False, "error": _try_it.FAILED}
+
+    def open_command_search(self, query="") -> dict:
+        """Open the search "Try it here" showed for a question, in the search
+        engine chosen in Settings. The page hands over the words of the
+        question, never an address. {"ok": bool}. Never raises."""
+        try:
+            words = " ".join(str(query or "").split()) if isinstance(query, str) else ""
+            if not words:
+                return {"ok": False}
+            engine = _command_mode.settings(self._load_settings_file())["web_engine"]
+            import webbrowser
+            return {"ok": bool(webbrowser.open(_command_mode.search_url(engine, words), new=2))}
+        except Exception as e:
+            _log_to_file(f"[try-it] search not opened: {type(e).__name__}")
+            return {"ok": False}
 
     # ── Shortcuts (Settings, Shortcuts; src/shortcut_settings.py) ─────────────
 
