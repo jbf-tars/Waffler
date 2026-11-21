@@ -39,6 +39,7 @@ and rules from it.
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass
 from typing import Callable, NamedTuple, Optional, Tuple
@@ -116,6 +117,48 @@ TEXT_NUDGE = 0.0
 GAP = 8                         # between the pill and the dictation pill or the meeting bar
 RISE = 6                        # how far it rises as it appears
 FADE_S = 0.18
+
+# ── The waffle record mark ───────────────────────────────────────────────────
+# Waffler's own record button, in place of a red dot: a round-cornered waffle
+# of sixteen pockets. Gold: press to record. The same waffle in red, breathing
+# slowly: recording now, press to stop. The page draws the same numbers
+# (ui/components.css .wrec), and the meeting bar draws these (22 points, as the
+# pill's mark). In a box of REC_UNITS: a pocket is REC_CELL wide, REC_GAP from
+# the next, REC_PAD from the edge.
+REC_UNITS, REC_GRID, REC_PAD, REC_CELL, REC_GAP = 24, 4, 3, 3, 2
+REC_CORNER = 0.27               # of its size
+REC_GOLD, REC_GOLD_GRID = GOLD, "#B8892F"
+REC_RED, REC_RED_GRID = RED, "#A8322A"
+REC_PULSE_S = 2.4               # one slow breath
+REC_PULSE_LOW = 0.72            # how faint it gets at the bottom of one
+
+
+class RecordMark(NamedTuple):
+    size: float
+    radius: float
+    body: str
+    cell: str
+    pockets: Tuple[Tuple[float, float, float], ...]      # (x, y, side), from the mark's top-left
+
+
+def record_mark(size: float, recording: bool = False) -> RecordMark:
+    """The waffle record mark ``size`` points across: gold at rest, red while
+    recording. The same drawing in both: only the two colours change."""
+    u = float(size) / REC_UNITS
+    steps = [REC_PAD + i * (REC_CELL + REC_GAP) for i in range(REC_GRID)]
+    pockets = tuple((x * u, y * u, REC_CELL * u) for y in steps for x in steps)
+    body, cell = (REC_RED, REC_RED_GRID) if recording else (REC_GOLD, REC_GOLD_GRID)
+    return RecordMark(float(size), float(size) * REC_CORNER, body, cell, pockets)
+
+
+def record_pulse(seconds: float, still: bool = False) -> float:
+    """How solid the red mark is ``seconds`` into a recording: 1 down to
+    REC_PULSE_LOW and back, once every REC_PULSE_S. ``still`` (the person
+    asked for less motion): always 1."""
+    if still:
+        return 1.0
+    swing = 0.5 + 0.5 * math.cos(2.0 * math.pi * (float(seconds) % REC_PULSE_S) / REC_PULSE_S)
+    return REC_PULSE_LOW + (1.0 - REC_PULSE_LOW) * swing
 
 
 @dataclass(frozen=True)

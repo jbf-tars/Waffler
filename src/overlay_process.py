@@ -39,7 +39,7 @@ Commands:  {"type": "show"}
                  the idle pill's menu, in answer to "pill_hover"
            {"type": "meeting", "on": bool, "elapsed": seconds, "done": bool}
                  the meeting bar: a dark capsule at the top of the screen
-                 with a red dot, the time and Finish, shown for as long as a
+                 with the red waffle record mark, the time and Finish, shown for as long as a
                  meeting records. The app sends it every second; "on": false
                  hides it. A click on Finish sends the event meeting_finish.
            {"type": "quit"}
@@ -841,6 +841,28 @@ def _draw_waffle_mark(x, y, size):
         _draw_waffle_body(_MARK_BARS)
     finally:
         ctx.restoreGraphicsState()
+
+
+def _draw_record_mark(x, y, size, recording=False, alpha=1.0):
+    """The waffle record mark (src/pill.py record_mark) with its top-left at
+    (x, y) in a flipped view: a round-cornered waffle of sixteen pockets,
+    gold at rest, red while recording. ``alpha`` is the red one's slow
+    breath (pill.record_pulse)."""
+    mark = _pl.record_mark(size, recording)
+    body = NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
+        NSMakeRect(x, y, mark.size, mark.size), mark.radius, mark.radius)
+    hex_to_ns_color(mark.body).colorWithAlphaComponent_(alpha).set()
+    body.fill()
+    cell = hex_to_ns_color(mark.cell).colorWithAlphaComponent_(alpha)
+    cell.set()
+    for px, py, side in mark.pockets:
+        NSBezierPath.fillRect_(NSMakeRect(x + px, y + py, side, side))
+    # A rim in the pockets' colour, as the page's has.
+    rim = NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
+        NSMakeRect(x + 0.5, y + 0.5, mark.size - 1, mark.size - 1), mark.radius - 0.5, mark.radius - 0.5)
+    rim.setLineWidth_(1)
+    cell.set()
+    rim.stroke()
 
 
 class WaffleView(NSView):
@@ -2378,8 +2400,14 @@ class IdlePillView(NSView):
 # Its own small panel, apart from the dictation pill, so the two can be on
 # screen together: a meeting records while the hotkey still dictates.
 
-MEET_W, MEET_H = 178, 40
+MEET_W, MEET_H = 190, 40
 MEET_FINISH_W = 66
+MEET_MARK_X = _pl.PAD_LEFT                    # the red waffle record mark, where a pill's mark is
+MEET_MARK_Y = (MEET_H - _pl.MARK) / 2.0
+MEET_TIME_X = MEET_MARK_X + _pl.MARK + 10
+MEET_PULSE_TICK_S = 0.1                       # how often the mark is redrawn while it breathes
+_meet_pulse_timer = None
+_meet_pulse_from = 0.0                        # time.monotonic() when this recording's bar came up
 _meet_win = None
 _meet_view = None
 _meet_elapsed = 0
@@ -2393,8 +2421,14 @@ def _meet_clock(seconds):
     return f"{s // 60}:{s % 60:02d}"
 
 
+def _meet_mark_alpha():
+    """How solid the red mark is now: it breathes slowly, and stands still
+    for people who asked macOS for less motion."""
+    return _pl.record_pulse(time.monotonic() - _meet_pulse_from, still=_reduce_motion())
+
+
 class MeetingBarView(NSView):
-    """A dark capsule: red dot, the time, Finish."""
+    """A dark capsule: the red waffle record mark, the time, Finish."""
 
     def isOpaque(self):
         return False
@@ -2433,9 +2467,8 @@ class MeetingBarView(NSView):
             said = NSAttributedString.alloc().initWithString_attributes_("Writing the notes", done_attrs)
             said.drawAtPoint_((38, (MEET_H - said.size().height) / 2.0))
             return
-        # the dot
-        hex_to_ns_color("#F0624F").set()
-        NSBezierPath.bezierPathWithOvalInRect_(NSMakeRect(16, MEET_H / 2.0 - 4.5, 9, 9)).fill()
+        # recording now: the waffle record mark, in red
+        _draw_record_mark(MEET_MARK_X, MEET_MARK_Y, _pl.MARK, recording=True, alpha=_meet_mark_alpha())
         # the time
         try:
             font = NSFont.monospacedDigitSystemFontOfSize_weight_(14, 0.0)
@@ -2444,7 +2477,7 @@ class MeetingBarView(NSView):
         time_attrs = {NSFontAttributeName: font,
                       NSForegroundColorAttributeName: hex_to_ns_color("#FDFCFB")}
         text = NSAttributedString.alloc().initWithString_attributes_(_meet_clock(_meet_elapsed), time_attrs)
-        text.drawAtPoint_((34, (MEET_H - text.size().height) / 2.0))
+        text.drawAtPoint_((MEET_TIME_X, (MEET_H - text.size().height) / 2.0))
         # Finish
         fx = MEET_W - MEET_FINISH_W - 6
         pill = NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
@@ -2456,6 +2489,10 @@ class MeetingBarView(NSView):
         label = NSAttributedString.alloc().initWithString_attributes_("Finish", label_attrs)
         label.drawAtPoint_((fx + (MEET_FINISH_W - label.size().width) / 2.0,
                             (MEET_H - label.size().height) / 2.0))
+
+    def pulseTick_(self, timer):
+        # Only the mark is redrawn: the time and Finish are as they were.
+        self.setNeedsDisplayInRect_(NSMakeRect(MEET_MARK_X - 1, MEET_MARK_Y - 1, _pl.MARK + 2, _pl.MARK + 2))
 
     def mouseDown_(self, event):
         try:
@@ -2473,11 +2510,32 @@ def _meeting_origin():
     return vf.origin.x + (vf.size.width - MEET_W) / 2.0, vf.origin.y + vf.size.height - MEET_H - 10
 
 
+def _meet_pulse(on):
+    """Start or stop the timer that lets the red mark breathe. It runs only
+    while a meeting is being recorded and the bar shows it, and not at all
+    with Reduce Motion."""
+    global _meet_pulse_timer, _meet_pulse_from
+    if on and _meet_view is not None and not _reduce_motion():
+        if _meet_pulse_timer is None:
+            _meet_pulse_from = time.monotonic()
+            _meet_pulse_timer = NSTimer.timerWithTimeInterval_target_selector_userInfo_repeats_(
+                MEET_PULSE_TICK_S, _meet_view, "pulseTick:", None, True)
+            NSRunLoop.mainRunLoop().addTimer_forMode_(_meet_pulse_timer, NSRunLoopCommonModes)
+        return
+    if _meet_pulse_timer is not None:
+        try:
+            _meet_pulse_timer.invalidate()
+        except Exception:
+            pass
+        _meet_pulse_timer = None
+
+
 def _apply_meeting(cmd):
     global _meet_win, _meet_view, _meet_elapsed, _meet_done
     on = bool(cmd.get("on"))
     _meet_done = on and bool(cmd.get("done"))
     if not on:
+        _meet_pulse(False)
         if _meet_win is not None:
             _meet_win.orderOut_(None)
         return
@@ -2502,6 +2560,7 @@ def _apply_meeting(cmd):
             tx, ty = _clear_of_meeting(f.origin.x, f.origin.y, f.size.width)
             if (tx, ty) != (f.origin.x, f.origin.y):
                 _toast_win.setFrameOrigin_((tx, ty))
+    _meet_pulse(not _meet_done)
     _meet_view.setNeedsDisplay_(True)
 
 

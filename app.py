@@ -733,8 +733,9 @@ MEETING_DONE_SECONDS = 3.0      # how long the bar reads "Writing the notes" aft
 
 
 def _meeting_menubar_sync():
-    """While a meeting records, the menu bar icon carries a red dot and the
-    time, so it is always plain that Waffler is listening."""
+    """While a meeting records, the menu bar icon is the red waffle record
+    mark with the time beside it, so it is always plain that Waffler is
+    listening."""
     global _meeting_clock_thread
     if _platform.system() != "Darwin":
         return
@@ -745,14 +746,69 @@ def _meeting_menubar_sync():
         _meeting_clock_thread.start()
 
 
+MENUBAR_ICON_PT = 18.0          # the menu bar icon's size (_setup_mac_menubar)
+_menubar_plain_image = None     # the icon as it was, while the red waffle stands in for it
+
+
+def _record_mark_image(size=MENUBAR_ICON_PT):
+    """The waffle record mark in red (src/pill.py record_mark), as an image
+    for the menu bar. Not a template image: it keeps its red."""
+    import AppKit
+    mark = _pill.record_mark(size, recording=True)
+
+    def colour(hex_str):
+        r, g, b = (int(hex_str[i:i + 2], 16) / 255.0 for i in (1, 3, 5))
+        return AppKit.NSColor.colorWithSRGBRed_green_blue_alpha_(r, g, b, 1.0)
+
+    def draw(rect):
+        body = AppKit.NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
+            AppKit.NSMakeRect(0, 0, mark.size, mark.size), mark.radius, mark.radius)
+        colour(mark.body).set()
+        body.fill()
+        colour(mark.cell).set()
+        for x, y, side in mark.pockets:
+            AppKit.NSBezierPath.fillRect_(AppKit.NSMakeRect(x, y, side, side))
+        return True
+
+    image = AppKit.NSImage.imageWithSize_flipped_drawingHandler_((mark.size, mark.size), True, draw)
+    image.setTemplate_(False)
+    return image
+
+
+def _menubar_show_recording(item, on, clock=""):
+    """On the main thread: the menu bar item while a meeting records (the red
+    waffle and the time), or as it was. Without the mark the time still
+    shows, by itself. Never raises."""
+    global _menubar_plain_image
+    try:
+        button = item.button()
+        if on:
+            if _menubar_plain_image is None:
+                try:
+                    plain = button.image()
+                    if plain is not None:
+                        button.setImage_(_record_mark_image())
+                        _menubar_plain_image = plain
+                except Exception as e:
+                    print(f"[menubar] recording mark not shown: {type(e).__name__}", flush=True)
+            button.setTitle_(f" {clock}")
+        else:
+            if _menubar_plain_image is not None:
+                button.setImage_(_menubar_plain_image)
+                _menubar_plain_image = None
+            button.setTitle_("")
+    except Exception:
+        pass
+
+
 def _meeting_clock():
-    def set_title(text):
+    def set_title(text, on=True):
         item = _mac_menubar_status_item
         if item is None:
             return
         try:
             from PyObjCTools import AppHelper
-            AppHelper.callAfter(lambda: item.button().setTitle_(text))
+            AppHelper.callAfter(lambda: _menubar_show_recording(item, on, text))
         except Exception:
             pass
     def set_bar(on, seconds=0, done=False):
@@ -770,10 +826,10 @@ def _meeting_clock():
                 ran = True
                 s = int(_meetings.state()["elapsed_s"])
                 clock = f"{s // 3600}:{(s // 60) % 60:02d}:{s % 60:02d}" if s >= 3600 else f"{s // 60}:{s % 60:02d}"
-                set_title(f" \u25cf {clock}")
+                set_title(clock)
                 set_bar(True, s)
                 time.sleep(1.0)
-            set_title("")
+            set_title("", on=False)
             if not ran:
                 break
             # Finished: the bar itself says the notes are coming, for three
@@ -785,7 +841,7 @@ def _meeting_clock():
             if not recording():
                 break
     finally:
-        set_title("")
+        set_title("", on=False)
         set_bar(False)
 
 
