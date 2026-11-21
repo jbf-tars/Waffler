@@ -8,11 +8,11 @@ needs, and what is not done.
 
 Status in one paragraph: the engine, the model download, the routing for
 dictation and meetings, the `Api` methods and the packaging lines are written
-and tested. **There is no Settings UI and no setup-wizard step for it yet**, on
-purpose (the pages are being restyled by someone else); until those exist the
-only way to switch it on is to call the `Api` methods or edit `settings.json`.
-Nothing changes for anyone who does not switch it on: with no
-`transcription_mode` saved, Waffler behaves exactly as before.
+and tested. It is chosen in two places: **setup's first step** ("Download the
+free model and get to work", see "First run" below) and **Settings, Keys and
+providers** (`ui/howitruns.js`). Nothing changes for anyone who does not
+choose it: with no `transcription_mode` saved, Waffler behaves exactly as
+before.
 
 ## The setting
 
@@ -207,7 +207,7 @@ All on `window.pywebview.api`. None of them raises; each returns `ok`.
 
 | method | returns |
 | --- | --- |
-| `local_stt_status()` | `{ok, mode, available, engine, model, label, state, percent, bytes_done, bytes_total, size_on_disk, error, cancelled, loaded, device, load_s, transcribe_s}`. Cheap: poll it while a download runs. |
+| `local_stt_status()` | `{ok, mode, available, engine, model, label, state, percent, bytes_done, bytes_total, size_on_disk, error, cancelled, loaded, device, load_s, transcribe_s, suits_machine, machine_reason}`. Cheap: poll it while a download runs. |
 | `local_stt_download()` | Starts the download on a thread and returns the status at once (`started: true`, or `false` if one was already running). |
 | `local_stt_cancel()` | `{ok, was_downloading}`. What arrived is kept; downloading again carries on from there. |
 | `local_stt_remove()` | Deletes the model (stopping a download, releasing memory). Status plus `freed_bytes`. Leaves the mode alone. |
@@ -227,6 +227,14 @@ Fields worth knowing:
   disable the choice then; `local_stt_download()` answers with a sentence.
 - `loaded`, `device` (`"metal"`, `"cpu"`, `"cuda"`), `load_s`, `transcribe_s`:
   for an About line or diagnosis.
+- `suits_machine`, `machine_reason`: is this computer a good one for it?
+  `local_stt.machine_verdict()`, by the table in "The models": Apple Silicon
+  (`"apple_silicon"`); Windows with an NVIDIA card that has room for the large
+  model (`"nvidia"`); Windows or an Intel Mac with 8+ logical cores and 12+ GB
+  of memory (`"cpu"`); anything smaller, or a machine that could not be read,
+  is `false` with `"small_machine"` (it works, with the `base` model, slowly).
+  The hardware is read once. `get_onboarding_status()` also returns
+  `transcription_mode`, so setup knows which way a half-finished setup is on.
 
 Progress without polling: define
 `window.waffler_local_stt_changed = function (status) { ... }`. It is called
@@ -252,13 +260,41 @@ Two things the current page does on its own, with no change to it:
 - A meeting with no key shows its transcript, and the line below in place of
   its notes.
 
-For the setup wizard (not built): a first run with no key can finish by
-calling `local_stt_download()`, then `save_settings({transcription_mode:
-"local"})`, then `complete_setup()`. `get_onboarding_status().needs_setup` is
-already false for a finished setup in local mode with no key, and the wizard's
-practice dictation (`wizard_start_hotkey_test`) already runs without a key in
-local mode and uses the local model. Its screens still ask for a key first;
-that is the part to build.
+## First run
+
+Setup's first step (`ui/index.html` `#obStepConnect` in its `choose` state,
+`ui/app.js` `wizChooseLocal` and friends, the decisions in `ui/logic.js`
+`setupLocalView` and the functions beside it) is two cards:
+
+- **On this computer. Free.** One download (its size from `bytes_total`),
+  then no key, no account and no internet. "Download and start" calls
+  `local_stt_download()`; the card shows a progress bar with the percentage
+  and "Stop the download" (`local_stt_cancel()`), and after a stop or a
+  failure "Carry on downloading" or "Try again", which carry on from the
+  part already here. Setup carries on while it downloads: Continue is
+  enabled as soon as the download is running.
+- **With your own key. Faster.** The Groq screens, unchanged, reached from
+  that card (Back returns to the two cards).
+
+The card that suits the machine comes first and is marked "Recommended for
+this computer" (`suits_machine`). Where it does not suit, the key is first
+and the free card says it will be slow there; where `available` is false the
+free card says so and its button is disabled.
+
+When `transcription_mode` is saved (`logic.js` `setupModeToSave`): at once
+when there is no key (so a reopened setup knows the choice), and only when
+the model is ready when a key already works (so dictation never stops in
+between). A key that passes its check after the free way was tried saves
+`"cloud"` again and stops the download.
+
+After the first step: the stepper reads "On this computer"; Try it waits for
+the model with one line and the progress, then starts the practice by itself;
+the last step keeps "Open TextEdit and try it" disabled until the model is
+here; Done is allowed meanwhile, and the main window says when the model has
+arrived. A setup reopened past the first step (a Mac "Quit & Reopen") carries
+the download on by itself; on the first step it offers "Carry on downloading".
+Nothing in Settings asks someone on the free way to add a key: the clean-up
+reads "Off, typed as you said it".
 
 ## How it is wired
 
@@ -432,7 +468,12 @@ Not checked, and worth a look before a release:
 
 ## Not done
 
-- The Settings UI and the setup-wizard step (deliberately).
+- The first-run screens were checked in a browser against a stand-in for
+  the Python side, and the download and a dictation were run for real from a
+  script; the screens were not driven in the real app window, on Windows, or
+  on a machine the verdict calls small.
+- The verdict's thresholds are the model-choice rule, not measurements: no
+  Windows PC, Intel Mac or 8 GB Mac was timed.
 - Any test on Windows, on an Intel Mac, with an NVIDIA card, or of a real
   release build.
 - Accuracy on real speech. Only synthetic speech was measured.
