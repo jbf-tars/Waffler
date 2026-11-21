@@ -20,6 +20,8 @@
   let ticker = null;
   let meetings = 0;       // how many meetings Home last counted (for its card)
   let asking = null;      // the question open in the section: {opener, close}
+  let deleteStep = 'ask'; // Delete my account: 'ask', then 'code' (emailed) or 'word' (an older service)
+  let deleteDigits = null;   // how long that code is
   let settingsFlow = null;
 
   const open = () => $('secAccount') && !$('secAccount').hidden;
@@ -333,30 +335,62 @@
   }
 
   // ── Delete my account ─────────────────────────────────────────────────────
-  // The row says what goes and what stays; the button wakes once DELETE is
-  // typed, and Python checks the word again before it asks the service.
+  // The row says what goes and what stays, then "Email me a code to
+  // confirm": the service emails a code to the account's address and the
+  // destructive button wakes once it is typed. An older service emails none
+  // (logic.js accountDeleteStep): the word DELETE is typed instead, and
+  // Python checks it again before it asks the service.
+  function drawDelete(step) {
+    deleteStep = step;
+    $('acctDeleteCode').value = ''; $('acctDeleteWord').value = '';
+    $('acctDeleteSend').hidden = step !== 'ask';
+    $('acctDeleteCodeAsk').hidden = $('acctDeleteCode').hidden = $('acctDeleteMore').hidden = step !== 'code';
+    $('acctDeleteWordAsk').hidden = $('acctDeleteWord').hidden = step !== 'word';
+    $('acctDeleteYes').hidden = step === 'ask';
+    $('acctDeleteYes').disabled = true;
+  }
+  const deleteField = () => $(deleteStep === 'code' ? 'acctDeleteCode' : 'acctDeleteWord');
+
   function openDelete() {
     closeAsk();
-    $('acctDeleteWord').value = '';
-    $('acctDeleteYes').disabled = true;
+    drawDelete('ask');
     $('acctDeleteConfirm').hidden = false;
     $('acctDelete').setAttribute('aria-expanded', 'true');
-    $('acctDeleteWord').focus();
+    $('acctDeleteSend').focus();
   }
 
   function closeDelete(refocus) {
     if ($('acctDeleteConfirm').hidden) return;
     $('acctDeleteConfirm').hidden = true;
-    $('acctDeleteWord').value = '';
+    drawDelete('ask');
     $('acctDelete').setAttribute('aria-expanded', 'false');
     if (refocus) $('acctDelete').focus();
   }
 
+  // "Email me a code to confirm", and "Send a new code".
+  async function deleteSend() {
+    say('acctInError', '');
+    const r = await call('account_delete_start');
+    if ($('acctDeleteConfirm').hidden) return;       // put away while the answer was on its way
+    if (!r.ok) { refused(r); return; }
+    deleteDigits = L.accountDigits(r.digits);
+    $('acctDeleteCodeLabel').textContent = L.accountCodeLabel(deleteDigits);
+    $('acctDeleteCode').placeholder = L.accountCodeExample(deleteDigits);
+    $('acctDeleteCodeDesc').textContent = L.accountCodeLine(status && status.email, deleteDigits);
+    const again = deleteStep === 'code';
+    drawDelete(L.accountDeleteStep(r));
+    if (again && deleteStep === 'code') showToast('Sent again.', 'success', 3000);
+    deleteField().focus();
+  }
+
   async function deleteAccount() {
     say('acctInError', '');
-    if (!L.accountDeleteReady($('acctDeleteWord').value)) { $('acctDeleteWord').focus(); return; }
-    const r = await call('account_delete', $('acctDeleteWord').value);
-    if (!r.ok) { refused(r); return; }
+    if (deleteStep === 'ask') return;
+    const code = deleteStep === 'code' ? L.accountCode($('acctDeleteCode').value, deleteDigits) : '';
+    const word = deleteStep === 'word' ? $('acctDeleteWord').value : '';
+    if (!L.accountDeleteReady(code || word, deleteStep, deleteDigits)) { deleteField().focus(); return; }
+    const r = await call('account_delete', word, code);
+    if (!r.ok) { refused(r); if (!$('acctDeleteConfirm').hidden) { deleteField().focus(); deleteField().select(); } return; }
     link = ''; connector = null;
     draw(r);                       // signed out; the notice says the account is gone and what is still here
     showToast('Your account is deleted.', 'success', 5000);
@@ -423,7 +457,14 @@
     $('acctClaudeCopy').addEventListener('click', copyLink);
     $('acctDelete').addEventListener('click', () => { if ($('acctDeleteConfirm').hidden) openDelete(); else closeDelete(true); });
     $('acctDeleteNo').addEventListener('click', () => closeDelete(true));
-    $('acctDeleteWord').addEventListener('input', () => { $('acctDeleteYes').disabled = !L.accountDeleteReady($('acctDeleteWord').value); });
+    $('acctDeleteSend').addEventListener('click', () => busy($('acctDeleteSend'), deleteSend));
+    $('acctDeleteResend').addEventListener('click', () => busy($('acctDeleteResend'), deleteSend));
+    $('acctDeleteWord').addEventListener('input', () => { $('acctDeleteYes').disabled = !L.accountDeleteReady($('acctDeleteWord').value, 'word'); });
+    // A pasted code (or the whole email) becomes its digits. It is never sent by the paste: the button is pressed.
+    $('acctDeleteCode').addEventListener('input', () => {
+      $('acctDeleteCode').value = L.accountCode($('acctDeleteCode').value, deleteDigits);
+      $('acctDeleteYes').disabled = !L.accountDeleteReady($('acctDeleteCode').value, 'code', deleteDigits);
+    });
     $('acctDeleteForm').addEventListener('submit', (e) => { e.preventDefault(); busy($('acctDeleteYes'), deleteAccount); });
     // Esc closes a question without acting.
     $('secAccount').addEventListener('keydown', (e) => {

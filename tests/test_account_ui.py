@@ -14,7 +14,7 @@ sys.path.insert(0, str(ROOT / "tests"))
 from test_ui_logic import code_only, js, needs_node, read  # noqa: E402
 
 API_METHODS = ("account_status", "account_offer_dismiss", "account_start", "account_verify",
-               "account_sign_out", "account_delete", "account_devices", "account_remove_device",
+               "account_sign_out", "account_delete_start", "account_delete", "account_devices", "account_remove_device",
                "account_connector", "account_connector_create", "account_connector_rotate",
                "account_connector_off", "account_sync_now")
 NOW = "Date.parse('2026-11-21T12:00:00.000+00:00')"

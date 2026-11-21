@@ -280,8 +280,12 @@ def test_signed_in_shows_sign_out_and_delete_with_what_each_leaves():
     assert '<label for="acctDeleteWord">Type DELETE to confirm</label>' in ask
     assert re.search(r'<input type="text" id="acctDeleteWord" class="input input-mono"[^>]*autocomplete="off"', ask)
     assert '<button type="button" class="btn btn-sec btn-sm" id="acctDeleteNo">Keep my account</button>' in ask
-    assert ('<button type="submit" class="btn btn-danger-solid btn-sm" id="acctDeleteYes" disabled>'
+    assert ('<button type="submit" class="btn btn-danger-solid btn-sm" id="acctDeleteYes" disabled hidden>'
             "Delete my account</button>") in ask
+    # The word is only asked for by an older service; first comes "Email me a code to confirm"
+    # (tests/test_account_contract.py).
+    assert '<div class="row-d acct-word" id="acctDeleteWordAsk" hidden>' in ask
+    assert re.search(r'<input type="text" id="acctDeleteWord"[^>]* hidden>', ask)
     assert re.search(r'<div class="row reset-confirm" id="acctDeleteConfirm" hidden>', inn)
 
 
@@ -295,11 +299,13 @@ def test_the_delete_button_wakes_only_for_the_word():
 
 def test_deleting_from_the_page_goes_through_the_confirmation():
     page = code_only(read("account.js"))
-    assert page.count("account_delete") == 1
+    assert len(re.findall(r"'account_delete'", page)) == 1 and len(re.findall(r"'account_delete_start'", page)) == 1
     fn = page[page.index("async function deleteAccount("):]
     fn = fn[:fn.index("\n  }\n")]
     assert "L.accountDeleteReady(" in fn and fn.index("L.accountDeleteReady(") < fn.index("account_delete")
-    assert "call('account_delete', $('acctDeleteWord').value)" in fn
+    assert "if (deleteStep === 'ask') return;" in fn, "nothing is deleted before the code or the word is asked for"
+    assert "const word = deleteStep === 'word' ? $('acctDeleteWord').value : '';" in fn
+    assert "call('account_delete', word, code)" in fn
     assert "$('acctDeleteYes').disabled = !L.accountDeleteReady(" in page
     assert "$('acctDeleteForm').addEventListener('submit'" in page
     assert "$('acctDelete').addEventListener('click'" in page

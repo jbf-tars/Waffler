@@ -202,7 +202,7 @@ def test_delete_on_a_computer_that_was_already_signed_out(server):
 
 # ── the Api: delete, the Home card put away for good ────────────────────────
 
-API_METHODS = ("account_status", "account_delete", "account_offer_dismiss")
+API_METHODS = ("account_status", "account_delete_start", "account_delete", "account_offer_dismiss")
 APP_HELPERS = ("_account_mod", "_account_sync_state", "_account_call", "_account_begin_sync")
 
 

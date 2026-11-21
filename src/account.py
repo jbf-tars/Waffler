@@ -63,6 +63,7 @@ MODEL_CALLS_CAP = "Today's questions and rewrites are used up. There are more to
 SERVER_FULL = ("The account service is full just now. Nothing is lost: your meetings stay on this "
                "computer and sync when there is room.")
 TYPE_DELETE = "Type DELETE to confirm."
+CODE_REQUIRED = "Deleting your account needs a code from your email. Ask for one, then try again."
 NOT_DELETED = "Your account was not deleted. "
 ACCOUNT_DELETED = "Your account is deleted. The meetings on this computer are still here."
 OVER_ALLOWANCE = "Your account is over its allowance. Nothing more can be added until there is room."
@@ -244,11 +245,21 @@ def _signed_out_by_service(token: str | None = None) -> None:
     _notice = SIGNED_OUT
 
 
+def _word(body) -> str:
+    """The service's own word for a refusal: "error" (the newer contract),
+    else "code" (the older one), else nothing."""
+    for key in ("error", "code"):
+        word = body.get(key) if isinstance(body, dict) else None
+        if isinstance(word, str) and word:
+            return word
+    return ""
+
+
 def _refusal(status: int, body, headers, *, signed: bool, what: str,
              token: str | None = None) -> AccountError:
     """An answer that is not 200, as a sentence. A signed request that is
     answered 401 means this device was removed: the token is forgotten."""
-    code = body.get("code") if isinstance(body, dict) else ""
+    code = _word(body)
     if status == 401:
         if what == "verify":
             return AccountError(WRONG_CODE, "wrong_code")
@@ -263,6 +274,10 @@ def _refusal(status: int, body, headers, *, signed: bool, what: str,
     if status == 403:
         if code == "signups_closed":
             return AccountError(SIGNUPS_CLOSED, "signups_closed")
+        if code == "code_required":
+            return AccountError(CODE_REQUIRED, "code_required")
+        if code == "wrong_code":
+            return AccountError(WRONG_CODE, "wrong_code")
         return AccountError(DISABLED, "disabled") if code == "account_disabled" else AccountError(FAILED)
     if status == 429:
         return AccountError(_wait_sentence(headers), "too_many")
@@ -271,6 +286,8 @@ def _refusal(status: int, body, headers, *, signed: bool, what: str,
             else AccountError(_detail(body) or FAILED, "refused")
     if status == 404 and what == "remove_device":
         return AccountError(DEVICE_GONE, "gone")
+    if status == 404 and what == "delete_start":      # an older service: it has no such step
+        return AccountError(FAILED, "no_such_step")
     if status == 507:
         return AccountError(SERVER_FULL, "server_full")
     if status >= 500:
@@ -431,25 +448,51 @@ def sign_out() -> dict:
     return {**status(), "told_service": told, "note": "" if told else SIGNED_OUT_OFFLINE}
 
 
-def delete_account(confirm="") -> dict:
+@_answers
+def delete_start() -> dict:
+    """The first step of deleting the account: the service emails a fresh
+    code to the account's address. {"ok", "code": True, "digits",
+    "expires_in"}. An older service has no such step (it answers 404):
+    {"ok": True, "code": False}, and the word DELETE is typed instead."""
+    _digits.pop("delete", None)
+    try:
+        answer = _request("POST", "/account/delete/start", what="delete_start")
+    except AccountError as e:
+        if e.reason != "no_such_step":
+            raise
+        return {"ok": True, "code": False}
+    _digits["delete"] = _digits_of(answer)
+    expires = answer.get("expires_in")
+    return {"ok": True, "code": True, "digits": _digits["delete"],
+            "expires_in": expires if isinstance(expires, int) else 600}
+
+
+def delete_account(confirm="", code="") -> dict:
     """Delete the account and everything the service holds for it, for every
     device signed in to it, then forget the session here. Nothing on this
-    computer is removed. Only with the word DELETE, which the person typed.
-    Any refusal means nothing was deleted, and the sentence says so."""
+    computer is removed. Only with `code`, the one the service emailed for
+    this (delete_start), or, for an older service that emails none, the word
+    DELETE, which the person typed. Any refusal means nothing was deleted,
+    and the sentence says so."""
     global _notice
     try:
-        if not isinstance(confirm, str) or confirm.strip().upper() != "DELETE":
+        if isinstance(code, str) and code.strip():
+            body = {"code": _typed_code(code, "delete")}
+        elif isinstance(confirm, str) and confirm.strip().upper() == "DELETE":
+            body = None
+        else:
             raise AccountError(TYPE_DELETE, "unconfirmed")
-        answer = _request("DELETE", "/account")
+        answer = _request("DELETE", "/account", body=body, what="delete")
         if answer.get("deleted") is not True:
             raise AccountError(FAILED)
     except AccountError as e:
-        if e.reason in ("unconfirmed", "signed_out"):
+        if e.reason in ("unconfirmed", "bad_code", "signed_out"):
             return {"ok": False, "error": e.sentence, "reason": e.reason}
         return {"ok": False, "error": NOT_DELETED + e.sentence, "reason": e.reason}
     except Exception:  # noqa: BLE001
         return {"ok": False, "error": NOT_DELETED + FAILED, "reason": "failed"}
     forget()
+    _digits.pop("delete", None)
     _notice = ACCOUNT_DELETED
     return {**status(), "deleted": True}
 

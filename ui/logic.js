@@ -3202,8 +3202,19 @@
     return accountView(status) === 'out' && !status.offer_dismissed && Number(meetings) >= 1;
   }
 
-  // Delete my account: the button wakes when the word has been typed.
-  function accountDeleteReady(typed) {
+  // Delete my account, after "Email me a code to confirm"
+  // (Api.account_delete_start): the service emailed a code ('code'), or it
+  // is an older one with no such step and the word DELETE is typed instead
+  // ('word'). A refusal leaves the question as it was ('ask').
+  function accountDeleteStep(answer) {
+    if (!answer || !answer.ok) return 'ask';
+    return answer.code === true ? 'code' : 'word';
+  }
+
+  // The destructive button wakes when the code is all there, or (an older
+  // service) when the word has been typed.
+  function accountDeleteReady(typed, step, digits) {
+    if (step === 'code') return accountCodeReady(typed, digits);
     return String(typed == null ? '' : typed).trim().toUpperCase() === 'DELETE';
   }
 
@@ -3288,6 +3299,6 @@
     searchMarks, searchCount, isFindKey, enterRunsDefault, copyWorked, platformText,
     accountView, accountDigits, accountCode, accountCodeReady, accountCodeLabel, accountCodeExample, accountBadCode, accountAgo, accountSyncLine, accountDeviceLine, accountClaudeView,
     ACCOUNT_RESEND_S, accountCodeLine, accountResendView, accountSignedInLine,
-    accountSetupOffered, accountOfferView, accountDeleteReady, accountConfirm,
+    accountSetupOffered, accountOfferView, accountDeleteStep, accountDeleteReady, accountConfirm,
   };
 });

@@ -982,13 +982,22 @@ class Api:
             _log_to_file(f"[account] sign_out: {type(e).__name__}")
         return out
 
-    def account_delete(self, confirm: str = "") -> dict:
+    def account_delete_start(self) -> dict:
+        """The first step of Delete my account: the service emails a fresh
+        code to the account's address. {"ok", "code": True, "digits",
+        "expires_in"}; from an older service, which has no such step,
+        {"ok": True, "code": False}: the word DELETE is typed instead."""
+        return _account_call("delete_start")
+
+    def account_delete(self, confirm: str = "", code: str = "") -> dict:
         """Delete the account: everything the service holds for it, for every
-        device signed in to it. `confirm` is the word the person typed, and
-        must be DELETE. Then this computer is signed out. The meetings on
-        this computer are not touched. The status shape plus "deleted"; a
-        refusal means nothing was deleted."""
-        out = _account_call("delete_account", confirm)
+        device signed in to it. `code` is the one the service emailed for
+        this (account_delete_start); for an older service that emails none,
+        `confirm` is the word the person typed, and must be DELETE. Then this
+        computer is signed out. The meetings on this computer are not
+        touched. The status shape plus "deleted"; a refusal means nothing was
+        deleted."""
+        out = _account_call("delete_account", confirm, code)
         try:
             if out.get("ok"):
                 if _meetings is not None:

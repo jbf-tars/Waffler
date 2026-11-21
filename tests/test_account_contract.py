@@ -159,3 +159,145 @@ def test_nothing_in_the_page_says_six_digits_as_a_fixed_fact():
     assert re.search(r'<h1 class="ob-title" id="obTitleAccountCode"[^>]*>Enter the code</h1>', html)
     client = (ROOT / "src" / "account.py").read_text(encoding="utf-8")
     assert "6-digit" not in client and r"\d{6}\"" not in client
+
+
+# ── deleting the account needs a fresh emailed code ─────────────────────────
+
+def test_delete_with_the_emailed_code(new):
+    sign_in(new)
+    assert account.connector_create()["ok"]
+    started = account.delete_start()
+    assert started == {"ok": True, "code": True, "digits": 8, "expires_in": 600}
+    asked = new.calls("POST", "/account/delete/start")
+    assert len(asked) == 1 and asked[0].auth.startswith("Bearer natter_")
+    code = new.delete_codes[EMAIL]
+    assert len(code) == 8 and new.deleted == []
+    out = account.delete_account("", f"{code[:4]}-{code[4:]}")
+    assert out["ok"] and out["deleted"] is True and out["signed_in"] is False
+    sent = new.calls("DELETE", "/account")
+    assert len(sent) == 1 and json.loads(sent[0].body) == {"code": code}
+    assert new.deleted == [EMAIL] and new.sessions == {} and new.connectors == {}
+    assert not (new.data / account.SESSION_FILE).exists()
+    assert out["notice"] == "Your account is deleted. The meetings on this computer are still here."
+
+
+def test_a_wrong_delete_code_deletes_nothing_and_says_so(new):
+    sign_in(new)
+    account.delete_start()
+    code = new.delete_codes[EMAIL]
+    wrong = "00000000" if code != "00000000" else "11111111"
+    out = account.delete_account("", wrong)
+    assert out == {"ok": False, "reason": "wrong_code",
+                   "error": "Your account was not deleted. That code is wrong or has expired. "
+                            "Check it, or send a new one."}
+    assert new.deleted == [] and account.status()["signed_in"]
+    assert account.delete_account("", code)["ok"], "the right one still works"
+
+
+def test_a_delete_code_of_the_wrong_length_is_never_sent(new):
+    sign_in(new)
+    account.delete_start()
+    for bad in ("123456", "123456789", "abcdefgh"):
+        assert account.delete_account("", bad) == {
+            "ok": False, "error": "Enter the 8-digit code from the email.", "reason": "bad_code"}
+    assert new.calls("DELETE", "/account") == [] and new.deleted == []
+
+
+def test_the_sign_in_code_does_not_delete_the_account(new):
+    sign_in(new)
+    account.start(EMAIL)                                   # a sign-in code, asked for from somewhere
+    account.delete_start()
+    out = account.delete_account("", new.mailbox[EMAIL])
+    assert out["ok"] is False and out["reason"] == "wrong_code" and new.deleted == []
+
+
+def test_a_newer_service_refuses_the_typed_word_alone_in_a_plain_sentence(new):
+    sign_in(new)
+    out = account.delete_account("DELETE")
+    assert out == {"ok": False, "reason": "code_required",
+                   "error": "Your account was not deleted. Deleting your account needs a code from your "
+                            "email. Ask for one, then try again."}
+    assert new.deleted == [] and account.status()["signed_in"]
+    assert account.delete_account("", "")["reason"] == "unconfirmed", "neither a code nor the word: nothing is asked"
+
+
+def test_an_older_service_has_no_code_step_and_the_typed_word_still_deletes(old):
+    sign_in(old)
+    assert account.delete_start() == {"ok": True, "code": False}
+    assert len(old.calls("POST", "/account/delete/start")) == 1 and old.delete_codes == {}
+    assert account.status()["signed_in"], "a 404 for a step it does not have is not a sign-out"
+    out = account.delete_account("DELETE", "")
+    assert out["ok"] and out["deleted"] is True and old.deleted == [EMAIL]
+    assert old.calls("DELETE", "/account")[0].body == b"", "nothing is sent that the older service does not know"
+
+
+def test_asking_for_the_delete_code_signed_out_or_offline_is_a_sentence(new):
+    assert account.delete_start() == {"ok": False, "error": account.NOT_SIGNED_IN, "reason": "signed_out"}
+    sign_in(new)
+    new.offline = True
+    assert account.delete_start() == {"ok": False, "error": account.NO_INTERNET, "reason": "offline"}
+    new.offline = False
+    new.sessions.clear()                                   # removed from another device
+    assert account.delete_start() == {"ok": False, "error": account.SIGNED_OUT, "reason": "signed_out"}
+
+
+def test_app_py_has_the_delete_start_method_and_passes_the_code_on():
+    app_py = (ROOT / "app.py").read_text(encoding="utf-8")
+    assert '    def account_delete_start(self) -> dict:' in app_py
+    assert 'return _account_call("delete_start")' in app_py
+    assert '    def account_delete(self, confirm: str = "", code: str = "") -> dict:' in app_py
+    assert '_account_call("delete_account", confirm, code)' in app_py
+
+
+@needs_node
+def test_which_step_follows_email_me_a_code():
+    assert js("L.accountDeleteStep({ok: true, code: true, digits: 8})") == "code"
+    assert js("L.accountDeleteStep({ok: true, code: false})") == "word", "an older service: type DELETE"
+    assert js("L.accountDeleteStep({ok: false, error: 'x'})") == "ask"
+    assert js("L.accountDeleteStep(null)") == "ask"
+    assert js("L.accountDeleteReady('48291357', 'code', 8)") is True
+    assert js("L.accountDeleteReady('482913', 'code', 8)") is False
+    assert js("L.accountDeleteReady('DELETE', 'code', 8)") is False, "the word is not asked for with a code"
+    assert js("L.accountDeleteReady('DELETE', 'word')") is True
+    assert js("L.accountDeleteReady('48291357', 'word')") is False
+
+
+def test_the_delete_question_explains_then_emails_a_code_then_deletes():
+    sec = section()
+    ask = sec[sec.index('id="acctDeleteConfirm"'):]
+    ask = ask[:ask.index("</form>")]
+    # The same explanation of what is and is not deleted, first.
+    assert ("This deletes the account and everything stored in it on the server, for every device signed in "
+            "to it. Meetings already on this computer stay. It can't be undone.") in text_of(ask[ask.index(">") + 1:])
+    order = [ask.index(i) for i in ('id="acctDeleteSays"', 'id="acctDeleteCodeAsk"', 'id="acctDeleteCode"',
+                                    'id="acctDeleteNo"', 'id="acctDeleteSend"', 'id="acctDeleteYes"')]
+    assert order == sorted(order)
+    assert ('<button type="button" class="btn btn-pri btn-sm" id="acctDeleteSend">Email me a code to confirm'
+            "</button>") in ask
+    assert '<label for="acctDeleteCode" id="acctDeleteCodeLabel">Enter the code</label>' in ask
+    assert re.search(r'<input type="text" id="acctDeleteCode" class="input input-mono"[^>]*inputmode="numeric"'
+                     r'[^>]*autocomplete="one-time-code"[^>]* hidden>', ask)
+    assert '<div class="row-d" id="acctDeleteCodeDesc" role="status"></div>' in ask
+    assert '<button type="button" class="link-btn" id="acctDeleteResend">Send a new code</button>' in ask
+    # Until the code is asked for there is no field, no word to type, and no destructive button.
+    for hidden in ('id="acctDeleteCodeAsk" hidden', 'id="acctDeleteWordAsk" hidden', 'id="acctDeleteMore" hidden',
+                   'id="acctDeleteYes" disabled hidden'):
+        assert hidden in ask, hidden
+    assert "DELETE" not in text_of(ask[:ask.index('id="acctDeleteWordAsk"')])
+
+    page = code_only(read("account.js"))
+    send = page[page.index("async function deleteSend("):]
+    send = send[:send.index("\n  }\n")]
+    assert "call('account_delete_start')" in send and "drawDelete(L.accountDeleteStep(r))" in send
+    for use in ("L.accountCodeLabel(deleteDigits)", "L.accountCodeExample(deleteDigits)",
+                "L.accountCodeLine(status && status.email, deleteDigits)"):
+        assert use in send, use
+    draw = page[page.index("function drawDelete("):]
+    draw = draw[:draw.index("\n  }\n")]
+    assert "$('acctDeleteSend').hidden = step !== 'ask';" in draw
+    assert "$('acctDeleteYes').hidden = step === 'ask';" in draw and "$('acctDeleteYes').disabled = true;" in draw
+    assert "$('acctDeleteWordAsk').hidden = $('acctDeleteWord').hidden = step !== 'word';" in draw
+    assert "$('acctDeleteSend').addEventListener('click', () => busy($('acctDeleteSend'), deleteSend))" in page
+    # A pasted code fills the field; only the button deletes.
+    assert "$('acctDeleteCode').addEventListener('paste'" not in page
+    assert page.count("deleteAccount)") == 1 and "addEventListener('submit', (e) => { e.preventDefault(); busy($('acctDeleteYes'), deleteAccount); })" in page

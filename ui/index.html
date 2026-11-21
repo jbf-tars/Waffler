@@ -284,17 +284,25 @@
                 <div class="row-main"><div class="row-t">Delete my account</div><div class="row-d" id="acctDeleteDesc">For good. Meetings on this computer stay.</div></div>
                 <button type="button" class="btn btn-danger btn-sm" id="acctDelete" aria-describedby="acctDeleteDesc" aria-expanded="false" aria-controls="acctDeleteConfirm">Delete my account…</button>
               </div>
-              <!-- Says exactly what goes and what stays, and needs the word
-                   typed (Api.account_delete checks it again). -->
+              <!-- Says exactly what goes and what stays, then needs a code
+                   emailed for this (account.js deleteSend; the service
+                   checks it). An older service emails none: the word DELETE
+                   is typed instead (Api.account_delete checks it again). -->
               <div class="row reset-confirm" id="acctDeleteConfirm" hidden>
                 <form class="row-main" id="acctDeleteForm" aria-labelledby="acctDeleteTitle" novalidate>
                   <div class="row-t" id="acctDeleteTitle">Delete your account?</div>
                   <div class="row-d" id="acctDeleteSays">This deletes the account and everything stored in it on the server, for every device signed in to it. Meetings already on this computer stay. It can't be undone.</div>
-                  <div class="row-d acct-word"><label for="acctDeleteWord">Type DELETE to confirm</label></div>
+                  <div class="row-d acct-word" id="acctDeleteCodeAsk" hidden><label for="acctDeleteCode" id="acctDeleteCodeLabel">Enter the code</label><div class="row-d" id="acctDeleteCodeDesc" role="status"></div></div>
+                  <div class="row-d acct-word" id="acctDeleteWordAsk" hidden><label for="acctDeleteWord">Type DELETE to confirm</label></div>
                   <div class="tx-add">
-                    <input type="text" id="acctDeleteWord" class="input input-mono" aria-describedby="acctDeleteSays" autocomplete="off" autocapitalize="characters" spellcheck="false">
+                    <input type="text" id="acctDeleteCode" class="input input-mono" aria-describedby="acctDeleteCodeDesc" inputmode="numeric" autocomplete="one-time-code" spellcheck="false" hidden>
+                    <input type="text" id="acctDeleteWord" class="input input-mono" aria-describedby="acctDeleteSays" autocomplete="off" autocapitalize="characters" spellcheck="false" hidden>
                     <button type="button" class="btn btn-sec btn-sm" id="acctDeleteNo">Keep my account</button>
-                    <button type="submit" class="btn btn-danger-solid btn-sm" id="acctDeleteYes" disabled>Delete my account</button>
+                    <button type="button" class="btn btn-pri btn-sm" id="acctDeleteSend">Email me a code to confirm</button>
+                    <button type="submit" class="btn btn-danger-solid btn-sm" id="acctDeleteYes" disabled hidden>Delete my account</button>
+                  </div>
+                  <div class="acct-more" id="acctDeleteMore" hidden>
+                    <button type="button" class="link-btn" id="acctDeleteResend">Send a new code</button>
                   </div>
                 </form>
               </div>
