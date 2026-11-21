@@ -13,10 +13,10 @@ sys.path.insert(0, str(ROOT / "tests"))
 
 from test_ui_logic import code_only, js, needs_node, read  # noqa: E402
 
-API_METHODS = ("account_status", "account_start", "account_verify", "account_sign_out",
-               "account_devices", "account_remove_device", "account_connector",
-               "account_connector_create", "account_connector_rotate", "account_connector_off",
-               "account_sync_now")
+API_METHODS = ("account_status", "account_offer_dismiss", "account_start", "account_verify",
+               "account_sign_out", "account_delete", "account_devices", "account_remove_device",
+               "account_connector", "account_connector_create", "account_connector_rotate",
+               "account_connector_off", "account_sync_now")
 NOW = "Date.parse('2026-11-21T12:00:00.000+00:00')"
 
 
@@ -83,10 +83,16 @@ def test_the_section_follows_the_settings_look():
     ids = re.findall(r'id="(\w+)"', sec)
     assert len(ids) == len(set(ids))
     page = read("account.js")
-    named = set(re.findall(r'(?:for|aria-describedby|aria-labelledby)="(\w+)"', sec))
+    named = set(re.findall(r'(?:for|aria-describedby|aria-labelledby|aria-controls)="(\w+)"', sec))
+    # The sign-in fields are reached by their ending: the same flow runs here
+    # ('acct' + 'Email') and on setup's last screen ('obAcct' + 'Email').
+    flow = page[page.index("function signInFlow("):]
+    flow = flow[:flow.index("\n  }\n")]
+    assert "const el = (name) => $(p + name);" in flow and "signInFlow('acct'," in page
     for ident in ids:
         if ident != "secAccount" and ident not in named:
-            assert f"'{ident}'" in page, f"{ident} is in the page but account.js never uses it"
+            assert f"'{ident}'" in page or f"el('{ident.removeprefix('acct')}')" in flow, \
+                f"{ident} is in the page but account.js never uses it"
     for ident in named:
         assert ident in ids, f"{ident} is pointed at but is not in the section"
     assert "showToast(" in page
@@ -107,21 +113,21 @@ def test_signed_out_is_an_email_then_a_code_and_enter_works():
     email = email[:email.index("</form>")]
     assert '<label for="acctEmail">' in out
     assert re.search(r'<input type="email" id="acctEmail" class="input"[^>]*autocomplete="email"', email)
-    assert '<button type="submit" class="btn btn-pri btn-sm" id="acctSend">Send code</button>' in email
+    assert '<button type="submit" class="btn btn-pri btn-sm" id="acctSend">Email me a code</button>' in email
     code = out[out.index('<form class="tx-add" id="acctCodeForm"'):]
     code = code[:code.index("</form>")]
     assert '<label for="acctCode">' in out
     assert re.search(r'<input type="text" id="acctCode" class="input input-mono"[^>]*inputmode="numeric"'
                      r'[^>]*autocomplete="one-time-code"', code)
     assert "maxlength" not in code, "a pasted '123 456' must not be cut short before it is cleaned"
-    assert '<button type="submit" class="btn btn-pri btn-sm" id="acctSignIn">Sign in</button>' in code
+    assert '<button type="submit" class="btn btn-pri btn-sm" id="acctSignIn">Continue</button>' in code
     assert re.search(r'<div class="row" id="acctCodeRow" hidden>', out), "the code comes after the email"
     assert '<p class="s-error" id="acctError" role="alert" hidden></p>' in out
     assert 'id="acctNotice" role="status"' in out
     page = code_only(read("account.js"))
-    assert "$('acctEmailForm').addEventListener('submit'" in page
-    assert "$('acctCodeForm').addEventListener('submit'" in page
-    assert "$('acctCode').addEventListener('paste'" in page and "L.accountCode(" in page
+    assert "el('EmailForm').addEventListener('submit'" in page
+    assert "el('CodeForm').addEventListener('submit'" in page
+    assert "el('Code').addEventListener('paste'" in page and "L.accountCode(" in page
 
 
 def test_signed_in_shows_who_sync_devices_claude_and_sign_out():
@@ -205,18 +211,18 @@ def test_the_sync_line():
     def line(sync):
         return js(f"L.accountSyncLine({sync}, {NOW})")
     last = "'2026-11-21T11:59:00.000+00:00'"
-    assert line(f"{{syncing: false, last_synced_at: {last}, error: ''}}") == "Syncing: last synced a minute ago."
+    assert line(f"{{syncing: false, last_synced_at: {last}, error: ''}}") == "Synced a minute ago."
     assert line(f"{{syncing: true, last_synced_at: {last}, error: ''}}") == "Syncing now."
-    assert line("{syncing: false, last_synced_at: '', error: ''}") == "Syncing: not synced yet."
+    assert line("{syncing: false, last_synced_at: '', error: ''}") == "Not synced yet."
     assert line(f"{{syncing: false, last_synced_at: {last}, error: 'No internet.'}}") == \
         "Not syncing. No internet. Last synced a minute ago."
     assert line("{syncing: false, last_synced_at: '', error: 'No internet.'}") == "Not syncing. No internet."
-    assert line("null") == "Syncing: not synced yet."
+    assert line("null") == "Not synced yet."
 
 
 @needs_node
 def test_a_devices_second_line():
-    assert js(f"L.accountDeviceLine({{current: true, last_used_at: 'x'}}, {NOW})") == "This computer"
+    assert js(f"L.accountDeviceLine({{current: true, last_used_at: 'x'}}, {NOW})") == "In use now"
     assert js(f"L.accountDeviceLine({{current: false, last_used_at: '2026-11-21T09:00:00+00:00'}}, {NOW})") == \
         "Last used 3 hours ago"
     assert js(f"L.accountDeviceLine({{current: false, last_used_at: ''}}, {NOW})") == "Signed in"

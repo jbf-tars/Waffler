@@ -188,7 +188,7 @@
       </nav>
       <div class="snav-colophon">
         <span class="snav-mark" data-waffle="logo" data-size="26"></span>
-        <div><div class="snav-colo-t">Made by one person</div><div class="snav-colo-s">MIT licence, no account</div></div>
+        <div><div class="snav-colo-t">Made by one person</div><div class="snav-colo-s" id="snavAccountLine">Free, no account needed</div></div>
       </div>
     </aside>
 
@@ -198,11 +198,13 @@
         <!-- Account: sign in on each computer and the meetings stay in step
              (account.js; Api.account_*; src/account.py). Three faces, one shown
              at a time: no account service named yet (acctOff), the sign-in
-             fields (acctOut), the account (acctIn). The Claude link is copied,
-             never drawn: this window may be on a shared screen. -->
+             fields (acctOut), the account (acctIn). Signing in and making an
+             account are the same two steps: an email, then the code sent to
+             it. The Claude link is copied, never drawn: this window may be on
+             a shared screen. -->
         <section class="s-sec" id="secAccount" data-sec="account" hidden>
           <h1 class="ptitle">Account</h1>
-          <p class="pdesc">Sign in on each of your computers and your meetings stay in step between them. Your dictations stay on this computer.</p>
+          <p class="pdesc">One free account keeps your meetings in step on every device you sign in on. Your dictations stay on this computer.</p>
 
           <div id="acctOff" hidden>
             <div class="sheet">
@@ -214,25 +216,34 @@
 
           <div id="acctOut" hidden>
             <p class="s-note" id="acctNotice" role="status" hidden></p>
+            <h2 class="acct-title" id="acctOutTitle">Create your account or sign in</h2>
             <div class="sheet">
-              <div class="row">
+              <div class="row" id="acctEmailRow">
                 <div class="row-main">
                   <div class="row-t"><label for="acctEmail">Your email</label></div>
-                  <div class="row-d" id="acctEmailDesc">We send you a 6-digit code to sign in. There is no password.</div>
-                  <form class="tx-add" id="acctEmailForm" novalidate>
+                  <form class="tx-add" id="acctEmailForm" aria-labelledby="acctOutTitle" novalidate>
                     <input type="email" id="acctEmail" class="input" placeholder="you@example.com" aria-describedby="acctEmailDesc" autocomplete="email" autocapitalize="off" spellcheck="false">
-                    <button type="submit" class="btn btn-pri btn-sm" id="acctSend">Send code</button>
+                    <button type="submit" class="btn btn-pri btn-sm" id="acctSend">Email me a code</button>
                   </form>
+                  <ul class="acct-how" id="acctEmailDesc">
+                    <li>New here? This creates your free account.</li>
+                    <li>Already have one? This signs you in.</li>
+                    <li>No password. We email you a 6-digit code.</li>
+                  </ul>
                 </div>
               </div>
               <div class="row" id="acctCodeRow" hidden>
                 <div class="row-main">
-                  <div class="row-t"><label for="acctCode">The code from the email</label></div>
+                  <div class="row-t"><label for="acctCode">Enter the 6-digit code</label></div>
                   <div class="row-d" id="acctCodeDesc" role="status"></div>
                   <form class="tx-add" id="acctCodeForm" novalidate>
                     <input type="text" id="acctCode" class="input input-mono" placeholder="123456" aria-describedby="acctCodeDesc" inputmode="numeric" autocomplete="one-time-code" spellcheck="false">
-                    <button type="submit" class="btn btn-pri btn-sm" id="acctSignIn">Sign in</button>
+                    <button type="submit" class="btn btn-pri btn-sm" id="acctSignIn">Continue</button>
                   </form>
+                  <div class="acct-more">
+                    <button type="button" class="link-btn" id="acctResend" disabled>Send it again</button>
+                    <button type="button" class="link-btn" id="acctOther">Use a different email</button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -240,10 +251,10 @@
           </div>
 
           <div id="acctIn" hidden>
+            <p class="s-note" id="acctWelcome" role="status" hidden></p>
             <div class="sheet">
               <div class="row">
                 <div class="row-main"><div class="row-t" id="acctWho"></div><div class="row-d" id="acctDevice"></div></div>
-                <button type="button" class="btn btn-sec btn-sm" id="acctSignOut">Sign out</button>
               </div>
               <div class="row">
                 <div class="row-main"><div class="row-t">Meetings</div><div class="row-d" id="acctSync" role="status"></div></div>
@@ -263,8 +274,41 @@
                 <button type="button" class="btn btn-sec btn-sm" id="acctClaudeNew" aria-describedby="acctClaudeNote" hidden>New link</button>
                 <button type="button" class="btn btn-sec btn-sm" id="acctClaudeOff" hidden>Turn off</button>
               </div>
+              <!-- Asked once before the link is replaced or taken away
+                   (logic.js accountConfirm). -->
+              <div class="row row-confirm" id="acctClaudeConfirm" hidden>
+                <div class="row-main"><div class="row-t" id="acctClaudeConfirmTitle"></div><div class="row-d" id="acctClaudeConfirmDesc"></div></div>
+                <button type="button" class="btn btn-sec btn-sm" id="acctClaudeNo"></button>
+                <button type="button" class="btn btn-danger btn-sm" id="acctClaudeYes"></button>
+              </div>
             </div>
             <p class="s-note" id="acctClaudeNote">The link is a secret. Anyone who has it can read every meeting in your account, so paste it only into Claude.</p>
+
+            <h2 class="sh2">Sign out or delete</h2>
+            <div class="sheet">
+              <div class="row">
+                <div class="row-main"><div class="row-t">Sign out</div><div class="row-d" id="acctSignOutDesc">Your meetings and dictations stay on this computer. They stop syncing until you sign in again.</div></div>
+                <button type="button" class="btn btn-sec btn-sm" id="acctSignOut" aria-describedby="acctSignOutDesc">Sign out</button>
+              </div>
+              <div class="row">
+                <div class="row-main"><div class="row-t">Delete my account</div><div class="row-d" id="acctDeleteDesc">The account and everything stored in it, for good. Meetings already on this computer stay.</div></div>
+                <button type="button" class="btn btn-danger btn-sm" id="acctDelete" aria-describedby="acctDeleteDesc" aria-expanded="false" aria-controls="acctDeleteConfirm">Delete my account…</button>
+              </div>
+              <!-- Says exactly what goes and what stays, and needs the word
+                   typed (Api.account_delete checks it again). -->
+              <div class="row reset-confirm" id="acctDeleteConfirm" hidden>
+                <form class="row-main" id="acctDeleteForm" aria-labelledby="acctDeleteTitle" novalidate>
+                  <div class="row-t" id="acctDeleteTitle">Delete your account?</div>
+                  <div class="row-d" id="acctDeleteSays">This deletes the account and everything stored in it on the server, for every device signed in to it. Meetings already on this computer stay. It can't be undone.</div>
+                  <div class="row-d acct-word"><label for="acctDeleteWord">Type DELETE to confirm</label></div>
+                  <div class="tx-add">
+                    <input type="text" id="acctDeleteWord" class="input input-mono" aria-describedby="acctDeleteSays" autocomplete="off" autocapitalize="characters" spellcheck="false">
+                    <button type="button" class="btn btn-sec btn-sm" id="acctDeleteNo">Keep my account</button>
+                    <button type="submit" class="btn btn-danger-solid btn-sm" id="acctDeleteYes" disabled>Delete my account</button>
+                  </div>
+                </form>
+              </div>
+            </div>
             <p class="s-error" id="acctInError" role="alert" hidden></p>
           </div>
         </section>
@@ -1743,6 +1787,74 @@
             <div class="ob-textedit">
               <div class="ob-te-title"><span class="ob-dots ob-dots-mac"><i></i><i></i><i></i></span><span>Untitled</span></div>
               <div class="ob-te-body"><span class="ob-desk-text">Send it to Alex by Wednesday at three.</span><span class="ob-caret"></span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Optional: an account ─────────────────────────────────────────
+         Shown after "Now use it anywhere", and only where an account can be
+         made and this computer is not signed in (logic.js
+         accountSetupOffered). It is not one of the counted steps, and Not
+         now finishes setup exactly as Done does. The fields are the ones in
+         Settings, Account (account.js signInFlow). States: offer, email,
+         code, done. -->
+    <section class="ob-step" id="obStepAccount" data-step="account" data-state="offer" style="display:none">
+      <div class="ob-left">
+        <p class="ob-kick" data-when="offer email code">Optional</p>
+        <h1 class="ob-title" id="obTitleAccount" tabindex="-1" data-when="offer">A free account, if you want one</h1>
+        <h1 class="ob-title" id="obTitleAccountEmail" tabindex="-1" data-when="email">Create your account or sign in</h1>
+        <h1 class="ob-title" id="obTitleAccountCode" tabindex="-1" data-when="code">Enter the 6-digit code</h1>
+        <h1 class="ob-title" id="obTitleAccountDone" tabindex="-1" data-when="done">You're in</h1>
+
+        <ul class="ob-acct-list ob-way-list" data-when="offer">
+          <li>Your meetings on every device you sign in on.</li>
+          <li>Ask Claude about any of them.</li>
+          <li>Nothing changes if you skip this.</li>
+        </ul>
+        <div class="ob-acct-actions" data-when="offer">
+          <button type="button" class="btn btn-pri btn-lg ob-acct-btn" id="obAcctYes" onclick="wizAccountStart()">Create account or sign in</button>
+          <button type="button" class="btn btn-sec btn-lg ob-acct-btn" id="obAcctNo" onclick="wizAccountSkip()">Not now</button>
+        </div>
+
+        <div data-when="email">
+          <label class="ob-small ob-acct-label" for="obAcctEmail">Your email</label>
+          <form class="ob-acct-form" id="obAcctEmailForm" novalidate>
+            <input type="email" id="obAcctEmail" class="input" placeholder="you@example.com" aria-describedby="obAcctEmailDesc" autocomplete="email" autocapitalize="off" spellcheck="false">
+            <button type="submit" class="btn btn-pri" id="obAcctSend">Email me a code</button>
+          </form>
+          <ul class="ob-acct-how ob-way-list" id="obAcctEmailDesc">
+            <li>New here? This creates your free account.</li>
+            <li>Already have one? This signs you in.</li>
+            <li>No password. We email you a 6-digit code.</li>
+          </ul>
+        </div>
+
+        <div data-when="code">
+          <p class="ob-lede" id="obAcctCodeDesc" role="status"></p>
+          <label class="ob-small ob-acct-label" for="obAcctCode">The code from the email</label>
+          <form class="ob-acct-form" id="obAcctCodeForm" novalidate>
+            <input type="text" id="obAcctCode" class="input input-mono" placeholder="123456" aria-describedby="obAcctCodeDesc" inputmode="numeric" autocomplete="one-time-code" spellcheck="false">
+            <button type="submit" class="btn btn-pri" id="obAcctSignIn">Continue</button>
+          </form>
+          <div class="ob-acct-more">
+            <button type="button" class="link-btn" id="obAcctResend" disabled>Send it again</button>
+            <button type="button" class="link-btn" id="obAcctOther">Use a different email</button>
+          </div>
+        </div>
+
+        <p class="ob-small ob-acct-err" id="obAcctError" role="alert" hidden></p>
+        <p class="ob-lede" id="obAcctDone" data-when="done">Your meetings sync from this computer from now on. Your devices, the Claude link and Sign out are in Settings, Account.</p>
+        <p class="ob-acct-out" data-when="email code"><button type="button" class="btn btn-quiet" onclick="wizAccountSkip()">Not now</button></p>
+      </div>
+      <div class="ob-stage">
+        <div class="ob-art ob-art-honey">
+          <div class="ob-art-in ob-center">
+            <div class="ob-flow">
+              <div class="ob-fcard"><span class="ob-fmark" data-waffle="logo" data-size="34"></span><div><b>This computer</b><span class="ob-fd">Your meetings, as they are now</span></div></div>
+              <div class="ob-flink"><span class="ob-flab">kept in step</span><span class="ob-nows">Your account</span><span class="ob-flab2">only if you want it</span></div>
+              <div class="ob-fcard"><span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-monitor"/></svg></span><div><b>Your other devices, and Claude</b><span class="ob-fd">The same meetings, wherever you sign in</span></div></div>
             </div>
           </div>
         </div>

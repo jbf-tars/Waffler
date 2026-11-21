@@ -85,6 +85,21 @@
 .ob-step[data-step="try"],
 .ob-step[data-step="anywhere"] { grid-template-columns: 440px minmax(0, 1fr); }
 
+/* The optional account screen after the last step: what an account gives,
+   two buttons of one size, then the same email and code fields as Settings. */
+.ob-acct-list { margin-top: 22px; font-size: 15px; }
+.ob-acct-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 30px; }
+.ob-acct-btn { flex: 1 1 170px; justify-content: center; height: 48px; padding: 0 18px; font-size: 15px; }
+.ob-left .ob-acct-label { display: block; margin-top: 24px; color: var(--text); }
+.ob-acct-form { display: flex; gap: 8px; margin-top: 8px; }
+.ob-acct-form .input { flex: 1; min-width: 0; height: 44px; }
+.ob-acct-form .btn { height: 44px; flex: none; }
+.ob-acct-how { margin-top: 18px; }
+.ob-acct-more { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 14px; font: var(--t-desc); }
+.ob-acct-more .link-btn:disabled { color: var(--muted); text-decoration-color: transparent; cursor: default; }
+.ob-left .ob-acct-err { margin-top: 12px; color: var(--danger); }
+.ob-acct-out { margin: 26px 0 0; }
+
 .ob-foot {
   height: 76px;
   flex: none;

@@ -3079,14 +3079,86 @@
     const ago = accountAgo(s.last_synced_at, now);
     if (s.syncing) return 'Syncing now.';
     if (s.error) return 'Not syncing. ' + s.error + (ago ? ' Last synced ' + ago + '.' : '');
-    return ago ? 'Syncing: last synced ' + ago + '.' : 'Syncing: not synced yet.';
+    return ago ? 'Synced ' + ago + '.' : 'Not synced yet.';
   }
 
+  // A device's second line: when it was last used. This computer carries a
+  // "This computer" mark beside its name (account.js), and is in use now:
+  // the service's own time for it is only accurate to the hour.
   function accountDeviceLine(device, now) {
     const d = device || {};
-    if (d.current) return 'This computer';
+    if (d.current) return 'In use now';
     const ago = accountAgo(d.last_used_at, now);
     return ago ? 'Last used ' + ago : 'Signed in';
+  }
+
+  // Under the code field, once a code was asked for. It does not say an
+  // email was sent: where the owner keeps a list of who may sign up, an
+  // address that is not on it is answered the same and sent nothing.
+  function accountCodeLine(email) {
+    return 'Check ' + (email || 'your email') + ' for a 6-digit code. It works for 10 minutes.';
+  }
+
+  // "Send it again" can be pressed 30 seconds after a code was asked for.
+  // `sentAt` is when (ms); 0 for never.
+  const ACCOUNT_RESEND_S = 30;
+  function accountResendView(sentAt, now) {
+    const at = Number(sentAt) || 0;
+    if (!at) return { ready: true, text: 'Send it again' };
+    const since = Math.max(0, ((now == null ? Date.now() : now) - at) / 1000);
+    const left = Math.ceil(ACCOUNT_RESEND_S - since);
+    if (left <= 0) return { ready: true, text: 'Send it again' };
+    return { ready: false, text: 'Send it again in ' + left + (left === 1 ? ' second' : ' seconds') };
+  }
+
+  // The one line after the code worked: which of the two happened.
+  // `newAccount` is Api.account_verify().new_account: true, false, or null
+  // when the service did not say.
+  function accountSignedInLine(newAccount) {
+    if (newAccount === true) return 'Your account is ready.';
+    if (newAccount === false) return 'You’re signed in.';
+    return 'You’re in.';
+  }
+
+  // Settings' footer, true signed in and signed out: an account is never needed.
+  function accountFooterLine(status) {
+    return accountView(status) === 'in' ? 'MIT licence, signed in' : 'Free, no account needed';
+  }
+
+  // The last, optional screen of first-run setup: only where an account can
+  // be made and this computer is not already signed in.
+  function accountSetupOffered(status) { return accountView(status) === 'out'; }
+
+  // Home's one card offering an account: signed out, with at least one
+  // meeting to keep in step, and not put away (account_offer_dismiss).
+  function accountOfferView(status, meetings) {
+    return accountView(status) === 'out' && !status.offer_dismissed && Number(meetings) >= 1;
+  }
+
+  // Delete my account: the button wakes when the word has been typed.
+  function accountDeleteReady(typed) {
+    return String(typed == null ? '' : typed).trim().toUpperCase() === 'DELETE';
+  }
+
+  // The question asked once before a device is removed ('remove'), the
+  // Claude link is replaced ('new') or taken away ('off').
+  function accountConfirm(kind, name) {
+    if (kind === 'remove') {
+      return { title: 'Remove ' + (name || 'this device') + '?',
+               desc: 'It is signed out at once. Meetings already on it stay there.',
+               yes: 'Remove', no: 'Keep it' };
+    }
+    if (kind === 'new') {
+      return { title: 'Make a new link?',
+               desc: 'The link Claude uses now stops working at once. Paste the new one into Claude to carry on.',
+               yes: 'Make a new link', no: 'Keep this link' };
+    }
+    if (kind === 'off') {
+      return { title: 'Turn off the Claude link?',
+               desc: 'Claude can no longer read your meetings. You can make a new link any time.',
+               yes: 'Turn off', no: 'Keep it on' };
+    }
+    return null;
   }
 
   // The Claude row: what it says and which buttons it offers. `link` is the
@@ -3146,5 +3218,7 @@
     COLLAPSE_OVER, COLLAPSE_SHOW, COLLAPSE_MIN, COLLAPSE_MAX, collapseView,
     searchMarks, searchCount, isFindKey, enterRunsDefault, copyWorked, platformText,
     accountView, accountCode, accountCodeReady, accountAgo, accountSyncLine, accountDeviceLine, accountClaudeView,
+    ACCOUNT_RESEND_S, accountCodeLine, accountResendView, accountSignedInLine, accountFooterLine,
+    accountSetupOffered, accountOfferView, accountDeleteReady, accountConfirm,
   };
 });

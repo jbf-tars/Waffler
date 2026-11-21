@@ -71,7 +71,7 @@ def test_every_step_says_its_task_and_nobody_is_welcomed_twice():
 
 def test_the_hotkey_step_is_merged_into_try_it():
     html = setup_html()
-    assert html.count('class="ob-step"') == 4
+    assert html.count('class="ob-step"') == 5      # the four steps, and the optional account screen after them
     assert "Listening for hotkey press" not in html
     assert 'id="obHoldKey"' in html and "Pick another key" in html
 

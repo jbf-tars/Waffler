@@ -1446,6 +1446,8 @@ async function renderFeed() {
     meetings = (await window.pywebview.api.meetings_list(query || '')) || [];
   } catch (e) { /* the Journal works without them */ }
   if (seq === _histSeq) _feedMeetings = Array.isArray(meetings) ? meetings : [];
+  // Signed out, with a meeting: Home offers an account once (account.js).
+  if (seq === _histSeq && !query && window.accountOffer) window.accountOffer(_feedMeetings.length);
   if (seq !== _histSeq) return;          // a newer search took over
   _histLoading = false;
   history = page;
@@ -5631,7 +5633,7 @@ function clearSearch() {
 // Existing users never see this: it opens only when setup is needed.
 
 const WIZ_STEPS = WL.setupSteps(isMacPlatform);
-const WIZ_SECTIONS = { connect: 'obStepConnect', permissions: 'obStepPermissions', try: 'obStepTry', anywhere: 'obStepAnywhere' };
+const WIZ_SECTIONS = { connect: 'obStepConnect', permissions: 'obStepPermissions', try: 'obStepTry', anywhere: 'obStepAnywhere', account: 'obStepAccount' };
 let _wizardStep = '';
 let _wizardShown = false;
 let _wizKeyOk = false;          // a Groq key passed the check
@@ -5647,6 +5649,11 @@ let _wizardHotkeyTestActive = false;
 let _wizDictationLive = false;  // the real hotkey is listening (Notepad/TextEdit)
 let _wizLastWrote = '';
 let _wizLoginChoice = true;     // start at sign-in: on by default (owner decision D6)
+// After the last counted step, one optional screen offers an account: only
+// where one can be made and this computer is not signed in (logic.js
+// accountSetupOffered). It is not in WIZ_STEPS, so the stepper and "Step one
+// of three" are as they were, and nothing about finishing setup depends on it.
+let _wizAccountOffer = false;
 let _currentWizardHotkey = isMacPlatform ? ['fn'] : ['win', 'ctrl'];
 
 async function checkOnboarding() {
@@ -5659,6 +5666,9 @@ async function checkOnboarding() {
       // the first screen is drawn: they decide which card comes first.
       let stt = null;
       try { stt = await pywebview.api.local_stt_status(); } catch (_) {}
+      // Whether the optional account screen follows the last step. Read from
+      // this computer: nothing is contacted.
+      try { _wizAccountOffer = WL.accountSetupOffered(await pywebview.api.account_status()); } catch (_) { _wizAccountOffer = false; }
       showWizard(status, stt);
     } else {
       const main = document.getElementById('mainArea');
@@ -5860,7 +5870,8 @@ function wizRenderStepper() {
   const host = document.getElementById('obStepper');
   if (!host) return;
   _wizLabelDrawn = _wizLabelWay();
-  const cur = WIZ_STEPS.indexOf(_wizardStep);
+  // On the optional account screen every counted step is done.
+  const cur = _wizardStep === 'account' ? WIZ_STEPS.length : WIZ_STEPS.indexOf(_wizardStep);
   host.innerHTML = WIZ_STEPS.map((s, i) => {
     const cls = i < cur ? 'is-done' : i === cur ? 'is-on' : '';
     const n = i < cur ? '<svg class="ic" aria-hidden="true"><use href="#i-check"/></svg>' : String(i + 1);
@@ -5874,7 +5885,7 @@ function wizRenderStepper() {
 }
 
 function wizShowStep(step) {
-  if (!WIZ_STEPS.includes(step)) step = WIZ_STEPS[0];
+  if (!WIZ_STEPS.includes(step) && !(step === 'account' && _wizAccountOffer)) step = WIZ_STEPS[0];
   const prev = _wizardStep;
   // Leaving a step stops what it started.
   if (prev === 'try' && step !== 'try') wizStopPractice();
@@ -5899,7 +5910,9 @@ function wizShowStep(step) {
   // A new step: its title takes focus (Continue may now be disabled, and
   // the button that moved here may be hidden).
   if (step !== prev && _wizardVisible()) _wizFocus(_wizVisibleTitle(sec));
-  try { pywebview.api.save_setup_step(step); } catch (_) {}
+  // The account screen is not somewhere to come back to: setup left there
+  // reopens on the last counted step.
+  if (step !== 'account') { try { pywebview.api.save_setup_step(step); } catch (_) {} }
 
   if (step === 'connect') wizInitConnect();
   if (step === 'permissions') wizStartPermissionPoll();
@@ -5923,13 +5936,18 @@ function wizUpdateNextButton() {
   if (step === 'permissions') enabled = _wizPermsAll();
   if (step === 'try') enabled = _wizardMicTested;
   if (step === 'anywhere') enabled = true;
+  if (step === 'account') enabled = state === 'done';
   btn.disabled = !enabled;
-  if (label) label.textContent = step === 'anywhere' ? 'Done' : 'Continue';
+  // The account screen has its own two buttons; Done is there once signed in.
+  btn.hidden = step === 'account' && state !== 'done';
+  if (label) label.textContent = (step === 'anywhere' && !_wizAccountOffer) || step === 'account' ? 'Done' : 'Continue';
   btn.title = !enabled && step === 'try' ? 'Hold the keys and talk once, or skip for now.' : '';
   // Back once the real hotkey is on would start a second listener.
   if (back) back.hidden = i <= 0 || (step === 'anywhere' && _wizDictationLive);
   // On the first step Back returns from the key screens to the two cards.
   if (back && step === 'connect') back.hidden = !WL.setupCanGoBack(state);
+  // On the account screen Back returns from the fields to the offer.
+  if (back && step === 'account') back.hidden = !(state === 'email' || state === 'code');
   // "Skip for now" is there until a practice dictation works, so a
   // microphone problem never strands anyone.
   if (skip) skip.hidden = !(step === 'try' && !_wizardMicTested);
@@ -5951,8 +5969,25 @@ async function wizNext() {
   const btn = document.getElementById('wizBtnNext');
   if (btn && btn.disabled) return;
   const i = WIZ_STEPS.indexOf(_wizardStep);
-  if (_wizardStep === 'anywhere') { await wizCompleteSetup(); return; }
+  if (_wizardStep === 'anywhere' && _wizAccountOffer) { wizShowStep('account'); return; }
+  if (_wizardStep === 'anywhere' || _wizardStep === 'account') { await wizCompleteSetup(); return; }
   if (i >= 0 && i < WIZ_STEPS.length - 1) wizShowStep(WIZ_STEPS[i + 1]);
+}
+
+// The optional account screen. "Create account or sign in" shows the email
+// field (account.js signInFlow takes it from there); "Not now" finishes
+// setup, exactly as Done does on the step before.
+function wizAccountStart() {
+  wizSetState('account', 'email');
+  const field = document.getElementById('obAcctEmail');
+  if (field) _wizFocus(field);
+}
+
+let _wizFinishing = false;
+async function wizAccountSkip() {
+  if (_wizFinishing) return;                 // pressed twice
+  _wizFinishing = true;
+  try { await wizCompleteSetup(); } finally { _wizFinishing = false; }
 }
 
 function wizBack() {
@@ -5960,6 +5995,11 @@ function wizBack() {
   if (_wizardStep === 'connect') {
     const sec = _wizSection('connect');
     if (sec && WL.setupCanGoBack(sec.dataset.state)) wizShowChoice();
+    return;
+  }
+  if (_wizardStep === 'account') {
+    wizSetState('account', 'offer');
+    _wizFocus(document.getElementById('obAcctYes'));
     return;
   }
   if (i > 0) wizShowStep(WIZ_STEPS[i - 1]);

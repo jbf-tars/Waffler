@@ -1509,6 +1509,24 @@ body[data-theme="dark"] .kc-xl.held {
 #historyKeep { min-width: 170px; }
 .link-btn[hidden] { display: none; }
 
+/* ── Account ─────────────────────────────────────────────────────────────
+   Create an account or sign in: the three plain lines under the email field,
+   the two quiet buttons under the code, the mark beside this computer in the
+   list of devices, and the word typed before the account is deleted. */
+.acct-title { margin: 26px 2px 12px; font: 400 22px/1.25 var(--f-serif); letter-spacing: -0.01em; color: var(--text); }
+#acctOff, #acctIn { margin-top: 18px; }
+#acctWelcome { margin: 0 2px 12px; color: var(--text); }
+#acctNotice { margin: 16px 2px 0; color: var(--text); }
+.acct-how { margin: 12px 0 0; padding: 0; list-style: none; display: grid; gap: 4px; font: var(--t-desc); color: var(--muted); }
+.acct-how li { position: relative; padding-left: 14px; }
+.acct-how li::before { content: ""; position: absolute; left: 1px; top: 0.6em; width: 5px; height: 5px; border-radius: 50%; background: var(--honey); }
+.acct-more { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 12px; font: var(--t-desc); }
+.acct-more .link-btn:disabled { color: var(--muted); text-decoration-color: transparent; cursor: default; }
+.acct-dev { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; }
+.acct-word { margin-top: 12px; color: var(--text); }
+.acct-word + .tx-add { max-width: 520px; }
+.acct-word + .tx-add .input { flex: 1 1 120px; }
+
 /* ── About ───────────────────────────────────────────────────────────── */
 #secAbout { padding-top: 0; }
 .ab-hero { display: grid; grid-template-columns: 104px 1fr; gap: 22px; align-items: center; padding: 26px 26px 22px; }

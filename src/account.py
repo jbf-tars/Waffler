@@ -376,13 +376,16 @@ def verify(email, code, device_name: str | None = None) -> dict:
 
 
 def _made_just_now(user: dict, device: dict) -> bool | None:
-    """Whether this sign-in made the account, read from the service's answer:
-    a new account and its first device are made in the same moment. None when
-    the answer does not carry both times, so the page does not guess."""
+    """Whether this sign-in made the account, read from the service's answer.
+    The service has no field for it, but a new account and its first device
+    are made by the same request, so their times (kept to the second) are
+    the same, or a second apart; signing in to an account that exists needs
+    a new code from an email, which takes longer than that. None when the
+    answer does not carry both times, so the page does not guess."""
     try:
         made = datetime.fromisoformat(str(user["created_at"]))
         here = datetime.fromisoformat(str(device["created_at"]))
-        return abs((here - made).total_seconds()) <= 5
+        return abs((here - made).total_seconds()) <= 1
     except (KeyError, TypeError, ValueError):
         return None
 

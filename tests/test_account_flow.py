@@ -59,6 +59,13 @@ def test_a_new_account_and_a_returning_one_are_told_apart(server):
     again = sign_in(server)
     assert again["new_account"] is False
     assert "new_account" not in account.status(), "only the sign-in itself says which happened"
+    # The service keeps times to the second: one second apart is the same request, three is not.
+    assert account._made_just_now({"created_at": "2026-11-21T12:13:57+00:00"},
+                                  {"created_at": "2026-11-21T12:13:58+00:00"}) is True
+    assert account._made_just_now({"created_at": "2026-11-21T12:13:57+00:00"},
+                                  {"created_at": "2026-11-21T12:14:00+00:00"}) is False
+    assert account._made_just_now({"created_at": "soon"}, {"created_at": "2026-11-21T12:14:00+00:00"}) is None
+    assert account._made_just_now({}, {}) is None
 
 
 def test_when_the_service_does_not_say_the_app_does_not_guess(server, monkeypatch):
