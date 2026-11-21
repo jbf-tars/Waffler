@@ -138,7 +138,7 @@ def test_a_first_run_step_has_one_short_sentence_under_its_title():
         # (On the first screen two alternatives share one element, one shown at a
         # time, so each sentence is counted on its own.)
         said = sentences(el["text"])
-        assert len(said) <= 2, el["text"]
+        assert len(said) == (2 if el["text"].startswith("One download, then hold") else 1), el["text"]
         for one in said:
             assert len(words(one)) <= 15, one
     first = read("index.html")
