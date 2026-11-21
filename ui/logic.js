@@ -3145,11 +3145,6 @@
     return 'You’re in.';
   }
 
-  // Settings' footer, true signed in and signed out: an account is never needed.
-  function accountFooterLine(status) {
-    return accountView(status) === 'in' ? 'MIT licence, signed in' : 'Free, no account needed';
-  }
-
   // The last, optional screen of first-run setup: only where an account can
   // be made and this computer is not already signed in.
   function accountSetupOffered(status) { return accountView(status) === 'out'; }
@@ -3244,7 +3239,7 @@
     COLLAPSE_OVER, COLLAPSE_SHOW, COLLAPSE_MIN, COLLAPSE_MAX, collapseView,
     searchMarks, searchCount, isFindKey, enterRunsDefault, copyWorked, platformText,
     accountView, accountCode, accountCodeReady, accountAgo, accountSyncLine, accountDeviceLine, accountClaudeView,
-    ACCOUNT_RESEND_S, accountCodeLine, accountResendView, accountSignedInLine, accountFooterLine,
+    ACCOUNT_RESEND_S, accountCodeLine, accountResendView, accountSignedInLine,
     accountSetupOffered, accountOfferView, accountDeleteReady, accountConfirm,
   };
 });

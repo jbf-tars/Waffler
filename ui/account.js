@@ -125,7 +125,6 @@
     $('acctOff').hidden = view !== 'off';
     $('acctOut').hidden = view !== 'out';
     $('acctIn').hidden = view !== 'in';
-    if ($('snavAccountLine')) $('snavAccountLine').textContent = L.accountFooterLine(s);
     if (view === 'out') {
       say('acctNotice', s.notice);
       if (was === 'in') { link = ''; connector = null; closeAsk(); closeDelete(); say('acctWelcome', ''); if (settingsFlow) settingsFlow.reset(); }

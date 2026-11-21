@@ -204,19 +204,16 @@ def test_what_the_page_says_at_each_point():
     assert js("L.accountSignedInLine(undefined)") == "You’re in."
 
 
-@needs_node
-def test_the_settings_footer_is_true_signed_in_and_out():
-    assert js(f"L.accountFooterLine({OUT})") == "Free, no account needed"
-    assert js(f"L.accountFooterLine({OFF})") == "Free, no account needed"
-    assert js("L.accountFooterLine(null)") == "Free, no account needed"
-    assert js(f"L.accountFooterLine({IN})") == "MIT licence, signed in"
-
-
-def test_the_footer_line_no_longer_says_there_is_no_account():
+def test_settings_has_no_footer_to_say_anything_about_an_account():
+    # The side menu ended in a mark, "Made by one person" and a line about the
+    # account ("Free, no account needed" / "MIT licence, signed in"). It is gone,
+    # with the code that wrote the line; nothing replaced it.
     html = read("index.html")
-    assert '<div class="snav-colo-s" id="snavAccountLine">Free, no account needed</div>' in html
-    assert "MIT licence, no account<" not in html
-    assert "L.accountFooterLine(" in code_only(read("account.js"))
+    for gone in ("snav-colophon", "snavAccountLine", "Made by one person", "no account needed",
+                 "MIT licence, signed in", "MIT licence, no account<"):
+        assert gone not in html, gone
+    assert "accountFooterLine" not in read("logic.js")
+    assert "accountFooterLine" not in read("account.js") and "snavAccountLine" not in read("account.js")
 
 
 def test_with_no_service_nothing_offers_an_account():

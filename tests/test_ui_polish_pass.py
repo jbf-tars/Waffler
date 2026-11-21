@@ -296,11 +296,13 @@ def test_the_stats_row_is_short_in_a_small_window():
     assert re.search(r"\.j-spark \{ height: 30px; \}", block)
 
 
-def test_the_settings_colophon_keeps_to_two_lines_in_the_narrow_menu():
-    css = read("style.css")
-    block = css[css.index("@media (max-width: 960px) {"):]
-    block = block[:block.index("\n}\n")]
-    assert ".snav-colophon" in block and "white-space: nowrap" in block
+def test_the_settings_menu_ends_with_its_last_section_and_no_colophon():
+    # The footer under the menu (a mark, "Made by one person", the account
+    # line) is gone, and so are its styles: the menu is the sections only.
+    assert "snav-colo" not in read("style.css") and "snav-mark" not in read("style.css")
+    html = read("index.html")
+    menu = html[html.index('<aside class="snav">'):html.index("</aside>", html.index('<aside class="snav">'))]
+    assert menu.rstrip().endswith("</nav>")
 
 
 def test_a_text_button_is_tall_enough_to_aim_at():
