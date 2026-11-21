@@ -179,7 +179,8 @@ def test_the_outline_counter_says_how_much_is_left_and_when_it_is_over():
 
 @needs_node
 def test_the_sentences_are_plain():
-    texts = [js("L.transformShortcutLine({hotkey: []})"), js("L.transformShortcutLine({hotkey: ['control','t']})"),
+    texts = [js("L.transformShortcutLine({hotkey: []})"), js("L.transformHowShortcut(true)"),
+             js("L.transformHowShortcut(false)"),
              js("L.transformSaved('enabled', true)"), js("L.transformSaved('enabled', false)"),
              js("L.transformSaved('hotkey', 'Control + Option + T')"), js("L.transformSaved('hotkey', '')"),
              js("L.transformSaved('default', 'Polish')"), js("L.transformSaved('added', 'Boss')"),
@@ -192,6 +193,9 @@ def test_the_sentences_are_plain():
     assert js("L.hotkeyDialogText('dictation')") == {"title": "Hold your new keys",
                                                       "sub": "Hold the combination you want, then let go. Esc cancels."}
     assert "two modifier keys" in js("L.hotkeyDialogText('transform')")["sub"]
+    # Under the shortcut: nothing while one is set (the keycaps say it), two words when none is.
+    assert js("L.transformShortcutLine({hotkey: ['control','t']})") == ""
+    assert js("L.transformShortcutLine({hotkey: []})") == "Not set."
 
 
 # ── a rewrite in the Journal ─────────────────────────────────────────────────
@@ -259,10 +263,14 @@ def test_an_odd_entry_still_draws(item):
 # ── the section is in the page, and wired ────────────────────────────────────
 
 def test_transforms_is_a_section_of_settings_marked_beta():
+    """The navigation says only its name; the section's title carries a small
+    Beta tag."""
     html = read("index.html")
-    assert "data-sec=\"transforms\" onclick=\"showSettingsSection('transforms')\">Transforms (beta)</button>" in html
+    assert "data-sec=\"transforms\" onclick=\"showSettingsSection('transforms')\">Transforms</button>" in html
     assert 'id="secTransforms" data-sec="transforms" hidden' in html
-    assert '<h1 class="ptitle">Transforms (beta)</h1>' in section()
+    assert '<h1 class="ptitle">Transforms<span class="beta-tag">Beta</span></h1>' in section()
+    nav = html[html.index('aria-label="Settings sections"'):html.index("</nav>", html.index('aria-label="Settings sections"'))]
+    assert "beta" not in nav.lower()
     assert "const SETTINGS_SECTIONS = ['account', 'general', 'style', 'transforms'," in code_only(read("app.js"))
 
 
@@ -316,7 +324,7 @@ def test_sentence_case_no_dashes_in_the_section():
             re.sub(r"\b(Waffler|Polish|Prompt|Engineer|Transforms|Your|beta)\b", "", h[1:]).lower() or "(beta)" in h, h
     for label in re.findall(r"<label[^>]*>([^<]+)</label>", sec):
         assert label[0].isupper() and not label.isupper(), label
-    assert "Transforms (beta)" in text
+    assert "Transforms" in text and '<span class="beta-tag">Beta</span>' in sec
 
 
 def test_the_handlers_exist_and_every_save_goes_through_one_path():

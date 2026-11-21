@@ -94,7 +94,7 @@ def test_an_engine_that_is_not_offered_and_junk_are_dropped():
 
 @needs_node
 def test_the_sentences_are_plain():
-    texts = [js("L.commandShortcutLine({hotkey: []})"), js("L.commandShortcutLine({hotkey: ['control','c']})"),
+    texts = [js("L.commandShortcutLine({hotkey: []})"),
              js("L.commandSaved('enabled', true)"), js("L.commandSaved('enabled', false)"),
              js("L.commandSaved('hotkey', 'Control + Option + C')"), js("L.commandSaved('hotkey', '')"),
              js("L.commandSaved('engine', 'Google')"), js("L.commandSaved('x')"),
@@ -105,6 +105,9 @@ def test_the_sentences_are_plain():
     assert js("L.commandSaved('engine', 'Google')") == "Questions now open in Google."
     assert "two modifier keys" in js("L.hotkeyDialogText('command')")["sub"]
     assert "hold" in js("L.hotkeyDialogText('command')")["sub"].lower()
+    # Under the shortcut: nothing while one is set (the keycaps say it), two words when none is.
+    assert js("L.commandShortcutLine({hotkey: ['control','c']})") == ""
+    assert js("L.commandShortcutLine({hotkey: []})") == "Not set."
     assert js("L.hotkeyDialogText('dictation')") == {"title": "Hold your new keys",
                                                       "sub": "Hold the combination you want, then let go. Esc cancels."}
 
@@ -185,10 +188,12 @@ def test_an_odd_entry_still_draws(item):
 
 def test_command_mode_is_a_section_of_settings_marked_beta_after_transforms():
     html = read("index.html")
-    assert "data-sec=\"command\" onclick=\"showSettingsSection('command')\">Command mode (beta)</button>" in html
+    # The navigation says only its name; the section's title carries a small Beta tag.
+    assert "data-sec=\"command\" onclick=\"showSettingsSection('command')\">Command mode</button>" in html
     assert 'id="secCommand" data-sec="command" hidden' in html
-    assert '<h1 class="ptitle">Command mode (beta)</h1>' in section()
+    assert '<h1 class="ptitle">Command mode<span class="beta-tag">Beta</span></h1>' in section()
     nav = html[html.index('aria-label="Settings sections"'):html.index("</nav>", html.index('aria-label="Settings sections"'))]
+    assert "beta" not in nav.lower()
     order = re.findall(r'data-sec="(\w+)"', nav)
     assert order.index("command") == order.index("transforms") + 1
     assert "'transforms', 'command'," in code_only(read("app.js"))

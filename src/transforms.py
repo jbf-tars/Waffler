@@ -121,7 +121,7 @@ class Rule:
 
 
 POLISH_RULES = (
-    Rule("grammar", "Fix grammar, spelling and punctuation",
+    Rule("grammar", "Grammar, spelling and punctuation",
          "Fix grammar, spelling and punctuation.", True),
     Rule("clarity", "Make the wording clearer",
          "Reword anything awkward or unclear so it reads easily.", True),
@@ -131,7 +131,7 @@ POLISH_RULES = (
          "Break very long sentences into shorter ones.", True),
     Rule("paragraphs", "Improve paragraph breaks",
          "Start a new paragraph where the subject changes.", True),
-    Rule("structure", "Add lists or headings where they help",
+    Rule("structure", "Add lists or headings",
          "Use a short list or headings where the content really is a list or has sections.", False),
     Rule("concise", "Make it shorter",
          "Cut repetition and filler, but keep every fact, name and number.", False),

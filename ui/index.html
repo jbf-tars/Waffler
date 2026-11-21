@@ -177,8 +177,8 @@
         <button type="button" class="snav-item" data-sec="account" onclick="showSettingsSection('account')">Account</button>
         <button type="button" class="snav-item" data-sec="general" onclick="showSettingsSection('general')">General</button>
         <button type="button" class="snav-item" data-sec="style" onclick="showSettingsSection('style')">Style</button>
-        <button type="button" class="snav-item" data-sec="transforms" onclick="showSettingsSection('transforms')">Transforms (beta)</button>
-        <button type="button" class="snav-item" data-sec="command" onclick="showSettingsSection('command')">Command mode (beta)</button>
+        <button type="button" class="snav-item" data-sec="transforms" onclick="showSettingsSection('transforms')">Transforms</button>
+        <button type="button" class="snav-item" data-sec="command" onclick="showSettingsSection('command')">Command mode</button>
         <button type="button" class="snav-item" data-sec="keys" onclick="showSettingsSection('keys')">Keys and providers</button>
         <button type="button" class="snav-item" data-sec="claude" onclick="showSettingsSection('claude')">AI apps</button>
         <button type="button" class="snav-item" data-sec="hotkey" onclick="showSettingsSection('hotkey')">Shortcuts</button>
@@ -536,41 +536,57 @@
              in place. Off until switched on. Everything saves at once through
              save_settings({transforms: ...}); the app checks it again and says
              why in one sentence. The shortcut is chosen in the same dialog as
-             the dictation hotkey (openHotkeyCapture('transform')). -->
+             the dictation hotkey (openHotkeyCapture('transform')). The top of
+             the section is the switch, the shortcut and "Try it here"
+             (tryit.js; Api.try_transform), which runs the real Polish on the
+             text in the box. What is sent where is under "How it works". -->
         <section class="s-sec" id="secTransforms" data-sec="transforms" hidden>
-          <h1 class="ptitle">Transforms (beta)</h1>
-          <p class="pdesc">Select text in any app, press your shortcut, and Waffler rewrites it where it is. Your app's own Undo takes it back, and the text before and after is kept in your Journal.</p>
+          <h1 class="ptitle">Transforms<span class="beta-tag">Beta</span></h1>
+          <p class="pdesc" id="transformsDesc">Select text in any app, press your shortcut, and it's rewritten in place.</p>
 
-          <h2 class="sh2">Transforms</h2>
-          <div class="sheet">
+          <div class="sheet top-sheet">
             <div class="row" id="transformsRow">
-              <div class="row-main"><div class="row-t"><label for="transformsToggle">Turn on Transforms</label></div><div class="row-d" id="transformsDesc">It is off until you turn it on. When you use a transform, the text you selected is read from the app in front, with Accessibility or by copying it, and sent to the provider you chose in Keys and providers. Nothing is read or sent at any other time.</div></div>
+              <div class="row-main"><div class="row-t"><label for="transformsToggle">Turn on Transforms</label></div></div>
               <input type="checkbox" class="tog" role="switch" id="transformsToggle" aria-describedby="transformsDesc" onchange="setTransformsEnabled(this.checked)">
             </div>
             <div class="row" id="transformsShortcutRow">
               <div class="row-main">
                 <div class="row-t" id="transformsShortcutTitle">Shortcut</div>
-                <div class="row-d" id="transformsShortcutDesc"></div>
+                <div class="row-d" id="transformsShortcutDesc" hidden></div>
                 <span class="keys tx-caps" id="transformsCaps" role="img" hidden></span>
                 <p class="s-error sc-conflict" id="transformsConflict" hidden></p>
               </div>
               <button type="button" class="btn btn-sec btn-sm" id="transformsChange" aria-describedby="transformsShortcutTitle" onclick="openHotkeyCapture('transform')">Change…</button>
               <button type="button" class="btn btn-quiet btn-sm" id="transformsRemove" aria-describedby="transformsShortcutTitle" onclick="clearTransformHotkey()">Remove</button>
             </div>
+          </div>
+          <p class="s-error" id="transformsError" role="alert" hidden></p>
+
+          <!-- Try it here: the real Polish, on the text in the box. No
+               selection, shortcut or permission needed. -->
+          <h2 class="sh2"><label for="transformsTryText">Try it here</label></h2>
+          <div class="sheet try" id="transformsTry" data-try="transform">
+            <textarea id="transformsTryText" class="input try-text" rows="3" maxlength="6000" aria-describedby="transformsTrySaid" autocomplete="off" spellcheck="false"></textarea>
+            <div class="try-foot">
+              <button type="button" class="btn btn-pri btn-sm" id="transformsTryBtn" data-idle="Polish it" data-busy="Polishing…">Polish it</button>
+              <span class="try-said" id="transformsTrySaid" role="status" aria-live="polite"></span>
+              <button type="button" class="link-btn" id="transformsTryUndo" hidden>Undo</button>
+            </div>
+            <p class="try-needs" id="transformsTryNeeds" hidden><span id="transformsTryNeedsText"></span> <button type="button" class="link-btn" onclick="showSettingsSection('keys')">Keys and providers</button></p>
+          </div>
+
+          <div class="sheet run-sheet">
             <div class="row" id="transformsRunRow">
-              <div class="row-main"><div class="row-t"><label for="transformsRun">Run</label></div><div class="row-d" id="transformsRunDesc">The transform the shortcut and the menu bar item use.</div></div>
+              <div class="row-main"><div class="row-t"><label for="transformsRun">Shortcut runs</label></div></div>
               <select id="transformsRun" class="select" aria-describedby="transformsRunDesc" onchange="onTransformRunChange(this)"></select>
             </div>
           </div>
-          <p class="s-error" id="transformsError" role="alert" hidden></p>
-          <p class="s-note" id="transformsOffNote" hidden>Transforms is off, so the shortcut and the menu bar item do nothing yet.</p>
-          <p class="s-note" id="transformsAllShortcuts">Your other shortcuts are in <button type="button" class="link-btn" onclick="showSettingsSection('hotkey')">Shortcuts</button>.</p>
 
           <h2 class="sh2">Polish</h2>
-          <p class="s-note">Cleans up the writing you selected. Choose what it may change; it always keeps your meaning.</p>
+          <p class="s-note">Choose what Polish may change.</p>
           <div class="sheet" id="polishSheet">
             <div class="row">
-              <div class="row-main"><div class="row-t"><label for="polishRule-grammar">Fix grammar, spelling and punctuation</label></div></div>
+              <div class="row-main"><div class="row-t"><label for="polishRule-grammar">Grammar, spelling and punctuation</label></div></div>
               <input type="checkbox" class="tog" role="switch" id="polishRule-grammar" onchange="setPolishRule('grammar', this.checked)">
             </div>
             <div class="row">
@@ -590,7 +606,7 @@
               <input type="checkbox" class="tog" role="switch" id="polishRule-paragraphs" onchange="setPolishRule('paragraphs', this.checked)">
             </div>
             <div class="row">
-              <div class="row-main"><div class="row-t"><label for="polishRule-structure">Add lists or headings where they help</label></div></div>
+              <div class="row-main"><div class="row-t"><label for="polishRule-structure">Add lists or headings</label></div></div>
               <input type="checkbox" class="tog" role="switch" id="polishRule-structure" onchange="setPolishRule('structure', this.checked)">
             </div>
             <div class="row">
@@ -607,7 +623,7 @@
           <p class="s-error" id="polishRuleError" role="alert" hidden></p>
 
           <h2 class="sh2">Prompt Engineer</h2>
-          <p class="s-note">Turns a rough request into a well-structured prompt for an AI model. It fills in this outline from what you wrote, never invents details, and writes "Not specified" where you said nothing.</p>
+          <p class="s-note">Turns a rough request into a structured prompt.</p>
           <div class="sheet">
             <div class="row row-sig">
               <div class="row-main">
@@ -616,26 +632,43 @@
                 <div class="sig-foot">
                   <span class="sig-hint" id="peHint" role="status" aria-live="polite"></span>
                   <span class="sig-counter" id="peCounter"></span>
+                  <button type="button" class="btn btn-sec btn-sm" id="peReset" onclick="resetOutline()">Reset to default</button>
                 </div>
               </div>
-            </div>
-            <div class="row">
-              <div class="row-main"><div class="row-d">The headings stay in this order. Put your own in if you want different ones.</div></div>
-              <button type="button" class="btn btn-sec btn-sm" id="peReset" onclick="resetOutline()">Reset to default</button>
             </div>
           </div>
 
           <h2 class="sh2">Your transforms<span class="aside" id="transformsCount" aria-hidden="true"></span></h2>
-          <p class="s-note" id="transformsHelp">Each one is a name and an instruction. For example, call it Friendly and write "Rewrite this to sound warm and short". Pick it in Run above to use it with the shortcut. You can keep up to 5.</p>
+          <p class="s-note" id="transformsHelp">Add your own, up to 5.</p>
           <div class="sheet" id="transformsList" role="list" aria-label="Your transforms"></div>
           <p class="v-undo" id="transformsUndo" role="status" aria-live="polite" hidden><span id="transformsUndoText"></span> <button type="button" class="link-btn" id="transformsUndoBtn">Undo</button></p>
           <form class="tx-new" id="transformsForm" onsubmit="addTransform(); return false;">
             <input type="text" id="transformName" class="input" placeholder="Name" aria-label="Name of the new transform" maxlength="40" autocomplete="off" spellcheck="false">
             <textarea id="transformPrompt" class="input tx-prompt" rows="3" placeholder="What should it do to the text?" aria-label="What the new transform should do" aria-describedby="transformsFormCount" autocomplete="off" spellcheck="false" oninput="onTransformPromptInput()"></textarea>
-            <div class="tx-new-foot"><span class="snip-counter" id="transformsFormCount"></span><button type="submit" class="btn btn-pri btn-sm" id="transformAdd">Add transform</button></div>
+            <div class="tx-new-foot"><span class="snip-counter" id="transformsFormCount"></span><button type="submit" class="btn btn-sec btn-sm" id="transformAdd">Add transform</button></div>
           </form>
           <p class="s-error" id="transformFormError" role="alert" hidden></p>
           <p class="s-note" id="transformsFull" hidden>You have 5 transforms, the most you can keep. Delete one to add another.</p>
+
+          <!-- What a careful person may still want to know: what is sent where,
+               limits and conditions. One collapsed disclosure (toggleHow). -->
+          <div class="how">
+            <button type="button" class="link-btn how-btn" id="transformsHowBtn" aria-expanded="false" aria-controls="transformsHow" onclick="toggleHow(this)">How it works<svg class="ic ic-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
+            <div class="sheet how-body" id="transformsHow" hidden>
+              <ul class="sc-rule-list">
+                <li id="transformsOffNote" hidden>Transforms is off, so the shortcut and the menu bar item do nothing yet.</li>
+                <li id="transformsHowReads">It is off until you turn it on. When you use a transform, the text you selected is read from the app in front, with Accessibility or by copying it, and sent to the provider you chose in Keys and providers. Nothing is read or sent at any other time.</li>
+                <li>Your app's own Undo takes it back, and the text before and after is kept in your Journal.</li>
+                <li>Try it here sends the text in the box to that same provider, only when you press Polish it. Nothing from it is kept in your Journal.</li>
+                <li id="transformsHowShortcut">The key of the shortcut does not reach the app. With no shortcut, use "Transform selected text" in the menu bar.</li>
+                <li id="transformsRunDesc">Shortcut runs sets the transform the shortcut and the menu bar item use.</li>
+                <li>Polish cleans up the writing you selected. It always keeps your meaning.</li>
+                <li>Prompt Engineer turns a rough request into a well-structured prompt for an AI model. It fills in the outline from what you wrote, never invents details, and writes "Not specified" where you said nothing. The headings stay in this order. Put your own in if you want different ones.</li>
+                <li>Each transform of your own is a name and an instruction. For example, call it Friendly and write "Rewrite this to sound warm and short". Pick it in Shortcut runs to use it with the shortcut. You can keep up to 5.</li>
+                <li id="transformsAllShortcuts">Your other shortcuts are in <button type="button" class="link-btn" onclick="showSettingsSection('hotkey')">Shortcuts</button>.</li>
+              </ul>
+            </div>
+          </div>
         </section>
 
         <!-- Command mode (beta; src/command_mode.py, src/command_action.py): hold a
@@ -644,39 +677,76 @@
              Everything saves at once through save_settings({command_mode: ...});
              the app checks it again and says why in one sentence. The shortcut
              is chosen in the same dialog as the dictation hotkey
-             (openHotkeyCapture('command')). -->
+             (openHotkeyCapture('command')). The top of the section is the
+             switch, the shortcut and "Try it here" (tryit.js; Api.try_command),
+             which carries out a typed instruction on the text in the box. What
+             is sent where is under "How it works". -->
         <section class="s-sec" id="secCommand" data-sec="command" hidden>
-          <h1 class="ptitle">Command mode (beta)</h1>
-          <p class="pdesc">Hold your shortcut, say what you want done, and let go. Waffler edits the text you selected, writes new text where your cursor is, or opens a web search for a question. Your app's own Undo takes an edit back, and the Journal keeps what you said and the text before and after.</p>
+          <h1 class="ptitle">Command mode<span class="beta-tag">Beta</span></h1>
+          <p class="pdesc" id="commandDesc">Hold your shortcut and say what you want done.</p>
 
-          <h2 class="sh2">Command mode</h2>
-          <div class="sheet">
+          <div class="sheet top-sheet">
             <div class="row" id="commandRow">
-              <div class="row-main"><div class="row-t"><label for="commandToggle">Turn on Command mode</label></div><div class="row-d" id="commandDesc">It is off until you turn it on. When you give a command, your recording is turned into text by your speech provider, and what you said, with the text you selected (or, with nothing selected, up to 500 characters before your cursor), is sent to the provider you chose in Keys and providers. Nothing is recorded, read or sent at any other time.</div></div>
+              <div class="row-main"><div class="row-t"><label for="commandToggle">Turn on Command mode</label></div></div>
               <input type="checkbox" class="tog" role="switch" id="commandToggle" aria-describedby="commandDesc" onchange="setCommandEnabled(this.checked)">
             </div>
             <div class="row" id="commandShortcutRow">
               <div class="row-main">
                 <div class="row-t" id="commandShortcutTitle">Hold to talk</div>
-                <div class="row-d" id="commandShortcutDesc"></div>
+                <div class="row-d" id="commandShortcutDesc" hidden></div>
                 <span class="keys tx-caps" id="commandCaps" role="img" hidden></span>
                 <p class="s-error sc-conflict" id="commandConflict" hidden></p>
               </div>
               <button type="button" class="btn btn-sec btn-sm" id="commandChange" aria-describedby="commandShortcutTitle" onclick="openHotkeyCapture('command')">Change…</button>
               <button type="button" class="btn btn-quiet btn-sm" id="commandRemove" aria-describedby="commandShortcutTitle" onclick="clearCommandHotkey()">Remove</button>
             </div>
+          </div>
+          <p class="s-error" id="commandError" role="alert" hidden></p>
+
+          <!-- Try it here: the real command, typed, on the text in the box. A
+               question shows the search it would open, as a link. -->
+          <h2 class="sh2"><label for="commandTryText">Try it here</label></h2>
+          <div class="sheet try" id="commandTry" data-try="command">
+            <textarea id="commandTryText" class="input try-text" rows="3" maxlength="6000" aria-describedby="commandTrySaid" autocomplete="off" spellcheck="false"></textarea>
+            <div class="try-ask">
+              <label for="commandTryAsk">What should it do?</label>
+              <input type="text" id="commandTryAsk" class="input" maxlength="400" autocomplete="off" spellcheck="false">
+            </div>
+            <div class="try-foot">
+              <button type="button" class="btn btn-pri btn-sm" id="commandTryBtn" data-idle="Do it" data-busy="Working…">Do it</button>
+              <span class="try-said" id="commandTrySaid" role="status" aria-live="polite"></span>
+              <button type="button" class="link-btn" id="commandTryUndo" hidden>Undo</button>
+            </div>
+            <p class="try-needs" id="commandTryNeeds" hidden><span id="commandTryNeedsText"></span> <button type="button" class="link-btn" onclick="showSettingsSection('keys')">Keys and providers</button></p>
+          </div>
+
+          <div class="sheet run-sheet">
             <div class="row" id="commandEngineRow">
-              <div class="row-main"><div class="row-t"><label for="commandEngine">Search engine</label></div><div class="row-d" id="commandEngineDesc">When you ask a question, Waffler opens it here in your browser. Only your spoken question is sent to the engine, never the text you selected.</div></div>
+              <div class="row-main"><div class="row-t"><label for="commandEngine">Search engine</label></div></div>
               <select id="commandEngine" class="select" aria-describedby="commandEngineDesc" onchange="onCommandEngineChange(this)"></select>
             </div>
           </div>
-          <p class="s-error" id="commandError" role="alert" hidden></p>
-          <p class="s-note" id="commandOffNote" hidden>Command mode is off, so the shortcut does nothing yet.</p>
-          <p class="s-note" id="commandAllShortcuts">Your other shortcuts are in <button type="button" class="link-btn" onclick="showSettingsSection('hotkey')">Shortcuts</button>.</p>
 
           <h2 class="sh2" id="commandExamplesTitle">Try saying</h2>
-          <p class="s-note">For the first two, select some text first. With nothing selected, Waffler can still write new text for you, or search the web when you ask a question.</p>
           <div class="sheet" id="commandExamples" role="list" aria-labelledby="commandExamplesTitle"></div>
+
+          <!-- What a careful person may still want to know: what is sent where,
+               limits and conditions. One collapsed disclosure (toggleHow). -->
+          <div class="how">
+            <button type="button" class="link-btn how-btn" id="commandHowBtn" aria-expanded="false" aria-controls="commandHow" onclick="toggleHow(this)">How it works<svg class="ic ic-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
+            <div class="sheet how-body" id="commandHow" hidden>
+              <ul class="sc-rule-list">
+                <li id="commandOffNote" hidden>Command mode is off, so the shortcut does nothing yet.</li>
+                <li id="commandHowSends">It is off until you turn it on. When you give a command, your recording is turned into text by your speech provider, and what you said, with the text you selected (or, with nothing selected, up to 500 characters before your cursor), is sent to the provider you chose in Keys and providers. Nothing is recorded, read or sent at any other time.</li>
+                <li>Hold your shortcut, say what you want done, and let go. Waffler edits the text you selected, writes new text where your cursor is, or opens a web search for a question. Your app's own Undo takes an edit back, and the Journal keeps what you said and the text before and after.</li>
+                <li>Your cancel key stops a command. The key of the shortcut does not reach the app.</li>
+                <li id="commandEngineDesc">When you ask a question, Waffler opens it in your search engine, in your browser. Only your spoken question is sent to the engine, never the text you selected.</li>
+                <li>For the first two things to say, select some text first. With nothing selected, Waffler can still write new text for you, or search the web when you ask a question.</li>
+                <li>Try it here sends the text in the box and what you typed to that same provider, only when you press Do it. Nothing from it is kept in your Journal, and a question only shows the search it would open.</li>
+                <li id="commandAllShortcuts">Your other shortcuts are in <button type="button" class="link-btn" onclick="showSettingsSection('hotkey')">Shortcuts</button>.</li>
+              </ul>
+            </div>
+          </div>
         </section>
 
         <!-- Keys and providers: what a dictation goes through, then the
@@ -1883,5 +1953,6 @@
 <script src="howitruns.js"></script>
 <script src="claude.js"></script>
 <script src="account.js"></script>
+<script src="tryit.js"></script>
 </body>
 </html>

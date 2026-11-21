@@ -194,9 +194,12 @@ def test_windows_has_a_tray_not_a_menu_bar():
     for key in ("transformsRun", "transformsOff"):
         assert "menu bar item" in mac[key] and "tray item" in win[key], key
         assert "menu bar" not in win[key]
-    assert "in the menu bar" in js("L.transformShortcutLine({hotkey: []}, true)")
-    assert "in the tray" in js("L.transformShortcutLine({hotkey: []}, false)")
-    assert "menu bar" not in js("L.transformShortcutLine({hotkey: []}, false)")
+    # Where a transform starts with no shortcut (under "How it works").
+    assert "in the menu bar" in js("L.transformHowShortcut(true)")
+    assert "in the tray" in js("L.transformHowShortcut(false)")
+    assert "menu bar" not in js("L.transformHowShortcut(false)")
+    assert mac["transformsHowShortcut"] == js("L.transformHowShortcut(true)")
+    assert win["transformsHowShortcut"] == js("L.transformHowShortcut(false)")
     news_mac, news_win = js("L.whatsNew('3.16.0', true)"), js("L.whatsNew('3.16.0', false)")
     assert news_mac["items"][3].endswith("from Settings or the menu bar.")
     assert news_win["items"][3].endswith("from Settings or the tray.")
@@ -235,14 +238,19 @@ def test_the_page_holds_the_mac_sentences_and_windows_swaps_them():
     html = visible_text(read("index.html"))
     if NODE:
         mac = js("L.platformText(true)")
-        for key in ("transformsDesc", "transformsRun", "transformsOff", "privacyTransforms", "privacySelected"):
+        for key in ("transformsDesc", "transformsHowShortcut", "transformsRun", "transformsOff",
+                    "privacyTransforms", "privacySelected"):
             assert mac[key] in html, key
     app = read("app.js")
     body = func(app, "_applyPlatformText")
-    for el in ("transformsDesc", "transformsRunDesc", "transformsOffNote", "privTransformsDesc", "privSelectedDesc"):
+    # (What a transform reads and sends, and where it starts with no shortcut,
+    # are under the section's "How it works": transformsHowReads, transformsHowShortcut.)
+    for el in ("transformsHowReads", "transformsHowShortcut", "transformsRunDesc", "transformsOffNote",
+               "privTransformsDesc", "privSelectedDesc"):
         assert f"'{el}'" in body and f'id="{el}"' in read("index.html"), el
+    assert "put('transformsHowReads', t.transformsDesc)" in body
+    assert "put('transformsHowShortcut', t.transformsHowShortcut)" in body
     assert "if (isMacPlatform) return;" in body
-    assert "WL.transformShortcutLine(v, isMacPlatform)" in app
     assert "WL.whatsNew(ver, isMacPlatform)" in app
 
 

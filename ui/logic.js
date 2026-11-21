@@ -1350,12 +1350,12 @@
   // The sentences are src/user_messages.py's, so the page and the app say the
   // same thing whichever of them notices a problem first.
   const TRANSFORM_RULES = [
-    { key: 'grammar', label: 'Fix grammar, spelling and punctuation', on: true },
+    { key: 'grammar', label: 'Grammar, spelling and punctuation', on: true },
     { key: 'clarity', label: 'Make the wording clearer', on: true },
     { key: 'tone', label: 'Keep my tone', on: true },
     { key: 'sentences', label: 'Split long sentences', on: true },
     { key: 'paragraphs', label: 'Improve paragraph breaks', on: true },
-    { key: 'structure', label: 'Add lists or headings where they help', on: false },
+    { key: 'structure', label: 'Add lists or headings', on: false },
     { key: 'concise', label: 'Make it shorter', on: false },
   ];
   const TRANSFORM_LIMITS = { custom: 5, name: 40, prompt: 800, rule: 160, rules: 5, outline: 1200 };
@@ -1455,13 +1455,19 @@
     };
   }
 
-  // The line under the shortcut. Waffler's menu is in the menu bar on a Mac
-  // and in the tray on Windows (a missing isMac reads as it always did).
-  function transformShortcutLine(view, isMac) {
-    if (view && view.hotkey && view.hotkey.length) {
-      return 'Select text in any app and press it. The key of the shortcut does not reach the app.';
-    }
-    return `Not set. Choose keys, or use "Transform selected text" in the ${isMac === false ? 'tray' : 'menu bar'}.`;
+  // The line under the shortcut: nothing while one is set (the keycaps say
+  // it), "Not set." otherwise. Where else a transform can be started, and
+  // that the key does not reach the app, is under "How it works"
+  // (transformHowShortcut).
+  function transformShortcutLine(view) {
+    return view && view.hotkey && view.hotkey.length ? '' : 'Not set.';
+  }
+
+  // "How it works": the shortcut's key, and the menu item for when there is
+  // no shortcut. Waffler's menu is in the menu bar on a Mac and in the tray
+  // on Windows (a missing isMac reads as a Mac).
+  function transformHowShortcut(isMac) {
+    return `The key of the shortcut does not reach the app. With no shortcut, use "Transform selected text" in the ${isMac === false ? 'tray' : 'menu bar'}.`;
   }
 
   // What the page says after a save.
@@ -1721,12 +1727,48 @@
     };
   }
 
-  // The line under the shortcut.
+  // The line under the shortcut: nothing while one is set (the keycaps say
+  // it), "Not set." otherwise. The rest is under "How it works".
   function commandShortcutLine(view) {
-    if (view && view.hotkey && view.hotkey.length) {
-      return 'Hold these keys, say what you want, then let go. Your cancel key stops it. The key of the shortcut does not reach the app.';
+    return view && view.hotkey && view.hotkey.length ? '' : 'Not set.';
+  }
+
+  // ══ Try it here (Settings, Transforms and Command mode; ui/tryit.js) ══════
+  // The box starts with a short rambling sample, and Command mode's second
+  // field with an instruction, so one click shows what the feature does. The
+  // work is the app's (Api.try_transform, Api.try_command; src/try_it.py).
+  const TRY_SAMPLE = "so um i wanted to ask if we could maybe move the meeting to thursday because "
+    + "tuesday isn't going to work for me anymore sorry about that";
+  const TRY_ASK = 'make this shorter';
+
+  // Can it run (Api.try_it_status)? With no key the button is disabled and
+  // one short line says what is needed; the page puts a link to Keys and
+  // providers beside it.
+  function tryItNeeds(status) {
+    const ready = !!(status && status.ok !== false && status.ready === true);
+    return { ready, line: ready ? '' : 'Add a key to try this.' };
+  }
+
+  // What the box shows for the app's answer. `text` is what goes into the
+  // box (null leaves it as it is), `said` the short line beside the button,
+  // `undo` whether Undo is offered, and `link` the search a question would
+  // open ({ label, query }), shown as a link and opened only by a click.
+  function tryItResult(kind, r) {
+    const fail = (kind === 'command' ? "Couldn't run that. Try again." : "Couldn't polish that. Try again.");
+    if (!r || r.ok !== true) {
+      return { text: null, said: (r && typeof r.error === 'string' && r.error) || fail, error: true, undo: false, link: null };
     }
-    return 'Not set. Choose keys to hold while you speak.';
+    if (kind === 'command' && r.action === 'ask') {
+      const query = typeof r.query === 'string' ? r.query : '';
+      const engine = typeof r.engine === 'string' && r.engine ? r.engine : 'the web';
+      if (!query) return { text: null, said: fail, error: true, undo: false, link: null };
+      return { text: null, said: `It would search ${engine} for`, error: false, undo: false, link: { label: query, query } };
+    }
+    if (r.changed !== true || typeof r.text !== 'string') {
+      return { text: null, said: (typeof r.message === 'string' && r.message) || 'Nothing to change.', error: false, undo: false, link: null };
+    }
+    const said = kind !== 'command' ? 'Polished.' : (r.action === 'draft' ? 'Written.' : 'Done.');
+    return { text: r.text, said, error: false, undo: true, link: null };
   }
 
   // What the page says after a save.
@@ -2124,8 +2166,9 @@
     const through = isMac ? 'through Accessibility or by copying it' : 'by copying it';
     return {
       menu,
+      transformsHowShortcut: transformHowShortcut(isMac),
       transformsDesc: `It is off until you turn it on. When you use a transform, the text you selected is read from the app in front, ${read}, and sent to the provider you chose in Keys and providers. Nothing is read or sent at any other time.`,
-      transformsRun: `The transform the shortcut and the ${menu} item use.`,
+      transformsRun: `Shortcut runs sets the transform the shortcut and the ${menu} item use.`,
       transformsOff: `Transforms is off, so the shortcut and the ${menu} item do nothing yet.`,
       privacyTransforms: `Only when you use a transform, Waffler reads the text you selected, ${read}, and sends it to your provider on your own key. The text before and after is kept in your Journal, and Delete all my data clears it with the rest.`,
       privacySelected: `Only when you use a transform: Waffler reads your selection, ${through} and putting your clipboard back, and sends it to your provider on your own key. It never reads a password field.`,
@@ -3207,6 +3250,7 @@
     shortcutSaved, SHORTCUT_TEXT, cancelLabel, DOUBLE_TAP_TEXT, doubleTapView, doubleTapSaved,
     PILL_TEXT, pillView, pillSaved,
     COMMAND_ENGINES, COMMAND_EXAMPLES, commandEngineLabel, commandView, commandShortcutLine, commandSaved,
+    TRY_SAMPLE, TRY_ASK, tryItNeeds, tryItResult, transformHowShortcut,
     commandEntryView,
     clipboardAfterPasteView, clipboardAfterPasteSaved, feedbackView, feedbackSaved, METER_CELLS, micMeter,
     MIC_MAX, micSame, micEntry, micList, micMove, micRemove, micAdd, micRows, micStatus, micAddOptions, micPick, micSaved,

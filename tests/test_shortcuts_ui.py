@@ -145,9 +145,17 @@ def test_the_cancel_dialog_says_esc_is_recorded_and_how_to_close_it():
 
 @needs_node
 def test_the_lines_under_transform_and_command_no_longer_say_the_keys_reach_the_app():
+    # The lines under the two shortcuts are empty while a shortcut is set (the
+    # keycaps say it); the sentence is under each section's "How it works".
     for expr in ("L.transformShortcutLine({hotkey: ['control', 't']})", "L.commandShortcutLine({hotkey: ['control', 'c']})"):
-        line = js(expr)
-        assert "also reach" not in line and "does not reach the app" in line, line
+        assert js(expr) == "", expr
+    html = read("index.html")
+    for start, how in (('id="secTransforms"', js("L.transformHowShortcut(true)")),
+                       ('id="secCommand"', "The key of the shortcut does not reach the app.")):
+        sec = html[html.index(start):]
+        sec = sec[:sec.index("</section>")]
+        assert "also reach" not in sec and "also reach" not in how
+        assert "does not reach the app" in how and how in sec, start
 
 
 # ── the rows ─────────────────────────────────────────────────────────────────

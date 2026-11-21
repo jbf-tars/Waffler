@@ -1185,6 +1185,43 @@ mark.hl {
 .tx-text del { color: var(--muted); text-decoration: line-through; }
 .tx-text ins { text-decoration: none; background: linear-gradient(transparent 62%, rgba(217, 164, 65, 0.38) 62%); }
 .tx-status { margin-top: 10px; }
+/* A small "Beta" tag beside a section's title (the navigation does not say it). */
+.beta-tag {
+  display: inline-block;
+  margin-left: 12px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: var(--honey-wash);
+  color: var(--accent-ink);
+  font: 500 11.5px/1 var(--f-ui);
+  letter-spacing: 0.02em;
+  vertical-align: middle;
+  transform: translateY(-3px);
+}
+.settings-panel .pdesc + .top-sheet { margin-top: 18px; }
+.run-sheet { margin-top: 14px; }
+/* "Try it here": a box of text and one button that runs the real feature on
+   it (tryit.js). The primary action of the section. */
+.try { padding: 14px 16px; }
+.try-text { display: block; width: 100%; height: auto; min-height: 92px; padding: 10px 12px; resize: vertical; font: 400 14.5px/1.5 var(--f-ui); }
+.try-ask { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
+.try-ask label { flex: none; font: 500 13.5px/1.35 var(--f-ui); color: var(--text); }
+.try-ask .input { flex: 1 1 auto; min-width: 0; }
+.try-foot { display: flex; align-items: center; gap: 12px; min-height: 32px; margin-top: 12px; }
+.try-foot .btn { flex: none; }
+.try-said { min-width: 0; font: var(--t-desc); color: var(--text-2); overflow-wrap: anywhere; }
+.try-said.is-err { color: var(--danger); }
+.try-needs { margin: 10px 0 0; font: var(--t-desc); color: var(--muted); }
+.try-needs[hidden] { display: none; }
+/* "How it works": the one small, collapsed disclosure at the bottom of a
+   section (toggleHow). What is sent where, limits and conditions live here. */
+.how { margin-top: 26px; }
+.how-btn { display: inline-flex; align-items: center; gap: 4px; font: 400 12.75px/1.4 var(--f-ui); }
+.how-btn .ic { width: 13px; height: 13px; }
+.how-btn[aria-expanded="true"] .ic { transform: rotate(180deg); }
+.how-body { margin-top: 10px; padding: 14px 18px 12px; }
+.how-body[hidden], .how-body li[hidden] { display: none; }
+.how-body .sc-rule-list li { margin-bottom: 8px; }
 /* Settings, Command mode: the phrases to try. Journal, a command: what was said. */
 .cmd-said { margin: 0 0 10px; color: var(--text-2); font: 400 14px/1.45 var(--f-ui); overflow-wrap: anywhere; }
 .cmd-said q, .cmd-example q { quotes: "\201C" "\201D"; }

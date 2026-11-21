@@ -247,7 +247,8 @@ function _applyPlatformText() {
   if (isMacPlatform) return;
   const t = WL.platformText(false);
   const put = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
-  put('transformsDesc', t.transformsDesc);
+  put('transformsHowReads', t.transformsDesc);
+  put('transformsHowShortcut', t.transformsHowShortcut);
   put('transformsRunDesc', t.transformsRun);
   put('transformsOffNote', t.transformsOff);
   put('privTransformsDesc', t.privacyTransforms);
@@ -1313,6 +1314,17 @@ function renderShortcutRules() {
   };
   fill('shortcutsRuleLines', v.lines);
   fill('shortcutsReserved', v.reserved);
+}
+
+// "How it works": the one small, collapsed disclosure at the bottom of a
+// section, for what a careful person may still want to know (what is sent
+// where, limits, conditions). The button names its box in aria-controls.
+function toggleHow(btn) {
+  const box = btn && document.getElementById(btn.getAttribute('aria-controls'));
+  if (!box) return;
+  const open = box.hidden;
+  box.hidden = !open;
+  btn.setAttribute('aria-expanded', String(open));
 }
 
 function toggleShortcutRules() {
@@ -4214,7 +4226,10 @@ function showSettingsSection(sec) {
   if (sec === 'general') loadMicrophones(false);
   _syncMicMeter();
   if (sec === 'keys' && window.loadHowItRuns) window.loadHowItRuns();   // how speech becomes text (howitruns.js)
-  if (sec === 'transforms' || sec === 'command') _giveShortcutOnOpen(sec);  // on, but no shortcut: give it one
+  if (sec === 'transforms' || sec === 'command') {
+    _giveShortcutOnOpen(sec);             // on, but no shortcut: give it one
+    if (window.tryItRefresh) window.tryItRefresh();   // can "Try it here" run? (tryit.js)
+  }
   if (sec === 'claude' && window.loadClaude) window.loadClaude();         // Claude reads meetings and dictations (claude.js)
   if (sec === 'account' && window.loadAccount) window.loadAccount();     // sign in, sync, devices, the Claude link (account.js)
 }
@@ -4816,7 +4831,10 @@ function renderCommandSection() {
     caps.setAttribute('aria-label', v.hotkey.length ? `Command shortcut: ${v.hotkeyShown}` : '');
   }
   const desc = byId('commandShortcutDesc');
-  if (desc) desc.textContent = WL.commandShortcutLine(v);
+  if (desc) {
+    desc.textContent = WL.commandShortcutLine(v);
+    desc.hidden = !desc.textContent;
+  }
   const remove = byId('commandRemove');
   if (remove) remove.hidden = !v.hotkey.length;
 
@@ -4830,7 +4848,7 @@ function renderCommandSection() {
   if (examples) {
     examples.innerHTML = v.examples.map((x) => `
       <div class="row cmd-example" role="listitem">
-        <div class="row-main"><div class="row-t"><q>${escHtml(x.say)}</q></div><div class="row-d">${escHtml(x.does)}</div></div>
+        <div class="row-main"><div class="row-t" title="${escHtml(x.does)}"><q>${escHtml(x.say)}</q></div></div>
       </div>`).join('');
   }
 }
@@ -4942,7 +4960,10 @@ function renderTransformsSection() {
     caps.setAttribute('aria-label', v.hotkey.length ? `Transform shortcut: ${v.hotkeyShown}` : '');
   }
   const desc = byId('transformsShortcutDesc');
-  if (desc) desc.textContent = WL.transformShortcutLine(v, isMacPlatform);
+  if (desc) {
+    desc.textContent = WL.transformShortcutLine(v);
+    desc.hidden = !desc.textContent;
+  }
   const remove = byId('transformsRemove');
   if (remove) remove.hidden = !v.hotkey.length;
 
