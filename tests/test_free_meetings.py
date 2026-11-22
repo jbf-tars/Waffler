@@ -188,11 +188,22 @@ def test_a_meeting_with_speech_here_and_no_way_to_write_notes_ends_calmly(machin
     assert machine.wrote == []
 
 
-def test_a_real_problem_is_still_told_to_the_page(machine, ctl):
+def test_a_real_problem_is_still_told_to_the_page(machine, ctl, monkeypatch):
+    machine.key("GROQ_API_KEY")                                # a key, and the service refuses it
+    def refused(*a, **k):
+        raise PermissionError("401 invalid api key")
+    monkeypatch.setattr(mt, "_call_openai_compatible", refused)
+    note_id = _record(ctl)
+    note = call(ctl, "GET", f"/notes/{note_id}")["body"]
+    assert note["segments"] == [] and note["error"] == "The transcription key was refused. Check it in Settings."
+
+
+def test_nothing_set_up_is_a_state_not_a_problem(machine, ctl):
     machine.choose(transcription_mode="local")                 # chosen, not downloaded
     note_id = _record(ctl)
     note = call(ctl, "GET", f"/notes/{note_id}")["body"]
-    assert note["segments"] == [] and note["error"] == local_stt.NOT_DOWNLOADED
+    assert note["segments"] == [] and note["error"] == "" and note["status"] == "ready"
+    assert ctl._svc().store.get_note(note_id)["error"] == mt.SPEECH_NEEDS_SETUP
 
 
 def test_the_writing_model_added_later_writes_that_meeting_s_notes(machine, ctl):
