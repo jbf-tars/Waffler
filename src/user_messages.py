@@ -178,12 +178,16 @@ PLUS_CLEANUP_FAILED = ("Waffler Plus couldn't do the clean-up this time, so your
 
 
 def plus_gone_message(why: str, local: bool):
-    """(heading, body) for the one small pill that says Waffler Plus is no
-    longer the way a dictation runs, and what is used now. ``why`` is
-    "ended" (the account no longer has Plus) or "signed_out"; ``local``:
-    the model on this computer did the work, not a key. The heading is the
-    pill's line: six words at most."""
+    """(heading, body) for the one small pill that says Waffler Plus was not
+    there for this dictation, and what was used. ``why`` is "ended" (the
+    account no longer has Plus), "signed_out" or "offline" (the service
+    could not be reached); ``local``: the model on this computer did the
+    work, not a key. The heading is the pill's line: six words at most."""
     using = "this computer" if local else "your key"
+    if why == "offline":
+        return (f"Plus unreachable. Using {using}.",
+                f"Waffler Plus couldn't be reached, so this dictation used {using}. "
+                f"Your words were pasted as usual.")
     if why == "signed_out":
         return (f"Signed out. Using {using}.",
                 f"This computer is signed out of your account, so this dictation used {using}. "

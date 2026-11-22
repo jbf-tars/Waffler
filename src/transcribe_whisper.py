@@ -83,8 +83,9 @@ class PlusError(Exception):
 
 
 class _PlusGone(Exception):
-    """The account no longer has Plus ("ended") or this computer is signed
-    out ("signed_out"): the dictation goes the way it would have before."""
+    """The account no longer has Plus ("ended"), this computer is signed out
+    ("signed_out"), or the service could not be reached ("offline"): the
+    dictation goes the way it would have before. Plus stays the chosen way."""
 
     def __init__(self, why: str, sentence: str):
         super().__init__(sentence)
@@ -2783,7 +2784,8 @@ class WhisperTranscriber:
         """A dictation: through Plus when it is the chosen way and there to
         use. Chosen but gone (signed out, or the account is free again): the
         way it was before, and ``last_plus_gone`` says why, for the app to say
-        so once. Never raises."""
+        so once. Plus stays the chosen way: this is asked for every recording,
+        so it is used again by itself when it is back. Never raises."""
         try:
             acct = _account()
             if not acct.plus_chosen():
@@ -2832,7 +2834,8 @@ class WhisperTranscriber:
                               timeout=_upload_timeout_s(len(data)))
         if not answer.get("ok"):
             sentence = str(answer.get("error") or acct.FAILED)
-            why = {"plus_required": "ended", "signed_out": "signed_out"}.get(answer.get("reason"))
+            why = {"plus_required": "ended", "signed_out": "signed_out",
+                   "offline": "offline"}.get(answer.get("reason"))
             if why:
                 raise _PlusGone(why, sentence)
             raise PlusError(sentence)
@@ -2895,10 +2898,11 @@ class WhisperTranscriber:
         Extracted from ``transcribe_sync`` so the long-recording chunk loop can
         call it per chunk without duplicating the fallback logic.
         """
-        # Waffler Plus is an explicit choice too: a failure is not retried with
-        # the person's key. Only when Plus itself is gone (the plan ended, or
-        # this computer was signed out) does this dictation go on below, the
-        # way it would have before Plus; with nothing to use, it is kept.
+        # Waffler Plus is an explicit choice too: a refusal is not retried with
+        # the person's key. Only when Plus itself is not there (the plan
+        # ended, this computer was signed out, or the service could not be
+        # reached at all) does this dictation go on below, the way it would
+        # have before Plus; with nothing to use, it is kept.
         if getattr(self, "_backend", "") == BACKEND_PLUS:
             try:
                 return self._transcribe_plus(audio_bytes)

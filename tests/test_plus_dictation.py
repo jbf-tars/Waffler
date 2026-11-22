@@ -183,13 +183,13 @@ def test_a_refusal_is_raised_as_its_sentence_and_no_provider_is_tried(plus, monk
     assert t.last_plus_gone == ""
 
 
-def test_no_internet_is_a_failure_like_a_providers(plus, monkeypatch):
+def test_no_internet_and_this_one_goes_through_the_key(plus, monkeypatch):
+    """It was a failure at first. Unreachable is temporary: this dictation
+    falls back, and Plus is tried again for the next (tests/test_plus_rough_edges.py)."""
     plus.offline = True
     t, cloud = transcriber(monkeypatch)
-    with pytest.raises(tw.PlusError) as e:
-        t.transcribe_sync(wav())
-    assert str(e.value) == account.PLUS_OFFLINE and cloud.calls == 0
-    assert unsent.classify_reason(str(e.value)) == unsent.REASON_OFFLINE, "sent again when the internet is back"
+    assert t.transcribe_sync(wav()) == "from my own key" and cloud.calls == 1
+    assert t.last_plus_gone == "offline"
 
 
 def test_the_plan_ended_mid_use_and_the_dictation_goes_through_the_key(plus, monkeypatch):
@@ -296,35 +296,8 @@ def test_a_refusal_keeps_the_recording_and_says_why_in_one_sentence(plus, monkey
     assert out["ok"] and out["item"]["styled"] == TEXT and p.styler.calls == 0
 
 
-FALLBACKS = [("ended", "groq", "Plus ended. Using your key."),
-             ("signed_out", "groq", "Signed out. Using your key."),
-             ("ended", "", "Plus ended. Using this computer."),
-             ("signed_out", "", "Signed out. Using this computer.")]
-
-
-@pytest.mark.parametrize("why, groq, words", FALLBACKS)
-def test_plus_gone_falls_back_says_so_once_and_loses_nothing(plus, monkeypatch, why, groq, words):
-    plus.model = "ready"
-    p = pipeline(plus, monkeypatch, groq=groq)
-    if why == "ended":
-        plus.end_plus(EMAIL)
-    else:
-        plus.sessions.clear()
-    dictate(p)
-    said = "From my own key." if groq else "Heard on this computer."
-    assert p.clipboard.pastes == [said], "this very dictation is not lost"
-    (toast,) = p.overlay.toasts()
-    assert toast["heading"] == words and len(words.split()) <= 6
-    made = H.as_pill(toast)
-    assert made.text == words, "the small pill shows exactly these words"
-    assert (account.PLUS_SETTING, False) in p.stored, "Plus is no longer the chosen way"
-    if not groq:
-        assert (local_stt.MODE_SETTING, local_stt.MODE_LOCAL) in p.stored
-    # Said once: with Plus no longer chosen the next dictation is an ordinary one.
-    choose(plus, False, **({} if groq else {local_stt.MODE_SETTING: local_stt.MODE_LOCAL}))
-    p._processing_id = 2
-    H.run_process(p, 2).join(10)
-    assert len(p.overlay.toasts()) == 1 and len(p.clipboard.pastes) == 2
+# Plus gone, with something to fall back to: tests/test_plus_rough_edges.py
+# (it stays the chosen way now, and comes back by itself).
 
 
 def test_plus_gone_with_nothing_to_use_keeps_the_recording_and_says_why(plus, monkeypatch):
@@ -335,7 +308,7 @@ def test_plus_gone_with_nothing_to_use_keeps_the_recording_and_says_why(plus, mo
     assert entry["failed"] and Path(entry["audio_path"]).exists()
     (toast,) = p.overlay.toasts()
     assert toast["body"] == account.PLUS_REQUIRED + " Your recording is saved in the Journal."
-    assert (account.PLUS_SETTING, False) in p.stored
+    assert p.stored == [], "Plus stays the chosen way"
 
 
 def test_command_mode_goes_through_plus_too(plus, monkeypatch):

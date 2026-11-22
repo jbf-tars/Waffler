@@ -1174,6 +1174,8 @@ class Api:
                 theme = str(self._load_settings_file().get("theme") or "")
             except Exception:
                 theme = ""
+            if str(path).split("?")[0].strip("/") == "app":
+                _account_plan_soon()      # the page is opening: is Waffler Plus (still, again) there?
             return meetings_bridge.handle(_get_meetings(), method, path, body, waffler_theme=theme)
         except Exception as e:  # noqa: BLE001
             _log_to_file(f"[meetings] page call failed: {type(e).__name__}: {e}")
@@ -2289,6 +2291,12 @@ class Api:
         import local_llm as _lllm
         if _lllm.should_use(has_key=bool(key or groq_key or cerebras_key), stored=stored):
             styling_backend = _lllm.PROVIDER
+        # Waffler Plus is the chosen way and there to use: then no key's
+        # provider is doing the work, and the page names none as "In use".
+        try:
+            plus_active = bool(_account_mod().plus_ready(stored))
+        except Exception:
+            plus_active = False
         return {
             "api_key_set":           bool(key),
             "api_key_masked":        _mask(key),
@@ -2302,6 +2310,7 @@ class Api:
             # Waffler Plus is the way dictation runs (src/account.py
             # PLUS_SETTING; only an account that has Plus can set it).
             "dictation_plus":        stored.get("dictation_plus") is True,
+            "plus_active":           plus_active,
             # "local" when the person chose the writing model on this
             # computer over their key, else "cloud" (src/local_llm.py).
             "writing_mode":          _lllm.mode_of(stored),
@@ -4336,7 +4345,10 @@ class Api:
             if not openai_key and not groq_key and not _local_stt.mode_is_local():
                 # Keys are the step before this one (step 2 of 3 on Windows,
                 # 3 of 4 on a Mac); this used to say "Complete Step 1".
-                return {"ok": False, "error": "No API key found. Go back a step and add your key."}
+                # (Nor is one needed with Waffler Plus the chosen way: the
+                # practice goes through it, like every dictation after it.)
+                if not _plus_chosen_here():
+                    return {"ok": False, "error": "No API key found. Go back a step and add your key."}
 
             # A Mac that refused the microphone opens a stream that only
             # ever delivers silence. Say so before the user tries.
@@ -4391,6 +4403,9 @@ class Api:
             _wizard_transcriber = WhisperTranscriber(
                 api_key=openai_key, groq_api_key=groq_key,
             )
+            # The practice is a dictation: through Waffler Plus when that is
+            # the chosen way (src/transcribe_whisper.py _choose_plus).
+            _wizard_transcriber.plus_allowed = True
             # The same clean-up every dictation gets (setup used to stop at
             # the transcription, so it never showed what Waffler does).
             try:
@@ -5104,6 +5119,15 @@ def _wizard_on_release():
         _push_wizard_error("Something went wrong with that one. Hold the keys and try again.")
 
 
+def _wizard_plus_words(transcriber):
+    """What Waffler Plus tidied the practice into, when the practice went
+    through it and it did; else None (the clean-up every other way gets)."""
+    plus = getattr(transcriber, "last_plus", None)
+    if isinstance(plus, dict) and plus.get("cleaned") and plus.get("text"):
+        return plus["text"]
+    return None
+
+
 def _wizard_finish_practice(transcript: str, audio_seconds: float):
     """The rest of setup's practice dictation: the clean-up every dictation
     gets, "You said" next to "Waffler wrote" on screen, and the result saved
@@ -5127,8 +5151,18 @@ def _wizard_finish_practice(transcript: str, audio_seconds: float):
     except Exception:
         cleanup_off = False
 
+    # Through Waffler Plus the service tidied it in the same request
+    # (last_plus): that text is what Waffler wrote, and no model is asked.
+    try:
+        through_plus = isinstance(getattr(_wizard_transcriber, "last_plus", None), dict)
+        plus_words = None if cleanup_off else _wizard_plus_words(_wizard_transcriber)
+    except Exception:
+        through_plus, plus_words = False, None
+
     def _style(text):
-        if cleanup_off:
+        if plus_words is not None:
+            return plus_words, {"input_tokens": 0, "output_tokens": 0, "api_used": False, "provider": "plus"}
+        if cleanup_off or through_plus:
             return (text or "").strip(), _style_layer.off_usage()
         if styler is None:
             raise RuntimeError("no styling providers configured")
@@ -5142,7 +5176,8 @@ def _wizard_finish_practice(transcript: str, audio_seconds: float):
 
     result = _first_run.finish_practice(transcript, _style, _plain)
     usage = result["usage"]
-    provider = "local" if local_speech else ("groq" if os.getenv("GROQ_API_KEY") else "openai")
+    provider = "plus" if through_plus else "local" if local_speech else (
+        "groq" if os.getenv("GROQ_API_KEY") else "openai")
     record_usage_safely("whisper", duration_seconds=audio_seconds, provider=provider)
     if usage.get("api_used"):
         record_usage_safely("gpt", input_tokens=usage.get("input_tokens", 0),
@@ -7837,9 +7872,9 @@ class WafflerPipeline:
                 _outcome = _pw.CANCELLED
                 return
             if not _asr.ok:
-                # Plus was chosen, is gone, and there was nothing to use
-                # instead: it stops being the chosen way (the message below
-                # says why the recording was kept).
+                # Plus is the chosen way, was not there, and there was nothing
+                # to use instead (the message below says why the recording
+                # was kept).
                 if _asr.status == "error":
                     self._plus_gone(getattr(self.transcriber, "last_plus_gone", ""))
                 # No transcription engine could turn the audio into text: a
@@ -7874,7 +7909,7 @@ class WafflerPipeline:
             transcript, _asr_info = _asr.value
             _t_transcribe = (time.time() - _t0) * 1000
             _log_to_file(f"[pipeline] transcription: {_t_transcribe:.0f}ms")
-            # Waffler Plus was the chosen way and was not there: this
+            # Waffler Plus is the chosen way and was not there: this
             # dictation went through the key or this computer. Said once.
             self._plus_gone(_asr_info.get("last_plus_gone"), _asr_info.get("backend") or "api")
             if not transcript:
@@ -8563,27 +8598,32 @@ class WafflerPipeline:
         return self._unstyled(transcript), usage
 
     def _plus_gone(self, why: str, backend: str = "") -> None:
-        """Waffler Plus was the chosen way and is not there any more (the
-        account is free again: "ended"; or this computer was signed out).
-        The dictation in hand went the way it would have before; Plus stops
-        being the chosen way, so this is said once, in a small pill, with
-        what is used now. ``backend`` is what did the work ("" when nothing
-        could: the Not sent message says why). Never raises."""
+        """Waffler Plus is the chosen way and was not there for this
+        dictation: the account is free again ("ended"), this computer was
+        signed out, or the service could not be reached ("offline"). The
+        dictation went the way it would have before, and nothing is changed:
+        Plus stays the chosen way and is used again by itself when it works.
+        So it is said in a small pill once, with what was used, and again
+        only if the reason changes or Plus has worked in between (``why``
+        empty). ``backend`` is what did the work ("" when nothing could:
+        the Not sent message says why). Never raises."""
         if not why:
+            self._plus_gone_said = ""
             return
         try:
             local = backend in ("local", "mlx", "faster")
-            _store_setting(_account_mod().PLUS_SETTING, False)
-            if local:
-                _store_setting(_local_stt.MODE_SETTING, _local_stt.MODE_LOCAL)
-            _log_to_file(f"[plus] no longer there ({why}); using {backend or 'nothing'}")
-            if not backend:
-                return
-            heading, body = _user_messages.plus_gone_message(why, local)
-            if self._toast_allowed("plus_gone"):
-                self.overlay.show_toast(style="warn", heading=heading, body=body)
+            _log_to_file(f"[plus] not there ({why}); using {backend or 'nothing'}")
+            if backend and getattr(self, "_plus_gone_said", "") != why:
+                heading, body = _user_messages.plus_gone_message(why, local)
+                if self._toast_allowed("plus_gone"):
+                    self.overlay.show_toast(style="warn", heading=heading, body=body)
+                self._plus_gone_said = why
         except Exception as e:
             _log_to_file(f"[plus] fallback not noted: {type(e).__name__}")
+        try:
+            _account_plan_soon()      # is it back? Asked in the background, every few minutes at most
+        except Exception:
+            pass
 
     def _stt_is_local(self) -> bool:
         """Is speech to text done on this computer (the local model) rather

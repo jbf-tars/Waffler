@@ -144,6 +144,7 @@
     }
     drawPlan(s);
     if (window.wafflerPlusChanged) window.wafflerPlusChanged(s);   // Keys and providers: its third card
+    if (window.wizAccountChanged) window.wizAccountChanged(s);     // setup, still on its first screen
     drawOffer();
   }
 
