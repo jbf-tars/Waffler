@@ -336,3 +336,63 @@ copy, which is the same code without the comment.
 Mac has 8,906 passed, 18 skipped). The new
 `tests/test_meetings_import_and_parts.py` passes here. Only the suite was run
 this time; the Meetings import screen was not looked at on the PC.
+
+## Windows fix: the overlay helper no longer takes the foreground
+
+This is the older problem noted under Pop-ups, now fixed on this branch in
+1c6939d. It touches the Windows-only `src/overlay_process_windows.py`; the Mac
+is unchanged.
+
+**What was wrong.** When the overlay helper started, Tk built its withdrawn
+dictation window as the main loop began, and made it the foreground window
+whenever the helper was allowed to take the foreground. Keys typed in the
+person's app then went to an invisible window until the dictation pill was
+next shown and hidden. Stepping through the start-up showed the moment: the
+foreground moved once `mainloop()` began, or at the first `update_idletasks()`,
+with the window withdrawn and never visible.
+
+**What changed.** `main()` now:
+- notes the foreground window before Tk starts;
+- hides the root straight away;
+- builds it, marked `WS_EX_NOACTIVATE`, before the main loop;
+- hands the foreground back if Tk took it (`_keep_foreground`).
+
+**Measured on this PC,** three runs of each, with the helper started on its
+own and the foreground read at each step:
+- Before: the helper's hidden window held the foreground from the start until
+  the dictation pill was hidden.
+- After: the window the person was in kept it through the start, a message
+  pill, the dictation pill shown and hidden, and quit.
+
+The pop-up checks above were run again on the fixed helper: same sizes, same
+timings, one at a time, and the "Your call" button still answers. The new
+`tests/test_windows_overlay_keeps_focus.py` checks the rule with fakes, so it
+runs on any platform. It fails on the old helper (5 of 5) and passes on the
+new one.
+
+## Windows fix: Sign out no longer leaves the computer signed in
+
+Fixed on this branch in 30e6bb0. It touches the shared `src/account.py` and
+`src/atomic_json.py`; the Mac sees a change only if a delete fails there too.
+
+**What was wrong.** A full run of the suite after the overlay fix failed
+`tests/test_account.py::test_signing_out_through_the_api_stops_the_sync_state`.
+Run alone, it failed between one run in twelve and four in five. The cause
+was found by logging the error that `forget()` ignored: `PermissionError`,
+winerror 32, "being used by another process". Deleting `account.json` straight
+after it was written failed while something still held the file, probably a
+scanner or the indexer. `forget()` swallowed the error, `status()` still read
+the session, and Sign out answered "signed in". In the app that means the
+computer can stay signed in after Sign out.
+
+**What changed.** `forget()` deletes through the new
+`atomic_json.unlink_with_retry`. It retries on `PermissionError` with the same
+50 to 400 ms waits `replace_with_retry` already uses for the same Windows
+reason. It never raises, and it reports False if the file is still there.
+
+**Measured on this PC:** that test passed 12 runs in 12 with the fix. The new
+`tests/test_account_forget_retry.py` fails on the old code (4 of 4) and passes
+on the new.
+
+**Suite with both fixes, on `one-app` 3272dd7 (merged as cfb1c06):**
+**8,859 passed, 89 skipped, 0 failed** in 7 min 57 s on Windows.
