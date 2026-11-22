@@ -15,7 +15,7 @@ def rule(css: str, selector: str) -> str:
 
 
 def test_html_paints_no_background_of_its_own():
-    css = (UI / "tokens.css").read_text()
+    css = (UI / "tokens.css").read_text(encoding="utf-8")
     assert not re.search(r"(?m)^html\s*,\s*body\s*\{[^}]*background", css)
     assert not re.search(r"(?m)^html\s*\{[^}]*background", css)
     assert any("background: var(--bg)" in body
@@ -23,4 +23,4 @@ def test_html_paints_no_background_of_its_own():
 
 
 def test_the_settings_scroller_holds_its_hidden_notes():
-    assert "position: relative" in rule((UI / "style.css").read_text(), ".scontent")
+    assert "position: relative" in rule((UI / "style.css").read_text(encoding="utf-8"), ".scontent")
