@@ -6527,6 +6527,15 @@ class WafflerPipeline:
         def no_audio():
             threading.Thread(target=self._show_no_audio_toast, daemon=True, name="NoAudioToast").start()
 
+        def classify_speech_error(error):
+            # Waffler Plus says why in a sentence of its own (src/account.py);
+            # a provider's failure is sorted as before.
+            try:
+                sentence = _account_mod().plus_sentence(str(error))
+            except Exception:
+                sentence = ""
+            return f"PLUS|{sentence}" if sentence else _unsent.classify_reason(str(error))
+
         return _command_action.Hooks(
             settings=self._read_settings,
             busy_elsewhere=self._command_blocked,
@@ -6534,9 +6543,9 @@ class WafflerPipeline:
             start_audio=lambda: self.audio.start(),
             stop_audio=lambda: self.audio.stop(),
             level=lambda: self.audio.get_level(),
-            transcribe=lambda audio: self._transcribe_with_provenance(audio, plus=False),
+            transcribe=lambda audio: self._transcribe_with_provenance(audio, tidy=False),
             apply_vocab=apply_vocab,
-            classify_speech_error=lambda error: _unsent.classify_reason(str(error)),
+            classify_speech_error=classify_speech_error,
             speech_provider=self._speech_provider_name,
             read_selection=lambda copy: _text_context.read_selection(allow_copy_fallback=copy),
             read_context=lambda chars: _text_context.get_text_around_cursor(chars),
@@ -8480,18 +8489,20 @@ class WafflerPipeline:
 
     # ── Steps the watchdog runs on worker threads ────────────────────────
 
-    def _transcribe_with_provenance(self, audio_bytes: bytes, plus: bool = True):
+    def _transcribe_with_provenance(self, audio_bytes: bytes, plus: bool = True, tidy: bool = True):
         """transcribe_sync, plus a snapshot of what it recorded about itself,
         taken on the same thread the moment it returns. A request the
         watchdog gave up on can finish later in the background and overwrite
         the transcriber's attributes; the snapshot keeps each dictation's
         provenance and quality signals its own.
 
-        ``plus``: a dictation may go through Waffler Plus when that is the
-        chosen way (src/transcribe_whisper.py _choose_plus). Command mode
-        says False: it keeps using what it used before."""
+        ``plus``: the recording may go through Waffler Plus when that is the
+        chosen way (src/transcribe_whisper.py _choose_plus). ``tidy`` False
+        is the spoken instruction of a command: Plus hears it and tidies
+        nothing, so no model is asked for it."""
         t = self.transcriber
         t.plus_allowed = bool(plus)
+        t.plus_tidy = bool(tidy)
         text = t.transcribe_sync(audio_bytes)
         info = {name: getattr(t, name, default) for name, default in (
             ("last_asr_response", ""), ("last_asr_filtered", False),

@@ -2697,6 +2697,9 @@ class WhisperTranscriber:
     # May this recording go through Waffler Plus? app.py says so for a
     # dictation and not for Command mode or setup's practice.
     plus_allowed = False
+    # Should Plus tidy the text as well (a dictation), or only hear it (the
+    # spoken instruction of a command: no model is asked for that)?
+    plus_tidy = True
     # What Plus answered for the recording in hand ({"text", "cleaned",
     # "code"}; None when it did not go through Plus), and why Plus, though
     # chosen, was not used ("ended" | "signed_out" | "").
@@ -2824,7 +2827,7 @@ class WhisperTranscriber:
         settings = load_settings()
         name, data, mime = _upload_file(audio_bytes)
         answer = acct.dictate(data, filename=name, content_type=mime,
-                              clean=not _cleanup_is_off(settings),
+                              clean=bool(getattr(self, "plus_tidy", True)) and not _cleanup_is_off(settings),
                               language=settings.get("language", "en"), words=load_vocab(),
                               timeout=_upload_timeout_s(len(data)))
         if not answer.get("ok"):

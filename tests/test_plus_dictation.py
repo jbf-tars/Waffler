@@ -136,7 +136,7 @@ def test_the_clean_up_setting_and_the_language_setting_are_followed(plus, monkey
 
 def test_plus_is_for_dictation_only(plus, monkeypatch):
     t, cloud = transcriber(monkeypatch)
-    t.plus_allowed = False                                # Command mode, setup's practice
+    t.plus_allowed = False                                # a recording the app says is not for Plus
     assert t.transcribe_sync(wav()) == "from my own key"
     assert plus.dictations == [] and t._backend == "groq" and t.last_plus is None
     t.plus_allowed = True
@@ -338,10 +338,14 @@ def test_plus_gone_with_nothing_to_use_keeps_the_recording_and_says_why(plus, mo
     assert (account.PLUS_SETTING, False) in p.stored
 
 
-def test_command_mode_never_goes_through_plus(plus, monkeypatch):
+def test_command_mode_goes_through_plus_too(plus, monkeypatch):
+    """It did not at first (a Plus user with no key could not use it). The
+    spoken instruction is heard by the service and tidied by nobody; what it
+    asks for is written by the service (tests/test_plus_write.py)."""
     p = pipeline(plus, monkeypatch)
     text, info = p._command_hooks().transcribe(wav())
-    assert text == "from my own key" and plus.dictations == [] and info["last_plus"] is None
+    assert text == RAW and info["backend"] == "plus" and p.cloud.calls == 0
+    assert plus.dictations[-1]["clean"] == "false"
     text, info = p._transcribe_with_provenance(wav())
     assert text == RAW and info["backend"] == "plus" and info["last_plus"]["text"] == TEXT
 

@@ -599,6 +599,19 @@ def transform_not_pasted_message(platform: str):
             f"where you want it.")
 
 
+def _plus_sentence(text: str) -> str:
+    """``text`` when it is one of the account's own sentences about Waffler
+    Plus (src/account.py plus_sentence), else ""."""
+    try:
+        try:
+            from src import account
+        except ImportError:
+            import account
+        return account.plus_sentence(text)
+    except Exception:           # noqa: BLE001
+        return ""
+
+
 def transform_failed_message(reason: str):
     """(heading, body) when no provider answered. ``reason`` is the styler's
     own (``RATE_LIMIT|...``, ``AUTH: ...``, ``CONNECTION: ...``,
@@ -606,6 +619,12 @@ def transform_failed_message(reason: str):
     nothing of it but a provider's name reaches the screen."""
     text = str(reason or "")
     lower = text.lower()
+    if text.startswith("PLUS|"):
+        # Waffler Plus did not write it: the account's own one sentence
+        # (src/account.py), and nothing else of the reason.
+        sentence = _plus_sentence(text[len("PLUS|"):])
+        return ("Couldn't rewrite", f"{sentence or 'Something went wrong with the service.'} "
+                                    f"Your text is unchanged.")
     if "RATE_LIMIT|" in text:
         return limit_reached_message(text)
     provider = _provider_in(text)
@@ -678,6 +697,9 @@ def command_speech_failed_message(kind: str, provider: str = ""):
     timeout, rate_limited, anything else); the raw error stays in the log."""
     who = provider or "your speech service"
     Who = who[:1].upper() + who[1:]
+    if str(kind).startswith("PLUS|") and _plus_sentence(kind[len("PLUS|"):]):
+        # Waffler Plus did not take the spoken instruction: its own sentence.
+        return ("Couldn't hear the command", f"{kind[len('PLUS|'):]} Your text is unchanged.")
     if kind == "blocked":
         return ("Couldn't hear the command",
                 f"{Who} refused the connection, which usually means a VPN is on. Your text is unchanged.")
