@@ -27,6 +27,7 @@ SYNC_EVERY_S = 120.0      # signed in: how often the meetings sync with the acco
 ACCOUNT_CURSORS = "account_sync_cursors"      # the engine's settings: how far sync has got, per account
 ACCOUNT_LAST_SYNCED = "account_last_synced"   # ... and when it last went through
 SYNC_BUSY = "A sync is still running. Try again in a moment."
+WATCH_EVERY_S = 1.5                           # how often a meeting being worked on is looked at
 
 
 def _account():
@@ -281,20 +282,33 @@ class MeetingsController:
         """Tell the page when the notes are written (or could not be)."""
         def run():
             deadline = time.time() + 900
+            said = ""
             while time.time() < deadline:
-                time.sleep(1.5)
+                time.sleep(WATCH_EVERY_S)
                 try:
                     note = self._service.store.get_note(note_id)
+                    part = self._service.recorder.progress.get(note_id, "")
                 except Exception:  # noqa: BLE001
                     return
                 if not note or note.get("status") != "processing":
                     break
+                if part != said:
+                    # A long meeting written down in parts ("Part 2 of 5"):
+                    # Home says which, and the wait is as long as the parts take.
+                    said, deadline = part, time.time() + 900
+                    self._on_change()
             self._on_change()
         threading.Thread(target=run, daemon=True, name="meetings-watch").start()
 
     # ── notes ───────────────────────────────────────────────────────────────
     def list(self, query: str = "") -> list[dict]:
-        return self._svc().store.list_notes(query=query or "")
+        svc = self._svc()
+        notes = svc.store.list_notes(query=query or "")
+        parts = svc.recorder.progress              # a meeting being written down in parts: "Part 2 of 5"
+        for note in notes:
+            if note["id"] in parts:
+                note["progress"] = parts[note["id"]]
+        return notes
 
     def get(self, note_id: str) -> dict | None:
         svc = self._svc()

@@ -4,7 +4,10 @@ Waffler's one setting decides how (`transcription_mode` in settings.json,
 src/local_stt.py): "local" runs the model on this computer, the same one
 dictation uses, with no key and no network; otherwise Groq `whisper-large-v3`
 first (the pipeline Waffler uses: FLAC upload, verbose segments), OpenAI as the
-fallback. The end-of-audio rule is Waffler's: Whisper
+fallback. And when Waffler Plus is the chosen way and the account has it
+(src/account.py), the account service does it, with no key and no model here:
+it takes a meeting in parts of PLUS_PART_S, so the recorder hands those over
+instead of chunks (`part_seconds`). The end-of-audio rule is Waffler's: Whisper
 invents "Thank you." and channel outros over silence, so a segment that is
 only a thanks, a sign-off or an outro is dropped when the audio under it has
 no voice or the model itself says nothing was said. Real thanks, said aloud,
@@ -30,6 +33,11 @@ _NO_SPEECH_PROB = 0.5
 _SEGMENT_MIN_VOICED_S = 0.15
 
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+
+# Waffler Plus holds a request open while it works and stops at ten minutes,
+# so a meeting goes up in parts of twelve minutes of its own clock (the
+# service's reference asks for 10 to 15), each one request.
+PLUS_PART_S = 720.0
 
 _OUTRO_CREDIT_RE = re.compile(
     r"^(?:closed\s+)?(?:subtitles|captions?|captioned|captioning|transcription|transcribed"
@@ -100,7 +108,7 @@ def clean_segments(raw_segments, audio: np.ndarray) -> list[dict]:
 
 
 class TranscribeError(Exception):
-    """`kind` is 'no_key', 'no_local', 'auth', 'rate', 'network' or 'other'."""
+    """`kind` is 'no_key', 'no_local', 'auth', 'rate', 'network', 'plus' or 'other'."""
 
     def __init__(self, message: str, kind: str = "other"):
         super().__init__(message)
@@ -139,6 +147,52 @@ def providers_available() -> list[str]:
     if local_stt.is_available():
         out.append("local")
     return out
+
+
+def _account():
+    """src/account.py, the copy the app uses (one module, so one plan in memory)."""
+    try:
+        from src import account
+    except ImportError:
+        import account
+    return account
+
+
+def uses_plus() -> bool:
+    """Is this for Waffler Plus? It is the chosen way and there to use: this
+    computer is signed in to an account that has it (src/account.py
+    plus_ready). Chosen but gone, the engine goes on as it would have before:
+    the model on this computer, or a key. Never raises."""
+    try:
+        return bool(_account().plus_ready())
+    except Exception:           # noqa: BLE001
+        return False
+
+
+def part_seconds() -> float:
+    """How much audio `transcribe` is handed at once. 0: chunk by chunk, as it
+    is recorded. With Waffler Plus, PLUS_PART_S: the chunks wait on disk and
+    go when the recording has ended, joined into parts (recorder.finish_waiting)."""
+    return PLUS_PART_S if uses_plus() else 0.0
+
+
+def _transcribe_plus(audio: np.ndarray, language: str) -> list[dict]:
+    """One part of a meeting, written down by the account service (POST
+    /api/plus/transcribe). No key is read and no model here is asked. Too
+    many in a minute: it waits as long as the service says, twice at most.
+    Any other refusal is its one sentence (src/account.py), and is never
+    retried with a key: the audio is kept, to try again."""
+    acct = _account()
+    flac = to_flac(audio)
+    for attempt in range(3):
+        answer = acct.transcribe(flac, language=language)
+        if answer.get("ok") or answer.get("reason") != "too_many" or attempt == 2:
+            break
+        time.sleep(min(max(float(answer.get("wait_s") or 20.0), 1.0), 60.0))
+    if not answer.get("ok"):
+        raise TranscribeError(str(answer.get("error") or acct.FAILED), "plus")
+    return clean_segments([{"start": g["start_s"], "end": g["end_s"], "text": g["text"]}
+                           for g in answer["segments"]], audio)
 
 
 def uses_local(settings: dict | None = None) -> bool:
@@ -183,6 +237,8 @@ def transcribe(audio: np.ndarray, settings: dict | None = None, backend=None) ->
     """16 kHz mono float32 → [{start_s, end_s, text}] (times within the chunk).
 
     Returns [] without calling anyone when the chunk holds no voice.
+    With Waffler Plus the chosen way the account service does it (the audio
+    is then a part of the meeting, up to PLUS_PART_S): no key, no model here.
     With Waffler's `transcription_mode` "local" (or `transcribe_provider`
     "local") the model on this computer does it (src/local_stt.py): no key, no
     network, and no fallback to the cloud.
@@ -193,6 +249,8 @@ def transcribe(audio: np.ndarray, settings: dict | None = None, backend=None) ->
         return []
     language = settings.get("language") or ""
     preferred = settings.get("transcribe_provider") or "groq"
+    if uses_plus():
+        return _transcribe_plus(audio, language)
     if uses_local(settings):
         return _transcribe_local(audio, settings, language, backend)
     order = [preferred] + [p for p in ("groq", "openai") if p != preferred]

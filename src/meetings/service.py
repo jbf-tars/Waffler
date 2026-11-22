@@ -16,8 +16,10 @@ import numpy as np
 from . import audioproc, llm
 from .audioproc import RATE
 from .paths import audio_dir, data_dir
-from .recorder import CHUNK_MAX_S, CHUNK_MIN_S, Recorder, _Job, retranscribe
+from .recorder import (CHUNK_MAX_S, CHUNK_MIN_S, WAITING, Recorder, _Job, finish_waiting, retranscribe,
+                       waiting_files)
 from .store import Store
+from .transcribe import TranscribeError
 
 
 def _when(iso: str) -> str:
@@ -34,6 +36,7 @@ class Service:
         self.llm_backend = llm_backend
         self.transcribe_backend = transcribe_backend
         self.store.recover_interrupted()
+        self._note_waiting()
         self.recorder = Recorder(self.store, source_factory=source_factory,
                                  transcribe_backend=transcribe_backend, on_idle=self._after_recording)
         self._enhancing: set[str] = set()
@@ -43,6 +46,18 @@ class Service:
         # that syncs with the signed-in account, and does nothing when nobody
         # is signed in. The hub setting below is separate and still works.
         self.account_sync = None
+
+    def _note_waiting(self) -> None:
+        """A meeting whose audio was still waiting to be written down when
+        Waffler closed (Waffler Plus takes a meeting once it has ended) says
+        so, which is what offers to try again. Never raises."""
+        try:
+            for folder in {f.parent for f in (data_dir() / "audio").glob("*/s*_*.wait.flac")}:
+                note = self.store.get_note(folder.name)
+                if note and not note["deleted"] and not note["error"]:
+                    self.store.update_note(note["id"], error=WAITING, touch=False)
+        except Exception:
+            pass
 
     # ── sync ────────────────────────────────────────────────────────────────
     def _sync_round(self) -> None:
@@ -190,6 +205,11 @@ class Service:
                 return
             self._enhancing.add(note_id)
         try:
+            if waiting_files(note_id):
+                # Audio that has not been written down yet (a part Waffler
+                # Plus did not take): that first, then notes from all of it.
+                finish_waiting(self.store, note_id, backend=self.transcribe_backend,
+                               progress=self.recorder.say_part(note_id))
             note = self.store.get_note(note_id)
             template = self.store.template(note["template_id"])
             title, notes = llm.write_notes(
@@ -200,9 +220,11 @@ class Service:
                 fields["title"] = title
             self.store.update_note(note_id, **fields)
         except Exception as e:  # noqa: BLE001
-            msg = str(e) if isinstance(e, llm.LLMError) else f"Couldn't write notes ({type(e).__name__})."
+            msg = str(e) if isinstance(e, (llm.LLMError, TranscribeError)) \
+                else f"Couldn't write notes ({type(e).__name__})."
             self.store.update_note(note_id, status="ready", error=msg)
         finally:
+            self.recorder.progress.pop(note_id, None)
             with self._lock:
                 self._enhancing.discard(note_id)
             self.sync_soon()
@@ -249,10 +271,14 @@ class Service:
 
         def run():
             try:
-                retranscribe(self.store, note_id, backend=self.transcribe_backend)
+                retranscribe(self.store, note_id, backend=self.transcribe_backend,
+                             progress=self.recorder.say_part(note_id))
+                self.recorder.progress.pop(note_id, None)
                 self._after_recording(note_id)
             except Exception as e:  # noqa: BLE001
                 self.store.update_note(note_id, status="ready", error=str(e))
+            finally:
+                self.recorder.progress.pop(note_id, None)
         threading.Thread(target=run, daemon=True).start()
         return self.store.get_note(note_id)
 

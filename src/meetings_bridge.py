@@ -97,6 +97,10 @@ def _route(ctl, method: str, raw: str, body, waffler_theme: str):
         # when there is a speech key or `speech`, and offers to write notes
         # when there is a writing key or `writing`. Two booleans, nothing else.
         local = {"speech": transcribe.local_ready(settings), "writing": llm.local_ready()}
+        # Waffler Plus does both jobs, with no key and no model here: the
+        # page then offers to record and never says notes need a key.
+        if transcribe.uses_plus():
+            local = {"speech": True, "writing": True, "plus": True}
         settings["theme"] = _theme(waffler_theme)            # the page follows Waffler's theme
         return {"name": "Waffler", "version": __version__, "settings": settings, "keys": keys.status(),
                 "local": local,
