@@ -324,3 +324,15 @@ even hidden.
 **Still needs James at the PC:** signing in (which is also where Plus would
 show), a sync, a real meeting with the microphone and the computer's sound,
 and dictation by voice.
+
+## Re-check on `one-app` a83b306
+
+`windows` now holds `one-app` a83b306 (merged as 66ba100). The merge met one
+conflict, in `tests/test_page_never_taller_than_window.py`, where `one-app` had
+made the same utf-8 fix as this branch. It was resolved by taking `one-app`'s
+copy, which is the same code without the comment.
+
+**Suite:** **8,840 passed, 89 skipped, 0 failed** in 8 min 10 s on Windows (the
+Mac has 8,906 passed, 18 skipped). The new
+`tests/test_meetings_import_and_parts.py` passes here. Only the suite was run
+this time; the Meetings import screen was not looked at on the PC.
