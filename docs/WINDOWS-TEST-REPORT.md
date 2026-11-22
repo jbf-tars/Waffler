@@ -281,3 +281,46 @@ email.
 
 **Still needs James at the PC:** signing in and a sync, a real meeting (the
 Meetings tab's record control while recording), and dictation by voice.
+
+## Re-check on `one-app` b5a4156
+
+`windows` now holds `one-app` b5a4156 (merged), plus this report and its
+pictures. As before, it was run from source on a test copy with temporary data
+folders, and checked through the WebView2 DevTools port. Nothing was signed
+into and no code was requested.
+
+**Suite:** **8,828 passed, 1 failed, 89 skipped** in 8 min 8 s on Windows. The one failure was Windows-only and in a test, not the app: tests/test_page_never_taller_than_window.py read ui/style.css without saying utf-8, and Windows reads it as cp1252, which fails on a character in it (UnicodeDecodeError, byte 0x90). That is fixed on this branch (both reads now say utf-8), and the file passes on Windows (2 passed) (the Mac has 8,895 passed, 18 skipped).
+
+**1. The light strip (247b010): fixed.** The test used the same window size,
+1084 x 741, in dark mode, with Settings > Keys and providers > Advanced open:
+
+- The page is exactly the window's height (`scrollHeight` 741).
+- `<html>` paints nothing (`rgba(0, 0, 0, 0)`).
+- Trying to scroll the page itself leaves it at 0.
+- `r4-settings-keys-advanced-dark.png` shows the bottom is clean.
+
+**2. Meetings without a key (f766780, b54553d).** All three states seen:
+
+- **Free model, no key:** the Meetings tab shows "New recording", in the
+  sidebar and in the middle (`r4-meetings-free-model-no-key.png`).
+- **A finished meeting:** I imported an 11.5 s synthetic spoken clip through
+  the same `import` route the Import audio button uses. It was turned into
+  text on this computer.
+  - The Notes tab shows the one quiet line "Notes need a key." with "Open
+    Settings" (`r4-meetings-imported-note.png`).
+  - The Transcript tab shows the words correctly
+    (`r4-meetings-imported-transcript.png`).
+- **No model and no key:** the button reads "Download the free model"
+  (`r4-meetings-no-model-no-key.png`).
+
+**3. Waffler Plus, signed out: no trace.** The word "Plus" was searched for in
+the visible text of Home, every Settings section, the Meetings tab and the
+first-run screen, in three states: free model, no model and no key, and first
+run. It does not appear. "Waffler Plus" is not in the page source either, not
+even hidden.
+
+**4. Suite:** see above.
+
+**Still needs James at the PC:** signing in (which is also where Plus would
+show), a sync, a real meeting with the microphone and the computer's sound,
+and dictation by voice.
