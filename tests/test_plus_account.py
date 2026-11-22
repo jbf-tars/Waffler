@@ -282,3 +282,165 @@ def test_the_upload_gets_the_time_it_is_given_and_goes_only_to_the_service(serve
                         or real(s, timeout))
     assert account.dictate(WAV, timeout=144.0)["ok"]
     assert seen == [(SERVER, 144.0)]
+
+
+# ── a whole recording, and the app's own prompt (the two routes that keep nothing) ──
+
+def _flac(seconds=2.0):
+    import io
+    import numpy as np
+    import soundfile as sf
+    buf = io.BytesIO()
+    sf.write(buf, np.zeros(int(seconds * 16000), dtype="float32"), 16000, format="FLAC", subtype="PCM_16")
+    return buf.getvalue()
+
+
+MESSAGES = [{"role": "user", "content": "Make this friendlier: send the file."}]
+
+
+def test_a_recording_is_sent_signed_and_its_segments_come_back(server):
+    sign_in(server)
+    server.give_plus(EMAIL)
+    server.hear = lambda seconds, n: [{"start_s": 0.5, "end_s": 2.0, "text": "Zebra quartz alpha."},
+                                      {"start_s": 15.86, "end_s": 17.36, "text": "And then the budget.", "x": 1}]
+    audio = _flac(3.0)
+    out = account.transcribe(audio, language="pt-BR", words=["Zebra", "quartz"])
+    assert out == {"ok": True, "seconds": 3.0, "language": "pt-BR", "segments": [
+        {"start_s": 0.5, "end_s": 2.0, "text": "Zebra quartz alpha."},
+        {"start_s": 15.86, "end_s": 17.36, "text": "And then the budget."}]}
+    sent = server.calls("POST", "/api/plus/transcribe")
+    assert len(sent) == 1 and sent[0].auth == "Bearer " + next(iter(server.sessions))
+    form = server.transcriptions[0]
+    assert form["file"] == {"filename": "audio.flac", "type": "audio/flac", "bytes": audio}
+    assert (form["language"], form["words"]) == ("pt-BR", "Zebra\nquartz")
+    assert account.transcribe(audio, language="auto")["ok"]
+    assert "language" not in server.transcriptions[1] and "words" not in server.transcriptions[1]
+
+
+def test_a_prompt_is_sent_as_it_is_and_the_text_comes_back(server):
+    sign_in(server)
+    server.give_plus(EMAIL)
+    server.write_reply = lambda body: "Could you send the file, please?"
+    out = account.write("You rewrite text as asked.", MESSAGES, max_tokens=2000, effort="low")
+    assert out == {"ok": True, "text": "Could you send the file, please?"}
+    sent = server.calls("POST", "/api/plus/write")
+    assert len(sent) == 1 and sent[0].auth == "Bearer " + next(iter(server.sessions))
+    assert server.writes == [{"system": "You rewrite text as asked.", "messages": MESSAGES,
+                              "max_tokens": 2000, "effort": "low"}]
+    assert account.write("", MESSAGES)["ok"]
+    assert server.writes[1] == {"system": "", "messages": MESSAGES}, "left out: the service uses its own"
+
+
+TRANSCRIBE_REFUSALS = [
+    ((402, "The month's minutes are used up.", "minutes_cap"), account.PLUS_MINUTES_USED, "minutes_cap"),
+    ((402, "Something newer.", "something_new"), account.ALLOWANCE_USED, "over_allowance"),
+    ((413, "That recording is too large (the limit is 200 MB).", "audio_too_large"),
+     account.DICTATE_TOO_LARGE, "too_large"),
+    ((413, "That recording is too long.", "audio_too_long"), account.TRANSCRIBE_TOO_LONG, "too_long"),
+    ((400, "That file is not audio."), account.DICTATE_UNREADABLE, "refused"),
+    ((408, "The upload took too long."), account.DICTATE_SLOW, "slow"),
+    ((503, "The server is busy.", "", {"Retry-After": "5"}), account.TRANSCRIBE_BUSY, "busy"),
+    ((503, "The transcription failed part-way.", "transcribe_failed", {"Retry-After": "5"}),
+     account.TRANSCRIBE_FAILED, "transcribe_failed"),
+    ((504, "Send it in shorter parts.", "transcribe_timeout"), account.TRANSCRIBE_TIMEOUT, "transcribe_timeout"),
+    ((507, "The server is full.", "server_full", {"Retry-After": "3600"}), account.PLUS_FULL, "server_full"),
+    ((500, "Oops."), account.TRANSCRIBE_BUSY, "busy"),
+    ((418, "A teapot."), account.FAILED, "failed"),
+]
+WRITE_REFUSALS = [
+    ((402, "Today's requests to the AI are used.", "model_calls_cap"), account.MODEL_CALLS_CAP, "model_calls_cap"),
+    ((402, "That would pass today's allowance of text.", "model_chars_cap"), account.WRITING_CAP, "model_chars_cap"),
+    ((402, "Something newer.", "something_new"), account.ALLOWANCE_USED, "over_allowance"),
+    ((413, "That request is too large."), account.TOO_LARGE, "too_large"),
+    ((413, "Too many characters.", "too_long"), account.TOO_LARGE, "too_large"),
+    ((400, "messages must be a list."), account.FAILED, "refused"),
+    ((422, "The model declined to write it.", "write_refused"), account.WRITE_REFUSED, "write_refused"),
+    ((503, "The model could not be reached.", "write_failed", {"Retry-After": "5"}),
+     account.WRITE_FAILED, "write_failed"),
+    ((500, "Oops."), account.WRITE_FAILED, "write_failed"),
+    ((418, "A teapot."), account.FAILED, "failed"),
+]
+
+
+@pytest.mark.parametrize("refusal, sentence, reason", TRANSCRIBE_REFUSALS)
+def test_every_refusal_of_a_recording_is_one_plain_sentence(server, refusal, sentence, reason):
+    sign_in(server)
+    server.give_plus(EMAIL)
+    server.transcribe_refusals = [refusal]
+    assert account.transcribe(_flac()) == {"ok": False, "error": sentence, "reason": reason}
+    assert account.status()["signed_in"], "only a 401 signs this computer out"
+
+
+@pytest.mark.parametrize("refusal, sentence, reason", WRITE_REFUSALS)
+def test_every_refusal_of_a_prompt_is_one_plain_sentence(server, refusal, sentence, reason):
+    sign_in(server)
+    server.give_plus(EMAIL)
+    server.write_refusals = [refusal]
+    assert account.write("s", MESSAGES) == {"ok": False, "error": sentence, "reason": reason}
+    assert account.status()["signed_in"]
+
+
+@pytest.mark.parametrize("send, sentence", [
+    (lambda: account.transcribe(_flac()), account.TRANSCRIBE_TOO_OFTEN),
+    (lambda: account.write("s", MESSAGES), account.WRITE_TOO_OFTEN)])
+def test_too_many_in_a_minute_says_how_long_to_wait(server, send, sentence):
+    sign_in(server)
+    server.give_plus(EMAIL)
+    server.transcribe_refusals = [(429, "Too many.", "", {"Retry-After": "20"})]
+    server.write_refusals = [(429, "Too many.", "", {"Retry-After": "20"})]
+    assert send() == {"ok": False, "error": sentence, "reason": "too_many", "wait_s": 20.0}
+
+
+@pytest.mark.parametrize("send", [lambda: account.transcribe(_flac()), lambda: account.write("s", MESSAGES)])
+def test_both_routes_free_disabled_signed_out_and_offline(server, send):
+    sign_in(server)
+    assert send() == {"ok": False, "error": account.PLUS_REQUIRED, "reason": "plus_required"}
+    assert account.status()["plus_state"] == "ended", "the plan is free from then on"
+    assert server.transcriptions == [] and server.writes == [], "nothing of the body was read"
+    server.give_plus(EMAIL)
+    server.offline = True
+    assert send() == {"ok": False, "error": account.PLUS_OFFLINE, "reason": "offline"}
+    server.offline = False
+    server.disabled.add(EMAIL)
+    assert send() == {"ok": False, "error": account.DISABLED, "reason": "disabled"}
+    server.disabled.clear()
+    server.sessions.clear()                           # removed from another device
+    assert send() == {"ok": False, "error": account.SIGNED_OUT, "reason": "signed_out"}
+    assert not account.status()["signed_in"]
+    assert send() == {"ok": False, "error": account.NOT_SIGNED_IN, "reason": "signed_out"}
+
+
+def test_an_answer_that_is_not_the_contract_is_a_failure(server):
+    sign_in(server)
+    server.give_plus(EMAIL)
+    server.hear = lambda seconds, n: [{"start_s": "soon", "end_s": 2.0, "text": "x"}]
+    assert account.transcribe(_flac()) == {"ok": False, "error": account.FAILED, "reason": "failed"}
+    server.write_reply = lambda body: 5
+    assert account.write("s", MESSAGES) == {"ok": False, "error": account.FAILED, "reason": "failed"}
+
+
+def test_the_new_sentences_are_short_plain_and_sell_nothing():
+    for sentence in (account.TRANSCRIBE_TOO_OFTEN, account.TRANSCRIBE_TOO_LONG, account.TRANSCRIBE_BUSY,
+                     account.TRANSCRIBE_FAILED, account.TRANSCRIBE_TIMEOUT, account.PLUS_FULL,
+                     account.WRITE_TOO_OFTEN, account.WRITE_REFUSED, account.WRITE_FAILED,
+                     account.MODEL_CALLS_CAP, account.WRITING_CAP, account.TOO_LARGE):
+        assert sentence.endswith(".") and len(sentence.split()) <= 16, sentence
+        assert account.plus_sentence(sentence) == sentence
+        for word in ("buy", "upgrade", "subscribe", "pay", "price", "£", "$", "402", "503"):
+            assert word not in sentence.lower(), sentence
+
+
+def test_plus_is_ready_when_it_is_chosen_and_there_to_use(server):
+    chosen = {account.PLUS_SETTING: True}
+    assert not account.plus_ready(chosen), "signed out"
+    sign_in(server)
+    assert account.plus_ready(chosen), "not asked yet: it is tried"
+    assert not account.plus_ready({}), "not the chosen way"
+    account.refresh_plan()
+    assert not account.plus_ready(chosen), "the account is free"
+    server.give_plus(EMAIL)
+    account.refresh_plan()
+    assert account.plus_ready(chosen)
+    server.offline = True
+    account.refresh_plan()
+    assert account.plus_ready(chosen), "unreachable is temporary: it stays the way, and is tried"
