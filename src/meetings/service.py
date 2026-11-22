@@ -273,7 +273,7 @@ class Service:
             try:
                 retranscribe(self.store, note_id, backend=self.transcribe_backend,
                              progress=self.recorder.say_part(note_id))
-                self.recorder.progress.pop(note_id, None)
+                self.recorder.progress.pop(note_id, None)      # written down: the notes are next
                 self._after_recording(note_id)
             except Exception as e:  # noqa: BLE001
                 self.store.update_note(note_id, status="ready", error=str(e))

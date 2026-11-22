@@ -121,7 +121,8 @@ DICTATE_WORDS, DICTATE_WORD_CHARS = 200, 40           # how much of the Vocabula
 # The service holds a transcription open while it works and stops it at ten
 # minutes; a prompt is one request to its model.
 PLUS_TRANSCRIBE_TIMEOUT_S = 660.0
-PLUS_WRITE_TIMEOUT_S = 180.0
+PLUS_WRITE_TIMEOUT_S = 180.0                          # a transform, a command
+PLUS_NOTES_TIMEOUT_S = 600.0                          # a meeting's notes, an answer: as long as a provider gets
 
 DIGITS_OLD = 6               # a service that does not say how long its codes are
 _LOCAL_HOSTS = ("127.0.0.1", "localhost", "::1")
@@ -962,7 +963,9 @@ def _plus_post(path: str, what: str, timeout: float, **sent) -> dict:
     token = s["token"]
     import httpx
     try:
-        with http_client(server, timeout) as client:
+        # The answer may take minutes (a part of a meeting, long notes);
+        # finding the service may not.
+        with http_client(server, httpx.Timeout(timeout, connect=TIMEOUT_S)) as client:
             r = client.post(path, headers={"Authorization": f"Bearer {token}"}, **sent)
     except httpx.HTTPError:
         raise AccountError(PLUS_OFFLINE, "offline") from None

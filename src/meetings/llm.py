@@ -131,7 +131,8 @@ def _plus_complete(system: str, messages: list[dict], max_tokens: int, effort: s
     its one sentence (src/account.py); nobody else is asked instead."""
     acct = _account()
     for attempt in range(3):
-        answer = acct.write(system, messages, max_tokens=max_tokens, effort=effort)
+        answer = acct.write(system, messages, max_tokens=max_tokens, effort=effort,
+                            timeout=acct.PLUS_NOTES_TIMEOUT_S)
         if answer.get("ok") or answer.get("reason") != "too_many" or attempt == 2:
             break
         time.sleep(min(max(float(answer.get("wait_s") or 20.0), 1.0), 60.0))

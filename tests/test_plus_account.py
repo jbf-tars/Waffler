@@ -444,3 +444,16 @@ def test_plus_is_ready_when_it_is_chosen_and_there_to_use(server):
     server.offline = True
     account.refresh_plan()
     assert account.plus_ready(chosen), "unreachable is temporary: it stays the way, and is tried"
+
+
+def test_a_long_answer_is_waited_for_but_finding_the_service_is_not(server, monkeypatch):
+    sign_in(server)
+    server.give_plus(EMAIL)
+    seen = []
+    real = account.http_client
+    monkeypatch.setattr(account, "http_client", lambda s, timeout=account.TIMEOUT_S: seen.append(timeout)
+                        or real(s, timeout))
+    assert account.transcribe(_flac())["ok"] and account.write("s", MESSAGES, timeout=600.0)["ok"]
+    assert [(t.read, t.connect) for t in seen] == [(account.PLUS_TRANSCRIBE_TIMEOUT_S, account.TIMEOUT_S),
+                                                   (600.0, account.TIMEOUT_S)]
+    assert account.PLUS_TRANSCRIBE_TIMEOUT_S > 600, "the service stops a transcription at ten minutes"
