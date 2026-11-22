@@ -40,10 +40,10 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 try:
-    from src.atomic_json import replace_with_retry
+    from src.atomic_json import replace_with_retry, unlink_with_retry
     from src.data_paths import data_file
 except ImportError:                                   # run from inside src/
-    from atomic_json import replace_with_retry
+    from atomic_json import replace_with_retry, unlink_with_retry
     from data_paths import data_file
 
 SERVER_ENV = "WAFFLER_ACCOUNT_SERVER"
@@ -243,10 +243,12 @@ def _write_session(data: dict) -> None:
 
 
 def forget() -> None:
-    """Sign this computer out as far as this computer is concerned."""
+    """Sign this computer out as far as this computer is concerned. Retried:
+    on Windows a scanner or the indexer can hold account.json for a moment
+    after it was written, and a delete that failed then was ignored, so the
+    computer stayed signed in after Sign out (seen on Windows 11, Nov 2026)."""
     for path in (_session_path(), _session_path().with_name(SESSION_FILE + ".tmp")):
-        with contextlib.suppress(OSError):
-            path.unlink()
+        unlink_with_retry(path)
 
 
 def _session() -> dict | None:
