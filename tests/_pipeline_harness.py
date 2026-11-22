@@ -28,6 +28,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT))
 
+from src import account  # noqa: E402
 import action_hotkeys  # noqa: E402
 import activity_gate  # noqa: E402
 import atomic_json  # noqa: E402
@@ -118,6 +119,9 @@ PIPELINE_METHODS = (
     "_take_watch", "_level_loop", "_warn_take_limit", "_stop_at_take_limit", "_stt_is_local",
     # On this computer with no key at all: the words go in as heard (src/local_stt.py).
     "_no_cleanup_key",
+    # Waffler Plus (src/account.py): the clean-up step of a dictation that went
+    # through it, and the one notice when it is gone.
+    "_plus_words", "_plus_gone",
     # Double-tap to go hands-free (src/double_tap.py): the setting handed to the listener.
     "apply_double_tap",
     # The microphone (src/mic_supervisor.py): what the supervisor needs from the
@@ -523,6 +527,7 @@ def make_pipeline(data_dir: Path, *, transcriber=None, styler=None, clipboard=No
         _idle_pill=idle_pill,
         _tray_show_window=lambda *a, **k: None,
         _store_setting=lambda key, value: None,
+        _account_mod=lambda: account,
     )
     from transcribe_whisper import _speech_seconds
     ns["_speech_seconds"] = _speech_seconds

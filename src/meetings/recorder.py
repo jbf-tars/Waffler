@@ -16,13 +16,14 @@ import sys
 import threading
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import numpy as np
 
 from . import audioproc
 from .audioproc import RATE
 from .paths import audio_dir
-from .transcribe import TranscribeError, transcribe
+from .transcribe import TranscribeError, part_seconds, transcribe, uses_plus
 
 CHUNK_MIN_S = 15.0
 CHUNK_MAX_S = 28.0
@@ -488,6 +489,10 @@ class Recorder:
         self._worker = threading.Thread(target=self._work, daemon=True, name="natter-transcribe")
         self._worker.start()
         self.warnings: list[str] = []
+        # A meeting being written down in parts (Waffler Plus): note id ->
+        # "Part 2 of 5". One meeting at a time.
+        self.progress: dict[str, str] = {}
+        self._parts_lock = threading.Lock()
 
     # sources -----------------------------------------------------------------
     def _default_sources(self, settings: dict) -> list[Source]:
@@ -506,7 +511,15 @@ class Recorder:
                 "elapsed_s": round(elapsed, 1), "note_elapsed_s": round(s.offset_s + elapsed, 1),
                 "levels": dict(s.levels), "pending_chunks": pending, "error": s.error,
                 "sources": [src.name for src in self._sources] if s.recording else [],
-                "warnings": list(self.warnings)}
+                "warnings": list(self.warnings), "progress": dict(self.progress)}
+
+    def say_part(self, note_id: str):
+        """`progress(i, n)` for finish_waiting: "Part 2 of 5" on this note
+        while more than one part is sent."""
+        def say(i: int, n: int) -> None:
+            if n > 1:
+                self.progress[note_id] = f"Part {i} of {n}"
+        return say
 
     def busy(self, note_id: str) -> bool:
         with self._pending_lock:
@@ -624,12 +637,14 @@ class Recorder:
             job = self._jobs.get()
             if isinstance(job, tuple):               # ("done", note_id)
                 note_id = job[1]
-                self._finishing.discard(note_id)
-                if self._on_idle:
-                    try:
-                        self._on_idle(note_id)
-                    except Exception:
-                        pass
+                if waiting_files(note_id):
+                    # Chunks that waited for the recording to end (Waffler
+                    # Plus): written down now, in parts, on a thread of their
+                    # own so the next recording's chunks are never held up.
+                    threading.Thread(target=self._finish, args=(note_id, True), daemon=True,
+                                     name="natter-parts").start()
+                else:
+                    self._finish(note_id, False)
                 continue
             try:
                 self._transcribe_job(job)
@@ -637,15 +652,44 @@ class Recorder:
                 with self._pending_lock:
                     self._pending -= 1
 
+    def _finish(self, note_id: str, waiting: bool) -> None:
+        """A note's last chunk is stored. With chunks still waiting, they are
+        written down first; if that fails the note says why, keeps its audio
+        and gets no notes from a transcript known to be incomplete."""
+        ok = True
+        if waiting:
+            try:
+                with self._parts_lock:
+                    finish_waiting(self.store, note_id, backend=self._backend,
+                                   progress=self.say_part(note_id))
+            except Exception as e:  # noqa: BLE001
+                ok = False
+                why = str(e) if isinstance(e, TranscribeError) else f"Transcription failed ({type(e).__name__})."
+                self.store.update_note(note_id, status="ready", touch=False, error=why)
+            finally:
+                self.progress.pop(note_id, None)
+        self._finishing.discard(note_id)
+        if ok and self._on_idle:
+            try:
+                self._on_idle(note_id)
+            except Exception:
+                pass
+
     def _transcribe_job(self, job: _Job) -> None:
         settings = self.store.settings()
         keep = settings.get("keep_audio", True)
         per_source: dict[str, list[dict]] = {}
         failed: TranscribeError | None = None
+        waits = uses_plus()           # Waffler Plus takes a meeting in parts, when it has ended
         for name, audio in job.audio.items():
             path = audio_dir(job.note_id) / (
                 f"s{job.session_n:02d}_{int(job.start_s * 1000):09d}_{name}.flac")
             has_voice = audioproc.voiced_seconds(audio) >= 0.3
+            if has_voice and waits:
+                # Nothing is sent while the meeting is recorded: the chunk
+                # waits on disk under a name that says so (finish_waiting).
+                path.with_suffix(".wait.flac").write_bytes(audioproc.to_flac(audio))
+                continue
             if has_voice and keep:
                 path.write_bytes(audioproc.to_flac(audio))
             if not has_voice:
@@ -670,15 +714,113 @@ class Recorder:
             self.store.update_note(job.note_id, touch=False, error=str(failed))
 
 
-def retranscribe(store, note_id: str, backend=None) -> int:
+# A chunk of a note's audio: s<recording>_<start, ms>_<source>.flac. One that
+# has not been written down yet ends ".wait.flac": the name is the only record
+# of it, so it survives Waffler closing.
+_CHUNK = re.compile(r"s(\d+)_(\d+)_(\w+?)(\.wait)?\.flac$")
+WAITING = "This meeting's audio is saved and has not been written down yet."
+
+
+def waiting_files(note_id: str) -> list[Path]:
+    """The chunks of a note still to be written down, in order."""
+    return sorted(audio_dir(note_id).glob("s*_*.wait.flac"))
+
+
+def _written(path: Path, keep: bool) -> None:
+    """A waiting chunk has been written down: it is an ordinary chunk now,
+    or gone when the audio is not kept."""
+    if keep:
+        path.replace(path.with_name(path.name[:-len(".wait.flac")] + ".flac"))
+    else:
+        path.unlink(missing_ok=True)
+
+
+def _parts(files: list[Path], span_s: float) -> list[tuple[int, float, dict]]:
+    """Chunks as the parts they are written down in, in the meeting's order:
+    [(recording number, where the part begins on the note's clock, {source:
+    [(start, file)]})]. A part is the chunks of one recording that begin
+    within `span_s`, less a chunk's length, of its first: its audio is never
+    longer than `span_s`. With `span_s` 0 a part is one chunk."""
+    chunks = []
+    for f in files:
+        m = _CHUNK.match(f.name)
+        if m:
+            chunks.append((int(m.group(1)), int(m.group(2)) / 1000, m.group(3), f))
+    chunks.sort(key=lambda c: (c[0], c[1]))
+    reach = max(0.0, span_s - CHUNK_MAX_S)
+    parts: list[tuple[int, float, dict]] = []
+    for session_n, start_s, source, f in chunks:
+        if not parts or parts[-1][0] != session_n or start_s - parts[-1][1] > reach:
+            parts.append((session_n, start_s, {}))
+        parts[-1][2].setdefault(source, []).append((start_s, f))
+    return parts
+
+
+def _joined(chunks: list[tuple[float, Path]], start_s: float) -> np.ndarray:
+    """One source's chunks as one stretch of audio beginning at `start_s`,
+    each where it was said. A chunk with no voice in it was never kept:
+    silence stands where it was, so the times stay the meeting's own."""
+    pieces = [(int(round((at - start_s) * RATE)), audioproc.read_audio(f)) for at, f in chunks]
+    out = np.zeros(max(off + len(a) for off, a in pieces), dtype=np.float32)
+    for off, a in pieces:
+        out[off:off + len(a)] = a
+    return out
+
+
+def finish_waiting(store, note_id: str, backend=None, progress=None) -> int:
+    """Write down the chunks of a note that are still waiting, part by part,
+    each part's times put back on the note's clock. Returns segments written.
+
+    With Waffler Plus a part is up to PLUS_PART_S of the meeting, one request
+    per source; without it (Plus has gone since) a part is one chunk, done the
+    way the engine would have. A part that is written down stops waiting at
+    once, so when one fails (TranscribeError, raised here) the parts before it
+    are kept and only the rest is sent on the next try. `progress(i, n)` is
+    called before part i of n."""
+    settings = store.settings()
+    keep = settings.get("keep_audio", True)
+    parts = _parts(waiting_files(note_id), part_seconds())
+    total = 0
+    for i, (session_n, start_s, sources) in enumerate(parts, 1):
+        if progress is not None:
+            progress(i, len(parts))
+        per_source: dict[str, list[dict]] = {}
+        for source, chunks in sources.items():
+            segs = transcribe(_joined(chunks, start_s), settings, backend=backend)
+            per_source[source] = [
+                {"start_s": start_s + s["start_s"], "end_s": start_s + s["end_s"], "text": s["text"],
+                 "source": source, "session_n": session_n} for s in segs]
+        if "mic" in per_source and "system" in per_source:
+            per_source["mic"] = drop_echo(per_source["mic"], per_source["system"])
+        for segs in per_source.values():
+            total += len(store.add_segments(note_id, segs))
+        for chunks in sources.values():
+            for _, f in chunks:
+                _written(f, keep)
+    return total
+
+
+def retranscribe(store, note_id: str, backend=None, progress=None) -> int:
     """Rebuild a note's transcript from its kept audio. Returns segments written."""
     files = sorted(audio_dir(note_id).glob("s*_*.flac"))
     if not files:
         return 0
     settings = store.settings()
+    if part_seconds():
+        # Waffler Plus takes it in parts: every chunk waits again and is
+        # written down part by part (finish_waiting).
+        for f in files:
+            if not f.name.endswith(".wait.flac"):
+                f.replace(f.with_name(f.name[:-len(".flac")] + ".wait.flac"))
+        with store._write:
+            store.db.execute("DELETE FROM segments WHERE note_id=?", (note_id,))
+            store.db.execute("DELETE FROM segments_fts WHERE note_id=?", (note_id,))
+        total = finish_waiting(store, note_id, backend=backend, progress=progress)
+        store.update_note(note_id, error="")
+        return total
     chunks: dict[tuple[int, float], dict[str, list[dict]]] = {}
     for f in files:
-        m = re.match(r"s(\d+)_(\d+)_(\w+)\.flac$", f.name)
+        m = _CHUNK.match(f.name)
         if not m:
             continue
         session_n, start_s, source = int(m.group(1)), int(m.group(2)) / 1000, m.group(3)
@@ -695,5 +837,7 @@ def retranscribe(store, note_id: str, backend=None) -> int:
             per_source["mic"] = drop_echo(per_source["mic"], per_source["system"])
         for segs in per_source.values():
             total += len(store.add_segments(note_id, segs))
+    for f in waiting_files(note_id):                  # all of it is written down now
+        _written(f, True)
     store.update_note(note_id, error="")
     return total

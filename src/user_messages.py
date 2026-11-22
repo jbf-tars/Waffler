@@ -171,6 +171,32 @@ def _rate_limit_parts(reason: str):
     return provider, _seconds_in(wait), daily
 
 
+PLUS_CLEANUP_USED = ("Today's Waffler Plus clean-ups are used up, so your words went in as "
+                     "you said them. There are more tomorrow.")
+PLUS_CLEANUP_FAILED = ("Waffler Plus couldn't do the clean-up this time, so your words went "
+                       "in as you said them.")
+
+
+def plus_gone_message(why: str, local: bool):
+    """(heading, body) for the one small pill that says Waffler Plus was not
+    there for this dictation, and what was used. ``why`` is "ended" (the
+    account no longer has Plus), "signed_out" or "offline" (the service
+    could not be reached); ``local``: the model on this computer did the
+    work, not a key. The heading is the pill's line: six words at most."""
+    using = "this computer" if local else "your key"
+    if why == "offline":
+        return (f"Plus unreachable. Using {using}.",
+                f"Waffler Plus couldn't be reached, so this dictation used {using}. "
+                f"Your words were pasted as usual.")
+    if why == "signed_out":
+        return (f"Signed out. Using {using}.",
+                f"This computer is signed out of your account, so this dictation used {using}. "
+                f"Your words were pasted as usual.")
+    return (f"Plus ended. Using {using}.",
+            f"This account no longer has Waffler Plus, so this dictation used {using}. "
+            f"Your words were pasted as usual.")
+
+
 def cleanup_skipped_message(reason: str):
     """(heading, body) for the pill after the words were pasted without the
     clean-up. ``reason`` is the styler's fallback_reason; it stays in the
@@ -191,6 +217,11 @@ def cleanup_skipped_message(reason: str):
         return (f"Clean-up paused {when}",
                 f"{who} says you've reached your limit for now. Your words were "
                 f"pasted as you said them.")
+    if "PLUS|" in text:
+        # Waffler Plus heard the words but could not tidy them (the day's
+        # allowance is used, or its model could not be reached). No provider
+        # of the person's own was asked, so none is named and no key advice.
+        return (CLEANUP_SKIPPED, PLUS_CLEANUP_USED if "_cap" in text else PLUS_CLEANUP_FAILED)
     if "MODEL_UNAVAILABLE" in text:
         # The provider has retired the clean-up model (or this key can't reach
         # it). Not a limit, so no "paused" and no Journal banner: it lasts
@@ -572,6 +603,19 @@ def transform_not_pasted_message(platform: str):
             f"where you want it.")
 
 
+def _plus_sentence(text: str) -> str:
+    """``text`` when it is one of the account's own sentences about Waffler
+    Plus (src/account.py plus_sentence), else ""."""
+    try:
+        try:
+            from src import account
+        except ImportError:
+            import account
+        return account.plus_sentence(text)
+    except Exception:           # noqa: BLE001
+        return ""
+
+
 def transform_failed_message(reason: str):
     """(heading, body) when no provider answered. ``reason`` is the styler's
     own (``RATE_LIMIT|...``, ``AUTH: ...``, ``CONNECTION: ...``,
@@ -579,6 +623,12 @@ def transform_failed_message(reason: str):
     nothing of it but a provider's name reaches the screen."""
     text = str(reason or "")
     lower = text.lower()
+    if text.startswith("PLUS|"):
+        # Waffler Plus did not write it: the account's own one sentence
+        # (src/account.py), and nothing else of the reason.
+        sentence = _plus_sentence(text[len("PLUS|"):])
+        return ("Couldn't rewrite", f"{sentence or 'Something went wrong with the service.'} "
+                                    f"Your text is unchanged.")
     if "RATE_LIMIT|" in text:
         return limit_reached_message(text)
     provider = _provider_in(text)
@@ -651,6 +701,9 @@ def command_speech_failed_message(kind: str, provider: str = ""):
     timeout, rate_limited, anything else); the raw error stays in the log."""
     who = provider or "your speech service"
     Who = who[:1].upper() + who[1:]
+    if str(kind).startswith("PLUS|") and _plus_sentence(kind[len("PLUS|"):]):
+        # Waffler Plus did not take the spoken instruction: its own sentence.
+        return ("Couldn't hear the command", f"{kind[len('PLUS|'):]} Your text is unchanged.")
     if kind == "blocked":
         return ("Couldn't hear the command",
                 f"{Who} refused the connection, which usually means a VPN is on. Your text is unchanged.")

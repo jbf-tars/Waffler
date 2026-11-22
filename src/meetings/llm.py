@@ -8,6 +8,11 @@ And "local": the writing model on this computer (src/local_llm.py), an
 optional download in Waffler's Settings. It writes when it is here and there
 is no key, or when the person chose it over their key. Nothing is sent
 anywhere, and a failure there is never passed to a provider.
+
+And "plus": Waffler Plus, when it is the chosen way and the account has it
+(src/account.py). The account service's model writes, from the prompts in
+this file, with no key and no model here; the answer arrives whole. A
+refusal is its own plain sentence and is never passed to a key.
 """
 from __future__ import annotations
 
@@ -15,7 +20,7 @@ import re
 import time
 
 from . import keys
-from .transcribe import GROQ_BASE_URL
+from .transcribe import GROQ_BASE_URL, _account, uses_plus
 
 try:
     import local_llm            # the app's own copy: src/ is on its path
@@ -30,8 +35,10 @@ _OPENAI_PREFERRED = ("gpt-5-mini", "gpt-4.1-mini", "gpt-4o-mini", "gpt-4o")  # d
 # per minute, so long transcripts go through in parts there.
 # "custom" is sized for a local model served with a 16k-token window.
 # "local" is the model on this computer, opened with a 16k-token window too.
+# "plus" is the account service: one request holds 500,000 characters and one
+# megabyte, so 200,000 leaves room for a script that takes three bytes a letter.
 _PART_CHARS = {"groq": 16000, "anthropic": 600000, "openai": 300000, "custom": 36000,
-               "local": 36000}
+               "local": 36000, "plus": 200000}
 _LOCAL_PREFERRED = ("gemma4:e2b", "gemma4:e4b")     # measured best for notes at their size
 _OLLAMA_CTX_STEPS = (4096, 8192, 16384)             # few distinct sizes = few model reloads
 _ollama_roots: dict[str, str | None] = {}
@@ -63,11 +70,24 @@ def can_write(settings: dict) -> bool:
         return False
 
 
+def local_ready() -> bool:
+    """Would the writing model on this computer write the notes now? Only
+    when it is downloaded and is the one to ask: there is no key, or the
+    person chose it over their key. Loads nothing. Never raises."""
+    try:
+        return bool(local_llm.should_use(has_key=bool(available_providers())))
+    except Exception:           # noqa: BLE001
+        return False
+
+
 def available_providers() -> list[str]:
     return [p for p in ("anthropic", "openai", "groq", "custom") if keys.get_key(p)]
 
 
 def resolve_provider(settings: dict) -> str:
+    # Waffler Plus is the chosen way and there to use: no key is looked for.
+    if uses_plus():
+        return "plus"
     want = settings.get("llm_provider") or "auto"
     have = available_providers()
     if want == "custom" and settings.get("custom_base_url"):
@@ -102,6 +122,23 @@ def _local_complete(system: str, messages: list[dict], max_tokens: int, backgrou
     except local_llm.LocalLLMError as e:
         raise LLMError(str(e), "local") from e
     return strip_thinking(reply.get("text") or "")
+
+
+def _plus_complete(system: str, messages: list[dict], max_tokens: int, effort: str | None) -> str:
+    """One reply from the account service's model (POST /api/plus/write):
+    the app's prompt as it is, the whole text back. Too many in a minute: it
+    waits as long as the service says, twice at most. Any other refusal is
+    its one sentence (src/account.py); nobody else is asked instead."""
+    acct = _account()
+    for attempt in range(3):
+        answer = acct.write(system, messages, max_tokens=max_tokens, effort=effort,
+                            timeout=acct.PLUS_NOTES_TIMEOUT_S)
+        if answer.get("ok") or answer.get("reason") != "too_many" or attempt == 2:
+            break
+        time.sleep(min(max(float(answer.get("wait_s") or 20.0), 1.0), 60.0))
+    if not answer.get("ok"):
+        raise LLMError(str(answer.get("error") or acct.FAILED), "plus")
+    return strip_thinking(answer["text"])
 
 
 def _openai_client(provider: str, settings: dict):
@@ -284,6 +321,8 @@ def complete(system: str, messages: list[dict], settings: dict, max_tokens: int 
     if backend is not None:
         return backend(system, messages)
     provider = resolve_provider(settings)
+    if provider == "plus":
+        return _plus_complete(system, messages, max_tokens, effort)
     if provider == "local":
         return _local_complete(system, messages, max_tokens, background, on_text)
     model = resolve_model(provider, settings)

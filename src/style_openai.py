@@ -348,6 +348,15 @@ def _pauses_provider(exc, error_msg: str, purpose: str) -> bool:
 _PROVIDER_LABELS = {"groq": "Groq", "cerebras": "Cerebras", "openai": "OpenAI"}
 
 
+def _account():
+    """src/account.py, the copy the app uses (one module, so one plan in memory)."""
+    try:
+        from src import account
+    except ImportError:
+        import account
+    return account
+
+
 def _local_llm():
     """src/local_llm.py: the optional language model on this computer."""
     try:
@@ -1586,6 +1595,12 @@ Transcript: {transcript}"""
         ``MODEL_UNAVAILABLE: ...``), which src/user_messages.py turns into
         a plain sentence. Blocking: run it under the watchdog.
         """
+        # Waffler Plus, when it is the chosen way: the account service's model
+        # is asked where the person's own providers would have been.
+        through_plus = self._chat_plus(system, user, max_tokens=max_tokens, deadline=deadline,
+                                       purpose=purpose)
+        if through_plus is not None:
+            return through_plus
         failures: list = []   # (provider label, error string)
         for name in self._provider_order:
             label = _PROVIDER_LABELS.get(name)
@@ -1613,6 +1628,44 @@ Transcript: {transcript}"""
                 continue
             return reply
         raise ChatError(self._pick_best_failure_reason(failures), failures)
+
+    def _chat_plus(self, system, user: str, *, max_tokens: int, deadline, purpose: str):
+        """The same request, answered by Waffler Plus (POST /api/plus/write,
+        src/account.py) when Plus is the chosen way and the account has it:
+        the feature's own prompt as it is, no key read, no provider asked.
+
+        Returns the ``ChatReply``, or None when Plus is not the way for this
+        request, so the person's own providers are asked as before: Plus is
+        not chosen; it has gone (the plan ended, or this computer was signed
+        out; it stays the chosen way and is used again when it is back); or
+        the service could not be reached and there is a key to use for this
+        one request. Any other refusal is not retried with a key: it raises
+        ``ChatError`` with ``PLUS|<the one sentence>``. Where a provider has
+        its own wording of the system message, the general one goes."""
+        try:
+            acct = _account()
+            if not acct.plus_ready():
+                return None
+        except Exception:      # noqa: BLE001 - no account module to ask: the providers, as before
+            return None
+        if isinstance(system, dict):
+            system = system.get("openai", system.get("default", ""))
+        timeout = max(_STYLE_MIN_ATTEMPT_S, min(self._budget_left(deadline), acct.PLUS_WRITE_TIMEOUT_S))
+        answer = acct.write(system, [{"role": "user", "content": user}], max_tokens=max_tokens,
+                            effort="low", timeout=timeout)
+        if answer.get("ok"):
+            text = answer["text"].strip()
+            if not text:
+                raise ChatError(f"PLUS|{acct.WRITE_FAILED}", [("Waffler Plus", "EMPTY")])
+            return ChatReply(text=text, provider="plus", model="waffler-plus")
+        reason = str(answer.get("reason") or "")
+        if reason in ("plus_required", "signed_out"):
+            print(f"[{purpose}] Waffler Plus is not there ({reason}): your own providers")
+            return None
+        if reason == "offline" and any(self._provider_ready(name) for name in self._provider_order):
+            print(f"[{purpose}] Waffler Plus could not be reached: your own providers, this once")
+            return None
+        raise ChatError(f"PLUS|{answer.get('error') or acct.FAILED}", [("Waffler Plus", reason)])
 
     def _chat_one(self, name: str, system: str, user: str, *, max_tokens: int,
                   temperature: float, json_mode: bool = False, deadline=None,

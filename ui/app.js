@@ -5859,6 +5859,7 @@ let _wizLoginChoice = true;     // start at sign-in: on by default (owner decisi
 // accountSetupOffered). It is not in WIZ_STEPS, so the stepper and "Step one
 // of three" are as they were, and nothing about finishing setup depends on it.
 let _wizAccountOffer = false;
+let _wizAcct = null;            // Api.account_status() when setup opened (a Plus account is asked for nothing)
 let _currentWizardHotkey = isMacPlatform ? ['fn'] : ['win', 'ctrl'];
 
 async function checkOnboarding() {
@@ -5873,7 +5874,7 @@ async function checkOnboarding() {
       try { stt = await pywebview.api.local_stt_status(); } catch (_) {}
       // Whether the optional account screen follows the last step. Read from
       // this computer: nothing is contacted.
-      try { _wizAccountOffer = WL.accountSetupOffered(await pywebview.api.account_status()); } catch (_) { _wizAccountOffer = false; }
+      try { _wizAcct = await pywebview.api.account_status(); _wizAccountOffer = WL.accountSetupOffered(_wizAcct); } catch (_) { _wizAccountOffer = false; }
       showWizard(status, stt);
     } else {
       const main = document.getElementById('mainArea');
@@ -5924,10 +5925,47 @@ function showWizard(status, stt) {
     if (_wizWay === 'local' && WIZ_STEPS.includes(status.resume_step)) first = status.resume_step;
   }
   wizDrawLocal();
+  // A signed-in account that has Waffler Plus is asked for nothing.
+  const acct = _wizAcct;
+  if (WL.setupPlusReady(acct, _wizWay)) {
+    wizShowPlus();
+    if (acct.plus_chosen === true && WIZ_STEPS.includes(status.resume_step)) first = status.resume_step;
+  }
   wizShowStep(first);
   // The download was running when Waffler closed: it carries on by itself.
   if (WL.setupShouldResumeDownload(_wizWay, first, _wizStt)) wizChooseLocal();
 }
+
+// Setup's first step for a signed-in account that has Waffler Plus: no key
+// and no download are asked for. It says so and Continue goes on (logic.js
+// SETUP_PLUS, setupPlusReady). The words are made here, as text: the page
+// as written says nothing of Plus. Plus becomes the chosen way at once, so
+// the practice on the next step goes through it.
+function wizShowPlus() {
+  const sec = _wizSection('connect');
+  if (!sec) return;
+  if (!document.getElementById('obTitlePlus')) {
+    const el = (tag, cls, text) => { const e = document.createElement(tag); e.className = cls; e.dataset.when = 'plus'; if (text) e.textContent = text; return e; };
+    const title = el('h1', 'ob-title', WL.SETUP_PLUS.title);
+    title.id = 'obTitlePlus'; title.tabIndex = -1;
+    const left = sec.querySelector('.ob-left');
+    if (left) left.prepend(title, el('p', 'ob-lede', WL.SETUP_PLUS.lede));
+    // Beside it, the example every new person is shown: a real result.
+    const art = sec.querySelector('.ob-stage .ob-paper');
+    if (art) art.dataset.when = 'start plus';
+  }
+  _wizWay = 'plus';
+  wizSetState('connect', 'plus');
+  wizRenderStepper();
+  try { pywebview.api.save_settings({ dictation_plus: true }); } catch (_) {}
+}
+// The account's plan is not known the moment Waffler opens: it is read in
+// the background, and account.js says when it has been.
+window.wizAccountChanged = (acct) => {
+  const sec = _wizSection('connect');
+  if (!_wizardShown || _wizardStep !== 'connect' || !sec || sec.dataset.state !== 'choose') return;
+  if (WL.setupPlusReady(acct, _wizWay)) wizShowPlus();
+};
 
 function hideWizard() {
   wizStopPractice();
@@ -6066,6 +6104,7 @@ function wizSetState(step, state) {
 // that is the key, whatever was chosen before; on the cards, the card chosen.
 function _wizLabelWay() {
   const sec = _wizSection('connect');
+  if (sec && sec.dataset.state === 'plus') return 'plus';
   return sec && sec.dataset.state !== 'choose' ? 'key' : _wizWay;
 }
 
@@ -6573,6 +6612,7 @@ function wizInitConnect() {
   // key card is chosen (wizChooseKey calls this again).
   const sec = _wizSection('connect');
   if (sec && sec.dataset.state === 'choose') { wizRefreshLocal(); wizRefreshExtra(); return; }
+  if (sec && sec.dataset.state === 'plus') return;      // Waffler Plus: no key to wait for
   startWizClipboardWatch();
   if (_wizKeyListenerAttached) return;
   _wizKeyListenerAttached = true;

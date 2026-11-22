@@ -159,7 +159,9 @@
   // ── a meeting among the dictations on Home (app.js _withMeetings, makeCard) ─
   window.makeMeetingCard = function (n) {
     const busy = n.status === 'processing' || n.status === 'recording';
-    const sub = n.status === 'recording' ? 'Recording now.' : n.status === 'processing' ? 'Writing the notes. This takes a moment.'
+    // A long meeting is written down in parts (Waffler Plus): which part, while it is.
+    const sub = n.status === 'recording' ? 'Recording now.'
+      : n.status === 'processing' ? (n.progress ? 'Transcribing. ' + n.progress + '.' : 'Writing the notes. This takes a moment.')
       : gist(n.preview);
     const card = document.createElement('article');
     card.className = 'transcript-card j-ent j-meeting';

@@ -34,7 +34,8 @@ import math
 import os
 import platform
 import re
-from datetime import datetime
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -86,12 +87,49 @@ BUSY = "The account service is busy. Try again in a moment."
 SYNC_TOO_OFTEN = "The account service asked Waffler to wait. It will try again shortly."
 SYNC_TOO_LARGE = "The account service sent more than Waffler accepts in one answer, so nothing was changed."
 FAILED = "That didn't work. Try again."
+# Waffler Plus: a dictation the service did not take (dictate). Nothing here
+# offers Plus: it is only ever used by an account that already has it.
+PLUS_REQUIRED = "This account no longer has Waffler Plus."
+PLUS_MINUTES_USED = "This month's Waffler Plus minutes are used up."
+PLUS_OFFLINE = "Waffler couldn't reach Waffler Plus. Check your internet connection and try again."
+DICTATE_TOO_OFTEN = "That is too many dictations in a minute. Wait a moment, then try again."
+DICTATE_TOO_LARGE = "That recording is too large to send."
+DICTATE_TOO_LONG = "Waffler Plus takes at most 5 minutes of audio at a time."
+DICTATE_UNREADABLE = "Waffler Plus couldn't read that recording."
+DICTATE_SLOW = "The recording took too long to send. Check your internet connection and try again."
+DICTATE_BUSY = "Waffler Plus couldn't take this dictation just now. Try again in a moment."
+# ... a meeting's recording it did not take (transcribe), and a prompt it did
+# not answer (write: notes, Ask, a transform, a command).
+TRANSCRIBE_TOO_OFTEN = "That is too many recordings in a minute. Wait a moment, then try again."
+TRANSCRIBE_TOO_LONG = "That recording is too long for Waffler Plus to take in one go."
+TRANSCRIBE_BUSY = "Waffler Plus couldn't take this recording just now. Try again in a moment."
+TRANSCRIBE_FAILED = "Waffler Plus couldn't finish writing this recording down. Try again in a moment."
+TRANSCRIBE_TIMEOUT = "Waffler Plus ran out of time on this recording. Try again in a moment."
+PLUS_FULL = "Waffler Plus has no room just now. Try again later."
+WRITE_TOO_OFTEN = "That is too many requests in a minute. Wait a moment, then try again."
+WRITE_REFUSED = "Waffler Plus declined to write that."
+WRITE_FAILED = "Waffler Plus couldn't write that just now. Try again in a moment."
+_PLUS_SENTENCES = (PLUS_REQUIRED, PLUS_MINUTES_USED, PLUS_OFFLINE, DICTATE_TOO_OFTEN, DICTATE_TOO_LARGE,
+                   DICTATE_TOO_LONG, DICTATE_UNREADABLE, DICTATE_SLOW, DICTATE_BUSY,
+                   TRANSCRIBE_TOO_OFTEN, TRANSCRIBE_TOO_LONG, TRANSCRIBE_BUSY, TRANSCRIBE_FAILED,
+                   TRANSCRIBE_TIMEOUT, PLUS_FULL, WRITE_TOO_OFTEN, WRITE_REFUSED, WRITE_FAILED,
+                   MODEL_CALLS_CAP, WRITING_CAP, TOO_LARGE)
+
+PLUS_SETTING = "dictation_plus"                       # settings.json: True when Waffler Plus is the chosen way
+PLAN_MAX_AGE_S = 300.0                                # the plan is asked for again when older than this
+DICTATE_WORDS, DICTATE_WORD_CHARS = 200, 40           # how much of the Vocabulary the service uses
+# The service holds a transcription open while it works and stops it at ten
+# minutes; a prompt is one request to its model.
+PLUS_TRANSCRIBE_TIMEOUT_S = 660.0
+PLUS_WRITE_TIMEOUT_S = 180.0                          # a transform, a command
+PLUS_NOTES_TIMEOUT_S = 600.0                          # a meeting's notes, an answer: as long as a provider gets
 
 DIGITS_OLD = 6               # a service that does not say how long its codes are
 _LOCAL_HOSTS = ("127.0.0.1", "localhost", "::1")
 _digits: dict[str, int] = {}  # the address a code was asked for -> how many digits the service said
 _transport = None            # the tests put a stand-in service here (an httpx transport)
 _notice = ""                 # why this computer is no longer signed in, until the next sign-in
+_plan: dict = {}             # the plan as the service last said it, for one token (memory only: see plan)
 
 
 class AccountError(Exception):
@@ -401,7 +439,8 @@ def _answers(fn):
         try:
             return fn(*args, **kwargs)
         except AccountError as e:
-            return {"ok": False, "error": e.sentence, "reason": e.reason}
+            wait = getattr(e, "wait_s", 0)            # how long the service said to wait (Plus, a 429)
+            return {"ok": False, "error": e.sentence, "reason": e.reason, **({"wait_s": wait} if wait else {})}
         except Exception:  # noqa: BLE001 — whatever it was, the page gets a sentence
             return {"ok": False, "error": FAILED, "reason": "failed"}
     return run
@@ -435,7 +474,8 @@ def status() -> dict:
             "email": str((s or {}).get("email") or ""),
             "device_name": str((s or {}).get("device_name") or ""),
             "device_id": str((s or {}).get("device_id") or ""),
-            "notice": _notice if available and not s else ""}
+            "notice": _notice if available and not s else "",
+            **plan(), "plus_state": plus_state(), "plus_chosen": plus_chosen()}
 
 
 @_answers
@@ -658,6 +698,342 @@ def connector_rotate() -> dict:
 def connector_off() -> dict:
     """Take the link away: Claude can no longer read the account."""
     return _connector(_request("DELETE", "/account/connector"))
+
+
+# ── Waffler Plus (the service's docs/HOSTED.md, "Waffler Plus (server side)") ─
+# An account is "free" or "plus". Plus is given by the owner by hand: nothing
+# here, and nothing in the page, offers it. With Plus, a dictation can be done
+# by the service (dictate): no model on this computer and no key.
+
+def _plan_of(answer: dict) -> tuple:
+    """("plus", when it ends or None) or ("free", None), from GET /account.
+    A service from before Plus says nothing of a plan: free. So is anything
+    this Waffler does not know."""
+    until = answer.get("plus_until")
+    if answer.get("plan") != "plus" or not (until is None or isinstance(until, str)):
+        return "free", None
+    if until is not None:
+        try:
+            if datetime.fromisoformat(until).tzinfo is None:
+                return "free", None
+        except ValueError:
+            return "free", None
+    return "plus", until
+
+
+def _plan_now() -> dict | None:
+    """What the service last said for the session in use, or None when it
+    has not been asked (or said it for another session)."""
+    s = _session()
+    if not s or _plan.get("token") != s["token"] or "plan" not in _plan:
+        return None
+    return _plan
+
+
+def plan() -> dict:
+    """{"plan": "free" | "plus", "plus_until": <when> | None}, from memory:
+    nothing is contacted (refresh_plan asks). Free until the service has
+    said otherwise, when signed out, and from the second a Plus ends."""
+    known = _plan_now()
+    if known and known["plan"] == "plus":
+        until = known["plus_until"]
+        if until is None or datetime.fromisoformat(until) > datetime.now(timezone.utc):
+            return {"plan": "plus", "plus_until": until}
+    return {"plan": "free", "plus_until": None}
+
+
+@_answers
+def refresh_plan() -> dict:
+    """Ask the service what plan the account has (GET /account) and remember
+    the answer: {"ok", "plan", "plus_until"}. With no internet the plan stays
+    as it was last known."""
+    s = _session()
+    token = s["token"] if s else None
+    try:
+        answer = _request("GET", "/account", token=token)
+    except AccountError as e:
+        if e.reason == "offline" and _plan.get("token") == token:
+            _plan["reached"] = False
+        raise
+    name, until = _plan_of(answer)
+    _plan.clear()
+    _plan.update(token=token, plan=name, plus_until=until, reached=True, asked=time.monotonic())
+    return {"ok": True, **plan()}
+
+
+def plan_due() -> bool:
+    """Signed in, and the plan has not been asked for in the last
+    PLAN_MAX_AGE_S? True at most once in that time: the caller then asks
+    (refresh_plan), on a thread of its own."""
+    s = _session()
+    if not s:
+        return False
+    now = time.monotonic()
+    if _plan.get("token") == s["token"] and now - _plan.get("asked", -PLAN_MAX_AGE_S) < PLAN_MAX_AGE_S:
+        return False
+    if _plan.get("token") != s["token"]:
+        _plan.clear()
+        _plan["token"] = s["token"]
+    _plan["asked"] = now
+    return True
+
+
+def plus_state() -> str:
+    """Where Plus stands for this computer, as a word: "ready"; "signed_out";
+    "ended" (the account is free); "offline" (it has Plus, but the service
+    could not be reached when last asked); "unknown" (not asked yet)."""
+    if not _session():
+        return "signed_out"
+    known = _plan_now()
+    if known is None:
+        return "unknown"
+    if plan()["plan"] != "plus":
+        return "ended"
+    return "ready" if known.get("reached") else "offline"
+
+
+def plus_chosen(stored=None) -> bool:
+    """Is Plus the way dictation runs (settings.json, PLUS_SETTING)? Only
+    the page of an account that has Plus can set it (app.py save_settings)."""
+    stored = _settings() if stored is None else stored
+    return isinstance(stored, dict) and stored.get(PLUS_SETTING) is True
+
+
+def plus_ready(stored=None) -> bool:
+    """Is Plus the chosen way and there to use? Signed in, and the account
+    not known to be free. Not asked yet, or the service unreachable when last
+    asked: still yes, because both are tried. Read from this computer;
+    nothing is contacted. Never raises."""
+    try:
+        return plus_chosen(stored) and plus_state() not in ("signed_out", "ended")
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def plus_sentence(reason) -> str:
+    """``reason`` when it is one of this module's own sentences about
+    something Plus did not take, else "". For the message shown when a
+    recording is kept instead of pasted."""
+    text = str(reason or "")
+    return text if text in _PLUS_SENTENCES + (SIGNED_OUT, DISABLED, ALLOWANCE_USED) else ""
+
+
+def _plan_is_free(token: str) -> None:
+    """The service has just said this account has no Plus (402
+    plus_required): the plan is free from now, also when it had not been
+    read yet, until it is read again (refresh_plan)."""
+    s = _session()
+    if not s or s["token"] != token:
+        return                                        # signed in again since that request was sent
+    if _plan.get("token") != token:
+        _plan.clear()
+        _plan["token"] = token
+    _plan.update(plan="free", plus_until=None, reached=True)
+
+
+def _dictate_refusal(status: int, body, token: str) -> AccountError:
+    code = _word(body)
+    if status == 401:
+        _signed_out_by_service(token)
+        return AccountError(SIGNED_OUT, "signed_out")
+    if status == 403 and code == "account_disabled":
+        return AccountError(DISABLED, "disabled")
+    if status == 402:
+        if code == "plus_required":                   # the plan ended since it was last read
+            _plan_is_free(token)
+            return AccountError(PLUS_REQUIRED, "plus_required")
+        if code == "minutes_cap":
+            return AccountError(PLUS_MINUTES_USED, "minutes_cap")
+        return AccountError(ALLOWANCE_USED, "over_allowance")
+    if status == 429:
+        return AccountError(DICTATE_TOO_OFTEN, "too_many")
+    if status == 413:
+        return AccountError(DICTATE_TOO_LONG, "too_long") if code == "audio_too_long" \
+            else AccountError(DICTATE_TOO_LARGE, "too_large")
+    if status == 400:
+        return AccountError(DICTATE_UNREADABLE, "refused")
+    if status == 408:
+        return AccountError(DICTATE_SLOW, "slow")
+    if status >= 500:
+        return AccountError(DICTATE_BUSY, "busy")
+    return AccountError(FAILED)
+
+
+@_answers
+def dictate(audio: bytes, *, filename: str = "audio.wav", content_type: str = "audio/wav",
+            clean: bool = True, language=None, words=(), timeout: float = SYNC_TIMEOUT_S) -> dict:
+    """One dictation, done by the service (POST /api/dictate): the recording
+    goes up, its text comes back, and the service keeps nothing of it.
+    {"ok", "text" (to paste), "raw" (as heard), "seconds", "cleaned", "code"}.
+    `cleaned` False with a `code` means the tidying was asked for and could
+    not be done: the words still came back, as heard. `clean` False asks for
+    no tidying; `language` is a code such as "en" (anything else is left out
+    and the service detects it); `words` is the Vocabulary, cut to what the
+    service uses. A refusal is one sentence; "plus_required" and
+    "signed_out" are the two reasons that mean Plus is not there to use."""
+    server = server_url()
+    if not server:
+        raise AccountError(NOT_AVAILABLE, "unavailable")
+    s = _session()
+    if not s:
+        raise AccountError(NOT_SIGNED_IN, "signed_out")
+    token = s["token"]
+    form = {"clean": "true" if clean else "false"}
+    if isinstance(language, str) and re.fullmatch(r"[A-Za-z-]{1,12}", language) and language != "auto":
+        form["language"] = language
+    listed = [" ".join(re.split(r"[,\s]+", w)).strip()[:DICTATE_WORD_CHARS].strip()
+              for w in words if isinstance(w, str)]
+    listed = [w for w in listed if w][:DICTATE_WORDS]
+    if listed:
+        form["words"] = "\n".join(listed)
+    import httpx
+    try:
+        with http_client(server, timeout) as client:
+            r = client.post("/api/dictate", data=form, files={"file": (filename, audio, content_type)},
+                            headers={"Authorization": f"Bearer {token}"})
+    except httpx.HTTPError:
+        raise AccountError(PLUS_OFFLINE, "offline") from None
+    try:
+        answer = r.json()
+    except ValueError:
+        answer = None
+    if r.status_code != 200:
+        raise _dictate_refusal(r.status_code, answer, token)
+    if not isinstance(answer, dict) or not isinstance(answer.get("text"), str):
+        raise AccountError(FAILED)
+    raw, seconds, code = answer.get("raw"), answer.get("seconds"), answer.get("code")
+    return {"ok": True, "text": answer["text"], "raw": raw if isinstance(raw, str) else answer["text"],
+            "seconds": float(seconds) if isinstance(seconds, (int, float)) and not isinstance(seconds, bool) else 0.0,
+            "cleaned": answer.get("cleaned") is True, "code": code if isinstance(code, str) else ""}
+
+
+def _plus_refusal(status: int, body, headers, token: str, what: str) -> AccountError:
+    """An answer that is not 200 from POST /api/plus/transcribe ("transcribe")
+    or POST /api/plus/write ("write"), as one sentence."""
+    code = _word(body)
+    if status == 401:
+        _signed_out_by_service(token)
+        return AccountError(SIGNED_OUT, "signed_out")
+    if status == 403 and code == "account_disabled":
+        return AccountError(DISABLED, "disabled")
+    if status == 402:
+        if code == "plus_required":                   # the plan ended since it was last read
+            _plan_is_free(token)
+            return AccountError(PLUS_REQUIRED, "plus_required")
+        sentence = {"minutes_cap": PLUS_MINUTES_USED, "model_calls_cap": MODEL_CALLS_CAP,
+                    "model_chars_cap": WRITING_CAP}.get(code)
+        return AccountError(sentence, code) if sentence else AccountError(ALLOWANCE_USED, "over_allowance")
+    if status == 429:
+        e = AccountError(TRANSCRIBE_TOO_OFTEN if what == "transcribe" else WRITE_TOO_OFTEN, "too_many")
+        e.wait_s = _retry_after(headers)
+        return e
+    if what == "write":
+        if status == 413:
+            return AccountError(TOO_LARGE, "too_large")
+        if status == 422:
+            return AccountError(WRITE_REFUSED, "write_refused")
+        if status == 400:
+            return AccountError(FAILED, "refused")
+        return AccountError(WRITE_FAILED, "write_failed") if status >= 500 else AccountError(FAILED)
+    if status == 413:
+        return AccountError(TRANSCRIBE_TOO_LONG, "too_long") if code == "audio_too_long" \
+            else AccountError(DICTATE_TOO_LARGE, "too_large")
+    if status == 400:
+        return AccountError(DICTATE_UNREADABLE, "refused")
+    if status == 408:
+        return AccountError(DICTATE_SLOW, "slow")
+    if status == 507:
+        return AccountError(PLUS_FULL, "server_full")
+    if status == 504 or code == "transcribe_timeout":
+        return AccountError(TRANSCRIBE_TIMEOUT, "transcribe_timeout")
+    if code == "transcribe_failed":
+        return AccountError(TRANSCRIBE_FAILED, "transcribe_failed")
+    return AccountError(TRANSCRIBE_BUSY, "busy") if status >= 500 else AccountError(FAILED)
+
+
+def _plus_post(path: str, what: str, timeout: float, **sent) -> dict:
+    """One signed POST to a Plus route that keeps nothing. Returns the
+    answer's JSON object, or raises AccountError with one sentence."""
+    server = server_url()
+    if not server:
+        raise AccountError(NOT_AVAILABLE, "unavailable")
+    s = _session()
+    if not s:
+        raise AccountError(NOT_SIGNED_IN, "signed_out")
+    token = s["token"]
+    import httpx
+    try:
+        # The answer may take minutes (a part of a meeting, long notes);
+        # finding the service may not.
+        with http_client(server, httpx.Timeout(timeout, connect=TIMEOUT_S)) as client:
+            r = client.post(path, headers={"Authorization": f"Bearer {token}"}, **sent)
+    except httpx.HTTPError:
+        raise AccountError(PLUS_OFFLINE, "offline") from None
+    try:
+        answer = r.json()
+    except ValueError:
+        answer = None
+    if r.status_code != 200:
+        raise _plus_refusal(r.status_code, answer, r.headers, token, what)
+    if not isinstance(answer, dict):
+        raise AccountError(FAILED)
+    return answer
+
+
+def _number(value) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+@_answers
+def transcribe(audio: bytes, *, filename: str = "audio.flac", content_type: str = "audio/flac",
+               language=None, words=(), timeout: float = PLUS_TRANSCRIBE_TIMEOUT_S) -> dict:
+    """A recording (a meeting, or a part of one), written down by the service
+    (POST /api/plus/transcribe): the audio goes up, timed segments come back
+    in the same request, and the service keeps nothing of it.
+    {"ok", "segments": [{"start_s", "end_s", "text"}], "seconds", "language"}:
+    the times are seconds from the start of this upload. `language` and
+    `words` are as for dictate. A refusal is one sentence; with "too_many"
+    there is also "wait_s", how long the service said to wait."""
+    form = {}
+    if isinstance(language, str) and re.fullmatch(r"[A-Za-z-]{1,12}", language) and language != "auto":
+        form["language"] = language
+    listed = [" ".join(re.split(r"[,\s]+", w)).strip()[:DICTATE_WORD_CHARS].strip()
+              for w in words if isinstance(w, str)]
+    listed = [w for w in listed if w][:DICTATE_WORDS]
+    if listed:
+        form["words"] = "\n".join(listed)
+    answer = _plus_post("/api/plus/transcribe", "transcribe", timeout, data=form,
+                        files={"file": (filename, audio, content_type)})
+    segments = answer.get("segments")
+    if not isinstance(segments, list) or not all(
+            isinstance(g, dict) and _number(g.get("start_s")) and _number(g.get("end_s"))
+            and isinstance(g.get("text"), str) for g in segments):
+        raise AccountError(FAILED)
+    seconds = answer.get("seconds")
+    return {"ok": True, "seconds": float(seconds) if _number(seconds) else 0.0,
+            "language": answer["language"] if isinstance(answer.get("language"), str) else "",
+            "segments": [{"start_s": float(g["start_s"]), "end_s": float(g["end_s"]), "text": g["text"]}
+                         for g in segments]}
+
+
+@_answers
+def write(system, messages, *, max_tokens=None, effort=None, timeout: float = PLUS_WRITE_TIMEOUT_S) -> dict:
+    """The app's own prompt, answered by the service's writing model (POST
+    /api/plus/write): {"ok", "text"}. `messages` is [{"role": "user" |
+    "assistant", "content"}], the first and last the user's; the prompts are
+    the app's, and the service adds nothing to them and keeps nothing. The
+    answer is the whole text (no streaming). `max_tokens` and `effort`
+    ("low") are left out when not given: the service then uses its own."""
+    body = {"system": system if isinstance(system, str) else "",
+            "messages": [{"role": m["role"], "content": m["content"]} for m in messages]}
+    if isinstance(max_tokens, int) and not isinstance(max_tokens, bool) and max_tokens >= 1:
+        body["max_tokens"] = max_tokens
+    if effort == "low":
+        body["effort"] = "low"
+    answer = _plus_post("/api/plus/write", "write", timeout, json=body)
+    if not isinstance(answer.get("text"), str):
+        raise AccountError(FAILED)
+    return {"ok": True, "text": answer["text"]}
 
 
 # ── sync (src/meetings/sync.py does the work) ───────────────────────────────

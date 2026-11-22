@@ -13,6 +13,20 @@ hardened one: `"digits"` (8) from /auth/email/start, a fresh emailed code to
 delete the account (POST /account/delete/start, then DELETE /account with
 {"code"}), a count of wrong codes and of codes asked for per address, and
 refusals named in "error".
+
+Both also speak the Waffler Plus contract (the service's docs/HOSTED.md,
+"Waffler Plus (server side)"): `GET /account` says the plan, and
+`POST /api/dictate` takes a recording and answers its text, for an account
+that `give_plus` was called for. `has_plan = False` is a service from before
+Plus: `GET /account` says nothing of a plan.
+
+And the two routes that do a meeting's work and keep nothing:
+`POST /api/plus/transcribe` (one audio upload in, timed segments out; `hear`
+decides what was said) and `POST /api/plus/write` (the app's own prompt in,
+the model's text out; `write_reply` decides what is written). Each has a list
+of refusals, one per coming request (`None`: that one goes through), so a
+test can fail the second part of a meeting, or end the day's allowance
+part-way.
 """
 from __future__ import annotations
 
@@ -80,6 +94,51 @@ class FakeAccountServer:
         self.accepted_sizes: list[int] = []      # ... and how large each was
         self.too_large = 0                       # pushes refused for their size
         self.hold = None                         # a threading.Event: sync waits on it
+        # Waffler Plus
+        self.has_plan = True                     # False: GET /account has no "plan" (an older service)
+        self.plans: dict[str, str | None] = {}   # email -> when Plus ends (None: no end); absent: free
+        self.heard = {"raw": "um so zebra quartz alpha you know", "text": "Zebra quartz, alpha."}
+        self.dictate_refusal = None              # (status, detail, code, headers) for the next dictations
+        self.clean_trouble = ""                  # "model_calls_cap" | "model_chars_cap" | "clean_failed"
+        self.dictations: list[dict] = []         # each dictation's form, as the service read it
+        # ... a whole recording (POST /api/plus/transcribe) and the app's own prompt (POST /api/plus/write)
+        self.transcriptions: list[dict] = []     # each upload's form, with "seconds" (the audio's length)
+        self.transcribe_refusals: list = []      # per coming request: (status, detail, code, headers) or None
+        self.hear = lambda seconds, n: [{"start_s": 0.5, "end_s": 2.0, "text": f"Recording {n} said this."}]
+        self.writes: list[dict] = []             # each request's JSON body
+        self.write_refusals: list = []           # per coming request, as above
+        self.write_reply = lambda body: "TITLE: Kitchen plans\n\n### Decisions\n- The cabinets arrive on the 14th."
+
+    def give_plus(self, email: str, until: str | None = None) -> None:
+        """What the owner does by hand: this account has Plus (until `until`)."""
+        self.plans[email] = until
+
+    def end_plus(self, email: str) -> None:
+        self.plans.pop(email, None)
+
+    def _plan(self, email: str) -> dict:
+        if email not in self.plans:
+            return {"plan": "free", "plus_until": None}
+        until = self.plans[email]
+        if until and datetime.fromisoformat(until) <= datetime.now(timezone.utc):
+            return {"plan": "free", "plus_until": None}
+        return {"plan": "plus", "plus_until": until}
+
+    @staticmethod
+    def _form(request: httpx.Request) -> dict:
+        """A multipart form: {"name": text, "file": {"filename", "type", "bytes"}}."""
+        from email.parser import BytesParser
+        from email.policy import HTTP
+        head = b"Content-Type: " + request.headers.get("content-type", "").encode() + b"\r\n\r\n"
+        out = {}
+        for part in BytesParser(policy=HTTP).parsebytes(head + request.content).iter_parts():
+            name = part.get_param("name", header="content-disposition")
+            data = part.get_payload(decode=True) or b""
+            if part.get_filename():
+                out[name] = {"filename": part.get_filename(), "type": part.get_content_type(), "bytes": data}
+            else:
+                out[name] = data.decode("utf-8")
+        return out
 
     def transport(self) -> httpx.MockTransport:
         return httpx.MockTransport(self.handle)
@@ -136,7 +195,8 @@ class FakeAccountServer:
             raise httpx.ConnectError("no route to host", request=request)
         method, path = request.method, request.url.path
         body = {}
-        if request.content and method in ("POST", "PUT", "PATCH", "DELETE"):
+        if request.content and method in ("POST", "PUT", "PATCH", "DELETE") \
+                and not request.headers.get("content-type", "").startswith("multipart/"):
             body = json.loads(request.content)
 
         if path == "/auth/email/start" and method == "POST":
@@ -187,6 +247,65 @@ class FakeAccountServer:
         if session["email"] in self.disabled:
             return self._refuse(403, "This account is disabled.", "account_disabled")
         user = session["user"]
+
+        if path == "/account" and method == "GET":           # free for every account
+            return self._json(200, {
+                **(self._plan(session["email"]) if self.has_plan else {}),
+                "user": {"id": user, "email": session["email"], "created_at": self.user_created.get(user)},
+                "usage": {}, "devices": [self._device_view(s["device"], s is session)
+                                         for s in self.sessions.values() if s["user"] == user],
+                "connector": {"exists": user in self.connectors},
+                "limits": {"max_upload_mb": 200, "max_dictate_seconds": 300.0}})
+
+        if path == "/api/dictate" and method == "POST":
+            if self._plan(session["email"])["plan"] != "plus":   # before any of the body is read
+                return self._refuse(402, "This needs Waffler Plus.", "plus_required")
+            if self.dictate_refusal:
+                return self._refuse(*self.dictate_refusal)
+            form = self._form(request)
+            if not isinstance(form.get("file"), dict):
+                return self._refuse(400, "Send the recording as a file.")
+            self.dictations.append(form)
+            clean = str(form.get("clean", "true")).strip().lower() not in ("false", "0", "no", "off")
+            raw, text = self.heard["raw"], self.heard["text"]
+            answer = {"text": text if clean else raw, "raw": raw, "seconds": 3.0, "cleaned": clean}
+            if clean and self.clean_trouble:
+                answer.update(text=raw, cleaned=False, code=self.clean_trouble,
+                              detail="Today's AI allowance is used. There is more after midnight UTC."
+                              if "cap" in self.clean_trouble else "The text could not be tidied just now.")
+            return self._json(200, answer, {"Cache-Control": "no-store"})
+
+        if path in ("/api/plus/transcribe", "/api/plus/write") and method == "POST":
+            if self._plan(session["email"])["plan"] != "plus":   # before any of the body is read
+                return self._refuse(402, "This needs Waffler Plus.", "plus_required")
+            refusals = self.transcribe_refusals if path.endswith("transcribe") else self.write_refusals
+            refusal = refusals.pop(0) if refusals else None
+            if refusal:
+                return self._refuse(*refusal)
+            if path.endswith("write"):
+                msgs = body.get("messages")
+                if not (isinstance(msgs, list) and 1 <= len(msgs) <= 40 and all(
+                        isinstance(m, dict) and m.get("role") in ("user", "assistant")
+                        and isinstance(m.get("content"), str) and m["content"] for m in msgs)
+                        and msgs[0]["role"] == msgs[-1]["role"] == "user"
+                        and isinstance(body.get("system", ""), str)):
+                    return self._refuse(400, "messages must be 1 to 40 messages, the first and last the user's.")
+                self.writes.append(body)
+                return self._json(200, {"text": self.write_reply(body)}, {"Cache-Control": "no-store"})
+            form = self._form(request)
+            if not isinstance(form.get("file"), dict):
+                return self._refuse(400, "Send the recording as a file.")
+            import io
+            import soundfile as sf
+            try:
+                info = sf.info(io.BytesIO(form["file"]["bytes"]))
+            except Exception:
+                return self._refuse(400, "That file is not audio.")
+            form["seconds"] = info.frames / info.samplerate
+            self.transcriptions.append(form)
+            return self._json(200, {"segments": self.hear(form["seconds"], len(self.transcriptions)),
+                                    "seconds": form["seconds"], "language": form.get("language", "")},
+                              {"Cache-Control": "no-store"})
 
         if self.model_calls_cap:
             return self._refuse(402, "Today's questions and rewrites are used up. The count starts again "

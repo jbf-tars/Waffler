@@ -948,6 +948,7 @@ mark.hl {
 
 /* ── The column ──────────────────────────────────────────────────────── */
 .scontent {
+  position: relative;   /* holds its .sr-only notes, so they scroll with it and never stretch the page */
   min-width: 0;
   overflow-y: auto;
   scrollbar-width: thin;
@@ -1567,6 +1568,8 @@ body[data-theme="dark"] .kc-xl.held {
 .acct-more { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 12px; font: var(--t-desc); }
 .acct-more .link-btn:disabled { color: var(--muted); text-decoration-color: transparent; cursor: default; }
 .acct-dev { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; }
+/* The plan, for an account that has Waffler Plus: one quiet line at the end of the first row (account.js drawPlan). */
+.acct-plan { flex: none; margin: 0; white-space: nowrap; }
 .acct-word { margin-top: 12px; color: var(--text); }
 .acct-word + .tx-add { max-width: 520px; }
 .acct-word + .tx-add .input { flex: 1 1 120px; }

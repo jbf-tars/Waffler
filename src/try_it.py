@@ -41,9 +41,24 @@ def _noop(*_a, **_k):
     return None
 
 
+def _plus_ready() -> bool:
+    """Is Waffler Plus the chosen way and there to use (src/account.py)?"""
+    try:
+        try:
+            from src import account
+        except ImportError:
+            import account
+        return bool(account.plus_ready())
+    except Exception:               # noqa: BLE001
+        return False
+
+
 def ready(styler) -> bool:
     """Is there a provider the styler's ``_chat`` can ask? That call is the
-    one a transform and a command make, and it asks the person's own keys."""
+    one a transform and a command make, and it asks the person's own keys,
+    or Waffler Plus when that is the chosen way: then no key is needed."""
+    if styler is not None and _plus_ready():
+        return True
     try:
         return any(bool(styler._provider_ready(name)) for name in _PROVIDERS)
     except Exception:               # noqa: BLE001 - no styler yet, or one that cannot say

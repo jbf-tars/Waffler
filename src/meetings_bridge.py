@@ -32,6 +32,14 @@ def _theme(waffler_theme: str) -> str:
     return {"dark": "dark", "cream": "light"}.get((waffler_theme or "").lower(), "auto")
 
 
+def _notes_need_key() -> str:
+    try:
+        from src.meetings import llm
+    except ImportError:
+        from meetings import llm
+    return llm.NOTES_NEED_KEY
+
+
 def handle(ctl, method: str, path: str, body=None, waffler_theme: str = "") -> dict:
     """One call from the page. `ctl` is the MeetingsController."""
     try:
@@ -64,6 +72,13 @@ def _route(ctl, method: str, raw: str, body, waffler_theme: str):
     def full(note_id: str) -> dict:
         note = note_or_404(note_id, segments=True)
         note["has_audio"] = svc.has_audio(note_id)
+        # A meeting that has its transcript and nothing to write the notes
+        # with is not a problem to report. The page says so itself in one
+        # quiet line, from `local` and the keys (GET /app), and stops saying
+        # it when a key or the writing model arrives. The engine's sentence
+        # stays in the store for everything else that reads it.
+        if note.get("error") == _notes_need_key():
+            note["error"] = ""
         return note
 
     def state() -> dict:
@@ -72,14 +87,23 @@ def _route(ctl, method: str, raw: str, body, waffler_theme: str):
     # ── app ─────────────────────────────────────────────────────────────────
     if seg == ["app"] and method == "GET":
         try:
-            from src.meetings import keys, __version__
+            from src.meetings import keys, llm, transcribe, __version__
             from src.meetings.recorder import SystemSource
         except ImportError:
-            from meetings import keys, __version__
+            from meetings import keys, llm, transcribe, __version__
             from meetings.recorder import SystemSource
         settings = dict(store.settings())
+        # What this computer does by itself, with no key: the page records
+        # when there is a speech key or `speech`, and offers to write notes
+        # when there is a writing key or `writing`. Two booleans, nothing else.
+        local = {"speech": transcribe.local_ready(settings), "writing": llm.local_ready()}
+        # Waffler Plus does both jobs, with no key and no model here: the
+        # page then offers to record and never says notes need a key.
+        if transcribe.uses_plus():
+            local = {"speech": True, "writing": True, "plus": True}
         settings["theme"] = _theme(waffler_theme)            # the page follows Waffler's theme
         return {"name": "Waffler", "version": __version__, "settings": settings, "keys": keys.status(),
+                "local": local,
                 "local_whisper_available": False, "key_store": "waffler",
                 "system_audio_supported": SystemSource.supported(), "waffler_keys_available": False,
                 "data_dir": "", "templates": store.templates(), "folders": store.folders(), "state": state()}

@@ -353,8 +353,14 @@ What does not, and what the person sees:
 - Clean-up styles, Transforms and Command mode: unchanged; they already say
   when no key is set.
 
-"Waffler Plus" is only a name in those two sentences. Nothing here implements
-it.
+"Waffler Plus" was only a name in those two sentences when they were written.
+It exists now, for an account that has it (`src/account.py`): with Plus the
+chosen way the account service does the work, with no key and no model here.
+A dictation goes to `POST /api/dictate`; a meeting's audio to
+`POST /api/plus/transcribe`, in parts of twelve minutes once the recording has
+ended (`src/meetings/recorder.py` `finish_waiting`); notes, Ask, Transforms and
+Command mode send their own prompts to `POST /api/plus/write`. Neither
+sentence is shown to someone on Plus.
 
 ## Tidying and notes on this computer
 

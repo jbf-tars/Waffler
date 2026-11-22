@@ -50,6 +50,46 @@ except ImportError:  # imported as src.transcribe_whisper
 # the work ("mlx" and "faster" are what two earlier local paths called it).
 BACKEND_LOCAL = "local"
 LOCAL_BACKENDS = (BACKEND_LOCAL, "mlx", "faster")
+# Waffler Plus: the account service turns a dictation into text (and tidies
+# it) in one request, for an account that has Plus and chose it (src/account.py).
+BACKEND_PLUS = "plus"
+# The service takes at most 300 s of audio in one dictation (its
+# limits.max_dictate_seconds). At 16 kHz, 16-bit, mono that is 9.6 MB of WAV;
+# a take over 280 s is sent in pieces (_split_audio_on_silence).
+_PLUS_SINGLE_SHOT_BYTES = 280 * 32000
+
+
+def _account():
+    """src/account.py, as app.py finds it (one module, so one plan in memory)."""
+    try:
+        from src import account
+    except ImportError:
+        import account
+    return account
+
+
+def _cleanup_is_off(settings) -> bool:
+    """Is the clean-up switched off in Settings, Style (src/style_layer.py)?"""
+    try:
+        import style_layer
+    except ImportError:
+        from src import style_layer
+    return style_layer.cleanup_is_off(settings)
+
+
+class PlusError(Exception):
+    """Waffler Plus did not take a dictation. The message is one sentence fit
+    to show (src/account.py); the caller keeps the recording."""
+
+
+class _PlusGone(Exception):
+    """The account no longer has Plus ("ended"), this computer is signed out
+    ("signed_out"), or the service could not be reached ("offline"): the
+    dictation goes the way it would have before. Plus stays the chosen way."""
+
+    def __init__(self, why: str, sentence: str):
+        super().__init__(sentence)
+        self.why, self.sentence = why, sentence
 
 
 try:
@@ -2650,7 +2690,22 @@ class WhisperTranscriber:
     instead and no provider is asked. A cloud call may take 60 s or more to
     answer (_upload_timeout_s) but only a few seconds to connect while another
     provider is waiting (net_health.request_timeout).
+
+    A third way, for a dictation only (``plus_allowed``, set by app.py for
+    each one): Waffler Plus, when the account has it and it is the chosen way.
     """
+
+    # May this recording go through Waffler Plus? app.py says so for a
+    # dictation and not for Command mode or setup's practice.
+    plus_allowed = False
+    # Should Plus tidy the text as well (a dictation), or only hear it (the
+    # spoken instruction of a command: no model is asked for that)?
+    plus_tidy = True
+    # What Plus answered for the recording in hand ({"text", "cleaned",
+    # "code"}; None when it did not go through Plus), and why Plus, though
+    # chosen, was not used ("ended" | "signed_out" | "").
+    last_plus = None
+    last_plus_gone = ""
 
     def __init__(self, api_key: str = "", model: str = "",
                  groq_api_key: str = "", provider_order=None):
@@ -2706,18 +2761,93 @@ class WhisperTranscriber:
         """Set ``_backend`` to "local" when Settings says speech is turned into
         text on this computer, and back to the provider backend when it no
         longer does. Called for every recording, so the switch in Settings
-        applies to the next dictation without a restart."""
+        applies to the next dictation without a restart. (A dictation then
+        goes through Waffler Plus, "plus", when that is the chosen way:
+        _choose_plus, from transcribe_sync.)"""
         try:
             local = _local_stt.mode_is_local()
         except Exception:
             local = False
         current = getattr(self, "_backend", "api")
+        if current == BACKEND_PLUS:                   # the dictation before went through Plus
+            current = self._backend = getattr(self, "_cloud_backend", "api")
         if local and current != BACKEND_LOCAL:
             self._cloud_backend = current
             self._backend = BACKEND_LOCAL
         elif not local and current == BACKEND_LOCAL:
             self._backend = getattr(self, "_cloud_backend", "api")
         return self._backend
+
+    # ── Waffler Plus ─────────────────────────────────────────────────────────
+
+    def _choose_plus(self) -> None:
+        """A dictation: through Plus when it is the chosen way and there to
+        use. Chosen but gone (signed out, or the account is free again): the
+        way it was before, and ``last_plus_gone`` says why, for the app to say
+        so once. Plus stays the chosen way: this is asked for every recording,
+        so it is used again by itself when it is back. Never raises."""
+        try:
+            acct = _account()
+            if not acct.plus_chosen():
+                return
+            state = acct.plus_state()
+        except Exception:
+            return
+        if state in ("signed_out", "ended"):
+            self._leave_plus(state)
+            return
+        if self._backend != BACKEND_LOCAL:
+            self._cloud_backend = self._backend
+        self._backend = BACKEND_PLUS
+
+    def _leave_plus(self, why: str) -> None:
+        """Plus is the chosen way and is not there: what would have been used
+        before it. The setting's way when that can work (a key, or the model
+        on this computer); else the other one, if that can."""
+        self.last_plus_gone = why
+        self.last_plus = None
+        if self._backend == BACKEND_PLUS:
+            self._backend = getattr(self, "_cloud_backend", "api")
+            self._refresh_backend()
+        if self._backend in LOCAL_BACKENDS or self._has_client("groq") or self._has_client("openai"):
+            return
+        try:
+            if _local_stt.model_status().get("state") == "ready":
+                self._backend = BACKEND_LOCAL
+        except Exception:
+            pass
+
+    def _transcribe_plus(self, audio_bytes: bytes) -> str:
+        """One piece of a dictation, done by the account service (POST
+        /api/dictate): the same upload a provider gets, the clean-up as
+        Settings has it, the language, and the Vocabulary. Returns the words
+        as heard; the tidied text is kept in ``last_plus`` for the clean-up
+        step, which then asks no model. Raises PlusError with a sentence fit
+        to show, or _PlusGone when Plus is not there any more."""
+        t0 = time.time()
+        acct = _account()
+        settings = load_settings()
+        name, data, mime = _upload_file(audio_bytes)
+        answer = acct.dictate(data, filename=name, content_type=mime,
+                              clean=bool(getattr(self, "plus_tidy", True)) and not _cleanup_is_off(settings),
+                              language=settings.get("language", "en"), words=load_vocab(),
+                              timeout=_upload_timeout_s(len(data)))
+        if not answer.get("ok"):
+            sentence = str(answer.get("error") or acct.FAILED)
+            why = {"plus_required": "ended", "signed_out": "signed_out",
+                   "offline": "offline"}.get(answer.get("reason"))
+            if why:
+                raise _PlusGone(why, sentence)
+            raise PlusError(sentence)
+        so_far = self.last_plus or {"text": "", "cleaned": True, "code": ""}
+        self.last_plus = {
+            "text": " ".join(part for part in (so_far["text"], answer["text"].strip()) if part),
+            "cleaned": bool(so_far["cleaned"] and answer["cleaned"]),
+            "code": so_far["code"] or answer["code"],
+        }
+        self._last_cloud_provider = BACKEND_PLUS
+        _wlog(f"[whisper] Waffler Plus ({(time.time()-t0)*1000:.0f}ms, {len(answer['raw'])} chars)")
+        return answer["raw"]
 
     def _call_with_transient_retries(self, prov: str, fn, audio_bytes: bytes,
                                      retry: bool) -> str:
@@ -2768,6 +2898,20 @@ class WhisperTranscriber:
         Extracted from ``transcribe_sync`` so the long-recording chunk loop can
         call it per chunk without duplicating the fallback logic.
         """
+        # Waffler Plus is an explicit choice too: a refusal is not retried with
+        # the person's key. Only when Plus itself is not there (the plan
+        # ended, this computer was signed out, or the service could not be
+        # reached at all) does this dictation go on below, the way it would
+        # have before Plus; with nothing to use, it is kept.
+        if getattr(self, "_backend", "") == BACKEND_PLUS:
+            try:
+                return self._transcribe_plus(audio_bytes)
+            except _PlusGone as gone:
+                self._leave_plus(gone.why)
+                if self._backend not in LOCAL_BACKENDS and not (
+                        self._has_client("groq") or self._has_client("openai")):
+                    raise PlusError(gone.sentence) from None
+
         # On this computer is an explicit choice: the order doesn't apply, and
         # a failure is never retried with a provider (the audio stays here).
         if getattr(self, "_backend", "") in LOCAL_BACKENDS:
@@ -3011,7 +3155,8 @@ class WhisperTranscriber:
         keeps the original — this can only ever improve the result.
         """
         try:
-            if self._backend in LOCAL_BACKENDS:
+            if self._backend in LOCAL_BACKENDS or self._backend == BACKEND_PLUS \
+                    or getattr(self, "last_plus", None):
                 return transcript  # no alternate provider to retry on
             if _is_unspaced(transcript):
                 # Chinese, Japanese and Thai are written without spaces, so
@@ -3108,8 +3253,13 @@ class WhisperTranscriber:
             return transcript
 
     def transcribe_sync(self, audio_bytes: bytes):
-        # On this computer or a provider, as Settings has it for this recording.
+        # On this computer or a provider, as Settings has it for this
+        # recording; or, for a dictation, Waffler Plus when it is chosen.
+        self.last_plus = None
+        self.last_plus_gone = ""
         self._refresh_backend()
+        if getattr(self, "plus_allowed", False):
+            self._choose_plus()
         # Provenance, reset per recording so a stale response from an earlier
         # dictation can never be attributed to this one. These are the
         # UNTOUCHED provider words: everything below (hallucination filter,
@@ -3158,6 +3308,10 @@ class WhisperTranscriber:
         # common case -- come back as a single chunk and take the unchanged
         # single-shot path.
         chunks = _split_audio_on_silence(audio_bytes)
+        if self._backend == BACKEND_PLUS and len(chunks) == 1:
+            # Waffler Plus takes five minutes of audio in one request: a
+            # longer take goes up in the same pieces a very long one does.
+            chunks = _split_audio_on_silence(audio_bytes, max_single_shot_bytes=_PLUS_SINGLE_SHOT_BYTES)
         # Measure speech ONCE here: the hallucination filter and the
         # incomplete-transcript check both need audio evidence rather than
         # guesses about the text, and measuring twice on a 20 MB clip is

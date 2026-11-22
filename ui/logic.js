@@ -481,8 +481,15 @@
   const ONDEVICE = 'ondevice';
   const CLEANUP_IDS = ['groq', 'cerebras', 'openai', ONDEVICE];
 
+  // Waffler Plus doing the work (get_settings().plus_active: it is the
+  // chosen way and the account has it): then no key's provider is, whatever
+  // keys are saved, and no row says "In use".
+  const PLUS = 'plus';
+  const PLUS_NAME = 'Waffler Plus';
+
   function activeProviders(s) {
     s = s || {};
+    if (s.plus_active === true) return { speech: PLUS, cleanup: PLUS };
     const order = normalizeProviderOrder(s.provider_order);
     let speech = SPEECH_IDS.includes(s.transcription_backend) ? s.transcription_backend : null;
     if (!speech && s.transcription_backend !== 'none') {
@@ -511,6 +518,7 @@
 
   function backendsLine(s) {
     const a = activeProviders(s);
+    if (a.speech === PLUS) return `Speech to text: ${PLUS_NAME} · Clean-up: ${PLUS_NAME}`;
     const speech = a.speech ? SPEECH_BY[a.speech] : 'no key yet';
     const cleanup = a.cleanup === ONDEVICE ? 'on this computer'
       : a.cleanup ? PROVIDER_NAMES[a.cleanup] : (_freeWay(s, a) ? 'off' : 'no key yet');
@@ -605,6 +613,7 @@
   // (no key, or still starting): "No key yet".
   function usesView(s) {
     const a = activeProviders(s);
+    if (a.speech === PLUS) return { speech: PLUS_NAME, cleanup: PLUS_NAME };
     const speech = a.speech
       ? (a.speech === 'mlx' || a.speech === 'faster'
         ? `${SPEECH_MODEL[a.speech]}, ${SPEECH_BY[a.speech]}`
@@ -1047,7 +1056,7 @@
   // The stepper. The first step is named for the way chosen (it was always
   // "Connect Groq").
   const SETUP_LABELS = { permissions: 'Permissions', try: 'Try it', anywhere: 'Use it anywhere' };
-  const SETUP_CONNECT_LABELS = { '': 'How it runs', local: 'On this computer', key: 'Connect Groq' };
+  const SETUP_CONNECT_LABELS = { '': 'How it runs', local: 'On this computer', key: 'Connect Groq', plus: PLUS_NAME };
   function setupStepLabel(step, way) {
     if (step === 'connect') return SETUP_CONNECT_LABELS[way] || SETUP_CONNECT_LABELS[''];
     return SETUP_LABELS[step] || '';
@@ -1132,7 +1141,9 @@
 
   // The line under the two cards. It said notes need a key "either way",
   // which stops being true the moment the writing model is here.
-  function howItRunsNote(llm, hasKey) {
+  // With Waffler Plus the chosen way (`plus`) nothing needs a key at all.
+  function howItRunsNote(llm, hasKey, plus) {
+    if (plus === true) return `${PLUS_NAME} covers dictation, meetings and their notes. No key, no download.`;
     const s = _llmKnown(llm);
     const covers = 'This choice covers dictation and meetings.';
     if (s && s.available === true && s.state === 'ready' && (!hasKey || s.mode === 'local')) {
@@ -1209,10 +1220,22 @@
       done: chosen && (state === 'ready' || state === 'downloading') };
   }
 
+  // A signed-in account that has Waffler Plus is asked for no key and no
+  // download: the first step says it is ready (app.js wizShowPlus makes the
+  // words; the page as written says nothing of Plus) and Continue goes on.
+  // Not for someone whose setup is already on a key or on this computer,
+  // unless Plus is the way they chose. `acct` is Api.account_status().
+  const SETUP_PLUS = { title: `${PLUS_NAME} is ready.`, lede: 'No key. No download.' };
+  function setupPlusReady(acct, way) {
+    if (!accountHasPlus(acct)) return false;
+    return !way || acct.plus_chosen === true;
+  }
+
   // Continue on the first step. On the two cards: the free way once it is
   // downloading or ready, or a key that already passed its check. On the key
   // screens: the key, as it always was.
   function setupConnectDone(state, way, keyOk, stt) {
+    if (state === 'plus') return true;
     if (state !== 'choose') return !!keyOk;
     if (way === 'key') return !!keyOk;
     return setupLocalView(stt, way).done;
@@ -2174,6 +2197,10 @@
   const SPEECH_NODE = { groq: 'Groq', api: 'OpenAI', mlx: 'This Mac', faster: 'This computer' };
   function flowView(s) {
     const a = activeProviders(s);
+    if (a.speech === PLUS) {
+      return { speech: { by: PLUS_NAME, model: '' }, cleanup: { by: PLUS_NAME, model: '' },
+        out: s && s.auto_paste === false ? 'Copied' : 'Pasted' };
+    }
     return {
       speech: a.speech ? { by: SPEECH_NODE[a.speech], model: SPEECH_MODEL[a.speech] } : null,
       cleanup: a.cleanup === ONDEVICE ? { by: 'This computer', model: CLEANUP_MODEL[ONDEVICE] }
@@ -2196,6 +2223,7 @@
   // for the clean-up. No key yet: nothing goes anywhere.
   function privacyFlow(s) {
     const a = activeProviders(s);
+    if (a.speech === PLUS) return { id: PLUS, name: PLUS_NAME, mark: 'W', what: 'your voice, while you hold' };
     if (a.speech === 'groq' || a.speech === 'api') {
       const id = a.speech === 'api' ? 'openai' : 'groq';
       return { id, name: PROVIDER_NAMES[id], mark: PROVIDER_MARKS[id], what: 'your voice, while you hold' };
@@ -3189,6 +3217,33 @@
     return Math.round(s / 86400) + ' days ago';
   }
 
+  // ══ Waffler Plus ═════════════════════════════════════════════════════════
+  // `acct` is Api.account_status(). Plus is given to an account by hand and
+  // is never offered here: an account that does not have it (free, signed
+  // out, or on a service from before Plus) sees nothing of it anywhere.
+  function accountHasPlus(acct) {
+    return accountView(acct) === 'in' && acct.plan === 'plus';
+  }
+
+  // Settings, Account: one quiet line, or '' (no line at all).
+  const PLAN_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  function accountPlanLine(acct, now) {
+    if (!accountHasPlus(acct)) return '';
+    const end = acct.plus_until ? new Date(acct.plus_until) : null;
+    if (!end || isNaN(end.getTime())) return 'Waffler Plus';
+    const far = end.getTime() - (now == null ? Date.now() : now) > 330 * 86400000;
+    return `Waffler Plus until ${end.getDate()} ${PLAN_MONTHS[end.getMonth()]}${far ? ' ' + end.getFullYear() : ''}`;
+  }
+
+  // Keys and providers: the third way (howitruns.js), or null when this
+  // account has no such card. `state` is the one line under it.
+  const PLUS_STATES = { offline: 'Can\u2019t reach the service', signed_out: 'Signed out', ended: 'Plan ended' };
+  function plusCardView(acct) {
+    if (!accountHasPlus(acct)) return null;
+    return { label: 'Waffler Plus', helper: 'No key. No download.',
+      state: PLUS_STATES[acct.plus_state] || 'Ready', chosen: acct.plus_chosen === true };
+  }
+
   // The line under "Meetings": Api.account_status().sync.
   function accountSyncLine(sync, now) {
     const s = sync || {};
@@ -3305,6 +3360,7 @@
     finalText, isEdited, suggestionView, editFailedMessage, editSavedLine, learnSaved,
     VOCAB_MAX_SOUNDS, markSegments, dayHeading, weekBars, streakView,
     keyInputView, serviceRows, saidDiff, setupSteps, startupTheme,
+    SETUP_PLUS, setupPlusReady,
     setupWay, setupStepLabel, modelSize, setupRecommended, setupLocalView, setupConnectDone, setupCanGoBack,
     writingOffered, writingRowView, howItRunsNote, setupExtraView, WRITING_TITLE, WRITING_ABOUT, WRITING_HOW,
     setupModeToSave, setupModelWait, setupDownloadSaid, setupShouldResumeDownload, setupTryText,
@@ -3344,6 +3400,7 @@
     heatLevel, heatmapView, heatMove,
     COLLAPSE_OVER, COLLAPSE_SHOW, COLLAPSE_MIN, COLLAPSE_MAX, collapseView,
     searchMarks, searchCount, isFindKey, enterRunsDefault, copyWorked, platformText,
+    accountHasPlus, accountPlanLine, plusCardView,
     accountView, accountDigits, accountCode, accountCodeReady, accountCodeLabel, accountCodeExample, accountBadCode, accountAgo, accountSyncLine, accountDeviceLine, accountClaudeView,
     ACCOUNT_RESEND_S, accountCodeLine, accountResendView, accountSignedInLine,
     accountSetupOffered, accountOfferView, accountDeleteStep, accountDeleteReady, accountConfirm,

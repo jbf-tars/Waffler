@@ -368,7 +368,11 @@ body {
 }
 
 /* ── Base ──────────────────────────────────────────────────────────────── */
-html, body {
+/* The theme's colours are set on <body>, so <html> must not paint its own
+   background: it would stay the light one in dark mode and show as a strip
+   wherever the page is taller than its content. With none on <html>, the
+   body's background fills the whole window. */
+body {
   background: var(--bg);
   color: var(--text);
 }

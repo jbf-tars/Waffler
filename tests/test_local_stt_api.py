@@ -291,7 +291,8 @@ def test_the_pipeline_is_built_without_a_key_only_in_local_mode(_isolated_data_d
         made.append(config)
         raise Stop()            # the rest of _build_pipeline is not this test's
     ns = {"_config": Config(), "_log_to_file": logged.append, "_local_stt": local_stt,
-          "WafflerPipeline": pipeline, "_pipeline": None}
+          "WafflerPipeline": pipeline, "_pipeline": None,
+          "_plus_chosen_here": lambda: False}       # Waffler Plus not chosen (tests/test_plus_page.py)
     exec(compile(ast.Module([build], []), "<app.py>", "exec"), ns)
     ns["_build_pipeline"]()
     assert made == [] and logged == ["Cannot initialize pipeline: no API key found"]
@@ -304,13 +305,14 @@ def test_the_pipeline_is_built_without_a_key_only_in_local_mode(_isolated_data_d
 
 
 def test_the_key_checks_all_allow_local_mode():
-    """The four places that used to stop a Waffler with no key."""
+    """The four places that used to stop a Waffler with no key. (Each also
+    lets a Waffler Plus dictation through: tests/test_plus_page.py.)"""
     init = next(n for n in _PIPELINE.body if isinstance(n, ast.FunctionDef) and n.name == "__init__")
     init_src = ast.get_source_segment(_SRC, init)
-    assert "if not groq_key and not openai_key and not _local_stt.mode_is_local():" in init_src
-    assert "if not _config.has_api_key and not _local_stt.mode_is_local():" in _SRC
-    assert "if (config.has_api_key or _local_stt.mode_is_local()) and _is_setup_complete():" in _SRC
-    assert "and (config.has_api_key or _local_stt.mode_is_local())" in _SRC
+    assert "if not groq_key and not openai_key and not _local_stt.mode_is_local() and not" in init_src
+    assert "if not _config.has_api_key and not _local_stt.mode_is_local() and not" in _SRC
+    assert "if (config.has_api_key or _local_stt.mode_is_local() or _plus_chosen_here()) and _is_setup_complete():" in _SRC
+    assert "and (config.has_api_key or _local_stt.mode_is_local() or _plus_chosen_here())" in _SRC
 
 
 # ── setup's practice dictation ───────────────────────────────────────────────
