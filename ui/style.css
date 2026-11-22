@@ -1569,7 +1569,8 @@ body[data-theme="dark"] .kc-xl.held {
 .acct-more .link-btn:disabled { color: var(--muted); text-decoration-color: transparent; cursor: default; }
 .acct-dev { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; }
 /* The plan, for an account that has Waffler Plus: one quiet line at the end of the first row (account.js drawPlan). */
-.acct-plan { flex: none; margin: 0; white-space: nowrap; }
+.acct-plan { flex: none; margin: 0; white-space: nowrap; text-align: right; }
+.acct-use { margin-top: 2px; color: var(--muted); }
 .acct-word { margin-top: 12px; color: var(--text); }
 .acct-word + .tx-add { max-width: 520px; }
 .acct-word + .tx-add .input { flex: 1 1 120px; }

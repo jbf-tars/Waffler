@@ -480,7 +480,8 @@ def status() -> dict:
             "device_name": str((s or {}).get("device_name") or ""),
             "device_id": str((s or {}).get("device_id") or ""),
             "notice": _notice if available and not s else "",
-            **plan(), "plus_state": plus_state(), "plus_chosen": plus_chosen()}
+            **plan(), "plus_state": plus_state(), "plus_chosen": plus_chosen(),
+            "plus_usage": plus_usage()}
 
 
 @_answers
@@ -726,6 +727,36 @@ def _plan_of(answer: dict) -> tuple:
     return "plus", until
 
 
+def _count(value) -> float | None:
+    """A number the service sent that can be shown: not a bool, not negative."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value != value or value < 0:
+        return None
+    return value
+
+
+def _usage_of(answer: dict) -> dict | None:
+    """This month's Plus use from GET /account: {"seconds", "minutes_limit",
+    "chars", "chars_limit"}, each a number or None. A limit of 0 means no
+    limit, so it is None too: nothing is shown for it. None when the service
+    (an older one) sent none of it. Nothing here is ever worked out by guess."""
+    usage = answer.get("usage") if isinstance(answer.get("usage"), dict) else {}
+    limits = answer.get("limits") if isinstance(answer.get("limits"), dict) else {}
+    seconds, chars = _count(usage.get("transcribed_seconds")), _count(usage.get("model_chars_month"))
+    minutes, chars_cap = _count(limits.get("monthly_minutes")), _count(limits.get("model_chars_per_month"))
+    out = {"seconds": seconds if minutes else None, "minutes_limit": minutes or None,
+           "chars": chars if chars_cap else None, "chars_limit": chars_cap or None}
+    return out if any(v is not None for v in out.values()) else None
+
+
+def plus_usage() -> dict | None:
+    """What refresh_plan last heard of this month's use, while the account
+    has Plus; None otherwise. From memory: nothing is contacted."""
+    known = _plan_now()
+    if known and plan()["plan"] == "plus":
+        return known.get("usage")
+    return None
+
+
 def _plan_now() -> dict | None:
     """What the service last said for the session in use, or None when it
     has not been asked (or said it for another session)."""
@@ -762,7 +793,8 @@ def refresh_plan() -> dict:
         raise
     name, until = _plan_of(answer)
     _plan.clear()
-    _plan.update(token=token, plan=name, plus_until=until, reached=True, asked=time.monotonic())
+    _plan.update(token=token, plan=name, plus_until=until, reached=True, asked=time.monotonic(),
+                 usage=_usage_of(answer) if name == "plus" else None)
     return {"ok": True, **plan()}
 
 

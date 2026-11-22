@@ -19,7 +19,7 @@ from .paths import audio_dir, data_dir
 from .recorder import (CHUNK_MAX_S, CHUNK_MIN_S, WAITING, Recorder, _Job, finish_waiting, retranscribe,
                        waiting_files)
 from .store import Store
-from .transcribe import TranscribeError
+from .transcribe import SPEECH_NEEDS_SETUP, TranscribeError
 
 
 def _when(iso: str) -> str:
@@ -276,7 +276,10 @@ class Service:
                 self.recorder.progress.pop(note_id, None)      # written down: the notes are next
                 self._after_recording(note_id)
             except Exception as e:  # noqa: BLE001
-                self.store.update_note(note_id, status="ready", error=str(e))
+                # Nothing set up to write it down is a state, not a failure
+                # (as for an import): the audio is kept, the page says what to do.
+                setup = isinstance(e, TranscribeError) and e.kind in ("no_key", "no_local")
+                self.store.update_note(note_id, status="ready", error=SPEECH_NEEDS_SETUP if setup else str(e))
             finally:
                 self.recorder.progress.pop(note_id, None)
         threading.Thread(target=run, daemon=True).start()

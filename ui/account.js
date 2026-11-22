@@ -161,6 +161,9 @@
       $('acctWho').closest('.row').append(plan);
     }
     plan.textContent = line;
+    L.accountUsageLines(s).forEach((t) => {      // this month's use, quieter lines under it
+      const d = document.createElement('div'); d.className = 'acct-use'; d.textContent = t; plan.append(d);
+    });
   }
 
   function drawSync() {
