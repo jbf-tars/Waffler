@@ -258,6 +258,7 @@ def test_the_page_can_ask_for_notes_and_never_hears_notes_need_a_key(plus):
 
 @pytest.mark.parametrize("refusal, sentence", [
     ((402, "The month's minutes are used up.", "minutes_cap"), account.PLUS_MINUTES_USED),
+    ((402, "You have used this month's Waffler Plus.", "month_used"), account.PLUS_MONTH_USED),
     ((413, "That recording is too large.", "audio_too_large"), account.DICTATE_TOO_LARGE),
     ((400, "That file is not audio."), account.DICTATE_UNREADABLE),
     ((503, "The transcription failed.", "transcribe_failed", {"Retry-After": "5"}), account.TRANSCRIBE_FAILED),

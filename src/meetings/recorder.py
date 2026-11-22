@@ -23,7 +23,7 @@ import numpy as np
 from . import audioproc
 from .audioproc import RATE
 from .paths import audio_dir
-from .transcribe import TranscribeError, part_seconds, transcribe, uses_plus
+from .transcribe import SPEECH_NEEDS_SETUP, TranscribeError, part_seconds, transcribe, uses_plus
 
 CHUNK_MIN_S = 15.0
 CHUNK_MAX_S = 28.0
@@ -711,7 +711,10 @@ class Recorder:
         for segs in per_source.values():
             self.store.add_segments(job.note_id, segs)
         if failed is not None:
-            self.store.update_note(job.note_id, touch=False, error=str(failed))
+            # Nothing set up to write it down is a state, not a failure: the
+            # audio is kept and the page says what to do (SPEECH_NEEDS_SETUP).
+            why = SPEECH_NEEDS_SETUP if failed.kind in ("no_key", "no_local") else str(failed)
+            self.store.update_note(job.note_id, touch=False, error=why)
 
 
 # A chunk of a note's audio: s<recording>_<start, ms>_<source>.flac. One that

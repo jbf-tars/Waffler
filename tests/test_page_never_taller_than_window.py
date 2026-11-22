@@ -23,6 +23,4 @@ def test_html_paints_no_background_of_its_own():
 
 
 def test_the_settings_scroller_holds_its_hidden_notes():
-    # utf-8 said outright: Windows reads files as cp1252 by default, and
-    # style.css has characters that are not in it (UnicodeDecodeError there).
     assert "position: relative" in rule((UI / "style.css").read_text(encoding="utf-8"), ".scontent")

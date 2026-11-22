@@ -91,6 +91,7 @@ FAILED = "That didn't work. Try again."
 # offers Plus: it is only ever used by an account that already has it.
 PLUS_REQUIRED = "This account no longer has Waffler Plus."
 PLUS_MINUTES_USED = "This month's Waffler Plus minutes are used up."
+PLUS_MONTH_USED = "This month's Waffler Plus is used up."      # 402 `month_used`: text in and out, by the month
 PLUS_OFFLINE = "Waffler couldn't reach Waffler Plus. Check your internet connection and try again."
 DICTATE_TOO_OFTEN = "That is too many dictations in a minute. Wait a moment, then try again."
 DICTATE_TOO_LARGE = "That recording is too large to send."
@@ -109,7 +110,7 @@ PLUS_FULL = "Waffler Plus has no room just now. Try again later."
 WRITE_TOO_OFTEN = "That is too many requests in a minute. Wait a moment, then try again."
 WRITE_REFUSED = "Waffler Plus declined to write that."
 WRITE_FAILED = "Waffler Plus couldn't write that just now. Try again in a moment."
-_PLUS_SENTENCES = (PLUS_REQUIRED, PLUS_MINUTES_USED, PLUS_OFFLINE, DICTATE_TOO_OFTEN, DICTATE_TOO_LARGE,
+_PLUS_SENTENCES = (PLUS_REQUIRED, PLUS_MINUTES_USED, PLUS_MONTH_USED, PLUS_OFFLINE, DICTATE_TOO_OFTEN, DICTATE_TOO_LARGE,
                    DICTATE_TOO_LONG, DICTATE_UNREADABLE, DICTATE_SLOW, DICTATE_BUSY,
                    TRANSCRIBE_TOO_OFTEN, TRANSCRIBE_TOO_LONG, TRANSCRIBE_BUSY, TRANSCRIBE_FAILED,
                    TRANSCRIBE_TIMEOUT, PLUS_FULL, WRITE_TOO_OFTEN, WRITE_REFUSED, WRITE_FAILED,
@@ -360,6 +361,8 @@ def _refusal(status: int, body, headers, *, signed: bool, what: str,
             return AccountError(SIGNED_OUT, "signed_out")
         return AccountError(FAILED)
     if status == 402:
+        if code == "month_used":
+            return AccountError(PLUS_MONTH_USED, "month_used")
         if code == "model_calls_cap":
             return AccountError(MODEL_CALLS_CAP, "model_calls_cap")
         if "writing" in code:
@@ -844,6 +847,8 @@ def _dictate_refusal(status: int, body, token: str) -> AccountError:
             return AccountError(PLUS_REQUIRED, "plus_required")
         if code == "minutes_cap":
             return AccountError(PLUS_MINUTES_USED, "minutes_cap")
+        if code == "month_used":
+            return AccountError(PLUS_MONTH_USED, "month_used")
         return AccountError(ALLOWANCE_USED, "over_allowance")
     if status == 429:
         return AccountError(DICTATE_TOO_OFTEN, "too_many")
@@ -921,7 +926,7 @@ def _plus_refusal(status: int, body, headers, token: str, what: str) -> AccountE
             _plan_is_free(token)
             return AccountError(PLUS_REQUIRED, "plus_required")
         sentence = {"minutes_cap": PLUS_MINUTES_USED, "model_calls_cap": MODEL_CALLS_CAP,
-                    "model_chars_cap": WRITING_CAP}.get(code)
+                    "model_chars_cap": WRITING_CAP, "month_used": PLUS_MONTH_USED}.get(code)
         return AccountError(sentence, code) if sentence else AccountError(ALLOWANCE_USED, "over_allowance")
     if status == 429:
         e = AccountError(TRANSCRIBE_TOO_OFTEN if what == "transcribe" else WRITE_TOO_OFTEN, "too_many")
@@ -1053,6 +1058,8 @@ def sync_refusal(status: int | None, detail: str = "", code: str = "", token: st
     if status == 402:
         if "writing" in (code or ""):
             return WRITING_CAP
+        if code == "month_used":
+            return PLUS_MONTH_USED
         return MODEL_CALLS_CAP if code == "model_calls_cap" else detail or OVER_ALLOWANCE
     if status == 403:
         return DISABLED if code == "account_disabled" else FAILED

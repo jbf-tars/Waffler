@@ -107,6 +107,14 @@ def clean_segments(raw_segments, audio: np.ndarray) -> list[dict]:
     return out
 
 
+# What a note says when audio came in (an imported file, say) and nothing can
+# write it down yet: no key, no model on this computer, no Waffler Plus. The
+# audio is kept. This is a state, not a failure: the Meetings page says it in
+# its own calm words and Waffler's engine keeps the sentence for everything else.
+SPEECH_NEEDS_SETUP = ("The audio is saved. Writing it down needs a speech key, the free model "
+                      "or Waffler Plus.")
+
+
 class TranscribeError(Exception):
     """`kind` is 'no_key', 'no_local', 'auth', 'rate', 'network', 'plus' or 'other'."""
 

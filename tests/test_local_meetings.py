@@ -196,7 +196,7 @@ def test_a_model_that_is_not_downloaded_keeps_the_audio_and_says_so(local):
     service = Service(store=Store())
     note = _ingest(service)
     assert note["status"] == "ready" and note["segments"] == []
-    assert note["error"] == local_stt.NOT_DOWNLOADED, "the reason, not the line about notes"
+    assert note["error"] == mt.SPEECH_NEEDS_SETUP, "the reason (a state the page says calmly), not the line about notes"
     assert service.has_audio(note["id"]), "kept, so the transcript can be made after the download"
     # Downloaded later: the same audio becomes the transcript.
     local["state"]["error"] = None

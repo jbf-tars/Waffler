@@ -171,6 +171,7 @@ def test_the_words_still_come_back_when_the_service_could_not_tidy(plus, monkeyp
 @pytest.mark.parametrize("refusal, sentence", [
     ((503, "Busy.", "", {"Retry-After": "5"}), account.DICTATE_BUSY),
     ((402, "Used up.", "minutes_cap"), account.PLUS_MINUTES_USED),
+    ((402, "Used up.", "month_used"), account.PLUS_MONTH_USED),
     ((429, "Too many."), account.DICTATE_TOO_OFTEN),
     ((413, "Too long.", "audio_too_long"), account.DICTATE_TOO_LONG),
 ])

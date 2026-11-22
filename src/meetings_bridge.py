@@ -32,6 +32,14 @@ def _theme(waffler_theme: str) -> str:
     return {"dark": "dark", "cream": "light"}.get((waffler_theme or "").lower(), "auto")
 
 
+def _speech_needs_setup() -> str:
+    try:
+        from src.meetings import transcribe
+    except ImportError:
+        from meetings import transcribe
+    return transcribe.SPEECH_NEEDS_SETUP
+
+
 def _notes_need_key() -> str:
     try:
         from src.meetings import llm
@@ -77,8 +85,13 @@ def _route(ctl, method: str, raw: str, body, waffler_theme: str):
         # quiet line, from `local` and the keys (GET /app), and stops saying
         # it when a key or the writing model arrives. The engine's sentence
         # stays in the store for everything else that reads it.
-        if note.get("error") == _notes_need_key():
+        if note.get("error") in (_notes_need_key(), _speech_needs_setup()):
             note["error"] = ""
+        # A meeting being written down in parts (Waffler Plus): the same
+        # "Part 2 of 5" Home shows, from the same place (recorder.progress).
+        part = svc.recorder.progress.get(note_id, "")
+        if part and note.get("status") == "processing":
+            note["progress"] = part
         return note
 
     def state() -> dict:
@@ -140,7 +153,12 @@ def _route(ctl, method: str, raw: str, body, waffler_theme: str):
     # ── notes ───────────────────────────────────────────────────────────────
     if seg == ["notes"]:
         if method == "GET":
-            return store.list_notes(query=query.get("q", ""), folder_id=query.get("folder") or None)
+            notes = store.list_notes(query=query.get("q", ""), folder_id=query.get("folder") or None)
+            parts = svc.recorder.progress              # the same "Part 2 of 5" Home shows
+            for note in notes:
+                if note["id"] in parts and note.get("status") == "processing":
+                    note["progress"] = parts[note["id"]]
+            return notes
         if method == "POST":
             note = store.create_note(template_id=body.get("template_id") or "general")
             ctl._on_change()

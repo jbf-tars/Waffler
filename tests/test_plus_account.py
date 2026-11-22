@@ -205,6 +205,7 @@ def test_the_words_come_back_when_the_tidying_could_not_be_done(server):
 
 REFUSALS = [
     ((402, "The month's minutes are used up.", "minutes_cap"), account.PLUS_MINUTES_USED, "minutes_cap"),
+    ((402, "You have used this month's Waffler Plus.", "month_used"), account.PLUS_MONTH_USED, "month_used"),
     ((402, "Something newer.", "something_new"), account.ALLOWANCE_USED, "over_allowance"),
     ((429, "Too many dictations.", "", {"Retry-After": "20"}), account.DICTATE_TOO_OFTEN, "too_many"),
     ((413, "That recording is too large (the limit is 200 MB).", "audio_too_large"),
@@ -333,6 +334,7 @@ def test_a_prompt_is_sent_as_it_is_and_the_text_comes_back(server):
 
 TRANSCRIBE_REFUSALS = [
     ((402, "The month's minutes are used up.", "minutes_cap"), account.PLUS_MINUTES_USED, "minutes_cap"),
+    ((402, "You have used this month's Waffler Plus.", "month_used"), account.PLUS_MONTH_USED, "month_used"),
     ((402, "Something newer.", "something_new"), account.ALLOWANCE_USED, "over_allowance"),
     ((413, "That recording is too large (the limit is 200 MB).", "audio_too_large"),
      account.DICTATE_TOO_LARGE, "too_large"),
