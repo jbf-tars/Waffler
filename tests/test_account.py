@@ -71,7 +71,7 @@ def test_with_no_service_configured_the_feature_is_off_and_nothing_is_contacted(
     assert account.status() == {"ok": True, "available": False, "signed_in": False,
                                 "email": "", "device_name": "", "device_id": "", "notice": "",
                                 "plan": "free", "plus_until": None, "plus_state": "signed_out",
-                                "plus_chosen": False}
+                                "plus_chosen": False, "plus_usage": None}
     for out in (account.start(EMAIL), account.verify(EMAIL, "123456"), account.devices(),
                 account.remove_device("0123456789abcdef"), account.connector(),
                 account.connector_create(), account.connector_rotate(), account.connector_off()):
@@ -117,7 +117,7 @@ def test_sign_in_with_the_emailed_code(server):
     assert account.status() == {"ok": True, "available": True, "signed_in": True, "email": EMAIL,
                                 "device_name": "Ada's Mac", "device_id": out["device_id"], "notice": "",
                                 "plan": "free", "plus_until": None, "plus_state": "unknown",
-                                "plus_chosen": False}
+                                "plus_chosen": False, "plus_usage": None}
     sent_name = json.loads(server.calls("POST", "/auth/email/verify")[0].body)["device_name"]
     assert sent_name == "Ada's Mac"
 
