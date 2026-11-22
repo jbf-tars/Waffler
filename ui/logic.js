@@ -1141,7 +1141,9 @@
 
   // The line under the two cards. It said notes need a key "either way",
   // which stops being true the moment the writing model is here.
-  function howItRunsNote(llm, hasKey) {
+  // With Waffler Plus the chosen way (`plus`) nothing needs a key at all.
+  function howItRunsNote(llm, hasKey, plus) {
+    if (plus === true) return `${PLUS_NAME} covers dictation, meetings and their notes. No key, no download.`;
     const s = _llmKnown(llm);
     const covers = 'This choice covers dictation and meetings.';
     if (s && s.available === true && s.state === 'ready' && (!hasKey || s.mode === 'local')) {
@@ -1223,7 +1225,7 @@
   // words; the page as written says nothing of Plus) and Continue goes on.
   // Not for someone whose setup is already on a key or on this computer,
   // unless Plus is the way they chose. `acct` is Api.account_status().
-  const SETUP_PLUS = { title: `${PLUS_NAME} is ready.`, lede: 'No key. No download.', go: 'Next, try it out.' };
+  const SETUP_PLUS = { title: `${PLUS_NAME} is ready.`, lede: 'No key. No download.' };
   function setupPlusReady(acct, way) {
     if (!accountHasPlus(acct)) return false;
     return !way || acct.plus_chosen === true;

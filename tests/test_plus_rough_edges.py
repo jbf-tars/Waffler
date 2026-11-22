@@ -159,8 +159,7 @@ def test_the_app_no_longer_unchooses_plus_and_asks_whether_it_is_back():
 
 @needs_node
 def test_setup_for_a_signed_in_plus_account_asks_for_nothing():
-    assert js("L.SETUP_PLUS") == {"title": "Waffler Plus is ready.", "lede": "No key. No download.",
-                                 "go": "Next, try it out."}
+    assert js("L.SETUP_PLUS") == {"title": "Waffler Plus is ready.", "lede": "No key. No download."}
     for acct in (PLUS, PLUS_UNTIL):
         assert js(f"L.setupPlusReady({acct}, '')") is True
     assert js(f"L.setupPlusReady({PLUS_UNTIL}, 'local')") is True, "Plus is already the chosen way"
@@ -247,6 +246,16 @@ def test_no_keys_provider_is_in_use_while_plus_does_the_work():
     # With no key at all it is not "No key yet" either.
     assert js("L.backendsLine({plus_active: true, transcription_backend: 'none', styling_backend: 'none'})") \
         == "Speech to text: Waffler Plus · Clean-up: Waffler Plus"
+
+
+@needs_node
+def test_the_line_under_the_cards_does_not_say_notes_need_a_key():
+    line = js("L.howItRunsNote(null, true, true)")
+    assert line == "Waffler Plus covers dictation, meetings and their notes. No key, no download."
+    assert "still needs a key" in js("L.howItRunsNote(null, true, false)"), "without Plus, as it was"
+    assert js("L.howItRunsNote(null, false)") == js("L.howItRunsNote(null, false, false)")
+    card = code_only(read("howitruns.js"))
+    assert "L.howItRunsNote(lastLlm, hasKey, plusOn)" in card and "plusOn = plus;" in card
 
 
 @needs_node

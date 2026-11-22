@@ -5950,14 +5950,9 @@ function wizShowPlus() {
     title.id = 'obTitlePlus'; title.tabIndex = -1;
     const left = sec.querySelector('.ob-left');
     if (left) left.prepend(title, el('p', 'ob-lede', WL.SETUP_PLUS.lede));
-    const stage = sec.querySelector('.ob-stage');
-    if (stage) {
-      const art = el('div', 'ob-art ob-art-honey'), inner = document.createElement('div');
-      inner.className = 'ob-art-in ob-center';
-      const go = document.createElement('span');
-      go.className = 'ob-go'; go.textContent = WL.SETUP_PLUS.go;
-      inner.append(go); art.append(inner); stage.append(art);
-    }
+    // Beside it, the example every new person is shown: a real result.
+    const art = sec.querySelector('.ob-stage .ob-paper');
+    if (art) art.dataset.when = 'start plus';
   }
   _wizWay = 'plus';
   wizSetState('connect', 'plus');

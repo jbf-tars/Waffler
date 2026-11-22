@@ -17,6 +17,8 @@
   let poll = null;
   let acct = null;        // the last Api.account_status()
   let last = null;        // the last Api.local_stt_status()
+  let lastLlm = null;     // the last Api.local_llm_status()
+  let plusOn = false;     // Waffler Plus is the chosen way: the line under the cards says what it covers
 
   // The Plus card: made, kept up to date, or taken away. True when it is
   // the chosen way.
@@ -52,7 +54,9 @@
     const local = s.mode === 'local';
     $('hirLocalRadio').checked = local; $('hirCloudRadio').checked = !local;
     $('hirLocal').classList.toggle('is-on', local); $('hirCloud').classList.toggle('is-on', !local);
-    if (drawPlus()) {       // the third way is the one chosen: neither of these two is
+    const plus = drawPlus();
+    if (plus !== plusOn) { plusOn = plus; drawPlusNote(); }
+    if (plus) {             // the third way is the one chosen: neither of these two is
       $('hirLocalRadio').checked = false; $('hirCloudRadio').checked = false;
       $('hirLocal').classList.toggle('is-on', false); $('hirCloud').classList.toggle('is-on', false);
     }
@@ -122,12 +126,22 @@
   let pollLlm = null;
   let hasKey = false;
 
+  // With Waffler Plus the chosen way, the line under the cards says what it
+  // covers (it said notes still need a key, which Plus makes untrue).
+  function drawPlusNote() {
+    const note = $('hirNote'), L = window.WafflerLogic;
+    if (note && L && lastLlm && plusOn) note.textContent = L.howItRunsNote(lastLlm, hasKey, plusOn);
+    else if (note && L && lastLlm) note.textContent = L.howItRunsNote(lastLlm, hasKey);
+  }
+
   function drawLlm(s) {
     const box = $('hirLlm'), L = window.WafflerLogic;
     if (!box || !L || !s) return;
     const v = L.writingRowView(s, hasKey);
     const note = $('hirNote');
     if (note) note.textContent = L.howItRunsNote(s, hasKey);
+    lastLlm = s;
+    drawPlusNote();
     box.hidden = !v.show;
     const how = $('hirLlmHow');        // what it needs and how long it takes, under "How it works"
     if (how) { how.textContent = v.how || how.textContent; how.hidden = !v.how; }
