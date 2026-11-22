@@ -241,7 +241,9 @@ def _route(ctl, method: str, raw: str, body, waffler_theme: str):
             with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
                 path = Path(tmp.name)
                 tmp.write(base64.b64decode(data, validate=False))
-            note = svc.ingest_file(path)
+            # The file's name, without its extension, is the title until notes
+            # write a better one (the title is not locked).
+            note = svc.ingest_file(path, title=Path(re.split(r"[\\/]", str(body.get("file_name") or ""))[-1]).stem.strip()[:120])
         except _Reply:
             raise
         except Exception as e:  # noqa: BLE001

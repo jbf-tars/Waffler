@@ -3235,6 +3235,27 @@
     return `Waffler Plus until ${end.getDate()} ${PLAN_MONTHS[end.getMonth()]}${far ? ' ' + end.getFullYear() : ''}`;
   }
 
+  // Settings, Account, under that line: this month's use, as lines (maybe
+  // none). `acct.plus_usage` is {seconds, minutes_limit, chars, chars_limit},
+  // each a number or null (src/account.py). Nothing is shown that was not
+  // sent: no limit, no line. Plus is never offered here.
+  function accountUsageLines(acct) {
+    const u = accountHasPlus(acct) && acct.plus_usage;
+    if (!u || typeof u !== 'object') return [];
+    const num = (v) => (typeof v === 'number' && isFinite(v) && v >= 0 ? v : null);
+    const secs = num(u.seconds), mins = num(u.minutes_limit), chars = num(u.chars), cap = num(u.chars_limit);
+    const hasTime = secs !== null && mins !== null && mins > 0;
+    const hasWriting = chars !== null && cap !== null && cap > 0;
+    if ((hasTime && secs >= mins * 60) || (hasWriting && chars >= cap)) return ["This month\u2019s Waffler Plus is used up."];
+    const lines = [];
+    if (hasTime) {
+      const of = Math.max(1, Math.round(mins / 60)), hours = Math.floor(secs / 3600);
+      lines.push(hours < 1 ? `Under 1 of ${of} hours used this month.` : `${hours} of ${of} hours used this month.`);
+    }
+    if (hasWriting && chars >= cap * 0.8) lines.push('Writing is nearly used up.');
+    return lines;
+  }
+
   // Keys and providers: the third way (howitruns.js), or null when this
   // account has no such card. `state` is the one line under it.
   const PLUS_STATES = { offline: 'Can\u2019t reach the service', signed_out: 'Signed out', ended: 'Plan ended' };
@@ -3400,7 +3421,7 @@
     heatLevel, heatmapView, heatMove,
     COLLAPSE_OVER, COLLAPSE_SHOW, COLLAPSE_MIN, COLLAPSE_MAX, collapseView,
     searchMarks, searchCount, isFindKey, enterRunsDefault, copyWorked, platformText,
-    accountHasPlus, accountPlanLine, plusCardView,
+    accountHasPlus, accountPlanLine, accountUsageLines, plusCardView,
     accountView, accountDigits, accountCode, accountCodeReady, accountCodeLabel, accountCodeExample, accountBadCode, accountAgo, accountSyncLine, accountDeviceLine, accountClaudeView,
     ACCOUNT_RESEND_S, accountCodeLine, accountResendView, accountSignedInLine,
     accountSetupOffered, accountOfferView, accountDeleteStep, accountDeleteReady, accountConfirm,

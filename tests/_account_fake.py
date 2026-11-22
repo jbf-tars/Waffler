@@ -95,6 +95,8 @@ class FakeAccountServer:
         self.too_large = 0                       # pushes refused for their size
         self.hold = None                         # a threading.Event: sync waits on it
         # Waffler Plus
+        self.month_usage: dict = {}              # GET /account "usage" (this month's use)
+        self.month_limits: dict = {}             # ... and the Plus part of its "limits"
         self.has_plan = True                     # False: GET /account has no "plan" (an older service)
         self.plans: dict[str, str | None] = {}   # email -> when Plus ends (None: no end); absent: free
         self.heard = {"raw": "um so zebra quartz alpha you know", "text": "Zebra quartz, alpha."}
@@ -252,10 +254,10 @@ class FakeAccountServer:
             return self._json(200, {
                 **(self._plan(session["email"]) if self.has_plan else {}),
                 "user": {"id": user, "email": session["email"], "created_at": self.user_created.get(user)},
-                "usage": {}, "devices": [self._device_view(s["device"], s is session)
+                "usage": dict(self.month_usage), "devices": [self._device_view(s["device"], s is session)
                                          for s in self.sessions.values() if s["user"] == user],
                 "connector": {"exists": user in self.connectors},
-                "limits": {"max_upload_mb": 200, "max_dictate_seconds": 300.0}})
+                "limits": {"max_upload_mb": 200, "max_dictate_seconds": 300.0, **self.month_limits}})
 
         if path == "/api/dictate" and method == "POST":
             if self._plan(session["email"])["plan"] != "plus":   # before any of the body is read
