@@ -489,3 +489,25 @@ End to end as a new PC gets it: the processor build fetched from GitHub and
 run; the CUDA build (this PC's own copy of the pinned zip, SHA-256 checked)
 with the runtime fetched from PyPI, run on the card from Waffler's files
 only. **Suite: 9,032 passed, 89 skipped, 0 failed** in 8 min 38 s.
+
+## Windows fix: sharp pills on a scaled screen
+
+The overlay helper (`src/overlay_process_windows.py`, its own process, Tk)
+said nothing to Windows about display scaling, so on a screen at 125% or
+150% Windows stretched its windows as a picture: blurry pills and toasts.
+The main window was not affected, because pywebview declares itself aware.
+The helper now asks for GDI scaling (`SetProcessDpiAwarenessContext`,
+`DPI_AWARENESS_CONTEXT_UNAWARE_GDISCALED`) before its first window. Windows
+then draws Tk's text and shapes at the screen's own resolution, and every
+size and position stays in the 100% units the helper is written in.
+
+**Checked on this PC (at 100%):** Windows accepts the call, and the process
+then reports the GDI-scaled context. A Tk window with a see-through colour
+still opens, and the screen still reads 1920 x 1080. The real helper drew
+all 11 pills with no errors and left the foreground window where it was.
+The 8 pills with earlier captures are pixel-identical to them.
+
+**Not seen:** the result at 125% or 150%. This PC runs at 100%, and
+changing the display scale is a system setting I do not change. Someone has
+to look on a scaled screen.
+`tests/test_windows_overlay_sharp.py` pins the call before the first window.

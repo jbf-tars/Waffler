@@ -1171,8 +1171,30 @@ def _get_taskbar_height() -> int:
 
 # ── Entry point ────────────────────────────────────────────────────────
 
+def _sharp_when_scaled() -> bool:
+    """On a screen scaled to 125% or 150%, Windows stretched this helper's
+    windows as a picture, because the process says nothing about scaling:
+    blurry pills and toasts. GDI scaling (Windows 10 1809 and later) has
+    Windows draw what Tk draws, text and shapes, at the screen's own
+    resolution, while every size and position here stays in the 100% units it
+    is written in. It must come before the first window. At 100% nothing
+    changes. True when Windows took it."""
+    if not sys.platform.startswith("win"):
+        return False
+    try:
+        import ctypes
+        fn = ctypes.WinDLL("user32").SetProcessDpiAwarenessContext
+        fn.argtypes, fn.restype = [ctypes.c_void_p], ctypes.c_int
+        return bool(fn(ctypes.c_void_p(-5)))        # DPI_AWARENESS_CONTEXT_UNAWARE_GDISCALED
+    except Exception:
+        return False
+
+
 def main():
     global _root, _canvas, _waffle_x, _waffle_y
+
+    # Before any window: drawn sharp on a scaled screen.
+    _sharp_when_scaled()
 
     # Kick off the stdin reader
     threading.Thread(target=_stdin_reader, daemon=True, name="StdinReader").start()
