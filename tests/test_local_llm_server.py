@@ -148,3 +148,91 @@ def test_on_windows_the_writing_model_runs_on_the_server_where_there_is_no_llama
     monkeypatch.setattr(srv, "LlamaServerEngine", lambda model_file: opened.append(model_file) or "engine")
     assert local_llm._load_engine(local_llm.DEFAULT_MODEL) == "engine"
     assert opened[0].name == local_llm.MODELS[local_llm.DEFAULT_MODEL].files[0].name
+
+
+# ── what it read, kept on disk ───────────────────────────────────────────────
+# Measured on a processor (i7-14700F): the clean-up's 5,624-token prompt took
+# about 40 s to read, and came again after every idle unload; a dictation that
+# arrived then was pasted as said.
+
+def test_what_the_slot_read_is_kept_on_disk_and_read_back(engine):
+    e = engine()
+    cmd = engine.seen["cmd"]
+    assert cmd[cmd.index("--slot-save-path") + 1] == str(srv.cache_dir())
+    assert e.restore_prompt("cleanup-abc") is False, "nothing kept yet"
+    assert e.save_prompt("cleanup-abc") is True and (srv.cache_dir() / "cleanup-abc.bin").is_file()
+    e.close()
+    again = engine()
+    assert again.restore_prompt("cleanup-abc") is True
+
+
+def test_only_the_latest_read_is_kept(engine):
+    e = engine()
+    e.save_prompt("cleanup-old")
+    e.save_prompt("cleanup-new")
+    assert [p.name for p in srv.cache_dir().glob("*.bin")] == ["cleanup-new.bin"]
+
+
+@pytest.mark.parametrize("bad", ["../escape", "a/b", "", "x" * 65, "c:evil"])
+def test_a_name_that_is_not_a_plain_word_is_never_sent(engine, bad):
+    e = engine()
+    assert e.save_prompt(bad) is False and e.restore_prompt(bad) is False
+
+
+def test_the_writing_model_reads_its_prompt_back_after_an_unload_instead_of_again(monkeypatch):
+    """local_llm: after priming the engine is told to keep it; a newly loaded
+    engine is asked to read it back, and then counts as primed."""
+    calls = []
+
+    class Engine:
+        def chat(self, system, messages, max_tokens, temperature, should_stop=None, on_text=None):
+            calls.append(("chat", messages[0]["content"]))
+            return {"text": "x", "input_tokens": 1, "output_tokens": 1, "finish_reason": "stop"}
+
+        def save_prompt(self, key):
+            calls.append(("save", key))
+            return True
+
+        def restore_prompt(self, key):
+            calls.append(("restore", key))
+            return True
+
+        def close(self):
+            pass
+    import local_stt
+    import threading
+    monkeypatch.setattr(local_llm, "_load_engine", lambda name: Engine())
+    monkeypatch.setattr(local_llm, "_gate", local_stt._Gate())
+    monkeypatch.setattr(local_llm, "_engine", None)
+    monkeypatch.setattr(local_llm, "_engine_key", None)
+    monkeypatch.setattr(local_llm, "_primed", False)
+    monkeypatch.setattr(local_llm, "_exiting", threading.Event())
+    monkeypatch.setattr(local_llm, "_idle_unload_s", 0.0)
+    monkeypatch.setattr(local_llm, "_primer", lambda: ("rules", "Hello."))
+    local_llm._gate.acquire(background=False)
+    try:
+        local_llm._ensure_engine(local_llm.DEFAULT_MODEL)
+    finally:
+        local_llm._gate.release()
+    key = local_llm._prompt_key("rules", "Hello.")
+    assert calls == [("restore", key)] and local_llm._primed is True, "read back, not read again"
+    monkeypatch.setattr(local_llm, "_primed", False)
+    assert local_llm._prime() is True
+    assert calls[-2:] == [("chat", "Hello."), ("save", key)]
+    assert local_llm._prompt_key("rules changed", "Hello.") != key, "a changed prompt is never read back"
+
+
+def test_on_the_processor_the_full_window_cache_is_kept_so_a_kept_prompt_reads_back(engine, monkeypatch):
+    """Measured with the processor build: without --swa-full the server said
+    "forcing full prompt re-processing due to lack of cache data" after a read
+    back, and the first dictation after an unload took 46.5 s and was pasted
+    as said; with it, 9.6 s, tidied, with 85 tokens read instead of 5,702."""
+    import gpu_pack
+    monkeypatch.setattr(gpu_pack, "card", lambda: None)
+    engine()
+    assert "--swa-full" in engine.seen["cmd"]
+    monkeypatch.setattr(gpu_pack, "card", lambda: {"count": 1, "total_mb": 12282})
+    engine()
+    assert "--swa-full" not in engine.seen["cmd"], "on a card the prompt reads in about a second anyway"
+    engine(WAFFLER_LLM_DEVICE="cpu")
+    assert "--swa-full" in engine.seen["cmd"]

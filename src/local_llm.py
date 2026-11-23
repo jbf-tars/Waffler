@@ -24,6 +24,7 @@ way to it at the next word and are written again afterwards.
 from __future__ import annotations
 
 import atexit
+import hashlib
 import importlib.util
 import json
 import os
@@ -513,6 +514,12 @@ def remove_model() -> dict:
                 freed += _llama_pack().remove()
             except Exception:       # noqa: BLE001
                 pass
+            try:                                      # and what it kept of a read prompt
+                cache = _server_engine().cache_dir()
+                freed += _stt._dir_size(cache)
+                shutil.rmtree(cache, ignore_errors=True)
+            except Exception:       # noqa: BLE001
+                pass
             forget_engine()
     finally:
         _gate.release()
@@ -732,8 +739,28 @@ def _ensure_engine(name: str) -> None:
     except Exception as e:          # noqa: BLE001
         raise LocalLLMError(LOAD_FAILED, "failed") from e
     _engine_key, _primed = name, False
+    # An engine that keeps what it read on disk (src/local_llm_server.py)
+    # reads the clean-up's prompt back instead of reading it again: about a
+    # second, against about 40 s on a processor.
+    restore = getattr(_engine, "restore_prompt", None)
+    if restore is not None and _primer is not None:
+        try:
+            system, user = _primer()
+            _primed = bool(restore(_prompt_key(system, user)))
+        except Exception:           # noqa: BLE001 - it is read again, as before
+            _primed = False
     _last["load_s"] = round(time.perf_counter() - t0, 3)
     _last["device"] = getattr(_engine, "device", None)
+
+
+def _prompt_key(system: str, user: str) -> str:
+    """The name a read prompt is kept under: the model and the prompt itself,
+    so a changed prompt or model is never read back in place of it."""
+    h = hashlib.sha256()
+    for part in (selected_model(), system, user):
+        h.update(part.encode("utf-8"))
+        h.update(b"\0")
+    return "cleanup-" + h.hexdigest()[:24]
 
 
 def set_primer(primer: Optional[Callable[[], tuple]]) -> None:
@@ -757,6 +784,12 @@ def _prime() -> bool:
         system, user = primer()
         _engine.chat(system, [{"role": "user", "content": user}], 1, 0.0)
         _primed = True
+        save = getattr(_engine, "save_prompt", None)
+        if save is not None:            # kept on disk, to be read back after an unload
+            try:
+                save(_prompt_key(system, user))
+            except Exception:           # noqa: BLE001
+                pass
         return True
     except Exception:               # noqa: BLE001 - the next dictation reads it itself
         return False

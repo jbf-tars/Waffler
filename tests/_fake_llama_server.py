@@ -53,8 +53,28 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self.send_error(404)
 
+    def _json(self, code, data):
+        body = json.dumps(data).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_POST(self):
         req = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
+        if self.path.startswith("/slots/0?action="):       # llama-server's slot save and restore
+            folder, name = arg("--slot-save-path"), req.get("filename", "")
+            if not folder or "/" in name or "\\" in name:
+                return self._json(400, {"error": {"message": "slot save path not set or bad name"}})
+            path = os.path.join(folder, name)
+            if self.path.endswith("action=save"):
+                with open(path, "wb") as f:
+                    f.write(b"KV" * 100)
+                return self._json(200, {"id_slot": 0, "filename": name, "n_saved": 5624})
+            if not os.path.exists(path):
+                return self._json(400, {"error": {"message": "failed to restore: file not found"}})
+            return self._json(200, {"id_slot": 0, "filename": name, "n_restored": 5624})
         last = req["messages"][-1]["content"]
         if "TOO LONG" in last:
             body = json.dumps({"error": {"code": 400, "type": "exceed_context_size_error",

@@ -498,11 +498,21 @@ unpacked, and run; the CUDA build (James's own copy of the same zip, checked
 against the pinned SHA-256) with the CUDA runtime fetched from PyPI, run on
 the card with only the files Waffler fetched.
 
-Not done on Windows: the first read of the prompt on the processor (40 s)
-comes again after each idle unload (five minutes), and a dictation that
-arrives then is pasted as said; keeping the slot on disk
-(`--slot-save-path`) or not unloading on the processor would answer it.
-Nothing older than this PC was tried, and no laptop.
+**After an idle unload** (five minutes) the clean-up's prompt is read back
+from disk instead of read again. When the prompt has been read, the engine
+keeps the slot (`--slot-save-path`, one file of about 113 MB in
+`<data folder>/llama-cache`, named after the model and the prompt, so a
+changed one is never read back). A newly loaded engine reads it back before
+anything is asked. The model's sliding-window layers keep only 1,024 tokens,
+so a kept slot could not be used at first: the server said "forcing full
+prompt re-processing due to lack of cache data". On the processor
+`--swa-full` keeps that cache whole (about 0.6 GB more memory). On a card it
+is not used, because the prompt reads in about a second anyway. Measured
+with the processor build: the first dictation after an unload took 46.5 s
+and was pasted as said; now it takes 9.6 s in all and is tidied (85 tokens
+read instead of 5,702). The next dictation takes 5.4 s.
+
+Not done on Windows: nothing older than this PC was tried, and no laptop.
 
 ## An NVIDIA card on Windows
 

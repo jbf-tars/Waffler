@@ -65,6 +65,27 @@ def find_server() -> Optional[Path]:
     return None
 
 
+def _runs_on_processor() -> bool:
+    """Will the model run on the processor? Asked to, or there is no NVIDIA
+    card (src/gpu_pack.py card). On a card the prompt is read in about a
+    second anyway, so its memory is not spent on keeping it."""
+    if os.environ.get(CPU_ENV, "").strip().lower() == "cpu":
+        return True
+    try:
+        try:
+            import gpu_pack
+        except ImportError:  # imported as src.local_llm_server
+            from src import gpu_pack
+        return gpu_pack.card() is None
+    except Exception:           # noqa: BLE001
+        return True
+
+
+def cache_dir() -> Path:
+    """Where what the server has read is kept between loads (one file)."""
+    return data_dir() / "llama-cache"
+
+
 def _free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
@@ -89,12 +110,28 @@ class LlamaServerEngine:
         # anything shipped beside the server itself.
         extra = [str(data_dir() / "gpu"), str(self._server.parent)]
         env["PATH"] = os.pathsep.join(extra + [env.get("PATH", "")])
+        # What the slot has read can be kept on disk and read back (save_prompt,
+        # restore_prompt), so the clean-up's long prompt is not read again
+        # after every idle unload: about 40 s on a processor.
+        self._cache = cache_dir()
+        try:
+            self._cache.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass
         # -lv 4: the log then says how many layers went on the card (read below).
         cmd = [str(self._server), "-m", str(model_file), "--host", "127.0.0.1", "--port", str(self._port),
                "-c", str(N_CTX), "-np", "1", "--fit", "on", "--fit-target", str(FIT_SPARE_MB),
-               "-fa", "auto", "--seed", "7", "-lv", "4", "--log-file", str(self._log)]
+               "-fa", "auto", "--seed", "7", "-lv", "4", "--log-file", str(self._log),
+               "--slot-save-path", str(self._cache)]
         if os.environ.get(CPU_ENV, "").strip().lower() == "cpu":
             cmd += ["-ngl", "0"]            # the processor only, as on a PC with no card
+        if _runs_on_processor():
+            # The model's sliding-window layers keep only the last 1,024 tokens,
+            # so a kept slot could not be read back: the server said "forcing
+            # full prompt re-processing due to lack of cache data" and read the
+            # clean-up's prompt again (46 s). The full-size cache makes it
+            # whole (about 0.6 GB more memory), so on a processor it is used.
+            cmd += ["--swa-full"]
         try:
             self._log.parent.mkdir(parents=True, exist_ok=True)
             self._log.unlink(missing_ok=True)
@@ -191,6 +228,39 @@ class LlamaServerEngine:
                     break               # leaving the block closes the connection: the server stops
         return {"text": text.strip(), "input_tokens": int(usage.get("prompt_tokens") or 0),
                 "output_tokens": int(usage.get("completion_tokens") or pieces), "finish_reason": finish}
+
+    def save_prompt(self, key: str) -> bool:
+        """Keep what the slot has read on disk as <key>.bin (llama-server's own
+        slot save); any other kept file goes, so there is only ever one.
+        Measured on a processor: the clean-up's 5,624-token prompt takes
+        about 40 s to read, and reading it back from disk about a second."""
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", key or ""):
+            return False
+        try:
+            r = _http().post(f"{self._base}/slots/0?action=save", json={"filename": key + ".bin"}, timeout=120)
+        except Exception:           # noqa: BLE001
+            return False
+        if r.status_code != 200:
+            return False
+        for old in self._cache.glob("*.bin"):
+            if old.name != key + ".bin":
+                try:
+                    old.unlink()
+                except OSError:
+                    pass
+        return True
+
+    def restore_prompt(self, key: str) -> bool:
+        """Read <key>.bin back into the slot, before anything else is asked.
+        True when it was there and the server took it."""
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", key or "") or not (self._cache / (key + ".bin")).is_file():
+            return False
+        try:
+            r = _http().post(f"{self._base}/slots/0?action=restore", json={"filename": key + ".bin"},
+                             timeout=120)
+        except Exception:           # noqa: BLE001
+            return False
+        return r.status_code == 200
 
     def close(self) -> None:
         proc, self._proc = getattr(self, "_proc", None), None
