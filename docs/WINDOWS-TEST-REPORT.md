@@ -466,3 +466,26 @@ with 28 letters. Both had their loud windows at -60 dBFS, and 0.21 s of
 pitch counted against the 0.3 s needed (median strength 0.66 and 0.39).
 Their numbers went to the Mac session to tune the check. The made-up audio
 test is unchanged: real lines 5 of 5, and every made-up line dropped.
+
+## Windows: the tidy-up and meeting notes on this computer
+
+`src/local_llm_server.py` (07dafc2) and `src/llama_pack.py`. Windows had no
+engine for the writing model, so "On this computer" pasted text as it was
+said: no tidy-up, no paragraphs. Now llama.cpp's own server runs the model the
+Mac uses (Gemma 4 E4B, 5.2 GB, downloaded and checked here through the app's
+own downloader in 166 s), and comes down with it: the CUDA build and NVIDIA's
+CUDA runtime with a card, the processor build without.
+
+Measured on this PC through the app's own clean-up and `write_notes`, with no
+key, and no connection beyond the computer:
+
+| | On the card (43 of 43 layers, 3.1 GB) | On the processor |
+|---|---|---|
+| Dictations of 34 to 69 words | 0.41 to 0.76 s | 3.1 to 6.0 s |
+| A 200-word meeting's notes | 2.3 s | 16 s |
+| First read of the clean-up prompt | about 1 s | about 40 s |
+
+End to end as a new PC gets it: the processor build fetched from GitHub and
+run; the CUDA build (this PC's own copy of the pinned zip, SHA-256 checked)
+with the runtime fetched from PyPI, run on the card from Waffler's files
+only. **Suite: 9,032 passed, 89 skipped, 0 failed** in 8 min 38 s.
