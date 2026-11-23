@@ -511,3 +511,41 @@ The 8 pills with earlier captures are pixel-identical to them.
 changing the display scale is a system setting I do not change. Someone has
 to look on a scaled screen.
 `tests/test_windows_overlay_sharp.py` pins the call before the first window.
+
+## Re-check on `one-app` 2db1865 (the transcript's capitals and punctuation)
+
+Taken onto `windows` by fast-forward, with no Windows changes.
+**Suite: 9,191 passed, 89 skipped, 0 failed** in 8 min 50 s.
+
+The new pass (`src/meetings/tidy_lines.py`) asks the notes' writer once for
+every 20 lines or so. On this PC that writer can be the model on this
+computer (llama.cpp's server, above). So it was run through the app's own
+path (`meetings.llm.complete`, as `Service._ask_writer` asks) on a made-up
+meeting: 60 lines, 6,506 characters, 3 requests. No key was used, and
+nothing connected beyond the computer.
+
+| | On the card | On the processor |
+|---|---|---|
+| The whole pass | 17.5 s | 122.8 s |
+| One request (about 2,200 characters) | 4.7 to 5.8 s | 34.8 to 42.8 s |
+| A dictation made during the pass | 0.5 s, tidied | 8.4 s, tidied |
+| A dictation straight after | 0.6 s, tidied | 4.2 s, tidied |
+
+All 60 lines changed and none were refused. A dictation made during the pass
+went first: the meeting's request stopped at its next word and was asked
+again afterwards.
+
+Between requests, the clean-up's long prompt was read back in 0.1 s, not 40
+s. llama.cpp's server (b11168) keeps earlier prompts in memory ("prompt
+cache is enabled, size limit: 8192 MiB"). After the pass it held 3 prompts:
+114 MiB on the processor, 209 MiB on the card. The server caps that cache at
+16,384 tokens.
+
+At the measured rate, an hour's meeting (about 50,000 characters) needs
+about 15 minutes of this on the processor before its notes are written, and
+about 2 minutes on the card.
+
+Seen in the replies: a word that starts a new turn can be joined to the
+sentence before it. "yeah so the main thing" came back as "yeah? So the main
+thing", and "right and if we do that" as "right? And if we do that". The
+check passes it, because no word changed.
