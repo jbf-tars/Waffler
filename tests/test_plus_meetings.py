@@ -140,6 +140,24 @@ def test_with_no_audio_kept_the_chunks_go_once_they_are_written_down(plus):
     assert note["segments"] and not service.has_audio(note["id"])
 
 
+def test_a_line_the_service_wrote_over_silence_never_reaches_the_transcript_or_the_notes(plus):
+    """A Plus part has silence where chunks with no voice were never kept
+    (recorder._joined), and the service's answer carries no confidence
+    numbers. A line written in that silence, in any language, is dropped by
+    what the audio shows (Nov 2026: a meeting's notes talked about "Norwegian
+    phrases" nobody said; tests/test_meetings_invented_lines.py)."""
+    plus.hear = lambda seconds, n: [
+        {"start_s": 0.5, "end_s": 4.0, "text": "The cabinets arrive on the fourteenth."},
+        {"start_s": 20.0, "end_s": 22.5, "text": "Teksting av Nicolai Winther"},
+        {"start_s": 41.0, "end_s": 44.0, "text": "Tom books the electrician."}]
+    audio = np.concatenate([_speech(6.0), np.zeros(34 * RATE, dtype=np.float32), _speech(6.0)])
+    note = _meeting(Service(store=Store()), audio)
+    assert len(plus.transcriptions) == 1, "one part, silence and all"
+    assert [s["text"] for s in note["segments"]] == ["The cabinets arrive on the fourteenth.",
+                                                     "Tom books the electrician."]
+    assert "Teksting" not in plus.writes[0]["messages"][0]["content"], "the notes never see it"
+
+
 # ── a long meeting, in parts ─────────────────────────────────────────────────
 
 def test_a_part_is_ten_to_fifteen_minutes():

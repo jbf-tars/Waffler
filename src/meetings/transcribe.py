@@ -11,12 +11,17 @@ instead of chunks (`part_seconds`). The end-of-audio rule is Waffler's: Whisper
 invents "Thank you." and channel outros over silence, so a segment that is
 only a thanks, a sign-off or an outro is dropped when the audio under it has
 no voice or the model itself says nothing was said. Real thanks, said aloud,
-stay.
+stay. Any other line, in any language, goes when the audio shows nobody said
+it (`invented`): no voice under it, far more letters than the voice under it
+could carry, or one phrase over and over. Whisper writes such lines over
+silence, often in another language, and the Waffler Plus answer carries no
+confidence numbers to catch them by.
 """
 from __future__ import annotations
 
 import re
 import time
+import zlib
 
 import numpy as np
 
@@ -31,6 +36,20 @@ except ImportError:
 MIN_VOICED_S = 0.3              # less voice than this in a chunk: not uploaded
 _NO_SPEECH_PROB = 0.5
 _SEGMENT_MIN_VOICED_S = 0.15
+# A line's times can be a little off: its voice is looked for this far either
+# side, so a short "Yes." placed late is not taken for silence.
+_EDGE_S = 0.3
+# More letters than this for each second of voice under a line: no one said
+# it. A clear synthetic voice measured 10 to 16 (the voice meter counts only
+# the loud 30 ms windows, so pauses between words make the figure higher than
+# a speaking rate); very fast speech is roughly 20 to 25 letters a second (an
+# estimate); a 24-letter line written over a 0.3 s click is 80. Lines of 20
+# letters or fewer are left alone: a short answer under a short voice is normal.
+_MAX_LETTERS_PER_VOICED_S = 60.0
+_MIN_LETTERS_TO_JUDGE = 20
+# Whisper's own bar for a decode that went round in a loop: the text squeezes
+# to less than 1/2.4 of its size (openai-whisper compression_ratio_threshold).
+_LOOP_RATIO = 2.4
 
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 
@@ -74,6 +93,30 @@ def _get(obj, name, default=None):
     return obj.get(name, default) if isinstance(obj, dict) else getattr(obj, name, default)
 
 
+def _loop_ratio(text: str) -> float:
+    """How far the text squeezes: about 1 for what people say, well over 2.4
+    for one phrase repeated over and over (Whisper's compression ratio)."""
+    raw = text.encode("utf-8")
+    return len(raw) / len(zlib.compress(raw)) if raw else 0.0
+
+
+def invented(text: str, voiced_near: float) -> bool:
+    """Was this line written with nobody speaking? Judged on the audio under it,
+    so it holds in any language and for every engine, including the Waffler
+    Plus answer, which carries no confidence numbers. `voiced_near` is the
+    seconds of voice under the line, _EDGE_S either side included.
+
+    - No voice under it: the model wrote it over silence.
+    - Far more letters than that voice could carry: over a cough or a click.
+    - One phrase over and over: the model went round in a loop."""
+    if voiced_near < _SEGMENT_MIN_VOICED_S:
+        return True
+    letters = sum(ch.isalpha() for ch in text)
+    if letters > _MIN_LETTERS_TO_JUDGE and letters / voiced_near > _MAX_LETTERS_PER_VOICED_S:
+        return True
+    return _loop_ratio(text) > _LOOP_RATIO
+
+
 def clean_segments(raw_segments, audio: np.ndarray) -> list[dict]:
     """Model segments → [{start_s, end_s, text}], hallucinations removed."""
     mask = voiced_mask(audio)
@@ -95,6 +138,8 @@ def clean_segments(raw_segments, audio: np.ndarray) -> list[dict]:
         if is_outro(text) and (voiced < _SEGMENT_MIN_VOICED_S or no_speech > _NO_SPEECH_PROB):
             continue
         if voiced < _SEGMENT_MIN_VOICED_S and no_speech > 0.8:
+            continue
+        if invented(text, voiced_between(mask, start - _EDGE_S, end + _EDGE_S)):
             continue
         # A model stuck in a loop repeats one line; keep the first two.
         if out and out[-1]["text"].casefold() == text.casefold():
