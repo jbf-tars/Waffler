@@ -205,6 +205,20 @@ def _anthropic_complete(system: str, messages: list[dict], model: str, max_token
     return "".join(b.text for b in msg.content if b.type == "text").strip()
 
 
+def _groq_effort(model: str) -> dict:
+    """What a Groq model that reasons before it answers is told when the job
+    is to be done quickly. Left to itself gpt-oss writes pages of reasoning
+    over a transcript's punctuation and runs out of room before the answer
+    (the reply comes back cut short, or empty). The same rule as dictation's
+    (style_openai._groq_request_extras). Any other model gets nothing."""
+    name = str(model or "").lower()
+    if "gpt-oss" in name:
+        return {"reasoning_effort": "low"}
+    if "qwen" in name:
+        return {"reasoning_effort": "none"}
+    return {}
+
+
 def _openai_complete(provider: str, settings: dict, system: str, messages: list[dict],
                      model: str, max_tokens: int, effort: str | None = None,
                      on_text=None, temperature: float | None = None) -> str:
@@ -253,8 +267,10 @@ def _openai_complete(provider: str, settings: dict, system: str, messages: list[
     # model that doesn't know the setting is asked again without it. The same
     # goes for `temperature` (the transcript's capitals and punctuation ask
     # for 0): a model that takes none is asked again without one.
-    more = {"reasoning_effort": effort} if effort and provider == "openai" else {}
-    for extra in ([{**more, **chance}] if chance else []) + ([more] if more else []):
+    more = ({"reasoning_effort": effort} if provider == "openai" else _groq_effort(model)
+            if provider == "groq" else {}) if effort else {}
+    both = [{**more, **chance}] if more and chance else []
+    for extra in both + ([more] if more else []) + ([chance] if chance else []):
         try:
             return create(**extra)
         except Exception as e:  # noqa: BLE001

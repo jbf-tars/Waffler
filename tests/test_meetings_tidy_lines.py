@@ -282,29 +282,34 @@ def test_text_written_without_spaces_is_cut_at_its_lines_too():
 GOOD = f"{A_TIDY} {C_TIDY}"
 
 
-@pytest.mark.parametrize("why, reply", [
-    ("a changed word", GOOD.replace("then", "now")),
-    ("an added word", GOOD.replace("this is a wrap-up", "this is really a wrap-up")),
-    ("a filler dropped", GOOD.replace("yeah, ", "")),
-    ("a repeat dropped", GOOD.replace("So going", "Going")),
-    ("a respelled word", GOOD.replace("wrap-up", "rap-up")),
-    ("two words swapped", GOOD.replace("going back", "back going")),
-    ("the lines swapped", f"{C_TIDY} {A_TIDY}"),
-    ("translated", "Das ist, ja, tut mir leid. Also zurück dazu, das ist eine Zusammenfassung."),
-    ("a summary", "A wrap-up, and the cabinets arrive on the fourteenth."),
-    ("only the first line", A_TIDY),
-    ("a greeting first", f"Here is the punctuated text: {GOOD}"),
-    ("a remark after", f"{GOOD} Let me know if you need anything else."),
-    ("a refusal", "I can't help with that."),
-    ("nothing", ""),
-    ("spaces", "  \n "),
-    ("not text", None),
-    ("not text either", 42),
+@pytest.mark.parametrize("why, reply, kept", [
+    # A word changed in the first line: that line keeps its original, the other is still taken.
+    ("a changed word", GOOD.replace("then", "now"), [A, C_TIDY]),
+    ("an added word", GOOD.replace("this is a wrap-up", "this is really a wrap-up"), [A, C_TIDY]),
+    ("a filler dropped", GOOD.replace("yeah, ", ""), [A, C_TIDY]),
+    ("a repeat dropped", GOOD.replace("So going", "Going"), [A, C_TIDY]),
+    ("a respelled word", GOOD.replace("wrap-up", "rap-up"), [A, C_TIDY]),
+    ("two words swapped", GOOD.replace("going back", "back going"), [A, C_TIDY]),
+    # Lines are looked for in order: the second, written before the first, is not found.
+    ("the lines swapped", f"{C_TIDY} {A_TIDY}", [A_TIDY, C]),
+    ("only the first line", A_TIDY, [A_TIDY, C]),
+    # Chatter around the text is not a line and is not kept.
+    ("a greeting first", f"Here is the punctuated text: {GOOD}", [A_TIDY, C_TIDY]),
+    ("a remark after", f"{GOOD} Let me know if you need anything else.", [A_TIDY, C_TIDY]),
+    ("translated", "Das ist, ja, tut mir leid. Also zurück dazu, das ist eine Zusammenfassung.", [A, C]),
+    ("a summary", "A wrap-up, and the cabinets arrive on the fourteenth.", [A, C]),
+    ("a refusal", "I can't help with that.", [A, C]),
+    ("nothing", "", [A, C]),
+    ("spaces", "  \n ", [A, C]),
+    ("not text", None, [A, C]),
+    ("not text either", 42, [A, C]),
 ])
-def test_a_reply_with_one_word_changed_is_refused_whole(why, reply):
+def test_a_changed_word_costs_its_own_line_and_no_other(why, reply, kept):
     run = Run(segs(A, C), lambda user, n: reply)
-    assert run.after == [A, C], why
-    assert run.counts == {"lines": 2, "requests": 1, "changed": 0, "refused": 2, "stopped": ""}
+    assert run.after == kept, why
+    assert run.counts["refused"] == sum(a == b for a, b in zip(kept, [A, C])), why
+    for before, after in zip([A, C], run.after):
+        assert tidy_lines.words_of(before) == tidy_lines.words_of(after), why
 
 
 @pytest.mark.parametrize("before, bad", [
@@ -315,17 +320,17 @@ def test_a_reply_with_one_word_changed_is_refused_whole(why, reply):
     ("we went to the café on the corner and had a long talk about it", "We went to the cafe on the corner and had a long talk about it."),
     ("me gustaria saber que piensas tu de todo esto que hemos hablado", "Me gustaría saber qué piensas tú de todo esto que hemos hablado."),
 ])
-def test_a_number_written_another_way_or_an_accent_refuses_the_reply(before, bad):
+def test_a_number_written_another_way_or_an_accent_keeps_that_line_as_it_was(before, bad):
     run = Run(segs(A, before), lambda user, n: f"{A_TIDY} {bad}")
-    assert run.after == [A, before]
+    assert run.after == [A_TIDY, before]
 
 
-def test_a_refused_reply_is_not_a_failure_and_the_next_lines_are_still_asked_about():
+def test_a_refused_line_is_not_a_failure_and_the_next_lines_are_still_asked_about():
     lines = segs(*numbered_lines(25))
     run = Run(lines, lambda user, n: commas(user).replace("sorry", "glad", 1) if n == 1 else commas(user))
     assert len(run.asked) == 2
-    assert run.after == [s["text"] for s in lines[:20]] + [commas(s["text"]) for s in lines[20:]]
-    assert run.counts == {"lines": 25, "requests": 2, "changed": 5, "refused": 20, "stopped": ""}
+    assert run.after == [lines[0]["text"]] + [commas(s["text"]) for s in lines[1:]]
+    assert run.counts == {"lines": 25, "requests": 2, "changed": 24, "refused": 1, "stopped": ""}
 
 
 # ── a line that fails on its own: only that line ─────────────────────────────
@@ -953,3 +958,75 @@ def test_claude_is_asked_as_it_is_for_notes(monkeypatch):
     run = Run(segs(A), lambda user, n: Service._ask_writer(service, {}, tidy_lines.SYSTEM, user))
     assert run.after == [A_TIDY]
     assert asked == [(SPEC_SYSTEM, [{"role": "user", "content": A}], llm.ANTHROPIC_DEFAULT_MODEL)]
+
+
+@pytest.mark.parametrize("tidied, original, kept", [
+    ("I think so, yes.", "i think so yes", "I think so, yes."),
+    ("I'm close, all right.", "i'm close all right", "I'm close, all right."),
+    ("I\u2019ll have to look.", "i'll have to look", "I\u2019ll have to look."),
+    ("It was fine.", "it was fine", "it was fine."),          # not the word "I"
+    ("In the morning.", "in the morning", "in the morning."),
+])
+def test_the_word_i_keeps_its_capital_where_a_sentence_runs_on(tidied, original, kept):
+    assert tidy_lines.first_letter(tidied, original, "and then") == kept
+
+
+# -- a reply with a changed word: the lines it did not touch are still taken --
+
+LINES_SENT = ["this is a wrap up of my day", "so that good and then had a really good gym session",
+              "felt good after not going for like five days", "which is good"]
+
+
+def test_one_changed_word_costs_one_line():
+    reply = ("This is a wrap up of my day. So that's good, and then had a really good gym session. "
+             "Felt good after not going for, like, five days, which is good.")
+    kept, refused = tidy_lines.checked(LINES_SENT, reply)
+    assert kept == ["This is a wrap up of my day.", LINES_SENT[1],
+                    "Felt good after not going for, like, five days,", "which is good."]
+    assert refused == 1
+
+
+def test_an_added_word_between_two_lines_is_dropped_and_both_lines_stay():
+    reply = ("This is a wrap up of my day. Anyway, so that good, and then had a really good gym session. "
+             "Felt good after not going for like five days, which is good.")
+    kept, refused = tidy_lines.checked(LINES_SENT, reply)
+    assert refused == 0
+    assert kept[1] == "so that good, and then had a really good gym session."
+    assert all(tidy_lines.same_words(a, b) for a, b in zip(LINES_SENT, kept))
+
+
+def test_a_dropped_line_costs_that_line_only():
+    reply = "This is a wrap up of my day. Felt good after not going for like five days, which is good."
+    kept, refused = tidy_lines.checked(LINES_SENT, reply)
+    assert kept == ["This is a wrap up of my day.", LINES_SENT[1],
+                    "Felt good after not going for like five days,", "which is good."]
+    assert refused == 1
+
+
+def test_a_reply_about_something_else_keeps_every_line():
+    kept, refused = tidy_lines.checked(LINES_SENT, "Sure! Here is the punctuated transcript you asked for.")
+    assert kept == LINES_SENT and refused == len(LINES_SENT)
+
+
+def test_a_line_said_twice_is_found_in_order():
+    lines = ["sort of go through a few things", "sort of go through a few things", "and that was it really yes"]
+    reply = "Sort of go through a few things, sort of go through a few things. And that was that, really, yes."
+    kept, refused = tidy_lines.checked(lines, reply)
+    assert kept == ["Sort of go through a few things,", "sort of go through a few things.", lines[2]]
+    assert refused == 1
+
+
+def test_found_lines_never_hands_back_other_words():
+    rng = random.Random(7)
+    words = "so yeah we just kind of go through a few things here and there it is good".split()
+    for _ in range(300):
+        lines = [" ".join(rng.choice(words) for _ in range(rng.randint(1, 9))) for _ in range(rng.randint(1, 8))]
+        said = " ".join(lines).split()
+        for _ in range(rng.randint(0, 3)):              # the writer changes, adds or drops words
+            i = rng.randrange(len(said) + 1)
+            said[i:i + rng.randint(0, 1)] = [rng.choice(words)] * rng.randint(0, 2)
+        reply = " ".join(w + rng.choice(["", "", ",", "."]) for w in said)
+        kept, _ = tidy_lines.checked(lines, reply)
+        assert len(kept) == len(lines)
+        for before, after in zip(lines, kept):
+            assert tidy_lines.words_of(before) == tidy_lines.words_of(after)

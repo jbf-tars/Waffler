@@ -128,17 +128,64 @@ def resplit(originals: list[str], tidied: str) -> list[str]:
     return out
 
 
+# The English word that is a capital in the middle of a sentence too.
+_I_WORD = re.compile(r"I(?:['\u2019]\w+)?(?!\w)")
+
+
+# How far past where a line is expected it is still looked for, in letters
+# and digits: room for a few words the writer added.
+_SLACK = 200
+
+
+def found_lines(originals: list[str], tidied: str) -> list[str]:
+    """Each line, found in a reply that is not word for word what was sent.
+
+    The lines are looked for in order: a line's letters and digits, case
+    folded, as one unbroken run in the reply's, at or after the end of the
+    line found before it. A line the writer changed is not there and comes
+    back empty (it keeps its original), and the search for the next starts
+    from the same place, so one changed word costs one line. What is found is
+    cut as `resplit` cuts it: with the punctuation that closes its last word,
+    and whatever opens its first. Each line still has to pass `same_words`."""
+    keys, at = [], []                       # the reply's letters and digits, and where each is
+    for i, ch in enumerate(tidied):
+        if ch.isalnum():
+            keys.append(ch.casefold())
+            at.append(i)
+    out, cursor, skipped = [], 0, 0
+    for text in originals:
+        want = [ch.casefold() for ch in text if ch.isalnum()]
+        n = len(want)
+        last = min(len(keys) - n, cursor + skipped + _SLACK)
+        found = next((p for p in range(cursor, last + 1) if keys[p:p + n] == want), None) if n else None
+        if found is None:
+            out.append("")
+            skipped += n
+            continue
+        start, end = at[found], at[found + n - 1] + 1
+        while start > 0 and unicodedata.category(tidied[start - 1]) in ("Ps", "Pi"):
+            start -= 1
+        while end < len(tidied) and not (tidied[end].isspace() or tidied[end].isalnum()
+                                         or unicodedata.category(tidied[end]) in ("Ps", "Pi")):
+            end += 1
+        out.append(tidied[start:end].strip())
+        cursor, skipped = found + n, 0
+    return out
+
+
 def first_letter(tidied: str, original: str, earlier: str) -> str:
     """The first letter of a request's first line is ours to decide: the
     writer saw nothing before it and starts every reply with a capital. It is
     a capital when no line comes before it in its source, or the line before
-    ends a sentence (. ? !); otherwise it is as the original line had it.
-    Only the case of that one letter is ever changed."""
+    ends a sentence (. ? !); otherwise it is as the original line had it,
+    except the word "I", which the writer is right to capitalise. Only the case of that one letter is ever changed."""
     at = next((i for i, ch in enumerate(tidied) if ch.isalnum()), None)
     if at is None:
         return tidied
     if not earlier or earlier.rstrip()[-1:] in (".", "?", "!"):
         want = tidied[at].upper()
+    elif _I_WORD.match(tidied[at:]):
+        return tidied            # "I", "I'm", "I'll": a capital wherever it stands
     else:
         want = next((ch for ch in original if ch.isalnum()), "")
     if len(want) == 1 and want.casefold() == tidied[at].casefold():
@@ -149,16 +196,22 @@ def first_letter(tidied: str, original: str, earlier: str) -> str:
 def checked(texts: list[str], reply, earlier: str = "") -> tuple[list[str], int]:
     """For each line sent, the line to keep, and how many were refused.
 
-    The reply as a whole must be the words that were sent: if not, every
-    line keeps its original. Then it is cut back into lines, and a line is
-    the writer's only when it is that line with nothing but capitals and
-    punctuation changed; the original otherwise, exactly. `earlier` is the
+    The reply is cut back into the lines it was made from (`resplit`). Where
+    the writer changed, added or dropped a word the lines no longer fall
+    where they did, so each line is looked for in the reply instead
+    (`found_lines`) and the ones the change touched are not found. Either
+    way a line is the writer's only when it is that line with nothing but
+    capitals and punctuation changed; the original otherwise, exactly. `earlier` is the
     line before these in their source, as it is kept."""
     reply = " ".join(reply.split()) if isinstance(reply, str) else ""
-    if not reply or words_of(" ".join(texts)) != words_of(reply):
+    if not reply:
         return list(texts), len(texts)
-    cut = resplit(texts, reply)
-    cut[0] = first_letter(cut[0], texts[0], earlier)
+    if words_of(" ".join(texts)) == words_of(reply):
+        cut = resplit(texts, reply)
+    else:
+        cut = found_lines(texts, reply)     # a word was changed somewhere: keep what was not touched
+    if cut[0]:
+        cut[0] = first_letter(cut[0], texts[0], earlier)
     out, refused = [], 0
     for before, after in zip(texts, cut):
         ok = bool(after) and same_words(before, after)

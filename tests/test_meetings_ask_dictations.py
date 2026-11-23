@@ -185,3 +185,41 @@ def test_home_shows_what_a_meeting_was_about_without_its_headings():
     assert json.loads(out.stdout) == ["Hello there.",
                                       "Moves to the 2nd. Priya owns pricing. Tom chases the quote.",
                                       "No one objected, and the date holds."]
+
+
+# ── on Groq, a model that reasons is told not to, when the job is a quick one ──
+
+import pytest  # noqa: E402
+
+def _on_groq(monkeypatch, client, model):
+    monkeypatch.setattr(llm, "resolve_provider", lambda settings: "groq")
+    monkeypatch.setattr(llm, "resolve_model", lambda provider, settings: model)
+    monkeypatch.setattr(llm, "_openai_client", lambda provider, settings: client)
+
+
+@pytest.mark.parametrize("model, sent", [
+    ("openai/gpt-oss-120b", {"reasoning_effort": "low"}),
+    ("qwen/qwen3-32b", {"reasoning_effort": "none"}),
+    ("llama-3.3-70b-versatile", {}),
+])
+def test_a_quick_job_on_groq_tells_a_reasoning_model_how_little_to_think(monkeypatch, model, sent):
+    client = _FakeOpenAI()
+    _on_groq(monkeypatch, client, model)
+    llm.complete("system", [{"role": "user", "content": "punctuate"}], {}, effort="low", temperature=0.0)
+    first = client.calls[0]
+    assert {k: first[k] for k in first if k == "reasoning_effort"} == sent
+    assert first["temperature"] == 0.0
+
+
+def test_groq_notes_are_not_hurried(monkeypatch):
+    client = _FakeOpenAI()
+    _on_groq(monkeypatch, client, "openai/gpt-oss-120b")
+    llm.complete("system", [{"role": "user", "content": "write"}], {})
+    assert "reasoning_effort" not in client.calls[0]
+
+
+def test_a_model_that_refuses_the_effort_still_gets_its_temperature(monkeypatch):
+    client = _FakeOpenAI(refuse_effort=True)
+    _on_groq(monkeypatch, client, "openai/gpt-oss-120b")
+    assert llm.complete("system", [{"role": "user", "content": "x"}], {}, effort="low", temperature=0.0) == "The answer."
+    assert "reasoning_effort" not in client.calls[-1] and client.calls[-1]["temperature"] == 0.0
