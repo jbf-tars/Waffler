@@ -789,6 +789,30 @@ def test_a_meetings_lines_are_tidied_and_its_notes_written_from_the_tidied_lines
     assert [h["note_id"] for h in service.store.search_segments("Waffler listening")] == [note["id"]]
 
 
+def test_with_the_model_on_this_computer_the_notes_come_first_and_the_lines_after(no_keys, monkeypatch):
+    """It is slow without a graphics card: the notes are not kept waiting."""
+    monkeypatch.setattr(Service, "_lines_after_notes", lambda self: True)
+    writer = Writer()
+    service = Service(store=Store(), transcribe_backend=_heard, llm_backend=writer)
+    note = _record(service)
+    assert note["summary"] and note["error"] == ""
+    assert f"Me: {A} {B}" in writer.notes_from[0], "the notes were written before the lines were tidied"
+    assert wait_until(lambda: [s["text"] for s in service.store.segments(note["id"])] == [A_TIDY, B_TIDY], timeout=10)
+    assert writer.tidied == [f"{A} {B}"]
+
+
+def test_only_the_model_on_this_computer_puts_the_notes_first(no_keys, monkeypatch):
+    service = Service(store=Store(), transcribe_backend=_heard)
+    for provider, after in [("local", True), ("groq", False), ("plus", False), ("anthropic", False)]:
+        monkeypatch.setattr(llm, "resolve_provider", lambda settings, p=provider: p)
+        assert service._lines_after_notes() is after, provider
+
+    def none(settings):
+        raise llm.LLMError("no writer", "no_key")
+    monkeypatch.setattr(llm, "resolve_provider", none)
+    assert service._lines_after_notes() is False
+
+
 def test_a_writer_that_changes_words_gets_none_of_them_into_the_meeting(no_keys):
     writer = Writer(lambda user: "This is a wrap-up of my day. I am close, Waffler, if you are listening.")
     service = Service(store=Store(), transcribe_backend=_heard, llm_backend=writer)

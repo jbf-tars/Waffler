@@ -206,6 +206,20 @@ class Service:
         return llm.complete(system, [{"role": "user", "content": user}], settings, max_tokens=8000,
                             backend=self.llm_backend, effort="low", background=True, temperature=0.0)
 
+    def _lines_after_notes(self) -> bool:
+        """Is the writer the model on this computer? It is slow where there
+        is no graphics card (measured on a PC: about two minutes for sixty
+        lines, a quarter of an hour for an hour's meeting), so there the
+        notes are written first and the lines tidied behind them. Any other
+        writer takes a second or two a request and goes first, so the notes
+        are written from the tidied lines."""
+        if self.llm_backend is not None:
+            return False
+        try:
+            return llm.resolve_provider(self.store.settings()) == "local"
+        except Exception:  # noqa: BLE001
+            return False
+
     def _tidy_lines(self, note_id: str) -> None:
         """Capitals and punctuation for the transcript's lines, by the notes'
         writer, and never a changed word (tidy_lines.py). With no writer
@@ -239,7 +253,9 @@ class Service:
             # the meeting's first notes (written down before there was a
             # writer). Not each time the notes are written again: a line that
             # runs on still starts small after it, and would be sent for ever.
-            if written_down or not note["summary"]:
+            tidy = written_down or not note["summary"]
+            after = tidy and self._lines_after_notes()
+            if tidy and not after:
                 self._tidy_lines(note_id)
             template = self.store.template(note["template_id"])
             title, notes = llm.write_notes(
@@ -249,6 +265,8 @@ class Service:
             if title and not note["title_locked"]:
                 fields["title"] = title
             self.store.update_note(note_id, **fields)
+            if after:
+                self._tidy_lines(note_id)
         except Exception as e:  # noqa: BLE001
             msg = str(e) if isinstance(e, (llm.LLMError, TranscribeError)) \
                 else f"Couldn't write notes ({type(e).__name__})."
