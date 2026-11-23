@@ -39,15 +39,38 @@ def window_rms(audio: np.ndarray, rate: int = RATE) -> np.ndarray:
     return np.sqrt((audio[:n * w].reshape(n, w).astype(np.float64) ** 2).mean(axis=1))
 
 
+# Dictation lifts a quiet take to a normal speech level before it is judged
+# (src/transcribe_whisper.py boost_quiet_speech: towards -20 dBFS, by 30 dB at
+# most). The same lift is reckoned here, so a quiet microphone's voice is
+# measured as voice: on a Windows PC whose speech arrived at -44 to -60 dBFS,
+# a fixed -46 dBFS floor counted too little of it, and of 20 real takes heard
+# as a meeting, 4 were never sent and 7 more were dropped as written over
+# nothing.
+_SPEECH_TARGET = 10 ** (-20 / 20)
+_MAX_LIFT = 10 ** (30 / 20)
+_LIFT_FLOOR = 10 ** (-70 / 20)
+
+
+def _lift(rms: np.ndarray) -> float:
+    """How far below normal speech this take's voice sits: the gain dictation
+    would give it (1 for a take at a normal level, or with no voice)."""
+    floor = float(np.percentile(rms, 10))
+    voiced = rms[rms > max(floor * 4.0, _LIFT_FLOOR)]
+    if voiced.size == 0:
+        return 1.0
+    return float(min(max(_SPEECH_TARGET / float(np.median(voiced)), 1.0), _MAX_LIFT))
+
+
 def voiced_mask(audio: np.ndarray, rate: int = RATE) -> np.ndarray:
     """Per 30 ms window: is someone speaking? Voice is well above the take's
-    own noise floor and above an absolute floor (about -46 dBFS), so steady
-    room noise and digital silence both count as nothing."""
+    own noise floor and above an absolute floor (about -46 dBFS once a quiet
+    take is lifted as dictation lifts it), so steady room noise and digital
+    silence both count as nothing, and a quiet microphone's voice counts."""
     rms = window_rms(audio, rate)
     if len(rms) == 0:
         return np.zeros(0, dtype=bool)
     floor = float(np.percentile(rms, 10))
-    return rms > max(floor * 3.0, 0.005)
+    return rms > max(floor * 3.0, 0.005 / _lift(rms))
 
 
 def voiced_seconds(audio: np.ndarray, rate: int = RATE) -> float:
