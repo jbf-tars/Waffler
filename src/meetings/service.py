@@ -13,7 +13,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import audioproc, llm
+from . import audioproc, llm, tidy_lines
 from .audioproc import RATE
 from .paths import audio_dir, data_dir
 from .recorder import (CHUNK_MAX_S, CHUNK_MIN_S, WAITING, Recorder, _Job, finish_waiting, retranscribe,
@@ -149,7 +149,7 @@ class Service:
                                        error=note.get("error") or llm.NOTES_NEED_KEY)
                 self.sync_soon()
                 return
-            self._enhance(note_id)
+            self._enhance(note_id, written_down=True)
         else:
             self.store.update_note(note_id, status="ready")
 
@@ -199,7 +199,30 @@ class Service:
             threading.Thread(target=self._enhance, args=(note_id,), daemon=True).start()
         return self.store.get_note(note_id)
 
-    def _enhance(self, note_id: str) -> None:
+    def _ask_writer(self, settings: dict, system: str, user: str) -> str:
+        """One reply from whatever writes this meeting's notes (a key,
+        Waffler Plus, the model on this computer), with no chance in its
+        choice of words where the writer has that setting."""
+        return llm.complete(system, [{"role": "user", "content": user}], settings, max_tokens=8000,
+                            backend=self.llm_backend, effort="low", background=True, temperature=0.0)
+
+    def _tidy_lines(self, note_id: str) -> None:
+        """Capitals and punctuation for the transcript's lines, by the notes'
+        writer, and never a changed word (tidy_lines.py). With no writer
+        nobody is asked. Never raises: the notes come next whatever happens."""
+        try:
+            settings = self.store.settings()
+            if self.llm_backend is None and not llm.can_write(settings):
+                return
+            tidy_lines.tidy(self.store.segments(note_id),
+                            lambda system, user: self._ask_writer(settings, system, user),
+                            lambda changes: self.store.retext_segments(note_id, changes))
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _enhance(self, note_id: str, written_down: bool = False) -> None:
+        """`written_down`: the transcript has just been made (a recording
+        ended, a file came in, it was written down again)."""
         with self._lock:
             if note_id in self._enhancing:
                 return
@@ -210,7 +233,14 @@ class Service:
                 # Plus did not take): that first, then notes from all of it.
                 finish_waiting(self.store, note_id, backend=self.transcribe_backend,
                                progress=self.recorder.say_part(note_id))
+                written_down = True
             note = self.store.get_note(note_id)
+            # The lines are tidied once, when the transcript is new, or with
+            # the meeting's first notes (written down before there was a
+            # writer). Not each time the notes are written again: a line that
+            # runs on still starts small after it, and would be sent for ever.
+            if written_down or not note["summary"]:
+                self._tidy_lines(note_id)
             template = self.store.template(note["template_id"])
             title, notes = llm.write_notes(
                 self.store.transcript_text(note_id), note["my_notes"], template["prompt"],

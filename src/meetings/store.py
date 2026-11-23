@@ -289,6 +289,41 @@ class Store:
                 self.db.execute("UPDATE notes SET updated_at=? WHERE id=?", (now_iso(), note_id))
         return out
 
+    def retext_segments(self, note_id: str, changes: list[tuple[str, str, str]],
+                        touch: bool = True) -> int:
+        """New text for lines already stored (a transcript's capitals and
+        punctuation, tidy_lines.py): [(segment id, the text it has, the text
+        to give it)]. A line is changed only if it still says what the caller
+        checked. Its id, times and source are never touched, and search
+        follows the new text. All of them or none. Returns lines changed."""
+        done = 0
+        with self._write:
+            rows = None
+            self.db.execute("BEGIN")
+            try:
+                for sid, old, new in changes:
+                    new = " ".join(str(new).split())
+                    if not new or not self.db.execute(
+                            "UPDATE segments SET text=? WHERE id=? AND note_id=? AND text=?",
+                            (new, sid, note_id, old)).rowcount:
+                        continue
+                    if rows is None:               # one pass over the index, not one per line
+                        rows = {r["segment_id"]: r["rowid"] for r in self.db.execute(
+                            "SELECT rowid, segment_id FROM segments_fts WHERE note_id=?", (note_id,))}
+                    if sid in rows:
+                        self.db.execute("UPDATE segments_fts SET text=? WHERE rowid=?", (new, rows[sid]))
+                    else:
+                        self.db.execute("INSERT INTO segments_fts(segment_id,note_id,text) VALUES(?,?,?)",
+                                        (sid, note_id, new))
+                    done += 1
+                if done and touch:
+                    self.db.execute("UPDATE notes SET updated_at=? WHERE id=?", (now_iso(), note_id))
+                self.db.execute("COMMIT")
+            except BaseException:
+                self.db.execute("ROLLBACK")
+                raise
+        return done
+
     def segments(self, note_id: str) -> list[dict]:
         return [dict(r) for r in self.db.execute(
             "SELECT id,session_n,source,start_s,end_s,text,created_at FROM segments "

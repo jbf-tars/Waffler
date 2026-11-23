@@ -207,9 +207,10 @@ def _anthropic_complete(system: str, messages: list[dict], model: str, max_token
 
 def _openai_complete(provider: str, settings: dict, system: str, messages: list[dict],
                      model: str, max_tokens: int, effort: str | None = None,
-                     on_text=None) -> str:
+                     on_text=None, temperature: float | None = None) -> str:
     client = _openai_client(provider, settings)
     kwargs = dict(model=model, messages=[{"role": "system", "content": system}, *messages])
+    chance = {} if temperature is None else {"temperature": temperature}
     if provider == "custom":
         # Self-hosted models (llama.cpp, Ollama, vLLM): "thinking" before the
         # answer multiplies the wait on home hardware and adds little to notes,
@@ -218,18 +219,19 @@ def _openai_complete(provider: str, settings: dict, system: str, messages: list[
         root = ollama_root(settings.get("custom_base_url") or "")
         if root:
             return strip_thinking(ollama_complete(root, system, messages, model, min(max_tokens, 3000),
-                                                  thinking=bool(settings.get("local_thinking", False))))
+                                                  thinking=bool(settings.get("local_thinking", False)),
+                                                  temperature=temperature))
         if not settings.get("local_thinking", False):
             try:
                 resp = client.chat.completions.create(
-                    max_tokens=min(max_tokens, 3000), **kwargs,
+                    max_tokens=min(max_tokens, 3000), **chance, **kwargs,
                     extra_body={"chat_template_kwargs": {"enable_thinking": False},
                                 "reasoning_effort": "none"})
                 return strip_thinking(resp.choices[0].message.content or "")
             except Exception as e:  # noqa: BLE001
                 if getattr(e, "status_code", None) not in (400, 422):
                     raise
-        resp = client.chat.completions.create(max_tokens=min(max_tokens, 3000), **kwargs)
+        resp = client.chat.completions.create(max_tokens=min(max_tokens, 3000), **chance, **kwargs)
         return strip_thinking(resp.choices[0].message.content or "")
     def create(**more) -> str:
         if on_text is None:
@@ -246,12 +248,15 @@ def _openai_complete(provider: str, settings: dict, system: str, messages: list[
                 on_text(text)
         return text.strip()
 
-    if effort and provider == "openai":
-        # A model that thinks before it answers takes ten seconds and more over
-        # a plain question; told not to deliberate it takes three or four. A
-        # model that doesn't know the setting is asked again without it.
+    # A model that thinks before it answers takes ten seconds and more over
+    # a plain question; told not to deliberate it takes three or four. A
+    # model that doesn't know the setting is asked again without it. The same
+    # goes for `temperature` (the transcript's capitals and punctuation ask
+    # for 0): a model that takes none is asked again without one.
+    more = {"reasoning_effort": effort} if effort and provider == "openai" else {}
+    for extra in ([{**more, **chance}] if chance else []) + ([more] if more else []):
         try:
-            return create(reasoning_effort=effort)
+            return create(**extra)
         except Exception as e:  # noqa: BLE001
             if getattr(e, "status_code", None) not in (400, 422):
                 raise
@@ -285,12 +290,14 @@ def ollama_context(chars: int, max_tokens: int) -> int:
 
 
 def ollama_complete(root: str, system: str, messages: list[dict], model: str, max_tokens: int,
-                    thinking: bool = False) -> str:
+                    thinking: bool = False, temperature: float | None = None) -> str:
     import httpx
     msgs = [{"role": "system", "content": system}, *messages]
     body = {"model": model, "messages": msgs, "stream": False, "think": thinking,
             "options": {"num_ctx": ollama_context(sum(len(m["content"]) for m in msgs), max_tokens),
                         "num_predict": max_tokens}}
+    if temperature is not None:
+        body["options"]["temperature"] = temperature
     r = httpx.post(root + "/api/chat", json=body, timeout=1800.0)
     if r.status_code == 400 and "think" in r.text.lower():     # a model with no thinking switch
         body.pop("think")
@@ -311,13 +318,18 @@ def strip_thinking(text: str) -> str:
 
 def complete(system: str, messages: list[dict], settings: dict, max_tokens: int = 16000,
              backend=None, effort: str | None = None, on_text=None,
-             background: bool = False) -> str:
+             background: bool = False, temperature: float | None = None) -> str:
     """One model reply. `backend(system, messages)` replaces the network in tests.
     `effort` is how hard a thinking model should think (Ask passes "low").
     `on_text(words so far)` is called as the reply is written, where the
     provider can do that; the whole reply is still what comes back.
     `background` says nobody is waiting on it (notes): the model on this
-    computer then lets a dictation go first."""
+    computer then lets a dictation go first.
+    `temperature` (0 for a transcript's capitals and punctuation) goes to
+    the writers that take one: a key for OpenAI, Groq or a custom endpoint.
+    Anthropic's current models refuse the setting and Waffler Plus has none,
+    so they are asked as they are for notes; the model on this computer
+    always runs at LOCAL_TEMPERATURE, which is 0."""
     if backend is not None:
         return backend(system, messages)
     provider = resolve_provider(settings)
@@ -332,7 +344,8 @@ def complete(system: str, messages: list[dict], settings: dict, max_tokens: int 
             if provider == "anthropic":
                 return _anthropic_complete(system, messages, model, max_tokens)
             return _openai_complete(provider, settings, system, messages, model,
-                                    min(max_tokens, 8000), effort=effort, on_text=on_text)
+                                    min(max_tokens, 8000), effort=effort, on_text=on_text,
+                                    **({} if temperature is None else {"temperature": temperature}))
         except LLMError:
             raise
         except Exception as e:  # noqa: BLE001
