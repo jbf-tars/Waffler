@@ -1054,3 +1054,13 @@ def test_found_lines_never_hands_back_other_words():
         assert len(kept) == len(lines)
         for before, after in zip(lines, kept):
             assert tidy_lines.words_of(before) == tidy_lines.words_of(after)
+
+
+def test_a_word_is_found_with_its_vowel_signs_not_only_its_letters():
+    """"की" and "के" are one consonant with different vowel signs: marks, not
+    letters. Looking for the letter alone finds the wrong word."""
+    lines = ["हमने अगले में रसोई बात की की", "के", "बारे के योजना"]
+    reply = "हमने? अगले… में. रसोई… बात… \"की\"? Good. Good? की… के; बारे, के — योजना:"
+    kept, refused = tidy_lines.checked(lines, reply, "well")
+    assert kept == [lines[0], "के;", "बारे, के — योजना:"]
+    assert refused == 1

@@ -147,14 +147,25 @@ def found_lines(originals: list[str], tidied: str) -> list[str]:
     from the same place, so one changed word costs one line. What is found is
     cut as `resplit` cuts it: with the punctuation that closes its last word,
     and whatever opens its first. Each line still has to pass `same_words`."""
-    keys, at = [], []                       # the reply's letters and digits, and where each is
-    for i, ch in enumerate(tidied):
-        if ch.isalnum():
-            keys.append(ch.casefold())
-            at.append(i)
+    def letters(text: str) -> tuple[list[str], list[int]]:
+        """A text's letters and digits, each with the marks written on it (an
+        accent as its own character, a Hindi vowel sign: "की" is not "के"),
+        and where each one ends."""
+        keys, ends = [], []
+        for i, ch in enumerate(text):
+            if ch.isalnum():
+                keys.append(ch.casefold())
+                ends.append(i)
+            elif keys and ends[-1] == i - 1 and unicodedata.category(ch)[0] == "M":
+                keys[-1] += ch
+                ends[-1] = i
+        return keys, ends
+
+    keys, ends = letters(tidied)            # the reply's letters and digits, and where each ends
+    at = [e - len(k) + 1 for k, e in zip(keys, ends)]
     out, cursor, skipped = [], 0, 0
     for text in originals:
-        want = [ch.casefold() for ch in text if ch.isalnum()]
+        want = letters(text)[0]
         n = len(want)
         last = min(len(keys) - n, cursor + skipped + _SLACK)
         found = next((p for p in range(cursor, last + 1) if keys[p:p + n] == want), None) if n else None
@@ -162,7 +173,7 @@ def found_lines(originals: list[str], tidied: str) -> list[str]:
             out.append("")
             skipped += n
             continue
-        start, end = at[found], at[found + n - 1] + 1
+        start, end = at[found], ends[found + n - 1] + 1
         while start > 0 and unicodedata.category(tidied[start - 1]) in ("Ps", "Pi"):
             start -= 1
         while end < len(tidied) and not (tidied[end].isspace() or tidied[end].isalnum()
