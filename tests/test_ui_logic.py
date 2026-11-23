@@ -561,7 +561,7 @@ def _get_settings(pipeline, stored=None):
     tree = ast.parse((ROOT / "app.py").read_text(encoding="utf-8"))
     klass = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "Api")
     fn = next(n for n in klass.body if isinstance(n, ast.FunctionDef) and n.name == "get_settings")
-    ns = {"os": os, "_pipeline": pipeline}
+    ns = {"os": os, "_pipeline": pipeline, "_languages": __import__("languages")}
     exec(compile(ast.Module([fn], []), "<app.py>", "exec"), ns)
     this = types.SimpleNamespace(_load_settings_file=lambda: dict(stored or {}))
     return ns["get_settings"](this)

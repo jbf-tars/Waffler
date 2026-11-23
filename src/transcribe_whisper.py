@@ -2401,6 +2401,67 @@ def _trim_silent_tail(audio_bytes: bytes, profile=None):
         return audio_bytes, None
 
 
+# A dictation is many windows of text, and long real speech squeezes further
+# than one window's does, so the "one phrase over and over" rule (a loop) is
+# only used on a take short enough to be one or two windows.
+_LOOP_RULE_MAX_CHARS = 800
+
+
+def _meetings_transcribe():
+    """The Meetings engine's speech rules (src/meetings/transcribe.py), the one
+    copy of "was this line written with nobody speaking" and of the made-up
+    sign-off rule: dictation uses them as they are."""
+    try:
+        from meetings import transcribe as m
+    except ImportError:
+        from src.meetings import transcribe as m
+    return m
+
+
+# A take whose typical 30 ms window is this loud (about -34 dBFS) has no quiet
+# stretches to tell a voice from: steady loud sound, or speech squeezed flat by
+# the microphone. The voice meter measures voice as a rise above the quiet
+# around it, so it reads such a take as having none, and the words stay.
+_FLAT_LOUD_RMS = 0.02
+
+
+def _wav_samples(wav_bytes: bytes):
+    """(float32 mono samples, rate) of 16-bit WAV bytes."""
+    import io
+    import wave
+    import numpy as np
+    with wave.open(io.BytesIO(wav_bytes), "rb") as w:
+        if w.getsampwidth() != 2:
+            raise ValueError("not 16-bit")
+        rate, channels = w.getframerate(), w.getnchannels()
+        frames = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16)
+    if channels > 1:
+        frames = frames[:len(frames) // channels * channels].reshape(-1, channels).mean(axis=1)
+    return frames.astype(np.float32) / 32768.0, rate
+
+
+def _take_is_invented(text: str, wav_bytes: bytes, raw_wav_bytes: bytes = None) -> bool:
+    """Did the model write this dictation with nobody speaking (the same audio
+    rule as a meeting's lines: `invented`)? Judged on the voice in the whole
+    take as it goes to the model (`wav_bytes`). `raw_wav_bytes`, the take as
+    recorded, tells a flat loud take (_FLAT_LOUD_RMS) from a quiet one. False
+    for anything unreadable or unjudgeable: when unsure, the words stay."""
+    try:
+        import numpy as np
+        m = _meetings_transcribe()
+        audio, rate = _wav_samples(wav_bytes)
+        if raw_wav_bytes:
+            raw, raw_rate = _wav_samples(raw_wav_bytes)
+            rms = m.window_rms(raw, raw_rate)
+            if len(rms) and float(np.median(rms)) > _FLAT_LOUD_RMS:
+                return False
+        voiced = float(m.voiced_mask(audio, rate).sum()) * 0.03
+        return bool(m.invented(text, voiced, check_loop=len(text) <= _LOOP_RULE_MAX_CHARS))
+    except Exception as e:      # noqa: BLE001
+        _wlog(f"[whisper] could not judge the take against its audio ({type(e).__name__})")
+        return False
+
+
 def _voiced_seconds(audio) -> float:
     """Seconds of a take voiced beyond doubt: 30 ms windows at
     _STRICT_VOICE_RATIO times the room's floor or more, the floor taken from
@@ -3291,6 +3352,7 @@ class WhisperTranscriber:
         self.last_speech_dbfs = None
         # Measured once, on the take as recorded: its level, its silent end
         # and how much of it is voiced beyond doubt (see _voice_profile).
+        _raw_take = audio_bytes
         _profile = _voice_profile(audio_bytes)
         if _profile is not None and _profile.level_db is not None:
             self.last_speech_dbfs = round(_profile.level_db, 1)
@@ -3363,6 +3425,26 @@ class WhisperTranscriber:
             # Metadata only — don't print the transcript text (PII; app.log
             # ships in the Download Logs bundle).
             print(f"[whisper] Stripped hallucination ({len(raw)}→{len(cleaned)} chars)")
+
+        # A made-up sign-off in front of, or behind, real words ("Thank you for
+        # watching So that the ...") goes, by the Meetings engine's rule: only
+        # the phrases nobody says aloud, and never a line that is only one.
+        if cleaned:
+            try:
+                signed_off = _meetings_transcribe().strip_signoffs(cleaned)
+            except Exception:   # noqa: BLE001
+                signed_off = cleaned
+            if signed_off != cleaned:
+                _wlog(f"[whisper] Stripped a made-up sign-off ({len(cleaned)}→{len(signed_off)} chars)")
+                cleaned = signed_off
+
+        # Words written with nobody speaking (a foreign phrase or "The" over a
+        # quiet take or a cough) are not a dictation: the Meetings engine's
+        # audio rule, `invented`, decides, on the voice in the whole take.
+        if cleaned and _take_is_invented(cleaned, audio_bytes, _raw_take):
+            _wlog(f"[whisper] Discarded words written over no speech ({len(cleaned)} chars)")
+            self.last_asr_filtered = True
+            return ""
 
         # Whisper sometimes echoes the vocab prompt verbatim on silence —
         # discard rather than pasting the user's vocabulary list as output.
