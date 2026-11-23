@@ -178,7 +178,8 @@ def test_settings_calls_the_bridge_and_saves_the_choice_like_any_setting():
         assert call in hir, call
     assert "L.writingRowView(s, hasKey)" in hir and "L.howItRunsNote(s, hasKey)" in hir
     assert "st.groq_key_set || st.api_key_set || st.cerebras_key_set" in hir
-    assert "window.loadHowItRuns = () => { refresh(); refreshLlm(false); };" in hir
+    # The speech row, the writing row and (Windows, an NVIDIA card) the graphics card row.
+    assert "window.loadHowItRuns = () => { refresh(); refreshLlm(false); refreshGpu(); };" in hir
     assert "pollLlm = window.setTimeout(() => refreshLlm(true), 700);" in hir, "polled while it downloads"
     assert "window.confirm('Remove the writing model from this computer?" in hir
 

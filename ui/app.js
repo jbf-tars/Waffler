@@ -6427,8 +6427,14 @@ function wizDrawLocal() {
     card.classList.toggle('is-on', _wizWay === 'local' && v.done);
     card.classList.toggle('is-off', v.state === 'unavailable');
     put('obWaySize', v.size ? ` (${v.size})` : '');
+    // Too small a machine: the page's own sentence. On the processor: slower,
+    // but free and private (logic.js setupLocalView `warn`).
     const slow = el('obWaySlow');
-    if (slow) slow.hidden = !v.slow;
+    if (slow) {
+      if (slow.dataset.small === undefined) slow.dataset.small = slow.textContent;
+      slow.textContent = v.slow ? slow.dataset.small : (v.warn || '');
+      slow.hidden = !(v.slow || v.warn);
+    }
     const bar = el('obWayBar');
     if (bar) {
       bar.hidden = !(v.state === 'downloading' || v.state === 'stopped' || v.state === 'failed');

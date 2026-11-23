@@ -310,6 +310,14 @@ def describe_machine() -> Machine:
     return machine
 
 
+def forget_machine() -> None:
+    """Read the machine again next time: NVIDIA's libraries came or went
+    (src/gpu_pack.py), which changes the card's answer and the model that
+    suits it."""
+    _machine_cache.clear()
+    _default_cache.clear()
+
+
 def machine_verdict(machine: Optional[Machine] = None) -> dict:
     """Does this computer suit speech to text on it? ``{"suits", "reason"}``,
     by the table in docs/OFFLINE-TRANSCRIPTION.md ("The models"):

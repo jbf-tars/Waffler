@@ -455,6 +455,55 @@ notes 40 s in all instead of 27). After notes or a question the clean-up's
 prompt is read again in the background. The model is released after five
 idle minutes (`WAFFLER_LOCAL_LLM_IDLE_S`).
 
+## An NVIDIA card on Windows
+
+`src/gpu_pack.py`. faster-whisper uses an NVIDIA card when cuBLAS 12 and
+cuDNN 9 load (`local_stt_ct2._cuda_usable`), and the packaged app ships
+without them, so on a PC with a card "On this computer" ran on the processor.
+Measured on James's PC (Windows 11, RTX 4070 SUPER, i7-14700F), November 2026:
+
+| | Processor | Card |
+|---|---|---|
+| `small`, an 11.5 s synthetic clip, as the app decodes | 1.22 to 1.38 s | 0.22 to 0.36 s |
+| Real dictations of 1.7 to 18.8 s (the speech step) | 2.4 to 4.5 s | 0.43 s (one 2.4 s dictation so far) |
+
+His cloud dictations (Groq, last 294 in his normal Waffler's log) took 0.58 s
+for the same step at the median (0.42 to 0.83 s for the middle half).
+
+**What it does.** On one click in Settings, Keys and providers, under "On this
+computer" (a row the page makes only where `gpu_pack_status()` says
+`offered`: Windows, the faster-whisper engine, an NVIDIA card the driver
+reports with at least 1.9 GB on it, and the libraries not loadable already),
+it fetches NVIDIA's own Windows wheels from PyPI, pinned by version, size and
+SHA-256 like the models (`nvidia-cublas-cu12` 12.9.2.10, 553 MB;
+`nvidia-cudnn-cu12` 9.28.1.4, 696 MB), resumed if cut short, refused if the
+disk is too full. It takes only the DLLs in each wheel's `bin` folder (not
+`nvblas`) into `<data folder>/gpu`, writes a mark listing them, and deletes the
+wheels: 12 files, 1.86 GB. Then the engine looks for the card again
+(`local_stt_ct2.gpu_libraries_arrived`) and the machine is read again
+(`local_stt.forget_machine`), so the next dictation uses the card with no
+restart. Never on its own: 1.25 GB is the person's choice.
+
+The real download through this module, on his connection: 1,249 MB in 42 s,
+checked and unpacked in 54 s in all; a fresh process with only those files
+then ran `small` on the card in 0.22 to 0.36 s.
+
+**Removing.** Only what the mark lists is deleted (a `gpu` folder linked there
+by hand is never written to or emptied). A DLL the engine has open cannot be
+deleted on Windows; it is listed in `.remove` and deleted at the next start,
+before anything loads it (`finish_pending_removal`, early in `main`).
+
+**The warning.** Where speech runs on the processor the card's line says so
+before anyone waits: "Slower on this computer, but free and private."
+(`localCardLine`; "Slow and less accurate here, but free and private." on a
+machine too small for `small`), and setup's free card says the same
+(`setupLocalView` `warn`). Where it runs on the graphics (Apple Silicon, or the
+card with its libraries) the line stays "Private. One download."
+
+Tests: `tests/test_gpu_pack.py` (fake wheels and a fake server: fetched,
+checked, unpacked, resumed, damaged, stopped, no space, removed with a file in
+use; the page's lines within the few-words rules).
+
 ## What a release build needs
 
 Changed, not run (the release build scripts were not run):
@@ -594,6 +643,7 @@ Not checked, and worth a look before a release:
 - On a slow CPU a very long take can outrun the local speech deadline (twice
   the cloud one): at the speed of real time, a 20 minute take takes 20 minutes
   and the deadline is 20.5.
-- `gpu` folder for NVIDIA libraries: `local_stt_ct2` looks for CUDA DLLs in
-  `<data folder>/gpu` as the old code looked in `<data folder>/meetings/gpu`;
-  nothing in this repository puts them there.
+- The NVIDIA card's libraries are fetched by `src/gpu_pack.py` now (see "An
+  NVIDIA card on Windows" above). Not done there: the first-run screens do not
+  offer them (Settings does), and no card older than an RTX 4070 SUPER, no
+  laptop card and no older driver was tried.

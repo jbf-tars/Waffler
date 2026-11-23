@@ -1139,6 +1139,52 @@
       state: s.error ? s.error : (s.bytes_done ? DOWNLOAD_STOPPED : 'Not downloaded') };
   }
 
+  // ══ The graphics card (src/gpu_pack.py, Windows) ═════════════════════════
+  // NVIDIA's libraries, fetched on one click (about 1.25 GB, never on their
+  // own), so "On this computer" runs on an NVIDIA card: a dictation went from
+  // 2.4 to 4.5 s on the processor to 0.43 s. `g` is gpu_pack_status(); the
+  // row exists only where it is offered (an NVIDIA card, the libraries missing).
+  const GPU_TITLE = 'Use your graphics card';
+  const GPU_ABOUT = 'Much faster. One download from NVIDIA.';
+  const GPU_ON = 'On. Speech runs on your graphics card.';
+  const GPU_FAILED = 'It didn’t download. Try again.';
+
+  function gpuRowView(g) {
+    const none = { show: false, title: GPU_TITLE, about: '', state: '', percent: 0, bar: false,
+      download: '', stop: false, remove: false };
+    if (!g || g.ok === false || g.offered !== true) return none;
+    const size = modelSize(g.bytes_total);
+    const percent = Math.max(0, Math.min(100, Math.round(Number(g.percent) || 0)));
+    const view = { ...none, show: true, about: GPU_ABOUT, percent };
+    if (g.state === 'downloading') {
+      return { ...view, bar: true, stop: true, state: `Downloading, ${percent}%${size ? ` of ${size}` : ''}` };
+    }
+    if (g.state === 'ready') {
+      return { ...view, about: GPU_ON, remove: true, percent: 100,
+        state: `Ready, ${modelSize(g.size_on_disk || g.bytes_total)}` };
+    }
+    return { ...view, download: `Download${size ? ` (${size})` : ''}`,
+      state: g.error ? GPU_FAILED : (g.bytes_done ? DOWNLOAD_STOPPED : '') };
+  }
+
+  // The line under "On this computer". Where speech runs on the processor it
+  // says so before anyone waits: slower than a key, but free and private
+  // (asked for in Nov 2026: real dictations took 2.4 to 4.5 s there). Fast
+  // where it runs on the graphics: an Apple Silicon Mac, or an NVIDIA card
+  // with its libraries. `s` is local_stt_status(), `g` gpu_pack_status().
+  const LOCAL_LINE = 'Private. One download.';
+  const LOCAL_SLOWER = 'Slower on this computer, but free and private.';
+  const LOCAL_SLOWEST = 'Slow and less accurate here, but free and private.';
+
+  function localCardLine(s, g) {
+    if (!s || s.available !== true) return LOCAL_LINE;
+    if (s.machine_reason === 'apple_silicon' || s.machine_reason === 'nvidia') return LOCAL_LINE;
+    if (g && g.ok !== false && (g.state === 'ready' || g.state === 'not_needed')) return LOCAL_LINE;
+    if (s.machine_reason === 'small_machine') return LOCAL_SLOWEST;
+    if (s.machine_reason === 'cpu') return LOCAL_SLOWER;
+    return LOCAL_LINE;                // not known: promise nothing either way
+  }
+
   // The line under the two cards. It said notes need a key "either way",
   // which stops being true the moment the writing model is here.
   // With Waffler Plus the chosen way (`plus`) nothing needs a key at all.
@@ -1215,7 +1261,11 @@
       idle: 'Download and start', downloading: '', stopped: 'Carry on downloading', failed: 'Try again',
       ready: chosen ? '' : 'Use this computer',
     }[state];
-    return { rec, state, percent, size, slow: s.suits_machine === false, line, button,
+    // A machine that runs it on the processor is told before it chooses:
+    // slower, but free and private. One too small for it keeps its own, plainer
+    // sentence (`slow`, the page as written).
+    const warn = s.suits_machine !== false && s.machine_reason === 'cpu' ? LOCAL_SLOWER : '';
+    return { rec, state, percent, size, slow: s.suits_machine === false, warn, line, button,
       canStop: state === 'downloading', canChoose: true,
       done: chosen && (state === 'ready' || state === 'downloading') };
   }
@@ -3476,6 +3526,7 @@
     providerOrderRows, activeProviders, backendsLine, aboutLine,
     USAGE_NOTE, formatCount, usageView, usageProviderRows, usesView, keyRows,
     keyCardPick, keyCardView, keyRefusedLine, speechRowView, KEY_PLACEHOLDER,
+    gpuRowView, localCardLine, GPU_TITLE, LOCAL_SLOWER,
     qualityView, dayKey, dayLabel, statNumber, originalText, hasOriginal, vocabAdd, VOCAB_MAX_ENTRY_LEN,
     SEARCH_DEBOUNCE_MS, debounce, feedView, searchAnnouncement, savingGate, SAVE_FAILED, saveFailedMessage, radioMove, focusAfterRemove,
     SNIPPET_MAX_TRIGGER, SNIPPET_MAX_EXPANSION, SNIPPET_MAX_COUNT, snippetTrigger, snippetCheck,

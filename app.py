@@ -181,6 +181,7 @@ import table_io as _table_io
 import transcribe_whisper as _transcribe_whisper
 import local_stt as _local_stt
 import local_llm as _local_llm
+import gpu_pack as _gpu_pack
 import take_marker as _take_marker
 import action_hotkeys as _action_hotkeys
 import transforms as _transforms
@@ -719,6 +720,16 @@ def _local_stt_changed():
     try:
         status = _local_stt.model_status()
         _post_js("window.waffler_local_stt_changed && window.waffler_local_stt_changed("
+                 + json.dumps(status) + ")")
+    except Exception:
+        pass
+
+
+def _gpu_pack_changed():
+    """NVIDIA's libraries' download moved or ended: hand the page its state."""
+    try:
+        status = _gpu_pack.status()
+        _post_js("window.waffler_gpu_pack_changed && window.waffler_gpu_pack_changed("
                  + json.dumps(status) + ")")
     except Exception:
         pass
@@ -2166,6 +2177,64 @@ class Api:
         except Exception as e:
             _log_to_file(f"[local-stt] remove failed: {type(e).__name__}: {e}")
             return {"ok": False, "error": "The speech model couldn't be removed."}
+
+    # ── NVIDIA's libraries, so the speech model uses the card (src/gpu_pack.py) ──
+    def gpu_pack_status(self) -> dict:
+        """{"ok", "offered", "state" ("no_card" | "not_needed" |
+        "not_downloaded" | "downloading" | "ready"), "percent", "bytes_done",
+        "bytes_total", "size_on_disk", "error", "cancelled"}. Offered only on
+        Windows with an NVIDIA card and the libraries missing. Cheap after the
+        first call: the page may poll it."""
+        try:
+            return {"ok": True, **_gpu_pack.status()}
+        except Exception as e:
+            _log_to_file(f"[gpu-pack] status failed: {type(e).__name__}: {e}")
+            return {"ok": False, "offered": False, "state": "no_card", "error": ""}
+
+    def gpu_pack_download(self) -> dict:
+        """Start fetching NVIDIA's libraries and return at once: only ever on
+        the person's click (about 1.25 GB). Progress: poll gpu_pack_status(),
+        or define window.waffler_gpu_pack_changed(status). When it ends the
+        speech engine uses the card from the next dictation, no restart."""
+        try:
+            def tell(*_progress):
+                _gpu_pack_changed()
+
+            def done(result):
+                _log_to_file(f"[gpu-pack] download ended: {result.get('state')}"
+                             + (" (cancelled)" if result.get("cancelled") else "")
+                             + (" (failed)" if result.get("error") else ""))
+                _gpu_pack_changed()
+                _local_stt_changed()
+            result = _gpu_pack.start_download(tell, done)
+            if result.get("started"):
+                _log_to_file(f"[gpu-pack] download started "
+                             f"({result.get('bytes_total', 0) / 1e6:.0f} MB)")
+            return result
+        except Exception as e:
+            _log_to_file(f"[gpu-pack] download not started: {type(e).__name__}: {e}")
+            return {"ok": False, "error": _gpu_pack.DOWNLOAD_FAILED}
+
+    def gpu_pack_cancel(self) -> dict:
+        """Stop the download. What arrived is kept for the next try."""
+        try:
+            return {"ok": True, "was_downloading": _gpu_pack.cancel_download()}
+        except Exception as e:
+            _log_to_file(f"[gpu-pack] cancel failed: {type(e).__name__}: {e}")
+            return {"ok": False, "error": "The download couldn't be stopped."}
+
+    def gpu_pack_remove(self) -> dict:
+        """Delete NVIDIA's libraries. A file the engine has open goes at the
+        next start (``pending``); dictation goes back to the processor."""
+        try:
+            result = _gpu_pack.remove()
+            _log_to_file(f"[gpu-pack] removed ({result.get('freed_bytes', 0) / 1e6:.0f} MB)"
+                         + (", the rest at the next start" if result.get("pending") else ""))
+            _gpu_pack_changed()
+            return result
+        except Exception as e:
+            _log_to_file(f"[gpu-pack] remove failed: {type(e).__name__}: {e}")
+            return {"ok": False, "error": "The graphics card files couldn't be removed."}
 
     # ── Tidying text and writing notes on this computer (src/local_llm.py) ──
     def local_llm_status(self) -> dict:
@@ -10325,6 +10394,14 @@ def main():
             _vr_flag.write_text("3.15.1\n", encoding="utf-8")
         except Exception as _e:
             _log_to_file(f"[vocab] restoring earlier fixes failed: {type(_e).__name__}")
+
+    # NVIDIA's libraries that a removal could not delete while they were open
+    # (src/gpu_pack.py): gone now, before the speech engine loads them.
+    try:
+        if _gpu_pack.finish_pending_removal():
+            _log_to_file("[gpu-pack] finished removing the graphics card files")
+    except Exception as _e:
+        _log_to_file(f"[gpu-pack] pending removal failed: {type(_e).__name__}")
 
     # 3.15 (plan SR9): once, remove the transcript lines that versions before
     # the redaction wrote to app.log, then start a new log when it is over

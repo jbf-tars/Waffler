@@ -116,6 +116,18 @@ def _add_nvidia_dll_dirs() -> None:
             pass
 
 
+def gpu_libraries_arrived() -> None:
+    """NVIDIA's libraries were just put in <data folder>/gpu (src/gpu_pack.py):
+    find them, and try the card again at the next call, with no restart. A
+    "no" from before the files came is forgotten."""
+    global _cuda_ok, _gpu_retry_at, _dll_dirs_added
+    _dll_dirs_added = False
+    _add_nvidia_dll_dirs()
+    _cuda_ok = None
+    _gpu_retry_at = 0.0
+    _last["cuda_error"] = ""
+
+
 def _cuda_usable() -> tuple[bool, str]:
     """(worth trying the GPU?, why not)."""
     try:

@@ -68,9 +68,94 @@
     $('hirLocalRadio').disabled = v.off;
     $('hirLocal').classList.toggle('is-off', v.off);
     $('hirState').textContent = v.state;
+    drawLocalLine();
     window.clearTimeout(poll);
     if (v.bar) poll = window.setTimeout(refresh, 700);
   }
+
+  // ── The graphics card: NVIDIA's libraries, so speech runs on the card ──
+  // Python: Api.gpu_pack_status / _download / _cancel / _remove. What the
+  // row says is decided in logic.js (gpuRowView); the row is made here only
+  // where it is offered (Windows, an NVIDIA card, the libraries missing), so
+  // the page as written says nothing of it.
+  let lastGpu = null;     // the last Api.gpu_pack_status()
+  let pollGpu = null;
+
+  // The line under "On this computer": slower on the processor, but free
+  // and private; the plain line where it runs on the graphics (logic.js).
+  function drawLocalLine() {
+    const L = window.WafflerLogic, line = $('hirLocalD');
+    if (L && line && last) line.textContent = L.localCardLine(last, lastGpu);
+  }
+
+  function gpuRow() {
+    let row = $('hirGpu');
+    if (row) return row;
+    const el = (tag, cls, text) => { const e = document.createElement(tag); e.className = cls; if (text) e.textContent = text; return e; };
+    const button = (cls, id, label, text, act) => {
+      const b = el('button', cls, text); b.type = 'button'; b.id = id; b.hidden = true;
+      b.setAttribute('aria-label', label); b.addEventListener('click', act); return b;
+    };
+    row = el('div', 'hir-model hir-extra'); row.id = 'hirGpu';
+    row.setAttribute('role', 'group'); row.setAttribute('aria-labelledby', 'hirGpuT');
+    const title = el('span', 'hir-extra-t'); title.id = 'hirGpuT';
+    const about = el('span', 'hir-extra-d'); about.id = 'hirGpuAbout';
+    const state = el('span', 'hir-state'); state.id = 'hirGpuState'; state.setAttribute('role', 'status');
+    const bar = el('span', 'hir-bar'); bar.id = 'hirGpuBar'; bar.hidden = true;
+    const fill = document.createElement('i'); fill.id = 'hirGpuBarFill'; bar.append(fill);
+    row.append(title, about, state, bar,
+      button('btn btn-sm btn-sec', 'hirGpuDownload', 'Download the graphics card files', 'Download', downloadGpu),
+      button('btn btn-sm btn-quiet', 'hirGpuCancel', 'Stop the download', 'Stop', cancelGpu),
+      button('btn btn-sm btn-quiet', 'hirGpuRemove', 'Remove the graphics card files', 'Remove', removeGpu));
+    $('hirModel').insertAdjacentElement('afterend', row);
+    return row;
+  }
+
+  function drawGpu(g) {
+    const L = window.WafflerLogic;
+    if (!L || !$('hirModel')) return;
+    lastGpu = g;
+    const v = L.gpuRowView(g);
+    window.clearTimeout(pollGpu);
+    const had = $('hirGpu');
+    if (!v.show) { if (had) had.hidden = true; drawLocalLine(); return; }
+    gpuRow().hidden = false;
+    $('hirGpuT').textContent = v.title;
+    $('hirGpuAbout').textContent = v.about;
+    const state = $('hirGpuState'); state.textContent = v.state; state.hidden = !v.state;
+    $('hirGpuBar').hidden = !v.bar; $('hirGpuBarFill').style.width = v.percent + '%';
+    const dl = $('hirGpuDownload'); dl.hidden = !v.download; if (v.download) dl.textContent = v.download;
+    $('hirGpuCancel').hidden = !v.stop; $('hirGpuRemove').hidden = !v.remove;
+    drawLocalLine();
+    if (v.bar) pollGpu = window.setTimeout(refreshGpu, 700);
+  }
+
+  async function refreshGpu() {
+    const a = api(); if (!a || !a.gpu_pack_status) return;
+    try { drawGpu(await a.gpu_pack_status()); } catch (e) { /* the page stays as it is */ }
+  }
+  async function downloadGpu() {
+    const a = api(); if (!a) return;
+    try { const r = await a.gpu_pack_download(); if (r && r.ok === false && r.error) showToast(r.error, 'error', 6000); } catch (e) { showToast('The download couldn’t start. Try again.', 'error'); }
+    refreshGpu();
+  }
+  async function cancelGpu() { const a = api(); if (!a) return; try { await a.gpu_pack_cancel(); } catch (e) { /* refresh says */ } refreshGpu(); }
+  async function removeGpu() {
+    const a = api(); if (!a) return;
+    if (!window.confirm('Remove the graphics card files from this computer? Speech goes back to the processor, which is slower. You can download them again later.')) return;
+    try {
+      const r = await a.gpu_pack_remove();
+      if (r && r.pending && r.note) showToast(r.note, 'info', 6000);
+    } catch (e) { showToast('The graphics card files couldn’t be removed.', 'error'); }
+    refreshGpu();
+  }
+  // The download moved or ended (app.py _gpu_pack_changed): how it ended is said once.
+  window.waffler_gpu_pack_changed = (g) => {
+    const was = lastGpu && lastGpu.state === 'downloading';
+    if (was && g && g.state === 'ready') showToast('Your graphics card turns speech into text now.', 'success', 4000);
+    else if (was && g && g.state === 'not_downloaded' && g.error) showToast(g.error, 'error', 6000);
+    drawGpu(g);
+  };
 
   async function refresh() {
     const a = api(); if (!a || !a.local_stt_status) return;
@@ -204,7 +289,7 @@
   }
   window.waffler_local_llm_changed = (s) => { if (s && s.state !== 'downloading') refreshLlm(false); };
 
-  window.loadHowItRuns = () => { refresh(); refreshLlm(false); };
+  window.loadHowItRuns = () => { refresh(); refreshLlm(false); refreshGpu(); };
   document.addEventListener('DOMContentLoaded', () => {
     if (!$('howItRuns')) return;
     if ($('hirLlm')) {
