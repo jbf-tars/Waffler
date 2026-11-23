@@ -4,15 +4,19 @@ The speech model writes fast, running speech with no capitals and no full
 stops ("this is yeah so sorry so going back to it then this is a wrap-up").
 Once a meeting is written down, and before its notes are written, whatever
 writes the notes is asked to add them (Service._enhance). The iPhone app does
-the same, to the same rules, so the request and the check are fixed here.
+the same, to the same rules, so the request and the checks are fixed here.
 
-No reply is trusted. Every returned line is compared with the line it was made
-from (`same_words`): the letters and digits, case folded, must be identical.
-Then only capitals, punctuation, hyphens, apostrophes and spacing can have
-changed, and the line is stored. Anything else, and the line stays exactly as
-it was: a missing number, an extra line, lines merged or split, a reply that
-is not numbered lines at all. `tidy` never raises: a writer that fails changes
-nothing and the meeting goes on to its notes.
+A stretch of lines goes as one running text, because that is what reads as
+sentences: asked line by line, a model ends every line with a full stop. The
+reply is cut back into the lines it came from by counting letters and digits
+(`resplit`), so a line keeps its own words, times and place.
+
+No reply is trusted. The whole reply must have the letters and digits that
+were sent, case folded, and no others; then every line cut from it is compared
+with the line it replaces (`same_words`). Only capitals, punctuation, hyphens,
+apostrophes and spacing can have changed in a line that is stored. Anything
+else, and the line stays exactly as it was. `tidy` never raises: a writer that
+fails changes nothing and the meeting goes on to its notes.
 """
 from __future__ import annotations
 
@@ -25,20 +29,16 @@ except ImportError:
     from src.log_util import log as _log
 
 SYSTEM = (
-    "You add capital letters and punctuation to a transcript. You never add, remove, reorder, "
-    "translate or respell a word, and you never change a number. Keep every line: the same lines, "
-    "in the same order, with the same numbers. A sentence may run on from one line to the next; "
-    "then the first line does not end with a full stop and the next does not start with a capital. "
-    "Reply with the numbered lines and nothing else.")
-# The line before a request's first, for a sentence that runs on. Not numbered,
-# not to be returned.
-CONTEXT = "Earlier, for context only: "
+    "You punctuate a transcript of someone speaking, as a careful editor would: full stops, "
+    "commas, question marks and capital letters, so that it reads as proper sentences. You never "
+    "add, remove, reorder, translate or respell a word, and you never change a number: every word "
+    "stays, fillers and repeats included. Reply with the punctuated text and nothing else.")
 
 MIN_LETTERS = 25        # a line of this many letters or fewer is left alone
-MAX_LINES = 40          # in one request
-MAX_CHARS = 4000        # of transcript in one request, about
+# In one request. Small, because a reply with one changed word loses all of it.
+MAX_LINES = 20
+MAX_CHARS = 2500        # of transcript, about
 
-_NUMBERED = re.compile(r"^\s*(\d{1,4})\s*:\s?(.*)$")
 # A number as it is written: its digits, with the marks inside it (1,500.50,
 # 5:30, 14/01). A full stop or comma after it belongs to the sentence.
 _NUMBER = re.compile(r"\d+(?:[.,:/]\d+)*")
@@ -105,36 +105,62 @@ def batches(lines: list[dict]) -> list[list[list[dict]]]:
     return out
 
 
-def request_text(texts: list[str], context: str = "") -> str:
-    """What the writer is sent: the lines, numbered from 1, under the line
-    before them when there is one."""
-    numbered = [f"{i}: {' '.join(text.split())}" for i, text in enumerate(texts, 1)]
-    return "\n".join(([CONTEXT + context] if context else []) + numbered)
+def resplit(originals: list[str], tidied: str) -> list[str]:
+    """The reply, cut back into the lines it was made from. Each line takes
+    as many letters and digits as it had, then the punctuation that closes
+    its last word, up to the next space; whatever opens the next word (a
+    quote) goes with the next line.
+
+    A line never takes a letter or digit more than it had, so a word the
+    writer moved costs the two lines it lies between and no others, and text
+    written without spaces (Japanese, Chinese, Thai) is cut at its lines too."""
+    out, pos = [], 0
+    for text in originals:
+        need = sum(ch.isalnum() for ch in text)
+        start = pos
+        while pos < len(tidied) and need:
+            need -= tidied[pos].isalnum()
+            pos += 1
+        while pos < len(tidied) and not (tidied[pos].isspace() or tidied[pos].isalnum()
+                                         or unicodedata.category(tidied[pos]) in ("Ps", "Pi")):
+            pos += 1
+        out.append(tidied[start:pos].strip())
+    return out
 
 
-def read_reply(reply) -> dict[int, list[str]]:
-    """The numbered lines of a reply: {number: every text given that number}.
-    Whatever else is in it (a greeting, a code fence, a line with no number)
-    is not a line."""
-    found: dict[int, list[str]] = {}
-    if isinstance(reply, str):
-        for raw in reply.splitlines():
-            m = _NUMBERED.match(raw)
-            if m:
-                found.setdefault(int(m.group(1)), []).append(" ".join(m.group(2).split()))
-    return found
+def first_letter(tidied: str, original: str, earlier: str) -> str:
+    """The first letter of a request's first line is ours to decide: the
+    writer saw nothing before it and starts every reply with a capital. It is
+    a capital when no line comes before it in its source, or the line before
+    ends a sentence (. ? !); otherwise it is as the original line had it.
+    Only the case of that one letter is ever changed."""
+    at = next((i for i, ch in enumerate(tidied) if ch.isalnum()), None)
+    if at is None:
+        return tidied
+    if not earlier or earlier.rstrip()[-1:] in (".", "?", "!"):
+        want = tidied[at].upper()
+    else:
+        want = next((ch for ch in original if ch.isalnum()), "")
+    if len(want) == 1 and want.casefold() == tidied[at].casefold():
+        return tidied[:at] + want + tidied[at + 1:]
+    return tidied
 
 
-def checked(texts: list[str], reply) -> tuple[list[str], int]:
-    """For each line sent, the line to keep: the writer's, when it is that
-    line with nothing but capitals and punctuation changed; the original
-    otherwise, exactly. And how many were refused (not given, given twice,
-    or not the same words)."""
-    found = read_reply(reply)
+def checked(texts: list[str], reply, earlier: str = "") -> tuple[list[str], int]:
+    """For each line sent, the line to keep, and how many were refused.
+
+    The reply as a whole must be the words that were sent: if not, every
+    line keeps its original. Then it is cut back into lines, and a line is
+    the writer's only when it is that line with nothing but capitals and
+    punctuation changed; the original otherwise, exactly. `earlier` is the
+    line before these in their source, as it is kept."""
+    reply = " ".join(reply.split()) if isinstance(reply, str) else ""
+    if not reply or words_of(" ".join(texts)) != words_of(reply):
+        return list(texts), len(texts)
+    cut = resplit(texts, reply)
+    cut[0] = first_letter(cut[0], texts[0], earlier)
     out, refused = [], 0
-    for i, before in enumerate(texts, 1):
-        given = found.get(i, [])
-        after = given[0] if len(given) == 1 else ""       # given twice: not guessed at
+    for before, after in zip(texts, cut):
         ok = bool(after) and same_words(before, after)
         out.append(after if ok else before)
         refused += not ok
@@ -147,34 +173,40 @@ def _n(count: int, word: str) -> str:
 
 def tidy(lines: list[dict], write, save) -> dict:
     """Ask for capitals and punctuation on a meeting's lines and keep what
-    passes the check.
+    passes the checks.
 
     `lines` are the meeting's segments in transcript order ({"id", "source",
     "text"}); `write(system, user)` is one reply from the notes' writer;
     `save([(id, text before, text after)])` stores a request's accepted lines.
-    When no line needs it, nobody is asked. The first failure, of the writer
-    or of the store, ends the pass: what was stored stays, the rest is left
-    as it was. Never raises. Returns the counts, which is also all the log
-    gets: never a word of the transcript."""
+    When no line needs it, nobody is asked. A reply that is refused costs its
+    own lines and the pass goes on; the first failure, of the writer or of the
+    store, ends it: what was stored stays, the rest is left as it was. Never
+    raises. Returns the counts, which is also all the log gets: never a word
+    of the transcript."""
     counts = {"lines": 0, "requests": 0, "changed": 0, "refused": 0, "stopped": ""}
     try:
-        lines = [line for line in lines if isinstance(line.get("text"), str) and line["text"].strip()]
+        # A line with no letter or digit in it (a "..." or a music note) has
+        # nothing to tidy and nothing to be counted by: it is not sent.
+        lines = [line for line in lines
+                 if isinstance(line.get("text"), str) and any(ch.isalnum() for ch in line["text"])]
+        stored = {line["id"]: line["text"] for line in lines}
+        lines = [{**line, "text": " ".join(line["text"].split())} for line in lines]
         counts["lines"] = len(lines)
         if not any(needs_tidying(line["text"]) for line in lines):
             return counts
         for group in batches(lines):
-            context = ""
+            earlier = ""
             for batch in group:
                 texts = [line["text"] for line in batch]
                 counts["requests"] += 1
-                kept, refused = checked(texts, write(SYSTEM, request_text(texts, context)))
-                changes = [(line["id"], before, after)
+                kept, refused = checked(texts, write(SYSTEM, " ".join(texts)), earlier)
+                changes = [(line["id"], stored[line["id"]], after)
                            for line, before, after in zip(batch, texts, kept) if after != before]
                 if changes:
                     save(changes)
                 counts["changed"] += len(changes)
                 counts["refused"] += refused
-                context = kept[-1]
+                earlier = kept[-1]
     except Exception as e:  # noqa: BLE001 - nothing here may fail a meeting
         counts["stopped"] = type(e).__name__
     if counts["requests"]:
@@ -186,4 +218,3 @@ def tidy(lines: list[dict], write, save) -> dict:
         except Exception:  # noqa: BLE001
             pass
     return counts
-

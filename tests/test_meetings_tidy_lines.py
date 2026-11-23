@@ -8,11 +8,17 @@ writes the notes (a key, Waffler Plus, the model on this computer) is asked to
 add the capitals and the punctuation: src/meetings/tidy_lines.py, called from
 Service._enhance.
 
-The rule that matters is "no made-up words, ever", so no reply is trusted.
-Every returned line is compared with the line it was made from, letters and
-digits only, case folded: identical, and it is stored; anything else, and the
-line stays exactly as it was. A writer that fails, refuses or says nonsense
-changes nothing, and the notes are still written.
+A stretch of lines is sent as one running text and the reply is cut back into
+the lines it came from. (Sent as numbered lines, a real model put a full stop
+and a capital on every line, or did very little; as running text it wrote
+sentences.)
+
+The rule that matters is "no made-up words, ever", so no reply is trusted. The
+whole reply must be the words that were sent, and then every line cut from it
+is compared with the line it replaces, letters and digits only, case folded:
+identical, and it is stored; anything else, and the line stays exactly as it
+was. A writer that fails, refuses or says nonsense changes nothing, and the
+notes are still written.
 
 Everything here runs against a stand-in writer: no network, no model.
 """
@@ -40,11 +46,10 @@ RATE = 16000
 KEYS = ("GROQ_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "NATTER_CUSTOM_API_KEY")
 
 SPEC_SYSTEM = (
-    "You add capital letters and punctuation to a transcript. You never add, remove, reorder, "
-    "translate or respell a word, and you never change a number. Keep every line: the same lines, "
-    "in the same order, with the same numbers. A sentence may run on from one line to the next; "
-    "then the first line does not end with a full stop and the next does not start with a capital. "
-    "Reply with the numbered lines and nothing else.")
+    "You punctuate a transcript of someone speaking, as a careful editor would: full stops, commas, "
+    "question marks and capital letters, so that it reads as proper sentences. You never add, remove, "
+    "reorder, translate or respell a word, and you never change a number: every word stays, fillers "
+    "and repeats included. Reply with the punctuated text and nothing else.")
 
 A = "this is yeah so sorry so going back to it then this is a wrap-up"
 B = "of my day wait wait wait okay i'm close all right so right now waffler if you're listening to this"
@@ -52,6 +57,15 @@ A_TIDY = "This is, yeah, so sorry. So going back to it then, this is a wrap-up"
 B_TIDY = "of my day. Wait, wait, wait. Okay, I'm close. All right, so right now, Waffler, if you're listening to this."
 C = "we said the cabinets arrive on the fourteenth and tom books the electrician"
 C_TIDY = "We said the cabinets arrive on the fourteenth, and Tom books the electrician."
+# From a trial on a real model: what went in, and what came back.
+TRIAL = ["which is good",
+         "they also sorted out the agent so it's like just works a bit more",
+         "efficiently Tested it a lot more put the connections in and it all came up fine"]
+TRIAL_REPLY = ("which is good. They also sorted out the agent, so it's like just works a bit more "
+               "efficiently. Tested it a lot more, put the connections in, and it all came up fine.")
+TRIAL_TIDY = ["Which is good.",
+              "They also sorted out the agent, so it's like just works a bit more",
+              "efficiently. Tested it a lot more, put the connections in, and it all came up fine."]
 
 
 def letters_and_digits(text: str) -> str:
@@ -70,24 +84,25 @@ def segs(*lines):
     return out
 
 
-def numbered(user: str) -> dict[int, str]:
-    """The numbered lines of a request, as the writer is sent them."""
-    return {int(m.group(1)): m.group(2) for m in re.finditer(r"(?m)^(\d+): (.*)$", user)}
+def commas(text: str) -> str:
+    """What an honest writer might do to any stretch of these lines: a comma
+    before each "so". No capital and no full stop, so every line of a stretch
+    changes and none of them leans on the first-letter rule."""
+    return text.replace(" so ", ", so ")
 
 
-def polish(text: str) -> str:
-    """What a careful writer does to one line: a capital and a full stop."""
-    return text[:1].upper() + text[1:] + ("" if text[-1:] in ".?!" else ".")
+def cap(text: str) -> str:
+    return text[:1].upper() + text[1:]
 
 
-def careful(user: str) -> str:
-    return "\n".join(f"{n}: {polish(t)}" for n, t in numbered(user).items())
+def numbered_lines(n: int) -> list[str]:
+    return [f"{A} number {i}" for i in range(n)]
 
 
 class Run:
     """One pass over `lines` with `reply(user text, request number)` as the writer."""
 
-    def __init__(self, lines, reply=lambda user, n: careful(user)):
+    def __init__(self, lines, reply=lambda user, n: commas(user)):
         self.before = [dict(s) for s in lines]
         self.asked: list[tuple[str, str]] = []
         self.text = {s["id"]: s["text"] for s in lines}
@@ -102,6 +117,7 @@ class Run:
                 self.text[sid] = new
         self.counts = tidy_lines.tidy(lines, write, save)
         self.after = [self.text[s["id"]] for s in lines]
+        self.sent = [user for _, user in self.asked]
 
 
 @pytest.fixture(autouse=True)
@@ -111,12 +127,17 @@ def log_lines(monkeypatch):
     return lines
 
 
-# ── which lines need it ──────────────────────────────────────────────────────
+# ── the request ──────────────────────────────────────────────────────────────
 
 def test_the_request_is_the_one_the_phone_sends_too():
     assert tidy_lines.SYSTEM == SPEC_SYSTEM
     run = Run(segs(A, B))
-    assert run.asked == [(SPEC_SYSTEM, f"1: {A}\n2: {B}")]
+    assert run.asked == [(SPEC_SYSTEM, f"{A} {B}")], "the lines as one running text: no numbers, nothing else"
+
+
+def test_the_lines_go_with_single_spaces_whatever_they_had():
+    run = Run(segs(f"  {A}\n", B.replace(" wait ", "\t wait  ")), lambda user, n: f"{A_TIDY} {B_TIDY}")
+    assert run.sent == [f"{A} {B}"] and run.after == [A_TIDY, B_TIDY]
 
 
 @pytest.mark.parametrize("text, needs", [
@@ -146,13 +167,25 @@ def test_no_lines_at_all_means_no_request():
 def test_one_line_needing_it_sends_its_neighbours_too():
     fine = "So this one is fine, it was written properly."
     run = Run(segs(fine, A, "yeah okay"))
-    assert len(run.asked) == 1 and numbered(run.asked[0][1]) == {1: fine, 2: A, 3: "yeah okay"}
+    assert run.sent == [f"{fine} {A} yeah okay"]
+
+
+def test_a_line_with_no_letter_or_digit_is_not_sent_and_stays():
+    run = Run(segs(A, "...", "♪ ♪", B), lambda user, n: f"{A_TIDY} {B_TIDY}")
+    assert run.sent == [f"{A} {B}"] and run.after == [A_TIDY, "...", "♪ ♪", B_TIDY]
 
 
 # ── what is accepted ─────────────────────────────────────────────────────────
 
+def test_running_speech_comes_back_as_sentences_on_the_lines_it_was_said_on():
+    run = Run(segs(*TRIAL), lambda user, n: TRIAL_REPLY)
+    assert run.sent == [" ".join(TRIAL)]
+    assert run.after == TRIAL_TIDY, "a sentence runs on from one line to the next, as it was said"
+    assert run.counts["changed"] == 3 and run.counts["refused"] == 0
+
+
 def test_capitals_and_punctuation_are_accepted():
-    run = Run(segs(A, B), lambda user, n: f"1: {A_TIDY}\n2: {B_TIDY}")
+    run = Run(segs(A, B), lambda user, n: f"{A_TIDY} {B_TIDY}")
     assert run.after == [A_TIDY, B_TIDY]
     assert run.counts["changed"] == 2 and run.counts["refused"] == 0
 
@@ -164,45 +197,140 @@ def test_capitals_and_punctuation_are_accepted():
     "THIS IS YEAH SO SORRY SO GOING BACK TO IT THEN THIS IS A WRAP-UP?",
 ])
 def test_only_case_punctuation_hyphens_apostrophes_and_spacing_may_change(after):
-    assert Run(segs(A), lambda user, n: f"1: {after}").after == [after]
+    assert Run(segs(A), lambda user, n: after).after == [after]
     assert letters_and_digits(after) == letters_and_digits(A)
 
 
 def test_an_apostrophe_may_be_added_or_curled():
     before = "so i dont think its going to work and im not sure whats next"
     after = "So I don’t think it's going to work, and I'm not sure what's next."
-    assert Run(segs(before), lambda user, n: f"1: {after}").after == [after]
+    assert Run(segs(before), lambda user, n: after).after == [after]
 
 
-def test_a_reply_is_stored_as_one_line_with_single_spaces():
-    run = Run(segs(A), lambda user, n: f"1:    {A_TIDY.replace(' so ', '   so ')}   ")
-    assert run.after == [A_TIDY]
+def test_a_reply_over_several_lines_is_stored_with_single_spaces():
+    run = Run(segs(A, B), lambda user, n: f"\n  {A_TIDY.replace(' so ', '   so ')}\n\n{B_TIDY}  \n")
+    assert run.after == [A_TIDY, B_TIDY]
 
 
-# ── what is refused, for that line only ──────────────────────────────────────
+def test_a_number_keeps_its_own_punctuation_and_gains_the_sentences():
+    before = "it came to 1,500.50 at 5:30 on 14/01 and then 3 4 maybe 5 more"
+    after = "It came to 1,500.50 at 5:30 on 14/01, and then 3, 4, maybe 5 more."
+    assert Run(segs(before), lambda user, n: after).after == [after]
 
-@pytest.mark.parametrize("why, bad", [
-    ("a changed word", "This is, yeah, so sorry. So going back to it now, this is a wrap-up."),
-    ("an added word", "This is, yeah, so sorry. So going back to it then, this is really a wrap-up."),
-    ("a dropped word", "This is so sorry. So going back to it then, this is a wrap-up."),
-    ("a filler dropped", "This is, yeah, sorry. So going back to it then, this is a wrap-up."),
-    ("a respelled word", "This is, yeah, so sorry. So going back to it then, this is a rap-up."),
-    ("two words swapped", "This is, yeah, so sorry. So back going to it then, this is a wrap-up."),
-    ("translated", "Das ist, ja, tut mir leid. Also zurück dazu, das ist eine Zusammenfassung."),
-    ("a summary", "A wrap-up of the day."),
-    ("nothing", ""),
-    ("the next line's words", B_TIDY),
+
+# ── the reply, cut back into lines ───────────────────────────────────────────
+
+def test_the_punctuation_that_closes_a_word_stays_with_its_line():
+    assert tidy_lines.resplit(["which is good", "they also sorted it"], "which is good. They also sorted it.") == [
+        "which is good.", "They also sorted it."]
+    assert tidy_lines.resplit(["is that so", "yes it is"], "Is that so?! Yes, it is…") == ["Is that so?!", "Yes, it is…"]
+    assert tidy_lines.resplit(["he said no", "and left"], "He said \"no,\" and left.") == ["He said \"no,\"", "and left."]
+
+
+def test_what_opens_the_next_word_goes_with_the_next_line():
+    assert tidy_lines.resplit(["he said", "no way and left"], "He said, \"No way,\" and left.") == [
+        "He said,", "\"No way,\" and left."]
+    assert tidy_lines.resplit(["y entonces", "qué piensas tú"], "Y entonces, ¿qué piensas tú?") == [
+        "Y entonces,", "¿qué piensas tú?"]
+    assert tidy_lines.resplit(["a bit more", "efficiently we think"], "A bit more — efficiently, we think.") == [
+        "A bit more", "— efficiently, we think."]
+
+
+def test_a_line_that_was_one_word_is_one_word():
+    assert tidy_lines.resplit(["more", "efficiently", "tested it"], "More efficiently. Tested it.") == [
+        "More", "efficiently.", "Tested it."]
+    run = Run(segs(A, "efficiently", C), lambda user, n: f"{A_TIDY} efficiently. {C_TIDY}")
+    assert run.after == [A_TIDY, "efficiently.", C_TIDY]
+
+
+def test_an_apostrophe_or_a_hyphen_inside_a_word_does_not_end_the_line():
+    assert tidy_lines.resplit(["so i'm", "close to the wrap-up", "now"], "So I'm close to the wrap-up, now.") == [
+        "So I'm", "close to the wrap-up,", "now."]
+
+
+@pytest.mark.parametrize("originals, tidied, cut", [
+    (["which is good", "they also"], "", ["", ""]),                                        # nothing came back
+    (["which is good", "they also", "sorted it"], "Which is good.", ["Which is good.", "", ""]),   # shorter
+    (["which is good", "they also"], "Which is", ["Which is", ""]),
+    (["which is good"], "Which is good. And a lot more besides.", ["Which is good."]),       # longer
+    ([], "Which is good.", []),
 ])
-def test_a_changed_word_is_refused_for_that_line_only(why, bad):
-    run = Run(segs(A, C), lambda user, n: f"1: {bad}\n2: {C_TIDY}")
-    assert run.after == [A, C_TIDY], why
-    assert run.counts["changed"] == 1 and run.counts["refused"] == 1
+def test_a_reply_shorter_or_longer_than_the_lines_is_cut_without_fuss(originals, tidied, cut):
+    assert tidy_lines.resplit(originals, tidied) == cut
+
+
+def test_a_line_takes_no_letter_more_than_it_had():
+    # Two lines the writer joined with a hyphen: each keeps its own words.
+    lines = ["and so this is what we call a wrap", "up of the whole day as we said"]
+    run = Run(segs(*lines), lambda user, n: "And so this is what we call a wrap-up of the whole day, as we said.")
+    assert run.after == ["And so this is what we call a wrap-", "up of the whole day, as we said."]
+    # No space after the full stop: the next line still starts at its own first word.
+    assert tidy_lines.resplit(["which is good", "they also sorted it"], "Which is good.They also sorted it.") == [
+        "Which is good.", "They also sorted it."]
+    assert tidy_lines.resplit(["he said", "no way and left"], "He said,“No way,” and left.") == [
+        "He said,", "“No way,” and left."]
+
+
+def test_text_written_without_spaces_is_cut_at_its_lines_too():
+    one, two = "今日は台所と廊下の計画について話しました", "そして来週また会うことにしました"
+    assert tidy_lines.resplit([one, two], "今日は台所と廊下の計画について話しました。「そして、来週また会うことにしました」。") == [
+        "今日は台所と廊下の計画について話しました。", "「そして、来週また会うことにしました」。"]
+
+
+# ── a changed word: the whole reply is refused ───────────────────────────────
+
+GOOD = f"{A_TIDY} {C_TIDY}"
+
+
+@pytest.mark.parametrize("why, reply", [
+    ("a changed word", GOOD.replace("then", "now")),
+    ("an added word", GOOD.replace("this is a wrap-up", "this is really a wrap-up")),
+    ("a filler dropped", GOOD.replace("yeah, ", "")),
+    ("a repeat dropped", GOOD.replace("So going", "Going")),
+    ("a respelled word", GOOD.replace("wrap-up", "rap-up")),
+    ("two words swapped", GOOD.replace("going back", "back going")),
+    ("the lines swapped", f"{C_TIDY} {A_TIDY}"),
+    ("translated", "Das ist, ja, tut mir leid. Also zurück dazu, das ist eine Zusammenfassung."),
+    ("a summary", "A wrap-up, and the cabinets arrive on the fourteenth."),
+    ("only the first line", A_TIDY),
+    ("a greeting first", f"Here is the punctuated text: {GOOD}"),
+    ("a remark after", f"{GOOD} Let me know if you need anything else."),
+    ("a refusal", "I can't help with that."),
+    ("nothing", ""),
+    ("spaces", "  \n "),
+    ("not text", None),
+    ("not text either", 42),
+])
+def test_a_reply_with_one_word_changed_is_refused_whole(why, reply):
+    run = Run(segs(A, C), lambda user, n: reply)
+    assert run.after == [A, C], why
+    assert run.counts == {"lines": 2, "requests": 1, "changed": 0, "refused": 2, "stopped": ""}
 
 
 @pytest.mark.parametrize("before, bad", [
     ("we agreed on 5 of them for the kitchen and the rest later", "We agreed on five of them for the kitchen, and the rest later."),
     ("we agreed on five of them for the kitchen and the rest later", "We agreed on 5 of them for the kitchen, and the rest later."),
     ("it came to 412000 pounds in the end which is more than we said", "It came to 421000 pounds in the end, which is more than we said."),
+    ("we went to the cafe on the corner and had a long talk about it", "We went to the café on the corner and had a long talk about it."),
+    ("we went to the café on the corner and had a long talk about it", "We went to the cafe on the corner and had a long talk about it."),
+    ("me gustaria saber que piensas tu de todo esto que hemos hablado", "Me gustaría saber qué piensas tú de todo esto que hemos hablado."),
+])
+def test_a_number_written_another_way_or_an_accent_refuses_the_reply(before, bad):
+    run = Run(segs(A, before), lambda user, n: f"{A_TIDY} {bad}")
+    assert run.after == [A, before]
+
+
+def test_a_refused_reply_is_not_a_failure_and_the_next_lines_are_still_asked_about():
+    lines = segs(*numbered_lines(25))
+    run = Run(lines, lambda user, n: commas(user).replace("sorry", "glad", 1) if n == 1 else commas(user))
+    assert len(run.asked) == 2
+    assert run.after == [s["text"] for s in lines[:20]] + [commas(s["text"]) for s in lines[20:]]
+    assert run.counts == {"lines": 25, "requests": 2, "changed": 5, "refused": 20, "stopped": ""}
+
+
+# ── a line that fails on its own: only that line ─────────────────────────────
+
+@pytest.mark.parametrize("before, bad", [
     ("it came to 15 percent in the end which is more than we said", "It came to 1.5 percent in the end, which is more than we said."),
     ("it came to 1.5 percent in the end which is more than we said", "It came to 15 percent in the end, which is more than we said."),
     ("it came to 1,500 pounds in the end which is more than we said", "It came to 1.500 pounds in the end, which is more than we said."),
@@ -210,88 +338,85 @@ def test_a_changed_word_is_refused_for_that_line_only(why, bad):
     ("there were 5 6 maybe 7 of them in the room when we started", "There were 56, maybe 7 of them in the room when we started."),
     ("it came to 15 in the end which is quite a lot more than we said", "It came to £15 in the end, which is quite a lot more than we said."),
     ("it came to 15 in the end which is quite a lot more than we said", "It came to 15% in the end, which is quite a lot more than we said."),
-])
-def test_a_number_is_never_changed(before, bad):
-    assert Run(segs(before), lambda user, n: f"1: {bad}").after == [before]
-
-
-def test_a_number_keeps_its_own_punctuation_and_gains_the_sentences():
-    before = "it came to 1,500.50 at 5:30 on 14/01 and then 3 4 maybe 5 more"
-    after = "It came to 1,500.50 at 5:30 on 14/01, and then 3, 4, maybe 5 more."
-    assert Run(segs(before), lambda user, n: f"1: {after}").after == [after]
-
-
-@pytest.mark.parametrize("before, bad", [
-    ("we went to the cafe on the corner and had a long talk about it", "We went to the café on the corner and had a long talk about it."),
-    ("we went to the café on the corner and had a long talk about it", "We went to the cafe on the corner and had a long talk about it."),
-    # The accent written as a separate mark (e + U+0301) is still an accent.
+    # The accent written as a separate mark (e + U+0301) is not a letter, and is still an accent.
     ("we went to the cafe on the corner and had a long talk about it",
      "We went to the café on the corner and had a long talk about it."),
-    ("me gustaria saber que piensas tu de todo esto que hemos hablado", "Me gustaría saber qué piensas tú de todo esto que hemos hablado."),
+    # One vowel sign: a mark, not a letter, and another word.
+    ("आज हमने रसोई और गलियारे की योजना के बारे में बात की और अगले हफ्ते फिर मिलेंगे",
+     "आज हमने रसोई और गलियारे कि योजना के बारे में बात की, और अगले हफ्ते फिर मिलेंगे।"),
 ])
-def test_an_accent_is_a_change(before, bad):
-    assert Run(segs(before), lambda user, n: f"1: {bad}").after == [before]
+def test_a_line_whose_number_or_marks_changed_is_refused_and_its_neighbours_are_not(before, bad):
+    assert letters_and_digits(before) == letters_and_digits(bad), "the whole reply passes: the line's own check catches it"
+    run = Run(segs(A, before, C), lambda user, n: f"{A_TIDY} {bad} {C_TIDY}")
+    assert run.after == [A_TIDY, before, C_TIDY]
+    assert run.counts["changed"] == 2 and run.counts["refused"] == 1
 
 
-# ── replies that are not what was asked for ──────────────────────────────────
+# ── the first letter of a request's first line ───────────────────────────────
 
-def test_fewer_lines_back_leaves_the_missing_ones_as_they_were():
-    run = Run(segs(A, B, C), lambda user, n: f"1: {A_TIDY}\n3: {C_TIDY}")
-    assert run.after == [A_TIDY, B, C_TIDY]
-
-
-def test_lines_cut_off_at_the_end_leave_the_rest_as_they_were():
-    run = Run(segs(A, B, C), lambda user, n: f"1: {A_TIDY}\n2: of my day. Wait, wait")
-    assert run.after == [A_TIDY, B, C]
+LATER = "efficiently and then we tested it a lot more than we did before"
+LATER_TIDY = "fficiently, and then we tested it a lot more than we did before."      # after its first letter
 
 
-def test_more_lines_back_are_ignored():
-    run = Run(segs(A, C), lambda user, n: f"1: {A_TIDY}\n2: {C_TIDY}\n3: And one more thing we never said.\n0: nor this")
-    assert run.after == [A_TIDY, C_TIDY]
+def test_the_first_line_of_a_source_starts_with_a_capital_whatever_the_writer_did():
+    run = Run(segs(*TRIAL), lambda user, n: TRIAL_REPLY)
+    assert TRIAL_REPLY.startswith("which") and run.after[0] == "Which is good."
 
 
-def test_two_lines_merged_into_one_are_both_left_as_they_were():
-    run = Run(segs(A, B, C), lambda user, n: f"1: {A_TIDY} {B_TIDY}\n2: {C_TIDY}")
-    assert run.after == [A, B, C]
+def test_across_a_request_boundary_a_sentence_that_runs_on_keeps_its_small_letter():
+    lines = segs(*numbered_lines(20), LATER)
+    # The writer saw only this line, so it began it with a capital.
+    run = Run(lines, lambda user, n: commas(user) if n == 1 else "E" + LATER_TIDY)
+    assert run.sent[1] == LATER, "the line before is not sent again"
+    assert not run.after[19].endswith((".", "?", "!")) and run.after[20] == "e" + LATER_TIDY
 
 
-def test_merged_lines_with_the_numbers_kept_lose_only_the_lines_affected():
-    run = Run(segs(A, B, C), lambda user, n: f"1: {A_TIDY} {B_TIDY}\n3: {C_TIDY}")
-    assert run.after == [A, B, C_TIDY]
+def test_across_a_request_boundary_a_new_sentence_gets_its_capital():
+    lines = segs(*numbered_lines(20), LATER)
+    run = Run(lines, lambda user, n: commas(user) + "." if n == 1 else "e" + LATER_TIDY)
+    assert run.after[19].endswith("19.") and run.after[20] == "E" + LATER_TIDY
+    for end in "?!":
+        run = Run(lines, lambda user, n: commas(user) + end if n == 1 else "e" + LATER_TIDY)
+        assert run.after[20] == "E" + LATER_TIDY
 
 
-def test_a_line_split_in_two_is_left_as_it_was():
-    head, tail = A_TIDY[:24], A_TIDY[24:]
-    # ... over two lines of the reply, and over two numbers.
-    assert Run(segs(A, C), lambda user, n: f"1: {head}\n{tail}\n2: {C_TIDY}").after == [A, C_TIDY]
-    assert Run(segs(A, C), lambda user, n: f"1: {head}\n2: {tail}\n3: {C_TIDY}").after == [A, C]
+def test_a_line_that_runs_on_keeps_the_capital_it_had():
+    said = "Tom said the cabinets arrive on the fourteenth of the month"
+    tidied = "om said the cabinets arrive on the fourteenth of the month."
+    lines = segs(*numbered_lines(20), said)
+    for first in "Tt":
+        run = Run(lines, lambda user, n: commas(user) if n == 1 else first + tidied)
+        assert run.after[20] == "T" + tidied, "as the original line had it"
 
 
-def test_a_number_given_twice_is_not_guessed_at():
-    run = Run(segs(A, C), lambda user, n: f"1: {A_TIDY}\n1: {A}\n2: {C_TIDY}")
-    assert run.after == [A, C_TIDY]
+def test_after_a_refused_request_the_line_before_is_the_original():
+    lines = segs(*numbered_lines(20), LATER)
+    run = Run(lines, lambda user, n: "nothing like it." if n == 1 else "E" + LATER_TIDY)
+    assert run.after[:20] == [s["text"] for s in lines[:20]] and run.after[20] == "e" + LATER_TIDY
 
 
-def test_chatter_round_the_numbered_lines_is_ignored():
-    reply = ("Sure! Here are the lines with capitals and punctuation:\n\n```\n"
-             f"1: {A_TIDY}\n\n  2: {C_TIDY}\n```\n\nI kept every word. Let me know if you need anything else.")
-    assert Run(segs(A, C), lambda user, n: reply).after == [A_TIDY, C_TIDY]
+def test_each_source_starts_with_its_own_capital():
+    lines = segs(("mic", A), ("system", "and they said it would be ready by the end of the week"))
+    run = Run(lines, lambda user, n: commas(user))
+    assert run.after == [cap(commas(A)), "And they said it would be ready by the end of the week"]
 
 
-@pytest.mark.parametrize("reply", [
-    "", "I can't help with that.", "{\"lines\": [\"This is a wrap-up.\"]}", "1. This is. 2. Not numbered as asked.",
-    None, 42, "\x00\x00", "1:\n2:\n", "9999999999999999999999: what",
+@pytest.mark.parametrize("tidied, original, earlier, kept", [
+    ("which is good.", "which is good", "", "Which is good."),                       # nothing before it
+    ("which is good.", "which is good", "And that was that.", "Which is good."),
+    ("Which is good.", "which is good", "and that was", "which is good."),
+    ("Which is good.", "which is good", "and that was,", "which is good."),
+    ("which is good.", "Which is good", "and that was", "Which is good."),
+    ("\"which is good,\" he said.", "which is good he said", "", "\"Which is good,\" he said."),   # the letter, not the mark
+    ("5 of them came.", "5 of them came", "", "5 of them came."),                    # a digit has no case
+    ("…", "...", "", "…"),
+    ("", "which is good", "", ""),
+    ("ßen ist gut.", "ßen ist gut", "", "ßen ist gut."),                             # no capital that is one letter
+    ("今日は台所の話をしました。", "今日は台所の話をしました", "", "今日は台所の話をしました。"),
 ])
-def test_a_reply_that_cannot_be_read_changes_nothing(reply):
-    run = Run(segs(A, C), lambda user, n: reply)
-    assert run.after == [A, C] and run.counts["changed"] == 0
-
-
-def test_a_line_that_looks_like_a_numbered_line_is_still_its_own_line():
-    before = "10: 30 was the time we said and then 2: nobody turned up for it"
-    after = "10: 30 was the time we said, and then 2: nobody turned up for it."
-    run = Run(segs(before), lambda user, n: f"1: {after}")
-    assert run.asked[0][1] == f"1: {before}" and run.after == [after]
+def test_only_the_case_of_one_letter_is_ever_decided_here(tidied, original, earlier, kept):
+    assert tidy_lines.first_letter(tidied, original, earlier) == kept
+    assert letters_and_digits(kept) == letters_and_digits(tidied) and len(kept) == len(tidied)
 
 
 # ── nothing here may fail a meeting ──────────────────────────────────────────
@@ -312,15 +437,17 @@ def test_a_writer_that_fails_leaves_every_line_as_it_was(error, log_lines):
 
 
 def test_the_log_gets_one_line_of_counts_and_never_the_words(log_lines):
-    run = Run(segs(A, B, C), lambda user, n: f"1: {A_TIDY}\n2: nothing like it\n3: {C_TIDY}")
-    assert run.after == [A_TIDY, B, C_TIDY]
+    fifteen = "it came to 15 percent in the end which is more than we said"
+    run = Run(segs(A, fifteen, C),
+              lambda user, n: f"{A_TIDY} It came to 1.5 percent in the end, which is more than we said. {C_TIDY}")
+    assert run.after == [A_TIDY, fifteen, C_TIDY]
     assert len(log_lines) == 1
     line = log_lines[0]
     assert "3 lines" in line and "1 request" in line and "2 changed" in line and "1 refused" in line
-    for said in (A, B, C, A_TIDY, C_TIDY, "nothing like it"):
+    for said in (A, fifteen, C, A_TIDY, C_TIDY):
         for word in said.split():
-            if len(word) > 4 and word.lower() not in ("lines", "changed", "refused", "request"):
-                assert word.lower() not in line.lower(), word
+            if len(word) > 4:
+                assert word.lower().strip(".,") not in line.lower(), word
 
 
 def test_nothing_asked_means_nothing_logged(log_lines):
@@ -329,101 +456,74 @@ def test_nothing_asked_means_nothing_logged(log_lines):
 
 
 def test_a_failure_part_way_keeps_what_was_done_and_asks_no_more():
-    lines = segs(*[f"{A} number {i}" for i in range(100)])
+    lines = segs(*numbered_lines(50))
 
     def reply(user, n):
         if n == 2:
             raise TimeoutError()
-        return careful(user)
+        return commas(user)
     run = Run(lines, reply)
     assert len(run.asked) == 2, "the third request is never made"
-    assert run.after[:40] == [polish(s["text"]) for s in lines[:40]]
-    assert run.after[40:] == [s["text"] for s in lines[40:]]
-    assert run.counts["requests"] == 2 and run.counts["changed"] == 40 and run.counts["stopped"] == "TimeoutError"
+    assert run.after[:20] == [cap(commas(lines[0]["text"]))] + [commas(s["text"]) for s in lines[1:20]]
+    assert run.after[20:] == [s["text"] for s in lines[20:]]
+    assert run.counts == {"lines": 50, "requests": 2, "changed": 20, "refused": 0, "stopped": "TimeoutError"}
 
 
 def test_a_store_that_fails_is_not_the_meetings_problem():
     def save(changes):
         raise OSError("disk full")
-    counts = tidy_lines.tidy(segs(A, B), lambda system, user: careful(user), save)
-    assert counts["stopped"] == "OSError"
+    counts = tidy_lines.tidy(segs(A, B), lambda system, user: f"{A_TIDY} {B_TIDY}", save)
+    assert counts["stopped"] == "OSError" and counts["changed"] == 0
 
 
 # ── batches ──────────────────────────────────────────────────────────────────
 
-def test_forty_lines_at_most_go_in_one_request_and_the_next_carries_the_last_line():
-    lines = segs(*[f"{A} number {i}" for i in range(85)])
+def test_twenty_lines_at_most_go_in_one_request():
+    lines = segs(*numbered_lines(45))
     run = Run(lines)
-    assert [len(numbered(user)) for _, user in run.asked] == [40, 40, 5]
-    first, second, third = (user for _, user in run.asked)
-    assert first.startswith("1: ") and "Earlier" not in first
-    # The line before, as it was stored (tidied), for context; not numbered, not to be returned.
-    assert second.split("\n")[0] == f"Earlier, for context only: {polish(lines[39]['text'])}"
-    assert third.split("\n")[0] == f"Earlier, for context only: {polish(lines[79]['text'])}"
-    assert second.split("\n")[1] == f"1: {lines[40]['text']}" and numbered(third)[5] == lines[84]["text"]
-    assert run.after == [polish(s["text"]) for s in lines]
+    texts = [s["text"] for s in lines]
+    assert run.sent == [" ".join(texts[:20]), " ".join(texts[20:40]), " ".join(texts[40:])]
+    assert all("Earlier" not in user and "\n" not in user and not re.match(r"\d+:", user) for user in run.sent)
+    assert run.after == [cap(commas(texts[0]))] + [commas(t) for t in texts[1:]]
 
 
-def test_the_context_line_is_the_original_when_its_tidying_was_refused():
-    lines = segs(*[f"{A} number {i}" for i in range(41)])
-    run = Run(lines, lambda user, n: "nothing useful" if n == 1 else careful(user))
-    assert run.asked[1][1].split("\n")[0] == f"Earlier, for context only: {lines[39]['text']}"
-    assert run.after == [s["text"] for s in lines[:40]] + [polish(lines[40]["text"])]
-
-
-def test_a_context_line_sent_back_is_not_stored_anywhere():
-    lines = segs(*[f"{A} number {i}" for i in range(41)])
-
-    def reply(user, n):
-        if n == 1:
-            return careful(user)
-        return f"Earlier, for context only: SOMETHING ELSE\n0: {polish(lines[39]['text'])}\n" + careful(user)
-    run = Run(lines, reply)
-    assert run.after == [polish(s["text"]) for s in lines]
-
-
-def test_about_four_thousand_characters_at_most_go_in_one_request():
-    long = " ".join(["so we kept talking about the plan for the kitchen and the hallway"] * 11)   # 725 characters: five fit, six do not
-    lines = segs(*[long] * 13)
-    run = Run(lines)
-    sizes = [sum(len(t) for t in numbered(user).values()) for _, user in run.asked]
-    assert sizes == [len(long) * 5, len(long) * 5, len(long) * 3] and all(size <= 4000 for size in sizes)
-    assert run.after == [polish(long)] * 13
+def test_about_two_and_a_half_thousand_characters_at_most_go_in_one_request():
+    long = " ".join(["and we kept talking about the plan so the kitchen and the hallway"] * 11)   # 725 characters: three fit, four do not
+    run = Run(segs(*[long] * 8))
+    assert run.sent == [" ".join([long] * 3), " ".join([long] * 3), " ".join([long] * 2)]
+    assert all(len(user) <= 2500 for user in run.sent)
+    assert run.after == [cap(commas(long))] + [commas(long)] * 7
 
 
 def test_one_enormous_line_goes_alone_and_is_never_cut():
-    huge = " ".join(["so we kept talking about the plan for the kitchen and the hallway"] * 80)
+    huge = " ".join(["and we kept talking about the plan so the kitchen and the hallway"] * 80)
     run = Run(segs(A, huge, C))
-    assert [list(numbered(user).values()) for _, user in run.asked] == [[A], [huge], [C]]
-    assert run.after == [polish(A), polish(huge), polish(C)]
+    assert run.sent == [A, huge, C]
+    assert run.after == [cap(commas(A)), commas(huge), C], "the last had nothing to change, and is not a refusal"
+    assert run.counts["refused"] == 0
 
 
 # ── two sources ──────────────────────────────────────────────────────────────
 
 def test_the_microphone_and_the_computers_sound_are_asked_about_apart():
-    lines = segs(("mic", A), ("system", C), ("mic", B), ("system", "and then they said it would be ready by the end of the week"))
-    run = Run(lines)
-    assert [list(numbered(user).values()) for _, user in run.asked] == [
-        [A, B], [C, "and then they said it would be ready by the end of the week"]]
-    assert all("Earlier" not in user for _, user in run.asked), "one source is never context for the other"
-    assert run.after == [polish(s["text"]) for s in lines]
+    theirs = "and then they said so it would be ready by the end of the week"
+    lines = segs(("mic", A), ("system", C), ("mic", B), ("system", theirs))
+    run = Run(lines, lambda user, n: {f"{A} {B}": f"{A_TIDY} {B_TIDY}"}.get(user, commas(user)))
+    assert run.sent == [f"{A} {B}", f"{C} {theirs}"], "a sentence runs on only within one source"
+    assert run.after == [A_TIDY, cap(C), B_TIDY, commas(theirs)]
 
 
 def test_a_source_with_nothing_needing_it_is_still_sent_when_the_meeting_needs_it():
     lines = segs(("mic", A), ("system", "They said it would be ready by Friday."))
-    run = Run(lines)
-    assert [list(numbered(user).values()) for _, user in run.asked] == [[A], ["They said it would be ready by Friday."]]
+    assert Run(lines).sent == [A, "They said it would be ready by Friday."]
 
 
-def test_each_source_carries_its_own_context_line():
-    lines = segs(*[(("mic", "system")[i % 2], f"{A} number {i}") for i in range(82)])
+def test_each_source_is_cut_into_its_own_requests():
+    lines = segs(*[(("mic", "system")[i % 2], text) for i, text in enumerate(numbered_lines(42))])
     run = Run(lines)
-    mic = [s for s in lines if s["source"] == "mic"]
-    system = [s for s in lines if s["source"] == "system"]
-    users = [user for _, user in run.asked]
-    assert [len(numbered(u)) for u in users] == [40, 1, 40, 1]
-    assert users[1].split("\n")[0] == f"Earlier, for context only: {polish(mic[39]['text'])}"
-    assert users[3].split("\n")[0] == f"Earlier, for context only: {polish(system[39]['text'])}"
+    mic = [s["text"] for s in lines if s["source"] == "mic"]
+    system = [s["text"] for s in lines if s["source"] == "system"]
+    assert run.sent == [" ".join(mic[:20]), mic[20], " ".join(system[:20]), system[20]]
 
 
 # ── other languages ──────────────────────────────────────────────────────────
@@ -456,7 +556,17 @@ def test_each_source_carries_its_own_context_line():
 ])
 def test_other_languages_get_their_punctuation_and_keep_every_letter(before, after):
     assert tidy_lines.needs_tidying(before)
-    assert Run(segs(before), lambda user, n: f"1: {after}").after == [after]
+    assert Run(segs(before), lambda user, n: after).after == [after]
+
+
+def test_other_languages_are_cut_back_into_their_lines_too():
+    one, two = "привет это запись нашей встречи", "и мы говорили о кухне и о коридоре"
+    run = Run(segs(one, two), lambda user, n: "Привет, это запись нашей встречи, и мы говорили о кухне и о коридоре.")
+    assert run.after == ["Привет, это запись нашей встречи,", "и мы говорили о кухне и о коридоре."]
+    one, two = "今日は台所と廊下の計画について詳しく話しましたそれから少し休みました", "そして来週また会うことにしました"
+    run = Run(segs(one, two), lambda user, n: "今日は台所と廊下の計画について詳しく話しました。それから少し休みました。そして、来週また会うことにしました。")
+    assert run.sent == [f"{one} {two}"]
+    assert run.after == ["今日は台所と廊下の計画について詳しく話しました。それから少し休みました。", "そして、来週また会うことにしました。"]
 
 
 @pytest.mark.parametrize("before, bad", [
@@ -472,7 +582,7 @@ def test_other_languages_get_their_punctuation_and_keep_every_letter(before, aft
      "आज हमने रसोई और गलियारे कि योजना के बारे में बात की, और अगले हफ्ते फिर मिलेंगे।"),      # one vowel sign
 ])
 def test_other_languages_refuse_a_changed_word_too(before, bad):
-    assert Run(segs(before), lambda user, n: f"1: {bad}").after == [before]
+    assert Run(segs(before), lambda user, n: bad).after == [before]
 
 
 # ── whatever the writer says, the words are the same ─────────────────────────
@@ -485,7 +595,7 @@ MARKS = (".", ",", "?", "!", ";", ":", " —", "…", "\"", "'", ")", "。")
 
 
 def _random_line(rng):
-    return " ".join(rng.choice(WORDS) for _ in range(rng.randint(8, 22)))
+    return " ".join(rng.choice(WORDS) for _ in range(rng.randint(1, 22)))
 
 
 def _honest(rng, text):
@@ -496,14 +606,17 @@ def _honest(rng, text):
             word = word[:1].upper() + word[1:]
         if rng.random() < 0.3:
             word += rng.choice(MARKS)
+        if rng.random() < 0.03:
+            word = "\"" + word
         out.append(word)
     return " ".join(out)
 
 
 def _dishonest(rng, text):
+    """A word changed, somewhere in the text."""
     words = text.split()
     i = rng.randrange(len(words))
-    kind = rng.choice(("drop", "add", "swap", "respell", "digit", "double", "unaccent", "other", "empty", "upper"))
+    kind = rng.choice(("drop", "add", "swap", "respell", "digit", "double", "unaccent", "other", "half"))
     if kind == "drop":
         del words[i]
     elif kind == "add":
@@ -521,53 +634,56 @@ def _dishonest(rng, text):
         words = ["".join(c for c in unicodedata.normalize("NFD", w) if not unicodedata.combining(c)) for w in words]
     elif kind == "other":
         return _random_line(rng)
-    elif kind == "empty":
-        return ""
     else:
-        return text.upper()            # honest, as it happens: case only
+        words = words[:len(words) // 2]
     return _honest(rng, " ".join(words))
 
 
+def _sly(rng, text):
+    """Every letter and digit as it was, so the reply as a whole passes; a
+    number or a mark is not."""
+    text = _honest(rng, text)
+    kind = rng.choice(("point", "join", "pound", "percent", "accent", "hyphen", "upper"))
+    if kind == "point":
+        return re.sub(r"(\d)(\d)", r"\1.\2", text, count=1)
+    if kind == "join":
+        return re.sub(r"(\d) (\d)", r"\1\2", text, count=1)
+    if kind == "pound":
+        return re.sub(r"(\d+)", r"£\1", text, count=1)
+    if kind == "percent":
+        return re.sub(r"(\d+)", r"\1%", text, count=1)
+    if kind == "accent":
+        at = rng.randrange(len(text))
+        return text[:at + 1] + "́" + text[at + 1:]
+    if kind == "hyphen":
+        return text.replace(" ", "-", rng.randint(1, 3))            # honest, but lines may run together
+    return text.upper()                                             # honest too, unless ß became SS
+
+
 def _random_reply(rng, user):
-    lines = numbered(user)
-    out = []
-    if rng.random() < 0.2:
-        out.append("Here you go:")
-    for n, text in lines.items():
-        roll = rng.random()
-        if roll < 0.5:
-            out.append(f"{n}: {_honest(rng, text)}")
-        elif roll < 0.75:
-            out.append(f"{n}: {_dishonest(rng, text)}")
-        elif roll < 0.8:
-            continue                                               # a line left out
-        elif roll < 0.85:
-            out.append(f"{n}: {_honest(rng, text)} {_honest(rng, lines.get(n + 1, 'and more'))}")   # merged
-        elif roll < 0.9:
-            cut = len(text) // 2
-            out.append(f"{n}: {text[:cut]}\n{text[cut:]}")         # split
-        elif roll < 0.95:
-            out.append(f"{rng.randint(0, 60)}: {_honest(rng, text)}")                                # wrong number
-        else:
-            out.append(rng.choice(("```", "", "Note: I fixed a typo.", f"{n}. {text}", f"{n}:")))
-    if rng.random() < 0.2:
-        out.append(f"{len(lines) + 1}: {_random_line(rng)}")       # an extra line
-    if rng.random() < 0.05:
-        rng.shuffle(out)
-    return "\n".join(out)
+    roll = rng.random()
+    if roll < 0.5:
+        return _honest(rng, user)
+    if roll < 0.75:
+        return _sly(rng, user)
+    if roll < 0.95:
+        return _dishonest(rng, user)
+    return rng.choice(("", None, "Here you go: " + _honest(rng, user), _honest(rng, user) + " Anything else?",
+                       "```\n" + _honest(rng, user) + "\n```", "\n".join(_honest(rng, user).split(". "))))
 
 
 def test_whatever_the_writer_says_the_letters_and_digits_of_every_line_are_the_same():
     rng = random.Random(20261123)
     accepted = refused = 0
-    for _ in range(300):
-        lines = segs(*[(rng.choice(("mic", "mic", "system")), _random_line(rng)) for _ in range(rng.randint(1, 95))])
+    for _ in range(400):
+        lines = segs(*[(rng.choice(("mic", "mic", "system")), _random_line(rng)) for _ in range(rng.randint(1, 70))])
         run = Run(lines, lambda user, n: _random_reply(rng, user))
         for seg, after in zip(lines, run.after):
             assert letters_and_digits(after) == letters_and_digits(seg["text"]), (seg["text"], after)
             assert re.findall(r"\d+", after) == re.findall(r"\d+", seg["text"]), (seg["text"], after)
             assert after == " ".join(after.split()) and after
         assert lines == run.before, "nothing but the text is ever touched, and that only through the store"
+        assert not run.counts["stopped"]
         accepted += run.counts["changed"]
         refused += run.counts["refused"]
     assert accepted > 1000 and refused > 1000, "the test saw both honest and dishonest replies"
@@ -625,7 +741,7 @@ class Writer:
     """The notes' writer, standing in for a key's model: tidies when asked to
     tidy, writes notes when asked for notes."""
 
-    def __init__(self, tidy=lambda user: f"1: {A_TIDY}\n2: {B_TIDY}"):
+    def __init__(self, tidy=lambda user: f"{A_TIDY} {B_TIDY}"):
         self.tidy, self.tidied, self.notes_from = tidy, [], []
 
     def __call__(self, system, messages):
@@ -661,7 +777,7 @@ def test_a_meetings_lines_are_tidied_and_its_notes_written_from_the_tidied_lines
     assert [s["text"] for s in note["segments"]] == [A_TIDY, B_TIDY]
     assert [(s["start_s"], s["end_s"], s["source"], s["session_n"]) for s in note["segments"]] == [
         (0.3, 5.5, "mic", 1), (6.0, 11.5, "mic", 1)], "times and sources are untouched"
-    assert writer.tidied == [f"1: {A}\n2: {B}"]
+    assert writer.tidied == [f"{A} {B}"], "one running text, as it was said"
     assert len(writer.notes_from) == 1 and f"Me: {A_TIDY} {B_TIDY}" in writer.notes_from[0]
     assert A not in writer.notes_from[0]
     assert note["title"] == "The day's wrap-up" and "A wrap-up of the day" in note["summary"] and note["error"] == ""
@@ -669,7 +785,7 @@ def test_a_meetings_lines_are_tidied_and_its_notes_written_from_the_tidied_lines
 
 
 def test_a_writer_that_changes_words_gets_none_of_them_into_the_meeting(no_keys):
-    writer = Writer(lambda user: "1: This is a wrap-up of my day.\n2: I am close, Waffler, if you are listening.")
+    writer = Writer(lambda user: "This is a wrap-up of my day. I am close, Waffler, if you are listening.")
     service = Service(store=Store(), transcribe_backend=_heard, llm_backend=writer)
     note = _record(service)
     assert [s["text"] for s in note["segments"]] == [A, B]
@@ -727,7 +843,7 @@ def test_a_meeting_written_down_again_is_tidied_again(no_keys):
     service.retranscribe(note["id"])
     assert wait_until(lambda: len(writer.notes_from) == 2, timeout=20)
     assert wait_until(lambda: service.store.get_note(note["id"])["status"] == "ready", timeout=20)
-    assert len(writer.tidied) == 2 and writer.tidied[1] == f"1: {A}\n2: {B}"
+    assert len(writer.tidied) == 2 and writer.tidied[1] == f"{A} {B}"
     assert [s["text"] for s in service.store.segments(note["id"])] == [A_TIDY, B_TIDY]
 
 
@@ -747,13 +863,13 @@ def test_with_notes_switched_off_nothing_is_asked(no_keys):
 def test_with_waffler_plus_the_lines_go_the_way_the_notes_go(plus):
     plus.hear = lambda seconds, n: [{"start_s": 0.5, "end_s": 2.6, "text": A}, {"start_s": 3.0, "end_s": 5.5, "text": B}]
     notes = plus.write_reply
-    plus.write_reply = lambda body: f"1: {A_TIDY}\n2: {B_TIDY}" if body["system"] == tidy_lines.SYSTEM else notes(body)
+    plus.write_reply = lambda body: f"{A_TIDY} {B_TIDY}" if body["system"] == tidy_lines.SYSTEM else notes(body)
     note = _plus_meeting(Service(store=Store()))
     assert [s["text"] for s in note["segments"]] == [A_TIDY, B_TIDY]
     assert [w["system"] for w in plus.writes] == [tidy_lines.SYSTEM, llm.NOTES_SYSTEM], \
         "POST /api/plus/write, counted like any other writing"
     asked = plus.writes[0]
-    assert asked["messages"] == [{"role": "user", "content": f"1: {A}\n2: {B}"}]
+    assert asked["messages"] == [{"role": "user", "content": f"{A} {B}"}]
     assert set(asked) <= {"system", "messages", "max_tokens", "effort"}, "nothing the service does not know"
     assert f"Me: {A_TIDY} {B_TIDY}" in plus.writes[1]["messages"][0]["content"]
 
@@ -780,7 +896,7 @@ class _Chat:
             error = RuntimeError("Unsupported value")
             error.status_code = 400
             raise error
-        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=f"1: {A_TIDY}"))])
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=A_TIDY))])
 
 
 def _through(monkeypatch, provider, client):
@@ -806,7 +922,7 @@ def test_a_model_that_takes_no_temperature_is_asked_again_without_one(monkeypatc
     run = _through(monkeypatch, "openai", client)
     assert run.after == [A_TIDY]
     assert "temperature" in client.asked[0] and "temperature" not in client.asked[-1]
-    assert all(a["messages"][-1] == {"role": "user", "content": f"1: {A}"} for a in client.asked)
+    assert all(a["messages"][-1] == {"role": "user", "content": A} for a in client.asked)
 
 
 def test_the_model_on_this_computer_is_asked_with_no_chance_and_in_the_background(monkeypatch):
@@ -814,7 +930,7 @@ def test_the_model_on_this_computer_is_asked_with_no_chance_and_in_the_backgroun
 
     def chat(system, messages, max_tokens=0, temperature=None, background=False, on_text=None):
         asked.update(system=system, temperature=temperature, background=background)
-        return {"text": f"<think>capitals</think>1: {A_TIDY}"}
+        return {"text": f"<think>capitals</think>{A_TIDY}"}
     monkeypatch.setattr(llm.local_llm, "chat", chat)
     monkeypatch.setattr(llm, "resolve_provider", lambda settings: "local")
     service = SimpleNamespace(llm_backend=None)
@@ -830,10 +946,10 @@ def test_claude_is_asked_as_it_is_for_notes(monkeypatch):
 
     def claude(system, messages, model, max_tokens):
         asked.append((system, messages, model))
-        return f"1: {A_TIDY}"
+        return A_TIDY
     monkeypatch.setattr(llm, "resolve_provider", lambda settings: "anthropic")
     monkeypatch.setattr(llm, "_anthropic_complete", claude)
     service = SimpleNamespace(llm_backend=None)
     run = Run(segs(A), lambda user, n: Service._ask_writer(service, {}, tidy_lines.SYSTEM, user))
     assert run.after == [A_TIDY]
-    assert asked == [(SPEC_SYSTEM, [{"role": "user", "content": f"1: {A}"}], llm.ANTHROPIC_DEFAULT_MODEL)]
+    assert asked == [(SPEC_SYSTEM, [{"role": "user", "content": A}], llm.ANTHROPIC_DEFAULT_MODEL)]
