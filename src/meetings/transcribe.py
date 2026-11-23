@@ -29,9 +29,10 @@ from . import keys
 from .audioproc import RATE, to_flac, voiced_between, voiced_mask
 
 try:
-    import local_stt            # the app's own copy: src/ is on its path
+    import languages            # the app's own copy: src/ is on its path
+    import local_stt
 except ImportError:
-    from src import local_stt
+    from src import languages, local_stt
 
 MIN_VOICED_S = 0.3              # less voice than this in a chunk: not uploaded
 _NO_SPEECH_PROB = 0.5
@@ -300,7 +301,9 @@ def transcribe(audio: np.ndarray, settings: dict | None = None, backend=None) ->
     settings = settings or {}
     if len(audio) == 0 or voiced_mask(audio).sum() * 0.03 < MIN_VOICED_S:
         return []
-    language = settings.get("language") or ""
+    # The person's pick; "auto" (Detect automatically) sends none, on purpose;
+    # unset or empty sends this computer's own language, never a guess.
+    language = languages.resolve(settings.get("language")) or ""
     preferred = settings.get("transcribe_provider") or "groq"
     if uses_plus():
         return _transcribe_plus(audio, language)

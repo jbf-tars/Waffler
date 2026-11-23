@@ -578,9 +578,11 @@ _MIN_FUZZY_VOCAB_LEN = 5
 try:
     from common_words import COMMON_WORDS as _COMMON_WORDS
     from languages import is_unspaced as _is_unspaced
+    from languages import resolve as _resolve_language
 except ImportError:  # imported as src.transcribe_whisper
     from src.common_words import COMMON_WORDS as _COMMON_WORDS
     from src.languages import is_unspaced as _is_unspaced
+    from src.languages import resolve as _resolve_language
 _BIGRAM_COMMON = _COMMON_WORDS | _VOCAB_PROTECTED_WORDS
 _BIGRAM_MIN_WORD_LEN = 3
 _BIGRAM_COMMON_MIN_WORD_LEN = 4
@@ -2830,7 +2832,7 @@ class WhisperTranscriber:
         name, data, mime = _upload_file(audio_bytes)
         answer = acct.dictate(data, filename=name, content_type=mime,
                               clean=bool(getattr(self, "plus_tidy", True)) and not _cleanup_is_off(settings),
-                              language=settings.get("language", "en"), words=load_vocab(),
+                              language=_resolve_language(settings.get("language")), words=load_vocab(),
                               timeout=_upload_timeout_s(len(data)))
         if not answer.get("ok"):
             sentence = str(answer.get("error") or acct.FAILED)
@@ -3416,8 +3418,9 @@ class WhisperTranscriber:
         vocab    = load_vocab()
         hint     = vocab_prompt_hint(vocab)
         settings = load_settings()
-        lang     = settings.get("language", "en")
-        language = lang if lang and lang != "auto" else None
+        # The person's pick, "auto" if they chose Auto-detect, else this
+        # computer's own language (src/languages.py): never left to a guess.
+        language = _resolve_language(settings.get("language"))
         if hint:
             self._prompt_sent = True
         text = _local_stt.transcribe(audio_bytes, language=language, prompt=hint or None)
@@ -3434,7 +3437,7 @@ class WhisperTranscriber:
         upload = _upload_file(audio_bytes)
         try:
             settings = load_settings()
-            lang     = settings.get("language", "en")
+            lang     = _resolve_language(settings.get("language"))
             # The custom vocabulary is deliberately NOT sent as a prompt to
             # whisper-large-v3. Proven on retained audio (v3.14.97): with the
             # name list as the prompt, an 80 s clip came back as 159 words
@@ -3459,7 +3462,7 @@ class WhisperTranscriber:
                 if hint:
                     kwargs["prompt"] = hint
                     self._prompt_sent = True
-                if lang and lang != "auto":
+                if lang:
                     kwargs["language"] = lang
                 # Per-request timeout scaled to the clip's size — the flat 60s
                 # client default kills large uploads on slow uplinks — and
@@ -3503,12 +3506,12 @@ class WhisperTranscriber:
             vocab    = load_vocab()
             hint     = vocab_prompt_hint(vocab)
             settings = load_settings()
-            lang     = settings.get("language", "en")
+            lang     = _resolve_language(settings.get("language"))
             kwargs = dict(model=self.model, file=upload, response_format="text")
             if hint:
                 kwargs["prompt"] = hint
                 self._prompt_sent = True
-            if lang and lang != "auto":
+            if lang:
                 kwargs["language"] = lang
             # Per-request timeout scaled to the clip's size — the flat 60s
             # client default kills large uploads on slow uplinks — and short

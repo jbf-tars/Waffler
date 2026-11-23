@@ -2319,7 +2319,7 @@ class Api:
             "local_whisper_active":  local_whisper_active,
             "transcription_backend": transcription_backend,
             "styling_backend":       styling_backend,
-            "language":              stored.get("language", "en"),
+            "language":              stored.get("language") or _languages.effective(None),
             "dialect":               stored.get("dialect", "auto"),
             "auto_paste":            stored.get("auto_paste", True),
             # "restore": put the user's own clipboard back after a paste
@@ -9429,8 +9429,7 @@ class WafflerPipeline:
             category = getattr(ctx, "category", "") or "other"
             if _style_layer.style_for(s, category) == _style_layer.AUTO:
                 return text, ""      # today's behaviour: nothing is read, nothing runs
-            language = s.get("language", "en")
-            language = language if isinstance(language, str) and language else "en"
+            language = _languages.effective(s.get("language"))
             from transcribe_whisper import load_vocab
             return _style_layer.finish_style(text, settings=s, category=category, language=language,
                                              protected_words=load_vocab())

@@ -40,6 +40,7 @@ import command_mode  # noqa: E402
 import double_tap  # noqa: E402
 import history_ids  # noqa: E402
 import history_meta  # noqa: E402
+import languages  # noqa: E402
 import history_ops  # noqa: E402
 import hold_hint  # noqa: E402
 import mac_permissions  # noqa: E402
@@ -505,7 +506,7 @@ def make_pipeline(data_dir: Path, *, transcriber=None, styler=None, clipboard=No
         cleanup_skipped_message=user_messages.cleanup_skipped_message,
         limit_reached_message=user_messages.limit_reached_message,
         _recent_audio=recent_audio, _cleanup_pause=cleanup_pause, _privacy=privacy_data,
-        _snippets=snippets, _style_layer=style_layer,
+        _snippets=snippets, _style_layer=style_layer, _languages=languages,
         _set_cleanup_pause=page.pauses.append,
         _pasteboard=pasteboard, _mac_perms=mac_permissions,
         _notifier=notifier, _pill=pill, _sound_cues=sounds, _hold_hint=hold_hint,

@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 
 AUTO = "auto"
+DEFAULT = "en"       # when the person has not picked and the computer cannot say
 
 LANGUAGES: list[tuple[str, str]] = [
     (AUTO, "Auto-detect"),
@@ -68,3 +69,87 @@ def is_unspaced(text: str) -> bool:
     chosen language, so it also holds for Auto-detect."""
     letters = [c for c in str(text or "") if c.isalpha()]
     return bool(letters) and 2 * sum(1 for c in letters if _UNSPACED.match(c)) > len(letters)
+
+
+# ── the computer's own language ────────────────────────────────────────────
+# A speech request that goes out with no language lets Whisper guess, and over
+# silence or a cough it guesses Norwegian or Welsh and writes it down. So when
+# the person has not picked a language (unset, empty), the computer's own is
+# sent. A pick always wins, and "auto" (Auto-detect in Settings, "Detect
+# automatically" on the Meetings page) is a pick: it is kept as the person's
+# deliberate choice and sends no language.
+
+# Codes a locale uses that Whisper writes another way.
+_LOCALE_ALIASES = {"nb": "no", "nn": "no", "iw": "he", "in": "id", "fil": "tl", "ji": "yi"}
+
+
+def _locale_names() -> list[str]:
+    """Locale names the OS offers, most specific first, e.g. ["en_GB.UTF-8"]."""
+    import os
+    import sys
+    names: list[str] = []
+    for var in ("LC_ALL", "LC_MESSAGES", "LANG", "LANGUAGE"):
+        v = os.environ.get(var)
+        if v:
+            names.extend(p for p in v.split(":") if p)
+    try:
+        if sys.platform == "win32":
+            import ctypes
+            buf = ctypes.create_unicode_buffer(85)
+            if ctypes.windll.kernel32.GetUserDefaultLocaleName(buf, 85):
+                names.append(buf.value)
+        elif sys.platform == "darwin" and not names:
+            import subprocess
+            out = subprocess.run(["defaults", "read", "-g", "AppleLocale"], capture_output=True,
+                                 text=True, timeout=3).stdout.strip()
+            if out:
+                names.append(out)
+    except Exception:           # noqa: BLE001 - a missing answer is only "no language"
+        pass
+    try:
+        import locale
+        got = locale.getlocale()[0]
+        if got:
+            names.append(got)
+    except Exception:           # noqa: BLE001
+        pass
+    return names
+
+
+def system_language() -> str | None:
+    """The computer's language as a Whisper code ("en" for en_GB), or None when
+    it cannot be told or is one Whisper has no code for. Never raises."""
+    try:
+        for name in _locale_names():
+            code = re.split(r"[_\-.@]", name.strip(), maxsplit=1)[0].lower()
+            if code in ("c", "posix", ""):
+                continue
+            code = _LOCALE_ALIASES.get(code, code)
+            if is_valid(code) and code != AUTO:
+                return code
+    except Exception:           # noqa: BLE001
+        pass
+    return None
+
+
+def resolve(setting) -> str | None:
+    """The language to send with a speech request, for what Settings holds:
+    a picked language as it is; "auto" (picked on purpose) None, so the model
+    detects; unset, empty or unreadable the computer's own language, or
+    English (the app's own default) when that cannot be told: nobody is left
+    to a guess they did not ask for."""
+    if isinstance(setting, str):
+        s = setting.strip()
+        if s == AUTO:
+            return None
+        if s and is_valid(s):
+            return s
+        if s and re.fullmatch(r"[A-Za-z]{2,3}(-[A-Za-z]{2,4})?", s):
+            return s            # a code this list does not know: the person's own, as before
+    return system_language() or DEFAULT
+
+
+def effective(setting) -> str:
+    """`resolve`, but as a code for the clean-up rules: "auto" when the person
+    picked Auto-detect (the clean-up then keeps whatever language was spoken)."""
+    return resolve(setting) or AUTO
