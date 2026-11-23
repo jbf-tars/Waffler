@@ -580,6 +580,13 @@ Not checked, and worth a look before a release:
 - README, CHANGELOG and the Privacy page do not mention any of this yet. They
   should when there is something to click: in local mode no audio leaves the
   computer, which changes what the Privacy page can say.
+
+  The Privacy page now says it for each way in use (`privacyText` in
+  `ui/logic.js`): on this computer nothing you say leaves it; on your own key
+  audio and text go straight to your provider; with Waffler Plus they go to
+  the Waffler service, which keeps none of it (only numbers of use) and gets up
+  to 200 words of the Vocabulary as a spelling hint on dictation. Transforms
+  and Command mode follow Plus or the key, never the model on this computer.
 - A dictation that arrives while a piece of a meeting is being transcribed
   waits for that piece (up to 28 s of audio). On the Mac's GPU that is about a
   second. On a slow Windows CPU it could be many seconds; the fix would be to

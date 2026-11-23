@@ -85,10 +85,12 @@
       if (r && r.ok) showToast('Dictation runs on Waffler Plus now.', 'success', 3500);
       else showToast((r && r.error) || 'That couldn’t be saved. Try again.', 'error', 5000);
     } catch (e) { showToast('That couldn’t be saved. Try again.', 'error'); }
-    refresh();
+    refresh(); privacyWords();
   }
   // The account changed (signed in or out, the plan read again): account.js says so.
-  window.wafflerPlusChanged = (status) => { acct = status; if (last) draw(last); };
+  window.wafflerPlusChanged = (status) => { acct = status; if (last) draw(last); privacyWords(); };
+  // The privacy sentences name where speech and text go: said again when the way changes.
+  function privacyWords() { if (window.refreshPrivacyWays) window.refreshPrivacyWays(); }
 
   async function setMode(mode) {
     const a = api(); if (!a) return;
@@ -103,7 +105,7 @@
       if (r && r.ok) showToast(mode === 'local' ? 'Speech is turned into text on this computer now.' : 'Speech is turned into text with your key now.', 'success', 3500);
       else showToast((r && r.error) || 'That couldn’t be saved. Try again.', 'error', 5000);
     } catch (e) { showToast('That couldn’t be saved. Try again.', 'error'); }
-    refresh();
+    refresh(); privacyWords();
   }
 
   async function download() {

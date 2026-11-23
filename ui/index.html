@@ -1461,7 +1461,7 @@
             <button type="button" class="link-btn how-btn" id="privHowBtn" aria-expanded="false" aria-controls="privHow" onclick="toggleHow(this)">How it works<svg class="ic ic-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
             <div class="sheet how-body" id="privHow" hidden>
               <ul class="sc-rule-list">
-                <li>Everything stays on this computer, except what you say while you hold the keys, and the half-second before. That goes straight to the providers you set up, on your own key.</li>
+                <li id="privHowDictation">Everything stays on this computer, except what you say while you hold the keys, and the half-second before. That goes straight to the providers you set up, on your own key.</li>
                 <li id="privHowJournal"><b>Journal.</b> Your dictations, searchable in your Journal. Each notes the app you were in, the language and which services handled it. The app is kept with its kind (email, work chat, personal chat or other), on this computer only. Each also notes how loud your speech arrived, so Waffler can tell you if your microphone is set too low. If you correct a dictation with Edit text, your corrected version is kept with it, on this computer only, for as long as the dictation is.</li>
                 <li id="privHowExport"><b>Export the Journal.</b> Save your Journal as a file on your Desktop. If iCloud or OneDrive backs up your Desktop, it backs this file up too. It never includes your keys. It's your own copy, so Delete all my data leaves it alone. Your words and Snippets export from Words, the same way.</li>
                 <li id="privHowRecent"><b>Recent recordings.</b> The audio of your last 10 dictations (fewer if they are very long, about 300 MB at most), so you can redo a dictation, get one back if Waffler stops, or look into a problem. Off, new recordings are not kept, so a dictation can't be redone or recovered.</li>
@@ -1470,7 +1470,7 @@
                 <li id="transformsPrivacyRow"><b>Transforms.</b> <span id="privTransformsDesc">Only when you use a transform, Waffler reads the text you selected, with Accessibility or by copying it, and sends it to your provider on your own key. The text before and after is kept in your Journal, and Delete all my data clears it with the rest.</span></li>
                 <!-- Command mode (beta): what is said, and the text near the cursor, are
                      sent only while the shortcut is held, to the provider the person chose. -->
-                <li id="commandPrivacyRow"><b>Command mode.</b> Only while you hold your Command shortcut, Waffler records what you say, turns it into text with your speech provider, and sends that with the text you selected (or up to 500 characters before your cursor) to your provider on your own key. A question opens your browser with only your spoken question. The recording is not kept. What you said and the text before and after are kept in your Journal, and Delete all my data clears them with the rest.</li>
+                <li id="commandPrivacyRow"><b>Command mode.</b> <span id="privCommandDesc">Only while you hold your Command shortcut, Waffler records what you say, turns it into text with your speech provider, and sends that with the text you selected (or up to 500 characters before your cursor) to your provider on your own key. A question opens your browser with only your spoken question. The recording is not kept. What you said and the text before and after are kept in your Journal, and Delete all my data clears them with the rest.</span></li>
                 <!-- Which tips have been shown, hidden or closed (src/notifier.py,
                      notifications.json): counts and times, nothing anyone said. -->
                 <li id="tipsMemoryRow"><b>Tips seen.</b> Which tips Waffler has shown, and which you hid, so it doesn't repeat them. Counts and times only.</li>
@@ -1496,7 +1496,7 @@
                   <!-- Only when a transform is used (Settings, Transforms). -->
                   <li><b>The text you selected.</b> <span id="privSelectedDesc">Only when you use a transform: Waffler reads your selection, through Accessibility or by copying it and putting your clipboard back, and sends it to your provider on your own key. It never reads a password field.</span></li>
                   <!-- Only when a command is given (Settings, Command mode). -->
-                  <li><b>The text near your cursor (Command mode).</b> Only while you hold your Command shortcut with nothing selected: Waffler reads up to 500 characters before your cursor, to give your command some context, and sends them to your provider on your own key. It never reads a password field.</li>
+                  <li><b>The text near your cursor (Command mode).</b> <span id="privCursorDesc">Only while you hold your Command shortcut with nothing selected: Waffler reads up to 500 characters before your cursor, to give your command some context, and sends them to your provider on your own key. It never reads a password field.</span></li>
                   <!-- Only with the email signature on (Settings, Style). -->
                   <li><b>The text before your cursor.</b> Only if you turn on an email signature, in an email app: Waffler reads the text before your cursor to check your signature isn't already there. It never stores or logs it.</li>
                 </ul>
@@ -1544,7 +1544,7 @@
             <button type="button" class="link-btn how-btn" id="aboutHowBtn" aria-expanded="false" aria-controls="aboutHow" onclick="toggleHow(this)">How it works<svg class="ic ic-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
             <div class="sheet how-body" id="aboutHow" hidden>
               <ul class="sc-rule-list">
-                <li>No account, no subscription and no Waffler server: your voice goes from this computer to the provider you set up, on your own key, and comes back as tidy text.</li>
+                <li id="aboutHowVoice">No account, no subscription and no Waffler server: your voice goes from this computer to the provider you set up, on your own key, and comes back as tidy text.</li>
               </ul>
             </div>
           </div>

@@ -139,6 +139,8 @@ python app.py
 ## Privacy
 
 - Audio goes directly to OpenAI/Groq via **your own API key** — never through any Waffler servers
+- With the free model on this computer, speech is turned into text here and nothing you say leaves the computer. If the optional second model is downloaded, tidying and notes are done here too
+- With Waffler Plus (only for a signed-in account that has it, and only when chosen), audio and text go to the Waffler service, which passes them to its speech and writing provider and hands back the result. The service keeps none of the audio or text and does not write them to its logs; it keeps only numbers (how much audio and text was used). For dictation, up to 200 words of your Vocabulary go along as a spelling hint. Transforms and Command mode send their text there too while Plus is the way in use
 - Transcription history is saved **locally on your machine only**. If you correct a dictation in the Journal, your corrected text is kept with it, on your machine only, and goes when the history does
 - Vocabulary and Snippets exports are files you save to your Desktop yourself: they are your own copies, never sent anywhere, and Delete all my data leaves them alone
 - On a Mac, to confirm a paste landed, Waffler reads whether the text field you paste into changed. It never stores or logs what is in it

@@ -255,6 +255,36 @@ function _applyPlatformText() {
   put('privSelectedDesc', t.privacySelected);
 }
 
+// Where what you say goes depends on the way in use (this computer, your own
+// key, Waffler Plus): logic.js privacyText says it for each job, from the
+// account, the settings and the writing model as they are now. index.html
+// holds the own-key wording, which is what stays when nothing else is in use.
+async function _applyPrivacyWays() {
+  try {
+    const a = window.pywebview && pywebview.api;
+    if (!a || !a.get_settings) return;
+    const [acct, settings, llm] = await Promise.all([
+      a.account_status ? a.account_status().catch(() => null) : null,
+      a.get_settings().catch(() => null),
+      a.local_llm_status ? a.local_llm_status().catch(() => null) : null,
+    ]);
+    const st = { acct, settings, llm };
+    const put = (id, job) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = WL.privacyText(job, st, isMacPlatform);
+    };
+    put('privHowDictation', 'dictation');
+    put('privTransformsDesc', 'transforms');
+    put('privSelectedDesc', 'selected');
+    put('privCursorDesc', 'cursor');
+    put('privCommandDesc', 'command');
+    put('transformsHowReads', 'transformsHow');
+    put('commandHowSends', 'commandHow');
+    put('aboutHowVoice', 'about');
+  } catch (e) { /* the page keeps the words it has */ }
+}
+window.refreshPrivacyWays = _applyPrivacyWays;
+
 // Cmd+F (Ctrl+F on Windows) goes to the search of the page that is open:
 // the Journal's, or the word search in Settings, Words while it is on screen
 // (it is under How it works). Not while a dialog or setup is up, and the rest
@@ -7287,6 +7317,7 @@ loadSettings = async function() {
   await loadHistoryKeep();
   await loadStartAtLogin();
   await loadSettingsFnWarning();
+  _applyPrivacyWays();
 };
 
 // ── Start at sign-in (Settings, General) ─────────────────────────────────

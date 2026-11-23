@@ -2244,18 +2244,22 @@
   // Mac ones; on Windows app.js puts these in their place. Windows has a
   // tray where a Mac has a menu bar, and no Accessibility permission: there
   // the selected text is read by copying it (src/selection_copy.py).
-  function platformText(isMac) {
+  function platformText(isMac, plus) {
     const menu = isMac ? 'menu bar' : 'tray';
     const read = isMac ? 'with Accessibility or by copying it' : 'by copying it';
     const through = isMac ? 'through Accessibility or by copying it' : 'by copying it';
+    // Where the selected text goes: the provider on the person's own key, or
+    // Waffler Plus when that is the way in use (see privacyWay).
+    const sentTo = plus === true ? `${PLUS_NAME}, which keeps none of it` : 'your provider on your own key';
+    const chosen = plus === true ? PLUS_NAME : 'the provider you chose in Keys and providers';
     return {
       menu,
       transformsHowShortcut: transformHowShortcut(isMac),
-      transformsDesc: `It is off until you turn it on. When you use a transform, the text you selected is read from the app in front, ${read}, and sent to the provider you chose in Keys and providers. Nothing is read or sent at any other time.`,
+      transformsDesc: `It is off until you turn it on. When you use a transform, the text you selected is read from the app in front, ${read}, and sent to ${chosen}. Nothing is read or sent at any other time.`,
       transformsRun: `Shortcut runs sets the transform the shortcut and the ${menu} item use.`,
       transformsOff: `Transforms is off, so the shortcut and the ${menu} item do nothing yet.`,
-      privacyTransforms: `Only when you use a transform, Waffler reads the text you selected, ${read}, and sends it to your provider on your own key. The text before and after is kept in your Journal, and Delete all my data clears it with the rest.`,
-      privacySelected: `Only when you use a transform: Waffler reads your selection, ${through} and putting your clipboard back, and sends it to your provider on your own key. It never reads a password field.`,
+      privacyTransforms: `Only when you use a transform, Waffler reads the text you selected, ${read}, and sends it to ${sentTo}. The text before and after is kept in your Journal, and Delete all my data clears it with the rest.`,
+      privacySelected: `Only when you use a transform: Waffler reads your selection, ${through} and putting your clipboard back, and sends it to ${sentTo}. It never reads a password field.`,
     };
   }
 
@@ -3265,6 +3269,82 @@
       state: PLUS_STATES[acct.plus_state] || 'Ready', chosen: acct.plus_chosen === true };
   }
 
+  // ══ Where what you say goes: the words that say so ═══════════════════════
+  // The privacy sentences name where audio and text go, and that is not the
+  // same on every way Waffler runs: on this computer (nothing leaves), on
+  // your own key (straight to your provider), or Waffler Plus (to the Waffler
+  // service, which keeps none of it). `st` is what the page already has:
+  // { acct: Api.account_status(), settings: Api.get_settings(),
+  //   llm: Api.local_llm_status() }. Each job reads its own way, as the app
+  // does: dictation (speech and its tidying) is Plus when Plus is chosen,
+  // else on this computer when that is chosen, else the key; Transforms and
+  // Command mode send their text to Plus when it is chosen, else to the key
+  // (never to the model on this computer). With nothing known the wording is
+  // the own-key one, which is also what index.html says before the script runs.
+  const PRIVACY_VOCAB_WORDS = 200;      // src/account.py DICTATE_WORDS
+  function privacyWay(st) {
+    const s = st || {}, set = s.settings || {}, acct = s.acct;
+    const hasKey = !!(set.groq_key_set || set.api_key_set || set.cerebras_key_set);
+    const plus = accountHasPlus(acct) && acct.plus_chosen === true
+      && acct.plus_state !== 'signed_out' && acct.plus_state !== 'ended';
+    const llm = _llmKnown(s.llm);
+    const tidyHere = !plus && !!llm && llm.available === true && llm.state === 'ready'
+      && (!hasKey || set.writing_mode === 'local');
+    return { plus, hasKey,
+      speechHere: !plus && set.transcription_mode === 'local',
+      tidyHere,
+      tidyOff: set.cleanup === 'off' };
+  }
+
+  const PRIVACY_BASE = 'Everything stays on this computer, except what you say while you hold the keys, and the half-second before.';
+  const PRIVACY_KEY = `${PRIVACY_BASE} That goes straight to the providers you set up, on your own key.`;
+  const PRIVACY_KEPT_NONE = `${PLUS_NAME}, which keeps none of it`;
+  const COMMAND_TAIL = ' A question opens your browser with only your spoken question. The recording is not kept. What you said and the text before and after are kept in your Journal, and Delete all my data clears them with the rest.';
+
+  // job: 'dictation' (the line on how dictation travels), 'transforms',
+  // 'selected', 'cursor', 'command' (the lines in Privacy and data),
+  // 'transformsHow', 'commandHow' (Settings, Transforms and Command mode),
+  // 'about' (About, How it works).
+  function privacyText(job, st, isMac) {
+    const w = privacyWay(st);
+    const mac = isMac !== false;
+    const p = platformText(mac, w.plus);
+    switch (job) {
+      case 'dictation': {
+        if (w.plus) return `${PRIVACY_BASE} That goes to ${PRIVACY_KEPT_NONE}. Up to ${PRIVACY_VOCAB_WORDS} words of your Vocabulary go along as a spelling hint.`;
+        if (w.speechHere && (w.tidyHere || w.tidyOff || !w.hasKey)) return 'Everything stays on this computer. Nothing you say leaves this computer.';
+        if (w.speechHere) return 'Everything stays on this computer, except the text of what you say while you hold the keys. Your voice is turned into text here, and the text goes straight to the providers you set up, on your own key.';
+        return PRIVACY_KEY;
+      }
+      case 'transforms': return p.privacyTransforms;
+      case 'selected': return p.privacySelected;
+      case 'transformsHow': return p.transformsDesc;
+      case 'cursor':
+        return `Only while you hold your Command shortcut with nothing selected: Waffler reads up to 500 characters before your cursor, to give your command some context, and sends them to ${w.plus ? PRIVACY_KEPT_NONE : 'your provider on your own key'}. It never reads a password field.`;
+      case 'command': {
+        const what = 'Only while you hold your Command shortcut, Waffler records what you say';
+        const near = 'the text you selected (or up to 500 characters before your cursor)';
+        if (w.plus) return `${what} and sends it, with ${near}, to ${PRIVACY_KEPT_NONE}.${COMMAND_TAIL}`;
+        const turned = w.speechHere ? 'turns it into text on this computer' : 'turns it into text with your speech provider';
+        return `${what}, ${turned}, and sends that with ${near} to your provider on your own key.${COMMAND_TAIL}`;
+      }
+      case 'commandHow': {
+        const near = 'the text you selected (or, with nothing selected, up to 500 characters before your cursor)';
+        const tail = ' Nothing is recorded, read or sent at any other time.';
+        if (w.plus) return `It is off until you turn it on. When you give a command, your recording and ${near} are sent to ${PLUS_NAME}, which keeps none of it.${tail}`;
+        const turned = w.speechHere ? 'turned into text on this computer' : 'turned into text by your speech provider';
+        return `It is off until you turn it on. When you give a command, your recording is ${turned}, and what you said, with ${near}, is sent to the provider you chose in Keys and providers.${tail}`;
+      }
+      case 'about':
+        if (w.plus) return `With ${PLUS_NAME}, your voice goes from this computer to the Waffler service, which passes it to its speech and writing provider and sends tidy text back. It keeps none of it.`;
+        if (w.speechHere && w.tidyHere) return 'No account, no subscription and no Waffler server: your voice is turned into text and tidied on this computer.';
+        if (w.speechHere && (w.tidyOff || !w.hasKey)) return 'No account, no subscription and no Waffler server: your voice is turned into text on this computer.';
+        if (w.speechHere) return 'No account, no subscription and no Waffler server: your voice is turned into text on this computer, and the text goes to the provider you set up, on your own key, and comes back tidy.';
+        return 'No account, no subscription and no Waffler server: your voice goes from this computer to the provider you set up, on your own key, and comes back as tidy text.';
+      default: return '';
+    }
+  }
+
   // The line under "Meetings": Api.account_status().sync.
   function accountSyncLine(sync, now) {
     const s = sync || {};
@@ -3421,7 +3501,7 @@
     heatLevel, heatmapView, heatMove,
     COLLAPSE_OVER, COLLAPSE_SHOW, COLLAPSE_MIN, COLLAPSE_MAX, collapseView,
     searchMarks, searchCount, isFindKey, enterRunsDefault, copyWorked, platformText,
-    accountHasPlus, accountPlanLine, accountUsageLines, plusCardView,
+    accountHasPlus, accountPlanLine, accountUsageLines, plusCardView, privacyWay, privacyText,
     accountView, accountDigits, accountCode, accountCodeReady, accountCodeLabel, accountCodeExample, accountBadCode, accountAgo, accountSyncLine, accountDeviceLine, accountClaudeView,
     ACCOUNT_RESEND_S, accountCodeLine, accountResendView, accountSignedInLine,
     accountSetupOffered, accountOfferView, accountDeleteStep, accountDeleteReady, accountConfirm,
