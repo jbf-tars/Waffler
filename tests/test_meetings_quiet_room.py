@@ -96,3 +96,25 @@ def test_a_voice_at_a_normal_level_measures_the_same_with_taps_about():
     _burst(a, rng, 20, 0.3, -50)
     assert abs(ap.voiced_seconds(a) - plain) < 0.1
     assert plain > 3.0
+
+
+def test_a_one_word_answer_on_a_very_quiet_microphone_is_still_voice():
+    # 0.25 s of voice at -58 dBFS: little more than one run of pitched windows.
+    _, a = _room(2, hiss_db=-80)
+    _voice(a, 0.8, 0.25, -58)
+    assert ap.voiced_seconds(a) >= 0.15
+
+
+def test_typing_and_shuffling_are_not_voice():
+    rng, a = _room(30)
+    for at in np.arange(2, 28, 0.7):
+        n = int(R * 0.08)
+        t = np.arange(n) / R
+        a[int(R * at):int(R * at) + n] += (_db(-45) * rng.standard_normal(n) * np.exp(-t * 30)).astype(np.float32)
+    assert ap.voiced_seconds(a) == 0.0
+    rng, b = _room(30)
+    for at in (5, 12, 20):
+        n = int(R * 0.6)
+        t = np.arange(n) / R
+        b[int(R * at):int(R * at) + n] += (_db(-52) * rng.standard_normal(n) * np.exp(-t)).astype(np.float32)
+    assert ap.voiced_seconds(b) == 0.0

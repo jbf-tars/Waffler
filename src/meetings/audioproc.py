@@ -57,25 +57,32 @@ _LIFT_FLOOR = 10 ** (-70 / 20)
 # five faint taps read as 1 s of voice, lifted). What tells them apart is
 # pitch: a voice repeats itself 80 to 400 times a second for a syllable at a
 # time, a tap or a rustle does not, and a knock only for an instant. So a take
-# is lifted only when it holds at least _MIN_PITCHED_S of pitched sound, in
-# runs of _PITCH_RUN windows or more (ten real dictations, made 30 dB quieter,
-# measured 0.7 s to 5.5 s; taps and rustling 0; five desk knocks 0 in runs).
+# is lifted only when enough of its loud sound is pitched, in runs of
+# _PITCH_RUN windows or more: 40% of the loud time, never less than one run
+# (a one-word answer has little more) and never more than _MAX_PITCHED_S.
+# Measured: real dictations made 30 and 40 dB quieter, 16-bit steps and all,
+# 0.12 s (one word) to 17 s; on a Windows PC, the two quietest of 20 real
+# takes (-60 dBFS) 0.21 s each at a bar of 0.5, where the noise drags the
+# repeat down, hence a bar of 0.4. Taps, rustling, shuffling and typing
+# measure 0; six desk knocks 0.09 s, against the 0.16 s asked of them.
 _PITCH_LO_HZ, _PITCH_HI_HZ = 80.0, 400.0
-_PITCH_STRENGTH = 0.5
+_PITCH_STRENGTH = 0.4
 _PITCH_RUN = 3
-_MIN_PITCHED_S = 0.3
+_PITCHED_SHARE = 0.4
+_MAX_PITCHED_S = 0.21
 
 
 def _has_pitch(audio: np.ndarray, rate: int, loud: np.ndarray) -> bool:
-    """Do the loud windows carry a voice? True once _MIN_PITCHED_S of them, in
-    runs, repeat at a voice's pitch (normalised autocorrelation over 60 ms)."""
+    """Do the loud windows carry a voice? True once enough of them, in runs,
+    repeat at a voice's pitch (normalised autocorrelation over 60 ms)."""
     w = int(rate * _WIN_S)
     span = 2 * w
     lo, hi = max(1, int(rate / _PITCH_HI_HZ)), int(rate / _PITCH_LO_HZ)
     if hi >= span:
         return False
     lags = np.arange(lo, hi + 1)
-    need = int(round(_MIN_PITCHED_S / _WIN_S))
+    loud_s = float(np.count_nonzero(loud)) * _WIN_S
+    need = int(round(min(_MAX_PITCHED_S, max(_PITCH_RUN * _WIN_S, _PITCHED_SHARE * loud_s)) / _WIN_S))
     found = run = 0
     last = -2
     for i in np.flatnonzero(loud):
