@@ -396,3 +396,59 @@ on the new.
 
 **Suite with both fixes, on `one-app` 3272dd7 (merged as cfb1c06):**
 **8,859 passed, 89 skipped, 0 failed** in 7 min 57 s on Windows.
+
+## Re-check on `one-app` d8b545e, with two Windows changes
+
+Merged as 2c7f630, with 5c994fa (the graphics card) and 60488e0 (a quiet
+microphone in Meetings) on top. **Suite: 8,997 passed, 89 skipped, 0 failed**
+in 11 min 57 s on Windows.
+
+**The language follows the person (09faa0d).** On this PC Windows gives
+`GetUserDefaultLocaleName` "en-GB" (and `locale.getlocale()` "English_United
+Kingdom", which is skipped), so `languages.system_language()` is "en".
+`resolve(None)` and `resolve("")` are "en"; `resolve("auto")` sends none.
+
+**The made-up audio test, through the app's own Meetings path** (on-device
+`small`, synthetic audio: a SAPI voice with gaps, two blips in silence, a
+quiet room with one burst):
+
+| Language | Real lines kept | What the model wrote over the quiet room | Kept of it |
+|---|---|---|---|
+| unset | 5 of 5 | nothing | 0 |
+| "" (this computer's language) | 5 of 5 | nothing | 0 |
+| "auto" (the audio rule alone) | 5 of 5 | 3 lines of Welsh | 0 |
+
+The "you" lines written over the blips were dropped in every case.
+
+**Real dictation takes through `_take_is_invented`.** 20 takes on this PC with
+their own texts (10 from the test copy on-device today, 10 from the installed
+Waffler on 20 November), handed over as the pipeline hands them (boosted when
+quiet, padded). Counted and measured only; no text was printed or kept:
+20 of 20 kept, at 2.8 to 17.0 letters per voiced second (the limit is 60).
+All 20 were quiet recordings: speech at -44 to -60 dBFS, boosted 28 to 30 dB.
+
+**Windows fix: a quiet microphone in Meetings (60488e0).** Dictation lifts a
+quiet take before judging it; Meetings judged voice against a fixed
+-46 dBFS floor. The same 20 takes, heard raw as a desktop meeting would hear
+them from this microphone: **4 never sent, 7 dropped as written over
+nothing, 9 kept**. `voiced_mask` now reckons dictation's own lift (towards
+-20 dBFS, at most 30 dB, voice 4 times the room) before its floor: **0 not
+sent, 0 dropped, 20 kept**, at 7.8 to 21.2 letters per voiced second. The
+three Welsh lines above are still dropped, and a normal-level take, steady
+noise and digital silence come out as before.
+`tests/test_meetings_quiet_mic.py` fails on the old code (4 of 6).
+
+**Windows change: the graphics card (5c994fa).** On this PC "On this
+computer" ran on the processor: `cublas64_12.dll not found`, because the
+packaged app ships without NVIDIA's libraries. Real dictations took 2.4 to
+4.5 s to write down; cloud ones take 0.58 s at the median (last 294).
+`src/gpu_pack.py` fetches NVIDIA's own Windows wheels from PyPI on one click
+in Settings, never on its own. They are pinned by size and SHA-256:
+cuBLAS 12.9.2.10 and cuDNN 9.28.1.4, 1.25 GB. It keeps the 12 DLLs (1.86 GB)
+in `<data folder>/gpu`, and the next dictation uses the card with no
+restart. The real download through the module: 1,249 MB in 42 s, 54 s in
+all. A fresh process with only those files then ran `small` on the card in
+0.22 to 0.36 s, against 1.22 to 1.38 s on the processor. In the test copy,
+with the same libraries linked in, the first real dictation took 0.43 s.
+Where speech runs on the processor, the card's line and setup's free card
+now say "Slower on this computer, but free and private."
