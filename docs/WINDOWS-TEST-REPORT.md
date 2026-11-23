@@ -549,3 +549,24 @@ Seen in the replies: a word that starts a new turn can be joined to the
 sentence before it. "yeah so the main thing" came back as "yeah? So the main
 thing", and "right and if we do that" as "right? And if we do that". The
 check passes it, because no word changed.
+
+## Re-check on `one-app` 5311959 (notes first with the model on this computer)
+
+With the model on this computer as the writer, the notes are now written
+first and the lines tidied behind them (`Service._lines_after_notes`).
+**Suite: 9,193 passed, 89 skipped, 0 failed** in 13 min 16 s.
+
+Checked on the processor only, with no card reported. The same made-up
+meeting (60 lines) went through the real meetings service
+(`Service._enhance`, as after a recording) in a fresh meetings folder. No
+key was used, and nothing connected beyond the computer.
+
+| Time | What happened |
+|---|---|
+| 0 s | The notes and title were asked for (72.6 s, 907 words out) |
+| 72.6 s | The notes were stored: status ready, no error, a title |
+| 72.7 s | The first of 3 tidy requests started (42.9, 38.6 and 34.2 s) |
+| 188.4 s | Done: 60 of 60 lines changed, none refused |
+
+Before this change, the notes would have waited about two minutes behind the
+tidy pass on this meeting.
