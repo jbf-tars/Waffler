@@ -759,15 +759,48 @@ def _parts(files: list[Path], span_s: float) -> list[tuple[int, float, dict]]:
     return parts
 
 
-def _joined(chunks: list[tuple[float, Path]], start_s: float) -> np.ndarray:
-    """One source's chunks as one stretch of audio beginning at `start_s`,
-    each where it was said. A chunk with no voice in it was never kept:
-    silence stands where it was, so the times stay the meeting's own."""
-    pieces = [(int(round((at - start_s) * RATE)), audioproc.read_audio(f)) for at, f in chunks]
-    out = np.zeros(max(off + len(a) for off, a in pieces), dtype=np.float32)
-    for off, a in pieces:
-        out[off:off + len(a)] = a
-    return out
+# A little silence is left round each kept chunk when a part is packed, so a
+# word at its edge is not cut and the model has a breath to start from.
+PACK_GAP_S = 0.5
+
+
+def _packed(chunks: list[tuple[float, Path]], start_s: float):
+    """One source's kept chunks as one stretch of audio to send, with only the
+    chunks that have voice in it (the others were never kept) and at most
+    PACK_GAP_S of silence between them, never more than there really was.
+    Returns (audio, spans): spans is [(where the chunk is in the audio, where
+    it was said, relative to `start_s`, its length)], all in seconds, for
+    `unpacked`. The audio is never longer than the stretch it was said in."""
+    spans: list[tuple[float, float, float]] = []
+    pieces: list[np.ndarray] = []
+    at = 0.0                                   # seconds packed so far
+    prev_end = None                            # where the last chunk ended, said-clock
+    for said, f in chunks:
+        a = audioproc.read_audio(f)
+        said -= start_s
+        gap = 0.0 if prev_end is None else min(max(0.0, said - prev_end), PACK_GAP_S)
+        if gap:
+            pieces.append(np.zeros(int(round(gap * RATE)), dtype=np.float32))
+            at += gap
+        spans.append((at, said, len(a) / RATE))
+        pieces.append(a)
+        at += len(a) / RATE
+        prev_end = said + len(a) / RATE
+    return (np.concatenate(pieces) if pieces else np.zeros(0, dtype=np.float32)), spans
+
+
+def unpacked(t: float, spans: list[tuple[float, float, float]], end: bool = False) -> float:
+    """A time in packed audio, as the time it was said. A start belongs to the
+    last chunk that began at or before it, an end to the last that began
+    before it; a time in the gap is the edge of the chunk before it."""
+    pick = spans[0]
+    for sp in spans:
+        if (sp[0] < t) if end else (sp[0] <= t):
+            pick = sp
+        else:
+            break
+    packed_at, said_at, length = pick
+    return said_at + min(max(t - packed_at, 0.0), length)
 
 
 def finish_waiting(store, note_id: str, backend=None, progress=None) -> int:
@@ -789,10 +822,12 @@ def finish_waiting(store, note_id: str, backend=None, progress=None) -> int:
             progress(i, len(parts))
         per_source: dict[str, list[dict]] = {}
         for source, chunks in sources.items():
-            segs = transcribe(_joined(chunks, start_s), settings, backend=backend)
+            audio, spans = _packed(chunks, start_s)
+            segs = transcribe(audio, settings, backend=backend)
             per_source[source] = [
-                {"start_s": start_s + s["start_s"], "end_s": start_s + s["end_s"], "text": s["text"],
-                 "source": source, "session_n": session_n} for s in segs]
+                {"start_s": start_s + unpacked(s["start_s"], spans),
+                 "end_s": start_s + max(unpacked(s["end_s"], spans, end=True), unpacked(s["start_s"], spans)),
+                 "text": s["text"], "source": source, "session_n": session_n} for s in segs]
         if "mic" in per_source and "system" in per_source:
             per_source["mic"] = drop_echo(per_source["mic"], per_source["system"])
         for segs in per_source.values():

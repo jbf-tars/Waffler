@@ -149,13 +149,45 @@ def test_a_line_the_service_wrote_over_silence_never_reaches_the_transcript_or_t
     plus.hear = lambda seconds, n: [
         {"start_s": 0.5, "end_s": 4.0, "text": "The cabinets arrive on the fourteenth."},
         {"start_s": 20.0, "end_s": 22.5, "text": "Teksting av Nicolai Winther"},
-        {"start_s": 41.0, "end_s": 44.0, "text": "Tom books the electrician."}]
+        {"start_s": seconds - 5.5, "end_s": seconds - 2.5, "text": "Tom books the electrician."}]
     audio = np.concatenate([_speech(6.0), np.zeros(34 * RATE, dtype=np.float32), _speech(6.0)])
     note = _meeting(Service(store=Store()), audio)
-    assert len(plus.transcriptions) == 1, "one part, silence and all"
+    assert len(plus.transcriptions) == 1, "one part"
     assert [s["text"] for s in note["segments"]] == ["The cabinets arrive on the fourteenth.",
                                                      "Tom books the electrician."]
+    assert note["segments"][1]["start_s"] > 40.0, "put back where it was said on the meeting's clock"
     assert "Teksting" not in plus.writes[0]["messages"][0]["content"], "the notes never see it"
+
+
+def test_silence_between_kept_chunks_is_not_sent_and_the_times_go_back_where_they_were_said(plus):
+    """Chunks with no voice are never kept; the gap they leave is not sent
+    (it costs the account's minutes and invites invented lines). Each line's
+    times are put back on the meeting's own clock."""
+    plus.hear = lambda seconds, n: [
+        {"start_s": 0.5, "end_s": 4.0, "text": "The cabinets arrive on the fourteenth."},
+        {"start_s": seconds - 5.5, "end_s": seconds - 2.5, "text": "Tom books the electrician."}]
+    audio = np.concatenate([_speech(6.0), np.zeros(240 * RATE, dtype=np.float32), _speech(6.0)])
+    note = _meeting(Service(store=Store()), audio)
+    assert len(plus.transcriptions) == 1
+    assert plus.transcriptions[0]["seconds"] < 100, "four minutes of silence did not go"
+    first, second = note["segments"]
+    assert first["start_s"] == pytest.approx(0.5, abs=0.05)
+    assert second["start_s"] > 240.5 and second["end_s"] > second["start_s"]
+    assert second["end_s"] <= 252.1
+
+
+def test_packing_leaves_only_a_small_margin_and_maps_times_back(tmp_path):
+    import soundfile as sf
+    a, b = tmp_path / "a.flac", tmp_path / "b.flac"
+    sf.write(str(a), _speech(4.0), RATE)
+    sf.write(str(b), _speech(4.0), RATE)
+    audio, spans = recorder._packed([(10.0, a), (100.0, b), (104.0, tmp_path / "b.flac")], 10.0)
+    assert len(audio) / RATE == pytest.approx(4.0 + recorder.PACK_GAP_S + 4.0 + 4.0, abs=0.01), "touching chunks get no gap"
+    assert recorder.unpacked(1.0, spans) == pytest.approx(1.0)
+    assert recorder.unpacked(4.5 + 1.0, spans) == pytest.approx(90.0 + 1.0)
+    assert recorder.unpacked(4.5, spans) == pytest.approx(90.0)
+    assert recorder.unpacked(4.2, spans) == pytest.approx(4.0), "in the margin: the edge of the chunk before"
+    assert recorder.unpacked(4.0, spans, end=True) == pytest.approx(4.0)
 
 
 # ── a long meeting, in parts ─────────────────────────────────────────────────
