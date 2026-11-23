@@ -51,14 +51,71 @@ _MAX_LIFT = 10 ** (30 / 20)
 _LIFT_FLOOR = 10 ** (-70 / 20)
 
 
-def _lift(rms: np.ndarray) -> float:
+# A quiet room is not a quiet microphone. Faint taps, rustling and knocks are
+# as far above a silent room's floor as a quiet microphone's voice is, and a
+# take lifted for them would count them as voice (measured: 30 s of room with
+# five faint taps read as 1 s of voice, lifted). What tells them apart is
+# pitch: a voice repeats itself 80 to 400 times a second for a syllable at a
+# time, a tap or a rustle does not, and a knock only for an instant. So a take
+# is lifted only when it holds at least _MIN_PITCHED_S of pitched sound, in
+# runs of _PITCH_RUN windows or more (ten real dictations, made 30 dB quieter,
+# measured 0.7 s to 5.5 s; taps and rustling 0; five desk knocks 0 in runs).
+_PITCH_LO_HZ, _PITCH_HI_HZ = 80.0, 400.0
+_PITCH_STRENGTH = 0.5
+_PITCH_RUN = 3
+_MIN_PITCHED_S = 0.3
+
+
+def _has_pitch(audio: np.ndarray, rate: int, loud: np.ndarray) -> bool:
+    """Do the loud windows carry a voice? True once _MIN_PITCHED_S of them, in
+    runs, repeat at a voice's pitch (normalised autocorrelation over 60 ms)."""
+    w = int(rate * _WIN_S)
+    span = 2 * w
+    lo, hi = max(1, int(rate / _PITCH_HI_HZ)), int(rate / _PITCH_LO_HZ)
+    if hi >= span:
+        return False
+    lags = np.arange(lo, hi + 1)
+    need = int(round(_MIN_PITCHED_S / _WIN_S))
+    found = run = 0
+    last = -2
+    for i in np.flatnonzero(loud):
+        a = audio[i * w: i * w + span].astype(np.float64)
+        pitched = False
+        if len(a) == span:
+            a = a - a.mean()
+            c = np.cumsum(a * a)
+            if c[-1] > 0:
+                f = np.fft.rfft(a, 2 * span)
+                ac = np.fft.irfft(f * np.conj(f))[lags]
+                r = ac / np.sqrt(np.maximum(c[span - 1 - lags] * (c[-1] - c[lags - 1]), 1e-30))
+                pitched = float(r.max()) > _PITCH_STRENGTH
+        if not pitched:
+            run = 0
+        else:
+            run = run + 1 if i == last + 1 else 1
+            if run == _PITCH_RUN:
+                found += _PITCH_RUN
+            elif run > _PITCH_RUN:
+                found += 1
+            if found >= need:
+                return True
+            last = i
+    return False
+
+
+def _lift(rms: np.ndarray, audio: np.ndarray | None = None, rate: int = RATE) -> float:
     """How far below normal speech this take's voice sits: the gain dictation
-    would give it (1 for a take at a normal level, or with no voice)."""
+    would give it (1 for a take at a normal level, or with no voice). With the
+    take itself given, a lift is only made for sound that has a voice's pitch."""
     floor = float(np.percentile(rms, 10))
-    voiced = rms[rms > max(floor * 4.0, _LIFT_FLOOR)]
+    loud = rms > max(floor * 4.0, _LIFT_FLOOR)
+    voiced = rms[loud]
     if voiced.size == 0:
         return 1.0
-    return float(min(max(_SPEECH_TARGET / float(np.median(voiced)), 1.0), _MAX_LIFT))
+    lift = float(min(max(_SPEECH_TARGET / float(np.median(voiced)), 1.0), _MAX_LIFT))
+    if lift > 1.0 and audio is not None and not _has_pitch(audio, rate, loud):
+        return 1.0
+    return lift
 
 
 def voiced_mask(audio: np.ndarray, rate: int = RATE) -> np.ndarray:
@@ -70,7 +127,7 @@ def voiced_mask(audio: np.ndarray, rate: int = RATE) -> np.ndarray:
     if len(rms) == 0:
         return np.zeros(0, dtype=bool)
     floor = float(np.percentile(rms, 10))
-    return rms > max(floor * 3.0, 0.005 / _lift(rms))
+    return rms > max(floor * 3.0, 0.005 / _lift(rms, audio, rate))
 
 
 def voiced_seconds(audio: np.ndarray, rate: int = RATE) -> float:
