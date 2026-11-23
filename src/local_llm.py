@@ -144,14 +144,42 @@ _READY_MARK = ".ready"
 _available: list = []
 
 
+def _server_engine():
+    """src/local_llm_server.py: llama.cpp's own server, the engine on Windows."""
+    try:
+        import local_llm_server as mod
+    except ImportError:  # imported as src.local_llm
+        from src import local_llm_server as mod
+    return mod
+
+
+def _engine_kind() -> str:
+    """"llama_cpp" (llama-cpp-python in this build: the Mac), "server"
+    (llama.cpp's own server on this computer: Windows), or "" for none."""
+    try:
+        if importlib.util.find_spec("llama_cpp") is not None:
+            return "llama_cpp"
+    except (ImportError, ValueError):
+        pass
+    try:
+        if sys.platform == "win32" and _server_engine().find_server() is not None:
+            return "server"
+    except Exception:               # noqa: BLE001
+        pass
+    return ""
+
+
 def is_available() -> bool:
-    """Is the engine in this build? (Does not import it.)"""
+    """Is there an engine to run the model? (Imports none.) Asked again once
+    llama.cpp's server arrives (forget_engine)."""
     if not _available:
-        try:
-            _available.append(importlib.util.find_spec("llama_cpp") is not None)
-        except (ImportError, ValueError):
-            _available.append(False)
+        _available.append(bool(_engine_kind()))
     return _available[0]
+
+
+def forget_engine() -> None:
+    """Look for an engine again next time: llama.cpp's server came or went."""
+    _available.clear()
 
 
 def selected_model() -> str:
@@ -462,12 +490,17 @@ _prime_thread: Optional[threading.Thread] = None
 
 def _load_engine(name: str):
     """Open the model. Replaced in tests. The engine has ``chat(system,
-    messages, max_tokens, temperature, should_stop, on_text)`` and ``close()``."""
+    messages, max_tokens, temperature, should_stop, on_text)`` and ``close()``:
+    llama-cpp-python where the build has it (the Mac), else llama.cpp's own
+    server (Windows, src/local_llm_server.py)."""
+    model_file = model_dir(name) / MODELS[name].files[0].name
+    if _engine_kind() == "server":
+        return _server_engine().LlamaServerEngine(model_file)
     try:
         import local_llm_llamacpp as mod
     except ImportError:  # imported as src.local_llm
         from src import local_llm_llamacpp as mod
-    return mod.LlamaCppEngine(model_dir(name) / MODELS[name].files[0].name)
+    return mod.LlamaCppEngine(model_file)
 
 
 def is_loaded() -> bool:
