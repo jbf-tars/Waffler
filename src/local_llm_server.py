@@ -129,17 +129,19 @@ class LlamaServerEngine:
         raise ServerFailed("llama-server did not get ready in time")
 
     def _read_offload(self) -> tuple:
-        """(device, layers on the card) from the server's own log line
-        "offloaded N/M layers to GPU"; ("cpu", 0) when it says none."""
+        """(device, layers on the card) from the server's own log. A card is
+        in use only when a model buffer sits on it ("CUDA0 model buffer
+        size"): the processor build also says "offloaded 43/43 layers to GPU",
+        meaning its own repacked copy (CPU_REPACK). ("cpu", 0) otherwise."""
         try:
             text = self._log.read_text(encoding="utf-8", errors="replace")
         except OSError:
             return "unknown", None
-        m = re.search(r"offloaded (\d+)/(\d+) layers to GPU", text)
-        if not m:
+        card = re.search(r"\b(CUDA|Vulkan|ROCm|SYCL|Metal)\d*\s+model buffer size", text)
+        if not card:
             return "cpu", 0
-        on_card = int(m.group(1))
-        return ("cuda" if on_card else "cpu"), on_card
+        m = re.search(r"offloaded (\d+)/(\d+) layers to GPU", text)
+        return card.group(1).lower(), (int(m.group(1)) if m else None)
 
     def chat(self, system: str, messages: list, max_tokens: int, temperature: float,
              should_stop=None, on_text=None) -> dict:

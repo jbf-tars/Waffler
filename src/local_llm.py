@@ -59,7 +59,7 @@ NOT_DOWNLOADED = ("The writing model for this computer isn't downloaded yet. "
                   "Download it in Settings, then try again.")
 NOT_INSTALLED = "This copy of Waffler can't tidy text or write notes on this computer."
 NOT_SUITED = ("The writing model isn't offered on this computer: it needs an Apple Silicon Mac "
-              "with 16 GB of memory or more.")
+              "with 16 GB of memory or more, or a Windows PC with 16 GB or an NVIDIA card.")
 DOWNLOAD_FAILED = ("The writing model couldn't be downloaded. Check you're online and try again: "
                    "it carries on from where it stopped.")
 DOWNLOAD_DAMAGED = "The download was damaged, so it was thrown away. Try again."
@@ -169,11 +169,29 @@ def _engine_kind() -> str:
     return ""
 
 
+def _llama_pack():
+    """src/llama_pack.py: llama.cpp's own server, fetched with the model on Windows."""
+    try:
+        import llama_pack as mod
+    except ImportError:  # imported as src.local_llm
+        from src import llama_pack as mod
+    return mod
+
+
+def _engine_fetched_with_model() -> bool:
+    """Windows without llama-cpp-python: llama.cpp's server comes down with
+    the model (src/llama_pack.py), so the model can be offered there."""
+    try:
+        return importlib.util.find_spec("llama_cpp") is None and bool(_llama_pack().supported())
+    except Exception:               # noqa: BLE001
+        return False
+
+
 def is_available() -> bool:
-    """Is there an engine to run the model? (Imports none.) Asked again once
-    llama.cpp's server arrives (forget_engine)."""
+    """Is there an engine to run the model, or one that comes down with it?
+    (Imports none.) Asked again once llama.cpp's server arrives (forget_engine)."""
     if not _available:
-        _available.append(bool(_engine_kind()))
+        _available.append(bool(_engine_kind()) or _engine_fetched_with_model())
     return _available[0]
 
 
@@ -205,7 +223,13 @@ def _is_ready(name: str) -> bool:
 
 
 def is_ready() -> bool:
-    return _is_ready(selected_model())
+    """The model is here, and so is its engine: on Windows the server that
+    came down with it (or one named by $WAFFLER_LLAMA_SERVER)."""
+    if not _is_ready(selected_model()):
+        return False
+    if _engine_fetched_with_model():
+        return _engine_kind() == "server"
+    return True
 
 
 # ── does this computer suit it? ──────────────────────────────────────────────
@@ -213,6 +237,11 @@ def is_ready() -> bool:
 SUITS_APPLE_SILICON = "apple_silicon"
 LOW_MEMORY = "low_memory"
 NOT_MEASURED = "not_measured"
+SUITS_NVIDIA = "nvidia"
+SUITS_CPU = "cpu"
+# The model on an NVIDIA card: 3.1 GB measured (2.7 GB of layers, the cache
+# and working space), with room to spare beside the speech model.
+MIN_CARD_MB = 4096
 # A 16 GB Mac reports a little under 16.
 MIN_RAM_GB = 15.5
 
@@ -230,7 +259,10 @@ def describe_machine():
     return m
 
 
-def machine_verdict(machine=None) -> dict:
+_READ = object()                    # machine_verdict: read the card yourself
+
+
+def machine_verdict(machine=None, card_mb=_READ) -> dict:
     """Is this computer offered the writing model? ``{"suits", "reason"}``.
     Stricter than the speech model's verdict, because this model is ten times
     its size:
@@ -240,16 +272,48 @@ def machine_verdict(machine=None) -> dict:
       beside the speech model.
     * Apple Silicon with less, or memory that could not be read: no
       (``"low_memory"``). On 8 GB it would push everything else out.
-    * Windows and Intel Macs: no (``"not_measured"``). Nothing here has run
-      it on one, and it is not in those builds.
+    * Windows with an NVIDIA card of 4 GB or more: yes (``"nvidia"``). On an
+      RTX 4070 SUPER all its layers went on the card in 3.1 GB, and a
+      dictation was tidied in 0.4 to 0.8 s (src/local_llm_server.py).
+    * Windows on the processor, with 16 GB and 8 logical cores or more: yes,
+      slower (``"cpu"``): 3.9 to 5.7 s a dictation on an i7-14700F. Less: no
+      (``"low_memory"``).
+    * Intel Macs: no (``"not_measured"``). Nothing here has run it on one,
+      and it is not in that build.
 
-    Pure when given a Machine; with none it describes this one."""
+    ``card_mb``: the NVIDIA card's memory (src/gpu_pack.py card), None for
+    none. Pure when given a Machine and ``card_mb``; with none it describes
+    this one."""
     m = machine or describe_machine()
     if m.system == "Darwin" and m.arch == "arm64":
         if m.ram_gb is not None and m.ram_gb >= MIN_RAM_GB:
             return {"suits": True, "reason": SUITS_APPLE_SILICON}
         return {"suits": False, "reason": LOW_MEMORY}
+    if m.system == "Windows":
+        if card_mb is _READ:
+            card_mb = _card_mb()
+        if card_mb is not None and card_mb >= MIN_CARD_MB:
+            return {"suits": True, "reason": SUITS_NVIDIA}
+        if m.ram_gb is not None and m.ram_gb >= MIN_RAM_GB and (m.cores or 0) >= 8:
+            return {"suits": True, "reason": SUITS_CPU}
+        return {"suits": False, "reason": LOW_MEMORY}
     return {"suits": False, "reason": NOT_MEASURED}
+
+
+def _card_mb():
+    """The NVIDIA card's memory in MB (src/gpu_pack.py card), None for none."""
+    try:
+        try:
+            import gpu_pack
+        except ImportError:  # imported as src.local_llm
+            from src import gpu_pack
+        card = gpu_pack.card()
+    except Exception:               # noqa: BLE001
+        return None
+    if card is None:
+        return None
+    total = card.get("total_mb")
+    return int(total) if total is not None else MIN_CARD_MB   # a card it could not measure: try it
 
 
 # ── downloading (the speech model's downloader, with this module's own state) ─
@@ -277,8 +341,10 @@ def _begin_download(name: str) -> Optional[dict]:
     with _dl_lock:
         if _dl["active"]:
             return {**_status_locked(_dl["model"]), "ok": False, "error": DOWNLOAD_BUSY}
-        _dl.update(active=True, model=name, done=_stt._dir_size(model_dir(name)),
-                   total=MODELS[name].size, error="", cancelled=False)
+        parts = _engine_parts()
+        _dl.update(active=True, model=name,
+                   done=_stt._dir_size(model_dir(name)) + sum(h for _s, h in parts.values()),
+                   total=MODELS[name].size + sum(s for s, _h in parts.values()), error="", cancelled=False)
         _dl_cancel.clear()
     return None
 
@@ -306,33 +372,62 @@ def _run_download(name: str, progress_cb) -> dict:
     return {**status, "ok": status["state"] == "ready", "cancelled": cancelled}
 
 
+def _engine_parts() -> dict:
+    """Windows: llama.cpp's server still to come down with the model
+    (src/llama_pack.py), as {file: (size, bytes here)}; {} when it is here,
+    or not needed (the Mac's engine is in the build)."""
+    if not _engine_fetched_with_model() or _engine_kind() == "server":
+        return {}
+    try:
+        return _llama_pack().parts()
+    except Exception:               # noqa: BLE001
+        return {}
+
+
 def _download(name: str, spec: ModelSpec, progress_cb) -> None:
     folder = model_dir(name)
     folder.mkdir(parents=True, exist_ok=True)
     last = [None]
-    if _is_ready(name):
-        _note_progress(spec.size, spec.size, progress_cb, last)
+    engine = _engine_parts()        # Windows: the server comes down after the model
+    total = spec.size + sum(size for size, _here in engine.values())
+    model_ready = _is_ready(name)
+    if model_ready and not engine:
+        _note_progress(total, total, progress_cb, last)
         return
-    (folder / _READY_MARK).unlink(missing_ok=True)
     try:
         free = shutil.disk_usage(folder).free
     except OSError:
         free = None
-    if free is not None and free < spec.size - _stt._dir_size(folder) + _SPACE_MARGIN:
+    need = (0 if model_ready else spec.size - _stt._dir_size(folder)) + sum(
+        size - here for size, here in engine.values()) * 2              # the zip, then what is in it
+    if free is not None and free < need + _SPACE_MARGIN:
         raise LocalLLMError(DOWNLOAD_NO_SPACE, "download")
-    per_file: dict = {f.name: _stt._bytes_here(folder, f) for f in spec.files}
+    per_file: dict = {f.name: (f.size if model_ready else _stt._bytes_here(folder, f)) for f in spec.files}
+    per_file.update({n: here for n, (_size, here) in engine.items()})
 
     def note(file_name: str, n: int) -> None:
         per_file[file_name] = n
-        _note_progress(sum(per_file.values()), spec.size, progress_cb, last)
+        _note_progress(sum(per_file.values()), total, progress_cb, last)
 
-    for f in spec.files:
-        if _dl_cancel.is_set():
-            raise _stt._Cancelled()
-        _stt._fetch(f, folder, note, _dl_cancel, get=lambda url, headers: _http_get(url, headers))
-    (folder / _READY_MARK).write_text(
-        json.dumps({"model": name, "files": {f.name: f.size for f in spec.files}}), encoding="utf-8")
-    _note_progress(spec.size, spec.size, progress_cb, last)
+    get = lambda url, headers: _http_get(url, headers)  # noqa: E731
+    if not model_ready:
+        (folder / _READY_MARK).unlink(missing_ok=True)
+        for f in spec.files:
+            if _dl_cancel.is_set():
+                raise _stt._Cancelled()
+            _stt._fetch(f, folder, note, _dl_cancel, get=get)
+        (folder / _READY_MARK).write_text(
+            json.dumps({"model": name, "files": {f.name: f.size for f in spec.files}}), encoding="utf-8")
+    if engine:
+        pack = _llama_pack()
+        try:
+            pack.fetch(note, _dl_cancel, get=get)
+        except pack.Cancelled as e:
+            raise _stt._Cancelled() from e
+        except pack.PackError as e:
+            raise LocalLLMError(str(e), "download") from e
+        forget_engine()
+    _note_progress(total, total, progress_cb, last)
 
 
 def _note_progress(done: int, total: int, progress_cb, last: list) -> None:
@@ -413,6 +508,12 @@ def remove_model() -> dict:
         folder = model_dir(name)
         freed = _stt._dir_size(folder)
         shutil.rmtree(folder, ignore_errors=True)
+        if _engine_fetched_with_model():              # Windows: its server goes with it
+            try:
+                freed += _llama_pack().remove()
+            except Exception:       # noqa: BLE001
+                pass
+            forget_engine()
     finally:
         _gate.release()
     with _dl_lock:
@@ -423,16 +524,23 @@ def remove_model() -> dict:
 def _status_locked(name: str) -> dict:
     """Holds _dl_lock."""
     spec = MODELS.get(name)
-    total = spec.size if spec else 0
     downloading = _dl["active"] and _dl["model"] == name
-    ready = (not downloading) and _is_ready(name)
+    parts = {} if downloading else _engine_parts()      # Windows: the server still to come
+    total = (spec.size if spec else 0) + sum(s for s, _h in parts.values())
+    ready = (not downloading) and is_ready()
     size_on_disk = _stt._dir_size(model_dir(name))
+    if _engine_fetched_with_model():
+        try:
+            size_on_disk += _llama_pack().size_on_disk()
+        except Exception:           # noqa: BLE001
+            pass
     if downloading:
-        state, done = "downloading", _dl["done"]
+        state, done, total = "downloading", _dl["done"], _dl["total"] or total
     elif ready:
         state, done = "ready", total
     else:
-        state, done = "not_downloaded", min(size_on_disk, total)
+        state = "not_downloaded"
+        done = min(_stt._dir_size(model_dir(name)), spec.size if spec else 0) + sum(h for _s, h in parts.values())
     try:
         verdict = machine_verdict()
     except Exception:               # noqa: BLE001 - a machine that cannot be read is not offered it

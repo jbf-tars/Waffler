@@ -455,6 +455,55 @@ notes 40 s in all instead of 27). After notes or a question the clean-up's
 prompt is read again in the background. The model is released after five
 idle minutes (`WAFFLER_LOCAL_LLM_IDLE_S`).
 
+### On Windows
+
+Windows has no llama-cpp-python build Waffler can ship (PyPI builds it from
+source, which needs a compiler), so until November 2026 "On this computer" on
+Windows pasted text as it was said: no tidy-up, no paragraphs. Now:
+
+- **The engine** is llama.cpp's own `llama-server.exe`
+  (`src/local_llm_server.py`): one model file, bound to 127.0.0.1 at a free
+  port, `--fit on` so llama.cpp puts as many layers on the card as its free
+  memory takes (1 GB spare), the OpenAI-style chat endpoint read word by word,
+  a reply stopped by closing the connection, the reply read as UTF-8 (the
+  stream says no charset; requests read it as Latin-1 and "£" came back as
+  "Â£"). Which device it used is read from its log: a card only when a model
+  buffer sits on one (`CUDA0 model buffer size`); the processor build also
+  logs "offloaded 43/43 layers to GPU", meaning its own repacked copy.
+- **It comes down with the model** (`src/llama_pack.py`), pinned like the
+  models, into `<data folder>/llama`: with an NVIDIA card, llama.cpp b11168's
+  CUDA build (255 MB) and NVIDIA's CUDA runtime wheel (3.6 MB; cuBLAS comes
+  with the graphics card files, `src/gpu_pack.py`); otherwise its processor
+  build (18.6 MB). One Download button, one size: the model plus the engine.
+  Removing the model removes the engine.
+- **Offered** (`machine_verdict`): an NVIDIA card of 4 GB or more
+  (`"nvidia"`), or 16 GB of memory and 8 logical cores on the processor
+  (`"cpu"`, slower, and the row says so: "Optional. Slower here, but free and
+  private.").
+
+Measured on James's PC (Windows 11, RTX 4070 SUPER, i7-14700F, 32 GB),
+November 2026, through the app's own clean-up (`OpenAIStyler.style`) and
+`write_notes`, with no key, and no connection beyond the computer after the
+downloads:
+
+| | On the card (43 of 43 layers, 3.1 GB) | On the processor |
+|---|---|---|
+| Load | 3.1 to 3.5 s | 2.4 to 3.9 s |
+| First read of the clean-up's prompt (5,624 tokens) | about 1 s | about 40 s |
+| Dictations of 34 to 69 words | 0.41 to 0.76 s | 3.1 to 6.0 s |
+| A 200-word meeting's notes | 2.3 s | 16 s |
+
+End to end as a new PC gets it: the processor build fetched from GitHub,
+unpacked, and run; the CUDA build (James's own copy of the same zip, checked
+against the pinned SHA-256) with the CUDA runtime fetched from PyPI, run on
+the card with only the files Waffler fetched.
+
+Not done on Windows: the first read of the prompt on the processor (40 s)
+comes again after each idle unload (five minutes), and a dictation that
+arrives then is pasted as said; keeping the slot on disk
+(`--slot-save-path`) or not unloading on the processor would answer it.
+Nothing older than this PC was tried, and no laptop.
+
 ## An NVIDIA card on Windows
 
 `src/gpu_pack.py`. faster-whisper uses an NVIDIA card when cuBLAS 12 and

@@ -82,7 +82,10 @@ def test_a_prompt_too_long_for_the_window_is_said_so(engine):
 def test_how_many_layers_went_on_the_card_is_read_from_its_log(engine):
     e = engine()
     assert (e.device, e.gpu_layers) == ("cuda", 43) and e.load_s is not None
-    e2 = engine(FAKE_LAYERS="0")
+    # The processor build also says "offloaded 43/43 layers to GPU" (its
+    # CPU_REPACK copy): with no buffer on a card it is the processor. Seen on
+    # Windows with llama.cpp b11168's processor build.
+    e2 = engine(FAKE_DEVICE="cpu")
     assert (e2.device, e2.gpu_layers) == ("cpu", 0)
 
 
@@ -136,7 +139,8 @@ def test_on_windows_the_writing_model_runs_on_the_server_where_there_is_no_llama
     monkeypatch.setattr(local_llm.sys, "platform", "win32")
     monkeypatch.setattr(local_llm, "_available", [])
     monkeypatch.setattr(srv, "find_server", lambda: None)
-    assert local_llm._engine_kind() == "" and local_llm.is_available() is False
+    # No server yet: none to run, but one comes down with the model (src/llama_pack.py).
+    assert local_llm._engine_kind() == "" and local_llm.is_available() is True
     monkeypatch.setattr(srv, "find_server", lambda: tmp_path / "llama-server.exe")
     local_llm.forget_engine()
     assert local_llm._engine_kind() == "server" and local_llm.is_available() is True

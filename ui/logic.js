@@ -1079,6 +1079,12 @@
   // One honest line, under "How it works": measured on an M5 with 16 GB (docs/OFFLINE-TRANSCRIPTION.md).
   const WRITING_HOW = 'The writing model is for an Apple Silicon Mac with 16 GB of memory or more: about two seconds to tidy a dictation, a minute or two for a long meeting\u2019s notes. A key is quicker, and better with long meetings.';
   const WRITING_LOW_MEMORY = 'Not offered here: it needs 16 GB of memory.';
+  // Measured on a Windows PC (RTX 4070 SUPER, i7-14700F), with llama.cpp's own
+  // server (src/local_llm_server.py): 0.4 to 0.8 s a dictation on the card,
+  // 3.9 to 5.7 s on the processor; a meeting's notes in 2.3 s and 16 s.
+  const WRITING_HOW_NVIDIA = 'On your NVIDIA graphics card: under a second to tidy a dictation, a few seconds for a meeting’s notes. The download is the model and the engine that runs it. A key is quicker, and better with long meetings.';
+  const WRITING_HOW_CPU = 'On this computer’s processor: about four to six seconds to tidy a dictation, longer for a meeting’s notes. Slower than a key, but free, and nothing leaves this computer. The download is the model and the engine that runs it.';
+  const WRITING_ABOUT_CPU = 'Optional. Slower here, but free and private.';
 
   function _llmKnown(llm) {
     return llm && llm.ok !== false && typeof llm.state === 'string' ? llm : null;
@@ -1105,7 +1111,12 @@
     }
     const size = modelSize(s.bytes_total);
     const percent = Math.max(0, Math.min(100, Math.round(Number(s.percent) || 0)));
-    const view = { ...none, show: true, about: WRITING_ABOUT, how: WRITING_HOW, percent };
+    // Windows (src/local_llm.py machine_verdict): on an NVIDIA card it is as
+    // quick as on a Mac; on the processor it is slower, and says so first.
+    const how = s.machine_reason === 'nvidia' ? WRITING_HOW_NVIDIA
+      : s.machine_reason === 'cpu' ? WRITING_HOW_CPU : WRITING_HOW;
+    const about = s.machine_reason === 'cpu' ? WRITING_ABOUT_CPU : WRITING_ABOUT;
+    const view = { ...none, show: true, about, how, percent };
     if (s.state === 'downloading') {
       return { ...view, bar: true, stop: true,
         state: `Downloading, ${percent}%${size ? ` of ${size}` : ''}` };

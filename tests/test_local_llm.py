@@ -134,6 +134,9 @@ def llm(monkeypatch):
     monkeypatch.setattr(local_llm, "DEFAULT_MODEL", "test")
     monkeypatch.setattr(local_llm, "is_available", lambda: True)
     monkeypatch.setattr(local_llm, "describe_machine", lambda: M1)
+    # The engine is in the build, as on the Mac: nothing comes down with the
+    # model (on Windows llama.cpp's server does: tests/test_llama_pack.py).
+    monkeypatch.setattr(local_llm, "_engine_fetched_with_model", lambda: False)
     monkeypatch.setattr(local_stt, "_CHUNK", 64 * 1024)
     server = FakeServer({"model.gguf": BIG})
     monkeypatch.setattr(local_llm, "_http_get", server.get)
@@ -212,12 +215,26 @@ def test_nothing_imports_the_engine_until_it_is_used():
     (local_stt.Machine("Darwin", "arm64", 8, 8.0), False, local_llm.LOW_MEMORY),
     (local_stt.Machine("Darwin", "arm64", 8, None), False, local_llm.LOW_MEMORY),
     (local_stt.Machine("Darwin", "x86_64", 8, 32.0), False, local_llm.NOT_MEASURED),
-    (local_stt.Machine("Windows", "AMD64", 16, 32.0, True), False, local_llm.NOT_MEASURED),
 ])
 def test_the_verdict_is_stricter_on_memory_than_the_speech_models(machine, suits, reason):
-    assert local_llm.machine_verdict(machine) == {"suits": suits, "reason": reason}
+    assert local_llm.machine_verdict(machine, card_mb=None) == {"suits": suits, "reason": reason}
     # The speech model's own verdict says yes to an 8 GB Apple Silicon Mac.
     assert local_stt.machine_verdict(local_stt.Machine("Darwin", "arm64", 8, 8.0))["suits"] is True
+
+
+@pytest.mark.parametrize("machine, card_mb, suits, reason", [
+    # Windows, measured on an RTX 4070 SUPER: 3.1 GB on the card, 0.4 to 0.8 s a dictation.
+    (local_stt.Machine("Windows", "AMD64", 28, 32.0, True), 12282, True, local_llm.SUITS_NVIDIA),
+    (local_stt.Machine("Windows", "AMD64", 4, 8.0), 4096, True, local_llm.SUITS_NVIDIA),
+    # On the processor (i7-14700F: 3.9 to 5.7 s a dictation): 16 GB and 8 cores.
+    (local_stt.Machine("Windows", "AMD64", 28, 32.0), None, True, local_llm.SUITS_CPU),
+    (local_stt.Machine("Windows", "AMD64", 8, 15.8), 2048, True, local_llm.SUITS_CPU),     # a card too small
+    (local_stt.Machine("Windows", "AMD64", 4, 32.0), None, False, local_llm.LOW_MEMORY),
+    (local_stt.Machine("Windows", "AMD64", 16, 8.0), None, False, local_llm.LOW_MEMORY),
+    (local_stt.Machine("Windows", "AMD64", 16, None), None, False, local_llm.LOW_MEMORY),
+])
+def test_windows_is_offered_it_on_an_nvidia_card_or_a_big_enough_processor(machine, card_mb, suits, reason):
+    assert local_llm.machine_verdict(machine, card_mb=card_mb) == {"suits": suits, "reason": reason}
 
 
 def test_a_computer_it_does_not_suit_is_not_given_the_download(llm, monkeypatch):

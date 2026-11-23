@@ -25,11 +25,16 @@ def arg(name, default=None):
 
 PORT = int(arg("--port", "8080"))
 LOG = arg("--log-file")
-LAYERS = int(os.environ.get("FAKE_LAYERS", "43"))
+DEVICE = os.environ.get("FAKE_DEVICE", "cuda")
 if LOG:
     with open(LOG, "w", encoding="utf-8") as f:
+        # Both builds say "offloaded 43/43 layers to GPU"; only a card has a CUDA buffer.
         f.write("\x1b[32mI \x1b[0mload_tensors: offloading 41 repeating layers to GPU\n")
-        f.write(f"\x1b[32mI \x1b[0mload_tensors: offloaded {LAYERS}/43 layers to GPU\n")
+        f.write("\x1b[32mI \x1b[0mload_tensors: offloaded 43/43 layers to GPU\n")
+        if DEVICE == "cuda":
+            f.write("\x1b[32mI \x1b[0mload_tensors:        CUDA0 model buffer size =  2696.06 MiB\n")
+        else:
+            f.write("\x1b[32mI \x1b[0mload_tensors:   CPU_REPACK model buffer size =  2116.41 MiB\n")
         f.write(f"args: {json.dumps(sys.argv[1:])}\n")
 
 
