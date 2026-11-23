@@ -177,8 +177,7 @@ def _dictation_language() -> str:
     """The language chosen in Settings ("en" unless set or unreadable)."""
     try:
         from transcribe_whisper import load_settings
-        code = load_settings().get("language", "en")
-        return code if isinstance(code, str) and code else "en"
+        return _languages.effective(load_settings().get("language"))
     except Exception:
         return "en"
 
@@ -201,8 +200,8 @@ def _dialect_instruction(settings: dict) -> str:
         text = "Use American English spelling (e.g. color, organize, center, behavior, realize, program, defense, license, favor, catalog)."
     else:
         text = "Use the same spelling as the user. Do not change spelling conventions."
-    code = settings.get("language", "en")
-    if isinstance(code, str) and _languages.is_valid(code):
+    code = _languages.effective(settings.get("language"))
+    if _languages.is_valid(code):
         return _languages.language_instruction(code) or text
     return text
 

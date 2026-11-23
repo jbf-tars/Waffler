@@ -88,6 +88,7 @@ def test_on_windows_a_child_started_this_way_has_no_console_window():
 # program that only runs on a Mac (or Linux), or a windowed program on
 # Windows, which never gets a console. Anything else must start hidden.
 NOT_A_CONSOLE_ON_WINDOWS = {
+    ("src/languages.py", "_locale_names", "defaults"): "Mac only (reads AppleLocale)",
     ("app.py", "download_logs", "open"): "Mac only",
     ("app.py", "download_logs", "explorer"): "File Explorer is a windowed program",
     ("app.py", "reveal_unsent", "explorer"): "File Explorer is a windowed program",

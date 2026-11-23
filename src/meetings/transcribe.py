@@ -26,12 +26,13 @@ import zlib
 import numpy as np
 
 from . import keys
-from .audioproc import RATE, to_flac, voiced_between, voiced_mask
+from .audioproc import RATE, to_flac, voiced_between, voiced_mask, window_rms
 
 try:
-    import local_stt            # the app's own copy: src/ is on its path
+    import languages            # the app's own copy: src/ is on its path
+    import local_stt
 except ImportError:
-    from src import local_stt
+    from src import languages, local_stt
 
 MIN_VOICED_S = 0.3              # less voice than this in a chunk: not uploaded
 _NO_SPEECH_PROB = 0.5
@@ -100,7 +101,7 @@ def _loop_ratio(text: str) -> float:
     return len(raw) / len(zlib.compress(raw)) if raw else 0.0
 
 
-def invented(text: str, voiced_near: float) -> bool:
+def invented(text: str, voiced_near: float, check_loop: bool = True) -> bool:
     """Was this line written with nobody speaking? Judged on the audio under it,
     so it holds in any language and for every engine, including the Waffler
     Plus answer, which carries no confidence numbers. `voiced_near` is the
@@ -108,13 +109,80 @@ def invented(text: str, voiced_near: float) -> bool:
 
     - No voice under it: the model wrote it over silence.
     - Far more letters than that voice could carry: over a cough or a click.
-    - One phrase over and over: the model went round in a loop."""
+    - One phrase over and over: the model went round in a loop (`check_loop`
+      False leaves this one out: a long dictation is many windows of text, and
+      long real speech squeezes further than one window's does)."""
     if voiced_near < _SEGMENT_MIN_VOICED_S:
         return True
     letters = sum(ch.isalpha() for ch in text)
     if letters > _MIN_LETTERS_TO_JUDGE and letters / voiced_near > _MAX_LETTERS_PER_VOICED_S:
         return True
-    return _loop_ratio(text) > _LOOP_RATIO
+    return check_loop and _loop_ratio(text) > _LOOP_RATIO
+
+
+# A sign-off the model writes at the start or the end of a line that has real
+# words beside it ("Thank you for watching So that the ... stuff I need to
+# sort out"). Only phrases nobody says in a meeting; the short ones that open
+# or close real sentences ("Thank you.", "Bye.", "you", "Okay") are NOT here:
+# those are judged on the audio under a whole line (is_outro, invented).
+_SIGNOFF = (
+    r"(?:(?:okay|ok|so|and|well|alright)[\s,]+)?(?:thank\s+you|thanks)(?:\s+(?:so|very)\s+much)?"
+    r"\s+for\s+(?:watching|listening|viewing)(?:\s+(?:this\s+video|everyone|everybody|guys|all))?"
+    r"|(?:please\s+|don'?t\s+forget\s+to\s+|remember\s+to\s+)?like\s+and\s+subscribe"
+    r"(?:\s+to\s+(?:my|the|our)\s+channel)?"
+    r"|(?:please\s+)?(?:hit|smash)\s+(?:the|that)\s+like\s+button"
+    r"|see\s+you\s+in\s+the\s+next\s+(?:one|video)")
+_SIGNOFF_AT_START = re.compile(r"^\s*(?:" + _SIGNOFF + r")(?P<gap>\s*[.!?,;:\-]+\s*|\s+)(?=\S)", re.IGNORECASE)
+_SIGNOFF_AT_END = re.compile(r"(?P<lead>^|[.!?,;]\s*|\s)(?P<phrase>(?:" + _SIGNOFF + r"))[\s.!?]*$", re.IGNORECASE)
+# With no punctuation after it, a sign-off is a join (two segments run
+# together) only when a sentence begins straight after: one of these,
+# capitalised. "Thanks for watching Sam's kids" is a sentence, not a join.
+_SENTENCE_STARTERS = frozenset(
+    "so and but the i i'm i'll i've it it's that that's this there we we're we'll "
+    "you your they he she okay ok now well yeah yes no right alright anyway um uh "
+    "let's let what why how when if then also just my our in on at for to".split())
+
+
+def strip_signoffs(text: str) -> str:
+    """`text` without a made-up sign-off at its start or its end, when real
+    words are beside it. A line that is only a sign-off is left as it is (the
+    audio rule decides it: is_outro / invented). At the start it goes when
+    punctuation follows it or a new sentence begins straight after; at the
+    end when it follows punctuation or is capitalised after a lower-case
+    word (a join). Never raises, never returns less than the input unless it
+    stripped one of the phrases above."""
+    if not isinstance(text, str):
+        return text
+    out = " ".join(text.split())
+    while True:
+        m = _SIGNOFF_AT_START.match(out)
+        if not m:
+            break
+        rest = out[m.end():]
+        first = re.match(r"[\w']+", rest)
+        punct = bool(re.search(r"[.!?,;:\-]", m.group("gap")))
+        if not first or not any(ch.isalpha() for ch in rest):
+            break
+        if not punct and not (first.group(0)[0].isupper() and first.group(0).lower() in _SENTENCE_STARTERS):
+            break
+        out = rest[:1].upper() + rest[1:]
+    while True:
+        m = _SIGNOFF_AT_END.search(out)
+        if not m:
+            break
+        head = out[:m.start("phrase")].rstrip()
+        if not any(ch.isalpha() for ch in head):
+            break
+        joined = m.group("lead") and not re.search(r"[.!?,;]", m.group("lead")) and m.group("lead").strip() == ""
+        if joined and not m.group("phrase")[0].isupper():
+            break
+        if joined and head[-1] in ".!?,;":
+            joined = False
+        out = head.rstrip(",;: ").rstrip()
+    only = re.sub(r"\s*,\s*", " ", re.sub(r"[.!?]+", " ", out)).split()
+    if not only or re.fullmatch(r"(?:\s*(?:" + _SIGNOFF + r")\s*)+", " ".join(only), re.IGNORECASE):
+        return text                  # nothing but sign-offs: the audio rule decides, as before
+    return out
 
 
 def clean_segments(raw_segments, audio: np.ndarray) -> list[dict]:
@@ -126,6 +194,7 @@ def clean_segments(raw_segments, audio: np.ndarray) -> list[dict]:
         text = " ".join(str(_get(seg, "text", "") or "").split())
         if not text:
             continue
+        text = strip_signoffs(text)
         start = float(_get(seg, "start", 0.0) or 0.0)
         end = float(_get(seg, "end", start) or start)
         no_speech = float(_get(seg, "no_speech_prob", 0.0) or 0.0)
@@ -300,7 +369,9 @@ def transcribe(audio: np.ndarray, settings: dict | None = None, backend=None) ->
     settings = settings or {}
     if len(audio) == 0 or voiced_mask(audio).sum() * 0.03 < MIN_VOICED_S:
         return []
-    language = settings.get("language") or ""
+    # The person's pick; "auto" (Detect automatically) sends none, on purpose;
+    # unset or empty sends this computer's own language, never a guess.
+    language = languages.resolve(settings.get("language")) or ""
     preferred = settings.get("transcribe_provider") or "groq"
     if uses_plus():
         return _transcribe_plus(audio, language)

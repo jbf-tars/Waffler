@@ -675,7 +675,8 @@ def test_save_settings_without_the_key_leaves_the_choice_alone(tmp_path):
 
 
 def test_get_settings_reports_the_choice_and_defaults_to_restore(tmp_path):
-    ns = {"os": __import__("os"), "_pipeline": None, "_log_to_file": lambda m: None}
+    ns = {"os": __import__("os"), "_pipeline": None, "_log_to_file": lambda m: None,
+          "_languages": __import__("languages")}
     get = _api("get_settings", **ns)
     for stored, want in (({}, "restore"), ({"clipboard_after_paste": "restore"}, "restore"),
                          ({"clipboard_after_paste": "keep"}, "keep"),

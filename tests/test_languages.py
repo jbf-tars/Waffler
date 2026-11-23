@@ -261,11 +261,12 @@ def test_auto_sends_no_language_to_the_cloud_providers(monkeypatch, language, se
         assert "language" not in rec.kwargs
 
 
-@pytest.mark.parametrize("language, sent", [("auto", None), ("", None), ("en", "en"), ("ja", "ja")])
+@pytest.mark.parametrize("language, sent", [("auto", None), ("", "en"), ("en", "en"), ("ja", "ja")])
 def test_local_whisper_reads_auto_the_same_way(monkeypatch, language, sent):
     """On this computer (src/local_stt.py): 'auto' is skipped, never passed.
     One local path now; there were two (mlx-whisper and faster-whisper), each
     with its own copy of this rule."""
+    monkeypatch.setattr(languages, "system_language", lambda: "en")
     t, _rec = _transcriber(monkeypatch, language, "local")
     monkeypatch.setattr(transcribe_whisper, "load_vocab", lambda: [])
     seen = {}
@@ -277,5 +278,5 @@ def test_local_whisper_reads_auto_the_same_way(monkeypatch, language, sent):
     assert t._transcribe_local(b"RIFF" + b"\0" * 64) == "hello"
     assert seen == {"language": sent, "prompt": None}
     src = (ROOT / "src" / "transcribe_whisper.py").read_text(encoding="utf-8")
-    assert src.count('if lang and lang != "auto":') == 2          # groq, openai
+    assert src.count("if lang:") == 2          # groq, openai: lang is already resolved
     assert "mlx_whisper" not in src and "faster_whisper" not in src
