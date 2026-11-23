@@ -205,3 +205,194 @@ Windows; the suite result is below.
 **5. Spacing.** As measured in 1, it matches the design. No change was made.
 
 **Suite on `one-app` 672d27d, on Windows:** **8,453 passed, 86 skipped, 0 failed** in 7 min 1 s (8,516 pass on the Mac; the 86 skipped are the Mac-only and POSIX-shell tests, as before).
+
+## Re-check on `one-app` 139fe11
+
+`windows` is now `one-app` 139fe11 (which already held the earlier Windows
+commits), plus this report and its pictures.
+
+**Suite:** **8,623 passed, 89 skipped, 0 failed** in 7 min 43 s on Windows (86 were skipped last time, and all of those were Mac-only or POSIX-shell tests) (the Mac has 8,689 passed, 18 skipped).
+
+**1. Account file lock (icacls).** The account tests pass on Windows (they are
+in the suite). On a real file in a temporary data folder, with a made-up
+session and no server contacted:
+
+- `_write_session` wrote `account.json`, and no `.tmp` file was left behind.
+- `icacls` then listed one entry: the current user, with full control (F). No
+  SYSTEM, no Administrators, nothing inherited.
+- Reading it back gave the same session.
+- A second write worked and kept the same single entry.
+- `sync_credentials()` returned the token, and `forget()` removed the file.
+
+So the icacls path works on Windows as written.
+
+**2. The waffle record mark (Home, Meetings, top bar).** The pictures come from
+the app's own WebView2, on a test copy run from source, taken through its
+DevTools port. Nothing on James's screen was captured and nothing was recorded.
+
+- In light and dark: `home-idle-*`, `home-recording-*`, `meetings-idle-*`.
+- The recording look was made with the states the app pushes:
+  `waffler_status('listening')` for the top bar and the live strip, and the Home
+  button's `is-on` state with its clock and "Finish", which is what
+  `ui/meetings.js` sets from `meetings_state`.
+- Nothing is clipped, and the marks are sharp at 100%. They are CSS, so WebView2
+  scales them itself at 125% or 150%.
+- Not shown: the Meetings tab's own record control while recording. Its state
+  comes from the native bridge and changes only in a real meeting, which needs
+  James.
+- On this test copy (speech on this computer, no key), the Meetings tab shows
+  "Add a key in Waffler's Settings to begin" instead of a record button. The
+  Advanced text says notes need a key either way, so this looks intended.
+  Flagging it in case recording without a key, with notes later, was meant to
+  work.
+
+**3. Settings > Keys and providers.** It renders in light and dark
+(`settings-keys-*`):
+
+- The two choices are one radio group.
+- "On this computer" reads "Free", "Private. One download.", "Ready, 486 MB"
+  and has a Remove button. That state is right: `small` is downloaded in this
+  test folder.
+- "Your own key" reads "Faster" and has the provider picker (Groq, OpenAI,
+  Cerebras), the key box, Save, and "Get a free Groq key".
+- Advanced opens (`aria-expanded` true; `settings-keys-advanced-*`), showing the
+  flow, the provider order and the notes.
+- The picker is a native select, so its open list cannot be pictured; its
+  options are Groq, OpenAI and Cerebras. No key was typed anywhere.
+
+One bug found here:
+- With Advanced open, `P#providerOrderLive.sr-only` (absolute, 1 px) sits at
+  y=806 in a 741 px window. It is placed against the page instead of the
+  settings pane, so the page itself becomes 65 px taller than the window and can
+  scroll: by scroll chaining past the end of the pane, by the keyboard, or by
+  `scrollIntoView`.
+- In dark mode `html` keeps its light background (rgb 253, 252, 252, while
+  `body` is rgb 18, 16, 14). So that scroll shows a 65 px light strip at the
+  bottom; `settings-keys-advanced-dark.png` shows it.
+- Likely fixes: keep `.sr-only` elements inside the pane (`position: relative`
+  on `#settingsScroll`, or `top: 0; left: 0` on `.sr-only`), and give `html`
+  the theme's background.
+- It is shared CSS, so I left it for the Mac side. It is probably the same in
+  WKWebView.
+
+**4. Sync.** Covered by the sync tests in the suite, which pass on Windows. It
+was not run against the server, because signing in needs the code from James's
+email.
+
+**Still needs James at the PC:** signing in and a sync, a real meeting (the
+Meetings tab's record control while recording), and dictation by voice.
+
+## Re-check on `one-app` b5a4156
+
+`windows` now holds `one-app` b5a4156 (merged), plus this report and its
+pictures. As before, it was run from source on a test copy with temporary data
+folders, and checked through the WebView2 DevTools port. Nothing was signed
+into and no code was requested.
+
+**Suite:** **8,828 passed, 1 failed, 89 skipped** in 8 min 8 s on Windows. The one failure was Windows-only and in a test, not the app: tests/test_page_never_taller_than_window.py read ui/style.css without saying utf-8, and Windows reads it as cp1252, which fails on a character in it (UnicodeDecodeError, byte 0x90). That is fixed on this branch (both reads now say utf-8), and the file passes on Windows (2 passed) (the Mac has 8,895 passed, 18 skipped).
+
+**1. The light strip (247b010): fixed.** The test used the same window size,
+1084 x 741, in dark mode, with Settings > Keys and providers > Advanced open:
+
+- The page is exactly the window's height (`scrollHeight` 741).
+- `<html>` paints nothing (`rgba(0, 0, 0, 0)`).
+- Trying to scroll the page itself leaves it at 0.
+- `r4-settings-keys-advanced-dark.png` shows the bottom is clean.
+
+**2. Meetings without a key (f766780, b54553d).** All three states seen:
+
+- **Free model, no key:** the Meetings tab shows "New recording", in the
+  sidebar and in the middle (`r4-meetings-free-model-no-key.png`).
+- **A finished meeting:** I imported an 11.5 s synthetic spoken clip through
+  the same `import` route the Import audio button uses. It was turned into
+  text on this computer.
+  - The Notes tab shows the one quiet line "Notes need a key." with "Open
+    Settings" (`r4-meetings-imported-note.png`).
+  - The Transcript tab shows the words correctly
+    (`r4-meetings-imported-transcript.png`).
+- **No model and no key:** the button reads "Download the free model"
+  (`r4-meetings-no-model-no-key.png`).
+
+**3. Waffler Plus, signed out: no trace.** The word "Plus" was searched for in
+the visible text of Home, every Settings section, the Meetings tab and the
+first-run screen, in three states: free model, no model and no key, and first
+run. It does not appear. "Waffler Plus" is not in the page source either, not
+even hidden.
+
+**4. Suite:** see above.
+
+**Still needs James at the PC:** signing in (which is also where Plus would
+show), a sync, a real meeting with the microphone and the computer's sound,
+and dictation by voice.
+
+## Re-check on `one-app` a83b306
+
+`windows` now holds `one-app` a83b306 (merged as 66ba100). The merge met one
+conflict, in `tests/test_page_never_taller_than_window.py`, where `one-app` had
+made the same utf-8 fix as this branch. It was resolved by taking `one-app`'s
+copy, which is the same code without the comment.
+
+**Suite:** **8,840 passed, 89 skipped, 0 failed** in 8 min 10 s on Windows (the
+Mac has 8,906 passed, 18 skipped). The new
+`tests/test_meetings_import_and_parts.py` passes here. Only the suite was run
+this time; the Meetings import screen was not looked at on the PC.
+
+## Windows fix: the overlay helper no longer takes the foreground
+
+This is the older problem noted under Pop-ups, now fixed on this branch in
+1c6939d. It touches the Windows-only `src/overlay_process_windows.py`; the Mac
+is unchanged.
+
+**What was wrong.** When the overlay helper started, Tk built its withdrawn
+dictation window as the main loop began, and made it the foreground window
+whenever the helper was allowed to take the foreground. Keys typed in the
+person's app then went to an invisible window until the dictation pill was
+next shown and hidden. Stepping through the start-up showed the moment: the
+foreground moved once `mainloop()` began, or at the first `update_idletasks()`,
+with the window withdrawn and never visible.
+
+**What changed.** `main()` now:
+- notes the foreground window before Tk starts;
+- hides the root straight away;
+- builds it, marked `WS_EX_NOACTIVATE`, before the main loop;
+- hands the foreground back if Tk took it (`_keep_foreground`).
+
+**Measured on this PC,** three runs of each, with the helper started on its
+own and the foreground read at each step:
+- Before: the helper's hidden window held the foreground from the start until
+  the dictation pill was hidden.
+- After: the window the person was in kept it through the start, a message
+  pill, the dictation pill shown and hidden, and quit.
+
+The pop-up checks above were run again on the fixed helper: same sizes, same
+timings, one at a time, and the "Your call" button still answers. The new
+`tests/test_windows_overlay_keeps_focus.py` checks the rule with fakes, so it
+runs on any platform. It fails on the old helper (5 of 5) and passes on the
+new one.
+
+## Windows fix: Sign out no longer leaves the computer signed in
+
+Fixed on this branch in 30e6bb0. It touches the shared `src/account.py` and
+`src/atomic_json.py`; the Mac sees a change only if a delete fails there too.
+
+**What was wrong.** A full run of the suite after the overlay fix failed
+`tests/test_account.py::test_signing_out_through_the_api_stops_the_sync_state`.
+Run alone, it failed between one run in twelve and four in five. The cause
+was found by logging the error that `forget()` ignored: `PermissionError`,
+winerror 32, "being used by another process". Deleting `account.json` straight
+after it was written failed while something still held the file, probably a
+scanner or the indexer. `forget()` swallowed the error, `status()` still read
+the session, and Sign out answered "signed in". In the app that means the
+computer can stay signed in after Sign out.
+
+**What changed.** `forget()` deletes through the new
+`atomic_json.unlink_with_retry`. It retries on `PermissionError` with the same
+50 to 400 ms waits `replace_with_retry` already uses for the same Windows
+reason. It never raises, and it reports False if the file is still there.
+
+**Measured on this PC:** that test passed 12 runs in 12 with the fix. The new
+`tests/test_account_forget_retry.py` fails on the old code (4 of 4) and passes
+on the new.
+
+**Suite with both fixes, on `one-app` 3272dd7 (merged as cfb1c06):**
+**8,859 passed, 89 skipped, 0 failed** in 7 min 57 s on Windows.

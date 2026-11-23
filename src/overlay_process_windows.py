@@ -411,6 +411,48 @@ def _no_activate(win) -> bool:
         return False
 
 
+def _foreground_api():
+    """GetForegroundWindow and SetForegroundWindow with their prototypes."""
+    import ctypes
+    from ctypes import wintypes
+    dll = ctypes.WinDLL("user32")
+    dll.GetForegroundWindow.argtypes, dll.GetForegroundWindow.restype = [], wintypes.HWND
+    dll.SetForegroundWindow.argtypes, dll.SetForegroundWindow.restype = [wintypes.HWND], wintypes.BOOL
+    return dll.GetForegroundWindow, dll.SetForegroundWindow
+
+
+def _foreground_window():
+    """The window the person is in right now; None when unknown, and off Windows."""
+    if not sys.platform.startswith("win"):
+        return None
+    try:
+        return _foreground_api()[0]() or None
+    except Exception:
+        return None
+
+
+def _keep_foreground(before) -> None:
+    """Build the hidden dictation window now, and leave the foreground where
+    it was. Tk, building a withdrawn top-level window (when the main loop
+    starts, or at the first update), still made it the active window whenever
+    this process was allowed to take the foreground. Keys typed in the app the
+    person was using then went to this invisible window until the dictation
+    pill was next shown and hidden (measured on Windows 11, November 2026; the
+    message cards before the pills did the same). The window is marked
+    no-activate as soon as it exists, and if Tk took the foreground it is
+    handed straight back. Never raises."""
+    if _root is None or not sys.platform.startswith("win"):
+        return
+    try:
+        _no_activate(_root)                   # builds the window and marks it
+        mine = _top_hwnd(_root)
+        get_fg, set_fg = _foreground_api()
+        if before and mine and get_fg() == mine:
+            set_fg(before)
+    except Exception:
+        pass
+
+
 # ── The small pill (every message) ────────────────────────────────────
 # One dark capsule, the meeting bar's family, drawn the same as the Mac's
 # (overlay_process.py _draw_pill) as far as a Tk canvas can: no soft shadow
@@ -1135,7 +1177,12 @@ def main():
     # Kick off the stdin reader
     threading.Thread(target=_stdin_reader, daemon=True, name="StdinReader").start()
 
+    # The window the person is typing in, so it can be given back below.
+    before = _foreground_window()
     _root = tk.Tk()
+    # Hidden from the very start: the parent sends {"type": "show"} when the
+    # pill is wanted.
+    _root.withdraw()
 
     # Window chrome
     _root.overrideredirect(True)          # borderless (no title bar)
@@ -1166,6 +1213,7 @@ def main():
 
     # Start hidden; the parent will send {"type": "show"} when ready
     _root.withdraw()
+    _keep_foreground(before)
 
     # Start animation loop
     _root.after(50, _animation_loop)

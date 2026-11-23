@@ -38,6 +38,29 @@ def replace_with_retry(src, dst, *, attempts: int = REPLACE_ATTEMPTS,
             sleep(backoff_s * (2 ** i))
 
 
+def unlink_with_retry(path, *, attempts: int = REPLACE_ATTEMPTS,
+                      backoff_s: float = REPLACE_BACKOFF_S, sleep=time.sleep) -> bool:
+    """Delete ``path``, retried on ``PermissionError`` the same way. On Windows
+    a delete fails with "[WinError 32] being used by another process" while a
+    scanner or the indexer still holds a file that was just written (seen with
+    account.json, signing out straight after signing in). True when the file
+    is gone or was never there; False when it is still there after the last
+    try. Never raises."""
+    for i in range(attempts):
+        try:
+            os.unlink(path)
+            return True
+        except FileNotFoundError:
+            return True
+        except PermissionError:
+            if i == attempts - 1:
+                return False
+            sleep(backoff_s * (2 ** i))
+        except OSError:
+            return False
+    return False
+
+
 def write_json_atomic(path, data, *, indent: int = 2, sleep=time.sleep) -> None:
     """Write ``data`` as UTF-8 JSON to ``path`` via a temp file and a retried
     atomic replace. The temp file is removed if anything fails."""
