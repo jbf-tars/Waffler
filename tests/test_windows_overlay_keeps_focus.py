@@ -16,6 +16,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
+import pytest  # noqa: E402
+
+pytest.importorskip("tkinter")           # a Python built without Tk (some Macs) cannot load the helper
 import overlay_process_windows as ow  # noqa: E402
 
 WIN = ROOT / "src" / "overlay_process_windows.py"
