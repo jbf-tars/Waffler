@@ -452,3 +452,17 @@ all. A fresh process with only those files then ran `small` on the card in
 with the same libraries linked in, the first real dictation took 0.43 s.
 Where speech runs on the processor, the card's line and setup's free card
 now say "Slower on this computer, but free and private."
+
+## Re-check on `one-app` 8ac4fc1 (the pitch check)
+
+Merged as 3116f94; `src/meetings/audioproc.py` is one-app's (my lift, with
+8ac4fc1's pitch check on top). **Suite: 9,004 passed, 89 skipped, 0 failed**
+in 8 min 44 s on Windows.
+
+The 20 real takes on this PC, heard raw as a desktop meeting: **2 not sent,
+0 dropped, 18 kept** (with the lift alone, the same 20 files: 0, 0, 20). The
+two lost takes are the quietest and shortest: 1.4 s with one word, and 2.4 s
+with 28 letters. Both had their loud windows at -60 dBFS, and 0.21 s of
+pitch counted against the 0.3 s needed (median strength 0.66 and 0.39).
+Their numbers went to the Mac session to tune the check. The made-up audio
+test is unchanged: real lines 5 of 5, and every made-up line dropped.
