@@ -1334,6 +1334,9 @@ class Api:
                     if asset.get("name", "").endswith(suffix):
                         download_url = asset.get("browser_download_url", "")
                         break
+                # The one installer start_update_download will fetch: the
+                # page can ask for this download and nothing else.
+                globals()["_UPDATE_OFFER"] = download_url
                 return {
                     "update_available": True,
                     "latest_version": latest_version,
@@ -1345,6 +1348,7 @@ class Api:
                     "no_installer": not download_url,
                     "no_installer_message": "" if download_url else UPDATE_NO_INSTALLER,
                 }
+            globals().pop("_UPDATE_OFFER", None)
             return {
                 "update_available": False,
                 "current_version": current_version,
@@ -1363,27 +1367,25 @@ class Api:
         """Begin downloading the update installer in the background.
         JS polls get_update_progress() to render a progress bar.
 
-        This method is reachable from the webview JS bridge, so the URL is
-        validated against a GitHub-release allowlist — otherwise a crafted
-        call (or a tampered check_for_updates response) could make us download
-        an arbitrary file. We accept only https GitHub release-asset URLs; the
-        downloaded file is additionally signature-verified before it is ever
-        executed (see updater.install_and_restart)."""
-        from urllib.parse import urlparse
+        This method is reachable from the webview JS bridge, and a page can
+        call it with any address. So the only download it starts is the
+        installer check_for_updates itself found in Waffler's own releases
+        (_UPDATE_OFFER), and the updater refuses every other repository too.
+        Before, any GitHub release of anyone's was taken, and the digest it
+        was checked against came from that same repository. The downloaded
+        file must still match GitHub's digest before it runs (see
+        updater.install_and_restart)."""
+        from src import updater
         if not (url or "").strip():
             # The release had no installer for this computer (check_for_updates
             # sets no_installer). Not an attack, so don't say "untrusted".
             _log_to_file("[update] download requested with no installer URL")
             return {"ok": False, "error": UPDATE_NO_INSTALLER, "download_page": DOWNLOAD_PAGE}
-        p = urlparse(url or "")
-        host = (p.hostname or "").lower()
-        host_ok = host == "github.com" or host.endswith(".githubusercontent.com")
-        path_ok = host != "github.com" or "/releases/download/" in p.path
-        if p.scheme != "https" or not host_ok or not path_ok:
-            _log_to_file(f"[update] refused untrusted download URL: {url[:120]}")
+        if url != globals().get("_UPDATE_OFFER") or not updater.is_release_asset_url(url):
+            _log_to_file(f"[update] refused untrusted download URL (not the installer the "
+                         f"update check found): {url[:120]}")
             return {"ok": False, "error": UPDATE_DOWNLOAD_FAILED, "download_page": DOWNLOAD_PAGE}
         try:
-            from src import updater
             _log_to_file(f"[update] start_download requested: {url[:120]}")
             updater.start_download(url)
             return {"ok": True}
@@ -2063,7 +2065,18 @@ class Api:
             return {"ok": False, "error": "Couldn't save the theme."}
 
     def _update_env_var(self, key: str, value: str):
-        """Update or add a variable in the user's .env file."""
+        """Update or add one of the three keys in the user's .env file.
+
+        .env is loaded with override=True (src/config.py), and pywebview lets
+        the page call this method by name. So any other name (a provider's
+        base URL, WAFFLER_LLAMA_SERVER, a proxy) or a line break in a value
+        would let a page someone else's script got into redirect the keys and
+        the audio, or name a program for Waffler to start. A key is one
+        unbroken run of printable characters; anything else is refused."""
+        if key not in ("OPENAI_API_KEY", "GROQ_API_KEY", "CEREBRAS_API_KEY"):
+            raise ValueError("Waffler doesn't keep that in its keys file.")
+        if not isinstance(value, str) or any(c.isspace() or not c.isprintable() for c in value):
+            raise ValueError("That key has a space or a line break in it. Copy it again.")
         env_path = DATA_DIR / ".env"
         env_path.parent.mkdir(parents=True, exist_ok=True)
         lines = []
@@ -2081,7 +2094,12 @@ class Api:
                 new_lines.append(line)
         if not found:
             new_lines.append(f"{key}={value}")
-        env_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+        # Readable by this account only (on a Mac, other accounts can read a
+        # file in the home folder that is left at the default mode).
+        fd = os.open(env_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
+            f.write("\n".join(new_lines) + "\n")
+        os.chmod(env_path, 0o600)
 
     # ── Speech to text on this computer (src/local_stt.py) ──────────────────
     def _apply_transcription_mode(self, mode) -> None:

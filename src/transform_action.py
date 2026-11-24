@@ -294,12 +294,15 @@ class TransformRunner:
         # 5. Put it in.
         if stored.get("auto_paste", True) is False:
             return self._copied(spec, ctx, text, after, reply, started)
-        if "\n" in after.strip() and app_categories.is_terminal(getattr(ctx, "bundle_id", ""),
-                                                               getattr(ctx, "name", "")):
+        if app_categories.is_terminal(getattr(ctx, "bundle_id", ""), getattr(ctx, "name", "")):
             # A shell without bracketed paste runs each line of a paste as it
-            # arrives: more than one line is copied instead.
-            h.log("[transform] more than one line for a terminal: copied, not pasted")
-            return self._copied(spec, ctx, text, after, reply, started, terminal=True)
+            # arrives: more than one line is copied instead, and one line goes
+            # in without a line break or control character.
+            pasted, one_line = app_categories.text_for_terminal(after)
+            if not one_line:
+                h.log("[transform] more than one line for a terminal: copied, not pasted")
+                return self._copied(spec, ctx, text, after, reply, started, terminal=True)
+            after = pasted
         run.enter(pw.PASTING)           # from here on Cancel is too late, and says so
         if run.cancelled:
             return self._cancelled()

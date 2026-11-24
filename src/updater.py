@@ -128,7 +128,17 @@ def _reset_state():
 
 
 def start_download(url: str) -> None:
-    """Kick off a background download. Safe to call once at a time."""
+    """Kick off a background download. Safe to call once at a time. Only an
+    asset of Waffler's own releases is fetched: anything else is refused here
+    as well as at the bridge (app.py start_update_download)."""
+    if not is_release_asset_url(url):
+        _log(f"refused: not a Waffler release asset: {str(url)[:120]}")
+        with _state_lock:
+            if not _state["active"]:
+                _reset_state()
+                _state["error"] = _DOWNLOAD_FAILED_MESSAGE
+                _state["download_page"] = _DOWNLOAD_PAGE
+        return
     with _state_lock:
         if _state["active"]:
             return
@@ -154,8 +164,12 @@ def _download_worker(url: str) -> None:
     On Windows we keep the existing requests-based path: it works fine
     there and the streaming progress is granular enough for the UX.
     """
-    # Strip query string for filename (GitHub's signed-redirect URLs include one)
-    name = url.rsplit("/", 1)[-1].split("?", 1)[0] or "waffler-update"
+    # The saved file is named after the release asset, in letters, digits,
+    # dots, dashes and underscores only, so nothing in the address (a
+    # backslash, "..", a #fragment the server never sees) can put it anywhere
+    # but the temp folder.
+    parts = _parse_release_asset_url(url)
+    name = re.sub(r"[^A-Za-z0-9._-]", "_", parts[3] if parts else "").lstrip(".") or "waffler-update"
     dest = Path(tempfile.gettempdir()) / f"waffler-update-{os.getpid()}-{name}"
     partial = dest.with_suffix(dest.suffix + ".partial")
     _log(f"download start: {url[:80]}... -> {partial}")
@@ -350,8 +364,14 @@ def _download_with_requests(url: str, partial: Path, dest: Path) -> None:
 
 # https://github.com/<owner>/<repo>/releases/download/<tag>/<asset>[?query]
 _RELEASE_ASSET_RE = re.compile(
-    r"^https://github\.com/([^/]+)/([^/]+)/releases/download/([^/]+)/([^/?#]+)"
+    r"^https://github\.com/([^/\\]+)/([^/\\]+)/releases/download/([^/\\]+)/([^/?#\\]+)"
 )
+
+# Waffler's own releases: the only place an update comes from. The update
+# check reads this repository (app.py check_for_updates). An asset of any
+# other repository is refused, and so is the digest it publishes, which would
+# otherwise vouch for its own file.
+RELEASE_OWNER, RELEASE_REPO = "jbf-tars", "waffler"
 
 
 # ---------------------------------------------------------------------------
@@ -451,12 +471,21 @@ def _parse_release_asset_url(url: str):
     """Split a GitHub release-asset URL into (owner, repo, tag, asset_name).
 
     Returns None for anything that is not an https github.com release-asset
-    URL. GitHub's signed-redirect URLs carry a query string; it is stripped.
+    URL of Waffler's own repository (RELEASE_OWNER/RELEASE_REPO). GitHub's
+    signed-redirect URLs carry a query string; it is stripped.
     """
     m = _RELEASE_ASSET_RE.match((url or "").strip())
     if not m:
         return None
-    return m.group(1), m.group(2), m.group(3), m.group(4)
+    owner, repo, tag, asset = m.groups()
+    if (owner.lower(), repo.lower()) != (RELEASE_OWNER, RELEASE_REPO):
+        return None
+    return owner, repo, tag, asset
+
+
+def is_release_asset_url(url: str) -> bool:
+    """Is this an asset of Waffler's own releases on GitHub?"""
+    return _parse_release_asset_url(url) is not None
 
 
 def _expected_digest_for_url(url: str):
