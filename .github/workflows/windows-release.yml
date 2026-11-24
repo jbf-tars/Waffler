@@ -58,8 +58,11 @@ jobs:
             $source = 'workflow_dispatch input'
           }
           else {
-            $version = "0.0.0-dev.$env:GITHUB_RUN_NUMBER"
-            $source = 'default'
+            # A trial build with no version named is the version the code
+            # says it is. It used to be "0.0.0-dev.<run>", and the built app
+            # then offered the last public release as an "update".
+            $version = ([regex]'__version__\s*=\s*"([^"]*)"').Match((Get-Content -Path 'src\__init__.py' -Raw)).Groups[1].Value
+            $source = 'src/__init__.py'
           }
 
           if (-not ($version -match '^[0-9A-Za-z][0-9A-Za-z.+-]*$')) {
