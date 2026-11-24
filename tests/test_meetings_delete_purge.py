@@ -372,3 +372,11 @@ def test_the_engine_names_one_place_for_what_a_tombstone_is():
     assert set(TOMBSTONE) == {"title", "title_locked", "my_notes", "summary", "template_id", "folder_id",
                               "status", "error", "duration_s"}
     assert store_mod.tombstone({"id": "a" * 32, "created_at": "c", "updated_at": "u", "title": "x"})["title"] == ""
+
+
+def test_a_delete_is_in_the_database_file_at_once_not_only_in_the_log(tmp_path):
+    from src.meetings.store import Store
+    store = Store(tmp_path / "meetings.db")
+    note = store.create_note(title="Quarterly zebracrossing review")
+    store.delete_note(note["id"])
+    assert b"zebracrossing" not in (tmp_path / "meetings.db").read_bytes()

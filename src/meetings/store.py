@@ -278,6 +278,18 @@ class Store:
         """Delete a note for good: see the top of this file for what goes."""
         with self._write:
             self._entomb(note_id, now_iso())
+        self._settle()
+
+    def _settle(self) -> None:
+        """Write what was just removed through to the database file. Until a
+        checkpoint the emptied pages sit in the write-ahead log, and the words
+        are still in the main file; this makes a delete complete at once.
+        PASSIVE never waits for a reader, and a checkpoint that cannot run is
+        simply the next one's work."""
+        try:
+            self.db.execute("PRAGMA wal_checkpoint(PASSIVE)").fetchall()
+        except sqlite3.Error:
+            pass
 
     def purge_deleted(self) -> int:
         """Notes deleted before deleting removed anything (they were only
@@ -303,6 +315,8 @@ class Store:
                         remove_audio(name, self.audio_root)
                     except ValueError:
                         pass
+        if old:
+            self._settle()
         return len(old)
 
     def wipe(self) -> None:
