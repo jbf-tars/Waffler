@@ -4,6 +4,41 @@ All notable changes to Waffler will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [4.0.0] - 2026-11-24
+
+Waffler now takes meeting notes as well as dictation. One app for both.
+
+### Added
+- **Meetings.** Record a meeting from Home, the menu bar or the keyboard
+  (tap the dictation key twice). Waffler records your microphone and, on
+  request, the computer's own sound, so the other side of a call is written
+  down too. When you finish it writes a transcript and notes with next steps.
+  Folders, search, your own typed notes, "Ask about this meeting", "Add more"
+  and audio import are in the new Meetings tab.
+- **No made-up words.** Silence is never sent to the speech model, every line
+  of a transcript is checked against the sound under it, and the language
+  follows your computer instead of being guessed.
+- **Capitals and full stops.** After a meeting the notes' writer punctuates
+  the transcript. Each line is compared with what was said and kept as it was
+  if a single letter or number differs.
+- **Free, with no key.** "On this computer" downloads a speech model, and
+  optionally a writing model, and dictation, meetings and notes then work
+  with no key and no account. On Windows an NVIDIA card is used when present.
+- **An account, optional.** Sign in with your email and meeting notes and
+  transcripts stay in step across your Mac, PC and iPhone. Recordings and
+  dictations stay on the device.
+- **Claude and other AI apps.** Settings, AI apps, connects Claude to your
+  meetings and dictations on this computer.
+- **Ask on Home**, **Transforms** and **Command mode**, each with its own
+  shortcut and a "Try it here" box.
+
+### Changed
+- **A new look.** Dark, bolder and with fewer words, the same across Home,
+  Meetings and Settings. The waffle is the record button.
+- **Keys and providers** is two or three plain cards with the rest under
+  "Advanced".
+- **Vocabulary** moved to Settings, Words.
+
 ## [3.17.2] - 2026-11-19
 
 ### Fixed

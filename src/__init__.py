@@ -1,3 +1,3 @@
 """Waffler core modules"""
 
-__version__ = "3.17.2"
+__version__ = "4.0.0"

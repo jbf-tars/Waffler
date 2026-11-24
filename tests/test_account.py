@@ -570,3 +570,28 @@ def test_on_windows_the_file_is_granted_to_the_current_user_then_inheritance_is_
     # Anywhere else the mode already does it, and nothing is run.
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: 1 / 0)
     assert account._owner_only(path, windows=False) is True
+
+
+# ── a packaged app knows the public service ─────────────────────────────────
+
+def test_from_source_with_no_address_accounts_are_off(monkeypatch):
+    monkeypatch.delenv(account.SERVER_ENV, raising=False)
+    monkeypatch.setattr(account, "_settings", lambda: {})
+    monkeypatch.delattr(account.sys, "frozen", raising=False)
+    assert account.server_url() == ""
+
+
+def test_a_packaged_app_uses_the_public_service(monkeypatch):
+    monkeypatch.delenv(account.SERVER_ENV, raising=False)
+    monkeypatch.setattr(account, "_settings", lambda: {})
+    monkeypatch.setattr(account.sys, "frozen", True, raising=False)
+    assert account.server_url() == account.RELEASE_SERVER == "https://account.wafflerai.com"
+
+
+def test_a_packaged_app_still_obeys_a_named_address(monkeypatch):
+    monkeypatch.setattr(account.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(account, "_settings", lambda: {"account_server": "https://mine.example.test"})
+    monkeypatch.delenv(account.SERVER_ENV, raising=False)
+    assert account.server_url() == "https://mine.example.test"
+    monkeypatch.setenv(account.SERVER_ENV, "https://from-env.example.test")
+    assert account.server_url() == "https://from-env.example.test"

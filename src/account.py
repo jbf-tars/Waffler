@@ -9,8 +9,9 @@ src/meetings_ctl.py), and the account can hand Claude a private link to read
 them.
 
 Where the service is: the environment variable WAFFLER_ACCOUNT_SERVER, else
-"account_server" in settings.json, else nowhere. With no address the feature
-is off: the page says accounts are coming soon and nothing is contacted. An
+"account_server" in settings.json, else, in a packaged Waffler (the app a
+person downloads), the public service (RELEASE_SERVER); run from source, else
+nowhere. With no address the feature is off: the page says accounts are coming soon and nothing is contacted. An
 address must be https, or this computer itself (http://127.0.0.1, for
 development), because the session token travels with every request.
 
@@ -34,6 +35,7 @@ import math
 import os
 import platform
 import re
+import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -48,6 +50,7 @@ except ImportError:                                   # run from inside src/
 
 SERVER_ENV = "WAFFLER_ACCOUNT_SERVER"
 SERVER_SETTING = "account_server"                     # settings.json
+RELEASE_SERVER = "https://account.wafflerai.com"      # a packaged app's, when nothing else is named
 SESSION_FILE = "account.json"                         # in the data folder, mode 600
 TIMEOUT_S = 20.0
 SYNC_TIMEOUT_S = 60.0
@@ -170,6 +173,8 @@ def _clean_server(raw) -> str:
 def server_url() -> str:
     """The account service's address, or "" when accounts are switched off."""
     raw = os.environ.get(SERVER_ENV, "").strip() or _settings().get(SERVER_SETTING)
+    if not raw and getattr(sys, "frozen", False):
+        raw = RELEASE_SERVER
     return _clean_server(raw)
 
 
