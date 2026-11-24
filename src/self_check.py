@@ -5,7 +5,10 @@ still open, and nobody finds out until a person presses the button that needed
 it. This imports each part that is easy to leave out of a build, looks for the
 files the window loads, asks the two on-device engines to answer one question
 each (no model is loaded: models are never in a build), and prints one JSON
-object on stdout.
+object on stdout. On Windows the writing engine is llama.cpp's own server,
+which comes down with the model and so is never in a build either: there the
+check imports the code that fetches and starts it, names what this computer
+would fetch, and asks a server already here its version.
 
     Waffler.app/Contents/MacOS/Waffler --self-check
     python app.py --self-check --complete
@@ -30,11 +33,13 @@ and it works in a data folder of its own unless WAFFLER_DATA_DIR names one.
 from __future__ import annotations
 
 import importlib
+import importlib.util
 import json
 import os
 import platform
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -116,6 +121,8 @@ def check_speech() -> dict:
 
 def check_writing() -> dict:
     """The writing engine (llama.cpp): is it in the build, does it answer?"""
+    if sys.platform == "win32" and importlib.util.find_spec("llama_cpp") is None:
+        return check_writing_server()
     out = {"engine": "llama.cpp", "present": False, "runs": False}
     try:
         out["present"] = bool(_import("local_llm").is_available())
@@ -127,6 +134,38 @@ def check_writing() -> dict:
         out["detail"] = (info.decode("utf-8", "replace") if isinstance(info, bytes) else str(info)).strip()
         out["version"] = getattr(llama_cpp, "__version__", "")
         out["gpu"] = bool(llama_cpp.llama_supports_gpu_offload())
+        out["runs"] = True
+    except Exception as e:
+        out["error"] = f"{type(e).__name__}: {e}"
+    return out
+
+
+def check_writing_server() -> dict:
+    """Windows: llama.cpp's own server, fetched with the model into the data
+    folder (src/llama_pack.py) and started by src/local_llm_server.py. No
+    build carries it, so with none here yet the answer is what would be
+    fetched; a server that is here is asked its version."""
+    out = {"engine": "llama.cpp server", "present": False, "runs": False}
+    try:
+        pack, server = _import("llama_pack"), _import("local_llm_server")
+        if not pack.supported():
+            out["error"] = "no llama.cpp server is made for this computer"
+            return out
+        found = server.find_server()
+        if found is None:
+            kind, assets = pack.plan()
+            out["comes_with_model"] = True
+            out["detail"] = f"comes down with the model ({kind}): " + ", ".join(a.file.name for a in assets)
+            return out
+        out["present"] = True
+        done = subprocess.run([str(found), "--version"], capture_output=True, encoding="utf-8",
+                              errors="replace", timeout=30,
+                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        said = [line.strip() for line in ((done.stdout or "") + (done.stderr or "")).splitlines() if line.strip()]
+        if done.returncode != 0:
+            out["error"] = f"{found.name} --version exited {done.returncode}" + (f": {said[-1][:200]}" if said else "")
+            return out
+        out["detail"] = next((line for line in said if line.startswith("version")), said[0] if said else "")
         out["runs"] = True
     except Exception as e:
         out["error"] = f"{type(e).__name__}: {e}"
@@ -207,7 +246,8 @@ def run(root: Path, complete: bool = False, audio=None) -> dict:
     except Exception:
         version = ""
     optional_missing = [what for what, there in (
-        ("speech engine", speech["runs"]), ("writing engine", writing["runs"]),
+        ("speech engine", speech["runs"]),
+        ("writing engine", writing["runs"] or bool(writing.get("comes_with_model"))),
         ("computer-sound helper", sound["present"] or not sound["needed"]),
         ("anthropic", libraries["anthropic"]["present"]),
         ("ffmpeg for Import audio", libraries["ffmpeg"]["present"])) if not there]

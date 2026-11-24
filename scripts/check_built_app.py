@@ -8,7 +8,9 @@ made for this run (never the person's):
 
   1. `--self-check --complete`: every part the build needs is inside it, the
      two on-device engines, the computer-sound helper, anthropic and the
-     ffmpeg program for Import audio among them (src/self_check.py);
+     ffmpeg program for Import audio among them (src/self_check.py). On
+     Windows the writing engine comes down with the model, so the check
+     names what would be fetched;
   2. on a Mac, `--self-check --audio`: a two-second .m4a made here with
      afconvert (what an iPhone voice memo is) goes through Import audio, with
      no ffmpeg on the PATH, so it is the build's own ffmpeg that reads it;
@@ -97,6 +99,10 @@ def main() -> int:
     check("self-check: every required part", done.returncode == 0 and answer.get("ok") is True,
           json.dumps({k: answer.get(k) for k in ("modules", "files", "optional_missing")}))
     for name, engine in (answer.get("engines") or {}).items():
+        if engine.get("comes_with_model"):           # Windows: llama.cpp's server is fetched with the model
+            check(f"self-check: the {name} engine comes down with its model", "error" not in engine,
+                  engine.get("detail", "")[:90])
+            continue
         check(f"self-check: the {name} engine runs", bool(engine.get("runs")),
               engine.get("error") or engine.get("detail", "")[:60])
     check("self-check: the computer-sound helper is in the app",

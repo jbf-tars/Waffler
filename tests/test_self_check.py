@@ -1,6 +1,7 @@
 """`--self-check` (src/self_check.py): a build says whether every part it needs
 is inside it, without a window, a shortcut, a connection or the person's data.
 And where a built Mac app looks for its computer-sound helper."""
+import importlib.util
 import json
 import os
 import subprocess
@@ -76,6 +77,67 @@ def test_complete_fails_when_an_optional_part_is_absent(tmp_path, monkeypatch):
     strict = self_check.run(tmp_path, complete=True)
     assert strict["ok"] is False
     assert strict["optional_missing"] == ["writing engine", "anthropic", "ffmpeg for Import audio"]
+
+
+# ── Windows: the writing engine is llama.cpp's own server, never in a build ──
+
+def _windows_without_llama_cpp(monkeypatch, tmp_path):
+    """A Windows build: no llama-cpp-python in it, an empty data folder, no card.
+    Returns llama_pack as the check imports it (its card is the one asked)."""
+    real_find_spec = importlib.util.find_spec
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name, *args, **kwargs:
+                        None if name == "llama_cpp" else real_find_spec(name, *args, **kwargs))
+    monkeypatch.setenv("WAFFLER_DATA_DIR", str(tmp_path))
+    monkeypatch.delenv("WAFFLER_LLAMA_SERVER", raising=False)
+    pack = self_check._import("llama_pack")
+    monkeypatch.setattr(pack._gpu, "card", lambda: None)
+    return pack
+
+
+def _server_here(tmp_path):
+    from src import local_llm_server
+    server = tmp_path / "llama" / local_llm_server._SERVER_NAME
+    server.parent.mkdir()
+    server.write_bytes(b"")
+    return server
+
+
+def test_on_windows_the_writing_engine_comes_down_with_the_model(tmp_path, monkeypatch):
+    pack = _windows_without_llama_cpp(monkeypatch, tmp_path)
+    writing = self_check.check_writing()
+    assert writing["engine"] == "llama.cpp server" and writing["comes_with_model"] is True
+    assert writing["present"] is False and writing["runs"] is False and "error" not in writing
+    assert pack.CPU[0].file.name in writing["detail"]                # what this computer would fetch
+    _all_there(monkeypatch)
+    monkeypatch.setattr(self_check, "check_writing", lambda: writing)
+    strict = self_check.run(tmp_path, complete=True)
+    assert "writing engine" not in strict["optional_missing"] and strict["ok"] is True
+
+
+def test_on_windows_a_server_already_here_is_asked_its_version(tmp_path, monkeypatch):
+    _windows_without_llama_cpp(monkeypatch, tmp_path)
+    server = _server_here(tmp_path)
+    asked = []
+
+    def run(args, **kwargs):
+        asked.append(list(args))
+        return subprocess.CompletedProcess(args, 0, "", "version: 11168 (abc1234)\nbuilt with clang for x86_64\n")
+
+    monkeypatch.setattr(subprocess, "run", run)
+    writing = self_check.check_writing()
+    assert asked == [[str(server), "--version"]]
+    assert writing["present"] is True and writing["runs"] is True and "comes_with_model" not in writing
+    assert writing["detail"].startswith("version: 11168")
+
+
+def test_on_windows_a_server_that_does_not_start_is_reported(tmp_path, monkeypatch):
+    _windows_without_llama_cpp(monkeypatch, tmp_path)
+    _server_here(tmp_path)
+    monkeypatch.setattr(subprocess, "run",                           # 0xC0000135: a library it needs is missing
+                        lambda args, **kwargs: subprocess.CompletedProcess(args, 3221225781, "", ""))
+    writing = self_check.check_writing()
+    assert writing["present"] is True and writing["runs"] is False and "3221225781" in writing["error"]
 
 
 def test_the_two_meeting_libraries_are_reported_as_they_are_here():
