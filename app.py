@@ -235,8 +235,10 @@ def get_data_directory():
     """Get the data directory for Waffler (~/.waffler-hosted/, or
     $WAFFLER_DATA_DIR when set; see src/data_paths.py)."""
     from data_paths import data_dir as _resolve_data_dir
+    from data_paths import keep_private as _keep_private
     data_dir = _resolve_data_dir()
     data_dir.mkdir(parents=True, exist_ok=True)
+    _keep_private(data_dir)                 # owner only: transcripts, recordings, the log
     return data_dir
 
 

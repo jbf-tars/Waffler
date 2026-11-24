@@ -554,11 +554,22 @@ def _verify_artifact_digest(path: Path, expected) -> None:
     _log(f"SHA-256 digest verified for {path.name}: {actual[:16]}...")
 
 
+# The Apple Developer team that signs Waffler's Mac releases, as a code
+# requirement: Apple's chain, a Developer ID application certificate, this team.
+MAC_TEAM_ID = "653JYT4U23"
+MAC_SIGNER_REQUIREMENT = (
+    "anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists "
+    "and certificate leaf[field.1.2.840.113635.100.6.1.13] exists "
+    f'and certificate leaf[subject.OU] = "{MAC_TEAM_ID}"'
+)
+
+
 def _verify_macos_app_signature(app_path: Path) -> None:
     """Verify a macOS .app is validly signed and accepted by Gatekeeper.
 
     Runs ``codesign --verify --deep --strict`` (signature integrity) and
-    ``spctl --assess --type execute`` (Gatekeeper / notarization policy).
+    ``spctl --assess --type execute`` (Gatekeeper / notarization policy), then
+    ``codesign -R`` with MAC_SIGNER_REQUIREMENT (it is Waffler's own team).
     Raises ``RuntimeError`` if either tool is missing, errors, or rejects the
     app. Never returns on failure — callers must treat a return as "verified".
     """
@@ -572,6 +583,13 @@ def _verify_macos_app_signature(app_path: Path) -> None:
             "spctl",
             ["/usr/sbin/spctl", "--assess", "--type", "execute",
              "--verbose=2", str(app_path)],
+        ),
+        (
+            # Signed by Waffler's own Developer ID team, not merely by some
+            # notarized developer: the two checks above pass for anyone's app.
+            "codesign team",
+            ["/usr/bin/codesign", "--verify", "--deep", "--strict",
+             f"-R={MAC_SIGNER_REQUIREMENT}", str(app_path)],
         ),
     )
     for name, cmd in checks:

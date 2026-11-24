@@ -38,3 +38,21 @@ def data_dir() -> Path:
 def data_file(name: str) -> Path:
     """A file inside the data folder, e.g. ``data_file("app.log")``."""
     return data_dir() / name
+
+
+def keep_private(folder: Path | None = None) -> None:
+    """Make the data folder readable by its owner only (mode 700).
+
+    It holds meeting transcripts, recordings, the log and the keys file, and
+    ``mkdir`` gives a new folder the default mode, which lets every other
+    account on a shared Mac read them. Called once at start, after the folder
+    exists, so a folder an older Waffler made is closed too. Does nothing on
+    Windows, where a profile folder is already the user's own, and never
+    raises: a folder that cannot be changed is left as it was.
+    """
+    if os.name == "nt":
+        return
+    try:
+        os.chmod(folder or data_dir(), 0o700)
+    except OSError:
+        pass
