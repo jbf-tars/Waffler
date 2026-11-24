@@ -168,10 +168,17 @@ class Store:
         con = getattr(self._local, "con", None)
         if con is None:
             con = sqlite3.connect(self.path, timeout=30, isolation_level=None)
-            con.row_factory = sqlite3.Row
-            con.execute("PRAGMA journal_mode=WAL")
-            con.execute("PRAGMA synchronous=NORMAL")
-            con.execute("PRAGMA secure_delete=ON")     # what is deleted is overwritten, not left in free pages
+            try:
+                con.row_factory = sqlite3.Row
+                con.execute("PRAGMA journal_mode=WAL")
+                con.execute("PRAGMA synchronous=NORMAL")
+                con.execute("PRAGMA secure_delete=ON")     # what is deleted is overwritten, not left in free pages
+            except BaseException:
+                # A file that is not a database: closed now, not whenever the
+                # garbage collector gets to it. Windows cannot delete an open
+                # file, so "Delete all my data" could not remove it.
+                con.close()
+                raise
             self._local.con = con
         return con
 
