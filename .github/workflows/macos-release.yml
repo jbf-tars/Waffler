@@ -39,6 +39,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pyinstaller
+          # The writing engine for "On this computer" (tidying and meeting
+          # notes with no key). Not in requirements.txt because pip compiles
+          # it: see the note there. The deployment target keeps its libraries
+          # loadable on the macOS the app declares.
+          MACOSX_DEPLOYMENT_TARGET=14.0 \
+          CMAKE_ARGS="-DGGML_METAL=on -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0" \
+            pip install "llama-cpp-python==0.3.37" --no-binary llama-cpp-python
 
 
 
@@ -96,7 +103,20 @@ jobs:
           else
             echo "Building without code signing (adhoc)"
           fi
+          # The helper that records what the Mac is playing in a meeting:
+          # the spec bundles mac/build/natter-sysaudio when it is there.
+          sh mac/build_sysaudio.sh
           python -m PyInstaller --noconfirm --clean Waffler_mac.spec
+
+          # Every part a release needs, asked of the built app itself (no
+          # window). A release without the computer-sound helper or an
+          # on-device engine must not be built quietly.
+          echo "=== Self-check: every part is in the build ==="
+          mkdir -p "$RUNNER_TEMP/self-check-data"
+          WAFFLER_DATA_DIR="$RUNNER_TEMP/self-check-data" \
+            dist/Waffler.app/Contents/MacOS/Waffler --self-check --complete > dist-self-check.json \
+            || { echo "::error::the built app is missing a part"; cat dist-self-check.json; exit 1; }
+          cat dist-self-check.json
 
           # The declared minimum macOS must be true of every bundled binary.
           # A dependency upgrade can silently raise it (NumPy's macOS 14 wheel
