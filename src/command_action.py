@@ -750,12 +750,16 @@ class CommandRunner:
         stored = h.settings()
         if stored.get("auto_paste", True) is False:
             return self._copied(action, run, instruction, before, after, reply, started)
-        if "\n" in after.strip() and app_categories.is_terminal(getattr(run.ctx, "bundle_id", ""),
-                                                               getattr(run.ctx, "name", "")):
+        if app_categories.is_terminal(getattr(run.ctx, "bundle_id", ""), getattr(run.ctx, "name", "")):
             # Other people's words steer what the model writes, and a shell
-            # without bracketed paste runs each line of a paste as it arrives.
-            h.log("[command] more than one line for a terminal: copied, not pasted")
-            return self._copied(action, run, instruction, before, after, reply, started, terminal=True)
+            # without bracketed paste runs each line of a paste as it arrives:
+            # more than one line is copied, and one line goes in without a
+            # line break or control character, for the person to run.
+            pasted, one_line = app_categories.text_for_terminal(after)
+            if not one_line:
+                h.log("[command] more than one line for a terminal: copied, not pasted")
+                return self._copied(action, run, instruction, before, after, reply, started, terminal=True)
+            after = pasted
         wd.enter(pw.PASTING)            # from here on Cancel is too late, and says so
         if run.cancelled:
             return self._cancelled()

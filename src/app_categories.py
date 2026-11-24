@@ -226,6 +226,28 @@ def is_terminal(bundle_id, name="") -> bool:
     return _clean(bundle_id) in TERMINAL_BUNDLE_IDS or _app_name(name) in TERMINAL_NAMES
 
 
+_LINE_BREAK = re.compile(r"[\r\n]")
+_TERMINAL_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
+
+
+def text_for_terminal(text) -> tuple:
+    """What Command mode or a Transform may paste into a terminal:
+    ``(text, one_line)``.
+
+    A shell without bracketed paste runs a line the moment its line break or
+    carriage return arrives, and the model's words can be steered by the text
+    it was given. So a line break inside the text means it is copied, not
+    pasted (``one_line`` False, the text as it was). Line breaks at either
+    end are dropped, a tab becomes a space (a tab asks the shell to
+    complete), and every other control character is dropped (Ctrl-O runs the
+    line in bash and zsh; escape sequences): the person presses Return."""
+    text = text if isinstance(text, str) else ""
+    trimmed = text.strip("\r\n")
+    if _LINE_BREAK.search(trimmed):
+        return text, False
+    return _TERMINAL_CONTROL.sub("", trimmed.replace("\t", " ")), True
+
+
 def is_browser(bundle_id, name="") -> bool:
     """True for a web browser (or a web app installed from one)."""
     b, n = _clean(bundle_id), _app_name(name)

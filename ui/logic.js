@@ -3514,6 +3514,23 @@
     return { text: 'On. Claude reads your meetings through the link you made. To copy it again, make a new link; the old one stops working.', buttons: ['new', 'off'] };
   }
 
+  // A file or link dropped where nothing takes it would make the window open
+  // it in place of Waffler, and pywebview gives every page it loads the bridge
+  // to Python. So a drop no drop zone has taken is refused, with the "not
+  // here" cursor. A drop zone (Meetings' audio import) handles its drops
+  // first, and they are left as it set them. `target` is a window (app.js
+  // passes this one and the Meetings frame's).
+  function blockStrayDrops(target) {
+    target.addEventListener('dragover', (e) => {
+      if (e.defaultPrevented) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'none';
+    });
+    target.addEventListener('drop', (e) => {
+      if (!e.defaultPrevented) e.preventDefault();
+    });
+  }
+
   return {
     vocabLastUsed, vocabRecentWhen, vocabSoundsParse, vocabSoundsCheck, vocabEverydayAsk, vocabEverydayNotice, vocabSoundsFresh, vocabRows, vocabSummary,
     VOCAB_SORTS, VOCAB_SORT_DEFAULT, vocabSortId, vocabSortsFor, vocabSortFor, learnSwitchOn, foldText, vocabMatches, vocabFilter, vocabSortRows,
@@ -3567,5 +3584,6 @@
     accountView, accountDigits, accountCode, accountCodeReady, accountCodeLabel, accountCodeExample, accountBadCode, accountAgo, accountSyncLine, accountDeviceLine, accountClaudeView,
     ACCOUNT_RESEND_S, accountCodeLine, accountResendView, accountSignedInLine,
     accountSetupOffered, accountOfferView, accountDeleteStep, accountDeleteReady, accountConfirm,
+    blockStrayDrops,
   };
 });

@@ -4,6 +4,18 @@
 // Pure helpers (labels, presets, formatting) live in logic.js, which
 // index.html loads first, so the tests can run them without a page.
 const WL = window.WafflerLogic;
+
+// A file or link dropped where nothing takes it is refused, here and in the
+// Meetings frame, so it cannot replace this page (and get its bridge to
+// Python). Meetings' own drop zone takes its drops first (logic.js
+// blockStrayDrops).
+WL.blockStrayDrops(window);
+document.addEventListener('DOMContentLoaded', () => {
+  const frame = document.getElementById('mtFrame');
+  if (frame) frame.addEventListener('load', () => {
+    try { WL.blockStrayDrops(frame.contentWindow); } catch (_) { /* the frame is our own page */ }
+  });
+});
 // Line icons and the waffle (icons.js, loaded before this file).
 const WI = window.WafflerIcons;
 
