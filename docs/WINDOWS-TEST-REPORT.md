@@ -570,3 +570,87 @@ key was used, and nothing connected beyond the computer.
 
 Before this change, the notes would have waited about two minutes behind the
 tidy pass on this meeting.
+
+## 4.0.0 release check (`one-app` 04c7e9f)
+
+`windows` was fast-forwarded to `one-app` 04c7e9f. That brings three things:
+- the vowel-sign match in `tidy_lines` (6f2564f);
+- version 4.0.0, with its CHANGELOG entry;
+- the account address a packaged app uses by default.
+
+| Commit | Passed | Skipped | Failed | Time |
+|---|---|---|---|---|
+| 04c7e9f | 9,197 | 89 | 0 | 10 min 47 s |
+| af0ebfd (with the fix below) | **9,200** | 89 | 0 | 9 min 58 s |
+
+**The build** followed the release workflow's steps:
+1. a virtualenv with `requirements_windows.txt`;
+2. PyInstaller `--clean` with `Waffler_windows.spec`;
+3. Inno Setup, with `MyAppVersion` set to 4.0.0.
+
+Python is 3.13.5 here; the workflow uses 3.11. The first virtualenv dated
+from 21 Nov, before imageio-ffmpeg and anthropic were added to the
+requirements, so the first build lacked both. With imageio-ffmpeg 0.8.1 and
+anthropic 2.13.0 installed, the second build has everything a release build
+has.
+
+| Build | App folder | Installer |
+|---|---|---|
+| 04c7e9f, without ffmpeg and anthropic | 248 MB | 72.1 MB |
+| af0ebfd, with both (the one installed) | 352 MB | **101.9 MB** (106,858,883 bytes) |
+
+For comparison, the public 3.17.2 installer is 36.4 MB. Three things account
+for most of the growth:
+- CTranslate2: 62 MB;
+- the FFmpeg libraries that PyAV brings with faster-whisper: 65 MB;
+- imageio-ffmpeg's ffmpeg program: 105 MB unpacked.
+
+**`scripts/check_built_app.py`** passes all 14 checks on the af0ebfd build:
+- version 4.0.0; 24 modules and 17 page files, none missing;
+- speech engine faster-whisper 1.2.1; the writing engine comes down with its model;
+- anthropic 2.13.0; the ffmpeg program;
+- keys kept without keyring; nothing written to the data folder;
+- `--mcp`: initialize, 8 tools, and a meeting and a dictation read.
+
+An .m4a made here also went through Import audio, with no ffmpeg on the
+PATH. The build's own ffmpeg decoded it: 2.0 s.
+
+**Fix af0ebfd: `--self-check` on Windows.**
+- *The problem.* The check asked for llama-cpp-python, which only the Mac
+  build has, so `--complete` failed on every Windows build.
+- *What it checks now.* On Windows the writing engine is llama.cpp's server,
+  fetched with the model (`src/llama_pack.py`). The check imports the code
+  that fetches and starts it and names what this PC would fetch: the cuda
+  pack here. A server that is already present is asked for its version.
+- *Tested on real servers.* With the b11168 cpu and cuda servers named, the
+  built app answered `version: 0.5.0-dev (build 11168, commit 07fc586e3)`
+  for both.
+- *Unchanged.* The Mac path.
+
+**The account service.** A packaged app uses `https://account.wafflerai.com`
+when no address is named:
+- The service answers over valid TLS.
+- A sign-in request with an empty body gets 422 "email: Field required", so
+  the route is there.
+- This PC names no other address.
+- Until someone signs in, the Account page reads only this computer
+  (`account.status`).
+
+**Installed on this PC** on 24 Nov, on James's go, over the Waffler in daily
+use (53b2532). Waffler was closed first, as the in-app updater does, and the
+release installer then ran silently.
+- The data folder was backed up first. The models, the GPU pack and the
+  llama engine were left out, because they download again.
+- The installer exited with 0, and Add/Remove Programs says 4.0.0. The
+  installed `_internal` matches the build file for file: 1,347 files.
+- A test copy with its own data folder opened, stayed up and logged no
+  errors. Settings > About showed "Version 4.0.0, Up to date". Settings >
+  Account showed "Create your account or sign in", the email field and
+  "Email me a code", not "Accounts are coming soon".
+- The everyday Waffler then started on v4.0.0, writing with Groq as before,
+  with the pill helper and meetings ready and no errors in its log.
+- The 53b2532 build it replaced had no anthropic and no bundled ffmpeg. That
+  never showed here, because this PC has its own ffmpeg.
+
+A dictation and a meeting by voice are still for James to do: this session
+does not use his screen or microphone.
