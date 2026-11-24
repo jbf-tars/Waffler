@@ -610,14 +610,16 @@ def test_the_model_is_released_after_the_idle_period_and_loads_again(stt):
 
 def test_use_keeps_the_model_and_a_running_transcription_is_never_unloaded(stt):
     assert local_stt.download()["ok"]
-    local_stt.set_idle_unload(0.15)
+    # Wide margins: on a loaded build machine a 50 ms sleep can take 150, and
+    # the old 150 ms idle period then really did pass between two uses.
+    local_stt.set_idle_unload(1.0)
     local_stt.transcribe(_wav())
     engine = FakeEngine.instances[0]
-    for _ in range(6):                              # used every 50 ms: never idle for 150
-        time.sleep(0.05)
+    for _ in range(6):                              # used every 100 ms: never idle for a second
+        time.sleep(0.1)
         local_stt.transcribe(_wav(0.1))
     assert engine.closed is False and stt.loads == ["test"]
-    engine.hold = 0.5                               # longer than the idle period
+    engine.hold = 1.5                               # longer than the idle period
     assert local_stt.transcribe(_wav(0.1))
     assert engine.closed is False                   # it was in use the whole time
     local_stt.set_idle_unload(0)                    # keep it for good
