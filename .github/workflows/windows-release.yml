@@ -90,6 +90,19 @@ jobs:
         run: |
           pyinstaller --noconfirm --clean Waffler_windows.spec
 
+      - name: Self-check (every part is in the build)
+        # Asked of the built app itself, with no window: the on-device speech
+        # engine, anthropic and the ffmpeg for Import audio among them. The
+        # writing engine comes down with the model on Windows, and says so.
+        shell: pwsh
+        run: |
+          $env:WAFFLER_DATA_DIR = Join-Path $env:RUNNER_TEMP "self-check-data"
+          New-Item -ItemType Directory -Force -Path $env:WAFFLER_DATA_DIR | Out-Null
+          $p = Start-Process -FilePath "dist\Waffler\Waffler.exe" -ArgumentList "--self-check","--complete" `
+                 -Wait -PassThru -NoNewWindow -RedirectStandardOutput "self-check.json"
+          Get-Content "self-check.json"
+          if ($p.ExitCode -ne 0) { throw "The built app is missing a part (exit $($p.ExitCode))" }
+
       - name: Smoke test app startup (no instant crash)
         shell: pwsh
         run: |
