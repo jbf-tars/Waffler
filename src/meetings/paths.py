@@ -1,6 +1,7 @@
 """Where meetings are kept. Override with WAFFLER_MEETINGS_HOME (tests)."""
 import os
 import re
+import shutil
 import sys
 from pathlib import Path
 
@@ -37,6 +38,17 @@ def audio_dir(note_id: str) -> Path:
     p = data_dir() / "audio" / safe_note_id(note_id)
     p.mkdir(parents=True, exist_ok=True)
     return p
+
+
+def remove_audio(note_id: str, root: Path | None = None) -> None:
+    """Delete a note's audio, if it has any. Only ever a folder directly
+    under audio/ (`root`, when a store keeps its own), and never one made
+    from anything but a plain id. Nothing is created to be deleted."""
+    root = root if root is not None else data_dir() / "audio"
+    folder = root / safe_note_id(note_id)
+    if folder.resolve().parent != root.resolve():
+        raise ValueError("not a note's audio folder")
+    shutil.rmtree(folder, ignore_errors=True)
 
 
 def ui_dir() -> Path:

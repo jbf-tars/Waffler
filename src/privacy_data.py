@@ -7,7 +7,8 @@ Four jobs, each small and testable without the app:
   days. Not sent entries are never pruned: they are waiting for Try again or
   Delete, and their recordings are counted in "Not sent yet".
 - "Delete all my data": history, usage, recent recordings, recordings not
-  sent, the logs, and what the Journal's Undo holds in memory. Keys, the words
+  sent, the logs, what the Journal's Undo holds in memory, and every meeting
+  (its notes, its transcript and its audio: ``_delete_meetings``). Keys, the words
   list (with its "sounds like" spellings and stars), snippets and settings
   stay, and so does a file the user exported (Export history, Export
   Vocabulary and Export snippets write a copy to their Desktop): they
@@ -144,6 +145,14 @@ DATA_FILES = ("history.json", "usage.json", "usage.jsonl", "quality.jsonl", "not
 # be read, kept aside instead of being written over (src/atomic_json.py).
 DATA_GLOBS = ("usage.backup-*.json", "history.unreadable-*.json", "usage.unreadable-*.json")
 DATA_FOLDERS = ("debug_audio", "unsent")
+# Meetings live in a folder of their own (src/meetings/paths.py): meetings.db
+# and audio/, a folder of recordings for each meeting. They are not in
+# DATA_FOLDERS because the database also holds the meetings' settings and the
+# person's own templates, which stay as settings.json and snippets.json do,
+# and because the engine may have it open: it is emptied, not pulled out from
+# under it (``_delete_meetings``).
+MEETINGS_FOLDER = "meetings"
+MEETINGS_DB = "meetings.db"
 
 
 def _transforms_for_logs(t: dict) -> dict:
@@ -216,8 +225,45 @@ def _remove_file(p: Path) -> bool:
             return False
 
 
+def _meetings_store(path: Path):
+    """The engine's own store on that file (the copy src/meetings_ctl.py uses)."""
+    try:
+        from src.meetings.store import Store
+    except ImportError:
+        from meetings.store import Store
+    return Store(path)
+
+
+def _delete_meetings(d: Path) -> bool:
+    """Delete every meeting kept in the data folder ``d``: notes, transcripts
+    and audio. The database is emptied and packed in place (Store.wipe), so a
+    running Waffler carries on with an empty Meetings page; its settings and
+    templates stay. A database that cannot be opened goes whole, with the
+    folder. True when nothing of a meeting is left."""
+    folder = d / MEETINGS_FOLDER
+    if not folder.is_dir():
+        return True
+    emptied = False
+    if (folder / MEETINGS_DB).is_file():
+        try:
+            store = _meetings_store(folder / MEETINGS_DB)
+            try:
+                store.wipe()
+                emptied = not store.db.execute(
+                    "SELECT (SELECT count(*) FROM notes) + (SELECT count(*) FROM segments)").fetchone()[0]
+            finally:
+                store.close()
+        except Exception:  # noqa: BLE001 - not a database any more, or not one this version reads
+            emptied = False
+    if emptied:
+        return not (folder / "audio").exists()         # Store.wipe removes it
+    shutil.rmtree(folder, ignore_errors=True)
+    return not folder.exists()
+
+
 def delete_my_data(data_dir) -> dict:
-    """Delete history, usage, recordings (recent and not sent) and logs.
+    """Delete history, usage, recordings (recent and not sent), logs and
+    every meeting.
 
     history.json and usage.json are emptied (written as ``[]``) rather than
     removed, so a reader never meets a missing file halfway. Returns
@@ -253,6 +299,8 @@ def delete_my_data(data_dir) -> dict:
             shutil.rmtree(p, ignore_errors=True)
             if p.exists() and any(p.iterdir()):
                 failed.append(name)
+    if not _delete_meetings(d):
+        failed.append(MEETINGS_FOLDER)
     return {"ok": not failed, "failed": failed}
 
 

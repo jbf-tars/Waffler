@@ -4,10 +4,17 @@ One note = one recording or meeting. A note has sessions (the first recording
 plus every resume) and transcript segments on one continuous timeline.
 Segments are append-only, which is what makes sync simple: notes are merged
 last-write-wins by `updated_at`, segments by id.
+
+Deleting a note is final. Everything said or written in it goes at once (its
+transcript, its notes, what was typed, its title, its sessions, its audio)
+and what stays is a tombstone: the id, when it was made, when it went and
+the deleted mark, which is all sync needs to tell the person's other devices.
+There is no trash and no undo. A tombstone never takes content again.
 """
 from __future__ import annotations
 
 import json
+import shutil
 import sqlite3
 import threading
 import time
@@ -15,7 +22,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .paths import data_dir
+from .paths import data_dir, remove_audio
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS notes (
@@ -112,6 +119,19 @@ DEFAULT_SETTINGS = {
 }
 
 
+# Every field of a deleted note that could say what it was about, as it is
+# kept and as it is sent: the same blanks the iPhone sends for a deletion,
+# and the least the account service accepts (it wants each of them present).
+TOMBSTONE = {"title": "", "title_locked": 0, "my_notes": "", "summary": "", "template_id": "general",
+             "folder_id": None, "status": "ready", "error": "", "duration_s": 0}
+
+
+def tombstone(note) -> dict:
+    """A deleted note as sync sends it: no words, no sessions, no lines."""
+    return {"id": note["id"], **TOMBSTONE, "created_at": note["created_at"],
+            "updated_at": note["updated_at"], "deleted": 1, "sessions": [], "segments": []}
+
+
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
 
@@ -130,11 +150,18 @@ class Store:
     def __init__(self, path: Path | str | None = None):
         self.path = Path(path) if path else data_dir() / "meetings.db"
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.audio_root = self.path.parent / "audio"   # beside the database: each note's recordings
         self._local = threading.local()
         self._write = threading.RLock()
         with self._write:
             self.db.executescript(SCHEMA)
             self._seed()
+            for index in ("notes_fts", "segments_fts"):
+                try:                                   # a deleted note's words leave the search index too
+                    self.db.execute(f"INSERT INTO {index}({index}, rank) VALUES('secure-delete', 1)")
+                except sqlite3.Error:
+                    pass                               # an SQLite from before 3.42 has no such setting
+        self.purge_deleted()
 
     @property
     def db(self) -> sqlite3.Connection:
@@ -144,6 +171,7 @@ class Store:
             con.row_factory = sqlite3.Row
             con.execute("PRAGMA journal_mode=WAL")
             con.execute("PRAGMA synchronous=NORMAL")
+            con.execute("PRAGMA secure_delete=ON")     # what is deleted is overwritten, not left in free pages
             self._local.con = con
         return con
 
@@ -200,7 +228,10 @@ class Store:
         allowed = {"title", "title_locked", "my_notes", "summary", "template_id", "folder_id",
                    "status", "error", "duration_s", "deleted"}
         fields = {k: v for k, v in fields.items() if k in allowed}
-        if not fields:
+        if fields.get("deleted"):
+            self.delete_note(note_id)
+            return self.get_note(note_id)
+        if not fields or self._is_deleted(note_id):    # a tombstone takes nothing (notes still being written, say)
             return self.get_note(note_id)
         if touch:
             fields["updated_at"] = now_iso()
@@ -210,8 +241,81 @@ class Store:
             self._reindex(note_id)
         return self.get_note(note_id)
 
+    def _is_deleted(self, note_id: str) -> bool:
+        r = self.db.execute("SELECT deleted FROM notes WHERE id=?", (note_id,)).fetchone()
+        return bool(r and r["deleted"])
+
+    def _is_live(self, note_id: str) -> bool:
+        r = self.db.execute("SELECT deleted FROM notes WHERE id=?", (note_id,)).fetchone()
+        return bool(r and not r["deleted"])
+
+    def _empty(self, note_id: str) -> None:
+        """Remove everything said in a note: its transcript, its sessions,
+        what search knows of it, and its audio. The note's own row is the
+        caller's business. Call with _write held."""
+        for table in ("segments_fts", "segments", "sessions", "notes_fts"):
+            self.db.execute(f"DELETE FROM {table} WHERE note_id=?", (note_id,))
+        try:
+            remove_audio(note_id, self.audio_root)
+        except ValueError:
+            pass                                       # not an id a folder was ever made from
+
+    def _entomb(self, note_id: str, when: str) -> None:
+        """Leave only a note's tombstone, dated `when`. Call with _write held."""
+        sets = ", ".join(f"{k}=?" for k in TOMBSTONE)
+        self.db.execute(f"UPDATE notes SET {sets}, deleted=1, updated_at=? WHERE id=?",
+                        (*TOMBSTONE.values(), when, note_id))
+        self._empty(note_id)
+
     def delete_note(self, note_id: str) -> None:
-        self.update_note(note_id, deleted=1)
+        """Delete a note for good: see the top of this file for what goes."""
+        with self._write:
+            self._entomb(note_id, now_iso())
+
+    def purge_deleted(self) -> int:
+        """Notes deleted before deleting removed anything (they were only
+        marked and hidden) lose their content now, and are dated now so the
+        account and the other devices are told again, this time with nothing
+        in them. Audio left behind for any deleted note goes too. Runs when
+        the store opens; a second run finds nothing. Returns notes emptied."""
+        with self._write:
+            old = [r["id"] for r in self.db.execute(
+                "SELECT id FROM notes n WHERE deleted=1 AND (title<>'' OR my_notes<>'' OR summary<>'' "
+                "OR error<>'' OR folder_id IS NOT NULL OR duration_s<>0 "
+                "OR EXISTS(SELECT 1 FROM segments s WHERE s.note_id=n.id) "
+                "OR EXISTS(SELECT 1 FROM sessions s WHERE s.note_id=n.id))").fetchall()]
+            for note_id in old:
+                self._entomb(note_id, now_iso())
+            try:
+                left = [p.name for p in self.audio_root.iterdir() if p.is_dir()]
+            except OSError:
+                left = []
+            for name in left:
+                if self._is_deleted(name):
+                    try:
+                        remove_audio(name, self.audio_root)
+                    except ValueError:
+                        pass
+        return len(old)
+
+    def wipe(self) -> None:
+        """Delete every meeting, with no tombstones ("Delete all my data"):
+        notes, transcripts, sessions, uploads, the search index and all the
+        audio. The engine's settings (how far sync has got among them), the
+        folders' names and the person's own templates stay, as Waffler's
+        settings and snippets do. The file is then packed, so nothing deleted
+        is left inside it."""
+        with self._write:
+            for table in ("segments_fts", "notes_fts", "segments", "sessions", "uploads", "notes"):
+                self.db.execute(f"DELETE FROM {table}")
+            for statement in ("INSERT INTO segments_fts(segments_fts) VALUES('rebuild')",
+                              "INSERT INTO notes_fts(notes_fts) VALUES('rebuild')",
+                              "PRAGMA wal_checkpoint(TRUNCATE)", "VACUUM", "PRAGMA wal_checkpoint(TRUNCATE)"):
+                try:
+                    self.db.execute(statement).fetchall()
+                except sqlite3.Error:
+                    pass                               # a reader is busy: the rows are gone all the same
+        shutil.rmtree(self.audio_root, ignore_errors=True)
 
     def get_note(self, note_id: str, with_segments: bool = False) -> dict | None:
         r = self.db.execute("SELECT * FROM notes WHERE id=?", (note_id,)).fetchone()
@@ -271,6 +375,8 @@ class Store:
     def add_segments(self, note_id: str, segments: list[dict], touch: bool = True) -> list[dict]:
         out = []
         with self._write:
+            if not self._is_live(note_id):             # a line still being written down when the note went
+                return out
             for s in segments:
                 text = " ".join(str(s.get("text", "")).split())
                 if not text:
@@ -422,10 +528,14 @@ class Store:
 
     # ── sync ────────────────────────────────────────────────────────────────
     def export_changes(self, since: str = "") -> dict:
-        """Everything changed after `since` (an ISO time), for sync."""
+        """Everything changed after `since` (an ISO time), for sync. A deleted
+        note goes as its tombstone and nothing else, whatever the row holds."""
         notes = []
         for r in self.db.execute("SELECT * FROM notes WHERE updated_at>? ORDER BY updated_at",
                                  (since,)).fetchall():
+            if r["deleted"]:
+                notes.append(tombstone(r))
+                continue
             n = dict(r)
             n["sessions"] = [dict(s) for s in self.db.execute(
                 "SELECT * FROM sessions WHERE note_id=?", (n["id"],))]
@@ -442,33 +552,44 @@ class Store:
         """Merge another device's changes: a note's fields from whichever side
         edited it last, its segments and sessions from both.
 
-        A note deleted somewhere else arrives marked `deleted`: it is kept
-        here, marked and hidden (there is no trash for meetings). Nothing in
-        this file or in sync.py touches audio: the recording this computer
-        made stays on its disk, and only this computer's own Delete
-        (Service.delete_note) removes it. tests/test_account_sync.py pins it."""
+        A note deleted somewhere else arrives marked `deleted`. If that is
+        the last word on it (it is newer than this computer's copy, and the
+        note is not being recorded here), this computer's copy goes the same
+        way as one deleted here: content and audio removed, a tombstone left.
+        Whatever came with it is not stored: an older service still sends a
+        deleted note's transcript. A note that is a tombstone here takes no
+        transcript either, unless a newer edit elsewhere brings it back."""
         applied = 0
         with self._write:
             for n in changes.get("notes", []):
-                mine = self.db.execute("SELECT updated_at,status FROM notes WHERE id=?",
+                mine = self.db.execute("SELECT updated_at,status,deleted,duration_s FROM notes WHERE id=?",
                                        (n["id"],)).fetchone()
                 cols = ["title", "title_locked", "my_notes", "summary", "template_id", "folder_id",
                         "status", "error", "duration_s", "created_at", "updated_at", "deleted"]
-                # A note being recorded elsewhere arrives as simply "ready" here.
+                gone = bool(n.get("deleted"))
                 vals = {c: n.get(c) for c in cols}
+                # A note being recorded elsewhere arrives as simply "ready" here.
                 if vals["status"] in ("recording", "processing"):
                     vals["status"] = "ready"
+                if gone:
+                    vals.update(TOMBSTONE, deleted=1)
+                taken = False
                 if mine is None:
                     self.db.execute(
                         f"INSERT INTO notes(id,{','.join(cols)}) VALUES(?{',?' * len(cols)})",
                         (n["id"], *[vals[c] for c in cols]))
-                    applied += 1
+                    taken = True
                 elif n["updated_at"] > mine["updated_at"] and mine["status"] != "recording":
-                    vals["duration_s"] = max(vals["duration_s"] or 0, self.db.execute(
-                        "SELECT duration_s FROM notes WHERE id=?", (n["id"],)).fetchone()[0])
+                    if not gone:
+                        vals["duration_s"] = max(vals["duration_s"] or 0, mine["duration_s"])
                     self.db.execute(f"UPDATE notes SET {','.join(c + '=?' for c in cols)} WHERE id=?",
                                     (*[vals[c] for c in cols], n["id"]))
-                    applied += 1
+                    taken = True
+                applied += taken
+                if gone and taken and mine is not None and not mine["deleted"]:
+                    self._empty(n["id"])               # (a tombstone, or a note never held, has nothing to remove)
+                if gone or (not taken and mine["deleted"]):
+                    continue                           # nothing is added to, or taken from, a deleted note
                 for s in n.get("sessions", []):
                     self.db.execute(
                         "INSERT OR IGNORE INTO sessions(id,note_id,n,offset_s,started_at,ended_at) "

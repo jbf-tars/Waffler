@@ -648,9 +648,12 @@ def test_an_answer_too_large_is_said_plainly_and_logged_as_that(ctl, fake, monke
     assert ctl._svc().store.list_notes() == [] and account.status()["signed_in"]
 
 
-# ── a meeting deleted somewhere else never takes this computer's audio ──────
-# There is no trash for meetings: a deleted one is kept, marked deleted, and
-# hidden. Only this computer's own Delete removes a recording's audio.
+# ── a meeting deleted somewhere else goes from this computer too ────────────
+# Deleting is final and there is no trash: a deletion that is the last word
+# on a meeting removes its content and its audio here, and leaves a tombstone.
+# (Until November 2026 the meeting was kept, marked and hidden, audio and all;
+# tests/test_meetings_delete_purge.py has the rest.) What a deletion can never
+# do is beat a newer edit made here, or touch a meeting being recorded here.
 
 def record_audio(computer, nid):
     computer.use()
@@ -660,11 +663,10 @@ def record_audio(computer, nid):
     return path
 
 
-def test_a_meeting_deleted_on_another_computer_keeps_the_audio_recorded_on_this_one(two, fake):
+def test_a_meeting_deleted_on_another_computer_goes_from_this_one_audio_and_all(two, fake):
     one, other = two
     nid = one.note("Recorded here")
     audio = record_audio(one, nid)
-    kept = audio.read_bytes()
     one.sync()
     other.sync()
     time.sleep(0.01)
@@ -673,32 +675,53 @@ def test_a_meeting_deleted_on_another_computer_keeps_the_audio_recorded_on_this_
     assert one.sync()["pulled"] == 1
     assert one.titles() == [], "the meeting is gone from the list here too"
     note = one.store.get_note(nid, with_segments=True)
-    assert note["deleted"] == 1 and note["title"] == "Recorded here", "kept, marked deleted"
-    assert [s["text"] for s in note["segments"]] == ["hello there"]
-    assert audio.exists() and audio.read_bytes() == kept, "the audio this computer recorded is untouched"
+    assert note["deleted"] == 1 and note["title"] == "" and note["summary"] == "", "a tombstone, nothing more"
+    assert note["segments"] == [] and note["sessions"] == []
+    assert not audio.exists() and not audio.parent.exists(), "its audio went with it"
     one.sync()
-    one.sync()
-    assert audio.read_bytes() == kept
+    assert one.store.get_note(nid)["deleted"] == 1
 
 
-def test_a_service_that_says_a_meeting_is_deleted_cannot_remove_its_audio(ctl, fake):
+def test_a_deletion_older_than_an_edit_made_here_removes_nothing(ctl, fake):
     svc = ctl._svc()
     nid = a_meeting(svc.store, "Recorded here")
     from src.meetings.paths import audio_dir
     audio = audio_dir(nid) / "session-1-mic.flac"
     audio.write_bytes(b"fLaC" + b"\x00" * 4096)
     assert ctl.sync_now()["ok"]
-    forged = dict(fake.notes_of(EMAIL)[nid], deleted=1, updated_at=hours_from_now(1))
-    plant(fake, "notes", forged)
+    stale = dict(fake.notes_of(EMAIL)[nid], deleted=1)     # the service says: deleted, as of the last sync
+    time.sleep(0.01)
+    svc.store.update_note(nid, my_notes="added since")     # edited here after that
+    plant(fake, "notes", stale)
     assert ctl.sync_now()["ok"]
-    assert ctl.get(nid) is None and ctl.list() == [], "hidden, as a deleted meeting is"
-    assert svc.store.get_note(nid)["deleted"] == 1
+    assert ctl.get(nid)["my_notes"] == "added since" and svc.store.get_note(nid)["deleted"] == 0
     assert audio.exists() and audio.stat().st_size == 4100 and svc.has_audio(nid)
 
 
-def test_nothing_in_the_pull_path_can_reach_the_code_that_removes_audio():
+def test_a_deletion_never_touches_a_meeting_being_recorded_here(ctl, fake):
+    svc = ctl._svc()
+    nid = a_meeting(svc.store, "Being recorded")
+    from src.meetings.paths import audio_dir
+    audio = audio_dir(nid) / "session-1-mic.flac"
+    audio.write_bytes(b"fLaC" + b"\x00" * 4096)
+    assert ctl.sync_now()["ok"]
+    svc.store.update_note(nid, status="recording", touch=False)
+    plant(fake, "notes", dict(fake.notes_of(EMAIL)[nid], deleted=1, updated_at=hours_from_now(1)))
+    assert ctl.sync_now()["ok"]
+    note = svc.store.get_note(nid, with_segments=True)
+    assert note["deleted"] == 0 and note["title"] == "Being recorded" and note["segments"]
+    assert audio.exists() and audio.stat().st_size == 4100
+
+
+def test_the_pull_path_removes_audio_only_through_the_one_checked_door():
+    """sync.py touches no file at all. store.py removes audio through
+    paths.remove_audio (a plain id, a folder directly under audio/) and, for
+    "Delete all my data", its own audio folder whole; nothing else."""
     engine = Path(sync.__file__).resolve().parent
-    for name in ("sync.py", "store.py"):
-        source = (engine / name).read_text(encoding="utf-8")
-        for word in ("rmtree", "unlink", "delete_audio", "os.remove", "audio_dir"):
-            assert word not in source, f"{name} must never touch audio files ({word})"
+    source = (engine / "sync.py").read_text(encoding="utf-8")
+    for word in ("rmtree", "unlink", "delete_audio", "remove_audio", "os.remove", "audio_dir"):
+        assert word not in source, f"sync.py must never touch audio files ({word})"
+    source = (engine / "store.py").read_text(encoding="utf-8")
+    for word in ("unlink", "delete_audio", "os.remove", "audio_dir"):
+        assert word not in source, f"store.py removes audio through paths.remove_audio only ({word})"
+    assert source.count("rmtree") == 1 and "shutil.rmtree(self.audio_root" in source

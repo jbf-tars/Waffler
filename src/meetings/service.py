@@ -15,7 +15,7 @@ import numpy as np
 
 from . import audioproc, llm, tidy_lines
 from .audioproc import RATE
-from .paths import audio_dir, data_dir
+from .paths import audio_dir, data_dir, remove_audio
 from .recorder import (CHUNK_MAX_S, CHUNK_MIN_S, WAITING, Recorder, _Job, finish_waiting, retranscribe,
                        waiting_files)
 from .store import Store
@@ -134,7 +134,10 @@ class Service:
 
     def _after_recording(self, note_id: str) -> None:
         note = self.store.get_note(note_id)
-        if not note:
+        if not note or note["deleted"]:
+            # Deleted while it was still being written down: what the
+            # recorder saved since then goes too.
+            self.delete_audio(note_id)
             return
         has_text = bool(self.store.segments(note_id))
         settings = self.store.settings()
@@ -334,16 +337,14 @@ class Service:
         return self.store.get_note(note_id)
 
     def delete_audio(self, note_id: str) -> None:
-        folder = audio_dir(note_id)                # refuses anything that is not a plain id
-        root = (data_dir() / "audio").resolve()
-        if folder.resolve().parent != root:        # only ever a folder directly under audio/
-            raise ValueError("not a note's audio folder")
-        shutil.rmtree(folder, ignore_errors=True)
+        remove_audio(note_id)                      # refuses anything that is not a plain id
 
     def has_audio(self, note_id: str) -> bool:
         return any(audio_dir(note_id).glob("*.flac"))
 
     def delete_note(self, note_id: str) -> None:
+        """Final: the store removes the content and leaves a tombstone, and
+        the audio goes. The next sync tells the person's other devices."""
         self.store.delete_note(note_id)
         self.delete_audio(note_id)
 

@@ -1443,7 +1443,7 @@
               <button type="button" class="btn btn-danger-solid btn-sm" id="resetAsk" aria-describedby="resetTitle" onclick="askFactoryReset(true)">Delete…</button>
             </div>
             <div class="row reset-confirm" id="resetConfirm" hidden>
-              <div class="row-main"><div class="row-t">Delete your Journal, usage, recordings and logs?</div><div class="row-d">This can't be undone. Waffler keeps running with your keys, words and snippets. <a class="link" href="#" id="resetKeysAsk" onclick="askFactoryResetKeys(true); return false;">Delete my keys and settings too</a></div></div>
+              <div class="row-main"><div class="row-t">Delete your Journal, meetings, usage, recordings and logs?</div><div class="row-d">This can't be undone. Waffler keeps running with your keys, words and snippets. <a class="link" href="#" id="resetKeysAsk" onclick="askFactoryResetKeys(true); return false;">Delete my keys and settings too</a></div></div>
               <button type="button" class="btn btn-sec btn-sm" id="resetNo" onclick="askFactoryReset(false)">Keep it</button>
               <button type="button" class="btn btn-danger-solid btn-sm" id="resetYes" onclick="deleteMyData(this)">Delete my data</button>
             </div>
@@ -1483,7 +1483,7 @@
                      name. Never changed by Waffler. -->
                 <li id="micVolumeRow"><b>Microphone volume.</b> When your dictations keep arriving very quiet, Waffler reads your microphone's input volume at most once a day, to suggest turning it up, and on Windows its name, so the tip can say which microphone. It never changes it. The reading and when it was taken stay on this computer, and Delete all my data clears them.</li>
                 <li><b>Logs.</b> A zip on your Desktop with no keys, no transcripts and no signature text. Handy for a bug report.</li>
-                <li><b>Delete all my data.</b> Your Journal, usage, recordings, logs and which tips you've seen. Your keys, words, snippets and settings stay.</li>
+                <li><b>Delete all my data.</b> Your Journal, your meetings (notes, transcripts and audio), usage, recordings, logs and which tips you've seen. Your keys, words, snippets and settings stay.</li>
               </ul>
               <!-- What Waffler reads on a Mac while it pastes (src/pasteboard.py,
                    src/mac_input.py): said as it is. Shown on a Mac only

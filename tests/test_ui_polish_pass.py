@@ -260,13 +260,13 @@ def test_the_window_calls_it_the_journal_not_history():
     html = visible_text(read("index.html"))
     for old in ("Export history", "Delete your history", "from your own history", "keys and history"):
         assert old not in html, old
-    for new in ("Export the Journal", "Delete your Journal, usage, recordings and logs?",
+    for new in ("Export the Journal", "Delete your Journal, meetings, usage, recordings and logs?",
                 "Counted on this computer, from your own Journal.", "Your keys and Journal stay as they are."):
         assert new in html, new
     row = read("index.html")
     row = row[row.index('id="historyRow"'):]
     assert re.search(r'<label for="historyKeep">Journal</label>', row[:600])
-    assert "Deleted your Journal, usage, recordings and logs." in read("app.js")
+    assert "Deleted your Journal, meetings, usage, recordings and logs." in read("app.js")
     assert "Deleted your history" not in read("app.js")
 
 

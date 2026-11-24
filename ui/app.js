@@ -799,7 +799,7 @@ async function deleteMyData(btn) {
     const r = await pywebview.api.delete_my_data();
     if (r && r.ok) {
       askFactoryReset(false);
-      showToast('Deleted your Journal, usage, recordings and logs.', 'success', 5000);
+      showToast('Deleted your Journal, meetings, usage, recordings and logs.', 'success', 5000);
       await refreshAll();
       await loadSettings();
     } else {
