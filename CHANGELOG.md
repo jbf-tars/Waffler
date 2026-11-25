@@ -29,6 +29,15 @@ Waffler now takes meeting notes as well as dictation. One app for both.
   dictations stay on the device.
 - **Claude and other AI apps.** Settings, AI apps, connects Claude to your
   meetings and dictations on this computer.
+- **Import from Granola.** Meetings, "Import from Granola": sign in to
+  Granola once and your meetings come across with their notes, transcripts,
+  dates and folders. No AI is involved and running it again brings in only
+  what is new.
+- **Claude can file meetings.** Through the Claude link it can make and
+  rename folders, move meetings into them and bring a meeting in from
+  another app. It cannot delete or rewrite one.
+- **Deleting means deleting.** A deleted meeting's transcript, notes and
+  recording are removed at once, here and on the account.
 - **Ask on Home**, **Transforms** and **Command mode**, each with its own
   shortcut and a "Try it here" box.
 
