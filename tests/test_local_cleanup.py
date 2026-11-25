@@ -74,9 +74,13 @@ def test_it_is_sent_the_apps_own_prompt_and_system_message(here):
     assert call["system"] == style_openai._CLEANUP_SYSTEM
     (message,) = call["messages"]
     assert message["role"] == "user"
-    expected = styler.prompt_template.format(
+    every_provider = styler.prompt_template.format(
         transcript=RAW, dialect_instruction=style_openai._dialect_instruction({}))
-    assert message["content"] == expected, "the prompt every provider gets, to the byte"
+    # The prompt every provider gets, to the byte, with the reminder of the
+    # rules this small model misses just before the transcript
+    # (tests/test_local_cleanup_reminder.py).
+    assert message["content"] == OpenAIStyler._for_local(every_provider)
+    assert message["content"].replace(style_openai._LOCAL_REMINDER, "", 1) == every_provider
     # No chance in the choice of words: measured to give the same text for
     # the same dictation whatever came before it, which 0.1 did not.
     assert call["temperature"] == style_openai._LOCAL_CLEANUP_TEMPERATURE == 0.0

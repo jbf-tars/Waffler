@@ -454,6 +454,31 @@ _CLEANUP_TEMPERATURE = 0.1
 # been tidied before it (a list on one line, then on three); at 0 it was the
 # same text in every order tried, and no worse.
 _LOCAL_CLEANUP_TEMPERATURE = 0.0
+# The model on this computer reads the same prompt as the providers, but it is
+# small (src/local_llm.py: Gemma 4 E4B, 4-bit), and among ~5,600 tokens of
+# rules it often missed three: a self-correction kept whole ("Tuesday, no,
+# sorry, Wednesday"), pause fillers left in, and a long sentence with no full
+# stop. Measured on Windows on 25 Nov with made-up dictations, this reminder,
+# placed just before the transcript (_for_local), made it drop the wrong half
+# of a correction and the marker, keep "actually" meaning really and a
+# clarifying "I mean", and leave lists and emails as they were; the corpus
+# (scripts/auto_test_corpus.py, 107 cases) passed as often as without it.
+# Before the transcript it is part of what the model reads ahead of the first
+# dictation (_local_primer), so it costs nothing per dictation. Providers
+# follow the prompt as it is and are not given it.
+_LOCAL_REMINDER = (
+    "\n\nBefore you answer, check the three rules most often missed:\n"
+    "1. SELF-CORRECTION: only the final version survives. When the speaker replaces something "
+    "they just said (marked by no / sorry / wait / no wait / actually no / I meant / scratch that), "
+    "drop the wrong version and the marker and continue naturally. \"Can we meet on Tuesday, no, "
+    "sorry, Wednesday at three?\" -> \"Can we meet on Wednesday at three?\" \"Send it on Friday. "
+    "Actually, no, make it Monday.\" -> \"Send it on Monday.\" Not a correction, keep every word: "
+    "a clarifying \"I mean\" that adds detail, \"actually\" meaning really (\"I actually liked it\" "
+    "stays), and an apology (\"Sorry for the late reply\").\n"
+    "2. FILLER: remove um, uh, erm, you know, basically, literally and filler like; drop a leading "
+    "\"Yeah,\" / \"Right,\" / \"OK,\" / \"So yeah,\". \"So\" that starts a real sentence stays "
+    "(\"So development can start on Monday\" stays as it is).\n"
+    "3. Every sentence ends with a full stop, question mark or exclamation mark.")
 
 
 class OpenAIStyler:
@@ -1824,14 +1849,24 @@ Transcript: {transcript}"""
         """(system, user) of a clean-up of one word: everything the model can
         read before a dictation exists. The rules come first in the prompt
         and the transcript last, so this is the start of every clean-up."""
-        return _CLEANUP_SYSTEM, self.prompt_template.format(
-            transcript="Hello.", dialect_instruction=_dialect_instruction({}))
+        return _CLEANUP_SYSTEM, self._for_local(self.prompt_template.format(
+            transcript="Hello.", dialect_instruction=_dialect_instruction({})))
+
+    @staticmethod
+    def _for_local(prompt: str) -> str:
+        """The clean-up prompt as the model on this computer reads it: the
+        reminder (_LOCAL_REMINDER) just before the transcript, which stays
+        last; at the end when a prompt has no "Transcript:" line."""
+        head, marker, said = prompt.rpartition("\n\nTranscript: ")
+        if not marker:
+            return prompt + _LOCAL_REMINDER
+        return head + _LOCAL_REMINDER + marker + said
 
     def _style_local(self, prompt: str, start_time: float):
         """The same prompt and system message the providers get, answered by
         the model on this computer, then the same guards."""
         call = self._current_call()
-        reply = _local_llm().chat(_CLEANUP_SYSTEM, [{"role": "user", "content": prompt}],
+        reply = _local_llm().chat(_CLEANUP_SYSTEM, [{"role": "user", "content": self._for_local(prompt)}],
                                   max_tokens=call.max_tokens,
                                   temperature=_LOCAL_CLEANUP_TEMPERATURE,
                                   deadline=call.deadline_at, kind="cleanup")
