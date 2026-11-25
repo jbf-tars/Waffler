@@ -196,7 +196,7 @@ def test_what_was_taken_out_of_view_is_still_said_in_full():
         "Groq keys start with gsk_, OpenAI keys with sk-, Cerebras keys with csk-.",
         "Drag to change the order; it applies to your next dictation.",
         # AI apps
-        "It can only read. It cannot change or delete anything.",
+        "It can file meetings into folders. It cannot rewrite or delete anything.",
         "These reach this computer only.",
         # Words (the Vocabulary, once a page of its own)
         "Waffler fixes these words after speech to text and before the clean-up.",

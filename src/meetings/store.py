@@ -13,6 +13,7 @@ There is no trash and no undo. A tombstone never takes content again.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import sqlite3
@@ -130,6 +131,33 @@ def tombstone(note) -> dict:
     """A deleted note as sync sends it: no words, no sessions, no lines."""
     return {"id": note["id"], **TOMBSTONE, "created_at": note["created_at"],
             "updated_at": note["updated_at"], "deleted": 1, "sessions": [], "segments": []}
+
+
+# What an import will take (import_external): one meeting's worth of text.
+# The same sizes as the account service's import_meeting tool.
+IMPORT_TITLE, IMPORT_NOTES, IMPORT_LINE, IMPORT_TRANSCRIPT = 300, 100_000, 4_000, 400_000
+MAX_FOLDERS = 200
+IMPORT_DELETED = "deleted"            # import_external's reasons for answering ok: False
+IMPORT_BAD_DATE = "bad_date"
+IMPORT_NO_ID = "no_id"
+IMPORT_NO_FOLDER = "no_folder"
+IMPORT_TOO_LONG = "too_long"
+
+
+def import_id(source: str, external_id: str) -> str:
+    """The id an imported meeting gets: made from where it came from, so
+    importing it again finds the same meeting, here and through the account
+    (whose service makes it the same way). An id made here for a recording is
+    random, so the two never meet."""
+    return hashlib.sha256(f"import\x00{source.lower()}\x00{external_id}".encode()).hexdigest()[:32]
+
+
+def clean_text(text, limit: int) -> str:
+    """Text as an import stores it: a string, no control characters but new
+    lines and tabs, cut to size."""
+    if not isinstance(text, str):
+        return ""
+    return "".join(c for c in text if c in "\n\t" or ord(c) >= 32)[:limit].strip()
 
 
 def now_iso() -> str:
@@ -521,6 +549,132 @@ class Store:
                             (now_iso(), folder_id))
             for r in self.db.execute("SELECT id FROM notes WHERE folder_id=?", (folder_id,)).fetchall():
                 self.update_note(r["id"], folder_id=None)
+
+    def folder_named(self, name: str, limit: int = MAX_FOLDERS) -> dict | None:
+        """The folder with this name, whatever its capitals; made if there is
+        none. None when the name is empty or there are already `limit`
+        folders. `made` says which happened."""
+        name = " ".join(str(name or "").split())
+        if not name:
+            return None
+        with self._write:
+            folders = self.folders()
+            same = next((f for f in folders if f["name"].casefold() == name.casefold()), None)
+            if same:
+                return {**same, "made": False}
+            if len(folders) >= limit:
+                return None
+            made = self.save_folder(name)
+        return {"id": made["id"], "name": name, "note_count": 0, "made": True}
+
+    # ── a meeting from another app ──────────────────────────────────────────
+    def import_external(self, source: str, external_id: str, *, title: str, meeting_at: str,
+                        summary: str = "", my_notes: str = "", lines: list[dict] | None = None,
+                        part: int = 1, duration_s: float | None = None, folder_id: str | None = None,
+                        folder_name: str | None = None, whole_parts_only: bool = False) -> dict:
+        """Bring in one meeting from another notes app, as an ordinary meeting.
+        "Import from Granola" and the Claude link's import_meeting both end
+        here, and the account service's import_meeting follows the same rules,
+        so one meeting imported three ways is one meeting.
+
+        Its id comes from `source` and `external_id` (import_id), so a second
+        import finds the first: the title and notes are brought up to date and
+        no line is stored twice. A transcript arrives whole (`part` 1) or in
+        numbered parts; a part whose first line is already here is skipped.
+        `lines` are {"source": "mic" or "system", "text", "start_s" or None};
+        a line with no time follows the one before, and lasts as long as it
+        would take to say.
+
+        A meeting the person deleted is not brought back. Titles, notes and
+        lines are cut to IMPORT_TITLE, IMPORT_NOTES and IMPORT_LINE. Past
+        IMPORT_TRANSCRIPT characters no more lines are stored and the answer
+        says `transcript_truncated` (with `whole_parts_only`, the part is
+        refused instead and none of it is stored). `folder_name` files it in
+        the folder of that name, made if need be (folder_named).
+
+        Answers {"ok": True, "id", "created", "lines_added", "part_already_stored",
+        "transcript_truncated"} or {"ok": False, "reason", "id"}."""
+        source = " ".join(clean_text(source, 40).split())
+        external_id = clean_text(external_id, 200)
+        if not source or not external_id:
+            return {"ok": False, "reason": IMPORT_NO_ID, "id": ""}
+        try:
+            when = datetime.fromisoformat(str(meeting_at).replace("Z", "+00:00"))
+        except ValueError:
+            return {"ok": False, "reason": IMPORT_BAD_DATE, "id": ""}
+        if when.tzinfo is None:
+            when = when.astimezone()
+        when_iso = when.astimezone(timezone.utc).isoformat(timespec="milliseconds")
+        title = " ".join(clean_text(title, IMPORT_TITLE).split()) or "Untitled"
+        summary, my_notes = clean_text(summary, IMPORT_NOTES), clean_text(my_notes, IMPORT_NOTES)
+        try:
+            part = max(1, min(int(part or 1), 99))
+        except (TypeError, ValueError):
+            part = 1
+        said = []
+        for line in lines or []:
+            text = " ".join(clean_text(line.get("text"), IMPORT_LINE).split())
+            if text:
+                said.append({"source": "system" if line.get("source") == "system" else "mic",
+                             "text": text, "start_s": line.get("start_s")})
+
+        nid = import_id(source, external_id)
+        with self._write:
+            if folder_id is not None and not any(f["id"] == folder_id for f in self.folders()):
+                return {"ok": False, "reason": IMPORT_NO_FOLDER, "id": nid}
+            note = self.get_note(nid)
+            if note is not None and note["deleted"]:
+                return {"ok": False, "reason": IMPORT_DELETED, "id": nid}
+            if folder_id is None and folder_name:
+                folder_id = (self.folder_named(folder_name) or {}).get("id")
+            created = note is None
+            if created:
+                self.create_note(title=title, folder_id=folder_id, note_id=nid)
+                self.db.execute("UPDATE notes SET created_at=?, title_locked=1 WHERE id=?", (when_iso, nid))
+            fields: dict = {}
+            if part == 1:
+                fields["title"] = title
+                if summary:
+                    fields["summary"] = summary
+                if my_notes:
+                    fields["my_notes"] = my_notes
+                if folder_id is not None:
+                    fields["folder_id"] = folder_id
+
+            have = self.db.execute("SELECT coalesce(sum(length(text)),0), coalesce(max(end_s),0) "
+                                   "FROM segments WHERE note_id=?", (nid,)).fetchone()
+            stored, clock = int(have[0]), float(have[1])
+            already = bool(self.db.execute("SELECT 1 FROM segments WHERE id=?",
+                                           (import_id(nid, f"{part}:0"),)).fetchone())
+            added, truncated = 0, False
+            if said and not already:
+                if whole_parts_only and stored + sum(len(line["text"]) for line in said) > IMPORT_TRANSCRIPT:
+                    return {"ok": False, "reason": IMPORT_TOO_LONG, "id": nid}
+                rows = []
+                for i, line in enumerate(said):
+                    if stored + len(line["text"]) > IMPORT_TRANSCRIPT:
+                        truncated = True
+                        break
+                    stored += len(line["text"])
+                    start = line["start_s"]
+                    if not isinstance(start, (int, float)) or isinstance(start, bool) \
+                            or not 0 <= start < 86_400 * 2:
+                        start = clock                  # no time given: it follows the line before
+                    # A line takes as long as it would to say (15 characters a second).
+                    end = max(start + 0.5, start + len(line["text"]) / 15)
+                    clock = max(clock, end)
+                    rows.append({"id": import_id(nid, f"{part}:{i}"), "source": line["source"],
+                                 "start_s": round(start, 2), "end_s": round(end, 2),
+                                 "text": line["text"], "created_at": when_iso})
+                added = len(self.add_segments(nid, rows, touch=False))
+            length = float(self.db.execute("SELECT coalesce(max(end_s),0) FROM segments WHERE note_id=?",
+                                           (nid,)).fetchone()[0])
+            if isinstance(duration_s, (int, float)) and not isinstance(duration_s, bool) \
+                    and 0 < duration_s < 86_400:
+                length = max(length, float(duration_s))
+            self.update_note(nid, **fields, duration_s=length, status="ready")
+        return {"ok": True, "id": nid, "created": created, "lines_added": added,
+                "part_already_stored": already and bool(said), "transcript_truncated": truncated}
 
     def templates(self) -> list[dict]:
         return [dict(r) for r in self.db.execute(

@@ -73,11 +73,14 @@ def test_handshake_lists_the_tools_and_ignores_notifications(home):
     assert init["serverInfo"]["name"] == "waffler"
     names = [t["name"] for t in replies[2]["result"]["tools"]]
     assert names == ["search_meetings", "get_latest_meeting", "get_meetings", "get_meeting_transcript",
-                     "search_transcripts", "list_meeting_folders", "get_recent_dictations",
-                     "search_dictations"]
+                     "search_transcripts", "list_meeting_folders", "create_meeting_folder",
+                     "rename_meeting_folder", "move_meetings_to_folder", "import_meeting",
+                     "get_recent_dictations", "search_dictations"]
     for tool in replies[2]["result"]["tools"]:
         assert tool["inputSchema"]["type"] == "object"
-        assert tool["annotations"]["readOnlyHint"] is True
+        # Four tools file and bring in (tests/test_claude_organise_import.py); the rest only read.
+        assert tool["annotations"]["readOnlyHint"] is (tool["name"] not in cc.WRITES)
+        assert tool["annotations"].get("destructiveHint", False) is False
 
 
 def test_an_unknown_protocol_version_gets_ours(home):

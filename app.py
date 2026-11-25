@@ -29,6 +29,20 @@ if '--self-check' in sys.argv:
     import self_check as _self_check
     sys.exit(_self_check.main(sys.argv, root=os.path.dirname(os.path.abspath(__file__))))
 
+# ── Import from Granola, from a terminal ──────────────────────────────
+# `--import-granola` runs the import (src/meetings/granola_import.py) against
+# the data folder WAFFLER_DATA_DIR names, for looking into a problem; without
+# that, only with `--real-data`. It prints counts, never a meeting or a token.
+# Handled here for the same reason as --self-check: before crash.log is opened,
+# so a refusal leaves the person's own data folder untouched.
+if '--import-granola' in sys.argv:
+    try:
+        from src.meetings import granola_import as _granola_import
+    except ImportError:
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "src"))
+        from meetings import granola_import as _granola_import
+    sys.exit(_granola_import.main(sys.argv))
+
 import io
 import json
 import queue
@@ -717,6 +731,44 @@ def _meetings_changed():
     _meeting_menubar_sync()
 
 
+# ── Import from Granola (src/meetings/granola_import.py) ────────────────────
+_granola_job = None
+_granola_lock = threading.Lock()
+
+
+def _granola():
+    """The one Granola import, made on first use. Making it does not make the
+    meetings engine: that happens on the import's own thread, when it starts."""
+    global _granola_job
+    with _granola_lock:
+        if _granola_job is None:
+            try:
+                from src.meetings import granola_import
+            except ImportError:
+                from meetings import granola_import
+            _granola_job = granola_import.Job(lambda: _get_meetings()._svc().store, log=_log_to_file,
+                                              on_change=_granola_changed, on_imported=_granola_imported)
+        return _granola_job
+
+
+def _granola_changed():
+    """The import moved on or ended: hand the page where it has got to."""
+    try:
+        _post_js("window.waffler_granola_changed && window.waffler_granola_changed("
+                 + json.dumps(_granola().status()) + ")")
+    except Exception:
+        pass
+
+
+def _granola_imported():
+    """Meetings arrived from Granola: the list redraws, and they sync like any others."""
+    _meetings_changed()
+    try:
+        _get_meetings()._svc().sync_soon()
+    except Exception:
+        pass
+
+
 def _local_stt_changed():
     """The model's download moved or ended: hand the page its new state."""
     try:
@@ -1036,6 +1088,37 @@ class Api:
         except Exception as e:
             _log_to_file(f"[claude] disconnect failed: {type(e).__name__}")
             return {"ok": False, "error": "Claude's settings couldn't be changed."}
+
+    # ── Import from Granola (src/meetings/granola_import.py; ui/granola.js) ──
+    # Every method answers {"ok", "connected", "state" ("idle" | "connecting" |
+    # "importing" | "done" | "error"), "done", "total", "failed", "error"} and
+    # never raises. Granola's tokens are never in an answer.
+    def _granola_call(self, what: str) -> dict:
+        try:
+            out = getattr(_granola(), what)()
+            if what != "status":
+                _log_to_file(f"[granola] {what}: {'ok' if out.get('ok') else 'refused'}")
+            return out
+        except Exception as e:  # noqa: BLE001
+            _log_to_file(f"[granola] {what} failed: {type(e).__name__}")
+            return {"ok": False, "error": "That didn't work. Try again.", "state": "error"}
+
+    def granola_status(self) -> dict:
+        """Where the import stands. Cheap: the page may poll it."""
+        return self._granola_call("status")
+
+    def granola_import(self) -> dict:
+        """Connect Granola if need be (the browser opens), then import. Returns
+        at once; window.waffler_granola_changed(status) is called as it goes."""
+        return self._granola_call("start")
+
+    def granola_cancel(self) -> dict:
+        """Stop the import. What was imported stays."""
+        return self._granola_call("cancel")
+
+    def granola_disconnect(self) -> dict:
+        """Forget Granola's tokens. No meeting is taken away."""
+        return self._granola_call("disconnect")
 
     # ── Account (src/account.py; the page is ui/account.js) ─────────────────
     # Every method answers {"ok": bool, ...} and never raises; a refusal is

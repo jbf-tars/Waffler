@@ -139,3 +139,30 @@ body:not([data-page="home"]) .j-ask { display: none; }
 .settings-panel .row-d.cl-cmd { font: 400 12px/1.5 var(--f-mono, ui-monospace, Menlo, Consolas, monospace); overflow-wrap: anywhere; user-select: text; -webkit-user-select: text; }
 .settings-panel .row-d.cl-block { white-space: pre-wrap; margin-top: 8px; padding: 10px 12px; border-radius: 10px; background: var(--surface); }
 .cl-file { font-family: var(--f-mono, "Geist Mono", monospace); font-size: 12px; }
+
+/* ── Import from Granola (granola.js): one sheet over the window ────────────
+   Always the night colours, whatever the theme: one line, one button. */
+.gr { --gr-bg: #12100E; --gr-text: #F4F0EA; --gr-muted: #B3AA9E; --gr-line: rgba(244, 240, 234, 0.14);
+  position: fixed; inset: 0; z-index: 9500; display: flex; align-items: center; justify-content: center; padding: 32px;
+  background: var(--gr-bg); color: var(--gr-text); animation: modal-in var(--dur-fast) var(--ease-out); }
+.gr[hidden] { display: none; }
+.gr-in { width: min(640px, 100%); display: flex; flex-direction: column; align-items: center; text-align: center; }
+.gr-t { margin: 0; font: 600 44px/1.08 var(--f-display, "Geist", system-ui, sans-serif); letter-spacing: -0.035em; text-wrap: balance; outline: 0; }
+.gr-t.gr-long { font-size: 30px; line-height: 1.2; letter-spacing: -0.025em; }
+.gr-n { margin: 14px 0 0; font: 600 44px/1.08 var(--f-display, "Geist", system-ui, sans-serif); letter-spacing: -0.035em; color: var(--honey); font-variant-numeric: tabular-nums; }
+.gr-bar { width: min(320px, 100%); height: 3px; margin-top: 32px; border-radius: 2px; background: var(--gr-line); overflow: hidden; }
+.gr-bar i { display: block; width: 0; height: 100%; background: var(--honey); transition: width 0.3s var(--ease, ease); }
+.gr-s { margin: 14px 0 0; font: 400 17px/1.45 var(--f-ui); color: var(--gr-muted); }
+.gr-go { margin-top: 40px; height: 52px; padding: 0 30px; border: 0; border-radius: 999px; background: var(--gr-text); color: var(--gr-bg);
+  font: 600 16px var(--f-display, "Geist", system-ui, sans-serif); letter-spacing: -0.01em; cursor: pointer; transition: transform var(--dur-fast) var(--ease), opacity var(--dur-fast) var(--ease); }
+.gr-go:hover:not(:disabled) { transform: scale(1.03); }
+.gr-go:disabled { opacity: 0.5; cursor: default; }
+.gr-q { margin-top: 22px; padding: 6px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--gr-muted); font: 400 14px var(--f-ui); cursor: pointer; }
+.gr-q:hover { color: var(--gr-text); }
+.gr-x { position: absolute; top: 18px; right: 20px; width: 36px; height: 36px; border: 0; border-radius: 999px; background: transparent; color: var(--gr-muted);
+  font: 300 26px/1 var(--f-ui); cursor: pointer; }
+.gr-x:hover { color: var(--gr-text); background: var(--gr-line); }
+.gr-go:focus-visible, .gr-q:focus-visible, .gr-x:focus-visible { outline: 2px solid var(--honey); outline-offset: 3px; }
+.gr [hidden] { display: none; }
+@media (max-width: 620px) { .gr-t, .gr-n { font-size: 32px; } }
+@media (prefers-reduced-motion: reduce) { .gr, .gr-go, .gr-bar i { animation: none; transition: none; } }

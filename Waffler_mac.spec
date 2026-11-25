@@ -210,6 +210,12 @@ a = Analysis(
         'tempfile',
         'subprocess',
         'webbrowser',
+        # Import from Granola (src/meetings/granola_import.py): the listener the
+        # browser comes back to, and the rest it signs in and reads with.
+        'http.server',
+        'html',
+        'secrets',
+        'urllib.request',
     ],
     hookspath=[],
     hooksconfig={},

@@ -50,7 +50,7 @@ from pathlib import Path
 MODULES = (
     "meetings", "meetings.audioproc", "meetings.keys", "meetings.llm", "meetings.paths",
     "meetings.recorder", "meetings.service", "meetings.store", "meetings.sync",
-    "meetings.transcribe", "meetings_ctl", "meetings_bridge", "meeting_mic",
+    "meetings.transcribe", "meetings.granola_import", "meetings_ctl", "meetings_bridge", "meeting_mic",
     "local_stt", "local_stt_whispercpp", "local_stt_ct2", "local_llm", "local_llm_llamacpp",
     "account", "claude_connector", "try_it", "pill", "idle_pill", "user_messages",
 )
@@ -62,6 +62,7 @@ FILES = (
     "config.yaml", "prompts",
     "ui/index.html", "ui/app.js", "ui/logic.js", "ui/icons.js",
     "ui/account.js", "ui/claude.js", "ui/tryit.js", "ui/howitruns.js", "ui/meetings.js",
+    "ui/granola.js",
     "ui/tokens.css", "ui/components.css", "ui/style.css", "ui/setup.css", "ui/meetings.css",
     "ui/meetings-app/index.html",
 )

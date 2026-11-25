@@ -3514,6 +3514,40 @@
     return { text: 'On. Claude reads your meetings through the link you made. To copy it again, make a new link; the old one stops working.', buttons: ['new', 'off'] };
   }
 
+  // Import from Granola (granola.js): what the sheet says for where the
+  // import stands (Api.granola_status). One line, one button, and at most
+  // one quiet action; a count only while it runs.
+  //   { title, count, percent, note, primary, quiet }
+  // primary is 'import' | 'close' | '' and quiet 'cancel' | 'disconnect' | '',
+  // each with the words on it in primaryText and quietText.
+  const GRANOLA_OFFER = 'Bring your Granola meetings into Waffler.';
+  const GRANOLA_FAILED = 'That didn’t work. Try again.';
+  function granolaView(status) {
+    const s = status && typeof status === 'object' ? status : {};
+    const n = (v) => (Number.isFinite(v) && v > 0 ? Math.floor(v) : 0);
+    const done = n(s.done), total = n(s.total), failed = n(s.failed), on = s.connected === true;
+    const view = { title: GRANOLA_OFFER, count: '', percent: 0, note: '', primary: 'import',
+                   primaryText: on ? 'Import' : 'Connect Granola',
+                   quiet: on ? 'disconnect' : '', quietText: on ? 'Disconnect Granola' : '' };
+    const running = { primary: '', primaryText: '', quiet: 'cancel', quietText: 'Cancel' };
+    if (s.state === 'connecting') return Object.assign(view, running, { title: 'Approve in your browser.' });
+    if (s.state === 'importing') {
+      return Object.assign(view, running, { title: 'Importing.', count: total ? done + ' of ' + total : '',
+                                            percent: total ? Math.min(100, Math.round(100 * done / total)) : 0 });
+    }
+    if (s.state === 'done') {
+      const title = done === 1 ? '1 meeting imported.' : done ? done + ' meetings imported.'
+        : total ? 'No meetings imported.' : 'Granola has no meetings yet.';
+      return Object.assign(view, { title, note: failed ? failed + ' could not be read.' : '',
+                                   primary: 'close', primaryText: 'Done' });
+    }
+    if (s.state === 'error' || s.ok === false) {
+      return Object.assign(view, { title: (typeof s.error === 'string' && s.error) || GRANOLA_FAILED,
+                                   primaryText: 'Try again' });
+    }
+    return view;
+  }
+
   // A file or link dropped where nothing takes it would make the window open
   // it in place of Waffler, and pywebview gives every page it loads the bridge
   // to Python. So a drop no drop zone has taken is refused, with the "not
@@ -3584,6 +3618,6 @@
     accountView, accountDigits, accountCode, accountCodeReady, accountCodeLabel, accountCodeExample, accountBadCode, accountAgo, accountSyncLine, accountDeviceLine, accountClaudeView,
     ACCOUNT_RESEND_S, accountCodeLine, accountResendView, accountSignedInLine,
     accountSetupOffered, accountOfferView, accountDeleteStep, accountDeleteReady, accountConfirm,
-    blockStrayDrops,
+    blockStrayDrops, granolaView,
   };
 });

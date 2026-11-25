@@ -1087,7 +1087,8 @@
 
         <!-- Claude: one click lets Claude's desktop app read meetings and
              dictations (claude.js; Api.claude_status / _connect / _disconnect;
-             src/claude_connector.py). Read-only. -->
+             src/claude_connector.py). It reads, and files meetings into
+             folders; it never deletes or rewrites one. -->
         <section class="s-sec" id="secClaude" data-sec="claude" hidden>
           <h1 class="ptitle">Claude and other AI apps</h1>
           <p class="pdesc">Ask Claude about anything you recorded or dictated.</p>
@@ -1130,7 +1131,7 @@
             <button type="button" class="link-btn how-btn" id="claudeHowBtn" aria-expanded="false" aria-controls="claudeHow" onclick="toggleHow(this)">How it works<svg class="ic ic-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
             <div class="sheet how-body" id="claudeHow" hidden>
               <ul class="sc-rule-list">
-                <li>Claude, or another AI app, can read what you recorded and dictated, so you can ask it about any of it. It can only read. It cannot change or delete anything.</li>
+                <li>Claude, or another AI app, can read what you recorded and dictated, so you can ask it about any of it. It can file meetings into folders. It cannot rewrite or delete anything.</li>
                 <li>With Include my dictations on, Claude can read what you dictated as well as your meetings. Off, it reads meetings only.</li>
                 <li>After you connect or disconnect, quit Claude and open it again.</li>
                 <li>Most AI apps take the last block in their MCP settings.</li>
@@ -2058,6 +2059,24 @@
   </nav>
 </div>
 
+<!-- Import from Granola: one sheet over the window, opened from the Meetings
+     tab's "Import from Granola" (granola.js puts that button beside Import
+     audio). Always dark, whatever the theme. What it says for each state is
+     L.granolaView (logic.js); Python: Api.granola_* (app.py),
+     src/meetings/granola_import.py. -->
+<div class="gr" id="granolaSheet" role="dialog" aria-modal="true" aria-labelledby="grTitle" hidden>
+  <button type="button" class="gr-x" id="grClose" aria-label="Close">&times;</button>
+  <div class="gr-in">
+    <h2 class="gr-t" id="grTitle" tabindex="-1">Bring your Granola meetings into Waffler.</h2>
+    <p class="gr-n" id="grCount" hidden></p>
+    <div class="gr-bar" id="grBar" hidden><i id="grFill"></i></div>
+    <p class="gr-s" id="grNote" hidden></p>
+    <button type="button" class="gr-go" id="grGo">Connect Granola</button>
+    <button type="button" class="gr-q" id="grQuiet" hidden>Cancel</button>
+    <p class="sr-only" id="grLive" role="status" aria-live="polite"></p>
+  </div>
+</div>
+
 <!-- Toast -->
 <!-- An ink pill at the bottom centre (top centre over setup). -->
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
@@ -2067,6 +2086,7 @@
 <script src="app.js"></script>
 <script src="meetings.js"></script>
 <script src="howitruns.js"></script>
+<script src="granola.js"></script>
 <script src="claude.js"></script>
 <script src="account.js"></script>
 <script src="tryit.js"></script>
