@@ -323,6 +323,23 @@ MODEL_RATES = {
         "whisper": {"model": "waffler-plus", "per_minute": 0.0, "verified": True,
                     "source": "the account's plan"},
     },
+    # The model on this computer (src/local_stt.py, src/local_llm.py): no key
+    # and no bill. Recorded as "local"; "ondevice" is the styler's word for
+    # the same. Before 4.0.1 neither was here, so _rate_for fell back to
+    # OpenAI's rate and a dictation done on this computer was logged as if it
+    # had cost money (get_usage_stats leaves those older rows out of totals).
+    "local": {
+        "whisper": {"model": "on this computer", "per_minute": 0.0, "verified": True,
+                    "source": "this computer"},
+        "gpt":     {"model": "on this computer", "in_per_1m": 0.0, "out_per_1m": 0.0,
+                    "verified": True, "source": "this computer"},
+    },
+    "ondevice": {
+        "whisper": {"model": "on this computer", "per_minute": 0.0, "verified": True,
+                    "source": "this computer"},
+        "gpt":     {"model": "on this computer", "in_per_1m": 0.0, "out_per_1m": 0.0,
+                    "verified": True, "source": "this computer"},
+    },
     "cerebras": {
         # Cerebras now publishes its gpt-oss-120b rate: $0.35 in, $0.75 out
         # (inference-docs.cerebras.ai/models/openai-oss, checked 2026-10-29).
@@ -4765,14 +4782,17 @@ class Api:
         by_provider: dict = {}
 
         for entry in usage:
-            cost = entry.get("cost_usd", 0)
+            provider = (entry.get("provider") or "unknown").lower()
+            # Done on this computer ("local", "ondevice"; MODEL_RATES): free,
+            # whatever an older row says it cost (before 4.0.1 these were
+            # priced at OpenAI's rate).
+            cost = 0.0 if provider in ("local", "ondevice") else entry.get("cost_usd", 0)
             total_cost += cost
             purpose = entry.get("purpose")
             if purpose == "transform":
                 transform_cost += cost
                 transform_count += 1
             etype = entry.get("type")
-            provider = (entry.get("provider") or "unknown").lower()
             if purpose == "command":
                 command_cost += cost
                 if etype == "gpt":
