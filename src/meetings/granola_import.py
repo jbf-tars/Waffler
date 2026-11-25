@@ -54,6 +54,9 @@ SOURCE = "Granola"                    # Store.import_external's `source`: part o
 TOKEN_FILE = "granola.json"           # in the data folder, mode 600
 STATE_FILE = "granola_import.json"    # which meetings are in, and Granola's date for each
 CLIENT_NAME = "Waffler"
+# Shown on the approval page beside the name: without a logo it is a grey letter.
+CLIENT_URI = "https://wafflerai.com"
+CLIENT_LOGO = "https://wafflerai.com/logo-icon.png"
 PROTOCOL = "2025-06-18"
 BROWSER_WAIT_S = 300.0                # how long the person has to approve in the browser
 TIMEOUT_S = 30.0
@@ -395,7 +398,8 @@ def _approve(found: dict, scope: str, cancel: threading.Event, resource: str, op
     try:
         redirect = f"http://127.0.0.1:{server.server_address[1]}/callback"
         status, client = _fetch("POST", found["registration_endpoint"], data={
-            "client_name": CLIENT_NAME, "redirect_uris": [redirect],
+            "client_name": CLIENT_NAME, "client_uri": CLIENT_URI, "logo_uri": CLIENT_LOGO,
+            "redirect_uris": [redirect],
             "grant_types": ["authorization_code", "refresh_token"], "response_types": ["code"],
             "token_endpoint_auth_method": "none", **({"scope": scope} if scope else {})})
         if status not in (200, 201) or not isinstance(client.get("client_id"), str) or not client["client_id"]:
