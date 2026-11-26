@@ -3091,6 +3091,22 @@ class WhisperTranscriber:
             return getattr(self, "_groq_client", None) is not None
         return prov == "openai" and getattr(self, "client", None) is not None
 
+    def set_groq_key(self, key: str) -> None:
+        """A Groq key saved in Settings, used from the next recording, with no
+        restart (app.py _use_new_key_now). A new key also clears the pause an
+        old one earned; an empty one leaves Groq out."""
+        key = (key or "").strip()
+        self.groq_api_key = key
+        self._groq_client = (_groq_mod.Groq(api_key=key, timeout=_TRANSCRIBE_TIMEOUT_S, max_retries=0)
+                             if key and _groq_mod else None)
+        self._groq_skip_until = 0.0
+        provider = "groq" if self._groq_client is not None else "api"
+        if getattr(self, "_cloud_backend", "api") in ("groq", "api"):
+            self._cloud_backend = provider
+        if getattr(self, "_backend", "api") in ("groq", "api"):
+            self._backend = provider
+        self._refresh_backend()
+
     def _skip_until(self, prov: str) -> float:
         return getattr(self, f"_{prov}_skip_until", 0.0)
 

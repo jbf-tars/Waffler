@@ -583,18 +583,7 @@ class OpenAIStyler:
             # Cerebras uses here - so both fast providers speak the same
             # dialect and the prompt behaves consistently across them.
             # Overridable without a release, mirroring OPENAI_STYLE_MODEL.
-            _primary_model = (
-                _os.getenv("GROQ_STYLE_MODEL", "").strip() or "openai/gpt-oss-120b"
-            )
-            # The models tried in order: today's, then an optional backup for
-            # when Groq retires it. No backup is set by default (a replacement
-            # needs the corpus first, see tests/test_groq_model_chain.py), so
-            # the tuple only grows for someone who sets the variable. When
-            # Groq says a model is gone the styler moves down the tuple and
-            # keeps the one that answers (_groq_model_gone).
-            _backup_model = _os.getenv("GROQ_STYLE_FALLBACK_MODEL", "").strip()
-            self._groq_models = (_primary_model,) + (
-                (_backup_model,) if _backup_model and _backup_model != _primary_model else ())
+            self._groq_models = self._groq_model_chain()
             self._groq_model = self._groq_models[0]
             print(f"Styling fallback: Groq {self._groq_model}")
         elif not self._use_cerebras:
@@ -1706,6 +1695,47 @@ Transcript: {transcript}"""
         extra = {"purpose": purpose} if name in ("groq", "cerebras") else {}
         return send(system, user, max_tokens=max_tokens, temperature=temperature,
                     json_mode=json_mode, deadline=deadline, **extra)
+
+    @staticmethod
+    def _groq_model_chain() -> tuple:
+        """The Groq models tried in order. Overridable without a release,
+        mirroring OPENAI_STYLE_MODEL: today's, then an optional backup for
+        when Groq retires it. No backup is set by default (a replacement
+        needs the corpus first, see tests/test_groq_model_chain.py), so the
+        tuple only grows for someone who sets the variable. When Groq says a
+        model is gone the styler moves down the tuple and keeps the one that
+        answers (_groq_model_gone)."""
+        import os as _os
+        primary = _os.getenv("GROQ_STYLE_MODEL", "").strip() or "openai/gpt-oss-120b"
+        backup = _os.getenv("GROQ_STYLE_FALLBACK_MODEL", "").strip()
+        return (primary,) + ((backup,) if backup and backup != primary else ())
+
+    def set_groq_key(self, key: str) -> None:
+        """A Groq key saved in Settings, used from the next clean-up, with no
+        restart (app.py _use_new_key_now). A new key also clears the pause an
+        old one earned; an empty one leaves Groq out."""
+        key = (key or "").strip()
+        self.groq_api_key = key
+        self._groq_client = (_groq_mod.Groq(api_key=key, timeout=_STYLE_TIMEOUT_S, max_retries=0)
+                             if key and _groq_mod else None)
+        self._use_groq = self._groq_client is not None
+        self._groq_skip_until = 0.0
+        if self._use_groq and not getattr(self, "_groq_models", None):
+            self._groq_models = self._groq_model_chain()
+            self._groq_model = self._groq_models[0]
+
+    def set_cerebras_key(self, key: str) -> None:
+        """A Cerebras key saved in Settings, used from the next clean-up, with
+        no restart: the same client __init__ makes, with the new key."""
+        import os as _os
+        key = (key or "").strip()
+        self.cerebras_api_key = key
+        self._cerebras_client = (OpenAI(api_key=key, base_url="https://api.cerebras.ai/v1",
+                                        timeout=_STYLE_TIMEOUT_S, max_retries=0) if key else None)
+        self._use_cerebras = self._cerebras_client is not None
+        self._cerebras_skip_until = 0.0
+        if self._use_cerebras and not getattr(self, "_cerebras_model", None):
+            self._cerebras_model = _os.getenv("CEREBRAS_MODEL", "").strip() or "gpt-oss-120b"
 
     def _provider_ready(self, name: str) -> bool:
         """Is there a key (and, for Groq and Cerebras, a client) for ``name``?"""

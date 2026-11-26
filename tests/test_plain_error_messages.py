@@ -124,6 +124,7 @@ def _api_method(name):
         "UPDATE_INSTALL_FAILED": um.UPDATE_INSTALL_FAILED,
         "DOWNLOAD_PAGE": um.DOWNLOAD_PAGE,
         "_first_run": first_run,
+        "_use_new_key_now": lambda provider, key: None,   # no pipeline running here
     }
     exec(compile(ast.Module([fn], []), "<app.py>", "exec"), ns)
     return ns[name], logged
