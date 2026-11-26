@@ -968,7 +968,11 @@ def _plus_refusal(status: int, body, headers, token: str, what: str) -> AccountE
                     "model_chars_cap": WRITING_CAP, "month_used": PLUS_MONTH_USED}.get(code)
         return AccountError(sentence, code) if sentence else AccountError(ALLOWANCE_USED, "over_allowance")
     if status == 429:
-        e = AccountError(TRANSCRIBE_TOO_OFTEN if what == "transcribe" else WRITE_TOO_OFTEN, "too_many")
+        # "plus_burst" is the service's own hourly cap on Plus requests, not
+        # a minute's rate: its own reason, so a meeting can go another way
+        # meanwhile (src/meetings). The sentence is the same.
+        e = AccountError(TRANSCRIBE_TOO_OFTEN if what == "transcribe" else WRITE_TOO_OFTEN,
+                         "plus_burst" if code == "plus_burst" else "too_many")
         e.wait_s = _retry_after(headers)
         return e
     if what == "write":

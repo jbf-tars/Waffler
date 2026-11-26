@@ -117,6 +117,19 @@ def _fresh_history_state():
 
 
 @pytest.fixture(autouse=True)
+def _plus_not_resting():
+    """After a fault on Waffler Plus's side a meeting rests Plus for some
+    minutes (src/meetings/transcribe.py). That is kept in memory for a run:
+    a test must not start with Plus resting from the one before."""
+    import sys
+    for name in ("meetings.transcribe", "src.meetings.transcribe"):
+        mod = sys.modules.get(name)
+        if mod is not None:
+            mod._rest_until.clear()
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _fresh_audio_guard():
     """A bounded audio call a test left stuck (a fake CoreAudio that never
     answers) is remembered process-wide, and while one is, the next bounded call

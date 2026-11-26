@@ -125,7 +125,7 @@ def test_meetings_on_plus_and_on_this_computer_send_it_too(monkeypatch, setting,
     audio = _voice(3.0)
     plus = []
     monkeypatch.setattr(mt, "uses_plus", lambda: True)
-    monkeypatch.setattr(mt, "_transcribe_plus", lambda a, lang: plus.append(lang) or [])
+    monkeypatch.setattr(mt, "_transcribe_plus", lambda a, lang, **k: plus.append(lang) or [])
     mt.transcribe(audio, {"language": setting})
     assert plus == [sent]
     monkeypatch.setattr(mt, "uses_plus", lambda: False)

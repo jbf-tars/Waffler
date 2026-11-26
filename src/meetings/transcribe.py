@@ -7,7 +7,10 @@ first (the pipeline Waffler uses: FLAC upload, verbose segments), OpenAI as the
 fallback. And when Waffler Plus is the chosen way and the account has it
 (src/account.py), the account service does it, with no key and no model here:
 it takes a meeting in parts of PLUS_PART_S, so the recorder hands those over
-instead of chunks (`part_seconds`). The end-of-audio rule is Waffler's: Whisper
+instead of chunks (`part_seconds`). When the service fails on its own side
+(SERVICE_FAULTS) a meeting goes the way it would have without Plus, as a
+dictation does, and with nothing else to use its audio waits, to try again
+(PLUS_DOWN). The end-of-audio rule is Waffler's: Whisper
 invents "Thank you." and channel outros over silence, so a segment that is
 only a thanks, a sign-off or an outro is dropped when the audio under it has
 no voice or the model itself says nothing was said. Real thanks, said aloud,
@@ -31,8 +34,10 @@ from .audioproc import RATE, to_flac, voiced_between, voiced_mask, window_rms
 try:
     import languages            # the app's own copy: src/ is on its path
     import local_stt
+    from log_util import log as _log
 except ImportError:
     from src import languages, local_stt
+    from src.log_util import log as _log
 
 MIN_VOICED_S = 0.3              # less voice than this in a chunk: not uploaded
 _NO_SPEECH_PROB = 0.5
@@ -291,27 +296,98 @@ def uses_plus() -> bool:
         return False
 
 
-def part_seconds() -> float:
+# ── Waffler Plus failing on its own side ─────────────────────────────────────
+#
+# The account service's reasons (src/account.py) that are its own fault, not
+# the person's: a 5xx (its provider key missing or refused, its server-wide
+# spend ceiling, its queues full, a provider failing in passing, a part that
+# ran out of time, its disk full) and "plus_burst", its hourly cap on Plus
+# requests. On 26 Nov its provider key was refused and every meeting failed.
+# A dictation then goes another way (src/transcribe_whisper.py); so does a
+# meeting: the person's key, else the model on this computer. The plan, the
+# allowance, signing out and no internet are not in this list: those keep
+# the service's own sentence, and the audio waits as before.
+SERVICE_FAULTS = frozenset({"busy", "transcribe_failed", "transcribe_timeout", "server_full",
+                            "write_failed", "plus_burst"})
+# After such a fault Plus rests this long for that job (written down, or
+# written): what comes in between goes the other way at once instead of
+# waiting on Plus first. Then it is tried again by itself. As for a dictation.
+PLUS_REST_S = 300.0
+_rest_until: dict[str, float] = {}
+# What a meeting says when Plus failed on its side and there is nothing else
+# to write it down with. The audio waits, and "Try again" is beside it.
+PLUS_DOWN = "Waffler Plus isn't working right now. The recording is saved, so try again later."
+
+
+def rest_plus(job: str) -> None:
+    """Plus failed on its side for `job` ("transcribe" or "write"): rest it."""
+    _rest_until[job] = time.monotonic() + PLUS_REST_S
+
+
+def plus_resting(job: str) -> bool:
+    return time.monotonic() < _rest_until.get(job, 0.0)
+
+
+def _local_model_ready() -> bool:
+    """Is the speech model on this computer downloaded, in a build that has
+    the engine, whatever the setting says? Loads nothing. Never raises."""
+    try:
+        return bool(local_stt.is_available() and local_stt._is_ready(local_stt.selected_model()))
+    except Exception:           # noqa: BLE001
+        return False
+
+
+def fallback_way(settings: dict | None = None) -> str:
+    """What writes a meeting down when Waffler Plus cannot: "local" or
+    "key", or "" when there is nothing. The way the setting says when that
+    can work (the model on this computer, which then never becomes a cloud
+    service; or a key); with no key, the model on this computer if it is
+    downloaded. The same rule as a dictation's (_leave_plus). Never raises."""
+    try:
+        if uses_local(settings):
+            return "local" if local_ready(settings) else ""
+        if any(keys.get_key(p) for p in ("groq", "openai")):
+            return "key"
+    except Exception:           # noqa: BLE001
+        return ""
+    return "local" if _local_model_ready() else ""
+
+
+def plus_for_now(settings: dict | None = None) -> bool:
+    """Does Waffler Plus write this down? It is the chosen way and there to
+    use, and not resting after a fault on its side with another way to go."""
+    return uses_plus() and not (plus_resting("transcribe") and fallback_way(settings))
+
+
+def part_seconds(settings: dict | None = None) -> float:
     """How much audio `transcribe` is handed at once. 0: chunk by chunk, as it
     is recorded. With Waffler Plus, PLUS_PART_S: the chunks wait on disk and
     go when the recording has ended, joined into parts (recorder.finish_waiting)."""
-    return PLUS_PART_S if uses_plus() else 0.0
+    return PLUS_PART_S if plus_for_now(settings) else 0.0
 
 
-def _transcribe_plus(audio: np.ndarray, language: str) -> list[dict]:
+def _transcribe_plus(audio: np.ndarray, language: str, can_fall_back: bool = False) -> list[dict]:
     """One part of a meeting, written down by the account service (POST
     /api/plus/transcribe). No key is read and no model here is asked. Too
-    many in a minute: it waits as long as the service says, twice at most.
-    Any other refusal is its one sentence (src/account.py), and is never
-    retried with a key: the audio is kept, to try again."""
+    many in a minute: it waits as long as the service says, twice at most
+    (so does the service's hourly cap when there is nothing else to use).
+    A fault on the service's side (SERVICE_FAULTS) rests Plus and raises
+    kind "plus_down" with PLUS_DOWN, for the caller to go another way. Any
+    other refusal is its one sentence (src/account.py), kind "plus", and is
+    never retried with a key: the audio is kept, to try again."""
     acct = _account()
     flac = to_flac(audio)
     for attempt in range(3):
         answer = acct.transcribe(flac, language=language)
-        if answer.get("ok") or answer.get("reason") != "too_many" or attempt == 2:
+        reason = answer.get("reason")
+        waits = reason == "too_many" or (reason == "plus_burst" and not can_fall_back)
+        if answer.get("ok") or not waits or attempt == 2:
             break
         time.sleep(min(max(float(answer.get("wait_s") or 20.0), 1.0), 60.0))
     if not answer.get("ok"):
+        if answer.get("reason") in SERVICE_FAULTS:
+            rest_plus("transcribe")
+            raise TranscribeError(PLUS_DOWN, "plus_down")
         raise TranscribeError(str(answer.get("error") or acct.FAILED), "plus")
     return clean_segments([{"start": g["start_s"], "end": g["end_s"], "text": g["text"]}
                            for g in answer["segments"]], audio)
@@ -355,12 +431,18 @@ def _transcribe_local(audio: np.ndarray, settings: dict, language: str, backend)
     return clean_segments(raw, audio)
 
 
-def transcribe(audio: np.ndarray, settings: dict | None = None, backend=None) -> list[dict]:
+def transcribe(audio: np.ndarray, settings: dict | None = None, backend=None,
+               fall_back: bool = True) -> list[dict]:
     """16 kHz mono float32 → [{start_s, end_s, text}] (times within the chunk).
 
     Returns [] without calling anyone when the chunk holds no voice.
     With Waffler Plus the chosen way the account service does it (the audio
     is then a part of the meeting, up to PLUS_PART_S): no key, no model here.
+    When it fails on its own side (SERVICE_FAULTS) this audio goes the way
+    fallback_way says, or, with nothing there, TranscribeError kind
+    "plus_down" says so (PLUS_DOWN) and the audio is kept. `fall_back` False
+    raises "plus_down" even when there is a way: recorder.finish_waiting
+    then sends the rest chunk by chunk, not a whole part at once.
     With Waffler's `transcription_mode` "local" (or `transcribe_provider`
     "local") the model on this computer does it (src/local_stt.py): no key, no
     network, and no fallback to the cloud.
@@ -374,7 +456,18 @@ def transcribe(audio: np.ndarray, settings: dict | None = None, backend=None) ->
     language = languages.resolve(settings.get("language")) or ""
     preferred = settings.get("transcribe_provider") or "groq"
     if uses_plus():
-        return _transcribe_plus(audio, language)
+        way = fallback_way(settings)
+        if not (plus_resting("transcribe") and way):
+            try:
+                return _transcribe_plus(audio, language, can_fall_back=bool(way))
+            except TranscribeError as e:
+                way = fallback_way(settings)
+                if e.kind != "plus_down" or not fall_back or not way:
+                    raise
+                _log(f"[meetings] Waffler Plus failed on its side: written down with "
+                     f"{'the model on this computer' if way == 'local' else 'your key'}")
+        if way == "local":
+            return _transcribe_local(audio, settings, language, backend)
     if uses_local(settings):
         return _transcribe_local(audio, settings, language, backend)
     order = [preferred] + [p for p in ("groq", "openai") if p != preferred]

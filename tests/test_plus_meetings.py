@@ -311,12 +311,11 @@ def test_the_page_can_ask_for_notes_and_never_hears_notes_need_a_key(plus):
     ((402, "You have used this month's Waffler Plus.", "month_used"), account.PLUS_MONTH_USED),
     ((413, "That recording is too large.", "audio_too_large"), account.DICTATE_TOO_LARGE),
     ((400, "That file is not audio."), account.DICTATE_UNREADABLE),
-    ((503, "The transcription failed.", "transcribe_failed", {"Retry-After": "5"}), account.TRANSCRIBE_FAILED),
-    ((504, "Send it in shorter parts.", "transcribe_timeout"), account.TRANSCRIBE_TIMEOUT),
-    ((507, "The server is full.", "server_full"), account.PLUS_FULL),
-    ((503, "Busy.", "", {"Retry-After": "5"}), account.TRANSCRIBE_BUSY),
 ])
 def test_a_recording_the_service_refuses_keeps_its_audio_and_says_why(plus, refusal, sentence):
+    """The plan, the allowance, the recording itself: the service's own
+    sentence, and no key is used instead. (A fault on the service's own
+    side goes another way: tests/test_plus_meetings_service_fault.py.)"""
     plus.transcribe_refusals = [refusal]
     service = Service(store=Store())
     note = _meeting(service)
@@ -354,7 +353,6 @@ def test_too_many_in_a_minute_waits_as_long_as_the_service_says_and_goes_on(plus
     ((402, "Too many characters today.", "model_chars_cap"), account.WRITING_CAP),
     ((413, "Too many characters.", "too_long"), account.TOO_LARGE),
     ((422, "The model declined.", "write_refused"), account.WRITE_REFUSED),
-    ((503, "The model could not be reached.", "write_failed"), account.WRITE_FAILED),
 ])
 def test_notes_the_service_refuses_leave_the_transcript_and_one_sentence(plus, refusal, sentence):
     plus.write_refusals = [refusal]
@@ -393,13 +391,21 @@ def test_the_allowance_ending_part_way_through_the_notes_keeps_the_transcript(pl
 
 # ── a failure part-way, and trying again ─────────────────────────────────────
 
+def _no_keys(monkeypatch):
+    """Nothing here but Plus: no key, and no model on this computer."""
+    for name in KEYS:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(mt, "_local_model_ready", lambda: False)
+
+
 def test_a_part_that_fails_keeps_what_went_before_and_only_the_rest_is_sent_again(plus, monkeypatch):
+    _no_keys(monkeypatch)                              # nothing else to write it down with
     monkeypatch.setattr(mt, "PLUS_PART_S", 60.0)
     plus.hear = lambda seconds, n: [{"start_s": 1.0, "end_s": 2.0, "text": f"Upload {n} speaking."}]
     plus.transcribe_refusals = [None, (503, "The transcription failed.", "transcribe_failed")]
     service = Service(store=Store())
     note = _meeting(service, _speech(150.0))
-    assert note["status"] == "ready" and note["error"] == account.TRANSCRIBE_FAILED
+    assert note["status"] == "ready" and note["error"] == mt.PLUS_DOWN
     assert [s["text"] for s in note["segments"]] == ["Upload 1 speaking."], "the first part is not lost"
     assert plus.writes == [], "no notes from half a meeting"
     kept = len(list(paths.audio_dir(note["id"]).glob("*.flac")))
@@ -417,6 +423,7 @@ def test_a_part_that_fails_keeps_what_went_before_and_only_the_rest_is_sent_agai
 
 
 def test_trying_again_while_it_still_fails_keeps_everything_and_writes_no_notes(plus, monkeypatch):
+    _no_keys(monkeypatch)
     monkeypatch.setattr(mt, "PLUS_PART_S", 60.0)
     refuse = (503, "The transcription failed.", "transcribe_failed")
     plus.transcribe_refusals = [None, refuse, refuse]
@@ -425,7 +432,7 @@ def test_trying_again_while_it_still_fails_keeps_everything_and_writes_no_notes(
     waiting = _waiting(note["id"])
     service.enhance(note["id"], wait=True)
     after = service.store.get_note(note["id"], with_segments=True)
-    assert after["error"] == account.TRANSCRIBE_FAILED and after["status"] == "ready"
+    assert after["error"] == mt.PLUS_DOWN and after["status"] == "ready"
     assert len(after["segments"]) == 1 and after["summary"] == "" and _waiting(note["id"]) == waiting
     assert plus.writes == []
 

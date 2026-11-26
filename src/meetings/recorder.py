@@ -816,22 +816,31 @@ def finish_waiting(store, note_id: str, backend=None, progress=None) -> int:
     way the engine would have. A part that is written down stops waiting at
     once, so when one fails (TranscribeError, raised here) the parts before it
     are kept and only the rest is sent on the next try. `progress(i, n)` is
-    called before part i of n."""
+    called before part i of n.
+
+    Plus failing on its own side (TranscribeError "plus_down") with another
+    way there (a key, the model on this computer): Plus rests, and what is
+    still waiting is written down that way, a chunk at a time, as it would
+    have been without Plus. With no other way the error is raised and the
+    audio keeps waiting, to try again."""
     settings = store.settings()
     keep = settings.get("keep_audio", True)
-    parts = _parts(waiting_files(note_id), part_seconds())
-    total = 0
-    for i, (session_n, start_s, sources) in enumerate(parts, 1):
+    total, done = 0, 0
+    while True:
+        # Worked out again for each part: after a fault the rest go in chunks.
+        parts = _parts(waiting_files(note_id), part_seconds(settings))
+        if not parts:
+            return total
+        session_n, start_s, sources = parts[0]
         if progress is not None:
-            progress(i, len(parts))
-        per_source: dict[str, list[dict]] = {}
-        for source, chunks in sources.items():
-            audio, spans = _packed(chunks, start_s)
-            segs = transcribe(audio, settings, backend=backend)
-            per_source[source] = [
-                {"start_s": start_s + unpacked(s["start_s"], spans),
-                 "end_s": start_s + max(unpacked(s["end_s"], spans, end=True), unpacked(s["start_s"], spans)),
-                 "text": s["text"], "source": source, "session_n": session_n} for s in segs]
+            progress(done + 1, done + len(parts))
+        try:
+            per_source = _write_part(sources, start_s, session_n, settings, backend)
+        except TranscribeError as e:
+            if e.kind == "plus_down" and not part_seconds(settings):
+                continue                       # Plus rests now: this part again, the other way
+            raise
+        done += 1
         if "mic" in per_source and "system" in per_source:
             per_source["mic"] = drop_echo(per_source["mic"], per_source["system"])
         for segs in per_source.values():
@@ -839,7 +848,20 @@ def finish_waiting(store, note_id: str, backend=None, progress=None) -> int:
         for chunks in sources.values():
             for _, f in chunks:
                 _written(f, keep)
-    return total
+
+
+def _write_part(sources: dict, start_s: float, session_n: int, settings: dict, backend) -> dict:
+    """One part's sources written down, each line's times put back on the
+    note's clock. Nothing is stored here."""
+    per_source: dict[str, list[dict]] = {}
+    for source, chunks in sources.items():
+        audio, spans = _packed(chunks, start_s)
+        segs = transcribe(audio, settings, backend=backend, fall_back=False)
+        per_source[source] = [
+            {"start_s": start_s + unpacked(s["start_s"], spans),
+             "end_s": start_s + max(unpacked(s["end_s"], spans, end=True), unpacked(s["start_s"], spans)),
+             "text": s["text"], "source": source, "session_n": session_n} for s in segs]
+    return per_source
 
 
 def retranscribe(store, note_id: str, backend=None, progress=None) -> int:
@@ -848,7 +870,7 @@ def retranscribe(store, note_id: str, backend=None, progress=None) -> int:
     if not files:
         return 0
     settings = store.settings()
-    if part_seconds():
+    if part_seconds(settings):
         # Waffler Plus takes it in parts: every chunk waits again and is
         # written down part by part (finish_waiting).
         for f in files:
