@@ -19,12 +19,10 @@ soundfile>=0.12.1
 # Windows records the microphone only (SystemSource.supported() is False).
 PyAudioWPatch>=0.2.12
 
-# ── Meetings: two libraries imported inside functions (src/meetings) ──
-# Import audio (src/meetings/service.py load_any_audio): soundfile cannot read
-# m4a, which is what an iPhone voice memo is, so those go through ffmpeg. The
-# wheel carries an ffmpeg program of its own (about 50 MB); without it "Import
-# audio" refuses those files unless the person happens to have ffmpeg.
-imageio-ffmpeg>=0.6.0
+# ── Meetings: a library imported inside functions (src/meetings) ──
+# (Import audio of what soundfile cannot read, m4a above all, goes through an
+# LGPL FFmpeg fetched on first use, src/audio_decoder_pack.py; imageio-ffmpeg,
+# whose program is a GPL build, is no longer installed or bundled.)
 # Meeting notes written by Anthropic's models (src/meetings/llm.py), when the
 # person chooses Anthropic. Without it that choice fails at the import.
 anthropic>=2.0.0

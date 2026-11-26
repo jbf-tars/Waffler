@@ -99,8 +99,9 @@ jobs:
 
       - name: Self-check (every part is in the build)
         # Asked of the built app itself, with no window: the on-device speech
-        # engine, anthropic and the ffmpeg for Import audio among them. The
-        # writing engine comes down with the model on Windows, and says so.
+        # engine and anthropic among them. The writing engine comes down with
+        # the model on Windows, and Import audio's converter on first use
+        # (src/audio_decoder_pack.py); both say so.
         shell: pwsh
         run: |
           $env:WAFFLER_DATA_DIR = Join-Path $env:RUNNER_TEMP "self-check-data"

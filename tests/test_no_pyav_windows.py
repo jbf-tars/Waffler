@@ -76,6 +76,17 @@ def test_the_spec_leaves_pyav_out_and_runs_the_stand_in_before_the_app():
     assert "'av'" not in ast.unparse(_KW["hiddenimports"])
 
 
+def test_the_build_carries_no_ffmpeg_of_its_own():
+    """imageio-ffmpeg's program is gyan.dev's GPL build. Import audio's
+    converter is an LGPL FFmpeg fetched on first use (src/audio_decoder_pack.py),
+    so the package is neither installed for the build nor collected from a
+    build environment that still has it (excluded, as the Mac spec does)."""
+    reqs = (ROOT / "requirements_windows.txt").read_text(encoding="utf-8")
+    assert not [line for line in reqs.splitlines() if line.strip().lower().startswith("imageio-ffmpeg")]
+    assert "'imageio_ffmpeg'" not in ast.unparse(_KW["hiddenimports"])
+    assert "imageio_ffmpeg" in [e.value for e in _KW["excludes"].elts]
+
+
 def _keep_portaudio():
     fn = next(n for n in _TREE.body if isinstance(n, ast.FunctionDef) and n.name == "_keep_portaudio")
     ns = {}

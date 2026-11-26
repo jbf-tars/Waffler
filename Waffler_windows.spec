@@ -88,11 +88,9 @@ a = Analysis(
         # Meetings: the computer's sound through WASAPI loopback, imported
         # inside functions in src/meetings/recorder.py (SystemSource).
         'pyaudiowpatch',
-        # Meetings, also imported inside functions. Import audio that
-        # soundfile cannot read (m4a): the wheel's own ffmpeg program, which
-        # pyinstaller-hooks-contrib's hook-imageio_ffmpeg collects from
-        # imageio_ffmpeg/binaries. And meeting notes by Anthropic's models.
-        'imageio_ffmpeg',
+        # Meetings, also imported inside functions: meeting notes by
+        # Anthropic's models. (Import audio's converter is not bundled: an
+        # LGPL FFmpeg comes on first use, src/audio_decoder_pack.py.)
         'anthropic',
         # ── UI ──
         'webview',
@@ -185,6 +183,10 @@ a = Analysis(
         # faster_whisper/audio.py makes is met by hooks/rthook_no_pyav.py.
         # About 67 MB saved (tests/test_no_pyav_windows.py).
         'av',
+        # imageio-ffmpeg's program is a GPL build of FFmpeg. Import audio's
+        # converter is an LGPL one fetched on first use, so this is never
+        # collected, even from a build venv that still has the package.
+        'imageio_ffmpeg',
     ],
     noarchive=False,
 )
