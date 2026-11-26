@@ -3642,6 +3642,26 @@ class Api:
                          name="PipelineInitSetup").start()
         return {"ok": True}
 
+    def open_licences(self) -> dict:
+        """Settings > About > Licences: the bundled THIRD-PARTY-NOTICES.txt
+        (src/notices.py), opened in the computer's text viewer."""
+        try:
+            import notices as _notices
+            path = _notices.notices_path()
+            if path is None:
+                return {"ok": False, "error": "The licences file isn't in this copy of Waffler."}
+            import subprocess
+            if _platform.system() == "Darwin":
+                subprocess.Popen(["/usr/bin/open", "-t", str(path)])
+            elif _platform.system() == "Windows":
+                os.startfile(str(path))
+            else:
+                return {"ok": False, "error": f"The licences are in {path}."}
+            return {"ok": True}
+        except Exception as e:
+            _log_to_file(f"[about] licences did not open: {e}")
+            return {"ok": False, "error": "Couldn't open the licences."}
+
     def open_practice_editor(self) -> dict:
         """Open Notepad (Windows) or TextEdit (Mac), an empty page to dictate
         into, with the real hotkey already listening."""

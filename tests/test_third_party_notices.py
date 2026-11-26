@@ -124,3 +124,15 @@ def test_the_generator_check_passes():
     r = subprocess.run([sys.executable, str(ROOT / "scripts" / "third_party_notices.py"), "--check"],
                        capture_output=True, text=True, cwd=ROOT, timeout=120)
     assert r.returncode == 0, r.stdout + r.stderr
+
+
+def test_settings_about_offers_the_licences():
+    """Settings > About has a Licences button that opens the bundled file."""
+    html = (ROOT / "ui" / "index.html").read_text(encoding="utf-8")
+    assert 'id="aboutLicences" data-onclick="openLicences()"' in html
+    js = (ROOT / "ui" / "app.js").read_text(encoding="utf-8")
+    assert "pywebview.api.open_licences()" in js
+    app = (ROOT / "app.py").read_text(encoding="utf-8")
+    fn = app[app.index("    def open_licences(self)"):]
+    fn = fn[:fn.index("\n    def ", 10)]
+    assert "_notices.notices_path()" in fn

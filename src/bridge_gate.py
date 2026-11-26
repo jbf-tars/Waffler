@@ -125,6 +125,7 @@ ALLOWED = frozenset({
     "open_accessibility_settings",
     "open_command_search",
     "open_input_monitoring_settings",
+    "open_licences",
     "open_keyboard_settings",
     "open_permission_settings",
     "open_practice_editor",

@@ -97,6 +97,8 @@ NOT_A_CONSOLE_ON_WINDOWS = {
     ("app.py", "open_url", "/usr/bin/open"): "Mac only",
     ("app.py", "open_url", "os.startfile"): "hands the link to the browser",
     ("app.py", "open_practice_editor", "/usr/bin/open"): "Mac only",
+    ("app.py", "open_licences", "/usr/bin/open"): "Mac only",
+    ("app.py", "open_licences", "os.startfile"): "hands the file to its viewer",
     ("app.py", "open_practice_editor", "notepad.exe"): "Notepad is a windowed program",
     ("app.py", "open_accessibility_settings", "open"): "Mac only",
     ("app.py", "open_input_monitoring_settings", "open"): "Mac only",

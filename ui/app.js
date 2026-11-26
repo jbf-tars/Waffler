@@ -7932,3 +7932,11 @@ const _ABOUT_LINKS = {
 function openAboutLink(which) {
   try { pywebview.api.open_url(_ABOUT_LINKS[which] || _ABOUT_LINKS.source); } catch (_) {}
 }
+
+// Settings > About > Licences: the third-party notices that ship with the app.
+async function openLicences() {
+  try {
+    const r = await pywebview.api.open_licences();
+    if (r && !r.ok) showToast(r.error || "Couldn't open the licences.", 'error');
+  } catch (_) { showToast("Couldn't open the licences.", 'error'); }
+}
