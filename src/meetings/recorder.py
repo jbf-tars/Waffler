@@ -98,8 +98,12 @@ class MicSource(Source):
 
     def start(self) -> None:
         import subprocess
+        # Hidden on Windows: in a build this is Waffler itself (windowed, so the
+        # flag changes nothing), but from source it is python.exe, a console
+        # program that would open a terminal window.
+        no_window = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
         proc = subprocess.Popen(self._command(), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE)
+                                stderr=subprocess.PIPE, creationflags=no_window)
         ready: dict = {}
 
         def read_status():

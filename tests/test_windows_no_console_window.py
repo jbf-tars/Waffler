@@ -114,8 +114,6 @@ NOT_A_CONSOLE_ON_WINDOWS = {
     ("src/updater.py", "_hdiutil_detach", "/usr/bin/hdiutil"): "Mac only",
     ("src/updater.py", "_install_macos", "/bin/bash"): "Mac only",
     ("src/wedge_recovery.py", "spawn_detached", "argv"): "Mac only (the relaunch script)",
-    ("src/meetings/recorder.py", "start", "self._command()"):
-        "Waffler itself with --meeting-mic, a windowed program in a build (python.exe from source)",
     ("src/meetings/recorder.py", "start", "cmd"): "Mac only (natter-sysaudio, MacSystemSource)",
     ("src/self_check.py", "check_audio_decoder", "decode.AFCONVERT"): "Mac only (makes the test m4a)",
 }
@@ -192,5 +190,8 @@ def test_the_windows_console_launches_are_all_hidden():
                  ("src/updater.py", "_install_windows"),                # the update helper
                  ("src/vpn_detect.py", "_run"),                          # route, netsh
                  ("src/overlay.py", "_start_process_locked"),            # the overlay
-                 ("src/meetings/audio_decode.py", "_run")]:              # Import audio's decoder
+                 ("src/meetings/audio_decode.py", "_run"),               # Import audio's decoder
+                 # The meeting's microphone: Waffler itself with --meeting-mic, a
+                 # windowed program in a build but python.exe from source.
+                 ("src/meetings/recorder.py", "start")]:
         assert site in hidden, site
