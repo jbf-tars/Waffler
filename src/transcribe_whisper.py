@@ -84,12 +84,19 @@ class PlusError(Exception):
 
 class _PlusGone(Exception):
     """The account no longer has Plus ("ended"), this computer is signed out
-    ("signed_out"), or the service could not be reached ("offline"): the
-    dictation goes the way it would have before. Plus stays the chosen way."""
+    ("signed_out"), the service could not be reached ("offline"), or it
+    failed on its own side, a 5xx ("unavailable"): the dictation goes the way
+    it would have before. Plus stays the chosen way."""
 
     def __init__(self, why: str, sentence: str):
         super().__init__(sentence)
         self.why, self.sentence = why, sentence
+
+
+# After a failure on the service's own side (its provider refused it, or it
+# broke), Plus rests this long: the dictations in between go the other way at
+# once instead of each waiting on Plus first. Then it is tried again by itself.
+PLUS_REST_S = 300.0
 
 
 try:
@@ -2859,6 +2866,9 @@ class WhisperTranscriber:
         if state in ("signed_out", "ended"):
             self._leave_plus(state)
             return
+        if time.monotonic() < getattr(self, "_plus_rest_until", 0.0):
+            self._leave_plus("unavailable")               # failed on its side a moment ago: resting
+            return
         if self._backend != BACKEND_LOCAL:
             self._cloud_backend = self._backend
         self._backend = BACKEND_PLUS
@@ -2898,7 +2908,12 @@ class WhisperTranscriber:
         if not answer.get("ok"):
             sentence = str(answer.get("error") or acct.FAILED)
             why = {"plus_required": "ended", "signed_out": "signed_out",
-                   "offline": "offline"}.get(answer.get("reason"))
+                   "offline": "offline", "busy": "unavailable"}.get(answer.get("reason"))
+            if why == "unavailable":
+                # A 5xx: the service's own fault (on 26 Nov its provider key
+                # was refused). Not the plan, not the allowance: this one goes
+                # the other way, and Plus rests a few minutes.
+                self._plus_rest_until = time.monotonic() + PLUS_REST_S
             if why:
                 raise _PlusGone(why, sentence)
             raise PlusError(sentence)

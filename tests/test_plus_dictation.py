@@ -169,13 +169,14 @@ def test_the_words_still_come_back_when_the_service_could_not_tidy(plus, monkeyp
 
 
 @pytest.mark.parametrize("refusal, sentence", [
-    ((503, "Busy.", "", {"Retry-After": "5"}), account.DICTATE_BUSY),
     ((402, "Used up.", "minutes_cap"), account.PLUS_MINUTES_USED),
     ((402, "Used up.", "month_used"), account.PLUS_MONTH_USED),
     ((429, "Too many."), account.DICTATE_TOO_OFTEN),
     ((413, "Too long.", "audio_too_long"), account.DICTATE_TOO_LONG),
 ])
 def test_a_refusal_is_raised_as_its_sentence_and_no_provider_is_tried(plus, monkeypatch, refusal, sentence):
+    # A 5xx is the service's own fault and goes on another way now
+    # (tests/test_plus_service_fault.py); these are about the plan and the allowance.
     plus.dictate_refusal = refusal
     t, cloud = transcriber(monkeypatch)
     with pytest.raises(tw.PlusError) as e:
@@ -282,15 +283,16 @@ def test_with_the_clean_up_off_the_words_go_in_as_heard(plus, monkeypatch):
 
 
 def test_a_refusal_keeps_the_recording_and_says_why_in_one_sentence(plus, monkeypatch):
-    plus.dictate_refusal = (503, "Busy.", "", {"Retry-After": "5"})
+    # A refusal about the plan (a 5xx goes on another way: tests/test_plus_service_fault.py).
+    plus.dictate_refusal = (402, "Used up.", "minutes_cap")
     p = dictate(pipeline(plus, monkeypatch))
     assert p.clipboard.pastes == [] and p.cloud.calls == 0
     entry = H.history(p)[-1]
     assert entry["failed"] and entry["unsent_id"] and Path(entry["audio_path"]).exists(), "nothing is lost"
     assert entry["provider_name"] == "Waffler Plus"
     (toast,) = p.overlay.toasts()
-    assert toast["body"] == account.DICTATE_BUSY + " Your recording is saved in the Journal."
-    assert p.stored == [], "Plus is still chosen: it was only busy"
+    assert toast["body"] == account.PLUS_MINUTES_USED + " Your recording is saved in the Journal."
+    assert p.stored == [], "Plus is still chosen: it was only this month's minutes"
     # Sent again later, it goes through Plus again, into its card.
     plus.dictate_refusal = None
     out = p.resend_unsent(entry["unsent_id"])

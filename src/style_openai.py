@@ -1662,8 +1662,9 @@ Transcript: {transcript}"""
         request, so the person's own providers are asked as before: Plus is
         not chosen; it has gone (the plan ended, or this computer was signed
         out; it stays the chosen way and is used again when it is back); or
-        the service could not be reached and there is a key to use for this
-        one request. Any other refusal is not retried with a key: it raises
+        the service could not be reached, or failed on its own side (a 5xx),
+        and there is a key to use for this one request. Any other refusal (the
+        plan, the allowance) is not retried with a key: it raises
         ``ChatError`` with ``PLUS|<the one sentence>``. Where a provider has
         its own wording of the system message, the general one goes."""
         try:
@@ -1686,8 +1687,12 @@ Transcript: {transcript}"""
         if reason in ("plus_required", "signed_out"):
             print(f"[{purpose}] Waffler Plus is not there ({reason}): your own providers")
             return None
-        if reason == "offline" and any(self._provider_ready(name) for name in self._provider_order):
-            print(f"[{purpose}] Waffler Plus could not be reached: your own providers, this once")
+        if reason in ("offline", "write_failed") and any(self._provider_ready(name) for name in self._provider_order):
+            # Unreachable, or a 5xx: the service's own fault (on 26 Nov its
+            # provider key was refused), not the plan or the allowance.
+            print(f"[{purpose}] Waffler Plus "
+                  f"{'could not be reached' if reason == 'offline' else 'failed on its side'}: "
+                  f"your own providers, this once")
             return None
         raise ChatError(f"PLUS|{answer.get('error') or acct.FAILED}", [("Waffler Plus", reason)])
 

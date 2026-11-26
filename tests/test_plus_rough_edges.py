@@ -126,13 +126,15 @@ def test_unreachable_with_nothing_else_keeps_the_recording_to_send_later(plus, m
     assert entry["failed"] and Path(entry["audio_path"]).exists() and p.stored == [] and chosen(plus)
 
 
-def test_busy_is_not_unreachable(plus, monkeypatch):
-    """The service answered: it is asked again later, and no key stands in."""
+def test_busy_goes_on_another_way_but_is_not_called_unreachable(plus, monkeypatch):
+    """A 5xx is the service's own fault: this dictation goes the other way
+    (tests/test_plus_service_fault.py), and the line says Plus had a
+    problem, not that it could not be reached."""
     plus.dictate_refusal = (503, "Busy.", "", {"Retry-After": "5"})
     t, cloud = transcriber(monkeypatch)
-    with pytest.raises(tw.PlusError) as e:
-        t.transcribe_sync(wav())
-    assert str(e.value) == account.DICTATE_BUSY and cloud.calls == 0 and t.last_plus_gone == ""
+    assert t.transcribe_sync(wav()) == "from my own key" and cloud.calls == 1
+    assert t.last_plus_gone == "unavailable"
+    assert um.plus_gone_message("unavailable", False)[0] != um.plus_gone_message("offline", False)[0]
 
 
 def test_the_pills_words():
@@ -140,7 +142,7 @@ def test_the_pills_words():
         "Plus unreachable. Using your key.",
         "Waffler Plus couldn't be reached, so this dictation used your key. "
         "Your words were pasted as usual.")
-    for why in ("ended", "signed_out", "offline"):
+    for why in ("ended", "signed_out", "offline", "unavailable"):
         for local in (True, False):
             heading, body = um.plus_gone_message(why, local)
             assert len(heading.split()) <= 6 and body.endswith("Your words were pasted as usual.")
