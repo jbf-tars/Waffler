@@ -176,4 +176,4 @@ form or `tests/test_csp.py` fails. A new public `Api` method must be added to
 
 ## Full suite
 
-See the operator report for the last line of the final run.
+`9561 passed, 22 skipped, 1 warning in 369.11s` at 1ea60a2 (this file added after, docs only).
