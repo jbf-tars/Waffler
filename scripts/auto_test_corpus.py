@@ -267,29 +267,29 @@ CORPUS: List[Case] = [
     # ─── EXTREME (500+ words) — tests the v3.12.2 max_tokens fix ──────────
     Case("EXT1 long stream-of-consciousness (max_tokens stress)",
          "extreme", "prose",
-         ("Yeah, let's go through a few things. So I would say, yeah, so I've worked in the "
-          "information management team. That was about last February, last March. I've automated a "
-          "lot of processes for them, simply using a mix of understanding the architecture, the "
+         ("Yeah, let's go through a few things. So I would say, yeah, so I've worked with the "
+          "customer operations team. That was about last September, last October. I've automated a "
+          "lot of processes for them, simply using a mix of understanding the systems, the "
           "requirements really, and just saving them a lot of time. So I've done three for them so "
-          "far. One of them which saves them about half a day to a day for a project, that's a web "
-          "scraper. So essentially they get email domains from like 200 lists of emails on a project "
-          "and they need to fill out the contact information for that and they were doing that "
+          "far. One of them which saves them about half a day to a day for a batch, that's a web "
+          "scraper. So essentially they get supplier names from like 300 rows of orders on a batch "
+          "and they need to fill out the delivery details for that and they were doing that "
           "manually. So we built first of all a script that first of all web scrapes so it goes to "
-          "the domain of that email address, scrapes all of the information off it then using AI to "
-          "form, file GPT and Mini to reformat that and then having a fallback. And then it "
-          "structures it into an Excel format and repopulates the sheet that they want. And this is "
-          "triggered. They just send me an email. And then it automatically gets processed back to "
+          "the website of that supplier name, scrapes all of the information off it then using AI to "
+          "tidy, sort of a small model to reformat that and then having a fallback. And then it "
+          "structures it into a spreadsheet format and repopulates the sheet that they want. And this is "
+          "triggered. They just send me a message. And then it automatically gets processed back to "
           "them. So that was one. I ended up winning a hackathon with that, actually, which is quite "
-          "nice. Then these verification reports, so they have, I don't know if you've ever heard of "
-          "Airtable, but they use Airtable to populate a lot of information, just automating the "
+          "nice. Then these stock reports, so they have, I don't know if you've ever heard of "
+          "Airtable, but they use Airtable to track a lot of information, just automating the "
           "export of reports with a few extra tabs, like summary tabs, et cetera, et cetera. And "
           "then one of the most recent ones is building an app for them. this checker essentially "
           "it's a quality control checker some of the work that they do and that take well at the "
-          "moment they they buy a tool but that takes about three hours to complete each time and "
+          "moment they they pay for a tool but that takes about three hours to complete each time and "
           "I've replicated that with the click of a button. So yeah those are the main things in "
           "work I've done a few other things suppose demonstrating just the capabilities of AI."),
          retention_min=0.75, retention_max=1.0,
-         must_contain=["information management", "web scraper", "Airtable", "hackathon", "click of a button"],
+         must_contain=["customer operations", "web scraper", "Airtable", "hackathon", "click of a button"],
          expect="full content preserved end-to-end, no max_tokens truncation"),
 
     # ─── HALLUCINATION-BAIT (specifically tests the strip) ────────────────
