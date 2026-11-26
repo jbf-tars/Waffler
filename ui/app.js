@@ -5701,11 +5701,17 @@ async function _keyChecked(provider, inp, ask) {
   return null;
 }
 
-async function _afterKeySaved(inp, name) {
+async function _afterKeySaved(inp, name, provider, key) {
+  // Drawn as saved at once, the key masked beside "Saved": the settings from
+  // before the save would say "Paste your key" until they came back. The key
+  // is used from the next dictation (app.py _use_new_key_now): no restart.
+  if (provider) {
+    _lastSettings = WL.withSavedKey(_lastSettings, provider, key);
+    _keyVerdicts[provider] = { ok: true, saved: true };
+  }
   if (inp) { inp.value = ''; inp.removeAttribute('aria-invalid'); }
   closeKeyEditor();
   showToast(`${name} key saved.`, 'success');
-  showRestartBanner(`Waffler starts using the new ${name} key after a restart.`);
   await loadSettings();
 }
 
@@ -5730,14 +5736,14 @@ async function saveGroqKey(btn) {
   const inp = document.getElementById('groqKeyInput');
   if (!inp) return;
   const val = inp.value.trim();
-  if (!val) { _keyError(inp, 'Paste your Groq key first.'); return; }
+  if (!val) { _keyError(inp, WL.keyEmptyLine('Groq', WL.providerHasKey('groq', _lastSettings))); return; }
   if (!val.startsWith('gsk_')) { _keyError(inp, "That isn't a Groq key. Groq keys start with gsk_."); return; }
   const done = _keySaveBusy(inp, btn);
   if (!done) return;
   try {
     if (!(await _keyChecked('groq', inp, () => pywebview.api.validate_groq_key(val)))) return;
     const r = await pywebview.api.save_settings({ groq_key: val });
-    if (r.ok) await _afterKeySaved(inp, 'Groq');
+    if (r.ok) await _afterKeySaved(inp, 'Groq', 'groq', val);
     else {
       console.warn('save_settings failed:', r.error);
       showToast("Couldn't save the key. Try again.", 'error');
@@ -5753,13 +5759,13 @@ async function saveCerebrasKey(btn) {
   const inp = document.getElementById('cerebrasKeyInput');
   if (!inp) return;
   const val = inp.value.trim();
-  if (!val) { _keyError(inp, 'Paste your Cerebras key first.'); return; }
+  if (!val) { _keyError(inp, WL.keyEmptyLine('Cerebras', WL.providerHasKey('cerebras', _lastSettings))); return; }
   if (!val.startsWith('csk-')) { _keyError(inp, "That isn't a Cerebras key. Cerebras keys start with csk-."); return; }
   const done = _keySaveBusy(inp, btn);
   if (!done) return;
   try {
     // validate_cerebras_key persists on success.
-    if (await _keyChecked('cerebras', inp, () => pywebview.api.validate_cerebras_key(val))) await _afterKeySaved(inp, 'Cerebras');
+    if (await _keyChecked('cerebras', inp, () => pywebview.api.validate_cerebras_key(val))) await _afterKeySaved(inp, 'Cerebras', 'cerebras', val);
   } catch(e) {
     showToast("Couldn't save the key. Try again.", 'error');
   } finally {
@@ -5771,14 +5777,14 @@ async function saveApiKey(btn) {
   const inp = document.getElementById('apiKeyInput');
   if (!inp) return;
   const val = inp.value.trim();
-  if (!val) { _keyError(inp, 'Paste your OpenAI key first.'); return; }
+  if (!val) { _keyError(inp, WL.keyEmptyLine('OpenAI', WL.providerHasKey('openai', _lastSettings))); return; }
   if (!val.startsWith('sk-')) { _keyError(inp, "That isn't an OpenAI key. OpenAI keys start with sk-."); return; }
   const done = _keySaveBusy(inp, btn);
   if (!done) return;
   try {
     if (!(await _keyChecked('openai', inp, () => pywebview.api.validate_api_key(val)))) return;
     const r = await pywebview.api.save_settings({ api_key: val });
-    if (r.ok) await _afterKeySaved(inp, 'OpenAI');
+    if (r.ok) await _afterKeySaved(inp, 'OpenAI', 'openai', val);
     else {
       console.warn('save_settings failed:', r.error);
       showToast("Couldn't save the key. Try again.", 'error');

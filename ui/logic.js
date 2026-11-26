@@ -669,8 +669,32 @@
     if (checking) return { ...v, state: 'Checking\u2026' };
     if (verdict && verdict.ok === false) return { ...v, state: String(verdict.line || ''), cls: 'bad' };
     if (!row.hasKey) return v;
-    if (verdict && verdict.ok) return { ...v, state: 'Working', cls: 'ok' };
+    if (verdict && verdict.ok) return { ...v, state: verdict.saved ? 'Saved' : 'Working', cls: 'ok' };
     return { ...v, state: row.status, cls: row.status === 'In use' ? 'ok' : '' };
+  }
+  // A key as the window shows it once saved: its first 8 and last 4
+  // characters, as app.py get_settings (_mask) writes it.
+  function maskKey(key) {
+    const k = String(key || '');
+    return k.length > 12 ? `${k.slice(0, 8)}…${k.slice(-4)}` : '*'.repeat(k.length);
+  }
+  // The window's settings with a key it has just saved, so the card is drawn
+  // as saved at once (app.js _afterKeySaved). Drawn from the settings of
+  // before, it said "Paste your key" until they came back, and that read as
+  // the key not saving. A copy: the settings themselves are not changed.
+  function withSavedKey(settings, provider, key) {
+    const out = Object.assign({}, settings || {});
+    if (KEY_FLAGS[provider]) {
+      out[KEY_FLAGS[provider]] = true;
+      out[MASK_FLAGS[provider]] = maskKey(key);
+    }
+    return out;
+  }
+  // Save pressed with nothing in the box: say so, and that a saved key is
+  // as it was ("Paste your Groq key first." read as if nothing was saved).
+  function keyEmptyLine(name, hasKey) {
+    return hasKey ? `The box is empty. Your saved ${name} key is unchanged.`
+      : `The box is empty. Paste your ${name} key, then click Save.`;
   }
   // Why a key was not taken, in one line: the first sentence of the app's
   // own reason (src/user_messages.py). The rest is in the toast.
@@ -3618,6 +3642,6 @@
     accountView, accountDigits, accountCode, accountCodeReady, accountCodeLabel, accountCodeExample, accountBadCode, accountAgo, accountSyncLine, accountDeviceLine, accountClaudeView,
     ACCOUNT_RESEND_S, accountCodeLine, accountResendView, accountSignedInLine,
     accountSetupOffered, accountOfferView, accountDeleteStep, accountDeleteReady, accountConfirm,
-    blockStrayDrops, granolaView,
+    blockStrayDrops, granolaView, maskKey, withSavedKey, keyEmptyLine,
   };
 });
