@@ -804,10 +804,10 @@ CORPUS: List[Case] = [
          expect="all four file types preserved; no etc/and others substitution"),
     Case("FT3 long multi-clause sentence — every clause survives",
          "long", "prose",
-         "The snags list goes off the page and looks broken when there are more than ten items, so I'd like a 'Next' "
-         "button to paginate, and when you add a drawing and label it 'kitchen', I'd like the visible snags filtered "
+         "The tasks list goes off the page and looks broken when there are more than ten items, so I'd like a 'Next' "
+         "button to paginate, and when you add a drawing and label it 'kitchen', I'd like the visible tasks filtered "
          "to that zone automatically.",
-         must_contain=["snags list", "Next", "kitchen", "filtered"],
+         must_contain=["tasks list", "Next", "kitchen", "filtered"],
          must_not_match=[r"(?i)\band many more\b", r"(?i)\band more\.\s*$", r"(?i)\band so on\b",
                          r"(?i)\band similar\b", r"(?i)\band the like\b"],
          retention_min=0.70,
@@ -829,8 +829,9 @@ CORPUS: List[Case] = [
          expect="'etc' spoken aloud — keep it. Other items preserved."),
 
     # ─── OVER-PARAGRAPHING / "one thing per line" (real user reports, 2026-07) ──
-    # Every one of these is a VERBATIM transcript from the user's history where
-    # the shipped prompt shattered continuous speech into one-sentence paragraphs.
+    # Each of these is modelled on a real transcript (names and details swapped
+    # for neutral ones, same shape and length) where the shipped prompt
+    # shattered continuous speech into one-sentence paragraphs.
     # The paragraph counts in each `expect` are what the model ACTUALLY produced.
     Case("OPL1 continuous thought must stay ONE paragraph",
          "short", "prose",
@@ -844,40 +845,40 @@ CORPUS: List[Case] = [
          expect="One connected complaint, no topic shift -> ONE paragraph. Shipped prompt gave 4."),
     Case("OPL2 short narrative must stay ONE paragraph",
          "short", "prose",
-         "I don't know how to draft that script. So I've spoken to Simon and he's "
-         "given me the files that I need. It's the ITO. I won't send these yet, but "
+         "I don't know how to draft that script. So I've spoken to Marcus and he's "
+         "given me the files that I need. It's the SOW. I won't send these yet, but "
          "I don't think that's that relevant right now. We can come back to that, right?",
          custom=max_paras(1),
-         must_contain=["Simon", "ITO", "come back"],
+         must_contain=["Marcus", "SOW", "come back"],
          retention_min=0.75,
          expect="Single connected thought -> ONE paragraph. Shipped prompt gave 5."),
     Case("OPL3 status update must stay ONE paragraph",
          "short", "prose",
-         "So I literally just ran one and I pushed it. So I'm looking at F02.05 and my "
-         "Morta hub, the template one, the testing DFE template 2026 home. And yeah, so "
+         "So I literally just ran one and I pushed it. So I'm looking at R03.12 and my "
+         "Nimbus hub, the template one, the testing QA template 2026 home. And yeah, so "
          "I can see loads of stuff has been filled out. Has this actually been filled "
          "out recently?",
          custom=max_paras(1),
-         must_contain=["F02.05", "Morta", "filled out"],
+         must_contain=["R03.12", "Nimbus", "filled out"],
          retention_min=0.7,
          expect="One connected status update -> ONE paragraph. Shipped prompt gave 4."),
     Case("OPL4 long ramble: a few paragraphs, NOT one per sentence",
          "long", "prose",
-         "Okay, that's interesting. So, the whole book. So if we only did what we do now, "
-         "then there'll be significantly less bets, which is absolutely fine. As long as "
-         "they're more quality, and we would have made more. I suppose the question is, "
+         "Okay, that's interesting. So, the whole catalogue. So if we only did what we do now, "
+         "then there'll be significantly fewer orders, which is absolutely fine. As long as "
+         "they're better quality, and we would have made more. I suppose the question is, "
          "how do we know that this is going to actually do anything? Or it's going to be "
-         "consistent in the long term? but I'll bet on that because seven months of data "
-         "and all this is pretty good. So how much would I have staked for that? Also, "
+         "consistent in the long term? but I'll back that because seven months of data "
+         "and all this is pretty good. So how much would I have spent on that? Also, "
          "this is a side task that I'd like to work on is how much is this operation "
-         "actually costing me as well? Because each month I pay £35 for Undetectable. "
-         "Then I pay for Proxies, which are now very cheap. And you've also got "
+         "actually costing me as well? Because each month I pay £35 for Dropbox. "
+         "Then I pay for hosting, which is now very cheap. And you've also got "
          "electricity costs because it's running across three devices that are always on. "
          "So could you help me with that as well?",
-         # It DOES contain a genuine topic shift (betting -> running costs), so a
+         # It DOES contain a genuine topic shift (the orders -> running costs), so a
          # couple of paragraphs is legitimate. Twenty is not.
          custom=max_paras(4),
-         must_contain=["seven months", "Undetectable", "electricity"],
+         must_contain=["seven months", "Dropbox", "electricity"],
          retention_min=0.7,
          expect="Genuine topic shift allows 2-4 paragraphs. Shipped prompt gave TWENTY."),
     Case("OPL5 prose with commas must not become bullets",
