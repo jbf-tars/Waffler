@@ -3445,6 +3445,7 @@ class Api:
         lock = getattr(_pipeline, "_unsent_lock", None) if _pipeline else None
         if lock is not None and not lock.acquire(timeout=2.0):
             return {"ok": False, "error": "Waffler is sending a recording. Try again in a moment."}
+        _restore_input_source_shortcuts("delete all my data")
         try:
             with _history_lock:
                 result = _privacy.delete_my_data(DATA_DIR)
@@ -3852,6 +3853,35 @@ class Api:
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
+    def get_input_source_popup(self) -> dict:
+        """Settings: "Stop the keyboard-language popup when I hold Fn". Mac
+        only; shown when it is on or would help (src/input_source_popup.py)."""
+        if _platform.system() != "Darwin":
+            return {"show": False, "on": False, "would_help": False, "inherited": False}
+        try:
+            import input_source_popup as _isp
+            return _isp.view(DATA_DIR, self._load_settings_file().get("hotkey_keys"))
+        except Exception as e:
+            _log_to_file(f"[input source] view failed: {e}")
+            return {"show": False, "on": False, "would_help": False, "inherited": False}
+
+    def set_input_source_popup(self, on) -> dict:
+        """Turn the switch on (remember macOS's input-source shortcuts, then
+        switch them off) or off (put back what was remembered)."""
+        if _platform.system() != "Darwin":
+            return {"ok": False, "error": "This is for a Mac."}
+        try:
+            import input_source_popup as _isp
+            result = _isp.turn_on(DATA_DIR) if on is True else _isp.turn_off(DATA_DIR)
+            _log_to_file(f"[input source] switch {'on' if on is True else 'off'}: ok={result.get('ok')}")
+            if not result.get("ok"):
+                return {"ok": False, "on": result.get("on"),
+                        "error": "macOS didn't take the change. Try again."}
+            return {"ok": True, "on": result.get("on")}
+        except Exception as e:
+            _log_to_file(f"[input source] switch failed: {e}")
+            return {"ok": False, "error": "macOS didn't take the change. Try again."}
+
     def factory_reset(self) -> dict:
         """Clear all Waffler data and quit the app."""
         try:
@@ -3859,6 +3889,9 @@ class Api:
             data_dir = DATA_DIR
             if _pipeline:
                 _pipeline.forget_last_result()
+            # The record of the shortcuts Waffler changed is in the folder
+            # about to go: put them back first.
+            _restore_input_source_shortcuts("factory reset")
             if data_dir.exists():
                 shutil.rmtree(data_dir)
                 _log_to_file("[factory reset] Data directory cleared via UI")
@@ -10435,28 +10468,32 @@ def _request_input_monitoring_permission():
         _log_to_file(f"⚠️  Could not request Input Monitoring permission: {e}")
 
 
-def _disable_input_source_shortcut():
-    """Disable the macOS input source keyboard shortcut to prevent ABC popup"""
+def _restore_input_source_shortcuts(why: str) -> None:
+    """Put back the input-source shortcuts Waffler switched off, if it did."""
+    if _platform.system() != "Darwin":
+        return
     try:
-        import subprocess
-        # Disable "Select the previous input source" shortcut
-        # This is the Fn+Space or Ctrl+Space shortcut that shows the ABC popup
-        subprocess.run([
-            "defaults", "write", "com.apple.symbolichotkeys",
-            "AppleSymbolicHotKeys", "-dict-add", "60",
-            "<dict><key>enabled</key><false/></dict>"
-        ], check=False, capture_output=True)
-
-        # Also disable "Select next source in Input menu"
-        subprocess.run([
-            "defaults", "write", "com.apple.symbolichotkeys",
-            "AppleSymbolicHotKeys", "-dict-add", "61",
-            "<dict><key>enabled</key><false/></dict>"
-        ], check=False, capture_output=True)
-
-        _log_to_file("✅ Disabled input source keyboard shortcuts (prevents ABC popup)")
+        import input_source_popup as _isp
+        if _isp.is_on(DATA_DIR):
+            r = _isp.restore_and_forget(DATA_DIR)
+            _log_to_file(f"[input source] shortcuts put back ({why}): ok={r.get('ok')}")
     except Exception as e:
-        _log_to_file(f"⚠️  Could not disable input source shortcuts: {e}")
+        _log_to_file(f"[input source] could not put the shortcuts back ({why}): {e}")
+
+
+def _adopt_legacy_input_source_change():
+    """Mac: an older Waffler switched off the input-source shortcuts on every
+    launch, with no say. Nothing is changed now unless the person turns on
+    "Stop the keyboard-language popup when I hold Fn" in Settings; if an older
+    Waffler already changed them, that is recorded once (read only) so the
+    switch shows as on and can be undone (src/input_source_popup.py)."""
+    try:
+        import input_source_popup as _isp
+        if _isp.adopt_legacy_change(DATA_DIR):
+            _log_to_file("[input source] an older Waffler had turned off the input-source "
+                         "shortcuts; Settings shows that and can put them back")
+    except Exception as e:
+        _log_to_file(f"[input source] legacy check skipped: {e}")
 
 
 def main():
@@ -10694,7 +10731,7 @@ def main():
     # Request Input Monitoring permission for Fn key on Mac
     if _platform.system() == "Darwin":
         _request_input_monitoring_permission()
-        _disable_input_source_shortcut()
+        _adopt_legacy_input_source_change()
 
     # Only auto-initialize pipeline if setup was already completed
     # On this computer (transcription_mode "local") needs no key.

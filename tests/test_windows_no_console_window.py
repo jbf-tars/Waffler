@@ -102,7 +102,7 @@ NOT_A_CONSOLE_ON_WINDOWS = {
     ("app.py", "open_input_monitoring_settings", "open"): "Mac only",
     ("app.py", "restart_app", "/bin/sh"): "Mac only",
     ("app.py", "restart_app", "sys.executable"): "restarts Waffler itself, a windowed program",
-    ("app.py", "_disable_input_source_shortcut", "defaults"): "Mac only",
+    ("src/input_source_popup.py", "default_runner", "argv"): "Mac only (defaults, activateSettings)",
     ("src/app_detection.py", "_get_active_app_macos", "osascript"): "Mac only",
     ("src/history_export.py", "reveal_in_folder", "open"): "Mac only",
     ("src/history_export.py", "reveal_in_folder", "explorer"): "File Explorer is a windowed program",

@@ -549,11 +549,15 @@ class _Forgetful:
 def test_delete_my_data_forgets_the_last_result(tmp_path):
     pipe = _Forgetful()
     privacy = types.SimpleNamespace(delete_my_data=lambda d: {"ok": True, "failed": []})
+    restored = []
     fn = _api("delete_my_data", _pipeline=pipe, _history_lock=threading.Lock(), _privacy=privacy,
               DATA_DIR=tmp_path, _tray_state_now="idle",
               _tray_state=types.SimpleNamespace(NOT_SENT="not_sent", IDLE="idle"),
-              _set_tray_state=lambda s: None, _log_to_file=lambda m: None)
+              _set_tray_state=lambda s: None, _log_to_file=lambda m: None,
+              _restore_input_source_shortcuts=restored.append)
     assert fn(object()) == {"ok": True}
+    # The Mac input-source shortcuts Waffler switched off are put back too.
+    assert restored == ["delete all my data"]
     assert pipe.forgot == 1 and pipe._unsent_waiting == 0
     assert pipe.forgot_notifier == 1, "and the tips it remembered"
 
@@ -577,9 +581,11 @@ def test_factory_reset_forgets_the_last_result_before_the_data_goes(tmp_path):
               LoginItem=lambda: types.SimpleNamespace(disable=lambda: None),
               threading=types.SimpleNamespace(
                   Thread=lambda **k: types.SimpleNamespace(start=lambda: None)),
-              time=time, _window_ref=None)
+              time=time, _window_ref=None,
+              _restore_input_source_shortcuts=lambda why: seen.append((why, data.exists())))
     assert fn(object())["ok"] is True
-    assert seen == [True], "forgotten while the folder was still there"
+    # The input-source shortcuts are put back while their record still exists.
+    assert seen == [True, ("factory reset", True)], "forgotten while the folder was still there"
     assert not data.exists()
 
 

@@ -7335,6 +7335,7 @@ loadSettings = async function() {
   await loadHistoryKeep();
   await loadStartAtLogin();
   await loadSettingsFnWarning();
+  await loadInputSourcePopup();
   _applyPrivacyWays();
 };
 
@@ -7385,6 +7386,47 @@ async function loadSettingsFnWarning() {
     }
   } catch (_) { box.hidden = true; }
 }
+
+// ── The keyboard-language popup (Settings, Shortcuts; Mac) ────────────────
+// Shown only when switching off macOS's input-source shortcuts would help
+// (Fn is the dictation key, a shortcut is on, more than one keyboard
+// language) or while Waffler has them off. Nothing changes until it is
+// switched on; switching it off puts back what was there.
+async function loadInputSourcePopup() {
+  const sheet = document.getElementById('inputSourcePopupSheet');
+  const tog = document.getElementById('inputSourcePopupToggle');
+  if (!sheet || !tog || !isMacPlatform || !window.pywebview || !pywebview.api.get_input_source_popup) return;
+  try {
+    const v = await pywebview.api.get_input_source_popup();
+    sheet.hidden = !(v && v.show);
+    tog.checked = !!(v && v.on);
+    const desc = document.getElementById('inputSourcePopupDesc');
+    if (desc) desc.textContent = (v && v.inherited)
+      ? 'An earlier Waffler turned these off. Switch off to undo.'
+      : 'Turns off macOS\'s Control-Space shortcuts. Switch off to undo.';
+  } catch (_) { sheet.hidden = true; }
+}
+
+async function setInputSourcePopup(on) {
+  const tog = document.getElementById('inputSourcePopupToggle');
+  try {
+    const r = await pywebview.api.set_input_source_popup(!!on);
+    if (r && !r.ok) {
+      if (tog) tog.checked = !on;
+      showToast(r.error || "macOS didn't take the change. Try again.", 'error');
+      return;
+    }
+    await loadInputSourcePopup();
+  } catch (_) {
+    if (tog) tog.checked = !on;
+    showToast("macOS didn't take the change. Try again.", 'error');
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const tog = document.getElementById('inputSourcePopupToggle');
+  if (tog) tog.addEventListener('change', () => setInputSourcePopup(tog.checked));
+});
 
 // ── Recordings not sent (Settings, Privacy and data) ─────────────────────
 async function loadUnsentSummary() {

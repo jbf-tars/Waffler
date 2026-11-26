@@ -1190,6 +1190,18 @@
             <div class="notice-acts"><button type="button" class="btn btn-sec btn-sm" onclick="wizOpenKeyboardSettings()">Open Keyboard settings</button></div>
           </div>
 
+          <!-- Mac: holding Fn can bring up the keyboard-language popup when
+               more than one input source is set up. Shown only when this
+               would help, or while it is on; nothing is changed until it is
+               switched on, and switching it off puts the shortcuts back
+               (app.py get_input_source_popup, src/input_source_popup.py). -->
+          <div class="sheet" id="inputSourcePopupSheet" hidden>
+            <div class="row" id="inputSourcePopupRow">
+              <div class="row-main"><div class="row-t"><label for="inputSourcePopupToggle">Stop the keyboard-language popup</label></div><div class="row-d" id="inputSourcePopupDesc">Turns off macOS's Control-Space shortcuts. Switch off to undo.</div></div>
+              <input type="checkbox" class="tog" role="switch" id="inputSourcePopupToggle" aria-label="Stop the keyboard-language popup when I hold Fn" aria-describedby="inputSourcePopupDesc">
+            </div>
+          </div>
+
           <h2 class="sh2">Presets</h2>
           <div class="presets" id="hotkeyPresetCards" role="radiogroup" aria-label="Hotkey presets"></div>
 
