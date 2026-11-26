@@ -1,0 +1,1037 @@
+"""In-app auto-updater: download, install, relaunch.
+
+Cross-platform (Windows + macOS). The download runs in a background thread;
+UI polls `get_progress()` to show the progress bar. When the download
+finishes, `install_and_restart()` spawns the platform-specific installer
+detached from the current process, then exits the current app.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import hmac
+import os
+import plistlib
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+from datetime import datetime
+from pathlib import Path
+
+import requests
+
+try:
+    from data_paths import data_dir as _data_dir
+except ImportError:  # imported as src.updater
+    from src.data_paths import data_dir as _data_dir
+
+try:
+    from user_messages import DOWNLOAD_PAGE as _DOWNLOAD_PAGE
+    from user_messages import UPDATE_DOWNLOAD_FAILED as _DOWNLOAD_FAILED_MESSAGE
+except ImportError:  # imported as src.updater
+    from src.user_messages import DOWNLOAD_PAGE as _DOWNLOAD_PAGE
+    from src.user_messages import UPDATE_DOWNLOAD_FAILED as _DOWNLOAD_FAILED_MESSAGE
+try:
+    from login_item import mac_bundle_path, mac_running_from_download
+except ImportError:  # imported as src.updater
+    from src.login_item import mac_bundle_path, mac_running_from_download
+
+# No-progress stall threshold: the download worker fails out if no bytes
+# arrive for this many seconds. Without this the request can wedge silently
+# and the UI sits at 0% forever (the symptom users actually report).
+_STALL_TIMEOUT_S = 45
+
+# How the Windows update batch is started. CREATE_NO_WINDOW gives cmd.exe a
+# hidden console that every command in the batch (taskkill, tasklist, find,
+# ping) shares. Do NOT add DETACHED_PROCESS: Windows ignores CREATE_NO_WINDOW
+# when it is set, cmd then has no console at all, and each of those commands
+# opens its own visible terminal window during the update (seen in the
+# 3.14.99 -> 3.14.100 update). CREATE_NEW_PROCESS_GROUP keeps the batch
+# running after Waffler exits.
+_CREATE_NEW_PROCESS_GROUP = 0x00000200
+_CREATE_NO_WINDOW = 0x08000000
+UPDATE_BATCH_FLAGS = _CREATE_NEW_PROCESS_GROUP | _CREATE_NO_WINDOW
+
+
+def _no_window_flags() -> int:
+    """``creationflags`` that start a console program (PowerShell, cmd) with
+    no window on Windows, and 0 everywhere else, where the flag does not
+    exist. Waffler is a windowed program with no console, so any console
+    program it starts without this gets a new, visible terminal window."""
+    return _CREATE_NO_WINDOW if sys.platform.startswith("win") else 0
+
+# A real-browser UA — GitHub's release-assets CDN sometimes throttles or
+# 403s unidentified python-requests clients on signed-redirect URLs.
+_USER_AGENT = "Waffler-Updater/1.0 (+https://github.com/jbf-tars/waffler)"
+
+# Module-level state — one download at a time is all this app needs.
+# Must be RLock so start_download() can call _reset_state() from inside
+# its own `with _state_lock:` block. A plain Lock self-deadlocks here,
+# which is the long-standing "stuck at 0%" bug users have been hitting
+# since v3.13.0 — the worker thread never started because the main
+# thread was deadlocked acquiring the same lock twice.
+_state_lock = threading.RLock()
+_state = {
+    "active": False,
+    "bytes_downloaded": 0,
+    "total_bytes": 0,
+    "done": False,
+    "error": None,          # a plain sentence for the screen
+    "error_detail": None,   # the underlying exception, for diagnosis
+    "download_page": None,  # where to get the installer by hand
+    "path": None,
+    # Authenticity: the URL we pulled from, and the SHA-256 GitHub published
+    # for that asset. Resolved in-process (never accepted from the JS bridge)
+    # and enforced in install_and_restart() before anything is executed.
+    "source_url": None,
+    "expected_digest": None,
+}
+
+
+def _log(msg: str) -> None:
+    """Append to ~/.waffler-hosted/app.log. Mirrors app._log_to_file but local
+    to avoid an import cycle. Silent on any failure."""
+    try:
+        log_path = _data_dir() / "app.log"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now().strftime("%H:%M:%S")
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(f"{ts}  [updater] {msg}\n")
+    except Exception:
+        pass
+
+
+def get_progress() -> dict:
+    with _state_lock:
+        return dict(_state)
+
+
+def _reset_state():
+    with _state_lock:
+        _state.update(
+            active=False,
+            bytes_downloaded=0,
+            total_bytes=0,
+            done=False,
+            error=None,
+            error_detail=None,
+            download_page=None,
+            path=None,
+            source_url=None,
+            expected_digest=None,
+        )
+
+
+def start_download(url: str) -> None:
+    """Kick off a background download. Safe to call once at a time."""
+    with _state_lock:
+        if _state["active"]:
+            return
+        _reset_state()
+        _state["active"] = True
+        _state["source_url"] = url
+
+    t = threading.Thread(target=_download_worker, args=(url,), daemon=True)
+    t.start()
+
+
+def _download_worker(url: str) -> None:
+    """Download the installer to a temp file.
+
+    On macOS we shell out to /usr/bin/curl rather than using Python's
+    requests library. The PyInstaller-bundled requests/SSL stack on Mac
+    has a long-standing issue where the connection establishes and the
+    content-length header arrives but body chunks never reach
+    iter_content(), leaving the UI's progress bar wedged at 0%. curl
+    is shipped with macOS, uses the system's SSL trust store, and Just
+    Works on signed-redirect URLs from GitHub Releases.
+
+    On Windows we keep the existing requests-based path: it works fine
+    there and the streaming progress is granular enough for the UX.
+    """
+    # Strip query string for filename (GitHub's signed-redirect URLs include one)
+    name = url.rsplit("/", 1)[-1].split("?", 1)[0] or "waffler-update"
+    dest = Path(tempfile.gettempdir()) / f"waffler-update-{os.getpid()}-{name}"
+    partial = dest.with_suffix(dest.suffix + ".partial")
+    _log(f"download start: {url[:80]}... -> {partial}")
+
+    # Resolve the SHA-256 GitHub published for this asset, here in Python —
+    # deliberately NOT taken from the webview JS bridge, so a tampered bridge
+    # call can't hand us a digest matching a file it chose. A failure here is
+    # not fatal yet: install_and_restart() retries and fails closed if it
+    # still can't verify.
+    try:
+        digest = _expected_digest_for_url(url)
+        with _state_lock:
+            _state["expected_digest"] = digest
+        _log(f"expected digest from GitHub: {digest or '(unavailable)'}")
+    except Exception as e:
+        _log(f"could not fetch expected digest (will retry at install): {e}")
+
+    try:
+        if sys.platform == "darwin":
+            _download_with_curl(url, partial, dest)
+        else:
+            _download_with_requests(url, partial, dest)
+    except Exception as e:
+        _log(f"download failed: {type(e).__name__}: {e}")
+        try:
+            if partial.exists():
+                partial.unlink()
+        except Exception:
+            pass
+        with _state_lock:
+            # One plain sentence for the screen (it used to show curl output
+            # or a Python exception); the detail is in app.log and here.
+            _state["error"] = _DOWNLOAD_FAILED_MESSAGE
+            _state["error_detail"] = f"{type(e).__name__}: {e}"[:300]
+            _state["download_page"] = _DOWNLOAD_PAGE
+            _state["active"] = False
+
+
+def _download_with_curl(url: str, partial: Path, dest: Path) -> None:
+    """macOS download path. Uses /usr/bin/curl + size polling for progress."""
+    # 1) HEAD request to learn total size (so the UI's progress bar isn't blind)
+    try:
+        head = subprocess.run(
+            ["/usr/bin/curl", "-sI", "-L", "--max-time", "15", url],
+            capture_output=True, text=True, timeout=20,
+        )
+        total = 0
+        for line in head.stdout.splitlines():
+            if line.lower().startswith("content-length:"):
+                try:
+                    total = int(line.split(":", 1)[1].strip())
+                except ValueError:
+                    pass
+        _log(f"curl HEAD ok, content-length={total}")
+    except Exception as e:
+        _log(f"curl HEAD failed (continuing without total): {e}")
+        total = 0
+    with _state_lock:
+        _state["total_bytes"] = total
+
+    # 2) Stream the body via curl, polling the partial file size for progress.
+    proc = subprocess.Popen(
+        ["/usr/bin/curl", "-L", "-s", "-o", str(partial), "--connect-timeout", "15", url],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    last_progress = time.monotonic()
+    last_logged_pct = -10
+    last_size = 0
+    while proc.poll() is None:
+        if partial.exists():
+            cur = partial.stat().st_size
+            if cur != last_size:
+                last_progress = time.monotonic()
+                last_size = cur
+                with _state_lock:
+                    _state["bytes_downloaded"] = cur
+                if total:
+                    pct = int(cur * 100 / total)
+                    if pct >= last_logged_pct + 25:
+                        _log(f"progress {pct}% ({cur}/{total})")
+                        last_logged_pct = pct
+        if time.monotonic() - last_progress > _STALL_TIMEOUT_S:
+            proc.kill()
+            raise TimeoutError(f"download stalled (no bytes for {_STALL_TIMEOUT_S}s)")
+        time.sleep(0.4)
+
+    if proc.returncode != 0:
+        err = proc.stderr.read().decode("utf-8", errors="replace") if proc.stderr else ""
+        raise IOError(f"curl exited {proc.returncode}: {err.strip()[:200]}")
+
+    actual = partial.stat().st_size
+    if total and actual != total:
+        raise IOError(f"download truncated: got {actual}, expected {total}")
+
+    partial.replace(dest)
+    _log(f"curl download done: {actual} bytes -> {dest}")
+    with _state_lock:
+        _state["bytes_downloaded"] = actual
+        _state["done"] = True
+        _state["active"] = False
+        _state["path"] = str(dest)
+
+
+def _download_with_requests(url: str, partial: Path, dest: Path) -> None:
+    """Windows download path. Streams via requests; works reliably there."""
+    with requests.get(
+        url,
+        stream=True,
+        timeout=(15, 30),
+        headers={"User-Agent": _USER_AGENT, "Accept": "application/octet-stream"},
+        allow_redirects=True,
+    ) as r:
+        r.raise_for_status()
+        total = int(r.headers.get("content-length", 0) or 0)
+        _log(f"HTTP {r.status_code}, content-length={total}")
+        with _state_lock:
+            _state["total_bytes"] = total
+
+        last_progress = time.monotonic()
+        last_logged_pct = -10
+        with open(partial, "wb") as f:
+            for chunk in r.iter_content(chunk_size=1024 * 64):
+                if chunk:
+                    f.write(chunk)
+                    with _state_lock:
+                        _state["bytes_downloaded"] += len(chunk)
+                        done_bytes = _state["bytes_downloaded"]
+                    last_progress = time.monotonic()
+                    if total:
+                        pct = int(done_bytes * 100 / total)
+                        if pct >= last_logged_pct + 25:
+                            _log(f"progress {pct}% ({done_bytes}/{total})")
+                            last_logged_pct = pct
+                elif time.monotonic() - last_progress > _STALL_TIMEOUT_S:
+                    raise TimeoutError(
+                        f"download stalled (no bytes for {_STALL_TIMEOUT_S}s)"
+                    )
+
+    actual = partial.stat().st_size
+    if total and actual != total:
+        raise IOError(f"download truncated: got {actual}, expected {total}")
+
+    partial.replace(dest)
+    _log(f"requests download done: {actual} bytes -> {dest}")
+    with _state_lock:
+        _state["done"] = True
+        _state["active"] = False
+        _state["path"] = str(dest)
+
+
+# ---------------------------------------------------------------------------
+# Integrity / authenticity verification.
+#
+# SECURITY: the updater downloads an artifact from the network and then
+# executes it with the user's privileges. Before *any* execution we verify
+# the artifact's code signature and fail CLOSED — i.e. we raise, the caller
+# (app.install_update_and_restart) catches it and surfaces the error, and the
+# unverified artifact is NEVER run and the app is NEVER replaced.
+#
+# Verification happens synchronously, in-process, BEFORE the detached
+# installer helper is spawned and BEFORE os._exit(). This is deliberate: the
+# helper scripts run after this process is gone, so an error raised inside
+# them could not propagate back to the caller. Doing the checks here is what
+# makes "fail closed" actually hold.
+#
+# TRUST ANCHOR (v3.14.82): the SHA-256 digest GitHub publishes for every
+# release asset. We fetch it from the GitHub API *in this process* and require
+# the downloaded bytes to match it exactly. That proves the artifact is
+# byte-identical to the one the release published, and fails closed on any
+# mismatch, malformed digest, or missing digest.
+#
+# Why not Authenticode on Windows? Because it could never pass. Waffler's
+# Windows installers are NOT code-signed (there is no Windows signing cert in
+# CI — only the Mac build is signed/notarized), so `Get-AuthenticodeSignature`
+# returns 'NotSigned' and the old fail-closed check aborted EVERY auto-update
+# after a successful 100% download. Windows auto-update was therefore broken
+# from the day the check landed; users sat stranded on old versions. On Windows
+# the signature is now advisory (logged), and the digest is what's enforced.
+#
+# Honest limitation: a digest fetched from the same GitHub API is a weaker
+# anchor than a real code signature. It proves "these bytes are what the
+# release published", NOT "a holder of our private key built this" — so an
+# attacker who compromised the GitHub repo could publish a malicious artifact
+# *and* its matching digest. A code-signing certificate (e.g. Azure Trusted
+# Signing) would resist that; when one exists, restore the hard Authenticode
+# gate below. Until then this is the strongest anchor available, and strictly
+# better than the status quo of an update path that can never install.
+#
+# macOS keeps its Developer ID / notarization checks (those DO pass) *in
+# addition* to the digest check.
+# ---------------------------------------------------------------------------
+
+# https://github.com/<owner>/<repo>/releases/download/<tag>/<asset>[?query]
+_RELEASE_ASSET_RE = re.compile(
+    r"^https://github\.com/([^/]+)/([^/]+)/releases/download/([^/]+)/([^/?#]+)"
+)
+
+
+# ---------------------------------------------------------------------------
+# Update outcome verification.
+#
+# An update that silently does nothing used to be indistinguishable from one
+# that worked: _install_windows spawns a detached batch, exits, and nothing
+# ever checks the result. On 2026-07-29 a v3.14.85 update passed digest and
+# Authenticode verification, restarted, and came back running v3.14.84 with no
+# error anywhere. The user reported "I updated and it's the same version"
+# repeatedly and the logs could not confirm or deny it.
+#
+# So we record the INTENTION before restarting and reconcile it with reality on
+# the next start. The marker is diagnostics, never a gate: if it cannot be
+# written the update still proceeds.
+# ---------------------------------------------------------------------------
+
+PENDING_MARKER_NAME = "pending_update.json"
+PENDING_RESULT_NAME = "pending_update_result.txt"
+
+
+def _pending_dir(base_dir=None) -> Path:
+    return Path(base_dir) if base_dir is not None else _data_dir()
+
+
+def record_pending_update(expected_version: str, base_dir=None) -> None:
+    """Note which version the user asked to install, before we restart."""
+    try:
+        d = _pending_dir(base_dir)
+        d.mkdir(parents=True, exist_ok=True)
+        (d / PENDING_MARKER_NAME).write_text(
+            json.dumps({
+                "expected_version": str(expected_version),
+                "recorded_at": datetime.now().isoformat(timespec="seconds"),
+            }),
+            encoding="utf-8",
+        )
+        # Clear any stale result from a previous attempt.
+        try:
+            (d / PENDING_RESULT_NAME).unlink()
+        except OSError:
+            pass
+    except Exception as e:  # diagnostics must never block the update
+        _log(f"could not record pending update: {e}")
+
+
+def check_pending_update(current_version: str, base_dir=None):
+    """Reconcile the recorded intention with the version actually running.
+
+    Returns None when no update was pending, else a dict with ``ok``,
+    ``expected``, ``actual``, ``installer_exit_code`` (when the batch recorded
+    one) and a human-readable ``message``. The marker is consumed either way so
+    the outcome is reported exactly once.
+    """
+    d = _pending_dir(base_dir)
+    marker = d / PENDING_MARKER_NAME
+    result = d / PENDING_RESULT_NAME
+    if not marker.exists():
+        return None
+    expected = None
+    try:
+        expected = json.loads(marker.read_text(encoding="utf-8")).get("expected_version")
+    except Exception:
+        expected = None
+
+    exit_code = None
+    try:
+        if result.exists():
+            exit_code = int((result.read_text(encoding="utf-8") or "").strip())
+    except Exception:
+        exit_code = None
+
+    for f in (marker, result):  # report once
+        try:
+            f.unlink()
+        except OSError:
+            pass
+
+    if not expected:
+        return None
+
+    actual = str(current_version)
+    ok = actual == str(expected)
+    if ok:
+        msg = f"Update to v{expected} completed."
+    else:
+        msg = (f"Update to v{expected} did NOT apply - still running v{actual}. "
+               f"The installer was launched but the version did not change.")
+        if exit_code is not None:
+            msg += f" Installer exit code {exit_code}."
+        msg += " Install the release manually and report this."
+    return {"ok": ok, "expected": str(expected), "actual": actual,
+            "installer_exit_code": exit_code, "message": msg}
+
+
+def _parse_release_asset_url(url: str):
+    """Split a GitHub release-asset URL into (owner, repo, tag, asset_name).
+
+    Returns None for anything that is not an https github.com release-asset
+    URL. GitHub's signed-redirect URLs carry a query string; it is stripped.
+    """
+    m = _RELEASE_ASSET_RE.match((url or "").strip())
+    if not m:
+        return None
+    return m.group(1), m.group(2), m.group(3), m.group(4)
+
+
+def _expected_digest_for_url(url: str):
+    """Fetch the SHA-256 digest GitHub published for this release asset.
+
+    Returns e.g. ``"sha256:029098f1..."``, or None if it cannot be resolved.
+    Queried straight from the GitHub API in-process — never accepted from the
+    webview JS bridge (see the module note above).
+    """
+    parts = _parse_release_asset_url(url)
+    if not parts:
+        return None
+    owner, repo, tag, asset_name = parts
+    r = requests.get(
+        f"https://api.github.com/repos/{owner}/{repo}/releases/tags/{tag}",
+        timeout=15,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "User-Agent": _USER_AGENT,
+        },
+    )
+    if r.status_code != 200:
+        return None
+    for asset in (r.json() or {}).get("assets", []) or []:
+        if asset.get("name") == asset_name:
+            return asset.get("digest") or None
+    return None
+
+
+def _sha256_file(path: Path) -> str:
+    """Stream the file through SHA-256 (chunked — installers are ~33 MB)."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _verify_artifact_digest(path: Path, expected) -> None:
+    """Require the downloaded artifact to match GitHub's published SHA-256.
+
+    FAIL CLOSED: a missing, malformed, or non-matching digest raises, so an
+    unverified artifact is never executed.
+    """
+    if not expected or not isinstance(expected, str):
+        raise RuntimeError(
+            "no expected SHA-256 digest available for the downloaded update; "
+            "refusing to run an unverified installer"
+        )
+    algo, _, hexdigest = expected.strip().partition(":")
+    hexdigest = hexdigest.strip().lower()
+    if (
+        algo.strip().lower() != "sha256"
+        or len(hexdigest) != 64
+        or any(c not in "0123456789abcdef" for c in hexdigest)
+    ):
+        raise RuntimeError(
+            f"malformed expected digest {expected!r}; refusing to install"
+        )
+    actual = _sha256_file(path)
+    if not hmac.compare_digest(actual, hexdigest):
+        raise RuntimeError(
+            f"SHA-256 digest mismatch for {path.name}: expected "
+            f"{hexdigest[:16]}..., got {actual[:16]}... — refusing to install"
+        )
+    _log(f"SHA-256 digest verified for {path.name}: {actual[:16]}...")
+
+
+def _verify_macos_app_signature(app_path: Path) -> None:
+    """Verify a macOS .app is validly signed and accepted by Gatekeeper.
+
+    Runs ``codesign --verify --deep --strict`` (signature integrity) and
+    ``spctl --assess --type execute`` (Gatekeeper / notarization policy).
+    Raises ``RuntimeError`` if either tool is missing, errors, or rejects the
+    app. Never returns on failure — callers must treat a return as "verified".
+    """
+    checks = (
+        (
+            "codesign",
+            ["/usr/bin/codesign", "--verify", "--deep", "--strict",
+             "--verbose=2", str(app_path)],
+        ),
+        (
+            "spctl",
+            ["/usr/sbin/spctl", "--assess", "--type", "execute",
+             "--verbose=2", str(app_path)],
+        ),
+    )
+    for name, cmd in checks:
+        try:
+            proc = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=120,
+            )
+        except FileNotFoundError as e:
+            raise RuntimeError(
+                f"signature verification unavailable ({name} not found): {e}"
+            ) from e
+        except subprocess.TimeoutExpired as e:
+            raise RuntimeError(
+                f"signature verification timed out ({name})"
+            ) from e
+        if proc.returncode != 0:
+            # codesign/spctl write their diagnostics to stderr.
+            detail = (proc.stderr or proc.stdout or "").strip()[:300]
+            raise RuntimeError(
+                f"{name} verification failed (exit {proc.returncode}) "
+                f"for {app_path.name}: {detail}"
+            )
+        _log(f"{name} verification ok for {app_path.name}")
+    _log(f"signature verification passed: {app_path}")
+
+
+def _log_windows_signature_status(exe_path: Path) -> None:
+    """Report the installer's Authenticode status. ADVISORY — never raises.
+
+    This used to require ``Status -eq 'Valid'`` and fail closed. Waffler's
+    Windows installers are unsigned, so it returned 'NotSigned' and aborted
+    EVERY auto-update after a fully successful download — Windows auto-update
+    could never work. The enforced trust anchor is now the SHA-256 digest check
+    in ``install_and_restart()``, which has already proved these bytes are
+    exactly what GitHub published, so a missing signature is no longer fatal.
+
+    When a Windows code-signing certificate exists, promote this back to a hard
+    gate (require 'Valid') — it adds publisher identity, which a digest cannot.
+    """
+    powershell = shutil.which("powershell") or shutil.which("pwsh")
+    if not powershell:
+        _log("Authenticode status: unavailable (PowerShell not found)")
+        return
+    # Print the Status; treat anything other than exactly 'Valid' as failure.
+    # The path goes into a single-quoted PS literal; escape any single quote
+    # by doubling it (PowerShell's escaping rule) so a crafted filename can't
+    # break out of the literal. -LiteralPath also stops glob interpretation.
+    ps_path = str(exe_path).replace("'", "''")
+    ps_script = (
+        "$ErrorActionPreference = 'Stop'; "
+        "$sig = Get-AuthenticodeSignature -LiteralPath "
+        f"'{ps_path}'; "
+        "Write-Output $sig.Status"
+    )
+    try:
+        # No window: Waffler has no console of its own, so without this flag
+        # Windows opens a new terminal window for PowerShell, which flashed on
+        # screen for a second or two every time someone clicked Update.
+        proc = subprocess.run(
+            [powershell, "-NoProfile", "-NonInteractive",
+             "-ExecutionPolicy", "Bypass", "-Command", ps_script],
+            capture_output=True, text=True, timeout=120,
+            creationflags=_no_window_flags(),
+        )
+    except Exception as e:  # advisory only — never block the install
+        _log(f"Authenticode status: unavailable ({type(e).__name__}: {e})")
+        return
+
+    status = (proc.stdout or "").strip() or "Unknown"
+    if status == "Valid":
+        _log(f"Authenticode status: Valid (signed) for {exe_path.name}")
+    else:
+        _log(
+            f"Authenticode status: {status!r} for {exe_path.name} "
+            f"(advisory — installer is unsigned; authenticity was enforced "
+            f"via the SHA-256 digest check)"
+        )
+
+
+def install_and_restart(installer_path: str) -> None:
+    """Spawn the installer detached, then exit the current app.
+
+    Before spawning anything, the downloaded artifact's code signature is
+    verified (see ``_verify_*_signature``). On verification failure this
+    raises and the artifact is never executed — the caller keeps the current
+    app running and surfaces the error to the user.
+    """
+    path = Path(installer_path)
+    if not path.exists():
+        raise FileNotFoundError(f"Installer not found: {installer_path}")
+
+    # ── Authenticity gate: FAIL CLOSED ───────────────────────────────────
+    # Require the bytes we are about to execute to match, exactly, the SHA-256
+    # GitHub published for this release asset. The digest is resolved here in
+    # Python (from the GitHub API), never from the webview JS bridge. If the
+    # download worker couldn't fetch it, retry once; if it still can't be
+    # resolved, _verify_artifact_digest() raises and nothing is executed.
+    with _state_lock:
+        expected = _state.get("expected_digest")
+        source_url = _state.get("source_url")
+    if not expected and source_url:
+        try:
+            expected = _expected_digest_for_url(source_url)
+        except Exception as e:
+            _log(f"digest re-fetch failed: {e}")
+    _verify_artifact_digest(path, expected)
+
+    # Record WHICH version this should produce so the next start can tell
+    # whether the install actually applied (see check_pending_update). Only
+    # now: a download that failed the check above never runs, and the next
+    # start must not then report "Update to vX did NOT apply".
+    _m = re.search(r"(\d+\.\d+\.\d+)", path.name)
+    if _m:
+        record_pending_update(_m.group(1))
+
+    if sys.platform.startswith("win"):
+        _install_windows(path)
+    elif sys.platform == "darwin":
+        _install_macos(path)
+    else:
+        raise RuntimeError(f"Unsupported platform: {sys.platform}")
+
+
+# The paths the update batch uses, passed in its environment. cmd.exe reads
+# a batch file in the console's OEM code page, so a path written into the
+# file as UTF-8 was garbled as soon as it held a letter outside ASCII (the
+# Windows user name is in %TEMP% and in the install folder: Seán, Zoë):
+# Waffler was closed, the installer never ran and nothing relaunched. A "%"
+# in a path was expanded too. The environment is Unicode, and a variable's
+# value is not expanded again, so the paths reach the installer exactly.
+BATCH_ENV_INSTALLER = "WAFFLER_INSTALLER"
+BATCH_ENV_EXE = "WAFFLER_EXE"
+BATCH_ENV_LOG = "WAFFLER_LOG"
+BATCH_ENV_RESULT = "WAFFLER_RESULT"
+
+
+def update_batch_env(exe_path, waffler_exe, log_path, result_path) -> dict:
+    """The variables update_batch_text reads: installer, Waffler, log, result."""
+    return {
+        BATCH_ENV_INSTALLER: str(exe_path),
+        BATCH_ENV_EXE: str(waffler_exe),
+        BATCH_ENV_LOG: str(log_path),
+        BATCH_ENV_RESULT: str(result_path),
+    }
+
+
+def update_batch_text(image: str = "Waffler.exe", max_kill_tries: int = 30) -> str:
+    """The Windows update batch: close every Waffler, install, relaunch.
+
+    Plain ASCII: every path comes from the environment (update_batch_env),
+    never from the file's text, so the code page cmd.exe reads it in does
+    not matter.
+
+    The wait-for-Waffler-to-close loop uses taskkill's own exit code (128 =
+    no such process) instead of piping tasklist into find. In the 3.14.99 to
+    3.14.100 update that pipe hung forever on ``find``, so the installer never
+    ran and Waffler was left closed. The loop is also capped, so a process
+    that cannot be killed can no longer stall the update for ever.
+    """
+    return (
+        "@echo off\r\n"
+        "REM Give the parent a moment to exit on its own.\r\n"
+        "ping -n 2 127.0.0.1 >NUL\r\n"
+        "REM Force-kill EVERY Waffler.exe (main + overlay subprocess) so no\r\n"
+        "REM _internal\\ file is locked when the installer overwrites it.\r\n"
+        "set TRIES=0\r\n"
+        ":kill_loop\r\n"
+        f"taskkill /F /IM {image} >NUL 2>&1\r\n"
+        "REM 128 means no such process is left.\r\n"
+        "if errorlevel 128 goto killed\r\n"
+        "set /a TRIES+=1\r\n"
+        f"if %TRIES% GEQ {max_kill_tries} goto killed\r\n"
+        "ping -n 2 127.0.0.1 >NUL\r\n"
+        "goto kill_loop\r\n"
+        ":killed\r\n"
+        "REM Settle so the OS releases all file handles.\r\n"
+        "ping -n 4 127.0.0.1 >NUL\r\n"
+        "REM No UI, auto-dismiss any prompt, log for diagnosis.\r\n"
+        f'"%{BATCH_ENV_INSTALLER}%" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART '
+        f'/LOG="%{BATCH_ENV_LOG}%"\r\n'
+        "set RC=%ERRORLEVEL%\r\n"
+        f'> "%{BATCH_ENV_RESULT}%" echo %RC%\r\n'
+        "ping -n 2 127.0.0.1 >NUL\r\n"
+        "REM Launch the freshly installed Waffler exactly once.\r\n"
+        f'start "" "%{BATCH_ENV_EXE}%"\r\n'
+        'del "%~f0"\r\n'
+    )
+
+
+def _install_windows(exe_path: Path) -> None:
+    """Install the update and relaunch Waffler.
+
+    v3.14.73 — fix "update installs but the version never changes." The
+    v3.14.49 batch waited only for the *main* Waffler PID to exit before
+    running the installer. But Waffler also spawns an **overlay subprocess**
+    (a second ``Waffler.exe --overlay``) which kept the ``_internal`` Python
+    DLLs locked. Inno Setup then silently skipped the locked files (with
+    ``/NORESTART`` it just leaves them), so the install "succeeded" without
+    replacing anything and the user stayed on the old version forever — the
+    in-app updater literally could not update itself. The leftover
+    ``waffler_update_*.bat`` scripts piling up in %TEMP% (never reaching
+    their ``del``) were the tell.
+
+    New batch:
+      1. Force-kill ALL ``Waffler.exe`` (main + overlay child + any zombie),
+         looping until none remain, so NOTHING holds a file handle.
+      2. Settle, then run the installer ``/VERYSILENT /SUPPRESSMSGBOXES
+         /NORESTART`` — VERYSILENT shows no UI and SUPPRESSMSGBOXES
+         auto-answers any prompt, so a hidden "files in use" dialog can never
+         hang the headless (CREATE_NO_WINDOW) batch (another way the old one
+         wedged).
+      3. Write an install log to %TEMP%\\waffler_install.log so a future
+         failure is diagnosable.
+      4. Relaunch the freshly installed Waffler exactly once, then self-delete.
+
+    Sleeps use ``ping`` rather than ``timeout`` because ``timeout`` needs a
+    console handle and we spawn with ``CREATE_NO_WINDOW``.
+
+    SECURITY: before generating/spawning the relaunch batch, the downloaded
+    EXE's Authenticode signature is verified. If it is not ``Valid`` (or
+    verification can't run), we raise here — fail closed — so the installer
+    is never executed.
+    """
+    # Authenticity was already enforced in install_and_restart() via the
+    # SHA-256 digest check (fail closed). Authenticode is advisory here: the
+    # installers are unsigned, and requiring a Valid signature is exactly what
+    # aborted every Windows auto-update after a successful download.
+    _log_windows_signature_status(exe_path)
+
+    waffler_exe = Path(sys.executable)  # current Waffler.exe; same path post-install
+    log_path = Path(tempfile.gettempdir()) / "waffler_install.log"
+    result_path = _pending_dir() / PENDING_RESULT_NAME
+
+    bat = update_batch_text()
+    bat_path = Path(tempfile.gettempdir()) / f"waffler_update_{os.getpid()}.bat"
+    bat_path.write_text(bat, encoding="ascii")
+    env = dict(os.environ)
+    env.update(update_batch_env(exe_path, waffler_exe, log_path, result_path))
+
+    subprocess.Popen(
+        ["cmd", "/c", str(bat_path)],
+        close_fds=True,
+        creationflags=UPDATE_BATCH_FLAGS,
+        env=env,
+    )
+    # Exit promptly so the batch's kill_loop finds nothing to wait on and the
+    # installer runs against fully-unlocked files.
+    time.sleep(0.2)
+    os._exit(0)
+
+
+def _hdiutil_attach(dmg_path: Path) -> tuple[str, str]:
+    """Attach a DMG and return ``(mount_point, dev_entry)``.
+
+    Uses ``hdiutil attach -plist`` and parses the property list with
+    ``plistlib`` rather than scraping ``tail``/``awk`` output — the textual
+    form breaks on volume names containing spaces and on DMGs with multiple
+    partition rows. Returns the first mounted filesystem's mount point and a
+    dev-entry suitable for ``hdiutil detach``.
+
+    Raises ``RuntimeError`` if attach fails or no mount point can be found.
+    """
+    proc = subprocess.run(
+        ["/usr/bin/hdiutil", "attach", str(dmg_path),
+         "-nobrowse", "-noautoopen", "-readonly", "-plist"],
+        capture_output=True, timeout=120,
+    )
+    if proc.returncode != 0:
+        detail = proc.stderr.decode("utf-8", errors="replace").strip()[:300]
+        raise RuntimeError(f"hdiutil attach failed (exit {proc.returncode}): {detail}")
+
+    try:
+        info = plistlib.loads(proc.stdout)
+    except Exception as e:
+        raise RuntimeError(f"could not parse hdiutil plist output: {e}") from e
+
+    mount_point = ""
+    dev_entry = ""
+    for entity in info.get("system-entities", []):
+        # The first entity carrying a mount point is the mounted volume; keep
+        # its dev-entry so we can detach precisely.
+        mp = entity.get("mount-point")
+        if mp:
+            mount_point = mp
+            dev_entry = entity.get("dev-entry", "") or dev_entry
+            break
+        # Fall back to the topmost dev-entry for detaching even if no volume
+        # mounted (so cleanup can still run).
+        if not dev_entry:
+            dev_entry = entity.get("dev-entry", "") or ""
+
+    if not mount_point:
+        # Nothing usable mounted; detach whatever attached, then fail.
+        if dev_entry:
+            _hdiutil_detach(dev_entry)
+        raise RuntimeError("hdiutil attach produced no mount point")
+
+    return mount_point, dev_entry
+
+
+def _hdiutil_detach(target: str, attempts: int = 2) -> bool:
+    """Detach a mount point or dev-entry. Returns True if it came away.
+
+    Still best-effort, in that a failure never raises: by the time this runs
+    the update has either happened or already failed, and refusing to continue
+    would not help. But the exit status is no longer discarded. hdiutil can
+    return non-zero WITHOUT raising, typically because the volume is still
+    busy, and the previous version treated that as success, leaving a mounted
+    volume behind with nothing in the log to say so. Retried once, briefly,
+    since "busy" is usually transient.
+    """
+    if not target:
+        return False
+    for attempt in range(1, max(1, attempts) + 1):
+        try:
+            proc = subprocess.run(
+                ["/usr/bin/hdiutil", "detach", target, "-force"],
+                capture_output=True, timeout=60,
+            )
+            if proc.returncode == 0:
+                return True
+            detail = proc.stderr.decode("utf-8", errors="replace").strip()[:200]
+            _log(f"hdiutil detach exit {proc.returncode} for {target!r} "
+                 f"(attempt {attempt}/{attempts}): {detail}")
+        except Exception as e:
+            _log(f"hdiutil detach raised for {target!r} "
+                 f"(attempt {attempt}/{attempts}): {e}")
+        if attempt < attempts:
+            time.sleep(1.0)
+    _log(f"hdiutil detach FAILED for {target!r} — the volume is still mounted")
+    return False
+
+
+def mac_install_target(executable: str) -> Path:
+    """The Waffler.app an update replaces: the one that is running.
+
+    The updater always wrote /Applications/Waffler.app. Run from anywhere
+    else (~/Applications, or a renamed copy), an update added a second copy
+    and opened that one, or failed for a user who cannot write to
+    /Applications. Only a copy still running from the disk image (or from
+    macOS's quarantine copy) installs to /Applications, as a first install.
+    """
+    bundle = mac_bundle_path(executable)
+    if bundle is not None and not mac_running_from_download(bundle):
+        return Path(str(bundle))
+    return Path("/Applications") / "Waffler.app"
+
+
+def _install_macos(dmg_path: Path) -> None:
+    """Mount the DMG, verify+swap the app atomically, then relaunch.
+
+    Order of operations (all destructive/verification work done HERE,
+    synchronously, so failures fail closed and never leave the user without
+    an app):
+
+      1. Attach the DMG (robust plist parse) and locate the .app inside it;
+         confirm it EXISTS before touching the installed copy.
+      2. Verify the in-DMG app's code signature (codesign + spctl). Abort on
+         failure.
+      3. Stage: copy the new app to a temp dir beside the installed app, then
+         re-verify the staged copy's signature.
+      4. Atomic swap: move the old app aside, move the staged app into place;
+         on any error, restore the old app. Only then remove the old copy.
+      5. Detach the DMG (always, via finally).
+
+    Finally, spawn a tiny detached helper that waits for this process to exit
+    and relaunches the installed app (the app can't `open` itself and survive
+    its own os._exit), then cleans up the DMG and leftover staging.
+    """
+    pid = os.getpid()
+    installed = mac_install_target(sys.executable)
+    # Staged and kept beside it: the same folder, so the swap is a rename.
+    apps_dir = installed.parent
+    _log(f"installing to {installed}")
+
+    mount_point = ""
+    dev_entry = ""
+    staged = apps_dir / f".waffler-update-staged-{pid}.app"
+    backup = apps_dir / f".waffler-update-old-{pid}.app"
+    # When a swap rollback fails, `backup` may hold the ONLY copy of the app.
+    # In that case we must not delete it during cleanup — surface it instead.
+    preserve_backup = False
+
+    def _cleanup_paths() -> None:
+        targets = [staged]
+        if not preserve_backup:
+            targets.append(backup)
+        for p in targets:
+            try:
+                if p.exists():
+                    shutil.rmtree(p, ignore_errors=True)
+            except Exception:
+                pass
+
+    try:
+        mount_point, dev_entry = _hdiutil_attach(dmg_path)
+
+        # Locate the .app in the DMG and confirm it exists BEFORE we touch
+        # the installed copy.
+        app_in_dmg = None
+        mount_root = Path(mount_point)
+        # Search up to 2 levels deep (matches the prior `find -maxdepth 2`).
+        candidates = list(mount_root.glob("*.app")) + list(mount_root.glob("*/*.app"))
+        for cand in candidates:
+            if cand.is_dir():
+                app_in_dmg = cand
+                break
+        if app_in_dmg is None or not app_in_dmg.exists():
+            raise RuntimeError(f"no .app bundle found in mounted DMG at {mount_point}")
+        _log(f"located app in DMG: {app_in_dmg}")
+
+        # (1) Verify the in-DMG app's signature. Fail closed.
+        _verify_macos_app_signature(app_in_dmg)
+
+        # (2) Stage a copy beside the installed app (same filesystem → fast,
+        # atomic rename later). Clean any stale staging first.
+        _cleanup_paths()
+        shutil.copytree(app_in_dmg, staged, symlinks=True)
+        if not staged.exists():
+            raise RuntimeError(f"failed to stage new app into {apps_dir}")
+
+        # (3) Re-verify the staged copy actually on disk before swapping.
+        _verify_macos_app_signature(staged)
+
+        # (4) Atomic-ish swap: move old aside, move new in. Restore on error.
+        old_moved = False
+        try:
+            if installed.exists():
+                os.rename(installed, backup)
+                old_moved = True
+            os.rename(staged, installed)
+        except Exception as swap_err:
+            # Roll back: ensure the original app is back in place.
+            try:
+                if installed.exists() and old_moved:
+                    # New partially in place but old saved — remove partial,
+                    # restore old.
+                    shutil.rmtree(installed, ignore_errors=True)
+                if old_moved and backup.exists() and not installed.exists():
+                    os.rename(backup, installed)
+            except Exception as restore_err:
+                # The backup may now be the only intact copy — keep it.
+                preserve_backup = True
+                _log(f"CRITICAL: rollback failed: {restore_err}")
+                raise RuntimeError(
+                    f"install swap failed ({swap_err}) and rollback failed "
+                    f"({restore_err}); app may be in {backup}"
+                ) from swap_err
+            raise RuntimeError(f"install swap failed, old app restored: {swap_err}") from swap_err
+
+        # Success — remove the old copy.
+        if backup.exists():
+            shutil.rmtree(backup, ignore_errors=True)
+        _log(f"swapped in new app at {installed}")
+
+    except Exception:
+        # Make sure we don't leave staging/backup litter on failure.
+        _cleanup_paths()
+        raise
+    finally:
+        # Always detach the DMG, even on failure.
+        _hdiutil_detach(dev_entry or mount_point)
+
+    # At this point the new, verified app is installed. Spawn a detached
+    # helper that relaunches it after we exit and cleans up the DMG. This
+    # helper does NO install work and NO unverified execution — it only opens
+    # the already-installed-and-verified app.
+    #
+    # The app/DMG paths are passed as positional args ("$1"/"$2") rather than
+    # interpolated into the script body, so a path containing shell
+    # metacharacters can't be evaluated. Only the integer PID is interpolated.
+    script = f"""#!/bin/bash
+APP="$1"
+DMG="$2"
+while kill -0 {pid} 2>/dev/null; do sleep 0.3; done
+sleep 0.5
+open "$APP"
+rm -f "$DMG"
+rm -f "$0"
+"""
+    script_path = Path(tempfile.gettempdir()) / f"waffler_update_{pid}.sh"
+    script_path.write_text(script, encoding="utf-8")
+    script_path.chmod(0o755)
+
+    subprocess.Popen(
+        ["/bin/bash", str(script_path), str(installed), str(dmg_path)],
+        start_new_session=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    time.sleep(0.5)
+    os._exit(0)
