@@ -238,8 +238,9 @@ PROMPTS = {
     "README.md": "8d9c36d463999a2ac132c537f63de41a333fa6049d06105b8a90c9778d9253bb",
     "email.txt": "f4619da2d78b5760b68d3dfc40e7b8dc89c51bd90147e91432f286268e1bf248",
     # normal.txt moved once on purpose: one worked example in the numbered-list
-    # rule had its nouns swapped for neutral ones (same shape, same triggers).
-    "normal.txt": "cec45b286ebec5044b299f78c1874270b7cca9937e715fe4487f130b1df0d369",
+    # rule had its nouns swapped for neutral ones (same shape, same triggers),
+    # and two example names (a surname, a first name) became neutral ones.
+    "normal.txt": "f23e5589f8729103b956271d9cde621db6481c3d82ef9f03ec44b2f4abf473ed",
 }
 
 

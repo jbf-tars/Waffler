@@ -404,6 +404,6 @@ def test_nothing_under_prompts_but_the_readme_changed():
     import hashlib
     # The two prompts a model reads are exactly what the Style section's test pins.
     assert hashlib.sha256((ROOT / "prompts" / "normal.txt").read_bytes().replace(b"\r\n", b"\n")).hexdigest() == \
-        "cec45b286ebec5044b299f78c1874270b7cca9937e715fe4487f130b1df0d369"
+        "f23e5589f8729103b956271d9cde621db6481c3d82ef9f03ec44b2f4abf473ed"
     assert hashlib.sha256((ROOT / "prompts" / "email.txt").read_bytes().replace(b"\r\n", b"\n")).hexdigest() == \
         "f4619da2d78b5760b68d3dfc40e7b8dc89c51bd90147e91432f286268e1bf248"
