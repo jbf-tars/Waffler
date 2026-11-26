@@ -12,7 +12,11 @@ anywhere, and a failure there is never passed to a provider.
 And "plus": Waffler Plus, when it is the chosen way and the account has it
 (src/account.py). The account service's model writes, from the prompts in
 this file, with no key and no model here; the answer arrives whole. A
-refusal is its own plain sentence and is never passed to a key.
+refusal about the plan or the allowance is its own plain sentence and is
+never passed to a key. A fault on the service's own side (its provider key
+refused, its spend ceiling; transcribe.SERVICE_FAULTS) is: the writer this
+computer has without Plus writes instead, when there is one, as for a
+dictation.
 """
 from __future__ import annotations
 
@@ -20,7 +24,7 @@ import re
 import time
 
 from . import keys
-from .transcribe import GROQ_BASE_URL, _account, uses_plus
+from .transcribe import GROQ_BASE_URL, SERVICE_FAULTS, _account, _log, plus_resting, rest_plus, uses_plus
 
 try:
     import local_llm            # the app's own copy: src/ is on its path
@@ -53,6 +57,9 @@ _models_cache: dict[str, tuple[float, list[str]]] = {}
 NOTES_NEED_KEY = ("The transcript is saved. Writing notes needs an API key or Waffler Plus: "
                   "add a key in Settings and the notes can be written then.")
 ASK_NEEDS_KEY = "Answering questions needs an API key or Waffler Plus. Add a key in Settings."
+# Where the notes would be when Waffler Plus failed on its own side and there
+# is no other writer here. The transcript is kept, and "Try again" is beside it.
+NOTES_PLUS_DOWN = "Waffler Plus isn't working right now. The transcript is saved, so try again later."
 
 
 class LLMError(Exception):
@@ -86,8 +93,25 @@ def available_providers() -> list[str]:
 
 def resolve_provider(settings: dict) -> str:
     # Waffler Plus is the chosen way and there to use: no key is looked for.
-    if uses_plus():
+    # Unless it failed on its own side a moment ago and there is another
+    # writer here (transcribe.SERVICE_FAULTS): that one, while Plus rests.
+    if uses_plus() and not (plus_resting("write") and _has_own_writer(settings)):
         return "plus"
+    return _own_provider(settings)
+
+
+def _has_own_writer(settings: dict) -> bool:
+    """Is there a writer here besides Waffler Plus (a key, a custom
+    endpoint, the model on this computer)? Asks nobody."""
+    try:
+        _own_provider(settings)
+        return True
+    except LLMError:
+        return False
+
+
+def _own_provider(settings: dict) -> str:
+    """The writer this computer has without Waffler Plus."""
     want = settings.get("llm_provider") or "auto"
     have = available_providers()
     if want == "custom" and settings.get("custom_base_url"):
@@ -124,20 +148,31 @@ def _local_complete(system: str, messages: list[dict], max_tokens: int, backgrou
     return strip_thinking(reply.get("text") or "")
 
 
-def _plus_complete(system: str, messages: list[dict], max_tokens: int, effort: str | None) -> str:
+def _plus_complete(system: str, messages: list[dict], max_tokens: int, effort: str | None,
+                   can_fall_back: bool = False) -> str:
     """One reply from the account service's model (POST /api/plus/write):
     the app's prompt as it is, the whole text back. Too many in a minute: it
-    waits as long as the service says, twice at most. Any other refusal is
-    its one sentence (src/account.py); nobody else is asked instead."""
+    waits as long as the service says, twice at most (so does the service's
+    hourly cap when there is no other writer). A fault on the service's side
+    (transcribe.SERVICE_FAULTS) rests Plus for writing and raises kind
+    "plus_down", with the service's sentence, for the caller to go another
+    way. Any other refusal is its one sentence (src/account.py), kind
+    "plus"; nobody else is asked instead."""
     acct = _account()
     for attempt in range(3):
         answer = acct.write(system, messages, max_tokens=max_tokens, effort=effort,
                             timeout=acct.PLUS_NOTES_TIMEOUT_S)
-        if answer.get("ok") or answer.get("reason") != "too_many" or attempt == 2:
+        reason = answer.get("reason")
+        waits = reason == "too_many" or (reason == "plus_burst" and not can_fall_back)
+        if answer.get("ok") or not waits or attempt == 2:
             break
         time.sleep(min(max(float(answer.get("wait_s") or 20.0), 1.0), 60.0))
     if not answer.get("ok"):
-        raise LLMError(str(answer.get("error") or acct.FAILED), "plus")
+        sentence = str(answer.get("error") or acct.FAILED)
+        if answer.get("reason") in SERVICE_FAULTS:
+            rest_plus("write")
+            raise LLMError(sentence, "plus_down")
+        raise LLMError(sentence, "plus")
     return strip_thinking(answer["text"])
 
 
@@ -334,7 +369,8 @@ def strip_thinking(text: str) -> str:
 
 def complete(system: str, messages: list[dict], settings: dict, max_tokens: int = 16000,
              backend=None, effort: str | None = None, on_text=None,
-             background: bool = False, temperature: float | None = None) -> str:
+             background: bool = False, temperature: float | None = None,
+             fall_back: bool = True) -> str:
     """One model reply. `backend(system, messages)` replaces the network in tests.
     `effort` is how hard a thinking model should think (Ask passes "low").
     `on_text(words so far)` is called as the reply is written, where the
@@ -345,12 +381,24 @@ def complete(system: str, messages: list[dict], settings: dict, max_tokens: int 
     the writers that take one: a key for OpenAI, Groq or a custom endpoint.
     Anthropic's current models refuse the setting and Waffler Plus has none,
     so they are asked as they are for notes; the model on this computer
-    always runs at LOCAL_TEMPERATURE, which is 0."""
+    always runs at LOCAL_TEMPERATURE, which is 0.
+    Waffler Plus failing on its own side: this request goes to the writer
+    this computer has without it, when there is one, and Plus rests. With
+    `fall_back` False, or no other writer, LLMError kind "plus_down" is
+    raised instead (write_notes and ask then start again with the other
+    writer, sized for it)."""
     if backend is not None:
         return backend(system, messages)
     provider = resolve_provider(settings)
     if provider == "plus":
-        return _plus_complete(system, messages, max_tokens, effort)
+        try:
+            return _plus_complete(system, messages, max_tokens, effort,
+                                  can_fall_back=_has_own_writer(settings))
+        except LLMError as e:
+            if e.kind != "plus_down" or not fall_back or not _has_own_writer(settings):
+                raise
+            provider = _own_provider(settings)
+            _log(f"[meetings] Waffler Plus failed on its side: written with {provider}")
     if provider == "local":
         return _local_complete(system, messages, max_tokens, background, on_text)
     model = resolve_model(provider, settings)
@@ -523,10 +571,26 @@ def parse_notes(reply: str) -> tuple[str, str]:
 
 def write_notes(transcript: str, my_notes: str, template_prompt: str, settings: dict,
                 backend=None, when: str = "") -> tuple[str, str]:
-    """(title, notes markdown) for a whole transcript."""
+    """(title, notes markdown) for a whole transcript.
+
+    Waffler Plus failing on its own side part-way: started again with the
+    writer this computer has without it (Plus rests, so resolve_provider
+    names that one), its parts sized for it. With no other writer the
+    LLMError "plus_down" is raised and the transcript stays as it is."""
     transcript = transcript.strip()
     if not transcript and not my_notes.strip():
         raise LLMError("There is nothing to write notes from yet.", "empty")
+    try:
+        return _write_notes(transcript, my_notes, template_prompt, settings, backend, when)
+    except LLMError as e:
+        if e.kind != "plus_down" or backend or resolve_provider(settings) == "plus":
+            raise
+        _log("[meetings] Waffler Plus failed on its side: the notes are written another way")
+        return _write_notes(transcript, my_notes, template_prompt, settings, backend, when)
+
+
+def _write_notes(transcript: str, my_notes: str, template_prompt: str, settings: dict,
+                 backend, when: str) -> tuple[str, str]:
     provider = "custom" if backend else resolve_provider(settings)
     size = _PART_CHARS.get(provider, 60000)
     parts = _split_parts(transcript, size)
@@ -538,7 +602,7 @@ def write_notes(transcript: str, my_notes: str, template_prompt: str, settings: 
                 "Condense this part of a transcript into detailed bullet points. Keep every fact, "
                 "figure, name, decision, request and action, and who said it (Me/Them). No preamble.",
                 [{"role": "user", "content": f"Part {i} of {len(parts)}:\n\n{part}"}],
-                settings, max_tokens=4000, backend=backend, background=True))
+                settings, max_tokens=4000, backend=backend, background=True, fall_back=False))
         transcript = "\n\n".join(f"[Part {i}]\n{c}" for i, c in enumerate(condensed, 1))
         source = "Detailed digest of the transcript (it was too long to send whole)"
     else:
@@ -550,8 +614,10 @@ def write_notes(transcript: str, my_notes: str, template_prompt: str, settings: 
     if my_notes.strip():
         user.append(f"The owner's own typed notes:\n<my_notes>\n{my_notes.strip()}\n</my_notes>")
     user.append(f"{source}:\n<transcript>\n{transcript}\n</transcript>")
+    # A fault on Plus's side is not passed on request by request: write_notes
+    # starts again with the other writer, its parts sized for it.
     reply = complete(notes_system(provider), [{"role": "user", "content": "\n\n".join(user)}],
-                     settings, backend=backend, background=True)
+                     settings, backend=backend, background=True, fall_back=False)
     title, notes = parse_notes(reply)
     if not title and notes and provider == "local":
         title = _local_title(notes, settings)
@@ -569,7 +635,19 @@ no headings."""
 def ask(question: str, context: str, history: list[dict], settings: dict, backend=None,
         extra: str = "", on_text=None) -> str:
     """`extra` is more material besides the notes (Waffler's dictations). It
-    keeps up to half the room, so long notes never push it out."""
+    keeps up to half the room, so long notes never push it out. Waffler
+    Plus failing on its own side: asked again of the writer this computer
+    has without it, the material sized for that one (as write_notes)."""
+    try:
+        return _ask(question, context, history, settings, backend, extra, on_text)
+    except LLMError as e:
+        if e.kind != "plus_down" or backend or resolve_provider(settings) == "plus":
+            raise
+        return _ask(question, context, history, settings, backend, extra, on_text)
+
+
+def _ask(question: str, context: str, history: list[dict], settings: dict, backend,
+         extra: str, on_text) -> str:
     provider = "custom" if backend else resolve_provider(settings)
     size = _PART_CHARS.get(provider, 60000)
     cut = "\n[...material cut here: it was too long to send whole...]"
@@ -587,4 +665,4 @@ def ask(question: str, context: str, history: list[dict], settings: dict, backen
             messages.append({"role": h["role"], "content": str(h["content"])})
     messages.append({"role": "user", "content": question})
     return complete(ASK_SYSTEM, messages, settings, max_tokens=4000, backend=backend, effort="low",
-                    on_text=on_text)
+                    on_text=on_text, fall_back=False)

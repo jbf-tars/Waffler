@@ -197,12 +197,13 @@ class Service:
             threading.Thread(target=self._enhance, args=(note_id,), daemon=True).start()
         return self.store.get_note(note_id)
 
-    def _ask_writer(self, settings: dict, system: str, user: str) -> str:
+    def _ask_writer(self, settings: dict, system: str, user: str, fall_back: bool = True) -> str:
         """One reply from whatever writes this meeting's notes (a key,
         Waffler Plus, the model on this computer), with no chance in its
         choice of words where the writer has that setting."""
         return llm.complete(system, [{"role": "user", "content": user}], settings, max_tokens=8000,
-                            backend=self.llm_backend, effort="low", background=True, temperature=0.0)
+                            backend=self.llm_backend, effort="low", background=True, temperature=0.0,
+                            fall_back=fall_back)
 
     def _lines_after_notes(self) -> bool:
         """Is the writer the model on this computer? It is slow where there
@@ -218,19 +219,42 @@ class Service:
         except Exception:  # noqa: BLE001
             return False
 
-    def _tidy_lines(self, note_id: str) -> None:
+    def _other_writer_now(self) -> bool:
+        """Is something other than Waffler Plus the writer just now (Plus
+        resting after a fault on its side, with a writer here)?"""
+        try:
+            return self.llm_backend is None and llm.resolve_provider(self.store.settings()) != "plus"
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _tidy_lines(self, note_id: str, fall_back: bool = True) -> bool:
         """Capitals and punctuation for the transcript's lines, by the notes'
         writer, and never a changed word (tidy_lines.py). With no writer
-        nobody is asked. Never raises: the notes come next whatever happens."""
+        nobody is asked. Never raises: the notes come next whatever happens.
+
+        True when it stopped because Waffler Plus failed on its own side:
+        with `fall_back` False that is not passed to another writer here
+        (the model on this computer can take a quarter of an hour over an
+        hour's lines, and the notes come first), and the lines can be tidied
+        again after the notes, by the writer Plus is resting for."""
+        down = []
+
+        def write(system, user):
+            try:
+                return self._ask_writer(settings, system, user, fall_back=fall_back)
+            except llm.LLMError as e:
+                if e.kind == "plus_down":
+                    down.append(e)
+                raise
         try:
             settings = self.store.settings()
             if self.llm_backend is None and not llm.can_write(settings):
-                return
-            tidy_lines.tidy(self.store.segments(note_id),
-                            lambda system, user: self._ask_writer(settings, system, user),
+                return False
+            tidy_lines.tidy(self.store.segments(note_id), write,
                             lambda changes: self.store.retext_segments(note_id, changes))
         except Exception:  # noqa: BLE001
             pass
+        return bool(down)
 
     def _enhance(self, note_id: str, written_down: bool = False) -> None:
         """`written_down`: the transcript has just been made (a recording
@@ -253,8 +277,11 @@ class Service:
             # runs on still starts small after it, and would be sent for ever.
             tidy = written_down or not note["summary"]
             after = tidy and self._lines_after_notes()
+            plus_stopped = False
             if tidy and not after:
-                self._tidy_lines(note_id)
+                # Plus failing here on its own side: the lines wait for the
+                # notes, then go to the writer Plus rests for (below).
+                plus_stopped = self._tidy_lines(note_id, fall_back=False)
             template = self.store.template(note["template_id"])
             title, notes = llm.write_notes(
                 self.store.transcript_text(note_id), note["my_notes"], template["prompt"],
@@ -263,11 +290,15 @@ class Service:
             if title and not note["title_locked"]:
                 fields["title"] = title
             self.store.update_note(note_id, **fields)
-            if after:
+            if after or (plus_stopped and self._other_writer_now()):
                 self._tidy_lines(note_id)
         except Exception as e:  # noqa: BLE001
-            msg = str(e) if isinstance(e, (llm.LLMError, TranscribeError)) \
-                else f"Couldn't write notes ({type(e).__name__})."
+            if isinstance(e, llm.LLMError) and e.kind == "plus_down":
+                msg = llm.NOTES_PLUS_DOWN          # nothing else here writes: the transcript waits
+            elif isinstance(e, (llm.LLMError, TranscribeError)):
+                msg = str(e)
+            else:
+                msg = f"Couldn't write notes ({type(e).__name__})."
             self.store.update_note(note_id, status="ready", error=msg)
         finally:
             self.recorder.progress.pop(note_id, None)
