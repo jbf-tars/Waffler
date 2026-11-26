@@ -1,7 +1,7 @@
 # Improvement run — status
 
 **Branch:** `audit/maintainer-2026-09` · **Base:** `1b671a3` (v3.14.85)
-**Worktree:** `C:\Users\james\waffler-audit` (the user's checkout and running
+**Worktree:** `C:\Users\you\waffler-audit` (the user's checkout and running
 install are untouched) · **Run 1 started:** 2026-09-08
 
 Budget for run 1: ≤8 substantive iterations / 2 h. **Live evaluation not

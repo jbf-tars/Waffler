@@ -8,7 +8,7 @@ Enable the Waffler "normal" prompt to detect when a user is dictating an email a
 
 Currently, dictating an email like:
 
-> "Hi Louis, thanks for your email and I hope you're doing well. Would you be able to send me over the copies of the transcript for the previous meeting and the PowerPoint slides accompanying it? Thanks, regards James."
+> "Hi Sam, thanks for your email and I hope you're doing well. Would you be able to send me over the copies of the transcript for the previous meeting and the PowerPoint slides accompanying it? Thanks, regards James."
 
 Outputs a single paragraph. The user expects structured email formatting with line breaks between the greeting, body paragraphs, and sign-off.
 
@@ -20,12 +20,12 @@ Prompt-only change to `prompts/normal.txt`. No code changes required.
 
 Two mechanisms, both handled by the LLM via prompt rules:
 
-1. **Explicit trigger:** If the transcript begins with the word "email" followed by a greeting (e.g., "email hi Louis" or "email dear team"), treat the content as an email and strip the trigger word from the output. If "email" appears at the start but is followed by non-greeting content (e.g., "email is the worst form of communication"), do not treat it as a trigger — process as normal prose.
-2. **Auto-detect:** If the transcript contains an email-style greeting (e.g., "Hi Louis", "Dear Sarah", "Hey team", "Hi all", "Hello", "Good morning") AND ends with a sign-off pattern (e.g., "thanks", "regards", "cheers", "kind regards", "best" optionally followed by a name), format it as an email.
+1. **Explicit trigger:** If the transcript begins with the word "email" followed by a greeting (e.g., "email hi Sam" or "email dear team"), treat the content as an email and strip the trigger word from the output. If "email" appears at the start but is followed by non-greeting content (e.g., "email is the worst form of communication"), do not treat it as a trigger — process as normal prose.
+2. **Auto-detect:** If the transcript contains an email-style greeting (e.g., "Hi Sam", "Dear Sarah", "Hey team", "Hi all", "Hello", "Good morning") AND ends with a sign-off pattern (e.g., "thanks", "regards", "cheers", "kind regards", "best" optionally followed by a name), format it as an email.
 
 Auto-detect is the primary mechanism. The explicit trigger is a convenience for edge cases where the content might not clearly read as an email.
 
-**Partial matches:** If the transcript has a greeting but no sign-off (e.g., "Hi Louis, here is the document you asked for"), format it as normal prose. Both signals (greeting + sign-off) are required for auto-detect. The explicit "email" trigger overrides this — if the trigger is present, format as an email even without a sign-off.
+**Partial matches:** If the transcript has a greeting but no sign-off (e.g., "Hi Sam, here is the document you asked for"), format it as normal prose. Both signals (greeting + sign-off) are required for auto-detect. The explicit "email" trigger overrides this — if the trigger is present, format as an email even without a sign-off.
 
 **False positives:** It is acceptable for the LLM to occasionally format a non-email as an email if it strongly matches the pattern. This is a low-risk outcome — the user gets slightly more structured output, not broken output.
 
@@ -42,11 +42,11 @@ Auto-detect is the primary mechanism. The explicit trigger is a convenience for 
 ### Auto-detect (greeting + sign-off)
 
 **Input transcript:**
-> "Hi Louis, thanks for your email and I hope you're doing well. Would you be able to send me over the copies of the transcript for the previous meeting and the PowerPoint slides accompanying it? Thanks, regards James."
+> "Hi Sam, thanks for your email and I hope you're doing well. Would you be able to send me over the copies of the transcript for the previous meeting and the PowerPoint slides accompanying it? Thanks, regards James."
 
 **Expected output:**
 ```
-Hi Louis,
+Hi Sam,
 
 Thanks for your email and I hope you're doing well.
 

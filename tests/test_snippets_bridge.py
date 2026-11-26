@@ -171,7 +171,7 @@ def test_a_failed_write_says_so_in_a_sentence_and_leaves_the_old_file_whole(tmp_
     before = (tmp_path / "snippets.json").read_bytes()
 
     def fail(path, data):
-        raise PermissionError("[WinError 5] Access is denied: 'C:\\Users\\james\\snippets.json'")
+        raise PermissionError("[WinError 5] Access is denied: 'C:\\Users\\you\\snippets.json'")
 
     api = _api(tmp_path, write=fail)
     r = api.set_snippets(sn(("b", "B")))

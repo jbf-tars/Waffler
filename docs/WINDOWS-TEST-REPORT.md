@@ -1,6 +1,6 @@
 # Windows test report: `one-app` on Windows
 
-Tested on 21 November 2026 on James's Windows PC, branch `windows` (made from
+Tested on 21 November 2026 on the maintainer's Windows PC, branch `windows` (made from
 `one-app` at 1db2a4a).
 
 **The PC:** Windows 11 Home (10.0.26200), Intel Core i7-14700F (28 threads),
@@ -18,7 +18,7 @@ by other programs during the test, so speech ran on the processor), Python
   computer's sound is captured, and the on-device engine turns it into the right
   words.
 - **From source:** the app starts, and the first-run model download works
-  (`small`, 486 MB in 18 seconds). The live checks that need James at the PC
+  (`small`, 486 MB in 18 seconds). The live checks that need the maintainer at the PC
   (dictation by voice, a full meeting, the double tap, signing in) are not done
   yet; see "Not checked".
 - **AI apps:** `--mcp` works from source and from the frozen build.
@@ -48,7 +48,7 @@ machine, not the code.
 ## 2. Running from source, with a temporary data folder
 
 The app was started with `python app.py` through a small launcher that set
-`WAFFLER_DATA_DIR` to an empty temporary folder (James's real Waffler data was
+`WAFFLER_DATA_DIR` to an empty temporary folder (the maintainer's real Waffler data was
 never read or written) and `WAFFLER_ACCOUNT_SERVER` to the test server. A
 Python audit hook wrote down every DNS lookup and connection the app's own
 process made.
@@ -58,14 +58,14 @@ process made.
 | Starts, tray icon, window, first-run screen | Works |
 | First run, "Download the free model and get to work" | Works: `small` (486 MB) came from Hugging Face in 18 s and was ready |
 | Internet use during that run | Only api.github.com (the update check), huggingface.co and us.aws.cdn.hf.co (the download) |
-| Setup's practice step | Opened twice; no key press reached it while I watched, but James had not tried it yet, so this is not a finding |
+| Setup's practice step | Opened twice; no key press reached it while I watched, but the maintainer had not tried it yet, so this is not a finding |
 | Dictation by voice | Not checked yet |
-| Dictating with the network off | Checked a different way: the on-device engine run with an audit hook made no connection at all (below). The network was not switched off on James's PC. |
+| Dictating with the network off | Checked a different way: the on-device engine run with an audit hook made no connection at all (below). The network was not switched off on the maintainer's PC. |
 | Meeting with the computer's sound | The parts work (below); a full meeting in the app is not checked yet |
 | Notes written after a meeting | Not checked: they need an AI key, and the test folder has none |
 | Meetings tab | Not checked yet |
 | Double tap to start and finish | `src/windows_hotkey.py` implements `set_meeting_double_tap`; not tried live yet |
-| Settings > Account, sign in and sync | Not done: the test server answers from this PC over Tailscale, but signing in needs the 6-digit code from James's email, which only he can type |
+| Settings > Account, sign in and sync | Not done: the test server answers from this PC over Tailscale, but signing in needs the 6-digit code from the maintainer's email, which only they can type |
 | Settings > AI apps | `python app.py --mcp` answers `initialize` (waffler 3.17.2, protocol 2025-06-18), lists 8 tools, and a `search_meetings` call returns a valid empty result; clean exit, nothing on stderr. Adding it to Claude Desktop's settings was not done, because that changes another app's configuration |
 
 **The computer's sound, checked part by part.** With PyAudioWPatch 0.2.12.9,
@@ -126,7 +126,7 @@ that fallback list is meant, the guard asks for
 `# doc-drift-ok` on the line; otherwise the list wants updating. It is shared
 code, so I left it alone.
 
-## 6. Not checked yet (needs James at the PC)
+## 6. Not checked yet (needs the maintainer at the PC)
 
 Dictation by voice, setup's practice step, a full 30-second meeting with a
 video playing, notes after it, the Meetings tab, the double tap, signing in and
@@ -168,7 +168,7 @@ declaring DPI awareness and scaling every pixel size in `pill.py` by the
 display's scale. It was left as is, like the dictation pill.
 
 **2. Each kind.** These were sent as the app sends them. The live events still
-need James at the PC: a real dictation, a Transform, a muted microphone, the
+need the maintainer at the PC: a real dictation, a Transform, a muted microphone, the
 network off, and a tap of the hotkey.
 
 | Message sent | Pill on Windows | What it did |
@@ -228,7 +228,7 @@ So the icacls path works on Windows as written.
 
 **2. The waffle record mark (Home, Meetings, top bar).** The pictures come from
 the app's own WebView2, on a test copy run from source, taken through its
-DevTools port. Nothing on James's screen was captured and nothing was recorded.
+DevTools port. Nothing on the maintainer's screen was captured and nothing was recorded.
 
 - In light and dark: `home-idle-*`, `home-recording-*`, `meetings-idle-*`.
 - The recording look was made with the states the app pushes:
@@ -239,7 +239,7 @@ DevTools port. Nothing on James's screen was captured and nothing was recorded.
   scales them itself at 125% or 150%.
 - Not shown: the Meetings tab's own record control while recording. Its state
   comes from the native bridge and changes only in a real meeting, which needs
-  James.
+  the maintainer.
 - On this test copy (speech on this computer, no key), the Meetings tab shows
   "Add a key in Waffler's Settings to begin" instead of a record button. The
   Advanced text says notes need a key either way, so this looks intended.
@@ -276,10 +276,10 @@ One bug found here:
   WKWebView.
 
 **4. Sync.** Covered by the sync tests in the suite, which pass on Windows. It
-was not run against the server, because signing in needs the code from James's
+was not run against the server, because signing in needs the code from the maintainer's
 email.
 
-**Still needs James at the PC:** signing in and a sync, a real meeting (the
+**Still needs the maintainer at the PC:** signing in and a sync, a real meeting (the
 Meetings tab's record control while recording), and dictation by voice.
 
 ## Re-check on `one-app` b5a4156
@@ -321,7 +321,7 @@ even hidden.
 
 **4. Suite:** see above.
 
-**Still needs James at the PC:** signing in (which is also where Plus would
+**Still needs the maintainer at the PC:** signing in (which is also where Plus would
 show), a sync, a real meeting with the microphone and the computer's sound,
 and dictation by voice.
 
@@ -636,7 +636,7 @@ when no address is named:
 - Until someone signs in, the Account page reads only this computer
   (`account.status`).
 
-**Installed on this PC** on 24 Nov, on James's go, over the Waffler in daily
+**Installed on this PC** on 24 Nov, on the maintainer's go, over the Waffler in daily
 use (53b2532). Waffler was closed first, as the in-app updater does, and the
 release installer then ran silently.
 - The data folder was backed up first. The models, the GPU pack and the
@@ -652,5 +652,5 @@ release installer then ran silently.
 - The 53b2532 build it replaced had no anthropic and no bundled ffmpeg. That
   never showed here, because this PC has its own ffmpeg.
 
-A dictation and a meeting by voice are still for James to do: this session
+A dictation and a meeting by voice are still for the maintainer to do: this session
 does not use his screen or microphone.

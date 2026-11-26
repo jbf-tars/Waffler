@@ -29,7 +29,7 @@ import mic_supervisor as ms  # noqa: E402
 from mic_devices import Device  # noqa: E402
 from test_mic_supervisor import AIRPODS, BUILTIN, TEAMS, YETI, World  # noqa: E402
 
-IPHONE = Device("James's iPhone Microphone", host_api="Core Audio", transport="cont")
+IPHONE = Device("Sam's iPhone Microphone", host_api="Core Audio", transport="cont")
 
 
 def supervisor(world):

@@ -158,7 +158,7 @@ def test_the_files_3_15_1_reads_are_unchanged_by_stars(env):
 
 def test_a_star_that_cannot_be_written_does_not_cost_the_words(env, monkeypatch):
     def boom(*a, **k):
-        raise PermissionError("[WinError 5] Access is denied: 'C:\\Users\\james\\vocab_stars.json'")
+        raise PermissionError("[WinError 5] Access is denied: 'C:\\Users\\you\\vocab_stars.json'")
 
     monkeypatch.setattr(vocab_rank, "sync_stars", boom)
     r = env.api.set_vocab(["Groq"], None, ["Groq"])
@@ -199,7 +199,7 @@ def test_export_of_an_empty_vocabulary_says_so_and_writes_nothing(env):
 def test_export_that_cannot_write_says_so_without_the_raw_error(env):
     env.api.set_vocab(["Groq"])
     env.ns["_export_files"].save = lambda *a, **k: (_ for _ in ()).throw(
-        PermissionError("[Errno 13] Permission denied: '/Users/james/Desktop'"))
+        PermissionError("[Errno 13] Permission denied: '/Users/you/Desktop'"))
     r = env.api.export_vocabulary()
     assert r == {"ok": False, "reason": "error", "error": um.EXPORT_FAILED}
     assert "james" not in json.dumps(r)

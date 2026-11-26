@@ -310,7 +310,7 @@ model (5.2 GB) are downloaded from Settings.
     resolved for pyobjc's CoreMedia module. It is a system library on macOS
     14 and the engines and pills ran, but nothing here used CoreMedia from
     Python.
-12. **The developer environment at `/Users/james/waffler/venv` has neither
+12. **The developer environment at `/Users/you/waffler/venv` has neither
     `imageio-ffmpeg` nor `anthropic`** (it was not touched). Running from
     source there, Import audio still refuses `.m4a` unless ffmpeg is on the
     PATH, until `pip install -r requirements.txt` is run in it.
@@ -320,7 +320,7 @@ model (5.2 GB) are downloaded from Settings.
 ## 8) Tests
 
 - The whole suite, in the environment the tests are normally run in
-  (`/Users/james/waffler/venv`, Python 3.14.4), after the last change:
+  (`/Users/you/waffler/venv`, Python 3.14.4), after the last change:
   **8,547 passed, 18 skipped, 0 failed**. 8,516 passed before this branch;
   of the 31 more, 11 are in `tests/test_self_check.py` and 20 came with the
   two merges of `one-app` (the Windows computer-sound packaging tests and

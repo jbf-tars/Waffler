@@ -109,7 +109,7 @@ The six files exist (`LICENSE`, `README.md`, `CONTRIBUTING.md`, `SECURITY.md`,
 
 ### Cross-repo nudge (user-action items, not for the loop)
 
-The loop will NOT touch the website repo (`C:/Users/james/waffler-website`)
+The loop will NOT touch the website repo (`C:/Users/you/waffler-website`)
 or any branch other than `main`. These need the user's manual handling:
 
 - [x] **[USER ACTION — HIGH] Website `release.ts` bumped to v3.14.69.** User did this themselves (waffler-website commit `4c73fe0`). New downloads now serve the real latest release.

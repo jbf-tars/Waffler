@@ -1,6 +1,6 @@
 # Waffler maintainer audit
 
-Branch `audit/maintainer-2026-09` (worktree `C:\Users\james\waffler-audit`),
+Branch `audit/maintainer-2026-09` (worktree `C:\Users\you\waffler-audit`),
 from `1b671a3` (v3.14.85). Started 2026-09-08.
 
 Evidence rules used throughout: a claim is **PROVEN** only if reproduced here;

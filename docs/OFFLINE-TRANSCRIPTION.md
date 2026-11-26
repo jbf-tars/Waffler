@@ -481,7 +481,7 @@ Windows pasted text as it was said: no tidy-up, no paragraphs. Now:
   (`"cpu"`, slower, and the row says so: "Optional. Slower here, but free and
   private.").
 
-Measured on James's PC (Windows 11, RTX 4070 SUPER, i7-14700F, 32 GB),
+Measured on the maintainer's PC (Windows 11, RTX 4070 SUPER, i7-14700F, 32 GB),
 November 2026, through the app's own clean-up (`OpenAIStyler.style`) and
 `write_notes`, with no key, and no connection beyond the computer after the
 downloads:
@@ -494,7 +494,7 @@ downloads:
 | A 200-word meeting's notes | 2.3 s | 16 s |
 
 End to end as a new PC gets it: the processor build fetched from GitHub,
-unpacked, and run; the CUDA build (James's own copy of the same zip, checked
+unpacked, and run; the CUDA build (the maintainer's own copy of the same zip, checked
 against the pinned SHA-256) with the CUDA runtime fetched from PyPI, run on
 the card with only the files Waffler fetched.
 
@@ -519,7 +519,7 @@ Not done on Windows: nothing older than this PC was tried, and no laptop.
 `src/gpu_pack.py`. faster-whisper uses an NVIDIA card when cuBLAS 12 and
 cuDNN 9 load (`local_stt_ct2._cuda_usable`), and the packaged app ships
 without them, so on a PC with a card "On this computer" ran on the processor.
-Measured on James's PC (Windows 11, RTX 4070 SUPER, i7-14700F), November 2026:
+Measured on the maintainer's PC (Windows 11, RTX 4070 SUPER, i7-14700F), November 2026:
 
 | | Processor | Card |
 |---|---|---|
