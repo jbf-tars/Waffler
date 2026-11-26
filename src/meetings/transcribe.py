@@ -313,7 +313,10 @@ def _transcribe_plus(audio: np.ndarray, language: str) -> list[dict]:
         time.sleep(min(max(float(answer.get("wait_s") or 20.0), 1.0), 60.0))
     if not answer.get("ok"):
         raise TranscribeError(str(answer.get("error") or acct.FAILED), "plus")
-    return clean_segments([{"start": g["start_s"], "end": g["end_s"], "text": g["text"]}
+    # Whisper's no_speech_prob comes too, when the service sends it: the same
+    # rules then judge a line as they do a provider's answer with a key.
+    return clean_segments([{"start": g["start_s"], "end": g["end_s"], "text": g["text"],
+                            "no_speech_prob": g.get("no_speech_prob")}
                            for g in answer["segments"]], audio)
 
 

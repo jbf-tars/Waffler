@@ -8974,7 +8974,10 @@ class WafflerPipeline:
         usage = {"input_tokens": 0, "output_tokens": 0, "api_used": False, "provider": "plus"}
         # Words this computer took out of what was heard (a made-up ending,
         # say) are still in the service's text: then the words as heard go in.
-        if plus.get("cleaned") and plus.get("text") and not info.get("last_asr_filtered"):
+        # So are ones it took off before the clean-up step and could not find in
+        # the service's text ("trimmed": transcribe_whisper._plus_heard).
+        if plus.get("cleaned") and plus.get("text") and not info.get("last_asr_filtered") \
+                and not plus.get("trimmed"):
             return plus["text"], usage
         if plus.get("code"):
             usage["fallback_reason"] = f"PLUS|{plus['code']}"
