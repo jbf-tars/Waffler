@@ -30,12 +30,17 @@ import time
 from collections import defaultdict
 from pathlib import Path
 
-env = Path.home() / ".waffler-hosted" / ".env"
-if env.exists():
-    for line in env.read_text().splitlines():
-        if line.strip() and not line.startswith("#") and "=" in line:
-            k, _, v = line.partition("=")
-            os.environ.setdefault(k.strip(), v.strip())
+def load_env_keys():
+    """Read the keys in ~/.waffler-hosted/.env into the environment. Only
+    when the script is RUN: importing it (tests do) reads nothing."""
+    env = Path.home() / ".waffler-hosted" / ".env"
+    if env.exists():
+        # utf-8-sig, as the app reads .env: a byte-order mark must not hide a key.
+        for line in env.read_text(encoding="utf-8-sig").splitlines():
+            if line.strip() and not line.startswith("#") and "=" in line:
+                k, _, v = line.partition("=")
+                os.environ.setdefault(k.strip(), v.strip())
+
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -45,6 +50,7 @@ from auto_test_corpus import CORPUS, evaluate  # noqa: E402
 
 
 def main():
+    load_env_keys()
     ap = argparse.ArgumentParser(description="Prompt consistency / flakiness harness")
     ap.add_argument("--provider", required=True, choices=["groq", "cerebras", "openai"],
                     help="Pin the styler to ONE provider (no fallback).")

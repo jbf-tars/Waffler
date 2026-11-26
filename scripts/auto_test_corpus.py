@@ -23,13 +23,17 @@ from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Callable, List, Optional
 
-env = Path.home() / ".waffler-hosted" / ".env"
-if env.exists():
-    # utf-8-sig, as the app reads .env: a byte-order mark must not hide a key.
-    for line in env.read_text(encoding="utf-8-sig").splitlines():
-        if line.strip() and not line.startswith("#") and "=" in line:
-            k, _, v = line.partition("=")
-            os.environ.setdefault(k.strip(), v.strip())
+def load_env_keys():
+    """Read the keys in ~/.waffler-hosted/.env into the environment. Only
+    when the script is RUN: importing it (tests do) reads nothing."""
+    env = Path.home() / ".waffler-hosted" / ".env"
+    if env.exists():
+        # utf-8-sig, as the app reads .env: a byte-order mark must not hide a key.
+        for line in env.read_text(encoding="utf-8-sig").splitlines():
+            if line.strip() and not line.startswith("#") and "=" in line:
+                k, _, v = line.partition("=")
+                os.environ.setdefault(k.strip(), v.strip())
+
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from style_openai import OpenAIStyler  # noqa: E402
@@ -935,6 +939,7 @@ def evaluate(case: Case, styled: str) -> List[str]:
 
 
 def main():
+    load_env_keys()
     import argparse
     ap = argparse.ArgumentParser(description="Waffler prompt regression harness")
     ap.add_argument("--delay", type=float, default=0.5,
