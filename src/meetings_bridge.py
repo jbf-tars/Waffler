@@ -23,9 +23,9 @@ MAX_IMPORT_BYTES = 400 * 1024 * 1024
 
 
 class _Reply(Exception):
-    def __init__(self, status: int, detail: str):
+    def __init__(self, status: int, detail: str, extra: dict | None = None):
         super().__init__(detail)
-        self.status, self.detail = status, detail
+        self.status, self.detail, self.extra = status, detail, extra or {}
 
 
 def _theme(waffler_theme: str) -> str:
@@ -48,12 +48,21 @@ def _notes_need_key() -> str:
     return llm.NOTES_NEED_KEY
 
 
+def _decode_failure(e: Exception) -> dict | None:
+    """audio_decode's answer for an import it refused, or None. By module
+    name, not isinstance: the engine may be imported as src.meetings or as
+    meetings, which are two copies of the class."""
+    if type(e).__module__.rsplit(".", 1)[-1] == "audio_decode" and isinstance(getattr(e, "reason", None), str):
+        return {"ok": False, "reason": e.reason, "error": str(e)}
+    return None
+
+
 def handle(ctl, method: str, path: str, body=None, waffler_theme: str = "") -> dict:
     """One call from the page. `ctl` is the MeetingsController."""
     try:
         return {"status": 200, "body": _route(ctl, (method or "GET").upper(), path or "", body, waffler_theme)}
     except _Reply as r:
-        return {"status": r.status, "body": {"detail": r.detail}}
+        return {"status": r.status, "body": {"detail": r.detail, **r.extra}}
     except KeyError:
         return {"status": 404, "body": {"detail": "That note no longer exists."}}
     except Exception as e:  # noqa: BLE001 — the page shows the sentence; the type goes to the log
@@ -247,6 +256,13 @@ def _route(ctl, method: str, raw: str, body, waffler_theme: str):
         except _Reply:
             raise
         except Exception as e:  # noqa: BLE001
+            refused = _decode_failure(e)
+            if refused:
+                # A plain sentence the frame shows as it is ("detail"), and the
+                # reason for the parent window: "needs_download" on Windows is
+                # where the download prompt attaches (audio_decode's docstring).
+                ctl._log(f"[meetings] import: {refused['reason']}: {getattr(e, 'detail', '')}")
+                raise _Reply(400, refused["error"], refused) from None
             raise _Reply(400, f"Couldn't read that audio file ({type(e).__name__}).") from None
         finally:
             if path is not None:

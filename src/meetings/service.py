@@ -2,18 +2,13 @@
 drive this."""
 from __future__ import annotations
 
-import os
-import shutil
-import subprocess
-import sys
-import tempfile
 import threading
 from datetime import datetime
 from pathlib import Path
 
 import numpy as np
 
-from . import audioproc, llm, tidy_lines
+from . import audio_decode, audioproc, llm, tidy_lines
 from .audioproc import RATE
 from .paths import audio_dir, data_dir, remove_audio
 from .recorder import (CHUNK_MAX_S, CHUNK_MIN_S, WAITING, Recorder, _Job, finish_waiting, retranscribe,
@@ -350,34 +345,12 @@ class Service:
 
 
 def load_any_audio(path: Path) -> np.ndarray:
-    """16 kHz mono from any common audio file; ffmpeg handles what soundfile can't (m4a)."""
+    """16 kHz mono float32 from any common audio file. soundfile reads wav,
+    flac, aiff, ogg and mp3; everything else (m4a above all) goes through
+    src/meetings/audio_decode.py, which raises an audio_decode.DecodeError
+    (a RuntimeError) with a plain sentence when it cannot."""
     try:
         return audioproc.read_audio(path)
     except Exception:
-        # A Mac converts m4a and the rest itself (afconvert is part of macOS),
-        # so it never needs ffmpeg for a voice memo.
-        afconvert = "/usr/bin/afconvert"
-        if sys.platform == "darwin" and os.path.exists(afconvert):
-            try:
-                with tempfile.TemporaryDirectory() as tmp:
-                    out = Path(tmp) / "a.wav"
-                    subprocess.run([afconvert, "-f", "WAVE", "-d", f"LEI16@{RATE}", "-c", "1",
-                                    str(path), str(out)], check=True, capture_output=True, timeout=600)
-                    return audioproc.read_audio(out)
-            except Exception:
-                pass                               # fall through to ffmpeg, if there is one
-        ffmpeg = shutil.which("ffmpeg")
-        if not ffmpeg:
-            try:                                   # a server without ffmpeg: the pip-bundled one
-                import imageio_ffmpeg
-                ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
-            except Exception:
-                ffmpeg = None
-        if not ffmpeg:
-            raise RuntimeError("This audio format needs ffmpeg, which isn't installed.") from None
-        with tempfile.TemporaryDirectory() as tmp:
-            out = Path(tmp) / "a.flac"
-            subprocess.run([ffmpeg, "-v", "error", "-y", "-i", str(path), "-ac", "1", "-ar",
-                            str(RATE), str(out)], check=True, capture_output=True,
-                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-            return audioproc.read_audio(out)
+        samples, rate = audio_decode.decode(path)
+        return samples if rate == RATE else audioproc.resample(samples, rate)
