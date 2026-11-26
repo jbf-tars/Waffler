@@ -144,9 +144,11 @@ computer's sound.
 
 Decided: no GPL program or library in either installer. The Mac build no
 longer ships FFmpeg (Import audio uses macOS's own afconvert); Windows
-fetches an LGPL decoder on first use and leaves PyAV's libraries out (to do,
-Windows session). `docs/THIRD-PARTY-LICENSING.md` has the state. What
-follows is the question as it stood before.
+fetches an LGPL decoder on first use (BtbN's FFmpeg 9.0.2 build, 76.6 MB,
+offered by the import that needs it) and leaves PyAV's libraries and
+imageio-ffmpeg out: done by the Windows session, and the Windows installer
+went from 107 MB to 59.5 MB. `docs/THIRD-PARTY-LICENSING.md` has the state
+and what was verified. What follows is the question as it stood before.
 
 Waffler is MIT. The builds bundle FFmpeg executables from imageio-ffmpeg:
 on the Mac an osxexperts build configured `--enable-gpl` (GPL v2 or later,
