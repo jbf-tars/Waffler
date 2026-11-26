@@ -58,12 +58,14 @@
   // That interface is a build (ui/meetings-app) of another project's source,
   // so the button is put there from here, and put back whenever the
   // interface redraws its side column.
+  let planted = false, loadedAt = 0, placeTimer = null;
   function plant() {
     const f = $('mtFrame'); let doc = null;
-    try { doc = f && f.contentDocument; } catch (e) { return; }
-    if (!doc || !doc.body || doc.getElementById('wafflerGranola')) return;
+    try { doc = f && f.contentDocument; } catch (e) { place(false); return; }
+    if (!doc || !doc.body) return;
+    if (doc.getElementById('wafflerGranola')) { planted = true; place(true); return; }
     const audio = Array.from(doc.querySelectorAll('.foot button')).find((b) => /Import audio/.test(b.textContent));
-    if (!audio) return;
+    if (!audio) { planted = false; place(true); return; }
     const b = doc.createElement('button');
     b.type = 'button'; b.id = 'wafflerGranola'; b.className = 'ghost'; b.textContent = 'Import from Granola';
     const icon = audio.querySelector('svg');              // the same drawing, its arrow pointing in
@@ -75,11 +77,24 @@
     b.addEventListener('click', open);
     audio.insertAdjacentElement('afterend', b);
     audio.parentNode.style.flexWrap = 'wrap';
+    planted = true; place(true);
+  }
+  // The entry in the window (#granolaFallback) when it is not in the frame:
+  // the frame's markup changed, or the frame cannot be read (L.granolaEntryPlace).
+  function place(reachable) {
+    const fb = $('granolaFallback'); if (!fb) return;
+    const where = L.granolaEntryPlace({ planted, reachable, waitedMs: loadedAt ? Date.now() - loadedAt : 0 });
+    if (where === 'window' && fb.hidden) console.warn('Import from Granola: not found in the Meetings frame; shown in the window');
+    fb.hidden = where !== 'window';
+    window.clearTimeout(placeTimer);
+    if (where === 'wait') placeTimer = window.setTimeout(() => place(reachable), L.GRANOLA_WAIT_MS);
   }
   function watch() {
     const f = $('mtFrame'); let doc = null;
-    try { doc = f && f.contentDocument; } catch (e) { return; }
-    if (!doc || !doc.body) return;
+    if (!f || !f.getAttribute('src')) return;    // not opened yet (meetings.js sets src on first visit)
+    loadedAt = Date.now(); planted = false;
+    try { doc = f && f.contentDocument; } catch (e) { place(false); return; }
+    if (!doc || !doc.body) { place(true); return; }
     plant();
     new MutationObserver(plant).observe(doc.body, { childList: true, subtree: true });
   }
@@ -93,6 +108,7 @@
     $('grGo').addEventListener('click', () => { if (view.primary === 'close') close(); else act('granola_import'); });
     $('grQuiet').addEventListener('click', () => act(view.quiet === 'cancel' ? 'granola_cancel' : 'granola_disconnect'));
     $('grClose').addEventListener('click', close);
+    if ($('granolaFallback')) $('granolaFallback').addEventListener('click', open);
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('granolaSheet').hidden) { e.preventDefault(); close(); } });
     if ($('mtFrame')) { $('mtFrame').addEventListener('load', watch); watch(); }
   });

@@ -1587,6 +1587,10 @@
   <div class="meetings-panel" id="meetingsPanel" style="display:none">
     <h1 class="sr-only" id="meetingsTitle" tabindex="-1">Meetings</h1>
     <iframe class="mt-frame" id="mtFrame" title="Meetings" data-src="meetings-app/index.html?embed=1"></iframe>
+    <!-- Import from Granola, in the window: shown only when the entry cannot
+         be put beside "Import audio" inside the frame (granola.js,
+         L.granolaEntryPlace). -->
+    <button type="button" class="btn btn-sec btn-sm mt-granola" id="granolaFallback" hidden>Import from Granola</button>
   </div>
 
 </div>

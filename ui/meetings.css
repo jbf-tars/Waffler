@@ -108,6 +108,9 @@ body:not([data-page="home"]) .j-ask { display: none; }
 
 /* ── The Meetings tab is the meetings interface in a frame ───────────────── */
 .meetings-panel { flex: 1 1 auto; min-height: 0; padding: 0; overflow: hidden; flex-direction: column; justify-content: flex-start; }
+.meetings-panel { position: relative; }
+.mt-granola { position: absolute; right: 20px; bottom: 20px; z-index: 2; }
+.mt-granola[hidden] { display: none; }
 .mt-frame { flex: 1 1 auto; min-height: 0; width: 100%; border: 0; display: block; background: var(--bg); }
 
 /* ── How it runs (Settings, Keys and providers; howitruns.js) ───────────── */

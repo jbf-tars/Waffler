@@ -152,3 +152,70 @@ def test_a_build_is_checked_for_the_new_parts():
     assert '"meetings.granola_import"' in check and '"ui/granola.js"' in check
     for spec in ("Waffler_mac.spec", "Waffler_windows.spec"):
         assert "'http.server'" in (ROOT / spec).read_text(encoding="utf-8"), spec
+
+
+# ── the entry does not vanish if the frame's markup changes ─────────────────
+
+@needs_node
+def test_the_entry_falls_back_to_the_window_when_it_cannot_be_planted():
+    place = lambda s: js(f"L.granolaEntryPlace({s})")  # noqa: E731
+    assert place("{planted: true, waitedMs: 0}") == "frame"
+    assert place("{planted: true, waitedMs: 99999}") == "frame"
+    assert place("{planted: false, reachable: true, waitedMs: 100}") == "wait"
+    wait = js("L.GRANOLA_WAIT_MS")
+    assert 1000 <= wait <= 8000
+    assert place(f"{{planted: false, reachable: true, waitedMs: {wait}}}") == "window"
+    assert place("{planted: false, reachable: false, waitedMs: 0}") == "window"
+    assert place("null") == "wait"
+
+
+def test_the_window_has_the_fallback_entry_wired_to_the_same_sheet():
+    html = read("index.html")
+    panel = html[html.index('id="meetingsPanel"'):]
+    panel = panel[:panel.index("</div>")]
+    assert '<button type="button" class="btn btn-sec btn-sm mt-granola" id="granolaFallback" hidden>' \
+           'Import from Granola</button>' in panel
+    src = code_only(read("granola.js"))
+    assert "$('granolaFallback').addEventListener('click', open)" in src
+    assert "L.granolaEntryPlace({ planted, reachable" in src
+    # Not found: shown in the window; planted later: hidden again.
+    assert "fb.hidden = where !== 'window'" in src
+    assert "if (!audio) { planted = false; place(true); return; }" in src
+    assert "catch (e) { place(false); return; }" in src
+    css = read("meetings.css")
+    assert ".mt-granola[hidden] { display: none; }" in css
+
+
+@needs_node
+def test_with_the_frames_markup_changed_the_fallback_shows(tmp_path):
+    """granola.js itself, in Node with a stand-in window and a frame whose
+    "Import audio" button is gone: after the wait, the window's entry shows."""
+    import json as _json
+    import subprocess
+    script = tmp_path / "run.js"
+    script.write_text("""
+const fs = require('fs');
+const L = require(process.argv[3]);
+const els = {};
+function el(id) { return els[id] || (els[id] = { id, hidden: true, textContent: '', dataset: {}, style: {},
+  classList: { toggle() {} }, addEventListener() {}, focus() {}, getAttribute(n) { return n === 'src' ? 'meetings-app/index.html' : null; } }); }
+const frameDoc = { body: {}, getElementById() { return null; }, querySelectorAll() { return []; } };
+els.mtFrame = Object.assign(el('mtFrame'), { contentDocument: frameDoc });
+let ready = null, timers = [];
+global.window = { WafflerLogic: L, setTimeout(fn) { timers.push(fn); return timers.length; }, clearTimeout() {} };
+global.document = { getElementById: el, addEventListener(t, fn) { if (t === 'DOMContentLoaded') ready = fn; } };
+global.MutationObserver = class { observe() {} };
+global.console = { warn() {}, log() {} };
+const realNow = Date.now; let now = 1000; Date.now = () => now;
+eval(fs.readFileSync(process.argv[2], 'utf8'));
+el('granolaSheet'); ready();
+const before = els.granolaFallback.hidden;
+now += L.GRANOLA_WAIT_MS + 1; timers.splice(0).forEach((f) => f());
+process.stdout.write(JSON.stringify({ before, after: els.granolaFallback.hidden }));
+""", encoding="utf-8")
+    from test_ui_logic import NODE, LOGIC
+    out = subprocess.run([NODE, str(script), str(ROOT / "ui" / "granola.js"), str(LOGIC)],
+                         capture_output=True, text=True, timeout=30)
+    assert out.returncode == 0, out.stderr
+    r = _json.loads(out.stdout)
+    assert r == {"before": True, "after": False}

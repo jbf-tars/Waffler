@@ -3538,6 +3538,21 @@
   // each with the words on it in primaryText and quietText.
   const GRANOLA_OFFER = 'Bring your Granola meetings into Waffler.';
   const GRANOLA_FAILED = 'That didn’t work. Try again.';
+  // Where "Import from Granola" is shown. It is planted beside "Import audio"
+  // inside the Meetings frame, a build of another project's interface; if
+  // that button is not there a few seconds after the frame loaded (its markup
+  // changed), or the frame cannot be read, the entry is shown in the window
+  // itself instead of vanishing. A later plant moves it back.
+  //   s.planted: the entry is in the frame; s.reachable: the frame's page can
+  //   be read; s.waitedMs: time since the frame loaded.
+  const GRANOLA_WAIT_MS = 4000;
+  function granolaEntryPlace(s) {
+    s = s || {};
+    if (s.planted) return 'frame';
+    if (s.reachable === false) return 'window';
+    return (s.waitedMs || 0) >= GRANOLA_WAIT_MS ? 'window' : 'wait';
+  }
+
   function granolaView(status) {
     const s = status && typeof status === 'object' ? status : {};
     const n = (v) => (Number.isFinite(v) && v > 0 ? Math.floor(v) : 0);
@@ -3634,6 +3649,6 @@
     accountView, accountDigits, accountCode, accountCodeReady, accountCodeLabel, accountCodeExample, accountBadCode, accountAgo, accountSyncLine, accountDeviceLine, accountClaudeView,
     ACCOUNT_RESEND_S, accountCodeLine, accountResendView, accountSignedInLine,
     accountSetupOffered, accountOfferView, accountDeleteStep, accountDeleteReady, accountConfirm,
-    blockStrayDrops, granolaView,
+    blockStrayDrops, granolaView, granolaEntryPlace, GRANOLA_WAIT_MS,
   };
 });
