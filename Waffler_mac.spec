@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
 Waffler — macOS PyInstaller spec
-Bundles all hidden imports, data files (ui/, prompts/, config.yaml, .env, src/)
+Bundles all hidden imports, data files (ui/, prompts/, config.yaml, .env.example (never .env), src/)
 Produces: dist/Waffler.app  (macOS .app bundle)
 
 Run on a Mac with: pyinstaller Waffler_mac.spec

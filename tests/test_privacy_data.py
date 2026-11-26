@@ -155,9 +155,9 @@ def test_the_logs_bundle_never_includes_the_snippets():
     fn = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "download_logs")
     listed = [c.value for c in ast.walk(fn) if isinstance(c, ast.Constant) and isinstance(c.value, str)
               and c.value.endswith(".json")]
-    assert "settings.json" in listed and "vocab.json" in listed
+    assert "settings.json" in listed
     assert "snippets.json" not in listed
-    assert "Snippets (~/.waffler-hosted/snippets.json)" in ast.unparse(fn)
+    assert "Snippets (snippets.json)" in ast.unparse(fn)
 
 
 def test_a_log_held_open_is_emptied_instead(tmp_path, monkeypatch):
@@ -229,7 +229,7 @@ def test_the_file_is_rewritten_once_and_everything_else_is_byte_for_byte(tmp_pat
     settings.write_text(json.dumps({"theme": "dark"}), encoding="utf-8")
 
     r = P.tidy_logs_at_start(tmp_path, settings)
-    assert r == {"scrubbed": 6, "rotated": False}
+    assert r == {"scrubbed": 6, "rotated": False, "rotated_hotkey": False}
     data = log.read_bytes()
     assert data.endswith(other)
     assert b"John" not in data and b"testing one two" not in data and b"note" not in data
@@ -355,7 +355,7 @@ def test_the_tip_memory_is_deleted_with_my_data_and_not_zipped_into_the_logs(tmp
     listed = [c.value for c in ast.walk(fn) if isinstance(c, ast.Constant) and isinstance(c.value, str)
               and c.value.endswith(".json")]
     assert "notifications.json" not in listed
-    assert "Which tips were shown (~/.waffler-hosted/notifications.json)" in ast.unparse(fn)
+    assert "Which tips were shown (notifications.json)" in ast.unparse(fn)
 
 
 def test_the_state_file_name_is_the_one_the_notifier_writes():

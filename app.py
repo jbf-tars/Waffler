@@ -59,9 +59,17 @@ from datetime import datetime, date
 try:
     # Same folder as src/data_paths.data_dir(), which cannot be imported yet
     # because src/ is not on sys.path at this point.
-    _crash_log = open(Path(os.environ.get("WAFFLER_DATA_DIR", "").strip()
-                           or Path.home() / ".waffler-hosted") / "crash.log", "a",
-                      encoding="utf-8")
+    _crash_path = Path(os.environ.get("WAFFLER_DATA_DIR", "").strip()
+                       or Path.home() / ".waffler-hosted") / "crash.log"
+    # Capped as app.log is (src/privacy_data.rotate_log, 5 MB): over it, the
+    # old one becomes crash.log.1. Here, before it is opened, because it stays
+    # open for the life of the app.
+    try:
+        if _crash_path.stat().st_size > 5 * 1024 * 1024:
+            os.replace(_crash_path, _crash_path.with_name("crash.log.1"))
+    except OSError:
+        pass
+    _crash_log = open(_crash_path, "a", encoding="utf-8")
     faulthandler.enable(file=_crash_log)
 
     def close_crash_log():
@@ -2902,22 +2910,34 @@ class Api:
     # ── Diagnostics / bug-report bundle ───────────────────────────────────────
 
     def download_logs(self) -> dict:
-        """Bundle all diagnostic-relevant files into a single zip on the user's
-        Desktop, then open Finder/Explorer to it. Designed for "my friend's
-        Waffler is broken, send me your logs" workflows.
+        """Bundle what support needs into a single zip on the user's Desktop,
+        then open Finder/Explorer to it. Designed for "my friend's Waffler is
+        broken, send me your logs" workflows. Nothing in it says who the
+        person is or what they said.
 
         Includes:
-          - app.log, crash.log              (runtime + Python crash dumps)
-          - settings.json, config.json,
-            setup_complete.json, vocab.json,
-            vocab_sounds.json, vocab_stars.json   (config / state — no PII)
-          - macOS DiagnosticReports/*.ips   (last 5 system crash dumps)
-          - sysinfo.txt                     (synthesised: version, OS,
-                                             hotkey, audio device, VPN)
+          - logs/app.log, crash.log, hotkey.log  (runtime log, Python crash
+                                             dumps, Windows' keyboard listener;
+                                             each the last 2 MB at most)
+          - config/settings.json            (the email signature and the
+                                             Transforms' wording taken out,
+                                             microphone identifiers dropped)
+          - config/config.json, setup_complete.json
+          - crashes-system/*.ips            (macOS: the last 5 crash reports)
+          - sysinfo.txt                     (version, OS, pipeline, hotkey,
+                                             audio devices, key presence,
+                                             how many vocabulary entries)
+
+        In every text file the home folder becomes "~", the user name
+        "<user>", the computer's name "<computer>", and a device named after
+        its owner ("Sam's AirPods") "<name>'s AirPods" (src/privacy_data.py).
 
         Deliberately EXCLUDES:
           - .env                            (API keys)
-          - history.json                    (user transcripts — PII)
+          - history.json                    (user transcripts)
+          - vocab.json, vocab_sounds.json,
+            vocab_stars.json                (the person's own names and terms;
+                                             sysinfo says how many there are)
           - snippets.json                   (can hold an address or signature)
           - notifications.json              (which tips were shown: counters
                                              only, nothing a bug report needs)
@@ -2929,9 +2949,10 @@ class Api:
           - audio_restarts.json             (when Waffler restarted itself
                                              because the audio system stopped
                                              answering: times only)
+          - meetings (meetings.db, recordings)
 
         Returns:
-          {"ok": True, "path": "/Users/.../Desktop/waffler-logs-...zip"}
+          {"ok": True, "path": "<Desktop>/waffler-logs-...zip"}
           {"ok": False, "error": str}
         """
         import zipfile
@@ -2950,41 +2971,42 @@ class Api:
                 desktop = home
             stamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
             zip_path = desktop / f"waffler-logs-{stamp}.zip"
+            pairs = _privacy.personal_strings(home=home)
+
+            def _scrubbed(text: str) -> str:
+                return _privacy.scrub_for_bundle(text, pairs)
 
             with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-                # 1) Runtime logs from DATA_DIR. tail of app.log only if huge
-                # (cap at last 2 MB so the zip stays sharable over chat).
-                for name in ("app.log", "crash.log"):
+                # 1) Logs from DATA_DIR, the last 2 MB of each at most so the
+                # zip stays sharable over chat.
+                for name in ("app.log", "crash.log", "hotkey.log"):
                     src_path = DATA_DIR / name
                     if not src_path.exists():
                         continue
                     try:
-                        if src_path.stat().st_size > 2 * 1024 * 1024:
-                            with open(src_path, "rb") as f:
+                        size = src_path.stat().st_size
+                        with open(src_path, "rb") as f:
+                            if size > 2 * 1024 * 1024:
                                 f.seek(-2 * 1024 * 1024, 2)
-                                tail = f.read()
-                            zf.writestr(f"logs/{name}.tail", tail)
-                        else:
-                            zf.write(src_path, f"logs/{name}")
+                                arc = f"logs/{name}.tail"
+                            else:
+                                arc = f"logs/{name}"
+                            zf.writestr(arc, _privacy.scrub_bytes(f.read(), pairs))
                     except Exception as e:
-                        zf.writestr(f"logs/{name}.READ_ERROR", str(e))
+                        zf.writestr(f"logs/{name}.READ_ERROR", _scrubbed(str(e)))
 
-                # 2) Config snapshots (no PII, no keys).
-                for name in ("settings.json", "config.json",
-                             "setup_complete.json", "vocab.json", "vocab_sounds.json",
-                             "vocab_stars.json"):
+                # 2) Settings (no keys; the signature and Transforms' wording
+                # taken out). No vocabulary: its words are the person's own.
+                for name in ("settings.json", "config.json", "setup_complete.json"):
                     src_path = DATA_DIR / name
                     if src_path.exists():
                         try:
+                            raw = src_path.read_text(encoding="utf-8-sig")
                             if name == "settings.json":
-                                # The email signature can hold a name, a phone
-                                # number or an address: its text is left out.
-                                zf.writestr(f"config/{name}", _privacy.settings_for_logs(
-                                    src_path.read_text(encoding="utf-8-sig")))
-                            else:
-                                zf.write(src_path, f"config/{name}")
+                                raw = _privacy.settings_for_logs(raw)
+                            zf.writestr(f"config/{name}", _scrubbed(raw))
                         except Exception as e:
-                            zf.writestr(f"config/{name}.READ_ERROR", str(e))
+                            zf.writestr(f"config/{name}.READ_ERROR", _scrubbed(str(e)))
 
                 # 3) macOS system crash reports (last 5). Each .ips is ~70 KB.
                 if _plat.system() == "Darwin":
@@ -2997,9 +3019,10 @@ class Api:
                                 reverse=True,
                             )[:5]
                             for ips in ips_files:
-                                zf.write(ips, f"crashes-system/{ips.name}")
+                                zf.writestr(f"crashes-system/{ips.name}",
+                                            _privacy.scrub_bytes(ips.read_bytes(), pairs))
                         except Exception as e:
-                            zf.writestr("crashes-system.READ_ERROR", str(e))
+                            zf.writestr("crashes-system.READ_ERROR", _scrubbed(str(e)))
 
                 # 4) Synthesised one-page system snapshot.
                 try:
@@ -3010,6 +3033,10 @@ class Api:
                             return thunk()
                         except Exception:
                             return default
+
+                    def _vocab_count():
+                        data = json.loads((DATA_DIR / "vocab.json").read_text(encoding="utf-8-sig"))
+                        return len(data) if isinstance(data, (list, dict)) else "?"
 
                     lines = [
                         f"Waffler version : {_ver}",
@@ -3024,6 +3051,7 @@ class Api:
                         f"Transcribe back : {_safe(lambda: getattr(_pipeline.transcriber, '_backend', '?'))}",
                         f"Style back      : {_safe(lambda: getattr(_pipeline.styler, '_backend', '?'))}",
                         f"Style model     : {_safe(lambda: getattr(_pipeline.styler, 'model', '?'))}",
+                        f"Vocabulary      : {_safe(_vocab_count, 'none')} entries (the words are not included)",
                         "",
                         "── Hotkey ──────────────────────────────────",
                         f"Current config  : {_safe(lambda: self.get_hotkey_config())}",
@@ -3037,9 +3065,9 @@ class Api:
                         f"CEREBRAS_API_KEY: {'set' if (os.environ.get('CEREBRAS_API_KEY') or '').strip() else 'unset'}",
                         f"OPENAI_API_KEY  : {'set' if (os.environ.get('OPENAI_API_KEY') or '').strip() else 'unset'}",
                     ]
-                    zf.writestr("sysinfo.txt", "\n".join(lines))
+                    zf.writestr("sysinfo.txt", _scrubbed("\n".join(lines)))
                 except Exception as e:
-                    zf.writestr("sysinfo.ERROR", str(e))
+                    zf.writestr("sysinfo.ERROR", _scrubbed(str(e)))
 
                 # 5) A README for the recipient — what's in here, what's NOT,
                 # and how to read it.
@@ -3048,21 +3076,27 @@ class Api:
                     "=========================\n\n"
                     f"Generated by Waffler v{_ver} on {datetime.now().isoformat(timespec='seconds')}.\n\n"
                     "Contents:\n"
-                    "  logs/app.log              — runtime log (tail-clipped if >2 MB)\n"
+                    "  logs/app.log              — runtime log (the last 2 MB at most)\n"
                     "  logs/crash.log            — Python crash dumps\n"
-                    "  config/                   — non-secret settings + vocab\n"
+                    "  logs/hotkey.log           — Windows keyboard listener\n"
+                    "  config/                   — settings, with personal text taken out\n"
                     "  crashes-system/           — macOS system crash reports (.ips)\n"
                     "  sysinfo.txt               — one-page system snapshot\n\n"
+                    "In every file the home folder is written ~, the user name <user>, the\n"
+                    "computer's name <computer>, and a device named after its owner <name>'s.\n\n"
                     "NOT included (intentional):\n"
-                    "  - API keys (~/.waffler-hosted/.env)\n"
-                    "  - Transcript history (~/.waffler-hosted/history.json)\n"
-                    "  - Snippets (~/.waffler-hosted/snippets.json)\n"
+                    "  - API keys (.env)\n"
+                    "  - Transcript history (history.json)\n"
+                    "  - Vocabulary (vocab*.json): only how many entries there are\n"
+                    "  - Snippets (snippets.json)\n"
+                    "  - Meetings, their transcripts and recordings\n"
                     "  - The text of your email signature (left out of config/settings.json)\n"
-                    "  - Which tips were shown (~/.waffler-hosted/notifications.json)\n"
-                    "  - Which new microphones Waffler asked about (~/.waffler-hosted/mic_devices.json)\n"
-                    "  - What each call cost (~/.waffler-hosted/usage.jsonl)\n"
-                    "  - Which takes were being processed (~/.waffler-hosted/inflight.json)\n"
-                    "  - When Waffler restarted itself (~/.waffler-hosted/audio_restarts.json)\n\n"
+                    "  - The wording of your Transforms (left out of config/settings.json)\n"
+                    "  - Which tips were shown (notifications.json)\n"
+                    "  - Which new microphones Waffler asked about (mic_devices.json)\n"
+                    "  - What each call cost (usage.jsonl)\n"
+                    "  - Which takes were being processed (inflight.json)\n"
+                    "  - When Waffler restarted itself (audio_restarts.json)\n\n"
                     "Share this zip when reporting a bug to https://github.com/jbf-tars/Waffler/issues\n"
                 )
 

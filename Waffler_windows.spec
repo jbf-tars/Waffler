@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
 Waffler — Windows PyInstaller spec
-Bundles all hidden imports, data files (ui/, prompts/, config.yaml, .env, src/)
+Bundles all hidden imports, data files (ui/, prompts/, config.yaml, src/; never .env)
 Produces: dist/Waffler/Waffler.exe  (one-folder mode for faster startup)
 """
 

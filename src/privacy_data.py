@@ -140,7 +140,7 @@ KEPT_FILES = (".env", "settings.json", "config.json", "setup_complete.json",
 # the microphone's short name, which the tip says.
 DATA_FILES = ("history.json", "usage.json", "usage.jsonl", "quality.jsonl", "notifications.json",
               "inflight.json", "mic_devices.json", "audio_restarts.json", "mic_volume.json",
-              "app.log", "app.log.1", "crash.log", "hotkey.log")
+              "app.log", "app.log.1", "crash.log", "crash.log.1", "hotkey.log", "hotkey.log.1")
 # The *.unreadable-* copies are a history.json or usage.json that could not
 # be read, kept aside instead of being written over (src/atomic_json.py).
 DATA_GLOBS = ("usage.backup-*.json", "history.unreadable-*.json", "usage.unreadable-*.json")
@@ -463,4 +463,101 @@ def tidy_logs_at_start(data_dir, settings_path, redact_vocab: bool = False) -> d
         except Exception:
             result.pop("vocab_redacted", None)      # try again next start
     result["rotated"] = rotate_log(d / "app.log")
+    # hotkey.log (Windows' keyboard listener) is capped the same way. crash.log
+    # is open by now (faulthandler): app.py rotates it before opening it.
+    result["rotated_hotkey"] = rotate_log(d / "hotkey.log")
     return result
+
+
+# ── The logs bundle ("Download Logs") ─────────────────────────────────────────
+#
+# What goes in the zip is what support needs to see what went wrong: the logs,
+# the settings (signature and Transform wording taken out), a one-page
+# snapshot. Nothing in it should say who the person is or what they said:
+# vocabulary files are not included (their words are the person's own names
+# and terms), and in every text file the home folder becomes "~" and the
+# user name and the computer's name become placeholders.
+
+def personal_strings(home=None, user=None, host_names=()):
+    """(text, replacement) pairs to take out of the bundle, longest first so a
+    home path is replaced before the user name inside it."""
+    import getpass
+    import platform
+    import socket
+    pairs = []
+    home = str(home if home is not None else Path.home())
+    if home and home not in ("/", "\\"):
+        pairs.append((home, "~"))
+        pairs.append((home.replace("\\", "/"), "~"))
+        pairs.append((home.replace("/", "\\"), "~"))
+    names = set(host_names)
+    if not host_names:
+        for get in (platform.node, socket.gethostname):
+            try:
+                names.add(get())
+            except Exception:
+                pass
+    expanded = set()
+    for n in names:
+        n = (n or "").strip()
+        if len(n) < 3:
+            continue
+        expanded.add(n)
+        short = n.split(".")[0]            # Sams-MacBook-Pro.local -> Sams-MacBook-Pro
+        if len(short) >= 3:
+            expanded.add(short)
+            expanded.add(short.replace("-", " "))  # the Mac's own name, as the Sharing pane writes it
+    for n in expanded:
+        pairs.append((n, "<computer>"))
+    if user is None:
+        try:
+            user = getpass.getuser()
+        except Exception:
+            user = ""
+    if user and len(user) >= 3:
+        pairs.append((user, "<user>"))
+    # Longest first; drop duplicates.
+    seen, out = set(), []
+    for a, b in sorted(pairs, key=lambda ab: -len(ab[0])):
+        if a and a not in seen:
+            seen.add(a)
+            out.append((a, b))
+    return out
+
+
+def scrub_text(text: str, pairs) -> str:
+    """Replace each personal string with its placeholder: a home path
+    wherever it is, a name only as a whole word, in any case ("sam" leaves
+    "sample rate" alone)."""
+    import re
+    for a, b in pairs:
+        if b == "~":
+            text = text.replace(a, b)
+        else:
+            text = re.sub(r"(?<![A-Za-z0-9])" + re.escape(a) + r"(?![A-Za-z0-9])", b, text,
+                          flags=re.IGNORECASE)
+    return text
+
+
+# "Sam's AirPods", "Sam’s iPhone Microphone": a device named after its owner.
+_OWNED_DEVICE = None
+
+
+def scrub_device_owner(text: str) -> str:
+    """A device named after its owner keeps its kind and loses the name."""
+    import re
+    global _OWNED_DEVICE
+    if _OWNED_DEVICE is None:
+        kinds = ("AirPods|iPhone|iPad|MacBook|iMac|Mac|Beats|Headphones|Headset|Microphone|Mic|"
+                 "Speakers?|Buds|Galaxy|Pixel|Phone|Watch|Studio|Earbuds|Mac mini|Mac Studio")
+        _OWNED_DEVICE = re.compile(r"(?<![A-Za-z0-9])[A-Z][\w.-]*(?: [A-Z][\w.-]*)?['’]s (?=(?:%s)\b)" % kinds)
+    return _OWNED_DEVICE.sub("<name>'s ", text)
+
+
+def scrub_for_bundle(text: str, pairs) -> str:
+    return scrub_text(scrub_device_owner(text), pairs)
+
+
+def scrub_bytes(data: bytes, pairs) -> bytes:
+    """The same for a file read as bytes (a log tail may start mid-character)."""
+    return scrub_for_bundle(data.decode("utf-8", errors="replace"), pairs).encode("utf-8")

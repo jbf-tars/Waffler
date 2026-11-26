@@ -156,7 +156,7 @@ def test_the_tidy_at_start_does_it_once_in_both_logs_and_only_when_asked(tmp_pat
         (tmp_path / name).write_text("\n".join(OLD) + "\n", encoding="utf-8", newline="")
     # Not before the one-time restore of earlier fixes has read them.
     r = P.tidy_logs_at_start(tmp_path, settings)
-    assert r == {"scrubbed": None, "rotated": False}
+    assert r == {"scrubbed": None, "rotated": False, "rotated_hotkey": False}
     assert "waffle" in (tmp_path / "app.log").read_text(encoding="utf-8")
     r = P.tidy_logs_at_start(tmp_path, settings, redact_vocab=True)
     assert r["vocab_redacted"] == 6

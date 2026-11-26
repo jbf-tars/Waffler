@@ -48,14 +48,21 @@ def test_delete_all_my_data_leaves_the_stars_and_empties_edited_text_with_the_hi
     assert json.loads((tmp_path / "history.json").read_text(encoding="utf-8")) == []
 
 
-def test_the_logs_bundle_includes_the_stars_beside_the_words_and_still_not_the_history():
+def test_the_logs_bundle_leaves_the_vocabulary_out_and_says_how_many():
+    """The words are the person's own names and terms: the bundle has none of
+    the vocabulary files, only a count in sysinfo.txt (security review item 7)."""
     fn = next(n for n in ast.walk(TREE) if isinstance(n, ast.FunctionDef) and n.name == "download_logs")
-    listed = [c.value for c in ast.walk(fn) if isinstance(c, ast.Constant) and isinstance(c.value, str)
-              and c.value.endswith(".json")]
-    assert "vocab.json" in listed and "vocab_stars.json" in listed
-    assert "history.json" not in listed and "snippets.json" not in listed
-    # The docstring says what is in it, in the same words as the code.
-    assert "vocab_stars.json" in ast.get_docstring(fn)
+    zipped = []
+    for loop in ast.walk(fn):
+        if isinstance(loop, ast.For) and isinstance(loop.iter, ast.Tuple):
+            zipped += [e.value for e in loop.iter.elts if isinstance(e, ast.Constant)]
+    assert "settings.json" in zipped
+    for name in ("vocab.json", "vocab_sounds.json", "vocab_stars.json", "history.json", "snippets.json"):
+        assert name not in zipped, name
+    doc = ast.get_docstring(fn)
+    assert "vocab_stars.json" in doc[doc.index("EXCLUDES"):]
+    src = ast.unparse(fn)
+    assert "the words are not included" in src and "Vocabulary (vocab*.json)" in src
 
 
 def test_the_full_reset_removes_the_whole_folder_so_the_stars_go_with_it():
