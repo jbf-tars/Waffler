@@ -31,9 +31,11 @@
     try { if (opener && opener.focus) opener.focus(); } catch (e) { /* the frame went */ }
   }
 
-  function tell(name, arg) {
+  // Only the arguments given: an undefined one would reach Python as None,
+  // and Api.audio_decoder_cancel takes none.
+  function tell(name, ...args) {
     const a = api(); if (!a || !a[name]) return;
-    try { a[name](arg); } catch (e) { /* the import answers as before after its wait */ }
+    try { a[name](...args); } catch (e) { /* the import answers as before after its wait */ }
   }
 
   window.waffler_decoder_offer = function (view) {

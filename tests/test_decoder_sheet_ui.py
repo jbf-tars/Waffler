@@ -84,6 +84,8 @@ def test_decoder_js_answers_python_and_tells_it_what_was_chosen():
     for name in ("window.waffler_decoder_offer", "window.waffler_decoder_progress", "window.waffler_decoder_done"):
         assert name in src, name
     assert "audio_decoder_answer', 'download'" in src and "audio_decoder_answer', 'not_now'" in src
-    assert "audio_decoder_cancel" in src
+    # Api.audio_decoder_cancel takes no argument: an undefined one would reach
+    # Python as None (JSON null) and fail (seen in WebView2 on the PC).
+    assert "tell('audio_decoder_cancel')" in src and "a[name](...args)" in src
     assert "return true" in src                                 # app.py _decoder_show waits for it
     assert "L.decoderView(" in src and "Escape" in src
