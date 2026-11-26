@@ -184,6 +184,10 @@ def plus_gone_message(why: str, local: bool):
     could not be reached); ``local``: the model on this computer did the
     work, not a key. The heading is the pill's line: six words at most."""
     using = "this computer" if local else "your key"
+    if why == "unavailable":
+        return (f"Plus unavailable. Using {using}.",
+                f"Waffler Plus had a problem on its side, so this dictation used {using}. "
+                f"Your words were pasted as usual.")
     if why == "offline":
         return (f"Plus unreachable. Using {using}.",
                 f"Waffler Plus couldn't be reached, so this dictation used {using}. "

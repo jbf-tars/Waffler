@@ -654,6 +654,26 @@ def record_usage_safely(*args, **kwargs):
         return None
 
 
+def _use_new_key_now(provider: str, key: str) -> None:
+    """A key just saved in Settings, used from the next dictation with no
+    restart: the running transcriber and styler make their client for
+    ``provider`` ("groq", "cerebras") again with it (set_<provider>_key).
+    Before, a Groq or Cerebras key waited for a restart, and a revoked old
+    key went on being used. One part failing does not stop the other; the
+    log names the part, never the key."""
+    pipeline = globals().get("_pipeline")
+    if not pipeline:
+        return
+    for name in ("transcriber", "styler"):
+        give = getattr(getattr(pipeline, name, None), f"set_{provider}_key", None)
+        if not callable(give):
+            continue
+        try:
+            give(key)
+        except Exception as e:
+            _log_to_file(f"[keys] the {name} could not use the new {provider} key at once: {type(e).__name__}")
+
+
 def _own_window_in_front() -> bool:
     """Is the app in front Waffler itself? A transform or a command run on text
     in Waffler's own window (Settings, "Try it here", with the box's text
@@ -2700,7 +2720,8 @@ class Api:
                 if new_groq and not new_groq.startswith("gsk_…"):
                     self._update_env_var("GROQ_API_KEY", new_groq)
                     os.environ["GROQ_API_KEY"] = new_groq
-                    notes.append("Groq API key updated — restart for speed boost")
+                    _use_new_key_now("groq", new_groq)          # from the next dictation, no restart
+                    notes.append("Groq API key updated")
 
                 # ── Speech to text: on this computer, or a provider ──────────────
                 # Read again for every recording (transcribe_whisper
@@ -3790,9 +3811,10 @@ class Api:
             import groq
             client = groq.Groq(api_key=api_key)
             models = client.models.list()
-            # Key is valid — persist it
+            # Key is valid — persist it, and use it from the next dictation
             self._update_env_var("GROQ_API_KEY", api_key)
             os.environ["GROQ_API_KEY"] = api_key
+            _use_new_key_now("groq", api_key)
             # The same answer lists the models this key can use, so setup
             # can say "Speech to text: working" and "Clean-up: working"
             # (src/first_run.py) rather than only "the key is valid".
@@ -3836,6 +3858,7 @@ class Api:
             )
             self._update_env_var("CEREBRAS_API_KEY", api_key)
             os.environ["CEREBRAS_API_KEY"] = api_key
+            _use_new_key_now("cerebras", api_key)
             return {"ok": True, "message": "Cerebras key is valid"}
         except Exception as e:
             error_msg = str(e)
@@ -3850,12 +3873,14 @@ class Api:
                 # provisionally so the user isn't blocked at setup time.
                 self._update_env_var("CEREBRAS_API_KEY", api_key)
                 os.environ["CEREBRAS_API_KEY"] = api_key
+                _use_new_key_now("cerebras", api_key)
                 return {"ok": True, "message": "Cerebras rate-limited the check; key saved (will retry on next dictation)"}
             elif "404" in error_msg and "model" in lower:
                 # Specific model not on this tier — but the key is valid
                 # if the auth path got us as far as a model check.
                 self._update_env_var("CEREBRAS_API_KEY", api_key)
                 os.environ["CEREBRAS_API_KEY"] = api_key
+                _use_new_key_now("cerebras", api_key)
                 return {"ok": True, "message": "Key saved (your tier may not include some models, that's fine)"}
             else:
                 return {"ok": False, "error": key_check_error("Cerebras", e)}

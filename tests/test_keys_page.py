@@ -102,8 +102,11 @@ def test_a_key_is_checked_with_its_provider_and_then_saved_as_before():
         < groq.index("save_settings({ groq_key: val })")
     assert openai.index("_keyChecked('openai', inp, () => pywebview.api.validate_api_key(val))") \
         < openai.index("save_settings({ api_key: val })")
-    for body, name in ((groq, "Groq"), (openai, "OpenAI"), (func(app, "saveCerebrasKey"), "Cerebras")):
-        assert f"await _afterKeySaved(inp, '{name}')" in body, "the same toast and restart prompt as before"
+    for body, name, provider in ((groq, "Groq", "groq"), (openai, "OpenAI", "openai"),
+                                 (func(app, "saveCerebrasKey"), "Cerebras", "cerebras")):
+        assert f"await _afterKeySaved(inp, '{name}', '{provider}', val)" in body, \
+            "saved: shown at once, used at once (no restart)"
+        assert f"WL.keyEmptyLine('{name}', WL.providerHasKey('{provider}', _lastSettings))" in body
     checked = func(app, "_keyChecked")
     assert "_keyVerdicts[provider] = { ok: true };" in checked
     assert "_keyVerdicts[provider] = { ok: false, line: WL.keyRefusedLine(msg) };" in checked
@@ -181,7 +184,8 @@ const pywebview = { api: {
   validate_groq_key: async (k) => { calls.push('validate_groq_key'); return said.groq; },
   save_settings: async (p) => { calls.push('save_settings:' + Object.keys(p).join()); settings = { groq_key_set: true, groq_key_masked: 'gsk_abcd…wxyz', transcription_backend: 'groq' }; return { ok: true }; },
 } };
-const loadSettings = async () => { _lastSettings = settings; renderKeyCard(); };
+const atLoad = [];
+const loadSettings = async () => { atLoad.push(shot()); _lastSettings = settings; renderKeyCard(); };
 let _providerOrder = WL.DEFAULT_PROVIDER_ORDER.slice(), _lastSettings = null, _openKeyEditor = '', _keyPicked = false;
 const _keyVerdicts = {};
 let _keyChecking = '';
@@ -201,6 +205,7 @@ const shot = () => ({ picked: els.keyProvider.value, shown: Object.keys(_KEY_EDI
   pickKeyProvider('openai'); out.other = shot();
   openKeyEditor('groq'); out.back = shot(); out.focusBack = focused;
   out.calls = calls; out.toasts = toasts; out.banners = banners; out.kept = JSON.stringify(_keyVerdicts);
+  out.atLoad = atLoad;
   process.stdout.write(JSON.stringify(out));
 })();
 """
@@ -220,7 +225,7 @@ def test_the_key_card_drawn_for_real_from_no_key_to_refused_to_working():
     first = seen["first"]
     assert (first["picked"], first["shown"], first["placeholder"], first["state"], first["hasKey"]) == (
         "groq", ["groq"], "Paste your key", "", False)
-    assert seen["empty"]["state"] == "Paste your Groq key first." and seen["empty"]["cls"] == "key-state is-bad"
+    assert seen["empty"]["state"] == "The box is empty." and seen["empty"]["cls"] == "key-state is-bad"
     assert seen["wrong"]["state"] == "That isn't a Groq key." and seen["wrong"]["invalid"] == "true"
     refused = seen["refused"]
     assert refused["state"] == "Groq didn't accept that key." and refused["cls"] == "key-state is-bad"
@@ -229,15 +234,20 @@ def test_the_key_card_drawn_for_real_from_no_key_to_refused_to_working():
     assert (seen["cancelled"]["typed"], seen["cancelled"]["state"], seen["focus"]) == ("", "", "keyProvider")
     working = seen["working"]
     assert (working["state"], working["cls"], working["placeholder"], working["typed"], working["hasKey"]) == (
-        "Working", "key-state is-ok", "gsk_abcd…wxyz", "", True)
+        "Saved", "key-state is-ok", "gsk_abcd…wxyz", "", True)
+    # Drawn as saved before the settings came back: no "Paste your key" in between.
+    (before_reload,) = seen["atLoad"]
+    assert (before_reload["state"], before_reload["placeholder"], before_reload["hasKey"]) == (
+        "Saved", "gsk_acce…pted", True)
     assert seen["other"]["picked"] == "openai" and seen["other"]["shown"] == ["openai"] and seen["other"]["state"] == ""
-    assert seen["back"]["state"] == "Working" and seen["focusBack"] == "groqKeyInput"
+    assert seen["back"]["state"] == "Saved" and seen["focusBack"] == "groqKeyInput"
     # Asked twice, saved once: a key the provider refused is not saved, and nothing asks for a restart.
     assert seen["calls"] == ["validate_groq_key", "validate_groq_key", "save_settings:groq_key"]
-    assert seen["banners"] == ["Waffler starts using the new Groq key after a restart."]
-    assert seen["toasts"] == ["Paste your Groq key first.", "That isn't a Groq key. Groq keys start with gsk_.",
+    assert seen["banners"] == [], "a saved key is used at once: no restart"
+    assert seen["toasts"] == ["The box is empty. Paste your Groq key, then click Save.",
+                              "That isn't a Groq key. Groq keys start with gsk_.",
                               "Groq didn't accept that key. Make a new one and click Copy again.", "Groq key saved."]
-    assert seen["kept"] == '{"groq":{"ok":true}}', "what was said, never the key"
+    assert seen["kept"] == '{"groq":{"ok":true,"saved":true}}', "what was said, never the key"
 
 
 def test_the_two_ways_are_a_stack_with_the_chosen_one_marked():

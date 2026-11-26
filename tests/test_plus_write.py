@@ -124,8 +124,9 @@ REFUSALS = [
     ((429, "Too many.", "", {"Retry-After": "20"}), account.WRITE_TOO_OFTEN),
     ((413, "Too many characters.", "too_long"), account.TOO_LARGE),
     ((422, "The model declined.", "write_refused"), account.WRITE_REFUSED),
-    ((503, "The model could not be reached.", "write_failed"), account.WRITE_FAILED),
 ]
+# A 5xx is the service's own fault: with a key it is used for that one request
+# (test_a_fault_on_the_services_side_uses_the_key_for_that_one_request).
 
 
 @pytest.mark.parametrize("refusal, sentence", REFUSALS)
@@ -175,6 +176,20 @@ def test_unreachable_uses_the_key_for_that_one_request(plus):
     assert chat(styler(groq)).text == "From my own key."
     plus.offline = False
     assert chat(styler(Provider())).provider == "plus", "and Plus again as soon as it answers"
+
+
+def test_a_fault_on_the_services_side_uses_the_key_for_that_one_request(plus):
+    plus.write_refusals = [(503, "The model could not be reached.", "write_failed")]
+    groq = Provider("From my own key.")
+    assert chat(styler(groq)).text == "From my own key." and groq.calls == 1
+    assert chat(styler(Provider())).provider == "plus", "and Plus again for the next"
+
+
+def test_a_fault_on_the_services_side_with_no_key_says_its_sentence(plus):
+    plus.write_refusals = [(503, "The model could not be reached.", "write_failed")]
+    with pytest.raises(ChatError) as e:
+        chat(styler())
+    assert e.value.reason == "PLUS|" + account.WRITE_FAILED
 
 
 def test_unreachable_with_no_key_says_so(plus):
