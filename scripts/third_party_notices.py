@@ -69,19 +69,14 @@ EXCLUDED = {canonicalize_name(n) for n in (
     "pip", "setuptools", "wheel", "pyinstaller", "pyinstaller-hooks-contrib", "altgraph",
     "macholib", "pefile", "pywin32-ctypes", "pytest", "pluggy", "iniconfig", "pyflakes",
     "onnxruntime",          # excluded in Waffler_mac.spec and Waffler_windows.spec
+    "av",                   # excluded in Waffler_windows.spec; hooks/rthook_no_pyav.py
+                            # meets faster-whisper's import (its FFmpeg loads x264, x265)
 )}
 
 # ── hand-written: Python packages not installed on this machine ─────────────
 # Windows-only (or CI-only) packages. Licence and source as their projects
 # publish them; `requires` continues the walk (runtime requirements only).
 NOT_INSTALLED = {
-    "av": dict(
-        name="PyAV (av)", license="BSD-3-Clause",
-        url="https://github.com/PyAV-Org/PyAV",
-        requires=[],
-        note="Pulled in by faster-whisper (Windows). The wheel carries FFmpeg's shared "
-             "libraries, linked to libx264 and libx265: see \"FFmpeg libraries inside PyAV\" "
-             "in Part 1 (to be left out of the Windows build)."),
     "clr-loader": dict(
         name="clr_loader", license="MIT", url="https://github.com/pythonnet/clr-loader",
         requires=["cffi"], note="Pulled in by pythonnet (Windows)."),
@@ -120,13 +115,6 @@ NOT_INSTALLED = {
     "tokenizers": dict(
         name="tokenizers", license="Apache-2.0", url="https://github.com/huggingface/tokenizers",
         requires=["huggingface-hub"], note="Pulled in by faster-whisper (Windows)."),
-    "imageio-ffmpeg": dict(
-        name="imageio-ffmpeg", license="BSD-2-Clause (the package); its ffmpeg program is GPL-3.0",
-        url="https://github.com/imageio/imageio-ffmpeg", requires=[],
-        note="Windows build of 4.0.0 only; no longer in the Mac build. Carries a GPL ffmpeg "
-             "program: see Part 1. TO DO, WINDOWS SESSION: remove it from "
-             "requirements_windows.txt and Waffler_windows.spec (no GPL program in either "
-             "installer, decided 26 Nov 2026)."),
     "llama-cpp-python": dict(
         name="llama-cpp-python", license="MIT", url="https://github.com/abetlen/llama-cpp-python",
         requires=["typing-extensions", "numpy", "diskcache", "jinja2"],
@@ -152,37 +140,6 @@ PyInstaller. Licence: GPL-2.0-or-later with PyInstaller's bootloader
 exception, which allows the bootloader to be distributed in programs built
 with it under any licence (https://pyinstaller.org/en/stable/license.html).
 Source: https://github.com/pyinstaller/pyinstaller"""),
-    ("FFmpeg program from imageio-ffmpeg (Windows x64)", "Windows", """\
-File: imageio_ffmpeg/binaries/ffmpeg-win-x86_64-v9.0.2.exe, a separate
-executable that the Windows build of 4.0.0 starts as a subprocess for "Import
-audio" of formats soundfile cannot read. imageio-ffmpeg takes it from
-gyan.dev's "essentials" build, FFmpeg 9.0.2. Checked on a Windows build:
-configured with --enable-gpl --enable-version3, with libx264 and libx265, so
-the binary is GPL-3.0 (or later). Full GPL-3.0 text: Part 6.
-TO DO, WINDOWS SESSION: no GPL program goes in either installer (decided
-26 Nov 2026). This program is to leave the Windows build (imageio-ffmpeg out
-of requirements_windows.txt and Waffler_windows.spec); an LGPL FFmpeg build is
-fetched instead the first time someone uses Import audio
-(src/meetings/audio_decode.py), and this entry moves to Part 5. The Mac build
-no longer has FFmpeg at all: it uses macOS's own afconvert.
-Source: FFmpeg 9.0.2 source, https://ffmpeg.org/releases/ (ffmpeg-9.0.2.tar.xz);
-the build and the configuration of each library it includes,
-https://www.gyan.dev/ffmpeg/builds/; the packaging,
-https://github.com/imageio/imageio-ffmpeg."""),
-    ("FFmpeg libraries inside PyAV (av)", "Windows", """\
-PyAV's wheels carry FFmpeg's shared libraries (avcodec, avformat, avutil,
-swresample, swscale, ... in the wheel's av.libs folder on Windows), which the
-av extension modules link to. faster-whisper imports PyAV; the Windows build
-bundles it. PyAV itself is BSD-3-Clause. Checked on a Windows build (PyAV
-19.0.2): the libraries report "LGPL version 3 or later" but are configured
-WITH --enable-libx264 --enable-libx265, and avcodec-63.dll imports
-libx264-165.dll and libx265.dll, so those GPL libraries load inside Waffler's
-own process whenever av is imported. (An earlier version of this file said
-"no x264/x265": that was wrong.) Full LGPL-3.0 and GPL texts: Part 6.
-TO DO, WINDOWS SESSION: PyAV's libraries are to be left out of the Windows
-build (decided 26 Nov 2026: no GPL program or library in either installer).
-Source: https://github.com/PyAV-Org/PyAV and https://github.com/PyAV-Org/pyav-ffmpeg
-(build scripts), FFmpeg source at https://ffmpeg.org/releases/."""),
     ("libsndfile (inside soundfile)", "macOS, Windows", """\
 soundfile's wheel carries libsndfile (_soundfile_data/libsndfile_*.dylib on
 the Mac, a DLL on Windows), loaded through cffi. Licence: GNU LGPL 2.1 or
@@ -193,9 +150,11 @@ Source: https://github.com/libsndfile/libsndfile and the build scripts in
 https://github.com/bastibe/libsndfile-binaries."""),
     ("PortAudio (inside sounddevice)", "macOS, Windows", """\
 sounddevice's wheel carries PortAudio (_sounddevice_data/portaudio-binaries).
-Licence: MIT-style PortAudio licence. On Windows the wheel also carries
-PortAudio builds with ASIO support, which Waffler never loads (checked on a
-Windows build); TO DO, WINDOWS SESSION: leave them out of the build.
+Licence: MIT-style PortAudio licence. The Windows build keeps only
+libportaudio64bit.dll, the one 64-bit Windows loads: the wheel's ASIO builds
+(which include Steinberg's ASIO SDK, whose licence the wheel does not state)
+and its 32-bit, arm64 and macOS builds are left out (Waffler_windows.spec,
+_keep_portaudio; checked on a Windows build).
 Source: https://github.com/PortAudio/portaudio and
 https://github.com/spatialaudio/portaudio-binaries."""),
     ("whisper.cpp and ggml (inside pywhispercpp)", "macOS", """\
@@ -298,6 +257,22 @@ allow redistribution of these runtime libraries with an application.
 Source: not open source; the wheels are at https://pypi.org/project/nvidia-cublas-cu12/,
 https://pypi.org/project/nvidia-cudnn-cu12/ and
 https://pypi.org/project/nvidia-cuda-runtime-cu12/."""),
+    ("FFmpeg, Import audio's converter (src/audio_decoder_pack.py)", "Windows", """\
+ffmpeg-n9.0.2-39-g7adfbe40dc-win64-lgpl-shared-9.0.zip from BtbN's FFmpeg
+builds (https://github.com/BtbN/FFmpeg-Builds/releases, release
+autobuild-2026-10-31-12-59), pinned by size (76,576,818 bytes) and SHA-256.
+It is fetched the first time someone imports a file soundfile cannot read
+(an m4a, for example) and says yes to the download. Only ffmpeg.exe, the
+seven FFmpeg libraries it loads and LICENSE.txt are kept, in the data folder,
+and it runs as a separate program (src/meetings/audio_decode.py). Checked on
+a Windows PC from the program itself: configured with --enable-version3 and
+without --enable-gpl or --enable-nonfree (libx264, libx265 and libxvid
+disabled); `ffmpeg -L` reports the GNU Lesser General Public License,
+version 3 or later. Full LGPL-3.0 text: Part 6. The Mac build has no FFmpeg:
+it uses macOS's own afconvert.
+Source: FFmpeg's release/9.0 branch at commit 7adfbe40dc
+(https://git.ffmpeg.org/ffmpeg.git); the build scripts and the configuration
+of each library in the build, https://github.com/BtbN/FFmpeg-Builds."""),
 ]
 
 FULL_TEXTS = [("GNU General Public License, version 2", "GPL-2.0.txt"),
@@ -550,8 +525,9 @@ their projects publish them; the licence text is in the package's wheel.""")
     w("PART 5. DOWNLOADED ON REQUEST, NEVER BUNDLED")
     w(_rule("="))
     w("""\
-Waffler fetches these only when the person asks for them in Settings, into its
-data folder. They are not part of the installer or the app bundle.""")
+Waffler fetches these only when the person asks for them (in Settings, or by
+saying yes when Import audio offers its converter), into its data folder.
+They are not part of the installer or the app bundle.""")
     for title, builds, body in DOWNLOADS:
         w("")
         w(f"{title}  [{builds}]")
