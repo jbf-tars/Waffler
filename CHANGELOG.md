@@ -9,26 +9,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 Waffler now takes meeting notes as well as dictation. One app for both.
 
 ### Added
-- **Meetings.** Record a meeting from Home, the menu bar or the keyboard
-  (tap the dictation key twice). Waffler records your microphone and, on
-  request, the computer's own sound, so the other side of a call is written
-  down too. When you finish it writes a transcript and notes with next steps.
-  Folders, search, your own typed notes, "Ask about this meeting", "Add more"
-  and audio import are in the new Meetings tab.
-- **No made-up words.** Silence is never sent to the speech model, every line
-  of a transcript is checked against the sound under it, and the language
-  follows your computer instead of being guessed.
+- **Meetings.** Record a meeting from Home, the menu bar (the tray on
+  Windows) or the keyboard (tap the dictation key twice). Waffler records
+  your microphone and the computer's own sound, so the other side of a call
+  is written down too (you can switch the computer's sound off). When you
+  finish it writes a transcript and notes with next steps. Folders, search,
+  your own typed notes, Ask about one meeting or all of them, "Add more" and
+  audio import are in the new Meetings tab, and meetings sit among your
+  dictations in the Journal.
+- **No made-up words.** A stretch of a meeting with no voice in it is never
+  sent to be written down, every line of a transcript is checked against the
+  sound under it, a dictation with no speech gives back nothing, and the
+  language follows your computer instead of being guessed.
 - **Capitals and full stops.** After a meeting the notes' writer punctuates
   the transcript. Each line is compared with what was said and kept as it was
   if a single letter or number differs.
 - **Free, with no key.** "On this computer" downloads a speech model, and
   optionally a writing model, and dictation, meetings and notes then work
-  with no key and no account. On Windows an NVIDIA card is used when present.
-- **An account, optional.** Sign in with your email and meeting notes and
-  transcripts stay in step across your Mac, PC and iPhone. Recordings and
-  dictations stay on the device.
-- **Claude and other AI apps.** Settings, AI apps, connects Claude to your
-  meetings and dictations on this computer.
+  with no key and no account. On Windows with an NVIDIA graphics card, one
+  click in Settings fetches what is needed to use the card.
+- **An account, optional.** Sign in with your email (no password: we email
+  you a code) and meeting notes and transcripts stay in step across your
+  devices. Recordings and dictations stay on the device. Deleting the account
+  asks for a fresh emailed code.
+- **Ask on Home.** Ask anything you said or heard, across your dictations
+  and meetings; the answer is shown as it is written.
+- **Claude and other AI apps.** Settings, AI apps, connects Claude, Codex and
+  other AI apps to your meetings and, if you choose, your dictations on this
+  computer.
 - **Import from Granola.** Meetings, "Import from Granola": sign in to
   Granola once and your meetings come across with their notes, transcripts,
   dates and folders. No AI is involved and running it again brings in only
@@ -38,15 +46,45 @@ Waffler now takes meeting notes as well as dictation. One app for both.
   another app. It cannot delete or rewrite one.
 - **Deleting means deleting.** A deleted meeting's transcript, notes and
   recording are removed at once, here and on the account.
-- **Ask on Home**, **Transforms** and **Command mode**, each with its own
-  shortcut and a "Try it here" box.
+- **Licences.** Settings, About, Licences lists the open-source parts
+  Waffler is built with and their licences. The Windows installer shows
+  Waffler's own MIT licence.
 
 ### Changed
 - **A new look.** Dark, bolder and with fewer words, the same across Home,
-  Meetings and Settings. The waffle is the record button.
-- **Keys and providers** is two or three plain cards with the rest under
-  "Advanced".
-- **Vocabulary** moved to Settings, Words.
+  Meetings and Settings. The waffle is the record button. Each Settings
+  section says one thing up top; the rest is under "How it works".
+- **Keys and providers** is two plain cards, "On this computer" and "Your
+  own key", with the rest under "Advanced".
+- **Vocabulary** moved to Settings, Words. "Suggest words from my edits" is
+  off until you turn it on.
+- **Transforms and Command mode** get a free shortcut as soon as you switch
+  one on, and each has a "Try it here" box in Settings.
+- **Pop-ups are one small pill**, resting where the dictation pill rests.
+- **Your hands-free double-tap is kept.** If you had "Double-tap to go
+  hands-free" on, two taps still go hands-free after the update; "Double-tap
+  to record a meeting" stays off until you turn it on in Settings,
+  Shortcuts.
+- **After an update from inside Waffler**, Home says once which version is
+  now installed, and Settings, About lists what is new in 4.0.
+
+### Security and privacy
+- **Mac: the keyboard-language shortcuts are yours.** Waffler no longer
+  turns off macOS's Control-Space input-source shortcuts by itself. Settings,
+  Shortcuts has a switch, "Stop the keyboard-language popup", shown when it
+  would help; switching it off puts your shortcuts back as they were.
+- **Download Logs keeps less.** Your vocabulary is left out, and your home
+  folder, user name, computer name and devices named after you (such as
+  "Sam's AirPods") are hidden in every file in the zip.
+- **Updates come only from Waffler.** The updater takes only the installer
+  from Waffler's own releases, and on a Mac checks it is signed by Waffler's
+  own developer team.
+- **The window runs only Waffler's own code**, and reaches only the parts of
+  the app it needs. A file dropped on it by mistake no longer opens in it.
+- **Your data stays yours on a shared Mac.** The data folder and the keys
+  file can be read only by your own user account.
+- **Terminals.** Transforms and Command mode paste one line into a terminal
+  without a line break, so nothing runs by itself.
 
 ## [3.17.2] - 2026-11-19
 
