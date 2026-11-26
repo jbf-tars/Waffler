@@ -97,7 +97,10 @@ def test_the_mac_spec_bundles_whisper_cpp_and_its_metadata(monkeypatch):
 
 def test_the_windows_spec_bundles_faster_whisper_and_ctranslate2s_libraries(monkeypatch):
     ns = _run_block("Waffler_windows.spec", monkeypatch, {"faster_whisper", "ctranslate2"})
-    assert {"faster_whisper", "ctranslate2", "tokenizers", "huggingface_hub", "av"} <= set(ns["_STT_HIDDEN"])
+    assert {"faster_whisper", "ctranslate2", "tokenizers", "huggingface_hub"} <= set(ns["_STT_HIDDEN"])
+    # Not PyAV: its FFmpeg loads libx264 and libx265 (GPL), so the build leaves
+    # it out and a stand-in meets faster-whisper's import (test_no_pyav_windows.py).
+    assert "av" not in ns["_STT_HIDDEN"]
     # ctranslate2 loads its DLLs from its own package folder.
     assert ns["_STT_BINARIES"] == [("/site/ctranslate2/lib.dll", "ctranslate2")]
 

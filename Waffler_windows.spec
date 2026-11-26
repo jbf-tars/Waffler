@@ -36,9 +36,9 @@ def _stt_installed(package, *modules):
 
 
 # The engine is imported inside functions, so it is named, with what it
-# imports as it loads.
+# imports as it loads. Not PyAV: see excludes and hooks/rthook_no_pyav.py.
 _STT_HIDDEN = _stt_installed('faster_whisper', 'faster_whisper', 'ctranslate2', 'tokenizers',
-                             'huggingface_hub', 'av')
+                             'huggingface_hub')
 
 
 def _stt_libs(package):
@@ -159,7 +159,9 @@ a = Analysis(
     hooksconfig={},
     # Caps NumPy's BLAS thread pools before anything imports it; see the
     # hook's docstring. (hooks/runtime_hook.py is a different, unused hook.)
-    runtime_hooks=[os.path.join(PROJECT_ROOT, 'hooks', 'rthook_thread_caps.py')],
+    # Then the stand-in for PyAV, which is not shipped (excludes below).
+    runtime_hooks=[os.path.join(PROJECT_ROOT, 'hooks', 'rthook_thread_caps.py'),
+                   os.path.join(PROJECT_ROOT, 'hooks', 'rthook_no_pyav.py')],
     excludes=[
         # macOS-only packages — exclude on Windows
         'pyobjc',
@@ -177,9 +179,32 @@ a = Analysis(
         # faster-whisper lists onnxruntime for its voice-activity filter,
         # which Waffler never switches on (it has its own): about 85 MB saved.
         'onnxruntime',
+        # PyAV: its FFmpeg libraries load libx264 and libx265 (GPL), and no
+        # GPL code goes in the installer. faster-whisper only decodes through
+        # it what is not an array, and Waffler passes arrays; the import
+        # faster_whisper/audio.py makes is met by hooks/rthook_no_pyav.py.
+        # About 67 MB saved (tests/test_no_pyav_windows.py).
+        'av',
     ],
     noarchive=False,
 )
+
+# sounddevice's wheel carries PortAudio for every Windows CPU, each with and
+# without ASIO, and the Mac's; pyinstaller-hooks-contrib's hook collects all of
+# them. 64-bit Windows loads libportaudio64bit.dll only (the -asio one only
+# with SD_ENABLE_ASIO, which Waffler never sets). The ASIO builds include
+# Steinberg's ASIO SDK, whose licence the wheel does not state. The README,
+# PortAudio's MIT notice, stays (tests/test_no_pyav_windows.py). Both lists:
+# PyInstaller files a library that is not a Windows one (the .dylib) as data.
+def _keep_portaudio(dest):
+    parts = dest.replace('\\', '/').split('/')
+    if 'portaudio-binaries' not in parts:
+        return True
+    return parts[-1] in ('libportaudio64bit.dll', 'README.md')
+
+
+a.binaries = [b for b in a.binaries if _keep_portaudio(b[0])]
+a.datas = [d for d in a.datas if _keep_portaudio(d[0])]
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
