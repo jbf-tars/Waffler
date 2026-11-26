@@ -33,7 +33,7 @@ def test_account_is_the_first_section_in_the_list():
     nav = html[html.index('aria-label="Settings sections"'):]
     nav = nav[:nav.index("</nav>")]
     items = re.findall(r'<button type="button" class="snav-item" data-sec="(\w+)" '
-                       r"onclick=\"showSettingsSection\('(\w+)'\)\">([^<]+)</button>", nav)
+                       r"data-onclick=\"showSettingsSection\('(\w+)'\)\">([^<]+)</button>", nav)
     assert items[0] == ("account", "account", "Account")
     assert len(items) == html.count('class="snav-item"') == 12
     assert all(a == b for a, b, _ in items)

@@ -46,20 +46,20 @@ def test_search_is_a_search_box_with_a_name_and_an_announced_result():
     box = re.search(r'<input type="search" id="vocabSearch"[^>]*>', p).group(0)
     assert 'aria-label="Search your words and what they sound like"' in box
     assert 'aria-describedby="vocabSearchStatus"' in box
-    assert 'oninput="onVocabSearch(this.value)"' in box and 'onkeydown="onVocabSearchKey(event)"' in box
+    assert 'data-oninput="onVocabSearch(this.value)"' in box and 'data-onkeydown="onVocabSearchKey(event)"' in box
     assert '<span class="sr-only" id="vocabSearchStatus" role="status" aria-live="polite"></span>' in p
 
 
 def test_sort_has_a_visible_label_and_the_four_choices():
     p = panel()
     assert re.search(r'<label class="vt-sort"><span class="vt-sort-k">Sort</span>\s*<select id="vocabSort"', p)
-    assert 'onchange="onVocabSort(this.value)"' in p
+    assert 'data-onchange="onVocabSort(this.value)"' in p
 
 
 def test_select_is_a_toggle_whose_name_stays_the_same():
     p = panel()
     assert re.search(r'<button type="button" class="btn btn-sec btn-sm" id="vocabSelectBtn" aria-pressed="false" '
-                     r'onclick="toggleVocabSelect\(\)">Select</button>', p)
+                     r'data-onclick="toggleVocabSelect\(\)">Select</button>', p)
     bar = p[p.index('id="vocabBulk"'):]
     bar = bar[:bar.index("</div>")]
     assert 'role="group" aria-label="Change the selected words"' in bar
@@ -78,14 +78,14 @@ def test_import_is_a_disclosure_with_a_labelled_box_a_file_choice_and_announced_
     assert 'id="vocabImportPreview" aria-live="polite" hidden' in p
     # The file input is not in the tab order or the page: the visible button opens it.
     assert re.search(r'<input type="file" id="vocabImportFile" hidden accept=', p)
-    assert 'onclick="pickVocabFile()"' in p
+    assert 'data-onclick="pickVocabFile()"' in p
     # Choose a file is optional: the pasted rows work without it.
     assert "pasting always works" in p or "Or paste rows here" in p
 
 
 def test_export_and_import_buttons_are_named_by_their_words():
     p = panel()
-    assert re.search(r'id="vocabExportBtn" onclick="exportVocab\(this\)"[^>]*><svg[^>]*><use href="#i-download"/></svg>'
+    assert re.search(r'id="vocabExportBtn" data-onclick="exportVocab\(this\)"[^>]*><svg[^>]*><use href="#i-download"/></svg>'
                      r'<span>Export</span>', p)
     assert re.search(r'id="vocabImportBtn"[^>]*><svg[^>]*><use href="#i-upload"/></svg><span>Import</span>', p)
 
@@ -96,14 +96,14 @@ def test_snippets_have_the_same_import_and_a_format_choice_for_export():
     assert '<label class="sr-only" for="snipExportFormat">Export as</label>' in p
     assert re.search(r'<select id="snipExportFormat" class="select snip-fmt">\s*<option value="csv">CSV</option>\s*'
                      r'<option value="json">JSON</option>', p)
-    assert 'onclick="exportSnippets(this)"' in p and 'onclick="applySnipImport()"' in p
+    assert 'data-onclick="exportSnippets(this)"' in p and 'data-onclick="applySnipImport()"' in p
     assert re.search(r'<input type="file" id="snipImportFile" hidden accept=', p)
 
 
 def test_the_suggest_switch_is_a_real_switch_with_a_name_and_a_description():
     p = panel()
     assert re.search(r'<input type="checkbox" class="tog" role="switch" id="learnToggle" aria-describedby="learnDesc" '
-                     r'onchange="setLearnFromEdits\(this.checked\)">', p)
+                     r'data-onchange="setLearnFromEdits\(this.checked\)">', p)
     assert '<label class="vlearn-t" for="learnToggle">Suggest words from my edits</label>' in p
     assert "It never adds a word by itself." in p
 
@@ -142,7 +142,7 @@ def test_the_checkbox_column_is_only_there_while_selecting():
 
 def test_no_matches_says_so_and_offers_to_clear():
     render = func(APP, "renderVocab")
-    assert "No words match &ldquo;" in render and 'onclick="clearVocabSearch()"' in render
+    assert "No words match &ldquo;" in render and 'data-onclick="clearVocabSearch()"' in render
 
 
 def test_starring_and_removing_send_the_stars_so_undo_brings_them_back():
@@ -199,7 +199,7 @@ def test_the_preview_is_shown_before_anything_is_saved_and_add_is_a_second_step(
     assert "api[c.previewApi]" in prev and "api[c.applyApi]" not in prev
     assert "api[c.applyApi]" in app_ and "if (!ready || !payload) return;" in app_
     # The Add button starts disabled, and only a preview with something to add enables it.
-    assert 'id="vocabImportGo" onclick="applyVocabImport()" disabled' in read("index.html")
+    assert 'id="vocabImportGo" data-onclick="applyVocabImport()" disabled' in read("index.html")
     assert "go.disabled = !out.view.canApply;" in prev
 
 

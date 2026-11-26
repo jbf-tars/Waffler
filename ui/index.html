@@ -3,6 +3,17 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Content-Security-Policy: only the app's own files run. No remote
+       script, style, font, image or connection (network calls are made from
+       Python), no inline script and no inline event handlers (handlers are
+       data-on* attributes bound by handlers.js). 'unsafe-eval' is there only
+       for pywebview: it builds window.pywebview.api with new Function()
+       (webview/js/api.js) and runs Python's evaluate_js through eval; without
+       it the window gets no bridge (scripts/check_csp_webview.py
+       --without-unsafe-eval shows the error). The page is served by pywebview's own server on
+       127.0.0.1, so 'self' is that address. tests/test_csp.py keeps this
+       true. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; connect-src 'self'; frame-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>Waffler</title>
   <!-- tokens.css: colours, fonts and sizes; components.css: the shared
        parts (buttons, keycaps, the status pill...); style.css: the screens;
@@ -28,9 +39,9 @@
     <!-- showPage() marks the open page (.active and aria-current="page").
          Plain buttons, not tabs: each opens a page. -->
     <nav class="topbar-nav" aria-label="Pages">
-      <button type="button" id="navHome" class="active" aria-current="page" onclick="showPage('home')">Home</button>
-      <button type="button" id="navMeetings" onclick="showPage('meetings')">Meetings</button>
-      <button type="button" id="navSettings" onclick="showPage('settings')">Settings</button>
+      <button type="button" id="navHome" class="active" aria-current="page" data-onclick="showPage('home')">Home</button>
+      <button type="button" id="navMeetings" data-onclick="showPage('meetings')">Meetings</button>
+      <button type="button" id="navSettings" data-onclick="showPage('settings')">Settings</button>
     </nav>
 
     <!-- Status. window.waffler_status() sets its state class and label
@@ -86,8 +97,8 @@
           <span class="j-search-n" id="searchCount" aria-hidden="true"></span>
           <label class="j-search-wrap">
             <svg class="ic j-search-icon" aria-hidden="true"><use href="#i-search"/></svg>
-            <input type="search" id="searchInput" class="j-search-input" placeholder="Search" aria-label="Search the Journal" aria-describedby="searchStatus" autocomplete="off" spellcheck="false" oninput="onSearchInput(this.value)">
-            <button type="button" class="rbtn j-search-clear" id="searchClear" aria-label="Clear the search" hidden onclick="clearSearch()"><svg class="ic" aria-hidden="true"><use href="#i-x"/></svg></button>
+            <input type="search" id="searchInput" class="j-search-input" placeholder="Search" aria-label="Search the Journal" aria-describedby="searchStatus" autocomplete="off" spellcheck="false" data-oninput="onSearchInput(this.value)">
+            <button type="button" class="rbtn j-search-clear" id="searchClear" aria-label="Clear the search" hidden data-onclick="clearSearch()"><svg class="ic" aria-hidden="true"><use href="#i-x"/></svg></button>
           </label>
           <span class="sr-only" id="searchStatus" role="status" aria-live="polite"></span>
         </div>
@@ -111,7 +122,7 @@
               <h2 class="j-first-title" id="emptyTitle">Your first dictation goes here.</h2>
               <p class="j-first-text">Click into any text box, hold <span class="keys" id="emptyKeys"></span> and talk. When you let go, the text is pasted there and kept here, with the time and how many words.</p>
               <div class="j-first-acts">
-                <button type="button" class="btn btn-pri btn-sm" onclick="openPracticeEditor(this)"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg><span id="emptyEditorLabel">Open Notepad and try it</span></button>
+                <button type="button" class="btn btn-pri btn-sm" data-onclick="openPracticeEditor(this)"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg><span id="emptyEditorLabel">Open Notepad and try it</span></button>
               </div>
               <p class="j-first-err" id="emptyEditorErr" role="alert" hidden></p>
             </div>
@@ -123,7 +134,7 @@
           <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-search"/></svg></span>
           <div class="j-nm-title" id="noMatchLabel">No entries match</div>
           <p class="j-nm-text">Try other words, or clear the search to see every entry.</p>
-          <button type="button" class="btn btn-sec btn-sm j-clear-search" onclick="clearSearch()">Clear search</button>
+          <button type="button" class="btn btn-sec btn-sm j-clear-search" data-onclick="clearSearch()">Clear search</button>
         </section>
 
         <div id="transcriptFeed" class="j-feed" role="feed" aria-label="Journal entries" aria-busy="false"></div>
@@ -131,7 +142,7 @@
         <!-- Older entries load as this comes into view; the button is there
              for keyboards and in case the window can't tell. -->
         <div class="j-more" id="feedMore" hidden>
-          <button type="button" class="btn btn-sec btn-sm" id="feedMoreBtn" onclick="loadMoreEntries()">Show older entries</button>
+          <button type="button" class="btn btn-sec btn-sm" id="feedMoreBtn" data-onclick="loadMoreEntries()">Show older entries</button>
         </div>
       </div>
 
@@ -171,18 +182,18 @@
         <div class="snav-sub"><b id="snavVersion">Waffler</b><br>Free and open source</div>
       </div>
       <nav class="snav-list" aria-label="Settings sections">
-        <button type="button" class="snav-item" data-sec="account" onclick="showSettingsSection('account')">Account</button>
-        <button type="button" class="snav-item" data-sec="general" onclick="showSettingsSection('general')">General</button>
-        <button type="button" class="snav-item" data-sec="style" onclick="showSettingsSection('style')">Style</button>
-        <button type="button" class="snav-item" data-sec="words" onclick="showSettingsSection('words')">Words</button>
-        <button type="button" class="snav-item" data-sec="transforms" onclick="showSettingsSection('transforms')">Transforms</button>
-        <button type="button" class="snav-item" data-sec="command" onclick="showSettingsSection('command')">Command mode</button>
-        <button type="button" class="snav-item" data-sec="keys" onclick="showSettingsSection('keys')">Keys and providers</button>
-        <button type="button" class="snav-item" data-sec="claude" onclick="showSettingsSection('claude')">AI apps</button>
-        <button type="button" class="snav-item" data-sec="hotkey" onclick="showSettingsSection('hotkey')">Shortcuts</button>
-        <button type="button" class="snav-item" data-sec="usage" onclick="showSettingsSection('usage')">Usage</button>
-        <button type="button" class="snav-item" data-sec="privacy" onclick="showSettingsSection('privacy')">Privacy and data</button>
-        <button type="button" class="snav-item" data-sec="about" onclick="showSettingsSection('about')">About</button>
+        <button type="button" class="snav-item" data-sec="account" data-onclick="showSettingsSection('account')">Account</button>
+        <button type="button" class="snav-item" data-sec="general" data-onclick="showSettingsSection('general')">General</button>
+        <button type="button" class="snav-item" data-sec="style" data-onclick="showSettingsSection('style')">Style</button>
+        <button type="button" class="snav-item" data-sec="words" data-onclick="showSettingsSection('words')">Words</button>
+        <button type="button" class="snav-item" data-sec="transforms" data-onclick="showSettingsSection('transforms')">Transforms</button>
+        <button type="button" class="snav-item" data-sec="command" data-onclick="showSettingsSection('command')">Command mode</button>
+        <button type="button" class="snav-item" data-sec="keys" data-onclick="showSettingsSection('keys')">Keys and providers</button>
+        <button type="button" class="snav-item" data-sec="claude" data-onclick="showSettingsSection('claude')">AI apps</button>
+        <button type="button" class="snav-item" data-sec="hotkey" data-onclick="showSettingsSection('hotkey')">Shortcuts</button>
+        <button type="button" class="snav-item" data-sec="usage" data-onclick="showSettingsSection('usage')">Usage</button>
+        <button type="button" class="snav-item" data-sec="privacy" data-onclick="showSettingsSection('privacy')">Privacy and data</button>
+        <button type="button" class="snav-item" data-sec="about" data-onclick="showSettingsSection('about')">About</button>
       </nav>
     </aside>
 
@@ -313,7 +324,7 @@
           <!-- What a careful person may still want to know. One collapsed
                disclosure (toggleHow). -->
           <div class="how">
-            <button type="button" class="link-btn how-btn" id="acctHowBtn" aria-expanded="false" aria-controls="acctHow" onclick="toggleHow(this)">How it works<svg class="ic ic-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
+            <button type="button" class="link-btn how-btn" id="acctHowBtn" aria-expanded="false" aria-controls="acctHow" data-onclick="toggleHow(this)">How it works<svg class="ic ic-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
             <div class="sheet how-body" id="acctHow" hidden>
               <ul class="sc-rule-list">
                 <li>One free account keeps your meetings in step on every device you sign in on. Your dictations stay on this computer.</li>
@@ -334,15 +345,15 @@
           <!-- Light / Dark / System: a radio group of small windows. One Tab
                stop (the chosen theme); the arrow keys move and choose. -->
           <div class="themes" id="themeSeg" role="radiogroup" aria-label="Theme">
-            <button type="button" class="tp" role="radio" data-theme="cream" aria-checked="false" tabindex="0" onclick="setAppTheme('cream')">
+            <button type="button" class="tp" role="radio" data-theme="cream" aria-checked="false" tabindex="0" data-onclick="setAppTheme('cream')">
               <span class="tp-win" aria-hidden="true"><span class="mini mini-l"><span class="mini-bar"><i></i><b></b><u></u></span><span class="mini-pg"><span class="mini-h"></span><span class="mini-c"><i class="w80"></i><i class="w55"></i></span><span class="mini-c"><i class="w68"></i></span></span></span></span>
               <span class="tp-lbl"><span class="tp-r" aria-hidden="true"></span>Light</span>
             </button>
-            <button type="button" class="tp" role="radio" data-theme="dark" aria-checked="false" tabindex="-1" onclick="setAppTheme('dark')">
+            <button type="button" class="tp" role="radio" data-theme="dark" aria-checked="false" tabindex="-1" data-onclick="setAppTheme('dark')">
               <span class="tp-win" aria-hidden="true"><span class="mini mini-d"><span class="mini-bar"><i></i><b></b><u></u></span><span class="mini-pg"><span class="mini-h"></span><span class="mini-c"><i class="w80"></i><i class="w55"></i></span><span class="mini-c"><i class="w68"></i></span></span></span></span>
               <span class="tp-lbl"><span class="tp-r" aria-hidden="true"></span>Dark</span>
             </button>
-            <button type="button" class="tp" role="radio" data-theme="auto" aria-checked="false" tabindex="-1" onclick="setAppTheme('auto')">
+            <button type="button" class="tp" role="radio" data-theme="auto" aria-checked="false" tabindex="-1" data-onclick="setAppTheme('auto')">
               <span class="tp-win" aria-hidden="true"><span class="mini mini-l"><span class="mini-bar"><i></i><b></b><u></u></span><span class="mini-pg"><span class="mini-h"></span><span class="mini-c"><i class="w80"></i><i class="w55"></i></span><span class="mini-c"><i class="w68"></i></span></span></span><span class="mini mini-d mini-split"><span class="mini-bar"><i></i><b></b><u></u></span><span class="mini-pg"><span class="mini-h"></span><span class="mini-c"><i class="w80"></i><i class="w55"></i></span><span class="mini-c"><i class="w68"></i></span></span></span></span>
               <span class="tp-lbl"><span class="tp-r" aria-hidden="true"></span>System<span class="tp-s" id="themeDesc">follows Windows</span></span>
             </button>
@@ -356,13 +367,13 @@
                  to keep the spoken language. -->
             <div class="row" id="languageRow">
               <div class="row-main"><div class="row-t"><label for="languageSelect">Language</label></div><div class="row-d" id="languageDesc">Written in English, never translated.</div></div>
-              <select id="languageSelect" class="select" onchange="onLanguageChange(this)">
+              <select id="languageSelect" class="select" data-onchange="onLanguageChange(this)">
                 <option value="en">English</option>
               </select>
             </div>
             <div class="row">
               <div class="row-main"><div class="row-t"><label for="dialectSelect">Spelling</label></div><div class="row-d specimen" id="spellingSpecimen">British or American, whichever you speak.</div></div>
-              <select id="dialectSelect" class="select" onchange="saveSetting('dialect', this.value); renderSpellingSpecimen(this.value)">
+              <select id="dialectSelect" class="select" data-onchange="saveSetting('dialect', this.value); renderSpellingSpecimen(this.value)">
                 <option value="auto">Match how I speak</option>
                 <option value="en-GB">British English</option>
                 <option value="en-US">American English</option>
@@ -370,14 +381,14 @@
             </div>
             <div class="row">
               <div class="row-main"><div class="row-t"><label for="autoPasteToggle">Paste when I finish</label></div><div class="row-d">Off, your text is only copied.</div></div>
-              <input type="checkbox" class="tog" role="switch" id="autoPasteToggle" onchange="saveSetting('auto_paste', this.checked)">
+              <input type="checkbox" class="tog" role="switch" id="autoPasteToggle" data-onchange="saveSetting('auto_paste', this.checked)">
             </div>
             <!-- What happens to the clipboard after a paste (src/pasteboard.py,
                  settings.json clipboard_after_paste). Mac only: Windows has
                  no restore, so the row stays hidden there (loadSettings). -->
             <div class="row" id="clipboardAfterPasteRow" hidden>
               <div class="row-main"><div class="row-t"><label for="keepClipboardToggle">Keep dictation on clipboard</label></div><div class="row-d" id="clipboardAfterPasteDesc">Off, what you had copied comes back.</div></div>
-              <input type="checkbox" class="tog" role="switch" id="keepClipboardToggle" onchange="setClipboardAfterPaste(this.checked)">
+              <input type="checkbox" class="tog" role="switch" id="keepClipboardToggle" data-onchange="setClipboardAfterPaste(this.checked)">
             </div>
           </div>
 
@@ -395,15 +406,15 @@
           <div class="sheet mic-sheet" id="micSheet">
             <div class="row row-mic" id="micNow">
               <div class="row-main"><div class="row-t" id="micNowTitle">Follow the system's microphone</div><div class="row-d" id="micNowDesc"></div></div>
-              <button type="button" class="btn btn-sec btn-sm" id="micRetry" hidden onclick="retryMicrophones(this)">Try again</button>
+              <button type="button" class="btn btn-sec btn-sm" id="micRetry" hidden data-onclick="retryMicrophones(this)">Try again</button>
               <div class="mic-level" id="micLevel" hidden><span id="micLevelLabel">Say something</span><span class="meter" id="micMeter" aria-hidden="true"></span></div>
             </div>
             <ol class="mic-rank" id="micRank" aria-label="Your microphones, best first"></ol>
             <div class="row mic-add" id="micAddRow">
               <div class="row-main"><div class="row-t"><label for="micSelect">Add a microphone</label></div><div class="row-d" id="micAddDesc">The first one plugged in is used.</div></div>
               <div class="row-ctl-col">
-                <select id="micSelect" class="select" onchange="onMicAdd(this)"></select>
-                <button type="button" class="link-btn" id="micOtherToggle" aria-expanded="false" aria-controls="micSelect" onclick="toggleMicOther()" hidden>Show other devices</button>
+                <select id="micSelect" class="select" data-onchange="onMicAdd(this)"></select>
+                <button type="button" class="link-btn" id="micOtherToggle" aria-expanded="false" aria-controls="micSelect" data-onclick="toggleMicOther()" hidden>Show other devices</button>
               </div>
             </div>
           </div>
@@ -417,13 +428,13 @@
                  so. -->
             <div class="row" id="soundsRow">
               <div class="row-main"><div class="row-t"><label for="soundsToggle">Sounds</label></div><div class="row-d" id="soundsDesc">Soft tones when recording starts and stops.</div></div>
-              <input type="checkbox" class="tog" role="switch" id="soundsToggle" onchange="setFeedback('sounds', this.checked)">
+              <input type="checkbox" class="tog" role="switch" id="soundsToggle" data-onchange="setFeedback('sounds', this.checked)">
             </div>
             <!-- Tips (src/notifier.py, settings.json "tips"): on until turned
                  off. Every tip has "Don't show again" of its own. -->
             <div class="row" id="tipsRow">
               <div class="row-main"><div class="row-t"><label for="tipsToggle">Show tips</label></div><div class="row-d" id="tipsDesc">An occasional hint you can hide.</div></div>
-              <input type="checkbox" class="tog" role="switch" id="tipsToggle" onchange="setFeedback('tips', this.checked)">
+              <input type="checkbox" class="tog" role="switch" id="tipsToggle" data-onchange="setFeedback('tips', this.checked)">
             </div>
           </div>
 
@@ -438,11 +449,11 @@
             <div class="sheet">
               <div class="row" id="pillIdleRow">
                 <div class="row-main"><div class="row-t"><label for="pillIdleToggle">Show pill when idle</label></div><div class="row-d" id="pillIdleDesc">A small pill stays on screen between dictations.</div></div>
-                <input type="checkbox" class="tog" role="switch" id="pillIdleToggle" aria-describedby="pillIdleDesc" onchange="setPillIdle(this.checked)">
+                <input type="checkbox" class="tog" role="switch" id="pillIdleToggle" aria-describedby="pillIdleDesc" data-onchange="setPillIdle(this.checked)">
               </div>
               <div class="row" id="pillResetRow">
                 <div class="row-main"><div class="row-t">Pill position</div></div>
-                <button type="button" class="btn btn-sec btn-sm" id="pillResetBtn" aria-describedby="pillResetDesc" onclick="resetPillPosition(this)">Reset pill position</button>
+                <button type="button" class="btn btn-sec btn-sm" id="pillResetBtn" aria-describedby="pillResetDesc" data-onclick="resetPillPosition(this)">Reset pill position</button>
               </div>
             </div>
           </div>
@@ -453,18 +464,18 @@
                  Settings opens (app.py get_start_at_login). -->
             <div class="row" id="startAtLoginRow">
               <div class="row-main"><div class="row-t"><label for="startAtLoginToggle">Start with my computer</label></div><div class="row-d" id="startAtLoginDesc">So the hotkey works after a restart.</div></div>
-              <input type="checkbox" class="tog" role="switch" id="startAtLoginToggle" aria-label="Start Waffler when I turn on my computer" onchange="setStartAtLogin(this.checked)">
+              <input type="checkbox" class="tog" role="switch" id="startAtLoginToggle" aria-label="Start Waffler when I turn on my computer" data-onchange="setStartAtLogin(this.checked)">
             </div>
             <div class="row">
               <div class="row-main"><div class="row-t">Run setup again</div><div class="row-d">Your keys and Journal stay as they are.</div></div>
-              <button type="button" class="btn btn-sec btn-sm" onclick="runSetupAgain()">Run setup</button>
+              <button type="button" class="btn btn-sec btn-sm" data-onclick="runSetupAgain()">Run setup</button>
             </div>
           </div>
 
           <!-- What a careful person may still want to know. One collapsed
                disclosure (toggleHow). -->
           <div class="how">
-            <button type="button" class="link-btn how-btn" id="generalHowBtn" aria-expanded="false" aria-controls="generalHow" onclick="toggleHow(this)">How it works<svg class="ic ic-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
+            <button type="button" class="link-btn how-btn" id="generalHowBtn" aria-expanded="false" aria-controls="generalHow" data-onclick="toggleHow(this)">How it works<svg class="ic ic-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
             <div class="sheet how-body" id="generalHow" hidden>
               <ul class="sc-rule-list">
                 <li id="micNote">The microphone is kept ready, and each recording includes the half-second before you press, so your first word isn't clipped.</li>
@@ -497,7 +508,7 @@
           <div class="sheet">
             <div class="row" id="cleanupRow">
               <div class="row-main"><div class="row-t"><label for="cleanupToggle">Clean up my words</label></div><div class="row-d" id="cleanupDesc">Removes ums, adds punctuation and tidies sentences.</div></div>
-              <input type="checkbox" class="tog" role="switch" id="cleanupToggle" aria-describedby="cleanupDesc" onchange="setCleanup(this.checked)">
+              <input type="checkbox" class="tog" role="switch" id="cleanupToggle" aria-describedby="cleanupDesc" data-onchange="setCleanup(this.checked)">
             </div>
           </div>
 
@@ -511,7 +522,7 @@
                 <div class="row-d" id="styleAbout-personal" hidden></div>
                 <div class="style-eg" id="styleEg-personal"></div>
               </div>
-              <select id="styleSelect-personal" class="select" aria-describedby="styleAbout-personal styleEg-personal" onchange="onStyleChange('personal', this)"></select>
+              <select id="styleSelect-personal" class="select" aria-describedby="styleAbout-personal styleEg-personal" data-onchange="onStyleChange('personal', this)"></select>
             </div>
             <div class="row row-style" data-kind="work">
               <div class="row-main">
@@ -520,7 +531,7 @@
                 <div class="row-d" id="styleAbout-work" hidden></div>
                 <div class="style-eg" id="styleEg-work"></div>
               </div>
-              <select id="styleSelect-work" class="select" aria-describedby="styleAbout-work styleEg-work" onchange="onStyleChange('work', this)"></select>
+              <select id="styleSelect-work" class="select" aria-describedby="styleAbout-work styleEg-work" data-onchange="onStyleChange('work', this)"></select>
             </div>
             <div class="row row-style" data-kind="email">
               <div class="row-main">
@@ -529,7 +540,7 @@
                 <div class="row-d" id="styleAbout-email" hidden></div>
                 <div class="style-eg" id="styleEg-email"></div>
               </div>
-              <select id="styleSelect-email" class="select" aria-describedby="styleAbout-email styleEg-email" onchange="onStyleChange('email', this)"></select>
+              <select id="styleSelect-email" class="select" aria-describedby="styleAbout-email styleEg-email" data-onchange="onStyleChange('email', this)"></select>
             </div>
             <div class="row row-style" data-kind="other">
               <div class="row-main">
@@ -538,7 +549,7 @@
                 <div class="row-d" id="styleAbout-other" hidden></div>
                 <div class="style-eg" id="styleEg-other"></div>
               </div>
-              <select id="styleSelect-other" class="select" aria-describedby="styleAbout-other styleEg-other" onchange="onStyleChange('other', this)"></select>
+              <select id="styleSelect-other" class="select" aria-describedby="styleAbout-other styleEg-other" data-onchange="onStyleChange('other', this)"></select>
             </div>
           </div>
 
@@ -546,12 +557,12 @@
           <div class="sheet">
             <div class="row" id="signatureRow">
               <div class="row-main"><div class="row-t"><label for="signatureToggle">Sign my new emails</label></div></div>
-              <input type="checkbox" class="tog" role="switch" id="signatureToggle" aria-describedby="signatureDesc" onchange="setSignatureEnabled(this.checked)">
+              <input type="checkbox" class="tog" role="switch" id="signatureToggle" aria-describedby="signatureDesc" data-onchange="setSignatureEnabled(this.checked)">
             </div>
             <div class="row row-sig">
               <div class="row-main">
                 <div class="row-t"><label for="signatureText">Your signature</label></div>
-                <textarea id="signatureText" class="input sig-ta" rows="4" placeholder="Best,&#10;Your name" aria-describedby="signatureCounter signatureHint" autocomplete="off" spellcheck="false" oninput="onSignatureInput()" onblur="commitSignature()"></textarea>
+                <textarea id="signatureText" class="input sig-ta" rows="4" placeholder="Best,&#10;Your name" aria-describedby="signatureCounter signatureHint" autocomplete="off" spellcheck="false" data-oninput="onSignatureInput()" data-onblur="commitSignature()"></textarea>
                 <div class="sig-foot">
                   <span class="sig-hint" id="signatureHint" role="status" aria-live="polite"></span>
                   <span class="sig-counter" id="signatureCounter"></span>
@@ -563,7 +574,7 @@
           <!-- What a careful person may still want to know. One collapsed
                disclosure (toggleHow). -->
           <div class="how">
-            <button type="button" class="link-btn how-btn" id="styleHowBtn" aria-expanded="false" aria-controls="styleHow" onclick="toggleHow(this)">How it works<svg class="ic ic-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
+            <button type="button" class="link-btn how-btn" id="styleHowBtn" aria-expanded="false" aria-controls="styleHow" data-onclick="toggleHow(this)">How it works<svg class="ic ic-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
             <div class="sheet how-body" id="styleHow" hidden>
               <ul class="sc-rule-list">
                 <li>Clean-up takes out ums and false starts, adds punctuation and tidies the sentence. With it off, Waffler pastes exactly what it heard, with your words and Snippets. Nothing is sent for clean-up. Styles aren't used, but an email signature still is.</li>
@@ -586,7 +597,7 @@
         <section class="s-sec" id="secWords" data-sec="words" hidden>
           <h1 class="ptitle" id="vocabTitle" tabindex="-1">Words</h1>
           <p class="pdesc">Names and unusual words Waffler should spell your way.</p>
-          <form class="vadd" onsubmit="addVocabWord(); return false;">
+          <form class="vadd" data-onsubmit="addVocabWord(); return false;">
             <label class="vocab-field">
               <svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg>
               <input type="text" id="vocabInput" class="vocab-input" placeholder="Word, as it should be written" aria-label="Word, as it should be written" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" value="">
@@ -605,8 +616,8 @@
           <ul class="w-list" id="wordsList" aria-label="Your words"></ul>
           <div class="vtools" id="vocabTools">
             <div class="vtools-file">
-              <button type="button" class="btn btn-quiet btn-sm" id="vocabImportBtn" aria-expanded="false" aria-controls="vocabImport" onclick="toggleVocabImport()"><svg class="ic" aria-hidden="true"><use href="#i-upload"/></svg><span>Import</span></button>
-              <button type="button" class="btn btn-quiet btn-sm" id="vocabExportBtn" onclick="exportVocab(this)"><svg class="ic" aria-hidden="true"><use href="#i-download"/></svg><span>Export</span></button>
+              <button type="button" class="btn btn-quiet btn-sm" id="vocabImportBtn" aria-expanded="false" aria-controls="vocabImport" data-onclick="toggleVocabImport()"><svg class="ic" aria-hidden="true"><use href="#i-upload"/></svg><span>Import</span></button>
+              <button type="button" class="btn btn-quiet btn-sm" id="vocabExportBtn" data-onclick="exportVocab(this)"><svg class="ic" aria-hidden="true"><use href="#i-download"/></svg><span>Export</span></button>
             </div>
           </div>
 
@@ -618,22 +629,22 @@
             <h2 class="vimport-t" id="vocabImportTitle">Import words</h2>
             <p class="vimport-d" id="vocabImportHelp">A CSV file from Excel, Numbers or Google Sheets, or rows pasted here: a word, then what speech to text writes for it (more than one with semicolons). Columns named word, sounds_like and starred also work.</p>
             <div class="vimport-in">
-              <button type="button" class="btn btn-sec btn-sm" id="vocabImportPick" onclick="pickVocabFile()"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg><span>Choose a file</span></button>
-              <input type="file" id="vocabImportFile" hidden accept=".csv,.tsv,.txt,text/csv,text/plain" onchange="onVocabFile(this)">
+              <button type="button" class="btn btn-sec btn-sm" id="vocabImportPick" data-onclick="pickVocabFile()"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg><span>Choose a file</span></button>
+              <input type="file" id="vocabImportFile" hidden accept=".csv,.tsv,.txt,text/csv,text/plain" data-onchange="onVocabFile(this)">
               <span class="vimport-name" id="vocabImportName" aria-live="polite"></span>
             </div>
             <label class="vimport-lbl" for="vocabImportText">Or paste rows here</label>
-            <textarea id="vocabImportText" class="input vimport-ta" rows="5" spellcheck="false" autocomplete="off" autocapitalize="off" aria-describedby="vocabImportHelp" placeholder="word,sounds_like&#10;Waffler,waffle; wafler&#10;PostHog,post hog" oninput="onVocabImportText()" onkeydown="onVocabImportKey(event)"></textarea>
+            <textarea id="vocabImportText" class="input vimport-ta" rows="5" spellcheck="false" autocomplete="off" autocapitalize="off" aria-describedby="vocabImportHelp" placeholder="word,sounds_like&#10;Waffler,waffle; wafler&#10;PostHog,post hog" data-oninput="onVocabImportText()" data-onkeydown="onVocabImportKey(event)"></textarea>
             <p class="s-error" id="vocabImportError" role="alert" hidden></p>
             <div class="vimport-prev" id="vocabImportPreview" aria-live="polite" hidden></div>
             <div class="vimport-acts">
-              <button type="button" class="btn btn-quiet btn-sm" onclick="closeVocabImport(true)">Cancel</button>
-              <button type="button" class="btn btn-pri btn-sm" id="vocabImportGo" onclick="applyVocabImport()" disabled>Add to my words</button>
+              <button type="button" class="btn btn-quiet btn-sm" data-onclick="closeVocabImport(true)">Cancel</button>
+              <button type="button" class="btn btn-pri btn-sm" id="vocabImportGo" data-onclick="applyVocabImport()" disabled>Add to my words</button>
             </div>
           </div>
 
           <div class="how">
-            <button type="button" class="link-btn how-btn" id="wordsHowBtn" aria-expanded="false" aria-controls="wordsHow" onclick="toggleWordsHow(this)">How it works<svg class="ic ic-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
+            <button type="button" class="link-btn how-btn" id="wordsHowBtn" aria-expanded="false" aria-controls="wordsHow" data-onclick="toggleWordsHow(this)">How it works<svg class="ic ic-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
             <div class="how-body w-adv" id="wordsHow" hidden>
               <ul class="sc-rule-list">
                 <li>Waffler fixes these words after speech to text and before the clean-up.</li>
@@ -657,34 +668,34 @@
                 <div class="vtools-find" id="vocabFind" hidden>
                   <label class="j-search-wrap vt-search">
                     <svg class="ic j-search-icon" aria-hidden="true"><use href="#i-search"/></svg>
-                    <input type="search" id="vocabSearch" class="j-search-input" placeholder="Search words" aria-label="Search your words and what they sound like" aria-describedby="vocabSearchStatus" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" oninput="onVocabSearch(this.value)" onkeydown="onVocabSearchKey(event)">
-                    <button type="button" class="rbtn j-search-clear" id="vocabSearchClear" aria-label="Clear the search" hidden onclick="clearVocabSearch()"><svg class="ic" aria-hidden="true"><use href="#i-x"/></svg></button>
+                    <input type="search" id="vocabSearch" class="j-search-input" placeholder="Search words" aria-label="Search your words and what they sound like" aria-describedby="vocabSearchStatus" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-oninput="onVocabSearch(this.value)" data-onkeydown="onVocabSearchKey(event)">
+                    <button type="button" class="rbtn j-search-clear" id="vocabSearchClear" aria-label="Clear the search" hidden data-onclick="clearVocabSearch()"><svg class="ic" aria-hidden="true"><use href="#i-x"/></svg></button>
                   </label>
                   <label class="vt-sort"><span class="vt-sort-k">Sort</span>
-                    <select id="vocabSort" class="select" onchange="onVocabSort(this.value)">
+                    <select id="vocabSort" class="select" data-onchange="onVocabSort(this.value)">
                       <option value="used">Most used</option>
                       <option value="recent">Recently used</option>
                       <option value="az">A to Z</option>
                     </select>
                   </label>
-                  <button type="button" class="btn btn-sec btn-sm" id="vocabSelectBtn" aria-pressed="false" onclick="toggleVocabSelect()">Select</button>
+                  <button type="button" class="btn btn-sec btn-sm" id="vocabSelectBtn" aria-pressed="false" data-onclick="toggleVocabSelect()">Select</button>
                 </div>
               </div>
               <span class="sr-only" id="vocabSearchStatus" role="status" aria-live="polite"></span>
               <div class="vbulk" id="vocabBulk" role="group" aria-label="Change the selected words" hidden>
                 <span class="vbulk-n" id="vocabBulkCount" aria-live="polite">0 selected</span>
-                <button type="button" class="btn btn-quiet btn-sm" id="vocabSelectAll" onclick="selectAllVocab()">Select all shown</button>
+                <button type="button" class="btn btn-quiet btn-sm" id="vocabSelectAll" data-onclick="selectAllVocab()">Select all shown</button>
                 <span class="vbulk-sp"></span>
-                <button type="button" class="btn btn-sec btn-sm" id="vocabBulkStar" hidden onclick="bulkStarVocab(true)">Star</button>
-                <button type="button" class="btn btn-sec btn-sm" id="vocabBulkUnstar" hidden onclick="bulkStarVocab(false)">Unstar</button>
-                <button type="button" class="btn btn-danger btn-sm" id="vocabBulkRemove" onclick="bulkRemoveVocab()">Remove</button>
+                <button type="button" class="btn btn-sec btn-sm" id="vocabBulkStar" hidden data-onclick="bulkStarVocab(true)">Star</button>
+                <button type="button" class="btn btn-sec btn-sm" id="vocabBulkUnstar" hidden data-onclick="bulkStarVocab(false)">Unstar</button>
+                <button type="button" class="btn btn-danger btn-sm" id="vocabBulkRemove" data-onclick="bulkRemoveVocab()">Remove</button>
               </div>
               <div id="vocabList" class="vocab-list"></div>
 
               <div class="vside-try" id="vocabTryBox">
                 <h3 class="vk"><label for="vocabTryInput">Try a sentence</label></h3>
                 <div class="vtry">
-                  <textarea id="vocabTryInput" class="vtry-in" rows="2" placeholder="Type what speech to text might write" spellcheck="false" oninput="onVocabTryInput()"></textarea>
+                  <textarea id="vocabTryInput" class="vtry-in" rows="2" placeholder="Type what speech to text might write" spellcheck="false" data-oninput="onVocabTryInput()"></textarea>
                   <div class="vtry-out" id="vocabTryOut" aria-live="polite"><span class="vtry-k">Your words make it</span><span class="vtry-t" id="vocabTryText"></span></div>
                 </div>
               </div>
@@ -693,7 +704,7 @@
                 <ul class="vrc" id="vocabRecent"></ul>
               </div>
               <div class="vlearn" id="vocabLearn">
-                <input type="checkbox" class="tog" role="switch" id="learnToggle" aria-describedby="learnDesc" onchange="setLearnFromEdits(this.checked)">
+                <input type="checkbox" class="tog" role="switch" id="learnToggle" aria-describedby="learnDesc" data-onchange="setLearnFromEdits(this.checked)">
                 <div class="vlearn-main"><label class="vlearn-t" for="learnToggle">Suggest words from my edits</label><p class="vlearn-d" id="learnDesc">When you correct a dictation in the Journal, Waffler offers to add a name it got wrong. It only offers. It never adds a word by itself.</p></div>
               </div>
 
@@ -705,7 +716,7 @@
               <div class="snips" id="snippetsSection" role="region" aria-labelledby="snipTitle">
                 <h3 class="sh2" id="snipTitle">Snippets<span class="aside" id="snipSummary" aria-hidden="true"></span></h3>
                 <p class="snip-desc">Say a short phrase and Waffler pastes longer text in its place. Say only the phrase and you get exactly that text. Say it inside a sentence and it's swapped in.</p>
-                <form class="snip-add" id="snipForm" onsubmit="addSnippet(); return false;">
+                <form class="snip-add" id="snipForm" data-onsubmit="addSnippet(); return false;">
                   <label class="vocab-field snip-f-t">
                     <svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg>
                     <input type="text" id="snipTrigger" class="vocab-input" placeholder="When you say" aria-label="When you say" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" value="">
@@ -724,30 +735,30 @@
                      snippet keeps its text. -->
                 <div class="vtools snip-tools" id="snipTools">
                   <div class="vtools-file">
-                    <button type="button" class="btn btn-quiet btn-sm" id="snipImportBtn" aria-expanded="false" aria-controls="snipImport" onclick="toggleSnipImport()"><svg class="ic" aria-hidden="true"><use href="#i-upload"/></svg><span>Import</span></button>
+                    <button type="button" class="btn btn-quiet btn-sm" id="snipImportBtn" aria-expanded="false" aria-controls="snipImport" data-onclick="toggleSnipImport()"><svg class="ic" aria-hidden="true"><use href="#i-upload"/></svg><span>Import</span></button>
                     <label class="sr-only" for="snipExportFormat">Export as</label>
                     <select id="snipExportFormat" class="select snip-fmt">
                       <option value="csv">CSV</option>
                       <option value="json">JSON</option>
                     </select>
-                    <button type="button" class="btn btn-quiet btn-sm" id="snipExportBtn" onclick="exportSnippets(this)"><svg class="ic" aria-hidden="true"><use href="#i-download"/></svg><span>Export</span></button>
+                    <button type="button" class="btn btn-quiet btn-sm" id="snipExportBtn" data-onclick="exportSnippets(this)"><svg class="ic" aria-hidden="true"><use href="#i-download"/></svg><span>Export</span></button>
                   </div>
                 </div>
                 <div class="vimport" id="snipImport" role="region" aria-labelledby="snipImportTitle" hidden>
                   <h3 class="vimport-t" id="snipImportTitle">Import snippets</h3>
                   <p class="vimport-d" id="snipImportHelp">A file you exported from Waffler, a CSV from a spreadsheet, or rows pasted here: the phrase you say, then the text to paste. A text with commas or line breaks goes in quotes. A phrase you already have keeps its text.</p>
                   <div class="vimport-in">
-                    <button type="button" class="btn btn-sec btn-sm" id="snipImportPick" onclick="pickSnipFile()"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg><span>Choose a file</span></button>
-                    <input type="file" id="snipImportFile" hidden accept=".csv,.tsv,.txt,.json,text/csv,text/plain,application/json" onchange="onSnipFile(this)">
+                    <button type="button" class="btn btn-sec btn-sm" id="snipImportPick" data-onclick="pickSnipFile()"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg><span>Choose a file</span></button>
+                    <input type="file" id="snipImportFile" hidden accept=".csv,.tsv,.txt,.json,text/csv,text/plain,application/json" data-onchange="onSnipFile(this)">
                     <span class="vimport-name" id="snipImportName" aria-live="polite"></span>
                   </div>
                   <label class="vimport-lbl" for="snipImportText">Or paste rows here</label>
-                  <textarea id="snipImportText" class="input vimport-ta" rows="5" spellcheck="false" autocomplete="off" autocapitalize="off" aria-describedby="snipImportHelp" placeholder="trigger,expansion&#10;my email,jane@example.com" oninput="onSnipImportText()" onkeydown="onSnipImportKey(event)"></textarea>
+                  <textarea id="snipImportText" class="input vimport-ta" rows="5" spellcheck="false" autocomplete="off" autocapitalize="off" aria-describedby="snipImportHelp" placeholder="trigger,expansion&#10;my email,jane@example.com" data-oninput="onSnipImportText()" data-onkeydown="onSnipImportKey(event)"></textarea>
                   <p class="s-error" id="snipImportError" role="alert" hidden></p>
                   <div class="vimport-prev" id="snipImportPreview" aria-live="polite" hidden></div>
                   <div class="vimport-acts">
-                    <button type="button" class="btn btn-quiet btn-sm" onclick="closeSnipImport(true)">Cancel</button>
-                    <button type="button" class="btn btn-pri btn-sm" id="snipImportGo" onclick="applySnipImport()" disabled>Add snippets</button>
+                    <button type="button" class="btn btn-quiet btn-sm" data-onclick="closeSnipImport(true)">Cancel</button>
+                    <button type="button" class="btn btn-pri btn-sm" id="snipImportGo" data-onclick="applySnipImport()" disabled>Add snippets</button>
                   </div>
                 </div>
                 <div id="snipList" class="snip-list"></div>
@@ -772,7 +783,7 @@
           <div class="sheet top-sheet">
             <div class="row" id="transformsRow">
               <div class="row-main"><div class="row-t"><label for="transformsToggle">Turn on Transforms</label></div></div>
-              <input type="checkbox" class="tog" role="switch" id="transformsToggle" aria-describedby="transformsDesc" onchange="setTransformsEnabled(this.checked)">
+              <input type="checkbox" class="tog" role="switch" id="transformsToggle" aria-describedby="transformsDesc" data-onchange="setTransformsEnabled(this.checked)">
             </div>
             <div class="row" id="transformsShortcutRow">
               <div class="row-main">
@@ -781,8 +792,8 @@
                 <span class="keys tx-caps" id="transformsCaps" role="img" hidden></span>
                 <p class="s-error sc-conflict" id="transformsConflict" hidden></p>
               </div>
-              <button type="button" class="btn btn-sec btn-sm" id="transformsChange" aria-describedby="transformsShortcutTitle" onclick="openHotkeyCapture('transform')">Change…</button>
-              <button type="button" class="btn btn-quiet btn-sm" id="transformsRemove" aria-describedby="transformsShortcutTitle" onclick="clearTransformHotkey()">Remove</button>
+              <button type="button" class="btn btn-sec btn-sm" id="transformsChange" aria-describedby="transformsShortcutTitle" data-onclick="openHotkeyCapture('transform')">Change…</button>
+              <button type="button" class="btn btn-quiet btn-sm" id="transformsRemove" aria-describedby="transformsShortcutTitle" data-onclick="clearTransformHotkey()">Remove</button>
             </div>
           </div>
           <p class="s-error" id="transformsError" role="alert" hidden></p>
@@ -797,13 +808,13 @@
               <span class="try-said" id="transformsTrySaid" role="status" aria-live="polite"></span>
               <button type="button" class="link-btn" id="transformsTryUndo" hidden>Undo</button>
             </div>
-            <p class="try-needs" id="transformsTryNeeds" hidden><span id="transformsTryNeedsText"></span> <button type="button" class="link-btn" onclick="showSettingsSection('keys')">Keys and providers</button></p>
+            <p class="try-needs" id="transformsTryNeeds" hidden><span id="transformsTryNeedsText"></span> <button type="button" class="link-btn" data-onclick="showSettingsSection('keys')">Keys and providers</button></p>
           </div>
 
           <div class="sheet run-sheet">
             <div class="row" id="transformsRunRow">
               <div class="row-main"><div class="row-t"><label for="transformsRun">Shortcut runs</label></div></div>
-              <select id="transformsRun" class="select" aria-describedby="transformsRunDesc" onchange="onTransformRunChange(this)"></select>
+              <select id="transformsRun" class="select" aria-describedby="transformsRunDesc" data-onchange="onTransformRunChange(this)"></select>
             </div>
           </div>
 
@@ -812,36 +823,36 @@
           <div class="sheet" id="polishSheet">
             <div class="row">
               <div class="row-main"><div class="row-t"><label for="polishRule-grammar">Grammar, spelling and punctuation</label></div></div>
-              <input type="checkbox" class="tog" role="switch" id="polishRule-grammar" onchange="setPolishRule('grammar', this.checked)">
+              <input type="checkbox" class="tog" role="switch" id="polishRule-grammar" data-onchange="setPolishRule('grammar', this.checked)">
             </div>
             <div class="row">
               <div class="row-main"><div class="row-t"><label for="polishRule-clarity">Make the wording clearer</label></div></div>
-              <input type="checkbox" class="tog" role="switch" id="polishRule-clarity" onchange="setPolishRule('clarity', this.checked)">
+              <input type="checkbox" class="tog" role="switch" id="polishRule-clarity" data-onchange="setPolishRule('clarity', this.checked)">
             </div>
             <div class="row">
               <div class="row-main"><div class="row-t"><label for="polishRule-tone">Keep my tone</label></div></div>
-              <input type="checkbox" class="tog" role="switch" id="polishRule-tone" onchange="setPolishRule('tone', this.checked)">
+              <input type="checkbox" class="tog" role="switch" id="polishRule-tone" data-onchange="setPolishRule('tone', this.checked)">
             </div>
             <div class="row">
               <div class="row-main"><div class="row-t"><label for="polishRule-sentences">Split long sentences</label></div></div>
-              <input type="checkbox" class="tog" role="switch" id="polishRule-sentences" onchange="setPolishRule('sentences', this.checked)">
+              <input type="checkbox" class="tog" role="switch" id="polishRule-sentences" data-onchange="setPolishRule('sentences', this.checked)">
             </div>
             <div class="row">
               <div class="row-main"><div class="row-t"><label for="polishRule-paragraphs">Improve paragraph breaks</label></div></div>
-              <input type="checkbox" class="tog" role="switch" id="polishRule-paragraphs" onchange="setPolishRule('paragraphs', this.checked)">
+              <input type="checkbox" class="tog" role="switch" id="polishRule-paragraphs" data-onchange="setPolishRule('paragraphs', this.checked)">
             </div>
             <div class="row">
               <div class="row-main"><div class="row-t"><label for="polishRule-structure">Add lists or headings</label></div></div>
-              <input type="checkbox" class="tog" role="switch" id="polishRule-structure" onchange="setPolishRule('structure', this.checked)">
+              <input type="checkbox" class="tog" role="switch" id="polishRule-structure" data-onchange="setPolishRule('structure', this.checked)">
             </div>
             <div class="row">
               <div class="row-main"><div class="row-t"><label for="polishRule-concise">Make it shorter</label></div></div>
-              <input type="checkbox" class="tog" role="switch" id="polishRule-concise" onchange="setPolishRule('concise', this.checked)">
+              <input type="checkbox" class="tog" role="switch" id="polishRule-concise" data-onchange="setPolishRule('concise', this.checked)">
             </div>
           </div>
           <h3 class="tx-h3" id="polishOwnTitle">Your own rules</h3>
           <div class="sheet" id="polishOwnRules" role="list" aria-labelledby="polishOwnTitle"></div>
-          <form class="tx-add" id="polishRuleForm" onsubmit="addPolishRule(); return false;">
+          <form class="tx-add" id="polishRuleForm" data-onsubmit="addPolishRule(); return false;">
             <input type="text" id="polishRuleInput" class="input" placeholder="For example: use British spelling" aria-label="A rule of your own for Polish" maxlength="160" autocomplete="off" spellcheck="false">
             <button type="submit" class="btn btn-sec btn-sm" id="polishRuleAdd">Add rule</button>
           </form>
@@ -853,11 +864,11 @@
             <div class="row row-sig">
               <div class="row-main">
                 <div class="row-t"><label for="peOutline">Outline</label></div>
-                <textarea id="peOutline" class="input sig-ta tx-outline" rows="12" aria-describedby="peCounter peHint" autocomplete="off" spellcheck="false" oninput="onOutlineInput()" onblur="commitOutline()"></textarea>
+                <textarea id="peOutline" class="input sig-ta tx-outline" rows="12" aria-describedby="peCounter peHint" autocomplete="off" spellcheck="false" data-oninput="onOutlineInput()" data-onblur="commitOutline()"></textarea>
                 <div class="sig-foot">
                   <span class="sig-hint" id="peHint" role="status" aria-live="polite"></span>
                   <span class="sig-counter" id="peCounter"></span>
-                  <button type="button" class="btn btn-sec btn-sm" id="peReset" onclick="resetOutline()">Reset to default</button>
+                  <button type="button" class="btn btn-sec btn-sm" id="peReset" data-onclick="resetOutline()">Reset to default</button>
                 </div>
               </div>
             </div>
@@ -867,9 +878,9 @@
           <p class="s-note" id="transformsHelp">Add your own, up to 5.</p>
           <div class="sheet" id="transformsList" role="list" aria-label="Your transforms"></div>
           <p class="v-undo" id="transformsUndo" role="status" aria-live="polite" hidden><span id="transformsUndoText"></span> <button type="button" class="link-btn" id="transformsUndoBtn">Undo</button></p>
-          <form class="tx-new" id="transformsForm" onsubmit="addTransform(); return false;">
+          <form class="tx-new" id="transformsForm" data-onsubmit="addTransform(); return false;">
             <input type="text" id="transformName" class="input" placeholder="Name" aria-label="Name of the new transform" maxlength="40" autocomplete="off" spellcheck="false">
-            <textarea id="transformPrompt" class="input tx-prompt" rows="3" placeholder="What should it do to the text?" aria-label="What the new transform should do" aria-describedby="transformsFormCount" autocomplete="off" spellcheck="false" oninput="onTransformPromptInput()"></textarea>
+            <textarea id="transformPrompt" class="input tx-prompt" rows="3" placeholder="What should it do to the text?" aria-label="What the new transform should do" aria-describedby="transformsFormCount" autocomplete="off" spellcheck="false" data-oninput="onTransformPromptInput()"></textarea>
             <div class="tx-new-foot"><span class="snip-counter" id="transformsFormCount"></span><button type="submit" class="btn btn-sec btn-sm" id="transformAdd">Add transform</button></div>
           </form>
           <p class="s-error" id="transformFormError" role="alert" hidden></p>
@@ -878,7 +889,7 @@
           <!-- What a careful person may still want to know: what is sent where,
                limits and conditions. One collapsed disclosure (toggleHow). -->
           <div class="how">
-            <button type="button" class="link-btn how-btn" id="transformsHowBtn" aria-expanded="false" aria-controls="transformsHow" onclick="toggleHow(this)">How it works<svg class="ic ic-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
+            <button type="button" class="link-btn how-btn" id="transformsHowBtn" aria-expanded="false" aria-controls="transformsHow" data-onclick="toggleHow(this)">How it works<svg class="ic ic-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
             <div class="sheet how-body" id="transformsHow" hidden>
               <ul class="sc-rule-list">
                 <li id="transformsOffNote" hidden>Transforms is off, so the shortcut and the menu bar item do nothing yet.</li>
@@ -890,7 +901,7 @@
                 <li>Polish cleans up the writing you selected. It always keeps your meaning.</li>
                 <li>Prompt Engineer turns a rough request into a well-structured prompt for an AI model. It fills in the outline from what you wrote, never invents details, and writes "Not specified" where you said nothing. The headings stay in this order. Put your own in if you want different ones.</li>
                 <li>Each transform of your own is a name and an instruction. For example, call it Friendly and write "Rewrite this to sound warm and short". Pick it in Shortcut runs to use it with the shortcut. You can keep up to 5.</li>
-                <li id="transformsAllShortcuts">Your other shortcuts are in <button type="button" class="link-btn" onclick="showSettingsSection('hotkey')">Shortcuts</button>.</li>
+                <li id="transformsAllShortcuts">Your other shortcuts are in <button type="button" class="link-btn" data-onclick="showSettingsSection('hotkey')">Shortcuts</button>.</li>
               </ul>
             </div>
           </div>
@@ -913,7 +924,7 @@
           <div class="sheet top-sheet">
             <div class="row" id="commandRow">
               <div class="row-main"><div class="row-t"><label for="commandToggle">Turn on Command mode</label></div></div>
-              <input type="checkbox" class="tog" role="switch" id="commandToggle" aria-describedby="commandDesc" onchange="setCommandEnabled(this.checked)">
+              <input type="checkbox" class="tog" role="switch" id="commandToggle" aria-describedby="commandDesc" data-onchange="setCommandEnabled(this.checked)">
             </div>
             <div class="row" id="commandShortcutRow">
               <div class="row-main">
@@ -922,8 +933,8 @@
                 <span class="keys tx-caps" id="commandCaps" role="img" hidden></span>
                 <p class="s-error sc-conflict" id="commandConflict" hidden></p>
               </div>
-              <button type="button" class="btn btn-sec btn-sm" id="commandChange" aria-describedby="commandShortcutTitle" onclick="openHotkeyCapture('command')">Change…</button>
-              <button type="button" class="btn btn-quiet btn-sm" id="commandRemove" aria-describedby="commandShortcutTitle" onclick="clearCommandHotkey()">Remove</button>
+              <button type="button" class="btn btn-sec btn-sm" id="commandChange" aria-describedby="commandShortcutTitle" data-onclick="openHotkeyCapture('command')">Change…</button>
+              <button type="button" class="btn btn-quiet btn-sm" id="commandRemove" aria-describedby="commandShortcutTitle" data-onclick="clearCommandHotkey()">Remove</button>
             </div>
           </div>
           <p class="s-error" id="commandError" role="alert" hidden></p>
@@ -942,13 +953,13 @@
               <span class="try-said" id="commandTrySaid" role="status" aria-live="polite"></span>
               <button type="button" class="link-btn" id="commandTryUndo" hidden>Undo</button>
             </div>
-            <p class="try-needs" id="commandTryNeeds" hidden><span id="commandTryNeedsText"></span> <button type="button" class="link-btn" onclick="showSettingsSection('keys')">Keys and providers</button></p>
+            <p class="try-needs" id="commandTryNeeds" hidden><span id="commandTryNeedsText"></span> <button type="button" class="link-btn" data-onclick="showSettingsSection('keys')">Keys and providers</button></p>
           </div>
 
           <div class="sheet run-sheet">
             <div class="row" id="commandEngineRow">
               <div class="row-main"><div class="row-t"><label for="commandEngine">Search engine</label></div></div>
-              <select id="commandEngine" class="select" aria-describedby="commandEngineDesc" onchange="onCommandEngineChange(this)"></select>
+              <select id="commandEngine" class="select" aria-describedby="commandEngineDesc" data-onchange="onCommandEngineChange(this)"></select>
             </div>
           </div>
 
@@ -958,7 +969,7 @@
           <!-- What a careful person may still want to know: what is sent where,
                limits and conditions. One collapsed disclosure (toggleHow). -->
           <div class="how">
-            <button type="button" class="link-btn how-btn" id="commandHowBtn" aria-expanded="false" aria-controls="commandHow" onclick="toggleHow(this)">How it works<svg class="ic ic-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
+            <button type="button" class="link-btn how-btn" id="commandHowBtn" aria-expanded="false" aria-controls="commandHow" data-onclick="toggleHow(this)">How it works<svg class="ic ic-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
             <div class="sheet how-body" id="commandHow" hidden>
               <ul class="sc-rule-list">
                 <li id="commandOffNote" hidden>Command mode is off, so the shortcut does nothing yet.</li>
@@ -968,7 +979,7 @@
                 <li id="commandEngineDesc">When you ask a question, Waffler opens it in your search engine, in your browser. Only your spoken question is sent to the engine, never the text you selected.</li>
                 <li>For the first two things to say, select some text first. With nothing selected, Waffler can still write new text for you, or search the web when you ask a question.</li>
                 <li>Try it here sends the text in the box and what you typed to that same provider, only when you press Do it. Nothing from it is kept in your Journal, and a question only shows the search it would open.</li>
-                <li id="commandAllShortcuts">Your other shortcuts are in <button type="button" class="link-btn" onclick="showSettingsSection('hotkey')">Shortcuts</button>.</li>
+                <li id="commandAllShortcuts">Your other shortcuts are in <button type="button" class="link-btn" data-onclick="showSettingsSection('hotkey')">Shortcuts</button>.</li>
               </ul>
             </div>
           </div>
@@ -1020,7 +1031,7 @@
                    a key: it is a password box, and a saved key is only its
                    masked form (get_settings). -->
               <div class="key-card" id="keyCard">
-                <select id="keyProvider" class="select" aria-label="Provider" onchange="pickKeyProvider(this.value)">
+                <select id="keyProvider" class="select" aria-label="Provider" data-onchange="pickKeyProvider(this.value)">
                   <option value="groq">Groq</option>
                   <option value="openai">OpenAI</option>
                   <option value="cerebras">Cerebras</option>
@@ -1029,26 +1040,26 @@
                   <div class="key-editor" id="groqKeyEditor" data-provider="groq">
                     <div class="key-editor-row">
                       <input type="password" id="groqKeyInput" class="input input-mono" placeholder="Paste your key" autocomplete="off" spellcheck="false" aria-label="Groq key" aria-describedby="keyState">
-                      <button type="button" class="btn btn-pri btn-sm" onclick="saveGroqKey(this)">Save</button>
-                      <button type="button" class="btn btn-quiet btn-sm" onclick="closeKeyEditor(true)">Cancel</button>
+                      <button type="button" class="btn btn-pri btn-sm" data-onclick="saveGroqKey(this)">Save</button>
+                      <button type="button" class="btn btn-quiet btn-sm" data-onclick="closeKeyEditor(true)">Cancel</button>
                     </div>
-                    <p class="key-help"><a class="link" href="#" onclick="openKeyPage('groq'); return false;">Get a free Groq key</a><svg class="ic ic-sm" aria-hidden="true"><use href="#i-external"/></svg></p>
+                    <p class="key-help"><a class="link" href="#" data-onclick="openKeyPage('groq'); return false;">Get a free Groq key</a><svg class="ic ic-sm" aria-hidden="true"><use href="#i-external"/></svg></p>
                   </div>
                   <div class="key-editor" id="apiKeyEditor" data-provider="openai" hidden>
                     <div class="key-editor-row">
                       <input type="password" id="apiKeyInput" class="input input-mono" placeholder="Paste your key" autocomplete="off" spellcheck="false" aria-label="OpenAI key" aria-describedby="keyState">
-                      <button type="button" class="btn btn-pri btn-sm" onclick="saveApiKey(this)">Save</button>
-                      <button type="button" class="btn btn-quiet btn-sm" onclick="closeKeyEditor(true)">Cancel</button>
+                      <button type="button" class="btn btn-pri btn-sm" data-onclick="saveApiKey(this)">Save</button>
+                      <button type="button" class="btn btn-quiet btn-sm" data-onclick="closeKeyEditor(true)">Cancel</button>
                     </div>
-                    <p class="key-help">Optional. <a class="link" href="#" onclick="openKeyPage('openai'); return false;">Get an OpenAI key</a><svg class="ic ic-sm" aria-hidden="true"><use href="#i-external"/></svg></p>
+                    <p class="key-help">Optional. <a class="link" href="#" data-onclick="openKeyPage('openai'); return false;">Get an OpenAI key</a><svg class="ic ic-sm" aria-hidden="true"><use href="#i-external"/></svg></p>
                   </div>
                   <div class="key-editor" id="cerebrasKeyEditor" data-provider="cerebras" hidden>
                     <div class="key-editor-row">
                       <input type="password" id="cerebrasKeyInput" class="input input-mono" placeholder="Paste your key" autocomplete="off" spellcheck="false" aria-label="Cerebras key" aria-describedby="keyState">
-                      <button type="button" class="btn btn-pri btn-sm" onclick="saveCerebrasKey(this)">Save</button>
-                      <button type="button" class="btn btn-quiet btn-sm" onclick="closeKeyEditor(true)">Cancel</button>
+                      <button type="button" class="btn btn-pri btn-sm" data-onclick="saveCerebrasKey(this)">Save</button>
+                      <button type="button" class="btn btn-quiet btn-sm" data-onclick="closeKeyEditor(true)">Cancel</button>
                     </div>
-                    <p class="key-help">Optional. <a class="link" href="#" onclick="openKeyPage('cerebras'); return false;">Get a Cerebras key</a><svg class="ic ic-sm" aria-hidden="true"><use href="#i-external"/></svg></p>
+                    <p class="key-help">Optional. <a class="link" href="#" data-onclick="openKeyPage('cerebras'); return false;">Get a Cerebras key</a><svg class="ic ic-sm" aria-hidden="true"><use href="#i-external"/></svg></p>
                   </div>
                 </div>
                 <span class="key-state" id="keyState" role="status" hidden></span>
@@ -1062,7 +1073,7 @@
                the arrow keys), and what a careful person may still want to
                know. One collapsed disclosure (toggleHow). -->
           <div class="how">
-            <button type="button" class="link-btn how-btn" id="keysAdvBtn" aria-expanded="false" aria-controls="keysAdv" onclick="toggleHow(this)">Advanced<svg class="ic ic-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
+            <button type="button" class="link-btn how-btn" id="keysAdvBtn" aria-expanded="false" aria-controls="keysAdv" data-onclick="toggleHow(this)">Advanced<svg class="ic ic-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
             <div class="how-body adv-body" id="keysAdv" hidden>
               <div class="stage stage-plain flow" id="keysFlow" role="img" aria-label="Speech to text and clean-up"></div>
 
@@ -1128,14 +1139,14 @@
           <!-- What a careful person may still want to know. One collapsed
                disclosure (toggleHow). -->
           <div class="how">
-            <button type="button" class="link-btn how-btn" id="claudeHowBtn" aria-expanded="false" aria-controls="claudeHow" onclick="toggleHow(this)">How it works<svg class="ic ic-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
+            <button type="button" class="link-btn how-btn" id="claudeHowBtn" aria-expanded="false" aria-controls="claudeHow" data-onclick="toggleHow(this)">How it works<svg class="ic ic-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
             <div class="sheet how-body" id="claudeHow" hidden>
               <ul class="sc-rule-list">
                 <li>Claude, or another AI app, can read what you recorded and dictated, so you can ask it about any of it. It can file meetings into folders. It cannot rewrite or delete anything.</li>
                 <li>With Include my dictations on, Claude can read what you dictated as well as your meetings. Off, it reads meetings only.</li>
                 <li>After you connect or disconnect, quit Claude and open it again.</li>
                 <li>Most AI apps take the last block in their MCP settings.</li>
-                <li>These reach this computer only. Reading your meetings from every device needs an <button type="button" class="link-btn" onclick="showSettingsSection('account')">account</button>.</li>
+                <li>These reach this computer only. Reading your meetings from every device needs an <button type="button" class="link-btn" data-onclick="showSettingsSection('account')">account</button>.</li>
               </ul>
             </div>
           </div>
@@ -1154,17 +1165,17 @@
 
           <div class="sheet sc-list" id="shortcutsList" role="list" aria-label="Shortcuts"></div>
           <p class="s-error" id="shortcutsError" role="alert" hidden></p>
-          <button type="button" class="btn btn-sec btn-sm s-retry" id="shortcutsRetry" hidden onclick="retryShortcuts(this)">Try again</button>
+          <button type="button" class="btn btn-sec btn-sm s-retry" id="shortcutsRetry" hidden data-onclick="retryShortcuts(this)">Try again</button>
 
           <div class="sheet sc-reset">
             <div class="row" id="shortcutsResetRow">
               <div class="row-main"><div class="row-t" id="shortcutsResetTitle">Reset shortcuts</div><div class="row-d">Put every shortcut back to how Waffler comes.</div></div>
-              <button type="button" class="btn btn-sec btn-sm" id="shortcutsResetAsk" aria-describedby="shortcutsResetTitle" onclick="askShortcutsReset(true)">Reset shortcuts…</button>
+              <button type="button" class="btn btn-sec btn-sm" id="shortcutsResetAsk" aria-describedby="shortcutsResetTitle" data-onclick="askShortcutsReset(true)">Reset shortcuts…</button>
             </div>
             <div class="row sc-confirm" id="shortcutsResetConfirm" hidden>
               <div class="row-main"><div class="row-t" id="shortcutsResetAskText"></div><div class="row-d" id="shortcutsResetBody"></div></div>
-              <button type="button" class="btn btn-sec btn-sm" id="shortcutsResetNo" onclick="askShortcutsReset(false)">Keep them</button>
-              <button type="button" class="btn btn-pri btn-sm" id="shortcutsResetYes" onclick="resetShortcuts(this)">Reset shortcuts</button>
+              <button type="button" class="btn btn-sec btn-sm" id="shortcutsResetNo" data-onclick="askShortcutsReset(false)">Keep them</button>
+              <button type="button" class="btn btn-pri btn-sm" id="shortcutsResetYes" data-onclick="resetShortcuts(this)">Reset shortcuts</button>
             </div>
           </div>
 
@@ -1173,7 +1184,7 @@
                it (the status turns to Recording) and the keys light up. -->
           <div class="stage hk-stage" id="hkStage">
             <span class="hk-corner-l" aria-hidden="true">Your hotkey</span>
-            <button type="button" class="btn btn-sec btn-sm hk-corner" onclick="openHotkeyCapture()">Change…</button>
+            <button type="button" class="btn btn-sec btn-sm hk-corner" data-onclick="openHotkeyCapture()">Change…</button>
             <span class="keys hk-caps" id="settingsHotkeyCaps" role="img"></span>
             <p class="hk-said" id="hkTest" role="status" aria-live="polite"><span class="hk-ok" aria-hidden="true"><svg class="ic"><use href="#i-check"/></svg></span><span id="hkTestText">Hold it now to test it.</span></p>
           </div>
@@ -1187,7 +1198,7 @@
               <div class="notice-title" id="settingsFnWarnTitle"></div>
               <div class="notice-desc" id="settingsFnWarnDetail"></div>
             </div>
-            <div class="notice-acts"><button type="button" class="btn btn-sec btn-sm" onclick="wizOpenKeyboardSettings()">Open Keyboard settings</button></div>
+            <div class="notice-acts"><button type="button" class="btn btn-sec btn-sm" data-onclick="wizOpenKeyboardSettings()">Open Keyboard settings</button></div>
           </div>
 
           <!-- Mac: holding Fn can bring up the keyboard-language popup when
@@ -1209,7 +1220,7 @@
                shortcuts can be used (the rules and the refused combinations
                are the app's: get_shortcuts). One collapsed disclosure. -->
           <div class="how sc-tools">
-            <button type="button" class="link-btn how-btn" id="shortcutsRulesBtn" aria-expanded="false" aria-controls="shortcutsRules" onclick="toggleShortcutRules()">How it works<svg class="ic ic-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
+            <button type="button" class="link-btn how-btn" id="shortcutsRulesBtn" aria-expanded="false" aria-controls="shortcutsRules" data-onclick="toggleShortcutRules()">How it works<svg class="ic ic-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
           </div>
           <div class="sheet sc-rules how-body" id="shortcutsRules" hidden>
             <ul class="sc-rule-list">
@@ -1289,7 +1300,7 @@
               <div class="saved-main">
                 <div class="saved-v" id="insSavedValue">0 min</div>
                 <p class="saved-s" id="insSavedSub"></p>
-                <button type="button" class="link-btn" id="insSavedHowBtn" aria-expanded="false" aria-controls="insSavedHow" onclick="toggleSavedHow()">How this is estimated<svg class="ic ic-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
+                <button type="button" class="link-btn" id="insSavedHowBtn" aria-expanded="false" aria-controls="insSavedHow" data-onclick="toggleSavedHow()">How this is estimated<svg class="ic ic-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
                 <div class="saved-how" id="insSavedHow" hidden></div>
               </div>
               <div class="row" id="typingWpmRow">
@@ -1298,7 +1309,7 @@
                   <div class="row-d" id="typingWpmDesc">Words a minute, for the estimate above.</div>
                   <div class="row-err" id="typingWpmErr" role="alert" hidden></div>
                 </div>
-                <input id="typingWpm" class="input input-wpm" type="number" inputmode="numeric" min="10" max="200" step="1" value="40" aria-describedby="typingWpmDesc" onchange="onTypingSpeedChange(this)">
+                <input id="typingWpm" class="input input-wpm" type="number" inputmode="numeric" min="10" max="200" step="1" value="40" aria-describedby="typingWpmDesc" data-onchange="onTypingSpeedChange(this)">
               </div>
             </div>
 
@@ -1391,7 +1402,7 @@
                  that would delete dictations asks first, in the sheet. -->
             <div class="row" id="historyRow">
               <div class="row-main"><div class="row-t"><label for="historyKeep">Journal</label></div><div class="row-d" id="privHistoryDesc">Your dictations, searchable in your Journal.</div></div>
-              <select id="historyKeep" class="select" onchange="onHistoryKeepChange(this)">
+              <select id="historyKeep" class="select" data-onchange="onHistoryKeepChange(this)">
                 <option value="0">Keep forever</option>
                 <option value="365">Keep for a year</option>
                 <option value="90">Keep for 90 days</option>
@@ -1400,8 +1411,8 @@
             </div>
             <div class="row row-confirm" id="historyKeepConfirm" hidden>
               <div class="row-main"><div class="row-t" id="historyKeepConfirmTitle">Delete older dictations?</div><div class="row-d">They go from your Journal now, and this can't be undone.</div></div>
-              <button type="button" class="btn btn-sec btn-sm" id="historyKeepNo" onclick="cancelHistoryKeep()">Keep them</button>
-              <button type="button" class="btn btn-danger btn-sm" onclick="confirmHistoryKeep()">Delete them</button>
+              <button type="button" class="btn btn-sec btn-sm" id="historyKeepNo" data-onclick="cancelHistoryKeep()">Keep them</button>
+              <button type="button" class="btn btn-danger btn-sm" data-onclick="confirmHistoryKeep()">Delete them</button>
             </div>
             <!-- Export history (src/history_export.py): a file on the Desktop,
                  shown in its folder. It is the user's own copy, so Delete all my
@@ -1413,13 +1424,13 @@
                 <option value="csv">CSV</option>
                 <option value="txt">Plain text</option>
               </select>
-              <button type="button" class="btn btn-sec btn-sm" id="exportBtn" aria-describedby="exportTitle" onclick="exportHistory(this)"><svg class="ic" aria-hidden="true"><use href="#i-folder"/></svg><span>Export</span></button>
+              <button type="button" class="btn btn-sec btn-sm" id="exportBtn" aria-describedby="exportTitle" data-onclick="exportHistory(this)"><svg class="ic" aria-hidden="true"><use href="#i-folder"/></svg><span>Export</span></button>
             </div>
             <!-- Owner decision D9: the last 10 recordings are kept, said
                  here, with a switch and "Delete them now" (src/recent_audio.py). -->
             <div class="row" id="recentAudioRow">
-              <div class="row-main"><div class="row-t"><label for="recentAudioToggle">Recent recordings</label></div><div class="row-d"><span id="recentAudioDesc">The audio of your last 10 dictations.</span> <button type="button" class="link-btn" id="recentAudioDelete" onclick="deleteRecentAudio(this)">Delete them now</button></div></div>
-              <input type="checkbox" class="tog" role="switch" id="recentAudioToggle" checked onchange="setRecentAudio(this.checked)">
+              <div class="row-main"><div class="row-t"><label for="recentAudioToggle">Recent recordings</label></div><div class="row-d"><span id="recentAudioDesc">The audio of your last 10 dictations.</span> <button type="button" class="link-btn" id="recentAudioDelete" data-onclick="deleteRecentAudio(this)">Delete them now</button></div></div>
+              <input type="checkbox" class="tog" role="switch" id="recentAudioToggle" checked data-onchange="setRecentAudio(this.checked)">
             </div>
             <!-- Recordings that were not turned into text (Journal "Not sent"
                  cards). Waffler sends them by itself when the speech service
@@ -1428,13 +1439,13 @@
             <div class="row" id="unsentRow">
               <span class="chk" id="unsentIcon" aria-hidden="true"><svg class="ic"><use href="#i-check"/></svg></span>
               <div class="row-main"><div class="row-t" id="unsentTitle">Nothing waiting</div><div class="row-d" id="unsentSummary">Every recording has been turned into text.</div></div>
-              <button type="button" class="btn btn-sec btn-sm" id="unsentDelete" aria-describedby="unsentTitle" onclick="askDeleteUnsent(true)" hidden>Delete</button>
-              <button type="button" class="btn btn-sec btn-sm" id="unsentSendNow" onclick="sendUnsentNow(this)" hidden><svg class="ic" aria-hidden="true"><use href="#i-retry"/></svg><span>Try again</span></button>
+              <button type="button" class="btn btn-sec btn-sm" id="unsentDelete" aria-describedby="unsentTitle" data-onclick="askDeleteUnsent(true)" hidden>Delete</button>
+              <button type="button" class="btn btn-sec btn-sm" id="unsentSendNow" data-onclick="sendUnsentNow(this)" hidden><svg class="ic" aria-hidden="true"><use href="#i-retry"/></svg><span>Try again</span></button>
             </div>
             <div class="row row-confirm" id="unsentDeleteConfirm" hidden>
               <div class="row-main"><div class="row-t" id="unsentDeleteTitle">Delete the recordings waiting to be sent?</div><div class="row-d">What you said in them is lost, and this can't be undone.</div></div>
-              <button type="button" class="btn btn-sec btn-sm" id="unsentDeleteNo" onclick="askDeleteUnsent(false)">Keep them</button>
-              <button type="button" class="btn btn-danger btn-sm" onclick="deleteAllUnsent(this)">Delete them</button>
+              <button type="button" class="btn btn-sec btn-sm" id="unsentDeleteNo" data-onclick="askDeleteUnsent(false)">Keep them</button>
+              <button type="button" class="btn btn-danger btn-sm" data-onclick="deleteAllUnsent(this)">Delete them</button>
             </div>
           </div>
 
@@ -1442,7 +1453,7 @@
           <div class="sheet">
             <div class="row">
               <div class="row-main"><div class="row-t" id="logsTitle">Logs</div><div class="row-d">A zip on your Desktop, for a bug report.</div></div>
-              <button type="button" class="btn btn-sec btn-sm" id="logsBtn" aria-describedby="logsTitle" onclick="downloadLogs(this)"><svg class="ic" aria-hidden="true"><use href="#i-folder"/></svg><span>Show in folder</span></button>
+              <button type="button" class="btn btn-sec btn-sm" id="logsBtn" aria-describedby="logsTitle" data-onclick="downloadLogs(this)"><svg class="ic" aria-hidden="true"><use href="#i-folder"/></svg><span>Show in folder</span></button>
             </div>
           </div>
 
@@ -1453,17 +1464,17 @@
                  asks again on its own. -->
             <div class="row" id="resetRow">
               <div class="row-main"><div class="row-t" id="resetTitle">Delete all my data</div><div class="row-d">Your keys, words, snippets and settings stay.</div></div>
-              <button type="button" class="btn btn-danger-solid btn-sm" id="resetAsk" aria-describedby="resetTitle" onclick="askFactoryReset(true)">Delete…</button>
+              <button type="button" class="btn btn-danger-solid btn-sm" id="resetAsk" aria-describedby="resetTitle" data-onclick="askFactoryReset(true)">Delete…</button>
             </div>
             <div class="row reset-confirm" id="resetConfirm" hidden>
-              <div class="row-main"><div class="row-t">Delete your Journal, meetings, usage, recordings and logs?</div><div class="row-d">This can't be undone. Waffler keeps running with your keys, words and snippets. <a class="link" href="#" id="resetKeysAsk" onclick="askFactoryResetKeys(true); return false;">Delete my keys and settings too</a></div></div>
-              <button type="button" class="btn btn-sec btn-sm" id="resetNo" onclick="askFactoryReset(false)">Keep it</button>
-              <button type="button" class="btn btn-danger-solid btn-sm" id="resetYes" onclick="deleteMyData(this)">Delete my data</button>
+              <div class="row-main"><div class="row-t">Delete your Journal, meetings, usage, recordings and logs?</div><div class="row-d">This can't be undone. Waffler keeps running with your keys, words and snippets. <a class="link" href="#" id="resetKeysAsk" data-onclick="askFactoryResetKeys(true); return false;">Delete my keys and settings too</a></div></div>
+              <button type="button" class="btn btn-sec btn-sm" id="resetNo" data-onclick="askFactoryReset(false)">Keep it</button>
+              <button type="button" class="btn btn-danger-solid btn-sm" id="resetYes" data-onclick="deleteMyData(this)">Delete my data</button>
             </div>
             <div class="row reset-confirm" id="resetKeysConfirm" hidden>
               <div class="row-main"><div class="row-t">Delete everything, your keys too?</div><div class="row-d">This can't be undone. Your keys, words, snippets and settings go as well. Waffler closes, and setup starts the next time you open it.</div></div>
-              <button type="button" class="btn btn-sec btn-sm" id="resetKeysNo" onclick="askFactoryResetKeys(false)">Keep my keys</button>
-              <button type="button" class="btn btn-danger-solid btn-sm" onclick="factoryReset(this)">Delete everything</button>
+              <button type="button" class="btn btn-sec btn-sm" id="resetKeysNo" data-onclick="askFactoryResetKeys(false)">Keep my keys</button>
+              <button type="button" class="btn btn-danger-solid btn-sm" data-onclick="factoryReset(this)">Delete everything</button>
             </div>
           </div>
 
@@ -1471,7 +1482,7 @@
                what each thing holds, what is read and sent and when, and what
                Delete all my data clears. One collapsed disclosure (toggleHow). -->
           <div class="how">
-            <button type="button" class="link-btn how-btn" id="privHowBtn" aria-expanded="false" aria-controls="privHow" onclick="toggleHow(this)">How it works<svg class="ic ic-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
+            <button type="button" class="link-btn how-btn" id="privHowBtn" aria-expanded="false" aria-controls="privHow" data-onclick="toggleHow(this)">How it works<svg class="ic ic-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
             <div class="sheet how-body" id="privHow" hidden>
               <ul class="sc-rule-list">
                 <li id="privHowDictation">Everything stays on this computer, except what you say while you hold the keys, and the half-second before. That goes straight to the providers you set up, on your own key.</li>
@@ -1527,7 +1538,7 @@
             <div>
               <h1 class="ab-name">Waffler</h1>
               <p class="ab-tag">Hold a key, talk, let go.</p>
-              <p class="ab-ver"><span id="aboutVersion">Version</span><span class="pill" id="aboutUpdateChip" hidden></span><button type="button" class="btn btn-sec btn-sm" id="checkUpdateBtn" onclick="checkForUpdatesManual()">Check for updates</button></p>
+              <p class="ab-ver"><span id="aboutVersion">Version</span><span class="pill" id="aboutUpdateChip" hidden></span><button type="button" class="btn btn-sec btn-sm" id="checkUpdateBtn" data-onclick="checkForUpdatesManual()">Check for updates</button></p>
             </div>
           </div>
 
@@ -1544,9 +1555,9 @@
           </div>
 
           <div class="ab-acts">
-            <button type="button" class="btn btn-sec btn-sm" onclick="openAboutLink('source')"><svg class="ic" aria-hidden="true"><use href="#i-github"/></svg>Source on GitHub</button>
-            <button type="button" class="btn btn-sec btn-sm" onclick="openAboutLink('issues')"><svg class="ic" aria-hidden="true"><use href="#i-bug"/></svg>Report a problem</button>
-            <button type="button" class="btn btn-sec btn-sm" onclick="openAboutLink('releases')"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg>All release notes</button>
+            <button type="button" class="btn btn-sec btn-sm" data-onclick="openAboutLink('source')"><svg class="ic" aria-hidden="true"><use href="#i-github"/></svg>Source on GitHub</button>
+            <button type="button" class="btn btn-sec btn-sm" data-onclick="openAboutLink('issues')"><svg class="ic" aria-hidden="true"><use href="#i-bug"/></svg>Report a problem</button>
+            <button type="button" class="btn btn-sec btn-sm" data-onclick="openAboutLink('releases')"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg>All release notes</button>
           </div>
 
           <p class="ab-credits"><span id="aboutUses">Speech by <span id="aboutSpeech">No key yet</span> and clean-up by <span id="aboutCleanup">No key yet</span>. </span>Set in Inter, Geist and Source Serif 4. Icons by Lucide.</p>
@@ -1554,7 +1565,7 @@
           <!-- What a careful person may still want to know. One collapsed
                disclosure (toggleHow). -->
           <div class="how">
-            <button type="button" class="link-btn how-btn" id="aboutHowBtn" aria-expanded="false" aria-controls="aboutHow" onclick="toggleHow(this)">How it works<svg class="ic ic-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
+            <button type="button" class="link-btn how-btn" id="aboutHowBtn" aria-expanded="false" aria-controls="aboutHow" data-onclick="toggleHow(this)">How it works<svg class="ic ic-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
             <div class="sheet how-body" id="aboutHow" hidden>
               <ul class="sc-rule-list">
                 <li id="aboutHowVoice">No account, no subscription and no Waffler server: your voice goes from this computer to the provider you set up, on your own key, and comes back as tidy text.</li>
@@ -1580,8 +1591,8 @@
 </div>
 
 <!-- Update dialog: one modal (VR10). Later is a quiet link. -->
-<div class="modal-overlay" id="updateModal" style="display:none" onclick="closeUpdateModal(event)">
-  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="updateModalTitle" tabindex="-1" onclick="event.stopPropagation()">
+<div class="modal-overlay" id="updateModal" style="display:none" data-onclick="closeUpdateModal(event)">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="updateModalTitle" tabindex="-1" data-onclick="event.stopPropagation()">
     <span class="itile" id="updateModalIcon"><svg class="ic" aria-hidden="true"><use href="#i-circle-up"/></svg></span>
     <h2 class="modal-title" id="updateModalTitle">Checking for updates…</h2>
     <p class="modal-sub" id="updateModalSubtitle">Asking GitHub for the latest version.</p>
@@ -1592,7 +1603,7 @@
     </div>
 
     <div class="modal-acts" id="updateModalActions">
-      <button type="button" class="btn btn-quiet" id="updateCancelBtn" onclick="closeUpdateModal()">Close</button>
+      <button type="button" class="btn btn-quiet" id="updateCancelBtn" data-onclick="closeUpdateModal()">Close</button>
       <span class="modal-sp"></span>
       <button type="button" class="btn btn-sec" id="updateBrowserBtn" style="display:none;">Open download page</button>
       <button type="button" class="btn btn-pri" id="updatePrimaryBtn" style="display:none"></button>
@@ -1603,8 +1614,8 @@
 <!-- Hotkey dialog: hold the keys you want (Settings, Hotkey, Change…; and
      setup's "Pick another key"). Settings also offers this computer's own
      presets (logic.js hotkeyPresets): Windows and Mac have different keys. -->
-<div class="modal-overlay hotkey-modal-overlay" id="hotkeyModal" style="display:none" onclick="closeHotkeyCapture()">
-  <div class="modal hotkey-modal" role="dialog" aria-modal="true" aria-labelledby="hotkeyModalTitle" tabindex="-1" onclick="event.stopPropagation()">
+<div class="modal-overlay hotkey-modal-overlay" id="hotkeyModal" style="display:none" data-onclick="closeHotkeyCapture()">
+  <div class="modal hotkey-modal" role="dialog" aria-modal="true" aria-labelledby="hotkeyModalTitle" tabindex="-1" data-onclick="event.stopPropagation()">
     <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-keyboard"/></svg></span>
     <h2 class="modal-title" id="hotkeyModalTitle">Hold your new keys</h2>
     <p class="modal-sub" id="hotkeyModalSub">Hold the combination you want, then let go. Esc cancels.</p>
@@ -1618,10 +1629,10 @@
       <span class="hk-preset-list" id="settingsHotkeyPresets"></span>
     </div>
     <div class="modal-acts">
-      <button type="button" class="btn btn-quiet" id="hotkeyResetBtn" onclick="resetHotkeyDefault()">Use the default</button>
+      <button type="button" class="btn btn-quiet" id="hotkeyResetBtn" data-onclick="resetHotkeyDefault()">Use the default</button>
       <span class="modal-sp"></span>
-      <button type="button" class="btn btn-sec" onclick="closeHotkeyCapture()">Cancel</button>
-      <button type="button" class="btn btn-pri" onclick="saveHotkeyCapture()">Save</button>
+      <button type="button" class="btn btn-sec" data-onclick="closeHotkeyCapture()">Cancel</button>
+      <button type="button" class="btn btn-pri" data-onclick="saveHotkeyCapture()">Save</button>
     </div>
   </div>
 </div>
@@ -1674,8 +1685,8 @@
             <div class="ob-bar" id="obWayBar" role="progressbar" aria-label="Speech model download" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" hidden><i id="obWayBarFill"></i></div>
             <p class="ob-way-state" id="obWayState" hidden></p>
             <div class="ob-way-actions">
-              <button type="button" class="btn btn-pri btn-lg ob-way-btn" id="obWayLocalBtn" onclick="wizChooseLocal()">Download and start</button>
-              <button type="button" class="btn btn-quiet ob-way-stop" id="obWayStop" onclick="wizStopDownload()" hidden>Stop the download</button>
+              <button type="button" class="btn btn-pri btn-lg ob-way-btn" id="obWayLocalBtn" data-onclick="wizChooseLocal()">Download and start</button>
+              <button type="button" class="btn btn-quiet ob-way-stop" id="obWayStop" data-onclick="wizStopDownload()" hidden>Stop the download</button>
             </div>
             <!-- A clearly optional extra, shown once this way is chosen and
                  only where the computer is offered it (logic.js
@@ -1683,7 +1694,7 @@
                  for it. -->
             <div class="ob-way-extra" id="obWayExtra" hidden>
               <p class="ob-way-extra-line" id="obWayExtraLine" role="status"></p>
-              <button type="button" class="btn btn-quiet btn-sm" id="obWayExtraBtn" onclick="wizExtra()" hidden>Add it</button>
+              <button type="button" class="btn btn-quiet btn-sm" id="obWayExtraBtn" data-onclick="wizExtra()" hidden>Add it</button>
             </div>
           </div>
           <div class="panel ob-way" id="obWayKey" role="group" aria-labelledby="obWayKeyT">
@@ -1697,7 +1708,7 @@
               <li>A free Groq account. Your voice goes to Groq and nowhere else.</li>
             </ul>
             <div class="ob-way-actions">
-              <button type="button" class="btn btn-sec btn-lg ob-way-btn" id="obWayKeyBtn" onclick="wizChooseKey()">Use my own key</button>
+              <button type="button" class="btn btn-sec btn-lg ob-way-btn" id="obWayKeyBtn" data-onclick="wizChooseKey()">Use my own key</button>
             </div>
           </div>
         </div>
@@ -1705,7 +1716,7 @@
         <!-- What each way does and does not do, in full. One collapsed
              disclosure (toggleHow). -->
         <div class="how ob-how" data-when="choose">
-          <button type="button" class="link-btn how-btn" id="obHowChooseBtn" aria-expanded="false" aria-controls="obHowChoose" onclick="toggleHow(this)">How it works<svg class="ic ic-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
+          <button type="button" class="link-btn how-btn" id="obHowChooseBtn" aria-expanded="false" aria-controls="obHowChoose" data-onclick="toggleHow(this)">How it works<svg class="ic ic-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
           <div class="ob-tldr how-body" id="obHowChoose" hidden>
             <p><b>The short version.</b> Both type what you say, in any app. On this computer your words are typed as you said them, with punctuation.</p>
             <p>The free download does not tidy them or write meeting notes (a meeting still gets its full transcript). Those need a key<span id="obTldrExtra" hidden>, or the optional second download offered on the free card</span>. Transforms and Command mode need a key.</p>
@@ -1722,7 +1733,7 @@
 
         <div data-when="start">
           <div class="ob-ctarow">
-            <button class="btn btn-pri btn-lg ob-cta" id="obGetKey" onclick="wizOpenGroq()">Get my free Groq key<svg class="ic" aria-hidden="true"><use href="#i-external"/></svg></button>
+            <button class="btn btn-pri btn-lg ob-cta" id="obGetKey" data-onclick="wizOpenGroq()">Get my free Groq key<svg class="ic" aria-hidden="true"><use href="#i-external"/></svg></button>
             <p class="ob-small ob-under-cta">Free for roughly 30 cleaned dictations a day.</p>
           </div>
           <div class="ob-then">Then, in Groq</div>
@@ -1736,7 +1747,7 @@
         </ol>
 
         <div class="how ob-how" data-when="start">
-          <button type="button" class="link-btn how-btn" id="obHowKeyBtn" aria-expanded="false" aria-controls="obHowKey" onclick="toggleHow(this)">How it works<svg class="ic ic-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
+          <button type="button" class="link-btn how-btn" id="obHowKeyBtn" aria-expanded="false" aria-controls="obHowKey" data-onclick="toggleHow(this)">How it works<svg class="ic ic-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
           <div class="ob-tldr how-body" id="obHowKey" hidden>
             <p>It's your own account, so your words go from this computer to Groq and nowhere else.</p>
             <p>Groq shows the key once. Click Copy before you close that box.</p>
@@ -1753,16 +1764,16 @@
           <label class="ob-small ob-pastelabel" for="wizGroqKeyInput">Or paste it here</label>
           <div class="ob-keyrow">
             <input type="password" id="wizGroqKeyInput" class="input input-mono" placeholder="gsk_…" autocomplete="off" spellcheck="false" aria-describedby="obKeyState">
-            <button class="btn btn-sec ob-paste" type="button" onclick="wizPasteKey()"><svg class="ic" aria-hidden="true"><use href="#i-clipboard"/></svg>Paste</button>
+            <button class="btn btn-sec ob-paste" type="button" data-onclick="wizPasteKey()"><svg class="ic" aria-hidden="true"><use href="#i-clipboard"/></svg>Paste</button>
           </div>
         </div>
-        <p class="ob-small ob-after" data-when="waiting checking">Browser closed by mistake? <a class="link" href="#" onclick="wizOpenGroq(); return false;">Open Groq again</a></p>
-        <p class="ob-small ob-after" data-when="error"><a class="link" href="#" onclick="wizOpenGroq(); return false;">Open Groq keys</a> to make a new one.</p>
+        <p class="ob-small ob-after" data-when="waiting checking">Browser closed by mistake? <a class="link" href="#" data-onclick="wizOpenGroq(); return false;">Open Groq again</a></p>
+        <p class="ob-small ob-after" data-when="error"><a class="link" href="#" data-onclick="wizOpenGroq(); return false;">Open Groq keys</a> to make a new one.</p>
 
         <div class="group ob-services" data-when="connected">
           <div class="panel" id="obServices"></div>
         </div>
-        <p class="ob-small ob-after" data-when="connected">Rather not use a key? <a class="link" href="#" onclick="wizShowChoice(); return false;">Run it on this computer instead</a></p>
+        <p class="ob-small ob-after" data-when="connected">Rather not use a key? <a class="link" href="#" data-onclick="wizShowChoice(); return false;">Run it on this computer instead</a></p>
       </div>
 
       <div class="ob-stage">
@@ -1827,17 +1838,17 @@
           <div class="row ob-perm" id="obPermMic">
             <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-mic"/></svg></span>
             <div class="row-main"><div class="row-t">Microphone</div><div class="row-d">So it hears you while you hold <span class="ob-hk-name">Fn</span>.</div></div>
-            <span class="ob-perm-ctl"><button class="btn btn-sm btn-pri" aria-label="Allow microphone" onclick="wizAllow('microphone')">Allow</button></span>
+            <span class="ob-perm-ctl"><button class="btn btn-sm btn-pri" aria-label="Allow microphone" data-onclick="wizAllow('microphone')">Allow</button></span>
           </div>
           <div class="row ob-perm" id="obPermKeys">
             <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-keyboard"/></svg></span>
             <div class="row-main"><div class="row-t">Keyboard</div><div class="row-d">To spot <span class="ob-hk-name">Fn</span>. It never records your typing.</div></div>
-            <span class="ob-perm-ctl"><button class="btn btn-sm btn-sec" aria-label="Allow keyboard monitoring" onclick="wizAllow('input_monitoring')">Allow</button></span>
+            <span class="ob-perm-ctl"><button class="btn btn-sm btn-sec" aria-label="Allow keyboard monitoring" data-onclick="wizAllow('input_monitoring')">Allow</button></span>
           </div>
           <div class="row ob-perm" id="obPermTyping">
             <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-text-cursor"/></svg></span>
             <div class="row-main"><div class="row-t">Typing for you</div><div class="row-d">To paste into the app you're using.</div></div>
-            <span class="ob-perm-ctl"><button class="btn btn-sm btn-sec" aria-label="Allow typing for you" onclick="wizAllow('accessibility')">Allow</button></span>
+            <span class="ob-perm-ctl"><button class="btn btn-sm btn-sec" aria-label="Allow typing for you" data-onclick="wizAllow('accessibility')">Allow</button></span>
           </div>
         </div></div>
         <p class="ob-small ob-after">If your Mac asks you to reopen Waffler, that's normal.</p>
@@ -1870,7 +1881,7 @@
         <div class="panel ob-modelwait ob-extra" data-when="model">
           <p class="ob-modelwait-t" id="obModelLine">The speech model is still downloading.</p>
           <div class="ob-bar" id="obModelBar" role="progressbar" aria-label="Speech model download" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="obModelBarFill"></i></div>
-          <button type="button" class="btn btn-sec btn-sm" id="obModelBtn" onclick="wizChooseLocal()" hidden>Carry on downloading</button>
+          <button type="button" class="btn btn-sec btn-sm" id="obModelBtn" data-onclick="wizChooseLocal()" hidden>Carry on downloading</button>
         </div>
         <div class="panel ob-suggest">
           <div class="eyebrow">Try saying</div>
@@ -1878,7 +1889,7 @@
         </div>
         <div class="panel ob-microw">
           <svg class="ic ob-micicon" aria-hidden="true"><use href="#i-mic"/></svg>
-          <select id="wizMicSelect" class="ob-micselect" aria-label="Microphone" onchange="wizMicChanged(this.value)"></select>
+          <select id="wizMicSelect" class="ob-micselect" aria-label="Microphone" data-onchange="wizMicChanged(this.value)"></select>
           <span class="ob-meter" id="obMeter" aria-hidden="true"></span>
         </div>
 
@@ -1886,9 +1897,9 @@
           <div class="ob-callout ob-fnwarn" id="obFnWarn" hidden>
             <svg class="ic" aria-hidden="true"><use href="#i-globe"/></svg>
             <span><b id="obFnWarnTitle">Your Fn key also opens the emoji picker.</b> <span id="obFnWarnDetail"></span><br>
-              <button class="btn btn-sec btn-sm ob-fnbtn" onclick="wizOpenKeyboardSettings()">Open Keyboard settings</button></span>
+              <button class="btn btn-sec btn-sm ob-fnbtn" data-onclick="wizOpenKeyboardSettings()">Open Keyboard settings</button></span>
           </div>
-          <p class="ob-small" id="obOtherKey">Doesn't work on this keyboard? <a class="link" href="#" onclick="wizShowKeyPicker(); return false;">Pick another key</a></p>
+          <p class="ob-small" id="obOtherKey">Doesn't work on this keyboard? <a class="link" href="#" data-onclick="wizShowKeyPicker(); return false;">Pick another key</a></p>
           <div class="panel ob-keypicker" id="obKeyPicker" hidden>
             <div class="eyebrow">Choose your hotkey</div>
             <div class="ob-keypicker-list" id="wizHotkeyPresetList"></div>
@@ -1913,7 +1924,7 @@
         <div class="ob-callout ob-callout-err ob-extra" data-when="nomic">
           <svg class="ic" aria-hidden="true"><use href="#i-mic-off"/></svg>
           <span><b>Waffler isn't allowed to use the microphone.</b> Allow it in System Settings, then come back.<br>
-            <button class="btn btn-sec btn-sm ob-fnbtn" onclick="wizAllow('microphone')">Open Microphone settings</button></span>
+            <button class="btn btn-sec btn-sm ob-fnbtn" data-onclick="wizAllow('microphone')">Open Microphone settings</button></span>
         </div>
       </div>
 
@@ -1956,14 +1967,14 @@
       <div class="ob-left">
         <h1 class="ob-title" id="obTitleAnywhere" tabindex="-1">Now use it anywhere</h1>
         <p class="ob-lede">Click into any text box, then hold <span class="keys" id="obAnyKeys"></span> and talk.</p>
-        <button class="btn btn-sec btn-lg ob-editor-btn" id="obEditorBtn" onclick="wizOpenEditor()"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg><span id="obEditorLabel">Open Notepad and try it</span></button>
+        <button class="btn btn-sec btn-lg ob-editor-btn" id="obEditorBtn" data-onclick="wizOpenEditor()"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg><span id="obEditorLabel">Open Notepad and try it</span></button>
         <p class="ob-small ob-editor-err" id="obEditorErr" role="alert" hidden></p>
         <p class="ob-small ob-anymodel" id="obAnyModel" role="status" hidden></p>
         <div class="group ob-anyrows"><div class="panel">
           <label class="row ob-loginrow" for="wizStartAtLogin">
             <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-power"/></svg></span>
             <span class="row-main"><span class="row-t">Start with my computer</span><span class="row-d" id="obLoginDesc">So the hotkey works after a restart.</span></span>
-            <input type="checkbox" class="tog" role="switch" id="wizStartAtLogin" checked onchange="wizLoginToggled(this.checked)">
+            <input type="checkbox" class="tog" role="switch" id="wizStartAtLogin" checked data-onchange="wizLoginToggled(this.checked)">
           </label>
           <div class="row">
             <span class="itile"><svg class="ic" aria-hidden="true"><use href="#i-chevron-up"/></svg></span>
@@ -2017,8 +2028,8 @@
 
         <p class="ob-lede ob-acct-list" data-when="offer">Your meetings on every device, and in Claude.</p>
         <div class="ob-acct-actions" data-when="offer">
-          <button type="button" class="btn btn-pri btn-lg ob-acct-btn" id="obAcctYes" onclick="wizAccountStart()">Create account or sign in</button>
-          <button type="button" class="btn btn-sec btn-lg ob-acct-btn" id="obAcctNo" onclick="wizAccountSkip()">Not now</button>
+          <button type="button" class="btn btn-pri btn-lg ob-acct-btn" id="obAcctYes" data-onclick="wizAccountStart()">Create account or sign in</button>
+          <button type="button" class="btn btn-sec btn-lg ob-acct-btn" id="obAcctNo" data-onclick="wizAccountSkip()">Not now</button>
         </div>
 
         <div data-when="email">
@@ -2045,7 +2056,7 @@
 
         <p class="ob-small ob-acct-err" id="obAcctError" role="alert" hidden></p>
         <p class="ob-lede" id="obAcctDone" data-when="done">Your meetings now sync from this computer.</p>
-        <p class="ob-acct-out" data-when="email code"><button type="button" class="btn btn-quiet" onclick="wizAccountSkip()">Not now</button></p>
+        <p class="ob-acct-out" data-when="email code"><button type="button" class="btn btn-quiet" data-onclick="wizAccountSkip()">Not now</button></p>
       </div>
       <div class="ob-stage">
         <div class="ob-art ob-art-honey">
@@ -2062,12 +2073,12 @@
   </div>
 
   <nav class="wiz-nav ob-foot">
-    <button class="btn btn-quiet ob-back" id="wizBtnBack" onclick="wizBack()" hidden>Back</button>
-    <span class="ob-foot-left" id="obFootLeft"><span class="ob-small">Already have a key?</span><a class="link ob-small" href="#" onclick="wizPasteInstead(); return false;">Paste it here</a></span>
+    <button class="btn btn-quiet ob-back" id="wizBtnBack" data-onclick="wizBack()" hidden>Back</button>
+    <span class="ob-foot-left" id="obFootLeft"><span class="ob-small">Already have a key?</span><a class="link ob-small" href="#" data-onclick="wizPasteInstead(); return false;">Paste it here</a></span>
     <span class="ob-dl" id="obDlFoot" hidden><span class="ob-bar ob-bar-sm" aria-hidden="true"><i id="obDlFootFill"></i></span><span class="ob-small" id="obDlFootText"></span></span>
     <span class="ob-sp"></span>
-    <button class="btn btn-quiet ob-skip" id="wizBtnSkip" onclick="wizSkipTryIt()" hidden>Skip for now</button>
-    <button class="btn btn-pri btn-lg ob-next" id="wizBtnNext" onclick="wizNext()" disabled><span id="wizBtnNextLabel">Continue</span><svg class="ic" aria-hidden="true"><use href="#i-arrow"/></svg></button>
+    <button class="btn btn-quiet ob-skip" id="wizBtnSkip" data-onclick="wizSkipTryIt()" hidden>Skip for now</button>
+    <button class="btn btn-pri btn-lg ob-next" id="wizBtnNext" data-onclick="wizNext()" disabled><span id="wizBtnNextLabel">Continue</span><svg class="ic" aria-hidden="true"><use href="#i-arrow"/></svg></button>
   </nav>
 </div>
 
@@ -2093,6 +2104,7 @@
 <!-- An ink pill at the bottom centre (top centre over setup). -->
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
+<script src="handlers.js"></script>
 <script src="logic.js"></script>
 <script src="icons.js"></script>
 <script src="app.js"></script>

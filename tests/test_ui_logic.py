@@ -163,7 +163,7 @@ def test_a_disabled_continue_button_looks_disabled():
     """Continue (and Done) is the shared .btn-pri; while it can't be used it
     takes the shared disabled look, so it never looks like the main action."""
     html = read("index.html")
-    assert re.search(r'<button class="btn btn-pri btn-lg ob-next" id="wizBtnNext" onclick="wizNext\(\)" disabled>', html)
+    assert re.search(r'<button class="btn btn-pri btn-lg ob-next" id="wizBtnNext" data-onclick="wizNext\(\)" disabled>', html)
     rule = [body for sel, body in _css_rules_of("components.css") if sel.startswith(".btn:disabled")]
     assert rule, "no disabled style for buttons"
     assert "background: var(--surface-2)" in rule[0] and "color: var(--muted)" in rule[0]
@@ -179,7 +179,7 @@ def test_try_it_always_offers_skip_for_now():
     the practice until one dictation works, and goes on to the last step
     (Notepad or TextEdit, start at sign-in), not straight out of setup."""
     html = read("index.html")
-    assert re.search(r'<button class="btn btn-quiet ob-skip" id="wizBtnSkip" onclick="wizSkipTryIt\(\)" hidden>Skip for now</button>', html)
+    assert re.search(r'<button class="btn btn-quiet ob-skip" id="wizBtnSkip" data-onclick="wizSkipTryIt\(\)" hidden>Skip for now</button>', html)
     app = code_only(read("app.js"))
     skip = app[app.index("async function wizSkipTryIt()"):]
     assert "wizShowStep('anywhere');" in skip[:skip.index("\n}")]
@@ -714,7 +714,7 @@ def test_search_input_is_debounced_and_clear_search_exists():
     html = read("index.html")
     no_match = html[html.index('id="noMatchState"'):]
     no_match = no_match[:no_match.index("</button>")]
-    assert 'onclick="clearSearch()"' in no_match and ">Clear search" in no_match
+    assert 'data-onclick="clearSearch()"' in no_match and ">Clear search" in no_match
 
 
 # ── 3.15 screens: Journal, Settings and Usage helpers ────────────────────────
@@ -796,11 +796,11 @@ def test_the_journal_starts_once_and_adds_new_entries_without_redrawing():
 def test_settings_has_six_sections_and_privacy_says_what_is_kept():
     html = read("index.html")
     for sec in ("general", "keys", "hotkey", "usage", "privacy", "about"):
-        assert f'data-sec="{sec}" onclick="showSettingsSection(\'{sec}\')"' in html, sec
+        assert f'data-sec="{sec}" data-onclick="showSettingsSection(\'{sec}\')"' in html, sec
     privacy = html[html.index('id="secPrivacy"'):]
     privacy = privacy[:privacy.index("</section>")]
-    for part in ('id="recentAudioToggle"', 'onclick="deleteRecentAudio(this)"', 'id="unsentRow"',
-                 'onclick="downloadLogs(this)"', 'onclick="factoryReset(this)"'):
+    for part in ('id="recentAudioToggle"', 'data-onclick="deleteRecentAudio(this)"', 'id="unsentRow"',
+                 'data-onclick="downloadLogs(this)"', 'data-onclick="factoryReset(this)"'):
         assert part in privacy, part
     app = code_only(read("app.js"))
     for call in ("get_recent_audio()", "set_recent_audio(", "delete_recent_audio()", "get_cleanup_pause()"):
@@ -1036,7 +1036,7 @@ def test_the_language_row_is_in_general_and_wired():
     html = read("index.html")
     general = html[html.index('id="secGeneral"'):html.index('id="secKeys"')]
     assert '<label for="languageSelect">Language</label>' in general
-    assert 'id="languageSelect" class="select" onchange="onLanguageChange(this)"' in general
+    assert 'id="languageSelect" class="select" data-onchange="onLanguageChange(this)"' in general
     # Beside Spelling, in the Dictation sheet, above it.
     assert general.index('id="languageRow"') < general.index('id="dialectSelect"')
     assert general.index('<h2 class="sh2">Dictation</h2>') < general.index('id="languageRow"')

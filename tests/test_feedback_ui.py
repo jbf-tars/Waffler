@@ -69,7 +69,7 @@ def test_each_row_is_a_labelled_switch_with_a_plain_description():
     assert '<label for="tipsToggle">Show tips</label>' in group
     for ident, handler in (("soundsToggle", "sounds"), ("tipsToggle", "tips")):
         assert re.search(r'<input type="checkbox" class="tog" role="switch" id="%s" '
-                         r'onchange="setFeedback\(\'%s\', this.checked\)">' % (ident, handler), group), ident
+                         r'data-onchange="setFeedback\(\'%s\', this.checked\)">' % (ident, handler), group), ident
     # One short line a row; the rest is under General's "How it works".
     assert '<div class="row-d" id="soundsDesc">Soft tones when recording starts and stops.</div>' in group
     assert '<div class="row-d" id="tipsDesc">An occasional hint you can hide.</div>' in group

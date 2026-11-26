@@ -72,7 +72,7 @@ def test_the_row_sits_under_paste_when_i_let_go_and_starts_hidden():
     assert 'class="row"' in tag and "hidden" in tag, "hidden until a Mac says otherwise"
     assert '<label for="keepClipboardToggle">Keep dictation on clipboard</label>' in general
     assert re.search(r'<input type="checkbox" class="tog" role="switch" id="keepClipboardToggle" '
-                     r'onchange="setClipboardAfterPaste\(this.checked\)">', general)
+                     r'data-onchange="setClipboardAfterPaste\(this.checked\)">', general)
     assert 'id="clipboardAfterPasteDesc"' in general
     assert '<div class="row-d" id="clipboardAfterPasteDesc">Off, what you had copied comes back.</div>' in general
     # In full under "How it works", on a Mac only, like the row.

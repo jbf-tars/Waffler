@@ -175,14 +175,14 @@ def test_saving_a_key_cannot_be_sent_twice_and_shows_it_is_working():
     busy = func(app, "_keySaveBusy")
     assert "disabled" in busy and "aria-busy" in busy
     for call in ("saveGroqKey(this)", "saveCerebrasKey(this)", "saveApiKey(this)"):
-        assert f'onclick="{call}"' in read("index.html"), call
+        assert f'data-onclick="{call}"' in read("index.html"), call
 
 
 def test_deleting_everything_cannot_be_sent_twice():
     app = read("app.js")
     body = func(app, "factoryReset")
     assert "btn.disabled = true" in body and "btn.disabled = false" in body
-    assert 'onclick="factoryReset(this)"' in read("index.html")
+    assert 'data-onclick="factoryReset(this)"' in read("index.html")
 
 
 # ── Words for the computer you are on ────────────────────────────────────────
@@ -336,8 +336,8 @@ def test_setup_uses_an_invented_name():
 
 def test_a_list_that_did_not_load_can_be_asked_for_again():
     html, app = read("index.html"), read("app.js")
-    assert 'id="micRetry" hidden onclick="retryMicrophones(this)">Try again</button>' in html
-    assert 'id="shortcutsRetry" hidden onclick="retryShortcuts(this)">Try again</button>' in html
+    assert 'id="micRetry" hidden data-onclick="retryMicrophones(this)">Try again</button>' in html
+    assert 'id="shortcutsRetry" hidden data-onclick="retryShortcuts(this)">Try again</button>' in html
     assert "retry.hidden = !status.failed;" in func(app, "renderMicrophones")
     assert "await loadMicrophones(true)" in func(app, "retryMicrophones")
     assert "await loadShortcuts()" in func(app, "retryShortcuts")
@@ -368,7 +368,7 @@ def test_the_count_and_our_own_clear_button_are_on_the_page():
     html, app, css = read("index.html"), read("app.js"), read("style.css")
     assert '<span class="j-search-n" id="searchCount" aria-hidden="true"></span>' in html
     for bid, call in (("searchClear", "clearSearch()"), ("vocabSearchClear", "clearVocabSearch()")):
-        assert f'class="rbtn j-search-clear" id="{bid}" aria-label="Clear the search" hidden onclick="{call}"' in html
+        assert f'class="rbtn j-search-clear" id="{bid}" aria-label="Clear the search" hidden data-onclick="{call}"' in html
     # the browser's own is put away
     assert "::-webkit-search-cancel-button" in css and ".j-search-clear[hidden] { display: none; }" in css
     assert "_syncSearchClear('searchClear', q);" in func(app, "onSearchInput")

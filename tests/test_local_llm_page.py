@@ -390,7 +390,7 @@ def test_the_first_screen_says_what_the_free_way_now_does_and_offers_the_extra_a
     assert card.index('id="obWayLocalBtn"') < card.index('id="obWayExtra"')
     assert '<div class="ob-way-extra" id="obWayExtra" hidden>' in card
     assert '<p class="ob-way-extra-line" id="obWayExtraLine" role="status"></p>' in card
-    assert re.search(r'<button type="button" class="btn btn-quiet btn-sm" id="obWayExtraBtn" onclick="wizExtra\(\)" hidden>Add it</button>', card)
+    assert re.search(r'<button type="button" class="btn btn-quiet btn-sm" id="obWayExtraBtn" data-onclick="wizExtra\(\)" hidden>Add it</button>', card)
     assert card.count("btn-pri") == 1, "still one main button: the extra is a quiet one"
     # The free card's own two promises are untouched: they are still true.
     text = visible_text(step)

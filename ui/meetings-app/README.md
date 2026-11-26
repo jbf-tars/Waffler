@@ -18,3 +18,10 @@ font files; the source's `ui/src/waffler.ts` sets them on `<body>` and
 `ui/src/waffler.css` draws every part in those names. A token added to
 `tokens.css` is added to the list in `meetings.js` (tests/test_one_look.py
 keeps the two the same).
+
+After a rebuild, put back the `Content-Security-Policy` meta in this folder's
+`index.html` (copy it from the previous version). Its `script-src` names the
+sha256 of the page's one inline script; when that script changes,
+tests/test_csp.py fails and says so, and the new hash is
+`base64(sha256(<the text between <script> and </script>>))`. The policy lets
+the page load only its own files: it calls Python through the parent window.

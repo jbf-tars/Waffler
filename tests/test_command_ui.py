@@ -189,7 +189,7 @@ def test_an_odd_entry_still_draws(item):
 def test_command_mode_is_a_section_of_settings_marked_beta_after_transforms():
     html = read("index.html")
     # The navigation says only its name; the section's title carries a small Beta tag.
-    assert "data-sec=\"command\" onclick=\"showSettingsSection('command')\">Command mode</button>" in html
+    assert "data-sec=\"command\" data-onclick=\"showSettingsSection('command')\">Command mode</button>" in html
     assert 'id="secCommand" data-sec="command" hidden' in html
     assert '<h1 class="ptitle">Command mode<span class="beta-tag">Beta</span></h1>' in section()
     nav = html[html.index('aria-label="Settings sections"'):html.index("</nav>", html.index('aria-label="Settings sections"'))]

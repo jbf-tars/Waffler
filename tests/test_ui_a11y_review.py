@@ -102,7 +102,7 @@ def test_the_mac_allow_buttons_say_what_they_allow():
     html = read("index.html")
     for label, perm in (("Allow microphone", "microphone"), ("Allow keyboard monitoring", "input_monitoring"),
                         ("Allow typing for you", "accessibility")):
-        assert f'aria-label="{label}" onclick="wizAllow(\'{perm}\')"' in html
+        assert f'aria-label="{label}" data-onclick="wizAllow(\'{perm}\')"' in html
     app = read("app.js")
     render = func(app, "wizRenderPermissions")
     assert 'aria-label="Allow ${_WIZ_PERM_NAMES[p]}"' in render

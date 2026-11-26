@@ -273,7 +273,7 @@ def test_settings_has_a_claude_section_wired_to_the_app():
     js = (ROOT / "ui" / "claude.js").read_text(encoding="utf-8")
     app_js = (ROOT / "ui" / "app.js").read_text(encoding="utf-8")
     app_py = (ROOT / "app.py").read_text(encoding="utf-8")
-    assert 'data-sec="claude" onclick="showSettingsSection(\'claude\')">AI apps</button>' in html
+    assert 'data-sec="claude" data-onclick="showSettingsSection(\'claude\')">AI apps</button>' in html
     assert '<section class="s-sec" id="secClaude" data-sec="claude" hidden>' in html
     assert '<script src="claude.js"></script>' in html
     for ident in ("claudeState", "claudeConnect", "claudeDisconnect", "claudeDictToggle", "claudeCommand"):

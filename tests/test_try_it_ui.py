@@ -79,7 +79,7 @@ def test_how_it_works_is_one_collapsed_disclosure_at_the_bottom(ident, prefix, b
     sec = section(ident)
     assert sec.count('class="how"') == 1 and sec.count(">How it works<") == 1
     assert (f'<button type="button" class="link-btn how-btn" id="{prefix}HowBtn" aria-expanded="false" '
-            f'aria-controls="{prefix}How" onclick="toggleHow(this)">') in sec
+            f'aria-controls="{prefix}How" data-onclick="toggleHow(this)">') in sec
     assert f'<div class="sheet how-body" id="{prefix}How" hidden>' in sec
     after = sec[sec.index(f'id="{prefix}How"'):]
     assert "<h2" not in after and 'class="row"' not in after, "nothing comes after it"

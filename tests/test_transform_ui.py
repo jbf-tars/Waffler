@@ -266,7 +266,7 @@ def test_transforms_is_a_section_of_settings_marked_beta():
     """The navigation says only its name; the section's title carries a small
     Beta tag."""
     html = read("index.html")
-    assert "data-sec=\"transforms\" onclick=\"showSettingsSection('transforms')\">Transforms</button>" in html
+    assert "data-sec=\"transforms\" data-onclick=\"showSettingsSection('transforms')\">Transforms</button>" in html
     assert 'id="secTransforms" data-sec="transforms" hidden' in html
     assert '<h1 class="ptitle">Transforms<span class="beta-tag">Beta</span></h1>' in section()
     nav = html[html.index('aria-label="Settings sections"'):html.index("</nav>", html.index('aria-label="Settings sections"'))]
@@ -345,7 +345,7 @@ def test_the_handlers_exist_and_every_save_goes_through_one_path():
 def test_the_shortcut_uses_the_shared_hotkey_dialog_and_its_own_call():
     app = code_only(read("app.js"))
     sec = section()
-    assert "onclick=\"openHotkeyCapture('transform')\"" in sec
+    assert "data-onclick=\"openHotkeyCapture('transform')\"" in sec
     open_fn = app[app.index("function openHotkeyCapture("):app.index("function closeHotkeyCapture")]
     # (Command mode, S8, shares the dialog: a third target.)
     assert "_captureTarget = target === 'transform' || target === 'command' ? target : 'dictation';" in open_fn

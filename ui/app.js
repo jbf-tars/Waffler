@@ -2784,9 +2784,9 @@ function renderMicrophones(focus) {
           ${r.note ? `<div class="row-d">${escHtml(r.note)}</div>` : ''}
         </div>
         <div class="mic-acts">
-          <button type="button" class="rbtn" data-act="up" aria-label="${escHtml(r.upLabel)}"${r.canUp ? '' : ' disabled'} onclick="moveMic(${r.rank - 1}, -1)">${WI.icon('chevron-up')}</button>
-          <button type="button" class="rbtn" data-act="down" aria-label="${escHtml(r.downLabel)}"${r.canDown ? '' : ' disabled'} onclick="moveMic(${r.rank - 1}, 1)">${WI.icon('chevron-down')}</button>
-          <button type="button" class="rbtn" data-act="remove" aria-label="${escHtml(r.removeLabel)}" onclick="removeMic(${r.rank - 1})">${WI.icon('x')}</button>
+          <button type="button" class="rbtn" data-act="up" aria-label="${escHtml(r.upLabel)}"${r.canUp ? '' : ' disabled'} data-onclick="moveMic(${r.rank - 1}, -1)">${WI.icon('chevron-up')}</button>
+          <button type="button" class="rbtn" data-act="down" aria-label="${escHtml(r.downLabel)}"${r.canDown ? '' : ' disabled'} data-onclick="moveMic(${r.rank - 1}, 1)">${WI.icon('chevron-down')}</button>
+          <button type="button" class="rbtn" data-act="remove" aria-label="${escHtml(r.removeLabel)}" data-onclick="removeMic(${r.rank - 1})">${WI.icon('x')}</button>
         </div>
       </li>`).join('');
   }
@@ -3280,7 +3280,7 @@ function renderVocab() {
   _renderVocabBulk(shown);
 
   if (!rows.length) {
-    listEl.innerHTML = `<p class="vt-empty">No words match &ldquo;${escHtml(_vocabQuery.trim())}&rdquo;. <button type="button" class="link-btn" onclick="clearVocabSearch()">Clear search</button></p>`;
+    listEl.innerHTML = `<p class="vt-empty">No words match &ldquo;${escHtml(_vocabQuery.trim())}&rdquo;. <button type="button" class="link-btn" data-onclick="clearVocabSearch()">Clear search</button></p>`;
     return;
   }
 
@@ -4561,7 +4561,7 @@ function renderProviderOrder() {
           <div class="row-d">${escHtml(r.desc)}</div>
         </div>
         ${r.masked ? `<span class="mkey">${escHtml(r.masked)}</span>` : ''}
-        <button type="button" class="btn btn-sec btn-sm po-btn-key" data-provider="${r.id}" aria-label="${escHtml(_keyButtonName(r))}" aria-controls="${_KEY_EDITORS[r.id]}" aria-expanded="${_openKeyEditor === r.id}" onclick="openKeyEditor('${r.id}')">${r.hasKey ? '' : WI.icon('plus', 'ic-sm')}${escHtml(r.button)}</button>
+        <button type="button" class="btn btn-sec btn-sm po-btn-key" data-provider="${r.id}" aria-label="${escHtml(_keyButtonName(r))}" aria-controls="${_KEY_EDITORS[r.id]}" aria-expanded="${_openKeyEditor === r.id}" data-onclick="openKeyEditor('${r.id}')">${r.hasKey ? '' : WI.icon('plus', 'ic-sm')}${escHtml(r.button)}</button>
       </div>`;
   }).join('');
   host.querySelectorAll('.grip').forEach((g) => {
@@ -6849,7 +6849,7 @@ function wizRenderPermissions() {
     redrawn = true;
     ctl.innerHTML = _wizPerms[p]
       ? '<span class="chip chip-ok"><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg>Allowed</span>'
-      : `<button class="btn btn-sm ${p === next ? 'btn-pri' : 'btn-sec'}" aria-label="Allow ${_WIZ_PERM_NAMES[p]}" onclick="wizAllow('${p}')">Allow</button>`;
+      : `<button class="btn btn-sm ${p === next ? 'btn-pri' : 'btn-sec'}" aria-label="Allow ${_WIZ_PERM_NAMES[p]}" data-onclick="wizAllow('${p}')">Allow</button>`;
   });
   _wizPermsShown = Object.assign({}, _wizPerms);
   const live = document.getElementById('obPermLive');

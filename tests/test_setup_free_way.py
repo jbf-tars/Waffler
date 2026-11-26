@@ -386,8 +386,8 @@ def test_the_first_screen_is_two_cards_and_a_short_explainer():
                   "You can change this any time in Settings."):
         assert words in text, words
     assert html.count("Download and start") == 1
-    assert 'onclick="wizChooseLocal()"' in html and 'onclick="wizChooseKey()"' in html
-    assert 'onclick="wizStopDownload()"' in html
+    assert 'data-onclick="wizChooseLocal()"' in html and 'data-onclick="wizChooseKey()"' in html
+    assert 'data-onclick="wizStopDownload()"' in html
     # The key screens are all still there, word for word.
     for words in ("Connect your free Groq account", "Get my free Groq key", "Groq is connected",
                   "Or paste it here", "Already have a key?"):
@@ -412,9 +412,9 @@ def test_the_cards_are_labelled_groups_with_real_buttons_and_a_polite_status():
     for card, title in (("obWayLocal", "obWayLocalT"), ("obWayKey", "obWayKeyT")):
         assert re.search(rf'<div class="panel ob-way[^"]*" id="{card}" role="group" aria-labelledby="{title}"', html), card
         assert re.search(rf'<h2 class="ob-way-t" id="{title}">', html), title
-    assert re.search(r'<button type="button" class="btn [^"]*" id="obWayLocalBtn" onclick="wizChooseLocal\(\)">Download and start</button>', html)
-    assert re.search(r'<button type="button" class="btn [^"]*" id="obWayKeyBtn" onclick="wizChooseKey\(\)">Use my own key</button>', html)
-    assert re.search(r'<button type="button" class="btn [^"]*" id="obWayStop" onclick="wizStopDownload\(\)" hidden>Stop the download</button>', html)
+    assert re.search(r'<button type="button" class="btn [^"]*" id="obWayLocalBtn" data-onclick="wizChooseLocal\(\)">Download and start</button>', html)
+    assert re.search(r'<button type="button" class="btn [^"]*" id="obWayKeyBtn" data-onclick="wizChooseKey\(\)">Use my own key</button>', html)
+    assert re.search(r'<button type="button" class="btn [^"]*" id="obWayStop" data-onclick="wizStopDownload\(\)" hidden>Stop the download</button>', html)
     # Progress: a real progress bar with its value, and one polite status
     # line that speaks at the start, the quarters and the end, not every tick.
     assert re.search(r'id="obWayBar" role="progressbar" aria-label="Speech model download" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"', html)
@@ -501,7 +501,7 @@ def test_try_it_waits_for_the_model_then_starts_the_practice():
     html = setup_html()
     assert re.search(r'<div class="panel ob-modelwait ob-extra" data-when="model">', html)
     assert re.search(r'id="obModelBar" role="progressbar" aria-label="Speech model download"', html)
-    assert 'id="obModelLine"' in html and 'id="obModelBtn" onclick="wizChooseLocal()" hidden' in html
+    assert 'id="obModelLine"' in html and 'id="obModelBtn" data-onclick="wizChooseLocal()" hidden' in html
     app = read("app.js")
     init = func(app, "wizInitTryItStep")
     assert "await wizRefreshLocal();" in init

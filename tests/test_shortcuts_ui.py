@@ -281,7 +281,7 @@ def test_the_targets_the_dialog_records_are_the_apps_actions_and_the_cancel_key(
 def test_shortcuts_is_the_one_section_where_the_hotkey_page_was():
     html = read("index.html")
     nav = html[html.index('aria-label="Settings sections"'):html.index("</nav>", html.index('aria-label="Settings sections"'))]
-    assert "data-sec=\"hotkey\" onclick=\"showSettingsSection('hotkey')\">Shortcuts</button>" in nav
+    assert "data-sec=\"hotkey\" data-onclick=\"showSettingsSection('hotkey')\">Shortcuts</button>" in nav
     assert "Hotkey</button>" not in nav, "no second page for the same thing"
     assert html.count('class="snav-item"') == 12
     assert '<h1 class="ptitle">Shortcuts</h1>' in section()
@@ -299,7 +299,7 @@ def test_the_page_has_the_list_the_rules_the_reset_and_the_dictation_hotkeys_tes
     assert sec.count(">How it works<") == 1 and '<h3 class="tx-h3" id="shortcutsRulesTitle">Which shortcuts can I use?</h3>' in sec
     assert ("The key of a shortcut doesn't reach the app in front, so it never types a letter or runs that "
             "app's own shortcut.") in sec[sec.index('id="shortcutsRules"'):]
-    assert 'onclick="askShortcutsReset(true)"' in sec and 'onclick="resetShortcuts(this)"' in sec
+    assert 'data-onclick="askShortcutsReset(true)"' in sec and 'data-onclick="resetShortcuts(this)"' in sec
     assert 'id="shortcutsResetConfirm" hidden' in sec
     # What the Hotkey page had stays: the keys, big, the test, the Fn notice, the presets.
     for ident in ('id="settingsHotkeyCaps"', 'id="hkTest"', 'id="settingsFnWarn"', 'id="hotkeyPresetCards"',

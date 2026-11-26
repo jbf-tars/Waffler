@@ -170,7 +170,7 @@ def test_a_switch_that_is_on_with_no_text_says_so():
 
 def test_style_is_a_section_of_settings_between_general_and_keys():
     html = read("index.html")
-    assert "data-sec=\"style\" onclick=\"showSettingsSection('style')\">Style</button>" in html
+    assert "data-sec=\"style\" data-onclick=\"showSettingsSection('style')\">Style</button>" in html
     start = html.index('aria-label="Settings sections"')
     nav = html[start:html.index("</nav>", start)]
     order = re.findall(r'data-sec="(\w+)"', nav)

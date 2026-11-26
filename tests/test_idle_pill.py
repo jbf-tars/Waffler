@@ -1456,8 +1456,8 @@ def test_settings_has_the_switch_and_the_reset_button_mac_only():
             'Drag it wherever you like. <span id="pillResetDesc">Reset pill position puts the pill back at the '
             'bottom of each screen, where it starts.</span></li>') in how
     assert re.search(r'<input type="checkbox" class="tog" role="switch" id="pillIdleToggle" '
-                     r'aria-describedby="pillIdleDesc" onchange="setPillIdle\(this.checked\)">', group)
-    assert 'onclick="resetPillPosition(this)">Reset pill position</button>' in group
+                     r'aria-describedby="pillIdleDesc" data-onchange="setPillIdle\(this.checked\)">', group)
+    assert 'data-onclick="resetPillPosition(this)">Reset pill position</button>' in group
     assert "—" not in group and "–" not in group
     js = (ROOT / "ui" / "app.js").read_text(encoding="utf-8")
     assert "saveSetting('idle_pill', !!on)" in js

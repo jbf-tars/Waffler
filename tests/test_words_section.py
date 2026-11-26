@@ -78,7 +78,7 @@ def test_words_is_a_settings_section_after_style():
     nav = nav[:nav.index("</nav>")]
     labels = re.findall(r">([^<]+)</button>", nav)
     assert labels[labels.index("Style") + 1] == "Words"
-    assert """data-sec="words" onclick="showSettingsSection('words')">Words</button>""" in nav
+    assert """data-sec="words" data-onclick="showSettingsSection('words')">Words</button>""" in nav
     assert HTML.index('id="secStyle"') < HTML.index('id="secWords"') < HTML.index('id="secTransforms"')
     sections = re.search(r"const SETTINGS_SECTIONS = \[([^\]]+)\]", CODE).group(1)
     assert "'style', 'words', 'transforms'" in sections
@@ -156,7 +156,7 @@ def test_removing_a_word_from_the_list_in_view_keeps_the_focus_in_it():
 def test_everything_else_is_under_the_one_collapsed_disclosure():
     box = how()
     assert ('<button type="button" class="link-btn how-btn" id="wordsHowBtn" aria-expanded="false" '
-            'aria-controls="wordsHow" onclick="toggleWordsHow(this)">How it works<') in box
+            'aria-controls="wordsHow" data-onclick="toggleWordsHow(this)">How it works<') in box
     assert '<div class="how-body w-adv" id="wordsHow" hidden>' in box
     for ident in ("vocabEveryday", "vocabSummary", "vocabFind", "vocabSearch", "vocabSort", "vocabSelectBtn",
                   "vocabBulk", "vocabList", "vocabTryBox", "vocabRecentBox", "vocabLearn", "learnToggle",
