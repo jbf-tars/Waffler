@@ -37,6 +37,8 @@ ALLOWED = frozenset({
     "account_sync_now",
     "account_verify",
     "answer_everyday_sound",
+    "audio_decoder_answer",
+    "audio_decoder_cancel",
     "check_accessibility_permission",
     "check_everyday_sounds",
     "check_for_updates",

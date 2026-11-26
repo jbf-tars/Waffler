@@ -3569,6 +3569,37 @@
   // itself instead of vanishing. A later plant moves it back.
   //   s.planted: the entry is in the frame; s.reachable: the frame's page can
   //   be read; s.waitedMs: time since the frame loaded.
+  // Import audio's converter on Windows (src/audio_decoder_pack.py): the one
+  // sheet an import puts up when it is not here yet (ui/decoder.js; app.py
+  // _decoder_show). s.stage: 'offer' (s.mb), 'downloading' and 'checking'
+  // (s.done, s.total in bytes), 'failed' (s.sentence).
+  function decoderView(s) {
+    s = s || {};
+    const mb = (b) => Math.round((Number(b) || 0) / 1e6);
+    const total = Number(s.total) || 0, done = Math.min(Number(s.done) || 0, total);
+    const view = { title: '', count: '', percent: 0, bar: false, note: '',
+                   go: '', goText: '', quiet: '', quietText: '' };
+    const cancel = { quiet: 'cancel', quietText: 'Cancel', bar: true };
+    if (s.stage === 'downloading') {
+      return Object.assign(view, cancel, { title: 'Downloading the audio converter.',
+                                           count: mb(done) + ' of ' + mb(total) + ' MB',
+                                           percent: total ? Math.floor(100 * done / total) : 0 });
+    }
+    if (s.stage === 'checking') {
+      return Object.assign(view, cancel, { title: 'Checking the audio converter.', percent: 100,
+                                           note: 'Then your file is imported.' });
+    }
+    if (s.stage === 'failed') {
+      return Object.assign(view, { title: "The audio converter didn't arrive.", note: String(s.sentence || ''),
+                                   go: 'close', goText: 'Close' });
+    }
+    const size = Number(s.mb) > 0 ? ', ' + Math.round(Number(s.mb)) + ' MB' : '';
+    return Object.assign(view, { title: 'Import audio needs a one-time download' + size + '.',
+                                 note: "It is FFmpeg's audio converter, from BtbN's builds on GitHub, kept in " +
+                                       "Waffler's data folder. Your file is imported as soon as it is here.",
+                                 go: 'download', goText: 'Download', quiet: 'not_now', quietText: 'Not now' });
+  }
+
   const GRANOLA_WAIT_MS = 4000;
   function granolaEntryPlace(s) {
     s = s || {};
@@ -3674,6 +3705,6 @@
     ACCOUNT_RESEND_S, accountCodeLine, accountResendView, accountSignedInLine,
     accountSetupOffered, accountOfferView, accountDeleteStep, accountDeleteReady, accountConfirm,
     blockStrayDrops, granolaView, granolaEntryPlace, GRANOLA_WAIT_MS,
-    maskKey, withSavedKey, keyEmptyLine,
+    maskKey, withSavedKey, keyEmptyLine, decoderView,
   };
 });

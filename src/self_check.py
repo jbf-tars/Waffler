@@ -65,7 +65,7 @@ FILES = (
     "config.yaml", "prompts",
     "ui/index.html", "ui/app.js", "ui/logic.js", "ui/icons.js",
     "ui/account.js", "ui/claude.js", "ui/tryit.js", "ui/howitruns.js", "ui/meetings.js",
-    "ui/granola.js",
+    "ui/granola.js", "ui/decoder.js",
     "ui/tokens.css", "ui/components.css", "ui/style.css", "ui/setup.css", "ui/meetings.css",
     "ui/meetings-app/index.html",
 )

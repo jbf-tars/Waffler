@@ -2115,6 +2115,23 @@
 <!-- An ink pill at the bottom centre (top centre over setup). -->
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
+<!-- Import audio's converter on Windows: one sheet, put up by app.py
+     _decoder_show when an import finds the converter missing, then its
+     progress and how it ended. Always dark, like the Granola sheet. What it
+     says is L.decoderView (logic.js); ui/decoder.js; Python:
+     src/audio_decoder_pack.py. -->
+<div class="gr" id="decoderSheet" role="dialog" aria-modal="true" aria-labelledby="dcTitle" hidden>
+  <div class="gr-in">
+    <h2 class="gr-t gr-long" id="dcTitle" tabindex="-1">Import audio needs a one-time download.</h2>
+    <p class="gr-n" id="dcCount" hidden></p>
+    <div class="gr-bar" id="dcBar" hidden><i id="dcFill"></i></div>
+    <p class="gr-s" id="dcNote" hidden></p>
+    <button type="button" class="gr-go" id="dcGo">Download</button>
+    <button type="button" class="gr-q" id="dcQuiet">Not now</button>
+    <p class="sr-only" id="dcLive" role="status" aria-live="polite"></p>
+  </div>
+</div>
+
 <script src="handlers.js"></script>
 <script src="logic.js"></script>
 <script src="icons.js"></script>
@@ -2122,6 +2139,7 @@
 <script src="meetings.js"></script>
 <script src="howitruns.js"></script>
 <script src="granola.js"></script>
+<script src="decoder.js"></script>
 <script src="claude.js"></script>
 <script src="account.js"></script>
 <script src="tryit.js"></script>

@@ -777,6 +777,67 @@ def _meetings_changed():
     _meeting_menubar_sync()
 
 
+# ── Import audio's converter on Windows (src/audio_decoder_pack.py) ─────────
+# An LGPL FFmpeg, fetched the first time a file soundfile cannot read is
+# imported. The import that finds it missing waits while the window asks
+# (ui/decoder.js), then carries on with the same file once it is here.
+_decoder_offer_obj = None
+
+
+def _decoder_pack():
+    try:
+        from src import audio_decoder_pack
+    except ImportError:
+        import audio_decoder_pack
+    return audio_decoder_pack
+
+
+def _decoder_offer():
+    global _decoder_offer_obj
+    if _decoder_offer_obj is None:
+        _decoder_offer_obj = _decoder_pack().Offer()
+    return _decoder_offer_obj
+
+
+def _decoder_wanted(method, path, result) -> bool:
+    """An import refused because the converter is not here yet (Windows)."""
+    body = result.get("body") if isinstance(result, dict) else None
+    return (str(method).upper() == "POST" and str(path).split("?")[0].strip("/") == "import"
+            and result.get("status") == 400 and isinstance(body, dict)
+            and body.get("reason") == "needs_download" and _decoder_pack().supported())
+
+
+def _import_with_decoder(handle, method, path):
+    """The page's call, made again with the same file once the converter is here."""
+    result = handle()
+    if _decoder_wanted(method, path, result) and _decoder_offer().run(_decoder_show, _decoder_progress,
+                                                                      _decoder_done):
+        result = handle()
+    return result
+
+
+def _decoder_show(view) -> bool:
+    """Put the prompt up in the window; False when it could not be."""
+    if not _window:
+        return False
+    try:
+        return bool(_window.evaluate_js(
+            f"!!(window.waffler_decoder_offer && window.waffler_decoder_offer({json.dumps(view)}))"))
+    except Exception as e:  # noqa: BLE001
+        _log_to_file(f"[audio converter] prompt not shown: {type(e).__name__}: {e}")
+        return False
+
+
+def _decoder_progress(done_bytes, total):
+    _post_js(f"window.waffler_decoder_progress && window.waffler_decoder_progress({int(done_bytes)}, {int(total)})")
+
+
+def _decoder_done(ok, sentence):
+    _log_to_file(f"[audio converter] {'here' if ok else 'not fetched'}{': ' + sentence if sentence else ''}")
+    _post_js(f"window.waffler_decoder_done && window.waffler_decoder_done({json.dumps(bool(ok))}, "
+             f"{json.dumps(sentence or '')})")
+
+
 # ── Import from Granola (src/meetings/granola_import.py) ────────────────────
 _granola_job = None
 _granola_lock = threading.Lock()
@@ -1318,10 +1379,22 @@ class Api:
                 theme = ""
             if str(path).split("?")[0].strip("/") == "app":
                 _account_plan_soon()      # the page is opening: is Waffler Plus (still, again) there?
-            return meetings_bridge.handle(_get_meetings(), method, path, body, waffler_theme=theme)
+            # An import that needs the audio converter (Windows) waits while the
+            # window offers it, then is made again with the same file.
+            return _import_with_decoder(
+                lambda: meetings_bridge.handle(_get_meetings(), method, path, body, waffler_theme=theme),
+                method, path)
         except Exception as e:  # noqa: BLE001
             _log_to_file(f"[meetings] page call failed: {type(e).__name__}: {e}")
             return {"status": 500, "body": {"detail": "Something went wrong."}}
+
+    def audio_decoder_answer(self, choice) -> dict:
+        """The window's prompt for Import audio's converter: "download" or "not_now"."""
+        return _decoder_offer().answer(choice)
+
+    def audio_decoder_cancel(self) -> dict:
+        """Stop the converter's download (the prompt's Cancel)."""
+        return _decoder_offer().cancel()
 
     def meetings_toggle(self) -> dict:
         """Start a meeting recording, or finish the one running."""
