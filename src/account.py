@@ -908,7 +908,9 @@ def dictate(audio: bytes, *, filename: str = "audio.wav", content_type: str = "a
             clean: bool = True, language=None, words=(), timeout: float = SYNC_TIMEOUT_S) -> dict:
     """One dictation, done by the service (POST /api/dictate): the recording
     goes up, its text comes back, and the service keeps nothing of it.
-    {"ok", "text" (to paste), "raw" (as heard), "seconds", "cleaned", "code"}.
+    {"ok", "text" (to paste), "raw" (as heard), "seconds", "cleaned", "code",
+    "segments"}: "segments" are what "raw" was made of (see _segments), or
+    None from a service that sends none.
     `cleaned` False with a `code` means the tidying was asked for and could
     not be done: the words still came back, as heard. `clean` False asks for
     no tidying; `language` is a code such as "en" (anything else is left out
@@ -948,7 +950,27 @@ def dictate(audio: bytes, *, filename: str = "audio.wav", content_type: str = "a
     raw, seconds, code = answer.get("raw"), answer.get("seconds"), answer.get("code")
     return {"ok": True, "text": answer["text"], "raw": raw if isinstance(raw, str) else answer["text"],
             "seconds": float(seconds) if isinstance(seconds, (int, float)) and not isinstance(seconds, bool) else 0.0,
-            "cleaned": answer.get("cleaned") is True, "code": code if isinstance(code, str) else ""}
+            "cleaned": answer.get("cleaned") is True, "code": code if isinstance(code, str) else "",
+            "segments": _segments(answer.get("segments"))}
+
+
+def _segments(rows):
+    """The segments a Plus answer was made of, as the app reads them:
+    [{"start_s", "end_s", "text"}, with "no_speech_prob" when the service
+    sent it], for the same ending filter a provider's answer goes through.
+    None when the service sent none (a server from before 26 Nov 2026) or
+    one cannot be read: the answer is then used as before, unchecked."""
+    if not isinstance(rows, list) or not all(
+            isinstance(g, dict) and _number(g.get("start_s")) and _number(g.get("end_s"))
+            and isinstance(g.get("text"), str) for g in rows):
+        return None
+    out = []
+    for g in rows:
+        seg = {"start_s": float(g["start_s"]), "end_s": float(g["end_s"]), "text": g["text"]}
+        if _number(g.get("no_speech_prob")):
+            seg["no_speech_prob"] = float(g["no_speech_prob"])
+        out.append(seg)
+    return out
 
 
 def _plus_refusal(status: int, body, headers, token: str, what: str) -> AccountError:
@@ -1038,7 +1060,8 @@ def transcribe(audio: bytes, *, filename: str = "audio.flac", content_type: str 
     """A recording (a meeting, or a part of one), written down by the service
     (POST /api/plus/transcribe): the audio goes up, timed segments come back
     in the same request, and the service keeps nothing of it.
-    {"ok", "segments": [{"start_s", "end_s", "text"}], "seconds", "language"}:
+    {"ok", "segments": [{"start_s", "end_s", "text", "no_speech_prob"?}], "seconds",
+    "language"}:
     the times are seconds from the start of this upload. `language` and
     `words` are as for dictate. A refusal is one sentence; with "too_many"
     there is also "wait_s", how long the service said to wait."""
@@ -1052,16 +1075,13 @@ def transcribe(audio: bytes, *, filename: str = "audio.flac", content_type: str 
         form["words"] = "\n".join(listed)
     answer = _plus_post("/api/plus/transcribe", "transcribe", timeout, data=form,
                         files={"file": (filename, audio, content_type)})
-    segments = answer.get("segments")
-    if not isinstance(segments, list) or not all(
-            isinstance(g, dict) and _number(g.get("start_s")) and _number(g.get("end_s"))
-            and isinstance(g.get("text"), str) for g in segments):
+    segments = _segments(answer.get("segments"))
+    if segments is None:
         raise AccountError(FAILED)
     seconds = answer.get("seconds")
     return {"ok": True, "seconds": float(seconds) if _number(seconds) else 0.0,
             "language": answer["language"] if isinstance(answer.get("language"), str) else "",
-            "segments": [{"start_s": float(g["start_s"]), "end_s": float(g["end_s"]), "text": g["text"]}
-                         for g in segments]}
+            "segments": segments}
 
 
 @_answers

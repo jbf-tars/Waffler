@@ -2716,6 +2716,60 @@ def _groq_words(response, audio_bytes):
     return out
 
 
+def _plus_heard(answer, audio_bytes):
+    """A Waffler Plus dictation answer through the same ending filter as
+    Groq's answer with a key (_groq_words): ``(words as heard, text to
+    paste, trimmed)``. The service sends the segments its "raw" was made of
+    (since 26 Nov 2026), with their times in the very upload sent and
+    Whisper's no_speech_prob, so an invented "Thank you." over the silent end
+    is told from a said one exactly as it is with a key. Without segments (an
+    older service) the words come back as they always did.
+
+    The service tidied the words before this computer judged their ending,
+    so an ending taken off the words as heard is taken off the tidied text
+    too, sentence by sentence. Where it cannot be found there, ``trimmed`` is
+    True and the words as heard go in (app.py _plus_words), as for any
+    dictation this computer took words out of."""
+    raw = answer["raw"]
+    text = answer["text"].strip()
+    segments = answer.get("segments")
+    if not segments:
+        return raw, text, False
+    response = {"text": " " + raw.strip(),
+                "segments": [{"text": " " + g["text"].strip(), "start": g["start_s"],
+                              "end": g["end_s"], "no_speech_prob": g.get("no_speech_prob")}
+                             for g in segments]}
+    heard = _groq_words(response, audio_bytes)
+    said, whole = str(heard), raw.strip()
+    if said == whole:
+        return heard, text, False
+    if not answer.get("cleaned"):
+        return heard, said, False
+    if not whole.startswith(said):
+        return heard, text, True
+    kept = _without_ending(text, whole[len(said):])
+    return (heard, text, True) if kept is None else (heard, kept, False)
+
+
+def _without_ending(text: str, ending: str):
+    """``text`` without its last sentences when they spell ``ending`` (the
+    invented sign-offs taken off the words as heard) and are only sign-offs;
+    None when they don't, or when nothing would be left."""
+    target = re.sub(r"[\W_]+", "", ending).lower()
+    if not target:
+        return text
+    cuts = [m.end() for m in re.finditer(r"[.!?…]+\s+", text)]
+    for cut in reversed([0] + cuts):
+        tail = text[cut:]
+        letters = re.sub(r"[\W_]+", "", tail).lower()
+        if len(letters) > len(target):
+            break
+        if letters == target and _is_outro_segment(tail):
+            kept = text[:cut].strip()
+            return kept or None
+    return None
+
+
 def _detail_refused(exc) -> bool:
     """A 400 or 422 that names the response format: Groq will not send
     segments for this request, so the plain text is asked for instead."""
@@ -2917,15 +2971,18 @@ class WhisperTranscriber:
             if why:
                 raise _PlusGone(why, sentence)
             raise PlusError(sentence)
+        heard, text, trimmed = _plus_heard(answer, audio_bytes)
         so_far = self.last_plus or {"text": "", "cleaned": True, "code": ""}
         self.last_plus = {
-            "text": " ".join(part for part in (so_far["text"], answer["text"].strip()) if part),
+            "text": " ".join(part for part in (so_far["text"], text) if part),
             "cleaned": bool(so_far["cleaned"] and answer["cleaned"]),
             "code": so_far["code"] or answer["code"],
         }
+        if trimmed or so_far.get("trimmed"):
+            self.last_plus["trimmed"] = True
         self._last_cloud_provider = BACKEND_PLUS
         _wlog(f"[whisper] Waffler Plus ({(time.time()-t0)*1000:.0f}ms, {len(answer['raw'])} chars)")
-        return answer["raw"]
+        return heard
 
     def _call_with_transient_retries(self, prov: str, fn, audio_bytes: bytes,
                                      retry: bool) -> str:

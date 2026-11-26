@@ -157,7 +157,7 @@ def test_a_dictation_is_sent_signed_with_its_fields_and_the_text_comes_back(serv
     out = account.dictate(WAV, filename="audio.wav", content_type="audio/wav", clean=True, language="pt-BR",
                           words=["Zebra", "quartz"])
     assert out == {"ok": True, "text": "Zebra quartz, alpha.", "raw": "um so zebra quartz alpha you know",
-                   "seconds": 3.0, "cleaned": True, "code": ""}
+                   "seconds": 3.0, "cleaned": True, "code": "", "segments": None}   # a service that sends none
     sent = server.calls("POST", "/api/dictate")
     assert len(sent) == 1 and sent[0].auth == "Bearer " + next(iter(server.sessions))
     form = server.dictations[0]

@@ -271,6 +271,8 @@ class FakeAccountServer:
             clean = str(form.get("clean", "true")).strip().lower() not in ("false", "0", "no", "off")
             raw, text = self.heard["raw"], self.heard["text"]
             answer = {"text": text if clean else raw, "raw": raw, "seconds": 3.0, "cleaned": clean}
+            if self.heard.get("segments") is not None:       # a server from 26 Nov 2026 on
+                answer["segments"] = self.heard["segments"]
             if clean and self.clean_trouble:
                 answer.update(text=raw, cleaned=False, code=self.clean_trouble,
                               detail="Today's AI allowance is used. There is more after midnight UTC."
