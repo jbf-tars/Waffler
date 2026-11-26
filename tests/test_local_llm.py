@@ -326,7 +326,10 @@ def test_cancel_keeps_what_arrived_and_the_next_download_resumes(llm):
     assert started["ok"] and started["started"] and started["state"] == "downloading"
     busy = local_llm.start_download()
     assert busy["started"] is False and busy["ok"] is True, "one download at a time"
-    time.sleep(0.1)
+    # Until something has arrived, however slow the machine (a fixed 0.1 s was not always enough).
+    deadline = time.time() + 10
+    while local_llm.model_status().get("bytes_done", 0) <= 0 and time.time() < deadline:
+        time.sleep(0.01)
     assert local_llm.cancel_download() is True
     local_llm._wait_for_download(5)
     s = local_llm.model_status()

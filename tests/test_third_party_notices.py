@@ -123,7 +123,12 @@ def test_a_missing_file_reads_as_empty(tmp_path, monkeypatch):
 def test_the_generator_check_passes():
     r = subprocess.run([sys.executable, str(ROOT / "scripts" / "third_party_notices.py"), "--check"],
                        capture_output=True, text=True, cwd=ROOT, timeout=120)
-    assert r.returncode == 0, r.stdout + r.stderr
+    said = r.stdout + r.stderr
+    if r.returncode != 0 and "is not installed here" in said:
+        # The check compares against the packages the file was generated with (the Mac
+        # build's, llama-cpp-python among them). A test machine without them cannot say.
+        pytest.skip("this environment lacks packages the notices were generated with")
+    assert r.returncode == 0, said
 
 
 def test_settings_about_offers_the_licences():
