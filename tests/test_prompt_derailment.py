@@ -2,7 +2,7 @@
 
 Live finding, 2026-09-10, from retained audio: an 80 s dictation sent to Groq
 whisper-large-v3 WITH the custom-vocabulary prompt ("Ashkan, COBie, Morta,
-... Malak, XBim") came back as 159 words ending "...and the rest of the
+... Karin, XBim") came back as 159 words ending "...and the rest of the
 team." -- the entire final window replaced by a list completion. The same
 audio with NO prompt returned all 214 words, twice. Every list-shaped prompt
 variant derailed ("Thank you for watching!", "Subtitles by the Amara.org
@@ -88,7 +88,7 @@ def _bare_transcriber():
 
 def test_groq_whisper_is_called_without_vocab_prompt(monkeypatch):
     monkeypatch.delenv("WAFFLER_WHISPER_PROMPT", raising=False)
-    monkeypatch.setattr(tw, "load_vocab", lambda: ["Ashkan", "COBie", "Malak"])
+    monkeypatch.setattr(tw, "load_vocab", lambda: ["Ashkan", "COBie", "Karin"])
     monkeypatch.setattr(tw, "load_settings", lambda: {"language": "en"})
     t = _bare_transcriber()
     assert t._transcribe_groq(_wav(_tone(1.0, 3000))) == "hello"
@@ -100,11 +100,11 @@ def test_groq_whisper_is_called_without_vocab_prompt(monkeypatch):
 
 def test_env_override_restores_vocab_prompt(monkeypatch):
     monkeypatch.setenv("WAFFLER_WHISPER_PROMPT", "1")
-    monkeypatch.setattr(tw, "load_vocab", lambda: ["Ashkan", "COBie", "Malak"])
+    monkeypatch.setattr(tw, "load_vocab", lambda: ["Ashkan", "COBie", "Karin"])
     monkeypatch.setattr(tw, "load_settings", lambda: {"language": "en"})
     t = _bare_transcriber()
     t._transcribe_groq(_wav(_tone(1.0, 3000)))
-    assert t._groq_client.audio.transcriptions.kwargs["prompt"] == "Ashkan, COBie, Malak"
+    assert t._groq_client.audio.transcriptions.kwargs["prompt"] == "Ashkan, COBie, Karin"
 
 
 # ── 2. the speech measure ───────────────────────────────────────────────────
@@ -192,7 +192,7 @@ def test_derailed_tail_with_no_fuller_alternate_keeps_original(monkeypatch):
 def test_phrase_inside_a_real_sentence_does_not_trigger(monkeypatch):
     t = _retry_transcriber()
     audio = _wav(_tone(40.0, 3000))
-    real = BODY + " Please send this over to Malak and the rest of the team."
+    real = BODY + " Please send this over to Karin and the rest of the team."
 
     def boom(self, ab, exclude=None):
         raise AssertionError("must not retry a healthy transcript")
@@ -230,7 +230,7 @@ def test_ends_on_derailment_detection():
     assert _ends_on_derailment("look a bit sheer. and the rest of the team.")
     assert _ends_on_derailment("waiting on IT. Thank you for watching!")
     assert _ends_on_derailment("and the rest of the team.")
-    assert not _ends_on_derailment("send it to Malak and the rest of the team.")
+    assert not _ends_on_derailment("send it to Karin and the rest of the team.")
     assert not _ends_on_derailment("forward that to the rest of the team.")
     assert not _ends_on_derailment("")
 
@@ -243,7 +243,7 @@ def test_own_sentence_derailment_tail_is_stripped_with_real_speech():
 
 
 def test_phrase_inside_sentence_is_kept():
-    for t in ("Please send it over to Malak and the rest of the team.",
+    for t in ("Please send it over to Karin and the rest of the team.",
               "Can you forward that to the rest of the team.",
               "Number of opportunities. and so on. I'd like more of that."):
         assert _strip_hallucinations(t, speech_seconds=8.0) == t

@@ -251,7 +251,7 @@ def test_nine_words_are_not_enough_and_ten_are():
 
 # ── the signature decision table ─────────────────────────────────────────────
 
-SIG = {"email_signature": {"enabled": True, "text": "Best,\nJames Farrelly"}}
+SIG = {"email_signature": {"enabled": True, "text": "Best,\nJames Donnelly"}}
 LONG = "Thanks for sending that over, it really does help the whole team a lot today."
 
 
@@ -324,15 +324,15 @@ def test_a_field_with_other_text_and_no_signature_gets_it():
 
 
 def test_a_signature_already_before_the_cursor_is_not_added_again():
-    before = "Hi Sam,\n\nSee you Friday.\n\nBest,\nJames Farrelly\n\n"
+    before = "Hi Sam,\n\nSee you Friday.\n\nBest,\nJames Donnelly\n\n"
     d = decide(field=Field(before))
     assert (d.add, d.reason) == (False, "already_there")
 
 
 def test_the_check_ignores_spacing_and_case():
-    d = decide(field=Field("see you.\n\n  best,   JAMES   farrelly  "))
+    d = decide(field=Field("see you.\n\n  best,   JAMES   donnelly  "))
     assert (d.add, d.reason) == (False, "already_there")
-    d = decide(field=Field("see you. Best, James Farrelly"))
+    d = decide(field=Field("see you. Best, James Donnelly"))
     assert d.reason == "already_there"
 
 
@@ -390,7 +390,7 @@ def test_a_field_that_can_be_read_beats_the_memory():
     # Other text and no signature: the memory is out of date (a new email), add it.
     assert decide(field=Field("Hello there, this is a new email."), memory=mem, now=30.0).add is True
     # The signature is there: say so.
-    assert decide(field=Field("Best,\nJames Farrelly"), memory=mem, now=30.0).reason == "already_there"
+    assert decide(field=Field("Best,\nJames Donnelly"), memory=mem, now=30.0).reason == "already_there"
 
 
 def test_no_app_means_the_memory_cannot_be_used():
@@ -435,7 +435,7 @@ def test_the_table_in_one_place():
         (SIG, "email", LONG, True, False, Field(""), mem_empty, "snippet"),
         (SIG, "email", LONG, False, True, Field(""), mem_empty, "selection"),
         (SIG, "email", "Thanks.", False, False, Field(""), mem_empty, "not_start"),
-        (SIG, "email", LONG, False, False, Field("x Best,\nJames Farrelly"), mem_empty, "already_there"),
+        (SIG, "email", LONG, False, False, Field("x Best,\nJames Donnelly"), mem_empty, "already_there"),
         (SIG, "email", LONG, False, False, Field("some other text"), mem_full, "append"),
         (SIG, "email", LONG, False, False, Field(""), mem_full, "recent"),
         (SIG, "email", LONG, False, False, Field(raises=True), mem_full, "recent"),

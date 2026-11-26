@@ -110,8 +110,8 @@ def words(response, audio=None):
 # ── reading the answer ──────────────────────────────────────────────────────
 
 def test_the_transcript_is_the_segments_joined_which_is_the_old_text():
-    r = answer(seg(" Okay so ship it on Monday."), seg(" And tell Malak.", (2.3, 3.0)))
-    assert words(r) == "Okay so ship it on Monday. And tell Malak."
+    r = answer(seg(" Okay so ship it on Monday."), seg(" And tell Karin.", (2.3, 3.0)))
+    assert words(r) == "Okay so ship it on Monday. And tell Karin."
     assert words(r) == r.text.strip()
 
 

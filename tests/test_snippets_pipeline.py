@@ -85,7 +85,7 @@ def test_a_snippet_card_carries_no_quality_mark(tmp_path):
     """Eight spoken words and two pasted, text with no full stop: the two
     rules for a model that cut words, or stopped mid-sentence, would both fire."""
     said = "send the quarterly report to the whole finance team"
-    sig = "Kind regards\nJames Farrelly\n0123 456 789"
+    sig = "Kind regards\nJames Donnelly\n0123 456 789"
     p = _dictate(tmp_path, said, (said, sig), ("brief", "Done"))
     [entry] = history(p)
     assert entry["styled"] == sig
@@ -208,7 +208,7 @@ def _assess(provider, said_words, styled, speech=3.0):
 
 
 def test_a_snippet_is_judged_on_the_audio_only():
-    sig = "Kind regards\nJames Farrelly\n0123 456 789"
+    sig = "Kind regards\nJames Donnelly\n0123 456 789"
     assert _assess("snippet", 9, sig)["level"] == "ok"
     # The same numbers from a model are exactly what the rules are for.
     q = _assess("groq", 9, sig)

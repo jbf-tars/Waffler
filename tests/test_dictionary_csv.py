@@ -31,7 +31,7 @@ def reasons(p):
 
 @pytest.mark.parametrize("raw, word, reason", [
     ("  Groq  ", "Groq", ""),
-    ("James   Farrelly", "James Farrelly", ""),
+    ("James   Donnelly", "James Donnelly", ""),
     ("Sinéad", "Sinéad", ""),
     ("GPT-4o", "GPT-4o", ""),
     ("C++", "C++", ""),

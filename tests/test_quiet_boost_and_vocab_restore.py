@@ -119,7 +119,7 @@ def test_rare_fixes_and_ones_still_made_are_not_added(vocab_home):
 
 
 def test_entries_no_longer_listed_are_ignored(vocab_home):
-    log = log_with(vocab_home, [("rowan", "Rohan", 9)])
+    log = log_with(vocab_home, [("rowan", "Ronan", 9)])
     assert tw.restore_lost_corrections([log]) == {}
 
 

@@ -668,7 +668,7 @@ _FAMILY_MIN_STEM = 4
 # "[a-zA-Z]+" (before 3.15) split "Sinéad" into "sin" and "ad".
 _WORD_RE = re.compile(r"[^\W\d_]+")
 # An entry the corrector can match: words of letters joined by spaces,
-# hyphens or apostrophes ("Sinéad", "James Farrelly", "Jean-Luc",
+# hyphens or apostrophes ("Sinéad", "James Donnelly", "Jean-Luc",
 # "O'Brien"). Entries with digits or symbols ("GPT-4", "C++") are not
 # matched here, as their letters alone would turn every "gpt" into "GPT-4";
 # _symbol_entries matches them whole instead.
@@ -803,7 +803,7 @@ def fuzzy_match_word(transcribed: str, vocab: list[str], threshold: float = 0.75
     the phrase in lower case with its words joined by single spaces.
 
     Three passes:
-      0. Entries of two or more words ("James Farrelly"): the same number
+      0. Entries of two or more words ("James Donnelly"): the same number
          of words heard in a row, each spelt as the entry's word or passing
          the single-word rule, and at least one spelt exactly. Before 3.15
          these entries were never matched at all.
@@ -1772,7 +1772,7 @@ def _strip_hallucinations(text: str, speech_seconds: float = None, *,
         r"you[.!?]*",
         r"(?:and|with|plus)\s+(?:many\s+|much\s+|lots\s+)?more[.!?]*",
         # List completions the decoder falls into after a weak window (see
-        # _DERAIL_TAIL_RE). Own-sentence only: "...to Malak and the rest of
+        # _DERAIL_TAIL_RE). Own-sentence only: "...to Karin and the rest of
         # the team." inside a sentence is real speech and is left alone.
         r"(?:and\s+)?the rest of the team[.!?]*",
         r"and the likes[.!?]*",
@@ -2108,7 +2108,7 @@ _DERAIL_TAIL_RE = re.compile(
 def _ends_on_derailment(text: str) -> bool:
     """True when the transcript's final clause is a known derailment phrase
     standing as its own sentence (or the whole output). A phrase used inside a
-    real sentence ("send it to Malak and the rest of the team") is not
+    real sentence ("send it to Karin and the rest of the team") is not
     preceded by punctuation and does not match."""
     return bool(text) and _DERAIL_TAIL_RE.search(text.strip()) is not None
 

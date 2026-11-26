@@ -4,7 +4,7 @@ Whisper given the Vocabulary as its prompt sometimes hands the list back over
 silence, and transcribe_sync throws such a transcript away
 (_is_vocab_echo). The test it uses is the words alone: a short transcript made
 mostly of Vocabulary words. That is also what a real, short dictation about a
-person's own product looks like: "Open Waffler.", "Use Claude", "Rohan".
+person's own product looks like: "Open Waffler.", "Use Claude", "Ronan".
 
 Groq is sent no prompt (v3.14.97), so nothing it returns can be an echo of
 one, and yet the discard ran on its words too: with "Waffler" and "Claude"
@@ -29,8 +29,8 @@ import transcribe_whisper as tw  # noqa: E402
 from transcribe_whisper import WhisperTranscriber  # noqa: E402
 
 SR = 16000
-VOCAB = ["Waffler", "Claude", "Rohan", "Opus", "Tailscale"]
-SHORT_AND_REAL = ["Open Waffler.", "Use Claude", "Rohan", "Ask Claude Opus", "Waffler.",
+VOCAB = ["Waffler", "Claude", "Ronan", "Opus", "Tailscale"]
+SHORT_AND_REAL = ["Open Waffler.", "Use Claude", "Ronan", "Ask Claude Opus", "Waffler.",
                   "Tailscale"]
 
 

@@ -279,7 +279,7 @@ def answer(*segments, text=None):
 
 
 def test_groq_words_carry_their_segments_spans():
-    out = tw._groq_words(answer(seg(" Ship it.", 0.3, 2.0), seg(" Then tell Malak.", 2.0, 3.5)),
+    out = tw._groq_words(answer(seg(" Ship it.", 0.3, 2.0), seg(" Then tell Karin.", 2.0, 3.5)),
                          tw._pad_audio_with_silence(CLEAN))
     assert out.spans == [(0.3, 2.0), (2.0, 3.5)]
 

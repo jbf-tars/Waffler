@@ -2,7 +2,7 @@
 
 Found in one user's real log (app.log, 225 "Vocabulary corrections applied"
 lines, 2026-10-05), vocabulary: Waffler, Morta, Ashkan, COBie, COBieQC,
-craic, Rohan, Kandola, James Farrelly, Malak, XBim.
+craic, Ronan, Kapoor, James Donnelly, Karin, XBim.
 
 False rewrites (each a real word, or the entry with letters added to or
 taken off one end):
@@ -11,8 +11,8 @@ taken off one end):
 and from testing: Phillips -> Phillip, Matthews -> Mathew, linked -> LinkedIn.
 
 Genuine corrections that must keep working, from the same log:
-    ashkahn -> Ashkan, ashcan -> Ashkan, malek -> Malak, morty -> Morta,
-    mora -> Morta, rowan -> Rohan, woffler -> Waffler, cobiec -> COBieQC,
+    ashkahn -> Ashkan, ashcan -> Ashkan, karen -> Karin, morty -> Morta,
+    mora -> Morta, rowan -> Ronan, woffler -> Waffler, cobiec -> COBieQC,
     kobi qc -> COBieQC, and capitals ("cobie" -> COBie)
 plus the website's five examples.
 """
@@ -32,8 +32,8 @@ from transcribe_whisper import (  # noqa: E402
     fuzzy_match_word,
 )
 
-OWNER = ["Ashkan", "COBieQC", "COBie", "Morta", "Waffler", "craic", "Rohan",
-         "Kandola", "James Farrelly", "Malak", "XBim"]
+OWNER = ["Ashkan", "COBieQC", "COBie", "Morta", "Waffler", "craic", "Ronan",
+         "Kapoor", "James Donnelly", "Karin", "XBim"]
 NAMES = OWNER + ["Phillip", "Mathew", "LinkedIn", "Isobel", "Caitlyn", "Sinéad",
                  "Hailey", "Clubcard", "Postgres"]
 
@@ -60,7 +60,7 @@ def test_a_real_word_near_an_entry_is_left_alone(sentence):
     ("waffle", "Waffler"), ("waffled", "Waffler"), ("waffles", "Waffler"),
     ("mortar", "Morta"), ("bim", "XBim"), ("phillips", "Phillip"),
     ("matthews", "Mathew"), ("linked", "LinkedIn"), ("cobie", "COBieQC"),
-    ("kandolas", "Kandola"), ("mortal", "Morta"), ("clubcards", "Clubcard"),
+    ("kapoors", "Kapoor"), ("mortal", "Morta"), ("clubcards", "Clubcard"),
 ])
 def test_an_entry_with_letters_added_or_taken_off_is_not_a_mishearing(word, entry):
     assert fuzzy_match_word(word, [entry]) == []
@@ -88,15 +88,15 @@ def test_an_everyday_word_keeps_its_capitals_even_when_it_is_an_entry(word, entr
 @pytest.mark.parametrize("heard, expected", [
     ("I spoke to Ashkahn today.", "I spoke to Ashkan today."),
     ("I spoke to ashcan today.", "I spoke to Ashkan today."),
-    ("Malek sent the file.", "Malak sent the file."),
+    ("Karen sent the file.", "Karin sent the file."),
     ("Morty sent the file.", "Morta sent the file."),
     ("Mora sent the file.", "Morta sent the file."),
-    ("Rowan sent the file.", "Rohan sent the file."),
+    ("Rowan sent the file.", "Ronan sent the file."),
     ("Open Woffler and try it.", "Open Waffler and try it."),
     ("Run the cobiec check.", "Run the COBieQC check."),
     ("Run the kobi qc check.", "Run the COBieQC check."),
     ("Export the cobie file.", "Export the COBie file."),
-    ("Send it to kandola.", "Send it to Kandola."),
+    ("Send it to kapoor.", "Send it to Kapoor."),
     ("Open waffler and try it.", "Open Waffler and try it."),
     ("Open the xbim viewer.", "Open the XBim viewer."),
 ])
@@ -158,8 +158,8 @@ def test_a_correctly_written_entry_is_not_reported_as_a_correction():
 
 
 def test_changes_report_the_words_as_they_stood():
-    assert apply_vocab_changes("Malek and malek", OWNER) == (
-        "Malak and Malak", [("Malek", "Malak"), ("malek", "Malak")])
+    assert apply_vocab_changes("Karen and karen", OWNER) == (
+        "Karin and Karin", [("Karen", "Karin"), ("karen", "Karin")])
 
 
 def test_a_replacement_is_not_corrected_again():
@@ -172,16 +172,16 @@ def test_a_replacement_is_not_corrected_again():
 # ── entries of several words (never matched before 3.15) ─────────────────────
 
 @pytest.mark.parametrize("heard, expected", [
-    ("Email james farrelly about it.", "Email James Farrelly about it."),
-    ("Email James Farrely about it.", "Email James Farrelly about it."),
-    ("Email James Farrelly about it.", "Email James Farrelly about it."),
+    ("Email james donnelly about it.", "Email James Donnelly about it."),
+    ("Email James Donnely about it.", "Email James Donnelly about it."),
+    ("Email James Donnelly about it.", "Email James Donnelly about it."),
 ])
 def test_a_multi_word_entry_is_matched(heard, expected):
     assert apply_vocab_corrections(heard, OWNER)[0] == expected
 
 
 def test_a_multi_word_entry_needs_one_word_spelt_exactly():
-    assert fuzzy_match_word("Jams Farrely", ["James Farrelly"]) == []
+    assert fuzzy_match_word("Jams Donnely", ["James Donnelly"]) == []
 
 
 def test_a_multi_word_entry_of_everyday_words_leaves_them_alone():
@@ -202,17 +202,17 @@ def test_an_entry_with_digits_is_never_matched_by_its_letters():
 # ── the list itself ──────────────────────────────────────────────────────────
 
 def test_clean_vocab_trims_drops_and_dedupes():
-    assert clean_vocab(["  Sinéad ", "", "sinéad", "James   Farrelly", 3, None, "COBie"]) == [
-        "Sinéad", "James Farrelly", "COBie"]
+    assert clean_vocab(["  Sinéad ", "", "sinéad", "James   Donnelly", 3, None, "COBie"]) == [
+        "Sinéad", "James Donnelly", "COBie"]
     assert clean_vocab({"Sinéad": 1}) == []
     assert clean_vocab(None) == []
 
 
 def test_load_vocab_survives_a_hand_edited_file(tmp_path, monkeypatch):
     f = tmp_path / "vocab.json"
-    f.write_text(json.dumps(["Zoë", None, " Zoë ", "Rohan"]), encoding="utf-8")
+    f.write_text(json.dumps(["Zoë", None, " Zoë ", "Ronan"]), encoding="utf-8")
     monkeypatch.setattr(tw, "VOCAB_FILE", f)
-    assert tw.load_vocab() == ["Zoë", "Rohan"]
+    assert tw.load_vocab() == ["Zoë", "Ronan"]
     f.write_text('{"not": "a list"}', encoding="utf-8")
     assert tw.load_vocab() == []
 

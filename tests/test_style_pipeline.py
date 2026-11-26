@@ -42,7 +42,7 @@ MESSAGES = AppContext("com.apple.MobileSMS", "Messages", "", "personal")
 NOTES = AppContext("com.apple.Notes", "Notes", "", "other")
 KINDS = {"personal": MESSAGES, "work": SLACK, "email": MAIL, "other": NOTES}
 
-SIG = {"enabled": True, "text": "Best,\nJames Farrelly"}
+SIG = {"enabled": True, "text": "Best,\nJames Donnelly"}
 LONG = "thanks for sending that over it really does help the whole team a lot today"
 
 
@@ -272,7 +272,7 @@ def test_off_does_not_style(tmp_path):
 def test_off_and_a_signature_the_signature_still_applies(tmp_path, screen):
     p = pipe(tmp_path, MAIL, "hi sam " + LONG, cleanup="off", email_signature=SIG)
     entry = dictate(p)
-    assert entry["styled"] == "hi sam " + LONG + "\n\nBest,\nJames Farrelly"
+    assert entry["styled"] == "hi sam " + LONG + "\n\nBest,\nJames Donnelly"
     assert entry["provider"]["cleanup"] == "off" and "quality" not in entry
 
 
@@ -441,7 +441,7 @@ def test_the_log_names_no_words(tmp_path):
              style_by_category={"email": "casual"}, email_signature=SIG)
     dictate(p)
     text = "\n".join(p.logged).lower()
-    for word in ("numbers", "monday", "james farrelly", "best"):
+    for word in ("numbers", "monday", "james donnelly", "best"):
         assert word not in text, word
 
 
@@ -453,7 +453,7 @@ BODY = "Hi Sam, thanks for sending that over, it really does help the whole team
 def test_a_long_message_in_an_email_app_gets_the_signature(tmp_path, screen):
     p = pipe(tmp_path, MAIL, LONG, styler=Plain(BODY), email_signature=SIG)
     entry = dictate(p)
-    assert entry["styled"] == BODY + "\n\nBest,\nJames Farrelly"
+    assert entry["styled"] == BODY + "\n\nBest,\nJames Donnelly"
     assert p.clipboard.pastes == [entry["styled"]]
     assert entry["text"] == LONG, "what was heard has no signature"
     assert entry["word_count"] == len(BODY.split()), "the signature is not counted as words dictated"
@@ -467,7 +467,7 @@ def test_a_signature_does_not_light_a_chip(tmp_path, screen):
 
 def test_a_greeting_alone_is_enough(tmp_path, screen):
     p = pipe(tmp_path, MAIL, "hi sam", styler=Plain("Hi Sam,"), email_signature=SIG)
-    assert dictate(p)["styled"] == "Hi Sam,\n\nBest,\nJames Farrelly"
+    assert dictate(p)["styled"] == "Hi Sam,\n\nBest,\nJames Donnelly"
 
 
 def test_a_short_answer_gets_none_and_the_field_is_not_read(tmp_path, screen):
@@ -499,7 +499,7 @@ def test_a_whole_snippet_never_gets_one(tmp_path, screen):
 
 
 def test_a_signature_already_before_the_cursor_is_not_added_again(tmp_path, screen):
-    screen["field"] = Field("Hi Sam,\n\nSee you Friday.\n\nBest,\nJames Farrelly\n\n")
+    screen["field"] = Field("Hi Sam,\n\nSee you Friday.\n\nBest,\nJames Donnelly\n\n")
     p = pipe(tmp_path, MAIL, LONG, styler=Plain(BODY), email_signature=SIG)
     assert dictate(p)["styled"] == BODY
 
@@ -507,23 +507,23 @@ def test_a_signature_already_before_the_cursor_is_not_added_again(tmp_path, scre
 def test_other_text_in_the_field_and_no_signature_gets_it(tmp_path, screen):
     screen["field"] = Field("Dear Sam,\n\nI hope you are well.\n\n")
     p = pipe(tmp_path, MAIL, LONG, styler=Plain(BODY), email_signature=SIG)
-    assert dictate(p)["styled"].endswith("\n\nBest,\nJames Farrelly")
+    assert dictate(p)["styled"].endswith("\n\nBest,\nJames Donnelly")
 
 
 def test_when_the_field_cannot_be_read_a_second_one_in_ten_minutes_is_not_added(tmp_path, screen):
     p = pipe(tmp_path, MAIL, LONG, styler=Plain(BODY), email_signature=SIG)
-    assert dictate(p)["styled"].endswith("James Farrelly")          # the field says nothing: first time
-    assert not dictate(p)["styled"].endswith("James Farrelly")      # again, soon: the memory says no
-    assert not dictate(p)["styled"].endswith("James Farrelly")
+    assert dictate(p)["styled"].endswith("James Donnelly")          # the field says nothing: first time
+    assert not dictate(p)["styled"].endswith("James Donnelly")      # again, soon: the memory says no
+    assert not dictate(p)["styled"].endswith("James Donnelly")
     p._signature_memory.forget()
-    assert dictate(p)["styled"].endswith("James Farrelly")
+    assert dictate(p)["styled"].endswith("James Donnelly")
 
 
 def test_an_exception_reading_the_field_is_the_same_as_not_reading_it(tmp_path, screen):
     screen["field"] = Field(RuntimeError("the app did not answer"))
     p = pipe(tmp_path, MAIL, LONG, styler=Plain(BODY), email_signature=SIG)
-    assert dictate(p)["styled"].endswith("James Farrelly")
-    assert not dictate(p)["styled"].endswith("James Farrelly")
+    assert dictate(p)["styled"].endswith("James Donnelly")
+    assert not dictate(p)["styled"].endswith("James Donnelly")
 
 
 def test_a_field_that_hangs_costs_a_moment_not_the_dictation(tmp_path, screen, monkeypatch):
@@ -540,7 +540,7 @@ def test_a_field_that_hangs_costs_a_moment_not_the_dictation(tmp_path, screen, m
     entry = dictate(p)
     hang.release.set()
     assert time.monotonic() - t0 < 4.0
-    assert entry["styled"].endswith("James Farrelly"), "unreadable: the first one is added"
+    assert entry["styled"].endswith("James Donnelly"), "unreadable: the first one is added"
     assert p.page.statuses[-1] == "done"
 
 
@@ -554,7 +554,7 @@ def test_when_the_user_has_moved_to_another_app_there_is_no_signature(tmp_path, 
 def test_the_same_app_under_another_window_is_the_same_app(tmp_path, screen):
     screen["front"] = AppContext("COM.APPLE.MAIL", "Mail", "Re: lunch", "email")
     p = pipe(tmp_path, MAIL, LONG, styler=Plain(BODY), email_signature=SIG)
-    assert dictate(p)["styled"].endswith("James Farrelly")
+    assert dictate(p)["styled"].endswith("James Donnelly")
 
 
 def test_a_superseded_dictation_does_not_read_the_field(tmp_path, screen):
@@ -571,11 +571,11 @@ def test_a_superseded_dictation_does_not_read_the_field(tmp_path, screen):
 
 
 def test_the_signature_goes_on_after_the_style_and_is_never_styled(tmp_path, screen):
-    sig = {"enabled": True, "text": "Best Regards,\nJames Farrelly\nwww.Example.com"}
+    sig = {"enabled": True, "text": "Best Regards,\nJames Donnelly\nwww.Example.com"}
     p = pipe(tmp_path, MAIL, LONG, styler=Plain(BODY), email_signature=sig,
              style_by_category={"email": "casual"})
     entry = dictate(p)
-    assert entry["styled"] == BODY[:-1] + "\n\nBest Regards,\nJames Farrelly\nwww.Example.com"
+    assert entry["styled"] == BODY[:-1] + "\n\nBest Regards,\nJames Donnelly\nwww.Example.com"
     assert entry["style"] == "casual"
     assert "quality" not in entry
 
@@ -590,7 +590,7 @@ def test_a_signature_is_read_again_for_every_dictation(tmp_path, screen):
     p = pipe(tmp_path, MAIL, LONG, styler=Plain(BODY))
     assert dictate(p)["styled"] == BODY
     write_settings(tmp_path, email_signature=SIG)
-    assert dictate(p)["styled"].endswith("James Farrelly")
+    assert dictate(p)["styled"].endswith("James Donnelly")
     write_settings(tmp_path, email_signature={"enabled": False, "text": SIG["text"]})
     p._signature_memory.forget()
     assert dictate(p)["styled"] == BODY
@@ -663,7 +663,7 @@ def test_redo_honours_clean_up_off(tmp_path, shelf):
 
 def test_redo_never_adds_a_signature(tmp_path, shelf, screen):
     p, entry = kept_take(tmp_path, MAIL, said=LONG, styler=Plain(BODY), email_signature=SIG)
-    assert entry["styled"].endswith("James Farrelly")
+    assert entry["styled"].endswith("James Donnelly")
     calls = len(screen["field"].calls)
     new = redo(p, entry)["item"]
     assert new["styled"] == BODY

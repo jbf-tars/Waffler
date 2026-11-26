@@ -143,8 +143,8 @@ CORPUS: List[Case] = [
          expect="don't expand or rephrase technical shorthand"),
     Case("S5 short with proper noun",
          "short", "prose",
-         "Send it to Rohan by EOD.",
-         must_contain=["Rohan", "EOD"],
+         "Send it to Ronan by EOD.",
+         must_contain=["Ronan", "EOD"],
          expect="proper noun and acronym preserved exactly"),
     Case("S6 short with discourse marker",
          "short", "prose",
@@ -251,7 +251,7 @@ CORPUS: List[Case] = [
 
     Case("VL2 long email-shaped input in NORMAL mode (preserve content + numbered list)",
          "very-long", "email",
-         ("Hi Rohan. Just wanted to follow up on our chat earlier. Three things really. First, on the "
+         ("Hi Ronan. Just wanted to follow up on our chat earlier. Three things really. First, on the "
           "API rotation we discussed, can you confirm whether we're using the new tokens or still on "
           "the old ones, because the logs are a bit ambiguous and I want to make sure before "
           "Wednesday's release. Second, the dashboard refactor — I think we agreed you'd take the "
@@ -260,7 +260,7 @@ CORPUS: List[Case] = [
           "and tell me if I've missed anything obvious. No rush on any of this, but ideally by end "
           "of week. Cheers, James."),
          must_match=[r"^\s*1\.\s*", r"\n\s*2\.\s*", r"\n\s*3\.\s*"],
-         must_contain=["rohan", "API rotation", "dashboard", "linear", "cheers", "james"],
+         must_contain=["ronan", "API rotation", "dashboard", "linear", "cheers", "james"],
          expect="normal mode: numbered-list rule fires on First/Second/Third inside the body, "
                 "greeting and sign-off preserved as text (no email-shape line breaks — that's email mode's job)"),
 
@@ -341,10 +341,10 @@ CORPUS: List[Case] = [
          expect="'Hi team,' on own line, blank line, body preserved with question mark"),
     Case("EM3 Hello variant + name",
          "medium", "email",
-         "Hello Rohan, can you check whether the API key rotation has gone through on the dev tier yet?",
-         must_match=[r"^Hello Rohan,\s*\n\s*\n", r"API key rotation"],
+         "Hello Ronan, can you check whether the API key rotation has gone through on the dev tier yet?",
+         must_match=[r"^Hello Ronan,\s*\n\s*\n", r"API key rotation"],
          must_contain=["?"],
-         expect="'Hello Rohan,' on own line"),
+         expect="'Hello Ronan,' on own line"),
     Case("EM4 Dear formal + body",
          "medium", "email",
          "Dear Sam, please find attached the quarterly report for review. Let me know if anything needs adjusting before the board meeting.",
@@ -445,8 +445,8 @@ CORPUS: List[Case] = [
          expect="both group address (small group)"),
     Case("EM20 Evening greeting",
          "medium", "email",
-         "Evening Rohan, sorry for the late message but wanted to flag the API rotation needs doing tonight.",
-         must_match=[r"^Evening Rohan,[ \t]*\n[ \t]*\n"],
+         "Evening Ronan, sorry for the late message but wanted to flag the API rotation needs doing tonight.",
+         must_match=[r"^Evening Ronan,[ \t]*\n[ \t]*\n"],
          expect="evening greeting + name"),
 
     # ─── EXPANDED EMAIL: SIGN-OFF VARIATIONS ───────────────────────────────
@@ -460,8 +460,8 @@ CORPUS: List[Case] = [
          expect="bare 'Cheers.' at end stays on the body's last line, no split"),
     Case("EM22 sign-off with full name",
          "medium", "email",
-         "Hi Sarah, please find the report attached. Let me know if you need anything else. Best regards, James Farrelly.",
-         must_match=[r"\n[ \t]*\n[ \t]*Best regards,[ \t]*\n[ \t]*James Farrelly\b"],
+         "Hi Sarah, please find the report attached. Let me know if you need anything else. Best regards, James Donnelly.",
+         must_match=[r"\n[ \t]*\n[ \t]*Best regards,[ \t]*\n[ \t]*James Donnelly\b"],
          expect="full name (first + last) preserved on signature line"),
     Case("EM23 Sincerely formal",
          "medium", "email",
@@ -470,7 +470,7 @@ CORPUS: List[Case] = [
          expect="Sincerely sign-off split"),
     Case("EM24 Speak soon",
          "medium", "email",
-         "Hi Rohan, thanks for the call earlier — really appreciated your input. Speak soon, James.",
+         "Hi Ronan, thanks for the call earlier — really appreciated your input. Speak soon, James.",
          must_match=[r"\n[ \t]*\n[ \t]*Speak soon,[ \t]*\n[ \t]*James\b"],
          expect="Speak soon sign-off split"),
     Case("EM25 All the best",
@@ -488,7 +488,7 @@ CORPUS: List[Case] = [
     Case("EM27 email with numbered list in body",
          "long", "email",
          "Hi James, three things I need from you this week. First, can you sign off the budget. Second, "
-         "review the architecture doc. Third, schedule the kickoff with Rohan. Cheers, James.",
+         "review the architecture doc. Third, schedule the kickoff with Ronan. Cheers, James.",
          must_match=[
              r"^Hi James,[ \t]*\n[ \t]*\n",
              r"\n\s*1\.\s*",
@@ -509,13 +509,13 @@ CORPUS: List[Case] = [
          expect="email + bullet list of three things in body"),
     Case("EM29 long-ish email multiple paragraphs",
          "very-long", "email",
-         "Hi Rohan, just wanted to follow up on our chat earlier this week about the data residency stuff. "
+         "Hi Ronan, just wanted to follow up on our chat earlier this week about the data residency stuff. "
          "I've gone through the policy doc and I think we're broadly OK, but there are a couple of grey areas "
          "I'd like your view on. The first one is whether transient processing in a US region counts as residency. "
          "The second is whether we need to log the data flow even when nothing is persisted. Let me know what you "
          "think when you get a chance — no rush. Cheers, James.",
          must_match=[
-             r"^Hi Rohan,[ \t]*\n[ \t]*\n",
+             r"^Hi Ronan,[ \t]*\n[ \t]*\n",
              r"\n[ \t]*\n[ \t]*Cheers,[ \t]*\n[ \t]*James\b",
          ],
          must_contain=["data residency", "transient processing"],
@@ -532,7 +532,7 @@ CORPUS: List[Case] = [
     Case("L5 numbered with longer items",
          "long", "numbered list",
          "Right, so first of all I need to ship the API rotation by Wednesday. Second, the dashboard refactor "
-         "needs a code review from Rohan before Friday. Third, I should book in the Q2 retrospective with "
+         "needs a code review from Ronan before Friday. Third, I should book in the Q2 retrospective with "
          "the wider team — probably end of next week.",
          # Use multiline ^ anchor — output may start at line 1 with no preceding
          # newline if the lead-in ("Right, so first of all") was stripped entirely.
@@ -549,12 +549,12 @@ CORPUS: List[Case] = [
          expect="prose lead-in then bullet list of three risks"),
     Case("L7 'I need' grocery-style bullet list (borderline case)",
          "medium", "bulleted list",
-         "For the Friday demo I need slides, the working build, and Rohan to be in the room.",
-         # Borderline: "I need slides, the working build, and Rohan" is a list of
+         "For the Friday demo I need slides, the working build, and Ronan to be in the room.",
+         # Borderline: "I need slides, the working build, and Ronan" is a list of
          # discrete items, but the trailing "to be in the room" qualifier makes
          # this less obviously a bullet candidate. Either prose or bullets is
          # acceptable — the critical check is content preservation.
-         must_contain=["slides", "working build", "Rohan"],
+         must_contain=["slides", "working build", "Ronan"],
          expect="content preserved; bullet vs prose is a judgement call here"),
 
     # ─── EDGE: NUMBERS, DATES, CURRENCY, ACRONYMS ──────────────────────────
@@ -570,7 +570,7 @@ CORPUS: List[Case] = [
          expect="dates and timezones preserved"),
     Case("ED3 acronyms preserved",
          "medium", "code",
-         "Send the PR to Rohan by EOD, and make sure the API key rotation is logged in the SIEM.",
+         "Send the PR to Ronan by EOD, and make sure the API key rotation is logged in the SIEM.",
          must_contain=["PR", "EOD", "API", "SIEM"],
          expect="standalone acronyms not lowercased or expanded"),
     Case("ED4 hyphenated names",
@@ -714,8 +714,8 @@ CORPUS: List[Case] = [
          expect="'Highest' isn't 'Hi-' + greeting — must not split"),
     Case("NG2 'Cheers' as celebration not sign-off",
          "medium", "prose",
-         "Big cheers to Rohan for shipping the migration on time — top job from the whole team.",
-         must_contain=["cheers", "rohan"],
+         "Big cheers to Ronan for shipping the migration on time — top job from the whole team.",
+         must_contain=["cheers", "ronan"],
          must_not_match=[r"\n[ \t]*Cheers,[ \t]*\n"],
          expect="mid-body 'cheers' as exclamation must not trigger sign-off split"),
     Case("NG3 'Thanks' inside a question",
@@ -774,7 +774,7 @@ CORPUS: List[Case] = [
          expect="'number one priority' is an idiom, not a list opener — no second item exists"),
     Case("SOLO-NUM-5 positive control — TWO items still work",
          "medium", "numbered list",
-         "Number one, ship the API rotation. Number two, book the kickoff with Rohan.",
+         "Number one, ship the API rotation. Number two, book the kickoff with Ronan.",
          must_match=[r"(?m)^\s*1\.\s", r"(?m)^\s*2\.\s"],
          must_not_contain=["number one", "number two"],
          expect="two items present — list rule SHOULD fire"),

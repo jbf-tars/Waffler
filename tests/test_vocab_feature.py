@@ -49,20 +49,20 @@ def vocab_file(tmp_path, monkeypatch):
 # ── saving ───────────────────────────────────────────────────────────────────
 
 def test_save_writes_utf8_and_reads_back(vocab_file):
-    r = tw.save_vocab(["Sinéad", "Łukasz", "James Farrelly"])
-    assert r == {"ok": True, "count": 3, "words": ["Sinéad", "Łukasz", "James Farrelly"]}
+    r = tw.save_vocab(["Sinéad", "Łukasz", "James Donnelly"])
+    assert r == {"ok": True, "count": 3, "words": ["Sinéad", "Łukasz", "James Donnelly"]}
     raw = vocab_file.read_bytes().decode("utf-8")
     assert "Sinéad" in raw            # written as UTF-8, not \u escapes
-    assert tw.load_vocab() == ["Sinéad", "Łukasz", "James Farrelly"]
+    assert tw.load_vocab() == ["Sinéad", "Łukasz", "James Donnelly"]
 
 
 def test_save_tidies_the_list(vocab_file):
-    r = tw.save_vocab(["  Rohan ", "rohan", "", "James  Farrelly", None, 7])
-    assert r["ok"] and r["words"] == ["Rohan", "James Farrelly"]
+    r = tw.save_vocab(["  Ronan ", "ronan", "", "James  Donnelly", None, 7])
+    assert r["ok"] and r["words"] == ["Ronan", "James Donnelly"]
 
 
 def test_save_refuses_what_is_not_a_list(vocab_file):
-    assert tw.save_vocab("Rohan")["ok"] is False
+    assert tw.save_vocab("Ronan")["ok"] is False
     assert not vocab_file.exists()
 
 
@@ -80,28 +80,28 @@ def test_save_refuses_a_list_over_the_limit(vocab_file):
 
 
 def test_an_unreadable_file_is_kept_not_overwritten(vocab_file):
-    vocab_file.write_text('["Rohan", "Mal', encoding="utf-8")     # cut short
+    vocab_file.write_text('["Ronan", "Kar', encoding="utf-8")     # cut short
     assert tw.load_vocab() == []
     r = tw.save_vocab(["Ashkan"])
     assert r["ok"] and "kept as vocab.unreadable-" in r["log"]
     kept = list(vocab_file.parent.glob("vocab.unreadable-*.json"))
-    assert len(kept) == 1 and kept[0].read_text(encoding="utf-8") == '["Rohan", "Mal'
+    assert len(kept) == 1 and kept[0].read_text(encoding="utf-8") == '["Ronan", "Kar'
     assert tw.load_vocab() == ["Ashkan"]
 
 
 def test_a_readable_file_is_simply_replaced(vocab_file):
-    tw.save_vocab(["Rohan"])
-    r = tw.save_vocab(["Rohan", "Malak"])
+    tw.save_vocab(["Ronan"])
+    r = tw.save_vocab(["Ronan", "Karin"])
     assert "log" not in r
     assert not list(vocab_file.parent.glob("vocab.unreadable-*"))
 
 
 def test_the_next_dictation_uses_the_saved_list_without_a_restart(vocab_file):
-    assert tw.apply_vocab_corrections("malek rang", tw.load_vocab())[0] == "malek rang"
-    tw.save_vocab(["Malak"])
-    assert tw.apply_vocab_corrections("malek rang", tw.load_vocab())[0] == "Malak rang"
+    assert tw.apply_vocab_corrections("karen rang", tw.load_vocab())[0] == "karen rang"
+    tw.save_vocab(["Karin"])
+    assert tw.apply_vocab_corrections("karen rang", tw.load_vocab())[0] == "Karin rang"
     tw.save_vocab([])
-    assert tw.apply_vocab_corrections("malek rang", tw.load_vocab())[0] == "malek rang"
+    assert tw.apply_vocab_corrections("karen rang", tw.load_vocab())[0] == "karen rang"
 
 
 def test_the_app_saves_through_save_vocab():
@@ -121,7 +121,7 @@ def test_the_pipeline_keeps_the_changes_with_the_journal_entry():
 
 
 def test_the_journal_card_no_longer_says_it():
-    """A card used to say "Vocabulary changed Malek to Malak" under the text.
+    """A card used to say "Vocabulary changed Karen to Karin" under the text.
     The change is still kept with the entry (above) and counted in Settings,
     Words; the card says nothing, a correction is simply made
     (tests/test_words_section.py)."""
@@ -135,13 +135,13 @@ def test_the_journal_card_no_longer_says_it():
 
 @needs_node
 def test_add_decisions():
-    assert js("L.vocabAdd(['Rohan'], '   ', 60).action") == "empty"
-    assert js("L.vocabAdd(['Rohan'], 'x'.repeat(61), 60).action") == "too_long"
-    assert js("L.vocabAdd(['Rohan'], 'Rohan', 60).action") == "same"
-    assert js("L.vocabAdd(['Cobie', 'Rohan'], 'COBie', 60)") == {
-        "action": "respell", "word": "COBie", "existing": "Cobie", "next": ["COBie", "Rohan"]}
-    assert js("L.vocabAdd(['Rohan'], '  James   Farrelly ', 60)") == {
-        "action": "add", "word": "James Farrelly", "next": ["Rohan", "James Farrelly"]}
+    assert js("L.vocabAdd(['Ronan'], '   ', 60).action") == "empty"
+    assert js("L.vocabAdd(['Ronan'], 'x'.repeat(61), 60).action") == "too_long"
+    assert js("L.vocabAdd(['Ronan'], 'Ronan', 60).action") == "same"
+    assert js("L.vocabAdd(['Cobie', 'Ronan'], 'COBie', 60)") == {
+        "action": "respell", "word": "COBie", "existing": "Cobie", "next": ["COBie", "Ronan"]}
+    assert js("L.vocabAdd(['Ronan'], '  James   Donnelly ', 60)") == {
+        "action": "add", "word": "James Donnelly", "next": ["Ronan", "James Donnelly"]}
 
 
 @needs_node

@@ -52,7 +52,7 @@ def test_common_english_words_are_never_fuzzy_corrected(common, vocab):
     Every pair here DOES clear the 0.75 similarity bar — verified by
     disabling the guard — so each case fails without it.
 
-    Deliberately excluded: "roman" vs vocab "Rohan" also clears the bar, but
+    Deliberately excluded: "roman" vs vocab "Ronan" also clears the bar, but
     there the correction is the feature working. A surname misheard as a
     capitalised proper noun is the case custom vocabulary exists for; only
     everyday words are protected.
@@ -82,7 +82,7 @@ def test_bigram_collapse_still_recovers_a_split_compound():
 
 def test_real_vocab_list_leaves_an_ordinary_sentence_untouched():
     vocab = ["Ashkan", "COBieQC", "COBie", "Morta", "Waffler", "craic",
-             "Rohan", "Kandola", "James Farrelly", "Malak", "XBim", "Nour"]
+             "Ronan", "Kapoor", "James Donnelly", "Karin", "XBim", "Nour"]
     text = ("Just wanted to check which version of the toolkit you are on, "
             "and really appreciate your time today. I will send over the "
             "four files within the hour.")

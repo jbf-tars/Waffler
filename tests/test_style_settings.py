@@ -108,7 +108,7 @@ def test_save_stores_the_signature_tidy(tmp_path):
 
 def test_the_notes_never_carry_the_signature(tmp_path):
     api, save, _get = methods(tmp_path)
-    r = save(api, {"email_signature": {"enabled": True, "text": "Best, James Farrelly 07700 900123"}})
+    r = save(api, {"email_signature": {"enabled": True, "text": "Best, James Donnelly 07700 900123"}})
     assert "James" not in json.dumps(r) and "0770" not in json.dumps(r)
 
 
@@ -193,10 +193,10 @@ def test_preview_style_answers_odd_input_with_a_sentence_not_an_error():
 # ── the logs bundle leaves the signature out ─────────────────────────────────
 
 def test_the_signature_text_is_blanked_in_the_logs_copy():
-    raw = json.dumps({"theme": "dark", "email_signature": {"enabled": True, "text": "Best,\nJames Farrelly\n07700 900123"},
+    raw = json.dumps({"theme": "dark", "email_signature": {"enabled": True, "text": "Best,\nJames Donnelly\n07700 900123"},
                       "style_by_category": {"work": "casual"}})
     out = privacy_data.settings_for_logs(raw)
-    assert "Farrelly" not in out and "07700" not in out and "Best" not in out
+    assert "Donnelly" not in out and "07700" not in out and "Best" not in out
     data = json.loads(out)
     assert data["email_signature"] == {"enabled": True, "text": "", "text_chars": 33}
     assert data["theme"] == "dark" and data["style_by_category"] == {"work": "casual"}

@@ -1738,12 +1738,12 @@ website and setup, in light and Dark.
   words with letters added or taken off the start or end ("waffle",
   "waffled", "mortar", "Phillips", "BIM" for XBim), and that includes its
   capitals: with "Will" in your list, "will" stays "will". Real mishearings
-  still change: Ashkahn and ashcan to Ashkan, Malek to Malak, Woffler to
+  still change: Ashkahn and ashcan to Ashkan, Karen to Karin, Woffler to
   Waffler, Isabel to Isobel, Sinead to Sinéad, club card to Clubcard.
 - When a word is close to two of your words, the closer one wins, not the
   one listed first: "cobiec" becomes COBieQC, not COBie.
-- **Names of more than one word work.** "James Farrelly" in your list was
-  never matched before; "james farrely" now becomes James Farrelly. Entries
+- **Names of more than one word work.** "James Donnelly" in your list was
+  never matched before; "james donnely" now becomes James Donnelly. Entries
   with hyphens or apostrophes (Jean-Luc, O'Brien) work too, and accented
   letters no longer split a word in two.
 - **Entries with digits or symbols work.** "GPT-4o", "M365", "C++",
@@ -1754,7 +1754,7 @@ website and setup, in light and Dark.
 - "kobi qc" becomes COBieQC again: a two-letter part that is not an everyday
   word (an initialism like "qc") may now be joined to the word before it.
 - **See what changed.** Each Journal entry the Vocabulary changed now says
-  so under the text, for example "Your Vocabulary changed Malek to Malak."
+  so under the text, for example "Your Vocabulary changed Karen to Karin."
   The log no longer reports a word that was already spelt your way as a
   correction.
 - Typing a word that is already in your list in different capitals offers
@@ -2733,7 +2733,7 @@ what it first looked like.
   close. Short entries still correct on an exact match, and genuine
   mishearings of longer names are untouched (`cobia` -> `COBie`, `Nash can`
   -> `Ashkan` both still pass). A surname misheard as a capitalised proper
-  noun ("roman" -> `Rohan`) is deliberately still corrected: that is the
+  noun ("roman" -> `Ronan`) is deliberately still corrected: that is the
   feature working.
 
 ### Tests
@@ -2757,7 +2757,7 @@ guessed at.
 - **The custom-vocabulary prompt was derailing Whisper on long recordings.**
   Re-running the retained 80 s clip through Groq `whisper-large-v3` with the
   app's prompt (the comma-separated vocabulary list: `Ashkan, COBie, Morta,
-  ... Malak, XBim`) reproduced the stored result exactly, twice: 159 words,
+  ... Karin, XBim`) reproduced the stored result exactly, twice: 159 words,
   final 20 s of speech replaced by "and the rest of the team." The same audio
   with no prompt returned all 214 words, twice. Every list-shaped prompt
   variant derailed the same clip ("Thank you for watching!", "Subtitles by
@@ -2792,7 +2792,7 @@ guessed at.
   likes", "Subtitles by ...") after 10 s+ of measured speech is now retried
   on the alternate provider, and a modestly fuller alternate (1.10x rather
   than 1.25x) is accepted, still subject to the semantic-safety checks from
-  3.14.93. The phrase inside a real sentence ("send it to Malak and the rest
+  3.14.93. The phrase inside a real sentence ("send it to Karin and the rest
   of the team") does not trigger.
 - **The hallucination filter knows the list-completion family.** An
   own-sentence "and the rest of the team." / "Thank you for watching!" tail
@@ -3914,7 +3914,7 @@ Fixes from a full code review (7 parallel review agents: security, app.py core, 
 - **`OPENAI_STYLE_MODEL` and `CEREBRAS_MODEL` env vars** for advanced users who want to override the auto-routed model selection.
 - **Self-correction force-LLM markers in `_is_simple()`** — short transcripts that contain self-correction markers (`"sorry I mean"`, `", no <word>"`, `"actually"`, `"I meant"`, `"hmm no"`, `"scratch that"`, `"what I'm trying to say"`, etc.) now bypass the regex-only `_basic_clean` cleaner and go to the LLM, which can actually drop the wrong half. Previously short corrections like `"Tuesday, sorry I mean Monday"` would keep both versions in the output. The corpus now covers 24 self-correction scenarios across day-of-week, name, number, place, multi-step chains, and structural (numbered list / email body / question) contexts.
 - **Profanity restoration safety net.** OpenAI's gpt-4o-mini and gpt-4.1-mini have safety training that sometimes drops swear words even when the prompt explicitly forbids censoring. New `_restore_censored_profanity()` runs after every styling call: if a swear word appears in the raw transcript but not in the styled output, it gets spliced back at the correct position by anchoring on the word immediately before the swear in raw (tracking which occurrence of that word, in case it appears multiple times). Covers the common UK/US swear lexicon.
-- **Greeting auto-line-break for email-style input.** When the transcript starts with `Hi <Name>,` / `Hello team,` / `Hey Rohan,` / `Dear Sam,` / `Morning all,`, Normal mode now puts the greeting on its own line followed by a blank line before the body. Mirrors the existing sign-off split. False-positive guards in place for meta-language ("Hi guys would never work as an opener").
+- **Greeting auto-line-break for email-style input.** When the transcript starts with `Hi <Name>,` / `Hello team,` / `Hey Ronan,` / `Dear Sam,` / `Morning all,`, Normal mode now puts the greeting on its own line followed by a blank line before the body. Mirrors the existing sign-off split. False-positive guards in place for meta-language ("Hi guys would never work as an opener").
 - **Sign-off auto-split.** `Cheers, James` / `Regards, James` / `Thanks again, James` etc at end of transcript split into two lines (sign-off line + name line) for proper email shape. False-positive guard for mid-body sign-off words.
 
 ### Fixed
@@ -3943,8 +3943,8 @@ Fixes from a full code review (7 parallel review agents: security, app.py core, 
 ### Added
 - **`OPENAI_STYLE_MODEL` env-var override** for the OpenAI styling model. Defaults to `gpt-4o-mini`; setting `OPENAI_STYLE_MODEL=gpt-4.1-mini` (or any other compatible chat-completions model) flips the styler without a code change. `gpt-4.1-mini` follows strict prompts noticeably better than `gpt-4o-mini` for the same speed bracket and is the recommended upgrade for users who want tighter rule-following.
 - **53 new regression cases** in `scripts/auto_test_corpus.py`, taking the suite from 38 to 91 hand-built tests. New coverage:
-  - Greeting variations: `Hey James,` / `Morning Sarah,` / `Afternoon team,` / `Dear Mr Thompson,` / `Hi everyone,` / `Hi all,` / `Hi James and Sarah,` / `Hi folks,` / `Hey both,` / `Evening Rohan,`
-  - Sign-off variations: `Cheers` (no name), `Best regards, James Farrelly` (full name), `Sincerely,` `Speak soon,` `All the best,` `Thanks again,`
+  - Greeting variations: `Hey James,` / `Morning Sarah,` / `Afternoon team,` / `Dear Mr Thompson,` / `Hi everyone,` / `Hi all,` / `Hi James and Sarah,` / `Hi folks,` / `Hey both,` / `Evening Ronan,`
+  - Sign-off variations: `Cheers` (no name), `Best regards, James Donnelly` (full name), `Sincerely,` `Speak soon,` `All the best,` `Thanks again,`
   - Combinations: email + numbered list in body, email + bullets in body, multi-paragraph email
   - Edge: currency (`£2,500` / `$3,300` / `€2,900`), dates and timezones (`12th May 2026 at 3pm UK time`), acronyms (`PR EOD API SIEM`), hyphenated names (`Mary-Jane`), apostrophes (`O'Brien`), URLs, email addresses, version numbers, file paths, mixed `twenty-five` vs `250`, profanity, British spelling
   - Real-world: stand-up update, bug report, code-review comment, Slack-casual, rambling thought
@@ -3964,7 +3964,7 @@ Fixes from a full code review (7 parallel review agents: security, app.py core, 
 ## [3.12.4] - 2026-05-09
 
 ### Added
-- **Greeting auto-line-break in Normal mode.** When the transcript starts with a clear greeting addressed to a person or group (`Hi James,` / `Hello team,` / `Hey Rohan,` / `Dear Sam,` / `Morning all,`), Normal mode now puts the greeting on its own line with a blank line below it before the body — without needing the user to switch to the dedicated Email mode. Trigger requires (a) sentence-start greeting word, (b) a name or group address, AND (c) a punctuation mark already present in the input. The styler does not invent a comma where none exists. False-positive guards: the rule does NOT fire when the input is talking *about* a greeting (e.g. "Hi guys would never work as an opener") — the next word being a verb/auxiliary with no punctuation tells the styler this is meta-language, not a greeting. Six new corpus tests (4 positive + 2 negative) lock the behaviour in.
+- **Greeting auto-line-break in Normal mode.** When the transcript starts with a clear greeting addressed to a person or group (`Hi James,` / `Hello team,` / `Hey Ronan,` / `Dear Sam,` / `Morning all,`), Normal mode now puts the greeting on its own line with a blank line below it before the body — without needing the user to switch to the dedicated Email mode. Trigger requires (a) sentence-start greeting word, (b) a name or group address, AND (c) a punctuation mark already present in the input. The styler does not invent a comma where none exists. False-positive guards: the rule does NOT fire when the input is talking *about* a greeting (e.g. "Hi guys would never work as an opener") — the next word being a verb/auxiliary with no punctuation tells the styler this is meta-language, not a greeting. Six new corpus tests (4 positive + 2 negative) lock the behaviour in.
 
 ### Fixed
 - **Email-mode dropdown choice was never persisted.** Selecting "Email" from the sidebar dropdown updated the running pipeline in memory, but `set_mode()` never wrote the choice to `~/.waffler-hosted/settings.json`. On every app restart the user was silently back on Normal. `set_mode` now persists `prompt_style`; `Config._load_env_vars` reads it back so the UI's choice survives restarts. Precedence: settings.json (UI choice) > `PROMPT_STYLE` env var (advanced override) > "normal" default.

@@ -93,9 +93,9 @@ def test_quotes_commas_and_doubled_quotes():
 
 
 def test_a_quoted_cell_may_hold_line_breaks_in_any_style():
-    text = 'trigger,expansion\r\nsig,"Best,\r\nJames\nFarrelly"\r\nnext,x'
+    text = 'trigger,expansion\r\nsig,"Best,\r\nJames\nDonnelly"\r\nnext,x'
     got = T.parse(text)
-    assert got[1] == ["sig", "Best,\r\nJames\nFarrelly"]
+    assert got[1] == ["sig", "Best,\r\nJames\nDonnelly"]
     assert got[2] == ["next", "x"]
 
 
