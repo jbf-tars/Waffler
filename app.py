@@ -3577,8 +3577,13 @@ class Api:
                 resume = str(self._load_settings_file().get("setup_step") or "")
             except Exception:
                 resume = ""
+        # The version an update just installed (main: the update's outcome),
+        # handed over once, and only when Home is what opens: Home says
+        # "Updated to Waffler <version>" with a way to what is new.
+        just_updated = "" if needs_setup else str(globals().pop("_UPDATE_DONE_NOTICE", "") or "")
         return {
             "needs_setup": needs_setup,
+            "just_updated": just_updated,
             "has_key": has_any_key,
             "has_openai_key": bool(openai_key),
             "has_groq_key": bool(groq_key),
@@ -10699,6 +10704,10 @@ def main():
             )
             if not _pending["ok"]:
                 globals()["_UPDATE_FAILURE_NOTICE"] = _pending
+            else:
+                # Home says it once: "Updated to Waffler 4.0.0", with the way
+                # to Settings, About's "New in" (get_onboarding_status).
+                globals()["_UPDATE_DONE_NOTICE"] = _pending["expected"]
     except Exception as _e:
         _log_to_file(f"[update] pending-update check failed: {_e}")
 

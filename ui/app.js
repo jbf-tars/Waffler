@@ -5922,10 +5922,29 @@ async function checkOnboarding() {
       const main = document.getElementById('mainArea');
       if (main) main.style.display = '';
       refreshAll();
+      _showJustUpdated(status.just_updated);
     }
   } catch(e) {
     console.warn('checkOnboarding error:', e);
   }
+}
+
+// The first start after an update from inside Waffler: one dismissible line
+// in Home's margin, with the way to Settings, About ("New in").
+function _showJustUpdated(version) {
+  const v = WL.justUpdatedView(version);
+  const host = _journalNotices();
+  if (!v || !host) return;
+  const go = document.createElement('button');
+  go.className = 'btn btn-quiet btn-sm';
+  go.textContent = v.action;
+  const box = makeNotice({ icon: 'check-circle', tone: 'plain', title: v.title, desc: v.desc, actions: [go], id: 'justUpdatedNotice' });
+  go.addEventListener('click', () => {
+    box.remove();
+    _settingsSection = 'about';
+    showPage('settings');
+  });
+  host.prepend(box);
 }
 
 function showWizard(status, stt) {

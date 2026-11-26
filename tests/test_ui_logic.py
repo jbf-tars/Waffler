@@ -954,6 +954,27 @@ def test_whats_new_3_16_is_in_the_changelog():
         assert needle in section, needle
 
 
+@needs_node
+def test_whats_new_4_0_is_in_the_changelog():
+    """Settings, About lists 4.0's news; it was empty for 4.0 (no entry)."""
+    v = js("L.whatsNew('4.0.0', false)")
+    assert v["title"] == "New in 4.0" and len(v["items"]) == 4
+    assert js("L.whatsNew('4.0.0', true)") == v
+    log = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    section = log[log.index("## [4.0.0]"):log.index("## [3.17.2]")]
+    for needle in ("**Meetings.**", "notes with next steps", "**Free, with no key.**", "**An account, optional.**",
+                   "**A new look.**", "Vocabulary** moved to Settings, Words"):
+        assert needle in section, needle
+
+
+@needs_node
+def test_home_says_which_version_an_update_installed():
+    assert js("L.justUpdatedView('4.0.0')") == {
+        "title": "Updated to Waffler 4.0.0", "desc": "See what's new in Settings, About.", "action": "What's new"}
+    for nothing in ("", None, "unknown", "4", "<b>4.0</b>"):
+        assert js(f"L.justUpdatedView({json.dumps(nothing)})") is None, nothing
+
+
 def test_settings_pages_are_wired_to_real_data():
     """The Atelier Settings: every figure comes from the app. The meter polls
     get_mic_level only while General is on screen, the hotkey test is the

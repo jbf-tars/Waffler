@@ -2344,6 +2344,12 @@
       'Vocabulary asks before an everyday word becomes a spelling of a name.',
       { mac: 'The first dictation after your Mac wakes no longer loses its start.', win: 'A tidier window, with the right words for Windows.' },
     ],
+    '4.0': [
+      'Meetings: record one from Home and get a transcript and notes with next steps.',
+      'Free, with no key: speech to text on this computer.',
+      'An account, optional, keeps meeting notes in step across your devices.',
+      'A new look. Vocabulary moved to Settings, Words.',
+    ],
   };
   function whatsNew(version, isMac) {
     const m = String(version || '').match(/^(\d+)\.(\d+)/);
@@ -2352,6 +2358,16 @@
     // A line that differs between a Mac and Windows holds both.
     const items = WHATS_NEW[key].map((line) => (typeof line === 'string' ? line : (isMac === false ? line.win : line.mac)));
     return { title: `New in ${key}`, items };
+  }
+
+  // Home, once, on the first start after an update installed from inside
+  // Waffler (get_onboarding_status "just_updated"): which version it is now,
+  // and the way to Settings, About, where "New in" lists what changed.
+  // Nothing for anything that is not a version number.
+  function justUpdatedView(version) {
+    const v = String(version || '').trim();
+    if (!/^\d+\.\d+(\.\d+)*$/.test(v)) return null;
+    return { title: `Updated to Waffler ${v}`, desc: "See what's new in Settings, About.", action: "What's new" };
   }
 
   // ── Vocabulary (3.15, Atelier) ────────────────────────────────────────
@@ -3608,7 +3624,7 @@
     clipboardAfterPasteView, clipboardAfterPasteSaved, feedbackView, feedbackSaved, METER_CELLS, micMeter,
     MIC_MAX, micSame, micEntry, micList, micMove, micRemove, micAdd, micRows, micStatus, micAddOptions, micPick, micSaved,
     usageChart, usageFacts, flowView, PROVIDER_MARKS, providerPill,
-    privacyFlow, hotkeyTestLine, whatsNew,
+    privacyFlow, hotkeyTestLine, whatsNew, justUpdatedView,
     TYPING_WPM, TYPING_SPEED_PROBLEM, HEAT_LEVELS, formatMinutes, clockHour, hourRange, typingSpeedCheck,
     typingSpeedSaved, weekView, weekStreakView, wpmView, minutesSavedView, peakHourView, topAppsView,
     heatLevel, heatmapView, heatMove,
