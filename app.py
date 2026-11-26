@@ -169,6 +169,7 @@ import journal_data as _journal
 import stats_insights as _stats_insights
 import recent_audio as _recent_audio
 import privacy_data as _privacy
+import bridge_gate as _bridge_gate
 import cleanup_pause as _cleanup_pause
 import languages as _languages
 import mac_permissions as _mac_perms
@@ -10800,12 +10801,15 @@ def main():
         min_size=(900, 640),
         resizable=True,
         background_color=_window_bg,
-        js_api=api,
+        # The page reaches only the Api methods named in src/bridge_gate.py:
+        # js_api resolves nothing, and each allowed method is exposed by name.
+        js_api=_bridge_gate.ClosedApi(),
         frameless=False,
         easy_drag=False,
         hidden=start_hidden,
     )
 
+    _bridge_gate.expose(window, api)
     set_window(window)
     _window_ref = window
 
