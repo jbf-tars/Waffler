@@ -60,6 +60,31 @@ def touches(payload) -> bool:
     return isinstance(payload, dict) and SETTING in payload
 
 
+# Two taps can also record a meeting (4.0, settings.json "meeting_double_tap",
+# app.py apply_meeting_tap). That is on unless switched off, and while it is
+# on it takes the two taps from hands-free. So someone who had switched on
+# double-tap for hands-free in 3.17 or earlier would find, after the update,
+# that their two taps start a meeting instead. Once per data folder, at start,
+# such a person keeps their hands-free taps (the meeting tap is saved as off,
+# and Settings, Shortcuts can turn it on). Everyone else is left as they are.
+MEETING_SETTING = "meeting_double_tap"
+MEETING_CHECKED = "meeting_double_tap_checked"
+
+
+def keep_hands_free_taps(stored) -> bool:
+    """Run the once-per-folder check above on ``stored`` (settings.json as a
+    dict), changing it in place. True when it changed (and should be saved):
+    the check is marked done, and the meeting tap saved as off when hands-free
+    taps were on and the meeting tap was never set. False when it had been
+    done already or ``stored`` is not a dict."""
+    if not isinstance(stored, dict) or stored.get(MEETING_CHECKED) is True:
+        return False
+    if enabled(stored) and MEETING_SETTING not in stored:
+        stored[MEETING_SETTING] = False
+    stored[MEETING_CHECKED] = True
+    return True
+
+
 def settings_problem(payload) -> Optional[str]:
     """A plain sentence when ``payload`` (what a save is called with) names
     the setting with anything but a true or a false, else None."""

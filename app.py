@@ -10551,6 +10551,28 @@ def _adopt_legacy_input_source_change():
         _log_to_file(f"[input source] legacy check skipped: {e}")
 
 
+def _keep_hands_free_taps():
+    """Start-up, once per data folder: someone who had switched on
+    "Double-tap to go hands-free" before two taps could also record a meeting
+    keeps their hands-free taps (src/double_tap.py keep_hands_free_taps). Only
+    a settings.json that is there and readable is looked at; nothing else is
+    written. Never raises."""
+    try:
+        with _settings_lock:
+            sf = DATA_DIR / "settings.json"
+            if not sf.exists():
+                return
+            stored = json.loads(sf.read_text(encoding="utf-8-sig"))
+            before = stored.get(_double_tap.MEETING_SETTING) if isinstance(stored, dict) else None
+            if _double_tap.keep_hands_free_taps(stored):
+                write_json_atomic(sf, stored)
+                if stored.get(_double_tap.MEETING_SETTING) is False and before is None:
+                    _log_to_file("[double-tap] hands-free taps kept from before meetings: "
+                                 "two taps for a meeting is off (Settings, Shortcuts)")
+    except Exception as e:
+        _log_to_file(f"[double-tap] upgrade check skipped: {type(e).__name__}")
+
+
 def main():
     global _config, _window_ref, _window_hidden, _hidden_start_until
 
@@ -10787,6 +10809,10 @@ def main():
     if _platform.system() == "Darwin":
         _request_input_monitoring_permission()
         _adopt_legacy_input_source_change()
+
+    # Before the hotkey listener is made: an older Waffler's hands-free
+    # double-tap is not taken over by the meeting tap.
+    _keep_hands_free_taps()
 
     # Only auto-initialize pipeline if setup was already completed
     # On this computer (transcription_mode "local") needs no key.
