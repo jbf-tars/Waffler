@@ -237,7 +237,9 @@ PROMPTS = {
     # describing the retired Llama chain (audit cleanup); no model reads it.
     "README.md": "8d9c36d463999a2ac132c537f63de41a333fa6049d06105b8a90c9778d9253bb",
     "email.txt": "f4619da2d78b5760b68d3dfc40e7b8dc89c51bd90147e91432f286268e1bf248",
-    "normal.txt": "14e2868af8da6836f08c9c4a308cd1a7d8ea08505c681883f7b4926d4d91b84c",
+    # normal.txt moved once on purpose: one worked example in the numbered-list
+    # rule had its nouns swapped for neutral ones (same shape, same triggers).
+    "normal.txt": "cec45b286ebec5044b299f78c1874270b7cca9937e715fe4487f130b1df0d369",
 }
 
 

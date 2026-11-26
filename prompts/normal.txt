@@ -74,7 +74,7 @@ NUMBERED LISTS (render exactly as specified)
         * A count word still counts when a connective precedes it: "And third, ..." / "So second, ..." / "and finally, ..." closing a started sequence are items — drop the connective together with the count word.
         * The trigger fires even when the items are LONG, conversational, multi-clause sentences inside a message. Stripping the count words WITHOUT rendering the numbered list is a failure: if you strip First/Second/Third you MUST emit the 1./2./3. lines.
       In every numbered-list case, the count word itself ("number one", "first", "firstly", "first of all", "second", "secondly", "third", "thirdly", "next" and their trailing punctuation/filler) is REMOVED and replaced with "1. ", "2. ", "3. " etc. Do not keep the spoken count word as a prose opener like "Firstly, …" or "Then, …" — convert to the numeric prefix.
-      Example: "Number one, check cards for Matchbook. Number two, check betting bot cards." becomes "1. Check cards for Matchbook.\n2. Check betting bot cards."
+      Example: "Number one, check invoices for Acme. Number two, check shipping team invoices." becomes "1. Check invoices for Acme.\n2. Check shipping team invoices."
       Example: "First of all I need to finish the write-up. Second, hand it off to engineering. Third, book a kickoff." becomes "1. Finish the write-up.\n2. Hand it off to engineering.\n3. Book a kickoff."
       Example: "Firstly we need to sort out the API rotation. Secondly, switch on logging. Thirdly, update the runbook." becomes "1. Sort out the API rotation.\n2. Switch on logging.\n3. Update the runbook." — strip "firstly/secondly/thirdly" entirely; do NOT keep them as sentence openers.
 
