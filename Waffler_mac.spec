@@ -157,10 +157,9 @@ a = Analysis(
         # ── The writing model's engine, when installed (see _LLM_HIDDEN) ──
         *_LLM_HIDDEN,
         # ── Meetings: imported inside functions (src/meetings) ──
-        # Import audio that soundfile cannot read (m4a): the wheel's own
-        # ffmpeg program, which pyinstaller-hooks-contrib's hook-imageio_ffmpeg
-        # collects from imageio_ffmpeg/binaries.
-        'imageio_ffmpeg',
+        # (Import audio that soundfile cannot read, m4a above all, goes
+        # through macOS's own /usr/bin/afconvert: src/meetings/audio_decode.py.
+        # No FFmpeg is in the app.)
         # Meeting notes by Anthropic's models, when the person chooses them.
         'anthropic',
         # ── UI ──
@@ -239,6 +238,10 @@ a = Analysis(
         # faster-whisper lists onnxruntime for its voice-activity filter,
         # which Waffler never switches on (it has its own): about 85 MB saved.
         'onnxruntime',
+        # No GPL program in the app (26 Nov 2026): Import audio uses macOS's
+        # own afconvert, so imageio-ffmpeg's ffmpeg must never be collected,
+        # even from a build venv that still has the package.
+        'imageio_ffmpeg',
     ],
     noarchive=False,
 )

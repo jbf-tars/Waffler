@@ -8,6 +8,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
@@ -64,7 +66,7 @@ def _all_there(monkeypatch):
     monkeypatch.setattr(self_check, "check_writing", lambda: {"present": True, "runs": True})
     monkeypatch.setattr(self_check, "check_computer_sound", lambda: {"needed": True, "present": True})
     monkeypatch.setattr(self_check, "check_libraries",
-                        lambda: {"anthropic": {"present": True}, "ffmpeg": {"present": True}})
+                        lambda: {"anthropic": {"present": True}, "audio_decoder": {"present": True}})
 
 
 def test_complete_fails_when_an_optional_part_is_absent(tmp_path, monkeypatch):
@@ -72,11 +74,11 @@ def test_complete_fails_when_an_optional_part_is_absent(tmp_path, monkeypatch):
     assert self_check.run(tmp_path, complete=True)["ok"] is True
     monkeypatch.setattr(self_check, "check_writing", lambda: {"present": False, "runs": False})
     monkeypatch.setattr(self_check, "check_libraries",
-                        lambda: {"anthropic": {"present": False}, "ffmpeg": {"present": False}})
+                        lambda: {"anthropic": {"present": False}, "audio_decoder": {"present": False}})
     assert self_check.run(tmp_path)["ok"] is True                    # optional: reported only
     strict = self_check.run(tmp_path, complete=True)
     assert strict["ok"] is False
-    assert strict["optional_missing"] == ["writing engine", "anthropic", "ffmpeg for Import audio"]
+    assert strict["optional_missing"] == ["writing engine", "anthropic", "decoder for Import audio"]
 
 
 # ── Windows: the writing engine is llama.cpp's own server, never in a build ──
@@ -140,13 +142,51 @@ def test_on_windows_a_server_that_does_not_start_is_reported(tmp_path, monkeypat
     assert writing["present"] is True and writing["runs"] is False and "3221225781" in writing["error"]
 
 
-def test_the_two_meeting_libraries_are_reported_as_they_are_here():
+def test_the_meeting_libraries_are_reported_as_they_are_here():
     import importlib.util
     libraries = self_check.check_libraries()
     assert libraries["anthropic"]["present"] is (importlib.util.find_spec("anthropic") is not None)
-    assert libraries["ffmpeg"]["present"] is (importlib.util.find_spec("imageio_ffmpeg") is not None)
-    if libraries["ffmpeg"]["present"]:
-        assert os.access(libraries["ffmpeg"]["path"], os.X_OK)
+    assert "ffmpeg" not in libraries and "audio_decoder" in libraries
+
+
+# ── the decoder for Import audio (src/meetings/audio_decode.py) ─────────────
+
+@pytest.mark.skipif(sys.platform != "darwin" or not Path("/usr/bin/afconvert").exists(),
+                    reason="needs macOS's afconvert")
+def test_on_a_mac_the_system_decoder_reads_a_two_second_m4a_made_here():
+    decoder = self_check.check_audio_decoder()
+    assert decoder["present"] is True and decoder["how"] == "system", decoder
+    assert decoder["path"] == "/usr/bin/afconvert" and 1.8 <= decoder["seconds"] <= 2.3
+
+
+def test_on_a_mac_without_afconvert_the_decoder_is_missing(monkeypatch):
+    decode = self_check._import("meetings.audio_decode")
+    monkeypatch.setattr(decode, "AFCONVERT", "/nowhere/afconvert")
+    decoder = self_check.check_audio_decoder("darwin")
+    assert decoder["present"] is False and "error" in decoder
+
+
+def test_on_windows_the_audio_decoder_comes_down_on_first_use(tmp_path, monkeypatch):
+    monkeypatch.setenv("WAFFLER_DATA_DIR", str(tmp_path))
+    decoder = self_check.check_audio_decoder("win32")
+    assert decoder["comes_on_first_use"] is True and decoder["present"] is False
+    assert decoder["how"] == "download" and "error" not in decoder
+    assert "audio-decoder" in decoder["detail"] and str(tmp_path) not in decoder["detail"]
+    _all_there(monkeypatch)
+    monkeypatch.setattr(self_check, "check_libraries",
+                        lambda: {"anthropic": {"present": True}, "audio_decoder": decoder})
+    strict = self_check.run(tmp_path, complete=True)
+    assert "decoder for Import audio" not in strict["optional_missing"] and strict["ok"] is True
+
+
+def test_on_windows_a_fetched_decoder_is_reported_present(tmp_path, monkeypatch):
+    monkeypatch.setenv("WAFFLER_DATA_DIR", str(tmp_path))
+    helper = tmp_path / "audio-decoder" / "ffmpeg.exe"
+    helper.parent.mkdir()
+    helper.write_bytes(b"")
+    decoder = self_check.check_audio_decoder("win32")
+    assert decoder["present"] is True and decoder["path"] == str(helper)
+    assert "comes_on_first_use" not in decoder
 
 
 def test_meeting_keys_are_reported_without_keyring(monkeypatch):
@@ -166,7 +206,7 @@ def test_an_audio_file_is_put_through_import_audio(tmp_path, monkeypatch):
         w.setframerate(16000)
         w.writeframes(b"\x00\x01" * 16000)
     answer = self_check.run(tmp_path, audio=str(clip))
-    assert answer["audio"]["decoded"] is True and answer["audio"]["needed_ffmpeg"] is False
+    assert answer["audio"]["decoded"] is True and answer["audio"]["needed_decoder"] is False
     assert answer["audio"]["seconds"] == 1.0 and answer["ok"] is True
     (tmp_path / "broken.m4a").write_bytes(b"not audio")
     monkeypatch.setenv("PATH", str(tmp_path))                        # no ffmpeg of the person's own
@@ -185,19 +225,31 @@ def _names(requirements_file):
     return {re.split(r"[<>=;\s\[]", line, maxsplit=1)[0].lower() for line in lines}
 
 
-def test_both_requirements_install_ffmpeg_and_anthropic_and_leave_keyring_out():
+def test_both_requirements_install_anthropic_and_leave_keyring_out():
     for name in ("requirements.txt", "requirements_windows.txt"):
         names = _names(name)
-        assert {"imageio-ffmpeg", "anthropic"} <= names, name
+        assert "anthropic" in names, name
         assert "keyring" not in names, name
 
 
-def test_both_specs_name_them_among_the_hidden_imports():
+def test_the_mac_build_installs_no_ffmpeg():
+    # No GPL program in the app (26 Nov 2026): macOS's afconvert decodes.
+    assert "imageio-ffmpeg" not in _names("requirements.txt")
+
+
+def test_both_specs_name_anthropic_among_the_hidden_imports():
     for name in ("Waffler_mac.spec", "Waffler_windows.spec"):
         spec = (ROOT / name).read_text(encoding="utf-8")
         hidden = spec[spec.index("hiddenimports=["):spec.index("excludes=[")]
-        assert "'imageio_ffmpeg'," in hidden and "'anthropic'," in hidden, name
+        assert "'anthropic'," in hidden, name
         assert "keyring" not in hidden, name
+
+
+def test_the_mac_spec_keeps_imageio_ffmpeg_out():
+    spec = (ROOT / "Waffler_mac.spec").read_text(encoding="utf-8")
+    hidden = spec[spec.index("hiddenimports=["):spec.index("excludes=[")]
+    excludes = spec[spec.index("excludes=["):spec.index("noarchive=")]
+    assert "'imageio_ffmpeg'," not in hidden and "'imageio_ffmpeg'," in excludes
 
 
 def test_built_app_finds_the_sound_helper_where_the_build_puts_it(tmp_path, monkeypatch):

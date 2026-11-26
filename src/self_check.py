@@ -14,17 +14,20 @@ would fetch, and asks a server already here its version.
     python app.py --self-check --complete
 
 Exit code 0 when every required part is there, 1 when one is not. The engines,
-the computer-sound helper and the two libraries meetings import only when they
-are needed (anthropic, and imageio-ffmpeg with its ffmpeg program) are
-optional in a build: a build without one simply cannot do that one thing. So
-they are reported, and fail the check only when `--complete` is given, which
-is what a release build should pass.
+the computer-sound helper, anthropic (which meetings import only when it is
+needed) and the decoder "Import audio" uses for files soundfile cannot read
+(src/meetings/audio_decode.py) are optional in a build: a build without one
+simply cannot do that one thing. So they are reported, and fail the check only
+when `--complete` is given, which is what a release build should pass. On a
+Mac the decoder is macOS's own afconvert, and the check converts a two-second
+m4a made here with it. On Windows it comes down the first time someone
+imports such a file, so no build carries it, and the check says so.
 
     Waffler --self-check --audio memo.m4a
 
 also puts one audio file through "Import audio" (src/meetings/service.py
-load_any_audio) and says how many seconds came out and whether ffmpeg was
-needed: the proof that a voice memo can be imported by this build.
+load_any_audio) and says how many seconds came out and whether the decoder
+was needed: the proof that a voice memo can be imported by this build.
 
 It opens no window, registers no shortcut, makes no connection, and never
 reads or writes the person's data: app.py runs it before it opens crash.log,
@@ -48,7 +51,7 @@ from pathlib import Path
 # connector and Try it. Each is imported as `src.<name>`, then as `<name>`,
 # the two ways the app itself imports them.
 MODULES = (
-    "meetings", "meetings.audioproc", "meetings.keys", "meetings.llm", "meetings.paths",
+    "meetings", "meetings.audioproc", "meetings.audio_decode", "meetings.keys", "meetings.llm", "meetings.paths",
     "meetings.recorder", "meetings.service", "meetings.store", "meetings.sync",
     "meetings.transcribe", "meetings.granola_import", "meetings_ctl", "meetings_bridge", "meeting_mic",
     "local_stt", "local_stt_whispercpp", "local_stt_ct2", "local_llm", "local_llm_llamacpp",
@@ -182,12 +185,54 @@ def check_libraries() -> dict:
         out["anthropic"] = {"present": True, "version": getattr(anthropic, "__version__", "")}
     except Exception as e:
         out["anthropic"] = {"present": False, "error": f"{type(e).__name__}: {e}"}
+    out["audio_decoder"] = check_audio_decoder()
+    return out
+
+
+def check_audio_decoder(platform: str | None = None) -> dict:
+    """What Import audio reads m4a and the rest with (src/meetings/audio_decode.py).
+    A Mac: macOS's own afconvert, asked to read a two-second m4a it makes
+    here. Windows: a decoder fetched on first use; none here yet is how a
+    build ships ("comes_on_first_use"), the way the writing engine's server
+    comes down with the model. Elsewhere: an ffmpeg on the PATH, or nothing."""
+    plat = platform or sys.platform
+    out = {"present": False, "how": "none"}
     try:
-        import imageio_ffmpeg
-        exe = imageio_ffmpeg.get_ffmpeg_exe()       # the wheel's own program; raises when it is not there
-        out["ffmpeg"] = {"present": os.path.isfile(exe) and os.access(exe, os.X_OK), "path": str(exe)}
+        decode = _import("meetings.audio_decode")
+        state = decode.available(plat)
+        out["how"] = state["how"]
+        if plat == "win32":
+            found = decode.helper_path(plat)
+            if found is None:
+                out["comes_on_first_use"] = True
+                out["detail"] = ("comes down the first time Import audio needs it, into <data folder>/"
+                                 f"{decode.HELPER_DIRNAME}/{decode.HELPER_NAME}")
+                return out
+            out["present"] = True
+            out["path"] = str(found)
+            return out
+        if not state["ready"]:
+            out["error"] = "no afconvert" if plat == "darwin" else "no ffmpeg on the PATH"
+            return out
+        if plat != "darwin":
+            out["present"] = True
+            return out
+        out["path"] = decode.AFCONVERT
+        with tempfile.TemporaryDirectory(prefix="waffler-self-check-m4a-") as tmp:
+            import numpy as np
+            import soundfile as sf
+            wav, m4a = Path(tmp) / "tone.wav", Path(tmp) / "memo.m4a"
+            t = np.arange(16000 * 2) / 16000.0
+            sf.write(str(wav), (0.3 * np.sin(2 * np.pi * 440 * t)).astype("float32"), 16000, subtype="PCM_16")
+            subprocess.run([decode.AFCONVERT, "-f", "m4af", "-d", "aac", str(wav), str(m4a)],
+                           check=True, capture_output=True, timeout=60)
+            samples, rate = decode.decode(m4a, platform=plat)
+        out["seconds"] = round(len(samples) / rate, 2)
+        out["present"] = 1.8 <= out["seconds"] <= 2.3 and float(np.abs(samples).max()) > 0.05
+        if not out["present"]:
+            out["error"] = f"the test m4a came back as {out['seconds']} s"
     except Exception as e:
-        out["ffmpeg"] = {"present": False, "error": f"{type(e).__name__}: {e}"}
+        out["error"] = f"{type(e).__name__}: {e}"
     return out
 
 
@@ -209,15 +254,17 @@ def check_audio(path) -> dict:
         service = _import("meetings.service")
         try:
             _import("meetings.audioproc").read_audio(path)
-            out["needed_ffmpeg"] = False
+            out["needed_decoder"] = False
         except Exception:
-            out["needed_ffmpeg"] = True              # soundfile cannot read it (m4a)
-        out["ffmpeg_on_path"] = shutil.which("ffmpeg") or ""
+            out["needed_decoder"] = True             # soundfile cannot read it (m4a)
+        out["decoder"] = _import("meetings.audio_decode").available()["how"]
         audio = service.load_any_audio(Path(path))
         out["seconds"] = round(len(audio) / service.RATE, 2)
         out["decoded"] = len(audio) > 0
     except Exception as e:
         out["error"] = f"{type(e).__name__}: {e}"
+        if getattr(e, "reason", None):
+            out["reason"] = e.reason
     return out
 
 
@@ -251,7 +298,8 @@ def run(root: Path, complete: bool = False, audio=None) -> dict:
         ("writing engine", writing["runs"] or bool(writing.get("comes_with_model"))),
         ("computer-sound helper", sound["present"] or not sound["needed"]),
         ("anthropic", libraries["anthropic"]["present"]),
-        ("ffmpeg for Import audio", libraries["ffmpeg"]["present"])) if not there]
+        ("decoder for Import audio", libraries["audio_decoder"]["present"]
+         or bool(libraries["audio_decoder"].get("comes_on_first_use")))) if not there]
     ok = (not missing_modules and not missing_files and not (complete and optional_missing)
           and (imported is None or imported["decoded"]))
     return {

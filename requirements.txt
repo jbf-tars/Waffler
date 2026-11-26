@@ -32,12 +32,10 @@ faster-whisper>=1.2.0; platform_machine != "arm64" and python_version < "3.14"
 # only, and scripts/check_macos_minos.py fails the build. The model (5.2 GB)
 # is never bundled. docs/OFFLINE-TRANSCRIPTION.md has the rest.
 
-# ── Meetings: two libraries imported inside functions (src/meetings) ──
-# Import audio (src/meetings/service.py load_any_audio): soundfile cannot read
-# m4a, which is what an iPhone voice memo is, so those go through ffmpeg. The
-# wheel carries an ffmpeg program of its own (about 50 MB); without it "Import
-# audio" refuses those files unless the person happens to have ffmpeg.
-imageio-ffmpeg>=0.6.0
+# ── Meetings: a library imported inside functions (src/meetings) ──
+# Import audio (src/meetings/audio_decode.py): what soundfile cannot read (m4a,
+# an iPhone voice memo) goes through macOS's own /usr/bin/afconvert. No FFmpeg
+# package: no GPL program in the app (decided 26 Nov 2026).
 # Meeting notes written by Anthropic's models (src/meetings/llm.py), when the
 # person chooses Anthropic. Without it that choice fails at the import.
 anthropic>=2.0.0

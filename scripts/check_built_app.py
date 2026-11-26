@@ -8,12 +8,14 @@ made for this run (never the person's):
 
   1. `--self-check --complete`: every part the build needs is inside it, the
      two on-device engines, the computer-sound helper, anthropic and the
-     ffmpeg program for Import audio among them (src/self_check.py). On
-     Windows the writing engine comes down with the model, so the check
-     names what would be fetched;
+     decoder for Import audio among them (src/self_check.py). On Windows the
+     writing engine comes down with the model, and the audio decoder the
+     first time Import audio needs it, so the check names what would be
+     fetched; on a Mac the decoder is macOS's own afconvert;
   2. on a Mac, `--self-check --audio`: a two-second .m4a made here with
      afconvert (what an iPhone voice memo is) goes through Import audio, with
-     no ffmpeg on the PATH, so it is the build's own ffmpeg that reads it;
+     no ffmpeg on the PATH, so it is macOS's own converter that reads it (no
+     build carries FFmpeg);
   3. `--mcp`: the connector Claude starts answers `initialize`, `tools/list`
      and `tools/call` over a meeting and three dictations put there first.
 
@@ -110,13 +112,18 @@ def main() -> int:
     libraries = answer.get("libraries") or {}
     check("self-check: anthropic imports", bool((libraries.get("anthropic") or {}).get("present")),
           (libraries.get("anthropic") or {}).get("version", ""))
-    check("self-check: the ffmpeg program for Import audio is in the app",
-          bool((libraries.get("ffmpeg") or {}).get("present")), (libraries.get("ffmpeg") or {}).get("path", ""))
+    decoder = libraries.get("audio_decoder") or {}
+    if decoder.get("comes_on_first_use"):            # Windows: fetched the first time Import audio needs it
+        check("self-check: the audio decoder comes down on first use", "error" not in decoder,
+              decoder.get("detail", "")[:90])
+    else:
+        check("self-check: the decoder for Import audio works", bool(decoder.get("present")),
+              decoder.get("error") or decoder.get("path", ""))
     keys = answer.get("meeting_keys") or {}
     check("self-check: meetings keep keys without keyring", keys.get("keyring") is False, json.dumps(keys))
     check("self-check wrote nothing in the data folder", list(data.iterdir()) == [])
 
-    # 2. a voice memo goes through Import audio with the build's own ffmpeg
+    # 2. a voice memo goes through Import audio with macOS's own converter
     if sys.platform == "darwin":
         scratch = Path(tempfile.mkdtemp(prefix="waffler-built-check-audio-"))
         memo = voice_memo(scratch)
@@ -127,9 +134,9 @@ def main() -> int:
             audio = json.loads(done.stdout).get("audio") or {}
         except ValueError:
             audio = {}
-        check("Import audio: an .m4a is decoded by the build's own ffmpeg",
-              audio.get("decoded") is True and audio.get("needed_ffmpeg") is True
-              and audio.get("ffmpeg_on_path") == "" and 1.8 <= audio.get("seconds", 0) <= 2.3,
+        check("Import audio: an .m4a is decoded by macOS's own converter",
+              audio.get("decoded") is True and audio.get("needed_decoder") is True
+              and audio.get("decoder") == "system" and 1.8 <= audio.get("seconds", 0) <= 2.3,
               json.dumps(audio))
 
     # 3. the connector answers over seeded data
