@@ -281,9 +281,9 @@ app = BUNDLE(
         'CFBundleName': 'Waffler',
         'CFBundleDisplayName': 'Waffler',
         'CFBundleExecutable': 'Waffler',
-        'NSMicrophoneUsageDescription': 'Waffler needs microphone access for voice transcription.',
+        'NSMicrophoneUsageDescription': 'Waffler needs microphone access for dictation and meetings.',
         'NSAppleEventsUsageDescription': 'Waffler needs accessibility access for hotkey detection and auto-paste.',
-        'NSLocalNetworkUsageDescription': 'Waffler uses a local web interface for its UI. No data is sent over the network.',
+        'NSLocalNetworkUsageDescription': 'Waffler uses a local web interface for its window, on this computer only.',
         'CFBundleShortVersionString': _VERSION,
         # The real minimum, measured from the bundled binaries (v3.14.100).
         # The macOS 14 build runner installs NumPy's macosx_14_0_arm64
