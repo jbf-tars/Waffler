@@ -84,8 +84,8 @@ NOT_AUDIO = "This file isn't audio Waffler can read, or it is damaged."
 NO_SOUND = "This file has no sound in it, only video."
 PROTECTED = ("This file is copy-protected (bought from the iTunes Store, for example), "
              "so Waffler can't read it.")
-NEEDS_DOWNLOAD = ("Waffler needs to download its audio converter (a few megabytes) "
-                  "to read this kind of file.")
+NEEDS_DOWNLOAD = ("To read this kind of file, Waffler needs its audio converter, a one-time "
+                  "download. Import the file again to get it.")
 NO_DECODER = "This kind of audio file can't be read on this computer. Convert it to wav, mp3 or flac first."
 TOO_SLOW = "Reading this audio file took too long, so Waffler stopped."
 BROKE = "The audio converter couldn't read this file."
@@ -238,6 +238,14 @@ def _last_words(done) -> str:
     return said[-1][:300] if said else f"exit {done.returncode}"
 
 
+def _all_words(done) -> str:
+    """Everything the decoder said. FFmpeg 9 says why before its last line
+    ("Stream map '' matches no streams." ... "Error opening output files:
+    Invalid argument"), so the reason is looked for here; the last line is
+    what the log keeps."""
+    return "\n".join(x for x in (done.stdout, done.stderr) if x)
+
+
 def _run(argv: list[str], path: Path) -> subprocess.CompletedProcess:
     try:
         return subprocess.run(argv, capture_output=True, encoding="utf-8", errors="replace",
@@ -271,7 +279,7 @@ def decode(path, *, platform: str | None = None) -> tuple[np.ndarray, int]:
                 raise DecoderFailed(NO_DECODER, detail="no ffmpeg on the PATH")
             done = _run(_helper_argv(helper) + helper_args(path, out), path)
         if done.returncode != 0 or not out.is_file() or out.stat().st_size == 0:
-            raise _why(path, plat, _last_words(done))
+            raise _why(path, plat, _last_words(done), _all_words(done))
         try:
             return _read_mono(out), RATE
         except Exception as e:  # noqa: BLE001 — the converter wrote something unreadable
@@ -397,8 +405,9 @@ def _track(buf: bytes, a: int, b: int) -> dict:
     return out
 
 
-def _why(path: Path, plat: str, said: str) -> DecodeError:
-    """The plain reason a decoder refused a file."""
+def _why(path: Path, plat: str, said: str, heard: str = "") -> DecodeError:
+    """The plain reason a decoder refused a file. `said` is its last line (for
+    the log), `heard` everything it said (where the reason is looked for)."""
     if path.suffix.lower() == ".m4p":
         return Protected(detail=said)
     tracks = mp4_tracks(path)
@@ -410,7 +419,7 @@ def _why(path: Path, plat: str, said: str) -> DecodeError:
             return NoSound(detail=said)
     if plat == "darwin" and _unsupported_on_mac(path):
         return Unsupported(detail=said)
-    low = said.lower()
+    low = (heard or said).lower()
     if plat != "darwin" and ("matches no streams" in low or "does not contain any stream" in low):
         return NoSound(detail=said)
     if plat == "darwin" or "invalid data found" in low or "no such file" in low or "moov atom not found" in low:

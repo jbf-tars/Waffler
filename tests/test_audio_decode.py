@@ -234,6 +234,25 @@ STAND_IN = textwrap.dedent('''\
         sys.stderr.write("Stream map '0:a:0' matches no streams.\\n"); sys.exit(1)
     if head.startswith(b"CRASH"):
         sys.stderr.write("something inside broke\\n"); sys.exit(3)
+    # FFmpeg 9.0.2's own words (BtbN's LGPL build, on a Windows PC): the reason
+    # is not on the last line.
+    if head.startswith(b"FF9VIDEO"):            # a video-only mkv: nothing written, exit -22
+        sys.stderr.write("Stream map '' matches no streams.\\n"
+                         "To ignore this, add a trailing '?' to the map.\\n"
+                         "Failed to set value '0:a:0' for option 'map': Invalid argument\\n"
+                         "Error parsing options for output file " + dst + ".\\n"
+                         "Error opening output files: Invalid argument\\n")
+        sys.exit(234)
+    if head.startswith(b"FF9DAMAGED"):          # a damaged wma: part of a WAV written, exit 69
+        open(dst, "wb").write(b"RIFF" + b"\\0" * 40)
+        sys.stderr.write("[wmav2 @ 000002e07e2bff40] Input packet size too small (28 < 743)\\n"
+                         "[aist#0:0/wmav2 @ 000002e07c2aaa40] [dec:wmav2 @ 000002e07e2bf9c0] "
+                         "Error submitting packet to decoder: Invalid data found when processing input\\n"
+                         "[aist#0:0/wmav2 @ 000002e07c2aaa40] [dec:wmav2 @ 000002e07e2bf9c0] "
+                         "Decode error rate 1 exceeds maximum 0.666667\\n"
+                         "[aist#0:0/wmav2 @ 000002e07c2aaa40] [dec:wmav2 @ 000002e07e2bf9c0] "
+                         "Terminating thread with return code -1145393733 (Error number -1145393733 occurred)\\n")
+        sys.exit(69)
     if b"moov" in open(src, "rb").read(4096):      # an mp4 it cannot decode (protected, video only)
         sys.stderr.write("Error while opening decoder for input stream #0:0\\n"); sys.exit(1)
     if head.startswith(b"SLOW"):
@@ -327,6 +346,26 @@ def test_windows_failures_are_plain_sentences(windows, head, error, word):
     with pytest.raises(error, match=word) as e:
         ad.decode(f, platform="win32")
     assert e.value.detail                                       # the helper's last words, for the log
+
+
+@pytest.mark.parametrize("name,head,error,word,last", [
+    ("clip.mkv", b"FF9VIDEO", ad.NoSound, "no sound", "Error opening output files: Invalid argument"),
+    ("voice.wma", b"FF9DAMAGED", ad.NotAudio, "isn't audio", "Terminating thread with return code"),
+])
+def test_windows_finds_the_reason_in_all_of_ffmpeg_9s_words(windows, name, head, error, word, last):
+    """The reason is earlier in what FFmpeg 9 says; the last line still goes to the log."""
+    _fetch_helper(windows)
+    f = windows / name
+    f.write_bytes(head + b"\0" * 32)
+    with pytest.raises(error, match=word) as e:
+        ad.decode(f, platform="win32")
+    assert last in e.value.detail
+
+
+def test_the_download_sentence_says_how_to_get_it_and_no_wrong_size():
+    # The converter is 76.6 MB to download (src/audio_decoder_pack.py), not "a few megabytes".
+    assert "megabyte" not in ad.NEEDS_DOWNLOAD.lower()
+    assert "download" in ad.NEEDS_DOWNLOAD and "again" in ad.NEEDS_DOWNLOAD
 
 
 def test_windows_names_drm_and_video_only_from_the_file_itself(windows):
