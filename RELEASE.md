@@ -104,8 +104,8 @@ gh release view vX.Y.Z --json assets \
 Expected output:
 
 ```
-  Waffler-X.Y.Z-mac.dmg          (~24 MB)
-  Waffler-Setup-X.Y.Z.exe        (~32 MB)
+  Waffler-X.Y.Z-mac.dmg          (~75 MB)
+  Waffler-Setup-X.Y.Z.exe        (~105 MB)
 ```
 
 Sanity-check the macOS DMG opens cleanly (no Gatekeeper warning — current

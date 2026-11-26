@@ -41,18 +41,40 @@ signing.
 
 ## Privacy
 
-Waffler is a dictation tool, so it necessarily handles your speech, your
-keyboard and your clipboard. Specifically:
+Waffler is a dictation and meeting-notes tool, so it necessarily handles your
+speech, your keyboard and your clipboard. Specifically:
 
 - **Microphone.** The microphone stays ready while Waffler runs, so your
   first word isn't clipped. Each recording is what you say while you hold
   the push-to-talk hotkey, plus the half-second before you pressed it. It is
   sent to the speech-to-text provider you configured (Groq or
   OpenAI) to be transcribed, and to the cleanup provider to be tidied into
-  readable text. It is not sent anywhere else. If you switch on the optional
+  readable text. It is not sent anywhere else. If you chose "On this computer"
+  instead, it is turned into text on your computer and nothing is sent; with
+  the optional writing model downloaded, the tidying is done on your computer
+  too. If you switch on the optional
   sounds (off by default), Waffler plays a short tone through your speakers and
   silences the microphone for the fraction of a second the tone sounds in, so a
   tone is never part of a recording.
+- **Meetings (only when you record one).** A meeting records your microphone
+  and, unless you switch it off, the sound your computer plays (the other side
+  of a call; on a Mac this needs the screen and system audio recording
+  permission). Stretches with a voice in them are turned into text the same way
+  as a dictation: on your computer, or by your speech provider on your own key.
+  The notes are written by the writing model on your computer or by the
+  provider you configured. The recording, transcript and notes are kept on
+  your computer under `~/.waffler-hosted/meetings/` until you delete them;
+  deleting a meeting removes all three at once.
+- **The optional account.** If you sign in (with your email and a code we
+  email you; there is no password), meeting transcripts and notes, never the
+  recordings or your dictations, are kept in your account so your other
+  devices have them. A meeting you delete is removed from the account too.
+  Deleting the account removes everything stored in it. Without an account
+  nothing is sent to a Waffler server.
+- **AI apps (only if you connect one).** Settings, AI apps can connect Claude
+  or another AI app on your computer to your meetings and, if you switch it on,
+  your dictations. It can read them and file meetings into folders; it cannot
+  rewrite or delete anything.
 - **Keyboard.** A global low-level keyboard hook
   (`SetWindowsHookEx(WH_KEYBOARD_LL)` on Windows) detects your hotkey being
   pressed and released. Only the configured hotkey combination is acted on.

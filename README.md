@@ -4,11 +4,11 @@
 [![macOS](https://img.shields.io/badge/platform-macOS-blue)](https://github.com/jbf-tars/Waffler/releases)
 [![Windows](https://img.shields.io/badge/platform-Windows-blue)](https://github.com/jbf-tars/Waffler/releases)
 
-**Free, open-source voice-to-text for Mac and Windows. Bring your own API key.**
+**Free, open-source dictation and meeting notes for Mac and Windows. Run it on your own computer for free, or bring your own API key.**
 
-Press a hotkey, speak, release — your polished text is in the clipboard, ready to paste anywhere.
+Press a hotkey, speak, release — your polished text is in the clipboard, ready to paste anywhere. Tap the hotkey twice and Waffler records a meeting, then writes the transcript and notes with next steps.
 
-> A free alternative to Wispr Flow / Superwhisper. No account, no subscription, no telemetry.
+> A free alternative to Wispr Flow / Superwhisper / Granola. No account needed, no subscription, no telemetry.
 
 **Website:** [wafflerai.com](https://wafflerai.com)  ·  **Latest release:** [GitHub Releases](https://github.com/jbf-tars/Waffler/releases/latest)
 
@@ -34,8 +34,14 @@ It's gone through a ridiculous amount of prompt-wrangling and live-API testing t
 
 ## Features
 
+- **Meetings.** Record from Home, the menu bar (the tray on Windows) or two quick taps of your dictation hotkey. Waffler records your microphone and the computer's own sound (the other side of a call; it can be switched off), and when you finish it writes a transcript and notes with next steps. The Meetings tab has folders, search, your own typed notes, Ask about one meeting or all of them, "Add more" and audio import.
+- **Free on this computer.** "On this computer" downloads a speech model, and optionally a writing model, so dictation, meetings and notes work with no key, no account and the internet off. On Windows with an NVIDIA graphics card, one click fetches what is needed to use the card.
+- **Ask on Home.** Ask anything you said or heard, across your dictations and meetings.
+- **An optional account.** Sign in with your email (no password, a code is emailed) and meeting notes and transcripts stay in step across your devices. Recordings and dictations stay on each device.
+- **Claude and other AI apps.** Settings, AI apps connects Claude, Codex and other MCP apps to your meetings and, if you choose, your dictations on this computer. They can read and file meetings into folders, never rewrite or delete them.
+- **Import from Granola.** Meetings, "Import from Granola": sign in to Granola once and your meetings come across with their notes, transcripts, dates and folders. No AI is involved.
 - **Global hotkey** — works in any app, instantly
-- **Multi-provider transcription** — Groq Whisper (fastest) or OpenAI Whisper
+- **Multi-provider transcription** — on this computer (free), Groq Whisper (fastest) or OpenAI Whisper
 - **AI cleanup with automatic fallback.** Groq gpt-oss-120b first, OpenAI gpt-6-luna as backup. Groq covers both transcription and cleanup, so one key is enough to run the whole app.
 - **Smart hallucination filtering** — strips Whisper's "and more / thanks for watching / please subscribe" outros on near-silent clips before they hit your clipboard, cuts the silent end off a dictation before it is sent, and drops a closing "Thank you." when Groq's own segments show no speech under it
 - **Auto-clipboard** — result is copied the moment it's ready
@@ -54,7 +60,7 @@ It's gone through a ridiculous amount of prompt-wrangling and live-API testing t
 - **Command mode (beta).** Hold a shortcut and say what you want: edit the selected text ("make this shorter", "translate to French"), write new text where your cursor is ("reply saying I'll be 10 minutes late"), or ask a question and Waffler opens it in your search engine (Perplexity, Google, DuckDuckGo, ChatGPT or Claude). Your app's Undo takes an edit back, and the Journal keeps what you said. The same terminal rules as Transforms apply.
 - **Your microphones, best first.** Settings, General lists the microphones you want in order and Waffler uses the first that is plugged in, then the computer's own (still avoiding a Bluetooth headset so your music stays in high quality). It asks once when a new microphone is plugged in, ends and keeps a dictation if the microphone is unplugged in the middle, opens a silent microphone again after 5 seconds and tells you at 15, says so, on a Mac, when the lid is closed and the built-in microphone is in use, and, on a Mac or Windows, when the microphone's input volume is set so low that every take has to be boosted.
 - **Takes of up to 20 minutes.** Talk for as long as you need: a minute before 20 Waffler says so once, and at 20 it stops by itself and turns what you said into text as if you had let go, so nothing is lost. A take over about 9 minutes goes to speech to text in pieces of about two minutes, cut at pauses after you stop, and the time Waffler waits for the answer grows with the length.
-- **Double-tap to go hands-free (off until you switch it on).** Settings, Shortcuts: tap your dictation hotkey twice, quickly, and Waffler keeps recording without you holding it. Tap once to finish, Esc to cancel. Holding the hotkey, and a single tap, work exactly as before.
+- **Double-tap to go hands-free (off until you switch it on).** Settings, Shortcuts: tap your dictation hotkey twice, quickly, and Waffler keeps recording without you holding it. Tap once to finish, Esc to cancel. Holding the hotkey, and a single tap, work exactly as before. "Double-tap to record a meeting" uses the same two taps: while it is on, two taps record a meeting instead, so turn one off to use the other (if you had hands-free taps on before 4.0, the meeting taps start off).
 - **Every shortcut in one place.** Settings, Shortcuts lists Hold to dictate, Hands-free, Cancel, Transform, Command mode, Paste last and Copy last, each with its keys, Change, Clear and a plain sentence if it clashes with another. Choose keys for Paste last and Copy last, an F key as your cancel key, or (Mac) two modifier keys held together for Command mode. The key of a shortcut never reaches the app in front, and combinations your computer or most apps use are refused with the reason.
 - **Your week at a glance.** Settings, Usage shows your week streak, this week against last, words a minute, an estimate of the minutes saved (from your own typing speed), your busiest hour, the apps you dictate into most, and a map of the last 26 weeks. All of it is counted on your computer from your own history, with no accounts, rankings or uploads.
 - **Mac + Windows** — native desktop app via PyInstaller
@@ -72,9 +78,9 @@ Download the latest installer from [GitHub Releases](https://github.com/jbf-tars
 
 > **Note:** macOS builds are signed with an Apple Developer ID and notarised — they open without Gatekeeper warnings. Windows builds are not yet signed; SmartScreen will warn on first launch — click "More info > Run anyway".
 
-### 2. Add your API key
+### 2. Choose how it runs
 
-On first launch, the setup wizard will ask for your key. Any one of the three providers below is enough — Waffler will use whatever you give it.
+On first launch, the setup wizard offers two ways: **On this computer** (free, one download, no key) or **your own key**. A key is quicker, especially for long meetings. Any one of the three providers below is enough — Waffler will use whatever you give it.
 
 ```bash
 # Groq — fastest transcription AND cleanup, generous free tier (recommended)
@@ -138,7 +144,7 @@ python app.py
 
 ## Privacy
 
-- Audio goes directly to OpenAI/Groq via **your own API key** — never through any Waffler servers
+- With **your own API key**, audio goes directly to OpenAI/Groq — never through any Waffler servers
 - With the free model on this computer, speech is turned into text here and nothing you say leaves the computer. If the optional second model is downloaded, tidying and notes are done here too
 - With Waffler Plus (only for a signed-in account that has it, and only when chosen), audio and text go to the Waffler service, which passes them to its speech and writing provider and hands back the result. The service keeps none of the audio or text and does not write them to its logs; it keeps only numbers (how much audio and text was used). For dictation, up to 200 words of your Vocabulary go along as a spelling hint. Transforms and Command mode send their text there too while Plus is the way in use
 - Transcription history is saved **locally on your machine only**. If you correct a dictation in the Journal, your corrected text is kept with it, on your machine only, and goes when the history does
@@ -148,6 +154,10 @@ python app.py
 - If you turn on an email signature, then on a Mac Waffler reads the text before your cursor in an email app to check the signature isn't already there. It never stores or logs it, and the signature text is left out of the logs zip
 - Transforms is off until you turn it on. When you use it, Waffler reads the text you selected (through Accessibility, or by copying it and putting your clipboard back) and sends it to your clean-up provider on your own key. The rewrite is kept in your history, and your own rules and transforms are left out of the logs zip
 - Command mode is off until you turn it on. While you hold its shortcut, Waffler records what you say, your speech provider turns it into text, and that, with the text you selected (or up to 500 characters before your cursor when nothing is selected), goes to your clean-up provider on your own key. A question opens your browser with only your spoken question in the address. The recording is not kept
+- Meetings are kept on this computer: the recording, the transcript and the notes. A meeting's audio is written down the same way as a dictation (on this computer, or by your provider on your own key), and its notes are written by the writing model on this computer or by your provider
+- With the optional account, meeting transcripts and notes are kept in your account so your other devices have them. Recordings and dictations never leave the device. A deleted meeting is removed here and from the account at once
+- The Claude link and the AI apps connection read your meetings (and your dictations only if you switch that on); they cannot rewrite or delete anything
+- Download Logs leaves out your vocabulary and hides your home folder, user name, computer name and devices named after you
 - No account required, no telemetry, no data collection
 
 ---
@@ -165,7 +175,8 @@ Edit `.env` to set your API key(s).
 | Component | Technology |
 |-----------|-----------|
 | Language | Python 3.11 |
-| Speech-to-text | Groq Whisper (default) or OpenAI (`gpt-transcribe`) |
+| Speech-to-text | On this computer (whisper.cpp on Apple Silicon, faster-whisper on Windows), Groq Whisper or OpenAI (`gpt-transcribe`) |
+| Writing on this computer | llama.cpp, optional download (tidying and meeting notes with no key) |
 | LLM cleanup | Groq gpt-oss-120b → OpenAI gpt-6-luna (Groq is faster and has a free tier; OpenAI is the backstop). Cerebras is still supported if a key is set, but it has no speech-to-text so it can never run a dictation alone |
 | Audio | sounddevice + NumPy |
 | UI | pywebview (WebView2 on Windows, WebKit on Mac) |
@@ -187,7 +198,7 @@ pyinstaller Waffler_windows.spec
 
 **Mac:**
 ```bash
-pyinstaller Waffler_mac.spec
+./build_mac.sh        # or: pyinstaller Waffler_mac.spec
 ```
 
 Or push a `v*` tag to trigger GitHub Actions builds for both platforms automatically.

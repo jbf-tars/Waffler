@@ -7,11 +7,11 @@ Thanks for your interest in contributing to Waffler! This guide will help you ge
 ### Prerequisites
 
 - Python 3.11+
-- At least one API key from Groq, Cerebras, or OpenAI
+- Optionally, an API key from Groq, Cerebras, or OpenAI (without one, use "On this computer" in setup: the free speech model is downloaded and runs locally)
   - **Groq** (free tier, recommended): <https://console.groq.com/keys>
   - **Cerebras** (free tier + paid): <https://cloud.cerebras.ai>
   - **OpenAI** (paid): <https://platform.openai.com/api-keys>
-- **Mac:** macOS 12+ with Xcode command line tools
+- **Mac:** an Apple Silicon Mac on macOS 14+ with Xcode command line tools
 - **Windows:** Windows 10/11
 
 ### Development Setup
@@ -29,9 +29,9 @@ source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt          # Mac
 pip install -r requirements_windows.txt  # Windows
 
-# Copy env template and add your API key(s)
+# Optional: copy the env template and add your API key(s)
 cp .env.example .env
-$EDITOR .env   # paste at least one of GROQ / CEREBRAS / OPENAI keys
+$EDITOR .env   # paste any of GROQ / CEREBRAS / OPENAI keys, or skip and pick "On this computer" in setup
 
 # Run from source
 python app.py
@@ -133,13 +133,23 @@ Waffler/
     style_openai.py               # 3-provider styler chain (Groq → Cerebras → OpenAI)
     transcribe_whisper.py         # 3-tier transcriber chain (Groq → local → OpenAI)
     updater.py                    # In-app auto-updater (DMG / Inno Setup)
+    local_stt*.py                 # Speech to text on this computer (whisper.cpp / faster-whisper)
+    local_llm*.py                 # The optional writing model on this computer (llama.cpp)
+    meetings/                     # The meetings engine: recorder, store, transcription, notes, sync
+    meetings_ctl.py               # The app's side of meetings (hotkey, menu, bar)
+    meetings_bridge.py            # The API the Meetings tab (ui/meetings-app) calls
+    account.py                    # The optional account: emailed-code sign-in, sync
+    bridge_gate.py                # The allow-list of Api methods the window may call
+    privacy_data.py               # Delete all my data, retention, the logs zip's scrubbing
   ui/                             # Web UI (HTML/CSS/JS served by pywebview)
+    meetings-app/                 # The Meetings tab, a built React app shown in a frame
   tests/                          # Unit tests (mostly run as plain scripts)
   scripts/                        # Tooling (corpus harness, vocab corpus, etc.)
   prompts/                        # System prompts for text cleanup
     normal.txt                    # Active mode — the big prompt
     email.txt                     # Hidden since v3.14.6, retained as a draft
   hooks/                          # PyInstaller runtime hooks
+  mac/sysaudio/                   # The Swift helper that records the computer's sound for meetings (Mac)
   .github/workflows/              # CI/CD (Mac + Windows release builds)
     ci.yml                        # Per-push lint + unit tests + CHANGELOG check
     macos-release.yml             # Triggered on v* tag — builds + signs + notarises DMG
