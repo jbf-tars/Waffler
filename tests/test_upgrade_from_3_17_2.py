@@ -48,6 +48,7 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
+import action_hotkeys  # noqa: E402
 import atomic_json  # noqa: E402
 import double_tap  # noqa: E402
 import history_edit  # noqa: E402
@@ -145,8 +146,10 @@ SETTINGS = {
     "cleanup": "on",
     "style_by_category": {"personal": "very_casual", "work": "excited", "email": "formal", "other": "auto"},
     "email_signature": {"enabled": True, "text": "Best,\nSam"},
+    # A Mac's keys, saved on a Mac: merged() checks them for the platform it is told.
     "transforms": transforms.merged({}, {"transforms": {"enabled": True,
-                                                        "hotkey": ["ctrl", "option", "t"]}}),
+                                                        "hotkey": ["ctrl", "option", "t"]}},
+                                    platform=action_hotkeys.MAC),
     "command_mode": {"enabled": True, "hotkey": ["ctrl", "option", "k"], "web_engine": "perplexity"},
     # Pasting, sounds, tips, the pill.
     "auto_paste": True,
