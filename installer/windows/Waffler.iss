@@ -23,7 +23,9 @@ DisableProgramGroupPage=yes
 ; it was installed to.
 DisableDirPage=yes
 DisableReadyPage=yes
-LicenseFile=
+; Waffler's own licence (MIT), shown on the installer's licence page. The
+; third-party notices are installed with the app (_internal\THIRD-PARTY-NOTICES.txt).
+LicenseFile=..\..\LICENSE
 PrivilegesRequired=lowest
 OutputDir=dist-installer
 OutputBaseFilename=Waffler-Setup-{#MyAppVersion}
