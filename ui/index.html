@@ -1378,13 +1378,14 @@
           <div class="stage stage-plain pv-hero">
             <div>
               <div class="pv-head">Everything stays on <em>this computer.</em></div>
-              <p class="pv-sub" id="privIntro">Except what you say while you hold the keys.</p>
+              <p class="pv-sub" id="privIntro">Except what you dictate or record, sent only where you choose.</p>
             </div>
             <div class="pv-diag" aria-hidden="true">
               <div class="pv-pc">
                 <div class="pv-pt"><svg class="ic ic-sm"><use href="#i-monitor"/></svg>This computer</div>
                 <ul>
                   <li><svg class="ic"><use href="#i-lock"/></svg>Journal</li>
+                  <li><svg class="ic"><use href="#i-lock"/></svg>Meetings</li>
                   <li><svg class="ic"><use href="#i-lock"/></svg>Recordings</li>
                   <li><svg class="ic"><use href="#i-lock"/></svg>Keys</li>
                   <li><svg class="ic"><use href="#i-lock"/></svg>Logs</li>
@@ -1489,6 +1490,11 @@
                 <li id="privHowJournal"><b>Journal.</b> Your dictations, searchable in your Journal. Each notes the app you were in, the language and which services handled it. The app is kept with its kind (email, work chat, personal chat or other), on this computer only. Each also notes how loud your speech arrived, so Waffler can tell you if your microphone is set too low. If you correct a dictation with Edit text, your corrected version is kept with it, on this computer only, for as long as the dictation is.</li>
                 <li id="privHowExport"><b>Export the Journal.</b> Save your Journal as a file on your Desktop. If iCloud or OneDrive backs up your Desktop, it backs this file up too. It never includes your keys. It's your own copy, so Delete all my data leaves it alone. Your words and Snippets export from Words, the same way.</li>
                 <li id="privHowRecent"><b>Recent recordings.</b> The audio of your last 10 dictations (fewer if they are very long, about 300 MB at most), so you can redo a dictation, get one back if Waffler stops, or look into a problem. Off, new recordings are not kept, so a dictation can't be redone or recovered.</li>
+                <!-- Meetings (src/meetings): kept in the data folder's meetings/
+                     until deleted; written down the way dictation is; synced
+                     (text only) with an account; never in the logs zip. -->
+                <li id="privHowMeetings"><b>Meetings.</b> Only when you record one: your microphone and, unless you switch it off, the sound your computer plays. It is written down the way your dictations are, and the notes by the writing model here or the service you set up. The recording, transcript and notes stay on this computer until you delete the meeting, which removes all three at once.</li>
+                <li id="privHowAccount"><b>Account.</b> Only if you sign in: meeting transcripts and notes are kept in your account too, so your other devices have them. Recordings and dictations are never kept in the account. Delete all my data clears this computer only; Delete my account clears the account.</li>
                 <!-- Transforms (beta): selected text is read and sent only when a
                      transform is used, to the provider the person chose. -->
                 <li id="transformsPrivacyRow"><b>Transforms.</b> <span id="privTransformsDesc">Only when you use a transform, Waffler reads the text you selected, with Accessibility or by copying it, and sends it to your provider on your own key. The text before and after is kept in your Journal, and Delete all my data clears it with the rest.</span></li>
@@ -1506,7 +1512,7 @@
                      that suggests turning it up; on Windows with the microphone's
                      name. Never changed by Waffler. -->
                 <li id="micVolumeRow"><b>Microphone volume.</b> When your dictations keep arriving very quiet, Waffler reads your microphone's input volume at most once a day, to suggest turning it up, and on Windows its name, so the tip can say which microphone. It never changes it. The reading and when it was taken stay on this computer, and Delete all my data clears them.</li>
-                <li><b>Logs.</b> A zip on your Desktop with no keys, no transcripts and no signature text. Handy for a bug report.</li>
+                <li><b>Logs.</b> A zip on your Desktop with no keys, no transcripts and no signature text. Your words list is left out, and your user and computer names are hidden. Handy for a bug report.</li>
                 <li><b>Delete all my data.</b> Your Journal, your meetings (notes, transcripts and audio), usage, recordings, logs and which tips you've seen. Your keys, words, snippets and settings stay.</li>
               </ul>
               <!-- What Waffler reads on a Mac while it pastes (src/pasteboard.py,
@@ -1542,7 +1548,7 @@
             </div>
           </div>
 
-          <p class="ab-statement">A free, open-source dictation app for Mac and Windows.</p>
+          <p class="ab-statement">A free, open-source app for dictation and meeting notes, on Mac and Windows.</p>
 
           <div class="sheet facts">
             <div><div class="k">Licence</div><div class="v">MIT, free for ever</div></div>
@@ -1569,7 +1575,7 @@
             <button type="button" class="link-btn how-btn" id="aboutHowBtn" aria-expanded="false" aria-controls="aboutHow" data-onclick="toggleHow(this)">How it works<svg class="ic ic-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
             <div class="sheet how-body" id="aboutHow" hidden>
               <ul class="sc-rule-list">
-                <li id="aboutHowVoice">No account, no subscription and no Waffler server: your voice goes from this computer to the provider you set up, on your own key, and comes back as tidy text.</li>
+                <li id="aboutHowVoice">No account needed, no subscription and no Waffler server: your voice goes from this computer to the provider you set up, on your own key, and comes back as tidy text.</li>
               </ul>
             </div>
           </div>

@@ -3414,10 +3414,10 @@
       }
       case 'about':
         if (w.plus) return `With ${PLUS_NAME}, your voice goes from this computer to the Waffler service, which passes it to its speech and writing provider and sends tidy text back. It keeps none of it.`;
-        if (w.speechHere && w.tidyHere) return 'No account, no subscription and no Waffler server: your voice is turned into text and tidied on this computer.';
-        if (w.speechHere && (w.tidyOff || !w.hasKey)) return 'No account, no subscription and no Waffler server: your voice is turned into text on this computer.';
-        if (w.speechHere) return 'No account, no subscription and no Waffler server: your voice is turned into text on this computer, and the text goes to the provider you set up, on your own key, and comes back tidy.';
-        return 'No account, no subscription and no Waffler server: your voice goes from this computer to the provider you set up, on your own key, and comes back as tidy text.';
+        if (w.speechHere && w.tidyHere) return 'No account needed, no subscription and no Waffler server: your voice is turned into text and tidied on this computer.';
+        if (w.speechHere && (w.tidyOff || !w.hasKey)) return 'No account needed, no subscription and no Waffler server: your voice is turned into text on this computer.';
+        if (w.speechHere) return 'No account needed, no subscription and no Waffler server: your voice is turned into text on this computer, and the text goes to the provider you set up, on your own key, and comes back tidy.';
+        return 'No account needed, no subscription and no Waffler server: your voice goes from this computer to the provider you set up, on your own key, and comes back as tidy text.';
       default: return '';
     }
   }

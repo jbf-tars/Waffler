@@ -212,7 +212,9 @@ def test_what_was_taken_out_of_view_is_still_said_in_full():
         "The recording is not kept.",
         "A zip on your Desktop with no keys, no transcripts and no signature text.",
         # About
-        "No account, no subscription and no Waffler server:",
+        # (An account is optional since 4.0, so it says none is needed.)
+        "No account needed, no subscription and no Waffler server:",
+        "Recordings and dictations are never kept in the account.",
         # First run
         "The free download does not tidy them or write meeting notes (a meeting still gets its full transcript).",
         "It's your own account, so your words go from this computer to Groq and nowhere else.",
