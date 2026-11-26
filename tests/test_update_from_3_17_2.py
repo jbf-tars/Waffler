@@ -155,8 +155,10 @@ def old_updater(github, tmp_path, monkeypatch):
 
 def test_the_frozen_copy_is_what_3_17_2_shipped():
     try:
+        # The file is UTF-8 (an em dash in a comment); text=True alone would
+        # decode it with Windows' code page.
         shipped = subprocess.run(["git", "-C", str(ROOT), "show", "v3.17.2:src/updater.py"],
-                                 capture_output=True, text=True, timeout=20)
+                                 capture_output=True, encoding="utf-8", timeout=20)
     except (OSError, subprocess.SubprocessError):
         pytest.skip("git not available")
     if shipped.returncode != 0:

@@ -79,6 +79,7 @@ def test_no_home_path_user_or_computer_name_anywhere(bundle):
     files, home = bundle
     for name, text in files.items():
         assert str(home) not in text, name
+        assert json.dumps(str(home))[1:-1] not in text, name      # as a JSON file writes it
         assert "samlee" not in text.lower().replace("samleex", ""), (name, text)
         assert "sams-macbook-pro" not in text.lower(), name
         assert "Sam's AirPods" not in text, name
@@ -90,14 +91,29 @@ def test_no_home_path_user_or_computer_name_anywhere(bundle):
     assert "<computer>" in files["logs/hotkey.log"]
     assert "<name>'s AirPods Pro" in files["sysinfo.txt"]
     assert "MacBook Pro Microphone" in files["sysinfo.txt"]     # not named after anyone: kept
-    assert "DATA_DIR        : ~/.waffler-hosted" in files["sysinfo.txt"]
+    assert f"DATA_DIR        : ~{os.sep}.waffler-hosted" in files["sysinfo.txt"]
 
 
 def test_settings_keep_what_support_needs_without_the_signature(bundle):
     files, _ = bundle
     s = json.loads(files["config/settings.json"])
-    assert s["theme"] == "dark" and s["export_folder"] == "~/Documents"
+    assert s["theme"] == "dark" and s["export_folder"] == "~" + os.sep + "Documents"
     assert "07700" not in files["config/settings.json"]
+
+
+def test_a_windows_home_inside_json_is_written_as_tilde():
+    """In settings.json and config.json a Windows path has each backslash
+    doubled (JSON), so the home folder has to be found in that form too. The
+    user-name pass does not cover for it: a profile folder need not be the
+    user name (an account renamed later keeps its first folder)."""
+    pairs = P.personal_strings(home="C:\\Users\\jbf", user="james", host_names=("DESKTOP-ABC",))
+    text = json.dumps({"export_folder": "C:\\Users\\jbf\\Documents", "home": "C:\\Users\\jbf"},
+                      ensure_ascii=False)
+    assert json.loads(P.scrub_for_bundle(text, pairs)) == {"export_folder": "~\\Documents", "home": "~"}
+    # Written with ensure_ascii (json's default), a name's accents are escaped as well.
+    pairs = P.personal_strings(home="C:\\Users\\José", user="josé", host_names=("DESKTOP-ABC",))
+    text = json.dumps({"export_folder": "C:\\Users\\José\\Documents"})
+    assert json.loads(P.scrub_for_bundle(text, pairs)) == {"export_folder": "~\\Documents"}
 
 
 def test_the_readme_says_what_is_left_out(bundle):

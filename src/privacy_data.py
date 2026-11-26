@@ -482,14 +482,20 @@ def personal_strings(home=None, user=None, host_names=()):
     """(text, replacement) pairs to take out of the bundle, longest first so a
     home path is replaced before the user name inside it."""
     import getpass
+    import json
     import platform
     import socket
     pairs = []
     home = str(home if home is not None else Path.home())
     if home and home not in ("/", "\\"):
-        pairs.append((home, "~"))
-        pairs.append((home.replace("\\", "/"), "~"))
-        pairs.append((home.replace("/", "\\"), "~"))
+        forms = {home, home.replace("\\", "/"), home.replace("/", "\\")}
+        # As a JSON file writes it (settings.json, config.json): a Windows
+        # path with each backslash doubled, and with ensure_ascii a name's
+        # accents escaped too.
+        for f in list(forms):
+            forms.add(json.dumps(f)[1:-1])
+            forms.add(json.dumps(f, ensure_ascii=False)[1:-1])
+        pairs += [(f, "~") for f in forms]
     names = set(host_names)
     if not host_names:
         for get in (platform.node, socket.gethostname):
