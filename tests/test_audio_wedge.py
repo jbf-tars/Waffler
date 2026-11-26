@@ -119,7 +119,15 @@ def sd(monkeypatch):
     deadline = time.monotonic() + 2.0
     for t in threading.enumerate():
         if t not in before and t is not threading.current_thread():
-            t.join(max(0.0, deadline - time.monotonic()))
+            # enumerate() also lists a thread that is still being started, and
+            # joining one of those raises (seen on GitHub's Windows machine,
+            # 26 Nov 2026). Give it its moment to start, then wait for it.
+            while t.ident is None and time.monotonic() < deadline:
+                time.sleep(0.005)
+            try:
+                t.join(max(0.0, deadline - time.monotonic()))
+            except RuntimeError:
+                pass                           # never started: nothing to wait for
 
 
 def make(sd, **kw):
