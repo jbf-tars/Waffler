@@ -48,7 +48,10 @@ Waffler now takes meeting notes as well as dictation. One app for both.
   recording are removed at once, here and on the account.
 - **Licences.** Settings, About, Licences lists the open-source parts
   Waffler is built with and their licences. The Windows installer shows
-  Waffler's own MIT licence.
+  Waffler's own MIT licence. No GPL program is inside Waffler: on a Mac,
+  Import audio reads iPhone voice memos (m4a) and the rest with macOS's own
+  converter; on Windows, the converter for those files downloads the first
+  time you import one.
 
 ### Changed
 - **A new look.** Dark, bolder and with fewer words, the same across Home,

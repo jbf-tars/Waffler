@@ -10,7 +10,7 @@ Branch `one-app`, 26 Nov 2026. Nothing pushed, tagged or released.
 | 2 | A notarized 4.0.0 app passes 3.17.2's Mac checks (codesign --deep --strict, spctl) | **Go** for the build installed on this Mac (25 Nov, team 653JYT4U23, ~1 s each). Re-check the tagged build. |
 | 3 | A 3.17.2 data folder opens in 4.0.0 with nothing lost and no setup again | **Go** (29 tests) |
 | 4 | Security items 3, 6, 7, 8, 9 | **Go**: done, with the notes below |
-| 5 | GPLv3 FFmpeg bundled with an MIT app | **Owner decides** (below) |
+| 5 | GPLv3 FFmpeg bundled with an MIT app | **Decided 26 Nov**: no GPL program or library in either installer. Mac done (macOS's afconvert); Windows to do (below) |
 | 6 | Meeting double-tap now on for people who never used hands-free taps | **Owner confirms** (product call) |
 | 7 | Full suite | Green (last line at the end of this file) |
 | 8 | Real-machine runs still needed | Windows: update 3.17.2 to 4.0.0 once with the real release; Mac: the same; the CSP check on WebView2 (`scripts/check_csp_webview.py`) |
@@ -140,7 +140,13 @@ computer's sound.
   sound-alike tests depend on, and one comment in `app.py` inside the
   dictation path (another session is editing there).
 
-## 4. The licence question (owner decides)
+## 4. The licence question (decided 26 Nov 2026)
+
+Decided: no GPL program or library in either installer. The Mac build no
+longer ships FFmpeg (Import audio uses macOS's own afconvert); Windows
+fetches an LGPL decoder on first use and leaves PyAV's libraries out (to do,
+Windows session). `docs/THIRD-PARTY-LICENSING.md` has the state. What
+follows is the question as it stood before.
 
 Waffler is MIT. The builds bundle FFmpeg executables from imageio-ffmpeg:
 on the Mac an osxexperts build configured `--enable-gpl` (GPL v2 or later,

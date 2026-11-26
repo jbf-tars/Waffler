@@ -1,88 +1,66 @@
-# Third-party licensing: open questions
+# Third-party licensing
 
 Waffler's own code is under the MIT licence (`LICENSE`). Every third-party
 component in the builds is listed, with its licence, in
 `THIRD-PARTY-NOTICES.txt`, which `scripts/third_party_notices.py` generates and
-both builds ship at their resource root. This page records one question that
-is open. It states facts only and does not decide anything.
+both builds ship at their resource root.
 
-## FFmpeg under the GPL, bundled with an MIT app
+## The decision (26 Nov 2026)
 
-### What is bundled, and how
+**No GPL program or library goes in either installer.** Concretely:
 
-Both builds include imageio-ffmpeg (requirements.txt and
-requirements_windows.txt), whose wheel carries a ready-built `ffmpeg`
-program. PyInstaller's imageio_ffmpeg hook copies it into the bundle.
+- **Mac: done.** The Mac build no longer ships FFmpeg. "Import audio" reads
+  what soundfile cannot (m4a/AAC, Apple Lossless, mp4/mov sound tracks, caf,
+  3gp, .aac) with macOS's own `/usr/bin/afconvert`, which is part of every
+  macOS, so there is no licence question (`src/meetings/audio_decode.py`).
+  `imageio-ffmpeg` is out of `requirements.txt`, and `Waffler_mac.spec` lists
+  `imageio_ffmpeg` under `excludes`, so even a build venv that still has the
+  package cannot put its ffmpeg into the app.
+- **Windows: to do, Windows session.** An LGPL build of FFmpeg is fetched
+  into the data folder the first time someone uses Import audio on a file
+  soundfile cannot read, in the same way as the writing engine's server and
+  NVIDIA's libraries (pinned URL, size and SHA-256, resumable, progress to
+  the page). The installer carries none. The seam is in place
+  (`audio_decode.helper_path`, `helper_install_path`, `helper_args`, and the
+  `needs_download` answer from the bridge); the download itself is not.
+- **Windows: to do, Windows session.** PyAV's FFmpeg libraries are left out
+  of the Windows build (below).
 
-| Build | File | Licence the binary declares |
+## What was found on Windows (verified by the Windows session)
+
+| Component | Facts | Status |
 |---|---|---|
-| Mac (Apple Silicon) | `imageio_ffmpeg/binaries/ffmpeg-macos-aarch64-v9.0` (osxexperts.net build, FFmpeg 9.0) | `ffmpeg -version` shows `--enable-gpl` without `--enable-version3`, with libx264, libx265, libvvenc, libvpx, libaom, libsvtav1 and others statically linked. `ffmpeg -L`: GPL version 2 or later. Checked on this Mac. |
-| Windows x64 | `imageio_ffmpeg/binaries/ffmpeg-win-x86_64-v9.0.2.exe` (gyan.dev "essentials" build, FFmpeg 9.0.2) | gyan.dev's essentials builds use `--enable-gpl --enable-version3` and include libx264 and libx265: GPL version 3. Not checked here: confirm with `ffmpeg -version` and `ffmpeg -L` on a Windows build. |
+| `imageio_ffmpeg/binaries/ffmpeg-win-x86_64-v9.0.2.exe` | gyan.dev FFmpeg 9.0.2 "essentials", configured with `--enable-gpl --enable-version3`, with libx264 and libx265: GPLv3. Run as a separate program for Import audio. | To do, Windows session: drop `imageio-ffmpeg` from `requirements_windows.txt` and `Waffler_windows.spec`; fetch an LGPL decoder on first use instead. |
+| PyAV 19.0.2 `av.libs` (FFmpeg's shared libraries) | The libraries report "LGPL version 3 or later", but they are configured **with** `--enable-libx264 --enable-libx265`, and `avcodec-63.dll` imports `libx264-165.dll` and `libx265.dll`. So those GPL libraries load inside Waffler's own process whenever `av` is imported, and faster-whisper imports it. The earlier text here, "no x264/x265", was wrong. | To do, Windows session: leave PyAV's libraries out of the Windows build. |
+| sounddevice's PortAudio | The wheel also ships PortAudio builds with ASIO support. Waffler never loads them. | To do, Windows session: leave them out of the build. |
 
-How Waffler uses it: as a **separate program run as a subprocess**, not as a
-linked library. `src/meetings/service.py` (`load_any_audio`, used by "Import
-audio" for formats soundfile cannot read, such as m4a) first tries macOS's
-`afconvert`, then an `ffmpeg` on the PATH, and only then
-`imageio_ffmpeg.get_ffmpeg_exe()`, and runs it with `subprocess.run` to write
-a temporary FLAC file. `src/self_check.py` only checks that the program is
-there. Nothing in Waffler links against FFmpeg's libraries through this path.
+## How Import audio decodes now
 
-### What shipping a GPL binary generally involves
+`src/meetings/service.py` `load_any_audio` tries soundfile first (wav, flac,
+aiff, ogg, mp3). Anything else goes to `src/meetings/audio_decode.py`
+`decode()`:
 
-For the binary itself (not for the program that starts it), distributing a
-GPL executable generally means:
+- **Mac:** `afconvert -f RF64 -d LEI16@16000 <file> <temp>.wav` (no shell, a
+  timeout of two minutes plus two seconds a megabyte), read back with
+  soundfile block by block, channels averaged, the temporary folder removed.
+  Formats afconvert cannot open (webm/mkv, wma/asf, avi, flv, RealMedia,
+  APE, WavPack) get one sentence naming what works. DRM-protected files
+  (FairPlay `.m4p`, encrypted mp4) and video with no sound track are named as
+  such.
+- **Windows:** the fetched program, run with `helper_args()`: the first sound
+  track decoded and resampled to 16 kHz mono 16-bit PCM WAV, using only
+  FFmpeg's native demuxers and decoders, libswresample and the native
+  pcm_s16le writer. No filters and no external encoders, so an LGPL build
+  (no `--enable-gpl`, no `--enable-nonfree`) is enough. Started with
+  `CREATE_NO_WINDOW`.
 
-- giving the GPL licence text with it (`THIRD-PARTY-NOTICES.txt` now includes
-  the full GPL-2.0 and GPL-3.0 texts and names each build);
-- giving the complete corresponding source code of that exact build (FFmpeg's
-  source plus the configuration and the source of every library compiled
-  into it, such as x264 and x265), either alongside the binary or through a
-  written offer valid for at least three years (GPLv2 section 3; GPLv3
-  section 6 also allows a network location for as long as the binary is
-  offered). Pointing to the upstream builder's page (osxexperts.net,
-  gyan.dev) is not, by itself, the same as Waffler providing the source;
-- not adding restrictions on the recipients' rights to that binary.
+## What shipping an LGPL FFmpeg involves (for the Windows download)
 
-### The open question
-
-Whether putting a GPL program into the same installer and app bundle as the
-MIT-licensed Waffler is "mere aggregation" (two separate programs distributed
-together, which the GPL permits without affecting the other program's
-licence) or creates obligations for Waffler itself. The facts that bear on it:
-FFmpeg is a separate executable, started with command-line arguments, with
-data exchanged through files; it is inside the same app bundle (and code
-signature, when the build is signed) and installed by the same installer. Separately from
-that question, the source-availability obligation above applies to the binary
-as long as it is distributed.
-
-### Two alternatives that avoid a GPL binary
-
-(a) **Ship an LGPL-only FFmpeg build**: built without `--enable-gpl` and
-`--enable-version3`, so without libx264, libx265 and other GPL parts (an
-audio-only build for decoding is enough for Import audio). LGPL still asks for
-the licence text and the source of the build, but it is the licence most
-desktop apps that bundle FFmpeg use. It means producing (or finding) and
-pinning such builds for Mac and Windows instead of using imageio-ffmpeg's
-bundled binaries.
-
-(b) **Download FFmpeg on first use of Import audio** instead of bundling it,
-in the same way Waffler already fetches models and NVIDIA's libraries on
-request (pinned URL, size and SHA-256, into the data folder). The installer
-then contains no FFmpeg; the person fetches it from its distributor when they
-need it.
-
-## PyAV's FFmpeg libraries (Windows)
-
-The Windows build bundles PyAV (`av`), which faster-whisper uses to decode
-audio. PyAV itself is BSD-3-Clause; its wheels carry FFmpeg's shared
-libraries (in `av.libs`), which PyAV's extension modules link to dynamically.
-The PyAV project builds them itself (pyav-ffmpeg) as LGPL builds of FFmpeg,
-without the GPL components, which makes them LGPL-2.1-or-later. This was not
-checked on a Windows machine: the DLL names in `_internal/av.libs` (no
-libx264 or libx265) and the licence files in the av wheel would confirm it.
-As separate DLLs they can be replaced, which is what the LGPL asks of
-dynamically linked libraries; the licence text and source location are in
-`THIRD-PARTY-NOTICES.txt`.
+The LGPL asks for the licence text and the source of the exact build
+(FFmpeg's source and its configuration), and that the library or program can
+be replaced. A program fetched on request into the data folder, not in the
+installer, belongs in Part 5 of `THIRD-PARTY-NOTICES.txt` ("Downloaded on
+request") with its version, build, licence and source location.
 
 ## Other copyleft components, for completeness
 

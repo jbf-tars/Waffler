@@ -80,7 +80,8 @@ NOT_INSTALLED = {
         url="https://github.com/PyAV-Org/PyAV",
         requires=[],
         note="Pulled in by faster-whisper (Windows). The wheel carries FFmpeg's shared "
-             "libraries: see \"FFmpeg libraries inside PyAV\" in Part 1."),
+             "libraries, linked to libx264 and libx265: see \"FFmpeg libraries inside PyAV\" "
+             "in Part 1 (to be left out of the Windows build)."),
     "clr-loader": dict(
         name="clr_loader", license="MIT", url="https://github.com/pythonnet/clr-loader",
         requires=["cffi"], note="Pulled in by pythonnet (Windows)."),
@@ -119,6 +120,13 @@ NOT_INSTALLED = {
     "tokenizers": dict(
         name="tokenizers", license="Apache-2.0", url="https://github.com/huggingface/tokenizers",
         requires=["huggingface-hub"], note="Pulled in by faster-whisper (Windows)."),
+    "imageio-ffmpeg": dict(
+        name="imageio-ffmpeg", license="BSD-2-Clause (the package); its ffmpeg program is GPL-3.0",
+        url="https://github.com/imageio/imageio-ffmpeg", requires=[],
+        note="Windows build of 4.0.0 only; no longer in the Mac build. Carries a GPL ffmpeg "
+             "program: see Part 1. TO DO, WINDOWS SESSION: remove it from "
+             "requirements_windows.txt and Waffler_windows.spec (no GPL program in either "
+             "installer, decided 26 Nov 2026)."),
     "llama-cpp-python": dict(
         name="llama-cpp-python", license="MIT", url="https://github.com/abetlen/llama-cpp-python",
         requires=["typing-extensions", "numpy", "diskcache", "jinja2"],
@@ -144,33 +152,19 @@ PyInstaller. Licence: GPL-2.0-or-later with PyInstaller's bootloader
 exception, which allows the bootloader to be distributed in programs built
 with it under any licence (https://pyinstaller.org/en/stable/license.html).
 Source: https://github.com/pyinstaller/pyinstaller"""),
-    ("FFmpeg program from imageio-ffmpeg (macOS, Apple Silicon)", "macOS", """\
-File: imageio_ffmpeg/binaries/ffmpeg-macos-aarch64-v9.0, a separate
-executable that Waffler starts as a subprocess for "Import audio" of formats
-soundfile cannot read (src/meetings/service.py). It is not linked into
-Waffler. imageio-ffmpeg 0.8.1 takes it from osxexperts.net
-(imageio_ffmpeg/_definitions.py).
-`ffmpeg -version` reports: version 9.0, configuration includes
---enable-gpl (without --enable-version3) and --enable-libx264 --enable-libx265
---enable-libvvenc --enable-libvpx --enable-libaom --enable-libsvtav1
---enable-libmp3lame --enable-libopus --enable-libvorbis --enable-libtheora
---enable-libwebp --enable-libass --enable-libfreetype --enable-fontconfig
---enable-libharfbuzz --enable-libopenjpeg --enable-libvmaf --enable-libsnappy
---enable-libvidstab --enable-libzimg --enable-libkvazaar, statically linked.
-`ffmpeg -L` reports: GNU General Public License version 2 or (at your option)
-any later version. Full GPL-2.0 text: Part 6.
-Source: FFmpeg 9.0 source, https://ffmpeg.org/releases/ (ffmpeg-9.0.tar.xz);
-the build's own page, https://www.osxexperts.net/; the packaging,
-https://github.com/imageio/imageio-ffmpeg (tools/ffmpeg-sources.json pins the
-download)."""),
     ("FFmpeg program from imageio-ffmpeg (Windows x64)", "Windows", """\
 File: imageio_ffmpeg/binaries/ffmpeg-win-x86_64-v9.0.2.exe, a separate
-executable started as a subprocess in the same way as on the Mac.
-imageio-ffmpeg takes it from gyan.dev's "essentials" build. Gyan's essentials
-builds are configured with --enable-gpl --enable-version3 and include
-libx264, libx265 and other GPL components, which makes the binary GPL-3.0 (or
-later). NOT VERIFIED ON THE GENERATING MACHINE (a Mac): confirm on a Windows
-build with `ffmpeg -version` and `ffmpeg -L`. Full GPL-3.0 text: Part 6.
+executable that the Windows build of 4.0.0 starts as a subprocess for "Import
+audio" of formats soundfile cannot read. imageio-ffmpeg takes it from
+gyan.dev's "essentials" build, FFmpeg 9.0.2. Checked on a Windows build:
+configured with --enable-gpl --enable-version3, with libx264 and libx265, so
+the binary is GPL-3.0 (or later). Full GPL-3.0 text: Part 6.
+TO DO, WINDOWS SESSION: no GPL program goes in either installer (decided
+26 Nov 2026). This program is to leave the Windows build (imageio-ffmpeg out
+of requirements_windows.txt and Waffler_windows.spec); an LGPL FFmpeg build is
+fetched instead the first time someone uses Import audio
+(src/meetings/audio_decode.py), and this entry moves to Part 5. The Mac build
+no longer has FFmpeg at all: it uses macOS's own afconvert.
 Source: FFmpeg 9.0.2 source, https://ffmpeg.org/releases/ (ffmpeg-9.0.2.tar.xz);
 the build and the configuration of each library it includes,
 https://www.gyan.dev/ffmpeg/builds/; the packaging,
@@ -178,15 +172,15 @@ https://github.com/imageio/imageio-ffmpeg."""),
     ("FFmpeg libraries inside PyAV (av)", "Windows", """\
 PyAV's wheels carry FFmpeg's shared libraries (avcodec, avformat, avutil,
 swresample, swscale, ... in the wheel's av.libs folder on Windows), which the
-av extension modules link to. faster-whisper uses PyAV to decode audio; the
-Windows build bundles it. PyAV itself is BSD-3-Clause. The PyAV project builds
-these FFmpeg libraries itself (https://github.com/PyAV-Org/pyav-ffmpeg) and
-its wheels are LGPL builds of FFmpeg (no --enable-gpl, no x264/x265), which
-makes the libraries LGPL-2.1-or-later. NOT VERIFIED ON THE GENERATING MACHINE:
-av is not installed here (Apple Silicon uses whisper.cpp, not faster-whisper).
-Confirm on a Windows build from the DLL names in _internal/av.libs (no
-libx264 / libx265) and the licence files in the av wheel. Full LGPL-2.1 text:
-Part 6.
+av extension modules link to. faster-whisper imports PyAV; the Windows build
+bundles it. PyAV itself is BSD-3-Clause. Checked on a Windows build (PyAV
+19.0.2): the libraries report "LGPL version 3 or later" but are configured
+WITH --enable-libx264 --enable-libx265, and avcodec-63.dll imports
+libx264-165.dll and libx265.dll, so those GPL libraries load inside Waffler's
+own process whenever av is imported. (An earlier version of this file said
+"no x264/x265": that was wrong.) Full LGPL-3.0 and GPL texts: Part 6.
+TO DO, WINDOWS SESSION: PyAV's libraries are to be left out of the Windows
+build (decided 26 Nov 2026: no GPL program or library in either installer).
 Source: https://github.com/PyAV-Org/PyAV and https://github.com/PyAV-Org/pyav-ffmpeg
 (build scripts), FFmpeg source at https://ffmpeg.org/releases/."""),
     ("libsndfile (inside soundfile)", "macOS, Windows", """\
@@ -199,7 +193,9 @@ Source: https://github.com/libsndfile/libsndfile and the build scripts in
 https://github.com/bastibe/libsndfile-binaries."""),
     ("PortAudio (inside sounddevice)", "macOS, Windows", """\
 sounddevice's wheel carries PortAudio (_sounddevice_data/portaudio-binaries).
-Licence: MIT-style PortAudio licence.
+Licence: MIT-style PortAudio licence. On Windows the wheel also carries
+PortAudio builds with ASIO support, which Waffler never loads (checked on a
+Windows build); TO DO, WINDOWS SESSION: leave them out of the build.
 Source: https://github.com/PortAudio/portaudio and
 https://github.com/spatialaudio/portaudio-binaries."""),
     ("whisper.cpp and ggml (inside pywhispercpp)", "macOS", """\
